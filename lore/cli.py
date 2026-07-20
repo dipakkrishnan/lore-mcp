@@ -30,7 +30,6 @@ def parser() -> argparse.ArgumentParser:
     search.add_argument("--json", action="store_true")
 
     commands.add_parser("status", help="show source and review status")
-    commands.add_parser("serve", help="run the Lore MCP server")
     return root
 
 
@@ -49,10 +48,6 @@ def main(argv: list[str] | None = None) -> int:
             return search(" ".join(args.query), args.status, args.limit, args.json)
         if args.command == "status":
             return status()
-        if args.command == "serve":
-            from .mcp import main as serve
-
-            return serve([])
     except (KeyboardInterrupt, EOFError):
         print("\nCancelled.")
         return 130
