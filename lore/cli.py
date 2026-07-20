@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import shutil
 import sys
 from pathlib import Path
 
@@ -30,6 +31,15 @@ def parser() -> argparse.ArgumentParser:
     search.add_argument("--json", action="store_true")
 
     commands.add_parser("status", help="show source and review status")
+    automate = commands.add_parser("automate", help="agent-assisted memory synthesis")
+    automate_commands = automate.add_subparsers(dest="automate_command")
+    automate_setup = automate_commands.add_parser("setup", help="create a personal synthesis profile")
+    automate_setup.add_argument("--yes", action="store_true", help="accept safe defaults")
+    automate_run = automate_commands.add_parser("run", help="run synthesis now")
+    automate_run.add_argument("--agent", choices=["claude", "codex", "all"], default="all")
+    automate_commands.add_parser("show", help="show generated prompts")
+    automate_schedule = automate_commands.add_parser("schedule", help="install a local recurring run")
+    automate_schedule.add_argument("--yes", action="store_true", help="install without confirmation")
     return root
 
 
@@ -48,6 +58,8 @@ def main(argv: list[str] | None = None) -> int:
             return search(" ".join(args.query), args.status, args.limit, args.json)
         if args.command == "status":
             return status()
+        if args.command == "automate":
+            return automate(args)
     except (KeyboardInterrupt, EOFError):
         print("\nCancelled.")
         return 130
@@ -147,4 +159,67 @@ def status() -> int:
         marker = "●" if enabled else "○"
         print(f"  {marker} {source.label:<14} {sources.get(source.name, 0)} imported")
     print(f"\nDatabase: {database_path}")
+    return 0
+
+
+def automate(args: argparse.Namespace) -> int:
+    from . import automation
+
+    command = args.automate_command or "show"
+    if command == "setup":
+        logo()
+        heading("Personal synthesis")
+        muted("These answers guide what your agents preserve. They stay in ~/.lore.")
+        detected = [agent for agent in automation.AGENTS if shutil.which(agent)]
+        if args.yes:
+            agents = detected
+            role, domains, valuable, preferences, boundaries = "", "", "", "", "secrets and third-party private data"
+            cadence, hour, lookback = "daily", 21, 7
+        else:
+            role = ask("What kind of work do you do?")
+            domains = ask("Which projects or domains matter most right now?")
+            valuable = ask("What experience might be unusually valuable to others?")
+            preferences = ask("Which working preferences should every agent learn?")
+            boundaries = ask("What should Lore never retain?", "secrets and third-party private data")
+            agents = [agent for agent in detected if confirm(f"Let {agent.title()} synthesize past sessions?")]
+            cadence = ask("Run daily or weekly?", "daily").lower()
+            hour = int(ask("Run at which local hour (0-23)?", "21"))
+            lookback = int(ask("First run should inspect how many days?", "7"))
+        if not agents:
+            raise ValueError("no supported agent CLI selected")
+        profile = {
+            "role": role,
+            "domains": domains,
+            "valuable_context": valuable,
+            "preferences": preferences,
+            "boundaries": boundaries,
+            "agents": agents,
+            "cadence": cadence if cadence in {"daily", "weekly"} else "daily",
+            "hour": max(0, min(hour, 23)),
+            "lookback_days": max(1, min(lookback, 90)),
+        }
+        automation.save_profile(profile)
+        success(f"Created synthesis prompts for {', '.join(agents)}")
+        print("Run `lore automate run --agent all` to test them before scheduling.")
+        return 0
+    if command == "run":
+        profile = automation.load_profile()
+        agents = profile["agents"] if args.agent == "all" else [args.agent]
+        for agent in agents:
+            print(f"Asking {str(agent).title()} to synthesize recent sessions…")
+            path = automation.run(str(agent))
+            success(f"Saved {path}")
+        return 0
+    if command == "schedule":
+        profile = automation.load_profile()
+        if not args.yes and not confirm("Install this recurring local routine?"):
+            return 0
+        expression = automation.install_cron(profile)
+        success(f"Installed schedule: {expression}")
+        return 0
+    profile = automation.load_profile()
+    for agent in profile.get("agents", []):
+        path = automation.profile_path().parent / f"{agent}-prompt.md"
+        heading(str(agent).title())
+        print(path.read_text(encoding="utf-8"))
     return 0
