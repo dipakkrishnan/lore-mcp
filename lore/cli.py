@@ -31,6 +31,8 @@ def parser() -> argparse.ArgumentParser:
     search.add_argument("--json", action="store_true")
 
     commands.add_parser("status", help="show source and review status")
+    price = commands.add_parser("price", help="show or set the fixed answer price")
+    price.add_argument("amount", nargs="?", type=float, help="USD per answer; use 0 for free")
     automate = commands.add_parser("automate", help="agent-assisted memory synthesis")
     automate_commands = automate.add_subparsers(dest="automate_command")
     automate_setup = automate_commands.add_parser("setup", help="create a personal synthesis profile")
@@ -40,12 +42,19 @@ def parser() -> argparse.ArgumentParser:
     automate_commands.add_parser("show", help="show generated prompts")
     automate_schedule = automate_commands.add_parser("schedule", help="install a local recurring run")
     automate_schedule.add_argument("--yes", action="store_true", help="install without confirmation")
+    serve = commands.add_parser("serve", help="run the Lore MCP server")
+    serve.add_argument("--transport", choices=["stdio", "http"], default="stdio")
+    serve.add_argument("--host", default="127.0.0.1")
+    serve.add_argument("--port", type=int, default=8765)
+    serve.add_argument("--token")
     return root
 
 
 def main(argv: list[str] | None = None) -> int:
     args = parser().parse_args(argv)
     if not args.command:
+        if sys.stdin.isatty() and sys.stdout.isatty():
+            return dashboard()
         args = parser().parse_args(["status"])
     try:
         if args.command == "setup":
@@ -58,8 +67,17 @@ def main(argv: list[str] | None = None) -> int:
             return search(" ".join(args.query), args.status, args.limit, args.json)
         if args.command == "status":
             return status()
+        if args.command == "price":
+            return price(args.amount)
         if args.command == "automate":
             return automate(args)
+        if args.command == "serve":
+            from .mcp import main as serve
+
+            serve_args = ["--transport", args.transport, "--host", args.host, "--port", str(args.port)]
+            if args.token:
+                serve_args.extend(["--token", args.token])
+            return serve(serve_args)
     except (KeyboardInterrupt, EOFError):
         print("\nCancelled.")
         return 130
@@ -67,6 +85,27 @@ def main(argv: list[str] | None = None) -> int:
         print(f"lore: {error}", file=sys.stderr)
         return 1
     return 0
+
+
+def dashboard() -> int:
+    while True:
+        status()
+        print("\n  [/] search   [r] review   [s] sync   [a] automation   [q] quit")
+        choice = ask("Choose", "/").lower()
+        if choice == "q":
+            return 0
+        if choice == "/":
+            query = ask("Search your lore")
+            if query:
+                search(query, None, 20, False)
+        elif choice == "r":
+            review(0)
+        elif choice == "s":
+            sync()
+        elif choice == "a":
+            from .automation import profile_path
+
+            automate(parser().parse_args(["automate", "show" if profile_path().exists() else "setup"]))
 
 
 def setup(yes: bool = False) -> int:
@@ -149,6 +188,7 @@ def status() -> int:
         sources = store.source_counts()
         configured = set(store.setting("sources", []))
         database_path = store.path
+        answer_price = store.setting("price_usd", None)
     heading("Library")
     print(f"  {sum(counts.values())} memories · {counts['pending']} awaiting review · {counts['external']} externally usable")
     heading("Sources")
@@ -159,6 +199,20 @@ def status() -> int:
         marker = "●" if enabled else "○"
         print(f"  {marker} {source.label:<14} {sources.get(source.name, 0)} imported")
     print(f"\nDatabase: {database_path}")
+    print(f"Answer price: {'not set' if answer_price is None else f'${answer_price:.2f}'}")
+    return 0
+
+
+def price(amount: float | None) -> int:
+    with Store() as store:
+        if amount is None:
+            current = store.setting("price_usd", None)
+            print("not set" if current is None else f"${current:.2f} per answer")
+            return 0
+        if amount < 0:
+            raise ValueError("price cannot be negative")
+        store.set_setting("price_usd", round(amount, 6))
+    success("Answers are free" if amount == 0 else f"Answer price set to ${amount:.2f}")
     return 0
 
 

@@ -6,6 +6,55 @@ Lore MCP is a local-first memory layer that lets any personal agent build a dura
 
 > Your agents build your lore. You decide who can access it.
 
+## Install
+
+Lore has no runtime dependencies beyond Python 3.10+ and SQLite (included with
+Python). Inspect [`install.sh`](./install.sh), then install the current release:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/dipakkrishnan/lore-mcp/main/install.sh | sh
+```
+
+The installer places Lore under `~/.local/share/lore`, links the `lore` command
+into `~/.local/bin`, and starts the guided setup. It never reads conversation
+transcripts during initial import.
+
+```sh
+lore setup                    # detect Codex and Claude Code memory
+lore sync                     # import new or changed memory files
+lore review                   # private / external / discard
+lore search "failed launch"   # SQLite full-text recall
+lore price 0.50               # advertise a fixed answer price
+lore status
+```
+
+Set `LORE_HOME` to use a location other than `~/.lore`. Lore also respects
+`CODEX_HOME` and `CLAUDE_HOME` when discovering agent data.
+
+## Agent-assisted synthesis
+
+Native memory is deliberately selective, so Lore can ask each installed agent
+to revisit its own recent sessions and synthesize durable context:
+
+```sh
+lore automate setup
+lore automate show
+lore automate run --agent all
+lore automate schedule
+```
+
+Setup asks about your work, valuable experience, preferences, retention
+boundaries, agents, lookback window, and cadence. The generated prompts live in
+`~/.lore/automation/`. Claude Code and Codex run with read-only tools; Lore
+captures their Markdown output under `~/.lore/memories/<agent>/` and imports it
+as pending memory. It never edits either agent's native memory.
+
+`lore automate schedule` adds one marked entry to the user's existing crontab
+and preserves all unrelated entries. This local routine is intentional: cloud
+routines cannot reliably read both agents' local session stores. Agent runs use
+the user's existing subscription or API allowance, so test the prompt manually
+before enabling a recurring cadence.
+
 ## The idea
 
 People are beginning to use agents across coding, research, communication, planning, and everyday life. Those agents encounter valuable context: preferences, relationships, decisions, project histories, failed approaches, hard-won know-how, and the reasons behind past choices.
@@ -115,6 +164,45 @@ The public surface can begin with two tools:
 
 Private owner-facing operations such as remembering, forgetting, consolidating, reviewing, and changing policy can be added only as the local memory implementation requires them.
 
+### Run the MCP server
+
+The implemented server exposes those two tools using MCP protocol version
+`2025-11-25`:
+
+```sh
+# Local agent configuration (newline-delimited stdio)
+lore serve
+
+# Stateless Streamable HTTP for a tunnel or reverse proxy
+lore serve --transport http --host 127.0.0.1 --port 8765
+```
+
+Register the local server with either supported agent:
+
+```sh
+codex mcp add lore -- lore serve
+claude mcp add --scope user lore -- lore serve
+```
+
+`discover` returns only safe relevance metadata. `answer` searches only memories
+the owner marked `external`; pending, private, and discarded records cannot be
+returned. HTTP binds to loopback by default. Binding another interface requires
+`--token` or `LORE_MCP_TOKEN`.
+
+The intended paid deployment boundary is:
+
+```text
+buyer agent → Cloudflare → Monetization Gateway / x402 → tunnel → Lore /mcp
+```
+
+Lore owns local retrieval and disclosure policy. Cloudflare sits in front of
+the HTTP MCP route and owns the `402 Payment Required` exchange, verification,
+metering, and settlement. Do not expose the origin through a second route that
+bypasses the gateway. As of July 2026, Cloudflare's Monetization Gateway is an
+announced early-access product; Lore documents the boundary but does not pretend
+that enrollment or payment policy can already be automated. See Cloudflare's
+[announcement](https://blog.cloudflare.com/monetization-gateway/).
+
 ## Monetization
 
 For a fixed-price answer, x402 already acts as the quote: the first request receives a `402` response with the price and payment instructions.
@@ -165,9 +253,42 @@ Personal agents will become more valuable as they accumulate context. That conte
 
 Lore MCP is the connective layer between personal memory, agent discovery, owner-controlled disclosure, and machine-native payment.
 
+## Local data
+
+```text
+~/.lore/
+├── lore.db                 # SQLite records and FTS5 index
+├── automation/
+│   ├── profile.json        # owner-provided synthesis guidance
+│   ├── claude-prompt.md
+│   └── codex-prompt.md
+├── memories/
+│   ├── claude/             # Claude-generated synthesis
+│   └── codex/              # Codex-generated synthesis
+└── automation.log
+```
+
+Source memory remains in the agent's directory. Lore stores its imported copy,
+review state, and source path locally. Updating a source file refreshes the
+indexed text without resetting the owner's disclosure decision.
+
+## Development
+
+```sh
+python3 -m unittest discover -s tests -v
+python3 -m lore --help
+```
+
+The implementation uses only the Python standard library: `argparse`, `sqlite3`,
+`subprocess`, and `http.server`. There is no application framework, vector
+database, or MCP SDK to install.
+
 ## Status
 
-This repository currently captures the product thesis and initial protocol boundary. Implementation comes next.
+The local CLI, agent-memory import, FTS5 search, review flow, assisted synthesis,
+and basic stdio/HTTP MCP server are implemented. Payment enforcement, repeated-
+query extraction protection, remote identity, and marketplace discovery remain
+future work.
 
 ## Related infrastructure
 

@@ -7,6 +7,7 @@ from pathlib import Path
 from subprocess import CompletedProcess
 
 from lore import automation
+from lore.mcp import dispatch
 from lore.sources import scan
 from lore.store import Store
 
@@ -81,6 +82,32 @@ class LoreTest(unittest.TestCase):
         self.assertIn("0 8 * * * backup", updated)
         self.assertNotIn("\nold\n", updated)
         self.assertEqual(updated.count("# lore-memory-start"), 1)
+
+    def test_mcp_returns_only_external_memories(self) -> None:
+        with Store() as store:
+            for title, status in (("Public lesson", "external"), ("Private lesson", "private")):
+                store.put(
+                    source="test",
+                    origin="native",
+                    source_path=title,
+                    source_key=title,
+                    fingerprint=title,
+                    title=title,
+                    content=f"{title} about deployment",
+                )
+                memory = store.search(title)[0]
+                store.set_status(memory.id, status)
+        response = dispatch(
+            {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "tools/call",
+                "params": {"name": "answer", "arguments": {"query": "deployment"}},
+            }
+        )
+        text = response["result"]["content"][0]["text"]  # type: ignore[index]
+        self.assertIn("Public lesson", text)
+        self.assertNotIn("Private lesson", text)
 
 
 if __name__ == "__main__":
