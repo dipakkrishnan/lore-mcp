@@ -275,9 +275,13 @@ indexed text without resetting the owner's disclosure decision.
 ## Development
 
 ```sh
-python3 -m unittest discover -s tests -v
-python3 -m lore --help
+uv sync
+uv run python -m unittest discover -s tests -v
+uv run lore --help
 ```
+
+`uv.lock` is committed, so contributors and CI resolve the same project setup.
+The curl installer remains independent of `uv` for end users.
 
 The implementation uses only the Python standard library: `argparse`, `sqlite3`,
 `subprocess`, and `http.server`. There is no application framework, vector
