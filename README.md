@@ -40,11 +40,13 @@ to revisit its own recent sessions and synthesize durable context:
 lore automate setup
 lore automate show
 lore automate run --agent all
+lore automate run --agent codex --model <model>  # one-off override
 lore automate schedule
 ```
 
 Setup asks about your work, valuable experience, preferences, retention
-boundaries, agents, lookback window, and cadence. The generated prompts live in
+boundaries, agents, optional model defaults, lookback window, and cadence. Blank
+model choices inherit each agent CLI's configured default. The generated prompts live in
 `~/.lore/automation/`. Claude Code and Codex run with read-only tools; Lore
 captures their Markdown output under `~/.lore/memories/<agent>/` and imports it
 as pending memory. It never edits either agent's native memory.

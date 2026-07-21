@@ -39,6 +39,7 @@ def parser() -> argparse.ArgumentParser:
     automate_setup.add_argument("--yes", action="store_true", help="accept safe defaults")
     automate_run = automate_commands.add_parser("run", help="run synthesis now")
     automate_run.add_argument("--agent", choices=["claude", "codex", "all"], default="all")
+    automate_run.add_argument("--model", help="override the model for one selected agent")
     automate_commands.add_parser("show", help="show generated prompts")
     automate_schedule = automate_commands.add_parser("schedule", help="install a local recurring run")
     automate_schedule.add_argument("--yes", action="store_true", help="install without confirmation")
@@ -227,6 +228,7 @@ def automate(args: argparse.Namespace) -> int:
         detected = [agent for agent in automation.AGENTS if shutil.which(agent)]
         if args.yes:
             agents = detected
+            models = {agent: "" for agent in agents}
             role, domains, valuable, preferences, boundaries = "", "", "", "", "secrets and third-party private data"
             cadence, hour, lookback = "daily", 21, 7
         else:
@@ -236,6 +238,10 @@ def automate(args: argparse.Namespace) -> int:
             preferences = ask("Which working preferences should every agent learn?")
             boundaries = ask("What should Lore never retain?", "secrets and third-party private data")
             agents = [agent for agent in detected if confirm(f"Let {agent.title()} synthesize past sessions?")]
+            models = {
+                agent: ask(f"{agent.title()} model (blank uses its configured default)")
+                for agent in agents
+            }
             cadence = ask("Run daily or weekly?", "daily").lower()
             hour = int(ask("Run at which local hour (0-23)?", "21"))
             lookback = int(ask("First run should inspect how many days?", "7"))
@@ -248,6 +254,7 @@ def automate(args: argparse.Namespace) -> int:
             "preferences": preferences,
             "boundaries": boundaries,
             "agents": agents,
+            "models": models,
             "cadence": cadence if cadence in {"daily", "weekly"} else "daily",
             "hour": max(0, min(hour, 23)),
             "lookback_days": max(1, min(lookback, 90)),
@@ -258,10 +265,12 @@ def automate(args: argparse.Namespace) -> int:
         return 0
     if command == "run":
         profile = automation.load_profile()
+        if args.agent == "all" and args.model:
+            raise ValueError("--model requires selecting codex or claude")
         agents = profile["agents"] if args.agent == "all" else [args.agent]
         for agent in agents:
             print(f"Asking {str(agent).title()} to synthesize recent sessions…")
-            path = automation.run(str(agent))
+            path = automation.run(str(agent), model=args.model)
             success(f"Saved {path}")
         return 0
     if command == "schedule":
@@ -272,8 +281,11 @@ def automate(args: argparse.Namespace) -> int:
         success(f"Installed schedule: {expression}")
         return 0
     profile = automation.load_profile()
+    models = profile.get("models", {})
     for agent in profile.get("agents", []):
         path = automation.profile_path().parent / f"{agent}-prompt.md"
         heading(str(agent).title())
+        model = models.get(agent) if isinstance(models, dict) else None
+        muted(f"Model: {model or 'agent default'}")
         print(path.read_text(encoding="utf-8"))
     return 0

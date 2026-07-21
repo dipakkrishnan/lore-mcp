@@ -89,6 +89,7 @@ include lightweight provenance. Do not write files or modify the source agent's 
 def run(
     agent: str,
     *,
+    model: str | None = None,
     runner: Callable[..., subprocess.CompletedProcess[str]] = subprocess.run,
 ) -> Path:
     profile = load_profile()
@@ -97,7 +98,9 @@ def run(
     with Store() as store:
         since = str(store.setting(f"automation.last_run.{agent}", "")) or None
     prompt = build_prompt(agent, profile, since)
-    command = _command(agent, prompt)
+    models = profile.get("models", {})
+    default_model = models.get(agent) if isinstance(models, dict) else None
+    command = _command(agent, prompt, model or str(default_model or ""))
     result = runner(command, text=True, capture_output=True, timeout=1800)
     if result.returncode:
         detail = result.stderr.strip().splitlines()[-1] if result.stderr.strip() else "agent failed"
@@ -116,11 +119,13 @@ def run(
     return path
 
 
-def _command(agent: str, prompt: str) -> list[str]:
+def _command(agent: str, prompt: str, model: str = "") -> list[str]:
     executable = shutil.which(agent) or agent
+    model_args = ["--model", model] if model else []
     if agent == "claude":
         return [
             executable,
+            *model_args,
             "-p",
             "--output-format",
             "text",
@@ -135,6 +140,7 @@ def _command(agent: str, prompt: str) -> list[str]:
     return [
         executable,
         "exec",
+        *model_args,
         "--sandbox",
         "read-only",
         "--skip-git-repo-check",

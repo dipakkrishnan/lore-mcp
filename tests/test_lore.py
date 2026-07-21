@@ -51,6 +51,10 @@ class LoreTest(unittest.TestCase):
             self.assertEqual(store.counts()["private"], 1)
 
     def test_agent_synthesis_is_saved_and_searchable(self) -> None:
+        self.assertEqual(
+            automation._command("codex", "prompt", "gpt-test")[2:4],
+            ["--model", "gpt-test"],
+        )
         automation.save_profile(
             {
                 "role": "maintainer",
@@ -59,12 +63,14 @@ class LoreTest(unittest.TestCase):
                 "preferences": "small changes",
                 "boundaries": "secrets",
                 "agents": ["claude"],
+                "models": {"claude": "opus"},
                 "lookback_days": 3,
             }
         )
 
         def fake_runner(command: list[str], **_: object) -> CompletedProcess[str]:
             self.assertIn("failed launches", command[-1])
+            self.assertEqual(command[1:3], ["--model", "opus"])
             return CompletedProcess(command, 0, "# Memory synthesis\n\n## Failures and lessons\n- Launch slowly.", "")
 
         path = automation.run("claude", runner=fake_runner)
