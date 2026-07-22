@@ -1,12 +1,10 @@
 from __future__ import annotations
 
 import json
-import webbrowser
+import subprocess
 from pathlib import Path
-from typing import Callable
-from urllib.parse import urlencode
 
-from .paths import home
+from .paths import claude_home, codex_home, home
 
 PROFILE = "automation/profile.json"
 AGENTS = ("claude", "codex")
@@ -115,25 +113,61 @@ owner-held context on this machine.
 
 Use the native scheduled-task tool now. If a task with this name already exists, update it
 instead of creating a duplicate. Do not run the synthesis during setup and do not replace
-this request with manual instructions for me.
+this request with manual instructions for me. You are running headlessly, so use the
+installed agent's local scheduling interface or backing configuration as needed. Verify
+the native task exists, then end your response with `LORE_SETUP_COMPLETE`. If setup fails,
+explain why and do not include that marker.
 """
 
 
-def setup_url(agent: str, profile: dict[str, object]) -> str:
-    """Build an app deep link containing the native scheduling request."""
+def setup_command(agent: str, profile: dict[str, object]) -> list[str]:
+    """Build the command that asks an installed agent to configure itself."""
     prompt = setup_prompt(agent, profile)
+    models = profile.get("models", {})
+    model = models.get(agent) if isinstance(models, dict) else None
     if agent == "codex":
-        return "codex://new?" + urlencode({"prompt": prompt, "path": str(home())})
-    if agent == "claude":
-        return "claude://code/new?" + urlencode({"q": prompt, "folder": str(home())})
-    raise ValueError(f"unknown agent: {agent}")
+        command = [
+            "codex",
+            "exec",
+            "--skip-git-repo-check",
+            "--sandbox",
+            "workspace-write",
+            "--cd",
+            str(home()),
+            "--add-dir",
+            str(codex_home()),
+        ]
+    else:
+        command = [
+            "claude",
+            "-p",
+            "--permission-mode",
+            "auto",
+            "--add-dir",
+            str(claude_home()),
+        ]
+    if model:
+        command.extend(["--model", str(model)])
+    return [*command, "--", prompt]
 
 
-def launch_setup(
-    agent: str,
-    profile: dict[str, object],
-    opener: Callable[[str], bool] = webbrowser.open,
-) -> None:
-    """Open an agent app to the prefilled native scheduling request."""
-    if not opener(setup_url(agent, profile)):
-        raise OSError(f"could not open {agent.title()} native setup")
+def run_setup(agent: str, profile: dict[str, object]) -> str:
+    """Ask an installed agent headlessly to install and verify its schedule."""
+    try:
+        result = subprocess.run(
+            setup_command(agent, profile),
+            cwd=home(),
+            text=True,
+            capture_output=True,
+            timeout=300,
+        )
+    except FileNotFoundError as error:
+        raise OSError(f"{agent} CLI is not installed") from error
+    except subprocess.TimeoutExpired as error:
+        raise OSError(f"{agent.title()} setup timed out") from error
+    output = "\n".join(
+        part.strip() for part in (result.stdout, result.stderr) if part.strip()
+    )
+    if result.returncode or "LORE_SETUP_COMPLETE" not in output:
+        raise OSError(output or f"{agent.title()} setup failed")
+    return output

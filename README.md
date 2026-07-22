@@ -43,17 +43,16 @@ lore automate show
 
 Setup asks about your work, valuable experience, preferences, retention boundaries,
 agents, cadence, and optional model choices. It writes agent-specific prompts under
-`~/.lore/automation/`, then opens prefilled local setup sessions in Codex and Claude
-Desktop. Review and send each request; the native agent creates or updates the scheduled
-task using its own scheduling tools. This confirmation is intentional: app deep links can
-prefill agent requests but cannot silently execute them.
+`~/.lore/automation/`, then messages each installed agent headlessly. The agent creates
+or updates its native scheduled task, verifies it exists, and exits. This is a one-time
+setup call; Lore does not stay resident or own the recurring schedule.
 
 Use a local Scheduled task in the Codex desktop app or a **Local** task under
 Claude Desktop's Routines. Once installed, the native scheduler owns execution,
 permissions, run history, and retries. Each run uses the agent's native memory,
 writes a Markdown candidate under `~/.lore/memories/<agent>/`, and imports it as
-pending context. Lore does not launch agent CLIs, install cron jobs, or edit either
-agent's native memory.
+pending context. Lore does not use agent CLIs as recurring runners, install cron jobs,
+or edit either agent's native memory.
 
 Remote Claude routines cannot read local memory files, so choose **Local** for this
 workflow. Keep the machine and desktop app running when a local task is due.

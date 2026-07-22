@@ -269,9 +269,8 @@ def automate(args: argparse.Namespace) -> int:
         }
         automation.save_profile(profile)
         for agent in agents:
-            automation.launch_setup(agent, profile)
-            success(f"Opened {agent.title()} native setup")
-        print("Review and send each prefilled request; the native agents create the schedules.")
+            automation.run_setup(agent, profile)
+            success(f"Configured {agent.title()} native schedule")
         return 0
     profile = automation.load_profile()
     for agent in profile.get("agents", []):

@@ -4,7 +4,8 @@ import os
 import tempfile
 import unittest
 from pathlib import Path
-from urllib.parse import parse_qs, urlparse
+from subprocess import CompletedProcess
+from unittest.mock import patch
 
 from lore import automation
 from lore.mcp import dispatch, http
@@ -88,27 +89,24 @@ class LoreTest(unittest.TestCase):
         setup = automation.setup_prompt("codex", profile)
         self.assertIn("weekly at 9:00 local time", setup)
         self.assertIn("Use model gpt-test", setup)
-        opened: list[str] = []
+        codex = automation.setup_command("codex", profile)
+        claude = automation.setup_command("claude", profile)
+        self.assertEqual(codex[:2], ["codex", "exec"])
+        self.assertIn(os.environ["CODEX_HOME"], codex)
+        self.assertEqual(claude[:2], ["claude", "-p"])
+        self.assertIn(os.environ["CLAUDE_HOME"], claude)
+        self.assertEqual(codex[-2], "--")
+        self.assertIn("LORE_SETUP_COMPLETE", codex[-1])
 
-        def record_url(url: str) -> bool:
-            opened.append(url)
-            return True
-
-        automation.launch_setup("codex", profile, record_url)
-        automation.launch_setup("claude", profile, record_url)
-        codex, claude = map(urlparse, opened)
-        codex_query, claude_query = parse_qs(codex.query), parse_qs(claude.query)
-        self.assertEqual((codex.scheme, codex.netloc), ("codex", "new"))
-        self.assertEqual(codex_query["path"], [os.environ["LORE_HOME"]])
-        self.assertIn("native Codex Scheduled task", codex_query["prompt"][0])
-        self.assertEqual(
-            (claude.scheme, claude.netloc, claude.path),
-            ("claude", "code", "/new"),
-        )
-        self.assertEqual(claude_query["folder"], [os.environ["LORE_HOME"]])
-        self.assertIn("native Claude Desktop Local task", claude_query["q"][0])
-        with self.assertRaises(OSError):
-            automation.launch_setup("codex", profile, lambda _: False)
+        completed = CompletedProcess(codex, 0, "LORE_SETUP_COMPLETE", "")
+        with patch("lore.automation.subprocess.run", return_value=completed) as run:
+            self.assertIn("LORE_SETUP_COMPLETE", automation.run_setup("codex", profile))
+            self.assertEqual(run.call_args.kwargs["cwd"], Path(os.environ["LORE_HOME"]))
+            self.assertEqual(run.call_args.kwargs["timeout"], 300)
+        failed = CompletedProcess(codex, 0, "Could not configure it", "")
+        with patch("lore.automation.subprocess.run", return_value=failed):
+            with self.assertRaisesRegex(OSError, "Could not configure"):
+                automation.run_setup("codex", profile)
 
     def test_remote_mcp_requires_authentication(self) -> None:
         with self.assertRaisesRegex(ValueError, "requires --token"):
