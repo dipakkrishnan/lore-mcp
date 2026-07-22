@@ -16,17 +16,6 @@ def profile_path() -> Path:
     return home() / PROFILE
 
 
-def load_profile() -> dict[str, object]:
-    """Load the configured synthesis profile or explain how to create one."""
-    path = profile_path()
-    if not path.exists():
-        raise ValueError("automation is not configured; run `lore automate setup`")
-    profile = json.loads(path.read_text(encoding="utf-8"))
-    if not isinstance(profile, dict):
-        raise ValueError("automation profile must be a JSON object")
-    return profile
-
-
 def save_profile(profile: dict[str, object]) -> None:
     """Persist a profile and regenerate each selected agent's task prompt."""
     agents = profile.get("agents", [])

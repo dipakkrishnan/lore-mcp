@@ -190,7 +190,7 @@ class Store:
             sql = f"SELECT m.* FROM memories m WHERE 1=1{status_sql} ORDER BY m.updated_at DESC LIMIT ?"
         if status:
             args.append(status)
-        args.append(limit)
+        args.append(limit or -1)
         return [_memory(row) for row in self.db.execute(sql, args).fetchall()]
 
     def counts(self) -> dict[str, int]:

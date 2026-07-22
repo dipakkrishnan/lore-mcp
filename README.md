@@ -20,9 +20,11 @@ into `~/.local/bin`, and starts the guided setup. It never reads conversation
 transcripts during initial import.
 
 ```sh
-lore setup                    # detect Codex and Claude Code memory
+lore help                     # show the end-user workflow
+lore setup                    # import memory and configure synthesis
 lore sync                     # import new or changed memory files
 lore review                   # private / external / discard
+lore review launch --status private  # revisit a prior decision
 lore search "failed launch"   # SQLite full-text recall
 lore price 0.50               # advertise a fixed answer price
 lore status
@@ -37,8 +39,7 @@ Native memory is deliberately selective, so Lore can ask each agent to revisit
 its remembered and owner-approved context and synthesize durable judgments:
 
 ```sh
-lore automate setup
-lore automate show
+lore setup
 ```
 
 Setup asks about your work, valuable experience, preferences, retention boundaries,

@@ -11,7 +11,7 @@ from subprocess import CompletedProcess
 from unittest.mock import patch
 
 from lore import automation
-from lore.cli import price
+from lore.cli import configure_automation, manual, price, review
 from lore.mcp import call_tool, dispatch, http
 from lore.sources import scan
 from lore.store import Memory, Store
@@ -41,6 +41,11 @@ class LoreTest(unittest.TestCase):
             self.assertEqual(found[0].title, "Testing preference")
             store.set_status(found[0].id, "external")
             self.assertEqual(store.search("integration", status="external")[0].status, "external")
+
+        with patch("lore.cli.ask", return_value="p"), redirect_stdout(StringIO()):
+            review("integration", "external", 0)
+        with Store() as store:
+            self.assertEqual(store.search("integration", status="private")[0].status, "private")
 
     def test_changed_file_updates_without_resetting_status(self) -> None:
         path = Path(os.environ["CODEX_HOME"]) / "memories/MEMORY.md"
@@ -124,6 +129,24 @@ class LoreTest(unittest.TestCase):
             self.assertEqual(stat.S_IMODE(path.stat().st_mode), 0o600)
         automation.save_profile({**profile, "agents": ["codex"]})
         self.assertFalse((automation.profile_path().parent / "claude-prompt.md").exists())
+
+    def test_setup_configures_only_installed_agents(self) -> None:
+        installed = lambda agent: f"/bin/{agent}" if agent == "codex" else None
+        with (
+            patch("lore.cli.shutil.which", side_effect=installed),
+            patch("lore.automation.run_setup") as run_setup,
+            redirect_stdout(StringIO()),
+        ):
+            configure_automation(True)
+        run_setup.assert_called_once()
+        self.assertEqual(run_setup.call_args.args[1]["agents"], ["codex"])
+
+    def test_help_is_a_workflow_manual(self) -> None:
+        output = StringIO()
+        with redirect_stdout(output):
+            self.assertEqual(manual(), 0)
+        self.assertIn("lore review", output.getvalue())
+        self.assertIn("lore price", output.getvalue())
 
     def test_private_data_and_terminal_output_are_protected(self) -> None:
         with Store() as store:
