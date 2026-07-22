@@ -55,6 +55,10 @@ writes a Markdown candidate under `~/.lore/memories/<agent>/`, and imports it as
 pending context. Lore does not use agent CLIs as recurring runners, install cron jobs,
 or edit either agent's native memory.
 
+Native agent memories are reference material and cannot be exposed directly. Only the
+focused synthesis files generated for Lore can be marked `external`; this prevents one
+useful section of a consolidated memory file from exposing unrelated private sections.
+
 Remote Claude routines cannot read local memory files, so choose **Local** for this
 workflow. Keep the machine and desktop app running when a local task is due.
 

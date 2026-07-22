@@ -39,13 +39,37 @@ class LoreTest(unittest.TestCase):
             self.assertEqual(report["claude"]["added"], 1)
             found = store.search("integration tests")
             self.assertEqual(found[0].title, "Testing preference")
-            store.set_status(found[0].id, "external")
-            self.assertEqual(store.search("integration", status="external")[0].status, "external")
+            with self.assertRaisesRegex(ValueError, "must be synthesized"):
+                store.set_status(found[0].id, "external")
+            store.set_status(found[0].id, "private")
+            store.db.execute("UPDATE memories SET status='external' WHERE id=?", (found[0].id,))
+            store.db.commit()
 
+        with Store() as store:
+            self.assertEqual(store.search("integration", status="external"), [])
+            self.assertEqual(store.search("integration", status="private")[0].status, "private")
+
+        output = StringIO()
+        with patch("lore.cli.ask", return_value="p"), redirect_stdout(output):
+            review("integration", "private", 0)
+        self.assertNotIn("[e] external", output.getvalue())
+
+        with Store() as store:
+            store.put(
+                source="automation-claude",
+                origin="automation",
+                source_path="synthesis.md",
+                source_key="synthesis",
+                fingerprint="synthesis",
+                title="Synthesized testing preference",
+                content="Focused integration testing preference",
+            )
+            synthesis = store.search("Focused integration")[0]
+            store.set_status(synthesis.id, "external")
         with patch("lore.cli.ask", return_value="p"), redirect_stdout(StringIO()):
             review("integration", "external", 0)
         with Store() as store:
-            self.assertEqual(store.search("integration", status="private")[0].status, "private")
+            self.assertEqual(store.search("Focused integration", status="private")[0].status, "private")
 
     def test_changed_file_updates_without_resetting_status(self) -> None:
         path = Path(os.environ["CODEX_HOME"]) / "memories/MEMORY.md"
@@ -178,10 +202,13 @@ class LoreTest(unittest.TestCase):
 
     def test_mcp_returns_only_external_memories(self) -> None:
         with Store() as store:
-            for title, status in (("Public lesson", "external"), ("Private lesson", "private")):
+            for title, status, origin in (
+                ("Public lesson", "external", "automation"),
+                ("Private lesson", "private", "native"),
+            ):
                 store.put(
                     source="test",
-                    origin="native",
+                    origin=origin,
                     source_path=title,
                     source_key=title,
                     fingerprint=title,

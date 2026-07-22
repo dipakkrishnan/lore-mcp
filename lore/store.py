@@ -94,6 +94,10 @@ class Store:
             END;
             """
         )
+        self.db.execute(
+            "UPDATE memories SET status='private' "
+            "WHERE origin!='automation' AND status='external'"
+        )
         self.db.commit()
 
     def put(
@@ -150,12 +154,17 @@ class Store:
         """Set a memory's disclosure status."""
         if status not in STATUSES:
             raise ValueError(f"invalid status: {status}")
-        cursor = self.db.execute(
+        row = self.db.execute(
+            "SELECT origin FROM memories WHERE id=?", (memory_id,)
+        ).fetchone()
+        if not row:
+            raise ValueError(f"memory not found: {memory_id}")
+        if status == "external" and row["origin"] != "automation":
+            raise ValueError("native memories must be synthesized before external use")
+        self.db.execute(
             "UPDATE memories SET status=?,updated_at=? WHERE id=?",
             (status, datetime.now(timezone.utc).isoformat(), memory_id),
         )
-        if not cursor.rowcount:
-            raise ValueError(f"memory not found: {memory_id}")
         self.db.commit()
 
     def pending(self) -> list[Memory]:
