@@ -224,7 +224,9 @@ def automate(args: argparse.Namespace) -> int:
         )
         if args.yes:
             agents = list(automation.AGENTS)
+            models = {agent: "" for agent in agents}
             role, domains, valuable, preferences, boundaries = "", "", "", "", "secrets and third-party private data"
+            cadence, hour = "daily", 21
         else:
             role = ask("What kind of work do you do?")
             domains = ask("Which projects or domains matter most right now?")
@@ -236,6 +238,12 @@ def automate(args: argparse.Namespace) -> int:
                 for agent in automation.AGENTS
                 if confirm(f"Create a native scheduling prompt for {agent.title()}?")
             ]
+            models = {
+                agent: ask(f"{agent.title()} model (blank uses its native default)")
+                for agent in agents
+            }
+            cadence = ask("Run daily or weekly?", "daily").lower()
+            hour = int(ask("Run at which local hour (0-23)?", "21"))
         if not agents:
             raise ValueError("no agents selected")
         profile = {
@@ -245,15 +253,21 @@ def automate(args: argparse.Namespace) -> int:
             "preferences": preferences,
             "boundaries": boundaries,
             "agents": agents,
+            "models": models,
+            "cadence": cadence if cadence in {"daily", "weekly"} else "daily",
+            "hour": max(0, min(hour, 23)),
         }
         automation.save_profile(profile)
-        success(f"Created synthesis prompts for {', '.join(agents)}")
-        print("Run `lore automate show` for native scheduling instructions.")
+        for agent in agents:
+            automation.launch_setup(agent, profile)
+            success(f"Opened {agent.title()} native setup")
+        print("Review and send each prefilled request; the native agents create the schedules.")
         return 0
     profile = automation.load_profile()
     for agent in profile.get("agents", []):
         path = automation.profile_path().parent / f"{agent}-prompt.md"
         heading(str(agent).title())
         print(path.read_text(encoding="utf-8"))
-        muted(automation.setup_instructions(str(agent)))
+        muted("Native setup request")
+        print(automation.setup_prompt(str(agent), profile))
     return 0

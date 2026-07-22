@@ -71,6 +71,9 @@ class LoreTest(unittest.TestCase):
             "preferences": "small changes",
             "boundaries": "secrets",
             "agents": ["claude", "codex"],
+            "models": {"claude": "opus", "codex": "gpt-test"},
+            "cadence": "weekly",
+            "hour": 9,
         }
         automation.save_profile(profile)
 
@@ -80,8 +83,21 @@ class LoreTest(unittest.TestCase):
         self.assertIn("lore search --status private", prompt)
         self.assertIn("lore sync --source automation-codex", prompt)
         self.assertNotIn("sessions", prompt)
-        self.assertIn("codex://automations", automation.setup_instructions("codex"))
-        self.assertIn("New routine → Local", automation.setup_instructions("claude"))
+        setup = automation.setup_prompt("codex", profile)
+        self.assertIn("weekly at 9:00 local time", setup)
+        self.assertIn("Use model gpt-test", setup)
+        opened: list[str] = []
+
+        def record_url(url: str) -> bool:
+            opened.append(url)
+            return True
+
+        automation.launch_setup("codex", profile, record_url)
+        automation.launch_setup("claude", profile, record_url)
+        self.assertTrue(opened[0].startswith("codex://new?"))
+        self.assertTrue(opened[1].startswith("claude://code/new?"))
+        with self.assertRaises(OSError):
+            automation.launch_setup("codex", profile, lambda _: False)
 
     def test_mcp_returns_only_external_memories(self) -> None:
         with Store() as store:

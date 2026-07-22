@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 import json
+import webbrowser
 from pathlib import Path
+from typing import Callable
+from urllib.parse import urlencode
 
 from .paths import home
 
@@ -82,15 +85,47 @@ file, run `lore sync --source {source}`. Do not modify the agent's native memory
 """
 
 
-def setup_instructions(agent: str) -> str:
+def setup_prompt(agent: str, profile: dict[str, object]) -> str:
+    if agent not in AGENTS:
+        raise ValueError(f"unknown agent: {agent}")
+    cadence = str(profile.get("cadence", "daily"))
+    hour = int(profile.get("hour", 21))
+    models = profile.get("models", {})
+    model = models.get(agent) if isinstance(models, dict) else None
+    schedule = (
+        f"weekly at {hour}:00 local time"
+        if cadence == "weekly"
+        else f"daily at {hour}:00 local time"
+    )
+    model_instruction = f"Use model {model}." if model else "Use the native default model."
+    platform = "Codex Scheduled" if agent == "codex" else "Claude Desktop Local"
+    return f"""Create or update the native {platform} task named "Lore memory synthesis".
+
+Run it {schedule}. {model_instruction}
+Use `{home()}` as its local working folder and keep it active. Read the complete task
+instructions from `{profile_path().parent / f'{agent}-prompt.md'}` and use that file's
+contents as the scheduled prompt. This must be a local task because it reads and writes
+owner-held context on this machine.
+
+Use the native scheduled-task tool now. If a task with this name already exists, update it
+instead of creating a duplicate. Do not run the synthesis during setup and do not replace
+this request with manual instructions for me.
+"""
+
+
+def setup_url(agent: str, profile: dict[str, object]) -> str:
+    prompt = setup_prompt(agent, profile)
     if agent == "codex":
-        return (
-            "Open `codex://automations`, create a local Scheduled task rooted at "
-            f"`{home()}`, paste the prompt above, then choose its cadence and model."
-        )
+        return "codex://new?" + urlencode({"prompt": prompt, "path": str(home())})
     if agent == "claude":
-        return (
-            "In Claude Desktop, choose Routines → New routine → Local, select "
-            f"`{home()}` as the folder, paste the prompt above, then choose its cadence and model."
-        )
+        return "claude://code/new?" + urlencode({"q": prompt, "folder": str(home())})
     raise ValueError(f"unknown agent: {agent}")
+
+
+def launch_setup(
+    agent: str,
+    profile: dict[str, object],
+    opener: Callable[[str], bool] = webbrowser.open,
+) -> None:
+    if not opener(setup_url(agent, profile)):
+        raise OSError(f"could not open {agent.title()} native setup")
