@@ -11,6 +11,7 @@ from .ui import ask, confirm, heading, logo, memory_card, muted, success
 
 
 def parser() -> argparse.ArgumentParser:
+    """Build the Lore command-line parser."""
     root = argparse.ArgumentParser(prog="lore", description="Local memory for personal agents")
     commands = root.add_subparsers(dest="command")
 
@@ -46,6 +47,7 @@ def parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
+    """Parse and run one Lore command."""
     args = parser().parse_args(argv)
     if not args.command:
         if sys.stdin.isatty() and sys.stdout.isatty():
@@ -83,6 +85,7 @@ def main(argv: list[str] | None = None) -> int:
 
 
 def dashboard() -> int:
+    """Run the small interactive dashboard until the user quits."""
     while True:
         status()
         print("\n  [/] search   [r] review   [s] sync   [a] automation   [q] quit")
@@ -104,6 +107,7 @@ def dashboard() -> int:
 
 
 def setup(yes: bool = False) -> int:
+    """Choose native memory sources and perform the first import."""
     logo()
     muted("Lore imports only agent-generated memory files. Session transcripts stay untouched.")
     native = [source for source in available_sources() if source.origin == "native"]
@@ -126,6 +130,7 @@ def setup(yes: bool = False) -> int:
 
 
 def sync(names: set[str] | None = None) -> int:
+    """Import new and changed memories from configured sources."""
     with Store() as store:
         if names is None:
             configured = set(store.setting("sources", []))
@@ -137,6 +142,7 @@ def sync(names: set[str] | None = None) -> int:
 
 
 def review(limit: int = 0) -> int:
+    """Let the owner classify pending memories."""
     logo()
     with Store() as store:
         memories = store.pending()
@@ -163,6 +169,7 @@ def review(limit: int = 0) -> int:
 
 
 def search(query: str, status_name: str | None, limit: int, as_json: bool) -> int:
+    """Search local memories and print cards or JSON."""
     with Store() as store:
         memories = store.search(query, status=status_name, limit=limit)
     if as_json:
@@ -177,6 +184,7 @@ def search(query: str, status_name: str | None, limit: int, as_json: bool) -> in
 
 
 def status() -> int:
+    """Print library, source, database, and pricing status."""
     logo()
     with Store() as store:
         counts = store.counts()
@@ -199,6 +207,7 @@ def status() -> int:
 
 
 def price(amount: float | None) -> int:
+    """Show or update the configured answer price."""
     with Store() as store:
         if amount is None:
             current = store.setting("price_usd", None)
@@ -212,6 +221,7 @@ def price(amount: float | None) -> int:
 
 
 def automate(args: argparse.Namespace) -> int:
+    """Configure native memory synthesis or show its generated prompts."""
     from . import automation
 
     command = args.automate_command or "show"

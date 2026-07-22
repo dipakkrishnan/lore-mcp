@@ -13,10 +13,12 @@ AGENTS = ("claude", "codex")
 
 
 def profile_path() -> Path:
+    """Return the owner-local automation profile path."""
     return home() / PROFILE
 
 
 def load_profile() -> dict[str, object]:
+    """Load the configured synthesis profile or explain how to create one."""
     path = profile_path()
     if not path.exists():
         raise ValueError("automation is not configured; run `lore automate setup`")
@@ -24,9 +26,11 @@ def load_profile() -> dict[str, object]:
 
 
 def save_profile(profile: dict[str, object]) -> None:
-    directory = profile_path().parent
+    """Persist a profile and regenerate each selected agent's task prompt."""
+    path = profile_path()
+    directory = path.parent
     directory.mkdir(parents=True, exist_ok=True)
-    profile_path().write_text(json.dumps(profile, indent=2) + "\n", encoding="utf-8")
+    path.write_text(json.dumps(profile, indent=2) + "\n", encoding="utf-8")
     for agent in profile.get("agents", []):
         (directory / f"{agent}-prompt.md").write_text(
             build_prompt(str(agent), profile), encoding="utf-8"
@@ -34,6 +38,7 @@ def save_profile(profile: dict[str, object]) -> None:
 
 
 def build_prompt(agent: str, profile: dict[str, object]) -> str:
+    """Build the prompt a native scheduled task runs to synthesize memories."""
     if agent not in AGENTS:
         raise ValueError(f"unknown agent: {agent}")
     destination = home() / "memories" / agent
@@ -86,6 +91,7 @@ file, run `lore sync --source {source}`. Do not modify the agent's native memory
 
 
 def setup_prompt(agent: str, profile: dict[str, object]) -> str:
+    """Build the one-time agent request that installs the native schedule."""
     if agent not in AGENTS:
         raise ValueError(f"unknown agent: {agent}")
     cadence = str(profile.get("cadence", "daily"))
@@ -114,6 +120,7 @@ this request with manual instructions for me.
 
 
 def setup_url(agent: str, profile: dict[str, object]) -> str:
+    """Build an app deep link containing the native scheduling request."""
     prompt = setup_prompt(agent, profile)
     if agent == "codex":
         return "codex://new?" + urlencode({"prompt": prompt, "path": str(home())})
@@ -127,5 +134,6 @@ def launch_setup(
     profile: dict[str, object],
     opener: Callable[[str], bool] = webbrowser.open,
 ) -> None:
+    """Open an agent app to the prefilled native scheduling request."""
     if not opener(setup_url(agent, profile)):
         raise OSError(f"could not open {agent.title()} native setup")

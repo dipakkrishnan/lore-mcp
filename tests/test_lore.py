@@ -4,8 +4,10 @@ import os
 import tempfile
 import unittest
 from pathlib import Path
+from urllib.parse import parse_qs, urlparse
+
 from lore import automation
-from lore.mcp import dispatch
+from lore.mcp import dispatch, http
 from lore.sources import scan
 from lore.store import Store
 
@@ -94,10 +96,23 @@ class LoreTest(unittest.TestCase):
 
         automation.launch_setup("codex", profile, record_url)
         automation.launch_setup("claude", profile, record_url)
-        self.assertTrue(opened[0].startswith("codex://new?"))
-        self.assertTrue(opened[1].startswith("claude://code/new?"))
+        codex, claude = map(urlparse, opened)
+        codex_query, claude_query = parse_qs(codex.query), parse_qs(claude.query)
+        self.assertEqual((codex.scheme, codex.netloc), ("codex", "new"))
+        self.assertEqual(codex_query["path"], [os.environ["LORE_HOME"]])
+        self.assertIn("native Codex Scheduled task", codex_query["prompt"][0])
+        self.assertEqual(
+            (claude.scheme, claude.netloc, claude.path),
+            ("claude", "code", "/new"),
+        )
+        self.assertEqual(claude_query["folder"], [os.environ["LORE_HOME"]])
+        self.assertIn("native Claude Desktop Local task", claude_query["q"][0])
         with self.assertRaises(OSError):
             automation.launch_setup("codex", profile, lambda _: False)
+
+    def test_remote_mcp_requires_authentication(self) -> None:
+        with self.assertRaisesRegex(ValueError, "requires --token"):
+            http("0.0.0.0", 0)
 
     def test_mcp_returns_only_external_memories(self) -> None:
         with Store() as store:

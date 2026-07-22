@@ -18,12 +18,14 @@ class Source:
     origin: str = "native"
 
     def files(self) -> list[Path]:
+        """List importable files from this source in stable order."""
         if not self.root.exists():
             return []
         return sorted(path for path in self.root.glob(self.pattern) if path.is_file())
 
 
 def available_sources() -> list[Source]:
+    """Return native and synthesized memory sources for the current user."""
     return [
         Source("codex", "Codex", codex_home() / "memories", "MEMORY.md"),
         Source(
@@ -32,12 +34,25 @@ def available_sources() -> list[Source]:
             claude_home() / "projects",
             "*/memory/*.md",
         ),
-        Source("automation-codex", "Codex synthesis", home() / "memories/codex", "*.md", "automation"),
-        Source("automation-claude", "Claude synthesis", home() / "memories/claude", "*.md", "automation"),
+        Source(
+            "automation-codex",
+            "Codex synthesis",
+            home() / "memories/codex",
+            "*.md",
+            "automation",
+        ),
+        Source(
+            "automation-claude",
+            "Claude synthesis",
+            home() / "memories/claude",
+            "*.md",
+            "automation",
+        ),
     ]
 
 
 def scan(store: Store, names: set[str] | None = None) -> dict[str, dict[str, int]]:
+    """Import changed files from selected sources and return per-source counts."""
     report: dict[str, dict[str, int]] = {}
     for source in available_sources():
         if names is not None and source.name not in names:

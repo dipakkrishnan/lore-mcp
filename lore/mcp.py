@@ -57,6 +57,7 @@ TOOLS = [
 
 
 def dispatch(message: dict[str, Any]) -> dict[str, Any] | None:
+    """Dispatch one JSON-RPC request, ignoring notifications."""
     request_id = message.get("id")
     method = message.get("method")
     if request_id is None:
@@ -64,7 +65,11 @@ def dispatch(message: dict[str, Any]) -> dict[str, Any] | None:
     try:
         if method == "initialize":
             requested = message.get("params", {}).get("protocolVersion")
-            version = requested if requested in {"2025-11-25", "2025-06-18", "2025-03-26"} else PROTOCOL_VERSION
+            version = (
+                requested
+                if requested in {"2025-11-25", "2025-06-18", "2025-03-26"}
+                else PROTOCOL_VERSION
+            )
             result: dict[str, Any] = {
                 "protocolVersion": version,
                 "capabilities": {"tools": {"listChanged": False}},
@@ -88,6 +93,7 @@ def dispatch(message: dict[str, Any]) -> dict[str, Any] | None:
 
 
 def call_tool(name: str, arguments: dict[str, Any]) -> dict[str, Any]:
+    """Run a Lore MCP tool against owner-approved external memories."""
     query = str(arguments.get("query", "")).strip()
     if not query:
         raise ValueError("query is required")
@@ -130,6 +136,7 @@ def _error(request_id: object, code: int, message: str) -> dict[str, Any]:
 
 
 def stdio() -> int:
+    """Serve newline-delimited JSON-RPC over standard input and output."""
     for line in sys.stdin:
         try:
             message = json.loads(line)
@@ -142,6 +149,7 @@ def stdio() -> int:
 
 
 def http(host: str, port: int, token: str | None = None) -> int:
+    """Serve MCP over HTTP, requiring authentication off loopback."""
     if host not in {"127.0.0.1", "localhost"} and not token:
         raise ValueError("non-loopback MCP requires --token or LORE_MCP_TOKEN")
 
@@ -196,6 +204,7 @@ def http(host: str, port: int, token: str | None = None) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
+    """Run the selected MCP transport."""
     parser = argparse.ArgumentParser(prog="lore serve")
     parser.add_argument("--transport", choices=["stdio", "http"], default="stdio")
     parser.add_argument("--host", default="127.0.0.1")
