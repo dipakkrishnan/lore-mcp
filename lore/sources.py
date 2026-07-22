@@ -25,7 +25,7 @@ class Source:
 
 def available_sources() -> list[Source]:
     return [
-        Source("codex", "Codex", codex_home() / "memories", "**/*.md"),
+        Source("codex", "Codex", codex_home() / "memories", "MEMORY.md"),
         Source(
             "claude",
             "Claude Code",
@@ -80,4 +80,3 @@ def _project(source: Source, path: Path) -> str:
         relative = path.relative_to(source.root)
         return relative.parts[0] if len(relative.parts) > 1 else ""
     return "personal"
-
