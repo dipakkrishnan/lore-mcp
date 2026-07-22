@@ -5,9 +5,10 @@ import tempfile
 import unittest
 from pathlib import Path
 from subprocess import CompletedProcess
+from unittest.mock import patch
 
 from lore import automation
-from lore.mcp import dispatch
+from lore.mcp import dispatch, http
 from lore.sources import scan
 from lore.store import Store
 
@@ -37,7 +38,7 @@ class LoreTest(unittest.TestCase):
             self.assertEqual(store.search("integration", status="external")[0].status, "external")
 
     def test_changed_file_updates_without_resetting_status(self) -> None:
-        path = Path(os.environ["CODEX_HOME"]) / "memories/project.md"
+        path = Path(os.environ["CODEX_HOME"]) / "memories/MEMORY.md"
         path.parent.mkdir(parents=True)
         path.write_text("# Project\n\nFirst version")
         with Store() as store:
@@ -50,38 +51,66 @@ class LoreTest(unittest.TestCase):
             self.assertEqual(updated.status, "private")
             self.assertEqual(store.counts()["private"], 1)
 
-    def test_agent_synthesis_is_saved_and_searchable(self) -> None:
-        automation.save_profile(
-            {
-                "role": "maintainer",
-                "domains": "developer tools",
-                "valuable_context": "failed launches",
-                "preferences": "small changes",
-                "boundaries": "secrets",
-                "agents": ["claude"],
-                "lookback_days": 3,
-            }
-        )
+    def test_codex_import_ignores_intermediate_memory_files(self) -> None:
+        root = Path(os.environ["CODEX_HOME"]) / "memories"
+        root.mkdir(parents=True)
+        (root / "MEMORY.md").write_text("# Durable\n\nKeep this.")
+        (root / "raw_memories.md").write_text("# Raw\n\nDuplicate evidence.")
+        summaries = root / "rollout_summaries"
+        summaries.mkdir()
+        (summaries / "task.md").write_text("# Task\n\nDuplicate summary.")
 
-        def fake_runner(command: list[str], **_: object) -> CompletedProcess[str]:
-            self.assertIn("failed launches", command[-1])
-            return CompletedProcess(command, 0, "# Memory synthesis\n\n## Failures and lessons\n- Launch slowly.", "")
-
-        path = automation.run("claude", runner=fake_runner)
-        self.assertTrue(path.is_file())
         with Store() as store:
-            result = store.search("Launch slowly")
-            self.assertEqual(result[0].origin, "automation")
-            self.assertEqual(result[0].status, "pending")
+            report = scan(store, {"codex"})
+            self.assertEqual(report["codex"]["found"], 1)
+            self.assertEqual(store.search("Keep this")[0].title, "Durable")
+            self.assertEqual(store.search("Duplicate"), [])
 
-    def test_schedule_update_preserves_other_cron_jobs(self) -> None:
-        existing = "0 8 * * * backup\n# lore-memory-start\nold\n# lore-memory-end\n"
-        updated = automation._replace_cron(
-            existing, "# lore-memory-start\n0 21 * * * lore\n# lore-memory-end"
-        )
-        self.assertIn("0 8 * * * backup", updated)
-        self.assertNotIn("\nold\n", updated)
-        self.assertEqual(updated.count("# lore-memory-start"), 1)
+    def test_native_automation_prompt_hands_off_execution(self) -> None:
+        profile = {
+            "role": "maintainer",
+            "domains": "developer tools",
+            "valuable_context": "failed launches",
+            "preferences": "small changes",
+            "boundaries": "secrets",
+            "agents": ["claude", "codex"],
+            "models": {"claude": "opus", "codex": "gpt-test"},
+            "cadence": "weekly",
+            "hour": 9,
+        }
+        automation.save_profile(profile)
+
+        prompt = automation.build_prompt("codex", profile)
+        self.assertIn("opinions, preferences", prompt)
+        self.assertIn("failed launches", prompt)
+        self.assertIn("lore search --status private", prompt)
+        self.assertIn("lore sync --source automation-codex", prompt)
+        self.assertNotIn("sessions", prompt)
+        setup = automation.setup_prompt("codex", profile)
+        self.assertIn("weekly at 9:00 local time", setup)
+        self.assertIn("Use model gpt-test", setup)
+        codex = automation.setup_command("codex", profile)
+        claude = automation.setup_command("claude", profile)
+        self.assertEqual(codex[:2], ["codex", "exec"])
+        self.assertIn(os.environ["CODEX_HOME"], codex)
+        self.assertEqual(claude[:2], ["claude", "-p"])
+        self.assertIn(os.environ["CLAUDE_HOME"], claude)
+        self.assertEqual(codex[-2], "--")
+        self.assertIn("LORE_SETUP_COMPLETE", codex[-1])
+
+        completed = CompletedProcess(codex, 0, "LORE_SETUP_COMPLETE", "")
+        with patch("lore.automation.subprocess.run", return_value=completed) as run:
+            self.assertIn("LORE_SETUP_COMPLETE", automation.run_setup("codex", profile))
+            self.assertEqual(run.call_args.kwargs["cwd"], Path(os.environ["LORE_HOME"]))
+            self.assertEqual(run.call_args.kwargs["timeout"], 300)
+        failed = CompletedProcess(codex, 0, "Could not configure it", "")
+        with patch("lore.automation.subprocess.run", return_value=failed):
+            with self.assertRaisesRegex(OSError, "Could not configure"):
+                automation.run_setup("codex", profile)
+
+    def test_remote_mcp_requires_authentication(self) -> None:
+        with self.assertRaisesRegex(ValueError, "requires --token"):
+            http("0.0.0.0", 0)
 
     def test_mcp_returns_only_external_memories(self) -> None:
         with Store() as store:

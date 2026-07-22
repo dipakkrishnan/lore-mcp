@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import shutil
 import sys
 from pathlib import Path
 
@@ -12,6 +11,7 @@ from .ui import ask, confirm, heading, logo, memory_card, muted, success
 
 
 def parser() -> argparse.ArgumentParser:
+    """Build the Lore command-line parser."""
     root = argparse.ArgumentParser(prog="lore", description="Local memory for personal agents")
     commands = root.add_subparsers(dest="command")
 
@@ -37,11 +37,7 @@ def parser() -> argparse.ArgumentParser:
     automate_commands = automate.add_subparsers(dest="automate_command")
     automate_setup = automate_commands.add_parser("setup", help="create a personal synthesis profile")
     automate_setup.add_argument("--yes", action="store_true", help="accept safe defaults")
-    automate_run = automate_commands.add_parser("run", help="run synthesis now")
-    automate_run.add_argument("--agent", choices=["claude", "codex", "all"], default="all")
     automate_commands.add_parser("show", help="show generated prompts")
-    automate_schedule = automate_commands.add_parser("schedule", help="install a local recurring run")
-    automate_schedule.add_argument("--yes", action="store_true", help="install without confirmation")
     serve = commands.add_parser("serve", help="run the Lore MCP server")
     serve.add_argument("--transport", choices=["stdio", "http"], default="stdio")
     serve.add_argument("--host", default="127.0.0.1")
@@ -51,6 +47,7 @@ def parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
+    """Parse and run one Lore command."""
     args = parser().parse_args(argv)
     if not args.command:
         if sys.stdin.isatty() and sys.stdout.isatty():
@@ -88,6 +85,7 @@ def main(argv: list[str] | None = None) -> int:
 
 
 def dashboard() -> int:
+    """Run the small interactive dashboard until the user quits."""
     while True:
         status()
         print("\n  [/] search   [r] review   [s] sync   [a] automation   [q] quit")
@@ -109,6 +107,7 @@ def dashboard() -> int:
 
 
 def setup(yes: bool = False) -> int:
+    """Choose native memory sources and perform the first import."""
     logo()
     muted("Lore imports only agent-generated memory files. Session transcripts stay untouched.")
     native = [source for source in available_sources() if source.origin == "native"]
@@ -131,6 +130,7 @@ def setup(yes: bool = False) -> int:
 
 
 def sync(names: set[str] | None = None) -> int:
+    """Import new and changed memories from configured sources."""
     with Store() as store:
         if names is None:
             configured = set(store.setting("sources", []))
@@ -142,6 +142,7 @@ def sync(names: set[str] | None = None) -> int:
 
 
 def review(limit: int = 0) -> int:
+    """Let the owner classify pending memories."""
     logo()
     with Store() as store:
         memories = store.pending()
@@ -168,6 +169,7 @@ def review(limit: int = 0) -> int:
 
 
 def search(query: str, status_name: str | None, limit: int, as_json: bool) -> int:
+    """Search local memories and print cards or JSON."""
     with Store() as store:
         memories = store.search(query, status=status_name, limit=limit)
     if as_json:
@@ -182,6 +184,7 @@ def search(query: str, status_name: str | None, limit: int, as_json: bool) -> in
 
 
 def status() -> int:
+    """Print library, source, database, and pricing status."""
     logo()
     with Store() as store:
         counts = store.counts()
@@ -204,6 +207,7 @@ def status() -> int:
 
 
 def price(amount: float | None) -> int:
+    """Show or update the configured answer price."""
     with Store() as store:
         if amount is None:
             current = store.setting("price_usd", None)
@@ -217,30 +221,41 @@ def price(amount: float | None) -> int:
 
 
 def automate(args: argparse.Namespace) -> int:
+    """Configure native memory synthesis or show its generated prompts."""
     from . import automation
 
     command = args.automate_command or "show"
     if command == "setup":
         logo()
         heading("Personal synthesis")
-        muted("These answers guide what your agents preserve. They stay in ~/.lore.")
-        detected = [agent for agent in automation.AGENTS if shutil.which(agent)]
+        muted(
+            f"These answers guide what your agents preserve. "
+            f"They stay in {automation.profile_path().parent}."
+        )
         if args.yes:
-            agents = detected
+            agents = list(automation.AGENTS)
+            models = {agent: "" for agent in agents}
             role, domains, valuable, preferences, boundaries = "", "", "", "", "secrets and third-party private data"
-            cadence, hour, lookback = "daily", 21, 7
+            cadence, hour = "daily", 21
         else:
             role = ask("What kind of work do you do?")
             domains = ask("Which projects or domains matter most right now?")
             valuable = ask("What experience might be unusually valuable to others?")
             preferences = ask("Which working preferences should every agent learn?")
             boundaries = ask("What should Lore never retain?", "secrets and third-party private data")
-            agents = [agent for agent in detected if confirm(f"Let {agent.title()} synthesize past sessions?")]
+            agents = [
+                agent
+                for agent in automation.AGENTS
+                if confirm(f"Create a native scheduling prompt for {agent.title()}?")
+            ]
+            models = {
+                agent: ask(f"{agent.title()} model (blank uses its native default)")
+                for agent in agents
+            }
             cadence = ask("Run daily or weekly?", "daily").lower()
             hour = int(ask("Run at which local hour (0-23)?", "21"))
-            lookback = int(ask("First run should inspect how many days?", "7"))
         if not agents:
-            raise ValueError("no supported agent CLI selected")
+            raise ValueError("no agents selected")
         profile = {
             "role": role,
             "domains": domains,
@@ -248,32 +263,20 @@ def automate(args: argparse.Namespace) -> int:
             "preferences": preferences,
             "boundaries": boundaries,
             "agents": agents,
+            "models": models,
             "cadence": cadence if cadence in {"daily", "weekly"} else "daily",
             "hour": max(0, min(hour, 23)),
-            "lookback_days": max(1, min(lookback, 90)),
         }
         automation.save_profile(profile)
-        success(f"Created synthesis prompts for {', '.join(agents)}")
-        print("Run `lore automate run --agent all` to test them before scheduling.")
-        return 0
-    if command == "run":
-        profile = automation.load_profile()
-        agents = profile["agents"] if args.agent == "all" else [args.agent]
         for agent in agents:
-            print(f"Asking {str(agent).title()} to synthesize recent sessions…")
-            path = automation.run(str(agent))
-            success(f"Saved {path}")
-        return 0
-    if command == "schedule":
-        profile = automation.load_profile()
-        if not args.yes and not confirm("Install this recurring local routine?"):
-            return 0
-        expression = automation.install_cron(profile)
-        success(f"Installed schedule: {expression}")
+            automation.run_setup(agent, profile)
+            success(f"Configured {agent.title()} native schedule")
         return 0
     profile = automation.load_profile()
     for agent in profile.get("agents", []):
         path = automation.profile_path().parent / f"{agent}-prompt.md"
         heading(str(agent).title())
         print(path.read_text(encoding="utf-8"))
+        muted("Native setup request")
+        print(automation.setup_prompt(str(agent), profile))
     return 0
