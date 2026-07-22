@@ -31,6 +31,7 @@ class Store:
 
     def __init__(self, path: Path | None = None):
         self.path = path or database()
+        # Memories are private: 0700 for their directory and 0600 for the database.
         self.path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
         if path is None:
             self.path.parent.chmod(0o700)

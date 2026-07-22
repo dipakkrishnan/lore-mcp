@@ -34,6 +34,7 @@ def save_profile(profile: dict[str, object]) -> None:
         raise ValueError("automation profile contains an unknown agent")
     path = profile_path()
     directory = path.parent
+    # Profiles and prompts contain private context; keep them owner-only.
     directory.mkdir(mode=0o700, parents=True, exist_ok=True)
     directory.chmod(0o700)
     path.touch(mode=0o600, exist_ok=True)
