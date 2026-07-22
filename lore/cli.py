@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import sys
 from pathlib import Path
 
@@ -213,8 +214,8 @@ def price(amount: float | None) -> int:
             current = store.setting("price_usd", None)
             print("not set" if current is None else f"${current:.2f} per answer")
             return 0
-        if amount < 0:
-            raise ValueError("price cannot be negative")
+        if not math.isfinite(amount) or amount < 0:
+            raise ValueError("price must be a finite, non-negative number")
         store.set_setting("price_usd", round(amount, 6))
     success("Answers are free" if amount == 0 else f"Answer price set to ${amount:.2f}")
     return 0

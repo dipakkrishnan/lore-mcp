@@ -21,7 +21,11 @@ class Source:
         """List importable files from this source in stable order."""
         if not self.root.exists():
             return []
-        return sorted(path for path in self.root.glob(self.pattern) if path.is_file())
+        return sorted(
+            path
+            for path in self.root.glob(self.pattern)
+            if path.is_file() and not path.is_symlink()
+        )
 
 
 def available_sources() -> list[Source]:

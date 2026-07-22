@@ -8,6 +8,7 @@ from .paths import claude_home, codex_home, home
 
 PROFILE = "automation/profile.json"
 AGENTS = ("claude", "codex")
+SETUP_MARKER = "LORE_SETUP_COMPLETE"
 
 
 def profile_path() -> Path:
@@ -20,19 +21,34 @@ def load_profile() -> dict[str, object]:
     path = profile_path()
     if not path.exists():
         raise ValueError("automation is not configured; run `lore automate setup`")
-    return json.loads(path.read_text(encoding="utf-8"))
+    profile = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(profile, dict):
+        raise ValueError("automation profile must be a JSON object")
+    return profile
 
 
 def save_profile(profile: dict[str, object]) -> None:
     """Persist a profile and regenerate each selected agent's task prompt."""
+    agents = profile.get("agents", [])
+    if not isinstance(agents, list) or any(agent not in AGENTS for agent in agents):
+        raise ValueError("automation profile contains an unknown agent")
     path = profile_path()
     directory = path.parent
-    directory.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(profile, indent=2) + "\n", encoding="utf-8")
-    for agent in profile.get("agents", []):
-        (directory / f"{agent}-prompt.md").write_text(
-            build_prompt(str(agent), profile), encoding="utf-8"
-        )
+    directory.mkdir(mode=0o700, parents=True, exist_ok=True)
+    directory.chmod(0o700)
+    path.touch(mode=0o600, exist_ok=True)
+    path.chmod(0o600)
+    path.write_text(
+        json.dumps(profile, indent=2, allow_nan=False) + "\n", encoding="utf-8"
+    )
+    for agent in AGENTS:
+        prompt = directory / f"{agent}-prompt.md"
+        if agent not in agents:
+            prompt.unlink(missing_ok=True)
+            continue
+        prompt.touch(mode=0o600, exist_ok=True)
+        prompt.chmod(0o600)
+        prompt.write_text(build_prompt(agent, profile), encoding="utf-8")
 
 
 def build_prompt(agent: str, profile: dict[str, object]) -> str:
@@ -168,6 +184,7 @@ def run_setup(agent: str, profile: dict[str, object]) -> str:
     output = "\n".join(
         part.strip() for part in (result.stdout, result.stderr) if part.strip()
     )
-    if result.returncode or "LORE_SETUP_COMPLETE" not in output:
+    lines = [line.strip() for line in result.stdout.splitlines() if line.strip()]
+    if result.returncode or not lines or lines[-1] != SETUP_MARKER:
         raise OSError(output or f"{agent.title()} setup failed")
     return output

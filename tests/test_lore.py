@@ -1,16 +1,21 @@
 from __future__ import annotations
 
 import os
+import stat
 import tempfile
 import unittest
+from contextlib import redirect_stdout
+from io import StringIO
 from pathlib import Path
 from subprocess import CompletedProcess
 from unittest.mock import patch
 
 from lore import automation
-from lore.mcp import dispatch, http
+from lore.cli import price
+from lore.mcp import call_tool, dispatch, http
 from lore.sources import scan
-from lore.store import Store
+from lore.store import Memory, Store
+from lore.ui import memory_card
 
 
 class LoreTest(unittest.TestCase):
@@ -59,10 +64,14 @@ class LoreTest(unittest.TestCase):
         summaries = root / "rollout_summaries"
         summaries.mkdir()
         (summaries / "task.md").write_text("# Task\n\nDuplicate summary.")
+        synthesis = Path(os.environ["LORE_HOME"]) / "memories/codex"
+        synthesis.mkdir(parents=True)
+        (synthesis / "linked.md").symlink_to(root / "MEMORY.md")
 
         with Store() as store:
-            report = scan(store, {"codex"})
+            report = scan(store, {"codex", "automation-codex"})
             self.assertEqual(report["codex"]["found"], 1)
+            self.assertEqual(report["automation-codex"]["found"], 0)
             self.assertEqual(store.search("Keep this")[0].title, "Durable")
             self.assertEqual(store.search("Duplicate"), [])
 
@@ -107,6 +116,38 @@ class LoreTest(unittest.TestCase):
         with patch("lore.automation.subprocess.run", return_value=failed):
             with self.assertRaisesRegex(OSError, "Could not configure"):
                 automation.run_setup("codex", profile)
+
+        for path in (
+            automation.profile_path(),
+            automation.profile_path().parent / "codex-prompt.md",
+        ):
+            self.assertEqual(stat.S_IMODE(path.stat().st_mode), 0o600)
+        automation.save_profile({**profile, "agents": ["codex"]})
+        self.assertFalse((automation.profile_path().parent / "claude-prompt.md").exists())
+
+    def test_private_data_and_terminal_output_are_protected(self) -> None:
+        with Store() as store:
+            self.assertEqual(stat.S_IMODE(store.path.stat().st_mode), 0o600)
+            with self.assertRaisesRegex(ValueError, "memory not found"):
+                store.set_status(999, "private")
+            with self.assertRaisesRegex(ValueError, "limit"):
+                store.search("anything", limit=-1)
+        memory = Memory(
+            1, "test", "native", "Bad\x1b[2J", "Body\x07 text", "", "private", "", "now"
+        )
+        output = StringIO()
+        with redirect_stdout(output):
+            memory_card(memory)
+        self.assertNotIn("\x1b", output.getvalue())
+        self.assertNotIn("\x07", output.getvalue())
+
+    def test_invalid_prices_and_mcp_inputs_are_rejected(self) -> None:
+        with self.assertRaisesRegex(ValueError, "finite"):
+            price(float("nan"))
+        self.assertEqual(dispatch([])["error"]["code"], -32600)  # type: ignore[index]
+        for arguments in ({"query": 1}, {"query": "ok", "max_results": 11}):
+            with self.assertRaises((TypeError, ValueError)):
+                call_tool("answer", arguments)
 
     def test_remote_mcp_requires_authentication(self) -> None:
         with self.assertRaisesRegex(ValueError, "requires --token"):

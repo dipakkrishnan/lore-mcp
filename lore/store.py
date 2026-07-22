@@ -31,8 +31,11 @@ class Store:
 
     def __init__(self, path: Path | None = None):
         self.path = path or database()
-        self.path.parent.mkdir(parents=True, exist_ok=True)
+        self.path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+        if path is None:
+            self.path.parent.chmod(0o700)
         self.db = sqlite3.connect(self.path)
+        self.path.chmod(0o600)
         self.db.row_factory = sqlite3.Row
         self._migrate()
 
@@ -146,10 +149,12 @@ class Store:
         """Set a memory's disclosure status."""
         if status not in STATUSES:
             raise ValueError(f"invalid status: {status}")
-        self.db.execute(
+        cursor = self.db.execute(
             "UPDATE memories SET status=?,updated_at=? WHERE id=?",
             (status, datetime.now(timezone.utc).isoformat(), memory_id),
         )
+        if not cursor.rowcount:
+            raise ValueError(f"memory not found: {memory_id}")
         self.db.commit()
 
     def pending(self) -> list[Memory]:
@@ -163,6 +168,10 @@ class Store:
         self, query: str, *, status: str | None = None, limit: int = 20
     ) -> list[Memory]:
         """Search memory text, optionally constrained by disclosure status."""
+        if limit < 0:
+            raise ValueError("limit cannot be negative")
+        if status is not None and status not in STATUSES:
+            raise ValueError(f"invalid status: {status}")
         status_sql = " AND m.status=?" if status else ""
         args: list[object] = []
         if query.strip():
@@ -179,8 +188,6 @@ class Store:
         else:
             sql = f"SELECT m.* FROM memories m WHERE 1=1{status_sql} ORDER BY m.updated_at DESC LIMIT ?"
         if status:
-            if status not in STATUSES:
-                raise ValueError(f"invalid status: {status}")
             args.append(status)
         args.append(limit)
         return [_memory(row) for row in self.db.execute(sql, args).fetchall()]
@@ -213,7 +220,7 @@ class Store:
         self.db.execute(
             "INSERT INTO settings(key,value) VALUES (?,?) "
             "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
-            (key, json.dumps(value)),
+            (key, json.dumps(value, allow_nan=False)),
         )
         self.db.commit()
 
