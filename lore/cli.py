@@ -113,7 +113,7 @@ def manual() -> int:
      Import memories created or changed since setup.
 
   3. lore review [words] [--status pending|private|external|discarded]
-     Keep native context private; externalize focused syntheses; revisit decisions.
+     Mark context private, external, or discarded; revisit any prior decision.
 
   4. lore search [words] [--status STATUS]
      Inspect the local library without changing disclosure.
@@ -186,17 +186,12 @@ def review(query: str = "", status_name: str = "pending", limit: int = 0) -> int
             return 0
         for index, memory in enumerate(memories, 1):
             memory_card(memory, index, len(memories))
-            actions = {"p": "private", "d": "discarded"}
-            choices = "[p] private   [d] discard"
-            if memory.origin == "automation":
-                actions["e"] = "external"
-                choices = "[p] private   [e] external   [d] discard"
-            else:
-                muted("Native memory must be synthesized before external use.")
-            print(f"\n  {choices}   [s] skip   [q] quit")
+            print("\n  [p] private   [e] external   [d] discard   [s] skip   [q] quit")
             while True:
                 choice = ask("Choose", "p").lower()
-                new_status = actions.get(choice)
+                new_status = {"p": "private", "e": "external", "d": "discarded"}.get(
+                    choice
+                )
                 if new_status:
                     store.set_status(memory.id, new_status)
                     break
