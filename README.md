@@ -33,29 +33,30 @@ Set `LORE_HOME` to use a location other than `~/.lore`. Lore also respects
 
 ## Agent-assisted synthesis
 
-Native memory is deliberately selective, so Lore can ask each installed agent
-to revisit its own recent sessions and synthesize durable context:
+Native memory is deliberately selective, so Lore can ask each agent to revisit
+its remembered and owner-approved context and synthesize durable judgments:
 
 ```sh
 lore automate setup
 lore automate show
-lore automate run --agent all
-lore automate run --agent codex --model <model>  # one-off override
-lore automate schedule
 ```
 
-Setup asks about your work, valuable experience, preferences, retention
-boundaries, agents, optional model defaults, lookback window, and cadence. Blank
-model choices inherit each agent CLI's configured default. The generated prompts live in
-`~/.lore/automation/`. Claude Code and Codex run with read-only tools; Lore
-captures their Markdown output under `~/.lore/memories/<agent>/` and imports it
-as pending memory. It never edits either agent's native memory.
+Setup asks about your work, valuable experience, preferences, retention boundaries,
+agents, cadence, and optional model choices. It writes agent-specific prompts under
+`~/.lore/automation/`, then opens prefilled local setup sessions in Codex and Claude
+Desktop. Review and send each request; the native agent creates or updates the scheduled
+task using its own scheduling tools. This confirmation is intentional: app deep links can
+prefill agent requests but cannot silently execute them.
 
-`lore automate schedule` adds one marked entry to the user's existing crontab
-and preserves all unrelated entries. This local routine is intentional: cloud
-routines cannot reliably read both agents' local session stores. Agent runs use
-the user's existing subscription or API allowance, so test the prompt manually
-before enabling a recurring cadence.
+Use a local Scheduled task in the Codex desktop app or a **Local** task under
+Claude Desktop's Routines. Once installed, the native scheduler owns execution,
+permissions, run history, and retries. Each run uses the agent's native memory,
+writes a Markdown candidate under `~/.lore/memories/<agent>/`, and imports it as
+pending context. Lore does not launch agent CLIs, install cron jobs, or edit either
+agent's native memory.
+
+Remote Claude routines cannot read local memory files, so choose **Local** for this
+workflow. Keep the machine and desktop app running when a local task is due.
 
 ## The idea
 
@@ -267,7 +268,6 @@ Lore MCP is the connective layer between personal memory, agent discovery, owner
 ├── memories/
 │   ├── claude/             # Claude-generated synthesis
 │   └── codex/              # Codex-generated synthesis
-└── automation.log
 ```
 
 Source memory remains in the agent's directory. Lore stores its imported copy,
