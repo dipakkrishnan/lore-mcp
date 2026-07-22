@@ -14,6 +14,7 @@ STATUSES = ("pending", "private", "external", "discarded")
 
 @dataclass(frozen=True)
 class Memory:
+    """A normalized memory and its owner-controlled disclosure status."""
     id: int
     source: str
     origin: str
@@ -26,10 +27,16 @@ class Memory:
 
 
 class Store:
+    """Small SQLite repository for memories and Lore settings."""
+
     def __init__(self, path: Path | None = None):
         self.path = path or database()
-        self.path.parent.mkdir(parents=True, exist_ok=True)
+        # Memories are private: 0700 for their directory and 0600 for the database.
+        self.path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+        if path is None:
+            self.path.parent.chmod(0o700)
         self.db = sqlite3.connect(self.path)
+        self.path.chmod(0o600)
         self.db.row_factory = sqlite3.Row
         self._migrate()
 
@@ -101,6 +108,7 @@ class Store:
         content: str,
         project: str = "",
     ) -> str:
+        """Insert or update a memory, returning added, updated, or unchanged."""
         now = datetime.now(timezone.utc).isoformat()
         row = self.db.execute(
             "SELECT id,fingerprint FROM memories WHERE source_key=?", (source_key,)
@@ -139,15 +147,19 @@ class Store:
         return result
 
     def set_status(self, memory_id: int, status: str) -> None:
+        """Set a memory's disclosure status."""
         if status not in STATUSES:
             raise ValueError(f"invalid status: {status}")
-        self.db.execute(
+        cursor = self.db.execute(
             "UPDATE memories SET status=?,updated_at=? WHERE id=?",
             (status, datetime.now(timezone.utc).isoformat(), memory_id),
         )
+        if not cursor.rowcount:
+            raise ValueError(f"memory not found: {memory_id}")
         self.db.commit()
 
     def pending(self) -> list[Memory]:
+        """Return memories awaiting owner review, oldest first."""
         rows = self.db.execute(
             "SELECT * FROM memories WHERE status='pending' ORDER BY updated_at,id"
         ).fetchall()
@@ -156,6 +168,11 @@ class Store:
     def search(
         self, query: str, *, status: str | None = None, limit: int = 20
     ) -> list[Memory]:
+        """Search memory text, optionally constrained by disclosure status."""
+        if limit < 0:
+            raise ValueError("limit cannot be negative")
+        if status is not None and status not in STATUSES:
+            raise ValueError(f"invalid status: {status}")
         status_sql = " AND m.status=?" if status else ""
         args: list[object] = []
         if query.strip():
@@ -172,13 +189,12 @@ class Store:
         else:
             sql = f"SELECT m.* FROM memories m WHERE 1=1{status_sql} ORDER BY m.updated_at DESC LIMIT ?"
         if status:
-            if status not in STATUSES:
-                raise ValueError(f"invalid status: {status}")
             args.append(status)
         args.append(limit)
         return [_memory(row) for row in self.db.execute(sql, args).fetchall()]
 
     def counts(self) -> dict[str, int]:
+        """Return memory counts for every disclosure status."""
         counts = {status: 0 for status in STATUSES}
         for row in self.db.execute(
             "SELECT status,count(*) count FROM memories GROUP BY status"
@@ -187,6 +203,7 @@ class Store:
         return counts
 
     def source_counts(self) -> dict[str, int]:
+        """Return memory counts grouped by source."""
         return {
             row["source"]: row["count"]
             for row in self.db.execute(
@@ -195,18 +212,19 @@ class Store:
         }
 
     def setting(self, key: str, default: object = None) -> object:
+        """Read a JSON-backed setting or return its default."""
         row = self.db.execute("SELECT value FROM settings WHERE key=?", (key,)).fetchone()
         return json.loads(row["value"]) if row else default
 
     def set_setting(self, key: str, value: object) -> None:
+        """Create or replace a JSON-backed setting."""
         self.db.execute(
             "INSERT INTO settings(key,value) VALUES (?,?) "
             "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
-            (key, json.dumps(value)),
+            (key, json.dumps(value, allow_nan=False)),
         )
         self.db.commit()
 
 
 def _memory(row: sqlite3.Row) -> Memory:
     return Memory(**{field: row[field] for field in Memory.__dataclass_fields__})
-

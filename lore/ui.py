@@ -7,6 +7,7 @@ import textwrap
 from .store import Memory
 
 COLOR = sys.stdout.isatty() and "NO_COLOR" not in os.environ
+CONTROL_CHARACTERS = dict.fromkeys((*range(32), *range(127, 160)))
 
 
 def paint(code: str, text: str) -> str:
@@ -48,11 +49,13 @@ def confirm(prompt: str, default: bool = True) -> bool:
 def memory_card(memory: Memory, current: int | None = None, total: int | None = None) -> None:
     label = f"Memory {current} of {total}" if current and total else memory.status
     print(f"\n{paint('2', '─' * 72)}")
-    print(paint("1", memory.title))
-    print(paint("2", f"{label} · {memory.source} · {memory.project or 'general'}"))
+    print(paint("1", memory.title.translate(CONTROL_CHARACTERS)))
+    metadata = f"{label} · {memory.source} · {memory.project or 'general'}"
+    print(paint("2", metadata.translate(CONTROL_CHARACTERS)))
     print()
     body = memory.content
     if len(body) > 1800:
         body = body[:1800].rstrip() + "\n…"
     for paragraph in body.splitlines():
+        paragraph = paragraph.translate(CONTROL_CHARACTERS)
         print(textwrap.fill(paragraph, width=78) if paragraph else "")
