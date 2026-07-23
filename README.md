@@ -28,6 +28,7 @@ lore review launch --status private  # revisit a prior decision
 lore search "failed launch"   # SQLite full-text recall
 lore price 0.50               # advertise a fixed answer price
 lore status
+lore blueprint show            # see the shape of your lore, once captured
 ```
 
 Set `LORE_HOME` to use a location other than `~/.lore`. Lore also respects
@@ -57,6 +58,22 @@ or edit either agent's native memory.
 
 Remote Claude routines cannot read local memory files, so choose **Local** for this
 workflow. Keep the machine and desktop app running when a local task is due.
+
+## Gamified onboarding
+
+The `lore-onboarding` skill (`skills/lore-onboarding/SKILL.md`) runs a persona-driven
+interview inside a Claude or Codex session: pick an archetype — Storyteller, elementary
+schoolteacher, college professor, business executive, or wise sage — and it seeds how your
+lore is organized (chronological, by theme, by project, or by knowledge), how deep it goes,
+and how you like to tell it. The result is captured with:
+
+```sh
+lore blueprint apply <file>   # validate and persist the interview's output
+lore blueprint show           # see your lore map
+```
+
+This is additive to `lore setup` and does not change what automated synthesis writes. See
+`docs/gamified-onboarding.md` for the full design.
 
 ## The idea
 
@@ -268,6 +285,9 @@ Lore MCP is the connective layer between personal memory, agent discovery, owner
 ├── memories/
 │   ├── claude/             # Claude-generated synthesis
 │   └── codex/              # Codex-generated synthesis
+└── blueprint/
+    ├── blueprint.json      # captured shape of your lore (persona, axis, topics)
+    └── lore-map.md         # human-readable rendering of the blueprint
 ```
 
 Source memory remains in the agent's directory. Lore stores its imported copy,

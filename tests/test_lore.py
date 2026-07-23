@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 import stat
 import tempfile
@@ -10,12 +11,25 @@ from pathlib import Path
 from subprocess import CompletedProcess
 from unittest.mock import patch
 
-from lore import automation
-from lore.cli import configure_automation, manual, price, review
+from lore import automation, blueprint
+from lore.cli import blueprint_apply, blueprint_show, configure_automation, manual, price, review
 from lore.mcp import call_tool, dispatch, http
 from lore.sources import scan
 from lore.store import Memory, Store
 from lore.ui import memory_card
+
+
+def _blueprint_input(*, persona: str = "professor", name: str = "Ada") -> dict:
+    """Build a minimal, valid blueprint interview payload for tests."""
+    return {
+        "version": 1,
+        "name": name,
+        "persona": persona,
+        "topic_outline": ["distributed systems", "consensus"],
+        "focus_topics": ["consensus tradeoffs"],
+        "general_areas": ["intro networking"],
+        "storytelling": "Short claim-plus-evidence notes; lecture tone.",
+    }
 
 
 class LoreTest(unittest.TestCase):
@@ -201,6 +215,163 @@ class LoreTest(unittest.TestCase):
         text = response["result"]["content"][0]["text"]  # type: ignore[index]
         self.assertIn("Public lesson", text)
         self.assertNotIn("Private lesson", text)
+
+    def _write_blueprint_input(self, data: dict) -> Path:
+        path = Path(os.environ["LORE_HOME"]) / "blueprint-input.json"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(data))
+        return path
+
+    def test_blueprint_apply_happy_path(self) -> None:
+        data = _blueprint_input()
+        data["topic_outline"] = ["distributed systems", "consensus", "distributed systems"]
+        path = self._write_blueprint_input(data)
+        result = blueprint.apply(path)
+        self.assertEqual(result["version"], 1)
+        self.assertEqual(result["name"], "Ada")
+        self.assertEqual(result["persona"], "professor")
+        self.assertIn("captured_at", result)
+        self.assertEqual(result["topic_outline"], ["distributed systems", "consensus"])
+
+    def test_blueprint_persona_seeds_axis_when_omitted(self) -> None:
+        result = blueprint.normalize(_blueprint_input(persona="professor"))
+        self.assertEqual(result["organizing_axis"], "knowledge")
+
+    def test_blueprint_axis_override_wins(self) -> None:
+        data = _blueprint_input(persona="professor")
+        data["organizing_axis"] = "chronological"
+        result = blueprint.normalize(data)
+        self.assertEqual(result["organizing_axis"], "chronological")
+
+    def test_blueprint_resolved_structure_matches_persona(self) -> None:
+        result = blueprint.normalize(_blueprint_input(persona="executive"))
+        profile = blueprint.PERSONA_PROFILES["executive"]
+        self.assertEqual(result["depth_default"], profile["depth_default"])
+        self.assertEqual(result["section_labels"], profile["section_labels"])
+
+    def test_blueprint_registry_is_complete_for_every_persona(self) -> None:
+        for persona in blueprint.PERSONAS:
+            profile = blueprint.PERSONA_PROFILES[persona]
+            self.assertIn(profile["axis"], blueprint.AXES)
+            self.assertTrue(profile["depth_default"])
+            self.assertEqual(
+                set(profile["section_labels"]), {"outline", "focus", "general", "voice"}
+            )
+
+    def test_blueprint_rejects_command_authored_fields(self) -> None:
+        for field, value in (
+            ("captured_at", "2020-01-01T00:00:00Z"),
+            ("depth_default", "deep"),
+            ("section_labels", {}),
+        ):
+            data = _blueprint_input()
+            data[field] = value
+            with self.assertRaisesRegex(ValueError, "unexpected blueprint field"):
+                blueprint.normalize(data)
+
+    def test_blueprint_files_are_owner_private(self) -> None:
+        blueprint.apply(self._write_blueprint_input(_blueprint_input()))
+        self.assertEqual(stat.S_IMODE(blueprint.blueprint_path().stat().st_mode), 0o600)
+        self.assertEqual(stat.S_IMODE(blueprint.lore_map_path().stat().st_mode), 0o600)
+        self.assertEqual(stat.S_IMODE(blueprint.blueprint_path().parent.stat().st_mode), 0o700)
+
+    def test_blueprint_rejects_unknown_persona(self) -> None:
+        data = _blueprint_input()
+        data["persona"] = "wizard"
+        with self.assertRaisesRegex(ValueError, "unknown persona"):
+            blueprint.normalize(data)
+
+    def test_blueprint_rejects_bad_axis_and_version(self) -> None:
+        data = _blueprint_input()
+        data["organizing_axis"] = "alphabetical"
+        with self.assertRaisesRegex(ValueError, "unknown organizing axis"):
+            blueprint.normalize(data)
+        data = _blueprint_input()
+        data["version"] = 2
+        with self.assertRaisesRegex(ValueError, "unsupported blueprint version"):
+            blueprint.normalize(data)
+
+    def test_blueprint_rejects_missing_required(self) -> None:
+        data = _blueprint_input()
+        data["name"] = "   "
+        with self.assertRaisesRegex(ValueError, "name cannot be empty"):
+            blueprint.normalize(data)
+        data = _blueprint_input()
+        data["topic_outline"] = []
+        with self.assertRaisesRegex(ValueError, "topic_outline cannot be empty"):
+            blueprint.normalize(data)
+
+    def test_blueprint_normalizes_lists(self) -> None:
+        data = _blueprint_input()
+        data["topic_outline"] = ["  a  ", "", "a", "b"]
+        result = blueprint.normalize(data)
+        self.assertEqual(result["topic_outline"], ["a", "b"])
+
+    def test_blueprint_overwrite_is_idempotent(self) -> None:
+        blueprint.apply(self._write_blueprint_input(_blueprint_input(name="Ada")))
+        result = blueprint.apply(self._write_blueprint_input(_blueprint_input(name="Grace")))
+        self.assertEqual(result["name"], "Grace")
+        self.assertEqual(blueprint.load_blueprint()["name"], "Grace")
+        self.assertEqual(stat.S_IMODE(blueprint.blueprint_path().stat().st_mode), 0o600)
+
+    def test_lore_map_render_uses_persona_section_labels(self) -> None:
+        result = blueprint.normalize(_blueprint_input(persona="professor"))
+        rendered = blueprint.render_map(result)
+        self.assertIn("Professor Ada", rendered)
+        self.assertIn("Course outline", rendered)
+        self.assertIn("distributed systems", rendered)
+        self.assertIn("Deep dives", rendered)
+        self.assertIn("Short claim-plus-evidence", rendered)
+
+    def test_blueprint_sanitizes_control_characters(self) -> None:
+        data = _blueprint_input()
+        data["name"] = "Bad\x1b[2J"
+        data["storytelling"] = "Body\x07 text"
+        result = blueprint.normalize(data)
+        rendered = blueprint.render_map(result)
+        self.assertNotIn("\x1b", rendered)
+        self.assertNotIn("\x07", rendered)
+
+    def test_blueprint_show_without_blueprint(self) -> None:
+        output = StringIO()
+        with redirect_stdout(output):
+            self.assertEqual(blueprint_show(), 0)
+        self.assertIn("No blueprint yet", output.getvalue())
+
+    def test_blueprint_cli_apply_and_show(self) -> None:
+        path = self._write_blueprint_input(_blueprint_input(persona="storyteller"))
+        output = StringIO()
+        with redirect_stdout(output):
+            self.assertEqual(blueprint_apply(str(path)), 0)
+        self.assertIn("captured", output.getvalue().lower())
+        output = StringIO()
+        with redirect_stdout(output):
+            self.assertEqual(blueprint_show(), 0)
+        self.assertIn("Chapters", output.getvalue())
+
+    def test_build_prompt_ignores_blueprint(self) -> None:
+        blueprint.apply(self._write_blueprint_input(_blueprint_input()))
+        profile = {
+            "role": "maintainer",
+            "domains": "",
+            "valuable_context": "",
+            "preferences": "",
+            "boundaries": "",
+            "agents": [],
+            "models": {},
+            "cadence": "daily",
+            "hour": 21,
+        }
+        prompt = automation.build_prompt("codex", profile)
+        for marker in (
+            "organizing_axis",
+            "topic_outline",
+            "section_labels",
+            "depth_default",
+            "professor",
+            "distributed systems",
+        ):
+            self.assertNotIn(marker, prompt)
 
 
 if __name__ == "__main__":
