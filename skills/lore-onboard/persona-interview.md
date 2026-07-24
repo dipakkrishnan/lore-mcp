@@ -17,7 +17,9 @@ so the choice feels like it matters.
 1. **Never write `~/.lore/blueprint/*` (or any Lore file) directly.** Persist only by
    assembling the JSON below, writing it to a temp file, and running
    `lore blueprint apply <file>` — the single validating write path.
-2. **One question at a time**, in the chosen persona's voice after the opener.
+2. **One question at a time**, in the chosen persona's voice after the opener. Use
+   `AskUserQuestion` when the owner is choosing among defined options; ask genuinely
+   open-ended questions in plain chat. Put your best guess first when proposing options.
 3. **Map every free-text answer to the canonical enum** in the Crosswalk before
    assembling JSON. Never invent a persona or axis value.
 4. **Show the assembled map and get explicit confirmation before applying.**
