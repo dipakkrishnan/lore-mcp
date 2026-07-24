@@ -152,6 +152,16 @@ class LoreTest(unittest.TestCase):
         automation.save_profile({**profile, "agents": ["codex"]})
         self.assertFalse((automation.profile_path().parent / "claude-prompt.md").exists())
 
+    def test_save_profile_drops_checkpoint_only_fields(self) -> None:
+        automation.save_profile({
+            "role": "maintainer", "agents": ["codex"],
+            "phase1_done": True, "backfill_weeks": 8, "backfill_done": ["week"],
+        })
+        saved = json.loads(automation.profile_path().read_text())
+        self.assertEqual(saved["role"], "maintainer")
+        for leaked in ("phase1_done", "backfill_weeks", "backfill_done"):
+            self.assertNotIn(leaked, saved)
+
     def test_setup_configures_only_installed_agents(self) -> None:
         installed = lambda agent: f"/bin/{agent}" if agent == "codex" else None
         with (

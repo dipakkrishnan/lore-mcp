@@ -8,6 +8,13 @@ from pathlib import Path
 from .paths import claude_home, codex_home, home
 
 PROFILE = "automation/profile.json"
+# Fields that belong in profile.json. The onboarding checkpoint reuses this file to
+# carry its own state (phase1_done, backfill_done, ...); persist only these so that
+# state never leaks into the profile the synthesis prompts read.
+PROFILE_FIELDS = (
+    "role", "domains", "valuable_context", "preferences",
+    "boundaries", "agents", "models", "cadence", "hour",
+)
 AGENTS = ("claude", "codex")
 SETUP_MARKER = "LORE_SETUP_COMPLETE"
 AUTOMATION_ID = "lore-memory-synthesis"
@@ -20,6 +27,7 @@ def profile_path() -> Path:
 
 def save_profile(profile: dict[str, object]) -> None:
     """Persist a profile and regenerate each selected agent's task prompt."""
+    profile = {key: profile[key] for key in PROFILE_FIELDS if key in profile}
     agents = profile.get("agents", [])
     if not isinstance(agents, list) or any(agent not in AGENTS for agent in agents):
         raise ValueError("automation profile contains an unknown agent")

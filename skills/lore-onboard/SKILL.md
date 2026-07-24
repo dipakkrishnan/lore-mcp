@@ -98,9 +98,9 @@ Before the `valuable_context` question, state the stakes plainly, once:
 > answers over MCP. Everything still lands as `pending` for your review — no memory
 > becomes external without you marking it.
 
-Then `boundaries` (default: secrets and third-party private data), agents to configure,
-cadence, and hour. Keep the pass under six exchanges. Free-text only on "Other". Write
-the checkpoint after each answer.
+Then `boundaries` (default: secrets and third-party private data). Combine agents +
+cadence + hour into one final scheduling exchange — that keeps the whole pass to about
+five questions. Free-text only on "Other". Write the checkpoint after each answer.
 
 ## 4. Save and schedule
 
@@ -125,8 +125,23 @@ sessions and write **one** file:
 ~/.lore/memories/claude/<YYYYMMDD>T000000Z.md
 ```
 
-Use the section shape in `~/.lore/automation/claude-prompt.md` — the same shape the
-recurring task writes, so backfill and steady state are indistinguishable downstream.
+Use this shape — the same one the recurring synthesis task writes, so backfill and steady
+state are indistinguishable downstream (omit empty sections):
+
+```
+# Memory synthesis — YYYY-MM-DD
+## Opinions and preferences
+- Claim. Evidence: concise remembered behavior or decision.
+## Decisions and rationale
+- Claim. Evidence: concise remembered behavior or decision.
+## Failures and lessons
+- Claim. Evidence: concise remembered behavior or decision.
+## Firsthand expertise
+- Claim. Evidence: concise remembered behavior or decision.
+## Open questions
+- Anything uncertain the owner should verify.
+```
+
 Let the blueprint's `focus_topics` decide what gets a paragraph vs. a line. Claims carry
 evidence. Paraphrase; never paste conversation. Honor `boundaries`.
 
