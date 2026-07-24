@@ -5,7 +5,9 @@ import json
 import math
 import shutil
 import sys
+from pathlib import Path
 
+from . import blueprint as blueprint_module
 from .sources import available_sources, scan
 from .store import STATUSES, Store
 from .ui import ask, confirm, heading, logo, memory_card, muted, success
@@ -18,6 +20,7 @@ def parser() -> argparse.ArgumentParser:
 
     setup = commands.add_parser("setup", help="guided first-time setup")
     setup.add_argument("--yes", action="store_true", help="enable detected sources without prompting")
+    setup.add_argument("--no-automation", action="store_true", help="import only; leave synthesis to `lore profile`")
 
     sync = commands.add_parser("sync", help="import new and changed memories")
     sync.add_argument("--source", action="append", choices=[s.name for s in available_sources()])
@@ -33,6 +36,10 @@ def parser() -> argparse.ArgumentParser:
     search.add_argument("--limit", type=int, default=20, help="maximum results; 0 means all")
     search.add_argument("--json", action="store_true")
 
+    profile = commands.add_parser("profile", help="save an agent-written synthesis profile")
+    profile.add_argument("path", help="JSON profile file; use - for stdin")
+    profile.add_argument("--no-schedule", action="store_true", help="write the profile without installing schedules")
+
     commands.add_parser("status", help="show source and review status")
     commands.add_parser("help", help="show the Lore workflow manual")
     price = commands.add_parser("price", help="show or set the fixed answer price")
@@ -42,6 +49,14 @@ def parser() -> argparse.ArgumentParser:
     serve.add_argument("--host", default="127.0.0.1")
     serve.add_argument("--port", type=int, default=8765)
     serve.add_argument("--token")
+
+    blueprint = commands.add_parser("blueprint", help="capture the shape of your lore")
+    blueprint_commands = blueprint.add_subparsers(dest="blueprint_command")
+    blueprint_apply = blueprint_commands.add_parser(
+        "apply", help="validate and persist a blueprint file"
+    )
+    blueprint_apply.add_argument("file", help="path to a blueprint JSON file")
+    blueprint_commands.add_parser("show", help="show the current lore map")
     return root
 
 
@@ -54,13 +69,15 @@ def main(argv: list[str] | None = None) -> int:
         args = parser().parse_args(["status"])
     try:
         if args.command == "setup":
-            return setup(args.yes)
+            return setup(args.yes, not args.no_automation)
         if args.command == "sync":
             return sync(set(args.source) if args.source else None)
         if args.command == "review":
             return review(" ".join(args.query), args.status, args.limit)
         if args.command == "search":
             return search(" ".join(args.query), args.status, args.limit, args.json)
+        if args.command == "profile":
+            return profile(args.path, not args.no_schedule)
         if args.command == "status":
             return status()
         if args.command == "help":
@@ -74,6 +91,10 @@ def main(argv: list[str] | None = None) -> int:
             if args.token:
                 serve_args.extend(["--token", args.token])
             return serve(serve_args)
+        if args.command == "blueprint":
+            if args.blueprint_command == "apply":
+                return blueprint_apply(args.file)
+            return blueprint_show()
     except (KeyboardInterrupt, EOFError):
         print("\nCancelled.")
         return 130
@@ -127,13 +148,17 @@ def manual() -> int:
   7. lore serve
      Start the MCP endpoint used by local agents or a protected gateway.
 
+  8. lore blueprint show
+     See the shape of your lore captured by the gamified onboarding skill
+     (run `lore blueprint apply <file>` from that skill to update it).
+
 Use `lore <command> --help` for command-specific options.
 """
     )
     return 0
 
 
-def setup(yes: bool = False) -> int:
+def setup(yes: bool = False, automate: bool = True) -> int:
     """Choose native memory sources and perform the first import."""
     logo()
     muted("Lore imports only agent-generated memory files. Session transcripts stay untouched.")
@@ -150,7 +175,8 @@ def setup(yes: bool = False) -> int:
         store.set_setting("sources", enabled)
         report = scan(store, set(enabled))
     total = sum(item["added"] + item["updated"] for item in report.values())
-    configure_automation(yes)
+    if automate:
+        configure_automation(yes)
     heading("Ready")
     success(f"Imported {total} candidate memories")
     print("Run `lore review` to classify them and `lore search <words>` to recall them.")
@@ -255,6 +281,46 @@ def price(amount: float | None) -> int:
     return 0
 
 
+def profile(path: str, schedule: bool = True) -> int:
+    """Save a profile written by an onboarding agent and install its schedules."""
+    from . import automation
+
+    text = sys.stdin.read() if path == "-" else Path(path).read_text(encoding="utf-8")
+    data = json.loads(text)
+    if not isinstance(data, dict):
+        raise ValueError("profile must be a JSON object")
+    automation.save_profile(data)
+    success(f"Saved profile to {automation.profile_path()}")
+    if not schedule:
+        return 0
+    for agent in data.get("agents", []):
+        automation.install(agent, data)
+        success(f"Configured {agent.title()} native schedule")
+    return 0
+
+
+def blueprint_apply(file: str) -> int:
+    """Validate and persist a blueprint file written by the onboarding skill."""
+    blueprint_module.apply(file)
+    success("Lore blueprint captured")
+    print(f"Run `lore blueprint show` to see your lore map, at {blueprint_module.lore_map_path()}")
+    return 0
+
+
+def blueprint_show() -> int:
+    """Print the current lore map, or the raw blueprint, or a first-run nudge."""
+    map_path = blueprint_module.lore_map_path()
+    if map_path.exists():
+        print(map_path.read_text(encoding="utf-8"))
+        return 0
+    current = blueprint_module.load_blueprint()
+    if current is not None:
+        print(json.dumps(current, indent=2))
+        return 0
+    print("No blueprint yet. Run the lore-onboard skill inside Claude or Codex.")
+    return 0
+
+
 def configure_automation(yes: bool) -> None:
     """Configure native synthesis during the main setup flow."""
     from . import automation
@@ -303,5 +369,5 @@ def configure_automation(yes: bool) -> None:
     }
     automation.save_profile(profile)
     for agent in agents:
-        automation.run_setup(agent, profile)
+        automation.install(agent, profile)
         success(f"Configured {agent.title()} native schedule")
