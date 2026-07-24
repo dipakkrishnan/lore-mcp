@@ -19,7 +19,7 @@ if [ -n "${LORE_SOURCE_DIR:-}" ]; then
 else
   command -v curl >/dev/null 2>&1 || { echo "Lore needs curl." >&2; exit 1; }
   command -v tar >/dev/null 2>&1 || { echo "Lore needs tar." >&2; exit 1; }
-  echo "Downloading Lore $VERSION…"
+  echo "Downloading Lore $VERSION..."
   curl -fsSL "https://github.com/$REPOSITORY/archive/$VERSION.tar.gz" -o "$TMP_DIR/lore.tar.gz"
   tar -xzf "$TMP_DIR/lore.tar.gz" -C "$TMP_DIR"
   SOURCE_DIR="$(find "$TMP_DIR" -mindepth 1 -maxdepth 1 -type d | head -n 1)"
