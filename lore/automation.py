@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import subprocess
+import time
 from pathlib import Path
 
 from .paths import claude_home, codex_home, home
@@ -9,6 +10,7 @@ from .paths import claude_home, codex_home, home
 PROFILE = "automation/profile.json"
 AGENTS = ("claude", "codex")
 SETUP_MARKER = "LORE_SETUP_COMPLETE"
+AUTOMATION_ID = "lore-memory-synthesis"
 
 
 def profile_path() -> Path:
@@ -94,10 +96,52 @@ file, run `lore sync --source {source}`. Do not modify the agent's native memory
 """
 
 
+def install(agent: str, profile: dict[str, object]) -> str:
+    """Install one agent's recurring synthesis task."""
+    if agent == "codex":
+        return install_codex(profile)
+    return run_setup(agent, profile)
+
+
+def codex_automation_path() -> Path:
+    """Return the Codex automation definition Lore owns."""
+    return codex_home() / "automations" / AUTOMATION_ID / "automation.toml"
+
+
+def install_codex(profile: dict[str, object]) -> str:
+    """Write the Codex automation definition directly; Codex owns no registry."""
+    hour = max(0, min(int(profile.get("hour", 21)), 23))
+    weekly = str(profile.get("cadence", "daily")) == "weekly"
+    rrule = f"FREQ={'WEEKLY;BYDAY=MO' if weekly else 'DAILY'};BYHOUR={hour};BYMINUTE=0"
+    models = profile.get("models", {})
+    model = models.get("codex") if isinstance(models, dict) else None
+    now = int(time.time() * 1000)
+    path = codex_automation_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    # json.dumps emits a valid TOML basic string: same escapes, same quoting.
+    lines = [
+        "version = 1",
+        f'id = "{AUTOMATION_ID}"',
+        'kind = "cron"',
+        'name = "Lore memory synthesis"',
+        f"prompt = {json.dumps(build_prompt('codex', profile))}",
+        'status = "ACTIVE"',
+        f'rrule = "{rrule}"',
+        *([f'model = "{model}"'] if model else []),
+        'execution_environment = "local"',
+        'target = { type = "projectless" }',
+        f'cwds = ["{home()}"]',
+        f"created_at = {now}",
+        f"updated_at = {now}",
+    ]
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    return f"Wrote {path}"
+
+
 def setup_prompt(agent: str, profile: dict[str, object]) -> str:
-    """Build the one-time agent request that installs the native schedule."""
-    if agent not in AGENTS:
-        raise ValueError(f"unknown agent: {agent}")
+    """Build the one-time agent request that installs Claude's native schedule."""
+    if agent != "claude":
+        raise ValueError(f"no agent setup prompt for: {agent}")
     cadence = str(profile.get("cadence", "daily"))
     hour = int(profile.get("hour", 21))
     models = profile.get("models", {})
@@ -108,7 +152,7 @@ def setup_prompt(agent: str, profile: dict[str, object]) -> str:
         else f"daily at {hour}:00 local time"
     )
     model_instruction = f"Use model {model}." if model else "Use the native default model."
-    platform = "Codex Scheduled" if agent == "codex" else "Claude Desktop Local"
+    platform = "Claude Desktop Local"
     return f"""Create or update the native {platform} task named "Lore memory synthesis".
 
 Run it {schedule}. {model_instruction}
@@ -131,27 +175,14 @@ def setup_command(agent: str, profile: dict[str, object]) -> list[str]:
     prompt = setup_prompt(agent, profile)
     models = profile.get("models", {})
     model = models.get(agent) if isinstance(models, dict) else None
-    if agent == "codex":
-        command = [
-            "codex",
-            "exec",
-            "--skip-git-repo-check",
-            "--sandbox",
-            "workspace-write",
-            "--cd",
-            str(home()),
-            "--add-dir",
-            str(codex_home()),
-        ]
-    else:
-        command = [
-            "claude",
-            "-p",
-            "--permission-mode",
-            "auto",
-            "--add-dir",
-            str(claude_home()),
-        ]
+    command = [
+        "claude",
+        "-p",
+        "--permission-mode",
+        "auto",
+        "--add-dir",
+        str(claude_home()),
+    ]
     if model:
         command.extend(["--model", str(model)])
     return [*command, "--", prompt]

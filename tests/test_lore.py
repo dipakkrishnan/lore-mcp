@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import stat
 import tempfile
+import tomllib
 import unittest
 from contextlib import redirect_stdout
 from io import StringIO
@@ -100,27 +101,34 @@ class LoreTest(unittest.TestCase):
         self.assertIn("lore search --status private", prompt)
         self.assertIn("lore sync --source automation-codex", prompt)
         self.assertNotIn("sessions", prompt)
-        setup = automation.setup_prompt("codex", profile)
+        setup = automation.setup_prompt("claude", profile)
         self.assertIn("weekly at 9:00 local time", setup)
-        self.assertIn("Use model gpt-test", setup)
-        codex = automation.setup_command("codex", profile)
+        self.assertIn("Use model opus", setup)
         claude = automation.setup_command("claude", profile)
-        self.assertEqual(codex[:2], ["codex", "exec"])
-        self.assertIn(os.environ["CODEX_HOME"], codex)
         self.assertEqual(claude[:2], ["claude", "-p"])
         self.assertIn(os.environ["CLAUDE_HOME"], claude)
-        self.assertEqual(codex[-2], "--")
-        self.assertIn("LORE_SETUP_COMPLETE", codex[-1])
+        self.assertEqual(claude[-2], "--")
+        self.assertIn("LORE_SETUP_COMPLETE", claude[-1])
 
-        completed = CompletedProcess(codex, 0, "LORE_SETUP_COMPLETE", "")
+        automation.install("codex", profile)
+        definition = automation.codex_automation_path().read_text()
+        self.assertIn('id = "lore-memory-synthesis"', definition)
+        self.assertIn('rrule = "FREQ=WEEKLY;BYDAY=MO;BYHOUR=9;BYMINUTE=0"', definition)
+        self.assertIn('model = "gpt-test"', definition)
+        self.assertIn('execution_environment = "local"', definition)
+        self.assertEqual(
+            tomllib.loads(definition)["prompt"], automation.build_prompt("codex", profile)
+        )
+
+        completed = CompletedProcess(claude, 0, "LORE_SETUP_COMPLETE", "")
         with patch("lore.automation.subprocess.run", return_value=completed) as run:
-            self.assertIn("LORE_SETUP_COMPLETE", automation.run_setup("codex", profile))
+            self.assertIn("LORE_SETUP_COMPLETE", automation.install("claude", profile))
             self.assertEqual(run.call_args.kwargs["cwd"], Path(os.environ["LORE_HOME"]))
             self.assertEqual(run.call_args.kwargs["timeout"], 300)
-        failed = CompletedProcess(codex, 0, "Could not configure it", "")
+        failed = CompletedProcess(claude, 0, "Could not configure it", "")
         with patch("lore.automation.subprocess.run", return_value=failed):
             with self.assertRaisesRegex(OSError, "Could not configure"):
-                automation.run_setup("codex", profile)
+                automation.install("claude", profile)
 
         for path in (
             automation.profile_path(),
@@ -134,7 +142,7 @@ class LoreTest(unittest.TestCase):
         installed = lambda agent: f"/bin/{agent}" if agent == "codex" else None
         with (
             patch("lore.cli.shutil.which", side_effect=installed),
-            patch("lore.automation.run_setup") as run_setup,
+            patch("lore.automation.install") as run_setup,
             redirect_stdout(StringIO()),
         ):
             configure_automation(True)

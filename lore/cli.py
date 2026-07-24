@@ -5,6 +5,7 @@ import json
 import math
 import shutil
 import sys
+from pathlib import Path
 
 from .sources import available_sources, scan
 from .store import STATUSES, Store
@@ -18,6 +19,7 @@ def parser() -> argparse.ArgumentParser:
 
     setup = commands.add_parser("setup", help="guided first-time setup")
     setup.add_argument("--yes", action="store_true", help="enable detected sources without prompting")
+    setup.add_argument("--no-automation", action="store_true", help="import only; leave synthesis to `lore profile`")
 
     sync = commands.add_parser("sync", help="import new and changed memories")
     sync.add_argument("--source", action="append", choices=[s.name for s in available_sources()])
@@ -32,6 +34,10 @@ def parser() -> argparse.ArgumentParser:
     search.add_argument("--status", choices=STATUSES)
     search.add_argument("--limit", type=int, default=20, help="maximum results; 0 means all")
     search.add_argument("--json", action="store_true")
+
+    profile = commands.add_parser("profile", help="save an agent-written synthesis profile")
+    profile.add_argument("path", help="JSON profile file; use - for stdin")
+    profile.add_argument("--no-schedule", action="store_true", help="write the profile without installing schedules")
 
     commands.add_parser("status", help="show source and review status")
     commands.add_parser("help", help="show the Lore workflow manual")
@@ -54,13 +60,15 @@ def main(argv: list[str] | None = None) -> int:
         args = parser().parse_args(["status"])
     try:
         if args.command == "setup":
-            return setup(args.yes)
+            return setup(args.yes, not args.no_automation)
         if args.command == "sync":
             return sync(set(args.source) if args.source else None)
         if args.command == "review":
             return review(" ".join(args.query), args.status, args.limit)
         if args.command == "search":
             return search(" ".join(args.query), args.status, args.limit, args.json)
+        if args.command == "profile":
+            return profile(args.path, not args.no_schedule)
         if args.command == "status":
             return status()
         if args.command == "help":
@@ -133,7 +141,7 @@ Use `lore <command> --help` for command-specific options.
     return 0
 
 
-def setup(yes: bool = False) -> int:
+def setup(yes: bool = False, automate: bool = True) -> int:
     """Choose native memory sources and perform the first import."""
     logo()
     muted("Lore imports only agent-generated memory files. Session transcripts stay untouched.")
@@ -150,7 +158,8 @@ def setup(yes: bool = False) -> int:
         store.set_setting("sources", enabled)
         report = scan(store, set(enabled))
     total = sum(item["added"] + item["updated"] for item in report.values())
-    configure_automation(yes)
+    if automate:
+        configure_automation(yes)
     heading("Ready")
     success(f"Imported {total} candidate memories")
     print("Run `lore review` to classify them and `lore search <words>` to recall them.")
@@ -255,6 +264,24 @@ def price(amount: float | None) -> int:
     return 0
 
 
+def profile(path: str, schedule: bool = True) -> int:
+    """Save a profile written by an onboarding agent and install its schedules."""
+    from . import automation
+
+    text = sys.stdin.read() if path == "-" else Path(path).read_text(encoding="utf-8")
+    data = json.loads(text)
+    if not isinstance(data, dict):
+        raise ValueError("profile must be a JSON object")
+    automation.save_profile(data)
+    success(f"Saved profile to {automation.profile_path()}")
+    if not schedule:
+        return 0
+    for agent in data.get("agents", []):
+        automation.install(agent, data)
+        success(f"Configured {agent.title()} native schedule")
+    return 0
+
+
 def configure_automation(yes: bool) -> None:
     """Configure native synthesis during the main setup flow."""
     from . import automation
@@ -303,5 +330,5 @@ def configure_automation(yes: bool) -> None:
     }
     automation.save_profile(profile)
     for agent in agents:
-        automation.run_setup(agent, profile)
+        automation.install(agent, profile)
         success(f"Configured {agent.title()} native schedule")
