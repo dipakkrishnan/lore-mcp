@@ -24,8 +24,18 @@ lore setup --yes --no-automation  # import existing agent memory files now; no p
 ```
 
 `--no-automation` matters: plain `lore setup` runs the blank-question flow this skill
-replaces. If `lore` is missing, stop and point at `install.sh`. Everything below assumes
-`~/.lore` (or `$LORE_HOME`).
+replaces. Everything below assumes `~/.lore` (or `$LORE_HOME`).
+
+If `lore status` fails because `lore` is missing, install it first — tell the user, then:
+
+```sh
+LORE_SKIP_SETUP=1 sh install.sh   # in the repo; else the curl one-liner from the README
+export PATH="$HOME/.local/bin:$PATH"
+```
+
+`LORE_SKIP_SETUP=1` matters: install.sh otherwise ends by running the bare `lore setup`
+this skill replaces. If install fails (no `python3`, no `curl`), stop and report — don't
+retry-loop.
 
 Checkpoint file: `$LORE_HOME/automation/onboarding.json`. **Read it first.** If it
 exists, tell the user what is already done and resume — never re-ask an answered
