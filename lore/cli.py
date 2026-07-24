@@ -7,6 +7,7 @@ import shutil
 import sys
 from pathlib import Path
 
+from . import blueprint as blueprint_module
 from .sources import available_sources, scan
 from .store import STATUSES, Store
 from .ui import ask, confirm, heading, logo, memory_card, muted, success
@@ -48,6 +49,14 @@ def parser() -> argparse.ArgumentParser:
     serve.add_argument("--host", default="127.0.0.1")
     serve.add_argument("--port", type=int, default=8765)
     serve.add_argument("--token")
+
+    blueprint = commands.add_parser("blueprint", help="capture the shape of your lore")
+    blueprint_commands = blueprint.add_subparsers(dest="blueprint_command")
+    blueprint_apply = blueprint_commands.add_parser(
+        "apply", help="validate and persist a blueprint file"
+    )
+    blueprint_apply.add_argument("file", help="path to a blueprint JSON file")
+    blueprint_commands.add_parser("show", help="show the current lore map")
     return root
 
 
@@ -82,6 +91,10 @@ def main(argv: list[str] | None = None) -> int:
             if args.token:
                 serve_args.extend(["--token", args.token])
             return serve(serve_args)
+        if args.command == "blueprint":
+            if args.blueprint_command == "apply":
+                return blueprint_apply(args.file)
+            return blueprint_show()
     except (KeyboardInterrupt, EOFError):
         print("\nCancelled.")
         return 130
@@ -134,6 +147,10 @@ def manual() -> int:
 
   7. lore serve
      Start the MCP endpoint used by local agents or a protected gateway.
+
+  8. lore blueprint show
+     See the shape of your lore captured by the gamified onboarding skill
+     (run `lore blueprint apply <file>` from that skill to update it).
 
 Use `lore <command> --help` for command-specific options.
 """
@@ -279,6 +296,28 @@ def profile(path: str, schedule: bool = True) -> int:
     for agent in data.get("agents", []):
         automation.install(agent, data)
         success(f"Configured {agent.title()} native schedule")
+    return 0
+
+
+def blueprint_apply(file: str) -> int:
+    """Validate and persist a blueprint file written by the onboarding skill."""
+    blueprint_module.apply(file)
+    success("Lore blueprint captured")
+    print(f"Run `lore blueprint show` to see your lore map, at {blueprint_module.lore_map_path()}")
+    return 0
+
+
+def blueprint_show() -> int:
+    """Print the current lore map, or the raw blueprint, or a first-run nudge."""
+    map_path = blueprint_module.lore_map_path()
+    if map_path.exists():
+        print(map_path.read_text(encoding="utf-8"))
+        return 0
+    current = blueprint_module.load_blueprint()
+    if current is not None:
+        print(json.dumps(current, indent=2))
+        return 0
+    print("No blueprint yet. Run the lore-onboard skill inside Claude or Codex.")
     return 0
 
 
