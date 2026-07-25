@@ -10,8 +10,8 @@ allowed to write `INDEX.md`. Read `AGENTS.md` for the shared rules first.
    `_template/`).
 2. **Validate each item's frontmatter:**
    - All required fields present (`id`, `title`, `priority`, `effort`,
-     `component`, `status`, `related`, `blockers`, `dependencies`, `created`,
-     `updated`).
+     `component`, `status`, `related`, `blockers`, `dependencies`,
+     `github_issue`, `created`, `updated`).
    - `id` matches the file's own prefix/number and the `component` field
      matches the folder it's actually in.
    - `priority` in `{P0,P1,P2,P3}`, `effort` in `{XS,S,M,L,XL}`, `status` in
@@ -23,7 +23,8 @@ allowed to write `INDEX.md`. Read `AGENTS.md` for the shared rules first.
    just note them. Flag actual duplicates as a hard error.
 4. **Validate cross-references.** Every id listed in `related`, `blockers`,
    or `dependencies` (when it looks like a backlog id) must exist. Flag
-   references to unknown ids.
+   references to unknown ids. Multiple items sharing the same `github_issue`
+   is expected (one issue can split into several items) — not a duplicate.
 5. **Detect blocker cycles.** If A blocks B and B (transitively) blocks A,
    flag it — this is a real problem, not just an audit note, since it makes
    both items impossible to schedule.

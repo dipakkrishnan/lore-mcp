@@ -44,6 +44,7 @@ Copy `_template/item.md` to start one. Frontmatter fields:
 | `related` | ids worth reading together, no ordering implied |
 | `blockers` | ids that must reach `completed` before this can start |
 | `dependencies` | non-backlog prerequisites (external services, decisions, other repos) |
+| `github_issue` | URL of the GitHub issue this item was cataloged from, or `null` |
 | `created` / `updated` | ISO `YYYY-MM-DD` |
 
 Body sections: `## Problem`, `## Proposed approach`, `## Acceptance criteria`,
@@ -80,6 +81,19 @@ task-specific `.md`), and are also invocable as Claude Code skills
 Scheduled jobs that chain these together live in `automation/` — see
 `automation/README.md` to install one as a Claude Code routine or a crontab
 entry.
+
+## GitHub issue cataloging
+
+Open GitHub issues get folded into the backlog the same way any other raw
+idea does — via `ideation` — but with two extra steps once the item(s) exist:
+a comment is left on the issue linking back to the backlog item(s), and the
+issue is labeled `backlog-cataloged` so it's never processed twice. See the
+"Cataloging a GitHub issue" section of `agents/ideation.md` for the exact
+steps, `automation/github-catalog.md` for the scheduled sweep over all open
+issues, and the `backlog-catalog-issue` skill for cataloging one issue on
+demand. This flow needs the `gh` CLI authenticated with at least triage
+access on the target repo (to add labels and comments) — see
+`automation/README.md` for details and current status.
 
 ## Manual workflow (no agent)
 

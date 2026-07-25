@@ -11,6 +11,8 @@ Ideation can be triggered by:
 - A scan for signal: recent `git log` messages that mention deferred work,
   `TODO`/`FIXME` comments, open questions in `## Notes` of existing items,
   or gaps noticed while auditing.
+- An open GitHub issue not yet cataloged — see "Cataloging a GitHub issue"
+  below for the extra steps this input needs.
 
 ## Steps
 
@@ -52,6 +54,44 @@ Ideation can be triggered by:
    so prioritization picks it up. Otherwise leave it at `ideation`.
 9. **Do not touch `INDEX.md` directly.** Run (or hand off to) the `audit`
    playbook to fold the new item in.
+
+## Cataloging a GitHub issue
+
+Same steps as above, with the item's frontmatter and two extra actions
+layered on. Requires the `gh` CLI authenticated with at least triage access
+on the target repo.
+
+1. **Get the issue.** `gh issue view <number> --repo <owner>/<repo> --json
+   number,title,body,url,labels`.
+2. **Dedupe before creating anything.** Search every item file's
+   `github_issue` field for this issue's URL (not just items in the likely
+   component — an earlier pass may have filed it elsewhere). If a match
+   exists, skip straight to step 6 (comment + label) using the existing
+   item(s) — never create a second set of items for an already-cataloged
+   issue.
+3. **Split if the issue bundles unrelated asks.** Most issues become one
+   item; if an issue genuinely describes several distinct pieces of work
+   (different components, or independently completable), create one item
+   per piece rather than one oversized item — normal component/scope rules
+   from the main steps still apply to each.
+4. **Follow the main steps (1-8)** for each item, with one addition: set
+   `github_issue: <issue URL>` in the frontmatter (not left `null`), and add
+   a line to `## Notes` noting it was cataloged from that issue.
+5. **Run (or hand off to) `audit`** to fold the new item(s) into `INDEX.md`
+   before touching GitHub — don't comment/label until the item(s) are
+   actually saved, since the comment links to them.
+6. **Comment on the issue**, linking every item created or matched in step 2:
+   ```sh
+   gh issue comment <number> --repo <owner>/<repo> --body "Picked up in the backlog: <item id>(s), e.g. \`STO-004\` — <relative path(s)>."
+   ```
+7. **Label the issue** `backlog-cataloged` so it's never reprocessed:
+   ```sh
+   gh label create backlog-cataloged --repo <owner>/<repo> \
+     --description "Filed as a lore-mcp backlog item" --color 0E8A16 2>/dev/null || true
+   gh issue edit <number> --repo <owner>/<repo> --add-label backlog-cataloged
+   ```
+   The label-create line is idempotent (ignore "already exists"); the
+   edit line is what actually matters and must not be skipped.
 
 ## What ideation does not do
 

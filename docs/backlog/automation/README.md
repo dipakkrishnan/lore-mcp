@@ -10,9 +10,15 @@ itself, not here.
 | [`groom.md`](./groom.md) | daily | `audit` → `prioritization` |
 | [`ideation-sweep.md`](./ideation-sweep.md) | weekly | `ideation` scan → `audit` |
 | [`delivery.md`](./delivery.md) | weekly, opt-in | `prioritization` → `implementation` (top item only) |
+| [`github-catalog.md`](./github-catalog.md) | every few hours, opt-in | issue scan → `ideation` (per issue) → `audit` |
 
 No schedule is installed by creating these files — pick one of the two
 install paths below for whichever jobs you want running.
+
+`github-catalog` additionally requires the `gh` CLI authenticated with at
+least **triage** access on the target repo (`dipakkrishnan/lore-mcp` —
+check with `gh api repos/dipakkrishnan/lore-mcp --jq .permissions`), since
+it posts comments and adds a label. Read-only access is not enough.
 
 ## Option A: Claude Code routine
 
@@ -43,12 +49,15 @@ Same jobs, run headlessly via the `claude` CLI. This mirrors how
 
 # delivery: weekly, opt-in — uncomment once you're comfortable with unattended implementation
 # 0 4 * * 1 cd /absolute/path/to/lore-mcp && claude -p --permission-mode auto -- "$(cat docs/backlog/automation/delivery.md)" >> /tmp/lore-backlog-delivery.log 2>&1
+
+# github-catalog: every 4 hours, opt-in — uncomment once triage access on dipakkrishnan/lore-mcp is confirmed
+# 0 */4 * * * cd /absolute/path/to/lore-mcp && claude -p --permission-mode auto -- "$(cat docs/backlog/automation/github-catalog.md)" >> /tmp/lore-backlog-github-catalog.log 2>&1
 ```
 
 Replace `/absolute/path/to/lore-mcp` with this repo's actual path. `--permission-mode auto`
-lets the job edit backlog files and (for `delivery`) source files without an
-interactive approval prompt — review its log output regularly, especially
-for `delivery`.
+lets the job edit backlog files and (for `delivery`) source files, or (for
+`github-catalog`) comment/label on GitHub, without an interactive approval
+prompt — review its log output regularly, especially for those two.
 
 ## Adding a new job
 
