@@ -4,7 +4,7 @@ title: Document the docs/backlog system in the top-level README
 priority: P1
 effort: XS
 component: docs
-status: ready
+status: completed
 related: []
 blockers: []
 dependencies: []
@@ -27,11 +27,14 @@ duplication of its contents.
 
 ## Acceptance criteria
 
-- [ ] `README.md` has a short section linking to `docs/backlog/README.md`
-- [ ] The section states what the backlog is for in one sentence, not a
+- [x] `README.md` has a short section linking to `docs/backlog/README.md`
+- [x] The section states what the backlog is for in one sentence, not a
       restatement of its internals
 
 ## Notes
 
 Filed while building the backlog system itself, as a seed item demonstrating
 a small, unblocked, `ready` item.
+
+Added a "Backlog" section to `README.md` right after "Guided onboarding",
+linking to `docs/backlog/README.md`.

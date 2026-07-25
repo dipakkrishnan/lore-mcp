@@ -11,4 +11,4 @@ then `priority` (P0 → P3).
 | ID | Title | Priority | Effort | Component | Status | Related | Blockers | Dependencies |
 |---|---|---|---|---|---|---|---|---|
 | [MON-001](./monetization/MON-001-cloudflare-gateway-deployment-guide.md) | Write a deployment guide for the Cloudflare Tunnel / Monetization Gateway path | P2 | L | monetization | in-review | — | — | Cloudflare account with Tunnel + Monetization Gateway access |
-| [DOC-001](./docs/DOC-001-document-backlog-system-in-readme.md) | Document the docs/backlog system in the top-level README | P1 | XS | docs | ready | — | — | — |
+| [DOC-001](./docs/DOC-001-document-backlog-system-in-readme.md) | Document the docs/backlog system in the top-level README | P1 | XS | docs | completed | — | — | — |
