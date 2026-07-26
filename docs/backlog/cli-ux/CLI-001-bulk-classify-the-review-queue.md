@@ -4,7 +4,7 @@ title: Bulk-classify the review queue instead of one card at a time
 priority: P1
 effort: S
 component: cli-ux
-status: in-review
+status: in-progress
 related: [STO-001, XC-001]
 blockers: []
 dependencies: []
@@ -42,3 +42,11 @@ the status model.
 Cataloged from https://github.com/dipakkrishnan/lore-mcp/issues/6. This is the
 smallest, non-breaking change that directly addresses the issue's stated pain,
 and is independent of the larger capture/promotion redesign in STO-001.
+
+In progress on the `feat/cli-bulk-review` branch of the fork
+(https://github.com/shanedasbach/lore-mcp/tree/feat/cli-bulk-review): adds
+`lore review --all STATUS` (non-interactive) and uppercase `P/E/D` in the
+interactive loop for "apply to this and all remaining", both routing `external`
+through an explicit confirmation (`--yes` bypasses it). `Store.set_status_many`
+backs it. Tests cover the bulk path, the interactive apply-all, and the external
+gate. Branches off `main`, not the backlog branch, since it's code.
