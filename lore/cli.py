@@ -29,6 +29,15 @@ def parser() -> argparse.ArgumentParser:
     review.add_argument("query", nargs="*", help="words to narrow the review queue")
     review.add_argument("--status", choices=STATUSES, default="pending")
     review.add_argument("--limit", type=int, default=0, help="maximum to review; 0 means all")
+    review.add_argument(
+        "--all",
+        dest="bulk",
+        choices=["private", "external", "discarded"],
+        help="apply one status to the whole filtered set instead of card by card",
+    )
+    review.add_argument(
+        "--yes", action="store_true", help="skip the confirmation prompt when bulk-marking external"
+    )
 
     search = commands.add_parser("search", help="search local memories")
     search.add_argument("query", nargs="*", help="words to search for")
@@ -73,7 +82,7 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "sync":
             return sync(set(args.source) if args.source else None)
         if args.command == "review":
-            return review(" ".join(args.query), args.status, args.limit)
+            return review(" ".join(args.query), args.status, args.limit, args.bulk, args.yes)
         if args.command == "search":
             return search(" ".join(args.query), args.status, args.limit, args.json)
         if args.command == "profile":
@@ -135,6 +144,7 @@ def manual() -> int:
 
   3. lore review [words] [--status pending|private|external|discarded]
      Mark context private, external, or discarded; revisit any prior decision.
+     Add --all private|external|discarded to classify the whole set at once.
 
   4. lore search [words] [--status STATUS]
      Inspect the local library without changing disclosure.
@@ -195,7 +205,16 @@ def sync(names: set[str] | None = None) -> int:
     return 0
 
 
-def review(query: str = "", status_name: str = "pending", limit: int = 0) -> int:
+BULK_STATUSES = {"p": "private", "e": "external", "d": "discarded"}
+
+
+def review(
+    query: str = "",
+    status_name: str = "pending",
+    limit: int = 0,
+    bulk: str | None = None,
+    assume_yes: bool = False,
+) -> int:
     """Let the owner classify or reclassify a targeted memory queue."""
     if limit < 0:
         raise ValueError("limit cannot be negative")
@@ -210,23 +229,55 @@ def review(query: str = "", status_name: str = "pending", limit: int = 0) -> int
         if not memories:
             success("Nothing waiting for review")
             return 0
+        if bulk:
+            return _apply_bulk(store, memories, bulk, assume_yes)
         for index, memory in enumerate(memories, 1):
             memory_card(memory, index, len(memories))
             print("\n  [p] private   [e] external   [d] discard   [s] skip   [q] quit")
+            muted("  uppercase P/E/D applies to this and every remaining memory")
             while True:
-                choice = ask("Choose", "p").lower()
-                new_status = {"p": "private", "e": "external", "d": "discarded"}.get(
-                    choice
-                )
+                choice = ask("Choose", "p")
+                new_status = BULK_STATUSES.get(choice.lower())
+                if new_status and choice.isupper():
+                    rest = memories[index - 1:]
+                    if _bulk_confirmed(new_status, len(rest), assume_yes):
+                        changed = store.set_status_many([m.id for m in rest], new_status)
+                        success(f"Marked {changed} {_plural(changed)} {new_status}")
+                        return 0
+                    continue
                 if new_status:
                     store.set_status(memory.id, new_status)
                     break
-                if choice == "s":
+                if choice.lower() == "s":
                     break
-                if choice == "q":
+                if choice.lower() == "q":
                     return 0
     success("Review complete")
     return 0
+
+
+def _apply_bulk(store: Store, memories: list, bulk: str, assume_yes: bool) -> int:
+    """Set one status across the whole filtered set in a single action."""
+    if not _bulk_confirmed(bulk, len(memories), assume_yes):
+        muted("No changes made.")
+        return 0
+    changed = store.set_status_many([memory.id for memory in memories], bulk)
+    success(f"Marked {changed} {_plural(changed)} {bulk}")
+    return 0
+
+
+def _bulk_confirmed(status: str, count: int, assume_yes: bool) -> bool:
+    """Gate blind disclosure: external always needs an explicit yes."""
+    if status != "external" or assume_yes:
+        return True
+    return confirm(
+        f"Mark {count} {_plural(count)} external and disclosable to paid callers?",
+        default=False,
+    )
+
+
+def _plural(count: int) -> str:
+    return "memory" if count == 1 else "memories"
 
 
 def search(query: str, status_name: str | None, limit: int, as_json: bool) -> int:

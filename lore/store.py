@@ -158,6 +158,21 @@ class Store:
             raise ValueError(f"memory not found: {memory_id}")
         self.db.commit()
 
+    def set_status_many(self, memory_ids: list[int], status: str) -> int:
+        """Set one disclosure status across many memories, returning the count changed."""
+        if status not in STATUSES:
+            raise ValueError(f"invalid status: {status}")
+        ids = list(memory_ids)
+        if not ids:
+            return 0
+        placeholders = ",".join("?" for _ in ids)
+        cursor = self.db.execute(
+            f"UPDATE memories SET status=?,updated_at=? WHERE id IN ({placeholders})",
+            (status, datetime.now(timezone.utc).isoformat(), *ids),
+        )
+        self.db.commit()
+        return cursor.rowcount
+
     def pending(self) -> list[Memory]:
         """Return memories awaiting owner review, oldest first."""
         rows = self.db.execute(

@@ -76,6 +76,42 @@ class LoreTest(unittest.TestCase):
             self.assertEqual(updated.status, "private")
             self.assertEqual(store.counts()["private"], 1)
 
+    def _seed_pending(self, count: int) -> None:
+        base = Path(os.environ["CLAUDE_HOME"]) / "projects/demo/memory"
+        base.mkdir(parents=True, exist_ok=True)
+        for index in range(count):
+            (base / f"note{index}.md").write_text(f"# Note {index}\n\nBody number {index} about topic.")
+        with Store() as store:
+            scan(store, {"claude"})
+
+    def test_bulk_review_marks_the_whole_set_at_once(self) -> None:
+        self._seed_pending(3)
+        with redirect_stdout(StringIO()):
+            review("", "pending", 0, bulk="private")
+        with Store() as store:
+            counts = store.counts()
+        self.assertEqual(counts["private"], 3)
+        self.assertEqual(counts["pending"], 0)
+
+    def test_bulk_external_requires_confirmation(self) -> None:
+        self._seed_pending(2)
+        with patch("lore.cli.confirm", return_value=False), redirect_stdout(StringIO()):
+            review("", "pending", 0, bulk="external")
+        with Store() as store:
+            self.assertEqual(store.counts()["external"], 0)
+            self.assertEqual(store.counts()["pending"], 2)
+        with redirect_stdout(StringIO()):
+            review("", "pending", 0, bulk="external", assume_yes=True)
+        with Store() as store:
+            self.assertEqual(store.counts()["external"], 2)
+
+    def test_interactive_uppercase_applies_to_all_remaining(self) -> None:
+        self._seed_pending(3)
+        with patch("lore.cli.ask", return_value="P"), redirect_stdout(StringIO()):
+            review("", "pending", 0)
+        with Store() as store:
+            self.assertEqual(store.counts()["private"], 3)
+
     def test_codex_import_ignores_intermediate_memory_files(self) -> None:
         root = Path(os.environ["CODEX_HOME"]) / "memories"
         root.mkdir(parents=True)
