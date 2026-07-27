@@ -110,6 +110,12 @@ def install(profile: dict[str, object]) -> str:
     """Install the selected executor's recurring synthesis task."""
     profile = _normalize_profile(profile)
     executor = str(profile["executor"])
+    lore = shutil.which("lore")
+    if not lore:
+        raise OSError("Lore CLI is not installed")
+    path = os.pathsep.join(
+        (str(Path(lore).parent), "/usr/local/bin", "/opt/homebrew/bin", "/usr/bin", "/bin")
+    )
     prompt = profile_path().parent / f"{executor}-prompt.md"
     task = Task(
         id=AUTOMATION_ID,
@@ -120,7 +126,7 @@ def install(profile: dict[str, object]) -> str:
         cadence=str(profile.get("cadence", "daily")),
         hour=max(0, min(int(profile.get("hour", 21)), 23)),
         model=str(profile.get("model", "")),
-        before=(shutil.which("lore") or "lore", "sync"),
+        before=(lore, "sync"),
         allowed_tools=(
             "Write",
             "Bash(lore search *)",
@@ -128,7 +134,7 @@ def install(profile: dict[str, object]) -> str:
         ),
         environment=(
             ("LORE_HOME", str(home())),
-            ("PATH", os.environ.get("PATH", "/usr/bin:/bin")),
+            ("PATH", path),
         ),
     )
     path = install_task(task, codex_home=codex_home())
