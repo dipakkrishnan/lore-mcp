@@ -43,7 +43,7 @@ question or re-run a finished phase. Write it after *every* answer, not at the e
 
 ```json
 {"phase1_done": false, "role": "", "domains": "", "valuable_context": "",
- "preferences": "", "boundaries": "", "agents": [], "models": {},
+ "preferences": "", "boundaries": "", "executor": "", "model": "",
  "cadence": "daily", "hour": 21, "backfill_weeks": 8, "backfill_done": []}
 ```
 
@@ -108,9 +108,11 @@ Before the `valuable_context` question, state the stakes plainly, once:
 > answers over MCP. Everything still lands as `pending` for your review — no memory
 > becomes external without you marking it.
 
-Then `boundaries` (default: secrets and third-party private data). Combine agents +
-cadence + hour into one final scheduling exchange — that keeps the whole pass to about
-five questions. Free-text only on "Other". Write the checkpoint after each answer.
+Then `boundaries` (default: secrets and third-party private data). Combine the one
+synthesis executor, its optional model, cadence, and hour into one final scheduling
+exchange — that keeps the whole pass to about five questions. Codex and Claude memories
+remain independent input sources; the executor only chooses which agent synthesizes all
+enabled sources. Free-text only on "Other". Write the checkpoint after each answer.
 
 ## 4. Save and schedule
 
@@ -118,12 +120,10 @@ five questions. Free-text only on "Other". Write the checkpoint after each answe
 lore profile ~/.lore/automation/onboarding.json
 ```
 
-Validates the profile, writes `profile.json` plus per-agent prompts (0600), and installs
-each selected agent's recurring task. Codex is a direct file write to
-`~/.codex/automations/lore-memory-synthesis/`. Claude Desktop takes a headless call and
-can take a minute — say so first; if it fails, continue anyway (the prompt file is on
-disk; the user can add the Local routine by hand). Cloud routines can't read local
-files, so it must be **Local**. Use `--no-schedule` for a profile without automation.
+Validates the profile, writes `profile.json` plus the executor prompt (0600), and installs
+one recurring local task. Codex uses its local automation definition. Claude uses a
+macOS LaunchAgent to run `claude -p`; cloud routines cannot read the owner's local Lore
+library. Use `--no-schedule` for a profile without automation.
 
 ## 5. Backfill t=0
 

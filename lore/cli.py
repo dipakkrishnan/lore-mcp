@@ -282,7 +282,7 @@ def price(amount: float | None) -> int:
 
 
 def profile(path: str, schedule: bool = True) -> int:
-    """Save a profile written by an onboarding agent and install its schedules."""
+    """Save a profile written by an onboarding agent and install its schedule."""
     from . import automation
 
     text = sys.stdin.read() if path == "-" else Path(path).read_text(encoding="utf-8")
@@ -293,9 +293,9 @@ def profile(path: str, schedule: bool = True) -> int:
     success(f"Saved profile to {automation.profile_path()}")
     if not schedule:
         return 0
-    for agent in data.get("agents", []):
-        automation.install(agent, data)
-        success(f"Configured {agent.title()} native schedule")
+    automation.install(data)
+    saved = json.loads(automation.profile_path().read_text(encoding="utf-8"))
+    success(f"Configured {str(saved['executor']).title()} local schedule")
     return 0
 
 
@@ -331,8 +331,8 @@ def configure_automation(yes: bool) -> None:
     heading("Personal synthesis")
     muted(f"These answers stay in {automation.profile_path().parent}.")
     if yes:
-        agents = installed
-        models = {agent: "" for agent in agents}
+        executor = installed[0]
+        model = ""
         role, domains, valuable, preferences = "", "", "", ""
         boundaries, cadence, hour = "secrets and third-party private data", "daily", 21
     else:
@@ -343,17 +343,14 @@ def configure_automation(yes: bool) -> None:
         boundaries = ask(
             "What should Lore never retain?", "secrets and third-party private data"
         )
-        agents = [
-            agent
-            for agent in installed
-            if confirm(f"Configure synthesis for {agent.title()}?")
-        ]
-        if not agents:
-            return
-        models = {
-            agent: ask(f"{agent.title()} model (blank uses its native default)")
-            for agent in agents
-        }
+        executor = (
+            installed[0]
+            if len(installed) == 1
+            else ask(f"Which agent should synthesize ({'/'.join(installed)})?", installed[0])
+        )
+        if executor not in installed:
+            raise ValueError(f"{executor} is not an installed agent")
+        model = ask(f"{executor.title()} model (blank uses its native default)")
         cadence = ask("Run daily or weekly?", "daily").lower()
         hour = int(ask("Run at which local hour (0-23)?", "21"))
     profile = {
@@ -362,12 +359,11 @@ def configure_automation(yes: bool) -> None:
         "valuable_context": valuable,
         "preferences": preferences,
         "boundaries": boundaries,
-        "agents": agents,
-        "models": models,
+        "executor": executor,
+        "model": model,
         "cadence": cadence if cadence in {"daily", "weekly"} else "daily",
         "hour": max(0, min(hour, 23)),
     }
     automation.save_profile(profile)
-    for agent in agents:
-        automation.install(agent, profile)
-        success(f"Configured {agent.title()} native schedule")
+    automation.install(profile)
+    success(f"Configured {executor.title()} local schedule")

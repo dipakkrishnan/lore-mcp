@@ -44,20 +44,14 @@ lore setup
 ```
 
 Setup asks about your work, valuable experience, preferences, retention boundaries,
-agents, cadence, and optional model choices. It writes agent-specific prompts under
-`~/.lore/automation/`, then messages each installed agent headlessly. The agent creates
-or updates its native scheduled task, verifies it exists, and exits. This is a one-time
-setup call; Lore does not stay resident or own the recurring schedule.
+one synthesis executor, cadence, and an optional model. Codex and Claude memories remain
+independent input sources; the selected executor synthesizes all enabled sources into one
+pending result.
 
-Use a local Scheduled task in the Codex desktop app or a **Local** task under
-Claude Desktop's Routines. Once installed, the native scheduler owns execution,
-permissions, run history, and retries. Each run uses the agent's native memory,
-writes a Markdown candidate under `~/.lore/memories/<agent>/`, and imports it as
-pending context. Lore does not use agent CLIs as recurring runners, install cron jobs,
-or edit either agent's native memory.
-
-Remote Claude routines cannot read local memory files, so choose **Local** for this
-workflow. Keep the machine and desktop app running when a local task is due.
+Codex uses its local automation definition. Claude uses a macOS LaunchAgent that first
+runs `lore sync`, then invokes `claude -p` with the saved prompt and narrow permissions.
+Remote Claude routines cannot read local memory files. Keep the Mac awake when a local
+Claude task is due.
 
 ## Guided onboarding
 

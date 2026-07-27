@@ -2,17 +2,18 @@ from __future__ import annotations
 
 import json
 import os
+import plistlib
 import stat
+import subprocess
 import tempfile
 import tomllib
 import unittest
 from contextlib import redirect_stdout
 from io import StringIO
 from pathlib import Path
-from subprocess import CompletedProcess
 from unittest.mock import patch
 
-from lore import automation, blueprint
+from lore import automation, blueprint, tasks
 from lore.cli import blueprint_apply, blueprint_show, configure_automation, manual, price, review
 from lore.mcp import call_tool, dispatch, http
 from lore.sources import scan
@@ -102,8 +103,8 @@ class LoreTest(unittest.TestCase):
             "valuable_context": "failed launches",
             "preferences": "small changes",
             "boundaries": "secrets",
-            "agents": ["claude", "codex"],
-            "models": {"claude": "opus", "codex": "gpt-test"},
+            "executor": "codex",
+            "model": "gpt-test",
             "cadence": "weekly",
             "hour": 9,
         }
@@ -115,16 +116,8 @@ class LoreTest(unittest.TestCase):
         self.assertIn("lore search --status private", prompt)
         self.assertIn("lore sync --source automation-codex", prompt)
         self.assertNotIn("sessions", prompt)
-        setup = automation.setup_prompt("claude", profile)
-        self.assertIn("weekly at 9:00 local time", setup)
-        self.assertIn("Use model opus", setup)
-        claude = automation.setup_command("claude", profile)
-        self.assertEqual(claude[:2], ["claude", "-p"])
-        self.assertIn(os.environ["CLAUDE_HOME"], claude)
-        self.assertEqual(claude[-2], "--")
-        self.assertIn("LORE_SETUP_COMPLETE", claude[-1])
 
-        automation.install("codex", profile)
+        automation.install(profile)
         definition = automation.codex_automation_path().read_text()
         self.assertIn('id = "lore-memory-synthesis"', definition)
         self.assertIn('rrule = "FREQ=WEEKLY;BYDAY=MO;BYHOUR=9;BYMINUTE=0"', definition)
@@ -134,23 +127,50 @@ class LoreTest(unittest.TestCase):
             tomllib.loads(definition)["prompt"], automation.build_prompt("codex", profile)
         )
 
-        completed = CompletedProcess(claude, 0, "LORE_SETUP_COMPLETE", "")
-        with patch("lore.automation.subprocess.run", return_value=completed) as run:
-            self.assertIn("LORE_SETUP_COMPLETE", automation.install("claude", profile))
-            self.assertEqual(run.call_args.kwargs["cwd"], Path(os.environ["LORE_HOME"]))
-            self.assertEqual(run.call_args.kwargs["timeout"], 300)
-        failed = CompletedProcess(claude, 0, "Could not configure it", "")
-        with patch("lore.automation.subprocess.run", return_value=failed):
-            with self.assertRaisesRegex(OSError, "Could not configure"):
-                automation.install("claude", profile)
-
         for path in (
             automation.profile_path(),
             automation.profile_path().parent / "codex-prompt.md",
         ):
             self.assertEqual(stat.S_IMODE(path.stat().st_mode), 0o600)
-        automation.save_profile({**profile, "agents": ["codex"]})
-        self.assertFalse((automation.profile_path().parent / "claude-prompt.md").exists())
+        automation.save_profile({**profile, "executor": "claude", "model": "opus"})
+        self.assertFalse((automation.profile_path().parent / "codex-prompt.md").exists())
+
+    def test_claude_task_is_a_private_launch_agent(self) -> None:
+        root = Path(self.tmp.name)
+        prompt = root / "lore/automation/claude-prompt.md"
+        prompt.parent.mkdir(parents=True)
+        prompt.write_text("Synthesize.")
+        task = tasks.Task(
+            "lore-memory-synthesis",
+            "Lore memory synthesis",
+            "claude",
+            prompt,
+            root / "lore",
+            "weekly",
+            9,
+            "opus",
+            (("LORE_HOME", str(root / "lore")),),
+        )
+        completed = __import__("subprocess").CompletedProcess([], 0, "", "")
+        with (
+            patch("lore.tasks.Path.home", return_value=root),
+            patch("lore.tasks.shutil.which", side_effect=lambda name: f"/bin/{name}"),
+            patch("lore.tasks.subprocess.run", return_value=completed) as run,
+        ):
+            plist = tasks.install(task, codex_home=root / "codex", lore_command="lore")
+
+        definition = plistlib.loads(plist.read_bytes())
+        self.assertEqual(definition["StartCalendarInterval"]["Weekday"], 1)
+        runner = prompt.parent / "lore-memory-synthesis.sh"
+        script = runner.read_text()
+        self.assertIn("/bin/lore sync", script)
+        self.assertIn(f"LORE_HOME={root / 'lore'}", script)
+        self.assertIn("/bin/claude -p", script)
+        self.assertIn("--permission-mode dontAsk", script)
+        self.assertIn("--model opus", script)
+        self.assertEqual(stat.S_IMODE(runner.stat().st_mode), 0o700)
+        subprocess.run(["/bin/sh", "-n", runner], check=True)
+        self.assertEqual(run.call_args_list[-1].args[0][:2], ["launchctl", "bootstrap"])
 
     def test_save_profile_drops_checkpoint_only_fields(self) -> None:
         automation.save_profile({
@@ -159,6 +179,7 @@ class LoreTest(unittest.TestCase):
         })
         saved = json.loads(automation.profile_path().read_text())
         self.assertEqual(saved["role"], "maintainer")
+        self.assertEqual(saved["executor"], "codex")
         for leaked in ("phase1_done", "backfill_weeks", "backfill_done"):
             self.assertNotIn(leaked, saved)
 
@@ -171,7 +192,7 @@ class LoreTest(unittest.TestCase):
         ):
             configure_automation(True)
         run_setup.assert_called_once()
-        self.assertEqual(run_setup.call_args.args[1]["agents"], ["codex"])
+        self.assertEqual(run_setup.call_args.args[0]["executor"], "codex")
 
     def test_help_is_a_workflow_manual(self) -> None:
         output = StringIO()
@@ -375,8 +396,8 @@ class LoreTest(unittest.TestCase):
             "valuable_context": "",
             "preferences": "",
             "boundaries": "",
-            "agents": [],
-            "models": {},
+            "executor": "codex",
+            "model": "",
             "cadence": "daily",
             "hour": 21,
         }
