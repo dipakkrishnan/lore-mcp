@@ -13,12 +13,13 @@ from io import StringIO
 from pathlib import Path
 from unittest.mock import patch
 
-from lore import automation, blueprint, tasks
+from lore import automation, blueprint
 from lore.cli import blueprint_apply, blueprint_show, configure_automation, manual, price, review
 from lore.mcp import call_tool, dispatch, http
 from lore.sources import scan
 from lore.store import Memory, Store
 from lore.ui import memory_card
+from windup import Task, install as install_task
 
 
 def _blueprint_input(*, persona: str = "professor", name: str = "Ada") -> dict:
@@ -123,8 +124,8 @@ class LoreTest(unittest.TestCase):
         self.assertIn('rrule = "FREQ=WEEKLY;BYDAY=MO;BYHOUR=9;BYMINUTE=0"', definition)
         self.assertIn('model = "gpt-test"', definition)
         self.assertIn('execution_environment = "local"', definition)
-        self.assertEqual(
-            tomllib.loads(definition)["prompt"], automation.build_prompt("codex", profile)
+        self.assertTrue(
+            tomllib.loads(definition)["prompt"].endswith(automation.build_prompt("codex", profile))
         )
 
         for path in (
@@ -140,7 +141,7 @@ class LoreTest(unittest.TestCase):
         prompt = root / "lore/automation/claude-prompt.md"
         prompt.parent.mkdir(parents=True)
         prompt.write_text("Synthesize.")
-        task = tasks.Task(
+        task = Task(
             "lore-memory-synthesis",
             "Lore memory synthesis",
             "claude",
@@ -149,15 +150,17 @@ class LoreTest(unittest.TestCase):
             "weekly",
             9,
             "opus",
-            (("LORE_HOME", str(root / "lore")),),
+            before=("/bin/lore", "sync"),
+            allowed_tools=("Write", "Bash(lore search *)", "Bash(lore sync *)"),
+            environment=(("LORE_HOME", str(root / "lore")),),
         )
         completed = __import__("subprocess").CompletedProcess([], 0, "", "")
         with (
-            patch("lore.tasks.Path.home", return_value=root),
-            patch("lore.tasks.shutil.which", side_effect=lambda name: f"/bin/{name}"),
-            patch("lore.tasks.subprocess.run", return_value=completed) as run,
+            patch("windup.tasks.Path.home", return_value=root),
+            patch("windup.tasks.shutil.which", side_effect=lambda name: f"/bin/{name}"),
+            patch("windup.tasks.subprocess.run", return_value=completed) as run,
         ):
-            plist = tasks.install(task, codex_home=root / "codex", lore_command="lore")
+            plist = install_task(task, codex_home=root / "codex")
 
         definition = plistlib.loads(plist.read_bytes())
         self.assertEqual(definition["StartCalendarInterval"]["Weekday"], 1)

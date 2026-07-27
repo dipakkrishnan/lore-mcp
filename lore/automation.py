@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 import json
+import os
+import shutil
 from pathlib import Path
 
+from windup import Task, install as install_task
+
 from .paths import codex_home, home
-from .tasks import Task, install as install_task
 
 PROFILE = "automation/profile.json"
 # Fields that belong in profile.json. The onboarding checkpoint reuses this file to
@@ -117,9 +120,18 @@ def install(profile: dict[str, object]) -> str:
         cadence=str(profile.get("cadence", "daily")),
         hour=max(0, min(int(profile.get("hour", 21)), 23)),
         model=str(profile.get("model", "")),
-        environment=(("LORE_HOME", str(home())),),
+        before=(shutil.which("lore") or "lore", "sync"),
+        allowed_tools=(
+            "Write",
+            "Bash(lore search *)",
+            "Bash(lore sync *)",
+        ),
+        environment=(
+            ("LORE_HOME", str(home())),
+            ("PATH", os.environ.get("PATH", "/usr/bin:/bin")),
+        ),
     )
-    path = install_task(task, codex_home=codex_home(), lore_command="lore")
+    path = install_task(task, codex_home=codex_home())
     return f"Wrote {path}"
 
 
