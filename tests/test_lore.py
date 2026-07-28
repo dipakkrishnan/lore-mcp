@@ -115,7 +115,9 @@ class LoreTest(unittest.TestCase):
         self.assertIn("lore sync --source automation-codex", prompt)
         self.assertNotIn("sessions", prompt)
 
-        definition = automation.install(profile).read_text()
+        with patch("lore.automation.remove_task") as remove:
+            definition = automation.install(profile).read_text()
+        self.assertEqual(remove.call_args.args[0].agent, automation.Agent.CLAUDE)
         self.assertIn('id = "lore-memory-synthesis"', definition)
         self.assertIn('rrule = "FREQ=WEEKLY;BYDAY=MO;BYHOUR=9;BYMINUTE=0"', definition)
         self.assertIn('model = "gpt-test"', definition)
@@ -135,9 +137,11 @@ class LoreTest(unittest.TestCase):
         self.assertFalse((automation.profile_path().parent / "codex-prompt.md").exists())
         with (
             patch("lore.automation.shutil.which", return_value="/bin/lore"),
+            patch("lore.automation.remove_task") as remove,
             patch("lore.automation.install_task", return_value=Path("task")) as install,
         ):
             automation.install(claude_profile)
+        self.assertEqual(remove.call_args.args[0].agent, automation.Agent.CODEX)
         task = install.call_args.args[0]
         self.assertEqual(task.agent, automation.Agent.CLAUDE)
         self.assertEqual(task.model, "opus")

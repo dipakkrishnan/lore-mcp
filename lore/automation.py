@@ -3,10 +3,11 @@ from __future__ import annotations
 import json
 import os
 import shutil
+from dataclasses import replace
 from enum import Enum
 from pathlib import Path
 
-from windup import Task, install as install_task
+from windup import Task, install as install_task, remove as remove_task
 
 from .paths import codex_home, home
 
@@ -152,4 +153,6 @@ def install(profile: dict[str, object]) -> Path:
             ("PATH", search_path),
         ),
     )
+    other = Agent.CLAUDE if executor == Agent.CODEX else Agent.CODEX
+    remove_task(replace(task, agent=other), codex_home=codex_home())
     return install_task(task, codex_home=codex_home())

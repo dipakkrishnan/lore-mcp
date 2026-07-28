@@ -132,7 +132,7 @@ in one-week chunks over `backfill_weeks`, oldest first. For each chunk, read tha
 sessions and write **one** file:
 
 ```
-~/.lore/memories/claude/<YYYYMMDD>T000000Z.md
+~/.lore/memories/<executor>/<YYYYMMDD>T000000Z.md
 ```
 
 Use this shape — the same one the recurring synthesis task writes, so backfill and steady
