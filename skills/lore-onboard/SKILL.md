@@ -20,11 +20,10 @@ Two separate artifacts, two validated write commands — never write either dire
 
 ```sh
 lore status                       # confirms install; shows LORE_HOME and current library
-lore setup --yes --no-automation  # import existing agent memory files now; no prompts
+lore setup --yes                  # import existing agent memory files now
 ```
 
-`--no-automation` matters: plain `lore setup` runs the blank-question flow this skill
-replaces. Everything below assumes `~/.lore` (or `$LORE_HOME`).
+Everything below assumes `~/.lore` (or `$LORE_HOME`).
 
 If `lore status` fails because `lore` is missing, install it first — tell the user, then:
 
@@ -33,9 +32,7 @@ LORE_SKIP_SETUP=1 sh install.sh   # in the repo; else the curl one-liner from th
 export PATH="$HOME/.local/bin:$PATH"
 ```
 
-`LORE_SKIP_SETUP=1` matters: install.sh otherwise ends by running the bare `lore setup`
-this skill replaces. If install fails (no `python3`, no `curl`), stop and report — don't
-retry-loop.
+If install fails (no `python3`, `uv`, or `curl`), stop and report — don't retry-loop.
 
 Checkpoint file: `$LORE_HOME/automation/onboarding.json`. **Read it first.** If it
 exists, tell the user what is already done and resume — never re-ask an answered
@@ -44,7 +41,7 @@ question or re-run a finished phase. Write it after *every* answer, not at the e
 ```json
 {"phase1_done": false, "role": "", "domains": "", "valuable_context": "",
  "preferences": "", "boundaries": "", "executor": "", "model": "",
- "cadence": "daily", "hour": 21, "backfill_weeks": 8, "backfill_done": []}
+ "cadence": "daily", "hour": 21}
 ```
 
 ## 1. Persona interview → blueprint
@@ -125,44 +122,12 @@ one recurring local task. Codex uses its local automation definition. Claude use
 macOS LaunchAgent to run `claude -p`; cloud routines cannot read the owner's local Lore
 library. Use `--no-schedule` for a profile without automation.
 
-## 5. Backfill t=0
+## 5. Cold start
 
-The schedule only covers what happens next; history needs one pass now. Work backwards
-in one-week chunks over `backfill_weeks`, oldest first. For each chunk, read that week's
-sessions and write **one** file:
-
-```
-~/.lore/memories/<executor>/<YYYYMMDD>T000000Z.md
-```
-
-Use this shape — the same one the recurring synthesis task writes, so backfill and steady
-state are indistinguishable downstream (omit empty sections):
-
-```
-# Memory synthesis — YYYY-MM-DD
-## Opinions and preferences
-- Claim. Evidence: concise remembered behavior or decision.
-## Decisions and rationale
-- Claim. Evidence: concise remembered behavior or decision.
-## Failures and lessons
-- Claim. Evidence: concise remembered behavior or decision.
-## Firsthand expertise
-- Claim. Evidence: concise remembered behavior or decision.
-## Open questions
-- Anything uncertain the owner should verify.
-```
-
-Let the blueprint's `focus_topics` decide what gets a paragraph vs. a line. Claims carry
-evidence. Paraphrase; never paste conversation. Honor `boundaries`.
-
-Append each finished week to `backfill_done` before starting the next, then:
-
-```sh
-lore sync --source automation-claude
-```
-
-Report the count per week. If the user stops you midway, finished weeks are already
-imported and the checkpoint says where to resume.
+The shared synthesis prompt handles backfill on its first run. It reads the imported
+memories and useful prior sessions, delegates parts of a large corpus when worthwhile,
+writes topic-based memory files, and maintains `AGENTS.md` as their semantic index.
+Do not duplicate that work during onboarding.
 
 ## 6. Hand off
 

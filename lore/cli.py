@@ -3,7 +3,6 @@ from __future__ import annotations
 import argparse
 import json
 import math
-import shutil
 import sys
 from pathlib import Path
 
@@ -20,7 +19,6 @@ def parser() -> argparse.ArgumentParser:
 
     setup = commands.add_parser("setup", help="guided first-time setup")
     setup.add_argument("--yes", action="store_true", help="enable detected sources without prompting")
-    setup.add_argument("--no-automation", action="store_true", help="import only; leave synthesis to `lore profile`")
 
     sync = commands.add_parser("sync", help="import new and changed memories")
     sync.add_argument("--source", action="append", choices=[s.name for s in available_sources()])
@@ -69,7 +67,7 @@ def main(argv: list[str] | None = None) -> int:
         args = parser().parse_args(["status"])
     try:
         if args.command == "setup":
-            return setup(args.yes, not args.no_automation)
+            return setup(args.yes)
         if args.command == "sync":
             return sync(set(args.source) if args.source else None)
         if args.command == "review":
@@ -128,7 +126,7 @@ def manual() -> int:
         """Lore workflow
 
   1. lore setup
-     Import native memories and configure automatic synthesis.
+     Import native memories, then continue with the lore-onboard agent skill.
 
   2. lore sync
      Import memories created or changed since setup.
@@ -158,7 +156,7 @@ Use `lore <command> --help` for command-specific options.
     return 0
 
 
-def setup(yes: bool = False, automate: bool = True) -> int:
+def setup(yes: bool = False) -> int:
     """Choose native memory sources and perform the first import."""
     logo()
     muted("Lore imports only agent-generated memory files. Session transcripts stay untouched.")
@@ -175,11 +173,9 @@ def setup(yes: bool = False, automate: bool = True) -> int:
         store.set_setting("sources", enabled)
         report = scan(store, set(enabled))
     total = sum(item["added"] + item["updated"] for item in report.values())
-    if automate:
-        configure_automation(yes)
     heading("Ready")
     success(f"Imported {total} candidate memories")
-    print("Run `lore review` to classify them and `lore search <words>` to recall them.")
+    print('Next, tell Claude or Codex: "Onboard me to Lore."')
     return 0
 
 
@@ -318,51 +314,3 @@ def blueprint_show() -> int:
         return 0
     print("No blueprint yet. Run the lore-onboard skill inside Claude or Codex.")
     return 0
-
-
-def configure_automation(yes: bool) -> None:
-    """Configure native synthesis during the main setup flow."""
-    from . import automation
-
-    installed = [agent for agent in automation.Agent if shutil.which(agent)]
-    if not installed or (not yes and not confirm("Set up automatic memory synthesis?")):
-        return
-    heading("Personal synthesis")
-    muted(f"These answers stay in {automation.profile_path().parent}.")
-    if yes:
-        executor = installed[0]
-        model = ""
-        role, domains, valuable, preferences = "", "", "", ""
-        boundaries, cadence, hour = "secrets and third-party private data", "daily", 21
-    else:
-        role = ask("What kind of work do you do?")
-        domains = ask("Which projects or domains matter most right now?")
-        valuable = ask("What experience might be unusually valuable to others?")
-        preferences = ask("Which working preferences should every agent learn?")
-        boundaries = ask(
-            "What should Lore never retain?", "secrets and third-party private data"
-        )
-        executor = (
-            installed[0]
-            if len(installed) == 1
-            else ask(f"Which agent should synthesize ({'/'.join(installed)})?", installed[0])
-        )
-        if executor not in installed:
-            raise ValueError(f"{executor} is not an installed agent")
-        model = ask(f"{executor.title()} model (blank uses its native default)")
-        cadence = ask("Run daily or weekly?", "daily").lower()
-        hour = int(ask("Run at which local hour (0-23)?", "21"))
-    profile = {
-        "role": role,
-        "domains": domains,
-        "valuable_context": valuable,
-        "preferences": preferences,
-        "boundaries": boundaries,
-        "executor": executor,
-        "model": model,
-        "cadence": cadence if cadence in {"daily", "weekly"} else "daily",
-        "hour": max(0, min(hour, 23)),
-    }
-    profile = automation.save_profile(profile)
-    automation.install(profile)
-    success(f"Configured {executor.title()} local schedule")

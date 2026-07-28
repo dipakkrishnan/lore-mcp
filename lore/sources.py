@@ -24,7 +24,9 @@ class Source:
         return sorted(
             path
             for path in self.root.glob(self.pattern)
-            if path.is_file() and not path.is_symlink()
+            if not (self.origin == "automation" and path.name == "AGENTS.md")
+            and path.is_file()
+            and not path.is_symlink()
         )
 
 

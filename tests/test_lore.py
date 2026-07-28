@@ -12,7 +12,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from lore import automation, blueprint
-from lore.cli import blueprint_apply, blueprint_show, configure_automation, manual, price, review
+from lore.cli import blueprint_apply, blueprint_show, manual, price, review, setup
 from lore.mcp import call_tool, dispatch, http
 from lore.sources import scan
 from lore.store import Memory, Store
@@ -109,11 +109,14 @@ class LoreTest(unittest.TestCase):
         automation.save_profile(profile)
 
         prompt = automation.build_prompt("codex", profile)
-        self.assertIn("opinions, preferences", prompt)
+        self.assertIn("topic-based memory library", prompt)
+        self.assertIn("perform a cold-start pass", prompt)
+        self.assertIn("delegate coherent slices", prompt)
+        self.assertIn("/AGENTS.md", prompt)
         self.assertIn("failed launches", prompt)
         self.assertIn("lore search --status private", prompt)
         self.assertIn("lore sync --source automation-codex", prompt)
-        self.assertNotIn("sessions", prompt)
+        self.assertIn("prior agent sessions", prompt)
 
         with patch("lore.automation.remove_task") as remove:
             definition = automation.install(profile).read_text()
@@ -128,13 +131,15 @@ class LoreTest(unittest.TestCase):
 
         for path in (
             automation.profile_path(),
-            automation.profile_path().parent / "codex-prompt.md",
+            automation.prompt_path(),
         ):
             self.assertEqual(stat.S_IMODE(path.stat().st_mode), 0o600)
         claude_profile = automation.save_profile({
             **profile, "executor": "claude", "model": "opus"
         })
-        self.assertFalse((automation.profile_path().parent / "codex-prompt.md").exists())
+        self.assertIn(
+            "automation-claude", automation.prompt_path().read_text(encoding="utf-8")
+        )
         with (
             patch("lore.automation.shutil.which", return_value="/bin/lore"),
             patch("lore.automation.remove_task") as remove,
@@ -144,31 +149,59 @@ class LoreTest(unittest.TestCase):
         self.assertEqual(remove.call_args.args[0].agent, automation.Agent.CODEX)
         task = install.call_args.args[0]
         self.assertEqual(task.agent, automation.Agent.CLAUDE)
+        self.assertEqual(task.prompt_path, automation.prompt_path())
         self.assertEqual(task.model, "opus")
         self.assertEqual(task.before, ("/bin/lore", "sync"))
-        self.assertEqual(task.allowed_tools[:3], ("Read", "Glob", "Grep"))
+        self.assertEqual(
+            task.allowed_tools, ("Read", "Glob", "Grep", "Write", "Bash", "Agent")
+        )
+        with (
+            patch("lore.automation.remove_task"),
+            patch("lore.automation.install_task", return_value=Path("task")) as install,
+        ):
+            automation.install(profile)
+        self.assertEqual(install.call_args.args[0].allowed_tools, ())
 
     def test_save_profile_drops_checkpoint_only_fields(self) -> None:
         automation.save_profile({
             "role": "maintainer", "executor": "codex",
-            "phase1_done": True, "backfill_weeks": 8, "backfill_done": ["week"],
+            "phase1_done": True,
         })
         saved = json.loads(automation.profile_path().read_text())
         self.assertEqual(saved["role"], "maintainer")
         self.assertEqual(saved["executor"], "codex")
-        for leaked in ("phase1_done", "backfill_weeks", "backfill_done"):
-            self.assertNotIn(leaked, saved)
+        self.assertNotIn("phase1_done", saved)
 
-    def test_setup_configures_only_installed_agents(self) -> None:
-        installed = lambda agent: f"/bin/{agent}" if agent == "codex" else None
-        with (
-            patch("lore.cli.shutil.which", side_effect=installed),
-            patch("lore.automation.install") as run_setup,
-            redirect_stdout(StringIO()),
-        ):
-            configure_automation(True)
-        run_setup.assert_called_once()
-        self.assertEqual(run_setup.call_args.args[0]["executor"], "codex")
+    def test_synthesis_index_is_not_imported_as_memory(self) -> None:
+        root = Path(os.environ["LORE_HOME"]) / "memories/codex"
+        root.mkdir(parents=True)
+        (root / "agent-systems.md").write_text("# Agent systems\n\nA durable lesson.")
+        (root / "AGENTS.md").write_text("# Lore memory index\n\nRead agent-systems.md.")
+
+        with Store() as store:
+            report = scan(store, {"automation-codex"})
+            memory = store.search("durable")[0]
+            store.set_status(memory.id, "external")
+
+        self.assertEqual(report["automation-codex"]["found"], 1)
+        (root / "agent-systems.md").write_text(
+            "# Agent systems\n\nA durable lesson with new private context."
+        )
+        with Store() as store:
+            scan(store, {"automation-codex"})
+            self.assertEqual(store.search("private context")[0].status, "pending")
+
+    def test_setup_imports_then_hands_off_to_agent(self) -> None:
+        memory = Path(os.environ["CODEX_HOME"]) / "memories/MEMORY.md"
+        memory.parent.mkdir(parents=True)
+        memory.write_text("# Preference\n\nKeep setup short.")
+        output = StringIO()
+
+        with redirect_stdout(output):
+            self.assertEqual(setup(True), 0)
+
+        self.assertIn("Imported 1 candidate memories", output.getvalue())
+        self.assertIn("Onboard me to Lore", output.getvalue())
 
     def test_help_is_a_workflow_manual(self) -> None:
         output = StringIO()

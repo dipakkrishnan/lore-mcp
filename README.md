@@ -8,8 +8,8 @@ Lore MCP is a local-first memory layer that lets any personal agent build a dura
 
 ## Install
 
-Lore has no runtime dependencies beyond Python 3.10+ and SQLite (included with
-Python). Inspect [`install.sh`](./install.sh), then install the current release:
+Lore uses Python 3.10+, SQLite, and [uv](https://docs.astral.sh/uv/). Inspect
+[`install.sh`](./install.sh), then install the current release:
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/dipakkrishnan/lore-mcp/main/install.sh | sh
@@ -21,7 +21,7 @@ transcripts during initial import.
 
 ```sh
 lore help                     # show the end-user workflow
-lore setup                    # import memory and configure synthesis
+lore setup                    # import native memory; then onboard with an agent
 lore sync                     # import new or changed memory files
 lore review                   # private / external / discard
 lore review launch --status private  # revisit a prior decision
@@ -36,17 +36,15 @@ Set `LORE_HOME` to use a location other than `~/.lore`. Lore also respects
 
 ## Agent-assisted synthesis
 
-Native memory is deliberately selective, so Lore can ask each agent to revisit
-its remembered and owner-approved context and synthesize durable judgments:
+Native memory is deliberately selective, so Lore asks one agent to revisit remembered
+and owner-approved context and synthesize durable judgments:
 
-```sh
-lore setup
-```
-
-Setup asks about your work, valuable experience, preferences, retention boundaries,
-one synthesis executor, cadence, and an optional model. Codex and Claude memories remain
-independent input sources; the selected executor synthesizes all enabled sources into one
-pending result.
+After `lore setup`, tell Claude or Codex **“Onboard me to Lore.”** The installed skill
+drafts your profile from agent history, asks you to correct it, and configures one
+synthesis executor, cadence, and optional model. Codex and Claude memories remain
+independent input sources; the selected executor writes topic-based memories plus an
+`AGENTS.md` semantic index. Its first run analyzes useful history and can delegate a
+large cold-start corpus to subagents.
 
 Codex uses its local automation definition. Claude uses a macOS LaunchAgent that first
 runs `lore sync`, then invokes `claude -p` with the saved prompt and narrow permissions.
@@ -276,11 +274,11 @@ Lore MCP is the connective layer between personal memory, agent discovery, owner
 ├── lore.db                 # SQLite records and FTS5 index
 ├── automation/
 │   ├── profile.json        # owner-provided synthesis guidance
-│   ├── claude-prompt.md
-│   └── codex-prompt.md
+│   └── synthesis-prompt.md # shared prompt run by the selected executor
 ├── memories/
-│   ├── claude/             # Claude-generated synthesis
-│   └── codex/              # Codex-generated synthesis
+│   └── <executor>/
+│       ├── AGENTS.md       # semantic index
+│       └── <topic>.md      # synthesized topic memory
 └── blueprint/
     ├── blueprint.json      # captured shape of your lore (persona, axis, topics)
     └── lore-map.md         # human-readable rendering of the blueprint

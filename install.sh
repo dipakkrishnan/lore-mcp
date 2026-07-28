@@ -9,6 +9,10 @@ TMP_DIR="$(mktemp -d)"
 trap 'rm -rf "$TMP_DIR"' EXIT INT TERM
 
 command -v python3 >/dev/null 2>&1 || { echo "Lore needs Python 3.10 or newer." >&2; exit 1; }
+command -v uv >/dev/null 2>&1 || {
+  echo "Lore needs uv: https://docs.astral.sh/uv/getting-started/installation/" >&2
+  exit 1
+}
 python3 -c 'import sys; raise SystemExit(sys.version_info < (3, 10))' || {
   echo "Lore needs Python 3.10 or newer." >&2
   exit 1
@@ -25,10 +29,11 @@ else
   SOURCE_DIR="$(find "$TMP_DIR" -mindepth 1 -maxdepth 1 -type d | head -n 1)"
 fi
 
-mkdir -p "$INSTALL_DIR" "$BIN_DIR"
-cp -R "$SOURCE_DIR/lore" "$INSTALL_DIR/"
-printf '%s\n' '#!/bin/sh' "PYTHONPATH=\"$INSTALL_DIR\" exec python3 -m lore \"\$@\"" > "$BIN_DIR/lore"
-chmod +x "$BIN_DIR/lore"
+mkdir -p "$BIN_DIR" "$HOME/.agents/skills" "$HOME/.claude/skills"
+UV_TOOL_DIR="$INSTALL_DIR" UV_TOOL_BIN_DIR="$BIN_DIR" uv tool install --force --reinstall "$SOURCE_DIR"
+mkdir -p "$HOME/.agents/skills/lore-onboard" "$HOME/.claude/skills/lore-onboard"
+cp -R "$SOURCE_DIR/skills/lore-onboard/." "$HOME/.agents/skills/lore-onboard/"
+cp -R "$SOURCE_DIR/skills/lore-onboard/." "$HOME/.claude/skills/lore-onboard/"
 
 echo "Installed Lore at $BIN_DIR/lore"
 case ":$PATH:" in
@@ -37,6 +42,5 @@ case ":$PATH:" in
 esac
 
 if [ "${LORE_SKIP_SETUP:-0}" != "1" ]; then
-  "$BIN_DIR/lore" setup
+  "$BIN_DIR/lore" setup --yes
 fi
-

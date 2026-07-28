@@ -118,8 +118,18 @@ class Store:
         if row:
             self.db.execute(
                 """UPDATE memories SET fingerprint=?,title=?,content=?,project=?,
-                   source_path=?,updated_at=? WHERE id=?""",
-                (fingerprint, title, content, project, source_path, now, row["id"]),
+                   source_path=?,status=CASE WHEN ?='automation' THEN 'pending' ELSE status END,
+                   updated_at=? WHERE id=?""",
+                (
+                    fingerprint,
+                    title,
+                    content,
+                    project,
+                    source_path,
+                    origin,
+                    now,
+                    row["id"],
+                ),
             )
             result = "updated"
         else:
