@@ -4,13 +4,13 @@ title: Detect the actual local scheduler before installing Claude's routine
 priority: P1
 effort: M
 component: automation-synthesis
-status: in-review
+status: ready
 related: []
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-07-26
-updated: 2026-07-26
+updated: 2026-07-27
 ---
 
 ## Problem

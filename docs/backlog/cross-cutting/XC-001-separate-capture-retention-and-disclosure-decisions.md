@@ -1,16 +1,16 @@
 ---
 id: XC-001
 title: Separate the capture, retention, and disclosure decisions
-priority: P2
+priority: P3
 effort: S
 component: cross-cutting
 status: in-review
-related: [STO-001, CLI-001, ONB-001]
+related: [STO-001, CLI-001, ONB-001, XC-002]
 blockers: []
 dependencies: []
 github_issue: https://github.com/dipakkrishnan/lore-mcp/issues/6
 created: 2026-07-26
-updated: 2026-07-26
+updated: 2026-07-27
 ---
 
 ## Problem
@@ -46,3 +46,10 @@ Cataloged from https://github.com/dipakkrishnan/lore-mcp/issues/6. This is the
 cross-cutting yardstick rather than a doc, since the backlog now supersedes the
 freeform essay. The two design targets: <5 owner decisions/week (volume-
 independent) and zero irreversible-disclosure errors.
+
+Prioritization 2026-07-27: dropped P2→P3. This is a design principle, not
+standalone build work, and it is now concretely realized by CLI-001 (bulk is
+retention-only) and specified into STO-001/XC-002 (private-by-default,
+publications-only disclosure, no bulk externalization). It stays as a review lens
+for those items; it is a candidate for closure once STO-001 and XC-002 land rather
+than something to implement on its own.

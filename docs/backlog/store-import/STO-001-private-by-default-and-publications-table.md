@@ -1,10 +1,10 @@
 ---
 id: STO-001
 title: Private-by-default memories and a separate publications table
-priority: P1
+priority: P0
 effort: M
 component: store-import
-status: in-review
+status: ready
 related: [CLI-001, ONB-001, XC-001, XC-002]
 blockers: []
 dependencies: []
