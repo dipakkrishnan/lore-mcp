@@ -38,8 +38,18 @@ do):
 - `lore publication revoke <id>` — immediately removes a publication from MCP
   retrieval.
 
-Publications hold derived text, not copied memory documents. Provenance is
-owner-visible but not automatically disclosed externally.
+A publication is a **reusable bounded claim** (resolved: not a request-time
+synthesis policy) — a stable, inspectable, revocable unit. The owner may publish
+two kinds, both via the same explicit approval:
+
+- a derived bounded claim (synthesized text), or
+- **promoted content** — a specific piece of private content the owner chooses to
+  expose verbatim (e.g. an uploaded document made public).
+
+So the doc's "derived text, not copied documents by default" is intentionally
+relaxed: copied content is allowed, but only as an explicit per-item promotion,
+never as a default or a bulk action. Provenance is owner-visible but not
+automatically disclosed externally.
 
 ## Acceptance criteria
 
@@ -50,6 +60,9 @@ owner-visible but not automatically disclosed externally.
 - [ ] Publishing one topic takes no more than three owner decisions.
 - [ ] Approved publications carry provenance references back to their private
       memories.
+- [ ] A publication can be either a derived bounded claim or explicitly-promoted
+      verbatim content; promoting content is a deliberate per-item choice, never a
+      default or bulk action.
 
 ## Notes
 
@@ -57,7 +70,8 @@ Cataloged from https://github.com/dipakkrishnan/lore-mcp/issues/6, from the mini
 implementation in Dipak's "Private by Default, Publish by Intent" doc. Blocked by
 STO-001 (needs the publications table + MCP read-path move). This is the intent-
 driven counterpart to CLI-001: CLI-001 handles cheap bulk *retention* (private/
-discarded); XC-002 handles rare, deliberate *disclosure*. Open design question from
-the doc, still unresolved: is a publication a reusable bounded claim or a policy for
-request-time synthesis — the doc's starting recommendation is reusable bounded
-claims (easier to inspect, approve, audit, revoke).
+discarded); XC-002 handles rare, deliberate *disclosure*. The doc's open design
+question is **resolved (Shane + Dipak): bounded claims**, not request-time synthesis
+policies — easier to inspect, approve, audit, and revoke. The one extension to the
+doc is that a publication may also be explicitly-promoted verbatim content, not only
+a derived claim.
