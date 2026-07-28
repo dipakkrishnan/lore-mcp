@@ -3,11 +3,11 @@ from __future__ import annotations
 import argparse
 import json
 import math
-import shutil
 import sys
 from pathlib import Path
 
 from . import blueprint as blueprint_module
+from .paths import home
 from .sources import available_sources, scan
 from .store import STATUSES, Store
 from .ui import ask, confirm, heading, logo, memory_card, muted, success
@@ -20,7 +20,6 @@ def parser() -> argparse.ArgumentParser:
 
     setup = commands.add_parser("setup", help="guided first-time setup")
     setup.add_argument("--yes", action="store_true", help="enable detected sources without prompting")
-    setup.add_argument("--no-automation", action="store_true", help="import only; leave synthesis to `lore profile`")
 
     sync = commands.add_parser("sync", help="import new and changed memories")
     sync.add_argument("--source", action="append", choices=[s.name for s in available_sources()])
@@ -69,7 +68,7 @@ def main(argv: list[str] | None = None) -> int:
         args = parser().parse_args(["status"])
     try:
         if args.command == "setup":
-            return setup(args.yes, not args.no_automation)
+            return setup(args.yes)
         if args.command == "sync":
             return sync(set(args.source) if args.source else None)
         if args.command == "review":
@@ -128,7 +127,7 @@ def manual() -> int:
         """Lore workflow
 
   1. lore setup
-     Import native memories and configure automatic synthesis.
+     Import native memories, then continue with the lore-onboard agent skill.
 
   2. lore sync
      Import memories created or changed since setup.
@@ -158,9 +157,12 @@ Use `lore <command> --help` for command-specific options.
     return 0
 
 
-def setup(yes: bool = False, automate: bool = True) -> int:
+def setup(yes: bool = False) -> int:
     """Choose native memory sources and perform the first import."""
     logo()
+    automation_dir = home() / "automation"
+    automation_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
+    automation_dir.chmod(0o700)
     muted("Lore imports only agent-generated memory files. Session transcripts stay untouched.")
     native = [source for source in available_sources() if source.origin == "native"]
     enabled: list[str] = []
@@ -175,11 +177,9 @@ def setup(yes: bool = False, automate: bool = True) -> int:
         store.set_setting("sources", enabled)
         report = scan(store, set(enabled))
     total = sum(item["added"] + item["updated"] for item in report.values())
-    if automate:
-        configure_automation(yes)
     heading("Ready")
     success(f"Imported {total} candidate memories")
-    print("Run `lore review` to classify them and `lore search <words>` to recall them.")
+    print('Next, tell Claude or Codex: "Onboard me to Lore."')
     return 0
 
 
@@ -188,7 +188,7 @@ def sync(names: set[str] | None = None) -> int:
     with Store() as store:
         if names is None:
             configured = set(store.setting("sources", []))
-            names = configured | {"automation-codex", "automation-claude"}
+            names = configured | {"automation"}
         report = scan(store, names)
     for name, item in report.items():
         print(f"{name:<20} {item['added']} added, {item['updated']} updated, {item['unchanged']} unchanged")
@@ -282,20 +282,20 @@ def price(amount: float | None) -> int:
 
 
 def profile(path: str, schedule: bool = True) -> int:
-    """Save a profile written by an onboarding agent and install its schedules."""
+    """Save a profile written by an onboarding agent and install its schedule."""
     from . import automation
 
     text = sys.stdin.read() if path == "-" else Path(path).read_text(encoding="utf-8")
     data = json.loads(text)
     if not isinstance(data, dict):
         raise ValueError("profile must be a JSON object")
-    automation.save_profile(data)
+    data = automation.save_profile(data)
     success(f"Saved profile to {automation.profile_path()}")
     if not schedule:
+        muted("Existing schedules still use their previously installed prompt.")
         return 0
-    for agent in data.get("agents", []):
-        automation.install(agent, data)
-        success(f"Configured {agent.title()} native schedule")
+    automation.install(data)
+    success(f"Configured {str(data['executor']).title()} local schedule")
     return 0
 
 
@@ -319,55 +319,3 @@ def blueprint_show() -> int:
         return 0
     print("No blueprint yet. Run the lore-onboard skill inside Claude or Codex.")
     return 0
-
-
-def configure_automation(yes: bool) -> None:
-    """Configure native synthesis during the main setup flow."""
-    from . import automation
-
-    installed = [agent for agent in automation.AGENTS if shutil.which(agent)]
-    if not installed or (not yes and not confirm("Set up automatic memory synthesis?")):
-        return
-    heading("Personal synthesis")
-    muted(f"These answers stay in {automation.profile_path().parent}.")
-    if yes:
-        agents = installed
-        models = {agent: "" for agent in agents}
-        role, domains, valuable, preferences = "", "", "", ""
-        boundaries, cadence, hour = "secrets and third-party private data", "daily", 21
-    else:
-        role = ask("What kind of work do you do?")
-        domains = ask("Which projects or domains matter most right now?")
-        valuable = ask("What experience might be unusually valuable to others?")
-        preferences = ask("Which working preferences should every agent learn?")
-        boundaries = ask(
-            "What should Lore never retain?", "secrets and third-party private data"
-        )
-        agents = [
-            agent
-            for agent in installed
-            if confirm(f"Configure synthesis for {agent.title()}?")
-        ]
-        if not agents:
-            return
-        models = {
-            agent: ask(f"{agent.title()} model (blank uses its native default)")
-            for agent in agents
-        }
-        cadence = ask("Run daily or weekly?", "daily").lower()
-        hour = int(ask("Run at which local hour (0-23)?", "21"))
-    profile = {
-        "role": role,
-        "domains": domains,
-        "valuable_context": valuable,
-        "preferences": preferences,
-        "boundaries": boundaries,
-        "agents": agents,
-        "models": models,
-        "cadence": cadence if cadence in {"daily", "weekly"} else "daily",
-        "hour": max(0, min(hour, 23)),
-    }
-    automation.save_profile(profile)
-    for agent in agents:
-        automation.install(agent, profile)
-        success(f"Configured {agent.title()} native schedule")

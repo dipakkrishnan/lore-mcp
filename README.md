@@ -8,8 +8,8 @@ Lore MCP is a local-first memory layer that lets any personal agent build a dura
 
 ## Install
 
-Lore has no runtime dependencies beyond Python 3.10+ and SQLite (included with
-Python). Inspect [`install.sh`](./install.sh), then install the current release:
+Lore uses Python 3.10+, SQLite, Git, and [uv](https://docs.astral.sh/uv/). Inspect
+[`install.sh`](./install.sh), then install the current release:
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/dipakkrishnan/lore-mcp/main/install.sh | sh
@@ -21,7 +21,7 @@ transcripts during initial import.
 
 ```sh
 lore help                     # show the end-user workflow
-lore setup                    # import memory and configure synthesis
+lore setup                    # import native memory; then onboard with an agent
 lore sync                     # import new or changed memory files
 lore review                   # private / external / discard
 lore review launch --status private  # revisit a prior decision
@@ -36,28 +36,20 @@ Set `LORE_HOME` to use a location other than `~/.lore`. Lore also respects
 
 ## Agent-assisted synthesis
 
-Native memory is deliberately selective, so Lore can ask each agent to revisit
-its remembered and owner-approved context and synthesize durable judgments:
+Native memory is deliberately selective, so Lore asks one agent to revisit remembered
+and owner-approved context and synthesize durable judgments:
 
-```sh
-lore setup
-```
+After `lore setup`, tell Claude or Codex **“Onboard me to Lore.”** The installed skill
+drafts your profile from agent history, asks you to correct it, and configures one
+synthesis executor, cadence, and optional model. Codex and Claude memories remain
+independent input sources; the selected executor writes topic-based memories plus an
+`INDEX.md` semantic index. Its first run analyzes useful history and can delegate a
+large cold-start corpus to subagents.
 
-Setup asks about your work, valuable experience, preferences, retention boundaries,
-agents, cadence, and optional model choices. It writes agent-specific prompts under
-`~/.lore/automation/`, then messages each installed agent headlessly. The agent creates
-or updates its native scheduled task, verifies it exists, and exits. This is a one-time
-setup call; Lore does not stay resident or own the recurring schedule.
-
-Use a local Scheduled task in the Codex desktop app or a **Local** task under
-Claude Desktop's Routines. Once installed, the native scheduler owns execution,
-permissions, run history, and retries. Each run uses the agent's native memory,
-writes a Markdown candidate under `~/.lore/memories/<agent>/`, and imports it as
-pending context. Lore does not use agent CLIs as recurring runners, install cron jobs,
-or edit either agent's native memory.
-
-Remote Claude routines cannot read local memory files, so choose **Local** for this
-workflow. Keep the machine and desktop app running when a local task is due.
+Codex uses its local automation definition. Claude uses a macOS LaunchAgent that first
+runs `lore sync`, then invokes `claude -p` with the saved prompt and narrow permissions.
+Remote Claude routines cannot read local memory files. Keep the Mac awake when a local
+Claude task is due.
 
 ## Guided onboarding
 
@@ -71,8 +63,8 @@ as one conversation inside a Claude or Codex session, in two phases:
    time with `lore blueprint show`.
 2. **Profile → automation.** The skill then reads your existing agent memory, drafts a
    synthesis profile you correct rather than authoring from blank prompts, installs the
-   recurring synthesis task, and backfills past sessions. The blueprint from phase 1 steers
-   where it reads deeply. Captured with `lore profile`.
+   recurring synthesis task, and lets its first run process useful history. The blueprint
+   from phase 1 steers where it reads deeply. Captured with `lore profile`.
 
 The blueprint (shape) and the profile (what steers synthesis) stay separate artifacts. See
 `docs/gamified-onboarding.md` for the persona design.
@@ -288,11 +280,10 @@ Lore MCP is the connective layer between personal memory, agent discovery, owner
 ├── lore.db                 # SQLite records and FTS5 index
 ├── automation/
 │   ├── profile.json        # owner-provided synthesis guidance
-│   ├── claude-prompt.md
-│   └── codex-prompt.md
+│   └── synthesis-prompt.md # shared prompt run by the selected executor
 ├── memories/
-│   ├── claude/             # Claude-generated synthesis
-│   └── codex/              # Codex-generated synthesis
+│   ├── INDEX.md            # semantic index
+│   └── <topic>.md          # synthesized topic memory
 └── blueprint/
     ├── blueprint.json      # captured shape of your lore (persona, axis, topics)
     └── lore-map.md         # human-readable rendering of the blueprint
