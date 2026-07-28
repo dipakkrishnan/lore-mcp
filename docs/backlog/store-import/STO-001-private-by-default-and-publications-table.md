@@ -4,7 +4,7 @@ title: Private-by-default memories and a separate publications table
 priority: P0
 effort: M
 component: store-import
-status: ready
+status: in-progress
 related: [CLI-001, ONB-001, XC-001, XC-002]
 blockers: []
 dependencies: []
