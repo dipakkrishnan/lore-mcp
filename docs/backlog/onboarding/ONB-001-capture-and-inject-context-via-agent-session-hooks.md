@@ -1,16 +1,16 @@
 ---
 id: ONB-001
 title: Capture and inject context via agent session hooks
-priority: P2
+priority: P3
 effort: L
 component: onboarding
 status: ideation
-related: [STO-001, XC-001]
-blockers: [STO-001]
+related: [STO-001, XC-001, XC-002]
+blockers: [XC-002]
 dependencies: []
 github_issue: https://github.com/dipakkrishnan/lore-mcp/issues/6
 created: 2026-07-26
-updated: 2026-07-26
+updated: 2026-07-27
 ---
 
 ## Problem
@@ -20,6 +20,16 @@ context was actually created. There is no way to capture durable context at the
 moment a session produces it, and no way for Lore to make itself useful *inside*
 a session. Issue #6's Proposals 2 and 4 ask for in-session control; the current
 model can't provide it.
+
+## Status: deferred
+
+Explicitly deferred by the "Private by Default, Publish by Intent" doc, which
+lists "No GUI, hooks, raw transcript capture, recurrence digest, or automated
+publication suggestions yet. Add those only after intent-driven publishing proves
+useful." Kept at `ideation`/P3 and re-pointed to block on XC-002 (the publish
+flow) rather than STO-001: hooks feed captures, and captures are themselves the
+deferred half of the model. Do not pick this up until intent-driven publishing
+has shipped and earned it.
 
 ## Proposed approach
 
@@ -43,7 +53,8 @@ and Codex parity as a separate question.
 - [ ] `SessionEnd` capture never stores or indexes raw transcript text.
 - [ ] Capture failure is silent and non-blocking to the user's agent session
       (`async`).
-- [ ] Capture writes to the STO-001 captures tier, never directly to `external`.
+- [ ] Capture writes to the captures tier only, never to publications or private
+      memories directly.
 
 ## Notes
 
