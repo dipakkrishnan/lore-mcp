@@ -38,7 +38,6 @@ def profile_path() -> Path:
 
 def save_profile(profile: dict[str, object]) -> dict[str, object]:
     """Persist a profile and regenerate the selected executor's task prompt."""
-    profile = _migrate_profile(profile)
     profile = {key: profile[key] for key in PROFILE_FIELDS if key in profile}
     try:
         executor = Agent(str(profile.get("executor", "")))
@@ -154,18 +153,3 @@ def install(profile: dict[str, object]) -> Path:
         ),
     )
     return install_task(task, codex_home=codex_home())
-
-
-def _migrate_profile(profile: dict[str, object]) -> dict[str, object]:
-    """Migrate the old agents/models fields to one executor/model."""
-    normalized = dict(profile)
-    if "executor" not in normalized:
-        agents = normalized.get("agents", [])
-        if isinstance(agents, list) and agents:
-            normalized["executor"] = agents[0]
-    if "model" not in normalized:
-        models = normalized.get("models", {})
-        executor = normalized.get("executor")
-        if isinstance(models, dict) and isinstance(executor, str):
-            normalized["model"] = models.get(executor, "")
-    return normalized

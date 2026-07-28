@@ -146,7 +146,7 @@ class LoreTest(unittest.TestCase):
 
     def test_save_profile_drops_checkpoint_only_fields(self) -> None:
         automation.save_profile({
-            "role": "maintainer", "agents": ["codex"],
+            "role": "maintainer", "executor": "codex",
             "phase1_done": True, "backfill_weeks": 8, "backfill_done": ["week"],
         })
         saved = json.loads(automation.profile_path().read_text())
