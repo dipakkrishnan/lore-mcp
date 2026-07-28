@@ -77,6 +77,12 @@ as one conversation inside a Claude or Codex session, in two phases:
 The blueprint (shape) and the profile (what steers synthesis) stay separate artifacts. See
 `docs/gamified-onboarding.md` for the persona design.
 
+## Backlog
+
+Planned and in-flight work on Lore itself is tracked as a git-versioned backlog under
+`docs/backlog/`, organized by component with per-item metadata (priority, effort, status,
+blockers). See `docs/backlog/README.md` for the schema and how to manage it.
+
 ## The idea
 
 People are beginning to use agents across coding, research, communication, planning, and everyday life. Those agents encounter valuable context: preferences, relationships, decisions, project histories, failed approaches, hard-won know-how, and the reasons behind past choices.
