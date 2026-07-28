@@ -26,6 +26,27 @@ class Memory:
     updated_at: str
 
 
+PUBLICATION_KINDS = ("claim", "content")
+
+
+@dataclass(frozen=True)
+class Publication:
+    """An owner-approved, externally-disclosable artifact.
+
+    A publication is a reusable bounded claim, or explicitly-promoted verbatim
+    content. It is the *only* thing the MCP surface may return; private rows of
+    any kind (memories, synthesized claims, uploaded content) are never exposed.
+    """
+    id: int
+    title: str
+    content: str
+    kind: str
+    provenance: list[int]
+    active: int
+    created_at: str
+    updated_at: str
+
+
 class Store:
     """Small SQLite repository for memories and Lore settings."""
 
@@ -92,8 +113,44 @@ class Store:
                 INSERT INTO memories_fts(rowid,title,content,project)
                 VALUES (new.id,new.title,new.content,new.project);
             END;
+            CREATE TABLE IF NOT EXISTS publications (
+                id INTEGER PRIMARY KEY,
+                title TEXT NOT NULL,
+                content TEXT NOT NULL,
+                kind TEXT NOT NULL DEFAULT 'claim'
+                    CHECK(kind IN ('claim','content')),
+                provenance TEXT NOT NULL DEFAULT '[]',
+                active INTEGER NOT NULL DEFAULT 1 CHECK(active IN (0,1)),
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
+            CREATE VIRTUAL TABLE IF NOT EXISTS publications_fts USING fts5(
+                title, content,
+                content='publications', content_rowid='id',
+                tokenize='unicode61 remove_diacritics 2'
+            );
+            CREATE TRIGGER IF NOT EXISTS publications_ai AFTER INSERT ON publications BEGIN
+                INSERT INTO publications_fts(rowid,title,content)
+                VALUES (new.id,new.title,new.content);
+            END;
+            CREATE TRIGGER IF NOT EXISTS publications_ad AFTER DELETE ON publications BEGIN
+                INSERT INTO publications_fts(publications_fts,rowid,title,content)
+                VALUES ('delete',old.id,old.title,old.content);
+            END;
+            CREATE TRIGGER IF NOT EXISTS publications_au AFTER UPDATE ON publications BEGIN
+                INSERT INTO publications_fts(publications_fts,rowid,title,content)
+                VALUES ('delete',old.id,old.title,old.content);
+                INSERT INTO publications_fts(rowid,title,content)
+                VALUES (new.id,new.title,new.content);
+            END;
             """
         )
+        # Private by default: memories are never disclosed via a status. Any
+        # legacy 'pending' row migrates to 'private' (idempotent — new imports
+        # already land as 'private'). 'discarded' and 'external' are untouched;
+        # existing 'external' rows stay locally readable but are no longer
+        # reachable from MCP, which now reads only the publications table.
+        self.db.execute("UPDATE memories SET status='private' WHERE status='pending'")
         self.db.commit()
 
     def put(
@@ -137,7 +194,7 @@ class Store:
                     title,
                     content,
                     project,
-                    "pending",
+                    "private",
                     now,
                     now,
                 ),
@@ -225,6 +282,77 @@ class Store:
         )
         self.db.commit()
 
+    def add_publication(
+        self,
+        *,
+        title: str,
+        content: str,
+        kind: str = "claim",
+        provenance: list[int] | None = None,
+    ) -> int:
+        """Create an active publication and return its id."""
+        if kind not in PUBLICATION_KINDS:
+            raise ValueError(f"invalid publication kind: {kind}")
+        now = datetime.now(timezone.utc).isoformat()
+        cursor = self.db.execute(
+            """INSERT INTO publications(title,content,kind,provenance,active,created_at,updated_at)
+               VALUES (?,?,?,?,1,?,?)""",
+            (title, content, kind, json.dumps(list(provenance or [])), now, now),
+        )
+        self.db.commit()
+        return int(cursor.lastrowid)
+
+    def revoke_publication(self, publication_id: int) -> None:
+        """Mark a publication revoked so MCP can no longer return it."""
+        cursor = self.db.execute(
+            "UPDATE publications SET active=0,updated_at=? WHERE id=?",
+            (datetime.now(timezone.utc).isoformat(), publication_id),
+        )
+        if not cursor.rowcount:
+            raise ValueError(f"publication not found: {publication_id}")
+        self.db.commit()
+
+    def list_publications(self, *, active_only: bool = False) -> list[Publication]:
+        """Return publications, most recently updated first."""
+        where = " WHERE active=1" if active_only else ""
+        rows = self.db.execute(
+            f"SELECT * FROM publications{where} ORDER BY updated_at DESC,id"
+        ).fetchall()
+        return [_publication(row) for row in rows]
+
+    def search_publications(self, query: str, *, limit: int = 5) -> list[Publication]:
+        """Search active publications. This is the only externally-readable path."""
+        if limit < 0:
+            raise ValueError("limit cannot be negative")
+        if query.strip():
+            terms = re.findall(r"[\w-]+", query, re.UNICODE)
+            if not terms:
+                return []
+            match = " AND ".join(f'"{term.replace(chr(34), "")}"' for term in terms)
+            sql = (
+                "SELECT p.* FROM publications_fts f JOIN publications p ON p.id=f.rowid "
+                "WHERE publications_fts MATCH ? AND p.active=1 "
+                "ORDER BY bm25(publications_fts),p.updated_at DESC LIMIT ?"
+            )
+            args: list[object] = [match, limit or -1]
+        else:
+            sql = "SELECT * FROM publications WHERE active=1 ORDER BY updated_at DESC LIMIT ?"
+            args = [limit or -1]
+        return [_publication(row) for row in self.db.execute(sql, args).fetchall()]
+
 
 def _memory(row: sqlite3.Row) -> Memory:
     return Memory(**{field: row[field] for field in Memory.__dataclass_fields__})
+
+
+def _publication(row: sqlite3.Row) -> Publication:
+    return Publication(
+        id=row["id"],
+        title=row["title"],
+        content=row["content"],
+        kind=row["kind"],
+        provenance=json.loads(row["provenance"]),
+        active=row["active"],
+        created_at=row["created_at"],
+        updated_at=row["updated_at"],
+    )

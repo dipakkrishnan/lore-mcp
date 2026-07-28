@@ -208,31 +208,99 @@ class LoreTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "requires --token"):
             http("0.0.0.0", 0)
 
-    def test_mcp_returns_only_external_memories(self) -> None:
+    def _seed_memory(self, title: str, status: str) -> None:
         with Store() as store:
-            for title, status in (("Public lesson", "external"), ("Private lesson", "private")):
-                store.put(
-                    source="test",
-                    origin="native",
-                    source_path=title,
-                    source_key=title,
-                    fingerprint=title,
-                    title=title,
-                    content=f"{title} about deployment",
-                )
-                memory = store.search(title)[0]
-                store.set_status(memory.id, status)
+            store.put(
+                source="test",
+                origin="native",
+                source_path=title,
+                source_key=title,
+                fingerprint=title,
+                title=title,
+                content=f"{title} about deployment",
+            )
+            store.set_status(store.search(title)[0].id, status)
+
+    def _answer(self, query: str) -> str:
         response = dispatch(
             {
                 "jsonrpc": "2.0",
                 "id": 1,
                 "method": "tools/call",
-                "params": {"name": "answer", "arguments": {"query": "deployment"}},
+                "params": {"name": "answer", "arguments": {"query": query}},
             }
         )
-        text = response["result"]["content"][0]["text"]  # type: ignore[index]
-        self.assertIn("Public lesson", text)
-        self.assertNotIn("Private lesson", text)
+        return response["result"]["content"][0]["text"]  # type: ignore[index]
+
+    def test_new_imports_default_to_private(self) -> None:
+        with Store() as store:
+            store.put(
+                source="test",
+                origin="native",
+                source_path="fresh",
+                source_key="fresh",
+                fingerprint="fresh",
+                title="Fresh import",
+                content="a freshly imported memory",
+            )
+            self.assertEqual(store.search("Fresh")[0].status, "private")
+            self.assertEqual(store.counts()["pending"], 0)
+
+    def test_legacy_pending_migrates_to_private(self) -> None:
+        with Store() as store:
+            store.put(
+                source="test",
+                origin="native",
+                source_path="legacy",
+                source_key="legacy",
+                fingerprint="legacy",
+                title="Legacy row",
+                content="an older imported memory",
+            )
+            store.set_status(store.search("Legacy")[0].id, "pending")
+            self.assertEqual(store.counts()["pending"], 1)
+        # Reopening the store runs the idempotent pending -> private migration.
+        with Store() as store:
+            self.assertEqual(store.counts()["pending"], 0)
+            self.assertEqual(store.search("Legacy")[0].status, "private")
+
+    def test_publications_add_list_revoke(self) -> None:
+        with Store() as store:
+            pid = store.add_publication(
+                title="Pricing claim",
+                content="a bounded claim about pricing agent APIs",
+                provenance=[1, 2],
+            )
+            active = store.list_publications(active_only=True)
+            self.assertEqual(len(active), 1)
+            self.assertEqual(active[0].kind, "claim")
+            self.assertEqual(active[0].provenance, [1, 2])
+            doc_id = store.add_publication(title="Doc", content="verbatim", kind="content")
+            self.assertGreater(doc_id, 0)
+            with self.assertRaisesRegex(ValueError, "invalid publication kind"):
+                store.add_publication(title="Bad", content="x", kind="secret")
+            store.revoke_publication(pid)
+            self.assertEqual([p.id for p in store.list_publications(active_only=True)], [doc_id])
+            self.assertEqual(len(store.list_publications()), 2)  # revoked still listed
+            self.assertEqual(store.search_publications("pricing"), [])  # revoked not searchable
+
+    def test_mcp_reads_only_active_publications_never_memories(self) -> None:
+        # Memories of every disclosure status must be unreachable from MCP.
+        self._seed_memory("External memory", "external")
+        self._seed_memory("Private memory", "private")
+        with Store() as store:
+            active_id = store.add_publication(title="Deployment guide", content="deployment guidance")
+            revoked_id = store.add_publication(title="Old deployment note", content="stale deployment text")
+            store.revoke_publication(revoked_id)
+        text = self._answer("deployment")
+        self.assertIn("Deployment guide", text)
+        self.assertNotIn("External memory", text)  # external memory unreachable
+        self.assertNotIn("Private memory", text)  # private memory unreachable
+        self.assertNotIn("Old deployment note", text)  # revoked publication excluded
+        # Revoking the last active publication removes it from MCP immediately.
+        with Store() as store:
+            store.revoke_publication(active_id)
+        self.assertNotIn("Deployment guide", self._answer("deployment"))
 
     def _write_blueprint_input(self, data: dict) -> Path:
         path = Path(os.environ["LORE_HOME"]) / "blueprint-input.json"

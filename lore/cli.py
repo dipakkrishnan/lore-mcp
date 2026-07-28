@@ -253,8 +253,9 @@ def status() -> int:
         configured = set(store.setting("sources", []))
         database_path = store.path
         answer_price = store.setting("price_usd", None)
+        published = len(store.list_publications(active_only=True))
     heading("Library")
-    print(f"  {sum(counts.values())} memories · {counts['pending']} awaiting review · {counts['external']} externally usable")
+    print(f"  {sum(counts.values())} memories (private) · {published} active publication{'' if published == 1 else 's'} (externally usable)")
     heading("Sources")
     for source in available_sources():
         if source.origin == "automation":
