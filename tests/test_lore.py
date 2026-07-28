@@ -6,14 +6,22 @@ import stat
 import tempfile
 import tomllib
 import unittest
-from contextlib import redirect_stdout
+from contextlib import redirect_stderr, redirect_stdout
 from io import StringIO
 from pathlib import Path
 from subprocess import CompletedProcess
 from unittest.mock import patch
 
 from lore import automation, blueprint
-from lore.cli import blueprint_apply, blueprint_show, configure_automation, manual, price, review
+from lore.cli import (
+    blueprint_apply,
+    blueprint_show,
+    configure_automation,
+    manual,
+    parser,
+    price,
+    review,
+)
 from lore.mcp import call_tool, dispatch, http
 from lore.sources import scan
 from lore.store import Memory, Store
@@ -84,7 +92,7 @@ class LoreTest(unittest.TestCase):
         with Store() as store:
             scan(store, {"claude"})
 
-    def test_bulk_review_marks_the_whole_set_at_once(self) -> None:
+    def test_bulk_review_marks_the_whole_set_private(self) -> None:
         self._seed_pending(3)
         with redirect_stdout(StringIO()):
             review("", "pending", 0, bulk="private")
@@ -93,17 +101,24 @@ class LoreTest(unittest.TestCase):
         self.assertEqual(counts["private"], 3)
         self.assertEqual(counts["pending"], 0)
 
-    def test_bulk_external_requires_confirmation(self) -> None:
+    def test_bulk_review_marks_the_whole_set_discarded(self) -> None:
         self._seed_pending(2)
-        with patch("lore.cli.confirm", return_value=False), redirect_stdout(StringIO()):
+        with redirect_stdout(StringIO()):
+            review("", "pending", 0, bulk="discarded")
+        with Store() as store:
+            self.assertEqual(store.counts()["discarded"], 2)
+
+    def test_bulk_external_is_refused(self) -> None:
+        self._seed_pending(2)
+        with self.assertRaisesRegex(ValueError, "external"), redirect_stdout(StringIO()):
             review("", "pending", 0, bulk="external")
         with Store() as store:
             self.assertEqual(store.counts()["external"], 0)
             self.assertEqual(store.counts()["pending"], 2)
-        with redirect_stdout(StringIO()):
-            review("", "pending", 0, bulk="external", assume_yes=True)
-        with Store() as store:
-            self.assertEqual(store.counts()["external"], 2)
+
+    def test_parser_rejects_bulk_external(self) -> None:
+        with self.assertRaises(SystemExit), redirect_stderr(StringIO()):
+            parser().parse_args(["review", "--all", "external"])
 
     def test_interactive_uppercase_applies_to_all_remaining(self) -> None:
         self._seed_pending(3)
