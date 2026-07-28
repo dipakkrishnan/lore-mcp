@@ -142,6 +142,7 @@ class LoreTest(unittest.TestCase):
         self.assertEqual(task.agent, automation.Agent.CLAUDE)
         self.assertEqual(task.model, "opus")
         self.assertEqual(task.before, ("/bin/lore", "sync"))
+        self.assertEqual(task.allowed_tools[:3], ("Read", "Glob", "Grep"))
 
     def test_save_profile_drops_checkpoint_only_fields(self) -> None:
         automation.save_profile({

@@ -141,6 +141,9 @@ def install(profile: dict[str, object]) -> Path:
         model=str(profile.get("model", "")),
         before=(lore, "sync"),
         allowed_tools=(
+            "Read",
+            "Glob",
+            "Grep",
             "Write",
             "Bash(lore search *)",
             "Bash(lore sync *)",
