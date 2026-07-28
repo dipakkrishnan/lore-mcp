@@ -61,15 +61,15 @@ store-import item, not part of this one.
 
 ## Acceptance criteria
 
-- [ ] New imports persist as `private`; a migration moves existing `pending` to
+- [x] New imports persist as `private`; a migration moves existing `pending` to
       `private` without touching `discarded`.
-- [ ] A `publications` table exists with content (a derived claim or promoted
+- [x] A `publications` table exists with content (a derived claim or promoted
       verbatim content), provenance refs, timestamps, and active/revoked state,
       independent of the `memories` table and its `status`.
-- [ ] `discover`/`answer` read only `publications WHERE active=1`; a test asserts
+- [x] `discover`/`answer` read only `publications WHERE active=1`; a test asserts
       no private row of any kind (memory of any status including `external`, private
       synthesized claim, uploaded content) is reachable from MCP.
-- [ ] Revoking a publication removes it from MCP retrieval immediately.
+- [x] Revoking a publication removes it from MCP retrieval immediately.
 
 ## Notes
 
@@ -82,3 +82,11 @@ be explicitly-promoted verbatim content (see XC-002). This item is the data mode
 the owner-facing publish/approve/revoke flow that fills the table is XC-002, which
 this blocks. Supersedes the earlier "stage passive captures" framing — captures are
 now a distinct, deferred concern, not conflated with disclosure.
+
+Implemented on `feat/sto-private-publications` (off `main`, PR
+https://github.com/dipakkrishnan/lore-mcp/pull/19), 31 tests passing. All four
+acceptance criteria verified. `updated`/`kind`/promoted-content are in the
+`publications` schema; the owner-facing flow to fill the table is XC-002, now
+unblocked. Kept `in-progress` (not `completed`) until the PR merges, per the
+README's "completed = merged" definition. Deferred, as designed: uploaded-content
+ingest and the raw captures table.
