@@ -11,9 +11,9 @@ dependencies = [
 ]
 
 [package.metadata]
-requires-dist = [{ name = "windup", git = "https://github.com/dipakkrishnan/windup.git?rev=0b8d501" }]
+requires-dist = [{ name = "windup", git = "https://github.com/dipakkrishnan/windup.git?rev=372af8a" }]
 
 [[package]]
 name = "windup"
 version = "0.1.0"
-source = { git = "https://github.com/dipakkrishnan/windup.git?rev=0b8d501#0b8d501e7e84ef6f1ce9564a114cdd8db76475b8" }
+source = { git = "https://github.com/dipakkrishnan/windup.git?rev=372af8a#372af8a1daed31769f7472cb25d05cc86ed98668" }

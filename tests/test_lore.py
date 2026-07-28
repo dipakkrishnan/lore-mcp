@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import stat
+import sys
 import tempfile
 import tomllib
 import unittest
@@ -61,7 +62,7 @@ class LoreTest(unittest.TestCase):
         with Store() as store:
             self.assertEqual(store.search("integration", status="private")[0].status, "private")
 
-    def test_changed_file_updates_without_resetting_status(self) -> None:
+    def test_changed_native_memory_requires_review_again(self) -> None:
         path = Path(os.environ["CODEX_HOME"]) / "memories/MEMORY.md"
         path.parent.mkdir(parents=True)
         path.write_text("# Project\n\nFirst version")
@@ -72,8 +73,8 @@ class LoreTest(unittest.TestCase):
             path.write_text("# Project\n\nSecond version")
             scan(store, {"codex"})
             updated = store.search("Second")[0]
-            self.assertEqual(updated.status, "private")
-            self.assertEqual(store.counts()["private"], 1)
+            self.assertEqual(updated.status, "pending")
+            self.assertEqual(store.counts()["pending"], 1)
 
     def test_codex_import_ignores_intermediate_memory_files(self) -> None:
         root = Path(os.environ["CODEX_HOME"]) / "memories"
@@ -83,14 +84,14 @@ class LoreTest(unittest.TestCase):
         summaries = root / "rollout_summaries"
         summaries.mkdir()
         (summaries / "task.md").write_text("# Task\n\nDuplicate summary.")
-        synthesis = Path(os.environ["LORE_HOME"]) / "memories/codex"
+        synthesis = Path(os.environ["LORE_HOME"]) / "memories"
         synthesis.mkdir(parents=True)
         (synthesis / "linked.md").symlink_to(root / "MEMORY.md")
 
         with Store() as store:
-            report = scan(store, {"codex", "automation-codex"})
+            report = scan(store, {"codex", "automation"})
             self.assertEqual(report["codex"]["found"], 1)
-            self.assertEqual(report["automation-codex"]["found"], 0)
+            self.assertEqual(report["automation"]["found"], 0)
             self.assertEqual(store.search("Keep this")[0].title, "Durable")
             self.assertEqual(store.search("Duplicate"), [])
 
@@ -108,14 +109,14 @@ class LoreTest(unittest.TestCase):
         }
         automation.save_profile(profile)
 
-        prompt = automation.build_prompt("codex", profile)
+        prompt = automation.build_prompt(profile)
         self.assertIn("topic-based memory library", prompt)
         self.assertIn("perform a cold-start pass", prompt)
         self.assertIn("delegate coherent slices", prompt)
-        self.assertIn("/AGENTS.md", prompt)
+        self.assertIn("/INDEX.md", prompt)
         self.assertIn("failed launches", prompt)
         self.assertIn("lore search --status private", prompt)
-        self.assertIn("lore sync --source automation-codex", prompt)
+        self.assertIn("-m lore sync --source automation", prompt)
         self.assertIn("prior agent sessions", prompt)
 
         with patch("lore.automation.remove_task") as remove:
@@ -126,7 +127,7 @@ class LoreTest(unittest.TestCase):
         self.assertIn('model = "gpt-test"', definition)
         self.assertIn('execution_environment = "local"', definition)
         self.assertTrue(
-            tomllib.loads(definition)["prompt"].endswith(automation.build_prompt("codex", profile))
+            tomllib.loads(definition)["prompt"].endswith(automation.build_prompt(profile))
         )
 
         for path in (
@@ -137,11 +138,7 @@ class LoreTest(unittest.TestCase):
         claude_profile = automation.save_profile({
             **profile, "executor": "claude", "model": "opus"
         })
-        self.assertIn(
-            "automation-claude", automation.prompt_path().read_text(encoding="utf-8")
-        )
         with (
-            patch("lore.automation.shutil.which", return_value="/bin/lore"),
             patch("lore.automation.remove_task") as remove,
             patch("lore.automation.install_task", return_value=Path("task")) as install,
         ):
@@ -151,16 +148,36 @@ class LoreTest(unittest.TestCase):
         self.assertEqual(task.agent, automation.Agent.CLAUDE)
         self.assertEqual(task.prompt_path, automation.prompt_path())
         self.assertEqual(task.model, "opus")
-        self.assertEqual(task.before, ("/bin/lore", "sync"))
+        self.assertEqual(
+            task.before,
+            (
+                "env",
+                f"LORE_HOME={Path(os.environ['LORE_HOME'])}",
+                sys.executable,
+                "-m",
+                "lore",
+                "sync",
+            ),
+        )
         self.assertEqual(
             task.allowed_tools, ("Read", "Glob", "Grep", "Write", "Bash", "Agent")
         )
+        self.assertEqual(
+            task.add_dirs,
+            (
+                Path(os.environ["CLAUDE_HOME"]),
+                Path(os.environ["CODEX_HOME"]),
+            ),
+        )
+        self.assertEqual(dict(task.environment)["LORE_HOME"], os.environ["LORE_HOME"])
         with (
             patch("lore.automation.remove_task"),
             patch("lore.automation.install_task", return_value=Path("task")) as install,
         ):
             automation.install(profile)
-        self.assertEqual(install.call_args.args[0].allowed_tools, ())
+        task = install.call_args.args[0]
+        self.assertEqual(task.allowed_tools, ())
+        self.assertEqual(task.environment, ())
 
     def test_save_profile_drops_checkpoint_only_fields(self) -> None:
         automation.save_profile({
@@ -171,25 +188,52 @@ class LoreTest(unittest.TestCase):
         self.assertEqual(saved["role"], "maintainer")
         self.assertEqual(saved["executor"], "codex")
         self.assertNotIn("phase1_done", saved)
+        with self.assertRaisesRegex(ValueError, "cadence"):
+            automation.save_profile({"executor": "codex", "cadence": "monthly"})
+        with self.assertRaisesRegex(ValueError, "cadence"):
+            automation.save_profile({"executor": "codex", "cadence": []})
+        with self.assertRaisesRegex(ValueError, "hour"):
+            automation.save_profile({"executor": "codex", "hour": "9"})
+        profile = automation.save_profile(
+            {
+                "executor": "codex",
+                "role": "software\nengineer",
+                "model": None,
+                "hour": None,
+            }
+        )
+        self.assertEqual(profile["role"], "software engineer")
+        self.assertNotIn("model", profile)
+        self.assertNotIn("hour", profile)
 
     def test_synthesis_index_is_not_imported_as_memory(self) -> None:
-        root = Path(os.environ["LORE_HOME"]) / "memories/codex"
+        root = Path(os.environ["LORE_HOME"]) / "memories"
         root.mkdir(parents=True)
-        (root / "agent-systems.md").write_text("# Agent systems\n\nA durable lesson.")
-        (root / "AGENTS.md").write_text("# Lore memory index\n\nRead agent-systems.md.")
+        topic = root / "projects/agent-systems.md"
+        topic.parent.mkdir()
+        topic.write_text("# Agent systems\n\nA durable lesson.")
+        (root / "INDEX.md").write_text("# Lore memory index\n\nRead agent-systems.md.")
 
         with Store() as store:
-            report = scan(store, {"automation-codex"})
+            report = scan(store, {"automation"})
             memory = store.search("durable")[0]
             store.set_status(memory.id, "external")
 
-        self.assertEqual(report["automation-codex"]["found"], 1)
-        (root / "agent-systems.md").write_text(
+        self.assertEqual(report["automation"]["found"], 1)
+        topic.write_text(
             "# Agent systems\n\nA durable lesson with new private context."
         )
         with Store() as store:
-            scan(store, {"automation-codex"})
+            scan(store, {"automation"})
             self.assertEqual(store.search("private context")[0].status, "pending")
+            memory = store.search("private context")[0]
+            store.set_status(memory.id, "discarded")
+        topic.write_text(
+            "# Agent systems\n\nA durable lesson changed after rejection."
+        )
+        with Store() as store:
+            scan(store, {"automation"})
+            self.assertEqual(store.search("after rejection")[0].status, "discarded")
 
     def test_setup_imports_then_hands_off_to_agent(self) -> None:
         memory = Path(os.environ["CODEX_HOME"]) / "memories/MEMORY.md"
@@ -202,6 +246,8 @@ class LoreTest(unittest.TestCase):
 
         self.assertIn("Imported 1 candidate memories", output.getvalue())
         self.assertIn("Onboard me to Lore", output.getvalue())
+        automation_dir = Path(os.environ["LORE_HOME"]) / "automation"
+        self.assertEqual(stat.S_IMODE(automation_dir.stat().st_mode), 0o700)
 
     def test_help_is_a_workflow_manual(self) -> None:
         output = StringIO()
@@ -410,7 +456,7 @@ class LoreTest(unittest.TestCase):
             "cadence": "daily",
             "hour": 21,
         }
-        prompt = automation.build_prompt("codex", profile)
+        prompt = automation.build_prompt(profile)
         for marker in (
             "organizing_axis",
             "topic_outline",

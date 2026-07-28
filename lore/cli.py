@@ -7,6 +7,7 @@ import sys
 from pathlib import Path
 
 from . import blueprint as blueprint_module
+from .paths import home
 from .sources import available_sources, scan
 from .store import STATUSES, Store
 from .ui import ask, confirm, heading, logo, memory_card, muted, success
@@ -159,6 +160,9 @@ Use `lore <command> --help` for command-specific options.
 def setup(yes: bool = False) -> int:
     """Choose native memory sources and perform the first import."""
     logo()
+    automation_dir = home() / "automation"
+    automation_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
+    automation_dir.chmod(0o700)
     muted("Lore imports only agent-generated memory files. Session transcripts stay untouched.")
     native = [source for source in available_sources() if source.origin == "native"]
     enabled: list[str] = []
@@ -184,7 +188,7 @@ def sync(names: set[str] | None = None) -> int:
     with Store() as store:
         if names is None:
             configured = set(store.setting("sources", []))
-            names = configured | {"automation-codex", "automation-claude"}
+            names = configured | {"automation"}
         report = scan(store, names)
     for name, item in report.items():
         print(f"{name:<20} {item['added']} added, {item['updated']} updated, {item['unchanged']} unchanged")
@@ -288,6 +292,7 @@ def profile(path: str, schedule: bool = True) -> int:
     data = automation.save_profile(data)
     success(f"Saved profile to {automation.profile_path()}")
     if not schedule:
+        muted("Existing schedules still use their previously installed prompt.")
         return 0
     automation.install(data)
     success(f"Configured {str(data['executor']).title()} local schedule")

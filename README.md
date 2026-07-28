@@ -8,7 +8,7 @@ Lore MCP is a local-first memory layer that lets any personal agent build a dura
 
 ## Install
 
-Lore uses Python 3.10+, SQLite, and [uv](https://docs.astral.sh/uv/). Inspect
+Lore uses Python 3.10+, SQLite, Git, and [uv](https://docs.astral.sh/uv/). Inspect
 [`install.sh`](./install.sh), then install the current release:
 
 ```sh
@@ -43,7 +43,7 @@ After `lore setup`, tell Claude or Codex **“Onboard me to Lore.”** The insta
 drafts your profile from agent history, asks you to correct it, and configures one
 synthesis executor, cadence, and optional model. Codex and Claude memories remain
 independent input sources; the selected executor writes topic-based memories plus an
-`AGENTS.md` semantic index. Its first run analyzes useful history and can delegate a
+`INDEX.md` semantic index. Its first run analyzes useful history and can delegate a
 large cold-start corpus to subagents.
 
 Codex uses its local automation definition. Claude uses a macOS LaunchAgent that first
@@ -63,8 +63,8 @@ as one conversation inside a Claude or Codex session, in two phases:
    time with `lore blueprint show`.
 2. **Profile → automation.** The skill then reads your existing agent memory, drafts a
    synthesis profile you correct rather than authoring from blank prompts, installs the
-   recurring synthesis task, and backfills past sessions. The blueprint from phase 1 steers
-   where it reads deeply. Captured with `lore profile`.
+   recurring synthesis task, and lets its first run process useful history. The blueprint
+   from phase 1 steers where it reads deeply. Captured with `lore profile`.
 
 The blueprint (shape) and the profile (what steers synthesis) stay separate artifacts. See
 `docs/gamified-onboarding.md` for the persona design.
@@ -276,9 +276,8 @@ Lore MCP is the connective layer between personal memory, agent discovery, owner
 │   ├── profile.json        # owner-provided synthesis guidance
 │   └── synthesis-prompt.md # shared prompt run by the selected executor
 ├── memories/
-│   └── <executor>/
-│       ├── AGENTS.md       # semantic index
-│       └── <topic>.md      # synthesized topic memory
+│   ├── INDEX.md            # semantic index
+│   └── <topic>.md          # synthesized topic memory
 └── blueprint/
     ├── blueprint.json      # captured shape of your lore (persona, axis, topics)
     └── lore-map.md         # human-readable rendering of the blueprint

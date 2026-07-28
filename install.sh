@@ -13,6 +13,7 @@ command -v uv >/dev/null 2>&1 || {
   echo "Lore needs uv: https://docs.astral.sh/uv/getting-started/installation/" >&2
   exit 1
 }
+command -v git >/dev/null 2>&1 || { echo "Lore needs git." >&2; exit 1; }
 python3 -c 'import sys; raise SystemExit(sys.version_info < (3, 10))' || {
   echo "Lore needs Python 3.10 or newer." >&2
   exit 1
@@ -29,11 +30,14 @@ else
   SOURCE_DIR="$(find "$TMP_DIR" -mindepth 1 -maxdepth 1 -type d | head -n 1)"
 fi
 
-mkdir -p "$BIN_DIR" "$HOME/.agents/skills" "$HOME/.claude/skills"
+mkdir -p "$BIN_DIR"
 UV_TOOL_DIR="$INSTALL_DIR" UV_TOOL_BIN_DIR="$BIN_DIR" uv tool install --force --reinstall "$SOURCE_DIR"
-mkdir -p "$HOME/.agents/skills/lore-onboard" "$HOME/.claude/skills/lore-onboard"
-cp -R "$SOURCE_DIR/skills/lore-onboard/." "$HOME/.agents/skills/lore-onboard/"
-cp -R "$SOURCE_DIR/skills/lore-onboard/." "$HOME/.claude/skills/lore-onboard/"
+if [ -d "$SOURCE_DIR/skills/lore-onboard" ]; then
+  rm -rf "$HOME/.agents/skills/lore-onboard" "$HOME/.claude/skills/lore-onboard"
+  mkdir -p "$HOME/.agents/skills/lore-onboard" "$HOME/.claude/skills/lore-onboard"
+  cp -R "$SOURCE_DIR/skills/lore-onboard/." "$HOME/.agents/skills/lore-onboard/"
+  cp -R "$SOURCE_DIR/skills/lore-onboard/." "$HOME/.claude/skills/lore-onboard/"
+fi
 
 echo "Installed Lore at $BIN_DIR/lore"
 case ":$PATH:" in

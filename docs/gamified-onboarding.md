@@ -116,16 +116,14 @@ gate (FR12) is what makes that clean rather than a silent format drift.
 
 **One write path stays one write path.** Because `apply` is the only writer, every future
 feature extends a single function instead of scattered call sites — the same property that
-keeps disclosure safe (per `docs/onboarding-ux.md`'s reasoning about `apply`) keeps the schema
-evolvable.
+keeps disclosure safe also keeps the schema evolvable.
 
 ## Following the existing `apply` pattern
 
-`docs/onboarding-ux.md` proposed `lore automation apply <file>` for its AI-interview mode
-specifically so the agent never writes the private profile directly — it hands a file to a
-validating command that is the sole write path. `lore blueprint apply <file>` is the same
-pattern applied to the blueprint: the skill assembles JSON, writes it to a temp file, and
-`apply` is the only thing that touches `~/.lore/blueprint/*`.
+The agent never writes the private profile directly: it hands a file to a validating
+command that is the sole write path. `lore blueprint apply <file>` follows the same pattern:
+the skill assembles JSON, writes it to a temp file, and `apply` is the only thing that
+touches `~/.lore/blueprint/*`.
 
 ## What this intentionally does not do
 

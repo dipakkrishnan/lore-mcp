@@ -10,7 +10,7 @@ readme = "README.md"
 requires-python = ">=3.10"
 license = {text = "MIT"}
 dependencies = [
-    "windup @ git+https://github.com/dipakkrishnan/windup.git@0b8d501",
+    "windup @ git+https://github.com/dipakkrishnan/windup.git@372af8a",
 ]
 
 [project.scripts]
