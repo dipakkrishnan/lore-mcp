@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import shutil
+from enum import Enum
 from pathlib import Path
 
 from windup import Task, install as install_task
@@ -17,8 +18,17 @@ PROFILE_FIELDS = (
     "role", "domains", "valuable_context", "preferences",
     "boundaries", "executor", "model", "cadence", "hour",
 )
-AGENTS = ("claude", "codex")
 AUTOMATION_ID = "lore-memory-synthesis"
+
+
+class Agent(str, Enum):
+    """Supported synthesis agents."""
+
+    CLAUDE = "claude"
+    CODEX = "codex"
+
+    def __str__(self) -> str:
+        return self.value
 
 
 def profile_path() -> Path:
@@ -30,9 +40,10 @@ def save_profile(profile: dict[str, object]) -> None:
     """Persist a profile and regenerate the selected executor's task prompt."""
     profile = _normalize_profile(profile)
     profile = {key: profile[key] for key in PROFILE_FIELDS if key in profile}
-    executor = profile.get("executor")
-    if executor not in AGENTS:
-        raise ValueError("automation profile contains an unknown executor")
+    try:
+        executor = Agent(str(profile.get("executor", "")))
+    except ValueError as error:
+        raise ValueError("automation profile contains an unknown executor") from error
     path = profile_path()
     directory = path.parent
     # Profiles and prompts contain private context; keep them owner-only.
@@ -43,7 +54,7 @@ def save_profile(profile: dict[str, object]) -> None:
     path.write_text(
         json.dumps(profile, indent=2, allow_nan=False) + "\n", encoding="utf-8"
     )
-    for agent in AGENTS:
+    for agent in Agent:
         prompt = directory / f"{agent}-prompt.md"
         if agent != executor:
             prompt.unlink(missing_ok=True)
@@ -53,10 +64,12 @@ def save_profile(profile: dict[str, object]) -> None:
         prompt.write_text(build_prompt(agent, profile), encoding="utf-8")
 
 
-def build_prompt(agent: str, profile: dict[str, object]) -> str:
+def build_prompt(agent: Agent | str, profile: dict[str, object]) -> str:
     """Build the prompt a native scheduled task runs to synthesize memories."""
-    if agent not in AGENTS:
-        raise ValueError(f"unknown agent: {agent}")
+    try:
+        agent = Agent(agent)
+    except ValueError as error:
+        raise ValueError(f"unknown agent: {agent}") from error
     destination = home() / "memories" / agent
     source = f"automation-{agent}"
     return f"""# Lore memory synthesis
@@ -109,7 +122,10 @@ file, run `lore sync --source {source}`. Do not modify the agent's native memory
 def install(profile: dict[str, object]) -> str:
     """Install the selected executor's recurring synthesis task."""
     profile = _normalize_profile(profile)
-    executor = str(profile["executor"])
+    try:
+        executor = Agent(str(profile["executor"]))
+    except ValueError as error:
+        raise ValueError("automation profile contains an unknown executor") from error
     lore = shutil.which("lore")
     if not lore:
         raise OSError("Lore CLI is not installed")
@@ -147,7 +163,7 @@ def codex_automation_path() -> Path:
 
 
 def _normalize_profile(profile: dict[str, object]) -> dict[str, object]:
-    """Read legacy multi-agent profiles as one executor during upgrades."""
+    """Migrate the old agents/models fields to one executor/model."""
     normalized = dict(profile)
     if "executor" not in normalized:
         agents = normalized.get("agents", [])
