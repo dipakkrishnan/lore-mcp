@@ -137,9 +137,11 @@ def call_tool(name: object, arguments: object) -> dict[str, Any]:
                     {
                         "title": publication.title,
                         "content": publication.content,
+                        # Provenance is owner-visible only. The private memory
+                        # ids behind a publication are never sent to a buyer:
+                        # they leak the size and shape of the private library.
                         "provenance": {
                             "kind": publication.kind,
-                            "memory_ids": publication.provenance,
                             "updated_at": publication.updated_at,
                         },
                     }

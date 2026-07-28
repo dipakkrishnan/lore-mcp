@@ -104,9 +104,9 @@ corrects a claim, not rates a guess.
 
 Before the `valuable_context` question, state the stakes plainly, once:
 
-> This shapes what the synthesis task hunts for, and what could later be exposed as paid
-> answers over MCP. Everything still lands as `pending` for your review — no memory
-> becomes external without you marking it.
+> This shapes what the synthesis task hunts for, and what you could later choose to expose
+> as paid answers over MCP. Everything lands private — no memory is ever reachable over
+> MCP, whatever you do to it. Disclosing anything takes a publication you approve yourself.
 
 Then `boundaries` (default: secrets and third-party private data). Combine agents +
 cadence + hour into one final scheduling exchange — that keeps the whole pass to about
@@ -169,11 +169,12 @@ imported and the checkpoint says where to resume.
 ```sh
 lore status
 lore blueprint show   # the shape they chose
-lore review           # everything is pending until they classify it
+lore review           # walk the private library and keep or discard
 ```
 
-Tell them: `lore review` decides private vs external, `lore price` sets the answer
-price, and the schedule runs itself from here.
+Tell them: everything is private on arrival, `lore review` is a keep-or-discard pass that
+never discloses anything, `lore price` sets the answer price, and the schedule runs itself
+from here.
 
 ## Rules
 

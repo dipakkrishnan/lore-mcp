@@ -27,7 +27,7 @@ def parser() -> argparse.ArgumentParser:
 
     review = commands.add_parser("review", help="classify or reclassify memories")
     review.add_argument("query", nargs="*", help="words to narrow the review queue")
-    review.add_argument("--status", choices=STATUSES, default="pending")
+    review.add_argument("--status", choices=STATUSES, default="private")
     review.add_argument("--limit", type=int, default=0, help="maximum to review; 0 means all")
 
     search = commands.add_parser("search", help="search local memories")
@@ -117,7 +117,7 @@ def dashboard() -> int:
             if query:
                 search(query, None, 20, False)
         elif choice == "r":
-            review("", "pending", 0)
+            review("", "private", 0)
         elif choice == "s":
             sync()
 
@@ -133,8 +133,9 @@ def manual() -> int:
   2. lore sync
      Import memories created or changed since setup.
 
-  3. lore review [words] [--status pending|private|external|discarded]
-     Mark context private, external, or discarded; revisit any prior decision.
+  3. lore review [words] [--status private|discarded]
+     Walk the private library and keep or discard; revisit any prior decision.
+     Reviewing never discloses anything — only a publication does that.
 
   4. lore search [words] [--status STATUS]
      Inspect the local library without changing disclosure.
@@ -143,7 +144,7 @@ def manual() -> int:
      Show or set the advertised fixed price per answer.
 
   6. lore status
-     Check imports, pending review, external context, and price.
+     Check imports, the private library, active publications, and price.
 
   7. lore serve
      Start the MCP endpoint used by local agents or a protected gateway.
@@ -195,20 +196,21 @@ def sync(names: set[str] | None = None) -> int:
     return 0
 
 
-def review(query: str = "", status_name: str = "pending", limit: int = 0) -> int:
-    """Let the owner classify or reclassify a targeted memory queue."""
+def review(query: str = "", status_name: str = "private", limit: int = 0) -> int:
+    """Let the owner revisit a targeted memory queue.
+
+    Imports are private on arrival, so review is a retention pass over the
+    private library rather than a disclosure queue. Nothing here can publish:
+    disclosure happens only through an owner-approved publication.
+    """
     if limit < 0:
         raise ValueError("limit cannot be negative")
     logo()
     with Store() as store:
-        memories = (
-            store.pending()
-            if not query and status_name == "pending"
-            else store.search(query, status=status_name, limit=limit)
-        )
+        memories = store.search(query, status=status_name, limit=limit)
         memories = memories[:limit] if limit else memories
         if not memories:
-            success("Nothing waiting for review")
+            success(f"No {status_name} memories to review")
             return 0
         for index, memory in enumerate(memories, 1):
             memory_card(memory, index, len(memories))
@@ -255,7 +257,20 @@ def status() -> int:
         answer_price = store.setting("price_usd", None)
         published = len(store.list_publications(active_only=True))
     heading("Library")
-    print(f"  {sum(counts.values())} memories (private) · {published} active publication{'' if published == 1 else 's'} (externally usable)")
+    print(
+        f"  {counts['private']} private · {counts['discarded']} discarded · "
+        f"{published} active publication{'' if published == 1 else 's'} (externally usable)"
+    )
+    if counts["external"]:
+        legacy = counts["external"]
+        muted(
+            f"  {legacy} memor{'y' if legacy == 1 else 'ies'} still marked external "
+            "from a previous version."
+        )
+        muted(
+            "  No memory is reachable over MCP now, whatever its status. "
+            "Nothing is disclosed until you publish it."
+        )
     heading("Sources")
     for source in available_sources():
         if source.origin == "automation":

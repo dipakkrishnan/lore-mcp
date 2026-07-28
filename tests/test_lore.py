@@ -13,7 +13,15 @@ from subprocess import CompletedProcess
 from unittest.mock import patch
 
 from lore import automation, blueprint
-from lore.cli import blueprint_apply, blueprint_show, configure_automation, manual, price, review
+from lore.cli import (
+    blueprint_apply,
+    blueprint_show,
+    configure_automation,
+    manual,
+    price,
+    review,
+    status,
+)
 from lore.mcp import call_tool, dispatch, http
 from lore.sources import scan
 from lore.store import Memory, Store
@@ -283,6 +291,59 @@ class LoreTest(unittest.TestCase):
             self.assertEqual([p.id for p in store.list_publications(active_only=True)], [doc_id])
             self.assertEqual(len(store.list_publications()), 2)  # revoked still listed
             self.assertEqual(store.search_publications("pricing"), [])  # revoked not searchable
+
+    def test_review_defaults_to_the_private_library(self) -> None:
+        # Nothing is ever 'pending' now, so review's default queue must be the
+        # private library or the command is a permanent no-op.
+        self._seed_memory("Kept lesson", "private")
+        self._seed_memory("Other lesson", "private")
+        with patch("lore.cli.ask", return_value="d"), redirect_stdout(StringIO()):
+            review()
+        with Store() as store:
+            self.assertEqual(store.counts()["discarded"], 2)
+            self.assertEqual(store.counts()["private"], 0)
+
+    def test_status_counts_private_and_discarded_separately(self) -> None:
+        self._seed_memory("Kept lesson", "private")
+        self._seed_memory("Dropped lesson", "discarded")
+        buffer = StringIO()
+        with redirect_stdout(buffer):
+            status()
+        text = buffer.getvalue()
+        self.assertIn("1 private", text)
+        self.assertIn("1 discarded", text)
+        self.assertIn("0 active publications", text)
+        # A discarded memory must never be counted as private.
+        self.assertNotIn("2 private", text)
+
+    def test_status_flags_legacy_external_memories(self) -> None:
+        self._seed_memory("Old public lesson", "external")
+        buffer = StringIO()
+        with redirect_stdout(buffer):
+            status()
+        text = buffer.getvalue()
+        self.assertIn("1 memory still marked external", text)
+        self.assertIn("No memory is reachable over MCP", text)
+        self._seed_memory("Another public lesson", "external")
+        buffer = StringIO()
+        with redirect_stdout(buffer):
+            status()
+        self.assertIn("2 memories still marked external", buffer.getvalue())
+
+    def test_answer_never_discloses_private_memory_ids(self) -> None:
+        # Provenance is owner-visible; buyers must not learn the ids or the
+        # number of private rows behind a publication.
+        with Store() as store:
+            store.add_publication(
+                title="Deployment guide",
+                content="deployment guidance",
+                provenance=[41, 42, 43],
+            )
+        text = self._answer("deployment")
+        self.assertIn("Deployment guide", text)
+        self.assertNotIn("memory_ids", text)
+        for memory_id in ("41", "42", "43"):
+            self.assertNotIn(memory_id, text)
 
     def test_mcp_reads_only_active_publications_never_memories(self) -> None:
         # Memories of every disclosure status must be unreachable from MCP.

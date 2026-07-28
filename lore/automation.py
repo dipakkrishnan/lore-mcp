@@ -67,9 +67,7 @@ needed as evidence for an inference.
 
 For additional owner-held context, inspect the existing Lore library with these commands:
 
-- `lore search --status pending --limit 100 --json`
 - `lore search --status private --limit 100 --json`
-- `lore search --status external --limit 100 --json`
 
 Do not use discarded memories.
 

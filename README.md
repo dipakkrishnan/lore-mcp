@@ -206,9 +206,9 @@ codex mcp add lore -- lore serve
 claude mcp add --scope user lore -- lore serve
 ```
 
-`discover` returns only safe relevance metadata. `answer` searches only memories
-the owner marked `external`; pending, private, and discarded records cannot be
-returned. HTTP binds to loopback by default. Binding another interface requires
+`discover` returns only safe relevance metadata. `answer` searches only active
+publications the owner explicitly approved; no memory is reachable over MCP,
+whatever its status. HTTP binds to loopback by default. Binding another interface requires
 `--token` or `LORE_MCP_TOKEN`.
 
 The intended paid deployment boundary is:

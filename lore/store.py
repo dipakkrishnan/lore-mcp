@@ -215,13 +215,6 @@ class Store:
             raise ValueError(f"memory not found: {memory_id}")
         self.db.commit()
 
-    def pending(self) -> list[Memory]:
-        """Return memories awaiting owner review, oldest first."""
-        rows = self.db.execute(
-            "SELECT * FROM memories WHERE status='pending' ORDER BY updated_at,id"
-        ).fetchall()
-        return [_memory(row) for row in rows]
-
     def search(
         self, query: str, *, status: str | None = None, limit: int = 20
     ) -> list[Memory]:
