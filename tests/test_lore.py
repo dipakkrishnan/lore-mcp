@@ -2,9 +2,7 @@ from __future__ import annotations
 
 import json
 import os
-import plistlib
 import stat
-import subprocess
 import tempfile
 import tomllib
 import unittest
@@ -19,7 +17,6 @@ from lore.mcp import call_tool, dispatch, http
 from lore.sources import scan
 from lore.store import Memory, Store
 from lore.ui import memory_card
-from windup import Task, install as install_task
 
 
 def _blueprint_input(*, persona: str = "professor", name: str = "Ada") -> dict:
@@ -118,8 +115,7 @@ class LoreTest(unittest.TestCase):
         self.assertIn("lore sync --source automation-codex", prompt)
         self.assertNotIn("sessions", prompt)
 
-        automation.install(profile)
-        definition = automation.codex_automation_path().read_text()
+        definition = automation.install(profile).read_text()
         self.assertIn('id = "lore-memory-synthesis"', definition)
         self.assertIn('rrule = "FREQ=WEEKLY;BYDAY=MO;BYHOUR=9;BYMINUTE=0"', definition)
         self.assertIn('model = "gpt-test"', definition)
@@ -133,47 +129,19 @@ class LoreTest(unittest.TestCase):
             automation.profile_path().parent / "codex-prompt.md",
         ):
             self.assertEqual(stat.S_IMODE(path.stat().st_mode), 0o600)
-        automation.save_profile({**profile, "executor": "claude", "model": "opus"})
+        claude_profile = automation.save_profile({
+            **profile, "executor": "claude", "model": "opus"
+        })
         self.assertFalse((automation.profile_path().parent / "codex-prompt.md").exists())
-
-    def test_claude_task_is_a_private_launch_agent(self) -> None:
-        root = Path(self.tmp.name)
-        prompt = root / "lore/automation/claude-prompt.md"
-        prompt.parent.mkdir(parents=True)
-        prompt.write_text("Synthesize.")
-        task = Task(
-            "lore-memory-synthesis",
-            "Lore memory synthesis",
-            "claude",
-            prompt,
-            root / "lore",
-            "weekly",
-            9,
-            "opus",
-            before=("/bin/lore", "sync"),
-            allowed_tools=("Write", "Bash(lore search *)", "Bash(lore sync *)"),
-            environment=(("LORE_HOME", str(root / "lore")),),
-        )
-        completed = __import__("subprocess").CompletedProcess([], 0, "", "")
         with (
-            patch("windup.tasks.Path.home", return_value=root),
-            patch("windup.tasks.shutil.which", side_effect=lambda name: f"/bin/{name}"),
-            patch("windup.tasks.subprocess.run", return_value=completed) as run,
+            patch("lore.automation.shutil.which", return_value="/bin/lore"),
+            patch("lore.automation.install_task", return_value=Path("task")) as install,
         ):
-            plist = install_task(task, codex_home=root / "codex")
-
-        definition = plistlib.loads(plist.read_bytes())
-        self.assertEqual(definition["StartCalendarInterval"]["Weekday"], 1)
-        runner = prompt.parent / "lore-memory-synthesis.sh"
-        script = runner.read_text()
-        self.assertIn("/bin/lore sync", script)
-        self.assertIn(f"LORE_HOME={root / 'lore'}", script)
-        self.assertIn("/bin/claude -p", script)
-        self.assertIn("--permission-mode dontAsk", script)
-        self.assertIn("--model opus", script)
-        self.assertEqual(stat.S_IMODE(runner.stat().st_mode), 0o700)
-        subprocess.run(["/bin/sh", "-n", runner], check=True)
-        self.assertEqual(run.call_args_list[-1].args[0][:2], ["launchctl", "bootstrap"])
+            automation.install(claude_profile)
+        task = install.call_args.args[0]
+        self.assertEqual(task.agent, automation.Agent.CLAUDE)
+        self.assertEqual(task.model, "opus")
+        self.assertEqual(task.before, ("/bin/lore", "sync"))
 
     def test_save_profile_drops_checkpoint_only_fields(self) -> None:
         automation.save_profile({

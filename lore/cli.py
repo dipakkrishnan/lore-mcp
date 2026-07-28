@@ -289,13 +289,12 @@ def profile(path: str, schedule: bool = True) -> int:
     data = json.loads(text)
     if not isinstance(data, dict):
         raise ValueError("profile must be a JSON object")
-    automation.save_profile(data)
+    data = automation.save_profile(data)
     success(f"Saved profile to {automation.profile_path()}")
     if not schedule:
         return 0
     automation.install(data)
-    saved = json.loads(automation.profile_path().read_text(encoding="utf-8"))
-    success(f"Configured {str(saved['executor']).title()} local schedule")
+    success(f"Configured {str(data['executor']).title()} local schedule")
     return 0
 
 
@@ -364,6 +363,6 @@ def configure_automation(yes: bool) -> None:
         "cadence": cadence if cadence in {"daily", "weekly"} else "daily",
         "hour": max(0, min(hour, 23)),
     }
-    automation.save_profile(profile)
+    profile = automation.save_profile(profile)
     automation.install(profile)
     success(f"Configured {executor.title()} local schedule")

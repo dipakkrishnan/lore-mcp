@@ -36,9 +36,9 @@ def profile_path() -> Path:
     return home() / PROFILE
 
 
-def save_profile(profile: dict[str, object]) -> None:
+def save_profile(profile: dict[str, object]) -> dict[str, object]:
     """Persist a profile and regenerate the selected executor's task prompt."""
-    profile = _normalize_profile(profile)
+    profile = _migrate_profile(profile)
     profile = {key: profile[key] for key in PROFILE_FIELDS if key in profile}
     try:
         executor = Agent(str(profile.get("executor", "")))
@@ -62,6 +62,7 @@ def save_profile(profile: dict[str, object]) -> None:
         prompt.touch(mode=0o600, exist_ok=True)
         prompt.chmod(0o600)
         prompt.write_text(build_prompt(agent, profile), encoding="utf-8")
+    return profile
 
 
 def build_prompt(agent: Agent | str, profile: dict[str, object]) -> str:
@@ -119,17 +120,13 @@ file, run `lore sync --source {source}`. Do not modify the agent's native memory
 """
 
 
-def install(profile: dict[str, object]) -> str:
+def install(profile: dict[str, object]) -> Path:
     """Install the selected executor's recurring synthesis task."""
-    profile = _normalize_profile(profile)
-    try:
-        executor = Agent(str(profile["executor"]))
-    except ValueError as error:
-        raise ValueError("automation profile contains an unknown executor") from error
+    executor = Agent(str(profile["executor"]))
     lore = shutil.which("lore")
     if not lore:
         raise OSError("Lore CLI is not installed")
-    path = os.pathsep.join(
+    search_path = os.pathsep.join(
         (str(Path(lore).parent), "/usr/local/bin", "/opt/homebrew/bin", "/usr/bin", "/bin")
     )
     prompt = profile_path().parent / f"{executor}-prompt.md"
@@ -150,19 +147,13 @@ def install(profile: dict[str, object]) -> str:
         ),
         environment=(
             ("LORE_HOME", str(home())),
-            ("PATH", path),
+            ("PATH", search_path),
         ),
     )
-    path = install_task(task, codex_home=codex_home())
-    return f"Wrote {path}"
+    return install_task(task, codex_home=codex_home())
 
 
-def codex_automation_path() -> Path:
-    """Return the Codex automation definition Lore owns."""
-    return codex_home() / "automations" / AUTOMATION_ID / "automation.toml"
-
-
-def _normalize_profile(profile: dict[str, object]) -> dict[str, object]:
+def _migrate_profile(profile: dict[str, object]) -> dict[str, object]:
     """Migrate the old agents/models fields to one executor/model."""
     normalized = dict(profile)
     if "executor" not in normalized:
