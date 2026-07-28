@@ -6,3 +6,14 @@ requires-python = ">=3.10"
 name = "lore-mcp"
 version = "0.1.0"
 source = { editable = "." }
+dependencies = [
+    { name = "windup" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "windup", git = "https://github.com/dipakkrishnan/windup.git?rev=0b8d501" }]
+
+[[package]]
+name = "windup"
+version = "0.1.0"
+source = { git = "https://github.com/dipakkrishnan/windup.git?rev=0b8d501#0b8d501e7e84ef6f1ce9564a114cdd8db76475b8" }

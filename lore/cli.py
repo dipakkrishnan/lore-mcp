@@ -325,7 +325,7 @@ def configure_automation(yes: bool) -> None:
     """Configure native synthesis during the main setup flow."""
     from . import automation
 
-    installed = [agent for agent in automation.AGENTS if shutil.which(agent)]
+    installed = [agent for agent in automation.Agent if shutil.which(agent)]
     if not installed or (not yes and not confirm("Set up automatic memory synthesis?")):
         return
     heading("Personal synthesis")
