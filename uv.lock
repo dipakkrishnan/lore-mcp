@@ -1236,6 +1236,7 @@ name = "lore-mcp"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
+    { name = "pydantic" },
     { name = "windup" },
 ]
 
@@ -1248,6 +1249,7 @@ payments = [
 [package.metadata]
 requires-dist = [
     { name = "cdp-sdk", marker = "extra == 'payments'", specifier = "==1.47.1" },
+    { name = "pydantic", specifier = ">=2.0.0" },
     { name = "windup", git = "https://github.com/dipakkrishnan/windup.git?rev=372af8a" },
     { name = "x402", extras = ["evm", "httpx"], marker = "extra == 'payments'", specifier = "==2.16.0" },
 ]

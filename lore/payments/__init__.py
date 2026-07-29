@@ -6,6 +6,8 @@ import math
 from collections.abc import Callable
 from typing import Any
 
+from . import config
+
 ToolHandler = Callable[[dict[str, Any]], dict[str, Any]]
 PaymentGate = Callable[[dict[str, Any], object], dict[str, Any]]
 
@@ -20,6 +22,7 @@ def gate(price_usd: object, handler: ToolHandler) -> PaymentGate | None:
         or not math.isfinite(price_usd)
     ):
         raise ValueError("answer price must be a number")
+    config.CONFIG.validate_paid()
 
     from .x402 import gate as x402_gate
 

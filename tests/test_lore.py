@@ -17,6 +17,7 @@ from lore import automation, blueprint
 from lore.cli import blueprint_apply, blueprint_show, manual, price, review, setup
 from lore.mcp import call_tool, dispatch, http
 from lore.payments import gate as payment_gate
+from lore.payments.config import PaymentConfig
 from lore.sources import scan
 from lore.store import Memory, Store
 from lore.ui import memory_card
@@ -342,7 +343,14 @@ class LoreTest(unittest.TestCase):
 
         self.assertIsNone(payment_gate(0, lambda _: {}))
         with (
-            patch.dict(os.environ, {}, clear=True),
+            patch(
+                "lore.payments.config.CONFIG",
+                PaymentConfig(
+                    x402_pay_to="",
+                    cdp_api_key_id="",
+                    cdp_api_key_secret="",
+                ),
+            ),
             self.assertRaisesRegex(ValueError, "LORE_X402_PAY_TO"),
         ):
             payment_gate(0.01, lambda _: {})
@@ -388,14 +396,17 @@ class LoreTest(unittest.TestCase):
 
         executed: list[dict] = []
         facilitator = Facilitator()
-        environment = {
-            "LORE_X402_PAY_TO": "0x0000000000000000000000000000000000000001",
-            "CDP_API_KEY_ID": "test-key",
-            "CDP_API_KEY_SECRET": "test-secret",
-        }
+        test_config = PaymentConfig(
+            x402_pay_to="0x0000000000000000000000000000000000000001",
+            cdp_api_key_id="test-key",
+            cdp_api_key_secret="test-secret",
+        )
         with (
-            patch.dict(os.environ, environment, clear=True),
-            patch("x402.http.HTTPFacilitatorClientSync", return_value=facilitator),
+            patch("lore.payments.config.CONFIG", test_config),
+            patch(
+                "lore.payments.coinbase.HTTPFacilitatorClientSync",
+                return_value=facilitator,
+            ),
         ):
             paid = payment_gate(
                 0.01,
