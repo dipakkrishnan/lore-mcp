@@ -1,15 +1,11 @@
 """Small MCP server over stdio or stateless Streamable HTTP.
 
-The HTTP origin deliberately contains no payment implementation. In production the
-intended request path is:
+The origin contains no payment implementation. Lore is responsible for one thing
+here: deciding what is disclosable. The surface returns only active rows from the
+``publications`` table and never a private memory of any kind.
 
-    buyer -> Cloudflare Tunnel -> Monetization Gateway/x402 -> Lore /mcp
-
-Cloudflare owns the 402 offer, verification, metering, and settlement at the edge.
-Lore remains responsible for deciding what is disclosable: the surface returns only
-active rows from the ``publications`` table and never a private memory of any kind.
-Keep the origin bound to loopback and route only the gateway/tunnel to it; direct
-public exposure bypasses the future payment policy.
+Keep the origin bound to loopback. Anything that fronts it for payment or access
+control belongs in front of the HTTP route, not in it.
 """
 
 from __future__ import annotations
@@ -43,7 +39,7 @@ TOOLS = [
     {
         "name": "answer",
         "title": "Answer from Lore",
-        "description": "Return owner-approved evidence relevant to a query. Put the HTTP /mcp route behind Cloudflare Monetization Gateway to make this paid.",
+        "description": "Return owner-approved evidence relevant to a query.",
         "inputSchema": {
             "type": "object",
             "properties": {

@@ -24,7 +24,7 @@ from lore.cli import (
 )
 from lore.mcp import call_tool, dispatch, http
 from lore.sources import scan
-from lore.store import Memory, Store
+from lore.store import Memory, PublicationKind, Store
 from lore.ui import memory_card
 
 
@@ -254,24 +254,6 @@ class LoreTest(unittest.TestCase):
             self.assertEqual(store.search("Fresh")[0].status, "private")
             self.assertEqual(store.counts()["pending"], 0)
 
-    def test_legacy_pending_migrates_to_private(self) -> None:
-        with Store() as store:
-            store.put(
-                source="test",
-                origin="native",
-                source_path="legacy",
-                source_key="legacy",
-                fingerprint="legacy",
-                title="Legacy row",
-                content="an older imported memory",
-            )
-            store.set_status(store.search("Legacy")[0].id, "pending")
-            self.assertEqual(store.counts()["pending"], 1)
-        # Reopening the store runs the idempotent pending -> private migration.
-        with Store() as store:
-            self.assertEqual(store.counts()["pending"], 0)
-            self.assertEqual(store.search("Legacy")[0].status, "private")
-
     def test_publications_add_list_revoke(self) -> None:
         with Store() as store:
             pid = store.add_publication(
@@ -281,16 +263,27 @@ class LoreTest(unittest.TestCase):
             )
             active = store.list_publications(active_only=True)
             self.assertEqual(len(active), 1)
-            self.assertEqual(active[0].kind, "claim")
+            self.assertIs(active[0].kind, PublicationKind.CLAIM)
             self.assertEqual(active[0].provenance, [1, 2])
-            doc_id = store.add_publication(title="Doc", content="verbatim", kind="content")
+            doc_id = store.add_publication(
+                title="Doc", content="verbatim", kind=PublicationKind.CONTENT
+            )
             self.assertGreater(doc_id, 0)
-            with self.assertRaisesRegex(ValueError, "invalid publication kind"):
+            with self.assertRaisesRegex(ValueError, "not a valid PublicationKind"):
                 store.add_publication(title="Bad", content="x", kind="secret")
             store.revoke_publication(pid)
             self.assertEqual([p.id for p in store.list_publications(active_only=True)], [doc_id])
             self.assertEqual(len(store.list_publications()), 2)  # revoked still listed
             self.assertEqual(store.search_publications("pricing"), [])  # revoked not searchable
+
+    def test_publication_kind_accepts_a_plain_string(self) -> None:
+        # Callers (and the future `lore publication apply`) may pass raw strings;
+        # the enum normalizes them and rejects anything else.
+        with Store() as store:
+            store.add_publication(title="Str", content="x", kind="content")
+            self.assertIs(
+                store.list_publications()[0].kind, PublicationKind.CONTENT
+            )
 
     def test_review_defaults_to_the_private_library(self) -> None:
         # Nothing is ever 'pending' now, so review's default queue must be the
@@ -316,20 +309,6 @@ class LoreTest(unittest.TestCase):
         # A discarded memory must never be counted as private.
         self.assertNotIn("2 private", text)
 
-    def test_status_flags_legacy_external_memories(self) -> None:
-        self._seed_memory("Old public lesson", "external")
-        buffer = StringIO()
-        with redirect_stdout(buffer):
-            status()
-        text = buffer.getvalue()
-        self.assertIn("1 memory still marked external", text)
-        self.assertIn("No memory is reachable over MCP", text)
-        self._seed_memory("Another public lesson", "external")
-        buffer = StringIO()
-        with redirect_stdout(buffer):
-            status()
-        self.assertIn("2 memories still marked external", buffer.getvalue())
-
     def test_answer_never_discloses_private_memory_ids(self) -> None:
         # Provenance is owner-visible; buyers must not learn the ids or the
         # number of private rows behind a publication.
@@ -339,11 +318,12 @@ class LoreTest(unittest.TestCase):
                 content="deployment guidance",
                 provenance=[41, 42, 43],
             )
-        text = self._answer("deployment")
-        self.assertIn("Deployment guide", text)
-        self.assertNotIn("memory_ids", text)
-        for memory_id in ("41", "42", "43"):
-            self.assertNotIn(memory_id, text)
+        payload = json.loads(self._answer("deployment"))
+        entry = payload["answer_context"][0]
+        self.assertEqual(entry["title"], "Deployment guide")
+        # Assert on the payload shape, not on substrings: an ISO timestamp
+        # happens to contain two-digit numbers and would mask a real leak.
+        self.assertEqual(set(entry["provenance"]), {"kind", "updated_at"})
 
     def test_mcp_reads_only_active_publications_never_memories(self) -> None:
         # Memories of every disclosure status must be unreachable from MCP.

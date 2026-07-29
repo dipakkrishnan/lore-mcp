@@ -5,6 +5,7 @@ import re
 import sqlite3
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from enum import Enum
 from pathlib import Path
 
 from .paths import database
@@ -26,7 +27,14 @@ class Memory:
     updated_at: str
 
 
-PUBLICATION_KINDS = ("claim", "content")
+class PublicationKind(str, Enum):
+    """What an owner published: a derived claim, or promoted verbatim content."""
+
+    CLAIM = "claim"
+    CONTENT = "content"
+
+    def __str__(self) -> str:
+        return self.value
 
 
 @dataclass(frozen=True)
@@ -40,11 +48,25 @@ class Publication:
     id: int
     title: str
     content: str
-    kind: str
+    kind: PublicationKind
     provenance: list[int]
     active: int
     created_at: str
     updated_at: str
+
+    @classmethod
+    def from_row(cls, row: sqlite3.Row) -> Publication:
+        """Build a Publication from a `publications` row."""
+        return cls(
+            id=row["id"],
+            title=row["title"],
+            content=row["content"],
+            kind=PublicationKind(row["kind"]),
+            provenance=json.loads(row["provenance"]),
+            active=row["active"],
+            created_at=row["created_at"],
+            updated_at=row["updated_at"],
+        )
 
 
 class Store:
@@ -145,12 +167,6 @@ class Store:
             END;
             """
         )
-        # Private by default: memories are never disclosed via a status. Any
-        # legacy 'pending' row migrates to 'private' (idempotent — new imports
-        # already land as 'private'). 'discarded' and 'external' are untouched;
-        # existing 'external' rows stay locally readable but are no longer
-        # reachable from MCP, which now reads only the publications table.
-        self.db.execute("UPDATE memories SET status='private' WHERE status='pending'")
         self.db.commit()
 
     def put(
@@ -280,17 +296,16 @@ class Store:
         *,
         title: str,
         content: str,
-        kind: str = "claim",
+        kind: PublicationKind | str = PublicationKind.CLAIM,
         provenance: list[int] | None = None,
     ) -> int:
         """Create an active publication and return its id."""
-        if kind not in PUBLICATION_KINDS:
-            raise ValueError(f"invalid publication kind: {kind}")
+        kind = PublicationKind(kind)  # rejects unknown kinds
         now = datetime.now(timezone.utc).isoformat()
         cursor = self.db.execute(
             """INSERT INTO publications(title,content,kind,provenance,active,created_at,updated_at)
                VALUES (?,?,?,?,1,?,?)""",
-            (title, content, kind, json.dumps(list(provenance or [])), now, now),
+            (title, content, kind.value, json.dumps(list(provenance or [])), now, now),
         )
         self.db.commit()
         return int(cursor.lastrowid)
@@ -311,7 +326,7 @@ class Store:
         rows = self.db.execute(
             f"SELECT * FROM publications{where} ORDER BY updated_at DESC,id"
         ).fetchall()
-        return [_publication(row) for row in rows]
+        return [Publication.from_row(row) for row in rows]
 
     def search_publications(self, query: str, *, limit: int = 5) -> list[Publication]:
         """Search active publications. This is the only externally-readable path."""
@@ -331,21 +346,10 @@ class Store:
         else:
             sql = "SELECT * FROM publications WHERE active=1 ORDER BY updated_at DESC LIMIT ?"
             args = [limit or -1]
-        return [_publication(row) for row in self.db.execute(sql, args).fetchall()]
+        return [Publication.from_row(row) for row in self.db.execute(sql, args).fetchall()]
 
 
 def _memory(row: sqlite3.Row) -> Memory:
     return Memory(**{field: row[field] for field in Memory.__dataclass_fields__})
 
 
-def _publication(row: sqlite3.Row) -> Publication:
-    return Publication(
-        id=row["id"],
-        title=row["title"],
-        content=row["content"],
-        kind=row["kind"],
-        provenance=json.loads(row["provenance"]),
-        active=row["active"],
-        created_at=row["created_at"],
-        updated_at=row["updated_at"],
-    )

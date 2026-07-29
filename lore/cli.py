@@ -261,16 +261,6 @@ def status() -> int:
         f"  {counts['private']} private · {counts['discarded']} discarded · "
         f"{published} active publication{'' if published == 1 else 's'} (externally usable)"
     )
-    if counts["external"]:
-        legacy = counts["external"]
-        muted(
-            f"  {legacy} memor{'y' if legacy == 1 else 'ies'} still marked external "
-            "from a previous version."
-        )
-        muted(
-            "  No memory is reachable over MCP now, whatever its status. "
-            "Nothing is disclosed until you publish it."
-        )
     heading("Sources")
     for source in available_sources():
         if source.origin == "automation":
