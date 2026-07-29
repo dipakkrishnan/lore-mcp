@@ -5,16 +5,18 @@ import os
 import stat
 import sys
 import tempfile
-import tomllib
 import unittest
 from contextlib import redirect_stdout
 from io import StringIO
 from pathlib import Path
 from unittest.mock import patch
 
+import tomllib
+
 from lore import automation, blueprint
 from lore.cli import blueprint_apply, blueprint_show, manual, price, review, setup
 from lore.mcp import call_tool, dispatch, http
+from lore.payments import gate as payment_gate
 from lore.sources import scan
 from lore.store import Memory, Store
 from lore.ui import memory_card
@@ -309,6 +311,120 @@ class LoreTest(unittest.TestCase):
         text = response["result"]["content"][0]["text"]  # type: ignore[index]
         self.assertIn("Public lesson", text)
         self.assertNotIn("Private lesson", text)
+
+    def test_paid_http_answer_is_gated_and_fails_closed(self) -> None:
+        calls: list[tuple[dict, object]] = []
+
+        def unpaid(arguments: dict, meta: object) -> dict:
+            calls.append((arguments, meta))
+            return {
+                "content": [{"type": "text", "text": "payment required"}],
+                "isError": True,
+            }
+
+        request = {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "tools/call",
+            "params": {
+                "name": "answer",
+                "arguments": {"query": "deployment"},
+                "_meta": {"buyer": "test"},
+            },
+        }
+        response = dispatch(request, unpaid)
+        self.assertTrue(response["result"]["isError"])  # type: ignore[index]
+        self.assertEqual(calls, [({"query": "deployment"}, {"buyer": "test"})])
+
+        request["params"]["name"] = "discover"  # type: ignore[index]
+        dispatch(request, unpaid)
+        self.assertEqual(len(calls), 1)
+
+        self.assertIsNone(payment_gate(0, lambda _: {}))
+        with (
+            patch.dict(os.environ, {}, clear=True),
+            self.assertRaisesRegex(ValueError, "LORE_X402_PAY_TO"),
+        ):
+            payment_gate(0.01, lambda _: {})
+
+        try:
+            from cdp.auth.utils.jwt import JwtOptions  # noqa: F401
+            from x402.schemas import (
+                SettleResponse,
+                SupportedKind,
+                SupportedResponse,
+                VerifyResponse,
+            )
+        except ImportError:
+            return
+
+        class Facilitator:
+            verified = 0
+            settled = 0
+
+            def get_supported(self) -> SupportedResponse:
+                return SupportedResponse(
+                    kinds=[
+                        SupportedKind(
+                            x402_version=2,
+                            scheme="exact",
+                            network="eip155:84532",
+                        )
+                    ]
+                )
+
+            def verify(self, *_: object) -> VerifyResponse:
+                self.verified += 1
+                return VerifyResponse(is_valid=True, payer="0xbuyer")
+
+            def settle(self, *_: object) -> SettleResponse:
+                self.settled += 1
+                return SettleResponse(
+                    success=True,
+                    payer="0xbuyer",
+                    transaction="0xtest",
+                    network="eip155:84532",
+                )
+
+        executed: list[dict] = []
+        facilitator = Facilitator()
+        environment = {
+            "LORE_X402_PAY_TO": "0x0000000000000000000000000000000000000001",
+            "CDP_API_KEY_ID": "test-key",
+            "CDP_API_KEY_SECRET": "test-secret",
+        }
+        with (
+            patch.dict(os.environ, environment, clear=True),
+            patch("x402.http.HTTPFacilitatorClientSync", return_value=facilitator),
+        ):
+            paid = payment_gate(
+                0.01,
+                lambda arguments: executed.append(arguments)
+                or {"content": [{"type": "text", "text": "approved answer"}]},
+            )
+
+        requirement = paid({"query": "deployment"}, {})  # type: ignore[misc]
+        self.assertTrue(requirement["isError"])
+        self.assertEqual(requirement["structuredContent"]["x402Version"], 2)
+        self.assertEqual((facilitator.verified, facilitator.settled), (0, 0))
+        self.assertEqual(executed, [])
+
+        accepted = requirement["structuredContent"]["accepts"][0]
+        result = paid(  # type: ignore[misc]
+            {"query": "deployment"},
+            {
+                "x402/payment": {
+                    "x402Version": 2,
+                    "accepted": accepted,
+                    "payload": {"signature": "0xtest"},
+                }
+            },
+        )
+        self.assertFalse(result["isError"])
+        self.assertEqual(result["content"][0]["text"], "approved answer")
+        self.assertEqual(result["_meta"]["x402/payment-response"]["transaction"], "0xtest")
+        self.assertEqual((facilitator.verified, facilitator.settled), (1, 1))
+        self.assertEqual(executed, [{"query": "deployment"}])
 
     def _write_blueprint_input(self, data: dict) -> Path:
         path = Path(os.environ["LORE_HOME"]) / "blueprint-input.json"

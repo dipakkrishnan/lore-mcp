@@ -1,14 +1,7 @@
 """Small MCP server over stdio or stateless Streamable HTTP.
 
-The HTTP origin deliberately contains no payment implementation. In production the
-intended request path is:
-
-    buyer -> Cloudflare Tunnel -> Monetization Gateway/x402 -> Lore /mcp
-
-Cloudflare owns the 402 offer, verification, metering, and settlement at the edge.
-Lore remains responsible for deciding which memories have status ``external`` and
-for returning only those records. Keep the origin bound to loopback and route only
-the gateway/tunnel to it; direct public exposure bypasses the future payment policy.
+Lore gates paid HTTP answers through its payment module and always limits retrieval
+to owner-approved ``external`` memories. Local stdio calls remain free.
 """
 
 from __future__ import annotations
@@ -22,6 +15,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
 
 from . import __version__
+from .payments import PaymentGate
 from .store import Store
 
 PROTOCOL_VERSION = "2025-11-25"
@@ -42,7 +36,7 @@ TOOLS = [
     {
         "name": "answer",
         "title": "Answer from Lore",
-        "description": "Return owner-approved evidence relevant to a query. Put the HTTP /mcp route behind Cloudflare Monetization Gateway to make this paid.",
+        "description": "Return owner-approved evidence relevant to a query. Paid over HTTP when the owner sets a price.",
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -57,7 +51,9 @@ TOOLS = [
 ]
 
 
-def dispatch(message: object) -> dict[str, Any] | None:
+def dispatch(
+    message: object, payment_gate: PaymentGate | None = None
+) -> dict[str, Any] | None:
     """Dispatch one JSON-RPC request, ignoring notifications."""
     if not isinstance(message, dict):
         return _error(None, -32600, "invalid request")
@@ -89,7 +85,19 @@ def dispatch(message: object) -> dict[str, Any] | None:
         elif method == "tools/list":
             result = {"tools": TOOLS}
         elif method == "tools/call":
-            result = call_tool(params.get("name", ""), params.get("arguments", {}))
+            name = params.get("name", "")
+            arguments = params.get("arguments", {})
+            if (
+                payment_gate is not None
+                and name == "answer"
+                and not isinstance(arguments, dict)
+            ):
+                raise TypeError("arguments must be an object")
+            result = (
+                payment_gate(arguments, params.get("_meta"))
+                if payment_gate is not None and name == "answer"
+                else call_tool(name, arguments)
+            )
         else:
             return _error(request_id, -32601, f"method not found: {method}")
         return {"jsonrpc": "2.0", "id": request_id, "result": result}
@@ -171,6 +179,13 @@ def http(host: str, port: int, token: str | None = None) -> int:
     """Serve MCP over HTTP, requiring authentication off loopback."""
     if host not in {"127.0.0.1", "localhost"} and not token:
         raise ValueError("non-loopback MCP requires --token or LORE_MCP_TOKEN")
+    with Store() as store:
+        answer_price = store.setting("price_usd", None)
+    from .payments import gate
+
+    payment_gate = gate(
+        answer_price, lambda arguments: call_tool("answer", arguments)
+    )
 
     class Handler(BaseHTTPRequestHandler):
         def do_GET(self) -> None:
@@ -193,7 +208,7 @@ def http(host: str, port: int, token: str | None = None) -> int:
                 if not 0 < length <= 1_000_000:
                     raise ValueError("request size must be between 1 and 1000000 bytes")
                 message = json.loads(self.rfile.read(length))
-                response = dispatch(message)
+                response = dispatch(message, payment_gate)
                 if response is None:
                     self.send_response(202)
                     self.end_headers()

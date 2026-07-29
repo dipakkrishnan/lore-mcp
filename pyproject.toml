@@ -13,8 +13,14 @@ dependencies = [
     "windup @ git+https://github.com/dipakkrishnan/windup.git@372af8a",
 ]
 
+[project.optional-dependencies]
+payments = [
+    "cdp-sdk==1.47.1",
+    "x402[evm,httpx]==2.16.0",
+]
+
 [project.scripts]
 lore = "lore.cli:main"
 
 [tool.setuptools]
-packages = ["lore"]
+packages = ["lore", "lore.payments"]

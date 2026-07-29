@@ -168,7 +168,7 @@ marketplace search
     ↓
 discover(query) ──→ safe relevance metadata
     ↓
-answer(query) ────→ HTTP 402 + price
+answer(query) ────→ x402 payment requirement
     ↓                       ↓
 local retrieval ←── verified payment
     ↓
@@ -209,23 +209,25 @@ the owner marked `external`; pending, private, and discarded records cannot be
 returned. HTTP binds to loopback by default. Binding another interface requires
 `--token` or `LORE_MCP_TOKEN`.
 
-The intended paid deployment boundary is:
+Install the optional payment dependencies before serving paid answers:
 
-```text
-buyer agent → Cloudflare → Monetization Gateway / x402 → tunnel → Lore /mcp
+```sh
+uv sync --extra payments
 ```
 
-Lore owns local retrieval and disclosure policy. Cloudflare sits in front of
-the HTTP MCP route and owns the `402 Payment Required` exchange, verification,
-metering, and settlement. Do not expose the origin through a second route that
-bypasses the gateway. As of July 2026, Cloudflare's Monetization Gateway is an
-announced early-access product; Lore documents the boundary but does not pretend
-that enrollment or payment policy can already be automated. See Cloudflare's
-[announcement](https://blog.cloudflare.com/monetization-gateway/).
+When `lore price` is positive, HTTP `answer` calls use x402's native MCP
+payment metadata and Coinbase's hosted facilitator. `discover` and local stdio
+calls remain free. The server requires `LORE_X402_PAY_TO`, `CDP_API_KEY_ID`,
+and `CDP_API_KEY_SECRET`; it defaults to Base Sepolia and fails closed when
+payment configuration is missing. Restart the server after changing the price.
+
+See [`docs/x402-test.md`](docs/x402-test.md) for the two-person test handoff.
 
 ## Monetization
 
-For a fixed-price answer, x402 already acts as the quote: the first request receives a `402` response with the price and payment instructions.
+For a fixed-price answer, x402 already acts as the quote: the first MCP tool
+result contains the payment requirements, and an x402-aware buyer retries with
+a signed payment in MCP `_meta`.
 
 Dynamic pricing is useful when the value or cost depends on the query. Possible inputs include:
 
