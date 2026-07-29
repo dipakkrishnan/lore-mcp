@@ -6,15 +6,10 @@ the owner's lore.
 
 ## What this is
 
-`docs/onboarding-ux.md` scoped three onboarding modes for `configure_automation` (manual,
-AI-drafted, AI-interview) and fixed the biggest gap — the synthesis prompt going live unseen.
-This doc is a fourth, **additive** mode: a gamified persona interview, run as a skill inside a
-Claude or Codex session, whose goal is to get the owner to sketch the initial *shape* of their
-lore and feel invested in the product from the first conversation.
-
-It does not touch `configure_automation` (`lore/cli.py:258-307`), `profile.json`, or
-`build_prompt()` (`lore/automation.py:44-94`). It ships a new artifact, a new command, and a
-new skill alongside the existing flow.
+The gamified persona interview runs as the primary onboarding skill inside a Claude or
+Codex session. Its goal is to get the owner to sketch the initial *shape* of their lore
+and feel invested in the product from the first conversation. `lore setup` only imports
+native memory; the skill drafts and confirms `profile.json`, then installs synthesis.
 
 ## The core idea: persona as structural archetype
 
@@ -87,18 +82,17 @@ source of truth the CLI, the validator, and the skill all read from.
   in this PR; a test asserts `build_prompt` output references no blueprint field.
 - **NFR3** Artifact files SHALL be owner-private (dir `0700`, files `0600`), mirroring
   `automation.save_profile`.
-- **NFR4** `configure_automation` onboarding SHALL remain functionally unchanged (additive).
+- **NFR4** `lore setup` SHALL remain a small native-memory import; agent onboarding owns
+  profile capture and schedule installation.
 - **NFR5** Implementation SHALL use only the Python standard library.
 - **NFR6** The onboarding SHALL be extensible without touching control flow (see below).
 
 ## Why a separate artifact, not `profile.json`
 
-`profile.json` is write-only outside `lore setup` — only `build_prompt()`/`setup_prompt()`
-read it, and only at setup time (`automation.py:44-126`). The blueprint answers a different
-question (the *shape* of the owner's lore, not what steers the synthesis prompt) and the
-owner has already said storage is likely to be redesigned soon. Keeping the blueprint separate
-and version-gated means a future storage layer can read it in isolation — it doesn't need
-`profile.json`, `PERSONA_PROFILES`, or any of Lore's other internals, because the resolved
+The blueprint answers a different question (the *shape* of the owner's lore, not what
+steers the synthesis prompt). Keeping it separate and version-gated means a future storage
+layer can read it in isolation — it doesn't need `profile.json`, `PERSONA_PROFILES`, or
+any of Lore's other internals, because the resolved
 `organizing_axis`, `depth_default`, and `section_labels` are written directly into the
 artifact. That is also why `apply` rejects those three fields from *input*: they are the
 command's output, not the skill's input, and letting the skill supply them would let stale or
@@ -122,16 +116,14 @@ gate (FR12) is what makes that clean rather than a silent format drift.
 
 **One write path stays one write path.** Because `apply` is the only writer, every future
 feature extends a single function instead of scattered call sites — the same property that
-keeps disclosure safe (per `docs/onboarding-ux.md`'s reasoning about `apply`) keeps the schema
-evolvable.
+keeps disclosure safe also keeps the schema evolvable.
 
 ## Following the existing `apply` pattern
 
-`docs/onboarding-ux.md` proposed `lore automation apply <file>` for its AI-interview mode
-specifically so the agent never writes the private profile directly — it hands a file to a
-validating command that is the sole write path. `lore blueprint apply <file>` is the same
-pattern applied to the blueprint: the skill assembles JSON, writes it to a temp file, and
-`apply` is the only thing that touches `~/.lore/blueprint/*`.
+The agent never writes the private profile directly: it hands a file to a validating
+command that is the sole write path. `lore blueprint apply <file>` follows the same pattern:
+the skill assembles JSON, writes it to a temp file, and `apply` is the only thing that
+touches `~/.lore/blueprint/*`.
 
 ## What this intentionally does not do
 
@@ -145,14 +137,6 @@ pattern applied to the blueprint: the skill assembles JSON, writes it to a temp 
 
 ## Open follow-ups
 
-- **Skill distribution.** `install.sh:29` copies only `lore/` into the install dir; a
-  top-level `skills/` directory does not currently reach an installed user. Options: copy
-  `skills/` in the installer, ship the skill text inside the package with a
-  `lore blueprint skill` emitter, or publish it as a separate plugin. Decide once the command
-  has real usage.
-- **Codex parity.** The skill is markdown an agent follows inside an interactive session;
-  whether Codex loads and follows `SKILL.md` the way Claude does is unverified. May ship
-  Claude-first, matching the open Codex question already flagged in `docs/onboarding-ux.md`.
 - **Edit history.** v1 overwrites on every `apply` (latest capture only). If the storage
   redesign wants a history of how the owner's stated shape changed over time, that's a v2
   concern.

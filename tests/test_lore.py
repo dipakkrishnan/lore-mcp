@@ -3,28 +3,28 @@ from __future__ import annotations
 import json
 import os
 import stat
+import sys
 import tempfile
 import tomllib
 import unittest
 from contextlib import redirect_stdout
 from io import StringIO
 from pathlib import Path
-from subprocess import CompletedProcess
 from unittest.mock import patch
 
 from lore import automation, blueprint
 from lore.cli import (
     blueprint_apply,
     blueprint_show,
-    configure_automation,
     manual,
     price,
     review,
+    setup,
     status,
 )
 from lore.mcp import call_tool, dispatch, http
 from lore.sources import scan
-from lore.store import Memory, PublicationKind, Store
+from lore.store import STATUSES, Memory, PublicationKind, Status, Store
 from lore.ui import memory_card
 
 
@@ -62,27 +62,61 @@ class LoreTest(unittest.TestCase):
             self.assertEqual(report["claude"]["added"], 1)
             found = store.search("integration tests")
             self.assertEqual(found[0].title, "Testing preference")
-            store.set_status(found[0].id, "external")
-            self.assertEqual(store.search("integration", status="external")[0].status, "external")
+            self.assertIs(found[0].status, Status.PRIVATE)
+            store.set_status(found[0].id, "discarded")
+            self.assertIs(store.search("integration", status="discarded")[0].status, Status.DISCARDED)
 
-        with patch("lore.cli.ask", return_value="p"), redirect_stdout(StringIO()):
-            review("integration", "external", 0)
+        # Reviewing the discarded queue can bring a memory back to private.
+        with patch("lore.cli.ask", return_value="k"), redirect_stdout(StringIO()):
+            review("integration", "discarded", 0)
         with Store() as store:
-            self.assertEqual(store.search("integration", status="private")[0].status, "private")
+            self.assertIs(store.search("integration", status="private")[0].status, Status.PRIVATE)
 
-    def test_changed_file_updates_without_resetting_status(self) -> None:
+    def test_disclosure_is_not_a_memory_status(self) -> None:
+        # `external` and `pending` are gone: retention is the only thing a status
+        # expresses, and neither one can be set or queried any more.
+        self.assertEqual(STATUSES, ("private", "discarded"))
+        self._seed_memory("A lesson", "private")
+        with Store() as store:
+            memory = store.search("lesson")[0]
+            for retired in ("external", "pending"):
+                with self.assertRaisesRegex(ValueError, "invalid status"):
+                    store.set_status(memory.id, retired)
+                with self.assertRaisesRegex(ValueError, "invalid status"):
+                    store.search("lesson", status=retired)
+
+    def test_changed_memory_keeps_its_status_and_flags_its_publications(self) -> None:
         path = Path(os.environ["CODEX_HOME"]) / "memories/MEMORY.md"
         path.parent.mkdir(parents=True)
         path.write_text("# Project\n\nFirst version")
         with Store() as store:
             scan(store, {"codex"})
             memory = store.search("First")[0]
-            store.set_status(memory.id, "private")
+            fresh = store.add_publication(
+                title="Project claim", content="a claim", provenance=[memory.id]
+            )
+            unrelated = store.add_publication(
+                title="Other claim", content="another claim", provenance=[memory.id + 900]
+            )
+
             path.write_text("# Project\n\nSecond version")
             scan(store, {"codex"})
+
+            # The memory stays private: a change must not rebuild a review queue.
             updated = store.search("Second")[0]
-            self.assertEqual(updated.status, "private")
+            self.assertIs(updated.status, Status.PRIVATE)
             self.assertEqual(store.counts()["private"], 1)
+
+            # Its publication is flagged for re-approval, and only its own.
+            self.assertEqual([p.id for p in store.stale_publications()], [fresh])
+            by_id = {p.id: p for p in store.list_publications()}
+            self.assertIsNotNone(by_id[fresh].source_changed_at)
+            self.assertIsNone(by_id[unrelated].source_changed_at)
+
+            # Flagged is not revoked: the approved text stays externally readable.
+            self.assertIn(fresh, [p.id for p in store.list_publications(active_only=True)])
+            store.clear_publication_flag(fresh)
+            self.assertEqual(store.stale_publications(), [])
 
     def test_codex_import_ignores_intermediate_memory_files(self) -> None:
         root = Path(os.environ["CODEX_HOME"]) / "memories"
@@ -92,14 +126,14 @@ class LoreTest(unittest.TestCase):
         summaries = root / "rollout_summaries"
         summaries.mkdir()
         (summaries / "task.md").write_text("# Task\n\nDuplicate summary.")
-        synthesis = Path(os.environ["LORE_HOME"]) / "memories/codex"
+        synthesis = Path(os.environ["LORE_HOME"]) / "memories"
         synthesis.mkdir(parents=True)
         (synthesis / "linked.md").symlink_to(root / "MEMORY.md")
 
         with Store() as store:
-            report = scan(store, {"codex", "automation-codex"})
+            report = scan(store, {"codex", "automation"})
             self.assertEqual(report["codex"]["found"], 1)
-            self.assertEqual(report["automation-codex"]["found"], 0)
+            self.assertEqual(report["automation"]["found"], 0)
             self.assertEqual(store.search("Keep this")[0].title, "Durable")
             self.assertEqual(store.search("Duplicate"), [])
 
@@ -110,76 +144,152 @@ class LoreTest(unittest.TestCase):
             "valuable_context": "failed launches",
             "preferences": "small changes",
             "boundaries": "secrets",
-            "agents": ["claude", "codex"],
-            "models": {"claude": "opus", "codex": "gpt-test"},
+            "executor": "codex",
+            "model": "gpt-test",
             "cadence": "weekly",
             "hour": 9,
         }
         automation.save_profile(profile)
 
-        prompt = automation.build_prompt("codex", profile)
-        self.assertIn("opinions, preferences", prompt)
+        prompt = automation.build_prompt(profile)
+        self.assertIn("topic-based memory library", prompt)
+        self.assertIn("perform a cold-start pass", prompt)
+        self.assertIn("delegate coherent slices", prompt)
+        self.assertIn("/INDEX.md", prompt)
         self.assertIn("failed launches", prompt)
         self.assertIn("lore search --status private", prompt)
-        self.assertIn("lore sync --source automation-codex", prompt)
-        self.assertNotIn("sessions", prompt)
-        setup = automation.setup_prompt("claude", profile)
-        self.assertIn("weekly at 9:00 local time", setup)
-        self.assertIn("Use model opus", setup)
-        claude = automation.setup_command("claude", profile)
-        self.assertEqual(claude[:2], ["claude", "-p"])
-        self.assertIn(os.environ["CLAUDE_HOME"], claude)
-        self.assertEqual(claude[-2], "--")
-        self.assertIn("LORE_SETUP_COMPLETE", claude[-1])
+        self.assertIn("-m lore sync --source automation", prompt)
+        self.assertIn("prior agent sessions", prompt)
 
-        automation.install("codex", profile)
-        definition = automation.codex_automation_path().read_text()
+        with patch("lore.automation.remove_task") as remove:
+            definition = automation.install(profile).read_text()
+        self.assertEqual(remove.call_args.args[0].agent, automation.Agent.CLAUDE)
         self.assertIn('id = "lore-memory-synthesis"', definition)
         self.assertIn('rrule = "FREQ=WEEKLY;BYDAY=MO;BYHOUR=9;BYMINUTE=0"', definition)
         self.assertIn('model = "gpt-test"', definition)
         self.assertIn('execution_environment = "local"', definition)
-        self.assertEqual(
-            tomllib.loads(definition)["prompt"], automation.build_prompt("codex", profile)
+        self.assertTrue(
+            tomllib.loads(definition)["prompt"].endswith(automation.build_prompt(profile))
         )
-
-        completed = CompletedProcess(claude, 0, "LORE_SETUP_COMPLETE", "")
-        with patch("lore.automation.subprocess.run", return_value=completed) as run:
-            self.assertIn("LORE_SETUP_COMPLETE", automation.install("claude", profile))
-            self.assertEqual(run.call_args.kwargs["cwd"], Path(os.environ["LORE_HOME"]))
-            self.assertEqual(run.call_args.kwargs["timeout"], 300)
-        failed = CompletedProcess(claude, 0, "Could not configure it", "")
-        with patch("lore.automation.subprocess.run", return_value=failed):
-            with self.assertRaisesRegex(OSError, "Could not configure"):
-                automation.install("claude", profile)
 
         for path in (
             automation.profile_path(),
-            automation.profile_path().parent / "codex-prompt.md",
+            automation.prompt_path(),
         ):
             self.assertEqual(stat.S_IMODE(path.stat().st_mode), 0o600)
-        automation.save_profile({**profile, "agents": ["codex"]})
-        self.assertFalse((automation.profile_path().parent / "claude-prompt.md").exists())
+        claude_profile = automation.save_profile({
+            **profile, "executor": "claude", "model": "opus"
+        })
+        with (
+            patch("lore.automation.remove_task") as remove,
+            patch("lore.automation.install_task", return_value=Path("task")) as install,
+        ):
+            automation.install(claude_profile)
+        self.assertEqual(remove.call_args.args[0].agent, automation.Agent.CODEX)
+        task = install.call_args.args[0]
+        self.assertEqual(task.agent, automation.Agent.CLAUDE)
+        self.assertEqual(task.prompt_path, automation.prompt_path())
+        self.assertEqual(task.model, "opus")
+        self.assertEqual(
+            task.before,
+            (
+                "env",
+                f"LORE_HOME={Path(os.environ['LORE_HOME'])}",
+                sys.executable,
+                "-m",
+                "lore",
+                "sync",
+            ),
+        )
+        self.assertEqual(
+            task.allowed_tools, ("Read", "Glob", "Grep", "Write", "Bash", "Agent")
+        )
+        self.assertEqual(
+            task.add_dirs,
+            (
+                Path(os.environ["CLAUDE_HOME"]),
+                Path(os.environ["CODEX_HOME"]),
+            ),
+        )
+        self.assertEqual(dict(task.environment)["LORE_HOME"], os.environ["LORE_HOME"])
+        with (
+            patch("lore.automation.remove_task"),
+            patch("lore.automation.install_task", return_value=Path("task")) as install,
+        ):
+            automation.install(profile)
+        task = install.call_args.args[0]
+        self.assertEqual(task.allowed_tools, ())
+        self.assertEqual(task.environment, ())
 
     def test_save_profile_drops_checkpoint_only_fields(self) -> None:
         automation.save_profile({
-            "role": "maintainer", "agents": ["codex"],
-            "phase1_done": True, "backfill_weeks": 8, "backfill_done": ["week"],
+            "role": "maintainer", "executor": "codex",
+            "phase1_done": True,
         })
         saved = json.loads(automation.profile_path().read_text())
         self.assertEqual(saved["role"], "maintainer")
-        for leaked in ("phase1_done", "backfill_weeks", "backfill_done"):
-            self.assertNotIn(leaked, saved)
+        self.assertEqual(saved["executor"], "codex")
+        self.assertNotIn("phase1_done", saved)
+        with self.assertRaisesRegex(ValueError, "cadence"):
+            automation.save_profile({"executor": "codex", "cadence": "monthly"})
+        with self.assertRaisesRegex(ValueError, "cadence"):
+            automation.save_profile({"executor": "codex", "cadence": []})
+        with self.assertRaisesRegex(ValueError, "hour"):
+            automation.save_profile({"executor": "codex", "hour": "9"})
+        profile = automation.save_profile(
+            {
+                "executor": "codex",
+                "role": "software\nengineer",
+                "model": None,
+                "hour": None,
+            }
+        )
+        self.assertEqual(profile["role"], "software engineer")
+        self.assertNotIn("model", profile)
+        self.assertNotIn("hour", profile)
 
-    def test_setup_configures_only_installed_agents(self) -> None:
-        installed = lambda agent: f"/bin/{agent}" if agent == "codex" else None
-        with (
-            patch("lore.cli.shutil.which", side_effect=installed),
-            patch("lore.automation.install") as run_setup,
-            redirect_stdout(StringIO()),
-        ):
-            configure_automation(True)
-        run_setup.assert_called_once()
-        self.assertEqual(run_setup.call_args.args[1]["agents"], ["codex"])
+    def test_synthesis_index_is_not_imported_as_memory(self) -> None:
+        root = Path(os.environ["LORE_HOME"]) / "memories"
+        root.mkdir(parents=True)
+        topic = root / "projects/agent-systems.md"
+        topic.parent.mkdir()
+        topic.write_text("# Agent systems\n\nA durable lesson.")
+        (root / "INDEX.md").write_text("# Lore memory index\n\nRead agent-systems.md.")
+
+        with Store() as store:
+            report = scan(store, {"automation"})
+            memory = store.search("durable")[0]
+            store.set_status(memory.id, "private")
+
+        self.assertEqual(report["automation"]["found"], 1)
+        topic.write_text(
+            "# Agent systems\n\nA durable lesson with new private context."
+        )
+        with Store() as store:
+            scan(store, {"automation"})
+            self.assertIs(store.search("private context")[0].status, Status.PRIVATE)
+            memory = store.search("private context")[0]
+            store.set_status(memory.id, "discarded")
+        topic.write_text(
+            "# Agent systems\n\nA durable lesson changed after rejection."
+        )
+        with Store() as store:
+            scan(store, {"automation"})
+            self.assertIs(store.search("after rejection")[0].status, Status.DISCARDED)
+
+    def test_setup_imports_then_hands_off_to_agent(self) -> None:
+        memory = Path(os.environ["CODEX_HOME"]) / "memories/MEMORY.md"
+        memory.parent.mkdir(parents=True)
+        memory.write_text("# Preference\n\nKeep setup short.")
+        output = StringIO()
+
+        with redirect_stdout(output):
+            self.assertEqual(setup(True), 0)
+
+        self.assertIn("Imported 1 candidate memories", output.getvalue())
+        self.assertIn("Onboard me to Lore", output.getvalue())
+        automation_dir = Path(os.environ["LORE_HOME"]) / "automation"
+        self.assertEqual(stat.S_IMODE(automation_dir.stat().st_mode), 0o700)
 
     def test_help_is_a_workflow_manual(self) -> None:
         output = StringIO()
@@ -196,7 +306,9 @@ class LoreTest(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "limit"):
                 store.search("anything", limit=-1)
         memory = Memory(
-            1, "test", "native", "Bad\x1b[2J", "Body\x07 text", "", "private", "", "now"
+            id=1, source="test", origin="native", title="Bad\x1b[2J",
+            content="Body\x07 text", project="", status="private",
+            source_path="", updated_at="now",
         )
         output = StringIO()
         with redirect_stdout(output):
@@ -251,8 +363,8 @@ class LoreTest(unittest.TestCase):
                 title="Fresh import",
                 content="a freshly imported memory",
             )
-            self.assertEqual(store.search("Fresh")[0].status, "private")
-            self.assertEqual(store.counts()["pending"], 0)
+            self.assertIs(store.search("Fresh")[0].status, Status.PRIVATE)
+            self.assertNotIn("pending", store.counts())
 
     def test_publications_add_list_revoke(self) -> None:
         with Store() as store:
@@ -327,7 +439,7 @@ class LoreTest(unittest.TestCase):
 
     def test_mcp_reads_only_active_publications_never_memories(self) -> None:
         # Memories of every disclosure status must be unreachable from MCP.
-        self._seed_memory("External memory", "external")
+        self._seed_memory("Discarded memory", "discarded")
         self._seed_memory("Private memory", "private")
         with Store() as store:
             active_id = store.add_publication(title="Deployment guide", content="deployment guidance")
@@ -335,7 +447,7 @@ class LoreTest(unittest.TestCase):
             store.revoke_publication(revoked_id)
         text = self._answer("deployment")
         self.assertIn("Deployment guide", text)
-        self.assertNotIn("External memory", text)  # external memory unreachable
+        self.assertNotIn("Discarded memory", text)  # no memory is reachable
         self.assertNotIn("Private memory", text)  # private memory unreachable
         self.assertNotIn("Old deployment note", text)  # revoked publication excluded
         # Revoking the last active publication removes it from MCP immediately.
@@ -484,12 +596,12 @@ class LoreTest(unittest.TestCase):
             "valuable_context": "",
             "preferences": "",
             "boundaries": "",
-            "agents": [],
-            "models": {},
+            "executor": "codex",
+            "model": "",
             "cadence": "daily",
             "hour": 21,
         }
-        prompt = automation.build_prompt("codex", profile)
+        prompt = automation.build_prompt(profile)
         for marker in (
             "organizing_axis",
             "topic_outline",

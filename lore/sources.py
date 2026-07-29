@@ -24,7 +24,9 @@ class Source:
         return sorted(
             path
             for path in self.root.glob(self.pattern)
-            if path.is_file() and not path.is_symlink()
+            if not (self.origin == "automation" and path.name == "INDEX.md")
+            and path.is_file()
+            and not path.is_symlink()
         )
 
 
@@ -39,17 +41,10 @@ def available_sources() -> list[Source]:
             "*/memory/*.md",
         ),
         Source(
-            "automation-codex",
-            "Codex synthesis",
-            home() / "memories/codex",
-            "*.md",
             "automation",
-        ),
-        Source(
-            "automation-claude",
-            "Claude synthesis",
-            home() / "memories/claude",
-            "*.md",
+            "Synthesis",
+            home() / "memories",
+            "**/*.md",
             "automation",
         ),
     ]

@@ -9,10 +9,13 @@ description = "Portable, private, monetizable context for personal agents"
 readme = "README.md"
 requires-python = ">=3.10"
 license = {text = "MIT"}
+dependencies = [
+    "pydantic>=2",
+    "windup @ git+https://github.com/dipakkrishnan/windup.git@372af8a",
+]
 
 [project.scripts]
 lore = "lore.cli:main"
 
 [tool.setuptools]
 packages = ["lore"]
-

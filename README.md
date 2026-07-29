@@ -8,8 +8,8 @@ Lore MCP is a local-first memory layer that lets any personal agent build a dura
 
 ## Install
 
-Lore has no runtime dependencies beyond Python 3.10+ and SQLite (included with
-Python). Inspect [`install.sh`](./install.sh), then install the current release:
+Lore uses Python 3.10+, SQLite, Git, and [uv](https://docs.astral.sh/uv/). Inspect
+[`install.sh`](./install.sh), then install the current release:
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/dipakkrishnan/lore-mcp/main/install.sh | sh
@@ -21,9 +21,9 @@ transcripts during initial import.
 
 ```sh
 lore help                     # show the end-user workflow
-lore setup                    # import memory and configure synthesis
+lore setup                    # import native memory; then onboard with an agent
 lore sync                     # import new or changed memory files
-lore review                   # private / external / discard
+lore review                   # keep private / discard
 lore review launch --status private  # revisit a prior decision
 lore search "failed launch"   # SQLite full-text recall
 lore price 0.50               # advertise a fixed answer price
@@ -36,28 +36,20 @@ Set `LORE_HOME` to use a location other than `~/.lore`. Lore also respects
 
 ## Agent-assisted synthesis
 
-Native memory is deliberately selective, so Lore can ask each agent to revisit
-its remembered and owner-approved context and synthesize durable judgments:
+Native memory is deliberately selective, so Lore asks one agent to revisit remembered
+and owner-approved context and synthesize durable judgments:
 
-```sh
-lore setup
-```
+After `lore setup`, tell Claude or Codex **“Onboard me to Lore.”** The installed skill
+drafts your profile from agent history, asks you to correct it, and configures one
+synthesis executor, cadence, and optional model. Codex and Claude memories remain
+independent input sources; the selected executor writes topic-based memories plus an
+`INDEX.md` semantic index. Its first run analyzes useful history and can delegate a
+large cold-start corpus to subagents.
 
-Setup asks about your work, valuable experience, preferences, retention boundaries,
-agents, cadence, and optional model choices. It writes agent-specific prompts under
-`~/.lore/automation/`, then messages each installed agent headlessly. The agent creates
-or updates its native scheduled task, verifies it exists, and exits. This is a one-time
-setup call; Lore does not stay resident or own the recurring schedule.
-
-Use a local Scheduled task in the Codex desktop app or a **Local** task under
-Claude Desktop's Routines. Once installed, the native scheduler owns execution,
-permissions, run history, and retries. Each run uses the agent's native memory,
-writes a Markdown candidate under `~/.lore/memories/<agent>/`, and imports it as
-pending context. Lore does not use agent CLIs as recurring runners, install cron jobs,
-or edit either agent's native memory.
-
-Remote Claude routines cannot read local memory files, so choose **Local** for this
-workflow. Keep the machine and desktop app running when a local task is due.
+Codex uses its local automation definition. Claude uses a macOS LaunchAgent that first
+runs `lore sync`, then invokes `claude -p` with the saved prompt and narrow permissions.
+Remote Claude routines cannot read local memory files. Keep the Mac awake when a local
+Claude task is due.
 
 ## Guided onboarding
 
@@ -71,11 +63,17 @@ as one conversation inside a Claude or Codex session, in two phases:
    time with `lore blueprint show`.
 2. **Profile → automation.** The skill then reads your existing agent memory, drafts a
    synthesis profile you correct rather than authoring from blank prompts, installs the
-   recurring synthesis task, and backfills past sessions. The blueprint from phase 1 steers
-   where it reads deeply. Captured with `lore profile`.
+   recurring synthesis task, and lets its first run process useful history. The blueprint
+   from phase 1 steers where it reads deeply. Captured with `lore profile`.
 
 The blueprint (shape) and the profile (what steers synthesis) stay separate artifacts. See
 `docs/gamified-onboarding.md` for the persona design.
+
+## Backlog
+
+Planned and in-flight work on Lore itself is tracked as a git-versioned backlog under
+`docs/backlog/`, organized by component with per-item metadata (priority, effort, status,
+blockers). See `docs/backlog/README.md` for the schema and how to manage it.
 
 ## The idea
 
@@ -124,7 +122,8 @@ The owner should benefit from better continuity, recall, and personalization eve
 
 ### Human-owned policy
 
-Agents may propose memories, consolidate them, and classify their sensitivity. The owner remains the authority over retention and external disclosure.
+Agents may propose memories, consolidate them, and draft publications. Only the
+owner may approve a publication, and only publications are externally readable.
 
 ### Derived answers, not raw access
 
@@ -132,7 +131,9 @@ The commercial unit is a task-specific answer derived from private context. Raw 
 
 ### Existing payment rails
 
-Lore MCP does not build a payments network. It is designed to use Cloudflare's Monetization Gateway and x402 for payment negotiation, verification, metering, and settlement.
+Lore MCP does not build a payments network. Payment negotiation, verification,
+metering, and settlement belong to whatever gateway sits in front of the HTTP
+route. Lore's own responsibility stops at deciding what may be disclosed.
 
 ## How it works
 
@@ -146,7 +147,8 @@ A context-janitor skill periodically turns noisy activity into durable lore, res
 
 ### 3. Govern
 
-Owner-defined policy classifies lore as private, usable for derived answers, approval-required, or prohibited from external use.
+Memories are private. Disclosure is a separate, explicit act: the owner approves
+a bounded publication, which is the only thing an external caller can reach.
 
 ### 4. Advertise
 
@@ -161,7 +163,9 @@ Discovery happens at two levels:
 
 ### 6. Answer and settle
 
-A buyer calls `answer`. If payment is required, Cloudflare returns an HTTP `402 Payment Required` response containing the x402 payment requirements. The buyer authorizes payment and retries; after verification, the local node produces a policy-filtered answer.
+A buyer calls `answer`. If payment is required, the gateway in front of the route
+answers with the price and payment requirements; the buyer authorizes and retries.
+After verification, the local node produces a policy-filtered answer.
 
 ```text
 buyer task
@@ -170,7 +174,7 @@ marketplace search
     ↓
 discover(query) ──→ safe relevance metadata
     ↓
-answer(query) ────→ HTTP 402 + price
+answer(query) ────→ price quote
     ↓                       ↓
 local retrieval ←── verified payment
     ↓
@@ -214,20 +218,18 @@ whatever its status. HTTP binds to loopback by default. Binding another interfac
 The intended paid deployment boundary is:
 
 ```text
-buyer agent → Cloudflare → Monetization Gateway / x402 → tunnel → Lore /mcp
+buyer agent → payment gateway → tunnel → Lore /mcp
 ```
 
-Lore owns local retrieval and disclosure policy. Cloudflare sits in front of
-the HTTP MCP route and owns the `402 Payment Required` exchange, verification,
-metering, and settlement. Do not expose the origin through a second route that
-bypasses the gateway. As of July 2026, Cloudflare's Monetization Gateway is an
-announced early-access product; Lore documents the boundary but does not pretend
-that enrollment or payment policy can already be automated. See Cloudflare's
-[announcement](https://blog.cloudflare.com/monetization-gateway/).
+Lore owns local retrieval and disclosure policy. Whatever fronts the HTTP MCP
+route owns the payment exchange, verification, metering, and settlement. Do not
+expose the origin through a second route that bypasses it. No gateway is chosen
+or required yet, and none is implemented here.
 
 ## Monetization
 
-For a fixed-price answer, x402 already acts as the quote: the first request receives a `402` response with the price and payment instructions.
+For a fixed-price answer, the quote is the first response: a buyer that has not
+paid receives the price and payment instructions instead of an answer.
 
 Dynamic pricing is useful when the value or cost depends on the query. Possible inputs include:
 
@@ -239,13 +241,17 @@ Dynamic pricing is useful when the value or cost depends on the query. Possible 
 - exclusivity;
 - owner reputation and market demand.
 
-A buyer should be able to specify a maximum budget. The node can either quote an exact amount before answering or use an x402 authorization that settles actual usage up to the approved cap.
+A buyer should be able to specify a maximum budget. The node can either quote an
+exact amount before answering, or accept an authorization that settles actual
+usage up to the approved cap.
 
 Pricing should initially be transparent and predictable. Opaque price discrimination would undermine trust before the market has earned it.
 
 ## Privacy boundary
 
-Cloudflare can enforce access and verify payment at the edge; it does not decide what private context is safe to release. Lore MCP must enforce that boundary locally.
+A gateway can enforce access and verify payment at the edge; it does not decide
+what private context is safe to release. Lore MCP must enforce that boundary
+locally.
 
 The minimum safeguards are:
 
@@ -264,7 +270,7 @@ The smallest useful prototype is:
 2. one context-janitor skill usable by multiple agents;
 3. a capability manifest;
 4. `discover` and `answer` MCP tools;
-5. a Cloudflare/x402 payment boundary;
+5. a payment boundary in front of the HTTP route;
 6. a simple disclosure policy and audit trail.
 
 It does not need a new personal agent, hosted raw-memory service, proprietary payment rail, or standalone marketplace. Existing agent marketplaces can provide initial distribution while the protocol proves that agents will pay for useful personal context.
@@ -282,11 +288,10 @@ Lore MCP is the connective layer between personal memory, agent discovery, owner
 ├── lore.db                 # SQLite records and FTS5 index
 ├── automation/
 │   ├── profile.json        # owner-provided synthesis guidance
-│   ├── claude-prompt.md
-│   └── codex-prompt.md
+│   └── synthesis-prompt.md # shared prompt run by the selected executor
 ├── memories/
-│   ├── claude/             # Claude-generated synthesis
-│   └── codex/              # Codex-generated synthesis
+│   ├── INDEX.md            # semantic index
+│   └── <topic>.md          # synthesized topic memory
 └── blueprint/
     ├── blueprint.json      # captured shape of your lore (persona, axis, topics)
     └── lore-map.md         # human-readable rendering of the blueprint
@@ -320,6 +325,4 @@ future work.
 
 ## Related infrastructure
 
-- [Cloudflare Monetization Gateway](https://blog.cloudflare.com/monetization-gateway/)
-- [x402](https://www.x402.org/)
 - [Model Context Protocol](https://modelcontextprotocol.io/)
