@@ -15,7 +15,7 @@ allowed to write `INDEX.md`. Read `AGENTS.md` for the shared rules first.
    - `id` matches the file's own prefix/number and the `component` field
      matches the folder it's actually in.
    - `priority` in `{P0,P1,P2,P3}`, `effort` in `{XS,S,M,L,XL}`, `status` in
-     `{ideation,in-review,ready,in-progress,completed}`.
+     `{ideation,in-review,ready,in-progress,completed,obsolete}`.
    - `id` is unique across the whole backlog (no dupes within or across
      folders).
 3. **Check id sequencing per prefix.** Flag gaps (e.g. `AUT-001`, `AUT-003`,
@@ -38,7 +38,7 @@ allowed to write `INDEX.md`. Read `AGENTS.md` for the shared rules first.
    judgment call about priority.
 8. **Regenerate `INDEX.md` from scratch** from the validated item files:
    table sorted by `status` in lifecycle order
-   (`ideation, in-review, ready, in-progress, completed`), then `priority`
+   (`ideation, in-review, ready, in-progress, completed, obsolete`), then `priority`
    (`P0` first), matching the column order and header already in
    `INDEX.md`. Overwrite the whole table — don't try to diff/patch it.
 9. **Report findings** (dupes, broken refs, cycles, stale items, promotions
@@ -50,4 +50,5 @@ allowed to write `INDEX.md`. Read `AGENTS.md` for the shared rules first.
 - Does not change `priority` (that's `prioritization`).
 - Does not implement anything or write code.
 - Does not delete items, even ones that look abandoned — flag them for a
-  human decision instead.
+  human decision instead. Closing a decided-against item is a status change
+  to `obsolete`, never a deletion.
