@@ -295,6 +295,14 @@ def review(query: str = "", status_name: str = "private", limit: int = 0) -> int
         if not memories:
             success(f"No {status_name} memories to review")
             return 0
+        # Onboarding ends here, on a disclosure decision offered as four bare letters.
+        # Say what they mean once, before the first one is made rather than after.
+        heading("What the choices mean")
+        muted("  Private   stays on this machine, and steers your own agents only.")
+        muted("  External  can be used to answer questions over MCP, at your price.")
+        muted("  Discard   keeps it out of your lore even if the source changes later.")
+        muted("  Nothing is exposed until you mark it external; every choice is revisable.")
+        exposed = 0
         for index, memory in enumerate(memories, 1):
             memory_card(memory, index, len(memories))
             print("\n  [k] keep private   [d] discard   [s] skip   [q] quit")
@@ -306,12 +314,24 @@ def review(query: str = "", status_name: str = "private", limit: int = 0) -> int
                 )
                 if new_status:
                     store.set_status(memory.id, new_status)
+                    exposed += new_status == "external"
                     break
                 if choice == "s":
                     break
                 if choice == "q":
-                    return 0
-    success("Review complete")
+                    # Quitting early must not swallow a decision already made.
+                    return _reviewed(exposed, complete=False)
+    return _reviewed(exposed, complete=True)
+
+
+def _reviewed(exposed: int, *, complete: bool) -> int:
+    """Close a review pass, naming what marking something external now enables."""
+    success("Review complete" if complete else "Stopped; your decisions so far are saved")
+    if exposed:
+        print(
+            f"Next: `lore price <USD>` sets what an answer costs, then `lore serve` "
+            f"offers {'that memory' if exposed == 1 else f'those {exposed} memories'}."
+        )
     return 0
 
 

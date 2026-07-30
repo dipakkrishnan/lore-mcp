@@ -20,7 +20,7 @@ from unittest.mock import patch
 from lore import automation, blueprint, onboarding
 from lore.cli import manual, onboarding_save, onboarding_show
 from lore.cli import profile as profile_command
-from lore.cli import setup, status
+from lore.cli import review, setup, status
 from lore.store import Store
 
 
@@ -219,6 +219,51 @@ class OnboardingTest(unittest.TestCase):
 
         _, next_step = onboarding.progress()
         self.assertEqual(next_step, "")
+
+    # --- the last step: classification ----------------------------------------------
+
+    def _seed(self, *titles: str) -> None:
+        with Store() as store:
+            for title in titles:
+                store.put(
+                    source="test",
+                    origin="native",
+                    source_path=title,
+                    source_key=title,
+                    fingerprint=title,
+                    title=title,
+                    content=f"{title} about deployment",
+                )
+
+    def _review(self, *choices: str) -> str:
+        output = StringIO()
+        with patch("lore.cli.ask", side_effect=list(choices)), redirect_stdout(output):
+            self.assertEqual(review(), 0)
+        return output.getvalue()
+
+    def test_first_review_explains_what_the_choices_mean(self) -> None:
+        """Onboarding ends on a disclosure decision offered as four unlabelled letters."""
+        self._seed("First lesson", "Second lesson")
+        report = self._review("p", "p")
+
+        self.assertIn("stays on this machine", report)
+        self.assertIn("answer questions over MCP", report)
+        self.assertIn("Nothing is exposed until you mark it external", report)
+        # Orientation, not a per-memory banner.
+        self.assertEqual(report.count("Nothing is exposed until you mark it external"), 1)
+
+    def test_marking_something_external_hands_off_to_pricing(self) -> None:
+        self._seed("Public lesson")
+        self.assertIn("lore price", self._review("e"))
+
+    def test_a_private_only_review_does_not_talk_about_price(self) -> None:
+        self._seed("Private lesson")
+        self.assertNotIn("lore price", self._review("p"))
+
+    def test_quitting_early_still_reports_what_was_exposed(self) -> None:
+        """Quitting mid-queue must not swallow the consequence of a decision already made."""
+        self._seed("Public lesson", "Untouched lesson")
+        self.assertIn("lore price", self._review("e", "q"))
 
     # --- hand-off quality -----------------------------------------------------------
 
