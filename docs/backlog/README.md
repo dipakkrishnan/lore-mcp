@@ -16,7 +16,8 @@ one ID prefix:
 | `blueprint/` | `BP` | `lore/blueprint.py`, persona interview |
 | `automation-synthesis/` | `AUT` | `lore/automation.py`, synthesis prompts/scheduling |
 | `mcp-server/` | `MCP` | `lore/mcp.py` |
-| `monetization/` | `MON` | pricing, publication disclosure policy, payment gateway |
+| `monetization/` | `MON` | pricing, `lore/payments/`, x402 payment policy |
+| `deployment/` | `DEP` | `lore-deploy`, cloud providers, publication export |
 | `cli-ux/` | `CLI` | `lore/cli.py`, `lore/ui.py` |
 | `onboarding/` | `ONB` | `skills/lore-onboard/`, `install.sh` |
 | `docs/` | `DOC` | top-level README, `docs/*.md` |

@@ -2,9 +2,21 @@
 
 Prefix: `MON`
 
-Covers: pricing external memories, the `external` status lifecycle, and the
-intended Cloudflare Tunnel / Monetization Gateway / x402 request path in front
-of `lore/mcp.py`. Lore itself owns only which memories are `external`; the
-gateway owns offer/verification/metering/settlement.
+Covers: pricing an answer (`lore price`), the `lore/payments/` gate, and the x402
+payment path in front of the `answer` tool. Lore configures an existing rail — it
+builds no payment network, holds no funds, and takes no fee.
 
-Backlog items about pricing UX, gateway integration, or payment policy go here.
+Payment is enforced **in-process at the MCP layer**, not at an edge gateway.
+`MON-001` covered the Cloudflare Tunnel / Monetization Gateway path and was closed
+obsolete on 2026-07-29; read its closure note before proposing anything
+gateway-shaped. The `external` memory status that item priced against is also
+retired — disclosure now happens only through owner-approved publications
+(`STO-001`), and payment gates *access* to those publications without ever widening
+the set.
+
+The boundary against `deployment/` (`DEP`): payment and hosting are orthogonal. A
+deployed node may be free, and a loopback node may charge. Where a node runs is a
+`DEP` concern; whether an answer costs money is a `MON` concern.
+
+Backlog items about pricing UX, the payment gate, payout configuration, or payment
+policy go here.

@@ -69,6 +69,19 @@ as one conversation inside a Claude or Codex session, in two phases:
 The blueprint (shape) and the profile (what steers synthesis) stay separate artifacts. See
 `docs/gamified-onboarding.md` for the persona design.
 
+### After onboarding
+
+Onboarding covers capture. What follows it is a handoff to one of four branches — do
+nothing, test what your Lore knows, deploy it so other agents can reach it, or charge for
+answers. These are designs, not shipped features:
+
+- `docs/full-service-onboarding.md` — the handoff model and the Test / Eval branch
+- `docs/deployment-mvp.md` — publishing a node to AWS or Cloudflare, serving publications only
+- `docs/monetization-mvp.md` — the in-process x402 payment gate and payout setup
+
+Deploy and Monetize are independent: a deployed node can be free, and a loopback node can
+charge. Doing neither is a supported end state.
+
 ## Backlog
 
 Planned and in-flight work on Lore itself is tracked as a git-versioned backlog under
