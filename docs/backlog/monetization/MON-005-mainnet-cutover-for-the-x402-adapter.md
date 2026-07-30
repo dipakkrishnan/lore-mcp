@@ -4,7 +4,7 @@ title: Cut the x402 edge adapter over to mainnet
 priority: P3
 effort: M
 component: monetization
-status: in-review
+status: ideation
 related: [MON-002, MON-003, MON-004]
 blockers: [MON-002, MON-003, MON-004]
 dependencies: ["CDP account and API credentials", "Decision to launch the edge adapter at all"]
