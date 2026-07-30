@@ -106,9 +106,7 @@ rather than copying or summarizing every session.
 
 On the first run, inspect the complete owner-held Lore library with:
 
-- `{command} search --status pending --limit 0 --json`
 - `{command} search --status private --limit 0 --json`
-- `{command} search --status external --limit 0 --json`
 
 On later runs, use the same commands with `--limit 100` and focus on context newer than
 the existing topic files.
