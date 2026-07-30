@@ -8,7 +8,7 @@ from dataclasses import replace
 from enum import Enum
 from pathlib import Path
 
-from windup import Task, install as install_task, remove as remove_task
+from windup import Task, install as install_task, remove as remove_task, status as task_status
 
 from .paths import claude_home, codex_home, home
 from .store import STATUSES
@@ -206,13 +206,11 @@ Do not modify either agent's native memory or session history.
 """
 
 
-def install(profile: dict[str, object]) -> Path:
-    """Install the selected executor's recurring synthesis task."""
+def build_task(profile: dict[str, object]) -> Task:
+    """Describe the recurring synthesis task this profile asks for."""
     name = str(profile.get("executor", "") or "")
     if not name:
-        raise ValueError(
-            "profile has no executor; set one, or save with --no-schedule"
-        )
+        raise ValueError("profile has no executor; set one, or save with --no-schedule")
     executor = Agent(name)
     lore = (sys.executable, "-m", "lore")
     search_path = os.pathsep.join(
@@ -244,8 +242,27 @@ def install(profile: dict[str, object]) -> Path:
             else ()
         ),
     )
-    other = Agent.CLAUDE if executor == Agent.CODEX else Agent.CODEX
+    return task
+
+
+def install(profile: dict[str, object]) -> Path:
+    """Install the selected executor's recurring synthesis task."""
+    task = build_task(profile)
+    other = Agent.CLAUDE if task.agent == Agent.CODEX else Agent.CODEX
     # Keep the current schedule alive unless its replacement installs successfully.
     installed = install_task(task, codex_home=codex_home())
     remove_task(replace(task, agent=other), codex_home=codex_home())
     return installed
+
+
+def scheduled(profile: dict[str, object]) -> bool:
+    """Report whether the executor's scheduler actually holds the synthesis task.
+
+    A saved profile proves nothing ran: `--no-schedule` writes one deliberately, a
+    failed install leaves one behind, and a schedule can be removed afterwards. Ask
+    the scheduler instead, and treat a profile it cannot even describe as unscheduled.
+    """
+    try:
+        return task_status(build_task(profile), codex_home=codex_home())
+    except (OSError, ValueError, KeyError):
+        return False

@@ -48,11 +48,25 @@ class OnboardingTest(unittest.TestCase):
     def setUp(self) -> None:
         self.tmp = tempfile.TemporaryDirectory()
         root = Path(self.tmp.name)
+        # HOME is redirected too: windup resolves a Claude schedule's plist through
+        # Path.home(), so an unsandboxed test that installed or removed one would
+        # reach into the developer's real ~/Library/LaunchAgents.
+        self.environment = {
+            key: os.environ.get(key)
+            for key in ("LORE_HOME", "CLAUDE_HOME", "CODEX_HOME", "HOME")
+        }
         os.environ["LORE_HOME"] = str(root / "lore")
         os.environ["CLAUDE_HOME"] = str(root / "claude")
         os.environ["CODEX_HOME"] = str(root / "codex")
+        os.environ["HOME"] = str(root / "home")
+        (root / "home").mkdir()
 
     def tearDown(self) -> None:
+        for key, value in self.environment.items():
+            if value is None:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = value
         self.tmp.cleanup()
 
     def _run(self, function, *args) -> str:
@@ -126,6 +140,45 @@ class OnboardingTest(unittest.TestCase):
         self.assertIn("Delete", report)
         self.assertIn(str(onboarding.checkpoint_path()), report)
         self.assertIn("Delete", self._run(status))
+
+    # --- the schedule, as the scheduler sees it ---------------------------------------
+
+    def _finish_interview(self) -> None:
+        self._import_one_memory()
+        blueprint.apply(self._write("blueprint.json", _blueprint_input()))
+
+    def test_a_saved_profile_is_not_reported_as_a_running_schedule(self) -> None:
+        """`--no-schedule` and a failed install leave identical files behind."""
+        self._finish_interview()
+        self._run(profile_command, str(self._write("p.json", _profile_answers())), False)
+
+        report = self._run(onboarding_show)
+        self.assertIn("no local task", report)
+        self.assertIn("lore profile", report)
+        self.assertIn("No synthesis is scheduled", self._run(status))
+
+    def test_an_installed_schedule_is_read_from_the_scheduler(self) -> None:
+        """Truth comes from windup, not from the profile Lore happens to have written."""
+        self._finish_interview()
+        # The real windup install; only the cross-executor cleanup is stubbed, because
+        # removing a Claude task would reach the developer's own LaunchAgents.
+        with patch("lore.automation.remove_task"):
+            self._run(profile_command, str(self._write("p.json", _profile_answers())))
+
+        report = self._run(onboarding_show)
+        self.assertIn("Codex synthesis, daily at 21:00", report)
+        self.assertNotIn("no local task", report)
+
+        installed = next(Path(os.environ["CODEX_HOME"]).rglob("automation.toml"))
+        installed.unlink()
+        # A schedule removed behind Lore's back must stop reading as installed.
+        self.assertIn("no local task", self._run(onboarding_show))
+
+    def test_a_malformed_profile_cannot_break_the_schedule_check(self) -> None:
+        automation.profile_path().parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+        automation.profile_path().write_text(json.dumps({"executor": "codex", "hour": 99}))
+        self.assertFalse(automation.scheduled({"executor": "codex", "hour": 99}))
+        self.assertIn("no local task", self._run(onboarding_show))
 
     # --- the checkpoint -------------------------------------------------------------
 
@@ -217,7 +270,7 @@ class OnboardingTest(unittest.TestCase):
         with Store() as store:
             store.set_setting("sources", ["codex"])
 
-        _, next_step = onboarding.progress()
+        _, next_step, _ = onboarding.progress()
         self.assertEqual(next_step, "")
 
     # --- the last step: classification ----------------------------------------------

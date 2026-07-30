@@ -62,11 +62,25 @@ class LoreTest(unittest.TestCase):
     def setUp(self) -> None:
         self.tmp = tempfile.TemporaryDirectory()
         root = Path(self.tmp.name)
+        # HOME is redirected too: windup resolves a Claude schedule's plist through
+        # Path.home(), so an unsandboxed test that installed or removed one would
+        # reach into the developer's real ~/Library/LaunchAgents.
+        self.environment = {
+            key: os.environ.get(key)
+            for key in ("LORE_HOME", "CLAUDE_HOME", "CODEX_HOME", "HOME")
+        }
         os.environ["LORE_HOME"] = str(root / "lore")
         os.environ["CLAUDE_HOME"] = str(root / "claude")
         os.environ["CODEX_HOME"] = str(root / "codex")
+        os.environ["HOME"] = str(root / "home")
+        (root / "home").mkdir()
 
     def tearDown(self) -> None:
+        for key, value in self.environment.items():
+            if value is None:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = value
         self.tmp.cleanup()
 
     def test_import_search_and_review(self) -> None:

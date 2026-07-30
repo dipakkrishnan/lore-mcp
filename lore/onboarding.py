@@ -120,8 +120,9 @@ def _missing(absent: str, readable: bool) -> str:
     return absent if readable else "unreadable — redo this step to replace it"
 
 
-def progress() -> tuple[list[Step], str]:
-    """Report every onboarding step and the single command that advances the owner."""
+def progress() -> tuple[list[Step], str, list[str]]:
+    """Report every onboarding step, the command that advances the owner, and any
+    condition that needs saying even though no step is blocked on it."""
     with Store() as store:
         counts = store.counts()
         sources = set(store.setting("sources", []))
@@ -144,11 +145,17 @@ def progress() -> tuple[list[Step], str]:
         if shape
         else _missing("the persona interview has not run", shape_read),
     )
+    # A saved profile is not a running schedule; ask the scheduler which it is.
+    running = profile is not None and automation.scheduled(profile)
     drafted = Step(
         "Draft your synthesis profile",
         profile is not None,
-        f"{str(profile.get('executor', '')).title()} synthesis, "
-        f"{profile.get('cadence', 'daily')}"
+        (
+            f"{str(profile.get('executor', '')).title()} synthesis, "
+            f"{profile.get('cadence', 'daily')} at {int(profile.get('hour', 21)):02d}:00"
+            if running
+            else "profile saved, but no local task is installed"
+        )
         if profile
         else _missing("scheduled synthesis is not configured", profile_read),
     )
@@ -177,4 +184,13 @@ def progress() -> tuple[list[Step], str]:
         step = "Run `lore review` to decide what stays private and what can be answered."
     else:
         step = ""
-    return steps, step
+
+    # Classification is the better next action while memories wait, but an absent
+    # schedule means the library stops growing — that cannot wait silently for it.
+    warnings = []
+    if profile is not None and not running:
+        warnings.append(
+            f"No synthesis is scheduled. Run `lore profile {automation.profile_path()}` "
+            "to install it, or ignore this if you schedule synthesis yourself."
+        )
+    return steps, step, warnings

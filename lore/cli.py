@@ -382,12 +382,14 @@ def status() -> int:
         marker = "●" if enabled else "○"
         print(f"  {marker} {source.label:<14} {sources.get(source.name, 0)} imported")
     heading("Onboarding")
-    steps, next_step = onboarding.progress()
+    steps, next_step, warnings = onboarding.progress()
     if next_step:
         print(f"  {sum(step.done for step in steps)} of {len(steps)} steps done · `lore onboarding` for detail")
         print(f"  Next: {next_step}")
     else:
         print(f"  {paint('32', '✓')} Onboarding complete")
+    for warning in warnings:
+        print(f"  {paint('33', '!')} {warning}")
     print(f"\nDatabase: {database_path}")
     print(f"Publication price: {'not set' if answer_price is None else f'${answer_price:.2f}'}")
     if node_url:
@@ -459,11 +461,13 @@ def onboarding_show() -> int:
     from . import onboarding
 
     logo()
-    steps, next_step = onboarding.progress()
+    steps, next_step, warnings = onboarding.progress()
     heading("Onboarding")
     for step in steps:
         print(f"  {'✓' if step.done else '○'} {step.label:<30} {paint('2', step.detail)}")
     print()
+    for warning in warnings:
+        print(f"{paint('33', '!')} {warning}")
     if next_step:
         print(f"Next: {next_step}")
     else:
