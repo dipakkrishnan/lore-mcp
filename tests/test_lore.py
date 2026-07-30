@@ -25,6 +25,7 @@ from lore.cli import (
 )
 from lore.mcp import call_tool, dispatch, http
 from lore.sources import scan
+from lore import store as store_module
 from lore.store import STATUSES, Memory, PublicationKind, Status, Store
 from lore.ui import memory_card
 
@@ -297,6 +298,25 @@ class LoreTest(unittest.TestCase):
         self.assertEqual(profile["role"], "software engineer")
         self.assertNotIn("model", profile)
         self.assertNotIn("hour", profile)
+
+    def test_profile_without_executor_saves_but_cannot_schedule(self) -> None:
+        profile = automation.save_profile({"role": "maintainer", "executor": ""})
+        self.assertEqual(profile.get("executor", ""), "")
+        with self.assertRaisesRegex(ValueError, "no-schedule"):
+            automation.install(profile)
+        with self.assertRaisesRegex(ValueError, "unknown executor"):
+            automation.save_profile({"executor": "cursor"})
+
+    def test_prompt_states_the_thesis_and_derives_statuses(self) -> None:
+        prompt = automation.build_prompt({"role": "maintainer"})
+        self.assertIn("You never publish and never change disclosure", prompt)
+        self.assertIn("Worth publishing", prompt)
+        self.assertIn("What earns a place in memory", prompt)
+        for status in store_module.STATUSES:
+            if status == "discarded":
+                self.assertNotIn(f"--status {status}", prompt)
+            else:
+                self.assertIn(f"search --status {status} --limit 0 --json", prompt)
 
     def test_synthesis_index_is_not_imported_as_memory(self) -> None:
         root = Path(os.environ["LORE_HOME"]) / "memories"
