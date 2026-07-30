@@ -4,7 +4,12 @@ import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/
 
 const endpoint = process.argv[2] ?? "http://localhost:8787/mcp";
 const client = new Client({ name: "lore-canary-smoke", version: "0.1.0" });
-await client.connect(new StreamableHTTPClientTransport(new URL(endpoint)));
+await client.connect(
+  new StreamableHTTPClientTransport(new URL(endpoint), {
+    // Fail rather than hang if the Worker stops responding.
+    requestInit: { signal: AbortSignal.timeout(10_000) }
+  })
+);
 
 try {
   const tools = await client.listTools();

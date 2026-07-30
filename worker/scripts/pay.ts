@@ -3,6 +3,7 @@ import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/
 import { toClientEvmSigner } from "@x402/evm";
 import { withX402Client } from "agents/x402";
 import { privateKeyToAccount } from "viem/accounts";
+import { PRICE_USD, usdcBaseUnits } from "../src/price.js";
 
 const endpoint = process.argv[2];
 const privateKey = process.env.BUYER_TEST_PRIVATE_KEY;
@@ -20,10 +21,11 @@ const paidClient = withX402Client(client, {
     privateKeyToAccount(privateKey as `0x${string}`)
   ),
   network: "eip155:84532",
-  maxPaymentValue: 10_000n
+  maxPaymentValue: usdcBaseUnits(PRICE_USD)
 });
 
 try {
+  // null selects withX402Client's default payment-approval callback.
   const result = await paidClient.callTool(null, {
     name: "answer",
     arguments: { query: "What is Lore?" }

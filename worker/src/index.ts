@@ -2,10 +2,13 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { McpAgent } from "agents/mcp";
 import { withX402 } from "agents/x402";
 import { z } from "zod";
+import { PRICE_USD } from "./price.js";
 
-const wallet = process.env.LORE_WALLET;
-if (!/^0x[0-9a-fA-F]{40}$/.test(wallet ?? "")) {
-  throw new Error("LORE_WALLET must be a public EVM address");
+function payTo(env: Env): `0x${string}` {
+  if (!/^0x[0-9a-fA-F]{40}$/.test(env.LORE_WALLET ?? "")) {
+    throw new Error("LORE_WALLET must be a public EVM address");
+  }
+  return env.LORE_WALLET as `0x${string}`;
 }
 
 // ponytail: paidTool still targets legacy McpAgent; migrate when Cloudflare
@@ -15,7 +18,7 @@ export class LorePaidMCP extends McpAgent<Env> {
     new McpServer({ name: "Lore x402 canary", version: "0.1.0" }),
     {
       network: "eip155:84532",
-      recipient: wallet as `0x${string}`,
+      recipient: payTo(this.env),
       facilitator: { url: "https://x402.org/facilitator" }
     }
   );
@@ -33,7 +36,7 @@ export class LorePaidMCP extends McpAgent<Env> {
             type: "text",
             text: JSON.stringify({
               can_help: true,
-              price_usd: 0.01,
+              price_usd: PRICE_USD,
               disclosure: "Canary data only; no private Lore is connected."
             })
           }
@@ -44,9 +47,9 @@ export class LorePaidMCP extends McpAgent<Env> {
     this.server.paidTool(
       "answer",
       "Return the hardcoded Lore payment canary answer.",
-      0.01,
+      PRICE_USD,
       { query: z.string().trim().min(1) },
-      {},
+      {}, // paidTool's output schema; the canary returns unstructured text only.
       async () => ({
         content: [
           {
