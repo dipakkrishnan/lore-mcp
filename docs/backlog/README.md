@@ -16,7 +16,7 @@ one ID prefix:
 | `blueprint/` | `BP` | `lore/blueprint.py`, persona interview |
 | `automation-synthesis/` | `AUT` | `lore/automation.py`, synthesis prompts/scheduling |
 | `mcp-server/` | `MCP` | `lore/mcp.py` |
-| `monetization/` | `MON` | pricing, `external` status, gateway/x402 policy |
+| `monetization/` | `MON` | pricing, publication disclosure policy, payment gateway |
 | `cli-ux/` | `CLI` | `lore/cli.py`, `lore/ui.py` |
 | `onboarding/` | `ONB` | `skills/lore-onboard/`, `install.sh` |
 | `docs/` | `DOC` | top-level README, `docs/*.md` |
@@ -42,7 +42,7 @@ Copy `_template/item.md` to start one. Frontmatter fields:
 | `component` | the owning folder's slug (the "directive/project") |
 | `status` | see lifecycle below |
 | `related` | ids worth reading together, no ordering implied |
-| `blockers` | ids that must reach `completed` before this can start |
+| `blockers` | ids that must reach `completed` (or `obsolete`) before this can start |
 | `dependencies` | non-backlog prerequisites (external services, decisions, other repos) |
 | `github_issue` | URL of the GitHub issue this item was cataloged from, or `null` |
 | `created` / `updated` | ISO `YYYY-MM-DD` |
@@ -54,6 +54,7 @@ Body sections: `## Problem`, `## Proposed approach`, `## Acceptance criteria`,
 
 ```
 ideation -> in-review -> ready -> in-progress -> completed
+                     \-> obsolete
 ```
 
 - **ideation** — raw idea, may be underspecified. Anyone/any agent can add these.
@@ -62,6 +63,10 @@ ideation -> in-review -> ready -> in-progress -> completed
 - **ready** — approved, unblocked (or blockers understood), waiting to be picked up.
 - **in-progress** — someone/some agent is actively implementing it.
 - **completed** — acceptance criteria met and merged.
+- **obsolete** — closed without being built, because the thing it depended on
+  or argued about went away. Terminal, like `completed`. The item file stays
+  (the backlog is the record of decisions, not just of work), and `## Notes`
+  must say what killed it. Reachable from any status.
 
 Items don't skip backward silently — if `in-progress` work stalls or turns
 out wrong, the audit pass (below) is what moves it back and says why in

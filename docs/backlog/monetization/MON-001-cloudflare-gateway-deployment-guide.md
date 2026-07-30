@@ -4,13 +4,13 @@ title: Write a deployment guide for the Cloudflare Tunnel / Monetization Gateway
 priority: P2
 effort: L
 component: monetization
-status: in-review
+status: obsolete
 related: []
 blockers: []
-dependencies: ["Cloudflare account with Tunnel + Monetization Gateway access"]
+dependencies: []
 github_issue: null
 created: 2026-07-25
-updated: 2026-07-25
+updated: 2026-07-29
 ---
 
 ## Problem
@@ -44,3 +44,18 @@ why this stays `in-review` rather than `ready`.
 
 Filed while building the backlog system itself, as a seed item demonstrating
 a larger, `in-review` item with an external dependency.
+
+**Closed obsolete 2026-07-29 (Shane).** Lore is not going to use Cloudflare.
+Every artifact this item was meant to document has been removed: PR #19 strips
+Cloudflare and x402 from `lore/mcp.py` and the README, replacing them with a
+vendor-neutral description of where a payment boundary would sit. The `external`
+memory status the guide was going to map prices onto is also retired in that PR
+— disclosure now happens only through owner-approved publications.
+
+Nothing here transfers to a different provider, because the whole item was the
+specifics of one: tunnel setup, gateway enrollment, x402 offer configuration.
+If a payment gateway is chosen later, that wants a fresh `MON` item written
+against whatever it actually is. The parts worth keeping are already elsewhere:
+pricing lives with `lore price`, and disclosure policy is `XC-002`.
+
+Kept rather than deleted so the decision and its reasoning stay in the record.
