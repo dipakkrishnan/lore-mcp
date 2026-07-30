@@ -11,6 +11,8 @@ from . import config
 ToolHandler = Callable[[dict[str, Any]], dict[str, Any]]
 PaymentGate = Callable[[dict[str, Any], object], dict[str, Any]]
 
+from .x402 import gate as x402_gate
+
 
 def gate(price_usd: object, handler: ToolHandler) -> PaymentGate | None:
     """Return the configured answer gate, or None when answers are free."""
@@ -23,7 +25,5 @@ def gate(price_usd: object, handler: ToolHandler) -> PaymentGate | None:
     ):
         raise ValueError("answer price must be a number")
     config.CONFIG.validate_paid()
-
-    from .x402 import gate as x402_gate
 
     return x402_gate(float(price_usd), handler)
