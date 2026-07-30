@@ -216,7 +216,7 @@ def review(query: str = "", status_name: str = "private", limit: int = 0) -> int
             memory_card(memory, index, len(memories))
             print("\n  [k] keep private   [d] discard   [s] skip   [q] quit")
             while True:
-                choice = ask("Choose", "p").lower()
+                choice = ask("Choose", "k").lower()
                 # No disclosure choice here by design: review is retention only.
                 new_status = {"k": "private", "p": "private", "d": "discarded"}.get(
                     choice

@@ -1,11 +1,12 @@
 """Small MCP server over stdio or stateless Streamable HTTP.
 
-The origin contains no payment implementation. Lore is responsible for one thing
-here: deciding what is disclosable. The surface returns only active rows from the
-``publications`` table and never a private memory of any kind.
+This module is responsible for exactly one thing: deciding what is disclosable.
+The surface returns only active rows from the ``publications`` table and never a
+private memory of any kind. Payment and access control are separate concerns —
+wherever they end up living, they gate *whether* a caller gets an answer, never
+*what* is answerable.
 
-Keep the origin bound to loopback. Anything that fronts it for payment or access
-control belongs in front of the HTTP route, not in it.
+Keep the HTTP origin bound to loopback unless a token is set.
 """
 
 from __future__ import annotations

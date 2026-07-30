@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import sqlite3
 import stat
 import sys
 import tempfile
@@ -71,6 +72,55 @@ class LoreTest(unittest.TestCase):
             review("integration", "discarded", 0)
         with Store() as store:
             self.assertIs(store.search("integration", status="private")[0].status, Status.PRIVATE)
+
+    def test_legacy_database_is_normalized_on_open(self) -> None:
+        # A database created before the retention-only model holds rows in
+        # statuses `Status` now rejects. CREATE TABLE IF NOT EXISTS leaves the
+        # old table in place, so without normalization any search touching such
+        # a row crashes with a validation error — and there is no CLI remedy,
+        # because reclassifying needs an id and ids come from search.
+        home = Path(os.environ["LORE_HOME"])
+        home.mkdir(parents=True, exist_ok=True)
+        db = sqlite3.connect(home / "lore.db")
+        db.executescript(
+            """
+            CREATE TABLE memories (
+                id INTEGER PRIMARY KEY, source TEXT NOT NULL,
+                origin TEXT NOT NULL DEFAULT 'native', source_path TEXT NOT NULL,
+                source_key TEXT NOT NULL UNIQUE, fingerprint TEXT NOT NULL,
+                title TEXT NOT NULL, content TEXT NOT NULL,
+                project TEXT NOT NULL DEFAULT '',
+                status TEXT NOT NULL DEFAULT 'pending'
+                    CHECK(status IN ('pending','private','external','discarded')),
+                created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
+            CREATE VIRTUAL TABLE memories_fts USING fts5(
+                title, content, project,
+                content='memories', content_rowid='id',
+                tokenize='unicode61 remove_diacritics 2');
+            CREATE TRIGGER memories_ai AFTER INSERT ON memories BEGIN
+                INSERT INTO memories_fts(rowid,title,content,project)
+                VALUES (new.id,new.title,new.content,new.project); END;
+            """
+        )
+        for index, legacy in enumerate(("pending", "external", "private", "discarded")):
+            db.execute(
+                """INSERT INTO memories(source,origin,source_path,source_key,
+                   fingerprint,title,content,status,created_at,updated_at)
+                   VALUES ('codex','native',?,?,?,?,?,?,'2026-07-01','2026-07-01')""",
+                (f"p{index}", f"k{index}", f"f{index}", f"Lesson {legacy}", "a lesson body", legacy),
+            )
+        db.commit()
+        db.close()
+        with Store() as store:
+            counts = store.counts()
+            # pending and external became plain private rows; discarded survived.
+            self.assertEqual(counts["private"], 3)
+            self.assertEqual(counts["discarded"], 1)
+            # Unfiltered search maps every row through the Status enum — the
+            # crash this migration prevents. All four must validate.
+            found = store.search("lesson")
+            self.assertEqual(len(found), 4)
+            self.assertEqual({m.status for m in found}, {Status.PRIVATE, Status.DISCARDED})
 
     def test_disclosure_is_not_a_memory_status(self) -> None:
         # `external` and `pending` are gone: retention is the only thing a status

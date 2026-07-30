@@ -186,6 +186,15 @@ class Store:
             END;
             """
         )
+        # Roll-forward normalization, not back-compat: a database created before
+        # the retention-only status model may hold 'pending' or 'external' rows,
+        # which `Status` now rejects — without this line any search touching one
+        # crashes, with no CLI remedy. They become plain private rows; legacy
+        # semantics are not preserved.
+        self.db.execute(
+            "UPDATE memories SET status='private' "
+            "WHERE status NOT IN ('private','discarded')"
+        )
         self.db.commit()
 
     def put(
