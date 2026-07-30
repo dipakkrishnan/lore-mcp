@@ -238,6 +238,8 @@ Use `lore <command> --help` for command-specific options.
 
 def setup(yes: bool = False) -> int:
     """Choose native memory sources and perform the first import."""
+    from . import onboarding
+
     logo()
     automation_dir = home() / "automation"
     automation_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
@@ -263,7 +265,7 @@ def setup(yes: bool = False) -> int:
         # Onboarding still works with an empty library — the interview comes first —
         # so say what happened rather than reporting a zero-count import as success.
         muted("No agent memory files to import yet; `lore sync` picks them up later.")
-    print('Next, tell Claude or Codex: "Onboard me to Lore."')
+    print(f"Next, {onboarding.HANDOFF}")
     return 0
 
 

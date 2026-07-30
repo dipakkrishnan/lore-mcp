@@ -25,7 +25,9 @@ CHECKPOINT = "automation/onboarding.json"
 FLAGS = ("phase1_done",)
 ACCEPTED_FIELDS = frozenset(automation.PROFILE_FIELDS) | frozenset(FLAGS)
 
-HANDOFF = 'tell Claude or Codex "Onboard me to Lore."'
+# What the CLI tells an owner to say, and therefore what the skill has to trigger on.
+TRIGGER = "Onboard me to Lore."
+HANDOFF = f'tell Claude or Codex "{TRIGGER}"'
 
 
 @dataclass(frozen=True)

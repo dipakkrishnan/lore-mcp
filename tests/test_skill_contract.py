@@ -342,3 +342,8 @@ class OnboardingSkillContractTest(unittest.TestCase):
         preconditions = _section(self.skill, "## 0. Preconditions")
         documented = set(re.findall(r"`([a-z0-9_]+)`", preconditions))
         self.assertEqual(onboarding.ACCEPTED_FIELDS - documented, set())
+
+    def test_the_skill_triggers_on_the_phrase_the_cli_tells_people_to_say(self) -> None:
+        """`lore setup` ends by quoting a phrase; a skill that ignores it never runs."""
+        description = _frontmatter(self.skill)["description"].lower()
+        self.assertIn(onboarding.TRIGGER.lower().rstrip("."), description)
