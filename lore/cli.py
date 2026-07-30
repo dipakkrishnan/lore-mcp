@@ -12,7 +12,8 @@ from . import deploy as deploy_module
 from .paths import home
 from .sources import available_sources, scan
 from .store import STATUSES, Publication, PublicationKind, Store
-from .ui import ask, confirm, heading, logo, memory_card, muted, publication_card, success
+from .ui import (ask, confirm, heading, logo, memory_card, muted, paint,
+                 publication_card, success)
 
 
 def parser() -> argparse.ArgumentParser:
@@ -97,6 +98,16 @@ def parser() -> argparse.ArgumentParser:
     )
     blueprint_apply.add_argument("file", help="path to a blueprint JSON file")
     blueprint_commands.add_parser("show", help="show the current lore map")
+
+    onboarding = commands.add_parser("onboarding", help="show how far onboarding has got")
+    onboarding_commands = onboarding.add_subparsers(dest="onboarding_command")
+    onboarding_save_parser = onboarding_commands.add_parser(
+        "save", help="record interview answers so onboarding can resume"
+    )
+    onboarding_save_parser.add_argument(
+        "file", help="JSON file of onboarding answers; use - for stdin"
+    )
+    onboarding_commands.add_parser("show", help="show onboarding progress")
     return root
 
 
@@ -148,6 +159,10 @@ def main(argv: list[str] | None = None) -> int:
             if args.blueprint_command == "apply":
                 return blueprint_apply(args.file)
             return blueprint_show()
+        if args.command == "onboarding":
+            if args.onboarding_command == "save":
+                return onboarding_save(args.file)
+            return onboarding_show()
     except (KeyboardInterrupt, EOFError):
         print("\nCancelled.")
         return 130
@@ -183,30 +198,35 @@ def manual() -> int:
   1. lore setup
      Import native memories, then continue with the lore-onboard agent skill.
 
-  2. lore sync
+  2. lore onboarding
+     See how far onboarding has got and what to run next. It resumes where it
+     stopped; the skill records each answer with `lore onboarding save <file>`.
+
+  3. lore sync
      Import memories created or changed since setup.
 
-  3. lore review [words] [--status private|discarded]
+  4. lore review [words] [--status private|discarded]
      Walk the private library and keep or discard; revisit any prior decision.
      Reviewing never discloses anything — only a publication does that.
 
-  4. lore search [words] [--status STATUS]
+  5. lore search [words] [--status STATUS]
      Inspect the local library without changing disclosure.
 
-  5. lore price [USD]
+  6. lore price [USD]
      Show or set the advertised price per publication.
 
-  6. lore status
-     Check imports, the private library, active publications, and price.
+  7. lore status
+     Check imports, onboarding progress, the private library, active
+     publications, and price.
 
-  7. lore serve
+  8. lore serve
      Start the MCP endpoint used by local agents or a protected gateway.
 
-  8. lore node deploy
+  9. lore node deploy
      Deploy your node to your own Cloudflare account (source ships with Lore;
      the URL lands in `lore status`).
 
-  9. lore blueprint show
+ 10. lore blueprint show
      See the shape of your lore captured by the gamified onboarding skill
      (run `lore blueprint apply <file>` from that skill to update it).
 
@@ -237,7 +257,12 @@ def setup(yes: bool = False) -> int:
         report = scan(store, set(enabled))
     total = sum(item["added"] + item["updated"] for item in report.values())
     heading("Ready")
-    success(f"Imported {total} candidate memories")
+    if total:
+        success(f"Imported {total} candidate memories")
+    else:
+        # Onboarding still works with an empty library — the interview comes first —
+        # so say what happened rather than reporting a zero-count import as success.
+        muted("No agent memory files to import yet; `lore sync` picks them up later.")
     print('Next, tell Claude or Codex: "Onboard me to Lore."')
     return 0
 
@@ -306,7 +331,9 @@ def search(query: str, status_name: str | None, limit: int, as_json: bool) -> in
 
 
 def status() -> int:
-    """Print library, source, database, and pricing status."""
+    """Print library, source, onboarding, database, and pricing status."""
+    from . import onboarding
+
     logo()
     with Store() as store:
         counts = store.counts()
@@ -334,6 +361,13 @@ def status() -> int:
         enabled = source.name in configured
         marker = "●" if enabled else "○"
         print(f"  {marker} {source.label:<14} {sources.get(source.name, 0)} imported")
+    heading("Onboarding")
+    steps, next_step = onboarding.progress()
+    if next_step:
+        print(f"  {sum(step.done for step in steps)} of {len(steps)} steps done · `lore onboarding` for detail")
+        print(f"  Next: {next_step}")
+    else:
+        print(f"  {paint('32', '✓')} Onboarding complete")
     print(f"\nDatabase: {database_path}")
     print(f"Publication price: {'not set' if answer_price is None else f'${answer_price:.2f}'}")
     if node_url:
@@ -357,21 +391,63 @@ def price(amount: float | None) -> int:
     return 0
 
 
+def read_json(path: str, label: str) -> object:
+    """Read agent-authored JSON, reporting a bad hand-off in terms the owner can act on."""
+    try:
+        text = sys.stdin.read() if path == "-" else Path(path).read_text(encoding="utf-8")
+    except FileNotFoundError as error:
+        raise OSError(f"{label} file not found: {path}") from error
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError as error:
+        raise ValueError(f"{label} file is not valid JSON: {error}") from error
+
+
 def profile(path: str, schedule: bool = True) -> int:
     """Save a profile written by an onboarding agent and install its schedule."""
     from . import automation
 
-    text = sys.stdin.read() if path == "-" else Path(path).read_text(encoding="utf-8")
-    data = json.loads(text)
+    data = read_json(path, "profile")
     if not isinstance(data, dict):
         raise ValueError("profile must be a JSON object")
     data = automation.save_profile(data)
     success(f"Saved profile to {automation.profile_path()}")
-    if not schedule:
+    if schedule:
+        automation.install(data)
+        success(f"Configured {str(data['executor']).title()} local schedule")
+    else:
         muted("Existing schedules still use their previously installed prompt.")
-        return 0
-    automation.install(data)
-    success(f"Configured {str(data['executor']).title()} local schedule")
+    print("Next: `lore review` decides what stays private and what can be answered.")
+    return 0
+
+
+def onboarding_save(path: str) -> int:
+    """Record interview answers in the checkpoint that lets onboarding resume."""
+    from . import onboarding
+
+    data = read_json(path, "onboarding answers")
+    if not isinstance(data, dict):
+        raise ValueError("onboarding answers must be a JSON object")
+    saved = onboarding.save_checkpoint(data)
+    success(f"Saved answers to {onboarding.checkpoint_path()}")
+    muted(f"Recorded so far: {', '.join(sorted(saved))}")
+    return 0
+
+
+def onboarding_show() -> int:
+    """Show every onboarding step, what proves it done, and what to run next."""
+    from . import onboarding
+
+    logo()
+    steps, next_step = onboarding.progress()
+    heading("Onboarding")
+    for step in steps:
+        print(f"  {'✓' if step.done else '○'} {step.label:<30} {paint('2', step.detail)}")
+    print()
+    if next_step:
+        print(f"Next: {next_step}")
+    else:
+        success("Onboarding complete — `lore serve` answers from what you marked external.")
     return 0
 
 

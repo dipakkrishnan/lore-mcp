@@ -22,6 +22,9 @@ PROFILE_FIELDS = (
     "role", "domains", "valuable_context", "preferences",
     "boundaries", "executor", "model", "cadence", "hour",
 )
+TEXT_FIELDS = (
+    "role", "domains", "valuable_context", "preferences", "boundaries", "model",
+)
 AUTOMATION_ID = "lore-memory-synthesis"
 
 
@@ -45,21 +48,26 @@ def prompt_path() -> Path:
     return home() / PROMPT
 
 
-def save_profile(profile: dict[str, object]) -> dict[str, object]:
-    """Persist a profile and regenerate the shared synthesis prompt."""
-    profile = {
-        key: profile[key]
-        for key in PROFILE_FIELDS
-        if key in profile and profile[key] is not None
-    }
-    for key in (
-        "role",
-        "domains",
-        "valuable_context",
-        "preferences",
-        "boundaries",
-        "model",
-    ):
+def check_executor(value: object) -> Agent:
+    """Resolve a synthesis executor, naming the supported agents when it is unknown."""
+    try:
+        return Agent(str(value))
+    except ValueError as error:
+        supported = ", ".join(str(agent) for agent in Agent)
+        raise ValueError(
+            f"automation profile executor must be one of: {supported}"
+        ) from error
+
+
+def check_fields(profile: dict[str, object]) -> dict[str, object]:
+    """Validate and normalize the profile fields, treating every one as optional.
+
+    The onboarding checkpoint collects these same fields one answer at a time, so
+    each is checked only when present; `save_profile` adds the requirements that
+    apply to a complete profile.
+    """
+    profile = dict(profile)
+    for key in TEXT_FIELDS:
         if key in profile and not isinstance(profile[key], str):
             raise ValueError(f"automation profile field {key} must be text")
         if key in profile:
@@ -69,14 +77,21 @@ def save_profile(profile: dict[str, object]) -> dict[str, object]:
     hour = profile.get("hour", 21)
     if isinstance(hour, bool) or not isinstance(hour, int) or not 0 <= hour <= 23:
         raise ValueError("automation profile hour must be between 0 and 23")
-    # An executor is only needed to install a schedule; a profile saved with
-    # --no-schedule may legitimately leave it empty.
-    executor = str(profile.get("executor", "") or "")
-    if executor:
-        try:
-            Agent(executor)
-        except ValueError as error:
-            raise ValueError("automation profile contains an unknown executor") from error
+    # An executor is only needed to install a schedule: a profile saved with
+    # --no-schedule may legitimately leave it empty, and the interview has not
+    # chosen one yet when it records its first answers.
+    if profile.get("executor"):
+        check_executor(profile["executor"])
+    return profile
+
+
+def save_profile(profile: dict[str, object]) -> dict[str, object]:
+    """Persist a profile and regenerate the shared synthesis prompt."""
+    profile = check_fields({
+        key: profile[key]
+        for key in PROFILE_FIELDS
+        if key in profile and profile[key] is not None
+    })
     prompt_content = build_prompt(profile)
     path = profile_path()
     directory = path.parent

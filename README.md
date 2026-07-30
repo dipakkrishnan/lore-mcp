@@ -22,6 +22,7 @@ transcripts during initial import.
 ```sh
 lore help                     # show the end-user workflow
 lore setup                    # import native memory; then onboard with an agent
+lore onboarding               # how far onboarding got, and the next step
 lore sync                     # import new or changed memory files
 lore review                   # keep private / discard
 lore review launch --status private  # revisit a prior decision
@@ -74,6 +75,12 @@ place to stop.
 
 The blueprint (shape) and the profile (what steers synthesis) stay separate artifacts. See
 `docs/gamified-onboarding.md` for the persona design.
+
+Onboarding spans a CLI import, an agent conversation, and a scheduler, so it is built to
+be interrupted. `lore onboarding` reports each step from the artifact that proves it done
+and names the one command that moves you forward; `lore status` carries the short version.
+The skill records answers as they are given with `lore onboarding save`, so a session that
+dies mid-interview resumes instead of restarting.
 
 ## Backlog
 
