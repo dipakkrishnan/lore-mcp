@@ -32,7 +32,7 @@ common input to all of them:
 ```
                         ┌──→ lore-test      (Test / Eval)
 [onboarded Lore] ───────┼──→ lore-deploy    (Deploy)
-                        └──→ lore-monetize  (Monetize)
+                        └──→ lore-enable-payments  (Monetize)
 ```
 
 The branches are ordered by commitment, not by value. "Nothing" is a first-class,
@@ -46,8 +46,8 @@ recall. The menu must not read as a funnel.
 |---|---|---|---|
 | **Nothing / Done** | "I'm set, leave me alone" | none — exit cleanly | — |
 | **Test / Eval** | "Let me play with this and see if it actually knows me" | `lore-test` skill | this doc, below |
-| **Deploy** | "Make my Lore reachable by other agents" | `lore-deploy` skill | `deployment-mvp.md` |
-| **Monetize** | "Get paid when another agent uses it" | `lore-monetize` skill | `monetization-mvp.md` |
+| **Deploy** | "Make my Lore reachable by other agents" | `lore-deploy` skill | `node-deployment.md` |
+| **Monetize** | "Get paid when another agent uses it" | `lore-enable-payments` skill | `enable-payments.md` |
 
 Deploy and Monetize are **independent, not sequential**. Deploying without monetizing is
 a valid free public node. Monetizing without deploying is valid too — `lore serve` on
@@ -162,7 +162,7 @@ skepticism — into either confidence or corrections, at zero external cost.
 
 ## Related
 
-- `docs/deployment-mvp.md` — the Deploy branch
-- `docs/monetization-mvp.md` — the Monetize branch
+- `docs/node-deployment.md` — the Deploy branch
+- `docs/enable-payments.md` — the Monetize branch
 - `docs/gamified-onboarding.md` — the persona interview that precedes all of this
 - Backlog: `ONB-002` (handoff menu), `ONB-003` (`lore-test`)

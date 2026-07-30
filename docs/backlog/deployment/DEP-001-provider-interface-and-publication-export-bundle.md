@@ -30,7 +30,7 @@ is a security boundary, not a serialization detail.
 
 ## Proposed approach
 
-Per `docs/deployment-mvp.md`, two pieces:
+Per `docs/node-deployment.md`, two pieces:
 
 **The bundle.** Export `publications WHERE active=1` plus `price_usd`, and nothing
 else. Per publication: `id`, `title`, `content`, `kind`, `created_at`,
@@ -90,7 +90,13 @@ the load-bearing part for any owner who keeps a bound; the rest is convenience.
 ## Notes
 
 Transposed from Shane's 2026-07-30 paper sketch; design in
-`docs/deployment-mvp.md`.
+`docs/node-deployment.md`.
+
+The design doc is "node deployment" rather than "initial deployment" (considered in
+review of PR #33): this item covers first provisioning *and* the re-push path, since
+the staleness mitigation depends on re-pushing, and "initial" would orphan half of
+it. Disambiguating by object — the owner's *node*, not a release of the Lore
+package — fixes the confusion without narrowing the scope.
 
 Blocked by `STO-001` — there is nothing to export until the `publications` table
 lands (PR #19). Blocks `DEP-002` and `DEP-003`, which are the two providers being

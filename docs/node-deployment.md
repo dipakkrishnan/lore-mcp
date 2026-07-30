@@ -1,8 +1,14 @@
-# Initial deployment MVP
+# Node deployment
 
 Design notes for the `lore-deploy` skill — the Deploy branch of
 `docs/full-service-onboarding.md`. Transposed from a paper sketch (2026-07-30, Shane) and
 reconciled against the current `main`.
+
+**Scope: deploying the owner's node, and keeping it current.** Both halves are here —
+first provisioning *and* re-pushing the bundle afterwards, which the revocation
+mitigation below depends on. "Node" is in the title to separate this from shipping a
+release of the Lore package; the two are unrelated, and "deployment" alone reads as
+either.
 
 ## What this is
 
@@ -32,7 +38,7 @@ specified here at equal depth behind one provider interface. Neither is the bles
 Note what Cloudflare is and is not here. It is a **hosting** option, competing with
 Lambda. It is *not* the Monetization Gateway — that path was closed obsolete on
 2026-07-29 (`MON-001`), because payment is now enforced in-process at the MCP layer (see
-`docs/monetization-mvp.md`). Payment and hosting are orthogonal in this design: any
+`docs/enable-payments.md`). Payment and hosting are orthogonal in this design: any
 provider, with or without a price.
 
 ## What gets deployed — and what never does
@@ -105,7 +111,7 @@ owner who keeps a bound; everything else is convenience.
 
 Flagged for investigation as `XC-004`; deliberately unresolved here.
 
-`docs/monetization-mvp.md`'s gate runs in-process inside `lore serve`. A deployed node
+`docs/enable-payments.md`'s gate runs in-process inside `lore serve`. A deployed node
 does not run `lore serve` — it runs a handler over the bundle — so a *paid* deployed
 node needs the gate running inside the cloud handler. On Lambda that is plausible: the
 Python `x402`/`cdp` stack can ship with the function. On a Cloudflare Worker it cannot;
@@ -185,7 +191,7 @@ paid path exists at all. A free deployed node is fully designed here; a paid one
   (Without that selection rule the check is vacuous: a correct bundle contains no
   private rows to match in the first place.)
 - **FR22** Where a price is set, the "test transaction" SHALL run on the test network
-  first (see `docs/monetization-mvp.md`), and SHALL NOT be skipped on the grounds that
+  first (see `docs/enable-payments.md`), and SHALL NOT be skipped on the grounds that
   mainnet "should work the same".
 - **FR23** The skill SHALL emit the exact registration snippet for both supported agents
   (`codex mcp add` / `claude mcp add`) pointed at the deployed URL.
@@ -253,7 +259,7 @@ and is not this comparison's to resolve — see "Open problem" above and `XC-004
 ## What this intentionally does not do
 
 - **No publication creation.** Deploy exports publications; `XC-002` creates them.
-- **No payment implementation.** That is `docs/monetization-mvp.md` — and for a
+- **No payment implementation.** That is `docs/enable-payments.md` — and for a
   *deployed* node the paid path is an open problem (`XC-004`), not an inherited feature.
   A deployment with no price set is a free public node, and that is a valid end state.
 - **No custom domain, no CDN tuning, no multi-region.** One endpoint, one region.
@@ -280,7 +286,7 @@ and is not this comparison's to resolve — see "Open problem" above and `XC-004
 ## Related
 
 - `docs/full-service-onboarding.md` — the handoff this branches from
-- `docs/monetization-mvp.md` — the payment gate a deployed node may carry
+- `docs/enable-payments.md` — the payment gate a deployed node may carry
 - Backlog: `DEP-001` (interface + bundle), `DEP-002` (AWS), `DEP-003` (Cloudflare)
 - `STO-001` — publications as the only external surface
 - `XC-002` — the publish flow that fills the table deployment exports

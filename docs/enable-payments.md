@@ -1,8 +1,14 @@
-# Initial monetization MVP
+# Enabling payments
 
-Design notes for the `lore-monetize` skill — the Monetize branch of
+Design notes for the `lore-enable-payments` skill — the Monetize branch of
 `docs/full-service-onboarding.md`. Transposed from a paper sketch (2026-07-30, Shane) and
 reconciled against the current `main`.
+
+The skill is named for what it does, not what the owner hopes for. It configures a
+payment rail: a payout address, facilitator credentials, a price, and a verified test
+payment. Earning happens later, when a buyer calls `answer` — an owner can complete this
+skill end to end and never receive a cent. "Monetize" stays the *menu* label, because
+that is the owner's intent; it is not what this skill accomplishes.
 
 ## What this is
 
@@ -16,7 +22,7 @@ four environment variables and fails with `LORE_X402_PAY_TO is required for paid
 if the owner has not already produced a wallet address and a pair of CDP API keys — with
 no guidance anywhere on how to get either.
 
-`lore-monetize` is that missing guidance, as a skill: state what is needed, walk the owner
+`lore-enable-payments` is that missing guidance, as a skill: state what is needed, walk the owner
 to a Coinbase Wallet address, persist it in Lore, collect the CDP credentials, set a
 price, and prove the whole path works with a real payment on a test network before any
 mainnet money moves.
@@ -24,7 +30,7 @@ mainnet money moves.
 ## The shape
 
 ```
-[owner] → lore-monetize → Show info needed → Open Coinbase Wallet
+[owner] → lore-enable-payments → Show info needed → Open Coinbase Wallet
         → copy receiving address (Base) → save in Lore
         → CDP API keys → set price → test transaction (testnet) → go live
 ```
@@ -69,7 +75,7 @@ Two consequences:
 - **Deployment does not require monetization.** A deployed node with no price is free.
 
 One seam is deliberately **unresolved**: everything above describes a locally-served
-node. A *deployed* node (`docs/deployment-mvp.md`) runs a handler over an exported
+node. A *deployed* node (`docs/node-deployment.md`) runs a handler over an exported
 bundle, not `lore serve` — so a paid deployed node needs this gate running inside the
 cloud handler, which is plausible on Lambda (Python) and unscoped on a Cloudflare Worker
 (the Python x402/CDP stack does not run there). Flagged for investigation as `XC-004`;
@@ -133,7 +139,8 @@ that plainly once — including that Lore never holds, custodies, or can recover
   settings when the environment does not supply them, so the skill's persisted values
   actually take effect. Environment variables SHALL win where both are present.
 - **FR9** `validate_paid()` SHALL name the *missing* item in owner-facing terms ("no
-  payout address configured — run the monetize skill"), not only the environment variable.
+  payout address configured — run `lore-enable-payments`"), not only the environment
+  variable.
 - **FR10** A price greater than zero with incomplete payment configuration SHALL fail
   loudly at server start, not on the first buyer's call.
 
@@ -148,7 +155,7 @@ that plainly once — including that Lore never holds, custodies, or can recover
   variable remains for headless and deployed contexts.
 - **FR12** No Lore command output, error message, or MCP response SHALL ever contain the
   secret, whole or partial.
-- **FR13** Where the node is deployed (`docs/deployment-mvp.md`), the secret SHALL be
+- **FR13** Where the node is deployed (`docs/node-deployment.md`), the secret SHALL be
   installed into the provider's secret manager, and SHALL NOT travel in the publication
   bundle or a function environment literal.
 
@@ -250,12 +257,12 @@ Four changes that branch needs before it is enough:
   were issued, how many settled. Some minimal local counter is probably the difference
   between a configured price and a trusted one.
 - Where the gate runs for a *deployed* node is unresolved — `XC-004`, called out above
-  and in `docs/deployment-mvp.md`. Do not design against an assumed outcome.
+  and in `docs/node-deployment.md`. Do not design against an assumed outcome.
 
 ## Related
 
 - `docs/full-service-onboarding.md` — the handoff this branches from
-- `docs/deployment-mvp.md` — hosting, which this is independent of
+- `docs/node-deployment.md` — hosting, which this is independent of
 - Backlog: `MON-002` (land the gate), `MON-003` (the skill), `XC-004` (deployed-paid
   investigation)
 - `MON-001` — closed obsolete; why Cloudflare is not in this path

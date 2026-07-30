@@ -1,6 +1,6 @@
 ---
 id: MON-003
-title: Add a lore-monetize skill for payout address and credential setup
+title: Add a lore-enable-payments skill for payout and price configuration
 priority: P1
 effort: M
 component: monetization
@@ -31,7 +31,7 @@ configuration that does not survive a new terminal.
 
 ## Proposed approach
 
-A `lore-monetize` skill, per `docs/monetization-mvp.md`, following the sketch's
+A `lore-enable-payments` skill, per `docs/enable-payments.md`, following the sketch's
 steps: show what is needed, open Coinbase, collect the payout address, save it in
 Lore, collect the CDP credentials, set a price, test, go live.
 
@@ -92,9 +92,16 @@ switch, and only with an explicit confirmation.
 
 ## Notes
 
+Named `lore-enable-payments`, not `lore-monetize`: the skill configures a payment
+rail and cannot produce revenue on its own, so naming it for the outcome
+overclaims (Shane, review of PR #33). "Monetize" survives as the handoff *menu*
+label in `ONB-002`, where it correctly describes the owner's intent. The
+`monetization/` component keeps its name — that is a domain, and `MON-001`
+already lives there.
+
 Transposed from Shane's 2026-07-30 paper sketch ("monetize skill → show user info
 needed → open Coinbase → direct user to public address to save in Lore"); design in
-`docs/monetization-mvp.md`. Confirmed with Shane: Coinbase **Wallet**, USDC on Base.
+`docs/enable-payments.md`. Confirmed with Shane: Coinbase **Wallet**, USDC on Base.
 
 Blocked by `MON-002` — there is nothing to configure until the gate lands, and
 `MON-002` owns the settings-backed config path, the credential command, and the

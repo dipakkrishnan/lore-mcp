@@ -76,8 +76,9 @@ nothing, test what your Lore knows, deploy it so other agents can reach it, or c
 answers. These are designs, not shipped features:
 
 - `docs/full-service-onboarding.md` — the handoff model and the Test / Eval branch
-- `docs/deployment-mvp.md` — publishing a node to AWS or Cloudflare, serving publications only
-- `docs/monetization-mvp.md` — the in-process x402 payment gate and payout setup
+- `docs/node-deployment.md` — hosting your node on AWS or Cloudflare, serving publications
+  only; covers the first deploy and keeping it current
+- `docs/enable-payments.md` — configuring the in-process x402 payment rail and payout address
 
 Deploy and Monetize are independent: a deployed node can be free, and a loopback node can
 charge. Doing neither is a supported end state.

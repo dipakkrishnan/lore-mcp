@@ -28,7 +28,7 @@ to S3, create the Lambda, register the MCP endpoint with the owner's agents, run
 test call, and record what was built.
 
 Specifics that are requirements rather than choices, per
-`docs/deployment-mvp.md`:
+`docs/node-deployment.md`:
 
 - **IAM is least-privilege.** The function role gets read on the one bundle object,
   write to its own log group, and read on the payment secret if a price is set.
@@ -84,7 +84,7 @@ comparison deployment. A custom domain is out of scope.
 ## Notes
 
 Transposed from Shane's 2026-07-30 paper sketch, which drew the AWS path in full;
-design in `docs/deployment-mvp.md`. Blocked by `DEP-001`.
+design in `docs/node-deployment.md`. Blocked by `DEP-001`.
 
 The sketch's "test transaction" step is two different things depending on whether a
 price is set. Unpaid, it is the MCP verification above. Paid, it is a real x402

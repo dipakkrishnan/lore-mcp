@@ -33,7 +33,7 @@ branches, per `docs/full-service-onboarding.md`:
 - **Nothing / Done** — exit cleanly; tell the owner how to return later.
 - **Test / Eval** — hand off to `lore-test` (`ONB-003`).
 - **Deploy** — hand off to `lore-deploy` (`DEP-001`).
-- **Monetize** — hand off to `lore-monetize` (`MON-003`).
+- **Monetize** — hand off to `lore-enable-payments` (`MON-003`).
 
 Presented as one structured choice, with each branch's concrete next action and
 cost on one line — including that Deploy and Monetize both need external

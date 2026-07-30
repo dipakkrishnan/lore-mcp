@@ -43,7 +43,7 @@ Review, revise, and land that branch. What is already there:
 | `lore/payments/coinbase.py` | `CoinbaseAuth` — short-lived CDP JWTs; the hosted facilitator client |
 | `lore/payments/x402.py` | `gate()` — the `exact` EVM scheme, wrapping `answer` at `mcp://tool/answer` |
 
-Four changes it needs, per `docs/monetization-mvp.md`:
+Four changes it needs, per `docs/enable-payments.md`:
 
 1. **A settings-backed configuration path.** `CONFIG = PaymentConfig()` is a
    module-scope singleton populated from `os.environ` at import. As written, a
@@ -98,7 +98,7 @@ in owner-facing terms rather than only the environment variable.
 
 ## Notes
 
-Design in `docs/monetization-mvp.md`. This item is the mechanism; `MON-003` is the
+Design in `docs/enable-payments.md`. This item is the mechanism; `MON-003` is the
 owner-facing skill that configures it, and is blocked by this.
 
 `MON-001` is `related` rather than superseded-by, because its closure note is the

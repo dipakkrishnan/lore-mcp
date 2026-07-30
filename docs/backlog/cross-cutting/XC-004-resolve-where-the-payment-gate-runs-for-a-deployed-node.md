@@ -18,8 +18,8 @@ updated: 2026-07-30
 The two MVP designs contradict each other at exactly one seam, found in design
 review (2026-07-30) and deliberately left unresolved rather than papered over.
 
-`docs/monetization-mvp.md` enforces payment **in-process**: the x402 gate wraps the
-`answer` tool inside `lore serve`. `docs/deployment-mvp.md` deploys a **handler
+`docs/enable-payments.md` enforces payment **in-process**: the x402 gate wraps the
+`answer` tool inside `lore serve`. `docs/node-deployment.md` deploys a **handler
 over an exported bundle** — a deployed node does not run `lore serve` at all. So a
 *paid deployed node* has no designed home for its payment gate:
 
@@ -51,7 +51,7 @@ promise:
    disappoint.
 
 Deliverable: a recorded decision with rationale, plus edits bringing
-`docs/deployment-mvp.md`, `docs/monetization-mvp.md`, `DEP-002`, `DEP-003`, and
+`docs/node-deployment.md`, `docs/enable-payments.md`, `DEP-002`, `DEP-003`, and
 `MON-002`/`MON-003` into line with it.
 
 ## Acceptance criteria

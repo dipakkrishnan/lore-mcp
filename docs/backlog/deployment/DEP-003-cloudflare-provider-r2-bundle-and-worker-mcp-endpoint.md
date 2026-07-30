@@ -33,7 +33,7 @@ authenticate via `wrangler login`, upload the bundle to a private R2 bucket, and
 deploy a Worker serving the same `POST /mcp` and `GET /health` contract as the AWS
 path. Record account id, bucket, object key, Worker name, and route on success.
 
-The honest complication, per `docs/deployment-mvp.md`: the Worker runtime cannot
+The honest complication, per `docs/node-deployment.md`: the Worker runtime cannot
 run Lore's Python MCP handler. With the bundle specified as a SQLite file
 (`DEP-001`), the plausible move is importing it into D1 — SQLite underneath — and
 the open question is whether FTS5 survives the import; if not, this provider
@@ -77,7 +77,7 @@ Authentication uses `wrangler login`'s OAuth flow, never a global API key.
 ## Notes
 
 Transposed from the "Cloudflare" branch of Shane's 2026-07-30 sketch; design in
-`docs/deployment-mvp.md`. Blocked by `DEP-001`.
+`docs/node-deployment.md`. Blocked by `DEP-001`.
 
 Confirmed with Shane (2026-07-30): Cloudflare's role in the sketch is hosting only,
 not payments. `related` includes `MON-001` deliberately — anyone who reads
