@@ -353,6 +353,17 @@ class Store:
         self.db.commit()
         return int(cursor.lastrowid)
 
+    def missing_memories(self, ids: list[int]) -> list[int]:
+        """Return the subset of ids with no memory row, preserving order."""
+        found = {
+            row["id"]
+            for row in self.db.execute(
+                f"SELECT id FROM memories WHERE id IN ({','.join('?' * len(ids))})",
+                ids,
+            )
+        } if ids else set()
+        return [i for i in ids if i not in found]
+
     def _flag_publications_of(self, memory_id: int, when: str) -> int:
         """Flag active publications derived from a changed memory, returning the count.
 

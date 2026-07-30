@@ -19,6 +19,10 @@ from lore.cli import (
     blueprint_show,
     manual,
     price,
+    publication_apply as cli_publication_apply,
+    publication_list as cli_publication_list,
+    publication_reapprove as cli_publication_reapprove,
+    publication_revoke as cli_publication_revoke,
     review,
     setup,
     status,
@@ -415,6 +419,89 @@ class LoreTest(unittest.TestCase):
             )
             self.assertIs(store.search("Fresh")[0].status, Status.PRIVATE)
             self.assertNotIn("pending", store.counts())
+
+    def _drafted_candidates(self) -> str:
+        with Store() as store:
+            store.put(
+                source="test", origin="native", source_path="demo.md",
+                source_key="demo.md", fingerprint="pub-flow",
+                title="Demo evidence",
+                content="Live demos: 7/10 trials versus 0/12 for cold decks.",
+            )
+            memory_id = store.search("Demo evidence")[0].id
+        path = Path(os.environ["LORE_HOME"]) / "publish-candidates.json"
+        path.write_text(json.dumps([
+            {
+                "title": "Live demos beat cold decks",
+                "content": "3 live demos produced 7/10 follow-ups; cold decks 0/12.",
+                "kind": "claim",
+                "provenance": [memory_id],
+            },
+            {
+                "title": "Second claim",
+                "content": "Another bounded claim.",
+                "provenance": [],
+            },
+        ]))
+        return str(path)
+
+    def test_publication_apply_requires_an_owner_at_a_terminal(self) -> None:
+        path = self._drafted_candidates()
+        with patch("lore.cli._interactive", return_value=False):
+            with self.assertRaisesRegex(ValueError, "interactive terminal"):
+                cli_publication_apply(path)
+
+    def test_publication_apply_approve_edit_reject(self) -> None:
+        path = self._drafted_candidates()
+        answers = iter(["e", "Sharper title", "", "a", "r"])
+        with (
+            patch("lore.cli._interactive", return_value=True),
+            patch("lore.cli.ask", side_effect=lambda *a, **k: next(answers)),
+            redirect_stdout(StringIO()),
+        ):
+            self.assertEqual(cli_publication_apply(path), 0)
+        with Store() as store:
+            published = store.list_publications()
+            self.assertEqual(len(published), 1)
+            self.assertEqual(published[0].title, "Sharper title")
+            self.assertEqual(len(published[0].provenance), 1)
+
+    def test_publication_apply_rejects_bad_candidates(self) -> None:
+        base = Path(os.environ["LORE_HOME"])
+        base.mkdir(parents=True, exist_ok=True)
+        cases = [
+            ([{"title": "x", "content": "y", "provenance": [999]}], "unknown memories"),
+            ([{"title": "", "content": "y"}], "non-empty title"),
+            ([{"title": "x", "content": "y", "kind": "secret"}], "PublicationKind"),
+            ([{"title": "x", "content": "y", "extra": 1}], "unexpected candidate field"),
+            ([], "non-empty JSON array"),
+        ]
+        for payload, message in cases:
+            candidates = base / "bad.json"
+            candidates.write_text(json.dumps(payload))
+            with patch("lore.cli._interactive", return_value=True), \
+                    redirect_stdout(StringIO()):
+                with self.assertRaisesRegex(ValueError, message):
+                    cli_publication_apply(str(candidates))
+
+    def test_publication_list_revoke_reapprove_commands(self) -> None:
+        with Store() as store:
+            pid = store.add_publication(title="Claim", content="bounded", provenance=[])
+        output = StringIO()
+        with redirect_stdout(output):
+            self.assertEqual(cli_publication_list(), 0)
+            self.assertEqual(cli_publication_revoke(pid), 0)
+        self.assertIn("Claim", output.getvalue())
+        with Store() as store:
+            self.assertEqual(store.list_publications(active_only=True), [])
+            store.db.execute(
+                "UPDATE publications SET active=1, source_changed_at='now' WHERE id=?", (pid,)
+            )
+            store.db.commit()
+        with redirect_stdout(StringIO()):
+            self.assertEqual(cli_publication_reapprove(pid), 0)
+        with Store() as store:
+            self.assertIsNone(store.list_publications()[0].source_changed_at)
 
     def test_publications_add_list_revoke(self) -> None:
         with Store() as store:

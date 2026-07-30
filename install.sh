@@ -32,12 +32,14 @@ fi
 
 mkdir -p "$BIN_DIR"
 UV_TOOL_DIR="$INSTALL_DIR" UV_TOOL_BIN_DIR="$BIN_DIR" uv tool install --force --reinstall "$SOURCE_DIR"
-if [ -d "$SOURCE_DIR/skills/lore-onboard" ]; then
-  rm -rf "$HOME/.agents/skills/lore-onboard" "$HOME/.claude/skills/lore-onboard"
-  mkdir -p "$HOME/.agents/skills/lore-onboard" "$HOME/.claude/skills/lore-onboard"
-  cp -R "$SOURCE_DIR/skills/lore-onboard/." "$HOME/.agents/skills/lore-onboard/"
-  cp -R "$SOURCE_DIR/skills/lore-onboard/." "$HOME/.claude/skills/lore-onboard/"
-fi
+for skill_dir in "$SOURCE_DIR"/skills/*/; do
+  [ -d "$skill_dir" ] || continue
+  skill="$(basename "$skill_dir")"
+  rm -rf "$HOME/.agents/skills/$skill" "$HOME/.claude/skills/$skill"
+  mkdir -p "$HOME/.agents/skills/$skill" "$HOME/.claude/skills/$skill"
+  cp -R "$skill_dir." "$HOME/.agents/skills/$skill/"
+  cp -R "$skill_dir." "$HOME/.claude/skills/$skill/"
+done
 
 echo "Installed Lore at $BIN_DIR/lore"
 case ":$PATH:" in
