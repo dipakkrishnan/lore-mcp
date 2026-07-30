@@ -476,6 +476,47 @@ class ProfileTest(LoreTestCase):
         with self.assertRaisesRegex(ValueError, "valid dictionary"):
             cli.profile(str(path))
 
+    def test_profile_reports_a_failed_schedule_instead_of_a_bare_error(self) -> None:
+        path = self.lore_home / "profile.json"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps({"role": "maintainer", "executor": "claude"}))
+
+        errors = StringIO()
+        with (
+            patch.object(
+                automation,
+                "install",
+                side_effect=OSError("Claude CLI is not installed"),
+            ),
+            patch.object(sys, "stderr", errors),
+        ):
+            self.assertEqual(cli.profile(str(path)), 1)
+
+        report = errors.getvalue()
+        self.assertIn("schedule was not installed", report)
+        self.assertIn("Claude CLI is not installed", report)
+        self.assertIn("which claude", report)
+        # The profile is on disk, so the retry command it points at has something to read.
+        self.assertIn(str(automation.profile_path()), report)
+        self.assertTrue(automation.profile_path().is_file())
+
+    def test_a_blank_executor_reports_a_retry_command_instead_of_crashing(self) -> None:
+        # executor: "" is a valid saved profile (no schedule chosen yet); scheduling
+        # it anyway fails Agent("") before automation.install() is ever reached. The
+        # widened `except` must still catch it rather than let the construction
+        # raise straight past the handler.
+        path = self.lore_home / "profile.json"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps({"role": "maintainer", "executor": ""}))
+
+        errors = StringIO()
+        with patch.object(sys, "stderr", errors):
+            self.assertEqual(cli.profile(str(path)), 1)
+
+        report = errors.getvalue()
+        self.assertIn("schedule was not installed", report)
+        self.assertIn(str(automation.profile_path()), report)
+
 
 class CaptureCommandTest(LoreTestCase):
     def test_capture_apply_reads_stdin_and_prints_the_outcome(self) -> None:

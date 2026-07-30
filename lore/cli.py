@@ -25,6 +25,7 @@ from .ui import (
     muted,
     publication_card,
     success,
+    warn,
 )
 
 PUBLICATION_CANDIDATES = TypeAdapter(
@@ -458,8 +459,18 @@ def profile(path: str, schedule: bool = True) -> int:
     if not schedule:
         muted("Existing schedules still use their previously installed prompt.")
         return 0
-    automation.install(data)
-    success(f"Configured {str(data['executor']).title()} local schedule")
+    try:
+        executor = automation.Agent(str(data["executor"]))
+        automation.install(data)
+    except (OSError, ValueError) as error:
+        # The profile is already on disk, so a bare traceback here would read as a
+        # total failure and leave the owner with no way to finish the install. Widened
+        # to ValueError too: windup raises it far more often than OSError (a bad
+        # cadence, hour, or missing prompt file are all ValueErrors), and a bad
+        # "executor" value raises before install() is ever called.
+        warn(automation.schedule_failure(str(data.get("executor", "")), error))
+        return 1
+    success(f"Configured {str(executor).title()} local schedule")
     return 0
 
 

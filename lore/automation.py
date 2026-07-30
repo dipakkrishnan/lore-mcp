@@ -253,3 +253,75 @@ def install(profile: dict[str, object]) -> Path:
     installed = install_task(task, codex_home=codex_home())
     remove_task(replace(task, agent=other), codex_home=codex_home())
     return installed
+
+
+# The local scheduler reports failures as prose — sometimes its own wording, sometimes
+# raw launchctl stderr — so match any distinguishing phrase of a cause and pair it with
+# the step the owner can act on.
+REMEDIES: tuple[tuple[tuple[str, ...], str], ...] = (
+    (
+        ("requires macos",),
+        'Claude schedules are macOS-only. Re-run with "executor": "codex" in the '
+        "profile, or drive the prompt from your own cron entry.",
+    ),
+    (
+        ("cli is not installed",),
+        "Install the Claude CLI and confirm `which claude` resolves for the account "
+        "that runs the schedule. A shell-local shim does not survive to launchd.",
+    ),
+    (
+        ("launchctl", "bootstrap"),
+        "launchd refused the job. Confirm `launchctl print gui/$(id -u)` works in "
+        "your login session, then retry.",
+    ),
+    (
+        ("prompt does not exist",),
+        "The synthesis prompt file is missing. Reinstalling from the saved profile "
+        "below regenerates it before scheduling again.",
+    ),
+    (
+        ("hour must be between",),
+        'The saved profile\'s "hour" field must be 0-23. Edit it in the profile file '
+        "below, then retry.",
+    ),
+)
+
+
+def retry_command() -> str:
+    """Return the exact command that reinstalls the schedule from the saved profile."""
+    return shlex.join(
+        (
+            "env",
+            f"LORE_HOME={home()}",
+            sys.executable,
+            "-m",
+            "lore",
+            "profile",
+            str(profile_path()),
+        )
+    )
+
+
+def schedule_failure(executor: Agent | str, error: BaseException) -> str:
+    """Explain a failed schedule install and name the command that retries it.
+
+    `executor` accepts a bare string too: an invalid "executor" value in the
+    profile raises before it can be parsed into an `Agent`, and the owner still
+    needs to see what they typed.
+    """
+    reason = str(error).strip() or "the local scheduler rejected the task"
+    lowered = reason.lower()
+    fix = next(
+        (
+            remedy
+            for markers, remedy in REMEDIES
+            if any(marker in lowered for marker in markers)
+        ),
+        "Resolve the error above, then reinstall the schedule.",
+    )
+    return (
+        f"Saved the profile, but the {str(executor).title()} schedule was not installed.\n"
+        f"  Reason: {reason}\n"
+        f"  Fix: {fix}\n"
+        f"  Then run: {retry_command()}"
+    )
