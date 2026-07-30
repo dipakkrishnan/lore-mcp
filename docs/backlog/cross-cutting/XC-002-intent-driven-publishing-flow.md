@@ -5,12 +5,12 @@ priority: P1
 effort: L
 component: cross-cutting
 status: in-review
-related: [STO-001, CLI-001, XC-001, MON-001]
+related: [STO-001, CLI-001, XC-001, MCP-001]
 blockers: [STO-001]
 dependencies: []
 github_issue: https://github.com/dipakkrishnan/lore-mcp/issues/6
 created: 2026-07-27
-updated: 2026-07-27
+updated: 2026-07-29
 ---
 
 ## Problem
@@ -65,6 +65,10 @@ automatically disclosed externally.
       default or bulk action.
 
 ## Notes
+
+Blocks MCP-001 (browsable publication tree): there is nothing for a buyer to
+browse until this flow can create publications. MON-001 dropped from `related`
+— it was closed obsolete when Cloudflare was dropped.
 
 Cataloged from https://github.com/dipakkrishnan/lore-mcp/issues/6, from the minimal
 implementation in Dipak's "Private by Default, Publish by Intent" doc. Blocked by
