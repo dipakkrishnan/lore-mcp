@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import stat
@@ -12,7 +13,7 @@ from io import StringIO
 from pathlib import Path
 from unittest.mock import patch
 
-from lore import automation, blueprint
+from lore import automation, blueprint, extract
 from lore.cli import blueprint_apply, blueprint_show, manual, price, review, setup
 from lore.mcp import call_tool, dispatch, http
 from lore.sources import scan
@@ -466,6 +467,166 @@ class LoreTest(unittest.TestCase):
             "distributed systems",
         ):
             self.assertNotIn(marker, prompt)
+
+
+class ExtractTest(unittest.TestCase):
+    """Text extraction for manually captured files (issue #8, shared plumbing)."""
+
+    def setUp(self) -> None:
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name)
+        self.addCleanup(self.tmp.cleanup)
+
+    def _write(self, name: str, data: bytes | str) -> Path:
+        path = self.root / name
+        if isinstance(data, str):
+            path.write_text(data, encoding="utf-8")
+        else:
+            path.write_bytes(data)
+        return path
+
+    def test_normalize_type_accepts_suffixes_aliases_and_mime(self) -> None:
+        for declared, expected in [
+            (".MD", "md"),
+            ("md", "md"),
+            ("markdown", "md"),
+            ("  .TxT ", "txt"),
+            ("text", "txt"),
+            ("text/plain", "txt"),
+            ("application/json", "json"),
+            ("text/csv", "csv"),
+            ("pdf", "pdf"),
+        ]:
+            self.assertEqual(extract.normalize_type(declared), expected, declared)
+
+    def test_normalize_type_tolerates_non_strings(self) -> None:
+        for declared in (None, 7, [], {}):
+            self.assertEqual(extract.normalize_type(declared), "")
+            self.assertFalse(extract.supported_type(declared))
+
+    def test_supported_types_are_the_stdlib_text_types(self) -> None:
+        for kind in ("txt", "md", "csv", "json"):
+            self.assertTrue(extract.supported_type(kind), kind)
+        for kind in ("pdf", "docx", "png", "zip", ""):
+            self.assertFalse(extract.supported_type(kind), kind)
+
+    def test_every_text_type_extracts_and_strips(self) -> None:
+        for kind, body in [
+            ("txt", "a plain note"),
+            ("md", "# Heading\n\nclaim plus evidence"),
+            ("csv", "name,value\nada,1"),
+            ("json", '{"prefers": "claim-shaped notes"}'),
+        ]:
+            result = extract.extract_file(self._write(f"note.{kind}", f"\n  {body}  \n"))
+            self.assertEqual(result.kind, kind)
+            self.assertEqual(result.text, body)
+            self.assertEqual(result.reason, "")
+            self.assertTrue(result.indexed)
+
+    def test_fingerprint_is_sha256_of_raw_bytes(self) -> None:
+        data = b"stable content"
+        result = extract.extract_bytes(data, "txt")
+        self.assertEqual(result.fingerprint, hashlib.sha256(data).hexdigest())
+        self.assertEqual(result.byte_size, len(data))
+
+    def test_rescanning_identical_content_fingerprints_identically(self) -> None:
+        # Dedup discipline: the dropbox must treat a re-dropped file as a no-op.
+        first = extract.extract_file(self._write("one.md", "same body"))
+        second = extract.extract_file(self._write("two.md", "same body"))
+        self.assertEqual(first.fingerprint, second.fingerprint)
+
+    def test_unsupported_type_is_not_indexed_but_still_described(self) -> None:
+        path = self._write("scan.pdf", b"%PDF-1.7 binary")
+        result = extract.extract_file(path)
+        self.assertIsNone(result.text)
+        self.assertFalse(result.indexed)
+        self.assertEqual(result.reason, "unsupported-type")
+        self.assertEqual(result.kind, "pdf")
+        # Size survives so review can show the row as "not indexed".
+        self.assertEqual(result.byte_size, path.stat().st_size)
+
+    def test_unsupported_file_is_never_read_into_memory(self) -> None:
+        path = self._write("big.docx", b"x" * 4096)
+        result = extract.extract_file(path, max_bytes=16)
+        self.assertEqual(result.reason, "unsupported-type")
+        self.assertEqual(result.fingerprint, "")
+
+    def test_declared_type_overrides_the_suffix(self) -> None:
+        path = self._write("note.pdf", "actually plain text")
+        self.assertEqual(extract.extract_file(path, "txt").text, "actually plain text")
+        text_file = self._write("n.md", "hi")
+        self.assertEqual(extract.extract_file(text_file, "pdf").reason, "unsupported-type")
+
+    def test_oversized_file_is_rejected_on_stat(self) -> None:
+        path = self._write("long.txt", "y" * 100)
+        result = extract.extract_file(path, max_bytes=10)
+        self.assertEqual(result.reason, "too-large")
+        self.assertIsNone(result.text)
+        self.assertEqual(result.byte_size, 100)
+        self.assertEqual(result.fingerprint, "")
+
+    def test_oversized_bytes_are_rejected(self) -> None:
+        result = extract.extract_bytes(b"y" * 100, "txt", max_bytes=10)
+        self.assertEqual(result.reason, "too-large")
+
+    def test_size_cap_is_inclusive(self) -> None:
+        data = b"y" * 10
+        at_cap = extract.extract_file(self._write("at.txt", data), max_bytes=10)
+        self.assertEqual(extract.extract_bytes(data, "txt", max_bytes=10).text, "y" * 10)
+        self.assertEqual(at_cap.text, "y" * 10)
+
+    def test_default_cap_is_low_single_digit_mb(self) -> None:
+        self.assertEqual(extract.MAX_BYTES, 2_000_000)
+        self.assertEqual(extract.SETTING_MAX_BYTES, "capture_max_bytes")
+
+    def test_cap_default_is_configurable_through_a_setting(self) -> None:
+        # The cap is an owner setting; extract stays pure and takes it as an argument.
+        with Store(self.root / "lore.db") as store:
+            store.set_setting(extract.SETTING_MAX_BYTES, 4)
+            cap = store.setting(extract.SETTING_MAX_BYTES, extract.MAX_BYTES)
+        result = extract.extract_bytes(b"toolong", "txt", max_bytes=cap)
+        self.assertEqual(result.reason, "too-large")
+
+    def test_binary_content_wearing_a_text_suffix_is_rejected(self) -> None:
+        result = extract.extract_file(self._write("sneaky.txt", b"text\x00\x01binary"))
+        self.assertEqual(result.reason, "binary")
+        self.assertIsNone(result.text)
+
+    def test_undecodable_bytes_are_rejected(self) -> None:
+        result = extract.extract_file(self._write("latin.md", b"caf\xe9 not utf8"))
+        self.assertEqual(result.reason, "undecodable")
+        self.assertIsNone(result.text)
+
+    def test_empty_and_whitespace_only_files_are_not_indexed(self) -> None:
+        for name, body in [("blank.txt", ""), ("spaces.md", "  \n\t\n  ")]:
+            result = extract.extract_file(self._write(name, body))
+            self.assertEqual(result.reason, "empty", name)
+            self.assertIsNone(result.text)
+
+    def test_symlinks_are_refused(self) -> None:
+        secret = self._write("secret.txt", "private key material")
+        link = self.root / "link.txt"
+        link.symlink_to(secret)
+        result = extract.extract_file(link)
+        self.assertEqual(result.reason, "symlink")
+        self.assertIsNone(result.text)
+
+    def test_directories_are_refused(self) -> None:
+        folder = self.root / "processed.txt"
+        folder.mkdir()
+        self.assertEqual(extract.extract_file(folder).reason, "not-a-file")
+
+    def test_missing_file_is_unreadable_rather_than_raising(self) -> None:
+        result = extract.extract_file(self.root / "gone.txt")
+        self.assertEqual(result.reason, "unreadable")
+        self.assertIsNone(result.text)
+
+    def test_unreadable_file_is_reported_rather_than_raising(self) -> None:
+        path = self._write("locked.txt", "content")
+        with patch.object(Path, "read_bytes", side_effect=PermissionError("denied")):
+            result = extract.extract_file(path)
+        self.assertEqual(result.reason, "unreadable")
+        self.assertIsNone(result.text)
 
 
 if __name__ == "__main__":
