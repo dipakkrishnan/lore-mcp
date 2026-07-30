@@ -101,9 +101,9 @@ corrects a claim, not rates a guess.
 
 Before the `valuable_context` question, state the stakes plainly, once:
 
-> This shapes what the synthesis task hunts for, and what you could later choose to expose
-> as paid answers over MCP. Everything lands private — no memory is ever reachable over
-> MCP, whatever you do to it. Disclosing anything takes a publication you approve yourself.
+> This shapes what the synthesis task hunts for. Everything lands private, and no memory
+> is ever readable outside this machine, whatever you do to it. Sharing anything takes a
+> publication you write and approve yourself.
 
 Then `boundaries` (default: secrets and third-party private data). Combine the one
 synthesis executor, its optional model, cadence, and hour into one final scheduling
@@ -138,8 +138,7 @@ lore review           # walk the private library and keep or discard
 ```
 
 Tell them: everything is private on arrival, `lore review` is a keep-or-discard pass that
-never discloses anything, `lore price` sets the answer price, and the schedule runs itself
-from here.
+never shares anything, and the schedule runs itself from here.
 
 ## Rules
 
