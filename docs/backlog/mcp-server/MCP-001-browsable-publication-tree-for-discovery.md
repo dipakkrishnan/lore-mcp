@@ -10,7 +10,7 @@ blockers: [XC-002]
 dependencies: []
 github_issue: null
 created: 2026-07-29
-updated: 2026-07-29
+updated: 2026-07-30
 ---
 
 ## Problem
@@ -34,9 +34,17 @@ node, sees metadata at each level (topic label, child counts, kind, freshness),
 descends into branches that look relevant, and selects the specific publications
 they want to purchase — rather than issuing a keyword query and hoping.
 
-Shape probably derives from the blueprint's organizing axis, since that is
-already the owner's chosen structure for their lore. Keyword search stays as a
-retrieval primitive; browsing is an additional entry point, not a replacement.
+Keyword search stays as a retrieval primitive; browsing is an additional entry
+point, not a replacement.
+
+**The first deliverable is a schema change, not an endpoint.** Publications
+carry no grouping metadata today — no topic, no path, no axis — so there is
+nothing to build a tree *from*. Before any browsing surface exists, publications
+need an owner-approved grouping field, assigned at publish time as part of
+XC-002's approval step (which is what makes every node label owner-approved
+text rather than request-time synthesis — see below). The blueprint's organizing
+axis (chronological / theme / project / knowledge) is the natural default for
+that field's vocabulary, since it is already the owner's chosen structure.
 
 **The privacy constraint is the hard part, and it is the whole design.** The tree
 must be constructed *only* from active publications. A tree that mirrors the
@@ -55,15 +63,14 @@ grouping is restricted to structure the owner already approved.
 
 - [ ] A buyer can navigate publication metadata by node and select specific
       publications to purchase, without issuing a keyword query.
-- [ ] The tree is built only from active publications. A test asserts that no
-      private row, and no *metadata* derived from private rows (labels, counts,
-      structure), is reachable by walking the tree.
+- [ ] Everything a buyer can observe by browsing — labels, counts, ordering,
+      structure — is derived exclusively from owner-approved fields of active
+      publications. A test walks the full tree and asserts it is byte-identical
+      before and after private rows are added, edited, and discarded.
 - [ ] Every externally-visible node label is owner-approved text, not text
       synthesized at request time from private material.
 - [ ] Revoking a publication removes it from the tree immediately, and removes
       any node that existed only to hold it.
-- [ ] Browsing does not reveal the existence of publications the buyer could not
-      otherwise discover via `discover`.
 
 ## Notes
 
@@ -74,8 +81,17 @@ metadata is exposed to the searching party, who navigates it and chooses what to
 buy. STO-001 keeps FTS5 over publications as the retrieval primitive; this item
 is the additional surface.
 
-Blocked by XC-002: there is nothing to browse until the owner-facing publish flow
-can actually create publications.
+Blocked by XC-002 twice over: there is nothing to browse until the publish flow
+can create publications, and the grouping field this item's tree hangs on must be
+assigned inside XC-002's approval step — so XC-002's design should reserve room
+for it (one extra owner-visible field at approval, not a new decision).
+
+Revised 2026-07-30 after self-review: the original fifth acceptance criterion
+("browsing reveals nothing not discoverable via `discover`") was vacuous — every
+active publication matches some query, so any tree satisfied it. Replaced with an
+observability invariant: the tree must be byte-identical under any change to
+private rows. Also made explicit that the first deliverable is the publications
+grouping field, which the item previously only implied via the blueprint.
 
 Open questions, none blocking the item's existence:
 
