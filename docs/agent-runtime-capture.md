@@ -1,6 +1,6 @@
 # Agent-runtime capture: getting non-session content into Lore
 
-**Status: proposal, checking in before building.**
+**Status: shape agreed with Dipak 2026-07-30; filed as `CAP-001`.**
 
 ## Problem
 
@@ -64,11 +64,12 @@ provenance via the store.
 | `captures` table (#6, deferred) | Not a dependency. The skill proposes and the owner approves in-conversation, so staging is the conversation itself; rows land as `private` memories directly. If/when `captures` exists, unattended rails feed it and this skill can too. |
 | `lore-onboard` | Capture is the recurring version of onboarding's one-time backfill; onboarding's handoff menu should mention it. |
 
-## Open questions for Dipak
+## Decisions (Dipak, 2026-07-30)
 
-1. Land directly as `private` memories (proposed) vs. wait for the `captures`
-   staging table? Direct is buildable today and the owner is in the loop at
-   propose time, which is what staging exists to provide.
-2. Audio files: defer (proposed) vs. shell out to a local transcriber now?
-3. Backlog placement: new `capture/` component (`CAP-` prefix) vs. filing
-   under onboarding?
+1. Land directly as `private` memories — no wait for the `captures` staging
+   table; the owner is in the loop at propose time, which is what staging
+   exists to provide.
+2. Voice v1 is voice-mode-only; audio-file transcription deferred until
+   voice-memo files show up in practice.
+3. New `capture/` backlog component, `CAP-` prefix (`CAP-001` tracks the
+   skill).
