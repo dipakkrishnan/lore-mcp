@@ -57,4 +57,9 @@ Deferred from PR #27 review (Shane, 2026-07-30) — merged with the roleplay
 harness plus an independent default judge as the value-accretive first step.
 Executor portability (candidate/judge on Claude Code for users without
 Codex, judge resolution ladder) is deliberately out of scope here; note it
-for a follow-up item when a second executor is actually needed.
+for a follow-up item when a second executor is actually needed. When that
+lands, promote `run.py`'s CLI-invocation helpers (`_run_claude` and the
+codex exec incantation) into windup as a one-shot `run_json(prompt, agent,
+model, schema)` — windup's `_agent_command` already owns per-agent CLI
+knowledge, and today three copies of it exist across run.py and windup.
+Model invocation stays out of `lore/` core, which is stdlib-only by design.
