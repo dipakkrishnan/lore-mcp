@@ -1,0 +1,55 @@
+---
+id: MON-006
+title: Move deploy mechanics from the skill into the CLI when edge serving lands
+priority: P2
+effort: M
+component: monetization
+status: in-review
+related: [MON-002, MON-005, XC-005]
+blockers: [MON-003]
+dependencies: []
+github_issue: null
+created: 2026-07-30
+updated: 2026-07-30
+---
+
+## Problem
+
+The `lore-enable-payments` skill (PR #42) contains the deploy steps as prose an
+agent follows: wrangler login, `LORE_WALLET`, deploy, smoke check. Every one of
+those steps is deterministic — no decision anywhere — which makes them mechanics
+living at the wrong layer. Prose mechanics are only testable by manual dry-runs
+(XC-005), drift silently when the worker changes, and forced this PR to solve
+problems (URL recovery from wrangler state) that code would not have. A skill
+split was tried and reverted in PR #42: two skills added a hand-off seam without
+removing any of the underlying problem.
+
+## Proposed approach
+
+When MON-003 lands and reworks deployment anyway (D1 push has to go somewhere),
+move the mechanics into the CLI instead of extending the prose: a `lore node
+deploy` command that wraps wrangler (login check, secret, deploy, smoke),
+records the node URL in settings so `lore payment test-buy` and `lore status`
+can default to it, and grows the publication push and re-push on publish/revoke.
+The skill's deploy section then collapses to one command plus the Cloudflare
+account framing, and stays what skills are for: judgment, consent, and stakes.
+Mainnet cutover mechanics (MON-005) land in the same command when that gate
+opens. Also at that point: remove the canary-content honesty note once the node
+serves real publications, rename the worker from its canary name, and name
+`lore-publish` in the skill's publishing route (deferred from PR #42 until
+XC-002 / PR #38 merges).
+
+## Acceptance criteria
+
+- [ ] `lore node deploy` (name negotiable) takes an owner from a Cloudflare
+      account to a live, smoke-checked node serving their active publications,
+      and records the node URL in settings.
+- [ ] Revocation reaches the deployed node.
+- [ ] The skill's deploy section contains no wrangler invocations, and neither
+      skill nor CLI claims the node serves canary content.
+
+## Notes
+
+History: filed as "split deploy into its own skill", pulled forward into PR #42,
+then reverted there in favor of one skill — the durable conclusion was that the
+mechanics belong in code, not in a second skill. See the PR #42 discussion.

@@ -140,6 +140,11 @@ lore review           # walk the private library and keep or discard
 Tell them: everything is private on arrival, `lore review` is a keep-or-discard pass that
 never shares anything, and the schedule runs itself from here.
 
+Then offer the next rungs once, without pushing: publishing (approving specific
+publications for disclosure) and the Monetize branch (the `lore-enable-payments`
+skill, which can also start rails-first with nothing published). Both are optional —
+a private library is a complete outcome, not a step toward one.
+
 ## Rules
 
 - Never write `~/.lore/blueprint/*`, `profile.json`, or any Lore file directly — only
