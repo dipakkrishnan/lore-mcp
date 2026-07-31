@@ -17,7 +17,7 @@ updated: 2026-07-30
 
 `discover` and `answer` are now declared twice, independently. `lore/mcp.py`
 defines them in its `TOOLS` list — names, descriptions, JSON Schema, annotations
-— and `worker/src/index.ts` declares its own versions with hand-written Zod
+— and `lore/node/src/index.ts` declares its own versions with hand-written Zod
 schemas and separately written descriptions.
 
 Nothing keeps them in agreement. A buyer's agent reads whichever surface it

@@ -15,7 +15,7 @@ updated: 2026-07-30
 
 ## Problem
 
-Everything in `worker/` is Base Sepolia: `eip155:84532` with the public
+Everything in `lore/node/` is Base Sepolia: `eip155:84532` with the public
 `x402.org` facilitator. That is play money and a facilitator that exists for
 testing. Taking real payment needs `eip155:8453` and a mainnet-capable
 facilitator with credentials — in practice Coinbase's CDP facilitator and its

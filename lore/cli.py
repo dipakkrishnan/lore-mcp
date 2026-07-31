@@ -49,6 +49,15 @@ def parser() -> argparse.ArgumentParser:
     serve.add_argument("--port", type=int, default=8765)
     serve.add_argument("--token")
 
+    node = commands.add_parser("node", help="deploy and manage your hosted Lore node")
+    node_commands = node.add_subparsers(dest="node_command")
+    node_deploy = node_commands.add_parser(
+        "deploy", help="deploy the node Worker to your own Cloudflare account"
+    )
+    node_deploy.add_argument(
+        "--wallet", help="public payout address (0x + 40 hex) set as the node's LORE_WALLET"
+    )
+
     blueprint = commands.add_parser("blueprint", help="capture the shape of your lore")
     blueprint_commands = blueprint.add_subparsers(dest="blueprint_command")
     blueprint_apply = blueprint_commands.add_parser(
@@ -90,6 +99,13 @@ def main(argv: list[str] | None = None) -> int:
             if args.token:
                 serve_args.extend(["--token", args.token])
             return serve(serve_args)
+        if args.command == "node":
+            if args.node_command == "deploy":
+                from . import deploy as deploy_module
+
+                return deploy_module.deploy(args.wallet)
+            print("usage: lore node deploy [--wallet 0x<public address>]")
+            return 2
         if args.command == "blueprint":
             if args.blueprint_command == "apply":
                 return blueprint_apply(args.file)
@@ -256,6 +272,7 @@ def status() -> int:
         configured = set(store.setting("sources", []))
         database_path = store.path
         answer_price = store.setting("price_usd", None)
+        node_url = store.setting("node_url", None)
         published = len(store.list_publications(active_only=True))
         stale = len(store.stale_publications())
     heading("Library")
@@ -277,6 +294,8 @@ def status() -> int:
         print(f"  {marker} {source.label:<14} {sources.get(source.name, 0)} imported")
     print(f"\nDatabase: {database_path}")
     print(f"Answer price: {'not set' if answer_price is None else f'${answer_price:.2f}'}")
+    if node_url:
+        print(f"Node: {node_url}")
     return 0
 
 

@@ -53,3 +53,14 @@ XC-002 / PR #38 merges).
 History: filed as "split deploy into its own skill", pulled forward into PR #42,
 then reverted there in favor of one skill — the durable conclusion was that the
 mechanics belong in code, not in a second skill. See the PR #42 discussion.
+
+2026-07-30: `lore node deploy` landed early, with the canary as payload — the
+CLI-ization turned out not to depend on MON-003, only the payload swap does.
+The Worker source moved into the package (`lore/node/`, shipped as setuptools
+package data) so deploy needs no git checkout, and the deploy artifact is
+version-locked to the CLI that will later `lore push` into its D1 schema.
+The command materializes to `~/.lore/node` (never touching `.buyer.env`),
+drives npm/wrangler (login, deploy, `LORE_WALLET` secret), records `node_url`
+in settings (shown by `lore status`), and runs the smoke check. Remaining
+here, still blocked on MON-003: publications serving, revocation reach,
+removing the canary honesty note, and renaming the worker.

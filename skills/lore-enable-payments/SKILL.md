@@ -93,33 +93,27 @@ The price is advertised by the node; nothing enforces it until the node is deplo
 ## 5. Deploy the node
 
 The owner needs a Cloudflare account — the free tier is enough, and they sign up and
-log in themselves; this skill never sees or handles that login. All commands run in
-`worker/` of the Lore checkout:
+log in themselves; this skill never sees or handles that login. One command does all
+the mechanics (the node source ships inside Lore itself — no repository, no checkout):
 
 ```sh
-cd worker
-npm install
-npx wrangler login                      # opens their browser to authorize their account
-npx wrangler secret put LORE_WALLET     # paste the payout address — the public one
-npm run deploy
+lore node deploy --wallet <payout-address>   # the public 0x address from step 3
 ```
 
-The deploy prints the node's URL: `https://<worker-name>.<account>.workers.dev/mcp`.
-Then prove the node is actually up — a successful deploy only means Cloudflare
-accepted the code:
+It stages the node source at `~/.lore/node`, installs dependencies, opens their
+browser to authorize Cloudflare if they are not logged in, deploys, stores the payout
+address as the Worker's `LORE_WALLET` secret (in Cloudflare's vault, not on this
+machine), and then proves the node is actually up: the built-in smoke check makes
+real MCP calls — both tools listed, `discover` answers free, and `answer` challenges
+for payment without leaking content. It spends nothing.
 
-```sh
-npm run smoke -- https://<their-subdomain>.workers.dev/mcp
-```
-
-The smoke check makes real MCP calls: both tools listed, `discover` answers free, and
-`answer` challenges for payment without leaking content. It spends nothing; run it
-after every deploy. If it fails, `npx wrangler tail` streams the live error while you
-re-run it.
+If the smoke check fails, `npx wrangler tail` in `~/.lore/node` streams the live
+error while you rerun the deploy. Rerunning is always safe: it is also the redeploy
+path, and it never touches a `.buyer.env` the owner created.
 
 If the node was deployed earlier (even in another session), recover the URL from
-state rather than asking: `npx wrangler deployments list` in `worker/` names the
-live deployment. Ask the owner only if wrangler cannot answer.
+state rather than asking: `lore status` shows it as `Node:`. Ask the owner only if
+status cannot answer.
 
 ## 6. Prove one payment on the test network
 
@@ -130,11 +124,11 @@ itself proves nothing.
 1. Create a second, throwaway wallet (a fresh account in the same wallet app is fine).
 2. Fund it from a Base Sepolia USDC faucet — Circle's faucet at `faucet.circle.com`
    works. This is play money.
-3. In `worker/`: `cp .buyer.env.example .buyer.env`, then have the owner edit
+3. In `~/.lore/node`: `cp .buyer.env.example .buyer.env`, then have the owner edit
    `.buyer.env` **themselves** in their editor and fill in the buyer key there. The
    key must never be pasted into this conversation — anything pasted here lands in
    agent transcripts, the very files Lore's synthesis later reads.
-4. Run the capped buyer:
+4. Run the capped buyer from `~/.lore/node` (the node URL is in `lore status`):
 
 ```sh
 npm run pay -- https://<their-subdomain>.workers.dev/mcp

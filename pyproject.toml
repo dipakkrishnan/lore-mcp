@@ -19,3 +19,20 @@ lore = "lore.cli:main"
 
 [tool.setuptools]
 packages = ["lore"]
+
+# The deployable Worker source ships inside the package so `lore node deploy`
+# works without a git checkout. Explicit file list: dev artifacts in a checkout
+# (node_modules, .wrangler, a real .buyer.env) must never enter the wheel.
+[tool.setuptools.package-data]
+lore = [
+    "node/package.json",
+    "node/package-lock.json",
+    "node/tsconfig.json",
+    "node/wrangler.jsonc",
+    "node/env.d.ts",
+    "node/README.md",
+    "node/.buyer.env.example",
+    "node/.dev.vars.example",
+    "node/src/*.ts",
+    "node/scripts/*.ts",
+]

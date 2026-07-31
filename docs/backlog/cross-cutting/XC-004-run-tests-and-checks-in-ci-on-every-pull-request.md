@@ -17,7 +17,7 @@ updated: 2026-07-30
 
 There is no CI in this repository — no `.github/` directory at all. Every check
 is manual and therefore optional: the Python suite (`python -m unittest discover
--s tests`), and, since the Cloudflare canary landed, `worker/`'s `tsc --noEmit`
+-s tests`), and, since the Cloudflare canary landed, `lore/node/`'s `tsc --noEmit`
 and its `npm run smoke` MCP smoke test. Nothing runs on a pull request, so a
 green review means "a reviewer read it", not "the suite passed".
 
@@ -40,7 +40,7 @@ to `main`, with two independent jobs:
 1. **python** — `astral-sh/setup-uv`, `uv sync`, `uv run python -m unittest
    discover -s tests`. Once `XC-003` lands, this is also where its per-file
    coverage check hangs.
-2. **worker** — `npm ci` in `worker/`, then `npx tsc --noEmit`, then the smoke
+2. **worker** — `npm ci` in `lore/node/`, then `npx tsc --noEmit`, then the smoke
    test. The smoke job needs a `.dev.vars` containing a placeholder
    `LORE_WALLET` (any syntactically valid EVM address): it is what `wrangler
    types` reads to declare the binding, and the Worker refuses to construct
@@ -54,7 +54,7 @@ path works; it must not hold keys that can move money.
 
 - [ ] A workflow runs on every pull request and on pushes to `main`
 - [ ] The Python suite runs and a deliberately broken test fails the run
-- [ ] `worker/` is typechecked and its smoke test runs against a locally served
+- [ ] `lore/node/` is typechecked and its smoke test runs against a locally served
       Worker, with a placeholder wallet supplied by CI rather than a secret
 - [ ] The README's development section names the same commands CI runs, so
       local and CI checks cannot drift

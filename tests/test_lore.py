@@ -4,6 +4,7 @@ import json
 import os
 import sqlite3
 import stat
+import subprocess
 import sys
 import tempfile
 import tomllib
@@ -14,6 +15,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from lore import automation, blueprint
+from lore import deploy as deploy_module
 from lore.cli import (
     blueprint_apply,
     blueprint_show,
@@ -317,6 +319,49 @@ class LoreTest(unittest.TestCase):
                 self.assertNotIn(f"--status {status}", prompt)
             else:
                 self.assertIn(f"search --status {status} --limit 0 --json", prompt)
+
+    def test_node_deploy_materializes_without_dev_artifacts(self) -> None:
+        target = deploy_module.materialize()
+        self.assertTrue((target / "src/index.ts").is_file())
+        self.assertTrue((target / "scripts/pay.ts").is_file())
+        self.assertTrue((target / ".buyer.env.example").is_file())
+        self.assertFalse((target / "node_modules").exists())
+        self.assertFalse((target / ".buyer.env").exists())
+        # Re-running upgrades the source but never touches the owner's secrets file.
+        (target / ".buyer.env").write_text("BUYER_TEST_PRIVATE_KEY=untouched")
+        deploy_module.materialize()
+        self.assertEqual((target / ".buyer.env").read_text(), "BUYER_TEST_PRIVATE_KEY=untouched")
+
+    def test_node_deploy_drives_wrangler_and_records_the_url(self) -> None:
+        def fake_run(args, **kwargs):
+            stdout = ""
+            if args[:2] == ("npx", "wrangler") and args[2] == "deploy":
+                stdout = "Deployed lore-x402-canary\n  https://lore.example.workers.dev\n"
+            return subprocess.CompletedProcess(args, 0, stdout=stdout, stderr="")
+
+        with (
+            patch("lore.deploy.subprocess.run", side_effect=fake_run) as run,
+            patch("lore.deploy.shutil.which", return_value="/usr/bin/npm"),
+            redirect_stdout(StringIO()),
+        ):
+            self.assertEqual(deploy_module.deploy("0x" + "1" * 40), 0)
+        commands = [call.args[0] for call in run.call_args_list]
+        self.assertIn(("npm", "install", "--no-fund", "--no-audit"), commands)
+        self.assertIn(("npx", "wrangler", "secret", "put", "LORE_WALLET"), commands)
+        self.assertIn(
+            ("npm", "run", "smoke", "--", "https://lore.example.workers.dev/mcp"), commands
+        )
+        with Store() as store:
+            self.assertEqual(
+                store.setting("node_url"), "https://lore.example.workers.dev/mcp"
+            )
+
+    def test_node_deploy_fails_closed_on_bad_input(self) -> None:
+        with self.assertRaisesRegex(ValueError, "public EVM address"):
+            deploy_module.deploy("0xnothex")
+        with patch("lore.deploy.shutil.which", return_value=None):
+            with self.assertRaisesRegex(OSError, "nodejs.org"):
+                deploy_module.deploy("0x" + "1" * 40)
 
     def test_synthesis_index_is_not_imported_as_memory(self) -> None:
         root = Path(os.environ["LORE_HOME"]) / "memories"
