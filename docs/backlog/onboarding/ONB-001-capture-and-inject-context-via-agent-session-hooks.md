@@ -4,13 +4,13 @@ title: Capture and inject context via agent session hooks
 priority: P3
 effort: L
 component: onboarding
-status: ideation
+status: in-review
 related: [STO-001, XC-001, XC-002]
 blockers: [XC-002]
 dependencies: []
 github_issue: https://github.com/dipakkrishnan/lore-mcp/issues/6
 created: 2026-07-26
-updated: 2026-07-27
+updated: 2026-07-30
 ---
 
 ## Problem

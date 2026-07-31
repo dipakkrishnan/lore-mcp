@@ -23,7 +23,7 @@ transcripts during initial import.
 lore help                     # show the end-user workflow
 lore setup                    # import native memory; then onboard with an agent
 lore sync                     # import new or changed memory files
-lore review                   # private / external / discard
+lore review                   # keep private / discard
 lore review launch --status private  # revisit a prior decision
 lore search "failed launch"   # SQLite full-text recall
 lore price 0.50               # advertise a fixed answer price
@@ -122,7 +122,8 @@ The owner should benefit from better continuity, recall, and personalization eve
 
 ### Human-owned policy
 
-Agents may propose memories, consolidate them, and classify their sensitivity. The owner remains the authority over retention and external disclosure.
+Agents may propose memories, consolidate them, and draft publications. Only the
+owner may approve a publication, and only publications are externally readable.
 
 ### Derived answers, not raw access
 
@@ -130,7 +131,9 @@ The commercial unit is a task-specific answer derived from private context. Raw 
 
 ### Existing payment rails
 
-Lore MCP does not build a payments network. It is designed to use Cloudflare's Monetization Gateway and x402 for payment negotiation, verification, metering, and settlement.
+Lore MCP does not build a payments network. Payment negotiation, verification,
+metering, and settlement belong to whatever gateway sits in front of the HTTP
+route. Lore's own responsibility stops at deciding what may be disclosed.
 
 ## How it works
 
@@ -144,7 +147,8 @@ A context-janitor skill periodically turns noisy activity into durable lore, res
 
 ### 3. Govern
 
-Owner-defined policy classifies lore as private, usable for derived answers, approval-required, or prohibited from external use.
+Memories are private. Disclosure is a separate, explicit act: the owner approves
+a bounded publication, which is the only thing an external caller can reach.
 
 ### 4. Advertise
 
@@ -159,7 +163,9 @@ Discovery happens at two levels:
 
 ### 6. Answer and settle
 
-A buyer calls `answer`. If payment is required, Cloudflare returns an HTTP `402 Payment Required` response containing the x402 payment requirements. The buyer authorizes payment and retries; after verification, the local node produces a policy-filtered answer.
+A buyer calls `answer`. If payment is required, the gateway in front of the route
+answers with the price and payment requirements; the buyer authorizes and retries.
+After verification, the local node produces a policy-filtered answer.
 
 ```text
 buyer task
@@ -168,7 +174,7 @@ marketplace search
     ↓
 discover(query) ──→ safe relevance metadata
     ↓
-answer(query) ────→ HTTP 402 + price
+answer(query) ────→ price quote
     ↓                       ↓
 local retrieval ←── verified payment
     ↓
@@ -204,28 +210,26 @@ codex mcp add lore -- lore serve
 claude mcp add --scope user lore -- lore serve
 ```
 
-`discover` returns only safe relevance metadata. `answer` searches only memories
-the owner marked `external`; pending, private, and discarded records cannot be
-returned. HTTP binds to loopback by default. Binding another interface requires
+`discover` returns only safe relevance metadata. `answer` searches only active
+publications the owner explicitly approved; no memory is reachable over MCP,
+whatever its status. HTTP binds to loopback by default. Binding another interface requires
 `--token` or `LORE_MCP_TOKEN`.
 
 The intended paid deployment boundary is:
 
 ```text
-buyer agent → Cloudflare → Monetization Gateway / x402 → tunnel → Lore /mcp
+buyer agent → payment gateway → tunnel → Lore /mcp
 ```
 
-Lore owns local retrieval and disclosure policy. Cloudflare sits in front of
-the HTTP MCP route and owns the `402 Payment Required` exchange, verification,
-metering, and settlement. Do not expose the origin through a second route that
-bypasses the gateway. As of July 2026, Cloudflare's Monetization Gateway is an
-announced early-access product; Lore documents the boundary but does not pretend
-that enrollment or payment policy can already be automated. See Cloudflare's
-[announcement](https://blog.cloudflare.com/monetization-gateway/).
+Lore owns local retrieval and disclosure policy. Whatever fronts the HTTP MCP
+route owns the payment exchange, verification, metering, and settlement. Do not
+expose the origin through a second route that bypasses it. No gateway is chosen
+or required yet, and none is implemented here.
 
 ## Monetization
 
-For a fixed-price answer, x402 already acts as the quote: the first request receives a `402` response with the price and payment instructions.
+For a fixed-price answer, the quote is the first response: a buyer that has not
+paid receives the price and payment instructions instead of an answer.
 
 Dynamic pricing is useful when the value or cost depends on the query. Possible inputs include:
 
@@ -237,13 +241,17 @@ Dynamic pricing is useful when the value or cost depends on the query. Possible 
 - exclusivity;
 - owner reputation and market demand.
 
-A buyer should be able to specify a maximum budget. The node can either quote an exact amount before answering or use an x402 authorization that settles actual usage up to the approved cap.
+A buyer should be able to specify a maximum budget. The node can either quote an
+exact amount before answering, or accept an authorization that settles actual
+usage up to the approved cap.
 
 Pricing should initially be transparent and predictable. Opaque price discrimination would undermine trust before the market has earned it.
 
 ## Privacy boundary
 
-Cloudflare can enforce access and verify payment at the edge; it does not decide what private context is safe to release. Lore MCP must enforce that boundary locally.
+A gateway can enforce access and verify payment at the edge; it does not decide
+what private context is safe to release. Lore MCP must enforce that boundary
+locally.
 
 The minimum safeguards are:
 
@@ -262,7 +270,7 @@ The smallest useful prototype is:
 2. one context-janitor skill usable by multiple agents;
 3. a capability manifest;
 4. `discover` and `answer` MCP tools;
-5. a Cloudflare/x402 payment boundary;
+5. a payment boundary in front of the HTTP route;
 6. a simple disclosure policy and audit trail.
 
 It does not need a new personal agent, hosted raw-memory service, proprietary payment rail, or standalone marketplace. Existing agent marketplaces can provide initial distribution while the protocol proves that agents will pay for useful personal context.
@@ -317,6 +325,4 @@ future work.
 
 ## Related infrastructure
 
-- [Cloudflare Monetization Gateway](https://blog.cloudflare.com/monetization-gateway/)
-- [x402](https://www.x402.org/)
 - [Model Context Protocol](https://modelcontextprotocol.io/)
