@@ -1,12 +1,24 @@
 # Your Lore node
 
 This directory is the source of your deployable Lore node: a Cloudflare Worker
-with a free MCP `discover` tool and a paid `answer` tool (x402, USDC on Base).
-It ships inside the Lore package and is staged here by `lore node deploy`.
+with a free MCP `discover` tool and a paid `answer` tool (x402, USDC on Base),
+serving your **approved publications** from D1. `discover` returns titles and
+topics only (the free advertisement); `answer` returns the content, paid.
+Private Lore never reaches the edge — `lore push` writes only
+`publications WHERE active=1`. It ships inside the Lore package and is staged
+here by `lore node deploy`.
 
-Honesty note: until publications serving lands, the deployed node answers with
-sample canary content, not your publications. It proves the payment rail; it
-does not yet put your lore on sale.
+Set up the database once per account, then push whenever the active set changes:
+
+```sh
+npx wrangler d1 create lore-publications   # paste the id into wrangler.jsonc
+lore push                                  # sync the active set to the edge
+lore push --local                          # seed the local dev database instead
+```
+
+Revoking a publication locally does not touch the edge until the next
+`lore push` — the CLI reminds you. The pasted `database_id` survives
+redeploys.
 
 ## Deploy or redeploy
 

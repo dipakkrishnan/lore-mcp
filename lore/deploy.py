@@ -34,12 +34,24 @@ def materialize() -> Path:
     """
     target = home() / "node"
     target.mkdir(mode=0o700, parents=True, exist_ok=True)
+    # The owner pastes their D1 database_id into wrangler.jsonc after
+    # `wrangler d1 create`; an upgrade must not reset it to the placeholder.
+    config = target / "wrangler.jsonc"
+    existing_id = None
+    if config.is_file():
+        match = re.search(r'"database_id":\s*"([^"]+)"', config.read_text())
+        if match and match.group(1) != "REPLACE_WITH_YOUR_D1_ID":
+            existing_id = match.group(1)
     shutil.copytree(
         resources.files("lore") / "node",
         target,
         dirs_exist_ok=True,
         ignore=shutil.ignore_patterns(*EXCLUDED),
     )
+    if existing_id:
+        config.write_text(
+            config.read_text().replace("REPLACE_WITH_YOUR_D1_ID", existing_id)
+        )
     # Owner-only, like the rest of ~/.lore — after copytree, which copystats
     # the package directory's world-readable mode onto the target.
     target.chmod(0o700)

@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import os
 import sys
 from pathlib import Path
 
@@ -77,6 +78,18 @@ def parser() -> argparse.ArgumentParser:
     )
     publication_reapprove.add_argument("id", type=int)
 
+    push = commands.add_parser(
+        "push", help="replace the deployed node's publications with the active set"
+    )
+    push.add_argument(
+        "--worker-dir",
+        default=str(home() / "node"),
+        help="the node source directory (default: the one `lore node deploy` stages)",
+    )
+    push.add_argument(
+        "--local", action="store_true", help="push to the local dev database instead"
+    )
+
     blueprint = commands.add_parser("blueprint", help="capture the shape of your lore")
     blueprint_commands = blueprint.add_subparsers(dest="blueprint_command")
     blueprint_apply = blueprint_commands.add_parser(
@@ -128,6 +141,8 @@ def main(argv: list[str] | None = None) -> int:
             if args.publication_command == "reapprove":
                 return publication_reapprove(args.id)
             return publication_list()
+        if args.command == "push":
+            return push(args.worker_dir, local=args.local)
         if args.command == "blueprint":
             if args.blueprint_command == "apply":
                 return blueprint_apply(args.file)
@@ -461,6 +476,67 @@ def publication_revoke(publication_id: int) -> int:
     with Store() as store:
         store.revoke_publication(publication_id)
     success(f"Revoked publication {publication_id}; it is no longer answerable")
+    muted("A deployed node still holds the old set until you run: lore push")
+    return 0
+
+
+def _push_sql(publications: list[Publication]) -> str:
+    """Render the full-replace SQL for the edge database.
+
+    Full replace, not diffing: the active set is small, the operation is
+    idempotent, and a revoked publication is guaranteed gone because nothing
+    that isn't in this script survives it.
+    """
+    def quote(value: str) -> str:
+        return "'" + value.replace("'", "''") + "'"
+
+    statements = [
+        "CREATE TABLE IF NOT EXISTS publications ("
+        "id INTEGER PRIMARY KEY, title TEXT NOT NULL, content TEXT NOT NULL, "
+        "kind TEXT NOT NULL, topic TEXT NOT NULL DEFAULT '');",
+        "DELETE FROM publications;",
+    ]
+    statements.extend(
+        f"INSERT INTO publications(id,title,content,kind,topic) VALUES "
+        f"({p.id},{quote(p.title)},{quote(p.content)},{quote(p.kind.value)},{quote(p.topic)});"
+        for p in publications
+    )
+    return "\n".join(statements) + "\n"
+
+
+def push(worker_dir: str, local: bool = False) -> int:
+    """Replace the deployed node's publications with the local active set."""
+    import subprocess
+    import tempfile
+
+    worker = Path(worker_dir)
+    if not (worker / "wrangler.jsonc").is_file():
+        raise ValueError(
+            f"no node source at {worker}/ — run `lore node deploy` first, "
+            "or pass --worker-dir (contributors: --worker-dir lore/node)"
+        )
+    with Store() as store:
+        active = store.list_publications(active_only=True)
+    script = _push_sql(active)
+    with tempfile.NamedTemporaryFile("w", suffix=".sql", delete=False) as handle:
+        handle.write(script)
+        script_path = handle.name
+    target = ["--local"] if local else ["--remote"]
+    result = subprocess.run(
+        ["npx", "wrangler", "d1", "execute", "lore-publications", *target,
+         "--file", script_path, "-y"],
+        cwd=worker,
+    )
+    os.unlink(script_path)
+    if result.returncode != 0:
+        raise ValueError(
+            "wrangler could not write the edge database — check `npx wrangler login` "
+            "and that `lore-publications` exists (npx wrangler d1 create lore-publications)"
+        )
+    where = "local dev database" if local else "deployed node"
+    success(f"Pushed {len(active)} active publication{'s' if len(active) != 1 else ''} to the {where}")
+    if not active:
+        muted("The node now serves nothing. That is a valid state, not an error.")
     return 0
 
 

@@ -17,5 +17,14 @@
       "new_sqlite_classes": ["LorePaidMCP"],
       "tag": "v1"
     }
+  ],
+  "d1_databases": [
+    {
+      "binding": "LORE_DB",
+      "database_name": "lore-publications",
+      // Per-account: create with `npx wrangler d1 create lore-publications`
+      // and paste the id it prints. Local dev (`npm run dev`) needs no id.
+      "database_id": "REPLACE_WITH_YOUR_D1_ID"
+    }
   ]
 }

@@ -337,10 +337,17 @@ class LoreTest(unittest.TestCase):
         self.assertFalse((target / ".buyer.env").exists())
         # Secrets live here, so the directory is owner-only like the rest of ~/.lore.
         self.assertEqual(stat.S_IMODE(target.stat().st_mode), 0o700)
-        # Re-running upgrades the source but never touches the owner's secrets file.
+        # Re-running upgrades the source but never touches the owner's secrets file,
+        # and the D1 id the owner pasted into wrangler.jsonc survives the upgrade.
         (target / ".buyer.env").write_text("BUYER_TEST_PRIVATE_KEY=untouched")
+        config = target / "wrangler.jsonc"
+        config.write_text(
+            config.read_text().replace("REPLACE_WITH_YOUR_D1_ID", "d1-id-owner-pasted")
+        )
         deploy_module.materialize()
         self.assertEqual((target / ".buyer.env").read_text(), "BUYER_TEST_PRIVATE_KEY=untouched")
+        self.assertIn('"database_id": "d1-id-owner-pasted"', config.read_text())
+        self.assertNotIn("REPLACE_WITH_YOUR_D1_ID", config.read_text())
 
     def test_node_deploy_drives_wrangler_and_records_the_url(self) -> None:
         def fake_run(args, **kwargs):
@@ -565,6 +572,28 @@ class LoreTest(unittest.TestCase):
             self.assertEqual(len(published[0].provenance), 1)
             # The owner-approved grouping label survives approval intact.
             self.assertEqual(published[0].topic, "go-to-market lessons")
+
+    def test_push_sql_replaces_everything_and_escapes_quotes(self) -> None:
+        from lore.cli import _push_sql
+        from lore.store import Publication, PublicationKind
+
+        publication = Publication(
+            id=7, title="It's a title", content="O'Brien said so", kind=PublicationKind.CLAIM,
+            topic="war stories", provenance=[], active=1, created_at="", updated_at="",
+        )
+        script = _push_sql([publication])
+        # Full replace: a revoked publication is gone because only this set survives.
+        self.assertIn("DELETE FROM publications;", script)
+        self.assertIn("'It''s a title'", script)
+        self.assertIn("'O''Brien said so'", script)
+        self.assertIn("'war stories'", script)
+        # Executable by SQLite exactly as wrangler d1 will run it.
+        with sqlite3.connect(":memory:") as db:
+            db.executescript(script)
+            self.assertEqual(
+                db.execute("SELECT title, topic FROM publications").fetchone(),
+                ("It's a title", "war stories"),
+            )
 
     def test_topic_column_added_to_databases_created_before_it(self) -> None:
         db_path = Path(os.environ["LORE_HOME"]) / "lore.db"
