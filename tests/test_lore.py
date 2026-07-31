@@ -516,6 +516,28 @@ class LoreTest(unittest.TestCase):
             # The owner-approved grouping label survives approval intact.
             self.assertEqual(published[0].topic, "go-to-market lessons")
 
+    def test_push_sql_replaces_everything_and_escapes_quotes(self) -> None:
+        from lore.cli import _push_sql
+        from lore.store import Publication, PublicationKind
+
+        publication = Publication(
+            id=7, title="It's a title", content="O'Brien said so", kind=PublicationKind.CLAIM,
+            topic="war stories", provenance=[], active=1, created_at="", updated_at="",
+        )
+        script = _push_sql([publication])
+        # Full replace: a revoked publication is gone because only this set survives.
+        self.assertIn("DELETE FROM publications;", script)
+        self.assertIn("'It''s a title'", script)
+        self.assertIn("'O''Brien said so'", script)
+        self.assertIn("'war stories'", script)
+        # Executable by SQLite exactly as wrangler d1 will run it.
+        with sqlite3.connect(":memory:") as db:
+            db.executescript(script)
+            self.assertEqual(
+                db.execute("SELECT title, topic FROM publications").fetchone(),
+                ("It's a title", "war stories"),
+            )
+
     def test_topic_column_added_to_databases_created_before_it(self) -> None:
         db_path = Path(os.environ["LORE_HOME"]) / "lore.db"
         db_path.parent.mkdir(parents=True, exist_ok=True)
