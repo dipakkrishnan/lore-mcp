@@ -145,6 +145,7 @@ one. Set provenance to the ids of the memories each claim draws on.
         return [
             store.add_publication(
                 title=item["title"], content=item["content"],
+                topic=str(case["id"]).replace("-", " "),
                 provenance=item["provenance"],
             )
             for item in drafted["publications"]

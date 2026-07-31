@@ -9,8 +9,8 @@ from pathlib import Path
 from . import blueprint as blueprint_module
 from .paths import home
 from .sources import available_sources, scan
-from .store import STATUSES, Store
-from .ui import ask, confirm, heading, logo, memory_card, muted, success
+from .store import STATUSES, Publication, PublicationKind, Store
+from .ui import ask, confirm, heading, logo, memory_card, muted, publication_card, success
 
 
 def parser() -> argparse.ArgumentParser:
@@ -48,6 +48,24 @@ def parser() -> argparse.ArgumentParser:
     serve.add_argument("--host", default="127.0.0.1")
     serve.add_argument("--port", type=int, default=8765)
     serve.add_argument("--token")
+
+    publication = commands.add_parser(
+        "publication", help="approve, list, and revoke external publications"
+    )
+    publication_commands = publication.add_subparsers(dest="publication_command")
+    publication_review = publication_commands.add_parser(
+        "review", help="review drafted candidates and approve each interactively"
+    )
+    publication_review.add_argument("file", help="JSON file of drafted candidates")
+    publication_commands.add_parser("list", help="show active and revoked publications")
+    publication_revoke = publication_commands.add_parser(
+        "revoke", help="immediately remove a publication from MCP retrieval"
+    )
+    publication_revoke.add_argument("id", type=int)
+    publication_reapprove = publication_commands.add_parser(
+        "reapprove", help="keep a publication whose source memory changed"
+    )
+    publication_reapprove.add_argument("id", type=int)
 
     blueprint = commands.add_parser("blueprint", help="capture the shape of your lore")
     blueprint_commands = blueprint.add_subparsers(dest="blueprint_command")
@@ -90,6 +108,14 @@ def main(argv: list[str] | None = None) -> int:
             if args.token:
                 serve_args.extend(["--token", args.token])
             return serve(serve_args)
+        if args.command == "publication":
+            if args.publication_command == "review":
+                return publication_apply(args.file)
+            if args.publication_command == "revoke":
+                return publication_revoke(args.id)
+            if args.publication_command == "reapprove":
+                return publication_reapprove(args.id)
+            return publication_list()
         if args.command == "blueprint":
             if args.blueprint_command == "apply":
                 return blueprint_apply(args.file)
@@ -309,6 +335,119 @@ def profile(path: str, schedule: bool = True) -> int:
         return 0
     automation.install(data)
     success(f"Configured {str(data['executor']).title()} local schedule")
+    return 0
+
+
+def _interactive() -> bool:
+    """Whether approval is running in an attended interactive terminal."""
+    return sys.stdin.isatty() and sys.stdout.isatty()
+
+
+def _candidate(raw: object, missing_check: Store) -> Publication:
+    """Validate one drafted candidate into a previewable Publication."""
+    if not isinstance(raw, dict):
+        raise ValueError("each candidate must be a JSON object")
+    unexpected = raw.keys() - {"title", "content", "kind", "topic", "provenance"}
+    if unexpected:
+        raise ValueError(f"unexpected candidate field: {sorted(unexpected)[0]}")
+    title = str(raw.get("title", "")).strip()
+    content = str(raw.get("content", "")).strip()
+    topic = str(raw.get("topic", "")).strip()
+    if not title or not content or not topic:
+        raise ValueError("candidates need a non-empty title, content, and topic")
+    provenance = raw.get("provenance", [])
+    if not isinstance(provenance, list) or not provenance or not all(
+        isinstance(i, int) and not isinstance(i, bool) for i in provenance
+    ):
+        raise ValueError("candidate provenance must be a non-empty list of memory ids")
+    missing = missing_check.missing_memories(provenance)
+    if missing:
+        raise ValueError(f"candidate provenance references unknown memories: {missing}")
+    return Publication(
+        id=0,
+        title=title,
+        content=content,
+        kind=PublicationKind(raw.get("kind", "claim")),
+        topic=topic,
+        provenance=provenance,
+        active=1,
+        created_at="",
+        updated_at="",
+    )
+
+
+def publication_apply(path: str) -> int:
+    """Review drafted candidates with the owner; save only what they approve."""
+    if not _interactive():
+        raise ValueError(
+            "publication approval needs an attended interactive terminal; "
+            "piped and background approval is disabled"
+        )
+    data = json.loads(Path(path).read_text(encoding="utf-8"))
+    if not isinstance(data, list) or not data:
+        raise ValueError("candidates file must be a non-empty JSON array")
+    logo()
+    with Store() as store:
+        candidates = [_candidate(raw, store) for raw in data]
+        approved = 0
+        for index, candidate in enumerate(candidates, 1):
+            while True:
+                publication_card(candidate, index, len(candidates))
+                print("\n  [a] approve   [e] edit   [r] reject   [q] quit")
+                choice = ask("Choose", "r").lower()
+                if choice == "a":
+                    store.add_publication(
+                        title=candidate.title,
+                        content=candidate.content,
+                        kind=candidate.kind,
+                        topic=candidate.topic,
+                        provenance=candidate.provenance,
+                    )
+                    approved += 1
+                    break
+                if choice == "e":
+                    title = ask("Title (enter keeps current)") or candidate.title
+                    content = ask("Content (enter keeps current)") or candidate.content
+                    candidate = candidate.model_copy(
+                        update={"title": title.strip(), "content": content.strip()}
+                    )
+                    continue
+                if choice == "q":
+                    success(f"Approved {approved} publication{'s' if approved != 1 else ''}")
+                    return 0
+                break  # reject: save nothing, move on
+    success(f"Approved {approved} publication{'s' if approved != 1 else ''}")
+    if approved:
+        muted("These are now answerable over MCP. Revoke any time: lore publication revoke <id>")
+    return 0
+
+
+def publication_list() -> int:
+    """Show every publication and its disclosure state."""
+    with Store() as store:
+        publications = store.list_publications()
+    if not publications:
+        print("No publications. Draft some with the lore-publish skill.")
+        return 0
+    for publication in publications:
+        publication_card(publication)
+        print(f"  id {publication.id}")
+    return 0
+
+
+def publication_revoke(publication_id: int) -> int:
+    """Immediately remove a publication from external retrieval."""
+    with Store() as store:
+        store.revoke_publication(publication_id)
+    success(f"Revoked publication {publication_id}; it is no longer answerable")
+    return 0
+
+
+def publication_reapprove(publication_id: int) -> int:
+    """Keep a publication as-is after its source memory changed."""
+    with Store() as store:
+        store.clear_publication_flag(publication_id)
+    success(f"Re-approved publication {publication_id} as published")
     return 0
 
 
