@@ -7,9 +7,11 @@ import tempfile
 from pathlib import Path
 
 DEFAULT_MODEL = "gpt-5.6-sol"
-# Judge defaults to a different model than the candidate so verdicts aren't
-# the candidate grading its own homework. Override with --judge-model.
-DEFAULT_JUDGE_MODEL = "gpt-5.5"
+# Judge defaults to a different lab than the candidate so verdicts aren't
+# the candidate grading its own homework. Claude-family names route through
+# `claude -p`; everything else through `codex exec`. Override with --judge-model.
+DEFAULT_JUDGE_MODEL = "claude-opus-5"
+CLAUDE_PREFIXES = ("claude", "opus", "sonnet", "haiku")
 TASK_PATH = Path(__file__).with_name("task.json")
 DELIVERABLE_SCHEMA = {
     "type": "object",
@@ -32,6 +34,8 @@ VERDICT_SCHEMA = {
 
 
 def run_model(prompt: str, model: str, schema: dict[str, object]) -> dict[str, object]:
+    if model.startswith(CLAUDE_PREFIXES):
+        return _run_claude(prompt, model)
     with tempfile.TemporaryDirectory() as directory:
         root = Path(directory)
         schema_path = root / "schema.json"
@@ -63,6 +67,22 @@ def run_model(prompt: str, model: str, schema: dict[str, object]) -> dict[str, o
         if result.returncode:
             raise RuntimeError(result.stderr.strip() or result.stdout.strip())
         return json.loads(output_path.read_text(encoding="utf-8"))
+
+
+def _run_claude(prompt: str, model: str) -> dict[str, object]:
+    """Run a prompt through headless Claude Code; the prompt must demand JSON."""
+    result = subprocess.run(
+        ["claude", "-p", "--model", model, "--output-format", "json"],
+        input=prompt,
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode:
+        raise RuntimeError(result.stderr.strip() or result.stdout.strip())
+    text = json.loads(result.stdout)["result"].strip()
+    if text.startswith("```"):
+        text = text.strip("`").removeprefix("json").strip()
+    return json.loads(text)
 
 
 def candidate_prompt(task: dict[str, object], case: dict[str, object]) -> str:
