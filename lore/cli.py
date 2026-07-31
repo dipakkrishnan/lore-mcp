@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import os
 import sys
 from pathlib import Path
 
@@ -43,6 +44,35 @@ def parser() -> argparse.ArgumentParser:
     commands.add_parser("help", help="show the Lore workflow manual")
     price = commands.add_parser("price", help="show or set the fixed answer price")
     price.add_argument("amount", nargs="?", type=float, help="USD per answer; use 0 for free")
+
+    payment = commands.add_parser("payment", help="configure how buyers pay for answers")
+    payment_commands = payment.add_subparsers(dest="payment_command")
+    payment_commands.add_parser("status", help="show which payment settings are configured")
+    payment_auth = payment_commands.add_parser(
+        "auth", help="store payment credentials; prompts on this terminal with echo off"
+    )
+    payment_auth.add_argument(
+        "--buyer", action="store_true", help="store the test buyer's testnet key instead"
+    )
+    payment_auth.add_argument(
+        "--clear", action="store_true", help="delete every stored payment credential"
+    )
+    payment_payout = payment_commands.add_parser(
+        "payout", help="set the address buyers' USDC is paid to"
+    )
+    payment_payout.add_argument("address", help="an EVM address you control (0x + 40 hex)")
+    payment_payout.add_argument(
+        "--network", help="base-sepolia (the default) or base; base moves real money"
+    )
+    payment_test_buy = payment_commands.add_parser(
+        "test-buy", help="pay for one answer against a running node, to prove the path"
+    )
+    payment_test_buy.add_argument("query", nargs="*", help="what to ask the node")
+    payment_test_buy.add_argument(
+        "--url", default="http://127.0.0.1:8765/mcp", help="the node's MCP endpoint"
+    )
+    payment_test_buy.add_argument("--token", help="bearer token, if the node requires one")
+
     serve = commands.add_parser("serve", help="run the Lore MCP server")
     serve.add_argument("--transport", choices=["stdio", "http"], default="stdio")
     serve.add_argument("--host", default="127.0.0.1")
@@ -83,6 +113,14 @@ def main(argv: list[str] | None = None) -> int:
             return manual()
         if args.command == "price":
             return price(args.amount)
+        if args.command == "payment":
+            if args.payment_command == "auth":
+                return payment_auth(args.buyer, args.clear)
+            if args.payment_command == "payout":
+                return payment_payout(args.address, args.network)
+            if args.payment_command == "test-buy":
+                return payment_test_buy(" ".join(args.query), args.url, args.token)
+            return payment_status()
         if args.command == "serve":
             from .mcp import main as serve
 
@@ -140,15 +178,22 @@ def manual() -> int:
      Inspect the local library without changing disclosure.
 
   5. lore price [USD]
-     Show or set the advertised fixed price per answer.
+     Show or set the advertised fixed price per answer. 0 means free, which is a
+     perfectly good place to stop.
 
-  6. lore status
+  6. lore payment status
+     See which payment settings are configured. `lore payment payout <address>`
+     sets where USDC lands and `lore payment auth` stores the Coinbase
+     credentials, prompting on this terminal so no secret reaches an agent.
+     `lore payment test-buy <words>` buys one answer to prove the path works.
+
+  7. lore status
      Check imports, the private library, active publications, and price.
 
-  7. lore serve
+  8. lore serve
      Start the MCP endpoint used by local agents or a protected gateway.
 
-  8. lore blueprint show
+  9. lore blueprint show
      See the shape of your lore captured by the gamified onboarding skill
      (run `lore blueprint apply <file>` from that skill to update it).
 
@@ -290,7 +335,196 @@ def price(amount: float | None) -> int:
         if not math.isfinite(amount) or amount < 0:
             raise ValueError("price must be a finite, non-negative number")
         store.set_setting("price_usd", round(amount, 6))
-    success("Answers are free" if amount == 0 else f"Answer price set to ${amount:.2f}")
+        problem = _payment_problem(store) if amount else None
+    if amount == 0:
+        # Free is a first-class end state, not a failure to monetize.
+        success("Answers are free")
+        return 0
+    success(f"Answer price set to ${amount:.2f}")
+    if problem:
+        # Warn now rather than only at `lore serve`: the gap between setting a price
+        # and starting a server is exactly where an owner assumes they are done.
+        muted(f"Not chargeable yet: {problem}")
+        muted('Run the lore-enable-payments skill — tell your agent "enable payments on Lore".')
+    return 0
+
+
+def _payment_problem(store: Store) -> str | None:
+    """Return why this node could not collect a price, if it could not."""
+    from .payments import config as payment_config
+
+    return payment_config.resolve(store).missing()
+
+
+def payment_status() -> int:
+    """Report what payment configuration is present — never what any secret is."""
+    from .payments import config as payment_config
+    from .payments import credentials
+
+    with Store() as store:
+        answer_price = store.setting("price_usd", None)
+        resolved = payment_config.resolve(store)
+    present = credentials.configured()
+
+    heading("Payout")
+    print(f"  Address   {resolved.x402_pay_to or 'not set'}")
+    print(f"  Network   {resolved.network_name}" + ("  (real money)" if resolved.is_mainnet else ""))
+    print(f"  Price     {'not set' if answer_price is None else f'${answer_price:.2f} per answer'}")
+
+    heading("Credentials")
+    # Report what the node will actually use, not just what is on disk — the
+    # environment overrides the file, and a status that ignores that reads
+    # "not configured" next to a node that is charging perfectly well.
+    from_environment = {
+        credentials.CDP_KEY_ID: bool(os.environ.get("CDP_API_KEY_ID", "").strip()),
+        credentials.CDP_KEY_SECRET: bool(os.environ.get("CDP_API_KEY_SECRET", "").strip()),
+        credentials.TEST_BUYER_KEY: bool(os.environ.get("LORE_TEST_BUYER_KEY", "").strip()),
+    }
+    effective = {
+        credentials.CDP_KEY_ID: bool(resolved.cdp_api_key_id),
+        credentials.CDP_KEY_SECRET: bool(resolved.cdp_api_key_secret),
+        credentials.TEST_BUYER_KEY: present.get(credentials.TEST_BUYER_KEY, False)
+        or from_environment[credentials.TEST_BUYER_KEY],
+    }
+    labels = {
+        credentials.CDP_KEY_ID: "CDP key id",
+        credentials.CDP_KEY_SECRET: "CDP key secret",
+        credentials.TEST_BUYER_KEY: "Test buyer key",
+    }
+    for field, label in labels.items():
+        # Values are never printed. Presence and origin are all an owner needs here,
+        # and all that is safe to put on a screen someone may be sharing.
+        if not effective[field]:
+            source = "not configured"
+        elif from_environment[field]:
+            source = "from the environment"
+        else:
+            source = "stored"
+        print(f"  {'●' if effective[field] else '○'} {label:<16} {source}")
+    muted(f"\nStored credentials live in {credentials.path()} (0600), and are never printed.")
+
+    problem = resolved.missing()
+    print()
+    if answer_price:
+        if problem:
+            muted(f"This node has a price but cannot collect it: {problem}")
+        else:
+            success("Ready to charge for answers")
+    elif not problem:
+        muted("Payment is configured; `lore price <USD>` starts charging.")
+    else:
+        muted("Answers are free. That is a supported place to stop.")
+    return 0
+
+
+def payment_auth(buyer: bool = False, clear: bool = False) -> int:
+    """Capture payment secrets from this terminal, with echo off.
+
+    This prompt is the only interactive path for a payment secret. No agent, skill,
+    or command argument ever carries one — a secret pasted into an agent session
+    lands in transcripts under ``~/.claude/projects/``, the very files synthesis
+    later reads.
+    """
+    import getpass
+
+    from .payments import credentials
+
+    if clear:
+        removed = credentials.clear()
+        success("Removed stored payment credentials" if removed else "No credentials were stored")
+        return 0
+
+    if buyer:
+        muted("Paste the private key of a testnet wallet you control. Input stays hidden.")
+        muted("Use a throwaway wallet funded from a faucet — never your payout wallet.")
+        key = getpass.getpass("Test buyer private key: ")
+        credentials.save(test_buyer_key=key)
+        success(f"Stored the test buyer key in {credentials.path()}")
+        return 0
+
+    muted("Paste your Coinbase Developer Platform x402 API key. Input stays hidden.")
+    key_id = getpass.getpass("CDP API key id: ")
+    key_secret = getpass.getpass("CDP API key secret: ")
+    credentials.save(cdp_api_key_id=key_id, cdp_api_key_secret=key_secret)
+    # The id is not a secret, so echoing it lets the owner catch a bad paste. The
+    # secret is never echoed, in whole or in part.
+    success(f"Stored credentials for key id {key_id.strip()} in {credentials.path()}")
+    return 0
+
+
+def payment_payout(address: str, network: str | None = None) -> int:
+    """Validate and persist the address buyers' USDC is paid to."""
+    from .payments import config as payment_config
+
+    address = payment_config.normalize_pay_to(address)
+    with Store() as store:
+        store.set_setting(payment_config.PAY_TO_SETTING, address)
+        if network is not None:
+            resolved = payment_config.normalize_network(network)
+            store.set_setting(payment_config.NETWORK_SETTING, resolved)
+        else:
+            resolved = str(
+                store.setting(payment_config.NETWORK_SETTING, payment_config.DEFAULT_NETWORK)
+            )
+    name = payment_config.NETWORK_NAMES.get(resolved, resolved)
+    success(f"Payouts go to {address} on {name}")
+    if resolved == payment_config.BASE_MAINNET:
+        muted("This is mainnet: payments settle in real USDC to that address.")
+    else:
+        muted("This is a test network: nothing here moves real money.")
+    muted("Lore never holds, custodies, or can recover these funds.")
+    return 0
+
+
+def payment_test_buy(query: str, url: str, token: str | None = None) -> int:
+    """Buy one answer from a running node, proving the whole path before mainnet."""
+    from .payments import config as payment_config
+    from .payments import credentials
+
+    query = query.strip()
+    if not query:
+        raise ValueError("say what to ask, e.g. `lore payment test-buy what do you know about me`")
+
+    with Store() as store:
+        answer_price = store.setting("price_usd", None)
+        resolved = payment_config.resolve(store)
+        # Titles of everything this query would return. If any of them shows up in
+        # the challenge, the gate is disclosing content it has not been paid for.
+        watch_for = [p.title for p in store.search_publications(query, limit=10)]
+    if not answer_price:
+        raise ValueError("this node is free — set a price with `lore price <USD>` first")
+    problem = resolved.missing()
+    if problem:
+        raise ValueError(problem)
+
+    key = os.environ.get("LORE_TEST_BUYER_KEY", "").strip() or credentials.load().get(
+        credentials.TEST_BUYER_KEY, ""
+    )
+    if not key:
+        raise ValueError(
+            "no test buyer key configured — run `lore payment auth --buyer`, using a "
+            "throwaway testnet wallet funded from a Base Sepolia USDC faucet"
+        )
+
+    try:
+        from .payments.buyer import test_buy
+    except ImportError:
+        raise ValueError(
+            "the payments extra is not installed — reinstall with "
+            "`uv pip install 'lore-mcp[payments]'`"
+        )
+
+    heading("Test purchase")
+    muted(f"Asking {url} for {query!r} at ${float(answer_price):.2f} on {resolved.network_name}")
+    report = test_buy(url, query, key, resolved, token=token, watch_for=watch_for)
+
+    success(f"Paid from {report['buyer']} and settled")
+    print(f"  Paid to      {report['pay_to']}")
+    print(f"  Network      {report['network_name']}")
+    print(f"  Transaction  {report['transaction'] or 'not reported'}")
+    success("The unpaid challenge disclosed no publication content")
+    if not resolved.is_mainnet:
+        muted("\nThat was a test network. Nothing above moved real money.")
     return 0
 
 

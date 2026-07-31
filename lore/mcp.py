@@ -2,9 +2,18 @@
 
 This module is responsible for exactly one thing: deciding what is disclosable.
 The surface returns only active rows from the ``publications`` table and never a
-private memory of any kind. Payment and access control are separate concerns —
-wherever they end up living, they gate *whether* a caller gets an answer, never
-*what* is answerable.
+private memory of any kind. Payment gates *whether* a caller gets an answer, never
+*what* is answerable — a paid answer and a free answer read exactly the same rows.
+
+Payment is enforced here, in-process, when the owner has set a price. There is no
+edge gateway in this path. Two rules follow from where the gate sits:
+
+- **Only ``answer`` is gated.** ``discover`` stays free, so a buyer can always find
+  out whether this node is worth paying before paying.
+- **Only the HTTP transport is gated.** stdio is the owner's own agent talking to
+  their own library over a pipe; charging it would bill the owner for reading their
+  own lore. Anything that can reach the stdio transport is already inside the trust
+  boundary that payment exists to police.
 
 Keep the HTTP origin bound to loopback unless a token is set.
 """
@@ -17,10 +26,13 @@ import os
 import secrets
 import sys
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from . import __version__
 from .store import Store
+
+if TYPE_CHECKING:  # Importing payments for types must not drag in the optional extra.
+    from .payments import PaymentGate
 
 PROTOCOL_VERSION = "2025-11-25"
 
@@ -40,7 +52,7 @@ TOOLS = [
     {
         "name": "answer",
         "title": "Answer from Lore",
-        "description": "Return owner-approved evidence relevant to a query.",
+        "description": "Return owner-approved evidence relevant to a query. Paid over HTTP when the owner sets a price.",
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -55,8 +67,14 @@ TOOLS = [
 ]
 
 
-def dispatch(message: object) -> dict[str, Any] | None:
-    """Dispatch one JSON-RPC request, ignoring notifications."""
+def dispatch(
+    message: object, payment_gate: "PaymentGate | None" = None
+) -> dict[str, Any] | None:
+    """Dispatch one JSON-RPC request, ignoring notifications.
+
+    ``payment_gate`` is None on every free node and on every stdio call, in which
+    case this is exactly the unpaid path with no payment code on it.
+    """
     if not isinstance(message, dict):
         return _error(None, -32600, "invalid request")
     request_id = message.get("id")
@@ -87,7 +105,15 @@ def dispatch(message: object) -> dict[str, Any] | None:
         elif method == "tools/list":
             result = {"tools": TOOLS}
         elif method == "tools/call":
-            result = call_tool(params.get("name", ""), params.get("arguments", {}))
+            name = params.get("name", "")
+            arguments = params.get("arguments", {})
+            if payment_gate is not None and name == "answer":
+                # Validate before challenging. A buyer who sends a malformed request
+                # should be told so for free, not charged and then handed an error.
+                validate(name, arguments)
+                result = payment_gate(arguments, params.get("_meta"))
+            else:
+                result = call_tool(name, arguments)
         else:
             return _error(request_id, -32601, f"method not found: {method}")
         return {"jsonrpc": "2.0", "id": request_id, "result": result}
@@ -98,8 +124,12 @@ def dispatch(message: object) -> dict[str, Any] | None:
         return _error(request_id, -32603, "internal error")
 
 
-def call_tool(name: object, arguments: object) -> dict[str, Any]:
-    """Run a Lore MCP tool against owner-approved publications only."""
+def validate(name: object, arguments: object) -> tuple[str, int]:
+    """Check one tool call and return its normalized query and result limit.
+
+    Split out from :func:`call_tool` so the paid path can reject a malformed request
+    before a payment challenge is ever issued.
+    """
     if name not in {"discover", "answer"}:
         raise ValueError(f"unknown tool: {name}")
     if not isinstance(arguments, dict):
@@ -114,6 +144,15 @@ def call_tool(name: object, arguments: object) -> dict[str, Any]:
     query = query.strip()
     if not query:
         raise ValueError("query is required")
+    limit = arguments.get("max_results", 5) if name == "answer" else 5
+    if isinstance(limit, bool) or not isinstance(limit, int) or not 1 <= limit <= 10:
+        raise ValueError("max_results must be an integer from 1 to 10")
+    return query, limit
+
+
+def call_tool(name: object, arguments: object) -> dict[str, Any]:
+    """Run a Lore MCP tool against owner-approved publications only."""
+    query, limit = validate(name, arguments)
     with Store() as store:
         if name == "discover":
             matches = store.search_publications(query, limit=5)
@@ -125,9 +164,6 @@ def call_tool(name: object, arguments: object) -> dict[str, Any]:
                 "disclosure": "Only owner-approved publications are available.",
             }
         elif name == "answer":
-            limit = arguments.get("max_results", 5)
-            if isinstance(limit, bool) or not isinstance(limit, int) or not 1 <= limit <= 10:
-                raise ValueError("max_results must be an integer from 1 to 10")
             matches = store.search_publications(query, limit=limit)
             payload = {
                 "answer_context": [
@@ -166,8 +202,43 @@ def stdio() -> int:
     return 0
 
 
-def http(host: str, port: int, token: str | None = None) -> int:
-    """Serve MCP over HTTP, requiring authentication off loopback."""
+def answer_gate() -> "PaymentGate | None":
+    """Build the payment gate this node's price calls for, or None when free.
+
+    Raises when a price is set but payment is not fully configured. That failure
+    belongs here, at start, rather than at the first buyer's call: a node that
+    advertises a price it cannot collect looks working from the outside and
+    silently turns away everyone who tries to pay.
+    """
+    with Store() as store:
+        price = store.setting("price_usd", None)
+    if price in (None, 0):
+        return None  # The free path never imports the payment packages at all.
+
+    from .payments import gate
+
+    try:
+        return gate(price, lambda arguments: call_tool("answer", arguments))
+    except ImportError:
+        raise ValueError(
+            "this node has a price set but the payment packages are not installed — "
+            "reinstall with the payments extra (`uv pip install 'lore-mcp[payments]'`), "
+            "or run `lore price 0` to serve for free"
+        )
+
+
+def build_server(
+    host: str,
+    port: int,
+    token: str | None = None,
+    payment_gate: "PaymentGate | None" = None,
+) -> ThreadingHTTPServer:
+    """Build the HTTP server without starting it.
+
+    Separate from :func:`http` so tests can drive a real server on a real socket
+    rather than a stand-in for one — the payment path is exactly the kind of thing
+    that works against a mock and fails against a socket.
+    """
     if host not in {"127.0.0.1", "localhost"} and not token:
         raise ValueError("non-loopback MCP requires --token or LORE_MCP_TOKEN")
 
@@ -192,7 +263,7 @@ def http(host: str, port: int, token: str | None = None) -> int:
                 if not 0 < length <= 1_000_000:
                     raise ValueError("request size must be between 1 and 1000000 bytes")
                 message = json.loads(self.rfile.read(length))
-                response = dispatch(message)
+                response = dispatch(message, payment_gate)
                 if response is None:
                     self.send_response(202)
                     self.end_headers()
@@ -214,8 +285,17 @@ def http(host: str, port: int, token: str | None = None) -> int:
         def log_message(self, format: str, *args: object) -> None:
             print(f"lore mcp: {format % args!a}", file=sys.stderr)
 
-    server = ThreadingHTTPServer((host, port), Handler)
-    print(f"Lore MCP listening on http://{host}:{port}/mcp", file=sys.stderr)
+    return ThreadingHTTPServer((host, port), Handler)
+
+
+def http(host: str, port: int, token: str | None = None) -> int:
+    """Serve MCP over HTTP, requiring authentication off loopback."""
+    # Resolved before the socket opens, so a node that cannot collect its own price
+    # fails here rather than in front of a buyer.
+    payment_gate = answer_gate()
+    server = build_server(host, port, token, payment_gate)
+    terms = "answers are paid" if payment_gate else "answers are free"
+    print(f"Lore MCP listening on http://{host}:{port}/mcp ({terms})", file=sys.stderr)
     try:
         server.serve_forever()
     except KeyboardInterrupt:
