@@ -44,6 +44,18 @@ entry point, not a replacement. It is also the free surface: labels and titles
 are the advertisement, `answer` remains the paid product, so every line of the
 manifest must be worth giving away.
 
+**Two leak budgets, not one.** The privacy constraint below protects the
+*private* library's shape. The manifest also must not give away the *published*
+value it exists to sell — and for `claim`-kind publications the title often IS
+the claim ("Live demos outperform cold decks for agent-tool launches" delivers
+its full value as a manifest line; nobody pays for that answer). Candidate
+resolutions, undecided: list claims at topic granularity only (titles withheld
+until paid); or make the manifest line an owner-approved *teaser* distinct from
+the title; or have the publish flow coach that titles should advertise, not
+deliver (cheapest, but relies on the owner noticing). Whatever the mechanism,
+it must stay owner-approved text — request-time summarization of titles is the
+same unapproved-label problem this item already rules out.
+
 **The first deliverable is a schema change, not an endpoint.** Publications
 carry no grouping metadata today — no topic, no path, no axis — so there is
 nothing to build a tree *from*. Before any browsing surface exists, publications
