@@ -39,6 +39,29 @@ unpaid x402 challenge. The smoke check is manual (not CI), spends nothing,
 and also works against a deployed Worker: `npm run smoke -- <url>`. Run it
 after any Worker change and after each deploy, before `npm run pay`.
 
+## The two invariants
+
+Both of these fail *silently* in production — nothing errors, and the damage is
+only visible to whoever is on the other end. They are checked wherever the
+relevant call already happens rather than left to review.
+
+**The challenge discloses no publication content** (`npm run smoke`). A gate that
+leaks the answer inside its demand for payment is worse than no gate: the buyer
+keeps the content and the money. Rather than asserting today's rows are absent,
+the check asserts the stronger property — the challenge does not vary with the
+query. If asking about two unrelated things produced two different challenges,
+the difference is something the gate learned from the publications before being
+paid. Nonces and timestamps are discovered by calling twice with the same query,
+so a moving field is never mistaken for a leak.
+
+**Payment never widens the disclosable set** (`npm run pay`). Free and paid differ
+in *depth* by design — `discover` returns titles and topics, `answer` returns the
+content — but they must not differ in *breadth*. After a payment settles, the
+titles in the answer are compared against the titles `discover` advertised for the
+same query. Paying buys the content of rows the node already named; if it ever
+surfaced a row `discover` would not have, payment would have become a disclosure
+decision, which is the one thing it must never be.
+
 ## Deploy
 
 A Cloudflare account is required only for deployment:
