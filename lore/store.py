@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import re
 import sqlite3
 from datetime import datetime, timezone
 from enum import Enum
@@ -10,6 +9,7 @@ from pathlib import Path
 from pydantic import BaseModel, ConfigDict
 
 from .paths import database
+from .search import match_expression
 
 class Status(str, Enum):
     """A memory's retention status. Retention is *not* disclosure: no status
@@ -285,10 +285,9 @@ class Store:
         status_sql = " AND m.status=?" if status else ""
         args: list[object] = []
         if query.strip():
-            terms = re.findall(r"[\w-]+", query, re.UNICODE)
-            if not terms:
+            match = match_expression(query)
+            if match is None:
                 return []
-            match = " AND ".join(f'"{term.replace(chr(34), "")}"' for term in terms)
             sql = (
                 "SELECT m.* FROM memories_fts f JOIN memories m ON m.id=f.rowid "
                 f"WHERE memories_fts MATCH ?{status_sql} "
@@ -409,10 +408,9 @@ class Store:
         if limit < 0:
             raise ValueError("limit cannot be negative")
         if query.strip():
-            terms = re.findall(r"[\w-]+", query, re.UNICODE)
-            if not terms:
+            match = match_expression(query)
+            if match is None:
                 return []
-            match = " AND ".join(f'"{term.replace(chr(34), "")}"' for term in terms)
             sql = (
                 "SELECT p.* FROM publications_fts f JOIN publications p ON p.id=f.rowid "
                 "WHERE publications_fts MATCH ? AND p.active=1 "
