@@ -32,10 +32,14 @@ lore status
 lore blueprint show            # see the shape of your lore, once captured
 ```
 
-Charging for answers takes a payout address and Coinbase credentials. Rather than
-assembling those by hand, tell your agent *"enable payments on Lore"* and the
-`lore-enable-payments` skill walks it through, ending in a real transaction on a
-test network before anything touches mainnet.
+Charging for answers takes a payout address and, for mainnet, Coinbase credentials.
+Rather than assembling those by hand, tell your agent *"enable payments on Lore"*
+and the `lore-enable-payments` skill walks it through.
+
+Testing costs nothing and needs no accounts: Base Sepolia settles through a public
+facilitator that takes no credentials, so the whole path — challenge, payment,
+settlement — can be proved end to end before you sign up for anything. Coinbase
+credentials are required only at the point real money starts moving.
 
 Set `LORE_HOME` to use a location other than `~/.lore`. Lore also respects
 `CODEX_HOME` and `CLAUDE_HOME` when discovering agent data.
@@ -139,7 +143,9 @@ The commercial unit is a task-specific answer derived from private context. Raw 
 
 Lore MCP does not build a payments network, hold funds, or take a fee. It speaks
 x402: the `answer` tool is wrapped in a payment gate, and verification and
-settlement happen at Coinbase's hosted facilitator, in USDC on Base.
+settlement happen at a facilitator, in USDC on Base. Base Sepolia settles through
+the x402 project's public facilitator and needs no credentials; Base mainnet
+settles through Coinbase's hosted one and needs CDP keys.
 
 The gate runs **in-process, at the MCP layer** — there is no edge gateway in this
 path. That keeps the two decisions separate where it matters: payment decides

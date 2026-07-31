@@ -195,6 +195,20 @@ class SkillContractTest(unittest.TestCase):
         # And a way to get the test payer without exporting a key from a real wallet.
         self.assertIn("lore payment auth --buyer --generate", skill)
 
+    def test_the_payment_skill_tests_before_it_asks_for_an_account(self) -> None:
+        """The cheapest step first. An owner who must sign up to see anything work stops.
+
+        Base Sepolia settles through a credential-free facilitator, so the whole path is
+        provable before a Coinbase account exists. That is only true if the steps stay in
+        this order, which is exactly the kind of thing an edit reshuffles by accident.
+        """
+        skill = (SKILLS / "lore-enable-payments/SKILL.md").read_text(encoding="utf-8")
+        test_step = skill.index("Prove it works, on a test network")
+        signup = skill.index("portal.cdp.coinbase.com")
+        self.assertLess(test_step, signup, "the CDP signup comes before the test run")
+        # And the promise is stated, not just structurally true.
+        self.assertIn("no Coinbase account", skill)
+
     def test_the_payment_skill_refuses_a_recovery_phrase(self) -> None:
         """The one secret worse than an API key to land in a transcript."""
         skill = (SKILLS / "lore-enable-payments/SKILL.md").read_text(encoding="utf-8").lower()

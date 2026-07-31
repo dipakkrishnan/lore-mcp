@@ -375,8 +375,11 @@ def payment_status() -> int:
     print(f"  Address   {resolved.x402_pay_to or 'not set'}")
     print(f"  Network   {resolved.network_name}" + ("  (real money)" if resolved.is_mainnet else ""))
     print(f"  Price     {'not set' if answer_price is None else f'${answer_price:.2f} per answer'}")
+    print(f"  Settles   {resolved.facilitator_url}")
 
     heading("Credentials")
+    if not resolved.requires_cdp_credentials:
+        muted("  Not needed on a test network — this facilitator takes no credentials.")
     # Report what the node will actually use, not just what is on disk — the
     # environment overrides the file, and a status that ignores that reads
     # "not configured" next to a node that is charging perfectly well.
@@ -498,8 +501,10 @@ def payment_payout(address: str, network: str | None = None) -> int:
     success(f"Payouts go to {address} on {name}")
     if resolved == payment_config.BASE_MAINNET:
         muted("This is mainnet: payments settle in real USDC to that address.")
+        muted("Mainnet settles through Coinbase, so it needs `lore payment auth`.")
     else:
-        muted("This is a test network: nothing here moves real money.")
+        muted("This is a test network: nothing here moves real money,")
+        muted("and it settles through a facilitator that needs no credentials.")
     muted("Lore never holds, custodies, or can recover these funds.")
     return 0
 

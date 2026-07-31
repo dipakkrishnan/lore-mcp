@@ -84,6 +84,7 @@ def paid_config(**overrides: str) -> payment_config.PaymentConfig:
         "cdp_api_key_secret": SECRET,
     }
     values.update(overrides)
+    values.setdefault("facilitator_url", payment_config.default_facilitator(values["x402_network"]))
     return payment_config.PaymentConfig(**values)
 
 
@@ -174,10 +175,56 @@ class ConfigurationTest(PaymentTestCase):
         blank = payment_config.PaymentConfig()
         self.assertIn("lore-enable-payments", blank.missing() or "")
 
-        no_credentials = paid_config(cdp_api_key_id="", cdp_api_key_secret="")
+        no_credentials = paid_config(
+            x402_network=payment_config.BASE_MAINNET, cdp_api_key_id="", cdp_api_key_secret=""
+        )
         self.assertIn("lore payment auth", no_credentials.missing() or "")
 
         self.assertIsNone(paid_config().missing())
+
+    def test_a_test_network_needs_no_coinbase_account_at_all(self) -> None:
+        """The cheapest step comes first: prove the path, then sign up to go live."""
+        testnet = paid_config(cdp_api_key_id="", cdp_api_key_secret="")
+        self.assertEqual(testnet.facilitator_url, payment_config.PUBLIC_TESTNET_FACILITATOR)
+        self.assertFalse(testnet.requires_cdp_credentials)
+        self.assertIsNone(testnet.missing())
+
+    def test_mainnet_settles_through_coinbase_and_says_so(self) -> None:
+        mainnet = paid_config(x402_network=payment_config.BASE_MAINNET)
+        self.assertEqual(mainnet.facilitator_url, payment_config.CDP_FACILITATOR)
+        self.assertTrue(mainnet.requires_cdp_credentials)
+        self.assertIsNone(mainnet.missing())
+
+    def test_mainnet_cannot_be_pointed_at_the_test_facilitator(self) -> None:
+        """It serves test networks only, so this would fail at the first real buyer."""
+        misrouted = paid_config(
+            x402_network=payment_config.BASE_MAINNET,
+            facilitator_url=payment_config.PUBLIC_TESTNET_FACILITATOR,
+        )
+        self.assertIn("test networks only", misrouted.missing() or "")
+
+    def test_the_facilitator_follows_the_network_and_the_environment_overrides_it(self) -> None:
+        with Store() as store:
+            store.set_setting(payment_config.PAY_TO_SETTING, PAY_TO)
+            self.assertEqual(
+                payment_config.resolve(store).facilitator_url,
+                payment_config.PUBLIC_TESTNET_FACILITATOR,
+            )
+            store.set_setting(payment_config.NETWORK_SETTING, payment_config.BASE_MAINNET)
+            self.assertEqual(
+                payment_config.resolve(store).facilitator_url, payment_config.CDP_FACILITATOR
+            )
+            os.environ["LORE_X402_FACILITATOR"] = "https://facilitator.example/x402"
+            self.addCleanup(os.environ.pop, "LORE_X402_FACILITATOR", None)
+            resolved = payment_config.resolve(store)
+        self.assertEqual(resolved.facilitator_url, "https://facilitator.example/x402")
+        self.assertFalse(resolved.requires_cdp_credentials)
+
+    def test_the_facilitator_host_and_path_drive_jwt_signing(self) -> None:
+        """A wrong host or path signs a token the facilitator will reject."""
+        config = paid_config(x402_network=payment_config.BASE_MAINNET)
+        self.assertEqual(config.facilitator_host, "api.cdp.coinbase.com")
+        self.assertEqual(config.facilitator_path, "/platform/v2/x402")
 
     def test_no_error_message_ever_contains_the_secret(self) -> None:
         """An error is the likeliest place for a secret to escape into a transcript."""
@@ -398,6 +445,7 @@ class ServeTest(PaymentTestCase):
         self.set_price(0.05)
         with Store() as store:
             store.set_setting(payment_config.PAY_TO_SETTING, PAY_TO)
+            store.set_setting(payment_config.NETWORK_SETTING, payment_config.BASE_MAINNET)
         with self.assertRaises(ValueError) as raised:
             mcp.answer_gate()
         self.assertIn("lore payment auth", str(raised.exception))

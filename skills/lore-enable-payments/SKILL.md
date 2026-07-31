@@ -42,17 +42,29 @@ configured. Never re-ask for something already set.
 Before asking for anything, tell the owner everything this will take. They should learn
 the total price of the branch now, not discover a Coinbase signup three screens in.
 
+**To test on a test network — no accounts, no signup, no money:**
+
 | What | Why | Secret? |
 |---|---|---|
-| A Coinbase Wallet **receiving address** on Base | Where buyers' USDC lands | No — public by design |
-| A **CDP API key id** | Identifies this node to Coinbase's x402 facilitator | No |
-| A **CDP API key secret** | Signs the calls that verify and settle payments | **Yes** |
+| A **receiving address** on Base | Where buyers' USDC lands | No — public by design |
 | A **price** per answer, in USD | What the gate charges | No |
-| A **second testnet wallet**, funded from a faucet | Something has to *pay* the test transaction | Lore can create one; its key is secret |
+| A **second testnet wallet**, funded from a faucet | Something has to *pay* the test transaction | Lore creates one; its key is secret |
 
-If they have no crypto wallet at all, that is fine and expected — step 2 walks through
-creating one, and step 5 creates the test wallet for them. The only account they have to
-sign up for themselves is Coinbase Developer Platform.
+**Only to go live on mainnet, afterwards:**
+
+| What | Why | Secret? |
+|---|---|---|
+| A **CDP API key id** | Identifies this node to Coinbase's facilitator | No |
+| A **CDP API key secret** | Signs the calls that verify and settle payments | **Yes** |
+
+Say the split out loud, because it changes what they are agreeing to: **the whole path
+can be proved before they sign up for anything.** Test networks settle through a public
+facilitator that takes no credentials, so steps 2 through 5 need no Coinbase account.
+The account is only required at step 6, when real money starts moving — by which point
+they have already watched it work.
+
+If they have no crypto wallet at all, that is fine and expected: step 2 walks through
+creating one, and step 5 creates the test wallet for them.
 
 Then say this once, plainly:
 
@@ -113,47 +125,10 @@ The command validates the address as `0x` plus 40 hex characters and refuses any
 else. If it refuses, do not work around it — a wrong address here is money sent to
 nobody. Ask them to re-copy it from the wallet.
 
-Leave the network alone. It defaults to Base Sepolia, the test network, and step 6 is
+Leave the network alone. It defaults to Base Sepolia, the test network, and step 5 is
 the only place that changes.
 
-## 3. Credentials — which you never see
-
-The owner needs a Coinbase Developer Platform account and an API key. This is a separate
-signup from the wallet in step 2, and a separate thing from a Coinbase exchange account.
-
-1. Sign in at `portal.cdp.coinbase.com` and create a project.
-2. Create a **Secret API Key** at `portal.cdp.coinbase.com/api-keys/secret`.
-3. The portal shows the key id and the key secret. **The secret is shown once.** Have
-   them keep it on screen for the next command rather than closing the page.
-
-They do not need a CDP Wallet Secret for this — that is for CDP-managed accounts, and
-step 2's wallet is their own.
-
-Then have them run this **themselves**, in their own terminal:
-
-```sh
-lore payment auth
-```
-
-It prompts for the key id and the secret with echo off and writes them to a `0600` file
-under `$LORE_HOME`.
-
-**Do not ask for, accept, or repeat the key secret.** Not in a message, not in a command
-argument, not "just to check it". A secret pasted into this conversation lands in a
-transcript under `~/.claude/projects/`, which is exactly what Lore's own synthesis reads
-later — the secret would end up in the memory library it is meant to protect. If they
-paste it anyway, tell them to rotate the key in the CDP portal and run
-`lore payment auth` again.
-
-Confirm it worked without seeing anything:
-
-```sh
-lore payment status
-```
-
-Both credential lines should read `configured`.
-
-## 4. Set the price
+## 3. Set the price
 
 ```sh
 lore price 0.05
@@ -169,9 +144,14 @@ If the price is set before payment is configured, `lore price` says so and names
 missing. That is a warning, not a failure — but the node cannot collect until it is
 resolved.
 
-## 5. Prove it works, on a test network
+## 4. Prove it works, on a test network
 
 Nothing goes to mainnet until a real payment has settled on Base Sepolia.
+
+**This step needs no Coinbase account.** Base Sepolia settles through a public
+facilitator that takes no credentials, so everything below runs on what they already
+have. Say so — an owner who thinks they need to sign up for a developer platform before
+seeing anything work is an owner who stops here.
 
 **The test needs a payer** — a *second* wallet, never the payout wallet, since a node
 paying itself proves nothing. Lore can make one:
@@ -219,9 +199,50 @@ settlement transaction. Show the owner the transaction id; it is the proof.
 node free rather than half-configured. A node that challenges every buyer and can never
 settle is worse than a free one: it turns away everybody and tells nobody why.
 
-## 6. Going live on mainnet
+## 5. Going live on mainnet
 
-Only after a settled testnet payment, and only if they ask.
+Only after a settled testnet payment, and only if they ask. This is also the first point
+at which anything costs them an account — everything above ran without one.
+
+### The credentials — which you never see
+
+Mainnet settles through Coinbase's facilitator, which authenticates every call, so this
+is where a Coinbase Developer Platform account becomes necessary. It is a separate signup
+from the wallet in step 2, and a different thing from a Coinbase exchange account.
+
+1. Sign in at `portal.cdp.coinbase.com` and create a project.
+2. Create a **Secret API Key** at `portal.cdp.coinbase.com/api-keys/secret`.
+3. The portal shows the key id and the key secret. **The secret is shown once.** Have
+   them keep it on screen for the next command rather than closing the page.
+
+They do not need a CDP Wallet Secret for this — that is for CDP-managed accounts, and
+step 2's wallet is their own.
+
+Then have them run this **themselves**, in their own terminal:
+
+```sh
+lore payment auth
+```
+
+It prompts for the key id and the secret with echo off and writes them to a `0600` file
+under `$LORE_HOME`.
+
+**Do not ask for, accept, or repeat the key secret.** Not in a message, not in a command
+argument, not "just to check it". A secret pasted into this conversation lands in a
+transcript under `~/.claude/projects/`, which is exactly what Lore's own synthesis reads
+later — the secret would end up in the memory library it is meant to protect. If they
+paste it anyway, tell them to rotate the key in the CDP portal and run
+`lore payment auth` again.
+
+Confirm it worked without seeing anything:
+
+```sh
+lore payment status
+```
+
+Both credential lines should read `configured`.
+
+### The switch
 
 Say exactly what changes:
 
@@ -239,7 +260,7 @@ lore serve --transport http
 The node must be restarted for a network change to take effect. Confirm with
 `lore payment status`, which flags mainnet as real money.
 
-## 7. Hand back
+## 6. Hand back
 
 Tell them:
 
