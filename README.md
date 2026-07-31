@@ -8,7 +8,7 @@ Lore MCP is a local-first memory layer that lets any personal agent build a dura
 
 ## Install
 
-Lore uses Python 3.10+, SQLite, Git, and [uv](https://docs.astral.sh/uv/). Inspect
+Lore uses Python 3.12+, SQLite with FTS5, Git, and [uv](https://docs.astral.sh/uv/). Inspect
 [`install.sh`](./install.sh), then install the current release:
 
 ```sh

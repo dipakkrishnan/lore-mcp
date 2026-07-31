@@ -8,14 +8,20 @@ BIN_DIR="${LORE_BIN_DIR:-$HOME/.local/bin}"
 TMP_DIR="$(mktemp -d)"
 trap 'rm -rf "$TMP_DIR"' EXIT INT TERM
 
-command -v python3 >/dev/null 2>&1 || { echo "Lore needs Python 3.10 or newer." >&2; exit 1; }
+command -v python3 >/dev/null 2>&1 || { echo "Lore needs Python 3.12 or newer." >&2; exit 1; }
 command -v uv >/dev/null 2>&1 || {
   echo "Lore needs uv: https://docs.astral.sh/uv/getting-started/installation/" >&2
   exit 1
 }
 command -v git >/dev/null 2>&1 || { echo "Lore needs git." >&2; exit 1; }
-python3 -c 'import sys; raise SystemExit(sys.version_info < (3, 10))' || {
-  echo "Lore needs Python 3.10 or newer." >&2
+python3 -c 'import sys; raise SystemExit(sys.version_info < (3, 12))' || {
+  echo "Lore needs Python 3.12 or newer." >&2
+  exit 1
+}
+# Lore's search is FTS5. A Python whose bundled SQLite lacks the module installs
+# fine and then fails on the first search, so check it here rather than there.
+python3 -c 'import sqlite3; sqlite3.connect(":memory:").execute("CREATE VIRTUAL TABLE t USING fts5(x)")' 2>/dev/null || {
+  echo "Lore needs a Python whose SQLite includes FTS5." >&2
   exit 1
 }
 
