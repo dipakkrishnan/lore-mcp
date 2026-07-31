@@ -1,8 +1,21 @@
-# Lore x402 canary
+# Lore x402 node
 
-This is a disposable Base Sepolia proof: one free MCP `discover` tool and one
-$0.01 `answer` tool using Cloudflare's `paidTool`. It serves only hardcoded test
-content and has no connection to private Lore data.
+One free MCP `discover` tool and one $0.01 `answer` tool using Cloudflare's
+`paidTool`, serving the owner's **approved publications** from D1. `discover`
+returns titles and topics only (the free advertisement); `answer` returns the
+content, paid. Private Lore never reaches the edge — `lore push` writes only
+`publications WHERE active=1`.
+
+Setup once per account, then push whenever the active set changes:
+
+```sh
+npx wrangler d1 create lore-publications   # paste the id into wrangler.jsonc
+lore push                                  # from the repo root (or --worker-dir)
+lore push --local                          # seed the local dev database instead
+```
+
+Revoking a publication locally does not touch the edge until the next
+`lore push` — the CLI reminds you.
 
 Cloudflare's x402 support (`withX402`, which provides `paidTool`) only works on
 the legacy `McpAgent` path today. This canary follows that working example
