@@ -1,0 +1,4 @@
+node_modules/
+.buyer.env
+.dev.vars
+.wrangler/

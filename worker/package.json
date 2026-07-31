@@ -1,0 +1,27 @@
+{
+  "name": "lore-x402-canary",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "check": "tsc --noEmit",
+    "deploy": "wrangler deploy",
+    "dev": "wrangler dev",
+    "pay": "tsx --env-file=.buyer.env scripts/pay.ts",
+    "smoke": "tsx scripts/smoke.ts",
+    "types": "wrangler types env.d.ts --include-runtime false"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "1.30.0",
+    "@x402/evm": "2.20.0",
+    "agents": "0.20.1",
+    "viem": "2.55.10",
+    "zod": "4.4.3"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "5.20260730.1",
+    "@types/node": "26.0.1",
+    "tsx": "4.20.6",
+    "typescript": "6.0.3",
+    "wrangler": "4.115.0"
+  }
+}
