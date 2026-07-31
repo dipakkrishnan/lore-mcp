@@ -9,7 +9,7 @@ import sys
 import tempfile
 import tomllib
 import unittest
-from contextlib import redirect_stdout
+from contextlib import redirect_stderr, redirect_stdout
 from io import StringIO
 from pathlib import Path
 from unittest.mock import patch
@@ -19,6 +19,7 @@ from lore import deploy as deploy_module
 from lore.cli import (
     blueprint_apply,
     blueprint_show,
+    main,
     manual,
     parser,
     price,
@@ -543,6 +544,63 @@ class LoreTest(unittest.TestCase):
         self.assertIn("Onboard me to Lore", output.getvalue())
         automation_dir = Path(os.environ["LORE_HOME"]) / "automation"
         self.assertEqual(stat.S_IMODE(automation_dir.stat().st_mode), 0o700)
+
+    def test_every_documented_command_dispatches(self) -> None:
+        """The contract tests prove these parse; this proves they reach an implementation."""
+        memory = Path(os.environ["CODEX_HOME"]) / "memories/MEMORY.md"
+        memory.parent.mkdir(parents=True)
+        memory.write_text("# Deployment\n\nCold starts sank the launch.")
+
+        output = StringIO()
+        with redirect_stdout(output):
+            for argv in (
+                ["setup", "--yes"],
+                ["sync"],
+                ["sync", "--source", "codex"],
+                ["search", "deployment"],
+                ["search", "deployment", "--json"],
+                ["price"],
+                ["price", "0.5"],
+                ["price"],
+                ["help"],
+                ["status"],
+            ):
+                with self.subTest(argv=argv):
+                    self.assertEqual(main(argv), 0)
+        report = output.getvalue()
+        self.assertIn("Imported 1 candidate memories", report)   # setup
+        self.assertIn("unchanged", report)                       # sync
+        self.assertIn('"title": "Deployment"', report)           # search --json
+        self.assertIn("Answer price set to $0.50", report)       # price 0.5
+        self.assertIn("$0.50 per answer", report)                # price, once set
+
+        with patch("lore.cli.ask", side_effect=["s", "q"]), redirect_stdout(StringIO()) as skipped:
+            self.assertEqual(main(["review"]), 0)
+        self.assertIn("Deployment", skipped.getvalue())
+        with Store() as store:
+            self.assertEqual(store.counts()["pending"], 1)  # [s] skipped, changed nothing
+
+        errors = StringIO()
+        with redirect_stdout(StringIO()), redirect_stderr(errors):
+            self.assertEqual(main(["review", "--limit", "-1"]), 1)
+        self.assertIn("limit cannot be negative", errors.getvalue())
+
+        with patch("lore.mcp.main", return_value=0) as served, redirect_stdout(StringIO()):
+            self.assertEqual(main(["serve", "--transport", "http", "--token", "secret"]), 0)
+        self.assertIn("--token", served.call_args.args[0])
+
+    def test_bare_lore_in_a_terminal_opens_the_dashboard(self) -> None:
+        class Terminal(StringIO):
+            def isatty(self) -> bool:
+                return True
+
+        with (
+            patch("lore.cli.dashboard", return_value=0) as opened,
+            patch.object(sys.stdin, "isatty", return_value=True),
+            redirect_stdout(Terminal()),
+        ):
+            self.assertEqual(main([]), 0)
+        opened.assert_called_once()
 
     def test_help_is_a_workflow_manual(self) -> None:
         output = StringIO()
@@ -1116,6 +1174,36 @@ class LoreTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "topic_outline cannot be empty"):
             blueprint.normalize(data)
 
+    def test_blueprint_rejects_every_malformed_hand_off(self) -> None:
+        """FR12/FR13 guarantees: an agent assembles this JSON, so every cap is reachable."""
+        with self.assertRaisesRegex(ValueError, "must be a JSON object"):
+            blueprint.normalize(["not", "an", "object"])
+
+        for field, value, message in (
+            ("name", 42, "name must be a string"),
+            ("name", "x" * (blueprint.MAX_NAME_LENGTH + 1), "cannot exceed"),
+            ("storytelling", "x" * (blueprint.MAX_TEXT_LENGTH + 1), "cannot exceed"),
+            ("topic_outline", "not a list", "must be a list"),
+            ("topic_outline", ["a"] * (blueprint.MAX_ITEMS + 1), "cannot exceed"),
+            ("topic_outline", [1, 2], "items must be strings"),
+            ("topic_outline", ["x" * (blueprint.MAX_ITEM_LENGTH + 1)], "items cannot exceed"),
+        ):
+            data = _blueprint_input()
+            data[field] = value
+            with self.subTest(field=field, message=message):
+                with self.assertRaisesRegex(ValueError, message):
+                    blueprint.normalize(data)
+
+    def test_blueprint_apply_names_a_bad_file_rather_than_raising_at_it(self) -> None:
+        missing = Path(self.tmp.name) / "nowhere.json"
+        with self.assertRaisesRegex(OSError, "blueprint file not found"):
+            blueprint.apply(missing)
+
+        broken = Path(self.tmp.name) / "broken.json"
+        broken.write_text("{ truncated")
+        with self.assertRaisesRegex(ValueError, "blueprint file is not valid JSON"):
+            blueprint.apply(broken)
+
     def test_blueprint_normalizes_lists(self) -> None:
         data = _blueprint_input()
         data["topic_outline"] = ["  a  ", "", "a", "b"]
@@ -1152,6 +1240,16 @@ class LoreTest(unittest.TestCase):
         with redirect_stdout(output):
             self.assertEqual(blueprint_show(), 0)
         self.assertIn("No blueprint yet", output.getvalue())
+
+    def test_blueprint_show_falls_back_to_the_raw_blueprint(self) -> None:
+        """FR16: the map if present, else the blueprint itself, else a first-run nudge."""
+        blueprint.apply(self._write_blueprint_input(_blueprint_input()))
+        blueprint.lore_map_path().unlink()
+
+        output = StringIO()
+        with redirect_stdout(output):
+            self.assertEqual(blueprint_show(), 0)
+        self.assertIn('"persona": "professor"', output.getvalue())
 
     def test_blueprint_cli_apply_and_show(self) -> None:
         path = self._write_blueprint_input(_blueprint_input(persona="storyteller"))

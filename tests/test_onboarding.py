@@ -18,7 +18,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from lore import automation, blueprint, onboarding
-from lore.cli import main, manual, onboarding_save, onboarding_show
+from lore.cli import dashboard, main, manual, onboarding_save, onboarding_show
 from lore.cli import profile as profile_command
 from lore.cli import review, setup, status
 from lore.store import Store
@@ -125,6 +125,21 @@ class OnboardingTest(unittest.TestCase):
         self.assertIn("Classify", report)
         self.assertIn("Onboard me to Lore", report)
 
+    def test_onboarding_show_reports_the_finished_state(self) -> None:
+        """The happy ending of the whole feature, and the only screen that says so."""
+        self._import_one_memory()
+        blueprint.apply(self._write("blueprint.json", _blueprint_input()))
+        with patch("lore.automation.remove_task"):
+            self._run(profile_command, str(self._write("p.json", _profile_answers())))
+        with Store() as store:
+            for memory in store.pending():
+                store.set_status(memory.id, "private")
+
+        report = self._run(onboarding_show)
+        self.assertIn("Onboarding complete", report)
+        self.assertIn("lore serve", report)
+        self.assertNotIn("Next:", report)
+
     def test_onboarding_show_works_before_anything_exists(self) -> None:
         report = self._run(onboarding_show)
         self.assertIn("lore setup", report)
@@ -163,6 +178,21 @@ class OnboardingTest(unittest.TestCase):
         self.assertIn("profile file not found", errors.getvalue())
         # A rejected write leaves the answers already recorded untouched.
         self.assertEqual(onboarding.load_checkpoint(), {"role": "x"})
+
+    def test_the_dashboard_runs_the_menu_it_advertises(self) -> None:
+        """Typing `lore` in a terminal is a plausible first move; every key must work."""
+        output = StringIO()
+        with (
+            patch("lore.cli.ask", side_effect=["r", "/", "deployment", "s", "q"]),
+            redirect_stdout(output),
+        ):
+            self.assertEqual(dashboard(), 0)
+        report = output.getvalue()
+
+        self.assertIn("Nothing waiting for review", report)   # [r]
+        self.assertIn("No matching memories", report)         # [/]
+        self.assertIn("added", report)                        # [s]
+        self.assertIn("Onboarding", report)
 
     def test_bare_lore_outside_a_terminal_reports_status(self) -> None:
         """Piped or captured, `lore` must print state rather than open a prompt loop."""
@@ -228,6 +258,28 @@ class OnboardingTest(unittest.TestCase):
         path = onboarding.checkpoint_path()
         self.assertEqual(stat.S_IMODE(path.stat().st_mode), 0o600)
         self.assertEqual(stat.S_IMODE(path.parent.stat().st_mode), 0o700)
+
+    def test_json_of_the_wrong_shape_is_rejected_everywhere_it_can_arrive(self) -> None:
+        """Valid JSON of the wrong type is what a confused agent hands over."""
+        with self.assertRaisesRegex(ValueError, "answers must be a JSON object"):
+            onboarding.save_checkpoint(["role"])
+        with redirect_stdout(StringIO()), redirect_stderr(StringIO()):
+            self.assertEqual(main(["onboarding", "save", str(self._write("l.json", ["x"]))]), 1)
+
+        onboarding.checkpoint_path().parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+        onboarding.checkpoint_path().write_text('"a bare string"')
+        with self.assertRaisesRegex(ValueError, "checkpoint is not a JSON object"):
+            onboarding.load_checkpoint()
+        # And the progress report still survives it.
+        self.assertIn("Onboarding", self._run(onboarding_show))
+
+        blueprint.blueprint_path().parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+        blueprint.blueprint_path().write_text("[]")
+        self.assertIn("unreadable", self._run(onboarding_show))
+
+    def test_a_non_text_profile_answer_is_rejected(self) -> None:
+        with self.assertRaisesRegex(ValueError, "role must be text"):
+            onboarding.save_checkpoint({"role": 42})
 
     def test_checkpoint_rejects_unknown_or_malformed_answers(self) -> None:
         """A bad answer fails where it was given, not at the end of the interview."""
