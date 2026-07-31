@@ -33,7 +33,7 @@ Recommend based on state:
 - **Zero publications → recommend rails-first.** There is nothing to sell yet, and
   the rails can be proven with nothing at stake.
   - *Rails first* — wallet, price, deploy, test buy, publish later.
-  - *Publish first* — route them to the publishing flow and resume here after.
+  - *Publish first* — route them to the `lore-publish` skill and resume here after.
 
 Either answer runs the same steps in a different order. This skill is resumable:
 every step reads its state from `lore status` and the deployed node, so if a session

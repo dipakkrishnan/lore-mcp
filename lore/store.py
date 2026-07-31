@@ -24,6 +24,13 @@ class Status(str, Enum):
 
 STATUSES = tuple(status.value for status in Status)
 
+# ponytail: small English question stoplist; replace with an FTS query builder
+# if multilingual buyer search becomes a real requirement.
+QUERY_STOPWORDS = frozenset(
+    "a about an and are can could do does for has have how i is it me of on or "
+    "person tell that the this to what when where who why with you your".split()
+)
+
 
 class Memory(BaseModel):
     """A normalized memory and its owner-controlled retention status."""
@@ -70,6 +77,10 @@ class Publication(BaseModel):
     title: str
     content: str
     kind: PublicationKind
+    # Owner-approved grouping label, assigned at publish-approval time. It is the
+    # only field external discovery surfaces may ever group or label by — deriving
+    # labels any other way would disclose text no one approved.
+    topic: str = ""
     provenance: list[int]
     active: int
     created_at: str
@@ -159,6 +170,7 @@ class Store:
                 content TEXT NOT NULL,
                 kind TEXT NOT NULL DEFAULT 'claim'
                     CHECK(kind IN ('claim','content')),
+                topic TEXT NOT NULL DEFAULT '',
                 provenance TEXT NOT NULL DEFAULT '[]',
                 active INTEGER NOT NULL DEFAULT 1 CHECK(active IN (0,1)),
                 created_at TEXT NOT NULL,
@@ -195,6 +207,11 @@ class Store:
             "UPDATE memories SET status='private' "
             "WHERE status NOT IN ('private','discarded')"
         )
+        # Databases created before the topic column existed: CREATE IF NOT EXISTS
+        # never alters, so add it in place. New databases already have it.
+        columns = {row["name"] for row in self.db.execute("PRAGMA table_info(publications)")}
+        if "topic" not in columns:
+            self.db.execute("ALTER TABLE publications ADD COLUMN topic TEXT NOT NULL DEFAULT ''")
         self.db.commit()
 
     def put(
@@ -340,18 +357,39 @@ class Store:
         title: str,
         content: str,
         kind: PublicationKind | str = PublicationKind.CLAIM,
+        topic: str = "",
         provenance: list[int] | None = None,
     ) -> int:
         """Create an active publication and return its id."""
         kind = PublicationKind(kind)  # rejects unknown kinds
+        if not all(isinstance(value, str) and value.strip() for value in (title, content, topic)):
+            raise ValueError("publication title, content, and topic cannot be empty")
+        if not isinstance(provenance, list) or not provenance or not all(
+            isinstance(i, int) and not isinstance(i, bool) for i in provenance
+        ):
+            raise ValueError("publication provenance must be a non-empty list of memory ids")
+        missing = self.missing_memories(provenance)
+        if missing:
+            raise ValueError(f"publication provenance references unknown memories: {missing}")
         now = datetime.now(timezone.utc).isoformat()
         cursor = self.db.execute(
-            """INSERT INTO publications(title,content,kind,provenance,active,created_at,updated_at)
-               VALUES (?,?,?,?,1,?,?)""",
-            (title, content, kind.value, json.dumps(list(provenance or [])), now, now),
+            """INSERT INTO publications(title,content,kind,topic,provenance,active,created_at,updated_at)
+               VALUES (?,?,?,?,?,1,?,?)""",
+            (title.strip(), content.strip(), kind.value, topic.strip(), json.dumps(provenance), now, now),
         )
         self.db.commit()
         return int(cursor.lastrowid)
+
+    def missing_memories(self, ids: list[int]) -> list[int]:
+        """Return the subset of ids with no memory row, preserving order."""
+        found = {
+            row["id"]
+            for row in self.db.execute(
+                f"SELECT id FROM memories WHERE id IN ({','.join('?' * len(ids))})",
+                ids,
+            )
+        } if ids else set()
+        return [i for i in ids if i not in found]
 
     def _flag_publications_of(self, memory_id: int, when: str) -> int:
         """Flag active publications derived from a changed memory, returning the count.
@@ -409,10 +447,20 @@ class Store:
         if limit < 0:
             raise ValueError("limit cannot be negative")
         if query.strip():
-            terms = re.findall(r"[\w-]+", query, re.UNICODE)
+            # OR over meaningful word tokens, not AND over hyphen-joined phrases:
+            # buyers send natural-language queries ("What has this educator
+            # learned about lecture-heavy courses?"), and requiring every term
+            # — or treating "lecture-heavy" as a phrase — returns an empty paid
+            # answer. Common question words are removed so OR does not turn
+            # unrelated publications into false positives.
+            terms = list(dict.fromkeys(
+                term.casefold()
+                for term in re.findall(r"\w+", query, re.UNICODE)
+                if term.casefold() not in QUERY_STOPWORDS
+            ))
             if not terms:
                 return []
-            match = " AND ".join(f'"{term.replace(chr(34), "")}"' for term in terms)
+            match = " OR ".join(f'"{term}"' for term in terms)
             sql = (
                 "SELECT p.* FROM publications_fts f JOIN publications p ON p.id=f.rowid "
                 "WHERE publications_fts MATCH ? AND p.active=1 "
@@ -423,7 +471,5 @@ class Store:
             sql = "SELECT * FROM publications WHERE active=1 ORDER BY updated_at DESC LIMIT ?"
             args = [limit or -1]
         return [Publication.from_row(row) for row in self.db.execute(sql, args).fetchall()]
-
-
 
 
