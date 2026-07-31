@@ -446,6 +446,24 @@ class LoreTest(unittest.TestCase):
             self.assertIs(store.search("Fresh")[0].status, Status.PRIVATE)
             self.assertNotIn("pending", store.counts())
 
+    def test_natural_language_buyer_query_reaches_publications(self) -> None:
+        # Found by the integration eval: buyers ask in sentences, and ANDing
+        # every FTS term returned an empty paid answer against a relevant
+        # publication. Common question words must not create false positives.
+        memory_id = self._seed_memory("Course evidence", "private")
+        with Store() as store:
+            store.add_publication(
+                title="Lab conversion results",
+                content="What this person can tell buyers about replacing two lecture hours "
+                        "with a graded lab that raised median scores.",
+                topic="course design",
+                provenance=[memory_id],
+            )
+            query = "What has this educator learned about converting lecture-heavy courses?"
+            self.assertEqual(len(store.search_publications(query)), 1)
+            unrelated = "What can this person tell me about quantum chromodynamics?"
+            self.assertEqual(store.search_publications(unrelated), [])
+
     def _drafted_candidates(self) -> str:
         with Store() as store:
             store.put(
