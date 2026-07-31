@@ -526,6 +526,32 @@ class CommandOutputTest(PaymentTestCase):
         self.assertEqual(credentials.load()[credentials.CDP_KEY_SECRET], SECRET)
         self.assertNotIn(SECRET, printed.getvalue())
 
+    @needs_payments
+    def test_a_generated_test_wallet_reveals_its_address_and_not_its_key(self) -> None:
+        """An owner with no wallet needs one made, not a lesson in exporting keys."""
+        from eth_account import Account
+
+        from lore.cli import payment_auth
+
+        printed = StringIO()
+        with redirect_stdout(printed):
+            payment_auth(buyer=True, generate=True)
+        output = printed.getvalue()
+
+        key = credentials.load()[credentials.TEST_BUYER_KEY]
+        address = Account.from_key(key).address
+        self.assertIn(address, output)
+        self.assertNotIn(key, output)
+        self.assertNotIn(key[2:18], output)  # not even a fragment
+        self.assertEqual(credentials.path().stat().st_mode & 0o777, 0o600)
+
+    def test_lore_never_generates_the_payout_wallet(self) -> None:
+        """Custody of the money is the owner's decision, not a convenience default."""
+        from lore.cli import payment_auth
+
+        with self.assertRaisesRegex(ValueError, "never creates a payout wallet"):
+            payment_auth(generate=True)
+
     def test_the_buyer_key_uses_the_same_echo_off_path(self) -> None:
         from lore.cli import payment_auth
 

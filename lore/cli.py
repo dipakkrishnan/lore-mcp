@@ -55,6 +55,11 @@ def parser() -> argparse.ArgumentParser:
         "--buyer", action="store_true", help="store the test buyer's testnet key instead"
     )
     payment_auth.add_argument(
+        "--generate",
+        action="store_true",
+        help="with --buyer, create a throwaway testnet wallet instead of pasting a key",
+    )
+    payment_auth.add_argument(
         "--clear", action="store_true", help="delete every stored payment credential"
     )
     payment_payout = payment_commands.add_parser(
@@ -115,7 +120,7 @@ def main(argv: list[str] | None = None) -> int:
             return price(args.amount)
         if args.command == "payment":
             if args.payment_command == "auth":
-                return payment_auth(args.buyer, args.clear)
+                return payment_auth(args.buyer, args.clear, args.generate)
             if args.payment_command == "payout":
                 return payment_payout(args.address, args.network)
             if args.payment_command == "test-buy":
@@ -417,7 +422,7 @@ def payment_status() -> int:
     return 0
 
 
-def payment_auth(buyer: bool = False, clear: bool = False) -> int:
+def payment_auth(buyer: bool = False, clear: bool = False, generate: bool = False) -> int:
     """Capture payment secrets from this terminal, with echo off.
 
     This prompt is the only interactive path for a payment secret. No agent, skill,
@@ -434,9 +439,32 @@ def payment_auth(buyer: bool = False, clear: bool = False) -> int:
         success("Removed stored payment credentials" if removed else "No credentials were stored")
         return 0
 
+    if generate and not buyer:
+        raise ValueError("--generate only applies to --buyer; Lore never creates a payout wallet")
+
+    if buyer and generate:
+        # The test buyer is a throwaway that holds faucet money for one transaction.
+        # Making one here beats teaching someone to export a private key out of a
+        # real wallet, which is a habit worth not starting.
+        try:
+            from eth_account import Account
+        except ImportError:
+            raise ValueError(
+                "the payments extra is not installed — reinstall with "
+                "`uv pip install 'lore-mcp[payments]'`"
+            )
+        account = Account.create()
+        credentials.save(test_buyer_key=account.key.hex())
+        success(f"Created a throwaway test wallet: {account.address}")
+        muted("Its key is stored locally and never printed.")
+        muted("Fund that address with Base Sepolia USDC from a testnet faucet, then run")
+        muted("`lore payment test-buy <words>`. Never send real funds to this address.")
+        return 0
+
     if buyer:
         muted("Paste the private key of a testnet wallet you control. Input stays hidden.")
         muted("Use a throwaway wallet funded from a faucet — never your payout wallet.")
+        muted("No wallet to hand? `lore payment auth --buyer --generate` makes one.")
         key = getpass.getpass("Test buyer private key: ")
         credentials.save(test_buyer_key=key)
         success(f"Stored the test buyer key in {credentials.path()}")

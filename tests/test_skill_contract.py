@@ -185,6 +185,41 @@ class SkillContractTest(unittest.TestCase):
             with self.subTest(promise=promise):
                 self.assertIn(promise, skill)
 
+    def test_the_payment_skill_can_start_from_no_wallet_at_all(self) -> None:
+        """"Walk them to a wallet" is not an instruction anyone can follow."""
+        skill = (SKILLS / "lore-enable-payments/SKILL.md").read_text(encoding="utf-8")
+        lowered = skill.lower()
+        # A concrete origin for each account the owner does not yet have.
+        self.assertIn("coinbase.com/wallet", lowered)
+        self.assertIn("portal.cdp.coinbase.com", lowered)
+        # And a way to get the test payer without exporting a key from a real wallet.
+        self.assertIn("lore payment auth --buyer --generate", skill)
+
+    def test_the_payment_skill_refuses_a_recovery_phrase(self) -> None:
+        """The one secret worse than an API key to land in a transcript."""
+        skill = (SKILLS / "lore-enable-payments/SKILL.md").read_text(encoding="utf-8").lower()
+        self.assertIn("recovery phrase", skill)
+        # Every sentence mentioning it must either warn or refuse — none may invite it.
+        mentions = [
+            sentence
+            for sentence in re.split(r"(?<=[.!?])\s+", skill)
+            if "recovery phrase" in sentence
+        ]
+        self.assertGreaterEqual(len(mentions), 2, "the phrase is mentioned but not guarded")
+        self.assertTrue(
+            any("never" in sentence for sentence in mentions),
+            "no sentence refuses to handle the recovery phrase",
+        )
+        # The failure mode is inviting the owner to hand it over. A refusal that
+        # happens to contain "paste" ("never accept it if they paste it") is not that,
+        # so negated sentences are exempt.
+        invitation = re.compile(r"\b(paste|share|send|enter|type|give)\b[^.\n]{0,60}(recovery|seed) phrase")
+        for sentence in mentions:
+            if re.search(r"\b(never|not|don't|do not)\b", sentence):
+                continue
+            with self.subTest(sentence=sentence.strip()[:80]):
+                self.assertNotRegex(sentence, invitation)
+
     def test_the_payment_skill_keeps_free_a_first_class_outcome(self) -> None:
         """`useful before monetized` is a product principle, not a footnote."""
         skill = (SKILLS / "lore-enable-payments/SKILL.md").read_text(encoding="utf-8").lower()

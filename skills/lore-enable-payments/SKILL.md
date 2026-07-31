@@ -48,7 +48,11 @@ the total price of the branch now, not discover a Coinbase signup three screens 
 | A **CDP API key id** | Identifies this node to Coinbase's x402 facilitator | No |
 | A **CDP API key secret** | Signs the calls that verify and settle payments | **Yes** |
 | A **price** per answer, in USD | What the gate charges | No |
-| A **second testnet wallet**, funded from a faucet | Something has to *pay* the test transaction | Its key is secret |
+| A **second testnet wallet**, funded from a faucet | Something has to *pay* the test transaction | Lore can create one; its key is secret |
+
+If they have no crypto wallet at all, that is fine and expected — step 2 walks through
+creating one, and step 5 creates the test wallet for them. The only account they have to
+sign up for themselves is Coinbase Developer Platform.
 
 Then say this once, plainly:
 
@@ -63,16 +67,41 @@ else is a complete, supported outcome.
 
 ## 2. The payout address
 
-Walk them to a **Coinbase Wallet** receiving address on the Base network. Any stable EVM
-address they control works; Coinbase Wallet is the recommended on-ramp, not a
-requirement.
+**Ask first whether they already have an EVM wallet.** Any of MetaMask, Rainbow, Rabby,
+Coinbase Wallet, or a hardware wallet works — the requirement is an address on Base that
+they control and that will not change. If they have one, skip to copying the address.
 
-Explain *why* it must not be a Coinbase exchange deposit address, because the failure it
-prevents is silent:
+If they do not, walk them through creating one. Do not narrate click-by-click UI from
+memory; app layouts change and a confidently wrong instruction is worse than none. Give
+them the shape and let them find it:
+
+1. **Install Coinbase Wallet** — the self-custody wallet, either the browser extension
+   or the mobile app. It is a different product from the Coinbase exchange app, and the
+   difference matters (see below). Get it from `coinbase.com/wallet`.
+2. **Create a new wallet.** It will show a recovery phrase.
+3. **Write the recovery phrase down offline and store it somewhere safe.** Whoever has
+   it has the money. Nobody — not Coinbase, not Lore, not you — can recover it if it is
+   lost. Say this plainly and do not move on until they confirm they have done it.
+   **Never offer to store, hold, or write down the recovery phrase yourself, and never
+   accept it if they paste it.** If they paste it, tell them to move the funds to a
+   freshly created wallet.
+4. **Switch the network to Base.** Coinbase Wallet supports it natively.
+5. **Copy the receiving address.** It starts with `0x` and is 40 hex characters after
+   that. The same address works whether or not the network selector says Base — an EVM
+   address is the same across EVM chains — so what matters is that buyers pay on Base,
+   which Lore configures.
+
+Explain *why* it must not be a Coinbase **exchange** deposit address, because the failure
+it prevents is silent:
 
 > An exchange deposit address is custodial and may rotate. Payments settle to whatever
 > address is configured — so if that address stops being yours, payments keep succeeding
 > and the money goes somewhere else. There is no error to notice.
+
+A CDP-managed account (created through the Coinbase Developer Platform SDK) is also a
+valid payout target, and is worth mentioning to someone who is already comfortable with
+CDP. Do not steer a first-time owner there: it puts key custody in a service rather than
+their hands, and this step is the one place where that tradeoff should be theirs.
 
 Then persist it:
 
@@ -89,8 +118,16 @@ the only place that changes.
 
 ## 3. Credentials — which you never see
 
-The owner needs a Coinbase Developer Platform account and an x402 API key. Point them at
-the CDP portal to create one, and have them keep the key id and secret on screen.
+The owner needs a Coinbase Developer Platform account and an API key. This is a separate
+signup from the wallet in step 2, and a separate thing from a Coinbase exchange account.
+
+1. Sign in at `portal.cdp.coinbase.com` and create a project.
+2. Create a **Secret API Key** at `portal.cdp.coinbase.com/api-keys/secret`.
+3. The portal shows the key id and the key secret. **The secret is shown once.** Have
+   them keep it on screen for the next command rather than closing the page.
+
+They do not need a CDP Wallet Secret for this — that is for CDP-managed accounts, and
+step 2's wallet is their own.
 
 Then have them run this **themselves**, in their own terminal:
 
@@ -136,13 +173,24 @@ resolved.
 
 Nothing goes to mainnet until a real payment has settled on Base Sepolia.
 
-**The test needs a payer.** Have the owner create a *second* wallet — never the payout
-wallet, since a node paying itself proves nothing — and fund it from a Base Sepolia USDC
-faucet. They store its key the same way, themselves:
+**The test needs a payer** — a *second* wallet, never the payout wallet, since a node
+paying itself proves nothing. Lore can make one:
 
 ```sh
-lore payment auth --buyer
+lore payment auth --buyer --generate
 ```
+
+That creates a throwaway testnet wallet, stores its key in the same `0600` file, and
+prints only its address. Prefer this over having them export a private key out of a real
+wallet, which is a habit worth not starting. If they would rather use a wallet they
+already have, `lore payment auth --buyer` prompts for the key with echo off instead.
+
+Then have them fund that address with **Base Sepolia USDC** from a testnet faucet — the
+Coinbase Developer Platform portal has one, as does Circle. It is play money on a test
+network.
+
+The buyer does not need testnet ETH for gas. The payer signs an authorization and the
+facilitator submits the transaction, so USDC is the only thing that wallet needs.
 
 Start the node in one terminal:
 
@@ -206,6 +254,8 @@ Tell them:
 
 - Never ask for, accept, echo, or store a key secret or a private key in this
   conversation. `lore payment auth` is the only path, and the owner runs it.
+- Never accept, repeat, or offer to record a wallet recovery phrase. If one is pasted,
+  say so and tell them to move the funds to a new wallet.
 - Never write `~/.lore/payment.json`, `lore.db`, or any Lore file directly — only
   through `lore payment payout`, `lore payment auth`, and `lore price`.
 - Never configure mainnet before a testnet payment has settled, and never without an
