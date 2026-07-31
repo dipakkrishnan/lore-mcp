@@ -1,3 +1,8 @@
+// Manual, unpaid health check: run `npm run smoke` against a local `npm run dev`
+// server (or `npm run smoke -- <url>` against a deployed Worker) to verify the
+// tools are listed, discover is free, and answer challenges for payment without
+// serving content. It spends nothing and is not wired into CI — run it after any
+// Worker change and after each deploy, before spending faucet funds on `npm run pay`.
 import assert from "node:assert/strict";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";

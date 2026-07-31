@@ -4,9 +4,10 @@ This is a disposable Base Sepolia proof: one free MCP `discover` tool and one
 $0.01 `answer` tool using Cloudflare's `paidTool`. It serves only hardcoded test
 content and has no connection to private Lore data.
 
-Cloudflare's working x402 example still uses the legacy `McpAgent` path. This
-canary follows that example rather than inventing a payment wrapper. Migrate to
-the stateless `createMcpHandler` path when Cloudflare supports x402 there.
+Cloudflare's x402 support (`withX402`, which provides `paidTool`) only works on
+the legacy `McpAgent` path today. This canary follows that working example
+rather than inventing a payment wrapper. Migrate to the stateless
+`createMcpHandler` path when Cloudflare supports x402 there.
 
 ## Run locally
 
@@ -21,7 +22,9 @@ npm run dev
 
 The MCP endpoint is `http://localhost:8787/mcp`.
 In another terminal, run `npm run smoke` to verify free discovery and the
-unpaid x402 challenge.
+unpaid x402 challenge. The smoke check is manual (not CI), spends nothing,
+and also works against a deployed Worker: `npm run smoke -- <url>`. Run it
+after any Worker change and after each deploy, before `npm run pay`.
 
 ## Deploy
 

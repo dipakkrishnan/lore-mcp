@@ -11,8 +11,9 @@ function payTo(env: Env): `0x${string}` {
   return env.LORE_WALLET as `0x${string}`;
 }
 
-// ponytail: paidTool still targets legacy McpAgent; migrate when Cloudflare
-// supports x402 on its recommended stateless createMcpHandler path.
+// ponytail: withX402 (which provides paidTool) only works on the legacy
+// McpAgent class today; migrate when Cloudflare supports x402 on its
+// recommended stateless createMcpHandler path.
 export class LorePaidMCP extends McpAgent<Env> {
   server = withX402(
     new McpServer({ name: "Lore x402 canary", version: "0.1.0" }),
