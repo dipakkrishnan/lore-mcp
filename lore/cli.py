@@ -7,6 +7,7 @@ import sys
 from pathlib import Path
 
 from . import blueprint as blueprint_module
+from . import deploy as deploy_module
 from .paths import home
 from .sources import available_sources, scan
 from .store import STATUSES, Store
@@ -50,7 +51,7 @@ def parser() -> argparse.ArgumentParser:
     serve.add_argument("--token")
 
     node = commands.add_parser("node", help="deploy and manage your hosted Lore node")
-    node_commands = node.add_subparsers(dest="node_command")
+    node_commands = node.add_subparsers(dest="node_command", required=True)
     node_deploy = node_commands.add_parser(
         "deploy", help="deploy the node Worker to your own Cloudflare account"
     )
@@ -100,12 +101,7 @@ def main(argv: list[str] | None = None) -> int:
                 serve_args.extend(["--token", args.token])
             return serve(serve_args)
         if args.command == "node":
-            if args.node_command == "deploy":
-                from . import deploy as deploy_module
-
-                return deploy_module.deploy(args.wallet)
-            print("usage: lore node deploy [--wallet 0x<public address>]")
-            return 2
+            return deploy_module.deploy(args.wallet)
         if args.command == "blueprint":
             if args.blueprint_command == "apply":
                 return blueprint_apply(args.file)
@@ -299,7 +295,9 @@ def status() -> int:
     print(f"\nDatabase: {database_path}")
     print(f"Answer price: {'not set' if answer_price is None else f'${answer_price:.2f}'}")
     if node_url:
-        print(f"Node: {node_url}")
+        # A cache of remote truth, not local truth like the price: another
+        # machine or the Cloudflare dashboard can move the node after this.
+        print(f"Node (last deploy): {node_url}")
     return 0
 
 

@@ -107,13 +107,13 @@ machine), and then proves the node is actually up: the built-in smoke check make
 real MCP calls — both tools listed, `discover` answers free, and `answer` challenges
 for payment without leaking content. It spends nothing.
 
-If the smoke check fails, `npx wrangler tail` in `~/.lore/node` streams the live
-error while you rerun the deploy. Rerunning is always safe: it is also the redeploy
-path, and it never touches a `.buyer.env` the owner created.
+If a step fails, the command prints exactly what to do next — follow that rather
+than improvising. Rerunning is always safe: it is also the redeploy path, and it
+never touches a `.buyer.env` the owner created.
 
 If the node was deployed earlier (even in another session), recover the URL from
-state rather than asking: `lore status` shows it as `Node:`. Ask the owner only if
-status cannot answer.
+state rather than asking: `lore status` shows it as `Node (last deploy):`. Ask the
+owner only if status cannot answer.
 
 ## 6. Prove one payment on the test network
 

@@ -327,6 +327,8 @@ class LoreTest(unittest.TestCase):
         self.assertTrue((target / ".buyer.env.example").is_file())
         self.assertFalse((target / "node_modules").exists())
         self.assertFalse((target / ".buyer.env").exists())
+        # Secrets live here, so the directory is owner-only like the rest of ~/.lore.
+        self.assertEqual(stat.S_IMODE(target.stat().st_mode), 0o700)
         # Re-running upgrades the source but never touches the owner's secrets file.
         (target / ".buyer.env").write_text("BUYER_TEST_PRIVATE_KEY=untouched")
         deploy_module.materialize()
@@ -335,7 +337,7 @@ class LoreTest(unittest.TestCase):
     def test_node_deploy_drives_wrangler_and_records_the_url(self) -> None:
         def fake_run(args, **kwargs):
             stdout = ""
-            if args[:2] == ("npx", "wrangler") and args[2] == "deploy":
+            if args[0].endswith("wrangler") and args[1] == "deploy":
                 stdout = "Deployed lore-x402-canary\n  https://lore.example.workers.dev\n"
             return subprocess.CompletedProcess(args, 0, stdout=stdout, stderr="")
 
@@ -347,7 +349,8 @@ class LoreTest(unittest.TestCase):
             self.assertEqual(deploy_module.deploy("0x" + "1" * 40), 0)
         commands = [call.args[0] for call in run.call_args_list]
         self.assertIn(("npm", "install", "--no-fund", "--no-audit"), commands)
-        self.assertIn(("npx", "wrangler", "secret", "put", "LORE_WALLET"), commands)
+        wrangler_calls = [c for c in commands if c[0].endswith("node_modules/.bin/wrangler")]
+        self.assertIn(("secret", "put", "LORE_WALLET"), [c[1:] for c in wrangler_calls])
         self.assertIn(
             ("npm", "run", "smoke", "--", "https://lore.example.workers.dev/mcp"), commands
         )
@@ -359,9 +362,11 @@ class LoreTest(unittest.TestCase):
     def test_node_deploy_fails_closed_on_bad_input(self) -> None:
         with self.assertRaisesRegex(ValueError, "public EVM address"):
             deploy_module.deploy("0xnothex")
-        with patch("lore.deploy.shutil.which", return_value=None):
-            with self.assertRaisesRegex(OSError, "nodejs.org"):
-                deploy_module.deploy("0x" + "1" * 40)
+        with (
+            patch("lore.deploy.shutil.which", return_value=None),
+            self.assertRaisesRegex(OSError, "nodejs.org"),
+        ):
+            deploy_module.deploy("0x" + "1" * 40)
 
     def test_synthesis_index_is_not_imported_as_memory(self) -> None:
         root = Path(os.environ["LORE_HOME"]) / "memories"

@@ -17,57 +17,50 @@ from pathlib import Path
 
 from .paths import home
 from .store import Store
+from .ui import muted, success
 
-# Exactly what ships to the owner's machine. Explicit, so dev-checkout
-# artifacts (node_modules, .wrangler, a real .buyer.env) can never ride along.
-FILES = (
-    "package.json",
-    "package-lock.json",
-    "tsconfig.json",
-    "wrangler.jsonc",
-    "env.d.ts",
-    "README.md",
-    ".buyer.env.example",
-    ".dev.vars.example",
-)
-DIRS = ("src", "scripts")
+# What must never reach ~/.lore/node from a dev checkout. The wheel itself
+# ships only the files pyproject.toml's package-data names, so that list is
+# the single manifest of what deploys.
+EXCLUDED = ("node_modules", ".wrangler", ".buyer.env", ".dev.vars", "*.log")
 WALLET = re.compile(r"0x[0-9a-fA-F]{40}")
-
-
-def node_dir() -> Path:
-    """Where the deployable node source lives on the owner's machine."""
-    return home() / "node"
 
 
 def materialize() -> Path:
     """Copy the packaged Worker source to ~/.lore/node, never touching secrets.
 
-    Re-running overwrites the source files (that is the upgrade path) but a
-    `.buyer.env` or `.dev.vars` the owner created stays untouched.
+    Re-running overwrites the source files (that is the upgrade path); files
+    the owner created (`.buyer.env`, `.dev.vars`) stay untouched.
     """
-    source = resources.files("lore") / "node"
-    target = node_dir()
+    target = home() / "node"
     target.mkdir(mode=0o700, parents=True, exist_ok=True)
-    for name in FILES:
-        (target / name).write_bytes((source / name).read_bytes())
-    for directory in DIRS:
-        (target / directory).mkdir(exist_ok=True)
-        for item in (source / directory).iterdir():
-            if item.name.endswith(".ts"):
-                (target / directory / item.name).write_bytes(item.read_bytes())
+    shutil.copytree(
+        resources.files("lore") / "node",
+        target,
+        dirs_exist_ok=True,
+        ignore=shutil.ignore_patterns(*EXCLUDED),
+    )
+    # Owner-only, like the rest of ~/.lore — after copytree, which copystats
+    # the package directory's world-readable mode onto the target.
+    target.chmod(0o700)
     return target
 
 
 def _run(
-    args: tuple[str, ...], cwd: Path, *, interactive: bool = False, stdin: str | None = None
+    args: tuple[str, ...],
+    cwd: Path,
+    *,
+    fail: str | None = None,
+    interactive: bool = False,
+    input: str | None = None,
 ) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(
-        args,
-        cwd=cwd,
-        input=stdin,
-        capture_output=not interactive,
-        text=True,
+    result = subprocess.run(
+        args, cwd=cwd, input=input, capture_output=not interactive, text=True
     )
+    if fail is not None and result.returncode:
+        detail = f"{result.stderr or ''}{result.stdout or ''}".strip()[-2000:]
+        raise OSError(f"{fail}:\n{detail}")
+    return result
 
 
 def deploy(wallet: str | None) -> int:
@@ -78,43 +71,48 @@ def deploy(wallet: str | None) -> int:
         raise OSError("deploying needs Node.js; install it from nodejs.org and rerun")
 
     target = materialize()
-    print(f"Node source staged at {target}")
-    install = _run(("npm", "install", "--no-fund", "--no-audit"), target)
-    if install.returncode:
-        raise OSError(f"npm install failed:\n{install.stderr.strip()[-2000:]}")
+    muted(f"Node source staged at {target}")
+    muted("Installing dependencies (the first run can take a minute)...")
+    _run(("npm", "install", "--no-fund", "--no-audit"), target, fail="npm install failed")
+    wrangler = str(target / "node_modules/.bin/wrangler")
 
     # Some wrangler versions exit 0 while logged out and only say so in text.
-    who = _run(("npx", "wrangler", "whoami"), target)
+    who = _run((wrangler, "whoami"), target)
     if who.returncode or "not authenticated" in f"{who.stdout}{who.stderr}".lower():
-        print("Opening Cloudflare login in your browser (free tier is enough)...")
-        if _run(("npx", "wrangler", "login"), target, interactive=True).returncode:
+        muted("Opening Cloudflare login in your browser (free tier is enough)...")
+        if _run((wrangler, "login"), target, interactive=True).returncode:
             raise OSError(f"Cloudflare login failed; run `npx wrangler login` in {target}")
 
-    deployed = _run(("npx", "wrangler", "deploy"), target)
-    print(deployed.stdout.strip())
-    if deployed.returncode:
-        raise OSError(f"deploy failed:\n{deployed.stderr.strip()[-2000:]}")
-
-    if wallet:
-        secret = _run(
-            ("npx", "wrangler", "secret", "put", "LORE_WALLET"), target, stdin=wallet
-        )
-        if secret.returncode:
-            raise OSError(f"setting LORE_WALLET failed:\n{secret.stderr.strip()[-2000:]}")
-    else:
-        listing = _run(("npx", "wrangler", "secret", "list"), target)
+    if not wallet:
+        # The Worker fails closed without LORE_WALLET regardless; this check
+        # exists purely so a missing payout address costs seconds, not a deploy.
+        listing = _run((wrangler, "secret", "list"), target)
         if "LORE_WALLET" not in (listing.stdout or ""):
             raise ValueError(
                 "the node has no payout address; rerun with --wallet 0x<your public address>"
             )
 
+    deployed = _run((wrangler, "deploy"), target, fail="deploy failed")
+    print(deployed.stdout.strip())
+    if wallet:
+        # Setting a secret redeploys, so the smoke check below sees a
+        # configured node even on the very first deploy.
+        _run(
+            (wrangler, "secret", "put", "LORE_WALLET"),
+            target,
+            input=wallet,
+            fail="setting LORE_WALLET failed",
+        )
+
     match = re.search(r"https://\S+\.workers\.dev", deployed.stdout)
-    if not match:
-        print("Deployed, but wrangler printed no workers.dev URL; smoke-check manually.")
-        return 0
-    url = match.group(0).rstrip("/") + "/mcp"
+    url = match.group(0).rstrip("/") + "/mcp" if match else None
     with Store() as store:
+        # None clears a stale URL: a deploy that prints no address is exactly
+        # the event that invalidates whatever was recorded before.
         store.set_setting("node_url", url)
+    if not url:
+        muted("Deployed, but wrangler printed no workers.dev URL; smoke-check manually.")
+        return 0
 
     smoke = _run(("npm", "run", "smoke", "--", url), target)
     if smoke.returncode:
@@ -123,5 +121,5 @@ def deploy(wallet: str | None) -> int:
             f"{(smoke.stderr or smoke.stdout).strip()[-2000:]}\n"
             f"Stream the live error with `npx wrangler tail` in {target}"
         )
-    print(f"Live and smoke-checked: {url}")
+    success(f"Live and smoke-checked: {url}")
     return 0
