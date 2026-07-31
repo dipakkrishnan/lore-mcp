@@ -5,7 +5,7 @@ priority: P1
 effort: L
 component: deployment
 status: in-review
-related: [DEP-001, DEP-003, MON-002, XC-004]
+related: [DEP-001, DEP-003, MON-007, XC-007]
 blockers: [DEP-001]
 dependencies: ["AWS account (owner-controlled)"]
 github_issue: null
@@ -88,12 +88,12 @@ design in `docs/node-deployment.md`. Blocked by `DEP-001`.
 
 The sketch's "test transaction" step is two different things depending on whether a
 price is set. Unpaid, it is the MCP verification above. Paid, it is a real x402
-payment and belongs to `MON-002`/`MON-003` — run on Base Sepolia first, and not
+payment and belongs to `MON-007`/`MON-008` — run on Base Sepolia first, and not
 skipped on the grounds that mainnet should behave the same.
 
 With the bundle specified as a SQLite file (`DEP-001`), this path searches it with
 Lore's own FTS5/BM25 code. Confirm FTS5 is actually compiled into the Lambda
 runtime's `sqlite3` rather than assuming it — if it is not, this path has the same
 reimplementation problem as `DEP-003` and the comparison changes shape. The paid
-path on Lambda is plausible but unresolved until `XC-004`; the free path here does
+path on Lambda is plausible but unresolved until `XC-007`; the free path here does
 not wait on it.

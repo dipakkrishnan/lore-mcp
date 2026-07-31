@@ -106,7 +106,7 @@ The 7-day *default* max age is still a guess even with the bound configurable: i
 trades disclosure risk against forced re-push cadence. Also unresolved: whether the
 refusal should be a hard MCP error or a degraded response with a warning. Hard
 error is proposed as the only version that fails closed. Where the payment gate
-runs for a deployed node is deliberately not resolved here — see `XC-004`.
+runs for a deployed node is deliberately not resolved here — see `XC-007`.
 
 Whether `lore deploy` exists as a command or stays skill-only is open, but the
 skill needs *some* local command to record and read deployment metadata —

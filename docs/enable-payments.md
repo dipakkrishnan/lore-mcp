@@ -1,5 +1,14 @@
 # Enabling payments
 
+> **Superseded in part, 2026-07-31.** PR #32 established the Cloudflare Worker as the
+> payment boundary, which answers `XC-007` — x402 runs at the edge — and makes the
+> in-process gate described below the *self-hosted* variant rather than the launch
+> path. The shipped skill (PR #42) follows the Worker path. The requirements here that
+> are about the owner's experience of money — self-custody, testnet before mainnet,
+> free as an end state, never handling the secret — carried over unchanged. The ones
+> about running a gate in-process did not. Read `MON-007`'s note before building from
+> this.
+
 Design notes for the `lore-enable-payments` skill — the Monetize branch of
 `docs/full-service-onboarding.md`. Transposed from a paper sketch (2026-07-30, Shane) and
 reconciled against the current `main`.
@@ -78,7 +87,7 @@ One seam is deliberately **unresolved**: everything above describes a locally-se
 node. A *deployed* node (`docs/node-deployment.md`) runs a handler over an exported
 bundle, not `lore serve` — so a paid deployed node needs this gate running inside the
 cloud handler, which is plausible on Lambda (Python) and unscoped on a Cloudflare Worker
-(the Python x402/CDP stack does not run there). Flagged for investigation as `XC-004`;
+(the Python x402/CDP stack does not run there). Flagged for investigation as `XC-007`;
 nothing in this doc assumes its outcome.
 
 `discover` stays free and unpaid, as the README promises — the gate is on `answer` only.
@@ -164,7 +173,7 @@ that plainly once — including that Lore never holds, custodies, or can recover
 - **FR14** The skill SHALL default to **Base Sepolia** (`eip155:84532`) for the first run
   and SHALL NOT configure mainnet until a testnet payment has verifiably settled.
 - **FR15** The test SHALL have a buyer: a minimal x402-capable client harness (proposed:
-  `lore payment test-buy`, shipped by `MON-002`) driven by a second, owner-controlled
+  `lore payment test-buy`, shipped by `MON-007`) driven by a second, owner-controlled
   testnet wallet. The skill SHALL walk the owner through funding that wallet from a
   Base Sepolia USDC faucet — without this, the test transaction has no payer and cannot
   run.
@@ -196,8 +205,8 @@ that plainly once — including that Lore never holds, custodies, or can recover
 
 ## Harvesting `codex/x402-payments`
 
-This design sits on top of that branch, which lands as its own backlog item (`MON-002`)
-before the skill (`MON-003`). What is already there:
+This design sits on top of that branch, which lands as its own backlog item (`MON-007`)
+before the skill (`MON-008`). What is already there:
 
 | File | What it provides |
 |---|---|
@@ -217,13 +226,13 @@ Four changes that branch needs before it is enough:
    models, so the README's "no dependencies beyond Python 3.10+ and SQLite" claim breaks
    at that merge — before this branch. `x402` and `cdp` are the additional payment-only
    packages; the installer decision covers both events, and the payment imports must
-   stay lazy enough that an owner who never monetizes never needs them. `MON-002` owns
+   stay lazy enough that an owner who never monetizes never needs them. `MON-007` owns
    that decision.
 3. **The credential command (FR11).** The branch reads the CDP secret from the
    environment only; the owner-facing path needs the echo-off prompt and `0600` file so
    the secret never transits an agent conversation.
 4. **The buyer harness (FR15).** Nothing in the branch can *pay*; without a minimal x402
-   client there is no way to run the testnet transaction `MON-003` requires.
+   client there is no way to run the testnet transaction `MON-008` requires.
 
 ## What this intentionally does not do
 
@@ -233,7 +242,7 @@ Four changes that branch needs before it is enough:
   future work here.
 - **No refunds, disputes, or partial settlement.** That includes the window where
   settlement succeeds and answer production then fails — the buyer has paid for
-  nothing. Accepted for the MVP and recorded in `MON-002`: the answer is a cheap read
+  nothing. Accepted for the MVP and recorded in `MON-007`: the answer is a cheap read
   of pre-approved content, so the window is small, but it is not zero.
 - **No chain or asset choice.** USDC on Base, and Base Sepolia for the test. Other
   networks are rejected by `PaymentConfig`, deliberately.
@@ -256,14 +265,14 @@ Four changes that branch needs before it is enough:
 - Nothing in the MVP tells an owner whether a price is *working* — how many challenges
   were issued, how many settled. Some minimal local counter is probably the difference
   between a configured price and a trusted one.
-- Where the gate runs for a *deployed* node is unresolved — `XC-004`, called out above
+- Where the gate runs for a *deployed* node is unresolved — `XC-007`, called out above
   and in `docs/node-deployment.md`. Do not design against an assumed outcome.
 
 ## Related
 
 - `docs/full-service-onboarding.md` — the handoff this branches from
 - `docs/node-deployment.md` — hosting, which this is independent of
-- Backlog: `MON-002` (land the gate), `MON-003` (the skill), `XC-004` (deployed-paid
+- Backlog: `MON-007` (land the gate), `MON-008` (the skill), `XC-007` (deployed-paid
   investigation)
 - `MON-001` — closed obsolete; why Cloudflare is not in this path
 - `STO-001` / `XC-002` — what a paid answer is allowed to contain

@@ -5,7 +5,7 @@ priority: P1
 effort: S
 component: onboarding
 status: in-review
-related: [ONB-003, DEP-001, MON-003]
+related: [ONB-003, DEP-001, MON-008]
 blockers: []
 dependencies: []
 github_issue: null
@@ -33,7 +33,7 @@ branches, per `docs/full-service-onboarding.md`:
 - **Nothing / Done** — exit cleanly; tell the owner how to return later.
 - **Test / Eval** — hand off to `lore-test` (`ONB-003`).
 - **Deploy** — hand off to `lore-deploy` (`DEP-001`).
-- **Monetize** — hand off to `lore-enable-payments` (`MON-003`).
+- **Monetize** — hand off to `lore-enable-payments` (`MON-008`).
 
 Presented as one structured choice, with each branch's concrete next action and
 cost on one line — including that Deploy and Monetize both need external
@@ -73,7 +73,7 @@ Transposed from Shane's 2026-07-30 paper sketch; design in
 The branch skills do not all exist yet, and this item deliberately does not block
 on them: the menu ships with unavailable branches labelled as such rather than
 hidden, so the shape of the product is visible before every branch is built. The
-alternative — waiting for `DEP-001` and `MON-003` — leaves the current dead end in
+alternative — waiting for `DEP-001` and `MON-008` — leaves the current dead end in
 place for the whole interval.
 
 One real ordering problem is unresolved and belongs to whoever prioritizes this:

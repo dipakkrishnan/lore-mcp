@@ -5,7 +5,7 @@ priority: P2
 effort: L
 component: deployment
 status: in-review
-related: [DEP-001, DEP-002, MON-001, XC-004]
+related: [DEP-001, DEP-002, MON-001, XC-007]
 blockers: [DEP-001]
 dependencies: ["Cloudflare account (owner-controlled)"]
 github_issue: null
@@ -42,7 +42,7 @@ reimplements search natively over what is a deliberately small publication set.
 Larger, and deliberately unresolved: the *paid* path. The Python x402/CDP gate does
 not run in a Worker at all, so a paid Cloudflare deployment means a JavaScript
 implementation of the payment gate — a second payment implementation nobody has
-scoped. That is flagged as `XC-004`; this item does not resolve it, and the paid
+scoped. That is flagged as `XC-007`; this item does not resolve it, and the paid
 portion of this path must not start until it does. The free path does not wait.
 
 That is acceptable — but it must be visible. The failure mode to prevent is this
@@ -64,7 +64,7 @@ Authentication uses `wrangler login`'s OAuth flow, never a global API key.
       from `DEP-002` is reported to the owner at `verify` time
 - [ ] Verification asserts a query matching a private memory returns nothing, and
       fails the deployment otherwise
-- [ ] If `XC-004` resolves in favor of a paid Worker path: the payment secret is
+- [ ] If `XC-007` resolves in favor of a paid Worker path: the payment secret is
       installed as a Worker secret binding — never in the bundle or a plaintext
       var. Until then, the paid portion of this item is out of scope
 - [ ] Account id, bucket, object key, Worker name, and route are recorded locally

@@ -1,24 +1,40 @@
 ---
-id: MON-003
+id: MON-008
 title: Add a lore-enable-payments skill for payout and price configuration
 priority: P1
 effort: M
 component: monetization
 status: in-review
-related: [MON-002, ONB-002, DEP-001]
-blockers: [MON-002]
+related: [MON-007, ONB-002, DEP-001]
+blockers: [MON-007]
 dependencies:
   - "Coinbase Wallet (owner-controlled, Base network)"
   - "Coinbase CDP account with x402 API keys"
   - "Second testnet wallet + Base Sepolia USDC faucet funds for the buyer harness"
 github_issue: null
 created: 2026-07-30
-updated: 2026-07-30
+updated: 2026-07-31
 ---
+
+## Shipped in a different shape (2026-07-31)
+
+A `lore-enable-payments` skill exists and is merged — PR #42 — but for the
+Cloudflare Worker path, not this one. On the Worker, seller-side setup on testnet
+collapses to one public value (the payout address, as a Worker secret), and CDP
+keys only appear at mainnet cutover (`MON-005`) as Worker secrets that never touch
+the owner's machine. That deletes most of what this item was for: no credential
+command, no `0600` file, no CDP walkthrough.
+
+What survived into #42 is the framing rather than the machinery — free as a
+first-class end state, the custody warning said once plainly, testnet before
+mainnet without exception — plus the skill-contract tests that pin those promises.
+
+This item now covers only the in-process variant, and is parked with `MON-007`
+for the same reason. Read that item's note first.
 
 ## Problem
 
-Once `MON-002` lands, the machinery to charge for an answer exists — and it reads
+Once `MON-007` lands, the machinery to charge for an answer exists — and it reads
 its configuration from four environment variables. An owner who sets a price gets
 `LORE_X402_PAY_TO is required for paid answers`, with no guidance anywhere in the
 repo on how to produce a wallet address or a pair of CDP API keys.
@@ -52,12 +68,12 @@ works; Coinbase Wallet is the recommended on-ramp, not a requirement.
 public by design, fine to handle in conversation. The CDP secret is not: a secret
 pasted into an agent session lands in transcripts under `~/.claude/projects/`,
 the very files synthesis later reads. The skill directs the owner to run
-`MON-002`'s credential command themselves — an echo-off terminal prompt writing a
+`MON-007`'s credential command themselves — an echo-off terminal prompt writing a
 `0600` file under `$LORE_HOME` — then verifies configuration validates without
 ever seeing the value.
 
 **Testnet before mainnet, without exception — and the test has a buyer.** The first
-run configures Base Sepolia and exercises the full path through `MON-002`'s buyer
+run configures Base Sepolia and exercises the full path through `MON-007`'s buyer
 harness: an unpaid `answer` returning the payment-required challenge, then a paid
 retry returning content. The harness needs a second, owner-controlled testnet
 wallet, which the skill walks the owner through funding from a Base Sepolia USDC
@@ -103,8 +119,8 @@ Transposed from Shane's 2026-07-30 paper sketch ("monetize skill → show user i
 needed → open Coinbase → direct user to public address to save in Lore"); design in
 `docs/enable-payments.md`. Confirmed with Shane: Coinbase **Wallet**, USDC on Base.
 
-Blocked by `MON-002` — there is nothing to configure until the gate lands, and
-`MON-002` owns the settings-backed config path, the credential command, and the
+Blocked by `MON-007` — there is nothing to configure until the gate lands, and
+`MON-007` owns the settings-backed config path, the credential command, and the
 buyer harness this skill depends on.
 
 The secret-handling shape (skill never touches the secret) came out of design

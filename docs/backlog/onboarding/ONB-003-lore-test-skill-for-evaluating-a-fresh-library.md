@@ -72,7 +72,7 @@ Lore after the initial onboarding experience completed."
 
 Cheapest of the three handoff branches and the one most likely to be chosen first,
 since it needs no external account. That argues for building it before `DEP-001`
-or `MON-003` despite its lower priority — worth settling in a prioritization pass.
+or `MON-008` despite its lower priority — worth settling in a prioritization pass.
 
 Deliberately kept out of the disclosure path: because this skill reads private rows
 freely, nothing in it should be reusable as a publication path. `STO-001`'s

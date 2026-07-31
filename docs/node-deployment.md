@@ -109,7 +109,15 @@ owner who keeps a bound; everything else is convenience.
 
 ## Open problem: paid answers on a deployed node
 
-Flagged for investigation as `XC-004`; deliberately unresolved here.
+> **Resolved 2026-07-31 — `XC-007` is closed.** PR #32's canary settled it empirically:
+> x402 runs on a Cloudflare Worker via `withX402`/`paidTool`, so a deployed node can be
+> paid without a second payment implementation and without packaging the Python stack
+> into a function. That is the outcome this section guessed might invert the AWS-is-
+> easier assumption, and it did. The analysis below is kept as the record of what was
+> genuinely uncertain at the time; the gating it imposes on the payment-touching
+> requirements no longer applies.
+
+Flagged for investigation as `XC-007`; deliberately unresolved here.
 
 `docs/enable-payments.md`'s gate runs in-process inside `lore serve`. A deployed node
 does not run `lore serve` — it runs a handler over the bundle — so a *paid* deployed
@@ -118,7 +126,7 @@ Python `x402`/`cdp` stack can ship with the function. On a Cloudflare Worker it 
 a paid Worker means a JavaScript implementation of the payment gate, which nobody has
 scoped — a far larger asymmetry than search parity.
 
-Until `XC-004` resolves, every payment-touching requirement below (FR22, the secret
+Until `XC-007` resolves, every payment-touching requirement below (FR22, the secret
 provisions in FR12 and NFR3, DEP-003's secret binding) applies only where a deployed
 paid path exists at all. A free deployed node is fully designed here; a paid one is not.
 
@@ -254,13 +262,13 @@ on paper: the interface in FR2 is what makes the comparison cheap, and full-text
 behavior on a small publication set is the specific thing to compare. Do not let the CF
 path quietly return substring matches while the AWS path returns BM25-ranked ones — FR18
 exists to force that difference into the open. The *payment* asymmetry is larger still
-and is not this comparison's to resolve — see "Open problem" above and `XC-004`.
+and is not this comparison's to resolve — see "Open problem" above and `XC-007`.
 
 ## What this intentionally does not do
 
 - **No publication creation.** Deploy exports publications; `XC-002` creates them.
 - **No payment implementation.** That is `docs/enable-payments.md` — and for a
-  *deployed* node the paid path is an open problem (`XC-004`), not an inherited feature.
+  *deployed* node the paid path is an open problem (`XC-007`), not an inherited feature.
   A deployment with no price set is a free public node, and that is a valid end state.
 - **No custom domain, no CDN tuning, no multi-region.** One endpoint, one region.
 - **No live replication.** The bundle is a push, not a sync. See "The revocation problem".
@@ -290,4 +298,4 @@ and is not this comparison's to resolve — see "Open problem" above and `XC-004
 - Backlog: `DEP-001` (interface + bundle), `DEP-002` (AWS), `DEP-003` (Cloudflare)
 - `STO-001` — publications as the only external surface
 - `XC-002` — the publish flow that fills the table deployment exports
-- `XC-004` — where the payment gate runs for a deployed node (open investigation)
+- `XC-007` — where the payment gate runs for a deployed node (open investigation)

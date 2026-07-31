@@ -1,19 +1,36 @@
 ---
-id: MON-002
+id: MON-007
 title: Land the in-process x402 payment gate with the Coinbase facilitator
 priority: P1
 effort: M
 component: monetization
 status: in-review
-related: [MON-001, MON-003, STO-001, XC-002, XC-004]
+related: [MON-001, MON-008, STO-001, XC-002, XC-007]
 blockers: []
 dependencies:
   - "Coinbase CDP account with x402 API keys"
   - "x402 and cdp Python packages (payment-only runtime deps; pydantic arrives earlier via PR #19)"
 github_issue: null
 created: 2026-07-30
-updated: 2026-07-30
+updated: 2026-07-31
 ---
+
+## Parked, not abandoned (2026-07-31)
+
+Built in PR #40 and **held unmerged on purpose**. With `XC-007` answered — x402
+runs on a Cloudflare Worker — the launch path is the edge, not an in-process gate
+on the owner's machine, so nothing downstream waits on this.
+
+What it remains: the reference implementation for a self-hosted rail. Every piece
+of it exists because the gate ran on a general-purpose machine — config that
+survives across processes, a `0600` secret file next to the transcripts synthesis
+reads, lazy imports so free owners never install payment packages. On the Worker
+those problems belong to the platform. If *run your node with no platform
+dependency* ever becomes a product promise, PR #40 is where that work restarts.
+
+Two things from it outlived the architecture and are already merged elsewhere: the
+skill-contract test suite (#42) and the two silent-failure invariants, ported to
+the edge in #46.
 
 ## Problem
 
@@ -47,7 +64,7 @@ Four changes it needs, per `docs/enable-payments.md`:
 
 1. **A settings-backed configuration path.** `CONFIG = PaymentConfig()` is a
    module-scope singleton populated from `os.environ` at import. As written, a
-   pay-to address that `MON-003`'s skill persists into Lore has no effect, and the
+   pay-to address that `MON-008`'s skill persists into Lore has no effect, and the
    owner must export environment variables by hand — which is most of the friction
    the skill exists to remove. Resolve pay-to and network from settings when the
    environment does not supply them; environment wins where both are present.
@@ -60,10 +77,10 @@ Four changes it needs, per `docs/enable-payments.md`:
 3. **A credential command.** The branch reads the CDP secret from the environment
    only. The owner-facing path is a command (proposed: `lore payment auth`) that
    prompts with echo off and writes a `0600` file under `$LORE_HOME` — so the
-   secret never transits an agent conversation (see `MON-003`).
+   secret never transits an agent conversation (see `MON-008`).
 4. **A buyer harness.** Nothing in the branch can *pay*. A minimal x402-capable
    client (proposed: `lore payment test-buy`) driven by a second testnet wallet is
-   what makes `MON-003`'s test transaction runnable at all.
+   what makes `MON-008`'s test transaction runnable at all.
 
 Plus the failure-mode hardening the branch does not cover: a price greater than
 zero with incomplete payment configuration must fail loudly at server start rather
@@ -98,7 +115,7 @@ in owner-facing terms rather than only the environment variable.
 
 ## Notes
 
-Design in `docs/enable-payments.md`. This item is the mechanism; `MON-003` is the
+Design in `docs/enable-payments.md`. This item is the mechanism; `MON-008` is the
 owner-facing skill that configures it, and is blocked by this.
 
 `MON-001` is `related` rather than superseded-by, because its closure note is the
@@ -117,5 +134,5 @@ of `pending`/`external` and the move of the MCP read path onto `publications`.
 Two accepted risks recorded here: (1) verify-then-settle has a window where
 settlement succeeds and answer production then fails — the buyer paid for nothing;
 accepted for the MVP since the answer is a cheap read of pre-approved content.
-(2) Where this gate runs for a *deployed* node is unresolved (`XC-004`); this item
+(2) Where this gate runs for a *deployed* node is unresolved (`XC-007`); this item
 lands the local path only and assumes nothing about deployment.

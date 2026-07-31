@@ -1,19 +1,32 @@
 ---
-id: XC-004
+id: XC-007
 title: Resolve where the payment gate runs for a deployed node
 priority: P1
 effort: S
 component: cross-cutting
-status: in-review
-related: [DEP-001, DEP-002, DEP-003, MON-002, MON-003]
+status: obsolete
+related: [DEP-001, DEP-002, DEP-003, MON-007, MON-008]
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-07-30
-updated: 2026-07-30
+updated: 2026-07-31
 ---
 
-## Problem
+## Resolved before it was started (2026-07-31)
+
+PR #32 answered this empirically: **x402 runs on a Cloudflare Worker**, via
+`withX402`/`paidTool` in the Agents SDK. The canary is merged and paying.
+
+That is approach 1 below — "Coinbase's own TypeScript x402 tooling" — and it
+resolved the way that section warned it might, inverting the assumption that AWS
+was the easier paid path. A deployed node does not need a second payment
+implementation, and it does not need the Python stack packaged into a function.
+The gate runs at the edge, where the node already is.
+
+The item is closed rather than renumbered into the future because its deliverable
+was a decision, and the decision exists. What follows is kept as the record of the
+question and of what was actually uncertain at the time.
 
 The two MVP designs contradict each other at exactly one seam, found in design
 review (2026-07-30) and deliberately left unresolved rather than papered over.
@@ -25,7 +38,7 @@ over an exported bundle** — a deployed node does not run `lore serve` at all. 
 
 - **Lambda**: plausible — the Python `x402`/`cdp` stack can ship inside the
   function — but nobody has verified it, and the gate's settings-backed config
-  (`MON-002`) assumes a local `$LORE_HOME` that a Lambda doesn't have.
+  (`MON-007`) assumes a local `$LORE_HOME` that a Lambda doesn't have.
 - **Cloudflare Worker**: the Python stack does not run there, period. A paid
   Worker means a JavaScript payment gate — a second payment implementation
   nobody has scoped.
@@ -52,7 +65,7 @@ promise:
 
 Deliverable: a recorded decision with rationale, plus edits bringing
 `docs/node-deployment.md`, `docs/enable-payments.md`, `DEP-002`, `DEP-003`, and
-`MON-002`/`MON-003` into line with it.
+`MON-007`/`MON-008` into line with it.
 
 ## Acceptance criteria
 
