@@ -136,6 +136,22 @@ class SkillContractTest(unittest.TestCase):
                 self.assertTrue(linked.is_dir(), f"{skill.name} is not linked for this repo")
                 self.assertEqual(linked.resolve(), skill.resolve())
 
+    def test_every_skill_a_skill_routes_to_exists(self) -> None:
+        """A hand-off to a skill that does not ship strands the owner at the boundary.
+
+        Skills route to each other by name at their edges — onboarding offers the
+        Monetize branch, payments routes to publishing. The reference is the contract:
+        a named skill must exist, because the failure is an agent telling an owner to
+        run something that is not installed.
+        """
+        shipped = {path.name for path in SKILLS.iterdir() if path.is_dir()}
+        not_skills = {"lore-mcp"}  # the package, not a skill
+        for path in SKILLS.glob("*/*.md"):
+            text = path.read_text(encoding="utf-8")
+            for name in set(re.findall(r"\blore-[a-z][a-z-]*\b", text)) - not_skills:
+                with self.subTest(source=str(path.relative_to(ROOT)), reference=name):
+                    self.assertIn(name, shipped)
+
     def test_every_skill_local_reference_resolves(self) -> None:
         """A phase file the skill points at, or ships without naming, breaks mid-run."""
         for path in _skill_files():
