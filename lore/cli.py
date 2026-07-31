@@ -53,10 +53,10 @@ def parser() -> argparse.ArgumentParser:
         "publication", help="approve, list, and revoke external publications"
     )
     publication_commands = publication.add_subparsers(dest="publication_command")
-    publication_apply = publication_commands.add_parser(
-        "apply", help="review drafted candidates and approve each interactively"
+    publication_review = publication_commands.add_parser(
+        "review", help="review drafted candidates and approve each interactively"
     )
-    publication_apply.add_argument("file", help="JSON file of drafted candidates")
+    publication_review.add_argument("file", help="JSON file of drafted candidates")
     publication_commands.add_parser("list", help="show active and revoked publications")
     publication_revoke = publication_commands.add_parser(
         "revoke", help="immediately remove a publication from MCP retrieval"
@@ -109,7 +109,7 @@ def main(argv: list[str] | None = None) -> int:
                 serve_args.extend(["--token", args.token])
             return serve(serve_args)
         if args.command == "publication":
-            if args.publication_command == "apply":
+            if args.publication_command == "review":
                 return publication_apply(args.file)
             if args.publication_command == "revoke":
                 return publication_revoke(args.id)

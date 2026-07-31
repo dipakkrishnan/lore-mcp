@@ -18,6 +18,7 @@ from lore.cli import (
     blueprint_apply,
     blueprint_show,
     manual,
+    parser,
     price,
     publication_apply as cli_publication_apply,
     publication_list as cli_publication_list,
@@ -474,6 +475,8 @@ class LoreTest(unittest.TestCase):
 
     def test_publication_apply_requires_an_owner_at_a_terminal(self) -> None:
         path = self._drafted_candidates()
+        args = parser().parse_args(["publication", "review", path])
+        self.assertEqual(args.publication_command, "review")
         with patch("lore.cli._interactive", return_value=False):
             with self.assertRaisesRegex(ValueError, "interactive terminal"):
                 cli_publication_apply(path)
@@ -606,7 +609,7 @@ class LoreTest(unittest.TestCase):
                     )
 
     def test_publication_kind_accepts_a_plain_string(self) -> None:
-        # Callers (and the future `lore publication apply`) may pass raw strings;
+        # Callers (including `lore publication review`) may pass raw strings;
         # the enum normalizes them and rejects anything else.
         memory_id = self._seed_memory("String kind evidence", "private")
         with Store() as store:

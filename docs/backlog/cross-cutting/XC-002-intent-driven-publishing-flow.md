@@ -1,6 +1,6 @@
 ---
 id: XC-002
-title: Intent-driven publishing flow (lore-publish + publication apply/list/revoke)
+title: Intent-driven publishing flow (lore-publish + publication review/list/revoke)
 priority: P1
 effort: L
 component: cross-cutting
@@ -31,7 +31,7 @@ do):
   about X"; the agent searches the private library, drafts 1-3 concise bounded
   publication candidates with their supporting private sources, and shows them.
   Agents may **draft but cannot approve**.
-- `lore publication apply <file>` — validates, previews, and requires interactive
+- `lore publication review <file>` — validates, previews, and requires interactive
   owner approval per candidate (approve / revise / reject); saves only approved
   text to the publications table with provenance references.
 - `lore publication list` — shows active and revoked publications.
@@ -53,7 +53,7 @@ automatically disclosed externally.
 
 ## Acceptance criteria
 
-- [ ] `lore publication apply` requires an attended interactive confirmation
+- [ ] `lore publication review` requires an attended interactive confirmation
       and exposes no non-interactive approval flag; the agent skill forbids
       invoking or answering that prompt on the owner's behalf.
 - [ ] `list` shows active and revoked; `revoke` flips state and the publication is
