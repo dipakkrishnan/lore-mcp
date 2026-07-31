@@ -91,6 +91,10 @@ The price is advertised by the node; nothing enforces it until the Worker is dep
 
 ## 5. Deploy the Worker
 
+Deploy lives in this skill only while the Worker serves canary content; once it
+serves real publications, deployment becomes its own skill and this one routes
+to it (MON-006 in the backlog).
+
 All commands run in `worker/` of the Lore checkout. The owner authenticates to their
 own Cloudflare account; the skill never handles that login.
 
