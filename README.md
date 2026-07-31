@@ -26,10 +26,16 @@ lore sync                     # import new or changed memory files
 lore review                   # keep private / discard
 lore review launch --status private  # revisit a prior decision
 lore search "failed launch"   # SQLite full-text recall
-lore price 0.50               # advertise a fixed answer price
+lore price 0.50               # advertise a fixed answer price; 0 means free
+lore payment status           # what is configured for taking payment
 lore status
 lore blueprint show            # see the shape of your lore, once captured
 ```
+
+Charging for answers takes a payout address and Coinbase credentials. Rather than
+assembling those by hand, tell your agent *"enable payments on Lore"* and the
+`lore-enable-payments` skill walks it through, ending in a real transaction on a
+test network before anything touches mainnet.
 
 Set `LORE_HOME` to use a location other than `~/.lore`. Lore also respects
 `CODEX_HOME` and `CLAUDE_HOME` when discovering agent data.
@@ -131,9 +137,14 @@ The commercial unit is a task-specific answer derived from private context. Raw 
 
 ### Existing payment rails
 
-Lore MCP does not build a payments network. Payment negotiation, verification,
-metering, and settlement belong to whatever gateway sits in front of the HTTP
-route. Lore's own responsibility stops at deciding what may be disclosed.
+Lore MCP does not build a payments network, hold funds, or take a fee. It speaks
+x402: the `answer` tool is wrapped in a payment gate, and verification and
+settlement happen at Coinbase's hosted facilitator, in USDC on Base.
+
+The gate runs **in-process, at the MCP layer** — there is no edge gateway in this
+path. That keeps the two decisions separate where it matters: payment decides
+*whether* a caller is served, and never *what* is servable. A paid answer and a
+free answer read exactly the same publications.
 
 ## How it works
 
@@ -215,16 +226,22 @@ publications the owner explicitly approved; no memory is reachable over MCP,
 whatever its status. HTTP binds to loopback by default. Binding another interface requires
 `--token` or `LORE_MCP_TOKEN`.
 
-The intended paid deployment boundary is:
+A paid node enforces payment itself, on the way in:
 
 ```text
-buyer agent → payment gateway → tunnel → Lore /mcp
+buyer agent → Lore /mcp → x402 gate → Coinbase facilitator (verify → settle)
+                                    ↓
+                          publications WHERE active=1
 ```
 
-Lore owns local retrieval and disclosure policy. Whatever fronts the HTTP MCP
-route owns the payment exchange, verification, metering, and settlement. Do not
-expose the origin through a second route that bypasses it. No gateway is chosen
-or required yet, and none is implemented here.
+Nothing needs to sit in front of the route for payment to work; a loopback node
+behind any tunnel the owner already runs can charge for answers. Two rules follow
+from where the gate sits:
+
+- Only `answer` is gated. `discover` stays free, so a buyer can find out whether a
+  node is worth paying before paying.
+- Only the HTTP transport is gated. stdio is the owner's own agent reading their own
+  library, and billing it would bill them for their own lore.
 
 ## Monetization
 
@@ -312,16 +329,26 @@ uv run lore --help
 `uv.lock` is committed, so contributors and CI resolve the same project setup.
 The curl installer remains independent of `uv` for end users.
 
-The implementation uses only the Python standard library: `argparse`, `sqlite3`,
+The implementation is mostly the Python standard library: `argparse`, `sqlite3`,
 `subprocess`, and `http.server`. There is no application framework, vector
 database, or MCP SDK to install.
+
+Two dependencies sit outside that: `pydantic` for the store's models, and the
+optional `payments` extra (`x402`, `cdp-sdk`) for owners who charge for answers.
+The payment packages are imported lazily, so a node that is free never loads them
+and an owner who never monetizes never needs them installed.
 
 ## Status
 
 The local CLI, agent-memory import, FTS5 search, review flow, assisted synthesis,
-and basic stdio/HTTP MCP server are implemented. Payment enforcement, repeated-
-query extraction protection, remote identity, and marketplace discovery remain
-future work.
+basic stdio/HTTP MCP server, and in-process x402 payment enforcement are
+implemented. Payment has been exercised end to end against a stubbed facilitator;
+a live settlement on Base Sepolia is a manual step in the `lore-enable-payments`
+skill.
+
+Dynamic pricing, per-buyer identity and quotas, refunds, repeated-query extraction
+protection, remote identity, and marketplace discovery remain future work. So does
+where the gate runs for a *deployed* node, which does not run `lore serve` at all.
 
 ## Related infrastructure
 
