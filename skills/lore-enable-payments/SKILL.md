@@ -1,6 +1,6 @@
 ---
 name: lore-enable-payments
-description: Set up payments for a Lore node on the Cloudflare Worker path, so other agents pay to call `answer`. Walks the owner to a self-custody payout address, a price, a deployed Worker, and a proven test-network payment — in whichever order they choose. Use when the user says "enable payments on Lore", "monetize my lore", "set up my lore node", "charge for answers", "deploy my lore node", or picks the Monetize branch after onboarding.
+description: Set up payments for a Lore node, so other agents pay to call `answer`. Walks the owner to a self-custody payout address, a price, and a proven test-network payment against their deployed node — in whichever order they choose. Use when the user says "enable payments on Lore", "monetize my lore", "charge for answers", "get paid when agents use my Lore", or picks the Monetize branch after onboarding.
 ---
 
 # Enabling payments
@@ -11,13 +11,12 @@ calls `answer` and pays for it. Say that plainly if they seem to expect otherwis
 not sell the outcome.
 
 **Free is a first-class end state.** An owner who stops at `lore price 0`
-has not failed at anything. A Lore that is never monetized has already paid for itself through
-private recall. Do not treat any step here as a funnel.
+has not failed at anything. A Lore that is never monetized has already paid for
+itself through private recall. Do not treat any step here as a funnel.
 
-**Honesty about today:** the deployed Worker currently serves canary content, not the
-owner's publications — serving approved publications from the edge is separate,
-in-flight work (MON-003). Until it lands, this skill proves the payment rail end to
-end; it does not put their lore on sale. Say so up front.
+Deployment itself — the Cloudflare account, the Worker, the smoke check — belongs to
+the `lore-deploy-node` skill. This one decides what the node charges and where the
+money lands, and proves a payment against the deployed node.
 
 ## 1. Pick the path
 
@@ -26,16 +25,17 @@ has it, in plain conversation otherwise (Codex will simply ask in text; that is 
 Recommend based on state:
 
 - **Active publications exist → recommend content-first.** They have something worth
-  selling; price and deploy are in service of it.
+  selling; price and deployment are in service of it.
   - *Sell what's published* — continue to step 2.
-  - *Rails first* — deploy and prove a test payment before anything else; step 4.
-- **Zero publications → recommend rails-first.** There is nothing to sell yet, and the
-  rails can be proven with nothing at stake.
-  - *Rails first* — steps 4–6 with an empty node, then publish later.
+  - *Rails first* — prove a test payment before anything else; step 2, then straight
+    to deploy and the test buy.
+- **Zero publications → recommend rails-first.** There is nothing to sell yet, and
+  the rails can be proven with nothing at stake.
+  - *Rails first* — wallet, price, deploy, test buy, publish later.
   - *Publish first* — route them to the publishing flow and resume here after.
 
-Either answer runs the same steps in a different order. This skill is resumable: every
-step reads its state from `lore status` and the Worker's deploy output, so if a session
+Either answer runs the same steps in a different order. This skill is resumable:
+every step reads its state from `lore status` and the deployed node, so if a session
 dies, run it again and continue from the first thing not yet configured. Never re-ask
 for something already set.
 
@@ -46,7 +46,7 @@ Before asking for anything, tell the owner everything this takes:
 | What | Why | Secret? |
 |---|---|---|
 | A self-custody **payout address** on Base | Where buyers' USDC lands | No — public by design |
-| A **Cloudflare account** (free tier) | Runs the Worker that serves and charges | Login is theirs; the skill never sees it |
+| A **deployed node** (`lore-deploy-node`, free tier) | Something has to serve and charge | No |
 | A **price** per answer, in USD | What the gate charges | No |
 | A **throwaway test-buyer wallet**, faucet-funded | Something has to *pay* the proof transaction | Its key is secret; it never enters this conversation |
 
@@ -87,29 +87,14 @@ lore price 0.01
 ```
 
 Any amount works; `lore price 0` is free and a supported place to stop, not a failure.
-The price is advertised by the node; nothing enforces it until the Worker is deployed.
+The price is advertised by the node; nothing enforces it until the node is deployed.
 
-## 5. Deploy the Worker
+## 5. Deploy
 
-Deploy lives in this skill only while the Worker serves canary content; once it
-serves real publications, deployment becomes its own skill and this one routes
-to it (MON-006 in the backlog).
-
-All commands run in `worker/` of the Lore checkout. The owner authenticates to their
-own Cloudflare account; the skill never handles that login.
-
-```sh
-cd worker
-npm install
-npx wrangler login
-npx wrangler secret put LORE_WALLET     # paste the payout address — the public one
-npm run deploy
-npm run smoke -- https://<their-subdomain>.workers.dev/mcp
-```
-
-The smoke check proves `discover` is free and `answer` challenges for payment without
-serving content, and spends nothing. The node is now live on **Base Sepolia, a test
-network** — nothing it does moves real money.
+Run the `lore-deploy-node` skill: it handles the Cloudflare account, sets the payout
+address as the node's one payment secret, deploys, and smoke-checks the result. Come
+back here with the node's URL. If the node is already deployed, just confirm the
+smoke check passes and continue.
 
 ## 6. Prove one payment on the test network
 
@@ -120,10 +105,10 @@ itself proves nothing.
 1. Create a second, throwaway wallet (a fresh account in the same wallet app is fine).
 2. Fund it from a Base Sepolia USDC faucet — Circle's faucet at `faucet.circle.com`
    works. This is play money.
-3. `cp .buyer.env.example .buyer.env`, then have the owner edit `.buyer.env`
-   **themselves** in their editor and fill in the buyer key there. The key must never
-   be pasted into this conversation — anything pasted here lands in agent transcripts,
-   the very files Lore's synthesis later reads.
+3. In `worker/`: `cp .buyer.env.example .buyer.env`, then have the owner edit
+   `.buyer.env` **themselves** in their editor and fill in the buyer key there. The
+   key must never be pasted into this conversation — anything pasted here lands in
+   agent transcripts, the very files Lore's synthesis later reads.
 4. Run the capped buyer:
 
 ```sh
@@ -137,16 +122,18 @@ is worse than a free one.
 
 ## 7. Mainnet, later — not part of this skill
 
-Real money is a separate, deliberate step (MON-005), taken only after publications are
-being served from the edge and a two-person paid test has settled. It requires all of:
+Real money is a separate, deliberate step, taken only after the owner's publications
+are being served from the edge and a two-person paid test has settled. It requires
+all of:
 
-- at least one active publication — a real buyer must never pay real USDC for an empty
-  answer;
+- at least one active publication — a real buyer must never pay real USDC for an
+  empty answer;
 - an **explicit** confirmation from the owner that they are switching to real money;
-- Coinbase Developer Platform API keys (from `portal.cdp.coinbase.com`), set as Worker
-  secrets with `npx wrangler secret put` — they live in Cloudflare's vault, never on
-  this machine and never in this conversation. The free test-network facilitator needs
-  no keys at all; CDP is the only facilitator that settles Base mainnet.
+- Coinbase Developer Platform API keys (from `portal.cdp.coinbase.com`), set as
+  Worker secrets with `npx wrangler secret put` — they live in Cloudflare's vault,
+  never on this machine and never in this conversation. The free test-network
+  facilitator needs no keys at all; CDP is the only facilitator that settles Base
+  mainnet.
 
 If the owner asks to go to mainnet now, say it is gated on the above and leave the
 node on the test network.
