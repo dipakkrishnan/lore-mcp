@@ -7,6 +7,9 @@ import tempfile
 from pathlib import Path
 
 DEFAULT_MODEL = "gpt-5.6-sol"
+# Judge defaults to a different model than the candidate so verdicts aren't
+# the candidate grading its own homework. Override with --judge-model.
+DEFAULT_JUDGE_MODEL = "gpt-5.5"
 TASK_PATH = Path(__file__).with_name("task.json")
 DELIVERABLE_SCHEMA = {
     "type": "object",
@@ -102,7 +105,7 @@ must be satisfied; otherwise fail. Respond with JSON only, using verdict `pass` 
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--model", default=DEFAULT_MODEL)
-    parser.add_argument("--judge-model", default=DEFAULT_MODEL)
+    parser.add_argument("--judge-model", default=DEFAULT_JUDGE_MODEL)
     parser.add_argument("--case")
     parser.add_argument("--output", type=Path)
     args = parser.parse_args()
