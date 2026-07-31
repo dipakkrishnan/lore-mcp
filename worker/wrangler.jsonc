@@ -1,0 +1,21 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "lore-x402-canary",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-06-11",
+  "compatibility_flags": ["nodejs_compat"],
+  "durable_objects": {
+    "bindings": [
+      {
+        "class_name": "LorePaidMCP",
+        "name": "LorePaidMCP"
+      }
+    ]
+  },
+  "migrations": [
+    {
+      "new_sqlite_classes": ["LorePaidMCP"],
+      "tag": "v1"
+    }
+  ]
+}

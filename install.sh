@@ -32,13 +32,15 @@ fi
 
 mkdir -p "$BIN_DIR"
 UV_TOOL_DIR="$INSTALL_DIR" UV_TOOL_BIN_DIR="$BIN_DIR" uv tool install --force --reinstall "$SOURCE_DIR"
-for skill_dir in "$SOURCE_DIR"/skills/*/; do
-  [ -d "$skill_dir" ] || continue
-  skill="$(basename "$skill_dir")"
-  rm -rf "$HOME/.agents/skills/$skill" "$HOME/.claude/skills/$skill"
-  mkdir -p "$HOME/.agents/skills/$skill" "$HOME/.claude/skills/$skill"
-  cp -R "$skill_dir." "$HOME/.agents/skills/$skill/"
-  cp -R "$skill_dir." "$HOME/.claude/skills/$skill/"
+# Every owner-facing skill ships to both agent homes. Discovery is all-or-nothing:
+# a skill that reaches only one of them simply never runs for half of users.
+for SKILL_DIR in "$SOURCE_DIR"/skills/lore-*; do
+  [ -d "$SKILL_DIR" ] || continue
+  SKILL_NAME="$(basename "$SKILL_DIR")"
+  rm -rf "$HOME/.agents/skills/$SKILL_NAME" "$HOME/.claude/skills/$SKILL_NAME"
+  mkdir -p "$HOME/.agents/skills/$SKILL_NAME" "$HOME/.claude/skills/$SKILL_NAME"
+  cp -R "$SKILL_DIR/." "$HOME/.agents/skills/$SKILL_NAME/"
+  cp -R "$SKILL_DIR/." "$HOME/.claude/skills/$SKILL_NAME/"
 done
 
 echo "Installed Lore at $BIN_DIR/lore"
