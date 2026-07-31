@@ -10,7 +10,7 @@ blockers: []
 dependencies: []
 github_issue: https://github.com/dipakkrishnan/lore-mcp/issues/6
 created: 2026-07-26
-updated: 2026-07-27
+updated: 2026-07-30
 ---
 
 ## Problem
@@ -36,8 +36,10 @@ and deliberate. Use it as the yardstick when prioritizing those items.
       permissive and is always an explicit owner action.
 - [ ] There is a stated target for owner disclosure decisions per week that is
       independent of session/capture volume (draft: under 5).
-- [ ] No path lets capture or retention convenience produce an `external` record
-      without an explicit disclosure step.
+- [ ] No path lets capture or retention convenience produce a disclosure
+      without an explicit owner-approved publication (the `external` status
+      this originally guarded against was retired in PR #19; the invariant
+      now lives at the publications boundary).
 
 ## Notes
 

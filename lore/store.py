@@ -263,7 +263,7 @@ class Store:
         return result
 
     def set_status(self, memory_id: int, status: str) -> None:
-        """Set a memory's disclosure status."""
+        """Set a memory's retention status."""
         if status not in STATUSES:
             raise ValueError(f"invalid status: {status}")
         cursor = self.db.execute(
@@ -277,7 +277,7 @@ class Store:
     def search(
         self, query: str, *, status: str | None = None, limit: int = 20
     ) -> list[Memory]:
-        """Search memory text, optionally constrained by disclosure status."""
+        """Search memory text, optionally constrained by retention status."""
         if limit < 0:
             raise ValueError("limit cannot be negative")
         if status is not None and status not in STATUSES:
@@ -303,7 +303,7 @@ class Store:
         return [Memory.from_row(row) for row in self.db.execute(sql, args).fetchall()]
 
     def counts(self) -> dict[str, int]:
-        """Return memory counts for every disclosure status."""
+        """Return memory counts for every retention status."""
         counts = {status: 0 for status in STATUSES}
         for row in self.db.execute(
             "SELECT status,count(*) count FROM memories GROUP BY status"

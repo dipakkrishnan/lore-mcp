@@ -83,7 +83,9 @@ def deploy(wallet: str | None) -> int:
     if install.returncode:
         raise OSError(f"npm install failed:\n{install.stderr.strip()[-2000:]}")
 
-    if _run(("npx", "wrangler", "whoami"), target).returncode:
+    # Some wrangler versions exit 0 while logged out and only say so in text.
+    who = _run(("npx", "wrangler", "whoami"), target)
+    if who.returncode or "not authenticated" in f"{who.stdout}{who.stderr}".lower():
         print("Opening Cloudflare login in your browser (free tier is enough)...")
         if _run(("npx", "wrangler", "login"), target, interactive=True).returncode:
             raise OSError(f"Cloudflare login failed; run `npx wrangler login` in {target}")

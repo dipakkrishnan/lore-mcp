@@ -1,54 +1,49 @@
-# Lore x402 canary
+# Your Lore node
 
-This is a disposable Base Sepolia proof: one free MCP `discover` tool and one
-$0.01 `answer` tool using Cloudflare's `paidTool`. It serves only hardcoded test
-content and has no connection to private Lore data.
+This directory is the source of your deployable Lore node: a Cloudflare Worker
+with a free MCP `discover` tool and a paid `answer` tool (x402, USDC on Base).
+It ships inside the Lore package and is staged here by `lore node deploy`.
 
-Cloudflare's x402 support (`withX402`, which provides `paidTool`) only works on
-the legacy `McpAgent` path today. This canary follows that working example
-rather than inventing a payment wrapper. Migrate to the stateless
-`createMcpHandler` path when Cloudflare supports x402 there.
+Honesty note: until publications serving lands, the deployed node answers with
+sample canary content, not your publications. It proves the payment rail; it
+does not yet put your lore on sale.
 
-## Run locally
+## Deploy or redeploy
 
-```sh
-cp .dev.vars.example .dev.vars
-# Set LORE_WALLET to a public Base Sepolia receiving address.
-npm install
-npm run types
-npm run check
-npm run dev
-```
-
-The MCP endpoint is `http://localhost:8787/mcp`.
-In another terminal, run `npm run smoke` to verify free discovery and the
-unpaid x402 challenge. The smoke check is manual (not CI), spends nothing,
-and also works against a deployed Worker: `npm run smoke -- <url>`. Run it
-after any Worker change and after each deploy, before `npm run pay`.
-
-## Deploy
-
-A Cloudflare account is required only for deployment:
+Always use the CLI — it stages fresh source, deploys, sets the payout secret,
+records the node URL where `lore status` can show it, and smoke-checks the
+live endpoint. Deploying by hand with wrangler skips all of that.
 
 ```sh
-npx wrangler login
-npx wrangler secret put LORE_WALLET
-npm run deploy
+lore node deploy --wallet <your public 0x payout address>
 ```
 
-The deployed endpoint is printed as
-`https://lore-x402-canary.<account>.workers.dev/mcp`.
+`lore status` shows the node URL as `Node:` afterwards. Files you create here
+(`.buyer.env`, `.dev.vars`) survive redeploys; everything else is overwritten.
 
 ## Make the test payment
 
-Create a dedicated Base Sepolia buyer wallet, fund it with faucet test USDC,
-then:
+Create a dedicated Base Sepolia buyer wallet (never your payout wallet), fund
+it with faucet test USDC, then in this directory:
 
 ```sh
 cp .buyer.env.example .buyer.env
-# Set BUYER_TEST_PRIVATE_KEY to the dedicated test key.
-npm run pay -- https://lore-x402-canary.<account>.workers.dev/mcp
+# Edit .buyer.env yourself and set the buyer key there.
+npm run pay -- <your node URL from lore status>
 ```
 
-The script caps payment at $0.01 and prints the MCP result plus x402 settlement
-receipt. Never use a funded mainnet private key for this canary.
+The script caps payment at $0.01 test USDC and prints the MCP result plus the
+x402 settlement receipt. Never use a funded mainnet key here.
+
+## Developing the node itself (repo checkout only)
+
+Contributors working in the lore-mcp repository can run the node locally from
+`lore/node/`:
+
+```sh
+cp .dev.vars.example .dev.vars   # set LORE_WALLET to any valid address
+npm install
+npm run types && npm run check
+npm run dev                      # MCP at http://localhost:8787/mcp
+npm run smoke                    # free discover + unpaid x402 challenge
+```

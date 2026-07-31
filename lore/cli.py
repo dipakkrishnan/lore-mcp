@@ -24,7 +24,7 @@ def parser() -> argparse.ArgumentParser:
     sync = commands.add_parser("sync", help="import new and changed memories")
     sync.add_argument("--source", action="append", choices=[s.name for s in available_sources()])
 
-    review = commands.add_parser("review", help="classify or reclassify memories")
+    review = commands.add_parser("review", help="keep or discard memories")
     review.add_argument("query", nargs="*", help="words to narrow the review queue")
     review.add_argument("--status", choices=STATUSES, default="private")
     review.add_argument("--limit", type=int, default=0, help="maximum to review; 0 means all")
@@ -164,7 +164,11 @@ def manual() -> int:
   7. lore serve
      Start the MCP endpoint used by local agents or a protected gateway.
 
-  8. lore blueprint show
+  8. lore node deploy
+     Deploy your node to your own Cloudflare account (source ships with Lore;
+     the URL lands in `lore status`).
+
+  9. lore blueprint show
      See the shape of your lore captured by the gamified onboarding skill
      (run `lore blueprint apply <file>` from that skill to update it).
 

@@ -149,8 +149,8 @@ all of:
   empty answer;
 - an **explicit** confirmation from the owner that they are switching to real money;
 - Coinbase Developer Platform API keys (from `portal.cdp.coinbase.com`), set as
-  Worker secrets with `npx wrangler secret put` — they live in Cloudflare's vault,
-  never on this machine and never in this conversation. The free test-network
+  Worker secrets with `npx wrangler secret put` in `~/.lore/node` — they live in
+  Cloudflare's vault, never on this machine and never in this conversation. The free test-network
   facilitator needs no keys at all; CDP is the only facilitator that settles Base
   mainnet.
 
