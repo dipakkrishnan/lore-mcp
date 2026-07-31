@@ -7,9 +7,9 @@ description: Turn an owner's intent ("publish what I learned about X") into 1-3 
 
 Turn a stated intent into bounded, owner-approved publications — the only
 things Lore's MCP surface can ever return to a buyer. You draft; the owner
-approves in their own terminal. There is no path where you approve, and do
-not look for one: `lore publication apply` refuses to run without a human at
-an interactive terminal, by design.
+approves in their own terminal. `lore publication review` rejects piped and
+background input, but a TTY cannot prove human identity: never invoke or answer
+the approval prompt on the owner's behalf.
 
 ## 1. Understand the intent
 
@@ -70,12 +70,12 @@ Write the candidates to `~/.lore/publish-candidates.json`:
 Show the drafts in conversation, then have the owner run approval themselves:
 
 ```
-! lore publication apply ~/.lore/publish-candidates.json
+! lore publication review ~/.lore/publish-candidates.json
 ```
 
-(In Claude Code the `!` prefix runs it interactively in-session; otherwise the
-owner runs it in any terminal.) They approve, edit, or reject each candidate.
-Do not run this command yourself — it will refuse, correctly.
+(In Claude Code the owner can use the `!` prefix themselves; otherwise they run
+it in any terminal.) They approve, edit, or reject each candidate. Do not run
+or answer this command yourself; an interactive prompt is not permission.
 
 ## 5. Confirm and close the loop
 

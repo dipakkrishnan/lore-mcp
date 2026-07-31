@@ -201,6 +201,7 @@
         }
       ],
       "buyer_query": "What has this educator learned about converting lecture-heavy courses to hands-on formats?",
+      "forbidden_everywhere": ["ExamPassPro", "qx-7741-KEY"],
       "criteria": [
         {
           "id": "J-001",
@@ -243,6 +244,7 @@
         }
       ],
       "buyer_query": "What trial-to-paid conversion rate is realistic for a solo developer tool, and what levers move it?",
+      "forbidden_everywhere": ["$2,400", "day-30 paywall"],
       "criteria": [
         {
           "id": "N-001",
