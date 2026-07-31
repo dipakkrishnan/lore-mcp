@@ -1,14 +1,12 @@
 """Small MCP server over stdio or stateless Streamable HTTP.
 
-The HTTP origin deliberately contains no payment implementation. In production the
-intended request path is:
+This module is responsible for exactly one thing: deciding what is disclosable.
+The surface returns only active rows from the ``publications`` table and never a
+private memory of any kind. Payment and access control are separate concerns —
+wherever they end up living, they gate *whether* a caller gets an answer, never
+*what* is answerable.
 
-    buyer -> Cloudflare Tunnel -> Monetization Gateway/x402 -> Lore /mcp
-
-Cloudflare owns the 402 offer, verification, metering, and settlement at the edge.
-Lore remains responsible for deciding which memories have status ``external`` and
-for returning only those records. Keep the origin bound to loopback and route only
-the gateway/tunnel to it; direct public exposure bypasses the future payment policy.
+Keep the HTTP origin bound to loopback unless a token is set.
 """
 
 from __future__ import annotations
@@ -42,7 +40,7 @@ TOOLS = [
     {
         "name": "answer",
         "title": "Answer from Lore",
-        "description": "Return owner-approved evidence relevant to a query. Put the HTTP /mcp route behind Cloudflare Monetization Gateway to make this paid.",
+        "description": "Return owner-approved evidence relevant to a query.",
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -82,7 +80,7 @@ def dispatch(message: object) -> dict[str, Any] | None:
                 "protocolVersion": version,
                 "capabilities": {"tools": {"listChanged": False}},
                 "serverInfo": {"name": "lore", "version": __version__},
-                "instructions": "Use discover before answer. Only owner-approved external memories are returned.",
+                "instructions": "Use discover before answer. Only owner-approved publications are returned.",
             }
         elif method == "ping":
             result = {}
@@ -101,7 +99,7 @@ def dispatch(message: object) -> dict[str, Any] | None:
 
 
 def call_tool(name: object, arguments: object) -> dict[str, Any]:
-    """Run a Lore MCP tool against owner-approved external memories."""
+    """Run a Lore MCP tool against owner-approved publications only."""
     if name not in {"discover", "answer"}:
         raise ValueError(f"unknown tool: {name}")
     if not isinstance(arguments, dict):
@@ -118,32 +116,33 @@ def call_tool(name: object, arguments: object) -> dict[str, Any]:
         raise ValueError("query is required")
     with Store() as store:
         if name == "discover":
-            matches = store.search(query, status="external", limit=5)
+            matches = store.search_publications(query, limit=5)
             payload = {
                 "can_help": bool(matches),
                 "match_count": len(matches),
-                "topics": [memory.title for memory in matches],
+                "topics": [publication.title for publication in matches],
                 "price_usd": store.setting("price_usd", None),
-                "disclosure": "Only owner-approved derived context is available.",
+                "disclosure": "Only owner-approved publications are available.",
             }
         elif name == "answer":
             limit = arguments.get("max_results", 5)
             if isinstance(limit, bool) or not isinstance(limit, int) or not 1 <= limit <= 10:
                 raise ValueError("max_results must be an integer from 1 to 10")
-            matches = store.search(query, status="external", limit=limit)
+            matches = store.search_publications(query, limit=limit)
             payload = {
                 "answer_context": [
                     {
-                        "title": memory.title,
-                        "content": memory.content,
+                        "title": publication.title,
+                        "content": publication.content,
+                        # Provenance is owner-visible only. The private memory
+                        # ids behind a publication are never sent to a buyer:
+                        # they leak the size and shape of the private library.
                         "provenance": {
-                            "agent": memory.source,
-                            "origin": memory.origin,
-                            "project": memory.project,
-                            "updated_at": memory.updated_at,
+                            "kind": publication.kind,
+                            "updated_at": publication.updated_at,
                         },
                     }
-                    for memory in matches
+                    for publication in matches
                 ],
                 "disclosure": "Context is owner-approved; the caller should preserve provenance when synthesizing an answer.",
             }
