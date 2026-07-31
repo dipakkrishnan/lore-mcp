@@ -53,8 +53,9 @@ automatically disclosed externally.
 
 ## Acceptance criteria
 
-- [ ] `lore publication apply` cannot save a publication without an explicit
-      interactive owner approval step; no agent/automated path can approve.
+- [ ] `lore publication apply` requires an attended interactive confirmation
+      and exposes no non-interactive approval flag; the agent skill forbids
+      invoking or answering that prompt on the owner's behalf.
 - [ ] `list` shows active and revoked; `revoke` flips state and the publication is
       immediately unreachable from `discover`/`answer`.
 - [ ] Publishing one topic takes no more than three owner decisions.

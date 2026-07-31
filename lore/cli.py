@@ -339,8 +339,8 @@ def profile(path: str, schedule: bool = True) -> int:
 
 
 def _interactive() -> bool:
-    """Whether a human owner is present to approve disclosure."""
-    return sys.stdin.isatty()
+    """Whether approval is running in an attended interactive terminal."""
+    return sys.stdin.isatty() and sys.stdout.isatty()
 
 
 def _candidate(raw: object, missing_check: Store) -> Publication:
@@ -353,13 +353,13 @@ def _candidate(raw: object, missing_check: Store) -> Publication:
     title = str(raw.get("title", "")).strip()
     content = str(raw.get("content", "")).strip()
     topic = str(raw.get("topic", "")).strip()
-    if not title or not content:
-        raise ValueError("candidates need a non-empty title and content")
+    if not title or not content or not topic:
+        raise ValueError("candidates need a non-empty title, content, and topic")
     provenance = raw.get("provenance", [])
-    if not isinstance(provenance, list) or not all(
+    if not isinstance(provenance, list) or not provenance or not all(
         isinstance(i, int) and not isinstance(i, bool) for i in provenance
     ):
-        raise ValueError("candidate provenance must be a list of memory ids")
+        raise ValueError("candidate provenance must be a non-empty list of memory ids")
     missing = missing_check.missing_memories(provenance)
     if missing:
         raise ValueError(f"candidate provenance references unknown memories: {missing}")
@@ -380,8 +380,8 @@ def publication_apply(path: str) -> int:
     """Review drafted candidates with the owner; save only what they approve."""
     if not _interactive():
         raise ValueError(
-            "publication approval needs the owner at an interactive terminal; "
-            "agents may draft candidates but must not run apply"
+            "publication approval needs an attended interactive terminal; "
+            "piped and background approval is disabled"
         )
     data = json.loads(Path(path).read_text(encoding="utf-8"))
     if not isinstance(data, list) or not data:

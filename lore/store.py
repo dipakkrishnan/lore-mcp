@@ -355,11 +355,20 @@ class Store:
     ) -> int:
         """Create an active publication and return its id."""
         kind = PublicationKind(kind)  # rejects unknown kinds
+        if not all(isinstance(value, str) and value.strip() for value in (title, content, topic)):
+            raise ValueError("publication title, content, and topic cannot be empty")
+        if not isinstance(provenance, list) or not provenance or not all(
+            isinstance(i, int) and not isinstance(i, bool) for i in provenance
+        ):
+            raise ValueError("publication provenance must be a non-empty list of memory ids")
+        missing = self.missing_memories(provenance)
+        if missing:
+            raise ValueError(f"publication provenance references unknown memories: {missing}")
         now = datetime.now(timezone.utc).isoformat()
         cursor = self.db.execute(
             """INSERT INTO publications(title,content,kind,topic,provenance,active,created_at,updated_at)
                VALUES (?,?,?,?,?,1,?,?)""",
-            (title, content, kind.value, topic, json.dumps(list(provenance or [])), now, now),
+            (title.strip(), content.strip(), kind.value, topic.strip(), json.dumps(provenance), now, now),
         )
         self.db.commit()
         return int(cursor.lastrowid)
@@ -445,7 +454,6 @@ class Store:
             sql = "SELECT * FROM publications WHERE active=1 ORDER BY updated_at DESC LIMIT ?"
             args = [limit or -1]
         return [Publication.from_row(row) for row in self.db.execute(sql, args).fetchall()]
-
 
 
 

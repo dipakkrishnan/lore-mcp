@@ -144,14 +144,17 @@ class LoreTest(unittest.TestCase):
         path = Path(os.environ["CODEX_HOME"]) / "memories/MEMORY.md"
         path.parent.mkdir(parents=True)
         path.write_text("# Project\n\nFirst version")
+        unrelated_memory_id = self._seed_memory("Unrelated evidence", "private")
         with Store() as store:
             scan(store, {"codex"})
             memory = store.search("First")[0]
             fresh = store.add_publication(
-                title="Project claim", content="a claim", provenance=[memory.id]
+                title="Project claim", content="a claim", topic="projects",
+                provenance=[memory.id],
             )
             unrelated = store.add_publication(
-                title="Other claim", content="another claim", provenance=[memory.id + 900]
+                title="Other claim", content="another claim", topic="other",
+                provenance=[unrelated_memory_id],
             )
 
             path.write_text("# Project\n\nSecond version")
@@ -160,7 +163,7 @@ class LoreTest(unittest.TestCase):
             # The memory stays private: a change must not rebuild a review queue.
             updated = store.search("Second")[0]
             self.assertIs(updated.status, Status.PRIVATE)
-            self.assertEqual(store.counts()["private"], 1)
+            self.assertEqual(store.counts()["private"], 2)
 
             # Its publication is flagged for re-approval, and only its own.
             self.assertEqual([p.id for p in store.stale_publications()], [fresh])
@@ -402,7 +405,7 @@ class LoreTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "requires --token"):
             http("0.0.0.0", 0)
 
-    def _seed_memory(self, title: str, status: str) -> None:
+    def _seed_memory(self, title: str, status: str) -> int:
         with Store() as store:
             store.put(
                 source="test",
@@ -413,7 +416,9 @@ class LoreTest(unittest.TestCase):
                 title=title,
                 content=f"{title} about deployment",
             )
-            store.set_status(store.search(title)[0].id, status)
+            memory_id = store.search(title)[0].id
+            store.set_status(memory_id, status)
+            return memory_id
 
     def _answer(self, query: str) -> str:
         response = dispatch(
@@ -461,7 +466,8 @@ class LoreTest(unittest.TestCase):
             {
                 "title": "Second claim",
                 "content": "Another bounded claim.",
-                "provenance": [],
+                "topic": "go-to-market lessons",
+                "provenance": [memory_id],
             },
         ]))
         return str(path)
@@ -502,17 +508,31 @@ class LoreTest(unittest.TestCase):
                 )"""
             )
         with Store() as store:
-            store.add_publication(title="t", content="c", topic="migrated")
+            store.put(
+                source="test", origin="native", source_path="migration.md",
+                source_key="migration.md", fingerprint="migration",
+                title="Migration evidence", content="Evidence for the publication.",
+            )
+            memory_id = store.search("Migration evidence")[0].id
+            store.add_publication(
+                title="t", content="c", topic="migrated", provenance=[memory_id]
+            )
             self.assertEqual(store.list_publications()[0].topic, "migrated")
 
     def test_publication_apply_rejects_bad_candidates(self) -> None:
         base = Path(os.environ["LORE_HOME"])
         base.mkdir(parents=True, exist_ok=True)
+        memory_id = self._seed_memory("Candidate evidence", "private")
+        valid = {
+            "title": "x", "content": "y", "topic": "topic", "provenance": [memory_id]
+        }
         cases = [
-            ([{"title": "x", "content": "y", "provenance": [999]}], "unknown memories"),
-            ([{"title": "", "content": "y"}], "non-empty title"),
-            ([{"title": "x", "content": "y", "kind": "secret"}], "PublicationKind"),
-            ([{"title": "x", "content": "y", "extra": 1}], "unexpected candidate field"),
+            ([{**valid, "provenance": [999]}], "unknown memories"),
+            ([{**valid, "title": ""}], "non-empty title"),
+            ([{**valid, "topic": ""}], "non-empty title"),
+            ([{**valid, "provenance": []}], "non-empty list"),
+            ([{**valid, "kind": "secret"}], "PublicationKind"),
+            ([{**valid, "extra": 1}], "unexpected candidate field"),
             ([], "non-empty JSON array"),
         ]
         for payload, message in cases:
@@ -524,8 +544,11 @@ class LoreTest(unittest.TestCase):
                     cli_publication_apply(str(candidates))
 
     def test_publication_list_revoke_reapprove_commands(self) -> None:
+        memory_id = self._seed_memory("Command evidence", "private")
         with Store() as store:
-            pid = store.add_publication(title="Claim", content="bounded", provenance=[])
+            pid = store.add_publication(
+                title="Claim", content="bounded", topic="commands", provenance=[memory_id]
+            )
         output = StringIO()
         with redirect_stdout(output):
             self.assertEqual(cli_publication_list(), 0)
@@ -543,18 +566,22 @@ class LoreTest(unittest.TestCase):
             self.assertIsNone(store.list_publications()[0].source_changed_at)
 
     def test_publications_add_list_revoke(self) -> None:
+        first = self._seed_memory("Pricing evidence", "private")
+        second = self._seed_memory("Document evidence", "private")
         with Store() as store:
             pid = store.add_publication(
                 title="Pricing claim",
                 content="a bounded claim about pricing agent APIs",
-                provenance=[1, 2],
+                topic="pricing",
+                provenance=[first, second],
             )
             active = store.list_publications(active_only=True)
             self.assertEqual(len(active), 1)
             self.assertIs(active[0].kind, PublicationKind.CLAIM)
-            self.assertEqual(active[0].provenance, [1, 2])
+            self.assertEqual(active[0].provenance, [first, second])
             doc_id = store.add_publication(
-                title="Doc", content="verbatim", kind=PublicationKind.CONTENT
+                title="Doc", content="verbatim", kind=PublicationKind.CONTENT,
+                topic="documents", provenance=[second],
             )
             self.assertGreater(doc_id, 0)
             with self.assertRaisesRegex(ValueError, "not a valid PublicationKind"):
@@ -564,11 +591,29 @@ class LoreTest(unittest.TestCase):
             self.assertEqual(len(store.list_publications()), 2)  # revoked still listed
             self.assertEqual(store.search_publications("pricing"), [])  # revoked not searchable
 
+    def test_publication_store_requires_topic_and_real_provenance(self) -> None:
+        memory_id = self._seed_memory("Boundary evidence", "private")
+        with Store() as store:
+            for topic, provenance, message in (
+                ("", [memory_id], "topic cannot be empty"),
+                ("boundary", [], "non-empty list"),
+                ("boundary", [memory_id + 999], "unknown memories"),
+            ):
+                with self.subTest(message=message), self.assertRaisesRegex(ValueError, message):
+                    store.add_publication(
+                        title="Bounded claim", content="Supported content",
+                        topic=topic, provenance=provenance,
+                    )
+
     def test_publication_kind_accepts_a_plain_string(self) -> None:
         # Callers (and the future `lore publication apply`) may pass raw strings;
         # the enum normalizes them and rejects anything else.
+        memory_id = self._seed_memory("String kind evidence", "private")
         with Store() as store:
-            store.add_publication(title="Str", content="x", kind="content")
+            store.add_publication(
+                title="Str", content="x", kind="content", topic="strings",
+                provenance=[memory_id],
+            )
             self.assertIs(
                 store.list_publications()[0].kind, PublicationKind.CONTENT
             )
@@ -600,11 +645,15 @@ class LoreTest(unittest.TestCase):
     def test_answer_never_discloses_private_memory_ids(self) -> None:
         # Provenance is owner-visible; buyers must not learn the ids or the
         # number of private rows behind a publication.
+        memory_ids = [
+            self._seed_memory(f"Private source {index}", "private") for index in range(3)
+        ]
         with Store() as store:
             store.add_publication(
                 title="Deployment guide",
                 content="deployment guidance",
-                provenance=[41, 42, 43],
+                topic="deployment",
+                provenance=memory_ids,
             )
         payload = json.loads(self._answer("deployment"))
         entry = payload["answer_context"][0]
@@ -615,11 +664,17 @@ class LoreTest(unittest.TestCase):
 
     def test_mcp_reads_only_active_publications_never_memories(self) -> None:
         # Memories of every disclosure status must be unreachable from MCP.
-        self._seed_memory("Discarded memory", "discarded")
-        self._seed_memory("Private memory", "private")
+        discarded_id = self._seed_memory("Discarded memory", "discarded")
+        private_id = self._seed_memory("Private memory", "private")
         with Store() as store:
-            active_id = store.add_publication(title="Deployment guide", content="deployment guidance")
-            revoked_id = store.add_publication(title="Old deployment note", content="stale deployment text")
+            active_id = store.add_publication(
+                title="Deployment guide", content="deployment guidance",
+                topic="deployment", provenance=[private_id],
+            )
+            revoked_id = store.add_publication(
+                title="Old deployment note", content="stale deployment text",
+                topic="deployment", provenance=[discarded_id],
+            )
             store.revoke_publication(revoked_id)
         text = self._answer("deployment")
         self.assertIn("Deployment guide", text)
