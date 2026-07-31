@@ -4,13 +4,7 @@ import { withX402 } from "agents/x402";
 import { createHash } from "node:crypto";
 import { z } from "zod";
 import { PRICE_USD } from "./price.js";
-
-function payTo(env: Env): `0x${string}` {
-  if (!/^0x[0-9a-fA-F]{40}$/.test(env.LORE_WALLET ?? "")) {
-    throw new Error("LORE_WALLET must be a public EVM address");
-  }
-  return env.LORE_WALLET as `0x${string}`;
-}
+import { payTo } from "./wallet.js";
 
 function validPublicId(value: string): boolean {
   const body = value.slice(0, 16);
