@@ -12,13 +12,13 @@ import os
 import stat
 import tempfile
 import unittest
-from contextlib import redirect_stdout
+from contextlib import redirect_stderr, redirect_stdout
 from io import StringIO
 from pathlib import Path
 from unittest.mock import patch
 
 from lore import automation, blueprint, onboarding
-from lore.cli import manual, onboarding_save, onboarding_show
+from lore.cli import main, manual, onboarding_save, onboarding_show
 from lore.cli import profile as profile_command
 from lore.cli import review, setup, status
 from lore.store import Store
@@ -140,6 +140,37 @@ class OnboardingTest(unittest.TestCase):
         self.assertIn("Delete", report)
         self.assertIn(str(onboarding.checkpoint_path()), report)
         self.assertIn("Delete", self._run(status))
+
+    # --- the entry points an agent actually invokes ------------------------------------
+
+    def test_the_commands_the_skill_runs_report_failure_by_exit_code(self) -> None:
+        """The interview branches on these codes; a wrong one loses an answer silently."""
+        # Assert on what each command produced: an exit code of 0 is also what a
+        # command that dispatched nowhere would return.
+        self.assertIn("Import agent memories", self._run(main, ["onboarding"]))
+        self.assertIn("No blueprint yet", self._run(main, ["blueprint"]))
+        saved = self._run(main, ["onboarding", "save", str(self._write("a.json", {"role": "x"}))])
+        self.assertIn("Saved answers", saved)
+
+        errors = StringIO()
+        with redirect_stdout(StringIO()), redirect_stderr(errors):
+            rejected = self._write("bad.json", {"transcript": "a whole session"})
+            self.assertEqual(main(["onboarding", "save", str(rejected)]), 1)
+            self.assertEqual(main(["profile", str(Path(self.tmp.name) / "missing.json")]), 1)
+            self.assertEqual(main(["blueprint", "apply", str(self._write("b.json", {}))]), 1)
+
+        self.assertIn("unexpected onboarding field", errors.getvalue())
+        self.assertIn("profile file not found", errors.getvalue())
+        # A rejected write leaves the answers already recorded untouched.
+        self.assertEqual(onboarding.load_checkpoint(), {"role": "x"})
+
+    def test_bare_lore_outside_a_terminal_reports_status(self) -> None:
+        """Piped or captured, `lore` must print state rather than open a prompt loop."""
+        self.assertIn("Onboarding", self._run(main, []))
+
+    def test_a_cancelled_command_is_distinguishable_from_a_failed_one(self) -> None:
+        with patch("lore.cli.status", side_effect=KeyboardInterrupt), redirect_stdout(StringIO()):
+            self.assertEqual(main(["status"]), 130)
 
     # --- the schedule, as the scheduler sees it ---------------------------------------
 
@@ -350,6 +381,35 @@ class OnboardingTest(unittest.TestCase):
         """The manual is where an owner mid-onboarding looks for the way back in."""
         report = self._run(manual)
         self.assertIn("lore onboarding", report)
+
+    def test_declining_every_agent_is_not_reported_as_finding_nothing(self) -> None:
+        """"Nothing found" and "you said no to everything" need different answers."""
+        memory = Path(os.environ["CODEX_HOME"]) / "memories/MEMORY.md"
+        memory.parent.mkdir(parents=True)
+        memory.write_text("# Preference\n\nKeep setup short.")
+
+        output = StringIO()
+        with patch("lore.cli.confirm", return_value=False), redirect_stdout(output):
+            self.assertEqual(setup(), 0)
+        report = output.getvalue()
+
+        self.assertNotIn("No agent memory files", report)
+        self.assertIn("skipped every detected agent", report)
+        self.assertIn("lore setup", report)
+        self.assertIn("Onboard me to Lore", report)
+
+    def test_accepting_an_agent_interactively_imports_it(self) -> None:
+        memory = Path(os.environ["CLAUDE_HOME"]) / "projects/demo/memory/testing.md"
+        memory.parent.mkdir(parents=True)
+        memory.write_text("# Testing\n\nFocused integration tests.")
+
+        output = StringIO()
+        with patch("lore.cli.confirm", return_value=True), redirect_stdout(output):
+            self.assertEqual(setup(), 0)
+
+        self.assertIn("Imported 1 candidate memories", output.getvalue())
+        with Store() as store:
+            self.assertEqual(store.setting("sources", []), ["claude"])
 
     def test_setup_without_agent_memories_says_so(self) -> None:
         """An empty import must not read as success and must still offer the next step."""

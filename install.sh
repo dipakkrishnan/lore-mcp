@@ -5,9 +5,6 @@ REPOSITORY="dipakkrishnan/lore-mcp"
 VERSION="${LORE_VERSION:-main}"
 INSTALL_DIR="${LORE_INSTALL_DIR:-$HOME/.local/share/lore}"
 BIN_DIR="${LORE_BIN_DIR:-$HOME/.local/bin}"
-TMP_DIR="$(mktemp -d)"
-trap 'rm -rf "$TMP_DIR"' EXIT INT TERM
-
 command -v python3 >/dev/null 2>&1 || { echo "Lore needs Python 3.10 or newer." >&2; exit 1; }
 command -v uv >/dev/null 2>&1 || {
   echo "Lore needs uv: https://docs.astral.sh/uv/getting-started/installation/" >&2
@@ -24,6 +21,10 @@ if [ -n "${LORE_SOURCE_DIR:-}" ]; then
 else
   command -v curl >/dev/null 2>&1 || { echo "Lore needs curl." >&2; exit 1; }
   command -v tar >/dev/null 2>&1 || { echo "Lore needs tar." >&2; exit 1; }
+  # Only a download needs scratch space, and only after every prerequisite is
+  # confirmed — so a missing tool reports itself instead of failing in mktemp.
+  TMP_DIR="$(mktemp -d)"
+  trap 'rm -rf "$TMP_DIR"' EXIT INT TERM
   echo "Downloading Lore $VERSION..."
   curl -fsSL "https://github.com/$REPOSITORY/archive/$VERSION.tar.gz" -o "$TMP_DIR/lore.tar.gz"
   tar -xzf "$TMP_DIR/lore.tar.gz" -C "$TMP_DIR"

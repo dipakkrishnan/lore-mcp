@@ -247,23 +247,31 @@ def setup(yes: bool = False) -> int:
     muted("Lore imports only agent-generated memory files. Session transcripts stay untouched.")
     native = [source for source in available_sources() if source.origin == "native"]
     enabled: list[str] = []
+    detected = 0
     heading("Detected agents")
     for source in native:
         count = len(source.files())
         state = f"{count} memory file{'s' if count != 1 else ''}" if source.root.exists() else "not found"
         print(f"  {source.label:<14} {state}")
-        if source.root.exists() and (yes or confirm(f"Import {source.label} memories?")):
+        if not source.root.exists():
+            continue
+        detected += 1
+        if yes or confirm(f"Import {source.label} memories?"):
             enabled.append(source.name)
     with Store() as store:
         store.set_setting("sources", enabled)
         report = scan(store, set(enabled))
     total = sum(item["added"] + item["updated"] for item in report.values())
     heading("Ready")
+    # Onboarding still works with an empty library — the interview comes first — so
+    # report an empty import accurately instead of dressing a zero count as success.
+    # "Found nothing" and "you declined what was found" need different answers.
     if total:
         success(f"Imported {total} candidate memories")
+    elif detected and not enabled:
+        muted("Nothing imported: you skipped every detected agent.")
+        muted("Run `lore setup` again to change that, or continue without imports.")
     else:
-        # Onboarding still works with an empty library — the interview comes first —
-        # so say what happened rather than reporting a zero-count import as success.
         muted("No agent memory files to import yet; `lore sync` picks them up later.")
     print(f"Next, {onboarding.HANDOFF}")
     return 0
