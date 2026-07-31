@@ -1,6 +1,6 @@
 ---
 name: lore-enable-payments
-description: Set up payments for a Lore node, so other agents pay to call `answer`. Walks the owner to a self-custody payout address, a price, and a proven test-network payment against their deployed node — in whichever order they choose. Use when the user says "enable payments on Lore", "monetize my lore", "charge for answers", "get paid when agents use my Lore", or picks the Monetize branch after onboarding.
+description: Set up a paid Lore node end to end, so other agents pay to call `answer`. Walks the owner to a self-custody payout address, a price, a deployed Cloudflare Worker, and a proven test-network payment — in whichever order they choose. Use when the user says "enable payments on Lore", "monetize my lore", "charge for answers", "deploy my lore node", "put my lore online", or picks the Monetize branch after onboarding.
 ---
 
 # Enabling payments
@@ -14,9 +14,10 @@ not sell the outcome.
 has not failed at anything. A Lore that is never monetized has already paid for
 itself through private recall. Do not treat any step here as a funnel.
 
-Deployment itself — the Cloudflare account, the Worker, the smoke check — belongs to
-the `lore-deploy-node` skill. This one decides what the node charges and where the
-money lands, and proves a payment against the deployed node.
+Be honest up front about one more thing: the deployed node currently serves sample
+canary content, not the owner's publications — serving approved publications from
+the edge is on the way. Until then, this skill proves the payment rail end to end;
+it does not put their lore on sale.
 
 ## 1. Pick the path
 
@@ -46,7 +47,7 @@ Before asking for anything, tell the owner everything this takes:
 | What | Why | Secret? |
 |---|---|---|
 | A self-custody **payout address** on Base | Where buyers' USDC lands | No — public by design |
-| A **deployed node** (`lore-deploy-node`, free tier) | Something has to serve and charge | No |
+| A **Cloudflare account** (free tier) | Runs the Worker that serves and charges | Login is theirs; the skill never sees it |
 | A **price** per answer, in USD | What the gate charges | No |
 | A **throwaway test-buyer wallet**, faucet-funded | Something has to *pay* the proof transaction | Its key is secret; it never enters this conversation |
 
@@ -89,16 +90,36 @@ lore price 0.01
 Any amount works; `lore price 0` is free and a supported place to stop, not a failure.
 The price is advertised by the node; nothing enforces it until the node is deployed.
 
-## 5. Deploy
+## 5. Deploy the node
 
-Run the `lore-deploy-node` skill: it handles the Cloudflare account, sets the payout
-address as the node's one payment secret, deploys, and smoke-checks the result.
+The owner needs a Cloudflare account — the free tier is enough, and they sign up and
+log in themselves; this skill never sees or handles that login. All commands run in
+`worker/` of the Lore checkout:
 
-On return, recover the node's URL from state, not conversation: in `worker/`,
-`npx wrangler deployments list` names the live deployment, and the endpoint is
-`https://<worker-name>.<account>.workers.dev/mcp`. Deployed a minute ago or last
-week, same lookup. Ask the owner only if wrangler cannot answer — for example,
-the node was deployed from a different machine.
+```sh
+cd worker
+npm install
+npx wrangler login                      # opens their browser to authorize their account
+npx wrangler secret put LORE_WALLET     # paste the payout address — the public one
+npm run deploy
+```
+
+The deploy prints the node's URL: `https://<worker-name>.<account>.workers.dev/mcp`.
+Then prove the node is actually up — a successful deploy only means Cloudflare
+accepted the code:
+
+```sh
+npm run smoke -- https://<their-subdomain>.workers.dev/mcp
+```
+
+The smoke check makes real MCP calls: both tools listed, `discover` answers free, and
+`answer` challenges for payment without leaking content. It spends nothing; run it
+after every deploy. If it fails, `npx wrangler tail` streams the live error while you
+re-run it.
+
+If the node was deployed earlier (even in another session), recover the URL from
+state rather than asking: `npx wrangler deployments list` in `worker/` names the
+live deployment. Ask the owner only if wrangler cannot answer.
 
 ## 6. Prove one payment on the test network
 
