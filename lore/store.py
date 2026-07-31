@@ -409,10 +409,17 @@ class Store:
         if limit < 0:
             raise ValueError("limit cannot be negative")
         if query.strip():
-            terms = re.findall(r"[\w-]+", query, re.UNICODE)
+            # OR over plain word tokens, not AND over hyphen-joined phrases:
+            # buyers send natural-language queries ("What has this educator
+            # learned about lecture-heavy courses?"), and requiring every term
+            # — or treating "lecture-heavy" as a phrase — returns an empty paid
+            # answer against relevant publications. bm25 still ranks the best
+            # match first; disclosure is unaffected because only active
+            # owner-approved publications are searched at all.
+            terms = re.findall(r"\w+", query, re.UNICODE)
             if not terms:
                 return []
-            match = " AND ".join(f'"{term.replace(chr(34), "")}"' for term in terms)
+            match = " OR ".join(f'"{term}"' for term in terms)
             sql = (
                 "SELECT p.* FROM publications_fts f JOIN publications p ON p.id=f.rowid "
                 "WHERE publications_fts MATCH ? AND p.active=1 "

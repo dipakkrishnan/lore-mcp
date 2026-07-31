@@ -436,6 +436,19 @@ class LoreTest(unittest.TestCase):
             self.assertIs(store.search("Fresh")[0].status, Status.PRIVATE)
             self.assertNotIn("pending", store.counts())
 
+    def test_natural_language_buyer_query_reaches_publications(self) -> None:
+        # Found by the integration eval: buyers ask in sentences, and ANDing
+        # every FTS term returned an empty paid answer against a relevant
+        # publication. Matching any term (bm25-ranked) must be enough.
+        with Store() as store:
+            store.add_publication(
+                title="Lab conversion results",
+                content="Replacing two lecture hours with a graded lab raised median scores.",
+            )
+            query = "What has this educator learned about converting lecture-heavy courses?"
+            self.assertEqual(len(store.search_publications(query)), 1)
+            self.assertEqual(store.search_publications("quantum chromodynamics"), [])
+
     def test_publications_add_list_revoke(self) -> None:
         with Store() as store:
             pid = store.add_publication(
