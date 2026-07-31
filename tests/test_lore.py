@@ -455,6 +455,7 @@ class LoreTest(unittest.TestCase):
                 "title": "Live demos beat cold decks",
                 "content": "3 live demos produced 7/10 follow-ups; cold decks 0/12.",
                 "kind": "claim",
+                "topic": "go-to-market lessons",
                 "provenance": [memory_id],
             },
             {
@@ -485,6 +486,24 @@ class LoreTest(unittest.TestCase):
             self.assertEqual(len(published), 1)
             self.assertEqual(published[0].title, "Sharper title")
             self.assertEqual(len(published[0].provenance), 1)
+            # The owner-approved grouping label survives approval intact.
+            self.assertEqual(published[0].topic, "go-to-market lessons")
+
+    def test_topic_column_added_to_databases_created_before_it(self) -> None:
+        db_path = Path(os.environ["LORE_HOME"]) / "lore.db"
+        db_path.parent.mkdir(parents=True, exist_ok=True)
+        with sqlite3.connect(db_path) as db:
+            db.execute(
+                """CREATE TABLE publications (
+                    id INTEGER PRIMARY KEY, title TEXT NOT NULL, content TEXT NOT NULL,
+                    kind TEXT NOT NULL DEFAULT 'claim', provenance TEXT NOT NULL DEFAULT '[]',
+                    active INTEGER NOT NULL DEFAULT 1, created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL, source_changed_at TEXT
+                )"""
+            )
+        with Store() as store:
+            store.add_publication(title="t", content="c", topic="migrated")
+            self.assertEqual(store.list_publications()[0].topic, "migrated")
 
     def test_publication_apply_rejects_bad_candidates(self) -> None:
         base = Path(os.environ["LORE_HOME"])

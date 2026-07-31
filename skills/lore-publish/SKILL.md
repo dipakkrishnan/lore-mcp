@@ -43,15 +43,23 @@ statement of what the owner knows, at the precision the evidence supports.
 - `kind` is `"claim"` unless the owner explicitly asks to publish a specific
   document verbatim — that is `"content"`, one item at a time, never a bulk
   action and never your suggestion by default.
+- `topic` is the topic the owner confirmed for this pass, verbatim — the same
+  string on every candidate in the batch. It becomes the externally visible
+  grouping label wherever buyers browse this node, so it must be the owner's
+  approved wording, never your own summary.
+- Titles are advertisement: a buyer sees them for free before paying for the
+  content. Write the title to say what the claim is *about*, not to deliver
+  the claim itself — a title that gives away the finding sells nothing.
 
 Write the candidates to `~/.lore/publish-candidates.json`:
 
 ```json
 [
   {
-    "title": "Live demos outperform cold decks for agent-tool launches",
+    "title": "What outperformed cold decks in an agent-tool launch",
     "content": "Across one launch: 3 short live demos produced 7 follow-up trials from 10 qualified viewers; a polished deck sent cold produced 0 replies from 12. Small sample; treat as a strong prior, not a law.",
     "kind": "claim",
+    "topic": "go-to-market lessons",
     "provenance": [12, 31]
   }
 ]

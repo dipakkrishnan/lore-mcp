@@ -70,6 +70,10 @@ class Publication(BaseModel):
     title: str
     content: str
     kind: PublicationKind
+    # Owner-approved grouping label, assigned at publish-approval time. It is the
+    # only field external discovery surfaces may ever group or label by — deriving
+    # labels any other way would disclose text no one approved.
+    topic: str = ""
     provenance: list[int]
     active: int
     created_at: str
@@ -159,6 +163,7 @@ class Store:
                 content TEXT NOT NULL,
                 kind TEXT NOT NULL DEFAULT 'claim'
                     CHECK(kind IN ('claim','content')),
+                topic TEXT NOT NULL DEFAULT '',
                 provenance TEXT NOT NULL DEFAULT '[]',
                 active INTEGER NOT NULL DEFAULT 1 CHECK(active IN (0,1)),
                 created_at TEXT NOT NULL,
@@ -195,6 +200,11 @@ class Store:
             "UPDATE memories SET status='private' "
             "WHERE status NOT IN ('private','discarded')"
         )
+        # Databases created before the topic column existed: CREATE IF NOT EXISTS
+        # never alters, so add it in place. New databases already have it.
+        columns = {row["name"] for row in self.db.execute("PRAGMA table_info(publications)")}
+        if "topic" not in columns:
+            self.db.execute("ALTER TABLE publications ADD COLUMN topic TEXT NOT NULL DEFAULT ''")
         self.db.commit()
 
     def put(
@@ -340,15 +350,16 @@ class Store:
         title: str,
         content: str,
         kind: PublicationKind | str = PublicationKind.CLAIM,
+        topic: str = "",
         provenance: list[int] | None = None,
     ) -> int:
         """Create an active publication and return its id."""
         kind = PublicationKind(kind)  # rejects unknown kinds
         now = datetime.now(timezone.utc).isoformat()
         cursor = self.db.execute(
-            """INSERT INTO publications(title,content,kind,provenance,active,created_at,updated_at)
-               VALUES (?,?,?,?,1,?,?)""",
-            (title, content, kind.value, json.dumps(list(provenance or [])), now, now),
+            """INSERT INTO publications(title,content,kind,topic,provenance,active,created_at,updated_at)
+               VALUES (?,?,?,?,?,1,?,?)""",
+            (title, content, kind.value, topic, json.dumps(list(provenance or [])), now, now),
         )
         self.db.commit()
         return int(cursor.lastrowid)

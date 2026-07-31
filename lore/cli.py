@@ -347,11 +347,12 @@ def _candidate(raw: object, missing_check: Store) -> Publication:
     """Validate one drafted candidate into a previewable Publication."""
     if not isinstance(raw, dict):
         raise ValueError("each candidate must be a JSON object")
-    unexpected = raw.keys() - {"title", "content", "kind", "provenance"}
+    unexpected = raw.keys() - {"title", "content", "kind", "topic", "provenance"}
     if unexpected:
         raise ValueError(f"unexpected candidate field: {sorted(unexpected)[0]}")
     title = str(raw.get("title", "")).strip()
     content = str(raw.get("content", "")).strip()
+    topic = str(raw.get("topic", "")).strip()
     if not title or not content:
         raise ValueError("candidates need a non-empty title and content")
     provenance = raw.get("provenance", [])
@@ -367,6 +368,7 @@ def _candidate(raw: object, missing_check: Store) -> Publication:
         title=title,
         content=content,
         kind=PublicationKind(raw.get("kind", "claim")),
+        topic=topic,
         provenance=provenance,
         active=1,
         created_at="",
@@ -398,6 +400,7 @@ def publication_apply(path: str) -> int:
                         title=candidate.title,
                         content=candidate.content,
                         kind=candidate.kind,
+                        topic=candidate.topic,
                         provenance=candidate.provenance,
                     )
                     approved += 1

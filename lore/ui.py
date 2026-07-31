@@ -74,6 +74,10 @@ def publication_card(
     print(f"\n{paint('2', '─' * 72)}")
     print(paint("1", publication.title.translate(CONTROL_CHARACTERS)))
     metadata = f"{label} · {publication.kind} · {len(publication.provenance)} source memories"
+    if publication.topic:
+        # The topic is externally visible wherever discovery groups by it, so it is
+        # shown on the approval card: approving the publication approves the label.
+        metadata += f" · topic: {publication.topic}"
     print(paint("2", metadata.translate(CONTROL_CHARACTERS)))
     print()
     for paragraph in publication.content.splitlines():
