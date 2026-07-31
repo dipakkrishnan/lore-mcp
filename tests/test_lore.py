@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import sqlite3
 import stat
 import sys
 import tempfile
@@ -13,10 +14,19 @@ from pathlib import Path
 from unittest.mock import patch
 
 from lore import automation, blueprint
-from lore.cli import blueprint_apply, blueprint_show, manual, price, review, setup
+from lore.cli import (
+    blueprint_apply,
+    blueprint_show,
+    manual,
+    price,
+    review,
+    setup,
+    status,
+)
 from lore.mcp import call_tool, dispatch, http
 from lore.sources import scan
-from lore.store import Memory, Store
+from lore import store as store_module
+from lore.store import STATUSES, Memory, PublicationKind, Status, Store
 from lore.ui import memory_card
 
 
@@ -54,27 +64,110 @@ class LoreTest(unittest.TestCase):
             self.assertEqual(report["claude"]["added"], 1)
             found = store.search("integration tests")
             self.assertEqual(found[0].title, "Testing preference")
-            store.set_status(found[0].id, "external")
-            self.assertEqual(store.search("integration", status="external")[0].status, "external")
+            self.assertIs(found[0].status, Status.PRIVATE)
+            store.set_status(found[0].id, "discarded")
+            self.assertIs(store.search("integration", status="discarded")[0].status, Status.DISCARDED)
 
-        with patch("lore.cli.ask", return_value="p"), redirect_stdout(StringIO()):
-            review("integration", "external", 0)
+        # Reviewing the discarded queue can bring a memory back to private.
+        with patch("lore.cli.ask", return_value="k"), redirect_stdout(StringIO()):
+            review("integration", "discarded", 0)
         with Store() as store:
-            self.assertEqual(store.search("integration", status="private")[0].status, "private")
+            self.assertIs(store.search("integration", status="private")[0].status, Status.PRIVATE)
 
-    def test_changed_native_memory_requires_review_again(self) -> None:
+    def test_legacy_database_is_normalized_on_open(self) -> None:
+        # A database created before the retention-only model holds rows in
+        # statuses `Status` now rejects. CREATE TABLE IF NOT EXISTS leaves the
+        # old table in place, so without normalization any search touching such
+        # a row crashes with a validation error — and there is no CLI remedy,
+        # because reclassifying needs an id and ids come from search.
+        home = Path(os.environ["LORE_HOME"])
+        home.mkdir(parents=True, exist_ok=True)
+        db = sqlite3.connect(home / "lore.db")
+        db.executescript(
+            """
+            CREATE TABLE memories (
+                id INTEGER PRIMARY KEY, source TEXT NOT NULL,
+                origin TEXT NOT NULL DEFAULT 'native', source_path TEXT NOT NULL,
+                source_key TEXT NOT NULL UNIQUE, fingerprint TEXT NOT NULL,
+                title TEXT NOT NULL, content TEXT NOT NULL,
+                project TEXT NOT NULL DEFAULT '',
+                status TEXT NOT NULL DEFAULT 'pending'
+                    CHECK(status IN ('pending','private','external','discarded')),
+                created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
+            CREATE VIRTUAL TABLE memories_fts USING fts5(
+                title, content, project,
+                content='memories', content_rowid='id',
+                tokenize='unicode61 remove_diacritics 2');
+            CREATE TRIGGER memories_ai AFTER INSERT ON memories BEGIN
+                INSERT INTO memories_fts(rowid,title,content,project)
+                VALUES (new.id,new.title,new.content,new.project); END;
+            """
+        )
+        for index, legacy in enumerate(("pending", "external", "private", "discarded")):
+            db.execute(
+                """INSERT INTO memories(source,origin,source_path,source_key,
+                   fingerprint,title,content,status,created_at,updated_at)
+                   VALUES ('codex','native',?,?,?,?,?,?,'2026-07-01','2026-07-01')""",
+                (f"p{index}", f"k{index}", f"f{index}", f"Lesson {legacy}", "a lesson body", legacy),
+            )
+        db.commit()
+        db.close()
+        with Store() as store:
+            counts = store.counts()
+            # pending and external became plain private rows; discarded survived.
+            self.assertEqual(counts["private"], 3)
+            self.assertEqual(counts["discarded"], 1)
+            # Unfiltered search maps every row through the Status enum — the
+            # crash this migration prevents. All four must validate.
+            found = store.search("lesson")
+            self.assertEqual(len(found), 4)
+            self.assertEqual({m.status for m in found}, {Status.PRIVATE, Status.DISCARDED})
+
+    def test_disclosure_is_not_a_memory_status(self) -> None:
+        # `external` and `pending` are gone: retention is the only thing a status
+        # expresses, and neither one can be set or queried any more.
+        self.assertEqual(STATUSES, ("private", "discarded"))
+        self._seed_memory("A lesson", "private")
+        with Store() as store:
+            memory = store.search("lesson")[0]
+            for retired in ("external", "pending"):
+                with self.assertRaisesRegex(ValueError, "invalid status"):
+                    store.set_status(memory.id, retired)
+                with self.assertRaisesRegex(ValueError, "invalid status"):
+                    store.search("lesson", status=retired)
+
+    def test_changed_memory_keeps_its_status_and_flags_its_publications(self) -> None:
         path = Path(os.environ["CODEX_HOME"]) / "memories/MEMORY.md"
         path.parent.mkdir(parents=True)
         path.write_text("# Project\n\nFirst version")
         with Store() as store:
             scan(store, {"codex"})
             memory = store.search("First")[0]
-            store.set_status(memory.id, "private")
+            fresh = store.add_publication(
+                title="Project claim", content="a claim", provenance=[memory.id]
+            )
+            unrelated = store.add_publication(
+                title="Other claim", content="another claim", provenance=[memory.id + 900]
+            )
+
             path.write_text("# Project\n\nSecond version")
             scan(store, {"codex"})
+
+            # The memory stays private: a change must not rebuild a review queue.
             updated = store.search("Second")[0]
-            self.assertEqual(updated.status, "pending")
-            self.assertEqual(store.counts()["pending"], 1)
+            self.assertIs(updated.status, Status.PRIVATE)
+            self.assertEqual(store.counts()["private"], 1)
+
+            # Its publication is flagged for re-approval, and only its own.
+            self.assertEqual([p.id for p in store.stale_publications()], [fresh])
+            by_id = {p.id: p for p in store.list_publications()}
+            self.assertIsNotNone(by_id[fresh].source_changed_at)
+            self.assertIsNone(by_id[unrelated].source_changed_at)
+
+            # Flagged is not revoked: the approved text stays externally readable.
+            self.assertIn(fresh, [p.id for p in store.list_publications(active_only=True)])
+            store.clear_publication_flag(fresh)
+            self.assertEqual(store.stale_publications(), [])
 
     def test_codex_import_ignores_intermediate_memory_files(self) -> None:
         root = Path(os.environ["CODEX_HOME"]) / "memories"
@@ -206,6 +299,25 @@ class LoreTest(unittest.TestCase):
         self.assertNotIn("model", profile)
         self.assertNotIn("hour", profile)
 
+    def test_profile_without_executor_saves_but_cannot_schedule(self) -> None:
+        profile = automation.save_profile({"role": "maintainer", "executor": ""})
+        self.assertEqual(profile.get("executor", ""), "")
+        with self.assertRaisesRegex(ValueError, "no-schedule"):
+            automation.install(profile)
+        with self.assertRaisesRegex(ValueError, "unknown executor"):
+            automation.save_profile({"executor": "cursor"})
+
+    def test_prompt_states_the_thesis_and_derives_statuses(self) -> None:
+        prompt = automation.build_prompt({"role": "maintainer"})
+        self.assertIn("You never publish and never change disclosure", prompt)
+        self.assertIn("Worth publishing", prompt)
+        self.assertIn("What earns a place in memory", prompt)
+        for status in store_module.STATUSES:
+            if status == "discarded":
+                self.assertNotIn(f"--status {status}", prompt)
+            else:
+                self.assertIn(f"search --status {status} --limit 0 --json", prompt)
+
     def test_synthesis_index_is_not_imported_as_memory(self) -> None:
         root = Path(os.environ["LORE_HOME"]) / "memories"
         root.mkdir(parents=True)
@@ -217,7 +329,7 @@ class LoreTest(unittest.TestCase):
         with Store() as store:
             report = scan(store, {"automation"})
             memory = store.search("durable")[0]
-            store.set_status(memory.id, "external")
+            store.set_status(memory.id, "private")
 
         self.assertEqual(report["automation"]["found"], 1)
         topic.write_text(
@@ -225,7 +337,7 @@ class LoreTest(unittest.TestCase):
         )
         with Store() as store:
             scan(store, {"automation"})
-            self.assertEqual(store.search("private context")[0].status, "pending")
+            self.assertIs(store.search("private context")[0].status, Status.PRIVATE)
             memory = store.search("private context")[0]
             store.set_status(memory.id, "discarded")
         topic.write_text(
@@ -233,7 +345,7 @@ class LoreTest(unittest.TestCase):
         )
         with Store() as store:
             scan(store, {"automation"})
-            self.assertEqual(store.search("after rejection")[0].status, "discarded")
+            self.assertIs(store.search("after rejection")[0].status, Status.DISCARDED)
 
     def test_setup_imports_then_hands_off_to_agent(self) -> None:
         memory = Path(os.environ["CODEX_HOME"]) / "memories/MEMORY.md"
@@ -264,7 +376,9 @@ class LoreTest(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "limit"):
                 store.search("anything", limit=-1)
         memory = Memory(
-            1, "test", "native", "Bad\x1b[2J", "Body\x07 text", "", "private", "", "now"
+            id=1, source="test", origin="native", title="Bad\x1b[2J",
+            content="Body\x07 text", project="", status="private",
+            source_path="", updated_at="now",
         )
         output = StringIO()
         with redirect_stdout(output):
@@ -284,31 +398,132 @@ class LoreTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "requires --token"):
             http("0.0.0.0", 0)
 
-    def test_mcp_returns_only_external_memories(self) -> None:
+    def _seed_memory(self, title: str, status: str) -> None:
         with Store() as store:
-            for title, status in (("Public lesson", "external"), ("Private lesson", "private")):
-                store.put(
-                    source="test",
-                    origin="native",
-                    source_path=title,
-                    source_key=title,
-                    fingerprint=title,
-                    title=title,
-                    content=f"{title} about deployment",
-                )
-                memory = store.search(title)[0]
-                store.set_status(memory.id, status)
+            store.put(
+                source="test",
+                origin="native",
+                source_path=title,
+                source_key=title,
+                fingerprint=title,
+                title=title,
+                content=f"{title} about deployment",
+            )
+            store.set_status(store.search(title)[0].id, status)
+
+    def _answer(self, query: str) -> str:
         response = dispatch(
             {
                 "jsonrpc": "2.0",
                 "id": 1,
                 "method": "tools/call",
-                "params": {"name": "answer", "arguments": {"query": "deployment"}},
+                "params": {"name": "answer", "arguments": {"query": query}},
             }
         )
-        text = response["result"]["content"][0]["text"]  # type: ignore[index]
-        self.assertIn("Public lesson", text)
-        self.assertNotIn("Private lesson", text)
+        return response["result"]["content"][0]["text"]  # type: ignore[index]
+
+    def test_new_imports_default_to_private(self) -> None:
+        with Store() as store:
+            store.put(
+                source="test",
+                origin="native",
+                source_path="fresh",
+                source_key="fresh",
+                fingerprint="fresh",
+                title="Fresh import",
+                content="a freshly imported memory",
+            )
+            self.assertIs(store.search("Fresh")[0].status, Status.PRIVATE)
+            self.assertNotIn("pending", store.counts())
+
+    def test_publications_add_list_revoke(self) -> None:
+        with Store() as store:
+            pid = store.add_publication(
+                title="Pricing claim",
+                content="a bounded claim about pricing agent APIs",
+                provenance=[1, 2],
+            )
+            active = store.list_publications(active_only=True)
+            self.assertEqual(len(active), 1)
+            self.assertIs(active[0].kind, PublicationKind.CLAIM)
+            self.assertEqual(active[0].provenance, [1, 2])
+            doc_id = store.add_publication(
+                title="Doc", content="verbatim", kind=PublicationKind.CONTENT
+            )
+            self.assertGreater(doc_id, 0)
+            with self.assertRaisesRegex(ValueError, "not a valid PublicationKind"):
+                store.add_publication(title="Bad", content="x", kind="secret")
+            store.revoke_publication(pid)
+            self.assertEqual([p.id for p in store.list_publications(active_only=True)], [doc_id])
+            self.assertEqual(len(store.list_publications()), 2)  # revoked still listed
+            self.assertEqual(store.search_publications("pricing"), [])  # revoked not searchable
+
+    def test_publication_kind_accepts_a_plain_string(self) -> None:
+        # Callers (and the future `lore publication apply`) may pass raw strings;
+        # the enum normalizes them and rejects anything else.
+        with Store() as store:
+            store.add_publication(title="Str", content="x", kind="content")
+            self.assertIs(
+                store.list_publications()[0].kind, PublicationKind.CONTENT
+            )
+
+    def test_review_defaults_to_the_private_library(self) -> None:
+        # Nothing is ever 'pending' now, so review's default queue must be the
+        # private library or the command is a permanent no-op.
+        self._seed_memory("Kept lesson", "private")
+        self._seed_memory("Other lesson", "private")
+        with patch("lore.cli.ask", return_value="d"), redirect_stdout(StringIO()):
+            review()
+        with Store() as store:
+            self.assertEqual(store.counts()["discarded"], 2)
+            self.assertEqual(store.counts()["private"], 0)
+
+    def test_status_counts_private_and_discarded_separately(self) -> None:
+        self._seed_memory("Kept lesson", "private")
+        self._seed_memory("Dropped lesson", "discarded")
+        buffer = StringIO()
+        with redirect_stdout(buffer):
+            status()
+        text = buffer.getvalue()
+        self.assertIn("1 private", text)
+        self.assertIn("1 discarded", text)
+        self.assertIn("0 active publications", text)
+        # A discarded memory must never be counted as private.
+        self.assertNotIn("2 private", text)
+
+    def test_answer_never_discloses_private_memory_ids(self) -> None:
+        # Provenance is owner-visible; buyers must not learn the ids or the
+        # number of private rows behind a publication.
+        with Store() as store:
+            store.add_publication(
+                title="Deployment guide",
+                content="deployment guidance",
+                provenance=[41, 42, 43],
+            )
+        payload = json.loads(self._answer("deployment"))
+        entry = payload["answer_context"][0]
+        self.assertEqual(entry["title"], "Deployment guide")
+        # Assert on the payload shape, not on substrings: an ISO timestamp
+        # happens to contain two-digit numbers and would mask a real leak.
+        self.assertEqual(set(entry["provenance"]), {"kind", "updated_at"})
+
+    def test_mcp_reads_only_active_publications_never_memories(self) -> None:
+        # Memories of every disclosure status must be unreachable from MCP.
+        self._seed_memory("Discarded memory", "discarded")
+        self._seed_memory("Private memory", "private")
+        with Store() as store:
+            active_id = store.add_publication(title="Deployment guide", content="deployment guidance")
+            revoked_id = store.add_publication(title="Old deployment note", content="stale deployment text")
+            store.revoke_publication(revoked_id)
+        text = self._answer("deployment")
+        self.assertIn("Deployment guide", text)
+        self.assertNotIn("Discarded memory", text)  # no memory is reachable
+        self.assertNotIn("Private memory", text)  # private memory unreachable
+        self.assertNotIn("Old deployment note", text)  # revoked publication excluded
+        # Revoking the last active publication removes it from MCP immediately.
+        with Store() as store:
+            store.revoke_publication(active_id)
+        self.assertNotIn("Deployment guide", self._answer("deployment"))
 
     def _write_blueprint_input(self, data: dict) -> Path:
         path = Path(os.environ["LORE_HOME"]) / "blueprint-input.json"
