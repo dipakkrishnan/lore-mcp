@@ -17,6 +17,33 @@ interface PublicationRow {
   topic: string;
 }
 
+// Mirrors lore/store.py's search_publications: buyers ask in sentences, so a
+// single %whole-sentence% substring can never match — and past ~10 words D1
+// rejects the pattern outright. Match OR over meaningful word tokens instead,
+// ranked by how many terms hit.
+const QUERY_STOPWORDS = new Set(
+  ("a about an and are can could do does for has have how i is it me of on or " +
+    "person tell that the this to what when where who why with you your").split(" ")
+);
+
+function queryTerms(query: string): string[] {
+  const words = query.toLowerCase().match(/[\p{L}\p{N}_]+/gu) ?? [];
+  const terms = words
+    .filter((word) => !QUERY_STOPWORDS.has(word))
+    // Crude singularization ("launches" → "launch"); safe because matching is
+    // substring, so an over-stripped stem still hits the full word.
+    .map((word) =>
+      word.length >= 4 && word.endsWith("es")
+        ? word.slice(0, -2)
+        : word.length >= 4 && word.endsWith("s")
+          ? word.slice(0, -1)
+          : word
+    );
+  // ponytail: cap at 8 terms — bounds the SQL, and more terms than that add
+  // recall a five-row LIMIT can't use anyway.
+  return [...new Set(terms)].slice(0, 8);
+}
+
 // The D1 table `lore push` maintains. Rows here are owner-approved publications
 // and nothing else — no private data exists at the edge to leak.
 async function searchPublications(
@@ -24,13 +51,18 @@ async function searchPublications(
   query: string,
   limit: number
 ): Promise<PublicationRow[]> {
-  const like = `%${query.replaceAll(/[%_\\]/g, (c) => `\\${c}`)}%`;
+  const terms = queryTerms(query);
+  if (terms.length === 0) return [];
+  // Tokens are \w+ only, so no LIKE metacharacters need escaping.
+  const hit = (i: number) =>
+    `(title LIKE ?${i + 1} OR topic LIKE ?${i + 1} OR content LIKE ?${i + 1})`;
+  const score = terms.map((_, i) => hit(i)).join(" + ");
   const { results } = await env.LORE_DB.prepare(
     `SELECT title, content, topic FROM publications
-     WHERE title LIKE ?1 ESCAPE '\\' OR topic LIKE ?1 ESCAPE '\\' OR content LIKE ?1 ESCAPE '\\'
-     ORDER BY id LIMIT ?2`
+     WHERE ${terms.map((_, i) => hit(i)).join(" OR ")}
+     ORDER BY (${score}) DESC, id LIMIT ?${terms.length + 1}`
   )
-    .bind(like, limit)
+    .bind(...terms.map((term) => `%${term}%`), limit)
     .all<PublicationRow>();
   return results;
 }

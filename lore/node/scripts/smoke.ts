@@ -29,6 +29,17 @@ try {
   });
   assert.equal(discover.isError, undefined);
 
+  // Buyers ask in sentences; a long natural-language query must search, not
+  // error (a regression here surfaced as a D1 "pattern too complex" crash).
+  const sentence = await client.callTool({
+    name: "discover",
+    arguments: {
+      query:
+        "Can this person teach me anything useful about why new product launches fail so often?"
+    }
+  });
+  assert.equal(sentence.isError, undefined);
+
   const answer = await client.callTool({
     name: "answer",
     arguments: { query: "What is Lore?" }
