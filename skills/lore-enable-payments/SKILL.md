@@ -94,10 +94,11 @@ The price is advertised by the node; nothing enforces it until the node is deplo
 Run the `lore-deploy-node` skill: it handles the Cloudflare account, sets the payout
 address as the node's one payment secret, deploys, and smoke-checks the result.
 
-On return, **ask the owner for the node's URL** — with AskUserQuestion when available,
-plainly otherwise — rather than assuming it survived in context. The deploy may have
-happened minutes ago in this conversation or last week in another one; asking makes
-those the same case. The smoke check, not memory, answers whether the node is live.
+On return, recover the node's URL from state, not conversation: in `worker/`,
+`npx wrangler deployments list` names the live deployment, and the endpoint is
+`https://<worker-name>.<account>.workers.dev/mcp`. Deployed a minute ago or last
+week, same lookup. Ask the owner only if wrangler cannot answer — for example,
+the node was deployed from a different machine.
 
 ## 6. Prove one payment on the test network
 
