@@ -132,7 +132,8 @@ def main(argv: list[str] | None = None) -> int:
                 serve_args.extend(["--token", args.token])
             return serve(serve_args)
         if args.command == "node":
-            return deploy_module.deploy(args.wallet)
+            if args.node_command == "deploy":
+                return deploy_module.deploy(args.wallet)
         if args.command == "publication":
             if args.publication_command == "review":
                 return publication_apply(args.file)

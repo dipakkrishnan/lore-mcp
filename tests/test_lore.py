@@ -354,18 +354,35 @@ class LoreTest(unittest.TestCase):
             stdout = ""
             if args[0].endswith("wrangler") and args[1] == "deploy":
                 stdout = "Deployed lore-x402-canary\n  https://lore.example.workers.dev\n"
+            if args[0].endswith("wrangler") and args[1:3] == ("d1", "create"):
+                stdout = '"database_id": "11111111-2222-3333-4444-555555555555"\n'
             return subprocess.CompletedProcess(args, 0, stdout=stdout, stderr="")
 
         with (
             patch("lore.deploy.subprocess.run", side_effect=fake_run) as run,
             patch("lore.deploy.shutil.which", return_value="/usr/bin/npm"),
+            patch("lore.cli.push") as push,
             redirect_stdout(StringIO()),
         ):
             self.assertEqual(deploy_module.deploy("0x" + "1" * 40), 0)
         commands = [call.args[0] for call in run.call_args_list]
         self.assertIn(("npm", "install", "--no-fund", "--no-audit"), commands)
-        wrangler_calls = [c for c in commands if c[0].endswith("node_modules/.bin/wrangler")]
-        self.assertIn(("secret", "put", "LORE_WALLET"), [c[1:] for c in wrangler_calls])
+        wrangler_calls = [
+            c[1:] for c in commands if c[0].endswith("node_modules/.bin/wrangler")
+        ]
+        # The placeholder is resolved before wrangler validates the D1 binding
+        # at deploy, and the created id is written into the staged config.
+        self.assertLess(
+            wrangler_calls.index(("d1", "create", "lore-publications")),
+            wrangler_calls.index(("deploy",)),
+        )
+        config = Path(os.environ["LORE_HOME"]) / "node/wrangler.jsonc"
+        self.assertIn(
+            '"database_id": "11111111-2222-3333-4444-555555555555"', config.read_text()
+        )
+        self.assertIn(("secret", "put", "LORE_WALLET"), wrangler_calls)
+        # The first push creates the publications table before the smoke check.
+        push.assert_called_once()
         self.assertIn(
             ("npm", "run", "smoke", "--", "https://lore.example.workers.dev/mcp"), commands
         )
@@ -373,6 +390,85 @@ class LoreTest(unittest.TestCase):
             self.assertEqual(
                 store.setting("node_url"), "https://lore.example.workers.dev/mcp"
             )
+
+    def test_node_deploy_records_the_url_before_the_secret_put(self) -> None:
+        # If `secret put` fails, the node is already live — the URL must have
+        # been recorded so `lore status` can recover it.
+        def fake_run(args, **kwargs):
+            if args[1:] == ("secret", "put", "LORE_WALLET"):
+                return subprocess.CompletedProcess(args, 1, stdout="", stderr="vault down")
+            stdout = ""
+            if args[1:] == ("deploy",):
+                stdout = "https://lore.example.workers.dev\n"
+            if args[1:] == ("d1", "create", "lore-publications"):
+                stdout = 'database_id = "11111111-2222-3333-4444-555555555555"\n'
+            return subprocess.CompletedProcess(args, 0, stdout=stdout, stderr="")
+
+        with (
+            patch("lore.deploy.subprocess.run", side_effect=fake_run),
+            patch("lore.deploy.shutil.which", return_value="/usr/bin/npm"),
+            patch("lore.cli.push"),
+            redirect_stdout(StringIO()),
+            self.assertRaisesRegex(OSError, "LORE_WALLET"),
+        ):
+            deploy_module.deploy("0x" + "1" * 40)
+        with Store() as store:
+            self.assertEqual(
+                store.setting("node_url"), "https://lore.example.workers.dev/mcp"
+            )
+
+    def test_node_deploy_on_custom_route_keeps_the_recorded_url(self) -> None:
+        # A successful deploy that prints no workers.dev address means a custom
+        # route, not a dead node — the previously recorded URL must survive.
+        with Store() as store:
+            store.set_setting("node_url", "https://lore.example.workers.dev/mcp")
+
+        def fake_run(args, **kwargs):
+            stdout = ""
+            if args[1:] == ("d1", "create", "lore-publications"):
+                stdout = '"database_id": "11111111-2222-3333-4444-555555555555"\n'
+            return subprocess.CompletedProcess(args, 0, stdout=stdout, stderr="")
+
+        with (
+            patch("lore.deploy.subprocess.run", side_effect=fake_run),
+            patch("lore.deploy.shutil.which", return_value="/usr/bin/npm"),
+            patch("lore.cli.push"),
+            redirect_stdout(StringIO()),
+        ):
+            self.assertEqual(deploy_module.deploy("0x" + "1" * 40), 0)
+        with Store() as store:
+            self.assertEqual(
+                store.setting("node_url"), "https://lore.example.workers.dev/mcp"
+            )
+
+    def test_node_deploy_finds_an_already_created_d1_database(self) -> None:
+        # `d1 create` on a rerun says "already exists"; the id is then
+        # recovered from `d1 list` instead of failing the deploy.
+        def fake_run(args, **kwargs):
+            if args[1:] == ("d1", "create", "lore-publications"):
+                return subprocess.CompletedProcess(
+                    args, 1, stdout="", stderr="a database with that name already exists"
+                )
+            stdout = ""
+            if args[1:] == ("d1", "list", "--json"):
+                stdout = json.dumps(
+                    [{"uuid": "22222222-3333-4444-5555-666666666666", "name": "lore-publications"}]
+                )
+            if args[1:] == ("deploy",):
+                stdout = "https://lore.example.workers.dev\n"
+            return subprocess.CompletedProcess(args, 0, stdout=stdout, stderr="")
+
+        with (
+            patch("lore.deploy.subprocess.run", side_effect=fake_run),
+            patch("lore.deploy.shutil.which", return_value="/usr/bin/npm"),
+            patch("lore.cli.push"),
+            redirect_stdout(StringIO()),
+        ):
+            self.assertEqual(deploy_module.deploy("0x" + "1" * 40), 0)
+        config = Path(os.environ["LORE_HOME"]) / "node/wrangler.jsonc"
+        self.assertIn(
+            '"database_id": "22222222-3333-4444-5555-666666666666"', config.read_text()
+        )
 
     def test_node_deploy_fails_closed_on_bad_input(self) -> None:
         with self.assertRaisesRegex(ValueError, "public EVM address"):

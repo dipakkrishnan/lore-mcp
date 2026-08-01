@@ -9,6 +9,7 @@ and the Worker share a D1 schema (MON-003).
 
 from __future__ import annotations
 
+import json
 import re
 import shutil
 import subprocess
@@ -24,6 +25,8 @@ from .ui import muted, success
 # the single manifest of what deploys.
 EXCLUDED = ("node_modules", ".wrangler", ".buyer.env", ".dev.vars", "*.log")
 WALLET = re.compile(r"0x[0-9a-fA-F]{40}")
+D1_NAME = "lore-publications"
+D1_PLACEHOLDER = "REPLACE_WITH_YOUR_D1_ID"
 
 
 def materialize() -> Path:
@@ -40,7 +43,7 @@ def materialize() -> Path:
     existing_id = None
     if config.is_file():
         match = re.search(r'"database_id":\s*"([^"]+)"', config.read_text())
-        if match and match.group(1) != "REPLACE_WITH_YOUR_D1_ID":
+        if match and match.group(1) != D1_PLACEHOLDER:
             existing_id = match.group(1)
     shutil.copytree(
         resources.files("lore") / "node",
@@ -50,7 +53,7 @@ def materialize() -> Path:
     )
     if existing_id:
         config.write_text(
-            config.read_text().replace("REPLACE_WITH_YOUR_D1_ID", existing_id)
+            config.read_text().replace(D1_PLACEHOLDER, existing_id)
         )
     # Owner-only, like the rest of ~/.lore — after copytree, which copystats
     # the package directory's world-readable mode onto the target.
@@ -75,8 +78,46 @@ def _run(
     return result
 
 
+def _ensure_d1(wrangler: str, target: Path) -> None:
+    """Resolve the shipped database_id placeholder against the owner's account.
+
+    Wrangler validates D1 bindings at deploy time, so the placeholder must
+    become a real id first. Idempotent: if the database already exists (a
+    re-materialize reset the config, say), its id is recovered via `d1 list`.
+    """
+    config = target / "wrangler.jsonc"
+    text = config.read_text()
+    if D1_PLACEHOLDER not in text:
+        return
+    muted("Creating the publications database (one-time)...")
+    created = _run((wrangler, "d1", "create", D1_NAME), target)
+    output = f"{created.stdout or ''}{created.stderr or ''}"
+    if created.returncode and "already exists" not in output.lower():
+        raise OSError(f"creating the D1 database failed:\n{output.strip()[-2000:]}")
+    # `d1 create` prints a config snippet; the id format survives wrangler's
+    # TOML-vs-JSON output changes, so match the value rather than the syntax.
+    match = re.search(r'database_id[":\s=]+([0-9a-fA-F-]{32,36})', output)
+    database_id = match.group(1) if match else None
+    if database_id is None:
+        listing = _run((wrangler, "d1", "list", "--json"), target)
+        try:
+            entries = json.loads(listing.stdout or "[]")
+        except ValueError:
+            entries = []
+        database_id = next(
+            (e.get("uuid") for e in entries if e.get("name") == D1_NAME), None
+        )
+    if not database_id:
+        raise OSError(
+            f"could not determine the {D1_NAME} database id; run "
+            f"`npx wrangler d1 list` in {target} and paste it into wrangler.jsonc"
+        )
+    config.write_text(text.replace(D1_PLACEHOLDER, database_id))
+
+
 def deploy(wallet: str | None) -> int:
-    """Materialize, authenticate, deploy, set the payout secret, smoke-check."""
+    """Materialize, authenticate, ensure D1, deploy, set the payout secret,
+    push the active publications, smoke-check."""
     if wallet and not WALLET.fullmatch(wallet):
         raise ValueError("wallet must be a public EVM address: 0x plus 40 hex characters")
     if not shutil.which("npm"):
@@ -104,26 +145,45 @@ def deploy(wallet: str | None) -> int:
                 "the node has no payout address; rerun with --wallet 0x<your public address>"
             )
 
+    _ensure_d1(wrangler, target)
     deployed = _run((wrangler, "deploy"), target, fail="deploy failed")
     print(deployed.stdout.strip())
+
+    # Wrangler colourises under TTY-ish environments; strip escapes so \S+
+    # cannot swallow them into the matched address.
+    plain = re.sub(r"\x1b\[[0-9;]*m", "", deployed.stdout)
+    match = re.search(r"https://\S+\.workers\.dev", plain)
+    url = match.group(0).rstrip("/") + "/mcp" if match else None
+    if url:
+        # Recorded before the secret put: if that step fails, the node is
+        # live and `lore status` must still be able to recover it.
+        with Store() as store:
+            store.set_setting("node_url", url)
+
     if wallet:
         # Setting a secret redeploys, so the smoke check below sees a
         # configured node even on the very first deploy.
         _run(
             (wrangler, "secret", "put", "LORE_WALLET"),
             target,
-            input=wallet,
+            input=wallet + "\n",
             fail="setting LORE_WALLET failed",
         )
 
-    match = re.search(r"https://\S+\.workers\.dev", deployed.stdout)
-    url = match.group(0).rstrip("/") + "/mcp" if match else None
-    with Store() as store:
-        # None clears a stale URL: a deploy that prints no address is exactly
-        # the event that invalidates whatever was recorded before.
-        store.set_setting("node_url", url)
+    # First push creates the publications table (CREATE TABLE IF NOT EXISTS),
+    # so discover works before the owner has published anything; an empty
+    # active set is a valid state, and re-pushing is idempotent.
+    from .cli import push  # local import: cli imports this module at top level
+
+    push(str(target))
+
     if not url:
-        muted("Deployed, but wrangler printed no workers.dev URL; smoke-check manually.")
+        # The deploy succeeded, so no workers.dev address in the output means
+        # a custom route, not a dead node — the recorded URL stays as it was.
+        muted(
+            "Deployed, but wrangler printed no workers.dev URL (custom route?); "
+            "kept the recorded node URL — smoke-check manually."
+        )
         return 0
 
     smoke = _run(("npm", "run", "smoke", "--", url), target)
