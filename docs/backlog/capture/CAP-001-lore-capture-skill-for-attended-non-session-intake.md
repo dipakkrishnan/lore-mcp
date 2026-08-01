@@ -10,7 +10,7 @@ blockers: []
 dependencies: []
 github_issue: null
 created: 2026-07-30
-updated: 2026-07-30
+updated: 2026-08-01
 ---
 
 ## Problem
@@ -25,14 +25,17 @@ reads PDFs and images natively and voice mode already lands as session text.
 
 ## Proposed approach
 
-One skill, `lore-capture`, three intake modes converging on one flow
+One skill, `lore-capture`, voice-first, with two secondary rails
 (design: `docs/agent-runtime-capture.md`):
 
-1. Files — stdlib-extractable types via `lore/extract.py` (PR #34, shared
+1. Voice (primary) — voice-mode speech arrives as session text; the skill
+   treats it as an interview with follow-ups, a conversation the owner has
+   rather than a command they run. Most non-session context is spoken, not
+   filed, so this is the rail the flow is designed around. Audio files
+   (.m4a) deferred.
+2. Files — stdlib-extractable types via `lore/extract.py` (PR #34, shared
    with the unattended rails); PDFs/images via the agent's native reading, so
    issue #8's deferred extraction-dependency decision is not needed here.
-2. Voice — voice-mode speech arrives as session text; the skill treats it as
-   an interview with follow-ups. Audio files (.m4a) deferred.
 3. Paste/dictated text — same flow, degenerate case.
 
 All modes end: extract → propose bounded candidate memories steered by the
@@ -42,10 +45,25 @@ Decision (Dipak, 2026-07-30): land as `private` memories directly rather
 than waiting for the deferred `captures` staging table — the owner is in the
 loop at propose time, which is what staging exists to provide.
 
+Voice adds a second disposition (Dipak, 2026-08-01): a voice turn either
+**lands now** (self-contained, stated as fact — propose at a natural pause)
+or is **marked for synthesis** (mid-thought, or the value is in the whole
+arc — mark the span, let the scheduled synthesis pass in `lore/automation.py`
+distill it later). Marking is the default when in doubt: deferring costs a
+synthesis pass, interrupting a train of thought costs the rail. Files and
+paste only ever use "land now."
+
 ## Acceptance criteria
 
 - [ ] `skills/lore-capture/SKILL.md` exists and handles all three intake
-      modes in one conversational flow.
+      modes in one conversational flow, written voice-first.
+- [ ] A spoken walkthrough of a topic produces proposed memories without the
+      owner naming a file or issuing a capture command; a dry-run of the
+      voice conversation (per XC-005) demonstrates it.
+- [ ] Each voice turn resolves as either "land now" or "marked for
+      synthesis"; marked spans are picked up by the scheduled synthesis pass
+      and land with the same profile/blueprint steering, and the skill never
+      blocks the conversation to confirm candidates mid-thought.
 - [ ] A dropped directory of txt/md/csv/json plus a PDF produces proposed
       memories the owner can correct before anything is stored; corrections
       are honored in what lands.

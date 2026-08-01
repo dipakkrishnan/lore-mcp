@@ -21,21 +21,29 @@ into in-session text, and it can ask clarifying questions. Issue #8's step 5
 no `pypdf`, no watchers, no daemons. The interactive path needs zero new
 runtime dependencies.
 
-## Shape: one skill, `lore-capture`, three intake modes
+## Shape: one skill, `lore-capture`, voice-first
 
-One conversational flow. The user invokes it with content in hand; the skill
-routes by what arrives:
+**Voice is the primary rail, not one of three equals.** The content that never
+touched a session is mostly content the owner would *say*, not type or file:
+the thought on the walk, the reasoning behind a decision, the thing they'd
+explain to a colleague in two minutes and never write down. Files and paste are
+the secondary rails — they exist because some content already sits on disk.
+Design the flow for someone talking; the other two fall out as degenerate
+cases.
 
-1. **Files** — "capture ~/field-notes/". The agent reads stdlib-extractable
+1. **Voice (primary)** — speech arrives as session text via voice mode. The
+   skill treats "let me tell you about X" as intake and interviews with
+   follow-ups the way `lore-onboard` phase 1 does: it is a conversation the
+   owner *has*, not a command they run. This is also the mode where invocation
+   should be near-invisible — a voice session that drifts into substantive
+   context is capture, whether or not the owner said "capture this." Audio
+   *files* (.m4a voice memos) are deferred until someone actually has them —
+   transcription is the one genuinely missing runtime capability.
+2. **Files** — "capture ~/field-notes/". The agent reads stdlib-extractable
    types via `lore/extract.py` (PR #34, shared with the dropbox rail so
    file-type support is added once) and reads PDFs/images with its own native
    comprehension. Oversized or unreadable files are reported, never silently
    dropped — same contract as `extract.py`.
-2. **Voice** — free today via voice mode: speech arrives as session text, and
-   the skill treats "let me tell you about X" as intake, interviewing with
-   follow-ups the way `lore-onboard` phase 1 does. Audio *files* (.m4a voice
-   memos) are deferred until someone actually has them — transcription is the
-   one genuinely missing runtime capability.
 3. **Paste/dictated text** — degenerate case of the same flow; wraps the
    `lore capture` CLI from issue #8 step 3 when it lands.
 
@@ -44,6 +52,25 @@ candidate memories steered by the owner's blueprint/profile → **owner corrects
 the proposal** (the `lore-onboard` phase-2 pattern: correcting beats
 blank-slate authoring) → land as `private` memories with file/source
 provenance via the store.
+
+## Two dispositions, because interrupting a voice conversation is the failure mode
+
+A file capture can afford to stop and propose. A voice conversation cannot —
+breaking someone's train of thought to confirm seven candidate memories is how
+the rail stops being used. So a voice turn resolves one of two ways:
+
+- **Land now** — the owner said something self-contained and stated as fact
+  ("my payout wallet is self-custody, never an exchange"). Propose at a natural
+  pause, owner corrects, it lands `private`.
+- **Mark for synthesis** — the owner is mid-thought, exploring, or the value is
+  in the whole arc rather than any one sentence. The skill marks the span and
+  gets out of the way; the existing scheduled synthesis pass
+  (`lore/automation.py`, same prompt and profile) distills it later with the
+  full transcript in view.
+
+Marking is the default when in doubt — deferring costs a synthesis pass,
+interrupting costs the conversation. This is the one genuinely new mechanism
+here; files and paste only ever use "land now."
 
 ## Boundaries (inherited, not new)
 
@@ -73,3 +100,7 @@ provenance via the store.
    voice-memo files show up in practice.
 3. New `capture/` backlog component, `CAP-` prefix (`CAP-001` tracks the
    skill).
+4. (2026-08-01) Voice is the primary rail, not one of three equals; the flow
+   is designed for someone talking. Voice turns resolve as either *land now*
+   or *mark for synthesis*, marking being the default when in doubt, so the
+   skill never interrupts a train of thought to confirm candidates.
