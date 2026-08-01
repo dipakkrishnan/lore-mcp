@@ -19,7 +19,7 @@ import sys
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
 
-from . import __version__
+from . import __version__, manifest
 from .store import Store
 
 PROTOCOL_VERSION = "2025-11-25"
@@ -28,11 +28,14 @@ TOOLS = [
     {
         "name": "discover",
         "title": "Discover Lore",
-        "description": "Check whether this Lore node has owner-approved context relevant to a query. Free and content-safe.",
+        "description": (
+            "Return this Lore node's owner-approved catalog of what it can answer. "
+            "Call with no arguments to browse everything; pass a query to also learn "
+            "which topics match it. Free and content-safe."
+        ),
         "inputSchema": {
             "type": "object",
             "properties": {"query": {"type": "string", "minLength": 1}},
-            "required": ["query"],
             "additionalProperties": False,
         },
         "annotations": {"readOnlyHint": True, "openWorldHint": False},
@@ -80,7 +83,11 @@ def dispatch(message: object) -> dict[str, Any] | None:
                 "protocolVersion": version,
                 "capabilities": {"tools": {"listChanged": False}},
                 "serverInfo": {"name": "lore", "version": __version__},
-                "instructions": "Use discover before answer. Only owner-approved publications are returned.",
+                "instructions": (
+                    "Call discover first, with no arguments, to read this node's "
+                    "catalog of topics; then call answer for the ones you want. "
+                    "Only owner-approved publications are returned."
+                ),
             }
         elif method == "ping":
             result = {}
@@ -112,18 +119,27 @@ def call_tool(name: object, arguments: object) -> dict[str, Any]:
     if not isinstance(query, str):
         raise TypeError("query must be a string")
     query = query.strip()
-    if not query:
+    # discover browses: a buyer who does not yet know this node's vocabulary must be
+    # able to ask for the catalog without inventing a query. answer still needs one.
+    if not query and name == "answer":
         raise ValueError("query is required")
     with Store() as store:
         if name == "discover":
-            matches = store.search_publications(query, limit=5)
+            active = store.list_publications(active_only=True)
             payload = {
-                "can_help": bool(matches),
-                "match_count": len(matches),
-                "topics": [publication.title for publication in matches],
+                "can_help": bool(active),
+                "match_count": len(active),
+                "manifest": manifest.render(active),
                 "price_usd": store.setting("price_usd", None),
                 "disclosure": "Only owner-approved publications are available.",
             }
+            if query:
+                # Topics only. The manifest already discloses every topic, so this
+                # narrows the catalog without disclosing anything beyond it — and in
+                # particular without naming the claim titles `answer` sells.
+                payload["relevant_topics"] = manifest.topics(
+                    store.search_publications(query, limit=0)
+                )
         elif name == "answer":
             limit = arguments.get("max_results", 5)
             if isinstance(limit, bool) or not isinstance(limit, int) or not 1 <= limit <= 10:

@@ -8,6 +8,7 @@ import sys
 from pathlib import Path
 
 from . import blueprint as blueprint_module
+from . import manifest as manifest_module
 from .paths import home
 from .sources import available_sources, scan
 from .store import STATUSES, Publication, PublicationKind, Store
@@ -41,6 +42,7 @@ def parser() -> argparse.ArgumentParser:
     profile.add_argument("--no-schedule", action="store_true", help="write the profile without installing schedules")
 
     commands.add_parser("status", help="show source and review status")
+    commands.add_parser("manifest", help="show the free catalog buyers see over MCP")
     commands.add_parser("help", help="show the Lore workflow manual")
     price = commands.add_parser("price", help="show or set the fixed answer price")
     price.add_argument("amount", nargs="?", type=float, help="USD per answer; use 0 for free")
@@ -108,6 +110,8 @@ def main(argv: list[str] | None = None) -> int:
             return profile(args.path, not args.no_schedule)
         if args.command == "status":
             return status()
+        if args.command == "manifest":
+            return manifest()
         if args.command == "help":
             return manual()
         if args.command == "price":
@@ -184,10 +188,13 @@ def manual() -> int:
   6. lore status
      Check imports, the private library, active publications, and price.
 
-  7. lore serve
+  7. lore manifest
+     Read the free catalog buyers see over MCP before they pay for anything.
+
+  8. lore serve
      Start the MCP endpoint used by local agents or a protected gateway.
 
-  8. lore blueprint show
+  9. lore blueprint show
      See the shape of your lore captured by the gamified onboarding skill
      (run `lore blueprint apply <file>` from that skill to update it).
 
@@ -448,6 +455,19 @@ def publication_list() -> int:
     return 0
 
 
+def manifest() -> int:
+    """Print the catalog a buyer's agent sees, byte for byte.
+
+    Reads the same renderer the MCP surface does, so this is an audit of the real
+    free surface rather than a description of it.
+    """
+    with Store() as store:
+        text = manifest_module.render(store.list_publications(active_only=True))
+    print(text, end="")
+    muted("\nThis is the free surface. Buyers see exactly this before paying.")
+    return 0
+
+
 def publication_revoke(publication_id: int) -> int:
     """Immediately remove a publication from external retrieval."""
     with Store() as store:
@@ -478,6 +498,15 @@ def _push_sql(publications: list[Publication]) -> str:
         f"({p.id},{quote(p.title)},{quote(p.content)},{quote(p.kind.value)},{quote(p.topic)});"
         for p in publications
     )
+    # The manifest ships as rendered text rather than being rebuilt at the edge:
+    # one renderer, in one language, means the deployed node cannot drift from the
+    # local one — and the privacy rules in lore/manifest.py are enforced in exactly
+    # one place instead of being restated in TypeScript.
+    statements += [
+        "CREATE TABLE IF NOT EXISTS manifest (text TEXT NOT NULL);",
+        "DELETE FROM manifest;",
+        f"INSERT INTO manifest(text) VALUES ({quote(manifest_module.render(publications))});",
+    ]
     return "\n".join(statements) + "\n"
 
 

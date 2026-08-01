@@ -13,7 +13,7 @@ from io import StringIO
 from pathlib import Path
 from unittest.mock import patch
 
-from lore import automation, blueprint
+from lore import automation, blueprint, manifest
 from lore.cli import (
     blueprint_apply,
     blueprint_show,
@@ -431,6 +431,173 @@ class LoreTest(unittest.TestCase):
             }
         )
         return response["result"]["content"][0]["text"]  # type: ignore[index]
+
+    def _discover(self, query: str | None = None) -> dict:
+        arguments = {} if query is None else {"query": query}
+        response = dispatch(
+            {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "tools/call",
+                "params": {"name": "discover", "arguments": arguments},
+            }
+        )
+        return json.loads(response["result"]["content"][0]["text"])  # type: ignore[index]
+
+    def _render_manifest(self) -> str:
+        with Store() as store:
+            return manifest.render(store.list_publications(active_only=True))
+
+    def test_manifest_is_unchanged_by_any_private_activity(self) -> None:
+        # MCP-001's load-bearing invariant: everything a buyer can observe —
+        # labels, counts, ordering, structure — must derive only from active
+        # publications. Metadata about private rows is itself a disclosure, so a
+        # manifest that shifts when private material shifts leaks the shape of the
+        # private library even though no private content is returned.
+        source = self._seed_memory("Launch evidence", "private")
+        with Store() as store:
+            store.add_publication(
+                title="Live demos beat cold decks",
+                content="what we learned launching",
+                topic="go-to-market lessons",
+                provenance=[source],
+            )
+        before = self._render_manifest()
+
+        self._seed_memory("A brand new private memory", "private")
+        self._seed_memory("A memory the owner discarded", "discarded")
+        # Editing a memory a publication derives from sets source_changed_at on
+        # that publication — the one column that moves in response to private
+        # activity, and the trap this test exists to catch.
+        with Store() as store:
+            store.put(
+                source="test",
+                origin="native",
+                source_path="Launch evidence",
+                source_key="Launch evidence",
+                fingerprint="changed",
+                title="Launch evidence",
+                content="revised private evidence",
+            )
+            self.assertTrue(store.stale_publications())  # the flag really was set
+
+        self.assertEqual(before, self._render_manifest())
+        self.assertEqual(before, self._discover()["manifest"])
+
+    def test_manifest_withholds_claim_titles_but_lists_content_titles(self) -> None:
+        # A claim's title usually IS the claim, and the manifest is free. Naming
+        # it would hand over the thing `answer` charges for.
+        source = self._seed_memory("Pricing evidence", "private")
+        with Store() as store:
+            store.add_publication(
+                title="Charge more than you think, sooner",
+                content="the full reasoning behind the claim",
+                kind="claim",
+                topic="pricing",
+                provenance=[source],
+            )
+            store.add_publication(
+                title="Notes on grading at scale",
+                content="promoted verbatim notes",
+                kind="content",
+                topic="teaching",
+                provenance=[source],
+            )
+        payload = self._discover()
+        text = payload["manifest"]
+        self.assertNotIn("Charge more than you think", text)
+        self.assertNotIn("the full reasoning", text)  # no content, ever
+        self.assertIn("pricing", text)  # the topic still advertises it
+        self.assertIn("1 claim", text)
+        self.assertIn("Notes on grading at scale", text)  # content titles are labels
+        self.assertNotIn("Charge more than you think", json.dumps(payload))
+
+    def test_discover_browses_without_a_query_and_narrows_with_one(self) -> None:
+        source = self._seed_memory("Buyer evidence", "private")
+        with Store() as store:
+            store.add_publication(
+                title="Deck feedback", content="deck guidance",
+                topic="fundraising", provenance=[source],
+            )
+            store.add_publication(
+                title="Grading notes", content="teaching guidance",
+                topic="teaching", provenance=[source],
+            )
+        browsed = self._discover()
+        self.assertTrue(browsed["can_help"])
+        self.assertIn("fundraising", browsed["manifest"])
+        self.assertIn("teaching", browsed["manifest"])
+        self.assertNotIn("relevant_topics", browsed)  # nothing to narrow
+
+        narrowed = self._discover("what do you know about teaching?")
+        self.assertEqual(narrowed["relevant_topics"], ["teaching"])
+        # Narrowing must not shrink the catalog: the buyer still sees everything.
+        self.assertEqual(narrowed["manifest"], browsed["manifest"])
+
+    def test_revoking_the_last_publication_removes_its_topic(self) -> None:
+        source = self._seed_memory("Sole evidence", "private")
+        with Store() as store:
+            only = store.add_publication(
+                title="A lone note", content="text", kind="content",
+                topic="a topic held up by one publication", provenance=[source],
+            )
+        self.assertIn("a topic held up by one publication", self._render_manifest())
+        with Store() as store:
+            store.revoke_publication(only)
+        text = self._render_manifest()
+        self.assertNotIn("a topic held up by one publication", text)
+        self.assertNotIn("A lone note", text)
+        self.assertFalse(self._discover()["can_help"])
+
+    def test_manifest_of_an_empty_node_is_valid_not_a_crash(self) -> None:
+        self.assertEqual(manifest.render([]), manifest.EMPTY)
+        payload = self._discover()
+        self.assertFalse(payload["can_help"])
+        self.assertEqual(payload["manifest"], manifest.EMPTY)
+
+    def test_manifest_strips_control_characters_from_owner_text(self) -> None:
+        # Manifest text lands in another agent's context; escape sequences in a
+        # title must not survive the trip.
+        source = self._seed_memory("Escaped evidence", "private")
+        with Store() as store:
+            store.add_publication(
+                title="Bold\x1b[1m title", content="text", kind="content",
+                topic="a\x00topic", provenance=[source],
+            )
+        text = self._render_manifest()
+        self.assertNotIn("\x1b", text)
+        self.assertNotIn("\x00", text)
+        self.assertIn("atopic", text)
+
+    def test_manifest_ordering_is_stable_regardless_of_insertion_order(self) -> None:
+        # Ordering is observable, so it is part of the invariant above.
+        source = self._seed_memory("Ordering evidence", "private")
+        with Store() as store:
+            for topic in ("zebra", "Apple", "mango"):
+                store.add_publication(
+                    title=f"{topic} note", content="text", kind="content",
+                    topic=topic, provenance=[source],
+                )
+        text = self._render_manifest()
+        self.assertLess(text.index("## Apple"), text.index("## mango"))
+        self.assertLess(text.index("## mango"), text.index("## zebra"))
+
+    def test_push_ships_the_rendered_manifest_and_replaces_the_old_one(self) -> None:
+        from lore.cli import _push_sql
+
+        source = self._seed_memory("Push evidence", "private")
+        with Store() as store:
+            store.add_publication(
+                title="Pushed note", content="text", kind="content",
+                topic="deployment", provenance=[source],
+            )
+            active = store.list_publications(active_only=True)
+        script = _push_sql(active)
+        # Full replace, so a stale manifest cannot survive a push.
+        self.assertIn("DELETE FROM manifest;", script)
+        self.assertIn("INSERT INTO manifest(text) VALUES", script)
+        self.assertIn("## deployment", script)
+        self.assertLess(script.index("DELETE FROM manifest;"), script.index("INSERT INTO manifest"))
 
     def test_new_imports_default_to_private(self) -> None:
         with Store() as store:

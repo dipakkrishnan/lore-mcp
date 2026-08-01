@@ -23,6 +23,13 @@ try {
     ["answer", "discover"]
   );
 
+  // No arguments: the catalog is the point of discover, and a buyer must be able
+  // to read it without first guessing this node's vocabulary.
+  const browsed = await client.callTool({ name: "discover", arguments: {} });
+  assert.equal(browsed.isError, undefined);
+  const catalog = JSON.parse((browsed.content as { text: string }[])[0].text);
+  assert.ok(catalog.manifest, "discover must return a manifest");
+
   const discover = await client.callTool({
     name: "discover",
     arguments: { query: "Lore" }

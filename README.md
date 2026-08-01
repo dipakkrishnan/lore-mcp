@@ -26,6 +26,7 @@ lore sync                     # import new or changed memory files
 lore review                   # keep private / discard
 lore review launch --status private  # revisit a prior decision
 lore search "failed launch"   # SQLite full-text recall
+lore manifest                 # read the free catalog buyers see
 lore price 0.50               # advertise a fixed answer price
 lore status
 lore blueprint show            # see the shape of your lore, once captured
@@ -159,7 +160,7 @@ The node publishes a coarse capability manifest—topics, recency, kinds of expe
 Discovery happens at two levels:
 
 1. Agent and plugin marketplaces help a buyer find potentially relevant Lore MCP endpoints.
-2. A free `discover` call asks a particular node whether it can help with a task and returns only safe relevance metadata.
+2. A free `discover` call returns that node's owner-approved catalog of topics, so a buyer can read what is on offer instead of guessing someone else's vocabulary.
 
 ### 6. Answer and settle
 
@@ -172,7 +173,7 @@ buyer task
     ↓
 marketplace search
     ↓
-discover(query) ──→ safe relevance metadata
+discover() ──────→ owner-approved catalog of topics
     ↓
 answer(query) ────→ price quote
     ↓                       ↓
@@ -185,7 +186,7 @@ policy-filtered answer
 
 The public surface can begin with two tools:
 
-- `discover(query)` — free; describes whether the node can help without revealing private context.
+- `discover([query])` — free; returns the node's catalog of owner-approved topics. Call it with no arguments to browse everything, or pass a query to also learn which topics match. Inspect your own catalog with `lore manifest`.
 - `answer(query)` — paid when policy requires it; returns a derived answer with provenance and disclosure limits.
 
 Private owner-facing operations such as remembering, forgetting, consolidating, reviewing, and changing policy can be added only as the local memory implementation requires them.
@@ -210,9 +211,11 @@ codex mcp add lore -- lore serve
 claude mcp add --scope user lore -- lore serve
 ```
 
-`discover` returns only safe relevance metadata. `answer` searches only active
-publications the owner explicitly approved; no memory is reachable over MCP,
-whatever its status. HTTP binds to loopback by default. Binding another interface requires
+`discover` returns a catalog built only from active publications, and nothing in it
+moves when private memory changes. Because the catalog is free and `answer` is the
+product, it lists `claim` publications by topic only — a claim's title is usually the
+claim itself. `answer` searches only active publications the owner explicitly
+approved; no memory is reachable over MCP, whatever its status. HTTP binds to loopback by default. Binding another interface requires
 `--token` or `LORE_MCP_TOKEN`.
 
 The intended paid deployment boundary is:

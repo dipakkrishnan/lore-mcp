@@ -6,11 +6,11 @@ effort: L
 component: mcp-server
 status: in-review
 related: [STO-001, XC-002]
-blockers: [XC-002]
+blockers: []
 dependencies: []
 github_issue: null
 created: 2026-07-29
-updated: 2026-07-31
+updated: 2026-08-01
 ---
 
 ## Problem
@@ -81,16 +81,16 @@ grouping is restricted to structure the owner already approved.
 
 ## Acceptance criteria
 
-- [ ] A buyer's agent can read the manifest and select specific publications
+- [x] A buyer's agent can read the manifest and select specific publications
       to purchase, without issuing a keyword query.
-- [ ] Everything a buyer can observe in the manifest (or any later tree) —
+- [x] Everything a buyer can observe in the manifest (or any later tree) —
       labels, counts, ordering, structure — is derived exclusively from
       owner-approved fields of active publications. A test renders the full
       manifest and asserts it is byte-identical
       before and after private rows are added, edited, and discarded.
-- [ ] Every externally-visible node label is owner-approved text, not text
+- [x] Every externally-visible node label is owner-approved text, not text
       synthesized at request time from private material.
-- [ ] Revoking a publication removes it from the manifest immediately, and
+- [x] Revoking a publication removes it from the manifest immediately, and
       removes any grouping that existed only to hold it.
 
 ## Notes
@@ -134,3 +134,47 @@ trip; the navigable tree becomes the scale-up when a manifest outgrows a
 response. All privacy constraints unchanged and apply to the manifest verbatim.
 The schema prerequisite is unchanged too: the owner-approved topic field at
 XC-002 approval time is what the manifest groups by.
+
+## Resolution, 2026-08-01
+
+Implemented manifest-first. The XC-002 blocker was already satisfied — the
+`topic` column, its non-empty constraint, and its replication to the edge all
+landed with XC-002 — so the remaining work was a renderer, not a schema change.
+
+`lore/manifest.py` renders the catalog as a pure function of the active
+publications: no synthesis, no request-time construction, no LLM in the path.
+That is what makes the byte-identical criterion hold by construction. The sharp
+edge found during implementation was `source_changed_at`, the one publication
+column that moves when a *private memory* changes (`Store._flag_publications_of`);
+it is excluded, and the invariant test edits a memory behind a publication
+specifically to catch a future regression. `updated_at`, which that path
+deliberately leaves alone, carries freshness instead.
+
+The two open questions this item flagged are now decided:
+
+- **Claim titles are withheld.** Claims are advertised at topic granularity —
+  topic, count, freshness — because a claim's title is usually the claim itself
+  and the manifest is free. `content`-kind titles are listed, since there the
+  title is a label and the content is the payload. Chosen over a `teaser` column
+  (extra schema, extra owner burden per publication) and over publish-time title
+  coaching (this item's own note that it "relies on the owner noticing" — one
+  careless title permanently leaks a paid claim).
+- **`query` is optional, not removed.** Omit it to browse the whole catalog;
+  pass it to additionally receive `relevant_topics`. Narrowing never shrinks the
+  manifest, and returns topics rather than titles so it obeys the same rule.
+
+The catalog ships to the deployed node as rendered text in the D1 `manifest`
+table, full-replaced by `lore push` alongside the publications. The worker serves
+it verbatim: one renderer in one language, so the edge cannot drift from local,
+and these privacy rules are stated once instead of restated in TypeScript. That
+push also closed a live leak — the worker's free `discover` was returning
+publication titles, claims included.
+
+`lore manifest` prints the catalog through the same renderer, so an owner can
+audit their real free surface rather than a description of it.
+
+Still open, and still not blocking: per-publication pricing granularity, whether
+browsing stays free, depth/breadth limits against enumeration, basket vs.
+per-item `answer` calls, and whether the blueprint axis belongs on the wire. The
+navigable tree remains the scale-up for when a manifest outgrows a response; no
+evidence yet that it has.
