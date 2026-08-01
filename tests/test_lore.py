@@ -4,6 +4,7 @@ import json
 import os
 import sqlite3
 import stat
+import subprocess
 import sys
 import tempfile
 import tomllib
@@ -14,6 +15,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from lore import automation, blueprint
+from lore import deploy as deploy_module
 from lore.cli import (
     blueprint_apply,
     blueprint_show,
@@ -325,6 +327,157 @@ class LoreTest(unittest.TestCase):
                 self.assertNotIn(f"--status {status}", prompt)
             else:
                 self.assertIn(f"search --status {status} --limit 0 --json", prompt)
+
+    def test_node_deploy_materializes_without_dev_artifacts(self) -> None:
+        target = deploy_module.materialize()
+        self.assertTrue((target / "src/index.ts").is_file())
+        self.assertTrue((target / "scripts/pay.ts").is_file())
+        self.assertTrue((target / ".buyer.env.example").is_file())
+        self.assertFalse((target / "node_modules").exists())
+        self.assertFalse((target / ".buyer.env").exists())
+        # Secrets live here, so the directory is owner-only like the rest of ~/.lore.
+        self.assertEqual(stat.S_IMODE(target.stat().st_mode), 0o700)
+        # Re-running upgrades the source but never touches the owner's secrets file,
+        # and the D1 id the owner pasted into wrangler.jsonc survives the upgrade.
+        (target / ".buyer.env").write_text("BUYER_TEST_PRIVATE_KEY=untouched")
+        config = target / "wrangler.jsonc"
+        config.write_text(
+            config.read_text().replace("REPLACE_WITH_YOUR_D1_ID", "d1-id-owner-pasted")
+        )
+        deploy_module.materialize()
+        self.assertEqual((target / ".buyer.env").read_text(), "BUYER_TEST_PRIVATE_KEY=untouched")
+        self.assertIn('"database_id": "d1-id-owner-pasted"', config.read_text())
+        self.assertNotIn("REPLACE_WITH_YOUR_D1_ID", config.read_text())
+
+    def test_node_deploy_drives_wrangler_and_records_the_url(self) -> None:
+        def fake_run(args, **kwargs):
+            stdout = ""
+            if args[0].endswith("wrangler") and args[1] == "deploy":
+                stdout = "Deployed lore-x402-canary\n  https://lore.example.workers.dev\n"
+            if args[0].endswith("wrangler") and args[1:3] == ("d1", "create"):
+                stdout = '"database_id": "11111111-2222-3333-4444-555555555555"\n'
+            return subprocess.CompletedProcess(args, 0, stdout=stdout, stderr="")
+
+        with (
+            patch("lore.deploy.subprocess.run", side_effect=fake_run) as run,
+            patch("lore.deploy.shutil.which", return_value="/usr/bin/npm"),
+            patch("lore.cli.push") as push,
+            redirect_stdout(StringIO()),
+        ):
+            self.assertEqual(deploy_module.deploy("0x" + "1" * 40), 0)
+        commands = [call.args[0] for call in run.call_args_list]
+        self.assertIn(("npm", "install", "--no-fund", "--no-audit"), commands)
+        wrangler_calls = [
+            c[1:] for c in commands if c[0].endswith("node_modules/.bin/wrangler")
+        ]
+        # The placeholder is resolved before wrangler validates the D1 binding
+        # at deploy, and the created id is written into the staged config.
+        self.assertLess(
+            wrangler_calls.index(("d1", "create", "lore-publications")),
+            wrangler_calls.index(("deploy",)),
+        )
+        config = Path(os.environ["LORE_HOME"]) / "node/wrangler.jsonc"
+        self.assertIn(
+            '"database_id": "11111111-2222-3333-4444-555555555555"', config.read_text()
+        )
+        self.assertIn(("secret", "put", "LORE_WALLET"), wrangler_calls)
+        # The first push creates the publications table before the smoke check.
+        push.assert_called_once()
+        self.assertIn(
+            ("npm", "run", "smoke", "--", "https://lore.example.workers.dev/mcp"), commands
+        )
+        with Store() as store:
+            self.assertEqual(
+                store.setting("node_url"), "https://lore.example.workers.dev/mcp"
+            )
+
+    def test_node_deploy_records_the_url_before_the_secret_put(self) -> None:
+        # If `secret put` fails, the node is already live — the URL must have
+        # been recorded so `lore status` can recover it.
+        def fake_run(args, **kwargs):
+            if args[1:] == ("secret", "put", "LORE_WALLET"):
+                return subprocess.CompletedProcess(args, 1, stdout="", stderr="vault down")
+            stdout = ""
+            if args[1:] == ("deploy",):
+                stdout = "https://lore.example.workers.dev\n"
+            if args[1:] == ("d1", "create", "lore-publications"):
+                stdout = 'database_id = "11111111-2222-3333-4444-555555555555"\n'
+            return subprocess.CompletedProcess(args, 0, stdout=stdout, stderr="")
+
+        with (
+            patch("lore.deploy.subprocess.run", side_effect=fake_run),
+            patch("lore.deploy.shutil.which", return_value="/usr/bin/npm"),
+            patch("lore.cli.push"),
+            redirect_stdout(StringIO()),
+            self.assertRaisesRegex(OSError, "LORE_WALLET"),
+        ):
+            deploy_module.deploy("0x" + "1" * 40)
+        with Store() as store:
+            self.assertEqual(
+                store.setting("node_url"), "https://lore.example.workers.dev/mcp"
+            )
+
+    def test_node_deploy_on_custom_route_keeps_the_recorded_url(self) -> None:
+        # A successful deploy that prints no workers.dev address means a custom
+        # route, not a dead node — the previously recorded URL must survive.
+        with Store() as store:
+            store.set_setting("node_url", "https://lore.example.workers.dev/mcp")
+
+        def fake_run(args, **kwargs):
+            stdout = ""
+            if args[1:] == ("d1", "create", "lore-publications"):
+                stdout = '"database_id": "11111111-2222-3333-4444-555555555555"\n'
+            return subprocess.CompletedProcess(args, 0, stdout=stdout, stderr="")
+
+        with (
+            patch("lore.deploy.subprocess.run", side_effect=fake_run),
+            patch("lore.deploy.shutil.which", return_value="/usr/bin/npm"),
+            patch("lore.cli.push"),
+            redirect_stdout(StringIO()),
+        ):
+            self.assertEqual(deploy_module.deploy("0x" + "1" * 40), 0)
+        with Store() as store:
+            self.assertEqual(
+                store.setting("node_url"), "https://lore.example.workers.dev/mcp"
+            )
+
+    def test_node_deploy_finds_an_already_created_d1_database(self) -> None:
+        # `d1 create` on a rerun says "already exists"; the id is then
+        # recovered from `d1 list` instead of failing the deploy.
+        def fake_run(args, **kwargs):
+            if args[1:] == ("d1", "create", "lore-publications"):
+                return subprocess.CompletedProcess(
+                    args, 1, stdout="", stderr="a database with that name already exists"
+                )
+            stdout = ""
+            if args[1:] == ("d1", "list", "--json"):
+                stdout = json.dumps(
+                    [{"uuid": "22222222-3333-4444-5555-666666666666", "name": "lore-publications"}]
+                )
+            if args[1:] == ("deploy",):
+                stdout = "https://lore.example.workers.dev\n"
+            return subprocess.CompletedProcess(args, 0, stdout=stdout, stderr="")
+
+        with (
+            patch("lore.deploy.subprocess.run", side_effect=fake_run),
+            patch("lore.deploy.shutil.which", return_value="/usr/bin/npm"),
+            patch("lore.cli.push"),
+            redirect_stdout(StringIO()),
+        ):
+            self.assertEqual(deploy_module.deploy("0x" + "1" * 40), 0)
+        config = Path(os.environ["LORE_HOME"]) / "node/wrangler.jsonc"
+        self.assertIn(
+            '"database_id": "22222222-3333-4444-5555-666666666666"', config.read_text()
+        )
+
+    def test_node_deploy_fails_closed_on_bad_input(self) -> None:
+        with self.assertRaisesRegex(ValueError, "public EVM address"):
+            deploy_module.deploy("0xnothex")
+        with (
+            patch("lore.deploy.shutil.which", return_value=None),
+            self.assertRaisesRegex(OSError, "nodejs.org"),
+        ):
+            deploy_module.deploy("0x" + "1" * 40)
 
     def test_synthesis_index_is_not_imported_as_memory(self) -> None:
         root = Path(os.environ["LORE_HOME"]) / "memories"

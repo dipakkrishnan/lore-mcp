@@ -15,8 +15,8 @@ updated: 2026-07-30
 
 ## Problem
 
-The x402 canary in `worker/` (PR #32) has never actually taken a payment.
-`worker/scripts/smoke.ts` asserts only the *unpaid* path: that `answer` returns
+The x402 canary in `lore/node/` (PR #32) has never actually taken a payment.
+`lore/node/scripts/smoke.ts` asserts only the *unpaid* path: that `answer` returns
 `isError` with an `x402/error` meta. Verification and settlement — the two steps
 that involve a facilitator and real (test) money — have never run. So the thing
 the canary exists to prove is the one thing still unproven.
@@ -27,7 +27,7 @@ payment and revocation fail closed."
 
 ## Proposed approach
 
-Deploy the canary and run `worker/scripts/pay.ts` against it with a dedicated
+Deploy the canary and run `lore/node/scripts/pay.ts` against it with a dedicated
 Base Sepolia wallet funded from the CDP faucet. Confirm the settlement receipt
 on-chain and confirm the recipient address actually received the test USDC.
 
@@ -52,7 +52,7 @@ defect to fix in this item.
 
 ## Notes
 
-Never use a mainnet wallet or mainnet USDC. `worker/scripts/pay.ts` caps spend
+Never use a mainnet wallet or mainnet USDC. `lore/node/scripts/pay.ts` caps spend
 at `usdcBaseUnits(PRICE_USD)` — keep that cap.
 
 Open question worth answering during the run: what the buyer sees when

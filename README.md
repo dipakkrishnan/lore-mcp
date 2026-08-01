@@ -28,6 +28,7 @@ lore review launch --status private  # revisit a prior decision
 lore search "failed launch"   # SQLite full-text recall
 lore price 0.50               # advertise a fixed answer price
 lore status
+lore node deploy --wallet 0x… # deploy your node to your own Cloudflare account
 lore blueprint show            # see the shape of your lore, once captured
 ```
 
@@ -65,6 +66,11 @@ as one conversation inside a Claude or Codex session, in two phases:
    synthesis profile you correct rather than authoring from blank prompts, installs the
    recurring synthesis task, and lets its first run process useful history. The blueprint
    from phase 1 steers where it reads deeply. Captured with `lore profile`.
+
+When you are ready to charge for answers, the `lore-enable-payments` skill
+(`skills/lore-enable-payments/SKILL.md`) walks you from a self-custody payout address
+to a deployed node and a proven test-network payment — with free as a first-class
+place to stop.
 
 The blueprint (shape) and the profile (what steers synthesis) stay separate artifacts. See
 `docs/gamified-onboarding.md` for the persona design.
@@ -199,7 +205,7 @@ The implemented server exposes those two tools using MCP protocol version
 # Local agent configuration (newline-delimited stdio)
 lore serve
 
-# Stateless Streamable HTTP for a tunnel or reverse proxy
+# Stateless Streamable HTTP for local agents that prefer it
 lore serve --transport http --host 127.0.0.1 --port 8765
 ```
 
@@ -215,16 +221,19 @@ publications the owner explicitly approved; no memory is reachable over MCP,
 whatever its status. HTTP binds to loopback by default. Binding another interface requires
 `--token` or `LORE_MCP_TOKEN`.
 
-The intended paid deployment boundary is:
+The paid deployment boundary is a Cloudflare Worker in the owner's own
+account, deployed with `lore node deploy`:
 
 ```text
-buyer agent → payment gateway → tunnel → Lore /mcp
+buyer agent → owner's Worker (x402 payment gate) → owner-approved content
 ```
 
-Lore owns local retrieval and disclosure policy. Whatever fronts the HTTP MCP
-route owns the payment exchange, verification, metering, and settlement. Do not
-expose the origin through a second route that bypasses it. No gateway is chosen
-or required yet, and none is implemented here.
+The Worker source ships inside this package (`lore/node/`), so deploying never
+needs this repository. Lore owns local retrieval and disclosure policy; the
+Worker owns the payment exchange, verification, and settlement, and the
+owner's machine only ever pushes approved publications outward — no tunnel, no
+inbound path to the private library. The deployed node answers from the
+owner-approved publications `lore push` maintains in its edge database.
 
 ## Monetization
 
@@ -270,7 +279,7 @@ The smallest useful prototype is:
 2. one context-janitor skill usable by multiple agents;
 3. a capability manifest;
 4. `discover` and `answer` MCP tools;
-5. a payment boundary in front of the HTTP route;
+5. a payment boundary — shipped as the x402 Worker deployed by `lore node deploy`;
 6. a simple disclosure policy and audit trail.
 
 It does not need a new personal agent, hosted raw-memory service, proprietary payment rail, or standalone marketplace. Existing agent marketplaces can provide initial distribution while the protocol proves that agents will pay for useful personal context.
@@ -292,6 +301,8 @@ Lore MCP is the connective layer between personal memory, agent discovery, owner
 ├── memories/
 │   ├── INDEX.md            # semantic index
 │   └── <topic>.md          # synthesized topic memory
+├── node/                   # deployable Worker source staged by `lore node deploy`
+│   └── .buyer.env          # test-buyer key, owner-created, never overwritten
 └── blueprint/
     ├── blueprint.json      # captured shape of your lore (persona, axis, topics)
     └── lore-map.md         # human-readable rendering of the blueprint
@@ -319,9 +330,10 @@ database, or MCP SDK to install.
 ## Status
 
 The local CLI, agent-memory import, FTS5 search, review flow, assisted synthesis,
-and basic stdio/HTTP MCP server are implemented. Payment enforcement, repeated-
-query extraction protection, remote identity, and marketplace discovery remain
-future work.
+basic stdio/HTTP MCP server, test-network payment enforcement (the x402
+Worker deployed by `lore node deploy`), and publications serving from the
+deployed node (`lore push`) are implemented. Repeated-query extraction
+protection, remote identity, and marketplace discovery remain future work.
 
 ## Related infrastructure
 

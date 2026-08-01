@@ -6,11 +6,11 @@ effort: M
 component: monetization
 status: in-review
 related: [MON-002, MON-005, XC-005]
-blockers: [MON-003]
+blockers: []
 dependencies: []
 github_issue: null
 created: 2026-07-30
-updated: 2026-07-30
+updated: 2026-08-01
 ---
 
 ## Problem
@@ -53,3 +53,19 @@ XC-002 / PR #38 merges).
 History: filed as "split deploy into its own skill", pulled forward into PR #42,
 then reverted there in favor of one skill — the durable conclusion was that the
 mechanics belong in code, not in a second skill. See the PR #42 discussion.
+
+2026-07-30: `lore node deploy` landed early, with the canary as payload — the
+CLI-ization turned out not to depend on MON-003, only the payload swap does.
+The Worker source moved into the package (`lore/node/`, shipped as setuptools
+package data) so deploy needs no git checkout, and the deploy artifact is
+version-locked to the CLI that will later `lore push` into its D1 schema.
+The command materializes to `~/.lore/node` (never touching `.buyer.env`),
+drives npm/wrangler (login, deploy, `LORE_WALLET` secret), records `node_url`
+in settings (shown by `lore status`), and runs the smoke check.
+
+2026-08-01: MON-003 landed (#45), unblocking this: the node serves
+publications from D1, and `lore node deploy` now creates the database,
+resolves the config placeholder, and runs a first `lore push`, so the smoke
+check passes before anything is published. Remaining here: revocation
+reaching the node without a manual `lore push`, and renaming the worker from
+its canary name.
