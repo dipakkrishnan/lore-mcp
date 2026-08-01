@@ -10,7 +10,7 @@ from pathlib import Path
 from . import blueprint as blueprint_module
 from .paths import home
 from .sources import available_sources, scan
-from .store import STATUSES, TREES, Publication, PublicationKind, Store
+from .store import STATUSES, TREES, Node, Publication, PublicationKind, Store
 from .ui import ask, confirm, heading, logo, memory_card, muted, publication_card, success
 
 
@@ -542,25 +542,59 @@ def publication_revoke(publication_id: int) -> int:
     return 0
 
 
-def _push_sql(publications: list[Publication]) -> str:
+def _pushable(store: Store) -> tuple[list[Publication], list[Node]]:
+    """The active publications plus the ancestor closure of their nodes.
+
+    Only branches that actually hold an active publication (or shelter one
+    deeper down) reach the edge — the same pruning rule as the local manifest,
+    computed here so the dump can never carry an empty or private branch.
+    """
+    active = store.list_publications(active_only=True)
+    nodes = {node.id: node for node in store.list_nodes("public")}
+    keep: set[int] = set()
+    for publication in active:
+        node_id = publication.node_id
+        while node_id is not None and node_id not in keep:
+            keep.add(node_id)
+            node_id = nodes[node_id].parent_id
+    return active, [node for node in nodes.values() if node.id in keep]
+
+
+def _push_sql(publications: list[Publication], nodes: list[Node]) -> str:
     """Render the full-replace SQL for the edge database.
 
     Full replace, not diffing: the active set is small, the operation is
     idempotent, and a revoked publication is guaranteed gone because nothing
-    that isn't in this script survives it.
+    that isn't in this script survives it. Drop-and-create rather than CREATE
+    IF NOT EXISTS so schema changes (like the tree columns) self-migrate at
+    the edge. The edge `nodes` table has no `tree` column: only public rows
+    are ever rendered here, so the schema cannot even represent a private
+    node.
     """
     def quote(value: str) -> str:
         return "'" + value.replace("'", "''") + "'"
 
     statements = [
-        "CREATE TABLE IF NOT EXISTS publications ("
+        "DROP TABLE IF EXISTS publications;",
+        "CREATE TABLE publications ("
         "id INTEGER PRIMARY KEY, title TEXT NOT NULL, content TEXT NOT NULL, "
-        "kind TEXT NOT NULL, topic TEXT NOT NULL DEFAULT '');",
-        "DELETE FROM publications;",
+        "kind TEXT NOT NULL, topic TEXT NOT NULL DEFAULT '', "
+        "node_id INTEGER, updated_at TEXT NOT NULL DEFAULT '');",
+        "DROP TABLE IF EXISTS nodes;",
+        "CREATE TABLE nodes ("
+        "id INTEGER PRIMARY KEY, parent_id INTEGER, title TEXT NOT NULL, "
+        "description TEXT NOT NULL DEFAULT '', position INTEGER NOT NULL DEFAULT 0);",
     ]
     statements.extend(
-        f"INSERT INTO publications(id,title,content,kind,topic) VALUES "
-        f"({p.id},{quote(p.title)},{quote(p.content)},{quote(p.kind.value)},{quote(p.topic)});"
+        f"INSERT INTO nodes(id,parent_id,title,description,position) VALUES "
+        f"({n.id},{'NULL' if n.parent_id is None else n.parent_id},"
+        f"{quote(n.title)},{quote(n.description)},{n.position});"
+        for n in nodes
+    )
+    statements.extend(
+        f"INSERT INTO publications(id,title,content,kind,topic,node_id,updated_at) VALUES "
+        f"({p.id},{quote(p.title)},{quote(p.content)},{quote(p.kind.value)},{quote(p.topic)},"
+        f"{'NULL' if p.node_id is None else p.node_id},{quote(p.updated_at)});"
         for p in publications
     )
     return "\n".join(statements) + "\n"
@@ -578,8 +612,8 @@ def push(worker_dir: str, local: bool = False) -> int:
             "or pass --worker-dir"
         )
     with Store() as store:
-        active = store.list_publications(active_only=True)
-    script = _push_sql(active)
+        active, nodes = _pushable(store)
+    script = _push_sql(active, nodes)
     with tempfile.NamedTemporaryFile("w", suffix=".sql", delete=False) as handle:
         handle.write(script)
         script_path = handle.name
@@ -596,9 +630,18 @@ def push(worker_dir: str, local: bool = False) -> int:
             "and that `lore-publications` exists (npx wrangler d1 create lore-publications)"
         )
     where = "local dev database" if local else "deployed node"
-    success(f"Pushed {len(active)} active publication{'s' if len(active) != 1 else ''} to the {where}")
+    success(
+        f"Pushed {len(active)} active publication{'s' if len(active) != 1 else ''} "
+        f"and {len(nodes)} catalog node{'s' if len(nodes) != 1 else ''} to the {where}"
+    )
     if not active:
         muted("The node now serves nothing. That is a valid state, not an error.")
+    unfiled = [p for p in active if p.node_id is None]
+    if unfiled:
+        muted(
+            f"{len(unfiled)} active publication{' is' if len(unfiled) == 1 else 's are'} "
+            "unfiled: answerable, but missing from the discovery catalog — see `lore tree`"
+        )
     return 0
 
 

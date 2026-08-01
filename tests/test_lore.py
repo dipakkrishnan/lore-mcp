@@ -518,25 +518,66 @@ class LoreTest(unittest.TestCase):
 
     def test_push_sql_replaces_everything_and_escapes_quotes(self) -> None:
         from lore.cli import _push_sql
-        from lore.store import Publication, PublicationKind
+        from lore.store import Node, Publication, PublicationKind
 
         publication = Publication(
             id=7, title="It's a title", content="O'Brien said so", kind=PublicationKind.CLAIM,
-            topic="war stories", provenance=[], active=1, created_at="", updated_at="",
+            topic="war stories", provenance=[], active=1, node_id=3,
+            created_at="", updated_at="2026-07-30T00:00:00+00:00",
         )
-        script = _push_sql([publication])
-        # Full replace: a revoked publication is gone because only this set survives.
-        self.assertIn("DELETE FROM publications;", script)
+        node = Node(
+            id=3, tree="public", parent_id=None, title="War's stories",
+            description="Tales o' the trade", position=0, created_at="", updated_at="",
+        )
+        script = _push_sql([publication], [node])
+        # Full replace via drop-and-create: a revoked publication is gone
+        # because only this set survives, and schema changes (the tree
+        # columns) self-migrate on mirrors created before them.
+        self.assertIn("DROP TABLE IF EXISTS publications;", script)
+        self.assertIn("DROP TABLE IF EXISTS nodes;", script)
         self.assertIn("'It''s a title'", script)
         self.assertIn("'O''Brien said so'", script)
         self.assertIn("'war stories'", script)
-        # Executable by SQLite exactly as wrangler d1 will run it.
+        self.assertIn("'War''s stories'", script)
+        # Executable by SQLite exactly as wrangler d1 will run it — including
+        # against a mirror that predates the tree columns.
         with sqlite3.connect(":memory:") as db:
+            db.execute(
+                "CREATE TABLE publications (id INTEGER PRIMARY KEY, title TEXT NOT NULL, "
+                "content TEXT NOT NULL, kind TEXT NOT NULL, topic TEXT NOT NULL DEFAULT '')"
+            )
             db.executescript(script)
             self.assertEqual(
-                db.execute("SELECT title, topic FROM publications").fetchone(),
-                ("It's a title", "war stories"),
+                db.execute(
+                    "SELECT title, topic, node_id, updated_at FROM publications"
+                ).fetchone(),
+                ("It's a title", "war stories", 3, "2026-07-30T00:00:00+00:00"),
             )
+            self.assertEqual(
+                db.execute("SELECT parent_id, title, description FROM nodes").fetchone(),
+                (None, "War's stories", "Tales o' the trade"),
+            )
+
+    def test_push_sql_contains_no_private_titles(self) -> None:
+        # The dump renders only active publications and the pruned public
+        # tree: private branches and empty public branches must never appear.
+        memory_id = self._seed_memory("Secret evidence", "private")
+        with Store() as store:
+            secret_shelf = store.add_node(tree="private", title="XyzzyPrivateShelf")
+            store.attach_memory(memory_id, secret_shelf)
+            store.add_node(tree="public", title="QuuxEmptyShelf")
+            store.add_publication(
+                title="Public claim", content="a public claim",
+                topic="public stuff", provenance=[memory_id],
+            )
+            from lore.cli import _push_sql, _pushable
+
+            active, nodes = _pushable(store)
+        script = _push_sql(active, nodes)
+        self.assertIn("public stuff", script)
+        self.assertNotIn("XyzzyPrivateShelf", script)
+        self.assertNotIn("QuuxEmptyShelf", script)
+        self.assertNotIn("Secret evidence", script)
 
     def test_topic_column_added_to_databases_created_before_it(self) -> None:
         db_path = Path(os.environ["LORE_HOME"]) / "lore.db"
