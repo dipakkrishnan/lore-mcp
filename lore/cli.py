@@ -494,13 +494,23 @@ def _push_sql(publications: list[Publication]) -> str:
         "CREATE TABLE IF NOT EXISTS publications ("
         "id INTEGER PRIMARY KEY, title TEXT NOT NULL, content TEXT NOT NULL, "
         "kind TEXT NOT NULL, topic TEXT NOT NULL DEFAULT '');",
+        # Same FTS5 shape the local library uses, for the same reason: the edge
+        # must match whole tokens. Substring matching turns the free `discover`
+        # into a character-by-character oracle over paid content.
+        "CREATE VIRTUAL TABLE IF NOT EXISTS publications_fts USING fts5("
+        "title, content, topic, tokenize='unicode61 remove_diacritics 2');",
         "DELETE FROM publications;",
+        "DELETE FROM publications_fts;",
     ]
-    statements.extend(
-        f"INSERT INTO publications(id,title,content,kind,topic) VALUES "
-        f"({p.id},{quote(p.title)},{quote(p.content)},{quote(p.kind.value)},{quote(p.topic)});"
-        for p in publications
-    )
+    for p in publications:
+        statements.append(
+            f"INSERT INTO publications(id,title,content,kind,topic) VALUES "
+            f"({p.id},{quote(p.title)},{quote(p.content)},{quote(p.kind.value)},{quote(p.topic)});"
+        )
+        statements.append(
+            f"INSERT INTO publications_fts(rowid,title,content,topic) VALUES "
+            f"({p.id},{quote(p.title)},{quote(p.content)},{quote(p.topic)});"
+        )
     return "\n".join(statements) + "\n"
 
 

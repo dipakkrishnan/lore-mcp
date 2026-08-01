@@ -594,6 +594,24 @@ class LoreTest(unittest.TestCase):
                 db.execute("SELECT title, topic FROM publications").fetchone(),
                 ("It's a title", "war stories"),
             )
+            # The edge searches this index, so push must populate it or the
+            # deployed node silently answers "I can't help" to everything.
+            self.assertEqual(
+                db.execute(
+                    "SELECT count(*) FROM publications_fts WHERE publications_fts MATCH ?",
+                    ('"brien"',),
+                ).fetchone()[0],
+                1,
+            )
+            # Whole tokens only: a fragment of the paid body must not match, or
+            # the free discover tool becomes an oracle over content nobody paid for.
+            self.assertEqual(
+                db.execute(
+                    "SELECT count(*) FROM publications_fts WHERE publications_fts MATCH ?",
+                    ('"rien"',),
+                ).fetchone()[0],
+                0,
+            )
 
     def test_topic_column_added_to_databases_created_before_it(self) -> None:
         db_path = Path(os.environ["LORE_HOME"]) / "lore.db"

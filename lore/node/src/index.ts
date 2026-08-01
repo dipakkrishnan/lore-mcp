@@ -30,8 +30,9 @@ function queryTerms(query: string): string[] {
   const words = query.toLowerCase().match(/[\p{L}\p{N}_]+/gu) ?? [];
   const terms = words
     .filter((word) => !QUERY_STOPWORDS.has(word))
-    // Crude singularization ("launches" → "launch"); safe because matching is
-    // substring, so an over-stripped stem still hits the full word.
+    // Crude singularization so "launches" finds a publication about "launch".
+    // One-directional, like the local library: a plural in the text is not
+    // found by a singular query. Recall, not linguistics.
     .map((word) =>
       word.length >= 4 && word.endsWith("es")
         ? word.slice(0, -2)
@@ -39,13 +40,19 @@ function queryTerms(query: string): string[] {
           ? word.slice(0, -1)
           : word
     );
-  // ponytail: cap at 8 terms — bounds the SQL, and more terms than that add
+  // ponytail: cap at 8 terms — bounds the query, and more terms than that add
   // recall a five-row LIMIT can't use anyway.
   return [...new Set(terms)].slice(0, 8);
 }
 
-// The D1 table `lore push` maintains. Rows here are owner-approved publications
-// and nothing else — no private data exists at the edge to leak.
+// The D1 tables `lore push` maintains. Rows here are owner-approved
+// publications and nothing else — no private data exists at the edge to leak.
+//
+// FTS5 whole-token matching, not `LIKE '%term%'`: substring matching makes the
+// free `discover` tool a character-by-character oracle over paid content — an
+// unpaid caller can walk "ove" → "oven" → … and reconstruct the body without
+// ever calling `answer`. Whole tokens keep `discover` no more revealing than
+// the titles it already advertises. Same shape as lore/store.py.
 async function searchPublications(
   env: Env,
   query: string,
@@ -53,16 +60,16 @@ async function searchPublications(
 ): Promise<PublicationRow[]> {
   const terms = queryTerms(query);
   if (terms.length === 0) return [];
-  // Tokens are \w+ only, so no LIKE metacharacters need escaping.
-  const hit = (i: number) =>
-    `(title LIKE ?${i + 1} OR topic LIKE ?${i + 1} OR content LIKE ?${i + 1})`;
-  const score = terms.map((_, i) => hit(i)).join(" + ");
+  // Terms are letters/digits/underscore only, so quoting makes them literal
+  // FTS5 strings — no operator (NEAR, *, ^, -) can survive from buyer input.
+  const match = terms.map((term) => `"${term}"`).join(" OR ");
   const { results } = await env.LORE_DB.prepare(
-    `SELECT title, content, topic FROM publications
-     WHERE ${terms.map((_, i) => hit(i)).join(" OR ")}
-     ORDER BY (${score}) DESC, id LIMIT ?${terms.length + 1}`
+    `SELECT p.title, p.content, p.topic FROM publications_fts f
+     JOIN publications p ON p.id = f.rowid
+     WHERE publications_fts MATCH ?1
+     ORDER BY bm25(publications_fts), p.id LIMIT ?2`
   )
-    .bind(...terms.map((term) => `%${term}%`), limit)
+    .bind(match, limit)
     .all<PublicationRow>();
   return results;
 }
