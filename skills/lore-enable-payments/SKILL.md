@@ -14,16 +14,41 @@ not sell the outcome.
 has not failed at anything. A Lore that is never monetized has already paid for
 itself through private recall. Do not treat any step here as a funnel.
 
-Be honest up front about one more thing: the deployed node currently serves sample
-canary content, not the owner's publications — serving approved publications from
-the edge is on the way. Until then, this skill proves the payment rail end to end;
-it does not put their lore on sale.
+The deployed node serves the owner's **approved publications** — nothing else exists
+at the edge. With zero active publications the rail still proves end to end, but a
+paying buyer would get an empty answer, which is why mainnet is gated on having at
+least one.
+
+## How to drive — read this first
+
+The owner should never have to figure out *where to go* or *what comes next*. You
+are the guide; the skill is your script.
+
+- **One step at a time.** Say what this step is for in one line, do it or open it,
+  confirm it worked, then move on. Never paste the whole flow as a wall of steps.
+- **You run everything that is not the owner's browser or wallet.** Every shell
+  command in this file is yours to execute, not to quote at the owner. The owner
+  personally does exactly three things: log in to Cloudflare, create a wallet, and
+  fund/enter the test-buyer key.
+- **Open browser steps for them.** When a step needs the owner in a browser, open
+  the exact page yourself: `open <url>` on macOS, `xdg-open <url>` on Linux. Say
+  what they'll see and what to click before you open it.
+- **Verify from state, never by asking.** After each step, read the result:
+  `npx wrangler whoami` (logged in? account id?), `lore status` (price, node URL,
+  publications), `npx wrangler deployments list` (already deployed?). Resume from
+  the first thing not configured; never re-ask for something already set.
+- **Interactive logins run in the owner's session.** In Claude Code, tell them to
+  type `! npx wrangler login` so the OAuth flow lands in their terminal; elsewhere
+  have them run it in their own shell. You never see the credentials either way.
+- **Ask choices, don't quiz.** Use AskUserQuestion where available (plain
+  conversation on Codex) — one question, with a recommendation.
+- **Validate before use.** A payout address must match `^0x[0-9a-fA-F]{40}$`.
+  Anything else — including anything that looks like a key or phrase — is refused,
+  see step 3.
 
 ## 1. Pick the path
 
-Read `lore status` first. Then ask one question — with AskUserQuestion when the agent
-has it, in plain conversation otherwise (Codex will simply ask in text; that is fine).
-Recommend based on state:
+Read `lore status` first, then ask one question:
 
 - **Active publications exist → recommend content-first.** They have something worth
   selling; price and deployment are in service of it.
@@ -35,10 +60,7 @@ Recommend based on state:
   - *Rails first* — wallet, price, deploy, test buy, publish later.
   - *Publish first* — route them to the `lore-publish` skill and resume here after.
 
-Either answer runs the same steps in a different order. This skill is resumable:
-every step reads its state from `lore status` and the deployed node, so if a session
-dies, run it again and continue from the first thing not yet configured. Never re-ask
-for something already set.
+Either answer runs the same steps in a different order.
 
 ## 2. Show the whole cost first
 
@@ -63,87 +85,107 @@ it is outside what you can advise on.
 ## 3. The payout address
 
 **Ask first whether they already have an EVM wallet.** MetaMask, Rainbow, Rabby,
-Coinbase Wallet, or a hardware wallet all work — the requirement is an address on Base
-that they control and that will not change. If they have one, copy the address and go.
+Coinbase Wallet, or a hardware wallet all work — the requirement is an address on
+Base that they control and that will not change. Have one? Copy the address, go.
 
-If they do not, point them at **Coinbase Wallet** — the self-custody app at
-`coinbase.com/wallet`, not the Coinbase exchange app. The difference matters: an
-exchange deposit address may rotate, and x402 settles to whatever address is
-configured, so payments would keep succeeding into an account that is no longer
-watched, with no error anywhere. Self-custody, for that stated reason.
+If not, walk them through creating one — you drive, one step at a time:
 
-During wallet setup the app shows a **recovery phrase**. Never ask for that
-recovery phrase, and never accept the recovery phrase if they paste it — that
-phrase is the wallet, and nothing legitimate in this flow will ever need it.
-If the recovery phrase appears in the conversation anyway, tell them to treat
-that wallet as compromised and start a fresh one.
+1. `open https://www.coinbase.com/wallet` — **Coinbase Wallet**, the self-custody
+   app (blue square logo), *not* the Coinbase exchange app. An exchange deposit
+   address may rotate, and x402 settles to whatever address is configured — payments
+   would keep succeeding into an account nobody watches, with no error anywhere.
+   App or browser extension both work.
+2. **"Create new wallet."** Two possible setups, both fine:
+   - *Passkey / Smart Wallet* (Face ID / fingerprint, no phrase shown) — the safer
+     default; there is no phrase to mishandle.
+   - *Classic* — the app shows a **recovery phrase** and asks them to back it up.
+     Paper, then confirm in the app.
+3. **Skip everything optional.** No purchase, no identity verification, no funding.
+   An empty wallet is the goal — buyers pay *into* it.
+4. **Get the address:** Receive (or tap the address at the top) → network **Base**
+   if asked → Copy. It is `0x` + 40 hex characters, public by design, safe to paste.
+5. Owner pastes it in the conversation; you validate the format before using it.
 
-The only thing this skill ever needs from the wallet is the **public address** (`0x` +
-40 hex characters). That is safe to paste anywhere.
+Never ask for the recovery phrase, and never accept it if pasted — that phrase *is*
+the wallet, and nothing legitimate in this flow will ever need it. If it appears in
+the conversation anyway, tell them to treat that wallet as compromised and start a
+fresh one. Agent transcripts are exactly the files Lore's synthesis later reads.
 
 ## 4. Price
 
-```sh
-lore price 0.01
-```
-
-Any amount works; `lore price 0` is free and a supported place to stop, not a failure.
-The price is advertised by the node; nothing enforces it until the node is deployed.
+Run `lore price 0.01` yourself (or the owner's chosen amount). `lore price 0` is
+free and a supported place to stop, not a failure. The price is advertised by the
+node; nothing enforces it until the node is deployed.
 
 ## 5. Deploy the node
 
-The owner needs a Cloudflare account — the free tier is enough, and they sign up and
-log in themselves; this skill never sees or handles that login. One command does all
-the mechanics (the node source ships inside Lore itself — no repository, no checkout):
+Two owner-side prerequisites, each verified from state before you deploy:
+
+1. **Cloudflare login.** Check `npx wrangler whoami`. If not authenticated: in
+   Claude Code have them type `! npx wrangler login` so the OAuth flow lands in
+   their terminal; elsewhere they run it in their own shell. Free tier is enough;
+   sign-up happens in the browser page wrangler opens. The skill never sees or
+   handles that login.
+2. **workers.dev subdomain** (one-time per account). If a deploy fails with
+   "register a workers.dev subdomain", take the account id from `npx wrangler
+   whoami` and open the page for them:
+   `open https://dash.cloudflare.com/<account-id>/workers/onboarding` — they pick a
+   name, you retry.
+
+Then deploy — one command, you run it (the node source ships inside Lore itself —
+no repository, no checkout):
 
 ```sh
 lore node deploy --wallet <payout-address>   # the public 0x address from step 3
 ```
 
-It stages the node source at `~/.lore/node`, installs dependencies, opens their
-browser to authorize Cloudflare if they are not logged in, deploys, stores the payout
-address as the Worker's `LORE_WALLET` secret (in Cloudflare's vault, not on this
-machine), and then proves the node is actually up: the built-in smoke check makes
-real MCP calls — both tools listed, `discover` answers free, and `answer` challenges
-for payment without leaking content. It spends nothing.
+It stages the node source at `~/.lore/node`, installs dependencies, creates the D1
+database, deploys, stores the payout address as the Worker's `LORE_WALLET` secret
+(in Cloudflare's vault, not on this machine), pushes the active publication set,
+and then proves the node is actually up: the built-in smoke check makes real MCP
+calls — both tools listed, `discover` answers free, and `answer` challenges for
+payment without leaking content. It spends nothing.
 
 If a step fails, the command prints exactly what to do next — follow that rather
-than improvising. Rerunning is always safe: it is also the redeploy path, and it
+than improvising, and `npx wrangler tail` in `~/.lore/node` streams the live error
+while you re-run. Rerunning is always safe: it is also the redeploy path, and it
 never touches a `.buyer.env` the owner created.
 
 If the node was deployed earlier (even in another session), recover the URL from
 state rather than asking: `lore status` shows it as `Node (last deploy):`. Ask the
-owner only if status cannot answer.
+owner only if status cannot answer. After any future publication change, sync the
+node: `lore push`.
 
 ## 6. Prove one payment on the test network
 
-Something has to pay the node once, so the owner trusts the rail before real money is
-near it. Use a **throwaway buyer wallet, never the payout wallet** — a node paying
-itself proves nothing.
+Something has to pay the node once, so the owner trusts the rail before real money
+is near it. Use a **throwaway buyer wallet, never the payout wallet** — a node
+paying itself proves nothing.
 
-1. Create a second, throwaway wallet (a fresh account in the same wallet app is fine).
-2. Fund it from a Base Sepolia USDC faucet — Circle's faucet at `faucet.circle.com`
-   works. This is play money.
-3. In `~/.lore/node`: `cp .buyer.env.example .buyer.env`, then have the owner edit
-   `.buyer.env` **themselves** in their editor and fill in the buyer key there. The
-   key must never be pasted into this conversation — anything pasted here lands in
-   agent transcripts, the very files Lore's synthesis later reads.
+1. Create a second, throwaway wallet — a fresh account in the same wallet app is
+   fine (you already know the steps from 3; drive them again, short form).
+2. Fund it with test USDC: `open https://faucet.circle.com` — network **Base
+   Sepolia**. This is play money.
+3. In `~/.lore/node`: run `cp .buyer.env.example .buyer.env`, then **open the file
+   for the owner to edit themselves** — `open -t .buyer.env` (macOS) or their
+   editor — and have them fill in the buyer key there. The key must never be pasted
+   into this conversation — anything pasted here lands in agent transcripts, the
+   very files Lore's synthesis later reads.
 4. Run the capped buyer from `~/.lore/node` (the node URL is in `lore status`):
 
 ```sh
 npm run pay -- https://<their-subdomain>.workers.dev/mcp
 ```
 
-It pays at most $0.01 test USDC and prints the settlement receipt. If it settles, the
-whole rail — challenge, signature, facilitator, payout — is proven. If it fails, stop
-and fix before going further; a node that challenges every buyer and can never settle
-is worse than a free one.
+It pays at most $0.01 test USDC and prints the settlement receipt. If it settles,
+the whole rail — challenge, signature, facilitator, payout — is proven. If it
+fails, stop and fix before going further; a node that challenges every buyer and
+can never settle is worse than a free one.
 
 ## 7. Mainnet, later — not part of this skill
 
-Real money is a separate, deliberate step, taken only after the owner's publications
-are being served from the edge and a two-person paid test has settled. It requires
-all of:
+Real money is a separate, deliberate step, taken only after a two-person paid test
+has settled. It requires all of:
 
 - at least one active publication — a real buyer must never pay real USDC for an
   empty answer;
