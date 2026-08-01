@@ -10,7 +10,7 @@ from pathlib import Path
 from . import blueprint as blueprint_module
 from .paths import home
 from .sources import available_sources, scan
-from .store import STATUSES, Publication, PublicationKind, Store
+from .store import STATUSES, TREES, Publication, PublicationKind, Store
 from .ui import ask, confirm, heading, logo, memory_card, muted, publication_card, success
 
 
@@ -78,6 +78,42 @@ def parser() -> argparse.ArgumentParser:
         "--local", action="store_true", help="push to the local dev database instead"
     )
 
+    tree = commands.add_parser("tree", help="organize memories and publications into trees")
+    tree_commands = tree.add_subparsers(dest="tree_command")
+    tree_show = tree_commands.add_parser("show", help="print a tree with node ids and counts")
+    tree_show.add_argument("--tree", choices=TREES, default="public")
+    tree_add = tree_commands.add_parser("add", help="create a node")
+    tree_add.add_argument("title")
+    tree_add.add_argument("--tree", choices=TREES, default="public")
+    tree_add.add_argument("--parent", type=int, help="parent node id; omit for a root node")
+    tree_add.add_argument("--description", default="", help="one line on what the branch covers")
+    tree_rename = tree_commands.add_parser("rename", help="retitle or re-describe a node")
+    tree_rename.add_argument("id", type=int)
+    tree_rename.add_argument("--title")
+    tree_rename.add_argument("--description")
+    tree_move = tree_commands.add_parser("move", help="reparent a node; omit --parent for root")
+    tree_move.add_argument("id", type=int)
+    tree_move.add_argument("--parent", type=int)
+    tree_rm = tree_commands.add_parser(
+        "rm", help="delete tree structure; memories and publications survive unfiled"
+    )
+    tree_rm.add_argument("id", type=int)
+    tree_rm.add_argument("--recursive", action="store_true")
+    tree_attach = tree_commands.add_parser(
+        "attach", help="file a publication or memory under a node"
+    )
+    tree_attach.add_argument("node_id", type=int)
+    attach_target = tree_attach.add_mutually_exclusive_group(required=True)
+    attach_target.add_argument("--publication", type=int)
+    attach_target.add_argument("--memory", type=int)
+    tree_detach = tree_commands.add_parser("detach", help="unfile a publication or memory")
+    detach_target = tree_detach.add_mutually_exclusive_group(required=True)
+    detach_target.add_argument("--publication", type=int)
+    detach_target.add_argument("--memory", type=int)
+    tree_commands.add_parser(
+        "init", help="seed the private tree from your blueprint, else from projects"
+    )
+
     blueprint = commands.add_parser("blueprint", help="capture the shape of your lore")
     blueprint_commands = blueprint.add_subparsers(dest="blueprint_command")
     blueprint_apply = blueprint_commands.add_parser(
@@ -129,6 +165,22 @@ def main(argv: list[str] | None = None) -> int:
             return publication_list()
         if args.command == "push":
             return push(args.worker_dir, local=args.local)
+        if args.command == "tree":
+            if args.tree_command == "add":
+                return tree_add(args.title, args.tree, args.parent, args.description)
+            if args.tree_command == "rename":
+                return tree_rename(args.id, args.title, args.description)
+            if args.tree_command == "move":
+                return tree_move(args.id, args.parent)
+            if args.tree_command == "rm":
+                return tree_rm(args.id, args.recursive)
+            if args.tree_command == "attach":
+                return tree_attach(args.node_id, args.publication, args.memory)
+            if args.tree_command == "detach":
+                return tree_detach(args.publication, args.memory)
+            if args.tree_command == "init":
+                return tree_init()
+            return tree_show(getattr(args, "tree", "public"))
         if args.command == "blueprint":
             if args.blueprint_command == "apply":
                 return blueprint_apply(args.file)
@@ -297,6 +349,7 @@ def status() -> int:
         answer_price = store.setting("price_usd", None)
         published = len(store.list_publications(active_only=True))
         stale = len(store.stale_publications())
+        unfiled = store.unfiled_counts()
     heading("Library")
     print(
         f"  {counts['private']} private · {counts['discarded']} discarded · "
@@ -306,6 +359,13 @@ def status() -> int:
         muted(
             f"  {stale} {'derives' if stale == 1 else 'of them derive'} from a memory "
             "that changed since you approved it. Re-approve or revoke."
+        )
+    if unfiled["private"] or unfiled["public"]:
+        # An unfiled active publication is answerable but invisible in the
+        # discovery manifest, so surface it where the owner will see it.
+        muted(
+            f"  Unfiled: {unfiled['private']} private memories, "
+            f"{unfiled['public']} active publications — see `lore tree`"
         )
     heading("Sources")
     for source in available_sources():
@@ -356,11 +416,17 @@ def _interactive() -> bool:
     return sys.stdin.isatty() and sys.stdout.isatty()
 
 
-def _candidate(raw: object, missing_check: Store) -> Publication:
-    """Validate one drafted candidate into a previewable Publication."""
+def _candidate(raw: object, missing_check: Store) -> tuple[Publication, int | str | None]:
+    """Validate one drafted candidate into a previewable Publication.
+
+    Returns the candidate and its requested public-tree placement: a node id,
+    a node title, or None for the topic default. Placement is validated here
+    but only resolved (and possibly created) if the owner approves — rejected
+    candidates must leave no structure behind.
+    """
     if not isinstance(raw, dict):
         raise ValueError("each candidate must be a JSON object")
-    unexpected = raw.keys() - {"title", "content", "kind", "topic", "provenance"}
+    unexpected = raw.keys() - {"title", "content", "kind", "topic", "provenance", "node"}
     if unexpected:
         raise ValueError(f"unexpected candidate field: {sorted(unexpected)[0]}")
     title = str(raw.get("title", "")).strip()
@@ -376,7 +442,19 @@ def _candidate(raw: object, missing_check: Store) -> Publication:
     missing = missing_check.missing_memories(provenance)
     if missing:
         raise ValueError(f"candidate provenance references unknown memories: {missing}")
-    return Publication(
+    node = raw.get("node")
+    if node is not None:
+        if isinstance(node, int) and not isinstance(node, bool):
+            found = next(
+                (n for n in missing_check.list_nodes("public") if n.id == node), None
+            )
+            if found is None:
+                raise ValueError(f"candidate node is not a public tree node: {node}")
+        elif isinstance(node, str) and node.strip():
+            node = node.strip()
+        else:
+            raise ValueError("candidate node must be a public node id or a node title")
+    candidate = Publication(
         id=0,
         title=title,
         content=content,
@@ -387,6 +465,7 @@ def _candidate(raw: object, missing_check: Store) -> Publication:
         created_at="",
         updated_at="",
     )
+    return candidate, node
 
 
 def publication_apply(path: str) -> int:
@@ -403,18 +482,24 @@ def publication_apply(path: str) -> int:
     with Store() as store:
         candidates = [_candidate(raw, store) for raw in data]
         approved = 0
-        for index, candidate in enumerate(candidates, 1):
+        for index, (candidate, node) in enumerate(candidates, 1):
             while True:
                 publication_card(candidate, index, len(candidates))
                 print("\n  [a] approve   [e] edit   [r] reject   [q] quit")
                 choice = ask("Choose", "r").lower()
                 if choice == "a":
+                    # Placement resolves only on approval, so a rejected
+                    # candidate's node title never becomes a stray node.
+                    node_id = node if isinstance(node, int) else (
+                        store.get_or_create_node(tree="public", title=node) if node else None
+                    )
                     store.add_publication(
                         title=candidate.title,
                         content=candidate.content,
                         kind=candidate.kind,
                         topic=candidate.topic,
                         provenance=candidate.provenance,
+                        node_id=node_id,
                     )
                     approved += 1
                     break
@@ -530,6 +615,7 @@ def blueprint_apply(file: str) -> int:
     blueprint_module.apply(file)
     success("Lore blueprint captured")
     print(f"Run `lore blueprint show` to see your lore map, at {blueprint_module.lore_map_path()}")
+    muted("Seed your private tree from it: lore tree init")
     return 0
 
 
@@ -544,4 +630,145 @@ def blueprint_show() -> int:
         print(json.dumps(current, indent=2))
         return 0
     print("No blueprint yet. Run the lore-onboard skill inside Claude or Codex.")
+    return 0
+
+
+def tree_show(tree: str) -> int:
+    """Print one tree as an indented outline with node ids and counts."""
+    with Store() as store:
+        nodes = store.list_nodes(tree)
+        counts = store.node_counts(tree)
+        unfiled = store.unfiled_counts()[tree]
+    label = "publication" if tree == "public" else "memory"
+    plural = "publications" if tree == "public" else "memories"
+    heading(f"{tree.capitalize()} tree")
+    if not nodes:
+        hint = " Run `lore tree init` to seed it." if tree == "private" else (
+            " Nodes appear when you approve publications, or add one with `lore tree add`."
+        )
+        print(f"  No {tree} nodes yet.{hint}")
+    children: dict[int | None, list] = {}
+    for node in nodes:
+        children.setdefault(node.parent_id, []).append(node)
+
+    def render(parent_id: int | None, depth: int) -> None:
+        for node in children.get(parent_id, []):
+            count = counts.get(node.id, 0)
+            suffix = f" · {count} {label if count == 1 else plural}" if count else ""
+            print(f"{'  ' * depth}  {node.title} [{node.id}]{suffix}")
+            if node.description:
+                muted(f"{'  ' * depth}    {node.description}")
+            render(node.id, depth + 1)
+
+    render(None, 0)
+    if unfiled:
+        muted(
+            f"\n  {unfiled} unfiled {label if unfiled == 1 else plural} — "
+            "file them with `lore tree attach`"
+        )
+    return 0
+
+
+def tree_add(title: str, tree: str, parent: int | None, description: str) -> int:
+    """Create a node and report its id."""
+    with Store() as store:
+        node_id = store.add_node(tree=tree, title=title, parent_id=parent, description=description)
+    success(f"Added {tree} node {node_id}: {title}")
+    return 0
+
+
+def tree_rename(node_id: int, title: str | None, description: str | None) -> int:
+    """Retitle or re-describe a node. Approved publication text is untouched."""
+    if title is None and description is None:
+        raise ValueError("pass --title and/or --description")
+    with Store() as store:
+        store.rename_node(node_id, title=title, description=description)
+    success(f"Updated node {node_id}")
+    return 0
+
+
+def tree_move(node_id: int, parent: int | None) -> int:
+    """Reparent a node; omitting the parent moves it to the root."""
+    with Store() as store:
+        store.move_node(node_id, parent_id=parent)
+    success(f"Moved node {node_id} under {'the root' if parent is None else f'node {parent}'}")
+    return 0
+
+
+def tree_rm(node_id: int, recursive: bool) -> int:
+    """Delete tree structure. Memories and publications always survive, unfiled."""
+    with Store() as store:
+        store.delete_node(node_id, recursive=recursive)
+    success(f"Deleted node {node_id}")
+    muted("Structure only: nothing was discarded or revoked; attached items are now unfiled.")
+    return 0
+
+
+def tree_attach(node_id: int, publication_id: int | None, memory_id: int | None) -> int:
+    """File a publication (public tree) or memory (private tree) under a node."""
+    with Store() as store:
+        if publication_id is not None:
+            store.attach_publication(publication_id, node_id)
+            success(f"Filed publication {publication_id} under node {node_id}")
+        else:
+            store.attach_memory(memory_id, node_id)
+            success(f"Filed memory {memory_id} under node {node_id}")
+    return 0
+
+
+def tree_detach(publication_id: int | None, memory_id: int | None) -> int:
+    """Unfile a publication or memory; it keeps its status, just loses its shelf."""
+    with Store() as store:
+        if publication_id is not None:
+            store.attach_publication(publication_id, None)
+            success(f"Unfiled publication {publication_id}")
+            muted("Still active and searchable, but absent from the discovery manifest.")
+        else:
+            store.attach_memory(memory_id, None)
+            success(f"Unfiled memory {memory_id}")
+    return 0
+
+
+def tree_init() -> int:
+    """Seed the private tree: blueprint outline first, else projects, else sources.
+
+    Idempotent — nodes are get-or-create and only unfiled memories are touched,
+    so re-running after new imports just files what's new.
+    """
+    current = blueprint_module.load_blueprint()
+    with Store() as store:
+        memories = store.search("", status="private", limit=0)
+        if current:
+            for topic in current["topic_outline"]:
+                node_id = store.get_or_create_node(tree="private", title=topic)
+                store.set_node_metadata(node_id, {"axis": current["organizing_axis"]})
+            seeded_from = f"your blueprint ({current['organizing_axis']} axis)"
+        else:
+            titles = sorted({m.project for m in memories if m.project}) or sorted(
+                {m.source for m in memories}
+            )
+            if not titles:
+                print(
+                    "Nothing to seed from yet — run `lore sync` first, "
+                    "or capture a blueprint with the lore-onboard skill."
+                )
+                return 0
+            for title in titles:
+                store.get_or_create_node(tree="private", title=title)
+            seeded_from = "memory projects"
+        roots = {n.title: n.id for n in store.list_nodes("private") if n.parent_id is None}
+        filed = 0
+        for memory in memories:
+            if memory.node_id is not None:
+                continue
+            target = roots.get(memory.project) or roots.get(memory.source)
+            if target:
+                store.attach_memory(memory.id, target)
+                filed += 1
+        unfiled = store.unfiled_counts()["private"]
+    success(f"Private tree seeded from {seeded_from}: {len(roots)} root sections")
+    if filed:
+        muted(f"Filed {filed} memories by project match.")
+    if unfiled:
+        muted(f"{unfiled} memories are still unfiled — file them with `lore tree attach`.")
     return 0

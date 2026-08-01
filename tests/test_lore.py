@@ -731,6 +731,90 @@ class LoreTest(unittest.TestCase):
             self.assertIs(found.status, Status.PRIVATE)
             self.assertEqual(store.private_tree()[0]["memory_count"], 1)
 
+    def test_tree_init_seeds_from_blueprint_else_projects_idempotently(self) -> None:
+        from lore.cli import tree_init
+
+        # Without a blueprint, root sections come from memory projects.
+        path = Path(os.environ["CLAUDE_HOME"]) / "projects/demo/memory/note.md"
+        path.parent.mkdir(parents=True)
+        path.write_text("# Demo note\n\nBody.")
+        with Store() as store:
+            scan(store, {"claude"})
+        with redirect_stdout(StringIO()):
+            self.assertEqual(tree_init(), 0)
+        with Store() as store:
+            roots = store.list_nodes("private")
+            self.assertEqual([node.title for node in roots], ["demo"])
+            self.assertEqual(store.search("Demo note")[0].node_id, roots[0].id)
+        # A blueprint upgrades the seeding; re-running duplicates nothing.
+        blueprint_file = Path(self.tmp.name) / "blueprint.json"
+        blueprint_file.write_text(json.dumps(_blueprint_input()))
+        with redirect_stdout(StringIO()):
+            blueprint_apply(str(blueprint_file))
+            self.assertEqual(tree_init(), 0)
+            self.assertEqual(tree_init(), 0)
+        with Store() as store:
+            nodes = store.list_nodes("private")
+            self.assertEqual(
+                {node.title for node in nodes},
+                {"demo", "distributed systems", "consensus"},
+            )
+            # The outline nodes record which blueprint axis shaped them.
+            self.assertEqual(
+                {n.metadata.get("axis") for n in nodes if n.title != "demo"},
+                {"knowledge"},
+            )
+
+    def test_publication_apply_places_by_node_field(self) -> None:
+        memory_id = self._seed_memory("Placement evidence", "private")
+        with Store() as store:
+            shelf = store.add_node(tree="public", title="Career shelf")
+        path = Path(os.environ["LORE_HOME"]) / "candidates.json"
+        path.write_text(json.dumps([
+            {
+                "title": "Filed by id", "content": "c", "topic": "career",
+                "provenance": [memory_id], "node": shelf,
+            },
+            {
+                "title": "Filed by title", "content": "c", "topic": "career",
+                "provenance": [memory_id], "node": "New shelf",
+            },
+            {
+                "title": "Rejected", "content": "c", "topic": "career",
+                "provenance": [memory_id], "node": "Stray shelf",
+            },
+        ]))
+        answers = iter(["a", "a", "r"])
+        with (
+            patch("lore.cli._interactive", return_value=True),
+            patch("lore.cli.ask", side_effect=lambda *a, **k: next(answers)),
+            redirect_stdout(StringIO()),
+        ):
+            self.assertEqual(cli_publication_apply(str(path)), 0)
+        with Store() as store:
+            by_title = {p.title: p for p in store.list_publications()}
+            self.assertEqual(by_title["Filed by id"].node_id, shelf)
+            new_shelf = [n for n in store.list_nodes("public") if n.title == "New shelf"]
+            self.assertEqual(by_title["Filed by title"].node_id, new_shelf[0].id)
+            # A rejected candidate's node title never became a node.
+            self.assertEqual(
+                {n.title for n in store.list_nodes("public")},
+                {"Career shelf", "New shelf"},
+            )
+        # A candidate naming a nonexistent node id fails validation up front.
+        path.write_text(json.dumps([
+            {
+                "title": "Bad node", "content": "c", "topic": "career",
+                "provenance": [memory_id], "node": 999,
+            },
+        ]))
+        with (
+            patch("lore.cli._interactive", return_value=True),
+            redirect_stdout(StringIO()),
+        ):
+            with self.assertRaisesRegex(ValueError, "not a public tree node"):
+                cli_publication_apply(str(path))
+
     def test_publication_apply_rejects_bad_candidates(self) -> None:
         base = Path(os.environ["LORE_HOME"])
         base.mkdir(parents=True, exist_ok=True)

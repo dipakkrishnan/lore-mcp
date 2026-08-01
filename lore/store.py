@@ -778,6 +778,49 @@ class Store:
             raise ValueError(f"memory not found: {memory_id}")
         self.db.commit()
 
+    def set_node_metadata(self, node_id: int, metadata: dict) -> None:
+        """Replace a node's owner-private annotations (e.g. the seeding axis)."""
+        self._node_row(node_id)
+        if not isinstance(metadata, dict):
+            raise ValueError("node metadata must be an object")
+        self.db.execute(
+            "UPDATE nodes SET metadata=?,updated_at=? WHERE id=?",
+            (
+                json.dumps(metadata, allow_nan=False),
+                datetime.now(timezone.utc).isoformat(),
+                node_id,
+            ),
+        )
+        self.db.commit()
+
+    def node_counts(self, tree: str) -> dict[int, int]:
+        """Direct (non-recursive) retained/active attachment counts per node."""
+        if tree not in TREES:
+            raise ValueError(f"invalid tree: {tree}")
+        table, where = (
+            ("publications", "active=1") if tree == "public" else ("memories", "status='private'")
+        )
+        return {
+            row["node_id"]: row["count"]
+            for row in self.db.execute(
+                f"SELECT node_id,count(*) count FROM {table} "
+                f"WHERE {where} AND node_id IS NOT NULL GROUP BY node_id"
+            )
+        }
+
+    def unfiled_counts(self) -> dict[str, int]:
+        """Count retained memories and active publications with no node."""
+        return {
+            "private": self.db.execute(
+                "SELECT count(*) count FROM memories "
+                "WHERE status='private' AND node_id IS NULL"
+            ).fetchone()["count"],
+            "public": self.db.execute(
+                "SELECT count(*) count FROM publications "
+                "WHERE active=1 AND node_id IS NULL"
+            ).fetchone()["count"],
+        }
+
     def list_nodes(self, tree: str) -> list[Node]:
         """Return one tree's nodes, parents before their children's positions."""
         if tree not in TREES:
