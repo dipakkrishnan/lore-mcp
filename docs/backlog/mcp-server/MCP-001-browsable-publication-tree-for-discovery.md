@@ -4,13 +4,13 @@ title: Give discover an owner-approved manifest of the node's offerings
 priority: P2
 effort: L
 component: mcp-server
-status: in-review
-related: [STO-001, XC-002]
+status: in-progress
+related: [STO-001, XC-002, MON-003]
 blockers: [XC-002]
 dependencies: []
 github_issue: null
 created: 2026-07-29
-updated: 2026-07-31
+updated: 2026-08-01
 ---
 
 ## Problem
@@ -82,15 +82,16 @@ grouping is restricted to structure the owner already approved.
 ## Acceptance criteria
 
 - [ ] A buyer's agent can read the manifest and select specific publications
-      to purchase, without issuing a keyword query.
-- [ ] Everything a buyer can observe in the manifest (or any later tree) —
+      to purchase, without issuing a keyword query. *(Partially met: selection
+      is at branch granularity — see "Delivered" below.)*
+- [x] Everything a buyer can observe in the manifest (or any later tree) —
       labels, counts, ordering, structure — is derived exclusively from
       owner-approved fields of active publications. A test renders the full
       manifest and asserts it is byte-identical
       before and after private rows are added, edited, and discarded.
-- [ ] Every externally-visible node label is owner-approved text, not text
+- [x] Every externally-visible node label is owner-approved text, not text
       synthesized at request time from private material.
-- [ ] Revoking a publication removes it from the manifest immediately, and
+- [x] Revoking a publication removes it from the manifest immediately, and
       removes any grouping that existed only to hold it.
 
 ## Notes
@@ -134,3 +135,57 @@ trip; the navigable tree becomes the scale-up when a manifest outgrows a
 response. All privacy constraints unchanged and apply to the manifest verbatim.
 The schema prerequisite is unchanged too: the owner-approved topic field at
 XC-002 approval time is what the manifest groups by.
+
+## Delivered
+
+**PR #51 (2026-08-01)** — the schema change this item said had to come first,
+plus the manifest built on it. Three of four acceptance criteria met.
+
+Storage is now two separate trees in one `nodes` table, discriminated by a
+`tree` column: a private tree over memories and a public tree over
+publications. A composite foreign key on `(parent_id, tree)` makes cross-tree
+parenting unrepresentable rather than merely rejected. Content references nodes
+weakly (`ON DELETE SET NULL`), so deleting structure can never delete a memory
+or revoke a publication. `topic` is unchanged and still required — it seeds the
+public tree on migration and remains the owner-approved label, because deriving
+it from node titles would let a later rename silently rewrite approved text.
+
+`discover` returns the catalog on every call, matched query or not, so a buyer
+with the wrong vocabulary still learns what the node holds. Each branch carries
+its owner-approved title and description, its active-publication count, and its
+freshness, alongside the existing `price_usd`. Node ids and node `metadata`
+never cross the boundary. `answer` is untouched.
+
+The privacy invariant is pinned by test, not by argument:
+`test_public_tree_is_byte_identical_under_private_churn` snapshots the exact
+`discover` response, then imports a memory, edits the memory behind a
+publication (flagging it stale), discards it, and creates, renames, and deletes
+private-tree nodes — asserting the response is byte-identical throughout.
+Branches whose subtree holds no active publication are pruned entirely, which
+is what satisfies the revocation criterion.
+
+Owner surface: a `lore tree` command group, and `lore tree init`, which seeds
+the private tree from the blueprint's `topic_outline` — the first real consumer
+of the contract `docs/gamified-onboarding.md` reserved for "whatever storage
+layer comes next". At the edge, `lore push` mirrors only the ancestor closure
+of active publications' nodes, and the edge schema has no `tree` column at all,
+so it cannot represent a private node.
+
+**One open question is now answered.** "Does the blueprint axis belong on the
+wire?" — no. The axis is recorded in private node `metadata` and is never
+serialized externally, so the owner's organizing intent shapes their own tree
+without telling a buyer how they think. The rest stay open: pricing
+granularity, whether browsing is free, depth/breadth enumeration limits, and
+basket vs. per-item `answer`.
+
+**What remains (AC1).** Buyers select at *branch* granularity: the manifest
+lists branches, not the publication titles inside them, so choosing still ends
+in a keyword `answer` call. That is the deliberate conservative resolution of
+the second leak budget above — a `claim` title often is the paid product — and
+listing titles per node is roughly a one-line change once that question is
+decided. This item stays `in-progress` until it is.
+
+Process note: this shipped while its blocker XC-002 is still `in-review`, even
+though XC-002's publish flow (`lore publication review/list/revoke`,
+`skills/lore-publish`) is what the manifest groups by and is functionally in
+the tree. XC-002's status wants a separate look; it was not changed here.
