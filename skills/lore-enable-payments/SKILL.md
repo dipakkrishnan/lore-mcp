@@ -45,6 +45,30 @@ are the guide; the skill is your script.
 - **Validate before use.** A payout address must match `^0x[0-9a-fA-F]{40}$`.
   Anything else — including anything that looks like a key or phrase — is refused,
   see step 3.
+- **The chain is the evidence; "sent!" is not.** Whenever funds are supposed to
+  have moved, check the balance on-chain yourself before proceeding. Faucets and
+  wallet apps report success for the wrong network with a straight face. The
+  reusable check (run in `~/.lore/node`, swap the address):
+
+  ```sh
+  node -e "const{createPublicClient,http,formatUnits}=require('viem');
+  const{baseSepolia}=require('viem/chains');
+  createPublicClient({chain:baseSepolia,transport:http()}).readContract({
+    address:'0x036CbD53842c5426634e7929541eC2318f3dCF7e',
+    abi:[{name:'balanceOf',type:'function',stateMutability:'view',
+      inputs:[{name:'a',type:'address'}],outputs:[{type:'uint256'}]}],
+    functionName:'balanceOf',args:['<ADDRESS>']
+  }).then(b=>console.log(formatUnits(b,6),'USDC'))"
+  ```
+- **Two wallets, two roles — say which, every time.** The whole flow involves
+  exactly two addresses, and conflating them is the most common owner error. Show
+  this table once early, and every time you hand the owner an address to paste,
+  name its role and destination in the same sentence:
+
+  | Wallet | Who holds the key | Role |
+  |---|---|---|
+  | **Payout** | The owner, in their wallet app | *Receives* every payment; set as `LORE_WALLET` |
+  | **Buyer** (throwaway) | A file on this machine, `.buyer.env` | *Pays* the one test transaction |
 
 ## 1. Pick the path
 
@@ -168,22 +192,43 @@ paying itself proves nothing.
    sign the challenge, so **generate it locally yourself** — wallet apps with
    passkey accounts cannot export a raw key at all, and `npm run pay` needs one in
    a file. From `~/.lore/node`, generate with viem (already a dependency) and write
-   it straight into `.buyer.env`, printing **only the address**:
+   it straight into `.buyer.env` **read-only**, printing **only the address**:
 
    ```sh
    node -e "const{generatePrivateKey,privateKeyToAccount}=require('viem/accounts');
    const fs=require('fs');const k=generatePrivateKey();
    const f=fs.readFileSync('.buyer.env.example','utf8').replace('0x...',k);
-   fs.writeFileSync('.buyer.env',f,{mode:0o600});
+   try{fs.unlinkSync('.buyer.env')}catch{};
+   fs.writeFileSync('.buyer.env',f,{mode:0o400});
    console.log('fund this:',privateKeyToAccount(k).address)"
    ```
 
-   The key exists only in that file; it never appears in the conversation. (An
-   owner who prefers exporting a key from a classic wallet account can — they edit
-   `.buyer.env` themselves in their editor, `open -t .buyer.env`; the key still
-   never enters the conversation.)
-2. Fund the printed address with test USDC: `open https://faucet.circle.com` —
-   token **USDC**, network **Base Sepolia**. This is play money.
+   The key exists only in that file; it never appears in the conversation. **Never
+   open `.buyer.env` in the owner's editor** — an open editor invites a stray
+   paste-and-save that silently destroys the key, and the failure only surfaces
+   later as a cryptic `pay` error (this happened; mode `0400` is the second lock
+   on that door). If the file is ever wrong or lost, don't investigate: regenerate
+   — new key, new address, re-fund. The only owner-edited path is the classic
+   wallet-app key export, and after it you verify the file holds a plausible key
+   (`grep -c '=0x[0-9a-fA-F]\{64\}$' .buyer.env` → `1`) before anything is funded.
+2. Fund the printed **buyer** address (say so — not the payout address) with test
+   USDC. Two faucets, in order of preference:
+   - **CDP faucet** — `open https://portal.cdp.coinbase.com/products/faucet` —
+     needs a (free) Coinbase login, but defaults to **Base Sepolia + USDC**, which
+     is exactly right. 10 USDC/day.
+   - **Circle faucet** — `open https://faucet.circle.com` — no login, **but its
+     Network dropdown defaults to Arc Testnet**, and the "Tokens sent" screen does
+     not name the network — a wrong-chain send looks identical to success. Make
+     the owner confirm the dropdown reads **Base Sepolia** before sending. Limit:
+     one send per asset+network pair per 2 hours, so a wasted send costs the pair
+     for 2 hours.
+
+   **Then verify arrival yourself** with the balance check from "How to drive" —
+   poll for a couple of minutes. If it stays 0: check the *payout* address too
+   (a clipboard mixup lands the drip there), and check the address's transfer
+   history at `https://sepolia.basescan.org/address/<buyer>` — no incoming
+   transfer means wrong network or a silently-eaten CAPTCHA; have them resend
+   with the dropdown confirmed. Only a non-zero buyer balance moves to step 3.
 3. Run the capped buyer from `~/.lore/node` (the node URL is in `lore status`):
 
 ```sh
@@ -194,6 +239,15 @@ It pays at most $0.01 test USDC and prints the settlement receipt. If it settles
 the whole rail — challenge, signature, facilitator, payout — is proven. If it
 fails, stop and fix before going further; a node that challenges every buyer and
 can never settle is worse than a free one.
+
+4. **Close the loop where the owner can see it.** Verify on-chain that the payout
+   balance rose by the price and the buyer's fell, then open the receipt:
+   `open https://sepolia.basescan.org/address/<payout-address>` — the Token
+   Transfers tab shows the settlement (`Transfer With Authorization` — that is
+   the x402 signature executing). Warn them first: **wallet apps show $0.00 for
+   testnet funds** — the explorer, not their wallet app, is the window until
+   mainnet. Money "missing" from the app is the single most alarming non-problem
+   in this flow.
 
 ## 7. Mainnet, later — not part of this skill
 
