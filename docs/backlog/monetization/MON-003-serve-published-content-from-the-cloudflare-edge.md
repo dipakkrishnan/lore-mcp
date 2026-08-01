@@ -4,13 +4,13 @@ title: Serve published content from the Cloudflare edge instead of canary string
 priority: P2
 effort: L
 component: monetization
-status: in-review
+status: completed
 related: [MON-002, MON-004, XC-002, MCP-002]
 blockers: [STO-001, XC-002]
 dependencies: ["Cloudflare account (Workers + D1)", "Decision: is the edge adapter pursued past the MPP origin gate"]
 github_issue: https://github.com/dipakkrishnan/lore-mcp/issues/25
 created: 2026-07-30
-updated: 2026-07-30
+updated: 2026-08-01
 ---
 
 ## Problem
@@ -83,3 +83,7 @@ Related but *not* filed as work: epic #23 already decided to use the payment
 provider as the settlement ledger and defer `lore earnings`. Edge settlement
 means the Worker is the only party that sees a paid-but-failed answer, which
 puts pressure on that decision — revisit it there rather than here.
+
+**Completed 2026-08-01.** Merged via #45; live-verified during the MON-002
+settlement run — the paid `answer` served the active publication set (empty at
+the time, honestly disclosed) from D1 at the deployed node.
