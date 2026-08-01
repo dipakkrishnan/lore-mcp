@@ -6,7 +6,7 @@
     "check": "tsc --noEmit",
     "deploy": "wrangler deploy",
     "dev": "wrangler dev",
-    "pay": "tsx --env-file=.buyer.env scripts/pay.ts",
+    "pay": "tsx scripts/pay.ts",
     "smoke": "tsx scripts/smoke.ts",
     "types": "wrangler types env.d.ts --include-runtime false"
   },
