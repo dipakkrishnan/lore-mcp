@@ -1,0 +1,30 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "lore-x402-canary",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-06-11",
+  "compatibility_flags": ["nodejs_compat"],
+  "durable_objects": {
+    "bindings": [
+      {
+        "class_name": "LorePaidMCP",
+        "name": "LorePaidMCP"
+      }
+    ]
+  },
+  "migrations": [
+    {
+      "new_sqlite_classes": ["LorePaidMCP"],
+      "tag": "v1"
+    }
+  ],
+  "d1_databases": [
+    {
+      "binding": "LORE_DB",
+      "database_name": "lore-publications",
+      // Per-account: create with `npx wrangler d1 create lore-publications`
+      // and paste the id it prints. Local dev (`npm run dev`) needs no id.
+      "database_id": "REPLACE_WITH_YOUR_D1_ID"
+    }
+  ]
+}

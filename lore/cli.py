@@ -3,14 +3,16 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import os
 import sys
 from pathlib import Path
 
 from . import blueprint as blueprint_module
+from . import deploy as deploy_module
 from .paths import home
 from .sources import available_sources, scan
-from .store import STATUSES, Store
-from .ui import ask, confirm, heading, logo, memory_card, muted, success
+from .store import STATUSES, Publication, PublicationKind, Store
+from .ui import ask, confirm, heading, logo, memory_card, muted, publication_card, success
 
 
 def parser() -> argparse.ArgumentParser:
@@ -24,9 +26,9 @@ def parser() -> argparse.ArgumentParser:
     sync = commands.add_parser("sync", help="import new and changed memories")
     sync.add_argument("--source", action="append", choices=[s.name for s in available_sources()])
 
-    review = commands.add_parser("review", help="classify or reclassify memories")
+    review = commands.add_parser("review", help="keep or discard memories")
     review.add_argument("query", nargs="*", help="words to narrow the review queue")
-    review.add_argument("--status", choices=STATUSES, default="pending")
+    review.add_argument("--status", choices=STATUSES, default="private")
     review.add_argument("--limit", type=int, default=0, help="maximum to review; 0 means all")
 
     search = commands.add_parser("search", help="search local memories")
@@ -48,6 +50,45 @@ def parser() -> argparse.ArgumentParser:
     serve.add_argument("--host", default="127.0.0.1")
     serve.add_argument("--port", type=int, default=8765)
     serve.add_argument("--token")
+
+    node = commands.add_parser("node", help="deploy and manage your hosted Lore node")
+    node_commands = node.add_subparsers(dest="node_command", required=True)
+    node_deploy = node_commands.add_parser(
+        "deploy", help="deploy the node Worker to your own Cloudflare account"
+    )
+    node_deploy.add_argument(
+        "--wallet", help="public payout address (0x + 40 hex) set as the node's LORE_WALLET"
+    )
+
+    publication = commands.add_parser(
+        "publication", help="approve, list, and revoke external publications"
+    )
+    publication_commands = publication.add_subparsers(dest="publication_command")
+    publication_review = publication_commands.add_parser(
+        "review", help="review drafted candidates and approve each interactively"
+    )
+    publication_review.add_argument("file", help="JSON file of drafted candidates")
+    publication_commands.add_parser("list", help="show active and revoked publications")
+    publication_revoke = publication_commands.add_parser(
+        "revoke", help="immediately remove a publication from MCP retrieval"
+    )
+    publication_revoke.add_argument("id", type=int)
+    publication_reapprove = publication_commands.add_parser(
+        "reapprove", help="keep a publication whose source memory changed"
+    )
+    publication_reapprove.add_argument("id", type=int)
+
+    push = commands.add_parser(
+        "push", help="replace the deployed node's publications with the active set"
+    )
+    push.add_argument(
+        "--worker-dir",
+        default=str(home() / "node"),
+        help="the node source directory (default: the one `lore node deploy` stages)",
+    )
+    push.add_argument(
+        "--local", action="store_true", help="push to the local dev database instead"
+    )
 
     blueprint = commands.add_parser("blueprint", help="capture the shape of your lore")
     blueprint_commands = blueprint.add_subparsers(dest="blueprint_command")
@@ -90,6 +131,19 @@ def main(argv: list[str] | None = None) -> int:
             if args.token:
                 serve_args.extend(["--token", args.token])
             return serve(serve_args)
+        if args.command == "node":
+            if args.node_command == "deploy":
+                return deploy_module.deploy(args.wallet)
+        if args.command == "publication":
+            if args.publication_command == "review":
+                return publication_apply(args.file)
+            if args.publication_command == "revoke":
+                return publication_revoke(args.id)
+            if args.publication_command == "reapprove":
+                return publication_reapprove(args.id)
+            return publication_list()
+        if args.command == "push":
+            return push(args.worker_dir, local=args.local)
         if args.command == "blueprint":
             if args.blueprint_command == "apply":
                 return blueprint_apply(args.file)
@@ -116,7 +170,7 @@ def dashboard() -> int:
             if query:
                 search(query, None, 20, False)
         elif choice == "r":
-            review("", "pending", 0)
+            review("", "private", 0)
         elif choice == "s":
             sync()
 
@@ -132,8 +186,9 @@ def manual() -> int:
   2. lore sync
      Import memories created or changed since setup.
 
-  3. lore review [words] [--status pending|private|external|discarded]
-     Mark context private, external, or discarded; revisit any prior decision.
+  3. lore review [words] [--status private|discarded]
+     Walk the private library and keep or discard; revisit any prior decision.
+     Reviewing never discloses anything — only a publication does that.
 
   4. lore search [words] [--status STATUS]
      Inspect the local library without changing disclosure.
@@ -142,12 +197,16 @@ def manual() -> int:
      Show or set the advertised fixed price per answer.
 
   6. lore status
-     Check imports, pending review, external context, and price.
+     Check imports, the private library, active publications, and price.
 
   7. lore serve
      Start the MCP endpoint used by local agents or a protected gateway.
 
-  8. lore blueprint show
+  8. lore node deploy
+     Deploy your node to your own Cloudflare account (source ships with Lore;
+     the URL lands in `lore status`).
+
+  9. lore blueprint show
      See the shape of your lore captured by the gamified onboarding skill
      (run `lore blueprint apply <file>` from that skill to update it).
 
@@ -195,27 +254,29 @@ def sync(names: set[str] | None = None) -> int:
     return 0
 
 
-def review(query: str = "", status_name: str = "pending", limit: int = 0) -> int:
-    """Let the owner classify or reclassify a targeted memory queue."""
+def review(query: str = "", status_name: str = "private", limit: int = 0) -> int:
+    """Let the owner revisit a targeted memory queue.
+
+    Imports are private on arrival, so review is a retention pass over the
+    private library rather than a disclosure queue. Nothing here can publish:
+    disclosure happens only through an owner-approved publication.
+    """
     if limit < 0:
         raise ValueError("limit cannot be negative")
     logo()
     with Store() as store:
-        memories = (
-            store.pending()
-            if not query and status_name == "pending"
-            else store.search(query, status=status_name, limit=limit)
-        )
+        memories = store.search(query, status=status_name, limit=limit)
         memories = memories[:limit] if limit else memories
         if not memories:
-            success("Nothing waiting for review")
+            success(f"No {status_name} memories to review")
             return 0
         for index, memory in enumerate(memories, 1):
             memory_card(memory, index, len(memories))
-            print("\n  [p] private   [e] external   [d] discard   [s] skip   [q] quit")
+            print("\n  [k] keep private   [d] discard   [s] skip   [q] quit")
             while True:
-                choice = ask("Choose", "p").lower()
-                new_status = {"p": "private", "e": "external", "d": "discarded"}.get(
+                choice = ask("Choose", "k").lower()
+                # No disclosure choice here by design: review is retention only.
+                new_status = {"k": "private", "p": "private", "d": "discarded"}.get(
                     choice
                 )
                 if new_status:
@@ -253,8 +314,19 @@ def status() -> int:
         configured = set(store.setting("sources", []))
         database_path = store.path
         answer_price = store.setting("price_usd", None)
+        node_url = store.setting("node_url", None)
+        published = len(store.list_publications(active_only=True))
+        stale = len(store.stale_publications())
     heading("Library")
-    print(f"  {sum(counts.values())} memories · {counts['pending']} awaiting review · {counts['external']} externally usable")
+    print(
+        f"  {counts['private']} private · {counts['discarded']} discarded · "
+        f"{published} active publication{'' if published == 1 else 's'} (externally usable)"
+    )
+    if stale:
+        muted(
+            f"  {stale} {'derives' if stale == 1 else 'of them derive'} from a memory "
+            "that changed since you approved it. Re-approve or revoke."
+        )
     heading("Sources")
     for source in available_sources():
         if source.origin == "automation":
@@ -264,6 +336,10 @@ def status() -> int:
         print(f"  {marker} {source.label:<14} {sources.get(source.name, 0)} imported")
     print(f"\nDatabase: {database_path}")
     print(f"Answer price: {'not set' if answer_price is None else f'${answer_price:.2f}'}")
+    if node_url:
+        # A cache of remote truth, not local truth like the price: another
+        # machine or the Cloudflare dashboard can move the node after this.
+        print(f"Node (last deploy): {node_url}")
     return 0
 
 
@@ -296,6 +372,180 @@ def profile(path: str, schedule: bool = True) -> int:
         return 0
     automation.install(data)
     success(f"Configured {str(data['executor']).title()} local schedule")
+    return 0
+
+
+def _interactive() -> bool:
+    """Whether approval is running in an attended interactive terminal."""
+    return sys.stdin.isatty() and sys.stdout.isatty()
+
+
+def _candidate(raw: object, missing_check: Store) -> Publication:
+    """Validate one drafted candidate into a previewable Publication."""
+    if not isinstance(raw, dict):
+        raise ValueError("each candidate must be a JSON object")
+    unexpected = raw.keys() - {"title", "content", "kind", "topic", "provenance"}
+    if unexpected:
+        raise ValueError(f"unexpected candidate field: {sorted(unexpected)[0]}")
+    title = str(raw.get("title", "")).strip()
+    content = str(raw.get("content", "")).strip()
+    topic = str(raw.get("topic", "")).strip()
+    if not title or not content or not topic:
+        raise ValueError("candidates need a non-empty title, content, and topic")
+    provenance = raw.get("provenance", [])
+    if not isinstance(provenance, list) or not provenance or not all(
+        isinstance(i, int) and not isinstance(i, bool) for i in provenance
+    ):
+        raise ValueError("candidate provenance must be a non-empty list of memory ids")
+    missing = missing_check.missing_memories(provenance)
+    if missing:
+        raise ValueError(f"candidate provenance references unknown memories: {missing}")
+    return Publication(
+        id=0,
+        title=title,
+        content=content,
+        kind=PublicationKind(raw.get("kind", "claim")),
+        topic=topic,
+        provenance=provenance,
+        active=1,
+        created_at="",
+        updated_at="",
+    )
+
+
+def publication_apply(path: str) -> int:
+    """Review drafted candidates with the owner; save only what they approve."""
+    if not _interactive():
+        raise ValueError(
+            "publication approval needs an attended interactive terminal; "
+            "piped and background approval is disabled"
+        )
+    data = json.loads(Path(path).read_text(encoding="utf-8"))
+    if not isinstance(data, list) or not data:
+        raise ValueError("candidates file must be a non-empty JSON array")
+    logo()
+    with Store() as store:
+        candidates = [_candidate(raw, store) for raw in data]
+        approved = 0
+        for index, candidate in enumerate(candidates, 1):
+            while True:
+                publication_card(candidate, index, len(candidates))
+                print("\n  [a] approve   [e] edit   [r] reject   [q] quit")
+                choice = ask("Choose", "r").lower()
+                if choice == "a":
+                    store.add_publication(
+                        title=candidate.title,
+                        content=candidate.content,
+                        kind=candidate.kind,
+                        topic=candidate.topic,
+                        provenance=candidate.provenance,
+                    )
+                    approved += 1
+                    break
+                if choice == "e":
+                    title = ask("Title (enter keeps current)") or candidate.title
+                    content = ask("Content (enter keeps current)") or candidate.content
+                    candidate = candidate.model_copy(
+                        update={"title": title.strip(), "content": content.strip()}
+                    )
+                    continue
+                if choice == "q":
+                    success(f"Approved {approved} publication{'s' if approved != 1 else ''}")
+                    return 0
+                break  # reject: save nothing, move on
+    success(f"Approved {approved} publication{'s' if approved != 1 else ''}")
+    if approved:
+        muted("These are now answerable over MCP. Revoke any time: lore publication revoke <id>")
+    return 0
+
+
+def publication_list() -> int:
+    """Show every publication and its disclosure state."""
+    with Store() as store:
+        publications = store.list_publications()
+    if not publications:
+        print("No publications. Draft some with the lore-publish skill.")
+        return 0
+    for publication in publications:
+        publication_card(publication)
+        print(f"  id {publication.id}")
+    return 0
+
+
+def publication_revoke(publication_id: int) -> int:
+    """Immediately remove a publication from external retrieval."""
+    with Store() as store:
+        store.revoke_publication(publication_id)
+    success(f"Revoked publication {publication_id}; it is no longer answerable")
+    muted("A deployed node still holds the old set until you run: lore push")
+    return 0
+
+
+def _push_sql(publications: list[Publication]) -> str:
+    """Render the full-replace SQL for the edge database.
+
+    Full replace, not diffing: the active set is small, the operation is
+    idempotent, and a revoked publication is guaranteed gone because nothing
+    that isn't in this script survives it.
+    """
+    def quote(value: str) -> str:
+        return "'" + value.replace("'", "''") + "'"
+
+    statements = [
+        "CREATE TABLE IF NOT EXISTS publications ("
+        "id INTEGER PRIMARY KEY, title TEXT NOT NULL, content TEXT NOT NULL, "
+        "kind TEXT NOT NULL, topic TEXT NOT NULL DEFAULT '');",
+        "DELETE FROM publications;",
+    ]
+    statements.extend(
+        f"INSERT INTO publications(id,title,content,kind,topic) VALUES "
+        f"({p.id},{quote(p.title)},{quote(p.content)},{quote(p.kind.value)},{quote(p.topic)});"
+        for p in publications
+    )
+    return "\n".join(statements) + "\n"
+
+
+def push(worker_dir: str, local: bool = False) -> int:
+    """Replace the deployed node's publications with the local active set."""
+    import subprocess
+    import tempfile
+
+    worker = Path(worker_dir)
+    if not (worker / "wrangler.jsonc").is_file():
+        raise ValueError(
+            f"no node source at {worker}/ — run `lore node deploy` first, "
+            "or pass --worker-dir (contributors: --worker-dir lore/node)"
+        )
+    with Store() as store:
+        active = store.list_publications(active_only=True)
+    script = _push_sql(active)
+    with tempfile.NamedTemporaryFile("w", suffix=".sql", delete=False) as handle:
+        handle.write(script)
+        script_path = handle.name
+    target = ["--local"] if local else ["--remote"]
+    result = subprocess.run(
+        ["npx", "wrangler", "d1", "execute", "lore-publications", *target,
+         "--file", script_path, "-y"],
+        cwd=worker,
+    )
+    os.unlink(script_path)
+    if result.returncode != 0:
+        raise ValueError(
+            "wrangler could not write the edge database — check `npx wrangler login` "
+            "and that `lore-publications` exists (npx wrangler d1 create lore-publications)"
+        )
+    where = "local dev database" if local else "deployed node"
+    success(f"Pushed {len(active)} active publication{'s' if len(active) != 1 else ''} to the {where}")
+    if not active:
+        muted("The node now serves nothing. That is a valid state, not an error.")
+    return 0
+
+
+def publication_reapprove(publication_id: int) -> int:
+    """Keep a publication as-is after its source memory changed."""
+    with Store() as store:
+        store.clear_publication_flag(publication_id)
+    success(f"Re-approved publication {publication_id} as published")
     return 0
 
 

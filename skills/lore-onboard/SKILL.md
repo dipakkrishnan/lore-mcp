@@ -101,9 +101,9 @@ corrects a claim, not rates a guess.
 
 Before the `valuable_context` question, state the stakes plainly, once:
 
-> This shapes what the synthesis task hunts for, and what could later be exposed as paid
-> answers over MCP. Everything still lands as `pending` for your review — no memory
-> becomes external without you marking it.
+> This shapes what the synthesis task hunts for. Everything lands private, and no memory
+> is ever readable outside this machine, whatever you do to it. Sharing anything takes a
+> publication you write and approve yourself.
 
 Then `boundaries` (default: secrets and third-party private data). Combine the one
 synthesis executor, its optional model, cadence, and hour into one final scheduling
@@ -134,11 +134,16 @@ Do not duplicate that work during onboarding.
 ```sh
 lore status
 lore blueprint show   # the shape they chose
-lore review           # everything is pending until they classify it
+lore review           # walk the private library and keep or discard
 ```
 
-Tell them: `lore review` decides private vs external, `lore price` sets the answer
-price, and the schedule runs itself from here.
+Tell them: everything is private on arrival, `lore review` is a keep-or-discard pass that
+never shares anything, and the schedule runs itself from here.
+
+Then offer the next rungs once, without pushing: publishing (approving specific
+publications for disclosure) and the Monetize branch (the `lore-enable-payments`
+skill, which can also start rails-first with nothing published). Both are optional —
+a private library is a complete outcome, not a step toward one.
 
 ## Rules
 
