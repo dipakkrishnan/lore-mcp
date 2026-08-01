@@ -208,9 +208,11 @@ paying itself proves nothing.
    paste-and-save that silently destroys the key, and the failure only surfaces
    later as a cryptic `pay` error (this happened; mode `0400` is the second lock
    on that door). If the file is ever wrong or lost, don't investigate: regenerate
-   — new key, new address, re-fund. The only owner-edited path is the classic
-   wallet-app key export, and after it you verify the file holds a plausible key
-   (`grep -c '=0x[0-9a-fA-F]\{64\}$' .buyer.env` → `1`) before anything is funded.
+   — new key, new address, re-fund. The only exception is a classic wallet-app key
+   export: there the owner edits `.buyer.env` **themselves**, in their own editor,
+   so the key still never enters this conversation — and afterwards you verify the
+   file holds a plausible key (`grep -c '=0x[0-9a-fA-F]\{64\}$' .buyer.env` → `1`)
+   before anything is funded.
 2. Fund the printed **buyer** address (say so — not the payout address) with test
    USDC. Two faucets, in order of preference:
    - **CDP faucet** — `open https://portal.cdp.coinbase.com/products/faucet` —
