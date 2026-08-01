@@ -28,21 +28,22 @@ const QUERY_STOPWORDS = new Set(
 
 function queryTerms(query: string): string[] {
   const words = query.toLowerCase().match(/[\p{L}\p{N}_]+/gu) ?? [];
-  const terms = words
-    .filter((word) => !QUERY_STOPWORDS.has(word))
+  const terms = [...new Set(words.filter((word) => !QUERY_STOPWORDS.has(word)))]
+    // ponytail: cap at 8 words — bounds the query, and more terms than that
+    // add recall a five-row LIMIT can't use anyway.
+    .slice(0, 8)
     // Crude singularization so "launches" finds a publication about "launch".
-    // One-directional, like the local library: a plural in the text is not
-    // found by a singular query. Recall, not linguistics.
-    .map((word) =>
+    // The raw token is kept alongside the singular form — replacing it makes
+    // a plural query miss plural text ("launches" would no longer find
+    // "launches"). Recall, not linguistics.
+    .flatMap((word) =>
       word.length >= 4 && word.endsWith("es")
-        ? word.slice(0, -2)
+        ? [word, word.slice(0, -2)]
         : word.length >= 4 && word.endsWith("s")
-          ? word.slice(0, -1)
-          : word
+          ? [word, word.slice(0, -1)]
+          : [word]
     );
-  // ponytail: cap at 8 terms — bounds the query, and more terms than that add
-  // recall a five-row LIMIT can't use anyway.
-  return [...new Set(terms)].slice(0, 8);
+  return [...new Set(terms)];
 }
 
 // The D1 tables `lore push` maintains. Rows here are owner-approved
