@@ -33,9 +33,14 @@ VERDICT_SCHEMA = {
 }
 
 
-def run_model(prompt: str, model: str, schema: dict[str, object]) -> dict[str, object]:
+def run_model(
+    prompt: str,
+    model: str,
+    schema: dict[str, object],
+    env: dict[str, str] | None = None,
+) -> dict[str, object]:
     if model.startswith(CLAUDE_PREFIXES):
-        return _run_claude(prompt, model)
+        return _run_claude(prompt, model, env)
     with tempfile.TemporaryDirectory() as directory:
         root = Path(directory)
         schema_path = root / "schema.json"
@@ -63,19 +68,23 @@ def run_model(prompt: str, model: str, schema: dict[str, object]) -> dict[str, o
             input=prompt,
             capture_output=True,
             text=True,
+            env=env,
         )
         if result.returncode:
             raise RuntimeError(result.stderr.strip() or result.stdout.strip())
         return json.loads(output_path.read_text(encoding="utf-8"))
 
 
-def _run_claude(prompt: str, model: str) -> dict[str, object]:
+def _run_claude(
+    prompt: str, model: str, env: dict[str, str] | None = None
+) -> dict[str, object]:
     """Run a prompt through headless Claude Code; the prompt must demand JSON."""
     result = subprocess.run(
         ["claude", "-p", "--model", model, "--output-format", "json"],
         input=prompt,
         capture_output=True,
         text=True,
+        env=env,
     )
     if result.returncode:
         raise RuntimeError(result.stderr.strip() or result.stdout.strip())

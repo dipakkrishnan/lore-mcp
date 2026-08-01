@@ -24,6 +24,13 @@ class Status(str, Enum):
 
 STATUSES = tuple(status.value for status in Status)
 
+# ponytail: small English question stoplist; replace with an FTS query builder
+# if multilingual buyer search becomes a real requirement.
+QUERY_STOPWORDS = frozenset(
+    "a about an and are can could do does for has have how i is it me of on or "
+    "person tell that the this to what when where who why with you your".split()
+)
+
 
 class Memory(BaseModel):
     """A normalized memory and its owner-controlled retention status."""
@@ -440,10 +447,20 @@ class Store:
         if limit < 0:
             raise ValueError("limit cannot be negative")
         if query.strip():
-            terms = re.findall(r"[\w-]+", query, re.UNICODE)
+            # OR over meaningful word tokens, not AND over hyphen-joined phrases:
+            # buyers send natural-language queries ("What has this educator
+            # learned about lecture-heavy courses?"), and requiring every term
+            # — or treating "lecture-heavy" as a phrase — returns an empty paid
+            # answer. Common question words are removed so OR does not turn
+            # unrelated publications into false positives.
+            terms = list(dict.fromkeys(
+                term.casefold()
+                for term in re.findall(r"\w+", query, re.UNICODE)
+                if term.casefold() not in QUERY_STOPWORDS
+            ))
             if not terms:
                 return []
-            match = " AND ".join(f'"{term.replace(chr(34), "")}"' for term in terms)
+            match = " OR ".join(f'"{term}"' for term in terms)
             sql = (
                 "SELECT p.* FROM publications_fts f JOIN publications p ON p.id=f.rowid "
                 "WHERE publications_fts MATCH ? AND p.active=1 "
@@ -454,6 +471,5 @@ class Store:
             sql = "SELECT * FROM publications WHERE active=1 ORDER BY updated_at DESC LIMIT ?"
             args = [limit or -1]
         return [Publication.from_row(row) for row in self.db.execute(sql, args).fetchall()]
-
 
 

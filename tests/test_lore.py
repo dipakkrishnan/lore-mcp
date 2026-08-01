@@ -446,6 +446,24 @@ class LoreTest(unittest.TestCase):
             self.assertIs(store.search("Fresh")[0].status, Status.PRIVATE)
             self.assertNotIn("pending", store.counts())
 
+    def test_natural_language_buyer_query_reaches_publications(self) -> None:
+        # Found by the integration eval: buyers ask in sentences, and ANDing
+        # every FTS term returned an empty paid answer against a relevant
+        # publication. Common question words must not create false positives.
+        memory_id = self._seed_memory("Course evidence", "private")
+        with Store() as store:
+            store.add_publication(
+                title="Lab conversion results",
+                content="What this person can tell buyers about replacing two lecture hours "
+                        "with a graded lab that raised median scores.",
+                topic="course design",
+                provenance=[memory_id],
+            )
+            query = "What has this educator learned about converting lecture-heavy courses?"
+            self.assertEqual(len(store.search_publications(query)), 1)
+            unrelated = "What can this person tell me about quantum chromodynamics?"
+            self.assertEqual(store.search_publications(unrelated), [])
+
     def _drafted_candidates(self) -> str:
         with Store() as store:
             store.put(
@@ -497,6 +515,28 @@ class LoreTest(unittest.TestCase):
             self.assertEqual(len(published[0].provenance), 1)
             # The owner-approved grouping label survives approval intact.
             self.assertEqual(published[0].topic, "go-to-market lessons")
+
+    def test_push_sql_replaces_everything_and_escapes_quotes(self) -> None:
+        from lore.cli import _push_sql
+        from lore.store import Publication, PublicationKind
+
+        publication = Publication(
+            id=7, title="It's a title", content="O'Brien said so", kind=PublicationKind.CLAIM,
+            topic="war stories", provenance=[], active=1, created_at="", updated_at="",
+        )
+        script = _push_sql([publication])
+        # Full replace: a revoked publication is gone because only this set survives.
+        self.assertIn("DELETE FROM publications;", script)
+        self.assertIn("'It''s a title'", script)
+        self.assertIn("'O''Brien said so'", script)
+        self.assertIn("'war stories'", script)
+        # Executable by SQLite exactly as wrangler d1 will run it.
+        with sqlite3.connect(":memory:") as db:
+            db.executescript(script)
+            self.assertEqual(
+                db.execute("SELECT title, topic FROM publications").fetchone(),
+                ("It's a title", "war stories"),
+            )
 
     def test_topic_column_added_to_databases_created_before_it(self) -> None:
         db_path = Path(os.environ["LORE_HOME"]) / "lore.db"
