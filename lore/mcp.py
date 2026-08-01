@@ -28,7 +28,7 @@ TOOLS = [
     {
         "name": "discover",
         "title": "Discover Lore",
-        "description": "Check whether this Lore node has owner-approved context relevant to a query. Free and content-safe.",
+        "description": "Check whether this Lore node has owner-approved context relevant to a query. Also returns the node's catalog: a tree of owner-approved topic branches with per-branch publication counts and freshness. Free and content-safe.",
         "inputSchema": {
             "type": "object",
             "properties": {"query": {"type": "string", "minLength": 1}},
@@ -121,6 +121,13 @@ def call_tool(name: object, arguments: object) -> dict[str, Any]:
                 "can_help": bool(matches),
                 "match_count": len(matches),
                 "topics": [publication.title for publication in matches],
+                # The full catalog rides along on every discover — manifest
+                # first, no navigation endpoints — so a buyer whose query
+                # missed still sees what this node can answer about. Built
+                # from active publications only: it is byte-identical under
+                # any private-library change, and pruned branches disappear
+                # entirely when their last publication is revoked.
+                "tree": store.public_tree(),
                 "price_usd": store.setting("price_usd", None),
                 "disclosure": "Only owner-approved publications are available.",
             }

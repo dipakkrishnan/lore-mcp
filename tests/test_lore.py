@@ -982,6 +982,88 @@ class LoreTest(unittest.TestCase):
             store.revoke_publication(active_id)
         self.assertNotIn("Deployment guide", self._answer("deployment"))
 
+    def _discover(self, query: str) -> str:
+        response = dispatch(
+            {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "tools/call",
+                "params": {"name": "discover", "arguments": {"query": query}},
+            }
+        )
+        return response["result"]["content"][0]["text"]  # type: ignore[index]
+
+    def test_discover_exposes_tree_manifest(self) -> None:
+        first_memory = self._seed_memory("Manifest one", "private")
+        second_memory = self._seed_memory("Manifest two", "private")
+        with Store() as store:
+            career = store.add_node(
+                tree="public", title="Career", description="Work lessons"
+            )
+            anthropic = store.add_node(tree="public", title="Anthropic", parent_id=career)
+            store.add_publication(
+                title="Claim A", content="career claim", topic="Career",
+                provenance=[first_memory], node_id=career,
+            )
+            store.add_publication(
+                title="Claim B", content="anthropic claim", topic="Career",
+                provenance=[second_memory], node_id=anthropic,
+            )
+            store.set_setting("price_usd", 1.25)
+        payload = json.loads(self._discover("zebras"))
+        # The catalog rides along even when the query itself misses: a buyer
+        # with the wrong vocabulary still learns what this node can answer.
+        self.assertFalse(payload["can_help"])
+        branch = payload["tree"][0]
+        self.assertEqual(branch["title"], "Career")
+        self.assertEqual(branch["description"], "Work lessons")
+        self.assertEqual(branch["publication_count"], 2)
+        self.assertEqual(branch["children"][0]["title"], "Anthropic")
+        # Fixed key set: node ids and metadata never cross the boundary.
+        self.assertEqual(
+            set(branch),
+            {"title", "description", "publication_count", "last_updated", "children"},
+        )
+        self.assertEqual(payload["price_usd"], 1.25)
+
+    def test_public_tree_is_byte_identical_under_private_churn(self) -> None:
+        # MCP-001's acceptance invariant: the manifest derives only from active
+        # publications, so nothing the owner does privately — imports, edits,
+        # retention changes, private-tree surgery — may change a byte of it.
+        base_memory = self._seed_memory("Stable evidence", "private")
+        with Store() as store:
+            node = store.add_node(
+                tree="public", title="Career", description="Work lessons"
+            )
+            store.add_publication(
+                title="Stable claim", content="a stable career claim",
+                topic="Career", provenance=[base_memory], node_id=node,
+            )
+        before = self._discover("career")
+        with Store() as store:
+            # Import a new memory, and file it on a fresh private branch.
+            store.put(
+                source="test", origin="native", source_path="new", source_key="new",
+                fingerprint="new", title="Fresh private memory",
+                content="freshly imported career detail",
+            )
+            fresh = store.search("Fresh private memory")[0].id
+            branch = store.add_node(tree="private", title="Career notes")
+            store.attach_memory(fresh, branch)
+            # Edit the memory behind the publication: this flags the
+            # publication for re-approval but must not surface externally.
+            store.put(
+                source="test", origin="native", source_path="Stable evidence",
+                source_key="Stable evidence", fingerprint="changed",
+                title="Stable evidence", content="the evidence changed",
+            )
+            self.assertEqual(len(store.stale_publications()), 1)
+            # Retention churn and private-tree surgery.
+            store.set_status(fresh, "discarded")
+            store.rename_node(branch, title="Renamed notes")
+            store.delete_node(branch, recursive=True)
+        self.assertEqual(self._discover("career"), before)
+
     def _write_blueprint_input(self, data: dict) -> Path:
         path = Path(os.environ["LORE_HOME"]) / "blueprint-input.json"
         path.parent.mkdir(parents=True, exist_ok=True)
