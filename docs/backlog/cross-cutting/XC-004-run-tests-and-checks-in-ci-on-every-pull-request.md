@@ -1,16 +1,16 @@
 ---
 id: XC-004
 title: Run tests and checks in CI on every pull request
-priority: P1
+priority: P0
 effort: S
 component: cross-cutting
-status: in-review
-related: [XC-003]
+status: ready
+related: [XC-003, XC-007, XC-008, MON-007, MCP-002]
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-07-30
-updated: 2026-07-30
+updated: 2026-08-01
 ---
 
 ## Problem
@@ -69,3 +69,30 @@ worth a separate item — an unenforced threshold decays." Filed as that item;
 Sized `S` on the assumption CI only runs what already exists. If the worker job
 turns out to need a Cloudflare account even for `wrangler dev` in CI, drop that
 job to `tsc` only rather than adding credentials, and note it here.
+
+### Where this sits in the full pipeline
+
+Ideation pass on 2026-08-01 scoped an end-to-end pipeline of six tiers. This item
+is the root — it creates the workflow the first five hang off — but it only
+covers three of them. The rest are separate items:
+
+| Tier | Covered by | Runs on |
+|---|---|---|
+| 1. Compile | this item (`tsc --noEmit`) | every PR |
+| 2. Lint | `XC-007` — no linter exists in the repo yet | every PR |
+| 3. Unit | this item; `XC-003` adds the coverage gate | every PR |
+| 4. Contract | `MCP-002`'s drift check between the two MCP surfaces | every PR |
+| 5. Component | `MON-007` — Worker paid path vs. a mocked facilitator | every PR |
+| 6. Live | `XC-008` against the QA deployment `MON-008` stands up | merge, schedule, manual |
+
+Tiers 1-5 stay inside this item's boundary: credential-free, fork-safe, no money.
+That boundary is load-bearing, so tier 6 lives in its own workflow with its own
+secrets rather than as another job here. `MON-008` is the first thing in the repo
+to hold a deploy credential.
+
+Prioritization pass 2026-08-01 raised this to `P0` and `ready`. Rationale: it is
+`S` effort, it is the only item that directly unblocks two others (`XC-007`,
+`XC-008`), and three more depend on it to mean anything — `XC-003`'s coverage
+gate is local-only without it, `MCP-002`'s drift check has nowhere to run, and
+`MON-007`'s component suite needs a runner. Nothing else in the backlog buys that
+much for `S`. It is the only `P0` besides `STO-001`.

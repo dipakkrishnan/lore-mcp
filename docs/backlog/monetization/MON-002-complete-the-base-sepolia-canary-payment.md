@@ -4,13 +4,13 @@ title: Complete the Base Sepolia canary payment end to end
 priority: P1
 effort: S
 component: monetization
-status: in-review
-related: [MON-003]
+status: ready
+related: [MON-003, MON-007, MON-008]
 blockers: []
 dependencies: ["Funded Base Sepolia buyer wallet (faucet test USDC)", "Cloudflare account for deployment"]
 github_issue: https://github.com/dipakkrishnan/lore-mcp/issues/25
 created: 2026-07-30
-updated: 2026-07-30
+updated: 2026-08-01
 ---
 
 ## Problem
@@ -59,3 +59,14 @@ Open question worth answering during the run: what the buyer sees when
 settlement succeeds but the response is lost. Epic #25 requires "one answer and
 one receipt without double charging on retries", and the canary has no
 idempotency handling today.
+
+Prioritization pass 2026-08-01 promoted this to `ready` at `P1`. It has no
+backlog blockers and its acceptance criteria are concrete, but its two
+`dependencies` are real and human-supplied — a funded Base Sepolia wallet and a
+Cloudflare account. Whoever picks this up needs both in hand before starting;
+that is the only thing standing between it and implementation.
+
+Do this before `MON-007` if the two are worked in the same stretch. `MON-007`
+builds a stubbed facilitator, and the honest fixtures for that stub are whatever
+the real facilitator does here. Neither blocks the other, so the order is a
+preference, not a constraint.
