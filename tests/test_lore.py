@@ -561,6 +561,175 @@ class LoreTest(unittest.TestCase):
                 title="t", content="c", topic="migrated", provenance=[memory_id]
             )
             self.assertEqual(store.list_publications()[0].topic, "migrated")
+            # The tree columns arrive through the same guarded-ALTER pattern,
+            # and the new publication lands on its topic-named public node.
+            nodes = store.list_nodes("public")
+            self.assertEqual([node.title for node in nodes], ["migrated"])
+            self.assertEqual(store.list_publications()[0].node_id, nodes[0].id)
+
+    def test_migration_seeds_public_nodes_from_topics_idempotently(self) -> None:
+        # A database published from before the tree existed holds flat topic
+        # labels. Opening it files every publication under a root node named
+        # after its topic — once. Reopening must create nothing new.
+        db_path = Path(os.environ["LORE_HOME"]) / "lore.db"
+        db_path.parent.mkdir(parents=True, exist_ok=True)
+        with sqlite3.connect(db_path) as db:
+            db.executescript(
+                """
+                CREATE TABLE publications (
+                    id INTEGER PRIMARY KEY, title TEXT NOT NULL, content TEXT NOT NULL,
+                    kind TEXT NOT NULL DEFAULT 'claim', topic TEXT NOT NULL DEFAULT '',
+                    provenance TEXT NOT NULL DEFAULT '[]',
+                    active INTEGER NOT NULL DEFAULT 1, created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL, source_changed_at TEXT);
+                CREATE VIRTUAL TABLE publications_fts USING fts5(
+                    title, content, content='publications', content_rowid='id',
+                    tokenize='unicode61 remove_diacritics 2');
+                CREATE TRIGGER publications_ai AFTER INSERT ON publications BEGIN
+                    INSERT INTO publications_fts(rowid,title,content)
+                    VALUES (new.id,new.title,new.content); END;
+                INSERT INTO publications(title,content,topic,active,created_at,updated_at)
+                    VALUES ('A','a','career',1,'2026-07-01','2026-07-01'),
+                           ('B','b','career',1,'2026-07-02','2026-07-02'),
+                           ('C','c','hobbies',0,'2026-07-03','2026-07-03');
+                """
+            )
+        with Store() as store:
+            first = store.list_nodes("public")
+            # One root node per distinct topic; revoked publications seed too,
+            # so the owner keeps their full structure.
+            self.assertEqual({node.title for node in first}, {"career", "hobbies"})
+            self.assertTrue(all(node.parent_id is None for node in first))
+            self.assertTrue(all(p.node_id is not None for p in store.list_publications()))
+            # Externally, only branches holding active publications exist.
+            self.assertEqual([n["title"] for n in store.public_tree()], ["career"])
+        with Store() as store:
+            self.assertEqual(len(store.list_nodes("public")), len(first))
+
+    def test_node_crud_move_rejects_cycles_and_cross_tree(self) -> None:
+        with Store() as store:
+            career = store.add_node(tree="public", title="Career")
+            anthropic = store.add_node(tree="public", title="Anthropic", parent_id=career)
+            projects = store.add_node(tree="public", title="Projects", parent_id=anthropic)
+            journal = store.add_node(tree="private", title="Journal")
+            with self.assertRaisesRegex(ValueError, "invalid tree"):
+                store.add_node(tree="shared", title="X")
+            with self.assertRaisesRegex(ValueError, "own parent"):
+                store.move_node(career, parent_id=career)
+            with self.assertRaisesRegex(ValueError, "descendant"):
+                store.move_node(career, parent_id=projects)
+            with self.assertRaisesRegex(ValueError, "tree"):
+                store.move_node(journal, parent_id=career)
+            with self.assertRaisesRegex(ValueError, "tree"):
+                store.add_node(tree="private", title="X", parent_id=career)
+            with self.assertRaisesRegex(ValueError, "already titled"):
+                store.add_node(tree="public", title="Career")
+            # The same title is fine in the other tree or under another parent.
+            store.add_node(tree="private", title="Career")
+            store.add_node(tree="public", title="Career", parent_id=anthropic)
+            hobbies = store.add_node(tree="public", title="Hobbies")
+            with self.assertRaisesRegex(ValueError, "already titled"):
+                store.rename_node(hobbies, title="Career")
+            store.rename_node(hobbies, title="Games", description="Board games")
+            store.move_node(projects, parent_id=None)
+            nodes = {node.id: node for node in store.list_nodes("public")}
+            self.assertIsNone(nodes[projects].parent_id)
+            self.assertEqual(nodes[hobbies].title, "Games")
+            self.assertEqual(nodes[hobbies].description, "Board games")
+
+    def test_delete_node_semantics(self) -> None:
+        memory_id = self._seed_memory("Filed evidence", "private")
+        with Store() as store:
+            career = store.add_node(tree="public", title="Career")
+            anthropic = store.add_node(tree="public", title="Anthropic", parent_id=career)
+            publication_id = store.add_publication(
+                title="Filed claim", content="a filed claim", topic="Career",
+                provenance=[memory_id], node_id=anthropic,
+            )
+            journal = store.add_node(tree="private", title="Journal")
+            store.attach_memory(memory_id, journal)
+            with self.assertRaisesRegex(ValueError, "descendant"):
+                store.delete_node(career)
+            # Deleting structure never deletes content or revokes a publication:
+            # the subtree cascades away and attached rows survive, unfiled.
+            store.delete_node(career, recursive=True)
+            self.assertEqual(store.list_nodes("public"), [])
+            survivor = store.list_publications()[0]
+            self.assertEqual(survivor.id, publication_id)
+            self.assertEqual(survivor.active, 1)
+            self.assertIsNone(survivor.node_id)
+            self.assertEqual(len(store.search_publications("filed claim")), 1)
+            # An unfiled active publication is searchable but not in the manifest.
+            self.assertEqual(store.public_tree(), [])
+            with self.assertRaisesRegex(ValueError, "attached"):
+                store.delete_node(journal)
+            store.delete_node(journal, recursive=True)
+            self.assertIsNone(store.search("Filed evidence")[0].node_id)
+            self.assertIs(store.search("Filed evidence")[0].status, Status.PRIVATE)
+
+    def test_revoked_publication_prunes_empty_node_from_manifest(self) -> None:
+        memory_id = self._seed_memory("Prune evidence", "private")
+        with Store() as store:
+            publication_id = store.add_publication(
+                title="Only claim", content="the only claim here",
+                topic="niche", provenance=[memory_id],
+            )
+            manifest = store.public_tree()
+            self.assertEqual(manifest[0]["title"], "niche")
+            self.assertEqual(manifest[0]["publication_count"], 1)
+            store.revoke_publication(publication_id)
+            # Revoking removes any grouping that existed only to hold it...
+            self.assertEqual(store.public_tree(), [])
+            # ...while the owner still sees their structure.
+            owner_view = store.public_tree(include_empty=True)
+            self.assertEqual(owner_view[0]["title"], "niche")
+            self.assertEqual(owner_view[0]["publication_count"], 0)
+
+    def test_add_publication_defaults_node_from_topic(self) -> None:
+        first_memory = self._seed_memory("Rollup one", "private")
+        second_memory = self._seed_memory("Rollup two", "private")
+        with Store() as store:
+            store.add_publication(
+                title="First claim", content="c1", topic="career", provenance=[first_memory]
+            )
+            second = store.add_publication(
+                title="Second claim", content="c2", topic="career", provenance=[second_memory]
+            )
+            roots = store.list_nodes("public")
+            self.assertEqual([node.title for node in roots], ["career"])
+            child = store.add_node(tree="public", title="Anthropic", parent_id=roots[0].id)
+            store.attach_publication(second, child)
+            manifest = store.public_tree()
+            # Counts and freshness roll up bottom-up through the branch.
+            self.assertEqual(manifest[0]["publication_count"], 2)
+            self.assertEqual(manifest[0]["children"][0]["publication_count"], 1)
+            newest = max(p.updated_at for p in store.list_publications())
+            self.assertEqual(manifest[0]["last_updated"], newest)
+
+    def test_attach_rejects_wrong_tree(self) -> None:
+        memory_id = self._seed_memory("Tree boundary", "private")
+        with Store() as store:
+            public_node = store.add_node(tree="public", title="Public shelf")
+            private_node = store.add_node(tree="private", title="Private shelf")
+            publication_id = store.add_publication(
+                title="Boundary claim", content="c", topic="boundaries",
+                provenance=[memory_id],
+            )
+            with self.assertRaisesRegex(ValueError, "public nodes"):
+                store.attach_publication(publication_id, private_node)
+            with self.assertRaisesRegex(ValueError, "private nodes"):
+                store.attach_memory(memory_id, public_node)
+            with self.assertRaisesRegex(ValueError, "public nodes"):
+                store.add_publication(
+                    title="X", content="x", topic="boundaries",
+                    provenance=[memory_id], node_id=private_node,
+                )
+            # Filing a memory is organization only: status is untouched.
+            store.attach_memory(memory_id, private_node)
+            found = store.search("Tree boundary")[0]
+            self.assertEqual(found.node_id, private_node)
+            self.assertIs(found.status, Status.PRIVATE)
+            self.assertEqual(store.private_tree()[0]["memory_count"], 1)
 
     def test_publication_apply_rejects_bad_candidates(self) -> None:
         base = Path(os.environ["LORE_HOME"])
