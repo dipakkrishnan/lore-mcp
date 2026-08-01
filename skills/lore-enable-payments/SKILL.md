@@ -164,16 +164,27 @@ Something has to pay the node once, so the owner trusts the rail before real mon
 is near it. Use a **throwaway buyer wallet, never the payout wallet** — a node
 paying itself proves nothing.
 
-1. Create a second, throwaway wallet — a fresh account in the same wallet app is
-   fine (you already know the steps from 3; drive them again, short form).
-2. Fund it with test USDC: `open https://faucet.circle.com` — network **Base
-   Sepolia**. This is play money.
-3. In `~/.lore/node`: run `cp .buyer.env.example .buyer.env`, then **open the file
-   for the owner to edit themselves** — `open -t .buyer.env` (macOS) or their
-   editor — and have them fill in the buyer key there. The key must never be pasted
-   into this conversation — anything pasted here lands in agent transcripts, the
-   very files Lore's synthesis later reads.
-4. Run the capped buyer from `~/.lore/node` (the node URL is in `lore status`):
+1. Create the throwaway buyer wallet. The buyer is anything holding a key that can
+   sign the challenge, so **generate it locally yourself** — wallet apps with
+   passkey accounts cannot export a raw key at all, and `npm run pay` needs one in
+   a file. From `~/.lore/node`, generate with viem (already a dependency) and write
+   it straight into `.buyer.env`, printing **only the address**:
+
+   ```sh
+   node -e "const{generatePrivateKey,privateKeyToAccount}=require('viem/accounts');
+   const fs=require('fs');const k=generatePrivateKey();
+   const f=fs.readFileSync('.buyer.env.example','utf8').replace('0x...',k);
+   fs.writeFileSync('.buyer.env',f,{mode:0o600});
+   console.log('fund this:',privateKeyToAccount(k).address)"
+   ```
+
+   The key exists only in that file; it never appears in the conversation. (An
+   owner who prefers exporting a key from a classic wallet account can — they edit
+   `.buyer.env` themselves in their editor, `open -t .buyer.env`; the key still
+   never enters the conversation.)
+2. Fund the printed address with test USDC: `open https://faucet.circle.com` —
+   token **USDC**, network **Base Sepolia**. This is play money.
+3. Run the capped buyer from `~/.lore/node` (the node URL is in `lore status`):
 
 ```sh
 npm run pay -- https://<their-subdomain>.workers.dev/mcp
