@@ -30,7 +30,7 @@ live endpoint. Deploying by hand with wrangler skips all of that.
 lore node deploy --wallet <your public 0x payout address>
 ```
 
-`lore status` shows the node URL as `Node:` afterwards. Files you create here
+`lore status` shows the node URL as `Node (last deploy):` afterwards. Files you create here
 (`.buyer.env`, `.dev.vars`) survive redeploys; everything else is overwritten.
 
 ## Make the test payment

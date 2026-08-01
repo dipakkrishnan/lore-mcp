@@ -232,8 +232,8 @@ The Worker source ships inside this package (`lore/node/`), so deploying never
 needs this repository. Lore owns local retrieval and disclosure policy; the
 Worker owns the payment exchange, verification, and settlement, and the
 owner's machine only ever pushes approved publications outward — no tunnel, no
-inbound path to the private library. Until publications serving lands
-(MON-003), the deployed node answers with sample canary content.
+inbound path to the private library. The deployed node answers from the
+owner-approved publications `lore push` maintains in its edge database.
 
 ## Monetization
 
@@ -330,10 +330,10 @@ database, or MCP SDK to install.
 ## Status
 
 The local CLI, agent-memory import, FTS5 search, review flow, assisted synthesis,
-basic stdio/HTTP MCP server, and test-network payment enforcement (the x402
-Worker deployed by `lore node deploy`) are implemented. Serving publications
-from the deployed node, repeated-query extraction protection, remote identity,
-and marketplace discovery remain future work.
+basic stdio/HTTP MCP server, test-network payment enforcement (the x402
+Worker deployed by `lore node deploy`), and publications serving from the
+deployed node (`lore push`) are implemented. Repeated-query extraction
+protection, remote identity, and marketplace discovery remain future work.
 
 ## Related infrastructure
 

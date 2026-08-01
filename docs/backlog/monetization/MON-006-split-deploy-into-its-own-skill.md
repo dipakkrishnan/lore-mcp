@@ -6,11 +6,11 @@ effort: M
 component: monetization
 status: in-review
 related: [MON-002, MON-005, XC-005]
-blockers: [MON-003]
+blockers: []
 dependencies: []
 github_issue: null
 created: 2026-07-30
-updated: 2026-07-30
+updated: 2026-08-01
 ---
 
 ## Problem
@@ -61,6 +61,11 @@ package data) so deploy needs no git checkout, and the deploy artifact is
 version-locked to the CLI that will later `lore push` into its D1 schema.
 The command materializes to `~/.lore/node` (never touching `.buyer.env`),
 drives npm/wrangler (login, deploy, `LORE_WALLET` secret), records `node_url`
-in settings (shown by `lore status`), and runs the smoke check. Remaining
-here, still blocked on MON-003: publications serving, revocation reach,
-removing the canary honesty note, and renaming the worker.
+in settings (shown by `lore status`), and runs the smoke check.
+
+2026-08-01: MON-003 landed (#45), unblocking this: the node serves
+publications from D1, and `lore node deploy` now creates the database,
+resolves the config placeholder, and runs a first `lore push`, so the smoke
+check passes before anything is published. Remaining here: revocation
+reaching the node without a manual `lore push`, and renaming the worker from
+its canary name.
