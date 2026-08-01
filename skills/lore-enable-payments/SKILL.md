@@ -128,9 +128,11 @@ Two owner-side prerequisites, each verified from state before you deploy:
    handles that login.
 2. **workers.dev subdomain** (one-time per account). If a deploy fails with
    "register a workers.dev subdomain", take the account id from `npx wrangler
-   whoami` and open the page for them:
-   `open https://dash.cloudflare.com/<account-id>/workers/onboarding` — they pick a
-   name, you retry.
+   whoami` and open the Workers overview for them:
+   `open https://dash.cloudflare.com/<account-id>/workers-and-pages` — the
+   "Your subdomain" panel (right column, or the first-visit prompt) is where they
+   pick a name; then you retry. Do not use the `/workers/onboarding` URL wrangler's
+   error message prints — it 404s on the current dashboard.
 
 Then deploy — one command, you run it (the node source ships inside Lore itself —
 no repository, no checkout):
