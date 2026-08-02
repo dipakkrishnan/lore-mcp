@@ -24,13 +24,6 @@ class Status(str, Enum):
 
 STATUSES = tuple(status.value for status in Status)
 
-# ponytail: small English question stoplist; replace with an FTS query builder
-# if multilingual buyer search becomes a real requirement.
-QUERY_STOPWORDS = frozenset(
-    "a about an and are can could do does for has have how i is it me of on or "
-    "person tell that the this to what when where who why with you your".split()
-)
-
 
 class Memory(BaseModel):
     """A normalized memory and its owner-controlled retention status."""
@@ -81,6 +74,10 @@ class Publication(BaseModel):
     # only field external discovery surfaces may ever group or label by — deriving
     # labels any other way would disclose text no one approved.
     topic: str = ""
+    # The free face: an owner-approved advertisement of what exists, written to
+    # sell without giving the lesson away. The manifest renders teasers only —
+    # a publication without one is purchasable by id but never advertised.
+    teaser: str = ""
     provenance: list[int]
     active: int
     created_at: str
@@ -171,31 +168,20 @@ class Store:
                 kind TEXT NOT NULL DEFAULT 'claim'
                     CHECK(kind IN ('claim','content')),
                 topic TEXT NOT NULL DEFAULT '',
+                teaser TEXT NOT NULL DEFAULT '',
                 provenance TEXT NOT NULL DEFAULT '[]',
                 active INTEGER NOT NULL DEFAULT 1 CHECK(active IN (0,1)),
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL,
                 source_changed_at TEXT
             );
-            CREATE VIRTUAL TABLE IF NOT EXISTS publications_fts USING fts5(
-                title, content,
-                content='publications', content_rowid='id',
-                tokenize='unicode61 remove_diacritics 2'
-            );
-            CREATE TRIGGER IF NOT EXISTS publications_ai AFTER INSERT ON publications BEGIN
-                INSERT INTO publications_fts(rowid,title,content)
-                VALUES (new.id,new.title,new.content);
-            END;
-            CREATE TRIGGER IF NOT EXISTS publications_ad AFTER DELETE ON publications BEGIN
-                INSERT INTO publications_fts(publications_fts,rowid,title,content)
-                VALUES ('delete',old.id,old.title,old.content);
-            END;
-            CREATE TRIGGER IF NOT EXISTS publications_au AFTER UPDATE ON publications BEGIN
-                INSERT INTO publications_fts(publications_fts,rowid,title,content)
-                VALUES ('delete',old.id,old.title,old.content);
-                INSERT INTO publications_fts(rowid,title,content)
-                VALUES (new.id,new.title,new.content);
-            END;
+            -- The buyer surface is a manifest plus fetch-by-id, so publications
+            -- are never text-searched. Roll-forward: drop the FTS index and
+            -- triggers from databases created when they existed.
+            DROP TRIGGER IF EXISTS publications_ai;
+            DROP TRIGGER IF EXISTS publications_ad;
+            DROP TRIGGER IF EXISTS publications_au;
+            DROP TABLE IF EXISTS publications_fts;
             """
         )
         # Roll-forward normalization, not back-compat: a database created before
@@ -207,11 +193,14 @@ class Store:
             "UPDATE memories SET status='private' "
             "WHERE status NOT IN ('private','discarded')"
         )
-        # Databases created before the topic column existed: CREATE IF NOT EXISTS
-        # never alters, so add it in place. New databases already have it.
+        # Databases created before a column existed: CREATE IF NOT EXISTS never
+        # alters, so add it in place. New databases already have it.
         columns = {row["name"] for row in self.db.execute("PRAGMA table_info(publications)")}
-        if "topic" not in columns:
-            self.db.execute("ALTER TABLE publications ADD COLUMN topic TEXT NOT NULL DEFAULT ''")
+        for column in ("topic", "teaser"):
+            if column not in columns:
+                self.db.execute(
+                    f"ALTER TABLE publications ADD COLUMN {column} TEXT NOT NULL DEFAULT ''"
+                )
         self.db.commit()
 
     def put(
@@ -358,12 +347,20 @@ class Store:
         content: str,
         kind: PublicationKind | str = PublicationKind.CLAIM,
         topic: str = "",
+        teaser: str = "",
         provenance: list[int] | None = None,
     ) -> int:
-        """Create an active publication and return its id."""
+        """Create an active publication and return its id.
+
+        The teaser is optional here but required by the publish flow: a
+        publication without one is never rendered in the manifest, so nothing
+        reaches the free surface that wasn't written as an advertisement.
+        """
         kind = PublicationKind(kind)  # rejects unknown kinds
         if not all(isinstance(value, str) and value.strip() for value in (title, content, topic)):
             raise ValueError("publication title, content, and topic cannot be empty")
+        if not isinstance(teaser, str):
+            raise ValueError("publication teaser must be a string")
         if not isinstance(provenance, list) or not provenance or not all(
             isinstance(i, int) and not isinstance(i, bool) for i in provenance
         ):
@@ -373,9 +370,10 @@ class Store:
             raise ValueError(f"publication provenance references unknown memories: {missing}")
         now = datetime.now(timezone.utc).isoformat()
         cursor = self.db.execute(
-            """INSERT INTO publications(title,content,kind,topic,provenance,active,created_at,updated_at)
-               VALUES (?,?,?,?,?,1,?,?)""",
-            (title.strip(), content.strip(), kind.value, topic.strip(), json.dumps(provenance), now, now),
+            """INSERT INTO publications(title,content,kind,topic,teaser,provenance,active,created_at,updated_at)
+               VALUES (?,?,?,?,?,?,1,?,?)""",
+            (title.strip(), content.strip(), kind.value, topic.strip(), teaser.strip(),
+             json.dumps(provenance), now, now),
         )
         self.db.commit()
         return int(cursor.lastrowid)
@@ -442,34 +440,42 @@ class Store:
         ).fetchall()
         return [Publication.from_row(row) for row in rows]
 
-    def search_publications(self, query: str, *, limit: int = 5) -> list[Publication]:
-        """Search active publications. This is the only externally-readable path."""
-        if limit < 0:
-            raise ValueError("limit cannot be negative")
-        if query.strip():
-            # OR over meaningful word tokens, not AND over hyphen-joined phrases:
-            # buyers send natural-language queries ("What has this educator
-            # learned about lecture-heavy courses?"), and requiring every term
-            # — or treating "lecture-heavy" as a phrase — returns an empty paid
-            # answer. Common question words are removed so OR does not turn
-            # unrelated publications into false positives.
-            terms = list(dict.fromkeys(
-                term.casefold()
-                for term in re.findall(r"\w+", query, re.UNICODE)
-                if term.casefold() not in QUERY_STOPWORDS
-            ))
-            if not terms:
-                return []
-            match = " OR ".join(f'"{term}"' for term in terms)
-            sql = (
-                "SELECT p.* FROM publications_fts f JOIN publications p ON p.id=f.rowid "
-                "WHERE publications_fts MATCH ? AND p.active=1 "
-                "ORDER BY bm25(publications_fts),p.updated_at DESC LIMIT ?"
+    def manifest(self) -> dict[str, object]:
+        """Render the free discovery surface: teasers grouped by topic.
+
+        A pure function of active publications — never materialized, so a
+        revoke is gone on the very next read. Only the advertisement columns
+        are selected; `content`, `title`, and provenance are unreadable here
+        by construction. Publications without a teaser are not rendered: the
+        owner never wrote an advertisement for them.
+        """
+        rows = self.db.execute(
+            "SELECT id,teaser,topic,kind,updated_at FROM publications "
+            "WHERE active=1 AND teaser<>'' ORDER BY topic,updated_at DESC,id"
+        ).fetchall()
+        topics: dict[str, list[dict[str, object]]] = {}
+        for row in rows:
+            topics.setdefault(row["topic"], []).append(
+                {
+                    "id": row["id"],
+                    "teaser": row["teaser"],
+                    "kind": row["kind"],
+                    "updated_at": row["updated_at"],
+                }
             )
-            args: list[object] = [match, limit or -1]
-        else:
-            sql = "SELECT * FROM publications WHERE active=1 ORDER BY updated_at DESC LIMIT ?"
-            args = [limit or -1]
-        return [Publication.from_row(row) for row in self.db.execute(sql, args).fetchall()]
+        return {
+            "manifest_version": 1,
+            "publication_count": len(rows),
+            "topics": topics,
+        }
+
+    def get_publication(self, publication_id: int) -> Publication:
+        """Return one active publication by id — the only paid read path."""
+        row = self.db.execute(
+            "SELECT * FROM publications WHERE id=? AND active=1", (publication_id,)
+        ).fetchone()
+        if row is None:
+            raise ValueError(f"publication not found: {publication_id}")
+        return Publication.from_row(row)
 
 

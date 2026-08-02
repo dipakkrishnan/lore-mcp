@@ -384,14 +384,20 @@ def _candidate(raw: object, missing_check: Store) -> Publication:
     """Validate one drafted candidate into a previewable Publication."""
     if not isinstance(raw, dict):
         raise ValueError("each candidate must be a JSON object")
-    unexpected = raw.keys() - {"title", "content", "kind", "topic", "provenance"}
+    unexpected = raw.keys() - {"title", "content", "kind", "topic", "teaser", "provenance"}
     if unexpected:
         raise ValueError(f"unexpected candidate field: {sorted(unexpected)[0]}")
     title = str(raw.get("title", "")).strip()
     content = str(raw.get("content", "")).strip()
     topic = str(raw.get("topic", "")).strip()
+    teaser = str(raw.get("teaser", "")).strip()
     if not title or not content or not topic:
         raise ValueError("candidates need a non-empty title, content, and topic")
+    if not teaser:
+        # The teaser is the entire free surface for this publication, so approval
+        # without one would advertise nothing — draft it question-shaped: what the
+        # publication answers, never the lesson itself.
+        raise ValueError("candidates need a non-empty teaser (the free advertisement)")
     provenance = raw.get("provenance", [])
     if not isinstance(provenance, list) or not provenance or not all(
         isinstance(i, int) and not isinstance(i, bool) for i in provenance
@@ -406,6 +412,7 @@ def _candidate(raw: object, missing_check: Store) -> Publication:
         content=content,
         kind=PublicationKind(raw.get("kind", "claim")),
         topic=topic,
+        teaser=teaser,
         provenance=provenance,
         active=1,
         created_at="",
@@ -438,15 +445,21 @@ def publication_apply(path: str) -> int:
                         content=candidate.content,
                         kind=candidate.kind,
                         topic=candidate.topic,
+                        teaser=candidate.teaser,
                         provenance=candidate.provenance,
                     )
                     approved += 1
                     break
                 if choice == "e":
                     title = ask("Title (enter keeps current)") or candidate.title
+                    teaser = ask("Teaser (enter keeps current)") or candidate.teaser
                     content = ask("Content (enter keeps current)") or candidate.content
                     candidate = candidate.model_copy(
-                        update={"title": title.strip(), "content": content.strip()}
+                        update={
+                            "title": title.strip(),
+                            "teaser": teaser.strip(),
+                            "content": content.strip(),
+                        }
                     )
                     continue
                 if choice == "q":
@@ -492,14 +505,18 @@ def _push_sql(publications: list[Publication]) -> str:
         return "'" + value.replace("'", "''") + "'"
 
     statements = [
-        "CREATE TABLE IF NOT EXISTS publications ("
+        # Full replace includes the schema: DROP+CREATE so a node deployed
+        # before the teaser column existed converges on the current shape.
+        "DROP TABLE IF EXISTS publications;",
+        "CREATE TABLE publications ("
         "id INTEGER PRIMARY KEY, title TEXT NOT NULL, content TEXT NOT NULL, "
-        "kind TEXT NOT NULL, topic TEXT NOT NULL DEFAULT '');",
-        "DELETE FROM publications;",
+        "kind TEXT NOT NULL, topic TEXT NOT NULL DEFAULT '', "
+        "teaser TEXT NOT NULL DEFAULT '', updated_at TEXT NOT NULL DEFAULT '');",
     ]
     statements.extend(
-        f"INSERT INTO publications(id,title,content,kind,topic) VALUES "
-        f"({p.id},{quote(p.title)},{quote(p.content)},{quote(p.kind.value)},{quote(p.topic)});"
+        f"INSERT INTO publications(id,title,content,kind,topic,teaser,updated_at) VALUES "
+        f"({p.id},{quote(p.title)},{quote(p.content)},{quote(p.kind.value)},"
+        f"{quote(p.topic)},{quote(p.teaser)},{quote(p.updated_at)});"
         for p in publications
     )
     return "\n".join(statements) + "\n"

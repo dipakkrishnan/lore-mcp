@@ -86,9 +86,11 @@ const paidClient = withX402Client(client, {
 
 try {
   // null selects withX402Client's default payment-approval callback.
+  // Buys the lowest-id publication in the pushed set — run discover first if
+  // you want to see what that is before spending.
   const result = await paidClient.callTool(null, {
-    name: "answer",
-    arguments: { query: "What is Lore?" }
+    name: "get",
+    arguments: { id: 1 }
   });
   console.log(JSON.stringify(result, null, 2));
   if (result.isError) process.exitCode = 1;

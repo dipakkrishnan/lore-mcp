@@ -1,9 +1,10 @@
 # Your Lore node
 
 This directory is the source of your deployable Lore node: a Cloudflare Worker
-with a free MCP `discover` tool and a paid `answer` tool (x402, USDC on Base),
-serving your **approved publications** from D1. `discover` returns titles and
-topics only (the free advertisement); `answer` returns the content, paid.
+with a free MCP `discover` tool and a paid `get` tool (x402, USDC on Base),
+serving your **approved publications** from D1. `discover` returns the full
+catalog — owner-approved teasers grouped by topic, with ids and freshness (the
+free advertisement); `get` returns one publication's content by id, paid.
 Private Lore never reaches the edge — `lore push` writes only
 `publications WHERE active=1`. It ships inside the Lore package and is staged
 here by `lore node deploy`.

@@ -47,16 +47,20 @@ statement of what the owner knows, at the precision the evidence supports.
   string on every candidate in the batch. It becomes the externally visible
   grouping label wherever buyers browse this node, so it must be the owner's
   approved wording, never your own summary.
-- Titles are advertisement: a buyer sees them for free before paying for the
-  content. Write the title to say what the claim is *about*, not to deliver
-  the claim itself — a title that gives away the finding sells nothing.
+- `teaser` is the advertisement: it is the only text of this publication a
+  buyer ever reads for free (grouped by topic in the discover manifest).
+  Write it question-shaped — what the publication answers, with the stakes —
+  never the finding itself. A teaser that gives away the lesson sells
+  nothing. The title travels with the paid content, so it may state the
+  claim plainly.
 
 Write the candidates to `~/.lore/publish-candidates.json`:
 
 ```json
 [
   {
-    "title": "What outperformed cold decks in an agent-tool launch",
+    "title": "Live demos beat cold decks in an agent-tool launch",
+    "teaser": "What outperformed a polished cold deck in one agent-tool launch, with trial-conversion counts",
     "content": "Across one launch: 3 short live demos produced 7 follow-up trials from 10 qualified viewers; a polished deck sent cold produced 0 replies from 12. Small sample; treat as a strong prior, not a law.",
     "kind": "claim",
     "topic": "go-to-market lessons",

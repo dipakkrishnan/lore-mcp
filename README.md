@@ -165,11 +165,11 @@ The node publishes a coarse capability manifest—topics, recency, kinds of expe
 Discovery happens at two levels:
 
 1. Agent and plugin marketplaces help a buyer find potentially relevant Lore MCP endpoints.
-2. A free `discover` call asks a particular node whether it can help with a task and returns only safe relevance metadata.
+2. A free `discover` call returns a node's full catalog — owner-approved teasers grouped by topic, with ids, freshness, and price. The buying agent reads it and decides what is worth fetching; there is no server-side search to guess vocabulary against.
 
-### 6. Answer and settle
+### 6. Fetch and settle
 
-A buyer calls `answer`. If payment is required, the gateway in front of the route
+A buyer calls `get` with a publication id chosen from the catalog. If payment is required, the gateway in front of the route
 answers with the price and payment requirements; the buyer authorizes and retries.
 After verification, the local node produces a policy-filtered answer.
 

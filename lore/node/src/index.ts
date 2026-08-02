@@ -11,28 +11,28 @@ function payTo(env: Env): `0x${string}` {
   return env.LORE_WALLET as `0x${string}`;
 }
 
-interface PublicationRow {
-  title: string;
-  content: string;
+interface ManifestRow {
+  id: number;
+  teaser: string;
   topic: string;
+  kind: string;
+  updated_at: string;
 }
 
 // The D1 table `lore push` maintains. Rows here are owner-approved publications
-// and nothing else — no private data exists at the edge to leak.
-async function searchPublications(
-  env: Env,
-  query: string,
-  limit: number
-): Promise<PublicationRow[]> {
-  const like = `%${query.replaceAll(/[%_\\]/g, (c) => `\\${c}`)}%`;
+// and nothing else — no private data exists at the edge to leak. The manifest
+// selects only the advertisement columns: what exists, never what it says.
+// Mirrors Store.manifest() in lore/store.py — the smoke script diffs the two.
+async function manifest(env: Env): Promise<Record<string, unknown>> {
   const { results } = await env.LORE_DB.prepare(
-    `SELECT title, content, topic FROM publications
-     WHERE title LIKE ?1 ESCAPE '\\' OR topic LIKE ?1 ESCAPE '\\' OR content LIKE ?1 ESCAPE '\\'
-     ORDER BY id LIMIT ?2`
-  )
-    .bind(like, limit)
-    .all<PublicationRow>();
-  return results;
+    `SELECT id, teaser, topic, kind, updated_at FROM publications
+     WHERE teaser <> '' ORDER BY topic, updated_at DESC, id`
+  ).all<ManifestRow>();
+  const topics: Record<string, object[]> = {};
+  for (const { id, teaser, topic, kind, updated_at } of results) {
+    (topics[topic] ??= []).push({ id, teaser, kind, updated_at });
+  }
+  return { manifest_version: 1, publication_count: results.length, topics };
 }
 
 // ponytail: withX402 (which provides paidTool) only works on the legacy
@@ -52,53 +52,58 @@ export class LorePaidMCP extends McpAgent<Env> {
     this.server.registerTool(
       "discover",
       {
-        description: "Check whether this Lore node can help with a query.",
-        inputSchema: { query: z.string().trim().min(1) }
+        description:
+          "Return this node's full catalog of owner-approved publications: " +
+          "teasers grouped by topic, with ids, freshness, and price. Free.",
+        inputSchema: {}
       },
-      async ({ query }) => {
-        // The free surface: titles and topics only — the advertisement, never
-        // the paid content. Content is matched for recall but not returned.
-        const matches = await searchPublications(this.env, query, 5);
-        return {
-          content: [
-            {
-              type: "text" as const,
-              text: JSON.stringify({
-                can_help: matches.length > 0,
-                matches: matches.map(({ title, topic }) => ({ title, topic })),
-                price_usd: PRICE_USD,
-                disclosure: "Only owner-approved publications are available."
-              })
-            }
-          ]
-        };
-      }
+      async () => ({
+        content: [
+          {
+            type: "text" as const,
+            text: JSON.stringify({
+              ...(await manifest(this.env)),
+              price_usd: PRICE_USD,
+              disclosure:
+                "Teasers describe what exists. Fetch content with get, one publication per call."
+            })
+          }
+        ]
+      })
     );
 
     this.server.paidTool(
-      "answer",
-      "Return owner-approved evidence relevant to a query.",
+      "get",
+      "Fetch one owner-approved publication by its id from the discover catalog.",
       PRICE_USD,
-      { query: z.string().trim().min(1) },
+      { id: z.number().int().min(1) },
       {}, // paidTool's output schema; unstructured text only.
-      async ({ query }) => {
+      async ({ id }) => {
         // Paid and free read the same rows: payment decides whether a caller
-        // is served, never what is servable.
-        const matches = await searchPublications(this.env, query, 5);
+        // is served, never what is servable. One payment maps to exactly one
+        // publication, chosen by the buyer from the catalog.
+        const row = await this.env.LORE_DB.prepare(
+          `SELECT id, title, content, topic, kind, updated_at
+           FROM publications WHERE id = ?1`
+        )
+          .bind(id)
+          .first();
         return {
           content: [
             {
               type: "text" as const,
-              text: JSON.stringify({
-                answer_context: matches.map(({ title, content, topic }) => ({
-                  title,
-                  content,
-                  topic
-                })),
-                disclosure: "Only owner-approved publications are available."
-              })
+              text: JSON.stringify(
+                row
+                  ? {
+                      publication: row,
+                      disclosure:
+                        "Content is owner-approved; preserve attribution when synthesizing."
+                    }
+                  : { error: `publication not found: ${id}` }
+              )
             }
-          ]
+          ],
+          isError: row ? undefined : true
         };
       }
     );

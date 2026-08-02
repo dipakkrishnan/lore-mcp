@@ -28,26 +28,22 @@ TOOLS = [
     {
         "name": "discover",
         "title": "Discover Lore",
-        "description": "Check whether this Lore node has owner-approved context relevant to a query. Free and content-safe.",
-        "inputSchema": {
-            "type": "object",
-            "properties": {"query": {"type": "string", "minLength": 1}},
-            "required": ["query"],
-            "additionalProperties": False,
-        },
+        "description": (
+            "Return this node's full catalog of owner-approved publications: "
+            "teasers grouped by topic, with ids, freshness, and price. Free. "
+            "Read it and decide what is worth fetching — there is no server-side search."
+        ),
+        "inputSchema": {"type": "object", "properties": {}, "additionalProperties": False},
         "annotations": {"readOnlyHint": True, "openWorldHint": False},
     },
     {
-        "name": "answer",
-        "title": "Answer from Lore",
-        "description": "Return owner-approved evidence relevant to a query.",
+        "name": "get",
+        "title": "Get a publication",
+        "description": "Fetch one owner-approved publication by its id from the discover catalog.",
         "inputSchema": {
             "type": "object",
-            "properties": {
-                "query": {"type": "string", "minLength": 1},
-                "max_results": {"type": "integer", "minimum": 1, "maximum": 10, "default": 5},
-            },
-            "required": ["query"],
+            "properties": {"id": {"type": "integer", "minimum": 1}},
+            "required": ["id"],
             "additionalProperties": False,
         },
         "annotations": {"readOnlyHint": True, "openWorldHint": False},
@@ -80,7 +76,10 @@ def dispatch(message: object) -> dict[str, Any] | None:
                 "protocolVersion": version,
                 "capabilities": {"tools": {"listChanged": False}},
                 "serverInfo": {"name": "lore", "version": __version__},
-                "instructions": "Use discover before answer. Only owner-approved publications are returned.",
+                "instructions": (
+                    "discover returns the full catalog (free); get fetches one "
+                    "publication by id. Only owner-approved publications exist here."
+                ),
             }
         elif method == "ping":
             result = {}
@@ -100,51 +99,39 @@ def dispatch(message: object) -> dict[str, Any] | None:
 
 def call_tool(name: object, arguments: object) -> dict[str, Any]:
     """Run a Lore MCP tool against owner-approved publications only."""
-    if name not in {"discover", "answer"}:
+    if name not in {"discover", "get"}:
         raise ValueError(f"unknown tool: {name}")
     if not isinstance(arguments, dict):
         raise TypeError("arguments must be an object")
-    allowed = {"query", "max_results"} if name == "answer" else {"query"}
+    allowed = {"id"} if name == "get" else set()
     unexpected = arguments.keys() - allowed
     if unexpected:
         raise ValueError(f"unexpected argument: {sorted(unexpected)[0]}")
-    query = arguments.get("query", "")
-    if not isinstance(query, str):
-        raise TypeError("query must be a string")
-    query = query.strip()
-    if not query:
-        raise ValueError("query is required")
     with Store() as store:
         if name == "discover":
-            matches = store.search_publications(query, limit=5)
-            payload = {
-                "can_help": bool(matches),
-                "match_count": len(matches),
-                "topics": [publication.title for publication in matches],
+            # The free surface is the manifest: what exists, never what it says.
+            payload = store.manifest() | {
                 "price_usd": store.setting("price_usd", None),
-                "disclosure": "Only owner-approved publications are available.",
+                "disclosure": "Teasers describe what exists. Fetch content with get, one publication per call.",
             }
-        elif name == "answer":
-            limit = arguments.get("max_results", 5)
-            if isinstance(limit, bool) or not isinstance(limit, int) or not 1 <= limit <= 10:
-                raise ValueError("max_results must be an integer from 1 to 10")
-            matches = store.search_publications(query, limit=limit)
+        elif name == "get":
+            publication_id = arguments.get("id")
+            if isinstance(publication_id, bool) or not isinstance(publication_id, int) \
+                    or publication_id < 1:
+                raise ValueError("id must be a positive integer from the discover catalog")
+            publication = store.get_publication(publication_id)
             payload = {
-                "answer_context": [
-                    {
-                        "title": publication.title,
-                        "content": publication.content,
-                        # Provenance is owner-visible only. The private memory
-                        # ids behind a publication are never sent to a buyer:
-                        # they leak the size and shape of the private library.
-                        "provenance": {
-                            "kind": publication.kind,
-                            "updated_at": publication.updated_at,
-                        },
-                    }
-                    for publication in matches
-                ],
-                "disclosure": "Context is owner-approved; the caller should preserve provenance when synthesizing an answer.",
+                "publication": {
+                    "id": publication.id,
+                    "title": publication.title,
+                    "content": publication.content,
+                    "topic": publication.topic,
+                    # The private memory ids behind a publication are never sent
+                    # to a buyer: they leak the size and shape of the library.
+                    "kind": publication.kind,
+                    "updated_at": publication.updated_at,
+                },
+                "disclosure": "Content is owner-approved; preserve attribution when synthesizing.",
             }
     return {"content": [{"type": "text", "text": json.dumps(payload, ensure_ascii=False)}]}
 
