@@ -337,7 +337,9 @@ class LoreTest(unittest.TestCase):
         self.assertEqual(profile.get("executor", ""), "")
         with self.assertRaisesRegex(ValueError, "no-schedule"):
             automation.install(profile)
-        with self.assertRaisesRegex(ValueError, "unknown executor"):
+        # The rejection now names the executors that would work, rather than only
+        # reporting that this one does not.
+        with self.assertRaisesRegex(ValueError, "executor must be one of: claude, codex"):
             automation.save_profile({"executor": "cursor"})
 
     def test_prompt_states_the_thesis_and_derives_statuses(self) -> None:
@@ -571,14 +573,14 @@ class LoreTest(unittest.TestCase):
         self.assertIn("Imported 1 candidate memories", report)   # setup
         self.assertIn("unchanged", report)                       # sync
         self.assertIn('"title": "Deployment"', report)           # search --json
-        self.assertIn("Answer price set to $0.50", report)       # price 0.5
-        self.assertIn("$0.50 per answer", report)                # price, once set
+        self.assertIn("Publication price set to $0.50", report)  # price 0.5
+        self.assertIn("$0.50 per publication", report)           # price, once set
 
         with patch("lore.cli.ask", side_effect=["s", "q"]), redirect_stdout(StringIO()) as skipped:
             self.assertEqual(main(["review"]), 0)
         self.assertIn("Deployment", skipped.getvalue())
         with Store() as store:
-            self.assertEqual(store.counts()["pending"], 1)  # [s] skipped, changed nothing
+            self.assertEqual(store.counts()["private"], 1)  # [s] skipped, changed nothing
 
         errors = StringIO()
         with redirect_stdout(StringIO()), redirect_stderr(errors):

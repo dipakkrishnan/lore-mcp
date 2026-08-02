@@ -161,17 +161,12 @@ def progress() -> tuple[list[Step], str, list[str]]:
         if profile
         else _missing("scheduled synthesis is not configured", profile_read),
     )
-    # Nothing pending is a finished step, not a skipped one: synthesis fills an empty
-    # library later, and there is no disclosure decision to make until it does.
-    classified = Step(
-        "Classify what stays private",
-        counts["pending"] == 0,
-        f"{counts['pending']} awaiting review"
-        if counts["pending"]
-        else ("nothing waiting" if total else "nothing imported yet"),
-    )
-
-    steps = [imported, captured, drafted, classified]
+    # There is deliberately no classification step. Imports are private on arrival,
+    # so onboarding leaves nothing undisclosed-but-pending for the owner to resolve;
+    # `lore review` is retention grooming they can do whenever, and publishing is a
+    # separate, later act of intent. A step that can never read "done" is worse than
+    # no step at all.
+    steps = [imported, captured, drafted]
     if not imported.done:
         step = "Run `lore setup` to import the memories your agents already wrote."
     elif not (captured.done and drafted.done):
@@ -182,13 +177,12 @@ def progress() -> tuple[list[Step], str, list[str]]:
         else:
             started = captured.done or bool(checkpoint)
             step = f"{'Resume' if started else 'Start'} onboarding — {HANDOFF}"
-    elif not classified.done:
-        step = "Run `lore review` to decide what stays private and what can be answered."
     else:
         step = ""
 
-    # Classification is the better next action while memories wait, but an absent
-    # schedule means the library stops growing — that cannot wait silently for it.
+    # Onboarding can be complete while synthesis is not actually scheduled, and an
+    # absent schedule means the library quietly stops growing — so it is carried
+    # alongside the steps rather than being allowed to pass unmentioned.
     warnings = []
     if profile is not None and not running:
         warnings.append(

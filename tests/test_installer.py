@@ -6,8 +6,8 @@ triggers, and the owner is told to say a phrase that nothing is listening for.
 
 These tests run the real script with `uv` stubbed out, so no package is built and
 no network is used. Every run is given an explicit environment with HOME inside a
-temporary directory: the script does `rm -rf "$HOME/.claude/skills/lore-onboard"`,
-which against a real HOME would delete the developer's installed skill.
+temporary directory: the script does `rm -rf "$HOME/.claude/skills/<skill>"`,
+which against a real HOME would delete the developer's installed skills.
 """
 
 from __future__ import annotations
@@ -20,8 +20,10 @@ import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-SKILL = ROOT / "skills/lore-onboard"
-AGENT_HOMES = (".agents/skills/lore-onboard", ".claude/skills/lore-onboard")
+# The installer ships `skills/lore-*` to both homes, so the glob is the contract:
+# a new owner skill that fails to ship should fail here, not in someone's setup.
+OWNER_SKILLS = sorted(path for path in (ROOT / "skills").glob("lore-*") if path.is_dir())
+AGENT_HOMES = (".agents/skills", ".claude/skills")
 
 
 class InstallerTest(unittest.TestCase):
@@ -64,32 +66,37 @@ class InstallerTest(unittest.TestCase):
 
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("Installed Lore at", result.stdout)
+        self.assertTrue(OWNER_SKILLS, "no owner skills found to ship")
         for home in AGENT_HOMES:
-            with self.subTest(home=home):
-                installed = self.home / home
-                self.assertEqual(
-                    {path.name for path in installed.iterdir()},
-                    {path.name for path in SKILL.iterdir()},
-                )
-                self.assertEqual(
-                    (installed / "SKILL.md").read_text(encoding="utf-8"),
-                    (SKILL / "SKILL.md").read_text(encoding="utf-8"),
-                )
+            for skill in OWNER_SKILLS:
+                with self.subTest(home=home, skill=skill.name):
+                    installed = self.home / home / skill.name
+                    self.assertEqual(
+                        {path.name for path in installed.iterdir()},
+                        {path.name for path in skill.iterdir()},
+                    )
+                    self.assertEqual(
+                        (installed / "SKILL.md").read_text(encoding="utf-8"),
+                        (skill / "SKILL.md").read_text(encoding="utf-8"),
+                    )
 
     def test_reinstalling_leaves_no_file_from_the_previous_skill(self) -> None:
         """A stale phase file would contradict the SKILL.md that replaced it."""
         self._stub("uv")
         for home in AGENT_HOMES:
-            stale = self.home / home
-            stale.mkdir(parents=True)
-            (stale / "retired-phase.md").write_text("instructions that no longer apply")
+            for skill in OWNER_SKILLS:
+                stale = self.home / home / skill.name
+                stale.mkdir(parents=True)
+                (stale / "retired-phase.md").write_text("instructions that no longer apply")
 
         self.assertEqual(self._install().returncode, 0)
 
         for home in AGENT_HOMES:
-            with self.subTest(home=home):
-                self.assertFalse((self.home / home / "retired-phase.md").exists())
-                self.assertTrue((self.home / home / "SKILL.md").is_file())
+            for skill in OWNER_SKILLS:
+                with self.subTest(home=home, skill=skill.name):
+                    installed = self.home / home / skill.name
+                    self.assertFalse((installed / "retired-phase.md").exists())
+                    self.assertTrue((installed / "SKILL.md").is_file())
 
     def test_a_missing_prerequisite_stops_with_a_named_cause(self) -> None:
         """The skill tells the agent to report an install failure, not retry it."""

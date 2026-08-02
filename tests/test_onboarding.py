@@ -97,18 +97,15 @@ class OnboardingTest(unittest.TestCase):
         self._import_one_memory()
         imported = self._run(status)
         self.assertIn("Onboard me to Lore", imported)
-        self.assertIn("1 memory ·", imported)
+        self.assertIn("1 private ·", imported)
 
         blueprint.apply(self._write("blueprint.json", _blueprint_input()))
         # The blueprint is only half the interview: the profile still steers synthesis.
         self.assertIn("Onboard me to Lore", self._run(status))
 
+        # A saved profile completes onboarding: imports are private on arrival, so
+        # nothing is left undisclosed-but-pending for the owner to resolve.
         automation.save_profile(_profile_answers())
-        self.assertIn("lore review", self._run(status))
-
-        with Store() as store:
-            for memory in store.pending():
-                store.set_status(memory.id, "private")
         self.assertIn("complete", self._run(status).lower())
 
     def test_onboarding_show_lists_every_step_with_its_evidence(self) -> None:
@@ -122,7 +119,6 @@ class OnboardingTest(unittest.TestCase):
         self.assertIn("Capture your lore blueprint", report)
         self.assertIn("Professor Ada", report)
         self.assertIn("Draft your synthesis profile", report)
-        self.assertIn("Classify", report)
         self.assertIn("Onboard me to Lore", report)
 
     def test_onboarding_show_reports_the_finished_state(self) -> None:
@@ -131,20 +127,16 @@ class OnboardingTest(unittest.TestCase):
         blueprint.apply(self._write("blueprint.json", _blueprint_input()))
         with patch("lore.automation.remove_task"):
             self._run(profile_command, str(self._write("p.json", _profile_answers())))
-        with Store() as store:
-            for memory in store.pending():
-                store.set_status(memory.id, "private")
 
         report = self._run(onboarding_show)
         self.assertIn("Onboarding complete", report)
-        self.assertIn("lore serve", report)
+        self.assertIn("publishing is a separate step", report)
         self.assertNotIn("Next:", report)
 
     def test_onboarding_show_works_before_anything_exists(self) -> None:
         report = self._run(onboarding_show)
         self.assertIn("lore setup", report)
-        # A step nothing has reached yet must not read as work already done.
-        self.assertIn("nothing imported yet", report)
+        self.assertIn("`lore setup` has not run", report)
 
     def test_an_unreadable_checkpoint_is_reported_where_the_owner_looks(self) -> None:
         """The checkpoint backs no step of its own, so its failure must reach the next step."""
@@ -189,7 +181,7 @@ class OnboardingTest(unittest.TestCase):
             self.assertEqual(dashboard(), 0)
         report = output.getvalue()
 
-        self.assertIn("Nothing waiting for review", report)   # [r]
+        self.assertIn("No private memories to review", report)   # [r]
         self.assertIn("No matching memories", report)         # [/]
         self.assertIn("added", report)                        # [s]
         self.assertIn("Onboarding", report)
@@ -378,28 +370,34 @@ class OnboardingTest(unittest.TestCase):
         return output.getvalue()
 
     def test_first_review_explains_what_the_choices_mean(self) -> None:
-        """Onboarding ends on a disclosure decision offered as four unlabelled letters."""
+        """The choices are bare letters, and the reassurance is the important half."""
         self._seed("First lesson", "Second lesson")
-        report = self._review("p", "p")
+        report = self._review("k", "k")
 
         self.assertIn("stays on this machine", report)
-        self.assertIn("answer questions over MCP", report)
-        self.assertIn("Nothing is exposed until you mark it external", report)
+        self.assertIn("Neither publishes anything", report)
         # Orientation, not a per-memory banner.
-        self.assertEqual(report.count("Nothing is exposed until you mark it external"), 1)
+        self.assertEqual(report.count("Neither publishes anything"), 1)
 
-    def test_marking_something_external_hands_off_to_pricing(self) -> None:
-        self._seed("Public lesson")
-        self.assertIn("lore price", self._review("e"))
+    def test_review_never_offers_a_way_to_disclose(self) -> None:
+        """Retention and disclosure are separate by design; the screen must not blur them."""
+        self._seed("A lesson")
+        report = self._review("k")
 
-    def test_a_private_only_review_does_not_talk_about_price(self) -> None:
-        self._seed("Private lesson")
-        self.assertNotIn("lore price", self._review("p"))
+        self.assertNotIn("external", report.lower())
+        self.assertNotIn("lore price", report)
+        with Store() as store:
+            self.assertEqual(store.counts()["private"], 1)
 
-    def test_quitting_early_still_reports_what_was_exposed(self) -> None:
-        """Quitting mid-queue must not swallow the consequence of a decision already made."""
-        self._seed("Public lesson", "Untouched lesson")
-        self.assertIn("lore price", self._review("e", "q"))
+    def test_quitting_early_does_not_read_as_finishing(self) -> None:
+        """A half-walked queue must not report the same outcome as a completed one."""
+        self._seed("First lesson", "Untouched lesson")
+        report = self._review("d", "q")
+
+        self.assertIn("decisions so far are saved", report)
+        self.assertNotIn("Review complete", report)
+        with Store() as store:
+            self.assertEqual(store.counts()["discarded"], 1)
 
     # --- hand-off quality -----------------------------------------------------------
 

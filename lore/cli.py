@@ -305,14 +305,14 @@ def review(query: str = "", status_name: str = "private", limit: int = 0) -> int
         if not memories:
             success(f"No {status_name} memories to review")
             return 0
-        # Onboarding ends here, on a disclosure decision offered as four bare letters.
-        # Say what they mean once, before the first one is made rather than after.
+        # The choices arrive as bare letters, so say what they mean once, before the
+        # first one is made rather than after. What an owner most needs to know here
+        # is what this pass *cannot* do: keeping and discarding are both private acts.
         heading("What the choices mean")
-        muted("  Private   stays on this machine, and steers your own agents only.")
-        muted("  External  can be used to answer questions over MCP, at your price.")
-        muted("  Discard   keeps it out of your lore even if the source changes later.")
-        muted("  Nothing is exposed until you mark it external; every choice is revisable.")
-        exposed = 0
+        muted("  Keep private  stays on this machine, and steers your own agents only.")
+        muted("  Discard       keeps it out of your lore even if the source changes later.")
+        muted("  Neither publishes anything: only a publication you approve discloses a")
+        muted("  memory, and every choice here is revisable.")
         for index, memory in enumerate(memories, 1):
             memory_card(memory, index, len(memories))
             print("\n  [k] keep private   [d] discard   [s] skip   [q] quit")
@@ -324,24 +324,14 @@ def review(query: str = "", status_name: str = "private", limit: int = 0) -> int
                 )
                 if new_status:
                     store.set_status(memory.id, new_status)
-                    exposed += new_status == "external"
                     break
                 if choice == "s":
                     break
                 if choice == "q":
-                    # Quitting early must not swallow a decision already made.
-                    return _reviewed(exposed, complete=False)
-    return _reviewed(exposed, complete=True)
-
-
-def _reviewed(exposed: int, *, complete: bool) -> int:
-    """Close a review pass, naming what marking something external now enables."""
-    success("Review complete" if complete else "Stopped; your decisions so far are saved")
-    if exposed:
-        print(
-            f"Next: `lore price <USD>` sets what an answer costs, then `lore serve` "
-            f"offers {'that memory' if exposed == 1 else f'those {exposed} memories'}."
-        )
+                    # Quitting early must not read as having finished the queue.
+                    success("Stopped; your decisions so far are saved")
+                    return 0
+    success("Review complete")
     return 0
 
 
@@ -446,10 +436,12 @@ def profile(path: str, schedule: bool = True) -> int:
     success(f"Saved profile to {automation.profile_path()}")
     if schedule:
         automation.install(data)
-        success(f"Configured {str(data['executor']).title()} local schedule")
+        success(f"Configured {str(data.get('executor', '')).title()} local schedule")
     else:
         muted("Existing schedules still use their previously installed prompt.")
-    print("Next: `lore review` decides what stays private and what can be answered.")
+    # Imports are private on arrival, so nothing here is urgent — but the owner
+    # should know the library is theirs to groom, and that publishing is separate.
+    print("Next: `lore review` walks your private library; publishing stays a separate step.")
     return 0
 
 
@@ -481,7 +473,7 @@ def onboarding_show() -> int:
     if next_step:
         print(f"Next: {next_step}")
     else:
-        success("Onboarding complete — `lore serve` answers from what you marked external.")
+        success("Onboarding complete — your library is private; publishing is a separate step.")
     return 0
 
 
