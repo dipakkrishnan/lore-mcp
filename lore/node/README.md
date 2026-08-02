@@ -1,9 +1,12 @@
 # Your Lore node
 
 This directory is the source of your deployable Lore node: a Cloudflare Worker
-with a free MCP `discover` tool and a paid `answer` tool (x402, USDC on Base),
-serving your **approved publications** from D1. `discover` returns titles and
-topics only (the free advertisement); `answer` returns the content, paid.
+with a free MCP `discover` tool and a paid `get` tool (x402, USDC on Base),
+serving your **approved publications** from D1. `discover` returns the full
+catalog — owner-approved teasers grouped by topic, with ids and freshness (the
+free advertisement); `get` returns one publication's content by id, paid.
+Buyers may choose zero, one, multiple, or all advertised ids and call `get`
+once per selection. A checksum rejects damaged ids before payment.
 Private Lore never reaches the edge — `lore push` writes only
 `publications WHERE active=1`. It ships inside the Lore package and is staged
 here by `lore node deploy`.
@@ -17,7 +20,10 @@ lore push --local                          # seed the local dev database instead
 ```
 
 Revoking a publication locally does not touch the edge until the next
-`lore push` — the CLI reminds you. The pasted `database_id` survives
+`lore push` — the CLI reminds you. A push is a full replace (DROP+CREATE),
+so a push that fails partway can leave the node briefly serving an empty
+catalog or erroring; the recovery is always the same: rerun `lore push`,
+which is idempotent. The pasted `database_id` survives
 redeploys.
 
 ## Deploy or redeploy

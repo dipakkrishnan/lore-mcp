@@ -4,13 +4,13 @@ title: Intent-driven publishing flow (lore-publish + publication review/list/rev
 priority: P1
 effort: L
 component: cross-cutting
-status: in-review
+status: completed
 related: [STO-001, CLI-001, XC-001, MCP-001]
 blockers: [STO-001]
 dependencies: []
 github_issue: https://github.com/dipakkrishnan/lore-mcp/issues/6
 created: 2026-07-27
-updated: 2026-07-29
+updated: 2026-08-01
 ---
 
 ## Problem
@@ -80,3 +80,7 @@ question is **resolved (Shane + Dipak): bounded claims**, not request-time synth
 policies — easier to inspect, approve, audit, and revoke. The one extension to the
 doc is that a publication may also be explicitly-promoted verbatim content, not only
 a derived claim.
+
+**Completed 2026-08-01.** Merged via #38 (squash included the `publication
+review` rename and grounded-metadata follow-ups). Edge replication of the
+approved set landed with MON-003; `lore push` is the sync path.

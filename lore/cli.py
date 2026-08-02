@@ -43,8 +43,8 @@ def parser() -> argparse.ArgumentParser:
 
     commands.add_parser("status", help="show source and review status")
     commands.add_parser("help", help="show the Lore workflow manual")
-    price = commands.add_parser("price", help="show or set the fixed answer price")
-    price.add_argument("amount", nargs="?", type=float, help="USD per answer; use 0 for free")
+    price = commands.add_parser("price", help="show or set the per-publication price")
+    price.add_argument("amount", nargs="?", type=float, help="USD per publication; use 0 for free")
     serve = commands.add_parser("serve", help="run the Lore MCP server")
     serve.add_argument("--transport", choices=["stdio", "http"], default="stdio")
     serve.add_argument("--host", default="127.0.0.1")
@@ -194,7 +194,7 @@ def manual() -> int:
      Inspect the local library without changing disclosure.
 
   5. lore price [USD]
-     Show or set the advertised fixed price per answer.
+     Show or set the advertised price per publication.
 
   6. lore status
      Check imports, the private library, active publications, and price.
@@ -335,7 +335,7 @@ def status() -> int:
         marker = "●" if enabled else "○"
         print(f"  {marker} {source.label:<14} {sources.get(source.name, 0)} imported")
     print(f"\nDatabase: {database_path}")
-    print(f"Answer price: {'not set' if answer_price is None else f'${answer_price:.2f}'}")
+    print(f"Publication price: {'not set' if answer_price is None else f'${answer_price:.2f}'}")
     if node_url:
         # A cache of remote truth, not local truth like the price: another
         # machine or the Cloudflare dashboard can move the node after this.
@@ -344,16 +344,16 @@ def status() -> int:
 
 
 def price(amount: float | None) -> int:
-    """Show or update the configured answer price."""
+    """Show or update the configured per-publication price."""
     with Store() as store:
         if amount is None:
             current = store.setting("price_usd", None)
-            print("not set" if current is None else f"${current:.2f} per answer")
+            print("not set" if current is None else f"${current:.2f} per publication")
             return 0
         if not math.isfinite(amount) or amount < 0:
             raise ValueError("price must be a finite, non-negative number")
         store.set_setting("price_usd", round(amount, 6))
-    success("Answers are free" if amount == 0 else f"Answer price set to ${amount:.2f}")
+    success("Publications are free" if amount == 0 else f"Publication price set to ${amount:.2f}")
     return 0
 
 
@@ -384,14 +384,20 @@ def _candidate(raw: object, missing_check: Store) -> Publication:
     """Validate one drafted candidate into a previewable Publication."""
     if not isinstance(raw, dict):
         raise ValueError("each candidate must be a JSON object")
-    unexpected = raw.keys() - {"title", "content", "kind", "topic", "provenance"}
+    unexpected = raw.keys() - {"title", "content", "kind", "topic", "teaser", "provenance"}
     if unexpected:
         raise ValueError(f"unexpected candidate field: {sorted(unexpected)[0]}")
     title = str(raw.get("title", "")).strip()
     content = str(raw.get("content", "")).strip()
     topic = str(raw.get("topic", "")).strip()
+    teaser = str(raw.get("teaser", "")).strip()
     if not title or not content or not topic:
         raise ValueError("candidates need a non-empty title, content, and topic")
+    if not teaser:
+        # The teaser is the entire free surface for this publication, so approval
+        # without one would advertise nothing — draft it question-shaped: what the
+        # publication answers, never the lesson itself.
+        raise ValueError("candidates need a non-empty teaser (the free advertisement)")
     provenance = raw.get("provenance", [])
     if not isinstance(provenance, list) or not provenance or not all(
         isinstance(i, int) and not isinstance(i, bool) for i in provenance
@@ -406,6 +412,7 @@ def _candidate(raw: object, missing_check: Store) -> Publication:
         content=content,
         kind=PublicationKind(raw.get("kind", "claim")),
         topic=topic,
+        teaser=teaser,
         provenance=provenance,
         active=1,
         created_at="",
@@ -438,15 +445,21 @@ def publication_apply(path: str) -> int:
                         content=candidate.content,
                         kind=candidate.kind,
                         topic=candidate.topic,
+                        teaser=candidate.teaser,
                         provenance=candidate.provenance,
                     )
                     approved += 1
                     break
                 if choice == "e":
                     title = ask("Title (enter keeps current)") or candidate.title
+                    teaser = ask("Teaser (enter keeps current)") or candidate.teaser
                     content = ask("Content (enter keeps current)") or candidate.content
                     candidate = candidate.model_copy(
-                        update={"title": title.strip(), "content": content.strip()}
+                        update={
+                            "title": title.strip(),
+                            "teaser": teaser.strip(),
+                            "content": content.strip(),
+                        }
                     )
                     continue
                 if choice == "q":
@@ -492,14 +505,20 @@ def _push_sql(publications: list[Publication]) -> str:
         return "'" + value.replace("'", "''") + "'"
 
     statements = [
-        "CREATE TABLE IF NOT EXISTS publications ("
-        "id INTEGER PRIMARY KEY, title TEXT NOT NULL, content TEXT NOT NULL, "
-        "kind TEXT NOT NULL, topic TEXT NOT NULL DEFAULT '');",
-        "DELETE FROM publications;",
+        # Full replace includes the schema: DROP+CREATE so a node deployed
+        # before the current columns existed converges on the current shape.
+        # The local integer id never leaves this machine — the edge is keyed
+        # on the opaque public_id, so revocations leave no visible gap.
+        "DROP TABLE IF EXISTS publications;",
+        "CREATE TABLE publications ("
+        "public_id TEXT PRIMARY KEY, title TEXT NOT NULL, content TEXT NOT NULL, "
+        "kind TEXT NOT NULL, topic TEXT NOT NULL DEFAULT '', "
+        "teaser TEXT NOT NULL DEFAULT '', updated_at TEXT NOT NULL DEFAULT '');",
     ]
     statements.extend(
-        f"INSERT INTO publications(id,title,content,kind,topic) VALUES "
-        f"({p.id},{quote(p.title)},{quote(p.content)},{quote(p.kind.value)},{quote(p.topic)});"
+        f"INSERT INTO publications(public_id,title,content,kind,topic,teaser,updated_at) VALUES "
+        f"({quote(p.public_id)},{quote(p.title)},{quote(p.content)},{quote(p.kind.value)},"
+        f"{quote(p.topic)},{quote(p.teaser)},{quote(p.updated_at)});"
         for p in publications
     )
     return "\n".join(statements) + "\n"
