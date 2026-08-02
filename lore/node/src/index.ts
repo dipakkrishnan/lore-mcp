@@ -1,6 +1,7 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { McpAgent } from "agents/mcp";
 import { withX402 } from "agents/x402";
+import { createHash } from "node:crypto";
 import { z } from "zod";
 import { PRICE_USD } from "./price.js";
 
@@ -11,28 +12,40 @@ function payTo(env: Env): `0x${string}` {
   return env.LORE_WALLET as `0x${string}`;
 }
 
-interface PublicationRow {
-  title: string;
-  content: string;
+function validPublicId(value: string): boolean {
+  const body = value.slice(0, 16);
+  return (
+    /^[0-9a-f]{24}$/.test(value) &&
+    value.slice(16) === createHash("sha256").update(body).digest("hex").slice(0, 8)
+  );
+}
+
+interface ManifestRow {
+  id: string;
+  teaser: string;
   topic: string;
+  kind: string;
+  updated_at: string;
 }
 
 // The D1 table `lore push` maintains. Rows here are owner-approved publications
-// and nothing else — no private data exists at the edge to leak.
-async function searchPublications(
-  env: Env,
-  query: string,
-  limit: number
-): Promise<PublicationRow[]> {
-  const like = `%${query.replaceAll(/[%_\\]/g, (c) => `\\${c}`)}%`;
+// and nothing else — no private data exists at the edge to leak. The manifest
+// selects only the advertisement columns: what exists, never what it says. Ids
+// are opaque public tokens (no sequence, so no revocation gaps) and freshness
+// is truncated to the day (full timestamps reveal approval-session structure).
+// Mirrors Store.manifest() in lore/store.py — the smoke script diffs the two.
+async function manifest(env: Env): Promise<Record<string, unknown>> {
   const { results } = await env.LORE_DB.prepare(
-    `SELECT title, content, topic FROM publications
-     WHERE title LIKE ?1 ESCAPE '\\' OR topic LIKE ?1 ESCAPE '\\' OR content LIKE ?1 ESCAPE '\\'
-     ORDER BY id LIMIT ?2`
-  )
-    .bind(like, limit)
-    .all<PublicationRow>();
-  return results;
+    `SELECT public_id AS id, teaser, topic, kind,
+            substr(updated_at, 1, 10) AS updated_at
+     FROM publications WHERE teaser <> ''
+     ORDER BY topic, updated_at DESC, public_id`
+  ).all<ManifestRow>();
+  const topics: Record<string, object[]> = {};
+  for (const { id, teaser, topic, kind, updated_at } of results) {
+    (topics[topic] ??= []).push({ id, teaser, kind, updated_at });
+  }
+  return { manifest_version: 1, publication_count: results.length, topics };
 }
 
 // ponytail: withX402 (which provides paidTool) only works on the legacy
@@ -52,53 +65,68 @@ export class LorePaidMCP extends McpAgent<Env> {
     this.server.registerTool(
       "discover",
       {
-        description: "Check whether this Lore node can help with a query.",
-        inputSchema: { query: z.string().trim().min(1) }
+        description:
+          "Return this node's full catalog of owner-approved publications: " +
+          "teasers grouped by topic, with ids, freshness, and price. Free. " +
+          "Choose zero, one, multiple, or all ids; call get once per chosen id.",
+        inputSchema: {}
       },
-      async ({ query }) => {
-        // The free surface: titles and topics only — the advertisement, never
-        // the paid content. Content is matched for recall but not returned.
-        const matches = await searchPublications(this.env, query, 5);
-        return {
-          content: [
-            {
-              type: "text" as const,
-              text: JSON.stringify({
-                can_help: matches.length > 0,
-                matches: matches.map(({ title, topic }) => ({ title, topic })),
-                price_usd: PRICE_USD,
-                disclosure: "Only owner-approved publications are available."
-              })
-            }
-          ]
-        };
-      }
+      async () => ({
+        content: [
+          {
+            type: "text" as const,
+            text: JSON.stringify({
+              ...(await manifest(this.env)),
+              price_usd: PRICE_USD,
+              disclosure: "Choose any advertised ids; get buys one publication per call."
+            })
+          }
+        ]
+      })
     );
 
     this.server.paidTool(
-      "answer",
-      "Return owner-approved evidence relevant to a query.",
+      "get",
+      "Fetch one owner-approved publication by its id from the discover catalog. " +
+        "Each call buys exactly one publication. Damaged ids are rejected before " +
+        "payment; use a current catalog because a just-revoked id can still be billed.",
       PRICE_USD,
-      { query: z.string().trim().min(1) },
+      {
+        id: z.string().trim().refine(validPublicId, {
+          message: "invalid publication id; run discover again"
+        })
+      },
       {}, // paidTool's output schema; unstructured text only.
-      async ({ query }) => {
+      async ({ id }) => {
         // Paid and free read the same rows: payment decides whether a caller
-        // is served, never what is servable.
-        const matches = await searchPublications(this.env, query, 5);
+        // is served, never what is servable. One payment maps to exactly one
+        // publication, chosen by the buyer from the catalog. The checksum rejects
+        // damaged ids before payment; the remaining billable miss is a revocation
+        // racing a recent discover, because paidTool settles before this handler.
+        // ponytail: charged not-found on that race; refund or pre-check when
+        // the x402 wrapper exposes a pre-settlement hook.
+        const row = await this.env.LORE_DB.prepare(
+          `SELECT public_id AS id, title, content, topic, kind, updated_at
+           FROM publications WHERE public_id = ?1`
+        )
+          .bind(id)
+          .first();
         return {
           content: [
             {
               type: "text" as const,
-              text: JSON.stringify({
-                answer_context: matches.map(({ title, content, topic }) => ({
-                  title,
-                  content,
-                  topic
-                })),
-                disclosure: "Only owner-approved publications are available."
-              })
+              text: JSON.stringify(
+                row
+                  ? {
+                      publication: row,
+                      disclosure:
+                        "Content is owner-approved; preserve attribution when synthesizing."
+                    }
+                  : { error: `publication not found: ${id}` }
+              )
             }
-          ]
+          ],
+          isError: row ? undefined : true
         };
       }
     );

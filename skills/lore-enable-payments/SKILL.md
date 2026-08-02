@@ -1,12 +1,12 @@
 ---
 name: lore-enable-payments
-description: Set up a paid Lore node end to end, so other agents pay to call `answer`. Walks the owner to a self-custody payout address, a price, a deployed Cloudflare Worker, and a proven test-network payment — in whichever order they choose. Use when the user says "enable payments on Lore", "monetize my lore", "charge for answers", "deploy my lore node", "put my lore online", or picks the Monetize branch after onboarding.
+description: Set up a paid Lore node end to end, so other agents pay to call `get`. Walks the owner to a self-custody payout address, a price, a deployed Cloudflare Worker, and a proven test-network payment — in whichever order they choose. Use when the user says "enable payments on Lore", "monetize my lore", "charge for answers", "deploy my lore node", "put my lore online", or picks the Monetize branch after onboarding.
 ---
 
 # Enabling payments
 
 This skill configures a payment rail. It does not earn anything — earning happens
-later, when some other agent calls `answer` and pays for it. Say that plainly if
+later, when some other agent calls `get` and pays for it. Say that plainly if
 the owner seems to expect otherwise; do not sell the outcome.
 
 **Free is a first-class end state.** An owner who stops at `lore price 0`
@@ -14,9 +14,9 @@ has not failed at anything; a Lore that is never monetized has already paid for
 itself through private recall. Do not treat any step here as a funnel.
 
 The deployed node serves the owner's **approved publications** — nothing else
-exists at the edge. With zero publications the rail still proves end to end, but a
-paying buyer gets an empty answer; that is why mainnet is gated on having at least
-one.
+exists at the edge. With zero publications the rail still proves end to end, but the
+catalog is empty and there is nothing to buy; that is why mainnet is gated on
+having at least one.
 
 ## How to drive — read this first
 
@@ -174,7 +174,7 @@ pasted into the conversation, and anything key-shaped pasted here is refused.
 
 Real money is a separate, deliberate step, taken only after a two-person paid
 test has settled. It requires all of: at least one active publication (a real
-buyer must never pay real USDC for an empty answer); an **explicit** owner
+buyer must never pay real USDC against an empty catalog); an **explicit** owner
 confirmation; and Coinbase Developer Platform API keys (`portal.cdp.coinbase.com`)
 set as Worker secrets via `npx wrangler secret put` in `~/.lore/node` — they live
 in Cloudflare's vault, never on this machine and never in this conversation. The

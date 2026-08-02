@@ -85,10 +85,22 @@ const paidClient = withX402Client(client, {
 });
 
 try {
+  // Read the free catalog first and buy the first advertised publication —
+  // ids are opaque tokens, so paying against a guessed id would just bill a
+  // not-found. Never spend against an empty catalog.
+  const discover = await client.callTool({ name: "discover", arguments: {} });
+  const catalog = JSON.parse((discover.content as { text: string }[])[0].text);
+  const first = (Object.values(catalog.topics as Record<string, { id: string; teaser: string }[]>)
+    .flat())[0];
+  if (!first) {
+    console.error("The catalog is empty — approve a publication and `lore push` before paying.");
+    process.exit(1);
+  }
+  console.error(`Buying: ${first.teaser} (${first.id})`);
   // null selects withX402Client's default payment-approval callback.
   const result = await paidClient.callTool(null, {
-    name: "answer",
-    arguments: { query: "What is Lore?" }
+    name: "get",
+    arguments: { id: first.id }
   });
   console.log(JSON.stringify(result, null, 2));
   if (result.isError) process.exitCode = 1;

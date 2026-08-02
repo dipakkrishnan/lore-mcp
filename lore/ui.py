@@ -79,6 +79,10 @@ def publication_card(
         # shown on the approval card: approving the publication approves the label.
         metadata += f" · topic: {publication.topic}"
     print(paint("2", metadata.translate(CONTROL_CHARACTERS)))
+    if publication.teaser:
+        # The teaser is the free surface: it is what every buyer reads without
+        # paying, so approving the publication approves this advertisement.
+        print(paint("2", f"teaser: {publication.teaser}".translate(CONTROL_CHARACTERS)))
     print()
     for paragraph in publication.content.splitlines():
         paragraph = paragraph.translate(CONTROL_CHARACTERS)
