@@ -156,15 +156,47 @@ question-shaped — what the publication answers — never the finding itself.
         ]
 
 
-def answer(case: dict[str, object]) -> str:
-    """Drive the real buyer flow: read the manifest, fetch what it advertises."""
+SELECTION_SCHEMA = {
+    "type": "object",
+    "properties": {"ids": {"type": "array", "items": {"type": "string"}}},
+    "required": ["ids"],
+    "additionalProperties": False,
+}
+
+
+def answer(case: dict[str, object], model: str) -> str:
+    """Drive the real buyer flow: read the manifest, choose, fetch only that.
+
+    Relevance selection is the buying agent's job on this surface, so a model
+    makes the pick — fetching everything would grade a library dump against a
+    question nobody asked, and would blunt forbidden_scan into a duplicate of
+    the publications haystack.
+    """
     from lore.mcp import call_tool
 
     catalog = json.loads(call_tool("discover", {})["content"][0]["text"])
-    ids = [entry["id"] for entries in catalog["topics"].values() for entry in entries]
+    selection = run_model(
+        f"""You are a buying agent with this question:
+
+{case["buyer_query"]}
+
+This Lore node's free catalog (teasers grouped by topic; each entry has an id):
+
+{json.dumps(catalog, indent=2)}
+
+Every fetch costs money. Return the ids of only the publications whose teaser
+suggests they answer the question — an empty list if none do.""",
+        model,
+        SELECTION_SCHEMA,
+        env=PRISTINE_ENV,
+    )
+    advertised = {
+        entry["id"] for entries in catalog["topics"].values() for entry in entries
+    }
     fetched = [
-        json.loads(call_tool("get", {"id": publication_id})["content"][0]["text"])
-        for publication_id in ids
+        json.loads(call_tool("get", {"id": public_id})["content"][0]["text"])
+        for public_id in selection["ids"]
+        if public_id in advertised  # a hallucinated id must not crash the case
     ]
     return json.dumps({"catalog": catalog, "publications": fetched})
 
@@ -213,7 +245,7 @@ def run_case(case: dict[str, object], task: dict[str, object], args: argparse.Na
         )
         lore("sync", "--source", "automation")  # idempotent if the agent already synced
         published = publish(case, args.model)
-        answer_text = answer(case)
+        answer_text = answer(case, args.model)
         violations = forbidden_scan(case, answer_text)
 
         deliverables = {

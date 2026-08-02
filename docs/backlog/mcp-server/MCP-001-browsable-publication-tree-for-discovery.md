@@ -4,13 +4,13 @@ title: Give discover an owner-approved manifest of the node's offerings
 priority: P2
 effort: L
 component: mcp-server
-status: in-review
-related: [STO-001, XC-002]
+status: in-progress
+related: [STO-001, XC-002, MCP-002, MCP-003]
 blockers: [XC-002]
 dependencies: []
 github_issue: null
 created: 2026-07-29
-updated: 2026-07-31
+updated: 2026-08-02
 ---
 
 ## Problem
@@ -39,22 +39,30 @@ active publications) fits comfortably in one manifest; the navigable tree this
 item originally proposed becomes the scale-up for when a manifest outgrows a
 response, not the starting point.
 
-Keyword search stays as a retrieval primitive; the manifest is an additional
-entry point, not a replacement. It is also the free surface: labels and titles
-are the advertisement, `answer` remains the paid product, so every line of the
-manifest must be worth giving away.
+**The manifest replaces buyer-side keyword search** (decided 2026-08-02,
+Dipak — supersedes the earlier "additional entry point, not a replacement").
+The 2026-08-01 simulation showed server-side matching failing in both
+directions: the edge `LIKE` could not match natural language at all, and
+FTS5 had no stemming and no relevance threshold, so one overlapping token
+advertised a paid answer for the wrong thing. Relevance judgment moves to
+the buying agent reading the manifest; the paid product becomes `get {id}` —
+one publication, chosen from the catalog. `answer` is retired from the
+surface and its name reserved for the MCP-003 proxy tier. Owner-side memory
+search is untouched.
 
 **Two leak budgets, not one.** The privacy constraint below protects the
 *private* library's shape. The manifest also must not give away the *published*
 value it exists to sell — and for `claim`-kind publications the title often IS
 the claim ("Live demos outperform cold decks for agent-tool launches" delivers
-its full value as a manifest line; nobody pays for that answer). Candidate
-resolutions, undecided: list claims at topic granularity only (titles withheld
-until paid); or make the manifest line an owner-approved *teaser* distinct from
-the title; or have the publish flow coach that titles should advertise, not
-deliver (cheapest, but relies on the owner noticing). Whatever the mechanism,
-it must stay owner-approved text — request-time summarization of titles is the
-same unapproved-label problem this item already rules out.
+its full value as a manifest line; nobody pays for that answer). Resolved
+(2026-08-02): the manifest line is an owner-approved **teaser** distinct from
+the title — required at publish approval, drafted question-shaped, shown on the
+approval card so approving the publication approves the advertisement. The
+divide is a column boundary: the manifest may select only
+`public_id, teaser, topic, kind, updated_at` (day precision); title, content,
+and provenance are paid-surface fields. Buyer-facing ids are opaque random
+tokens minted at publish time — sequential ids would leak withdrawals as
+visible gaps, the same leak class as the provenance ids removed in STO-001.
 
 **The first deliverable is a schema change, not an endpoint.** Publications
 carry no grouping metadata today — no topic, no path, no axis — so there is
@@ -134,3 +142,14 @@ trip; the navigable tree becomes the scale-up when a manifest outgrows a
 response. All privacy constraints unchanged and apply to the manifest verbatim.
 The schema prerequisite is unchanged too: the owner-approved topic field at
 XC-002 approval time is what the manifest groups by.
+
+Revised 2026-08-02 (Dipak, implementation in PR #57): manifest replaces
+buyer-side search rather than supplementing it, `answer` retired for `get`,
+teaser chosen as the leak-budget resolution, opaque public ids adopted — see
+the amended approach above. Two of the open questions resolved by the shape:
+selection produces one `get` per item (no basket), and browsing is free
+because the manifest is the advertisement. Pricing granularity and
+depth/breadth limits remain open. Known ceiling carried in code: at the paid
+edge, payment settles before the lookup, so a revocation racing a recent
+discover bills one not-found; opaque ids make any other billable miss
+unreachable in practice.

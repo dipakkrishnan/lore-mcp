@@ -553,9 +553,9 @@ class LoreTest(unittest.TestCase):
         self.assertEqual(dispatch([])["error"]["code"], -32600)  # type: ignore[index]
         for name, arguments in (
             ("get", {}),  # id is required
-            ("get", {"id": 0}),
+            ("get", {"id": 1}),  # ids are opaque strings, never integers
             ("get", {"id": True}),
-            ("get", {"id": "1"}),
+            ("get", {"id": "  "}),
             ("discover", {"query": "no server-side search exists"}),
             ("answer", {"query": "retired tool"}),
         ):
@@ -627,16 +627,57 @@ class LoreTest(unittest.TestCase):
                 topic="course design", provenance=[memory_id],
             )
             manifest = store.manifest()
+            advertised_public = next(
+                p for p in store.list_publications() if p.id == advertised
+            )
         self.assertEqual(manifest["publication_count"], 1)
         entries = manifest["topics"]["course design"]
         self.assertEqual(
             [set(entry) for entry in entries], [{"id", "teaser", "kind", "updated_at"}]
         )
-        self.assertEqual(entries[0]["id"], advertised)
+        # Buyer-facing ids are the opaque tokens, never the sequential row ids:
+        # a sequence would advertise every withdrawal as a visible gap.
+        self.assertEqual(entries[0]["id"], advertised_public.public_id)
+        self.assertNotEqual(entries[0]["id"], advertised)
+        # Freshness is day-precision only; full timestamps reveal the owner's
+        # approval-session structure.
+        self.assertEqual(len(entries[0]["updated_at"]), 10)
         text = json.dumps(manifest)
         self.assertNotIn("Lab conversion results", text)  # titles are paid
         self.assertNotIn("raised median scores", text)  # content is paid
         self.assertNotIn("Unadvertised", text)
+
+    def test_manifest_is_byte_identical_under_private_row_changes(self) -> None:
+        # MCP-001 AC 2: everything a buyer observes derives exclusively from
+        # owner-approved fields of active publications. The invariant holds
+        # today because manifest() touches one table — this pins it, so a
+        # future join against memories (a count, a freshness signal) fails
+        # loudly instead of leaking the private library's shape.
+        memory_id = self._seed_memory("Stable evidence", "private")
+        with Store() as store:
+            store.add_publication(
+                title="Stable claim", content="the paid content", topic="stability",
+                teaser="What stayed true across changes", provenance=[memory_id],
+            )
+            before = json.dumps(store.manifest(), sort_keys=True)
+
+            # Add a private row.
+            store.put(
+                source="test", origin="native", source_path="new.md",
+                source_key="new.md", fingerprint="v1",
+                title="Newly private", content="never disclosed",
+            )
+            # Edit one (changed fingerprint re-puts and flags publications).
+            store.put(
+                source="test", origin="native", source_path="new.md",
+                source_key="new.md", fingerprint="v2",
+                title="Newly private", content="edited, still never disclosed",
+            )
+            # Discard one.
+            store.set_status(memory_id, "discarded")
+
+            after = json.dumps(store.manifest(), sort_keys=True)
+        self.assertEqual(before, after)
 
     def _drafted_candidates(self) -> str:
         with Store() as store:
@@ -702,7 +743,8 @@ class LoreTest(unittest.TestCase):
         from lore.store import Publication, PublicationKind
 
         publication = Publication(
-            id=7, title="It's a title", content="O'Brien said so", kind=PublicationKind.CLAIM,
+            id=7, public_id="ab12cd34ef56ab78", title="It's a title",
+            content="O'Brien said so", kind=PublicationKind.CLAIM,
             topic="war stories", teaser="What O'Brien learned", provenance=[],
             active=1, created_at="", updated_at="2026-08-02T00:00:00+00:00",
         )
@@ -714,8 +756,12 @@ class LoreTest(unittest.TestCase):
         self.assertIn("'O''Brien said so'", script)
         self.assertIn("'war stories'", script)
         self.assertIn("'What O''Brien learned'", script)
+        # The edge is keyed on the opaque public id; the local sequential id
+        # must not appear in the script at all.
+        self.assertIn("'ab12cd34ef56ab78'", script)
+        self.assertNotIn("(7,", script)
         # Executable by SQLite exactly as wrangler d1 will run it — including
-        # against a node created before the teaser column existed.
+        # against a node created before the current columns existed.
         with sqlite3.connect(":memory:") as db:
             db.execute(
                 "CREATE TABLE publications (id INTEGER PRIMARY KEY, title TEXT NOT NULL, "
@@ -723,8 +769,10 @@ class LoreTest(unittest.TestCase):
             )
             db.executescript(script)
             self.assertEqual(
-                db.execute("SELECT title, topic, teaser FROM publications").fetchone(),
-                ("It's a title", "war stories", "What O'Brien learned"),
+                db.execute(
+                    "SELECT public_id, title, topic, teaser FROM publications"
+                ).fetchone(),
+                ("ab12cd34ef56ab78", "It's a title", "war stories", "What O'Brien learned"),
             )
 
     def test_topic_and_teaser_columns_added_to_databases_created_before_them(self) -> None:
@@ -739,6 +787,10 @@ class LoreTest(unittest.TestCase):
                     updated_at TEXT NOT NULL, source_changed_at TEXT
                 )"""
             )
+            db.execute(
+                "INSERT INTO publications(title,content,kind,provenance,active,"
+                "created_at,updated_at) VALUES ('legacy','lc','claim','[]',1,'t0','t0')"
+            )
         with Store() as store:
             store.put(
                 source="test", origin="native", source_path="migration.md",
@@ -750,8 +802,14 @@ class LoreTest(unittest.TestCase):
                 title="t", content="c", topic="migrated", teaser="an advertisement",
                 provenance=[memory_id],
             )
-            self.assertEqual(store.list_publications()[0].topic, "migrated")
-            self.assertEqual(store.list_publications()[0].teaser, "an advertisement")
+            by_title = {p.title: p for p in store.list_publications()}
+            self.assertEqual(by_title["t"].topic, "migrated")
+            self.assertEqual(by_title["t"].teaser, "an advertisement")
+            # public_id is minted for new rows and backfilled for legacy ones,
+            # and the two never collide.
+            self.assertEqual(len(by_title["t"].public_id), 16)
+            self.assertEqual(len(by_title["legacy"].public_id), 16)
+            self.assertNotEqual(by_title["t"].public_id, by_title["legacy"].public_id)
 
     def test_publication_apply_rejects_bad_candidates(self) -> None:
         base = Path(os.environ["LORE_HOME"])
@@ -823,11 +881,14 @@ class LoreTest(unittest.TestCase):
             self.assertGreater(doc_id, 0)
             with self.assertRaisesRegex(ValueError, "not a valid PublicationKind"):
                 store.add_publication(title="Bad", content="x", kind="secret")
+            revoked_public_id = next(
+                p.public_id for p in store.list_publications() if p.id == pid
+            )
             store.revoke_publication(pid)
             self.assertEqual([p.id for p in store.list_publications(active_only=True)], [doc_id])
             self.assertEqual(len(store.list_publications()), 2)  # revoked still listed
             with self.assertRaisesRegex(ValueError, "not found"):
-                store.get_publication(pid)  # revoked is not fetchable
+                store.get_publication(revoked_public_id)  # revoked is not fetchable
 
     def test_publication_store_requires_topic_and_real_provenance(self) -> None:
         memory_id = self._seed_memory("Boundary evidence", "private")
@@ -887,7 +948,7 @@ class LoreTest(unittest.TestCase):
             self._seed_memory(f"Private source {index}", "private") for index in range(3)
         ]
         with Store() as store:
-            pid = store.add_publication(
+            store.add_publication(
                 title="Deployment guide",
                 content="deployment guidance",
                 topic="deployment",
@@ -898,11 +959,12 @@ class LoreTest(unittest.TestCase):
         # happens to contain two-digit numbers and would mask a real leak.
         entry = self._discover()["topics"]["deployment"][0]
         self.assertEqual(set(entry), {"id", "teaser", "kind", "updated_at"})
-        publication = json.loads(self._call("get", {"id": pid}))["publication"]
+        publication = json.loads(self._call("get", {"id": entry["id"]}))["publication"]
         self.assertEqual(
             set(publication), {"id", "title", "content", "topic", "kind", "updated_at"}
         )
         self.assertEqual(publication["title"], "Deployment guide")
+        self.assertEqual(publication["id"], entry["id"])  # the opaque token round-trips
 
     def test_mcp_reads_only_active_publications_never_memories(self) -> None:
         # Memories of every disclosure status must be unreachable from MCP.
@@ -920,23 +982,24 @@ class LoreTest(unittest.TestCase):
                 provenance=[discarded_id],
             )
             store.revoke_publication(revoked_id)
+            by_id = {p.id: p.public_id for p in store.list_publications()}
         manifest_text = self._call("discover", {})
         self.assertIn("How this node deploys", manifest_text)
         self.assertNotIn("Discarded memory", manifest_text)  # no memory is reachable
         self.assertNotIn("Private memory", manifest_text)  # private memory unreachable
         self.assertNotIn("An older deployment lesson", manifest_text)  # revoked excluded
-        content_text = self._call("get", {"id": active_id})
+        content_text = self._call("get", {"id": by_id[active_id]})
         self.assertIn("Deployment guide", content_text)
         self.assertNotIn("Private memory", content_text)
         with self.assertRaisesRegex(ValueError, "not found"):
-            call_tool("get", {"id": revoked_id})  # revoked content unreachable
+            call_tool("get", {"id": by_id[revoked_id]})  # revoked content unreachable
         # Revoking the last active publication removes it from MCP immediately:
         # the manifest is a live view, never a stale artifact.
         with Store() as store:
             store.revoke_publication(active_id)
         self.assertEqual(self._discover()["publication_count"], 0)
         with self.assertRaisesRegex(ValueError, "not found"):
-            call_tool("get", {"id": active_id})
+            call_tool("get", {"id": by_id[active_id]})
 
     def _write_blueprint_input(self, data: dict) -> Path:
         path = Path(os.environ["LORE_HOME"]) / "blueprint-input.json"

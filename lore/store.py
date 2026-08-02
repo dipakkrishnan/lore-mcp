@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import re
+import secrets
 import sqlite3
 from datetime import datetime, timezone
 from enum import Enum
@@ -67,6 +68,10 @@ class Publication(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     id: int
+    # The buyer-facing handle: an opaque random token minted at publish time.
+    # The integer primary key is owner-only — sequential ids on the wire leak
+    # withdrawals, because revoking one leaves a visible gap in the sequence.
+    public_id: str = ""
     title: str
     content: str
     kind: PublicationKind
@@ -76,7 +81,8 @@ class Publication(BaseModel):
     topic: str = ""
     # The free face: an owner-approved advertisement of what exists, written to
     # sell without giving the lesson away. The manifest renders teasers only —
-    # a publication without one is purchasable by id but never advertised.
+    # a publication without one is never advertised, and its unguessable
+    # public_id means absence from the catalog is true absence.
     teaser: str = ""
     provenance: list[int]
     active: int
@@ -163,6 +169,7 @@ class Store:
             END;
             CREATE TABLE IF NOT EXISTS publications (
                 id INTEGER PRIMARY KEY,
+                public_id TEXT NOT NULL DEFAULT '',
                 title TEXT NOT NULL,
                 content TEXT NOT NULL,
                 kind TEXT NOT NULL DEFAULT 'claim'
@@ -196,11 +203,21 @@ class Store:
         # Databases created before a column existed: CREATE IF NOT EXISTS never
         # alters, so add it in place. New databases already have it.
         columns = {row["name"] for row in self.db.execute("PRAGMA table_info(publications)")}
-        for column in ("topic", "teaser"):
+        for column in ("topic", "teaser", "public_id"):
             if column not in columns:
                 self.db.execute(
                     f"ALTER TABLE publications ADD COLUMN {column} TEXT NOT NULL DEFAULT ''"
                 )
+        # Mint public ids for rows that predate them, then enforce uniqueness.
+        for row in self.db.execute("SELECT id FROM publications WHERE public_id=''").fetchall():
+            self.db.execute(
+                "UPDATE publications SET public_id=? WHERE id=?",
+                (secrets.token_hex(8), row["id"]),
+            )
+        self.db.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS publications_public_id "
+            "ON publications(public_id)"
+        )
         self.db.commit()
 
     def put(
@@ -370,10 +387,10 @@ class Store:
             raise ValueError(f"publication provenance references unknown memories: {missing}")
         now = datetime.now(timezone.utc).isoformat()
         cursor = self.db.execute(
-            """INSERT INTO publications(title,content,kind,topic,teaser,provenance,active,created_at,updated_at)
-               VALUES (?,?,?,?,?,?,1,?,?)""",
-            (title.strip(), content.strip(), kind.value, topic.strip(), teaser.strip(),
-             json.dumps(provenance), now, now),
+            """INSERT INTO publications(public_id,title,content,kind,topic,teaser,provenance,active,created_at,updated_at)
+               VALUES (?,?,?,?,?,?,?,1,?,?)""",
+            (secrets.token_hex(8), title.strip(), content.strip(), kind.value, topic.strip(),
+             teaser.strip(), json.dumps(provenance), now, now),
         )
         self.db.commit()
         return int(cursor.lastrowid)
@@ -447,17 +464,20 @@ class Store:
         revoke is gone on the very next read. Only the advertisement columns
         are selected; `content`, `title`, and provenance are unreadable here
         by construction. Publications without a teaser are not rendered: the
-        owner never wrote an advertisement for them.
+        owner never wrote an advertisement for them. Buyer-facing ids are the
+        opaque public tokens, and freshness is truncated to the day — full
+        timestamps would reveal the owner's approval-session structure.
         """
         rows = self.db.execute(
-            "SELECT id,teaser,topic,kind,updated_at FROM publications "
-            "WHERE active=1 AND teaser<>'' ORDER BY topic,updated_at DESC,id"
+            "SELECT public_id,teaser,topic,kind,substr(updated_at,1,10) AS updated_at "
+            "FROM publications WHERE active=1 AND teaser<>'' "
+            "ORDER BY topic,updated_at DESC,public_id"
         ).fetchall()
         topics: dict[str, list[dict[str, object]]] = {}
         for row in rows:
             topics.setdefault(row["topic"], []).append(
                 {
-                    "id": row["id"],
+                    "id": row["public_id"],
                     "teaser": row["teaser"],
                     "kind": row["kind"],
                     "updated_at": row["updated_at"],
@@ -469,13 +489,13 @@ class Store:
             "topics": topics,
         }
 
-    def get_publication(self, publication_id: int) -> Publication:
-        """Return one active publication by id — the only paid read path."""
+    def get_publication(self, public_id: str) -> Publication:
+        """Return one active publication by public id — the only paid read path."""
         row = self.db.execute(
-            "SELECT * FROM publications WHERE id=? AND active=1", (publication_id,)
+            "SELECT * FROM publications WHERE public_id=? AND active=1", (public_id,)
         ).fetchone()
         if row is None:
-            raise ValueError(f"publication not found: {publication_id}")
+            raise ValueError(f"publication not found: {public_id}")
         return Publication.from_row(row)
 
 

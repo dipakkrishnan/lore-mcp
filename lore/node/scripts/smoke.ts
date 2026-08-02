@@ -44,9 +44,11 @@ try {
     }
   }
 
+  // Any well-formed id works here: the payment challenge fires before the
+  // lookup, and this check must spend nothing.
   const get = await client.callTool({
     name: "get",
-    arguments: { id: 1 }
+    arguments: { id: "0000000000000000" }
   });
   assert.equal(get.isError, true);
   assert.ok(get._meta?.["x402/error"]);

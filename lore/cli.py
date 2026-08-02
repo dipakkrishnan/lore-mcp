@@ -506,16 +506,18 @@ def _push_sql(publications: list[Publication]) -> str:
 
     statements = [
         # Full replace includes the schema: DROP+CREATE so a node deployed
-        # before the teaser column existed converges on the current shape.
+        # before the current columns existed converges on the current shape.
+        # The local integer id never leaves this machine — the edge is keyed
+        # on the opaque public_id, so revocations leave no visible gap.
         "DROP TABLE IF EXISTS publications;",
         "CREATE TABLE publications ("
-        "id INTEGER PRIMARY KEY, title TEXT NOT NULL, content TEXT NOT NULL, "
+        "public_id TEXT PRIMARY KEY, title TEXT NOT NULL, content TEXT NOT NULL, "
         "kind TEXT NOT NULL, topic TEXT NOT NULL DEFAULT '', "
         "teaser TEXT NOT NULL DEFAULT '', updated_at TEXT NOT NULL DEFAULT '');",
     ]
     statements.extend(
-        f"INSERT INTO publications(id,title,content,kind,topic,teaser,updated_at) VALUES "
-        f"({p.id},{quote(p.title)},{quote(p.content)},{quote(p.kind.value)},"
+        f"INSERT INTO publications(public_id,title,content,kind,topic,teaser,updated_at) VALUES "
+        f"({quote(p.public_id)},{quote(p.title)},{quote(p.content)},{quote(p.kind.value)},"
         f"{quote(p.topic)},{quote(p.teaser)},{quote(p.updated_at)});"
         for p in publications
     )

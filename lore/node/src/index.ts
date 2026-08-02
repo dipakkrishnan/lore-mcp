@@ -12,7 +12,7 @@ function payTo(env: Env): `0x${string}` {
 }
 
 interface ManifestRow {
-  id: number;
+  id: string;
   teaser: string;
   topic: string;
   kind: string;
@@ -21,12 +21,16 @@ interface ManifestRow {
 
 // The D1 table `lore push` maintains. Rows here are owner-approved publications
 // and nothing else — no private data exists at the edge to leak. The manifest
-// selects only the advertisement columns: what exists, never what it says.
+// selects only the advertisement columns: what exists, never what it says. Ids
+// are opaque public tokens (no sequence, so no revocation gaps) and freshness
+// is truncated to the day (full timestamps reveal approval-session structure).
 // Mirrors Store.manifest() in lore/store.py — the smoke script diffs the two.
 async function manifest(env: Env): Promise<Record<string, unknown>> {
   const { results } = await env.LORE_DB.prepare(
-    `SELECT id, teaser, topic, kind, updated_at FROM publications
-     WHERE teaser <> '' ORDER BY topic, updated_at DESC, id`
+    `SELECT public_id AS id, teaser, topic, kind,
+            substr(updated_at, 1, 10) AS updated_at
+     FROM publications WHERE teaser <> ''
+     ORDER BY topic, updated_at DESC, public_id`
   ).all<ManifestRow>();
   const topics: Record<string, object[]> = {};
   for (const { id, teaser, topic, kind, updated_at } of results) {
@@ -74,17 +78,24 @@ export class LorePaidMCP extends McpAgent<Env> {
 
     this.server.paidTool(
       "get",
-      "Fetch one owner-approved publication by its id from the discover catalog.",
+      "Fetch one owner-approved publication by its id from the discover catalog. " +
+        "Payment settles before the lookup: use only ids read from a current " +
+        "discover call — an unknown or revoked id is billed and returns an error.",
       PRICE_USD,
-      { id: z.number().int().min(1) },
+      { id: z.string().trim().min(1) },
       {}, // paidTool's output schema; unstructured text only.
       async ({ id }) => {
         // Paid and free read the same rows: payment decides whether a caller
         // is served, never what is servable. One payment maps to exactly one
-        // publication, chosen by the buyer from the catalog.
+        // publication, chosen by the buyer from the catalog. Ids are opaque
+        // tokens, so the only billable miss is a revocation racing a recent
+        // discover — paidTool settles before this handler runs and offers no
+        // pre-payment hook to check existence first.
+        // ponytail: charged not-found on that race; refund or pre-check when
+        // the x402 wrapper exposes a pre-settlement hook.
         const row = await this.env.LORE_DB.prepare(
-          `SELECT id, title, content, topic, kind, updated_at
-           FROM publications WHERE id = ?1`
+          `SELECT public_id AS id, title, content, topic, kind, updated_at
+           FROM publications WHERE public_id = ?1`
         )
           .bind(id)
           .first();

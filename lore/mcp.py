@@ -39,10 +39,15 @@ TOOLS = [
     {
         "name": "get",
         "title": "Get a publication",
-        "description": "Fetch one owner-approved publication by its id from the discover catalog.",
+        "description": (
+            "Fetch one owner-approved publication by its id from the discover "
+            "catalog. Use only ids read from a current discover call: where this "
+            "surface is paid, payment settles before the lookup, so an unknown or "
+            "revoked id is billed and returns an error."
+        ),
         "inputSchema": {
             "type": "object",
-            "properties": {"id": {"type": "integer", "minimum": 1}},
+            "properties": {"id": {"type": "string", "minLength": 1}},
             "required": ["id"],
             "additionalProperties": False,
         },
@@ -115,14 +120,13 @@ def call_tool(name: object, arguments: object) -> dict[str, Any]:
                 "disclosure": "Teasers describe what exists. Fetch content with get, one publication per call.",
             }
         elif name == "get":
-            publication_id = arguments.get("id")
-            if isinstance(publication_id, bool) or not isinstance(publication_id, int) \
-                    or publication_id < 1:
-                raise ValueError("id must be a positive integer from the discover catalog")
-            publication = store.get_publication(publication_id)
+            public_id = arguments.get("id")
+            if not isinstance(public_id, str) or not public_id.strip():
+                raise ValueError("id must be a publication id from the discover catalog")
+            publication = store.get_publication(public_id.strip())
             payload = {
                 "publication": {
-                    "id": publication.id,
+                    "id": publication.public_id,
                     "title": publication.title,
                     "content": publication.content,
                     "topic": publication.topic,

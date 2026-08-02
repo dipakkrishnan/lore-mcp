@@ -18,7 +18,10 @@ lore push --local                          # seed the local dev database instead
 ```
 
 Revoking a publication locally does not touch the edge until the next
-`lore push` — the CLI reminds you. The pasted `database_id` survives
+`lore push` — the CLI reminds you. A push is a full replace (DROP+CREATE),
+so a push that fails partway can leave the node briefly serving an empty
+catalog or erroring; the recovery is always the same: rerun `lore push`,
+which is idempotent. The pasted `database_id` survives
 redeploys.
 
 ## Deploy or redeploy
