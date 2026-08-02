@@ -44,11 +44,18 @@ try {
     }
   }
 
-  // Any well-formed id works here: the payment challenge fires before the
-  // lookup, and this check must spend nothing.
+  // A damaged id is rejected before x402 can ask for payment.
+  const damaged = await client.callTool({
+    name: "get",
+    arguments: { id: "000000000000000000000000" }
+  });
+  assert.equal(damaged.isError, true);
+  assert.equal(damaged._meta?.["x402/error"], undefined);
+
+  // A structurally valid id reaches the payment challenge before lookup.
   const get = await client.callTool({
     name: "get",
-    arguments: { id: "0000000000000000" }
+    arguments: { id: "0000000000000000fcdb4b42" }
   });
   assert.equal(get.isError, true);
   assert.ok(get._meta?.["x402/error"]);

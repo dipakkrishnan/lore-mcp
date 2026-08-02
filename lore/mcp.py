@@ -31,7 +31,7 @@ TOOLS = [
         "description": (
             "Return this node's full catalog of owner-approved publications: "
             "teasers grouped by topic, with ids, freshness, and price. Free. "
-            "Read it and decide what is worth fetching — there is no server-side search."
+            "Choose zero, one, multiple, or all ids; call get once per chosen id."
         ),
         "inputSchema": {"type": "object", "properties": {}, "additionalProperties": False},
         "annotations": {"readOnlyHint": True, "openWorldHint": False},
@@ -41,9 +41,9 @@ TOOLS = [
         "title": "Get a publication",
         "description": (
             "Fetch one owner-approved publication by its id from the discover "
-            "catalog. Use only ids read from a current discover call: where this "
-            "surface is paid, payment settles before the lookup, so an unknown or "
-            "revoked id is billed and returns an error."
+            "catalog. Each call buys exactly one publication. Damaged ids are "
+            "rejected before payment; use a current catalog because payment settles "
+            "before lookup and a just-revoked id can still be billed."
         ),
         "inputSchema": {
             "type": "object",
@@ -82,8 +82,8 @@ def dispatch(message: object) -> dict[str, Any] | None:
                 "capabilities": {"tools": {"listChanged": False}},
                 "serverInfo": {"name": "lore", "version": __version__},
                 "instructions": (
-                    "discover returns the full catalog (free); get fetches one "
-                    "publication by id. Only owner-approved publications exist here."
+                    "discover returns the full catalog free. Choose zero, one, multiple, "
+                    "or all ids; call get once per chosen id, buying one publication each."
                 ),
             }
         elif method == "ping":
@@ -117,7 +117,7 @@ def call_tool(name: object, arguments: object) -> dict[str, Any]:
             # The free surface is the manifest: what exists, never what it says.
             payload = store.manifest() | {
                 "price_usd": store.setting("price_usd", None),
-                "disclosure": "Teasers describe what exists. Fetch content with get, one publication per call.",
+                "disclosure": "Choose any advertised ids; get buys one publication per call.",
             }
         elif name == "get":
             public_id = arguments.get("id")

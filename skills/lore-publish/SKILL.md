@@ -87,8 +87,10 @@ or answer this command yourself; an interactive prompt is not permission.
 lore publication list
 ```
 
-Tell the owner: publications are what `discover`/`answer` serve; revoke any
-time with `lore publication revoke <id>`; if a source memory changes later,
+Tell the owner: `discover` advertises publications and buyers may choose zero,
+one, multiple, or all of them; each paid `get` returns exactly one publication.
+Lore rejects a damaged id before payment. Revoke any time with
+`lore publication revoke <id>`; if a source memory changes later,
 `lore status` flags it and `lore publication reapprove <id>` or `revoke`
 resolves it. Delete `publish-candidates.json` once applied.
 

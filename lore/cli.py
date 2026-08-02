@@ -43,8 +43,8 @@ def parser() -> argparse.ArgumentParser:
 
     commands.add_parser("status", help="show source and review status")
     commands.add_parser("help", help="show the Lore workflow manual")
-    price = commands.add_parser("price", help="show or set the fixed answer price")
-    price.add_argument("amount", nargs="?", type=float, help="USD per answer; use 0 for free")
+    price = commands.add_parser("price", help="show or set the per-publication price")
+    price.add_argument("amount", nargs="?", type=float, help="USD per publication; use 0 for free")
     serve = commands.add_parser("serve", help="run the Lore MCP server")
     serve.add_argument("--transport", choices=["stdio", "http"], default="stdio")
     serve.add_argument("--host", default="127.0.0.1")
@@ -194,7 +194,7 @@ def manual() -> int:
      Inspect the local library without changing disclosure.
 
   5. lore price [USD]
-     Show or set the advertised fixed price per answer.
+     Show or set the advertised price per publication.
 
   6. lore status
      Check imports, the private library, active publications, and price.
@@ -335,7 +335,7 @@ def status() -> int:
         marker = "●" if enabled else "○"
         print(f"  {marker} {source.label:<14} {sources.get(source.name, 0)} imported")
     print(f"\nDatabase: {database_path}")
-    print(f"Answer price: {'not set' if answer_price is None else f'${answer_price:.2f}'}")
+    print(f"Publication price: {'not set' if answer_price is None else f'${answer_price:.2f}'}")
     if node_url:
         # A cache of remote truth, not local truth like the price: another
         # machine or the Cloudflare dashboard can move the node after this.
@@ -344,16 +344,16 @@ def status() -> int:
 
 
 def price(amount: float | None) -> int:
-    """Show or update the configured answer price."""
+    """Show or update the configured per-publication price."""
     with Store() as store:
         if amount is None:
             current = store.setting("price_usd", None)
-            print("not set" if current is None else f"${current:.2f} per answer")
+            print("not set" if current is None else f"${current:.2f} per publication")
             return 0
         if not math.isfinite(amount) or amount < 0:
             raise ValueError("price must be a finite, non-negative number")
         store.set_setting("price_usd", round(amount, 6))
-    success("Answers are free" if amount == 0 else f"Answer price set to ${amount:.2f}")
+    success("Publications are free" if amount == 0 else f"Publication price set to ${amount:.2f}")
     return 0
 
 

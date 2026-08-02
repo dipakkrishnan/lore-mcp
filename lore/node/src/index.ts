@@ -1,6 +1,7 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { McpAgent } from "agents/mcp";
 import { withX402 } from "agents/x402";
+import { createHash } from "node:crypto";
 import { z } from "zod";
 import { PRICE_USD } from "./price.js";
 
@@ -9,6 +10,14 @@ function payTo(env: Env): `0x${string}` {
     throw new Error("LORE_WALLET must be a public EVM address");
   }
   return env.LORE_WALLET as `0x${string}`;
+}
+
+function validPublicId(value: string): boolean {
+  const body = value.slice(0, 16);
+  return (
+    /^[0-9a-f]{24}$/.test(value) &&
+    value.slice(16) === createHash("sha256").update(body).digest("hex").slice(0, 8)
+  );
 }
 
 interface ManifestRow {
@@ -58,7 +67,8 @@ export class LorePaidMCP extends McpAgent<Env> {
       {
         description:
           "Return this node's full catalog of owner-approved publications: " +
-          "teasers grouped by topic, with ids, freshness, and price. Free.",
+          "teasers grouped by topic, with ids, freshness, and price. Free. " +
+          "Choose zero, one, multiple, or all ids; call get once per chosen id.",
         inputSchema: {}
       },
       async () => ({
@@ -68,8 +78,7 @@ export class LorePaidMCP extends McpAgent<Env> {
             text: JSON.stringify({
               ...(await manifest(this.env)),
               price_usd: PRICE_USD,
-              disclosure:
-                "Teasers describe what exists. Fetch content with get, one publication per call."
+              disclosure: "Choose any advertised ids; get buys one publication per call."
             })
           }
         ]
@@ -79,18 +88,21 @@ export class LorePaidMCP extends McpAgent<Env> {
     this.server.paidTool(
       "get",
       "Fetch one owner-approved publication by its id from the discover catalog. " +
-        "Payment settles before the lookup: use only ids read from a current " +
-        "discover call — an unknown or revoked id is billed and returns an error.",
+        "Each call buys exactly one publication. Damaged ids are rejected before " +
+        "payment; use a current catalog because a just-revoked id can still be billed.",
       PRICE_USD,
-      { id: z.string().trim().min(1) },
+      {
+        id: z.string().trim().refine(validPublicId, {
+          message: "invalid publication id; run discover again"
+        })
+      },
       {}, // paidTool's output schema; unstructured text only.
       async ({ id }) => {
         // Paid and free read the same rows: payment decides whether a caller
         // is served, never what is servable. One payment maps to exactly one
-        // publication, chosen by the buyer from the catalog. Ids are opaque
-        // tokens, so the only billable miss is a revocation racing a recent
-        // discover — paidTool settles before this handler runs and offers no
-        // pre-payment hook to check existence first.
+        // publication, chosen by the buyer from the catalog. The checksum rejects
+        // damaged ids before payment; the remaining billable miss is a revocation
+        // racing a recent discover, because paidTool settles before this handler.
         // ponytail: charged not-found on that race; refund or pre-check when
         // the x402 wrapper exposes a pre-settlement hook.
         const row = await this.env.LORE_DB.prepare(

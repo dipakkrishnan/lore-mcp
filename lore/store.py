@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 import secrets
@@ -24,6 +25,19 @@ class Status(str, Enum):
 
 
 STATUSES = tuple(status.value for status in Status)
+
+
+def new_public_id() -> str:
+    """Mint an opaque id with a checksum that catches damaged copies."""
+    body = secrets.token_hex(8)
+    return body + hashlib.sha256(body.encode()).hexdigest()[:8]
+
+
+def valid_public_id(value: str) -> bool:
+    """Whether an id is structurally intact; existence is checked separately."""
+    return bool(re.fullmatch(r"[0-9a-f]{24}", value)) and secrets.compare_digest(
+        value[16:], hashlib.sha256(value[:16].encode()).hexdigest()[:8]
+    )
 
 
 class Memory(BaseModel):
@@ -68,7 +82,8 @@ class Publication(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     id: int
-    # The buyer-facing handle: an opaque random token minted at publish time.
+    # The buyer-facing handle: an opaque random token plus a damage-detecting
+    # checksum, minted at publish time and validated before any payment.
     # The integer primary key is owner-only — sequential ids on the wire leak
     # withdrawals, because revoking one leaves a visible gap in the sequence.
     public_id: str = ""
@@ -212,7 +227,7 @@ class Store:
         for row in self.db.execute("SELECT id FROM publications WHERE public_id=''").fetchall():
             self.db.execute(
                 "UPDATE publications SET public_id=? WHERE id=?",
-                (secrets.token_hex(8), row["id"]),
+                (new_public_id(), row["id"]),
             )
         self.db.execute(
             "CREATE UNIQUE INDEX IF NOT EXISTS publications_public_id "
@@ -389,7 +404,7 @@ class Store:
         cursor = self.db.execute(
             """INSERT INTO publications(public_id,title,content,kind,topic,teaser,provenance,active,created_at,updated_at)
                VALUES (?,?,?,?,?,?,?,1,?,?)""",
-            (secrets.token_hex(8), title.strip(), content.strip(), kind.value, topic.strip(),
+            (new_public_id(), title.strip(), content.strip(), kind.value, topic.strip(),
              teaser.strip(), json.dumps(provenance), now, now),
         )
         self.db.commit()
@@ -491,11 +506,11 @@ class Store:
 
     def get_publication(self, public_id: str) -> Publication:
         """Return one active publication by public id — the only paid read path."""
+        if not valid_public_id(public_id):
+            raise ValueError("invalid publication id; run discover again")
         row = self.db.execute(
             "SELECT * FROM publications WHERE public_id=? AND active=1", (public_id,)
         ).fetchone()
         if row is None:
             raise ValueError(f"publication not found: {public_id}")
         return Publication.from_row(row)
-
-

@@ -26,7 +26,7 @@ lore sync                     # import new or changed memory files
 lore review                   # keep private / discard
 lore review launch --status private  # revisit a prior decision
 lore search "failed launch"   # SQLite full-text recall
-lore price 0.50               # advertise a fixed answer price
+lore price 0.50               # advertise a fixed per-publication price
 lore status
 lore node deploy --wallet 0x… # deploy your node to your own Cloudflare account
 lore blueprint show            # see the shape of your lore, once captured
@@ -67,7 +67,7 @@ as one conversation inside a Claude or Codex session, in two phases:
    recurring synthesis task, and lets its first run process useful history. The blueprint
    from phase 1 steers where it reads deeply. Captured with `lore profile`.
 
-When you are ready to charge for answers, the `lore-enable-payments` skill
+When you are ready to charge for publications, the `lore-enable-payments` skill
 (`skills/lore-enable-payments/SKILL.md`) walks you from a self-custody payout address
 to a deployed node and a proven test-network payment — with free as a first-class
 place to stop.
@@ -87,7 +87,7 @@ People are beginning to use agents across coding, research, communication, plann
 
 Today that context is fragmented across tools or disappears at the end of a session. Lore MCP gives agents one owner-controlled place to preserve and retrieve it.
 
-The memory is useful privately first. Some of it may also be valuable to someone else's agent. When it is, the owner can expose a policy-filtered answer through a paid MCP call rather than sharing the underlying library.
+The memory is useful privately first. Some of it may also be valuable to someone else's agent. When it is, the owner can sell a bounded, approved publication through MCP rather than sharing the underlying library.
 
 ```text
 agent activity
@@ -96,7 +96,7 @@ raw memories
       ↓
 consolidated lore
       ↓
-private recall or permissioned paid answers
+private recall or permissioned paid publications
 ```
 
 ## Why “lore”?
@@ -116,7 +116,7 @@ Memory is what was stored. Lore is the context assembled from it:
 
 ### Local first
 
-Raw sources and private memory stay on infrastructure controlled by the owner. A paid caller receives an approved answer, not library access.
+Raw sources and private memory stay on infrastructure controlled by the owner. A paid caller receives one approved publication, not library access.
 
 ### Agent agnostic
 
@@ -124,16 +124,16 @@ Lore should accrue independently of whichever personal agent wins. Codex, Claude
 
 ### Useful before monetized
 
-The owner should benefit from better continuity, recall, and personalization even if nobody ever purchases an answer.
+The owner should benefit from better continuity, recall, and personalization even if nobody ever purchases a publication.
 
 ### Human-owned policy
 
 Agents may propose memories, consolidate them, and draft publications. Only the
 owner may approve a publication, and only publications are externally readable.
 
-### Derived answers, not raw access
+### Bounded publications, not raw access
 
-The commercial unit is a task-specific answer derived from private context. Raw notes, conversations, and documents are not exposed by default.
+The commercial unit is one bounded publication explicitly approved by the owner. Raw notes, conversations, and documents are not exposed by default.
 
 ### Existing payment rails
 
@@ -171,28 +171,35 @@ Discovery happens at two levels:
 
 A buyer calls `get` with a publication id chosen from the catalog. If payment is required, the gateway in front of the route
 answers with the price and payment requirements; the buyer authorizes and retries.
-After verification, the local node produces a policy-filtered answer.
+After verification, the node returns that owner-approved publication.
 
 ```text
 buyer task
     ↓
 marketplace search
     ↓
-discover(query) ──→ safe relevance metadata
+discover() ───────→ full catalog of approved teasers
     ↓
-answer(query) ────→ price quote
+choose zero, one, multiple, or all ids
+    ↓
+get(id) ──────────→ price quote for one publication
     ↓                       ↓
 local retrieval ←── verified payment
     ↓
-policy-filtered answer
+owner-approved publication
 ```
 
 ## Initial MCP surface
 
-The public surface can begin with two tools:
+The public surface has two tools:
 
-- `discover(query)` — free; describes whether the node can help without revealing private context.
-- `answer(query)` — paid when policy requires it; returns a derived answer with provenance and disclosure limits.
+- `discover()` — free; returns the full catalog of owner-approved teasers.
+- `get(id)` — paid when policy requires it; returns exactly one publication.
+
+A buyer may choose zero, one, multiple, or every advertised id, calling `get`
+once per selection. Publication ids contain a checksum: a damaged copy is
+rejected before payment. Use ids from a current catalog; a publication revoked
+between `discover` and `get` can still be billed because settlement precedes lookup.
 
 Private owner-facing operations such as remembering, forgetting, consolidating, reviewing, and changing policy can be added only as the local memory implementation requires them.
 
@@ -216,8 +223,8 @@ codex mcp add lore -- lore serve
 claude mcp add --scope user lore -- lore serve
 ```
 
-`discover` returns only safe relevance metadata. `answer` searches only active
-publications the owner explicitly approved; no memory is reachable over MCP,
+`discover` returns only owner-approved advertisement fields. `get` reads only
+active publications the owner explicitly approved; no memory is reachable over MCP,
 whatever its status. HTTP binds to loopback by default. Binding another interface requires
 `--token` or `LORE_MCP_TOKEN`.
 
@@ -232,29 +239,15 @@ The Worker source ships inside this package (`lore/node/`), so deploying never
 needs this repository. Lore owns local retrieval and disclosure policy; the
 Worker owns the payment exchange, verification, and settlement, and the
 owner's machine only ever pushes approved publications outward — no tunnel, no
-inbound path to the private library. The deployed node answers from the
+inbound path to the private library. The deployed node serves only the
 owner-approved publications `lore push` maintains in its edge database.
 
 ## Monetization
 
-For a fixed-price answer, the quote is the first response: a buyer that has not
-paid receives the price and payment instructions instead of an answer.
-
-Dynamic pricing is useful when the value or cost depends on the query. Possible inputs include:
-
-- breadth and complexity;
-- evidence volume;
-- firsthand versus secondhand knowledge;
-- freshness and rarity;
-- commercial sensitivity;
-- exclusivity;
-- owner reputation and market demand.
-
-A buyer should be able to specify a maximum budget. The node can either quote an
-exact amount before answering, or accept an authorization that settles actual
-usage up to the approved cap.
-
-Pricing should initially be transparent and predictable. Opaque price discrimination would undermine trust before the market has earned it.
+Each `get` buys one publication at the fixed price shown by `discover`. A buyer
+may choose any subset of the catalog, including all of it, and pays separately
+for each selection. Damaged ids fail validation before payment. Per-publication
+pricing or bundles can be added if one fixed price becomes a measured constraint.
 
 ## Privacy boundary
 
@@ -278,7 +271,7 @@ The smallest useful prototype is:
 1. a local memory store;
 2. one context-janitor skill usable by multiple agents;
 3. a capability manifest;
-4. `discover` and `answer` MCP tools;
+4. `discover` and `get` MCP tools;
 5. a payment boundary — shipped as the x402 Worker deployed by `lore node deploy`;
 6. a simple disclosure policy and audit trail.
 

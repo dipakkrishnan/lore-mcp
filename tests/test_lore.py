@@ -33,7 +33,15 @@ from lore.cli import (
 from lore.mcp import call_tool, dispatch, http
 from lore.sources import scan
 from lore import store as store_module
-from lore.store import STATUSES, Memory, PublicationKind, Status, Store
+from lore.store import (
+    STATUSES,
+    Memory,
+    PublicationKind,
+    Status,
+    Store,
+    new_public_id,
+    valid_public_id,
+)
 from lore.ui import memory_card
 
 
@@ -562,6 +570,14 @@ class LoreTest(unittest.TestCase):
             with self.assertRaises((TypeError, ValueError)):
                 call_tool(name, arguments)
 
+    def test_damaged_public_id_is_rejected_before_lookup(self) -> None:
+        public_id = new_public_id()
+        self.assertTrue(valid_public_id(public_id))
+        damaged = ("0" if public_id[0] != "0" else "1") + public_id[1:]
+        self.assertFalse(valid_public_id(damaged))
+        with self.assertRaisesRegex(ValueError, "run discover again"):
+            call_tool("get", {"id": damaged})
+
     def test_remote_mcp_requires_authentication(self) -> None:
         with self.assertRaisesRegex(ValueError, "requires --token"):
             http("0.0.0.0", 0)
@@ -807,8 +823,8 @@ class LoreTest(unittest.TestCase):
             self.assertEqual(by_title["t"].teaser, "an advertisement")
             # public_id is minted for new rows and backfilled for legacy ones,
             # and the two never collide.
-            self.assertEqual(len(by_title["t"].public_id), 16)
-            self.assertEqual(len(by_title["legacy"].public_id), 16)
+            self.assertEqual(len(by_title["t"].public_id), 24)
+            self.assertEqual(len(by_title["legacy"].public_id), 24)
             self.assertNotEqual(by_title["t"].public_id, by_title["legacy"].public_id)
 
     def test_publication_apply_rejects_bad_candidates(self) -> None:
