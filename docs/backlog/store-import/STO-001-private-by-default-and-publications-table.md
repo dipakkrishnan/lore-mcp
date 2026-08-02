@@ -4,13 +4,13 @@ title: Private-by-default memories and a separate publications table
 priority: P0
 effort: M
 component: store-import
-status: in-progress
+status: completed
 related: [CLI-001, ONB-001, XC-001, XC-002]
 blockers: []
 dependencies: []
 github_issue: https://github.com/dipakkrishnan/lore-mcp/issues/6
 created: 2026-07-26
-updated: 2026-07-29
+updated: 2026-08-02
 ---
 
 ## Problem
@@ -98,8 +98,8 @@ now a distinct, deferred concern, not conflated with disclosure.
 
 Implemented on `feat/sto-private-publications` (PR
 https://github.com/dipakkrishnan/lore-mcp/pull/19), 36 tests passing, all acceptance
-criteria verified. Kept `in-progress` (not `completed`) until the PR merges, per the
-README's "completed = merged" definition. Deferred, as designed: uploaded-content
+criteria verified. PR #19 merged to main (`8e97adc`), so this moved to `completed`
+on 2026-08-02 per the README's "completed = merged" definition. Deferred, as designed: uploaded-content
 ingest and the raw captures table.
 
 Revised 2026-07-29 after Dipak's review on PR #19. Four changes to the item itself:
