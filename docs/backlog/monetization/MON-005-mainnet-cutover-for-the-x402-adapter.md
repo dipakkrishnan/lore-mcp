@@ -4,13 +4,13 @@ title: Cut the x402 edge adapter over to mainnet
 priority: P3
 effort: M
 component: monetization
-status: ideation
+status: in-review
 related: [MON-002, MON-003, MON-004]
 blockers: [MON-002, MON-003, MON-004]
 dependencies: ["CDP account and API credentials", "Decision to launch the edge adapter at all"]
 github_issue: https://github.com/dipakkrishnan/lore-mcp/issues/25
 created: 2026-07-30
-updated: 2026-07-30
+updated: 2026-08-02
 ---
 
 ## Problem
