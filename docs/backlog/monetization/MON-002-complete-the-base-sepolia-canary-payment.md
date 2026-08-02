@@ -4,13 +4,13 @@ title: Complete the Base Sepolia canary payment end to end
 priority: P1
 effort: S
 component: monetization
-status: in-review
+status: completed
 related: [MON-003]
 blockers: []
 dependencies: ["Funded Base Sepolia buyer wallet (faucet test USDC)", "Cloudflare account for deployment"]
 github_issue: https://github.com/dipakkrishnan/lore-mcp/issues/25
 created: 2026-07-30
-updated: 2026-07-30
+updated: 2026-08-01
 ---
 
 ## Problem
@@ -59,3 +59,10 @@ Open question worth answering during the run: what the buyer sees when
 settlement succeeds but the response is lost. Epic #25 requires "one answer and
 one receipt without double charging on retries", and the canary has no
 idempotency handling today.
+
+**Completed 2026-08-01.** First live end-to-end settlement against the deployed
+node (`lore-x402-canary.dipakrkrishnan.workers.dev/mcp`): faucet-funded
+throwaway buyer paid $0.01 via `npm run pay`, settled on Base Sepolia
+(tx `0x10837d29ef515669c2ac625ce0c997dff36f7d629405f9534d2085a796321ca2`),
+receipt verified on-chain at the payout address. The open idempotency question
+above remains open — it moves with epic #25, not this item.
