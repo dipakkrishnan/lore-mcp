@@ -156,7 +156,11 @@ class SkillContractTest(unittest.TestCase):
         """A phase file the skill points at, or ships without naming, breaks mid-run."""
         for path in _skill_files():
             text = path.read_text(encoding="utf-8")
-            siblings = {file.name for file in path.parent.iterdir()} - {"SKILL.md"}
+            siblings = {
+                file.name
+                for file in path.parent.iterdir()
+                if file.is_file() and file.name != "SKILL.md"
+            }
             for name in siblings:
                 with self.subTest(skill=path.parent.name, file=name):
                     self.assertIn(name, text)
@@ -241,6 +245,18 @@ class SkillContractTest(unittest.TestCase):
         skill = (SKILLS / "lore-enable-payments/SKILL.md").read_text(encoding="utf-8").lower()
         self.assertIn("lore price 0", skill)
         self.assertIn("has not failed", skill)
+
+    def test_capture_skill_requires_private_approval_before_publish_handoff(self) -> None:
+        skill = (SKILLS / "lore-capture/SKILL.md").read_text(encoding="utf-8").lower()
+        for boundary in (
+            "save nothing until the owner clearly approves",
+            "stores every entry as `private`",
+            "never edit `lore.db`",
+            "lore-publish",
+            "capture never creates a publication itself",
+        ):
+            with self.subTest(boundary=boundary):
+                self.assertIn(boundary, skill)
 
 
 if __name__ == "__main__":

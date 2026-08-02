@@ -142,8 +142,9 @@ never shares anything, and the schedule runs itself from here.
 
 Then offer the next rungs once, without pushing: publishing (approving specific
 publications for disclosure) and the Monetize branch (the `lore-enable-payments`
-skill, which can also start rails-first with nothing published). Both are optional —
-a private library is a complete outcome, not a step toward one.
+skill, which can also start rails-first with nothing published). Mention the
+`lore-capture` skill as the recurring way to dictate or add new private context.
+All are optional — a private library is a complete outcome, not a step toward one.
 
 ## Rules
 

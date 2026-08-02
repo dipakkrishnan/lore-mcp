@@ -1,0 +1,4 @@
+interface:
+  display_name: "Lore Capture"
+  short_description: "Turn dictated ideas into private Lore memories"
+  default_prompt: "Use $lore-capture to help me dictate, correct, and privately save new memories."

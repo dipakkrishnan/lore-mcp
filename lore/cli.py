@@ -8,6 +8,7 @@ import sys
 from pathlib import Path
 
 from . import blueprint as blueprint_module
+from . import capture as capture_module
 from . import deploy as deploy_module
 from .paths import home
 from .sources import available_sources, scan
@@ -40,6 +41,13 @@ def parser() -> argparse.ArgumentParser:
     profile = commands.add_parser("profile", help="save an agent-written synthesis profile")
     profile.add_argument("path", help="JSON profile file; use - for stdin")
     profile.add_argument("--no-schedule", action="store_true", help="write the profile without installing schedules")
+
+    capture = commands.add_parser("capture", help="save owner-approved private memories")
+    capture_commands = capture.add_subparsers(dest="capture_command", required=True)
+    capture_apply = capture_commands.add_parser(
+        "apply", help="validate and save structured memory entries as private"
+    )
+    capture_apply.add_argument("file", help="JSON array written by an agent; use - for stdin")
 
     commands.add_parser("status", help="show source and review status")
     commands.add_parser("help", help="show the Lore workflow manual")
@@ -118,6 +126,8 @@ def main(argv: list[str] | None = None) -> int:
             return search(" ".join(args.query), args.status, args.limit, args.json)
         if args.command == "profile":
             return profile(args.path, not args.no_schedule)
+        if args.command == "capture":
+            return capture_apply(args.file)
         if args.command == "status":
             return status()
         if args.command == "help":
@@ -186,27 +196,30 @@ def manual() -> int:
   2. lore sync
      Import memories created or changed since setup.
 
-  3. lore review [words] [--status private|discarded]
+  3. lore capture apply <file|->
+     Validate and privately save memories approved in an attended agent session.
+
+  4. lore review [words] [--status private|discarded]
      Walk the private library and keep or discard; revisit any prior decision.
      Reviewing never discloses anything — only a publication does that.
 
-  4. lore search [words] [--status STATUS]
+  5. lore search [words] [--status STATUS]
      Inspect the local library without changing disclosure.
 
-  5. lore price [USD]
+  6. lore price [USD]
      Show or set the advertised price per publication.
 
-  6. lore status
+  7. lore status
      Check imports, the private library, active publications, and price.
 
-  7. lore serve
+  8. lore serve
      Start the MCP endpoint used by local agents or a protected gateway.
 
-  8. lore node deploy
+  9. lore node deploy
      Deploy your node to your own Cloudflare account (source ships with Lore;
      the URL lands in `lore status`).
 
-  9. lore blueprint show
+  10. lore blueprint show
      See the shape of your lore captured by the gamified onboarding skill
      (run `lore blueprint apply <file>` from that skill to update it).
 
@@ -251,6 +264,18 @@ def sync(names: set[str] | None = None) -> int:
         report = scan(store, names)
     for name, item in report.items():
         print(f"{name:<20} {item['added']} added, {item['updated']} updated, {item['unchanged']} unchanged")
+    return 0
+
+
+def capture_apply(file: str) -> int:
+    """Validate and save memories the owner corrected in an attended agent session."""
+    text = (
+        sys.stdin.read()
+        if file == "-"
+        else Path(file).read_text(encoding="utf-8")
+    )
+    results = capture_module.save(json.loads(text))
+    print(json.dumps(results, indent=2))
     return 0
 
 

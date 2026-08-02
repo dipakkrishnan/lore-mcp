@@ -44,33 +44,22 @@ cases.
    file-type support is added once) and reads PDFs/images with its own native
    comprehension. Oversized or unreadable files are reported, never silently
    dropped — same contract as `extract.py`.
-3. **Paste/dictated text** — degenerate case of the same flow; wraps the
-   `lore capture` CLI from issue #8 step 3 when it lands.
+3. **Paste/dictated text** — degenerate case of the same flow.
 
 All three converge on the same synthesis step: extract → propose bounded
-candidate memories steered by the owner's blueprint/profile → **owner corrects
+memories steered by the owner's blueprint/profile → **owner corrects
 the proposal** (the `lore-onboard` phase-2 pattern: correcting beats
 blank-slate authoring) → land as `private` memories with file/source
-provenance via the store.
+provenance through the validated `lore capture apply` command.
 
-## Two dispositions, because interrupting a voice conversation is the failure mode
+## The conversation is the staging area
 
-A file capture can afford to stop and propose. A voice conversation cannot —
-breaking someone's train of thought to confirm seven candidate memories is how
-the rail stops being used. So a voice turn resolves one of two ways:
-
-- **Land now** — the owner said something self-contained and stated as fact
-  ("my payout wallet is self-custody, never an exchange"). Propose at a natural
-  pause, owner corrects, it lands `private`.
-- **Mark for synthesis** — the owner is mid-thought, exploring, or the value is
-  in the whole arc rather than any one sentence. The skill marks the span and
-  gets out of the way; the existing scheduled synthesis pass
-  (`lore/automation.py`, same prompt and profile) distills it later with the
-  full transcript in view.
-
-Marking is the default when in doubt — deferring costs a synthesis pass,
-interrupting costs the conversation. This is the one genuinely new mechanism
-here; files and paste only ever use "land now."
+Do not interrupt a developing thought to confirm candidate memories. Wait for a
+natural pause or for the owner to say they are done, then propose bounded
+entries, apply corrections, and save only after explicit approval. If the
+session ends first, save nothing. Passive transcript capture and durable
+"mark for synthesis" machinery are deferred until real use shows this attended
+flow loses meaningful material.
 
 ## Boundaries (inherited, not new)
 
@@ -87,7 +76,7 @@ here; files and paste only ever use "land now."
 | Piece | Relationship |
 |---|---|
 | Issue #8 (dropbox + text intake) | Complementary: those are the *unattended* rails, this is the *attended* one. Same extraction module, same store. |
-| PR #34 `lore/extract.py` | Reused as-is for stdlib types; agent-native reading covers what it defers. |
+| PR #34 `lore/extract.py` | Still useful for unattended file rails; the attended agent path does not depend on it. |
 | `captures` table (#6, deferred) | Not a dependency. The skill proposes and the owner approves in-conversation, so staging is the conversation itself; rows land as `private` memories directly. If/when `captures` exists, unattended rails feed it and this skill can too. |
 | `lore-onboard` | Capture is the recurring version of onboarding's one-time backfill; onboarding's handoff menu should mention it. |
 
@@ -101,6 +90,6 @@ here; files and paste only ever use "land now."
 3. New `capture/` backlog component, `CAP-` prefix (`CAP-001` tracks the
    skill).
 4. (2026-08-01) Voice is the primary rail, not one of three equals; the flow
-   is designed for someone talking. Voice turns resolve as either *land now*
-   or *mark for synthesis*, marking being the default when in doubt, so the
-   skill never interrupts a train of thought to confirm candidates.
+   is designed for someone talking.
+5. (2026-08-02) The POC stays attended through approval and offers publication
+   only as a separate `lore-publish` handoff. No passive span marking yet.
