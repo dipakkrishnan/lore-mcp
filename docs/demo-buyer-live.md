@@ -64,15 +64,25 @@ Working now, proven live on Base Sepolia (2026-08-01):
   script, not an agent (Pane 2's plumbing exists; Pane 1's does not).
 
 The one build item is **MON-007**: the buyer-side signer, packaged so a stock
-Claude client can pay. Shape (pending investigation): a local MCP server that
-holds the buyer key and wraps the remote lore-node connection with
-`withX402Client` — exactly what `pay.ts` does today, exposed as MCP tools
-instead of a CLI. The model sees "payment required" → "paid" as tool results;
-the key never enters context. Buyer setup collapses to:
+Claude client can pay. The ecosystem was surveyed (2026-08-03) and the
+"local paying MCP bridge" pattern is the industry-standard answer for
+Claude-class chat clients — MCPay and Coinbase's own CDP MCP-server docs both
+ship it — but nothing off the shelf proxies a remote *MCP* server (they
+bridge to paid REST APIs), so we build the thin version ourselves: a stdio
+MCP server that connects to the lore node, wraps the connection with
+`withX402Client` from `agents/x402` (already in the dependency tree, already
+proven by `pay.ts` against this exact Worker), and re-exposes `discover` and
+`get` as ordinary tools. The model sees "payment required" → "paid" as tool
+results; the key never enters context. Buyer setup collapses to:
 
 ```sh
 claude mcp add lore-buyer -- npx lore-buyer --node https://<node>/mcp
 ```
+
+Key custody, in order of demo-worthiness: the self-provisioning throwaway key
+(`pay.ts`'s `.buyer.env` pattern, fine for Sepolia rehearsal) or a
+CDP-managed wallet via `CdpX402Client` for the mainnet take — no raw private
+key on disk at all, which is itself a line worth narrating.
 
 Pane 2 then falls out for free: the signer server logs each challenge,
 payment, and receipt to stderr — the live feed is `tail -f` on that log with
