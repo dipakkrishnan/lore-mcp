@@ -5,12 +5,12 @@ priority: P1
 effort: S
 component: monetization
 status: completed
-related: [MON-003]
+related: [MON-003, MON-010, MON-008]
 blockers: []
 dependencies: ["Funded Base Sepolia buyer wallet (faucet test USDC)", "Cloudflare account for deployment"]
 github_issue: https://github.com/dipakkrishnan/lore-mcp/issues/25
 created: 2026-07-30
-updated: 2026-08-01
+updated: 2026-08-03
 ---
 
 ## Problem
@@ -66,3 +66,8 @@ throwaway buyer paid $0.01 via `npm run pay`, settled on Base Sepolia
 (tx `0x10837d29ef515669c2ac625ce0c997dff36f7d629405f9534d2085a796321ca2`),
 receipt verified on-chain at the payout address. The open idempotency question
 above remains open — it moves with epic #25, not this item.
+
+What this run proved by hand is what `MON-010` makes repeatable and `MON-008`
+makes durable: the facilitator behaviour observed here is what `MON-010`'s stub
+should encode as fixtures, and the deployment used here was disposable, which is
+the gap `MON-008` closes.

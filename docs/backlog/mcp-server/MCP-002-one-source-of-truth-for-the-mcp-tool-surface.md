@@ -5,12 +5,12 @@ priority: P2
 effort: M
 component: mcp-server
 status: in-review
-related: [MON-003, MCP-001]
+related: [MON-003, MCP-001, XC-004, XC-008]
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-07-30
-updated: 2026-07-30
+updated: 2026-08-01
 ---
 
 ## Problem
@@ -60,3 +60,19 @@ again and this closes obsolete.
 
 The cheap check is worth doing even before that decision — it costs little and
 it fails loudly the moment someone edits one side.
+
+Ideation pass on 2026-08-01: this item is the *contract* tier of the CI pipeline
+mapped in `XC-004`'s notes. Whichever of the three options is chosen, the check
+has to run in `XC-004`'s workflow on every pull request — a drift check nobody
+runs is the same as no drift check. That argues further for the third option: a
+comparison test is the only one of the three that is a CI job rather than a build
+step. `XC-008`'s live suite is where an escaped divergence would first become
+visible to a buyer, which is later and more expensive than failing a PR.
+
+Prioritization pass 2026-08-01 held this at `P2` and left it `in-review` despite
+having no blockers. What stops promotion is the approach, not the priority: it
+still reads "unclear which direction is right; needs a decision before
+implementation", and the three options differ enough (codegen vs. fetch-and-
+re-serve vs. comparison test) that handing this to implementation as-is would be
+handing over the decision too. Pick one — the notes above argue for the
+comparison test — and it is `ready` immediately at roughly `S`.
