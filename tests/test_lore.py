@@ -340,8 +340,8 @@ class LoreTest(unittest.TestCase):
     def test_capture_apply_saves_private_memories_and_deduplicates(self) -> None:
         payload = [
             {
-                "title": "Hire management before rapid growth",
-                "content": "Add the management layer before hiring the next ten engineers.",
+                "title": "Hire management\nbefore rapid growth",
+                "content": "Add the management layer.\r\nBefore hiring\tthe next ten engineers.",
                 "project": "team scaling",
                 "source_path": "field-notes.pdf#page=8",
             },
@@ -370,6 +370,11 @@ class LoreTest(unittest.TestCase):
         self.assertEqual(memories[0].source, "capture")
         self.assertEqual(memories[0].origin, "attended")
         self.assertEqual(memories[0].source_path, "field-notes.pdf#page=8")
+        self.assertEqual(memories[0].title, "Hire management before rapid growth")
+        self.assertEqual(
+            memories[0].content,
+            "Add the management layer.\nBefore hiring the next ten engineers.",
+        )
         self.assertEqual(saved[0]["id"], memories[0].id)
         self.assertEqual(spoken[0].source_path, "agent-session")
         self.assertEqual(saved[1]["id"], spoken[0].id)
@@ -377,19 +382,19 @@ class LoreTest(unittest.TestCase):
 
     def test_capture_apply_rejects_bad_entries_before_writing(self) -> None:
         cases = [
-            ([], "non-empty JSON array"),
-            ([{"title": "", "content": "x"}], "title cannot be empty"),
-            ([{"title": "x", "content": "y", "source_path": ""}], "source_path cannot be empty"),
+            ([], "at least 1 item"),
+            ([{"title": "", "content": "x"}], "at least 1 character"),
+            ([{"title": "x", "content": "y", "source_path": ""}], "at least 1 character"),
             (
                 [
                     {"title": "valid", "content": "must not be partially saved"},
                     {"title": "", "content": "invalid second entry"},
                 ],
-                "title cannot be empty",
+                "at least 1 character",
             ),
             (
                 [{"title": "x", "content": "y", "status": "published"}],
-                "unexpected",
+                "Extra inputs are not permitted",
             ),
         ]
         for payload, message in cases:

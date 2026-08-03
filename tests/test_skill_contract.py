@@ -189,11 +189,18 @@ class SkillContractTest(unittest.TestCase):
         """A phase file the skill points at, or ships without naming, breaks mid-run."""
         for path in _skill_files():
             text = path.read_text(encoding="utf-8")
-            siblings = {
-                file.name
-                for file in path.parent.iterdir()
-                if file.is_file() and file.name != "SKILL.md"
-            }
+            siblings = set()
+            for file in path.parent.iterdir():
+                if file.name == "SKILL.md":
+                    continue
+                if file.is_dir():
+                    with self.subTest(skill=path.parent.name, directory=file.name):
+                        self.assertEqual(file.name, "agents")
+                        self.assertEqual(
+                            {child.name for child in file.iterdir()}, {"openai.yaml"}
+                        )
+                    continue
+                siblings.add(file.name)
             for name in siblings:
                 with self.subTest(skill=path.parent.name, file=name):
                     self.assertIn(name, text)

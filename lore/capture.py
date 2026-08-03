@@ -2,6 +2,9 @@ from __future__ import annotations
 
 import hashlib
 import json
+from typing import Annotated
+
+from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, field_validator
 
 from .store import Store
 from .ui import CONTROL_CHARACTERS
@@ -11,49 +14,52 @@ MAX_TITLE = 200
 MAX_CONTENT = 20_000
 MAX_PROJECT = 200
 MAX_SOURCE_PATH = 1_000
-FIELDS = {"title", "content", "project", "source_path"}
+_CONTROLS_TO_SPACES = dict.fromkeys(CONTROL_CHARACTERS, " ")
+_CONTENT_CONTROLS = _CONTROLS_TO_SPACES | {ord("\n"): "\n"}
 
 
-def _text(value: object, field: str, limit: int) -> str:
-    if not isinstance(value, str):
-        raise ValueError(f"capture {field} must be text")
-    value = value.translate(CONTROL_CHARACTERS).strip()
-    if not value:
-        raise ValueError(f"capture {field} cannot be empty")
-    if len(value) > limit:
-        raise ValueError(f"capture {field} cannot exceed {limit} characters")
-    return value
+class CaptureEntry(BaseModel):
+    """One owner-approved private memory crossing the agent/CLI boundary."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    title: str = Field(min_length=1, max_length=MAX_TITLE)
+    content: str = Field(min_length=1, max_length=MAX_CONTENT)
+    project: str = Field(default="general", min_length=1, max_length=MAX_PROJECT)
+    source_path: str = Field(
+        default="agent-session", min_length=1, max_length=MAX_SOURCE_PATH
+    )
+
+    @field_validator("title", "project", "source_path", mode="before")
+    @classmethod
+    def clean_single_line(cls, value: object) -> object:
+        if not isinstance(value, str):
+            return value
+        return " ".join(value.translate(_CONTROLS_TO_SPACES).split())
+
+    @field_validator("content", mode="before")
+    @classmethod
+    def clean_content(cls, value: object) -> object:
+        if not isinstance(value, str):
+            return value
+        value = value.replace("\r\n", "\n").replace("\r", "\n")
+        return value.translate(_CONTENT_CONTROLS).strip()
 
 
-def normalize(raw: object) -> list[dict[str, str]]:
+CaptureBatch = TypeAdapter(
+    Annotated[list[CaptureEntry], Field(min_length=1, max_length=MAX_ENTRIES)]
+)
+
+
+def normalize(raw: object) -> list[CaptureEntry]:
     """Validate agent-proposed, owner-corrected private memory entries."""
-    if not isinstance(raw, list) or not raw:
-        raise ValueError("capture input must be a non-empty JSON array")
-    if len(raw) > MAX_ENTRIES:
-        raise ValueError(f"capture input cannot exceed {MAX_ENTRIES} entries")
+    return CaptureBatch.validate_python(raw)
 
-    entries: list[dict[str, str]] = []
-    for candidate in raw:
-        if not isinstance(candidate, dict):
-            raise ValueError("each capture entry must be a JSON object")
-        unexpected = set(candidate) - FIELDS
-        if unexpected:
-            raise ValueError(f"unexpected capture field: {sorted(unexpected)[0]}")
-        entries.append(
-            {
-                "title": _text(candidate.get("title"), "title", MAX_TITLE),
-                "content": _text(candidate.get("content"), "content", MAX_CONTENT),
-                "project": _text(
-                    candidate.get("project", "general"), "project", MAX_PROJECT
-                ),
-                "source_path": _text(
-                    candidate.get("source_path", "agent-session"),
-                    "source_path",
-                    MAX_SOURCE_PATH,
-                ),
-            }
-        )
-    return entries
+
+def _digest(data: dict[str, str]) -> str:
+    return hashlib.sha256(
+        json.dumps(data, sort_keys=True, separators=(",", ":")).encode()
+    ).hexdigest()
 
 
 def save(raw: object) -> list[dict[str, object]]:
@@ -62,20 +68,28 @@ def save(raw: object) -> list[dict[str, object]]:
     results: list[dict[str, object]] = []
     with Store() as store:
         for entry in entries:
-            canonical = json.dumps(entry, sort_keys=True, separators=(",", ":"))
-            fingerprint = hashlib.sha256(canonical.encode()).hexdigest()
-            source_key = f"capture:{fingerprint}"
+            data = entry.model_dump(mode="json")
+            # A capture's identity is its text; source_path is provenance about
+            # that text. Keying identity on the text alone makes a corrected
+            # locator update the existing row instead of adding a sibling —
+            # and, deliberately, flags any publication derived from it, since
+            # the provenance behind a published claim did change. Including
+            # source_path in the fingerprint is what makes the correction
+            # register as a change rather than "unchanged".
+            identity = {k: v for k, v in data.items() if k != "source_path"}
+            source_key = f"capture:{_digest(identity)}"
+            fingerprint = _digest(data)
             outcome = store.put(
                 source="capture",
                 origin="attended",
                 source_key=source_key,
                 fingerprint=fingerprint,
-                **entry,
+                **data,
             )
             row = store.db.execute(
                 "SELECT id FROM memories WHERE source_key=?", (source_key,)
             ).fetchone()
             results.append(
-                {"id": row["id"], "status": outcome, "title": entry["title"]}
+                {"id": row["id"], "status": outcome, "title": entry.title}
             )
     return results
