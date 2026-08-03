@@ -18,6 +18,11 @@ exists at the edge. With zero publications the rail still proves end to end, but
 catalog is empty and there is nothing to buy; that is why mainnet is gated on
 having at least one.
 
+> **Agent-system controls:** In Claude Code, use `AskUserQuestion` for owner
+> decisions. In Codex, ask directly in chat unless the current mode explicitly
+> provides a structured question control. Never block because a named question
+> tool is unavailable.
+
 ## How to drive — read this first
 
 The owner should never have to figure out where to go or what comes next. You are

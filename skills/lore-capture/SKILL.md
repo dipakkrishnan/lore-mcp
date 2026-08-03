@@ -9,6 +9,11 @@ Capture is an attended conversation: listen, propose memories, let the owner
 correct them, then save exactly the approved entries as private. Voice is the
 primary path; the host agent handles microphone and transcription.
 
+> **Agent-system controls:** In Claude Code, use `AskUserQuestion` for owner
+> decisions. In Codex, ask directly in chat unless the current mode explicitly
+> provides a structured question control. Never block because a named question
+> tool is unavailable.
+
 ## 1. Listen before structuring
 
 If the owner wants voice, tell them to use the current host's dictation control

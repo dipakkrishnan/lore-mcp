@@ -11,6 +11,11 @@ approves in their own terminal. `lore publication review` rejects piped and
 background input, but a TTY cannot prove human identity: never invoke or answer
 the approval prompt on the owner's behalf.
 
+> **Agent-system controls:** In Claude Code, use `AskUserQuestion` for owner
+> decisions. In Codex, ask directly in chat unless the current mode explicitly
+> provides a structured question control. Never block because a named question
+> tool is unavailable.
+
 ## 1. Understand the intent
 
 The owner says something like "publish what I learned about pricing agent

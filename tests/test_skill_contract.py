@@ -146,9 +146,12 @@ class SkillContractTest(unittest.TestCase):
             text = path.read_text(encoding="utf-8")
             with self.subTest(skill=path.parent.name):
                 self.assertNotIn("$ARGUMENTS", text)
-        onboard = (SKILLS / "lore-onboard/SKILL.md").read_text(encoding="utf-8")
-        self.assertIn("Claude Code, use `AskUserQuestion`", onboard)
-        self.assertIn("In Codex, ask directly in chat", onboard)
+        for skill in _owner_skills():
+            text = (skill / "SKILL.md").read_text(encoding="utf-8")
+            with self.subTest(skill=skill.name):
+                self.assertIn("Claude Code, use `AskUserQuestion`", text)
+                self.assertIn("In Codex, ask directly in chat", text)
+                self.assertIn("Never block because a named question", text)
 
     def test_every_owner_skill_reaches_both_places_an_agent_looks(self) -> None:
         """Discovery is all-or-nothing: an unlinked or uncopied skill simply never runs."""
