@@ -995,14 +995,15 @@ class LoreTest(unittest.TestCase):
         }
         cases = [
             ([{**valid, "provenance": [999]}], "unknown memories"),
-            ([{**valid, "title": ""}], "non-empty title"),
-            ([{**valid, "topic": ""}], "non-empty title"),
+            ([{**valid, "title": ""}], "at least 1 character"),
+            ([{**valid, "topic": ""}], "at least 1 character"),
             ([{**valid, "teaser": ""}], "non-empty teaser"),
             ([{k: v for k, v in valid.items() if k != "teaser"}], "non-empty teaser"),
-            ([{**valid, "provenance": []}], "non-empty list"),
-            ([{**valid, "kind": "secret"}], "PublicationKind"),
-            ([{**valid, "extra": 1}], "unexpected candidate field"),
-            ([], "non-empty JSON array"),
+            ([{**valid, "provenance": []}], "at least 1 item"),
+            ([{**valid, "provenance": [True]}], "valid integer"),
+            ([{**valid, "kind": "secret"}], "claim.*content"),
+            ([{**valid, "extra": 1}], "Extra inputs are not permitted"),
+            ([], "at least 1 item"),
         ]
         for payload, message in cases:
             candidates = base / "bad.json"
@@ -1053,7 +1054,7 @@ class LoreTest(unittest.TestCase):
                 topic="documents", provenance=[second],
             )
             self.assertGreater(doc_id, 0)
-            with self.assertRaisesRegex(ValueError, "not a valid PublicationKind"):
+            with self.assertRaisesRegex(ValueError, "claim.*content"):
                 store.add_publication(title="Bad", content="x", kind="secret")
             revoked_public_id = next(
                 p.public_id for p in store.list_publications() if p.id == pid
@@ -1068,8 +1069,8 @@ class LoreTest(unittest.TestCase):
         memory_id = self._seed_memory("Boundary evidence", "private")
         with Store() as store:
             for topic, provenance, message in (
-                ("", [memory_id], "topic cannot be empty"),
-                ("boundary", [], "non-empty list"),
+                ("", [memory_id], "at least 1 character"),
+                ("boundary", [], "at least 1 item"),
                 ("boundary", [memory_id + 999], "unknown memories"),
             ):
                 with self.subTest(message=message), self.assertRaisesRegex(ValueError, message):
@@ -1225,7 +1226,7 @@ class LoreTest(unittest.TestCase):
         ):
             data = _blueprint_input()
             data[field] = value
-            with self.assertRaisesRegex(ValueError, "unexpected blueprint field"):
+            with self.assertRaisesRegex(ValueError, "Extra inputs are not permitted"):
                 blueprint.normalize(data)
 
     def test_blueprint_files_are_owner_private(self) -> None:
@@ -1237,27 +1238,30 @@ class LoreTest(unittest.TestCase):
     def test_blueprint_rejects_unknown_persona(self) -> None:
         data = _blueprint_input()
         data["persona"] = "wizard"
-        with self.assertRaisesRegex(ValueError, "unknown persona"):
+        with self.assertRaisesRegex(ValueError, "storyteller"):
             blueprint.normalize(data)
 
     def test_blueprint_rejects_bad_axis_and_version(self) -> None:
         data = _blueprint_input()
         data["organizing_axis"] = "alphabetical"
-        with self.assertRaisesRegex(ValueError, "unknown organizing axis"):
+        with self.assertRaisesRegex(ValueError, "chronological"):
             blueprint.normalize(data)
         data = _blueprint_input()
         data["version"] = 2
-        with self.assertRaisesRegex(ValueError, "unsupported blueprint version"):
+        with self.assertRaisesRegex(ValueError, "Input should be 1"):
             blueprint.normalize(data)
 
     def test_blueprint_rejects_missing_required(self) -> None:
         data = _blueprint_input()
         data["name"] = "   "
-        with self.assertRaisesRegex(ValueError, "name cannot be empty"):
+        with self.assertRaisesRegex(ValueError, "at least 1 character"):
             blueprint.normalize(data)
         data = _blueprint_input()
         data["topic_outline"] = []
-        with self.assertRaisesRegex(ValueError, "topic_outline cannot be empty"):
+        with self.assertRaisesRegex(ValueError, "at least 1 item"):
+            blueprint.normalize(data)
+        data["topic_outline"] = ["same"] * (blueprint.MAX_ITEMS + 1)
+        with self.assertRaisesRegex(ValueError, "cannot exceed"):
             blueprint.normalize(data)
 
     def test_blueprint_normalizes_lists(self) -> None:

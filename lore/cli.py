@@ -6,14 +6,21 @@ import math
 import os
 import sys
 from pathlib import Path
+from typing import Annotated
+
+from pydantic import Field, TypeAdapter
 
 from . import blueprint as blueprint_module
 from . import capture as capture_module
 from . import deploy as deploy_module
 from .paths import home
 from .sources import available_sources, scan
-from .store import STATUSES, Publication, PublicationKind, Store
+from .store import STATUSES, Publication, PublicationInput, Store
 from .ui import ask, confirm, heading, logo, memory_card, muted, publication_card, success
+
+PUBLICATION_CANDIDATES = TypeAdapter(
+    Annotated[list[PublicationInput], Field(min_length=1)]
+)
 
 
 def parser() -> argparse.ArgumentParser:
@@ -393,8 +400,6 @@ def profile(path: str, schedule: bool = True) -> int:
 
     text = sys.stdin.read() if path == "-" else Path(path).read_text(encoding="utf-8")
     data = json.loads(text)
-    if not isinstance(data, dict):
-        raise ValueError("profile must be a JSON object")
     data = automation.save_profile(data)
     success(f"Saved profile to {automation.profile_path()}")
     if not schedule:
@@ -412,38 +417,23 @@ def _interactive() -> bool:
 
 def _candidate(raw: object, missing_check: Store) -> Publication:
     """Validate one drafted candidate into a previewable Publication."""
-    if not isinstance(raw, dict):
-        raise ValueError("each candidate must be a JSON object")
-    unexpected = raw.keys() - {"title", "content", "kind", "topic", "teaser", "provenance"}
-    if unexpected:
-        raise ValueError(f"unexpected candidate field: {sorted(unexpected)[0]}")
-    title = str(raw.get("title", "")).strip()
-    content = str(raw.get("content", "")).strip()
-    topic = str(raw.get("topic", "")).strip()
-    teaser = str(raw.get("teaser", "")).strip()
-    if not title or not content or not topic:
-        raise ValueError("candidates need a non-empty title, content, and topic")
-    if not teaser:
+    candidate = PublicationInput.model_validate(raw)
+    if not candidate.teaser:
         # The teaser is the entire free surface for this publication, so approval
         # without one would advertise nothing — draft it question-shaped: what the
         # publication answers, never the lesson itself.
         raise ValueError("candidates need a non-empty teaser (the free advertisement)")
-    provenance = raw.get("provenance", [])
-    if not isinstance(provenance, list) or not provenance or not all(
-        isinstance(i, int) and not isinstance(i, bool) for i in provenance
-    ):
-        raise ValueError("candidate provenance must be a non-empty list of memory ids")
-    missing = missing_check.missing_memories(provenance)
+    missing = missing_check.missing_memories(candidate.provenance)
     if missing:
         raise ValueError(f"candidate provenance references unknown memories: {missing}")
     return Publication(
         id=0,
-        title=title,
-        content=content,
-        kind=PublicationKind(raw.get("kind", "claim")),
-        topic=topic,
-        teaser=teaser,
-        provenance=provenance,
+        title=candidate.title,
+        content=candidate.content,
+        kind=candidate.kind,
+        topic=candidate.topic,
+        teaser=candidate.teaser,
+        provenance=candidate.provenance,
         active=1,
         created_at="",
         updated_at="",
@@ -457,9 +447,7 @@ def publication_apply(path: str) -> int:
             "publication approval needs an attended interactive terminal; "
             "piped and background approval is disabled"
         )
-    data = json.loads(Path(path).read_text(encoding="utf-8"))
-    if not isinstance(data, list) or not data:
-        raise ValueError("candidates file must be a non-empty JSON array")
+    data = PUBLICATION_CANDIDATES.validate_json(Path(path).read_text(encoding="utf-8"))
     logo()
     with Store() as store:
         candidates = [_candidate(raw, store) for raw in data]
