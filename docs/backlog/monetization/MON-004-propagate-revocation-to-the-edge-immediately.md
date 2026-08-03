@@ -4,13 +4,13 @@ title: Propagate publication revocation to the edge immediately
 priority: P1
 effort: S
 component: monetization
-status: in-review
+status: ready
 related: [MON-003, XC-002]
 blockers: [MON-003]
 dependencies: []
 github_issue: https://github.com/dipakkrishnan/lore-mcp/issues/25
 created: 2026-07-30
-updated: 2026-07-30
+updated: 2026-08-03
 ---
 
 ## Problem
@@ -51,3 +51,7 @@ Split from `MON-003` rather than folded into it because the priorities differ:
 serving content from the edge is a feature, and this is a correctness invariant
 that the feature would otherwise violate. `MON-003` should not be considered
 done in a state where this one is outstanding.
+
+**Prioritization pass 2026-08-03:** `MON-003` is `completed`, clearing the
+blocker. Promoted `in-review` → `ready` at `P1` — this is a correctness gap in
+an already-shipped feature, not new work to weigh against other options.

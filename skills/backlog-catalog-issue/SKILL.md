@@ -19,6 +19,10 @@ follow it exactly.
   (`gh api repos/<owner>/<repo> --jq .permissions`) — the comment/label
   steps need it, not just read access.
 
-Do not regenerate `docs/backlog/INDEX.md` yourself beyond what the ideation
-playbook's audit step already does, and do not comment or label the issue
-until its backlog item(s) are actually saved.
+Do not regenerate `docs/backlog/INDEX.md` yourself. Where the ideation
+playbook's cataloging section says to run `audit`, invoke the `backlog-audit`
+skill (via the Skill tool) directly rather than just noting it should
+happen. Call it once you've created backlog item(s) for an issue, before
+commenting/labeling that issue — skip the call only for issues that turned
+out to be pure dedupes/no-ops with no new item(s) created. Do not comment or
+label the issue until its backlog item(s) are actually saved.

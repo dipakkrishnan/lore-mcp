@@ -347,13 +347,33 @@ indexed text without resetting the owner's disclosure decision.
 ## Development
 
 ```sh
-uv sync
+uv sync --extra dev
+uv run --extra dev ruff check lore tests
+uv run --extra dev ruff format --check lore tests
 uv run python -m unittest discover -s tests -v
 uv run lore --help
 ```
 
 `uv.lock` is committed, so contributors and CI resolve the same project setup.
 The curl installer remains independent of `uv` for end users.
+
+The Worker in `lore/node/` has its own checks, run from that directory:
+
+```sh
+cp .dev.vars.example .dev.vars   # set LORE_WALLET to any valid address
+npm ci
+npm run lint
+npm run types && npm run check
+npm test                         # Workerd component tests with a mocked facilitator
+npm run dev                      # MCP at http://localhost:8787/mcp
+npm run smoke                    # free discover + unpaid x402 challenge
+```
+
+CI (`.github/workflows/tests.yml`) reports six separate checks: Python lint,
+Python unit tests, Node lint, Node compiler checks, Node component tests, and
+the Worker smoke test. Each runs the same local command against a placeholder
+wallet where the Worker requires one, so failures are immediately attributable
+to a single stage.
 
 The implementation uses only the Python standard library: `argparse`, `sqlite3`,
 `subprocess`, and `http.server`. There is no application framework, vector

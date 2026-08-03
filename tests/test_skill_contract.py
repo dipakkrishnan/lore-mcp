@@ -85,7 +85,9 @@ def _invocations(text: str) -> list[tuple[str, str]]:
         for line in block.splitlines()
     ]
     snippets.extend(re.findall(r"`([^`\n]+)`", text))
-    return [match.groups() for snippet in snippets if (match := INVOCATION.match(snippet))]
+    return [
+        match.groups() for snippet in snippets if (match := INVOCATION.match(snippet))
+    ]
 
 
 def _subcommands(command: argparse.ArgumentParser) -> dict[str, set[str]]:
@@ -119,7 +121,9 @@ class SkillContractTest(unittest.TestCase):
         for label, path in sources:
             text = path.read_text(encoding="utf-8")
             for command, sub in _invocations(text):
-                with self.subTest(source=str(label), command=f"lore {command} {sub}".strip()):
+                with self.subTest(
+                    source=str(label), command=f"lore {command} {sub}".strip()
+                ):
                     self.assertIn(command, self.commands)
                     if sub and self.commands[command]:
                         self.assertIn(sub, self.commands[command])
@@ -128,7 +132,10 @@ class SkillContractTest(unittest.TestCase):
         """Agents resolve a skill by name; a mismatch makes it unreachable."""
         for path in _skill_files():
             with self.subTest(skill=path.parent.name):
-                self.assertEqual(_frontmatter(path.read_text(encoding="utf-8"))["name"], path.parent.name)
+                self.assertEqual(
+                    _frontmatter(path.read_text(encoding="utf-8"))["name"],
+                    path.parent.name,
+                )
 
     def test_external_plugin_contains_only_owner_skills(self) -> None:
         self.assertEqual(
@@ -146,7 +153,9 @@ class SkillContractTest(unittest.TestCase):
     def test_every_skill_says_when_to_use_it(self) -> None:
         """A description with no trigger phrasing is a skill that never fires."""
         for path in _skill_files():
-            description = _frontmatter(path.read_text(encoding="utf-8")).get("description", "")
+            description = _frontmatter(path.read_text(encoding="utf-8")).get(
+                "description", ""
+            )
             with self.subTest(skill=path.parent.name):
                 self.assertIn("use when", description.lower())
 
@@ -196,7 +205,9 @@ class SkillContractTest(unittest.TestCase):
                 # The installer ships a glob; a skill outside it is silently skipped.
                 self.assertTrue(skill.match(f"*/{OWNER_SKILL_GLOB}"))
                 linked = ROOT / ".claude/skills" / skill.name
-                self.assertTrue(linked.is_dir(), f"{skill.name} is not linked for this repo")
+                self.assertTrue(
+                    linked.is_dir(), f"{skill.name} is not linked for this repo"
+                )
                 self.assertEqual(linked.resolve(), skill.resolve())
 
     def test_every_skill_a_skill_routes_to_exists(self) -> None:
@@ -242,9 +253,12 @@ class SkillContractTest(unittest.TestCase):
         """Direct writes are what the single-write-path rule exists to prevent."""
         for path in _markdown_files():
             for line in path.read_text(encoding="utf-8").splitlines():
-                with self.subTest(source=str(path.relative_to(ROOT)), line=line.strip()):
+                with self.subTest(
+                    source=str(path.relative_to(ROOT)), line=line.strip()
+                ):
                     self.assertNotRegex(
-                        line.strip(), r"^(cat|echo|printf|tee)\b.*>\s*[\"']?[~$]?/?\.?lore/"
+                        line.strip(),
+                        r"^(cat|echo|printf|tee)\b.*>\s*[\"']?[~$]?/?\.?lore/",
                     )
 
     def test_no_skill_can_carry_a_payment_secret(self) -> None:
@@ -261,11 +275,17 @@ class SkillContractTest(unittest.TestCase):
             for pattern, problem in SECRET_LEAKS:
                 with self.subTest(source=str(path.relative_to(ROOT)), problem=problem):
                     found = pattern.search(text)
-                    self.assertIsNone(found, f"{problem}: {found.group(0) if found else ''}")
+                    self.assertIsNone(
+                        found, f"{problem}: {found.group(0) if found else ''}"
+                    )
 
     def test_the_payment_skill_refuses_the_secret_out_loud(self) -> None:
         """Saying it is not enough, but not saying it guarantees someone pastes one."""
-        skill = (OWNER_SKILLS / "lore-enable-payments/SKILL.md").read_text(encoding="utf-8").lower()
+        skill = (
+            (OWNER_SKILLS / "lore-enable-payments/SKILL.md")
+            .read_text(encoding="utf-8")
+            .lower()
+        )
         # The buyer key goes into `.buyer.env`, edited by the owner in their own
         # editor — never pasted into the conversation an agent later synthesizes.
         self.assertIn(".buyer.env", skill)
@@ -275,8 +295,10 @@ class SkillContractTest(unittest.TestCase):
                 self.assertIn(promise, skill)
 
     def test_the_payment_skill_can_start_from_no_wallet_at_all(self) -> None:
-        """"Walk them to a wallet" is not an instruction anyone can follow."""
-        skill = (OWNER_SKILLS / "lore-enable-payments/SKILL.md").read_text(encoding="utf-8")
+        """ "Walk them to a wallet" is not an instruction anyone can follow."""
+        skill = (OWNER_SKILLS / "lore-enable-payments/SKILL.md").read_text(
+            encoding="utf-8"
+        )
         lowered = skill.lower()
         # A concrete origin for each account the owner does not yet have.
         self.assertIn("coinbase.com/wallet", lowered)
@@ -287,7 +309,11 @@ class SkillContractTest(unittest.TestCase):
 
     def test_the_payment_skill_refuses_a_recovery_phrase(self) -> None:
         """The one secret worse than an API key to land in a transcript."""
-        skill = (OWNER_SKILLS / "lore-enable-payments/SKILL.md").read_text(encoding="utf-8").lower()
+        skill = (
+            (OWNER_SKILLS / "lore-enable-payments/SKILL.md")
+            .read_text(encoding="utf-8")
+            .lower()
+        )
         self.assertIn("recovery phrase", skill)
         # Every sentence mentioning it must either warn or refuse — none may invite it.
         mentions = [
@@ -295,7 +321,9 @@ class SkillContractTest(unittest.TestCase):
             for sentence in re.split(r"(?<=[.!?])\s+", skill)
             if "recovery phrase" in sentence
         ]
-        self.assertGreaterEqual(len(mentions), 2, "the phrase is mentioned but not guarded")
+        self.assertGreaterEqual(
+            len(mentions), 2, "the phrase is mentioned but not guarded"
+        )
         self.assertTrue(
             any("never" in sentence for sentence in mentions),
             "no sentence refuses to handle the recovery phrase",
@@ -303,7 +331,9 @@ class SkillContractTest(unittest.TestCase):
         # The failure mode is inviting the owner to hand it over. A refusal that
         # happens to contain "paste" ("never accept it if they paste it") is not that,
         # so negated sentences are exempt.
-        invitation = re.compile(r"\b(paste|share|send|enter|type|give)\b[^.\n]{0,60}(recovery|seed) phrase")
+        invitation = re.compile(
+            r"\b(paste|share|send|enter|type|give)\b[^.\n]{0,60}(recovery|seed) phrase"
+        )
         for sentence in mentions:
             if re.search(r"\b(never|not|don't|do not)\b", sentence):
                 continue
@@ -312,12 +342,22 @@ class SkillContractTest(unittest.TestCase):
 
     def test_the_payment_skill_keeps_free_a_first_class_outcome(self) -> None:
         """`useful before monetized` is a product principle, not a footnote."""
-        skill = (OWNER_SKILLS / "lore-enable-payments/SKILL.md").read_text(encoding="utf-8").lower()
+        skill = (
+            (OWNER_SKILLS / "lore-enable-payments/SKILL.md")
+            .read_text(encoding="utf-8")
+            .lower()
+        )
         self.assertIn("lore price 0", skill)
         self.assertIn("has not failed", skill)
 
-    def test_capture_skill_requires_private_approval_before_publish_handoff(self) -> None:
-        skill = (OWNER_SKILLS / "lore-capture/SKILL.md").read_text(encoding="utf-8").lower()
+    def test_capture_skill_requires_private_approval_before_publish_handoff(
+        self,
+    ) -> None:
+        skill = (
+            (OWNER_SKILLS / "lore-capture/SKILL.md")
+            .read_text(encoding="utf-8")
+            .lower()
+        )
         for boundary in (
             "save nothing until the owner clearly approves",
             "stores every entry as `private`",

@@ -7,15 +7,17 @@ import stat
 import subprocess
 import sys
 import tempfile
-import tomllib
 import unittest
 from contextlib import redirect_stdout
 from io import StringIO
 from pathlib import Path
 from unittest.mock import patch
 
+import tomllib
+
 from lore import automation, blueprint
 from lore import deploy as deploy_module
+from lore import store as store_module
 from lore.cli import (
     blueprint_apply,
     blueprint_show,
@@ -23,17 +25,24 @@ from lore.cli import (
     manual,
     parser,
     price,
-    publication_apply as cli_publication_apply,
-    publication_list as cli_publication_list,
-    publication_reapprove as cli_publication_reapprove,
-    publication_revoke as cli_publication_revoke,
     review,
     setup,
     status,
 )
+from lore.cli import (
+    publication_apply as cli_publication_apply,
+)
+from lore.cli import (
+    publication_list as cli_publication_list,
+)
+from lore.cli import (
+    publication_reapprove as cli_publication_reapprove,
+)
+from lore.cli import (
+    publication_revoke as cli_publication_revoke,
+)
 from lore.mcp import call_tool, dispatch, http
 from lore.sources import scan
-from lore import store as store_module
 from lore.store import (
     STATUSES,
     Memory,
@@ -82,13 +91,18 @@ class LoreTest(unittest.TestCase):
             self.assertEqual(found[0].title, "Testing preference")
             self.assertIs(found[0].status, Status.PRIVATE)
             store.set_status(found[0].id, "discarded")
-            self.assertIs(store.search("integration", status="discarded")[0].status, Status.DISCARDED)
+            self.assertIs(
+                store.search("integration", status="discarded")[0].status,
+                Status.DISCARDED,
+            )
 
         # Reviewing the discarded queue can bring a memory back to private.
         with patch("lore.cli.ask", return_value="k"), redirect_stdout(StringIO()):
             review("integration", "discarded", 0)
         with Store() as store:
-            self.assertIs(store.search("integration", status="private")[0].status, Status.PRIVATE)
+            self.assertIs(
+                store.search("integration", status="private")[0].status, Status.PRIVATE
+            )
 
     def test_legacy_database_is_normalized_on_open(self) -> None:
         # A database created before the retention-only model holds rows in
@@ -124,7 +138,14 @@ class LoreTest(unittest.TestCase):
                 """INSERT INTO memories(source,origin,source_path,source_key,
                    fingerprint,title,content,status,created_at,updated_at)
                    VALUES ('codex','native',?,?,?,?,?,?,'2026-07-01','2026-07-01')""",
-                (f"p{index}", f"k{index}", f"f{index}", f"Lesson {legacy}", "a lesson body", legacy),
+                (
+                    f"p{index}",
+                    f"k{index}",
+                    f"f{index}",
+                    f"Lesson {legacy}",
+                    "a lesson body",
+                    legacy,
+                ),
             )
         db.commit()
         db.close()
@@ -137,7 +158,9 @@ class LoreTest(unittest.TestCase):
             # crash this migration prevents. All four must validate.
             found = store.search("lesson")
             self.assertEqual(len(found), 4)
-            self.assertEqual({m.status for m in found}, {Status.PRIVATE, Status.DISCARDED})
+            self.assertEqual(
+                {m.status for m in found}, {Status.PRIVATE, Status.DISCARDED}
+            )
 
     def test_disclosure_is_not_a_memory_status(self) -> None:
         # `external` and `pending` are gone: retention is the only thing a status
@@ -161,11 +184,15 @@ class LoreTest(unittest.TestCase):
             scan(store, {"codex"})
             memory = store.search("First")[0]
             fresh = store.add_publication(
-                title="Project claim", content="a claim", topic="projects",
+                title="Project claim",
+                content="a claim",
+                topic="projects",
                 provenance=[memory.id],
             )
             unrelated = store.add_publication(
-                title="Other claim", content="another claim", topic="other",
+                title="Other claim",
+                content="another claim",
+                topic="other",
                 provenance=[unrelated_memory_id],
             )
 
@@ -184,7 +211,9 @@ class LoreTest(unittest.TestCase):
             self.assertIsNone(by_id[unrelated].source_changed_at)
 
             # Flagged is not revoked: the approved text stays externally readable.
-            self.assertIn(fresh, [p.id for p in store.list_publications(active_only=True)])
+            self.assertIn(
+                fresh, [p.id for p in store.list_publications(active_only=True)]
+            )
             store.clear_publication_flag(fresh)
             self.assertEqual(store.stale_publications(), [])
 
@@ -239,7 +268,9 @@ class LoreTest(unittest.TestCase):
         self.assertIn('model = "gpt-test"', definition)
         self.assertIn('execution_environment = "local"', definition)
         self.assertTrue(
-            tomllib.loads(definition)["prompt"].endswith(automation.build_prompt(profile))
+            tomllib.loads(definition)["prompt"].endswith(
+                automation.build_prompt(profile)
+            )
         )
 
         for path in (
@@ -247,9 +278,9 @@ class LoreTest(unittest.TestCase):
             automation.prompt_path(),
         ):
             self.assertEqual(stat.S_IMODE(path.stat().st_mode), 0o600)
-        claude_profile = automation.save_profile({
-            **profile, "executor": "claude", "model": "opus"
-        })
+        claude_profile = automation.save_profile(
+            {**profile, "executor": "claude", "model": "opus"}
+        )
         with (
             patch("lore.automation.remove_task") as remove,
             patch("lore.automation.install_task", return_value=Path("task")) as install,
@@ -292,10 +323,13 @@ class LoreTest(unittest.TestCase):
         self.assertEqual(task.environment, ())
 
     def test_save_profile_drops_checkpoint_only_fields(self) -> None:
-        automation.save_profile({
-            "role": "maintainer", "executor": "codex",
-            "phase1_done": True,
-        })
+        automation.save_profile(
+            {
+                "role": "maintainer",
+                "executor": "codex",
+                "phase1_done": True,
+            }
+        )
         saved = json.loads(automation.profile_path().read_text())
         self.assertEqual(saved["role"], "maintainer")
         self.assertEqual(saved["executor"], "codex")
@@ -331,11 +365,13 @@ class LoreTest(unittest.TestCase):
         self.assertIn("You never publish and never change disclosure", prompt)
         self.assertIn("Worth publishing", prompt)
         self.assertIn("What earns a place in memory", prompt)
-        for status in store_module.STATUSES:
-            if status == "discarded":
-                self.assertNotIn(f"--status {status}", prompt)
+        for memory_status in store_module.STATUSES:
+            if memory_status == "discarded":
+                self.assertNotIn(f"--status {memory_status}", prompt)
             else:
-                self.assertIn(f"search --status {status} --limit 0 --json", prompt)
+                self.assertIn(
+                    f"search --status {memory_status} --limit 0 --json", prompt
+                )
 
     def test_capture_apply_saves_private_memories_and_deduplicates(self) -> None:
         payload = [
@@ -380,7 +416,9 @@ class LoreTest(unittest.TestCase):
         self.assertEqual(saved[1]["id"], spoken[0].id)
         self.assertEqual(self._discover()["publication_count"], 0)
 
-    def test_correcting_a_locator_updates_the_memory_instead_of_duplicating_it(self) -> None:
+    def test_correcting_a_locator_updates_the_memory_instead_of_duplicating_it(
+        self,
+    ) -> None:
         # The skill's correction loop re-applies the same approved text with a
         # fixed source_path; that must be an update to one row, not a sibling.
         entry = {
@@ -391,7 +429,10 @@ class LoreTest(unittest.TestCase):
 
         def apply(payload):
             output = StringIO()
-            with patch("sys.stdin", StringIO(json.dumps(payload))), redirect_stdout(output):
+            with (
+                patch("sys.stdin", StringIO(json.dumps(payload))),
+                redirect_stdout(output),
+            ):
                 self.assertEqual(capture_apply("-"), 0)
             return json.loads(output.getvalue())[0]
 
@@ -408,12 +449,23 @@ class LoreTest(unittest.TestCase):
         self.assertEqual(len(memories), 1)
         self.assertEqual(memories[0].source_path, "field-notes.pdf#page=8")
 
-    def test_memory_card_shows_a_file_locator_but_not_the_session_sentinel(self) -> None:
+    def test_memory_card_shows_a_file_locator_but_not_the_session_sentinel(
+        self,
+    ) -> None:
         base = dict(
-            id=1, source="capture", origin="attended", title="t", content="c",
-            project="", status="private", updated_at="now",
+            id=1,
+            source="capture",
+            origin="attended",
+            title="t",
+            content="c",
+            project="",
+            status="private",
+            updated_at="now",
         )
-        for source_path, visible in (("field-notes.pdf#page=8", True), ("agent-session", False)):
+        for source_path, visible in (
+            ("field-notes.pdf#page=8", True),
+            ("agent-session", False),
+        ):
             output = StringIO()
             with redirect_stdout(output):
                 memory_card(Memory(source_path=source_path, **base))
@@ -423,7 +475,10 @@ class LoreTest(unittest.TestCase):
         cases = [
             ([], "at least 1 item"),
             ([{"title": "", "content": "x"}], "at least 1 character"),
-            ([{"title": "x", "content": "y", "source_path": ""}], "at least 1 character"),
+            (
+                [{"title": "x", "content": "y", "source_path": ""}],
+                "at least 1 character",
+            ),
             (
                 [
                     {"title": "valid", "content": "must not be partially saved"},
@@ -437,7 +492,10 @@ class LoreTest(unittest.TestCase):
             ),
         ]
         for payload, message in cases:
-            with self.subTest(message=message), self.assertRaisesRegex(ValueError, message):
+            with (
+                self.subTest(message=message),
+                self.assertRaisesRegex(ValueError, message),
+            ):
                 with patch("sys.stdin", StringIO(json.dumps(payload))):
                     capture_apply("-")
         with Store() as store:
@@ -463,7 +521,9 @@ class LoreTest(unittest.TestCase):
             config.read_text().replace("REPLACE_WITH_YOUR_D1_ID", "d1-id-owner-pasted")
         )
         deploy_module.materialize(0.42)
-        self.assertEqual((target / ".buyer.env").read_text(), "BUYER_TEST_PRIVATE_KEY=untouched")
+        self.assertEqual(
+            (target / ".buyer.env").read_text(), "BUYER_TEST_PRIVATE_KEY=untouched"
+        )
         self.assertIn('"database_id": "d1-id-owner-pasted"', config.read_text())
         self.assertNotIn("REPLACE_WITH_YOUR_D1_ID", config.read_text())
         self.assertIn(
@@ -477,7 +537,9 @@ class LoreTest(unittest.TestCase):
         def fake_run(args, **kwargs):
             stdout = ""
             if args[0].endswith("wrangler") and args[1] == "deploy":
-                stdout = "Deployed lore-x402-canary\n  https://lore.example.workers.dev\n"
+                stdout = (
+                    "Deployed lore-x402-canary\n  https://lore.example.workers.dev\n"
+                )
             if args[0].endswith("wrangler") and args[1:3] == ("d1", "create"):
                 stdout = '"database_id": "11111111-2222-3333-4444-555555555555"\n'
             return subprocess.CompletedProcess(args, 0, stdout=stdout, stderr="")
@@ -512,7 +574,8 @@ class LoreTest(unittest.TestCase):
         # The first push creates the publications table before the smoke check.
         push.assert_called_once()
         self.assertIn(
-            ("npm", "run", "smoke", "--", "https://lore.example.workers.dev/mcp"), commands
+            ("npm", "run", "smoke", "--", "https://lore.example.workers.dev/mcp"),
+            commands,
         )
         with Store() as store:
             self.assertEqual(
@@ -527,7 +590,9 @@ class LoreTest(unittest.TestCase):
 
         def fake_run(args, **kwargs):
             if args[1:] == ("secret", "put", "LORE_WALLET"):
-                return subprocess.CompletedProcess(args, 1, stdout="", stderr="vault down")
+                return subprocess.CompletedProcess(
+                    args, 1, stdout="", stderr="vault down"
+                )
             stdout = ""
             if args[1:] == ("deploy",):
                 stdout = "https://lore.example.workers.dev\n"
@@ -582,12 +647,20 @@ class LoreTest(unittest.TestCase):
         def fake_run(args, **kwargs):
             if args[1:] == ("d1", "create", "lore-publications"):
                 return subprocess.CompletedProcess(
-                    args, 1, stdout="", stderr="a database with that name already exists"
+                    args,
+                    1,
+                    stdout="",
+                    stderr="a database with that name already exists",
                 )
             stdout = ""
             if args[1:] == ("d1", "list", "--json"):
                 stdout = json.dumps(
-                    [{"uuid": "22222222-3333-4444-5555-666666666666", "name": "lore-publications"}]
+                    [
+                        {
+                            "uuid": "22222222-3333-4444-5555-666666666666",
+                            "name": "lore-publications",
+                        }
+                    ]
                 )
             if args[1:] == ("deploy",):
                 stdout = "https://lore.example.workers.dev\n"
@@ -637,7 +710,9 @@ class LoreTest(unittest.TestCase):
                 ):
                     deploy_module.deploy("0x" + "1" * 40)
 
-    def test_price_change_warns_that_the_deployed_node_still_charges_the_old_price(self) -> None:
+    def test_price_change_warns_that_the_deployed_node_still_charges_the_old_price(
+        self,
+    ) -> None:
         with Store() as store:
             store.set_setting("node_url", "https://lore.example.workers.dev/mcp")
         output = StringIO()
@@ -667,9 +742,7 @@ class LoreTest(unittest.TestCase):
             self.assertIs(store.search("private context")[0].status, Status.PRIVATE)
             memory = store.search("private context")[0]
             store.set_status(memory.id, "discarded")
-        topic.write_text(
-            "# Agent systems\n\nA durable lesson changed after rejection."
-        )
+        topic.write_text("# Agent systems\n\nA durable lesson changed after rejection.")
         with Store() as store:
             scan(store, {"automation"})
             self.assertIs(store.search("after rejection")[0].status, Status.DISCARDED)
@@ -703,9 +776,15 @@ class LoreTest(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "limit"):
                 store.search("anything", limit=-1)
         memory = Memory(
-            id=1, source="test", origin="native", title="Bad\x1b[2J",
-            content="Body\x07 text", project="", status="private",
-            source_path="", updated_at="now",
+            id=1,
+            source="test",
+            origin="native",
+            title="Bad\x1b[2J",
+            content="Body\x07 text",
+            project="",
+            status="private",
+            source_path="",
+            updated_at="now",
         )
         output = StringIO()
         with redirect_stdout(output):
@@ -797,8 +876,10 @@ class LoreTest(unittest.TestCase):
                 provenance=[memory_id],
             )
             store.add_publication(
-                title="Unadvertised claim", content="secret-ish detail",
-                topic="course design", provenance=[memory_id],
+                title="Unadvertised claim",
+                content="secret-ish detail",
+                topic="course design",
+                provenance=[memory_id],
             )
             manifest = store.manifest()
             advertised_public = next(
@@ -830,22 +911,33 @@ class LoreTest(unittest.TestCase):
         memory_id = self._seed_memory("Stable evidence", "private")
         with Store() as store:
             store.add_publication(
-                title="Stable claim", content="the paid content", topic="stability",
-                teaser="What stayed true across changes", provenance=[memory_id],
+                title="Stable claim",
+                content="the paid content",
+                topic="stability",
+                teaser="What stayed true across changes",
+                provenance=[memory_id],
             )
             before = json.dumps(store.manifest(), sort_keys=True)
 
             # Add a private row.
             store.put(
-                source="test", origin="native", source_path="new.md",
-                source_key="new.md", fingerprint="v1",
-                title="Newly private", content="never disclosed",
+                source="test",
+                origin="native",
+                source_path="new.md",
+                source_key="new.md",
+                fingerprint="v1",
+                title="Newly private",
+                content="never disclosed",
             )
             # Edit one (changed fingerprint re-puts and flags publications).
             store.put(
-                source="test", origin="native", source_path="new.md",
-                source_key="new.md", fingerprint="v2",
-                title="Newly private", content="edited, still never disclosed",
+                source="test",
+                origin="native",
+                source_path="new.md",
+                source_key="new.md",
+                fingerprint="v2",
+                title="Newly private",
+                content="edited, still never disclosed",
             )
             # Discard one.
             store.set_status(memory_id, "discarded")
@@ -856,30 +948,37 @@ class LoreTest(unittest.TestCase):
     def _drafted_candidates(self) -> str:
         with Store() as store:
             store.put(
-                source="test", origin="native", source_path="demo.md",
-                source_key="demo.md", fingerprint="pub-flow",
+                source="test",
+                origin="native",
+                source_path="demo.md",
+                source_key="demo.md",
+                fingerprint="pub-flow",
                 title="Demo evidence",
                 content="Live demos: 7/10 trials versus 0/12 for cold decks.",
             )
             memory_id = store.search("Demo evidence")[0].id
         path = Path(os.environ["LORE_HOME"]) / "publish-candidates.json"
-        path.write_text(json.dumps([
-            {
-                "title": "Live demos beat cold decks",
-                "teaser": "What outperformed cold decks in one launch, with counts",
-                "content": "3 live demos produced 7/10 follow-ups; cold decks 0/12.",
-                "kind": "claim",
-                "topic": "go-to-market lessons",
-                "provenance": [memory_id],
-            },
-            {
-                "title": "Second claim",
-                "teaser": "A second lesson from the same launch",
-                "content": "Another bounded claim.",
-                "topic": "go-to-market lessons",
-                "provenance": [memory_id],
-            },
-        ]))
+        path.write_text(
+            json.dumps(
+                [
+                    {
+                        "title": "Live demos beat cold decks",
+                        "teaser": "What outperformed cold decks in one launch, with counts",
+                        "content": "3 live demos produced 7/10 follow-ups; cold decks 0/12.",
+                        "kind": "claim",
+                        "topic": "go-to-market lessons",
+                        "provenance": [memory_id],
+                    },
+                    {
+                        "title": "Second claim",
+                        "teaser": "A second lesson from the same launch",
+                        "content": "Another bounded claim.",
+                        "topic": "go-to-market lessons",
+                        "provenance": [memory_id],
+                    },
+                ]
+            )
+        )
         return str(path)
 
     def test_publication_apply_requires_an_owner_at_a_terminal(self) -> None:
@@ -917,10 +1016,17 @@ class LoreTest(unittest.TestCase):
         from lore.store import Publication, PublicationKind
 
         publication = Publication(
-            id=7, public_id="ab12cd34ef56ab78", title="It's a title",
-            content="O'Brien said so", kind=PublicationKind.CLAIM,
-            topic="war stories", teaser="What O'Brien learned", provenance=[],
-            active=1, created_at="", updated_at="2026-08-02T00:00:00+00:00",
+            id=7,
+            public_id="ab12cd34ef56ab78",
+            title="It's a title",
+            content="O'Brien said so",
+            kind=PublicationKind.CLAIM,
+            topic="war stories",
+            teaser="What O'Brien learned",
+            provenance=[],
+            active=1,
+            created_at="",
+            updated_at="2026-08-02T00:00:00+00:00",
         )
         script = _push_sql([publication])
         # Full replace including schema: a revoked publication is gone because
@@ -946,10 +1052,17 @@ class LoreTest(unittest.TestCase):
                 db.execute(
                     "SELECT public_id, title, topic, teaser FROM publications"
                 ).fetchone(),
-                ("ab12cd34ef56ab78", "It's a title", "war stories", "What O'Brien learned"),
+                (
+                    "ab12cd34ef56ab78",
+                    "It's a title",
+                    "war stories",
+                    "What O'Brien learned",
+                ),
             )
 
-    def test_topic_and_teaser_columns_added_to_databases_created_before_them(self) -> None:
+    def test_topic_and_teaser_columns_added_to_databases_created_before_them(
+        self,
+    ) -> None:
         db_path = Path(os.environ["LORE_HOME"]) / "lore.db"
         db_path.parent.mkdir(parents=True, exist_ok=True)
         with sqlite3.connect(db_path) as db:
@@ -967,13 +1080,20 @@ class LoreTest(unittest.TestCase):
             )
         with Store() as store:
             store.put(
-                source="test", origin="native", source_path="migration.md",
-                source_key="migration.md", fingerprint="migration",
-                title="Migration evidence", content="Evidence for the publication.",
+                source="test",
+                origin="native",
+                source_path="migration.md",
+                source_key="migration.md",
+                fingerprint="migration",
+                title="Migration evidence",
+                content="Evidence for the publication.",
             )
             memory_id = store.search("Migration evidence")[0].id
             store.add_publication(
-                title="t", content="c", topic="migrated", teaser="an advertisement",
+                title="t",
+                content="c",
+                topic="migrated",
+                teaser="an advertisement",
                 provenance=[memory_id],
             )
             by_title = {p.title: p for p in store.list_publications()}
@@ -990,7 +1110,10 @@ class LoreTest(unittest.TestCase):
         base.mkdir(parents=True, exist_ok=True)
         memory_id = self._seed_memory("Candidate evidence", "private")
         valid = {
-            "title": "x", "content": "y", "topic": "topic", "teaser": "an ad",
+            "title": "x",
+            "content": "y",
+            "topic": "topic",
+            "teaser": "an ad",
             "provenance": [memory_id],
         }
         cases = [
@@ -1008,8 +1131,10 @@ class LoreTest(unittest.TestCase):
         for payload, message in cases:
             candidates = base / "bad.json"
             candidates.write_text(json.dumps(payload))
-            with patch("lore.cli._interactive", return_value=True), \
-                    redirect_stdout(StringIO()):
+            with (
+                patch("lore.cli._interactive", return_value=True),
+                redirect_stdout(StringIO()),
+            ):
                 with self.assertRaisesRegex(ValueError, message):
                     cli_publication_apply(str(candidates))
 
@@ -1017,7 +1142,10 @@ class LoreTest(unittest.TestCase):
         memory_id = self._seed_memory("Command evidence", "private")
         with Store() as store:
             pid = store.add_publication(
-                title="Claim", content="bounded", topic="commands", provenance=[memory_id]
+                title="Claim",
+                content="bounded",
+                topic="commands",
+                provenance=[memory_id],
             )
         output = StringIO()
         with redirect_stdout(output):
@@ -1027,7 +1155,8 @@ class LoreTest(unittest.TestCase):
         with Store() as store:
             self.assertEqual(store.list_publications(active_only=True), [])
             store.db.execute(
-                "UPDATE publications SET active=1, source_changed_at='now' WHERE id=?", (pid,)
+                "UPDATE publications SET active=1, source_changed_at='now' WHERE id=?",
+                (pid,),
             )
             store.db.commit()
         with redirect_stdout(StringIO()):
@@ -1050,8 +1179,11 @@ class LoreTest(unittest.TestCase):
             self.assertIs(active[0].kind, PublicationKind.CLAIM)
             self.assertEqual(active[0].provenance, [first, second])
             doc_id = store.add_publication(
-                title="Doc", content="verbatim", kind=PublicationKind.CONTENT,
-                topic="documents", provenance=[second],
+                title="Doc",
+                content="verbatim",
+                kind=PublicationKind.CONTENT,
+                topic="documents",
+                provenance=[second],
             )
             self.assertGreater(doc_id, 0)
             with self.assertRaisesRegex(ValueError, "claim.*content"):
@@ -1060,7 +1192,9 @@ class LoreTest(unittest.TestCase):
                 p.public_id for p in store.list_publications() if p.id == pid
             )
             store.revoke_publication(pid)
-            self.assertEqual([p.id for p in store.list_publications(active_only=True)], [doc_id])
+            self.assertEqual(
+                [p.id for p in store.list_publications(active_only=True)], [doc_id]
+            )
             self.assertEqual(len(store.list_publications()), 2)  # revoked still listed
             with self.assertRaisesRegex(ValueError, "not found"):
                 store.get_publication(revoked_public_id)  # revoked is not fetchable
@@ -1073,10 +1207,15 @@ class LoreTest(unittest.TestCase):
                 ("boundary", [], "at least 1 item"),
                 ("boundary", [memory_id + 999], "unknown memories"),
             ):
-                with self.subTest(message=message), self.assertRaisesRegex(ValueError, message):
+                with (
+                    self.subTest(message=message),
+                    self.assertRaisesRegex(ValueError, message),
+                ):
                     store.add_publication(
-                        title="Bounded claim", content="Supported content",
-                        topic=topic, provenance=provenance,
+                        title="Bounded claim",
+                        content="Supported content",
+                        topic=topic,
+                        provenance=provenance,
                     )
 
     def test_publication_kind_accepts_a_plain_string(self) -> None:
@@ -1085,12 +1224,13 @@ class LoreTest(unittest.TestCase):
         memory_id = self._seed_memory("String kind evidence", "private")
         with Store() as store:
             store.add_publication(
-                title="Str", content="x", kind="content", topic="strings",
+                title="Str",
+                content="x",
+                kind="content",
+                topic="strings",
                 provenance=[memory_id],
             )
-            self.assertIs(
-                store.list_publications()[0].kind, PublicationKind.CONTENT
-            )
+            self.assertIs(store.list_publications()[0].kind, PublicationKind.CONTENT)
 
     def test_review_defaults_to_the_private_library(self) -> None:
         # Nothing is ever 'pending' now, so review's default queue must be the
@@ -1120,7 +1260,8 @@ class LoreTest(unittest.TestCase):
         # Provenance is owner-visible; buyers must not learn the ids or the
         # number of private rows behind a publication — from either tool.
         memory_ids = [
-            self._seed_memory(f"Private source {index}", "private") for index in range(3)
+            self._seed_memory(f"Private source {index}", "private")
+            for index in range(3)
         ]
         with Store() as store:
             store.add_publication(
@@ -1147,13 +1288,17 @@ class LoreTest(unittest.TestCase):
         private_id = self._seed_memory("Private memory", "private")
         with Store() as store:
             active_id = store.add_publication(
-                title="Deployment guide", content="deployment guidance",
-                topic="deployment", teaser="How this node deploys",
+                title="Deployment guide",
+                content="deployment guidance",
+                topic="deployment",
+                teaser="How this node deploys",
                 provenance=[private_id],
             )
             revoked_id = store.add_publication(
-                title="Old deployment note", content="stale deployment text",
-                topic="deployment", teaser="An older deployment lesson",
+                title="Old deployment note",
+                content="stale deployment text",
+                topic="deployment",
+                teaser="An older deployment lesson",
                 provenance=[discarded_id],
             )
             store.revoke_publication(revoked_id)
@@ -1162,7 +1307,9 @@ class LoreTest(unittest.TestCase):
         self.assertIn("How this node deploys", manifest_text)
         self.assertNotIn("Discarded memory", manifest_text)  # no memory is reachable
         self.assertNotIn("Private memory", manifest_text)  # private memory unreachable
-        self.assertNotIn("An older deployment lesson", manifest_text)  # revoked excluded
+        self.assertNotIn(
+            "An older deployment lesson", manifest_text
+        )  # revoked excluded
         content_text = self._call("get", {"id": by_id[active_id]})
         self.assertIn("Deployment guide", content_text)
         self.assertNotIn("Private memory", content_text)
@@ -1184,7 +1331,11 @@ class LoreTest(unittest.TestCase):
 
     def test_blueprint_apply_happy_path(self) -> None:
         data = _blueprint_input()
-        data["topic_outline"] = ["distributed systems", "consensus", "distributed systems"]
+        data["topic_outline"] = [
+            "distributed systems",
+            "consensus",
+            "distributed systems",
+        ]
         path = self._write_blueprint_input(data)
         result = blueprint.apply(path)
         self.assertEqual(result["version"], 1)
@@ -1233,7 +1384,9 @@ class LoreTest(unittest.TestCase):
         blueprint.apply(self._write_blueprint_input(_blueprint_input()))
         self.assertEqual(stat.S_IMODE(blueprint.blueprint_path().stat().st_mode), 0o600)
         self.assertEqual(stat.S_IMODE(blueprint.lore_map_path().stat().st_mode), 0o600)
-        self.assertEqual(stat.S_IMODE(blueprint.blueprint_path().parent.stat().st_mode), 0o700)
+        self.assertEqual(
+            stat.S_IMODE(blueprint.blueprint_path().parent.stat().st_mode), 0o700
+        )
 
     def test_blueprint_rejects_unknown_persona(self) -> None:
         data = _blueprint_input()
@@ -1272,7 +1425,9 @@ class LoreTest(unittest.TestCase):
 
     def test_blueprint_overwrite_is_idempotent(self) -> None:
         blueprint.apply(self._write_blueprint_input(_blueprint_input(name="Ada")))
-        result = blueprint.apply(self._write_blueprint_input(_blueprint_input(name="Grace")))
+        result = blueprint.apply(
+            self._write_blueprint_input(_blueprint_input(name="Grace"))
+        )
         self.assertEqual(result["name"], "Grace")
         self.assertEqual(blueprint.load_blueprint()["name"], "Grace")
         self.assertEqual(stat.S_IMODE(blueprint.blueprint_path().stat().st_mode), 0o600)

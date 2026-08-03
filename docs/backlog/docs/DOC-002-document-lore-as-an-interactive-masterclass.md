@@ -4,13 +4,13 @@ title: Document Lore as an interactive masterclass and coaching surface
 priority: P2
 effort: XS
 component: docs
-status: in-review
+status: ready
 related: [XC-002, MCP-001]
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-08-01
-updated: 2026-08-01
+updated: 2026-08-03
 ---
 
 ## Problem
@@ -54,3 +54,7 @@ Captured from the idea: "Masterclass in Lore — coaching, so many different use
 cases." Start with positioning and use-case validation; do not build a separate
 coaching subsystem until one interaction pattern proves it needs more than the
 existing answer loop.
+
+**Prioritization pass 2026-08-03:** promoted `in-review` → `ready` at `P2`.
+Unblocked, `XS` effort, and the criteria describe a self-contained writing task
+with no open design questions.

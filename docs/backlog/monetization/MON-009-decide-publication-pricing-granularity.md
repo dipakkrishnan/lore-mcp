@@ -1,7 +1,7 @@
 ---
 id: MON-009
 title: Decide pricing granularity beyond one global publication price
-priority: P2
+priority: P3
 effort: M
 component: monetization
 status: in-review
@@ -10,7 +10,7 @@ blockers: []
 dependencies: []
 github_issue: null
 created: 2026-08-02
-updated: 2026-08-02
+updated: 2026-08-03
 ---
 
 ## Problem
@@ -54,3 +54,10 @@ Current recommendation: global default, then optional per-publication overrides.
 Keep topics non-commercial; add explicit bundles only after real multi-buy demand.
 This avoids speculative checkout machinery while leaving a clean path to buying
 all of an owner's publications.
+
+**Prioritization pass 2026-08-03:** demoted `P2` → `P3`. Acceptance criterion 5
+requires the decision to be "informed by initial POC evidence: buyer selection
+counts, multi-id demand, and seller pricing effort" — evidence that doesn't
+exist yet with no live buyers against a standing deployment. Left `in-review`
+rather than promoted; revisit once `MON-008`/`XC-008` are producing real usage
+data.

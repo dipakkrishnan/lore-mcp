@@ -65,9 +65,7 @@ def materialize(price_usd: float) -> Path:
         source.replace(PRICE_DECLARATION, f"export const PRICE_USD = {price};")
     )
     if existing_id:
-        config.write_text(
-            config.read_text().replace(D1_PLACEHOLDER, existing_id)
-        )
+        config.write_text(config.read_text().replace(D1_PLACEHOLDER, existing_id))
     # Owner-only, like the rest of ~/.lore — after copytree, which copystats
     # the package directory's world-readable mode onto the target.
     target.chmod(0o700)
@@ -132,7 +130,9 @@ def deploy(wallet: str | None) -> int:
     """Materialize, authenticate, ensure D1, deploy, set the payout secret,
     push the active publications, smoke-check."""
     if wallet and not WALLET.fullmatch(wallet):
-        raise ValueError("wallet must be a public EVM address: 0x plus 40 hex characters")
+        raise ValueError(
+            "wallet must be a public EVM address: 0x plus 40 hex characters"
+        )
     if not shutil.which("npm"):
         raise OSError("deploying needs Node.js; install it from nodejs.org and rerun")
 
@@ -163,7 +163,9 @@ def deploy(wallet: str | None) -> int:
     target = materialize(float(configured_price))
     muted(f"Node source staged at {target}")
     muted("Installing dependencies (the first run can take a minute)...")
-    _run(("npm", "install", "--no-fund", "--no-audit"), target, fail="npm install failed")
+    _run(
+        ("npm", "install", "--no-fund", "--no-audit"), target, fail="npm install failed"
+    )
     wrangler = str(target / "node_modules/.bin/wrangler")
 
     # Some wrangler versions exit 0 while logged out and only say so in text.
@@ -171,7 +173,9 @@ def deploy(wallet: str | None) -> int:
     if who.returncode or "not authenticated" in f"{who.stdout}{who.stderr}".lower():
         muted("Opening Cloudflare login in your browser (free tier is enough)...")
         if _run((wrangler, "login"), target, interactive=True).returncode:
-            raise OSError(f"Cloudflare login failed; run `npx wrangler login` in {target}")
+            raise OSError(
+                f"Cloudflare login failed; run `npx wrangler login` in {target}"
+            )
 
     if not wallet:
         # The Worker fails closed without LORE_WALLET regardless; this check
