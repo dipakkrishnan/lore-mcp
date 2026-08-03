@@ -340,8 +340,8 @@ class LoreTest(unittest.TestCase):
     def test_capture_apply_saves_private_memories_and_deduplicates(self) -> None:
         payload = [
             {
-                "title": "Hire management before rapid growth",
-                "content": "Add the management layer before hiring the next ten engineers.",
+                "title": "Hire management\nbefore rapid growth",
+                "content": "Add the management layer.\r\nBefore hiring\tthe next ten engineers.",
                 "project": "team scaling",
             }
         ]
@@ -362,23 +362,28 @@ class LoreTest(unittest.TestCase):
         self.assertIs(memories[0].status, Status.PRIVATE)
         self.assertEqual(memories[0].source, "capture")
         self.assertEqual(memories[0].origin, "attended")
+        self.assertEqual(memories[0].title, "Hire management before rapid growth")
+        self.assertEqual(
+            memories[0].content,
+            "Add the management layer.\nBefore hiring the next ten engineers.",
+        )
         self.assertEqual(saved[0]["id"], memories[0].id)
         self.assertEqual(self._discover()["publication_count"], 0)
 
     def test_capture_apply_rejects_bad_entries_before_writing(self) -> None:
         cases = [
-            ([], "non-empty JSON array"),
-            ([{"title": "", "content": "x"}], "title cannot be empty"),
+            ([], "at least 1 item"),
+            ([{"title": "", "content": "x"}], "at least 1 character"),
             (
                 [
                     {"title": "valid", "content": "must not be partially saved"},
                     {"title": "", "content": "invalid second entry"},
                 ],
-                "title cannot be empty",
+                "at least 1 character",
             ),
             (
                 [{"title": "x", "content": "y", "status": "published"}],
-                "unexpected",
+                "Extra inputs are not permitted",
             ),
         ]
         for payload, message in cases:
