@@ -1,5 +1,5 @@
 ---
-id: MON-007
+id: MON-009
 title: Decide pricing granularity beyond one global publication price
 priority: P2
 effort: M

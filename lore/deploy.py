@@ -29,6 +29,9 @@ WALLET = re.compile(r"0x[0-9a-fA-F]{40}")
 D1_NAME = "lore-publications"
 D1_PLACEHOLDER = "REPLACE_WITH_YOUR_D1_ID"
 PRICE_DECLARATION = "export const PRICE_USD = 0.01;"
+# The smallest price the six-decimal formatter can render without collapsing
+# to zero; `lore price` rounds to six decimals, so this matches its floor.
+MINIMUM_PRICE = 1e-6
 
 
 def materialize(price_usd: float) -> Path:
@@ -135,14 +138,26 @@ def deploy(wallet: str | None) -> int:
 
     with Store() as store:
         configured_price = store.setting("price_usd", None)
-    if (
-        isinstance(configured_price, bool)
-        or not isinstance(configured_price, (int, float))
-        or not math.isfinite(configured_price)
-        or configured_price <= 0
-    ):
+    if configured_price is None:
         raise ValueError(
-            "set a positive publication price with `lore price <USD>` before deploying"
+            "no publication price is set; set one with `lore price <USD>` before deploying"
+        )
+    numeric = (
+        not isinstance(configured_price, bool)
+        and isinstance(configured_price, (int, float))
+        and math.isfinite(configured_price)
+    )
+    if numeric and configured_price == 0:
+        raise ValueError(
+            "publications are free (`lore price 0`), which needs no deployed node; "
+            "set a positive price with `lore price <USD>` to deploy, or stop here"
+        )
+    # The floor keeps the guard and the price formatter in agreement: anything
+    # below 1e-6 renders as `PRICE_USD = 0`, a paid node that charges nothing.
+    if not numeric or configured_price < MINIMUM_PRICE:
+        raise ValueError(
+            f"the publication price must be a number of at least ${MINIMUM_PRICE:.6f}; "
+            "set it with `lore price <USD>` and rerun"
         )
 
     target = materialize(float(configured_price))

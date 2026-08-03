@@ -508,9 +508,35 @@ class LoreTest(unittest.TestCase):
             deploy_module.deploy("0x" + "1" * 40)
         with (
             patch("lore.deploy.shutil.which", return_value="/usr/bin/npm"),
-            self.assertRaisesRegex(ValueError, "lore price"),
+            self.assertRaisesRegex(ValueError, "no publication price is set"),
         ):
             deploy_module.deploy("0x" + "1" * 40)
+
+    def test_node_deploy_tells_a_free_node_apart_from_an_unpriced_one(self) -> None:
+        # `lore price 0` is a supported final state; the refusal must not tell
+        # the owner to set a price they already deliberately set.
+        cases = (
+            (0, "stop here"),
+            (5e-7, "at least"),  # positive but renders as PRICE_USD = 0
+            ("bogus", "at least"),  # hand-edited settings, not reachable via CLI
+        )
+        for stored, message in cases:
+            with self.subTest(stored=stored):
+                with Store() as store:
+                    store.set_setting("price_usd", stored)
+                with (
+                    patch("lore.deploy.shutil.which", return_value="/usr/bin/npm"),
+                    self.assertRaisesRegex(ValueError, message),
+                ):
+                    deploy_module.deploy("0x" + "1" * 40)
+
+    def test_price_change_warns_that_the_deployed_node_still_charges_the_old_price(self) -> None:
+        with Store() as store:
+            store.set_setting("node_url", "https://lore.example.workers.dev/mcp")
+        output = StringIO()
+        with redirect_stdout(output):
+            price(0.50)
+        self.assertIn("still charges its old price", output.getvalue())
 
     def test_synthesis_index_is_not_imported_as_memory(self) -> None:
         root = Path(os.environ["LORE_HOME"]) / "memories"
