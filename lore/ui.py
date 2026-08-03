@@ -46,7 +46,9 @@ def confirm(prompt: str, default: bool = True) -> bool:
     return default
 
 
-def memory_card(memory: Memory, current: int | None = None, total: int | None = None) -> None:
+def memory_card(
+    memory: Memory, current: int | None = None, total: int | None = None
+) -> None:
     label = f"Memory {current} of {total}" if current and total else memory.status
     print(f"\n{paint('2', '─' * 72)}")
     print(paint("1", memory.title.translate(CONTROL_CHARACTERS)))
@@ -77,7 +79,9 @@ def publication_card(
         label += " · source changed"
     print(f"\n{paint('2', '─' * 72)}")
     print(paint("1", publication.title.translate(CONTROL_CHARACTERS)))
-    metadata = f"{label} · {publication.kind} · {len(publication.provenance)} source memories"
+    metadata = (
+        f"{label} · {publication.kind} · {len(publication.provenance)} source memories"
+    )
     if publication.topic:
         # The topic is externally visible wherever discovery groups by it, so it is
         # shown on the approval card: approving the publication approves the label.

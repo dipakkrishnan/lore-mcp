@@ -4,7 +4,7 @@ title: Gate pull requests on a lint and format check
 priority: P1
 effort: S
 component: cross-cutting
-status: ready
+status: in-progress
 related: [XC-003, XC-004]
 blockers: []
 dependencies: []

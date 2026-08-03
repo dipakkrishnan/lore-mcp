@@ -10,7 +10,9 @@ from pathlib import Path
 from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
-from windup import Task, install as install_task, remove as remove_task
+from windup import Task
+from windup import install as install_task
+from windup import remove as remove_task
 
 from .paths import claude_home, codex_home, home
 from .store import STATUSES
@@ -50,7 +52,12 @@ class AutomationProfile(BaseModel):
     hour: Annotated[int, Field(strict=True, ge=0, le=23)] | None = None
 
     @field_validator(
-        "role", "domains", "valuable_context", "preferences", "boundaries", "model",
+        "role",
+        "domains",
+        "valuable_context",
+        "preferences",
+        "boundaries",
+        "model",
         mode="before",
     )
     @classmethod
@@ -67,7 +74,9 @@ class AutomationProfile(BaseModel):
         try:
             return Agent(value)
         except (TypeError, ValueError) as error:
-            raise ValueError("automation profile contains an unknown executor") from error
+            raise ValueError(
+                "automation profile contains an unknown executor"
+            ) from error
 
 
 def profile_path() -> Path:
@@ -107,9 +116,7 @@ def build_prompt(profile: dict[str, object]) -> str:
     """Build the prompt a native scheduled task runs to synthesize memories."""
     destination = home() / "memories"
     source = "automation"
-    command = shlex.join(
-        ("env", f"LORE_HOME={home()}", sys.executable, "-m", "lore")
-    )
+    command = shlex.join(("env", f"LORE_HOME={home()}", sys.executable, "-m", "lore"))
     # Derive the readable statuses from the store so the prompt tracks schema
     # changes instead of hardcoding a status model that can go stale.
     searches = "\n".join(
@@ -163,11 +170,11 @@ owner next month. That means:
   generic facts any model already knows, and temporary task state.
 
 ## About me
-- Role and work: {profile.get('role', '')}
-- Current domains and projects: {profile.get('domains', '')}
-- Experience that may be unusually valuable: {profile.get('valuable_context', '')}
-- Preferences worth carrying between agents: {profile.get('preferences', '')}
-- Never retain: {profile.get('boundaries', '')}
+- Role and work: {profile.get("role", "")}
+- Current domains and projects: {profile.get("domains", "")}
+- Experience that may be unusually valuable: {profile.get("valuable_context", "")}
+- Preferences worth carrying between agents: {profile.get("preferences", "")}
+- Never retain: {profile.get("boundaries", "")}
 
 ## First run
 
@@ -203,13 +210,17 @@ def install(profile: dict[str, object]) -> Path:
     """Install the selected executor's recurring synthesis task."""
     name = str(profile.get("executor", "") or "")
     if not name:
-        raise ValueError(
-            "profile has no executor; set one, or save with --no-schedule"
-        )
+        raise ValueError("profile has no executor; set one, or save with --no-schedule")
     executor = Agent(name)
     lore = (sys.executable, "-m", "lore")
     search_path = os.pathsep.join(
-        (str(Path(sys.executable).parent), "/usr/local/bin", "/opt/homebrew/bin", "/usr/bin", "/bin")
+        (
+            str(Path(sys.executable).parent),
+            "/usr/local/bin",
+            "/opt/homebrew/bin",
+            "/usr/bin",
+            "/bin",
+        )
     )
     allowed_tools = (
         ("Read", "Glob", "Grep", "Write", "Bash", "Agent")

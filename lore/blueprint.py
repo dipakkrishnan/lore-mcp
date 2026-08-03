@@ -161,7 +161,10 @@ def normalize(raw: object) -> dict:
     axis = data.organizing_axis or profile["axis"]
 
     captured_at = (
-        datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+        datetime.now(timezone.utc)
+        .replace(microsecond=0)
+        .isoformat()
+        .replace("+00:00", "Z")
     )
     return {
         "version": 1,
@@ -188,7 +191,9 @@ def save_blueprint(blueprint: dict) -> None:
     path = blueprint_path()
     path.touch(mode=0o600, exist_ok=True)
     path.chmod(0o600)
-    path.write_text(json.dumps(blueprint, indent=2, allow_nan=False) + "\n", encoding="utf-8")
+    path.write_text(
+        json.dumps(blueprint, indent=2, allow_nan=False) + "\n", encoding="utf-8"
+    )
 
     map_path = lore_map_path()
     map_path.touch(mode=0o600, exist_ok=True)
