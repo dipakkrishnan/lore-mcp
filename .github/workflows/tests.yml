@@ -23,6 +23,20 @@ jobs:
       - uses: astral-sh/setup-uv@v5
       - run: uv run python -m unittest discover -s tests -v
 
+  bridge-check:
+    name: Bridge compiler checks
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: bridge
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+      - run: npm ci
+      - run: npm run check
+
   node-lint:
     name: Node lint
     runs-on: ubuntu-latest

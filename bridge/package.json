@@ -1,0 +1,23 @@
+{
+  "name": "x402-mcp-bridge",
+  "version": "0.1.0",
+  "description": "Local stdio MCP server that lets any MCP client call a remote x402-paid MCP server. The signer lives here; the model only ever sees tool results.",
+  "license": "MIT",
+  "type": "module",
+  "scripts": {
+    "start": "tsx src/index.ts",
+    "check": "tsc --noEmit",
+    "smoke": "tsx scripts/smoke.ts"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "1.30.0",
+    "@x402/evm": "2.20.0",
+    "agents": "0.20.1",
+    "viem": "2.55.10"
+  },
+  "devDependencies": {
+    "@types/node": "26.0.1",
+    "tsx": "4.20.6",
+    "typescript": "6.0.3"
+  }
+}
