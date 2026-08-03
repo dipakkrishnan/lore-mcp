@@ -10,7 +10,7 @@ from pathlib import Path
 
 from windup import Task, install as install_task, remove as remove_task, status as task_status
 
-from .paths import claude_home, codex_home, home
+from .paths import claude_home, codex_home, home, write_private
 from .store import STATUSES
 
 PROFILE = "automation/profile.json"
@@ -26,6 +26,11 @@ TEXT_FIELDS = (
     "role", "domains", "valuable_context", "preferences", "boundaries", "model",
 )
 AUTOMATION_ID = "lore-memory-synthesis"
+# The profile describes a person, not the sessions they were inferred from. Rejecting
+# unknown field names keeps transcripts out by the front door; this keeps them from
+# being pasted into a field that is legitimately free text. Generous on purpose — it
+# is a ceiling on kind, not a target for length.
+MAX_FIELD_LENGTH = 2000
 
 
 class Agent(str, Enum):
@@ -72,6 +77,11 @@ def check_fields(profile: dict[str, object]) -> dict[str, object]:
             raise ValueError(f"automation profile field {key} must be text")
         if key in profile:
             profile[key] = " ".join(str(profile[key]).split())
+            if len(profile[key]) > MAX_FIELD_LENGTH:
+                raise ValueError(
+                    f"automation profile field {key} cannot exceed "
+                    f"{MAX_FIELD_LENGTH} characters"
+                )
     if profile.get("cadence", "daily") not in ("daily", "weekly"):
         raise ValueError("automation profile cadence must be daily or weekly")
     hour = profile.get("hour", 21)
@@ -93,20 +103,10 @@ def save_profile(profile: dict[str, object]) -> dict[str, object]:
         if key in profile and profile[key] is not None
     })
     prompt_content = build_prompt(profile)
-    path = profile_path()
-    directory = path.parent
-    # Profiles and prompts contain private context; keep them owner-only.
-    directory.mkdir(mode=0o700, parents=True, exist_ok=True)
-    directory.chmod(0o700)
-    path.touch(mode=0o600, exist_ok=True)
-    path.chmod(0o600)
-    path.write_text(
-        json.dumps(profile, indent=2, allow_nan=False) + "\n", encoding="utf-8"
-    )
-    prompt = prompt_path()
-    prompt.touch(mode=0o600, exist_ok=True)
-    prompt.chmod(0o600)
-    prompt.write_text(prompt_content, encoding="utf-8")
+    # Profiles and prompts contain private context; `write_private` keeps them
+    # owner-only and keeps a failed write from destroying the profile in place.
+    write_private(profile_path(), json.dumps(profile, indent=2, allow_nan=False) + "\n")
+    write_private(prompt_path(), prompt_content)
     return profile
 
 
@@ -264,5 +264,9 @@ def scheduled(profile: dict[str, object]) -> bool:
     """
     try:
         return task_status(build_task(profile), codex_home=codex_home())
-    except (OSError, ValueError, KeyError):
+    except (OSError, TypeError, ValueError, KeyError):
+        # TypeError included deliberately: `save_profile` strips None, so only a
+        # hand-edited profile reaches `int(None)` in `build_task` — and a
+        # hand-edited profile is precisely what must read as unscheduled here
+        # rather than tracebacking out of `lore status`.
         return False

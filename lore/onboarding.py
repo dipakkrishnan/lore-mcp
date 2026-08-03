@@ -15,7 +15,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from . import automation, blueprint
-from .paths import home
+from .paths import home, write_private
 from .store import Store
 
 CHECKPOINT = "automation/onboarding.json"
@@ -84,14 +84,9 @@ def save_checkpoint(answers: dict) -> dict:
     given = {key: value for key, value in answers.items() if value is not None}
     checkpoint = automation.check_fields({**existing, **given})
 
-    path = checkpoint_path()
-    directory = path.parent
-    # The checkpoint holds draft personal context the owner has not approved yet.
-    directory.mkdir(mode=0o700, parents=True, exist_ok=True)
-    directory.chmod(0o700)
-    path.touch(mode=0o600, exist_ok=True)
-    path.chmod(0o600)
-    path.write_text(json.dumps(checkpoint, indent=2, allow_nan=False) + "\n", encoding="utf-8")
+    # The checkpoint holds draft personal context the owner has not approved yet, and
+    # a half-written one costs them the whole interview — `write_private` covers both.
+    write_private(checkpoint_path(), json.dumps(checkpoint, indent=2, allow_nan=False) + "\n")
     return checkpoint
 
 
@@ -127,18 +122,25 @@ def progress() -> tuple[list[Step], str, list[str]]:
     condition that needs saying even though no step is blocked on it."""
     with Store() as store:
         counts = store.counts()
-        sources = set(store.setting("sources", []))
+        # Presence of the key, not its contents: `setup` always records the sources
+        # it was given, so an empty list means it ran and found or was allowed
+        # nothing. Reading that as "not run" would send an owner with no agent
+        # history back to the command they just finished, forever.
+        configured = store.setting("sources", None)
     total = sum(counts.values())
     shape, shape_read = _artifact(blueprint.load_blueprint)
     profile, profile_read = _artifact(_saved_profile)
     checkpoint, checkpoint_read = _artifact(load_checkpoint)
 
+    ran_setup = configured is not None
     imported = Step(
         "Import agent memories",
-        bool(sources) or total > 0,
+        ran_setup or total > 0,
         f"{total} {'memory' if total == 1 else 'memories'} imported"
-        if sources or total
-        else "`lore setup` has not run",
+        if total
+        # An empty library is a normal starting point: the interview needs no
+        # memories, and synthesis fills it in later.
+        else ("nothing to import yet" if ran_setup else "`lore setup` has not run"),
     )
     captured = Step(
         "Capture your lore blueprint",

@@ -467,6 +467,84 @@ class OnboardingTest(unittest.TestCase):
         self.assertIn("No agent memory files", report)
         self.assertIn("Onboard me to Lore", report)
 
+    def test_an_owner_with_no_agent_history_is_not_sent_back_to_setup(self) -> None:
+        """`lore setup` hands off to the interview; onboarding must not contradict it.
+
+        A machine with no Codex or Claude imports nothing, which is a finished step,
+        not a skipped one — the interview is what comes next and it needs no memories.
+        Gating on what was imported rather than on setup having run left that owner
+        told to run the command they just ran, with no way forward.
+        """
+        self.assertIn("Onboard me to Lore", self._run(setup, True))
+
+        steps, next_step, _ = onboarding.progress()
+        self.assertTrue(steps[0].done, steps[0].detail)
+        self.assertNotIn("lore setup", next_step)
+        self.assertIn("Onboard me to Lore", next_step)
+
+    def test_a_hand_edited_hour_cannot_crash_the_way_back_in(self) -> None:
+        """The one command that explains how to recover must survive a bad profile.
+
+        `hour: null` reaches `int()` inside the schedule check and raises TypeError,
+        which is not a shape `save_profile` can produce — it strips None — so only a
+        hand-edited file gets here, and that is exactly the file `_artifact` promises
+        to report rather than crash on.
+        """
+        automation.profile_path().parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+        automation.profile_path().write_text(
+            json.dumps({"executor": "codex", "cadence": "daily", "hour": None})
+        )
+        self.assertFalse(automation.scheduled({"executor": "codex", "hour": None}))
+        self.assertIn("no local task", self._run(onboarding_show))
+        self.assertIn("Onboarding", self._run(status))
+
+    def test_an_interrupted_checkpoint_save_keeps_the_earlier_answers(self) -> None:
+        """Losing the interview to a half-written file is the failure this exists to stop.
+
+        A truncated checkpoint is unrecoverable by design — `save_checkpoint` refuses
+        to merge into one and tells the owner to delete it — so the write itself has
+        to be all-or-nothing.
+        """
+        onboarding.save_checkpoint({"role": "maintainer"})
+
+        real = Path.write_text
+
+        def killed_midway(self, data, *args, **kwargs):
+            real(self, data[: len(data) // 2], *args, **kwargs)
+            raise OSError(28, "No space left on device")
+
+        with patch.object(Path, "write_text", killed_midway):
+            with self.assertRaises(OSError):
+                onboarding.save_checkpoint({"domains": "developer tools"})
+
+        self.assertEqual(onboarding.load_checkpoint(), {"role": "maintainer"})
+        self.assertEqual(
+            [path.name for path in onboarding.checkpoint_path().parent.iterdir()],
+            ["onboarding.json"],
+        )
+
+    def test_an_interrupted_profile_save_keeps_the_previous_profile(self) -> None:
+        """A profile is the same kind of artifact and carries the same exposure."""
+        automation.save_profile(_profile_answers())
+
+        real = Path.write_text
+
+        def killed_midway(self, data, *args, **kwargs):
+            real(self, data[: len(data) // 2], *args, **kwargs)
+            raise OSError(28, "No space left on device")
+
+        with patch.object(Path, "write_text", killed_midway):
+            with self.assertRaises(OSError):
+                automation.save_profile({**_profile_answers(), "role": "principal"})
+
+        saved = json.loads(automation.profile_path().read_text())
+        self.assertEqual(saved["role"], "maintainer")
+
+    def test_a_transcript_cannot_be_parked_in_a_profile_field(self) -> None:
+        """The interview records answers about a person, not the sessions they came from."""
+        with self.assertRaisesRegex(ValueError, "valuable_context cannot exceed"):
+            onboarding.save_checkpoint({"valuable_context": "x" * 5000})
+
 
 if __name__ == "__main__":
     unittest.main()
