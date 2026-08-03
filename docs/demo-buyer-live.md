@@ -58,8 +58,10 @@ the single most convincing cut in the video — rehearse that handoff.
 
 Working now, proven live on Base Sepolia (2026-08-01):
 
-- Seller side end to end: `lore publish` → `lore price` → `lore node deploy`.
-  The Worker serves `discover` free and `get` behind x402.
+- Seller side end to end: the `lore-publish` skill drafts candidates → the
+  owner approves with `lore publication review <file>` → `lore price` →
+  `lore node deploy` → `lore push` puts the approved set on the node. The
+  Worker serves `discover` free and `get` behind x402.
 - The full payment exchange — but driven by `scripts/pay.ts`, a standalone
   script, not an agent (Pane 2's plumbing exists; Pane 1's does not).
 
@@ -98,7 +100,8 @@ a pretty-printer, no extra infra.
 - [ ] Basescan tab pinned on the seller address; rehearse the refresh timing
       (Base settles in seconds — don't let the reveal beat the narration)
 - [ ] Two full rehearsals on Sepolia, then the recorded take on mainnet
-      (mainnet cutover = MON-005) so the kicker is "that was real money"
+      (mainnet cutover = MON-005 — itself blocked on MON-004 revocation
+      propagation, so clear that first) so the kicker is "that was real money"
 - [ ] Buyer prompt written down, not improvised — the agent's visible
       reasoning about *whether the teaser is worth $0.01* is a scripted beat;
       re-roll the take if it skips the deliberation
