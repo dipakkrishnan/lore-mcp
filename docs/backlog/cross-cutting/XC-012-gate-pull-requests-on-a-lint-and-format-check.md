@@ -108,5 +108,6 @@ enabling the floating- and misused-promise rules. Its only named exception is
 though tool registration is synchronous.
 
 Rebased on the merged PR #67 and corrected its new Worker test files so the
-expanded lint gate covers the Vitest suite. The CI workflow runs both Ruff
-commands and `npm run lint` before the existing test and smoke-test stages.
+expanded lint gate covers the Vitest suite. The CI workflow reports the Ruff
+and Worker lint stages separately from unit, compiler, component, and smoke
+tests, so a failing stage is immediately visible in a pull request.
