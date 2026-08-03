@@ -5,7 +5,7 @@ priority: P2
 effort: S
 component: cross-cutting
 status: in-review
-related: [XC-004, XC-011]
+related: [XC-004, XC-007, XC-011]
 blockers: []
 dependencies: []
 github_issue: null
@@ -88,6 +88,13 @@ belongs among that item's jobs.
 
 Compliance numbers measured 2026-08-03 over `gh pr list --limit 40` on
 `dipakkrishnan/lore-mcp`, counting `^[A-Z]{2,5}-\d{3}: ` as strict compliance.
+
+`XC-007` (PR templates the backlog skills reference) is the other half of this.
+That item makes the right title easy to produce; this one makes the wrong one
+fail. Build them together if both are picked up — a template that emits
+`<ID>: <summary>` in the title field is worth more than either alone, and the
+allowlist decided here is what its template needs to reflect for the backlog
+skills' own PRs, which are exactly the multi-item case.
 
 Worth deciding during implementation, and deliberately not decided here: whether
 this check is *required* to merge or advisory. Making it required means a
