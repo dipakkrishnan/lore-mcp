@@ -33,6 +33,30 @@ lore node deploy --wallet 0x… # deploy at the configured price; rerun after pr
 lore blueprint show            # see the shape of your lore, once captured
 ```
 
+### Agent plugins
+
+The installer already copies Lore's owner-facing skills into Claude and Codex. To
+install the same workflows as a marketplace plugin instead, install Lore with the
+command above, then add this repository's marketplace.
+
+Claude Code:
+
+```text
+/plugin marketplace add dipakkrishnan/lore-mcp
+/plugin install lore@lore-marketplace
+/reload-plugins
+```
+
+Codex CLI:
+
+```sh
+codex plugin marketplace add dipakkrishnan/lore-mcp
+codex plugin add lore@lore-marketplace
+```
+
+Start a new Claude or Codex session after installation. The plugin packages the
+agent workflows; the `lore` command remains the local, owner-controlled runtime.
+
 Set `LORE_HOME` to use a location other than `~/.lore`. Lore also respects
 `CODEX_HOME` and `CLAUDE_HOME` when discovering agent data.
 

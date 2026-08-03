@@ -1,0 +1,23 @@
+{
+  "name": "lore-marketplace",
+  "description": "Direct distribution channel for the Lore Claude Code plugin.",
+  "owner": {
+    "name": "Dipak Krishnan",
+    "url": "https://github.com/dipakkrishnan"
+  },
+  "plugins": [
+    {
+      "name": "lore",
+      "source": "./",
+      "description": "Portable, private, monetizable context for personal agents.",
+      "version": "0.1.0",
+      "author": {
+        "name": "Dipak Krishnan",
+        "url": "https://github.com/dipakkrishnan"
+      },
+      "homepage": "https://github.com/dipakkrishnan/lore-mcp",
+      "repository": "https://github.com/dipakkrishnan/lore-mcp",
+      "license": "MIT"
+    }
+  ]
+}
