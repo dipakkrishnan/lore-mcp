@@ -4,6 +4,11 @@
   "main": "src/index.ts",
   "compatibility_date": "2026-06-11",
   "compatibility_flags": ["nodejs_compat"],
+  "vars": {
+    // Overridable so tests can point at a stubbed facilitator; unset in
+    // deployment leaves this default in place.
+    "LORE_FACILITATOR_URL": "https://x402.org/facilitator"
+  },
   "durable_objects": {
     "bindings": [
       {

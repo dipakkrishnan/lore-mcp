@@ -29,6 +29,8 @@ jobs:
       - run: echo "LORE_WALLET=0x000000000000000000000000000000000000dEaD" > .dev.vars
       - run: npm run types
       - run: npm run check
+      - name: Run the mocked-facilitator test suite (MON-010)
+        run: npm test
       - name: Seed an empty local publications table
         # Mirrors the schema `lore push` maintains (lore/cli.py:_push_sql).
         # discover() selects from this table; without it the Worker 500s.

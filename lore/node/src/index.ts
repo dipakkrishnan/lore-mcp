@@ -57,7 +57,7 @@ export class LorePaidMCP extends McpAgent<Env> {
     {
       network: "eip155:84532",
       recipient: payTo(this.env),
-      facilitator: { url: "https://x402.org/facilitator" }
+      facilitator: { url: this.env.LORE_FACILITATOR_URL || "https://x402.org/facilitator" }
     }
   );
 
