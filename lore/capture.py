@@ -10,7 +10,8 @@ MAX_ENTRIES = 20
 MAX_TITLE = 200
 MAX_CONTENT = 20_000
 MAX_PROJECT = 200
-FIELDS = {"title", "content", "project"}
+MAX_SOURCE_PATH = 1_000
+FIELDS = {"title", "content", "project", "source_path"}
 
 
 def _text(value: object, field: str, limit: int) -> str:
@@ -45,6 +46,11 @@ def normalize(raw: object) -> list[dict[str, str]]:
                 "project": _text(
                     candidate.get("project", "general"), "project", MAX_PROJECT
                 ),
+                "source_path": _text(
+                    candidate.get("source_path", "agent-session"),
+                    "source_path",
+                    MAX_SOURCE_PATH,
+                ),
             }
         )
     return entries
@@ -62,7 +68,6 @@ def save(raw: object) -> list[dict[str, object]]:
             outcome = store.put(
                 source="capture",
                 origin="attended",
-                source_path="agent-session",
                 source_key=source_key,
                 fingerprint=fingerprint,
                 **entry,

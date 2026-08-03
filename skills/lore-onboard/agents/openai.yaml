@@ -1,0 +1,4 @@
+interface:
+  display_name: "Lore Onboard"
+  short_description: "Build a private Lore profile and automation"
+  default_prompt: "Use $lore-onboard to set up my private Lore profile, blueprint, and synthesis automation."

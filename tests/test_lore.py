@@ -343,7 +343,13 @@ class LoreTest(unittest.TestCase):
                 "title": "Hire management before rapid growth",
                 "content": "Add the management layer before hiring the next ten engineers.",
                 "project": "team scaling",
-            }
+                "source_path": "field-notes.pdf#page=8",
+            },
+            {
+                "title": "Voice-only observation",
+                "content": "Spoken directly in the attended agent session.",
+                "project": "general",
+            },
         ]
         first = StringIO()
         with patch("sys.stdin", StringIO(json.dumps(payload))), redirect_stdout(first):
@@ -358,17 +364,22 @@ class LoreTest(unittest.TestCase):
 
         with Store() as store:
             memories = store.search("management")
+            spoken = store.search("spoken")
         self.assertEqual(len(memories), 1)
         self.assertIs(memories[0].status, Status.PRIVATE)
         self.assertEqual(memories[0].source, "capture")
         self.assertEqual(memories[0].origin, "attended")
+        self.assertEqual(memories[0].source_path, "field-notes.pdf#page=8")
         self.assertEqual(saved[0]["id"], memories[0].id)
+        self.assertEqual(spoken[0].source_path, "agent-session")
+        self.assertEqual(saved[1]["id"], spoken[0].id)
         self.assertEqual(self._discover()["publication_count"], 0)
 
     def test_capture_apply_rejects_bad_entries_before_writing(self) -> None:
         cases = [
             ([], "non-empty JSON array"),
             ([{"title": "", "content": "x"}], "title cannot be empty"),
+            ([{"title": "x", "content": "y", "source_path": ""}], "source_path cannot be empty"),
             (
                 [
                     {"title": "valid", "content": "must not be partially saved"},
