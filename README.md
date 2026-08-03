@@ -338,13 +338,16 @@ cp .dev.vars.example .dev.vars   # set LORE_WALLET to any valid address
 npm ci
 npm run lint
 npm run types && npm run check
+npm test                         # Workerd component tests with a mocked facilitator
 npm run dev                      # MCP at http://localhost:8787/mcp
 npm run smoke                    # free discover + unpaid x402 challenge
 ```
 
-CI (`.github/workflows/tests.yml`) runs the same Python `ruff` checks and
-Worker `lint`, `types`, `check`, `dev`, and `smoke` commands against a
-placeholder wallet, so local and CI checks cannot drift.
+CI (`.github/workflows/tests.yml`) reports six separate checks: Python lint,
+Python unit tests, Node lint, Node compiler checks, Node component tests, and
+the Worker smoke test. Each runs the same local command against a placeholder
+wallet where the Worker requires one, so failures are immediately attributable
+to a single stage.
 
 The implementation uses only the Python standard library: `argparse`, `sqlite3`,
 `subprocess`, and `http.server`. There is no application framework, vector

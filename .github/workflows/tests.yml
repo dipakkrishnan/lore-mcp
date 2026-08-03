@@ -1,4 +1,4 @@
-name: tests
+name: CI
 
 on:
   pull_request:
@@ -6,16 +6,25 @@ on:
     branches: [main]
 
 jobs:
-  python:
+  python-lint:
+    name: Python lint
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v5
       - run: uv run --extra dev ruff check lore tests
       - run: uv run --extra dev ruff format --check lore tests
+
+  python-unit:
+    name: Python unit tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
       - run: uv run python -m unittest discover -s tests -v
 
-  node:
+  node-lint:
+    name: Node lint
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -27,13 +36,54 @@ jobs:
           node-version: lts/*
       - run: npm ci
       - run: npm run lint
-      # Burn address: syntactically valid so wrangler can construct the
+
+  node-compiler:
+    name: Node compiler checks
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: lore/node
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+      - run: npm ci
+      # Burn address: syntactically valid so Wrangler can construct the
       # Worker, never a real payout wallet.
       - run: echo "LORE_WALLET=0x000000000000000000000000000000000000dEaD" > .dev.vars
       - run: npm run types
       - run: npm run check
+
+  node-component:
+    name: Node component tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: lore/node
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+      - run: npm ci
+      - run: echo "LORE_WALLET=0x000000000000000000000000000000000000dEaD" > .dev.vars
       - name: Run the mocked-facilitator test suite (MON-010)
         run: npm test
+
+  worker-smoke:
+    name: Worker smoke test
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: lore/node
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+      - run: npm ci
+      - run: echo "LORE_WALLET=0x000000000000000000000000000000000000dEaD" > .dev.vars
       - name: Seed an empty local publications table
         # Mirrors the schema `lore push` maintains (lore/cli.py:_push_sql).
         # discover() selects from this table; without it the Worker 500s.
