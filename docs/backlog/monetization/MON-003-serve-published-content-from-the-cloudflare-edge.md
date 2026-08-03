@@ -4,18 +4,18 @@ title: Serve published content from the Cloudflare edge instead of canary string
 priority: P2
 effort: L
 component: monetization
-status: in-review
+status: completed
 related: [MON-002, MON-004, XC-002, MCP-002]
 blockers: [STO-001, XC-002]
 dependencies: ["Cloudflare account (Workers + D1)", "Decision: is the edge adapter pursued past the MPP origin gate"]
 github_issue: https://github.com/dipakkrishnan/lore-mcp/issues/25
 created: 2026-07-30
-updated: 2026-07-30
+updated: 2026-08-01
 ---
 
 ## Problem
 
-`worker/src/index.ts` returns a hardcoded sentence to every payer and answers
+`lore/node/src/index.ts` returns a hardcoded sentence to every payer and answers
 `discover` with an unconditional `can_help: true`. It proves the payment rail
 works and nothing else. For the Cloudflare edge to be a real deployment adapter
 it has to serve the owner's actual published content.
@@ -25,7 +25,7 @@ machine. If the Worker reaches back to that machine, the endpoint is only alive
 while the machine is — a laptop asleep in a bag is a dead paid endpoint, and a
 marketplace crawler cannot distinguish that from a node that does not exist.
 
-The edge also hardcodes its price (`worker/src/price.ts`) and ignores
+The edge also hardcodes its price (`lore/node/src/price.ts`) and ignores
 `lore price`, so the advertised price and the charged price are two independent
 numbers today.
 
@@ -59,7 +59,7 @@ Price comes from the same push: `price_usd` travels with the publication set so
 - [ ] No private or revoked row is present in D1 — asserted by a test, not by
       inspection
 - [ ] The charged price and the advertised price both derive from `lore price`;
-      `worker/src/price.ts`'s constant is gone
+      `lore/node/src/price.ts`'s constant is gone
 - [ ] The endpoint answers correctly with the owner's machine powered off
 
 ## Notes
@@ -83,3 +83,7 @@ Related but *not* filed as work: epic #23 already decided to use the payment
 provider as the settlement ledger and defer `lore earnings`. Edge settlement
 means the Worker is the only party that sees a paid-but-failed answer, which
 puts pressure on that decision — revisit it there rather than here.
+
+**Completed 2026-08-01.** Merged via #45; live-verified during the MON-002
+settlement run — the paid `answer` served the active publication set (empty at
+the time, honestly disclosed) from D1 at the deployed node.

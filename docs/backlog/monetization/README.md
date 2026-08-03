@@ -11,7 +11,7 @@ Two payment paths exist deliberately, and items here should say which they mean:
   under epic #25 (#20-#24) rather than as `MON` items — file `MON` items for
   work that epic does not already cover.
 - **The Cloudflare/x402 edge is an optional deployment adapter**, not a launch
-  dependency (epic #25, Beta decisions). `worker/` holds it. `MON-002` onward
+  dependency (epic #25, Beta decisions). `lore/node/` holds it. `MON-002` onward
   cover it.
 
 Lore owns what is disclosed; a payment rail owns offer, verification, and

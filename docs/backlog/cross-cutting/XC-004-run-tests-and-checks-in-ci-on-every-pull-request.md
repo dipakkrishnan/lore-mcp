@@ -1,7 +1,7 @@
 ---
 id: XC-004
 title: Run tests and checks in CI on every pull request
-priority: P0
+priority: P1
 effort: S
 component: cross-cutting
 status: ready
@@ -15,11 +15,15 @@ updated: 2026-08-01
 
 ## Problem
 
-There is no CI in this repository — no `.github/` directory at all. Every check
-is manual and therefore optional: the Python suite (`python -m unittest discover
--s tests`), and, since the Cloudflare canary landed, `worker/`'s `tsc --noEmit`
-and its `npm run smoke` MCP smoke test. Nothing runs on a pull request, so a
-green review means "a reviewer read it", not "the suite passed".
+**Partly landed.** PR #50 added `.github/workflows/tests.yml`, which runs the
+Python suite via `astral-sh/setup-uv` on every pull request and on pushes to
+`main`. What follows described the state before that, and the second half of it
+is still true.
+
+The node side is still unchecked by anything automatic: `lore/node/`'s `tsc
+--noEmit` (`npm run check`) and its `npm run smoke` MCP smoke test run only when
+a person remembers to run them. For that half of the repository, a green review
+still means "a reviewer read it", not "the suite passed".
 
 This already cost something. The canary shipped reading `LORE_WALLET` from
 `process.env` at module scope; `process.env` is populated lazily on first
@@ -40,7 +44,7 @@ to `main`, with two independent jobs:
 1. **python** — `astral-sh/setup-uv`, `uv sync`, `uv run python -m unittest
    discover -s tests`. Once `XC-003` lands, this is also where its per-file
    coverage check hangs.
-2. **worker** — `npm ci` in `worker/`, then `npx tsc --noEmit`, then the smoke
+2. **worker** — `npm ci` in `lore/node/`, then `npx tsc --noEmit`, then the smoke
    test. The smoke job needs a `.dev.vars` containing a placeholder
    `LORE_WALLET` (any syntactically valid EVM address): it is what `wrangler
    types` reads to declare the binding, and the Worker refuses to construct
@@ -54,7 +58,7 @@ path works; it must not hold keys that can move money.
 
 - [ ] A workflow runs on every pull request and on pushes to `main`
 - [ ] The Python suite runs and a deliberately broken test fails the run
-- [ ] `worker/` is typechecked and its smoke test runs against a locally served
+- [ ] `lore/node/` is typechecked and its smoke test runs against a locally served
       Worker, with a placeholder wallet supplied by CI rather than a secret
 - [ ] The README's development section names the same commands CI runs, so
       local and CI checks cannot drift
@@ -90,9 +94,37 @@ That boundary is load-bearing, so tier 6 lives in its own workflow with its own
 secrets rather than as another job here. `MON-008` is the first thing in the repo
 to hold a deploy credential.
 
-Prioritization pass 2026-08-01 raised this to `P0` and `ready`. Rationale: it is
-`S` effort, it is the only item that directly unblocks two others (`XC-007`,
-`XC-008`), and three more depend on it to mean anything — `XC-003`'s coverage
-gate is local-only without it, `MCP-002`'s drift check has nowhere to run, and
-`MON-007`'s component suite needs a runner. Nothing else in the backlog buys that
-much for `S`. It is the only `P0` besides `STO-001`.
+Two further gates were added to the pipeline on 2026-08-03. They check the pull
+request itself rather than the code in it, so they are not tiers in the sequence
+above and do not belong in this item's jobs:
+
+| Gate | Covered by | Checks |
+|---|---|---|
+| PR title | `XC-010` | title is `BACKLOG-ID: summary`, and the id exists |
+| Review count | `XC-011` | required approvals scale with what the diff touches |
+
+Prioritization pass 2026-08-01 raised this to `P0` and `ready`, on the rationale
+that the repository had no CI at all and this was the `S`-effort item every other
+check hangs off.
+
+Revised 2026-08-03, back to `P1`: PR #50 landed the Python half, so the "no CI at
+all" urgency is spent. It stays `ready` and stays the pipeline root — the
+remaining scope still unblocks `XC-007`, `XC-009`, and `XC-008`, and still gives
+`MON-007`'s suite somewhere to run — but the most valuable half is already
+merged.
+
+### What is done and what is left
+
+| Acceptance criterion | State |
+|---|---|
+| Workflow runs on every PR and on pushes to `main` | done (`tests.yml`) |
+| Python suite runs; a broken test fails the run | done |
+| `lore/node/` typechecked, smoke test run with a placeholder wallet | **not started** |
+| README development section names the same commands CI runs | **not started** |
+| No job needs a deployment credential or funded wallet | holds |
+
+Two notes for whoever finishes it. The shipped workflow is named `tests.yml`
+rather than the `ci.yml` this item proposed — keep the existing name and add jobs
+to it rather than introducing a second file, since `XC-007`, `XC-009`, and
+`MON-007` all expect one place to hang off. And it runs `uv run python -m
+unittest discover -s tests -v` directly, without a separate `uv sync` step.

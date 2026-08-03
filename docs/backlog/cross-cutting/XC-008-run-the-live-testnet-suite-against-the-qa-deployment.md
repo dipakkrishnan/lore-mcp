@@ -41,7 +41,7 @@ teach people to ignore a red build.
    and never on forks.
 2. **What it asserts** — the full buyer journey against the live URL:
    `discover` is free and returns seeded fixture titles; `answer` challenges;
-   `worker/scripts/pay.ts` settles a real Base Sepolia payment; the receipt comes
+   `lore/node/scripts/pay.ts` settles a real Base Sepolia payment; the receipt comes
    back in `_meta["x402/payment-response"]`; the paid response contains the
    fixture content. Then the fail-closed cases that are safe to run live: an
    invalid credential and a replayed credential.

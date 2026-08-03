@@ -16,7 +16,7 @@ updated: 2026-08-01
 ## Problem
 
 There is no linter in this repository, on either side of it. `pyproject.toml`
-declares no `ruff`, `black`, `flake8`, or `mypy` configuration; `worker/` has no
+declares no `ruff`, `black`, `flake8`, or `mypy` configuration; `lore/node/` has no
 `eslint`, `prettier`, or `biome` config, and its `npm run check` is `tsc
 --noEmit` and nothing else. There is no `.editorconfig` and no pre-commit hook.
 
@@ -24,7 +24,7 @@ So "lint" is not a stage that can be added to CI — the command it would run
 doesn't exist yet. Today the only enforcement of unused imports, dead branches,
 shadowed names, unawaited promises, or import ordering is a human noticing them
 in review, across 1,951 lines of Python in `lore/` and 115 lines of TypeScript in
-`worker/`.
+`lore/node/`.
 
 The Worker is where this stings most. It does async settlement against a
 facilitator, and `tsc --noEmit` will not flag a floating promise or an
@@ -43,7 +43,7 @@ both off the workflow `XC-004` creates.
    (bugbear); resist enabling everything on the first pass.
 2. **Worker** — `eslint` with `typescript-eslint`'s type-checked config, whose
    whole point here is `no-floating-promises` and `no-misused-promises`. Add it
-   as `npm run lint` in `worker/package.json`, alongside the existing `check`.
+   as `npm run lint` in `lore/node/package.json`, alongside the existing `check`.
 3. **CI** — a lint job in `.github/workflows/ci.yml` running both. It needs no
    credentials, so it belongs in the same credential-free tier as `XC-004`'s
    existing jobs.
@@ -57,7 +57,7 @@ cost more than it saves.
 - [ ] `ruff check` and `ruff format --check` pass over `lore/` and `tests/`, and
       the rule set is configured in `pyproject.toml` rather than passed on the
       command line
-- [ ] `npm run lint` in `worker/` passes with `no-floating-promises` enabled and
+- [ ] `npm run lint` in `lore/node/` passes with `no-floating-promises` enabled and
       type-aware linting turned on
 - [ ] A pull request introducing a lint violation on either side fails CI
 - [ ] Both commands are named in the README's development section, so local and
@@ -78,7 +78,7 @@ Deliberately not in scope: type checking `lore/` with `mypy`. That is its own
 item — `XC-009`.
 
 Correction (2026-08-01): this note originally justified that split by calling
-`lore/` "an untyped 1,951-line codebase". That was wrong. 88 of its 89 functions
+`lore/` "an untyped 1,951-line codebase". That was wrong. 95 of its 96 functions
 are fully annotated; the annotations are simply unchecked. `XC-009` is therefore
 `S`, not the large job implied here, and the split stands only because linting
 and type checking are separate tools with separate configuration — not because

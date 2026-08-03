@@ -4,7 +4,7 @@ title: Complete the Base Sepolia canary payment end to end
 priority: P1
 effort: S
 component: monetization
-status: ready
+status: completed
 related: [MON-003, MON-007, MON-008]
 blockers: []
 dependencies: ["Funded Base Sepolia buyer wallet (faucet test USDC)", "Cloudflare account for deployment"]
@@ -15,8 +15,8 @@ updated: 2026-08-01
 
 ## Problem
 
-The x402 canary in `worker/` (PR #32) has never actually taken a payment.
-`worker/scripts/smoke.ts` asserts only the *unpaid* path: that `answer` returns
+The x402 canary in `lore/node/` (PR #32) has never actually taken a payment.
+`lore/node/scripts/smoke.ts` asserts only the *unpaid* path: that `answer` returns
 `isError` with an `x402/error` meta. Verification and settlement — the two steps
 that involve a facilitator and real (test) money — have never run. So the thing
 the canary exists to prove is the one thing still unproven.
@@ -27,7 +27,7 @@ payment and revocation fail closed."
 
 ## Proposed approach
 
-Deploy the canary and run `worker/scripts/pay.ts` against it with a dedicated
+Deploy the canary and run `lore/node/scripts/pay.ts` against it with a dedicated
 Base Sepolia wallet funded from the CDP faucet. Confirm the settlement receipt
 on-chain and confirm the recipient address actually received the test USDC.
 
@@ -52,7 +52,7 @@ defect to fix in this item.
 
 ## Notes
 
-Never use a mainnet wallet or mainnet USDC. `worker/scripts/pay.ts` caps spend
+Never use a mainnet wallet or mainnet USDC. `lore/node/scripts/pay.ts` caps spend
 at `usdcBaseUnits(PRICE_USD)` — keep that cap.
 
 Open question worth answering during the run: what the buyer sees when
@@ -60,13 +60,14 @@ settlement succeeds but the response is lost. Epic #25 requires "one answer and
 one receipt without double charging on retries", and the canary has no
 idempotency handling today.
 
-Prioritization pass 2026-08-01 promoted this to `ready` at `P1`. It has no
-backlog blockers and its acceptance criteria are concrete, but its two
-`dependencies` are real and human-supplied — a funded Base Sepolia wallet and a
-Cloudflare account. Whoever picks this up needs both in hand before starting;
-that is the only thing standing between it and implementation.
+**Completed 2026-08-01.** First live end-to-end settlement against the deployed
+node (`lore-x402-canary.dipakrkrishnan.workers.dev/mcp`): faucet-funded
+throwaway buyer paid $0.01 via `npm run pay`, settled on Base Sepolia
+(tx `0x10837d29ef515669c2ac625ce0c997dff36f7d629405f9534d2085a796321ca2`),
+receipt verified on-chain at the payout address. The open idempotency question
+above remains open — it moves with epic #25, not this item.
 
-Do this before `MON-007` if the two are worked in the same stretch. `MON-007`
-builds a stubbed facilitator, and the honest fixtures for that stub are whatever
-the real facilitator does here. Neither blocks the other, so the order is a
-preference, not a constraint.
+What this run proved by hand is what `MON-007` makes repeatable and `MON-008`
+makes durable: the facilitator behaviour observed here is what `MON-007`'s stub
+should encode as fixtures, and the deployment used here was disposable, which is
+the gap `MON-008` closes.

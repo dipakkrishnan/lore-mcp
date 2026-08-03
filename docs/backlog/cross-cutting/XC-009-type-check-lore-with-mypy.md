@@ -15,33 +15,34 @@ updated: 2026-08-01
 
 ## Problem
 
-`lore/` is already annotated — 88 of its 89 functions carry full parameter and
-return types, and 8 of 10 modules opt into `from __future__ import annotations`.
+`lore/` is already annotated — 95 of its 96 functions carry full parameter and
+return types, and most modules opt into `from __future__ import annotations`.
 Nothing checks any of it. The annotations read like a contract and are enforced
 by nobody, so they drift into being decorative, and a reader who trusts a
 signature is trusting something no tool has verified.
 
 They have already drifted. `lore/blueprint.py:233` declares `def apply(file:
-Path) -> dict`, and its only caller, `lore/cli.py:530`, passes a `str`. That
+Path) -> dict`, and its only caller, `lore/cli.py:573`, passes a `str`. That
 works at runtime purely because `apply` happens to call `Path(file)` on the way
 in — so the signature is not describing what the function accepts, and a future
 caller who reads it and passes a `Path`-only value is relying on a coincidence.
 
-Running mypy on `main` reports 8 errors across 4 files. Two of those are
-artifacts of running it in an isolated environment (`pydantic` and `windup` both
-ship `py.typed`, so they resolve once mypy runs with the project's dependencies
-installed). The other six are real:
+`uv run --with mypy mypy lore/` on `main` reports 7 errors across 5 files, all
+of them real (`pydantic` and `windup` both ship `py.typed`, so they resolve
+cleanly when mypy runs inside the project environment):
 
 | Location | Finding |
 |---|---|
-| `lore/cli.py:530` | `str` passed where `apply` declares `Path` |
-| `lore/store.py:381` | `int(cursor.lastrowid)` — `lastrowid` is `int \| None` |
+| `lore/cli.py:573` | `str` passed where `apply` declares `Path` |
+| `lore/store.py:411` | `int(cursor.lastrowid)` — `lastrowid` is `int \| None` |
+| `lore/deploy.py:49` | `copytree` given a `Traversable`, not a path |
 | `lore/automation.py:218` | `int()` called on `object` |
-| `lore/cli.py:230`, `:295` | `set()` called on `object` |
+| `lore/cli.py:249`, `:314` | `set()` called on `object` |
 | `lore/blueprint.py:185` | `dict()` given `Collection[str]`, not pairs |
 
 None is a live crash today. That is the argument for doing this now rather than
-after one becomes one.
+after one becomes one — and the count is drifting upward, not down: `deploy.py`
+arrived with the node-deploy work and brought a new one with it.
 
 ## Proposed approach
 
@@ -53,8 +54,8 @@ after one becomes one.
    `disallow_untyped_defs`, `warn_return_any`) — the codebase is at 98%
    annotated, so strictness is nearly free here in a way it would not be in an
    untyped tree.
-3. Fix the six findings rather than baselining them. The `object` ones
-   (`automation.py:218`, `cli.py:230`, `cli.py:295`) are the interesting group:
+3. Fix the seven findings rather than baselining them. The `object` ones
+   (`automation.py:218`, `cli.py:249`, `cli.py:314`) are the interesting group:
    they mean a value crossed a boundary as untyped JSON and its real shape is
    only known by convention. Narrowing them is a small readability win beyond
    satisfying the checker.
@@ -67,7 +68,7 @@ tends to produce a large, low-value diff. Revisit once `XC-003` has reshaped it.
 
 - [ ] `mypy` runs clean over `lore/` with the configuration committed in
       `pyproject.toml` rather than passed on the command line
-- [ ] All six real findings above are fixed at the source, not silenced — any
+- [ ] All seven findings above are fixed at the source, not silenced — any
       remaining `# type: ignore` names its rule and says why in a comment
 - [ ] A pull request that introduces a type error fails CI
 - [ ] The command is named in the README's development section alongside the
@@ -86,7 +87,7 @@ job. That was wrong — the annotations are already there. This is `S`, not the
 Blocked on `XC-004` for the gating half only, like `XC-007` — the config and the
 command can land and be run locally before the workflow exists.
 
-The `store.py:381` finding is the one worth a second look during
+The `store.py:411` finding is the one worth a second look during
 implementation. `cursor.lastrowid` is typed `int | None`, and the code assumes
 an INSERT always populates it. That is true for sqlite3 in practice, so the fix
 is likely an assertion that documents the assumption rather than a behaviour

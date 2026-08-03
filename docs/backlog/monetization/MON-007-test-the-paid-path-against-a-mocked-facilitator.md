@@ -15,13 +15,13 @@ updated: 2026-08-01
 
 ## Problem
 
-The Worker's paid handler has never run in any automated test. `worker/scripts/
+The Worker's paid handler has never run in any automated test. `lore/node/scripts/
 smoke.ts` asserts the *unpaid* path only — tools are listed, `discover` is free,
 `answer` returns an `x402/error` challenge — and its own header says it "is not
 wired into CI". Everything past the 402 is unproven except by hand.
 
 The reason it stays unproven is that the facilitator is hardcoded to a live
-third-party service: `worker/src/index.ts` sets `facilitator: { url:
+third-party service: `lore/node/src/index.ts` sets `facilitator: { url:
 "https://x402.org/facilitator" }`. Any test that exercises verification or
 settlement leaves the machine, needs a funded wallet, and spends faucet money —
 so there is no cheap, repeatable way to assert the paid path at all, and the
@@ -37,7 +37,7 @@ provoked against a real facilitator on demand.
 
 ## Proposed approach
 
-Add `@cloudflare/vitest-pool-workers` to `worker/` so tests run in `workerd`
+Add `@cloudflare/vitest-pool-workers` to `lore/node/` so tests run in `workerd`
 with real bindings — a real Durable Object and a real local D1 — and mock only
 what crosses the network.
 
@@ -66,7 +66,7 @@ deployment. This item does not replace it, and does not need it to change.
       content unpaid
 - [ ] `discover` returns titles and topics only — a test fails if publication
       `content` ever appears on the free surface
-- [ ] The suite runs with `npm test` in `worker/`, needs no credentials, and is
+- [ ] The suite runs with `npm test` in `lore/node/`, needs no credentials, and is
       wired into the CI workflow `XC-004` creates
 - [ ] The facilitator URL is configurable via `env` and still defaults to
       `https://x402.org/facilitator` when unset

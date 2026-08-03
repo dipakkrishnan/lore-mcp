@@ -4,18 +4,18 @@ title: Cut the x402 edge adapter over to mainnet
 priority: P3
 effort: M
 component: monetization
-status: ideation
+status: in-review
 related: [MON-002, MON-003, MON-004]
 blockers: [MON-002, MON-003, MON-004]
 dependencies: ["CDP account and API credentials", "Decision to launch the edge adapter at all"]
 github_issue: https://github.com/dipakkrishnan/lore-mcp/issues/25
 created: 2026-07-30
-updated: 2026-07-30
+updated: 2026-08-02
 ---
 
 ## Problem
 
-Everything in `worker/` is Base Sepolia: `eip155:84532` with the public
+Everything in `lore/node/` is Base Sepolia: `eip155:84532` with the public
 `x402.org` facilitator. That is play money and a facilitator that exists for
 testing. Taking real payment needs `eip155:8453` and a mainnet-capable
 facilitator with credentials — in practice Coinbase's CDP facilitator and its

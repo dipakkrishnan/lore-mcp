@@ -16,7 +16,7 @@ updated: 2026-08-01
 ## Problem
 
 There is nowhere to test the Worker against a real chain except a developer's
-laptop and a hand-made deployment. `worker/wrangler.jsonc` defines exactly one
+laptop and a hand-made deployment. `lore/node/wrangler.jsonc` defines exactly one
 environment — `name: "lore-x402-canary"`, one D1 binding whose id is the literal
 placeholder `REPLACE_WITH_YOUR_D1_ID`, and one `LORE_WALLET` secret — so
 deploying at all today means hand-editing a tracked file, and two people
@@ -68,7 +68,7 @@ target exists, is reproducible, and is documented.
       and from any wallet used elsewhere, both on Base Sepolia only
 - [ ] The deploy credential is a scoped API token in repository secrets, is used
       by no pull-request job, and cannot run on a fork
-- [ ] The worker README says how to reach QA, what is in it, and that anything
+- [ ] The node README says how to reach QA, what is in it, and that anything
       in it is disposable
 
 ## Notes
