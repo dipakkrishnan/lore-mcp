@@ -51,6 +51,10 @@ def memory_card(memory: Memory, current: int | None = None, total: int | None = 
     print(f"\n{paint('2', '─' * 72)}")
     print(paint("1", memory.title.translate(CONTROL_CHARACTERS)))
     metadata = f"{label} · {memory.source} · {memory.project or 'general'}"
+    if memory.source_path and memory.source_path != "agent-session":
+        # The locator is the provenance the owner captured; without it the card
+        # gives no way back to the file, page, or attachment it came from.
+        metadata += f" · {memory.source_path}"
     print(paint("2", metadata.translate(CONTROL_CHARACTERS)))
     print()
     body = memory.content

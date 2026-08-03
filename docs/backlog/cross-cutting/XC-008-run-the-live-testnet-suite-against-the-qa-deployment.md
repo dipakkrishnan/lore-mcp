@@ -5,18 +5,18 @@ priority: P2
 effort: M
 component: cross-cutting
 status: in-review
-related: [XC-004, XC-007, MON-002, MON-007, MON-008, MCP-002]
+related: [XC-004, XC-007, MON-002, MON-010, MON-008, MCP-002]
 blockers: [XC-004, MON-008]
 dependencies: ["Base Sepolia buyer wallet with a monitored faucet balance", "GitHub repository secrets for the buyer key"]
 github_issue: null
 created: 2026-08-01
-updated: 2026-08-01
+updated: 2026-08-03
 ---
 
 ## Problem
 
 Some failures only exist in the deployed world, and this repository has no place
-that observes them. A mocked facilitator (`MON-007`) proves the Worker's logic; a
+that observes them. A mocked facilitator (`MON-010`) proves the Worker's logic; a
 typecheck proves it compiles. Neither can catch the real x402.org facilitator
 changing its response shape, a settlement that confirms on-chain but arrives too
 late for the request, D1 behaving differently at the edge than in local

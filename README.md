@@ -23,12 +23,13 @@ transcripts during initial import.
 lore help                     # show the end-user workflow
 lore setup                    # import native memory; then onboard with an agent
 lore sync                     # import new or changed memory files
+lore capture apply -          # validated private write path used by capture agents
 lore review                   # keep private / discard
 lore review launch --status private  # revisit a prior decision
 lore search "failed launch"   # SQLite full-text recall
 lore price 0.50               # advertise a fixed per-publication price
 lore status
-lore node deploy --wallet 0x… # deploy your node to your own Cloudflare account
+lore node deploy --wallet 0x… # deploy at the configured price; rerun after price changes
 lore blueprint show            # see the shape of your lore, once captured
 ```
 
@@ -51,6 +52,18 @@ Codex uses its local automation definition. Claude uses a macOS LaunchAgent that
 runs `lore sync`, then invokes `claude -p` with the saved prompt and narrow permissions.
 Remote Claude routines cannot read local memory files. Keep the Mac awake when a local
 Claude task is due.
+
+## Personal content capture
+
+Tell Claude or Codex **"Capture this in Lore"**, then dictate, paste, point it at
+a local file, or drag in a PDF or image. The host agent reads the material and
+the `lore-capture` skill proposes bounded memories with private source
+references, lets you correct them, and saves only what you approve. Lore does
+not keep a copy of the file itself — only the memory text you approve, which
+may quote from it. It may then offer to draft a publication, but
+publishing remains a separate review and approval step.
+The validated `lore capture apply -` command owns local writes; the skill never
+edits SQLite directly or sends private captures to the paid MCP surface.
 
 ## Guided onboarding
 

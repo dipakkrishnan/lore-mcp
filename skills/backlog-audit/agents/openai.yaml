@@ -1,0 +1,4 @@
+interface:
+  display_name: "Backlog Audit"
+  short_description: "Validate and rebuild the Lore backlog"
+  default_prompt: "Use $backlog-audit to validate the Lore backlog and regenerate its index."

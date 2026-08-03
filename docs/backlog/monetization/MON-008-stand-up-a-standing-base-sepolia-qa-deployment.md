@@ -5,12 +5,12 @@ priority: P2
 effort: M
 component: monetization
 status: in-review
-related: [MON-002, MON-003, MON-005, MON-006, MON-007, XC-008]
+related: [MON-002, MON-003, MON-005, MON-006, MON-010, XC-008]
 blockers: [MON-002]
 dependencies: ["Cloudflare account with Workers and D1", "Base Sepolia wallet funded from the CDP faucet", "GitHub repository secrets for the deploy token"]
 github_issue: null
 created: 2026-08-01
-updated: 2026-08-01
+updated: 2026-08-03
 ---
 
 ## Problem

@@ -30,7 +30,9 @@ redeploys.
 
 Always use the CLI — it stages fresh source, deploys, sets the payout secret,
 records the node URL where `lore status` can show it, and smoke-checks the
-live endpoint. Deploying by hand with wrangler skips all of that.
+live endpoint. It uses the positive per-publication price set by `lore price`;
+rerun deploy after changing that price. Deploying by hand with wrangler skips
+all of that.
 
 ```sh
 lore node deploy --wallet <your public 0x payout address>
@@ -50,8 +52,8 @@ cp .buyer.env.example .buyer.env
 npm run pay -- <your node URL from lore status>
 ```
 
-The script caps payment at $0.01 test USDC and prints the MCP result plus the
-x402 settlement receipt. Never use a funded mainnet key here.
+The script caps payment at the deployed price and prints the MCP result plus
+the x402 settlement receipt. Never use a funded mainnet key here.
 
 ## Developing the node itself (repo checkout only)
 

@@ -1,16 +1,16 @@
 ---
-id: MON-007
+id: MON-010
 title: Test the Worker's paid path against a mocked facilitator
 priority: P1
 effort: M
 component: monetization
 status: ready
-related: [MON-002, MON-003, MON-008, XC-004]
+related: [MON-002, MON-003, MON-007, MON-008, XC-004]
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-08-01
-updated: 2026-08-01
+updated: 2026-08-03
 ---
 
 ## Problem
@@ -87,3 +87,14 @@ stub's default responses rather than guesses.
 Making the facilitator URL configurable is deliberately scoped to a default-
 preserving `env` read. It is *not* the mainnet facilitator work — that is
 `MON-005`, which also needs authentication and must stay opt-in.
+
+Renumbered from `MON-007` to `MON-010` on 2026-08-03: this was filed as `MON-007`
+on 2026-08-01, and PR #63 independently took that id on `main` for the buyer-side
+wallet item while this branch was open. Same resolution as the earlier renumber
+around the ids PR #32 took. Nothing in the item changed but the number.
+
+Not to be confused with the `MON-007` that now holds that id — that one is about
+a *buyer* completing a purchase from inside an agent. This is about the *seller*
+side proving its paid path without spending anything. They meet at the same
+handler from opposite directions, which is worth remembering when either
+changes.

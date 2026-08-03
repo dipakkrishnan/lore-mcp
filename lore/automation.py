@@ -7,7 +7,9 @@ import sys
 from dataclasses import replace
 from enum import Enum
 from pathlib import Path
+from typing import Annotated, Literal
 
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 from windup import Task, install as install_task, remove as remove_task
 
 from .paths import claude_home, codex_home, home
@@ -18,10 +20,6 @@ PROMPT = "automation/synthesis-prompt.md"
 # Fields that belong in profile.json. The onboarding checkpoint reuses this file to
 # carry its own state; persist only these so that state never leaks into the profile
 # the synthesis prompt reads.
-PROFILE_FIELDS = (
-    "role", "domains", "valuable_context", "preferences",
-    "boundaries", "executor", "model", "cadence", "hour",
-)
 AUTOMATION_ID = "lore-memory-synthesis"
 
 
@@ -35,6 +33,43 @@ class Agent(str, Enum):
         return self.value
 
 
+class AutomationProfile(BaseModel):
+    """Synthesis settings accepted from the onboarding checkpoint."""
+
+    # Checkpoint-only fields are deliberately ignored instead of reaching profile.json.
+    model_config = ConfigDict(extra="ignore", frozen=True)
+
+    role: str | None = None
+    domains: str | None = None
+    valuable_context: str | None = None
+    preferences: str | None = None
+    boundaries: str | None = None
+    executor: Agent | Literal[""] | None = None
+    model: str | None = None
+    cadence: Literal["daily", "weekly"] | None = None
+    hour: Annotated[int, Field(strict=True, ge=0, le=23)] | None = None
+
+    @field_validator(
+        "role", "domains", "valuable_context", "preferences", "boundaries", "model",
+        mode="before",
+    )
+    @classmethod
+    def clean_text(cls, value: object) -> object:
+        if not isinstance(value, str):
+            return value
+        return " ".join(value.split())
+
+    @field_validator("executor", mode="before")
+    @classmethod
+    def known_executor(cls, value: object) -> object:
+        if value in (None, ""):
+            return value
+        try:
+            return Agent(value)
+        except (TypeError, ValueError) as error:
+            raise ValueError("automation profile contains an unknown executor") from error
+
+
 def profile_path() -> Path:
     """Return the owner-local automation profile path."""
     return home() / PROFILE
@@ -45,38 +80,11 @@ def prompt_path() -> Path:
     return home() / PROMPT
 
 
-def save_profile(profile: dict[str, object]) -> dict[str, object]:
+def save_profile(profile: object) -> dict[str, object]:
     """Persist a profile and regenerate the shared synthesis prompt."""
-    profile = {
-        key: profile[key]
-        for key in PROFILE_FIELDS
-        if key in profile and profile[key] is not None
-    }
-    for key in (
-        "role",
-        "domains",
-        "valuable_context",
-        "preferences",
-        "boundaries",
-        "model",
-    ):
-        if key in profile and not isinstance(profile[key], str):
-            raise ValueError(f"automation profile field {key} must be text")
-        if key in profile:
-            profile[key] = " ".join(str(profile[key]).split())
-    if profile.get("cadence", "daily") not in ("daily", "weekly"):
-        raise ValueError("automation profile cadence must be daily or weekly")
-    hour = profile.get("hour", 21)
-    if isinstance(hour, bool) or not isinstance(hour, int) or not 0 <= hour <= 23:
-        raise ValueError("automation profile hour must be between 0 and 23")
-    # An executor is only needed to install a schedule; a profile saved with
-    # --no-schedule may legitimately leave it empty.
-    executor = str(profile.get("executor", "") or "")
-    if executor:
-        try:
-            Agent(executor)
-        except ValueError as error:
-            raise ValueError("automation profile contains an unknown executor") from error
+    profile = AutomationProfile.model_validate(profile).model_dump(
+        mode="json", exclude_none=True, exclude_unset=True
+    )
     prompt_content = build_prompt(profile)
     path = profile_path()
     directory = path.parent

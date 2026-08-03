@@ -10,7 +10,7 @@ blockers: [XC-004]
 dependencies: []
 github_issue: null
 created: 2026-08-01
-updated: 2026-08-01
+updated: 2026-08-03
 ---
 
 ## Problem
@@ -88,7 +88,7 @@ Prioritization pass 2026-08-01 lowered this from `P1` to `P2`, correcting the
 priority it was filed at the same day. The tree is small (115 lines of Worker
 TypeScript, nine Python modules) and no lint-class defect has actually been
 observed in it, so the payoff is "stop accumulating" rather than "fix something
-broken" — which does not outrank proving the payment rail (`MON-002`, `MON-007`).
+broken" — which does not outrank proving the payment rail (`MON-002`, `MON-010`).
 It stays cheap and worth doing; it just rides along after `XC-004` rather than
 ahead of behavioural work. `no-floating-promises` on the settlement path is the
 one rule here that is defect-prevention rather than hygiene.

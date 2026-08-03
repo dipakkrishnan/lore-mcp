@@ -10,7 +10,7 @@ blockers: []
 dependencies: ["windup (separate repo) — `run_json` lands there, not in lore-mcp"]
 github_issue: null
 created: 2026-08-01
-updated: 2026-08-01
+updated: 2026-08-03
 ---
 
 ## Problem

@@ -5,12 +5,12 @@ priority: P1
 effort: S
 component: cross-cutting
 status: ready
-related: [XC-003, XC-007, XC-008, MON-007, MCP-002]
+related: [XC-003, XC-007, XC-008, MON-010, MCP-002]
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-07-30
-updated: 2026-08-01
+updated: 2026-08-03
 ---
 
 ## Problem
@@ -86,7 +86,7 @@ covers three of them. The rest are separate items:
 | 2. Lint | `XC-007` — no linter exists in the repo yet | every PR |
 | 3. Unit | this item; `XC-003` adds the coverage gate | every PR |
 | 4. Contract | `MCP-002`'s drift check between the two MCP surfaces | every PR |
-| 5. Component | `MON-007` — Worker paid path vs. a mocked facilitator | every PR |
+| 5. Component | `MON-010` — Worker paid path vs. a mocked facilitator | every PR |
 | 6. Live | `XC-008` against the QA deployment `MON-008` stands up | merge, schedule, manual |
 
 Tiers 1-5 stay inside this item's boundary: credential-free, fork-safe, no money.
@@ -110,7 +110,7 @@ check hangs off.
 Revised 2026-08-03, back to `P1`: PR #50 landed the Python half, so the "no CI at
 all" urgency is spent. It stays `ready` and stays the pipeline root — the
 remaining scope still unblocks `XC-007`, `XC-009`, and `XC-008`, and still gives
-`MON-007`'s suite somewhere to run — but the most valuable half is already
+`MON-010`'s suite somewhere to run — but the most valuable half is already
 merged.
 
 ### What is done and what is left
@@ -126,5 +126,5 @@ merged.
 Two notes for whoever finishes it. The shipped workflow is named `tests.yml`
 rather than the `ci.yml` this item proposed — keep the existing name and add jobs
 to it rather than introducing a second file, since `XC-007`, `XC-009`, and
-`MON-007` all expect one place to hang off. And it runs `uv run python -m
+`MON-010` all expect one place to hang off. And it runs `uv run python -m
 unittest discover -s tests -v` directly, without a separate `uv sync` step.

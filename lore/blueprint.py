@@ -3,6 +3,9 @@ from __future__ import annotations
 import json
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Literal
+
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from .paths import home
 from .ui import CONTROL_CHARACTERS
@@ -74,14 +77,57 @@ PERSONA_PROFILES = {
 
 PERSONAS = tuple(PERSONA_PROFILES)
 AXES = ("chronological", "theme", "project", "knowledge")
+Persona = Literal["storyteller", "schoolteacher", "professor", "executive", "sage"]
+Axis = Literal["chronological", "theme", "project", "knowledge"]
+_CONTROLS_TO_SPACES = dict.fromkeys(CONTROL_CHARACTERS, " ")
 
-# Fields the skill may send. Anything else — including the command-authored fields
-# below (captured_at, depth_default, section_labels) — is rejected, so a future
-# schema addition is a deliberate, additive change to this set, never a silent
-# passthrough of untrusted input.
-_REQUIRED_FIELDS = {"version", "name", "persona", "topic_outline", "storytelling"}
-_OPTIONAL_FIELDS = {"organizing_axis", "focus_topics", "general_areas"}
-_ACCEPTED_FIELDS = _REQUIRED_FIELDS | _OPTIONAL_FIELDS
+
+class BlueprintInput(BaseModel):
+    """Owner-approved shape crossing the onboarding/CLI boundary."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    version: Literal[1]
+    name: str = Field(min_length=1, max_length=MAX_NAME_LENGTH)
+    persona: Persona
+    organizing_axis: Axis | None = None
+    topic_outline: list[str] = Field(min_length=1, max_length=MAX_ITEMS)
+    focus_topics: list[str] = Field(default_factory=list, max_length=MAX_ITEMS)
+    general_areas: list[str] = Field(default_factory=list, max_length=MAX_ITEMS)
+    storytelling: str = Field(min_length=1, max_length=MAX_TEXT_LENGTH)
+
+    @field_validator("name", "storytelling", mode="before")
+    @classmethod
+    def clean_text(cls, value: object) -> object:
+        if not isinstance(value, str):
+            return value
+        return " ".join(value.translate(_CONTROLS_TO_SPACES).split())
+
+    @field_validator("topic_outline", "focus_topics", "general_areas", mode="before")
+    @classmethod
+    def clean_items(cls, value: object) -> object:
+        if value is None:
+            return []
+        if not isinstance(value, list):
+            return value
+        if len(value) > MAX_ITEMS:
+            raise ValueError(f"blueprint lists cannot exceed {MAX_ITEMS} items")
+        cleaned: list[object] = []
+        seen: set[str] = set()
+        for item in value:
+            if not isinstance(item, str):
+                cleaned.append(item)
+                continue
+            item = " ".join(item.translate(_CONTROLS_TO_SPACES).split())
+            if not item or item in seen:
+                continue
+            if len(item) > MAX_ITEM_LENGTH:
+                raise ValueError(
+                    f"blueprint items cannot exceed {MAX_ITEM_LENGTH} characters"
+                )
+            seen.add(item)
+            cleaned.append(item)
+        return cleaned
 
 
 def blueprint_path() -> Path:
@@ -102,75 +148,17 @@ def load_blueprint() -> dict | None:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
-def _clean_text(value: object, field: str, *, max_length: int) -> str:
-    if not isinstance(value, str):
-        raise ValueError(f"{field} must be a string")
-    cleaned = value.translate(CONTROL_CHARACTERS).strip()
-    if not cleaned:
-        raise ValueError(f"{field} cannot be empty")
-    if len(cleaned) > max_length:
-        raise ValueError(f"{field} cannot exceed {max_length} characters")
-    return cleaned
-
-
-def _clean_list(value: object, field: str) -> list[str]:
-    if value is None:
-        return []
-    if not isinstance(value, list):
-        raise ValueError(f"{field} must be a list")
-    if len(value) > MAX_ITEMS:
-        raise ValueError(f"{field} cannot exceed {MAX_ITEMS} items")
-    cleaned: list[str] = []
-    seen: set[str] = set()
-    for item in value:
-        if not isinstance(item, str):
-            raise ValueError(f"{field} items must be strings")
-        text = item.translate(CONTROL_CHARACTERS).strip()
-        if not text or text in seen:
-            continue
-        if len(text) > MAX_ITEM_LENGTH:
-            raise ValueError(f"{field} items cannot exceed {MAX_ITEM_LENGTH} characters")
-        seen.add(text)
-        cleaned.append(text)
-    return cleaned
-
-
-def normalize(raw: dict) -> dict:
+def normalize(raw: object) -> dict:
     """Validate untrusted interview input and resolve persona-derived structure.
 
     Returns the canonical, self-contained blueprint: the persona's organizing axis
     (or the owner's override), depth posture, and section labels are resolved and
     written into the result, so a future reader never needs PERSONA_PROFILES itself.
     """
-    if not isinstance(raw, dict):
-        raise ValueError("blueprint must be a JSON object")
-
-    unexpected = set(raw) - _ACCEPTED_FIELDS
-    if unexpected:
-        raise ValueError(f"unexpected blueprint field: {sorted(unexpected)[0]}")
-    missing = _REQUIRED_FIELDS - set(raw)
-    if missing:
-        raise ValueError(f"missing blueprint field: {sorted(missing)[0]}")
-
-    if raw.get("version") != 1:
-        raise ValueError(f"unsupported blueprint version: {raw.get('version')!r}")
-
-    persona = raw["persona"]
-    if persona not in PERSONA_PROFILES:
-        raise ValueError(f"unknown persona: {persona!r}")
+    data = BlueprintInput.model_validate(raw)
+    persona = data.persona
     profile = PERSONA_PROFILES[persona]
-
-    axis = raw.get("organizing_axis", profile["axis"])
-    if axis not in AXES:
-        raise ValueError(f"unknown organizing axis: {axis!r}")
-
-    name = _clean_text(raw["name"], "name", max_length=MAX_NAME_LENGTH)
-    storytelling = _clean_text(raw["storytelling"], "storytelling", max_length=MAX_TEXT_LENGTH)
-    topic_outline = _clean_list(raw["topic_outline"], "topic_outline")
-    if not topic_outline:
-        raise ValueError("topic_outline cannot be empty")
-    focus_topics = _clean_list(raw.get("focus_topics"), "focus_topics")
-    general_areas = _clean_list(raw.get("general_areas"), "general_areas")
+    axis = data.organizing_axis or profile["axis"]
 
     captured_at = (
         datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
@@ -178,15 +166,15 @@ def normalize(raw: dict) -> dict:
     return {
         "version": 1,
         "captured_at": captured_at,
-        "name": name,
+        "name": data.name,
         "persona": persona,
         "organizing_axis": axis,
         "depth_default": profile["depth_default"],
         "section_labels": dict(profile["section_labels"]),
-        "topic_outline": topic_outline,
-        "focus_topics": focus_topics,
-        "general_areas": general_areas,
-        "storytelling": storytelling,
+        "topic_outline": data.topic_outline,
+        "focus_topics": data.focus_topics,
+        "general_areas": data.general_areas,
+        "storytelling": data.storytelling,
     }
 
 
