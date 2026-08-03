@@ -88,7 +88,10 @@ try {
   // Read the free catalog first and buy the first advertised publication —
   // ids are opaque tokens, so paying against a guessed id would just bill a
   // not-found. Never spend against an empty catalog.
-  const discover = await client.callTool({ name: "discover", arguments: {} });
+  // withX402Client mutates `client` in place, so callTool is already the
+  // 4-arg payment-wrapped version here too — null picks the default callback,
+  // same as the paid call below, even though discover itself is free.
+  const discover = await client.callTool(null, { name: "discover", arguments: {} });
   const catalog = JSON.parse((discover.content as { text: string }[])[0].text);
   const first = (Object.values(catalog.topics as Record<string, { id: string; teaser: string }[]>)
     .flat())[0];
