@@ -33,6 +33,32 @@ lore node deploy --wallet 0x… # deploy at the configured price; rerun after pr
 lore blueprint show            # see the shape of your lore, once captured
 ```
 
+### Agent plugins
+
+The installer already copies Lore's owner-facing skills into Claude and Codex. To
+install the same workflows as a marketplace plugin instead, install Lore with the
+command above, then add this repository's marketplace.
+
+Claude Code:
+
+```text
+/plugin marketplace add dipakkrishnan/lore-mcp
+/plugin install lore@lore-marketplace
+/reload-plugins
+```
+
+Codex CLI:
+
+```sh
+codex plugin marketplace add dipakkrishnan/lore-mcp
+codex plugin add lore@lore-marketplace
+```
+
+Restart the Codex app to browse Lore in its Plugins directory, or start a new
+Claude or Codex session after installation. The plugin packages only the four
+owner workflows; repository-maintenance skills are not included. The `lore`
+command remains the local, owner-controlled runtime.
+
 Set `LORE_HOME` to use a location other than `~/.lore`. Lore also respects
 `CODEX_HOME` and `CLAUDE_HOME` when discovering agent data.
 
@@ -67,7 +93,7 @@ edits SQLite directly or sends private captures to the paid MCP surface.
 
 ## Guided onboarding
 
-The `lore-onboard` skill (`skills/lore-onboard/SKILL.md`) runs the whole first-time setup
+The `lore-onboard` skill (`plugins/lore/skills/lore-onboard/SKILL.md`) runs the whole first-time setup
 as one conversation inside a Claude or Codex session, in two phases:
 
 1. **Persona interview → blueprint.** Pick an archetype — Storyteller, elementary
@@ -81,7 +107,7 @@ as one conversation inside a Claude or Codex session, in two phases:
    from phase 1 steers where it reads deeply. Captured with `lore profile`.
 
 When you are ready to charge for publications, the `lore-enable-payments` skill
-(`skills/lore-enable-payments/SKILL.md`) walks you from a self-custody payout address
+(`plugins/lore/skills/lore-enable-payments/SKILL.md`) walks you from a self-custody payout address
 to a deployed node and a proven test-network payment — with free as a first-class
 place to stop.
 
