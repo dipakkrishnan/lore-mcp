@@ -19,6 +19,7 @@ from lore import deploy as deploy_module
 from lore.cli import (
     blueprint_apply,
     blueprint_show,
+    capture_apply,
     manual,
     parser,
     price,
@@ -335,6 +336,62 @@ class LoreTest(unittest.TestCase):
                 self.assertNotIn(f"--status {status}", prompt)
             else:
                 self.assertIn(f"search --status {status} --limit 0 --json", prompt)
+
+    def test_capture_apply_saves_private_memories_and_deduplicates(self) -> None:
+        payload = [
+            {
+                "title": "Hire management\nbefore rapid growth",
+                "content": "Add the management layer.\r\nBefore hiring\tthe next ten engineers.",
+                "project": "team scaling",
+            }
+        ]
+        first = StringIO()
+        with patch("sys.stdin", StringIO(json.dumps(payload))), redirect_stdout(first):
+            self.assertEqual(capture_apply("-"), 0)
+        saved = json.loads(first.getvalue())
+        self.assertEqual(saved[0]["status"], "added")
+
+        second = StringIO()
+        with patch("sys.stdin", StringIO(json.dumps(payload))), redirect_stdout(second):
+            self.assertEqual(capture_apply("-"), 0)
+        self.assertEqual(json.loads(second.getvalue())[0]["status"], "unchanged")
+
+        with Store() as store:
+            memories = store.search("management")
+        self.assertEqual(len(memories), 1)
+        self.assertIs(memories[0].status, Status.PRIVATE)
+        self.assertEqual(memories[0].source, "capture")
+        self.assertEqual(memories[0].origin, "attended")
+        self.assertEqual(memories[0].title, "Hire management before rapid growth")
+        self.assertEqual(
+            memories[0].content,
+            "Add the management layer.\nBefore hiring the next ten engineers.",
+        )
+        self.assertEqual(saved[0]["id"], memories[0].id)
+        self.assertEqual(self._discover()["publication_count"], 0)
+
+    def test_capture_apply_rejects_bad_entries_before_writing(self) -> None:
+        cases = [
+            ([], "at least 1 item"),
+            ([{"title": "", "content": "x"}], "at least 1 character"),
+            (
+                [
+                    {"title": "valid", "content": "must not be partially saved"},
+                    {"title": "", "content": "invalid second entry"},
+                ],
+                "at least 1 character",
+            ),
+            (
+                [{"title": "x", "content": "y", "status": "published"}],
+                "Extra inputs are not permitted",
+            ),
+        ]
+        for payload, message in cases:
+            with self.subTest(message=message), self.assertRaisesRegex(ValueError, message):
+                with patch("sys.stdin", StringIO(json.dumps(payload))):
+                    capture_apply("-")
+        with Store() as store:
+            self.assertEqual(store.counts()["private"], 0)
 
     def test_node_deploy_materializes_without_dev_artifacts(self) -> None:
         target = deploy_module.materialize(0.37)
