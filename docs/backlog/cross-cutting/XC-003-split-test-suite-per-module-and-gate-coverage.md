@@ -4,13 +4,13 @@ title: Split the test suite into per-module files and gate coverage at 90%
 priority: P2
 effort: L
 component: cross-cutting
-status: in-review
+status: ready
 related: [STO-001, XC-002]
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-07-29
-updated: 2026-07-29
+updated: 2026-08-03
 ---
 
 ## Problem
@@ -106,3 +106,9 @@ steps 1-2 now and steps 3-4 once `XC-002` settles.
 There is no CI in this repo (no `.github/workflows/`), so the gate as specified
 here is local-only. Wiring it into GitHub Actions is worth a separate item — an
 unenforced threshold decays.
+
+**Prioritization pass 2026-08-03:** `STO-001` and `XC-002` are `completed`, so
+the sequencing concern above no longer applies, and `XC-004` now exists to wire
+the gate into. Promoted `in-review` → `ready` at `P2` — unblocked and concrete,
+but `L` effort with no urgent trigger keeps it behind the `P1` items this pass
+promoted.

@@ -1,16 +1,16 @@
 ---
 id: MCP-002
 title: Keep one source of truth for the MCP tool surface
-priority: P2
-effort: M
+priority: P1
+effort: S
 component: mcp-server
-status: in-review
+status: ready
 related: [MON-003, MCP-001, XC-004, XC-008]
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-07-30
-updated: 2026-08-01
+updated: 2026-08-03
 ---
 
 ## Problem
@@ -32,16 +32,13 @@ content.
 
 ## Proposed approach
 
-Unclear which direction is right; needs a decision before implementation.
-
-The options are roughly: generate the Worker's tool declarations from a shared
-schema file that both sides read; or declare the tools once in the Python origin
-and have the Worker fetch and re-serve that declaration; or accept the
-duplication and add a test that fails when the two surfaces disagree.
-
-The third is the cheapest and may be sufficient — a contract test comparing tool
-names, required arguments, and argument bounds across both surfaces catches
-drift without building a code generator for two tools.
+Decided 2026-08-03 (see Notes): accept the duplication and add a contract test
+that fails when the two surfaces disagree, rather than a code generator or a
+fetch-and-re-serve scheme. Compare tool names, required arguments, and
+argument bounds across `lore/mcp.py`'s `TOOLS` list and
+`lore/node/src/index.ts`'s Zod schemas, and run the comparison as a CI job in
+`XC-004`'s workflow so drift fails a pull request rather than waiting for
+`XC-008`'s live suite to notice it against a buyer.
 
 ## Acceptance criteria
 
@@ -76,3 +73,8 @@ implementation", and the three options differ enough (codegen vs. fetch-and-
 re-serve vs. comparison test) that handing this to implementation as-is would be
 handing over the decision too. Pick one — the notes above argue for the
 comparison test — and it is `ready` immediately at roughly `S`.
+
+**Prioritization pass 2026-08-03:** made the decision the 2026-08-01 pass
+deferred — comparison test, per its own reasoning above (only option that's a
+CI job, not a build step). Corrected `effort` to `S` and promoted to `P1` /
+`ready`.

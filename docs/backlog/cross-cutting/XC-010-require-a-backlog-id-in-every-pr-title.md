@@ -1,10 +1,10 @@
 ---
 id: XC-010
 title: Require a backlog id in every pull request title
-priority: P2
+priority: P1
 effort: S
 component: cross-cutting
-status: in-review
+status: ready
 related: [XC-004, XC-007, XC-011]
 blockers: []
 dependencies: []
@@ -102,3 +102,8 @@ maintainer with a legitimate untitled hotfix has to rename the PR before merging
 which is cheap; making it advisory means it will be ignored, which is what the
 current 25% rate already demonstrates. The recommendation is required, with the
 allowlist wide enough that legitimate work always has a passing form.
+
+**Prioritization pass 2026-08-03:** promoted `in-review` → `ready` at `P1`.
+Unblocked, small effort, and the open questions above (allowlist form,
+required-vs-advisory) both carry a clear stated recommendation — handing this
+to implementation as-is means picking the recommendation, not inventing one.
