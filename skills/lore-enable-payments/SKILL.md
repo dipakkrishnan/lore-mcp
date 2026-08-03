@@ -68,7 +68,7 @@ Either answer runs the same steps in a different order.
 
 Before asking for anything, tell the owner everything this takes: a self-custody
 **payout address** on Base (public by design), a free-tier **Cloudflare account**
-(their login, never seen here), a **price** per answer in USD, and a throwaway
+(their login, never seen here), a **price** per publication in USD, and a throwaway
 **test buyer** that `npm run pay` creates and funds from a faucet. On the test
 network all of it is free — faucet funds are play money. Then say this once,
 plainly:
@@ -101,7 +101,8 @@ later reads.
 ## 4. Price
 
 Run `lore price 0.01` (or the owner's chosen amount — their call, `0.01` is the
-recommendation). `lore price 0` is free and a supported place to stop.
+recommendation). `lore price 0` is free and a supported place to stop; deploying
+the paid node requires a positive price.
 
 ## 5. Deploy the node
 
@@ -122,8 +123,9 @@ lore node deploy --wallet <payout-address>   # the public 0x address from step 3
 It stages the node at `~/.lore/node`, installs dependencies, creates the D1
 database, deploys, stores the payout address as the Worker's `LORE_WALLET` secret
 (Cloudflare's vault, not this machine), pushes the active publication set, and
-smoke-checks the live node with real MCP calls. It spends nothing. If a step
-fails it prints what to do next; `npx wrangler tail` streams live errors.
+smoke-checks the live node with real MCP calls. The staged Worker advertises and
+charges the configured price; rerun deploy after changing it. It spends nothing.
+If a step fails it prints what to do next; `npx wrangler tail` streams live errors.
 Rerunning is always safe — it is also the redeploy path.
 
 Deployed earlier? `lore status` shows the URL as `Node (last deploy):` — ask the

@@ -337,9 +337,12 @@ class LoreTest(unittest.TestCase):
                 self.assertIn(f"search --status {status} --limit 0 --json", prompt)
 
     def test_node_deploy_materializes_without_dev_artifacts(self) -> None:
-        target = deploy_module.materialize()
+        target = deploy_module.materialize(0.37)
         self.assertTrue((target / "src/index.ts").is_file())
         self.assertTrue((target / "scripts/pay.ts").is_file())
+        self.assertIn(
+            "export const PRICE_USD = 0.37;", (target / "src/price.ts").read_text()
+        )
         self.assertTrue((target / ".buyer.env.example").is_file())
         self.assertFalse((target / "node_modules").exists())
         self.assertFalse((target / ".buyer.env").exists())
@@ -352,12 +355,18 @@ class LoreTest(unittest.TestCase):
         config.write_text(
             config.read_text().replace("REPLACE_WITH_YOUR_D1_ID", "d1-id-owner-pasted")
         )
-        deploy_module.materialize()
+        deploy_module.materialize(0.42)
         self.assertEqual((target / ".buyer.env").read_text(), "BUYER_TEST_PRIVATE_KEY=untouched")
         self.assertIn('"database_id": "d1-id-owner-pasted"', config.read_text())
         self.assertNotIn("REPLACE_WITH_YOUR_D1_ID", config.read_text())
+        self.assertIn(
+            "export const PRICE_USD = 0.42;", (target / "src/price.ts").read_text()
+        )
 
     def test_node_deploy_drives_wrangler_and_records_the_url(self) -> None:
+        with Store() as store:
+            store.set_setting("price_usd", 0.37)
+
         def fake_run(args, **kwargs):
             stdout = ""
             if args[0].endswith("wrangler") and args[1] == "deploy":
@@ -389,6 +398,10 @@ class LoreTest(unittest.TestCase):
             '"database_id": "11111111-2222-3333-4444-555555555555"', config.read_text()
         )
         self.assertIn(("secret", "put", "LORE_WALLET"), wrangler_calls)
+        self.assertIn(
+            "export const PRICE_USD = 0.37;",
+            (config.parent / "src/price.ts").read_text(),
+        )
         # The first push creates the publications table before the smoke check.
         push.assert_called_once()
         self.assertIn(
@@ -402,6 +415,9 @@ class LoreTest(unittest.TestCase):
     def test_node_deploy_records_the_url_before_the_secret_put(self) -> None:
         # If `secret put` fails, the node is already live — the URL must have
         # been recorded so `lore status` can recover it.
+        with Store() as store:
+            store.set_setting("price_usd", 0.01)
+
         def fake_run(args, **kwargs):
             if args[1:] == ("secret", "put", "LORE_WALLET"):
                 return subprocess.CompletedProcess(args, 1, stdout="", stderr="vault down")
@@ -430,6 +446,7 @@ class LoreTest(unittest.TestCase):
         # route, not a dead node — the previously recorded URL must survive.
         with Store() as store:
             store.set_setting("node_url", "https://lore.example.workers.dev/mcp")
+            store.set_setting("price_usd", 0.01)
 
         def fake_run(args, **kwargs):
             stdout = ""
@@ -452,6 +469,9 @@ class LoreTest(unittest.TestCase):
     def test_node_deploy_finds_an_already_created_d1_database(self) -> None:
         # `d1 create` on a rerun says "already exists"; the id is then
         # recovered from `d1 list` instead of failing the deploy.
+        with Store() as store:
+            store.set_setting("price_usd", 0.01)
+
         def fake_run(args, **kwargs):
             if args[1:] == ("d1", "create", "lore-publications"):
                 return subprocess.CompletedProcess(
@@ -486,6 +506,37 @@ class LoreTest(unittest.TestCase):
             self.assertRaisesRegex(OSError, "nodejs.org"),
         ):
             deploy_module.deploy("0x" + "1" * 40)
+        with (
+            patch("lore.deploy.shutil.which", return_value="/usr/bin/npm"),
+            self.assertRaisesRegex(ValueError, "no publication price is set"),
+        ):
+            deploy_module.deploy("0x" + "1" * 40)
+
+    def test_node_deploy_tells_a_free_node_apart_from_an_unpriced_one(self) -> None:
+        # `lore price 0` is a supported final state; the refusal must not tell
+        # the owner to set a price they already deliberately set.
+        cases = (
+            (0, "stop here"),
+            (5e-7, "at least"),  # positive but renders as PRICE_USD = 0
+            ("bogus", "at least"),  # hand-edited settings, not reachable via CLI
+        )
+        for stored, message in cases:
+            with self.subTest(stored=stored):
+                with Store() as store:
+                    store.set_setting("price_usd", stored)
+                with (
+                    patch("lore.deploy.shutil.which", return_value="/usr/bin/npm"),
+                    self.assertRaisesRegex(ValueError, message),
+                ):
+                    deploy_module.deploy("0x" + "1" * 40)
+
+    def test_price_change_warns_that_the_deployed_node_still_charges_the_old_price(self) -> None:
+        with Store() as store:
+            store.set_setting("node_url", "https://lore.example.workers.dev/mcp")
+        output = StringIO()
+        with redirect_stdout(output):
+            price(0.50)
+        self.assertIn("still charges its old price", output.getvalue())
 
     def test_synthesis_index_is_not_imported_as_memory(self) -> None:
         root = Path(os.environ["LORE_HOME"]) / "memories"

@@ -28,7 +28,7 @@ lore review launch --status private  # revisit a prior decision
 lore search "failed launch"   # SQLite full-text recall
 lore price 0.50               # advertise a fixed per-publication price
 lore status
-lore node deploy --wallet 0x… # deploy your node to your own Cloudflare account
+lore node deploy --wallet 0x… # deploy at the configured price; rerun after price changes
 lore blueprint show            # see the shape of your lore, once captured
 ```
 

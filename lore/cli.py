@@ -353,7 +353,12 @@ def price(amount: float | None) -> int:
         if not math.isfinite(amount) or amount < 0:
             raise ValueError("price must be a finite, non-negative number")
         store.set_setting("price_usd", round(amount, 6))
+        node_url = store.setting("node_url", None)
     success("Publications are free" if amount == 0 else f"Publication price set to ${amount:.2f}")
+    if node_url:
+        # The deployed Worker charges the price baked in at deploy time; a
+        # saved setting proves nothing about what the live node charges.
+        muted("Your deployed node still charges its old price until `lore node deploy` reruns.")
     return 0
 
 
