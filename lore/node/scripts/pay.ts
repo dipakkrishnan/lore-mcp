@@ -111,7 +111,10 @@ try {
   // Read the free catalog first and buy the first advertised publication —
   // ids are opaque tokens, so paying against a guessed id would just bill a
   // not-found. Never spend against an empty catalog.
-  const discover = await client.callTool({ name: "discover", arguments: {} });
+  // withX402Client mutates `client` in place, so even the free discover call
+  // must go through the payment-wrapped signature — null picks the default
+  // approval callback, and a free tool never triggers it.
+  const discover = await paidClient.callTool(null, { name: "discover", arguments: {} });
   const first = catalogEntries((discover.content as { text: string }[])[0].text)[0];
   if (!first) {
     console.error("The catalog is empty — approve a publication and `lore push` before paying.");
