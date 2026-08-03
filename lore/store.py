@@ -9,7 +9,7 @@ from datetime import datetime, timezone
 from enum import Enum
 from pathlib import Path
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field, StrictInt
 
 from .paths import database
 
@@ -69,6 +69,21 @@ class PublicationKind(str, Enum):
 
     def __str__(self) -> str:
         return self.value
+
+
+class PublicationInput(BaseModel):
+    """Validated publication fields before database-backed provenance checks."""
+
+    model_config = ConfigDict(
+        extra="forbid", frozen=True, str_strip_whitespace=True
+    )
+
+    title: str = Field(min_length=1)
+    content: str = Field(min_length=1)
+    kind: PublicationKind = PublicationKind.CLAIM
+    topic: str = Field(min_length=1)
+    teaser: str = ""
+    provenance: list[StrictInt] = Field(min_length=1)
 
 
 class Publication(BaseModel):
@@ -388,24 +403,32 @@ class Store:
         publication without one is never rendered in the manifest, so nothing
         reaches the free surface that wasn't written as an advertisement.
         """
-        kind = PublicationKind(kind)  # rejects unknown kinds
-        if not all(isinstance(value, str) and value.strip() for value in (title, content, topic)):
-            raise ValueError("publication title, content, and topic cannot be empty")
-        if not isinstance(teaser, str):
-            raise ValueError("publication teaser must be a string")
-        if not isinstance(provenance, list) or not provenance or not all(
-            isinstance(i, int) and not isinstance(i, bool) for i in provenance
-        ):
-            raise ValueError("publication provenance must be a non-empty list of memory ids")
-        missing = self.missing_memories(provenance)
+        publication = PublicationInput(
+            title=title,
+            content=content,
+            kind=kind,
+            topic=topic,
+            teaser=teaser,
+            provenance=provenance,
+        )
+        missing = self.missing_memories(publication.provenance)
         if missing:
             raise ValueError(f"publication provenance references unknown memories: {missing}")
         now = datetime.now(timezone.utc).isoformat()
         cursor = self.db.execute(
             """INSERT INTO publications(public_id,title,content,kind,topic,teaser,provenance,active,created_at,updated_at)
                VALUES (?,?,?,?,?,?,?,1,?,?)""",
-            (new_public_id(), title.strip(), content.strip(), kind.value, topic.strip(),
-             teaser.strip(), json.dumps(provenance), now, now),
+            (
+                new_public_id(),
+                publication.title,
+                publication.content,
+                publication.kind.value,
+                publication.topic,
+                publication.teaser,
+                json.dumps(publication.provenance),
+                now,
+                now,
+            ),
         )
         self.db.commit()
         return int(cursor.lastrowid)

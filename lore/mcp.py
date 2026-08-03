@@ -19,10 +19,25 @@ import sys
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
 
+from pydantic import BaseModel, ConfigDict, Field
+
 from . import __version__
 from .store import Store
 
 PROTOCOL_VERSION = "2025-11-25"
+
+
+class DiscoverArguments(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+
+class GetArguments(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid", frozen=True, str_strip_whitespace=True
+    )
+
+    id: str = Field(min_length=1)
+
 
 TOOLS = [
     {
@@ -33,7 +48,7 @@ TOOLS = [
             "teasers grouped by topic, with ids, freshness, and price. Free. "
             "Choose zero, one, multiple, or all ids; call get once per chosen id."
         ),
-        "inputSchema": {"type": "object", "properties": {}, "additionalProperties": False},
+        "inputSchema": DiscoverArguments.model_json_schema(),
         "annotations": {"readOnlyHint": True, "openWorldHint": False},
     },
     {
@@ -45,12 +60,7 @@ TOOLS = [
             "rejected before payment; use a current catalog because payment settles "
             "before lookup and a just-revoked id can still be billed."
         ),
-        "inputSchema": {
-            "type": "object",
-            "properties": {"id": {"type": "string", "minLength": 1}},
-            "required": ["id"],
-            "additionalProperties": False,
-        },
+        "inputSchema": GetArguments.model_json_schema(),
         "annotations": {"readOnlyHint": True, "openWorldHint": False},
     },
 ]
@@ -106,12 +116,11 @@ def call_tool(name: object, arguments: object) -> dict[str, Any]:
     """Run a Lore MCP tool against owner-approved publications only."""
     if name not in {"discover", "get"}:
         raise ValueError(f"unknown tool: {name}")
-    if not isinstance(arguments, dict):
-        raise TypeError("arguments must be an object")
-    allowed = {"id"} if name == "get" else set()
-    unexpected = arguments.keys() - allowed
-    if unexpected:
-        raise ValueError(f"unexpected argument: {sorted(unexpected)[0]}")
+    parsed = (
+        GetArguments.model_validate(arguments)
+        if name == "get"
+        else DiscoverArguments.model_validate(arguments)
+    )
     with Store() as store:
         if name == "discover":
             # The free surface is the manifest: what exists, never what it says.
@@ -120,10 +129,7 @@ def call_tool(name: object, arguments: object) -> dict[str, Any]:
                 "disclosure": "Choose any advertised ids; get buys one publication per call.",
             }
         elif name == "get":
-            public_id = arguments.get("id")
-            if not isinstance(public_id, str) or not public_id.strip():
-                raise ValueError("id must be a publication id from the discover catalog")
-            publication = store.get_publication(public_id.strip())
+            publication = store.get_publication(parsed.id)
             payload = {
                 "publication": {
                     "id": publication.public_id,
