@@ -4,7 +4,7 @@ title: Gate pull requests on a lint and format check
 priority: P1
 effort: S
 component: cross-cutting
-status: ready
+status: completed
 related: [XC-003, XC-004]
 blockers: []
 dependencies: []
@@ -54,15 +54,15 @@ cost more than it saves.
 
 ## Acceptance criteria
 
-- [ ] `ruff check` and `ruff format --check` pass over `lore/` and `tests/`, and
+- [x] `ruff check` and `ruff format --check` pass over `lore/` and `tests/`, and
       the rule set is configured in `pyproject.toml` rather than passed on the
       command line
-- [ ] `npm run lint` in `lore/node/` passes with `no-floating-promises` enabled and
+- [x] `npm run lint` in `lore/node/` passes with `no-floating-promises` enabled and
       type-aware linting turned on
-- [ ] A pull request introducing a lint violation on either side fails CI
-- [ ] Both commands are named in the README's development section, so local and
+- [x] A pull request introducing a lint violation on either side fails CI
+- [x] Both commands are named in the README's development section, so local and
       CI checks cannot drift (same requirement `XC-004` sets for its jobs)
-- [ ] No violations are silenced by a baseline/ignore file; anything genuinely
+- [x] No violations are silenced by a baseline/ignore file; anything genuinely
       not worth fixing is disabled as a named rule with a reason
 
 ## Notes
@@ -97,3 +97,17 @@ Renumbered from `XC-007` to `XC-012` on 2026-08-03: open PR #47 filed its own
 this rides along after now exists, and `MON-010` (the payment rail this was
 filed behind) is also `completed`. Promoted `in-review` → `ready` at `P1` —
 both the sequencing reasons to hold this at `P2` no longer apply.
+
+## Implementation notes (2026-08-03)
+
+Added Ruff as the `dev` extra, with the default rules plus import sorting and
+bugbear. Existing Python code is formatted and fixed rather than suppressed.
+The Worker uses ESLint's type-aware TypeScript configuration, explicitly
+enabling the floating- and misused-promise rules. Its only named exception is
+`require-await`: Cloudflare's `McpAgent` contract requires an async `init` even
+though tool registration is synchronous.
+
+Rebased on the merged PR #67 and corrected its new Worker test files so the
+expanded lint gate covers the Vitest suite. The CI workflow reports the Ruff
+and Worker lint stages separately from unit, compiler, component, and smoke
+tests, so a failing stage is immediately visible in a pull request.

@@ -18,4 +18,3 @@ def codex_home() -> Path:
 
 def claude_home() -> Path:
     return Path(os.environ.get("CLAUDE_HOME", "~/.claude")).expanduser()
-

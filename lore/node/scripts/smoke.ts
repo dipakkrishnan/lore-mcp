@@ -8,6 +8,10 @@ import assert from "node:assert/strict";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
 const endpoint = process.argv[2] ?? "http://localhost:8787/mcp";
 const client = new Client({ name: "lore-canary-smoke", version: "0.1.0" });
 await client.connect(
@@ -31,12 +35,15 @@ try {
   assert.equal(discover.isError, undefined);
   // The manifest must advertise without disclosing: teasers and topics are the
   // only text, and the payload shape matches the stdio server's discover.
-  const payload = JSON.parse((discover.content as { text: string }[])[0].text);
+  const payload: unknown = JSON.parse((discover.content as { text: string }[])[0].text);
+  assert.ok(isRecord(payload));
   assert.equal(payload.manifest_version, 1);
   assert.ok(typeof payload.publication_count === "number");
-  assert.ok(payload.topics && typeof payload.topics === "object");
-  for (const entries of Object.values(payload.topics as Record<string, object[]>)) {
+  assert.ok(isRecord(payload.topics));
+  for (const entries of Object.values(payload.topics)) {
+    assert.ok(Array.isArray(entries));
     for (const entry of entries) {
+      assert.ok(isRecord(entry));
       assert.deepEqual(
         Object.keys(entry).sort(),
         ["id", "kind", "teaser", "updated_at"]

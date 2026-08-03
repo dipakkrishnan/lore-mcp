@@ -66,7 +66,7 @@ export function mockFacilitator(options: MockFacilitatorOptions = {}) {
   let settleCalls = 0;
 
   return vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
-    const request = new Request(input as RequestInfo, init);
+    const request = new Request(input, init);
     const url = new URL(request.url);
     if (url.origin !== new URL(FACILITATOR_URL).origin) {
       throw new Error(`unexpected outbound fetch during test: ${request.method} ${url}`);
