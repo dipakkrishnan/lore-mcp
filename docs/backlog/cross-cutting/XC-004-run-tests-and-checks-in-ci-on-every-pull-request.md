@@ -5,7 +5,7 @@ priority: P1
 effort: S
 component: cross-cutting
 status: ready
-related: [XC-003, XC-007, XC-008, MON-010, MCP-002]
+related: [XC-003, XC-012, XC-008, MON-010, MCP-002]
 blockers: []
 dependencies: []
 github_issue: null
@@ -38,17 +38,22 @@ than a floor.
 
 ## Proposed approach
 
-One workflow (`.github/workflows/ci.yml`) triggered on `pull_request` and pushes
-to `main`, with two independent jobs:
+Extend the existing `.github/workflows/tests.yml` — do not add a second workflow.
+It already triggers on `pull_request` and pushes to `main` and already carries
+the python job; what it lacks is a second job:
 
-1. **python** — `astral-sh/setup-uv`, `uv sync`, `uv run python -m unittest
-   discover -s tests`. Once `XC-003` lands, this is also where its per-file
-   coverage check hangs.
-2. **worker** — `npm ci` in `lore/node/`, then `npx tsc --noEmit`, then the smoke
+1. **python** — shipped in PR #50 as `uv run python -m unittest discover -s
+   tests -v`. Once `XC-003` lands, this is also where its per-file coverage check
+   hangs.
+2. **node** — `npm ci` in `lore/node/`, then `npx tsc --noEmit`, then the smoke
    test. The smoke job needs a `.dev.vars` containing a placeholder
    `LORE_WALLET` (any syntactically valid EVM address): it is what `wrangler
    types` reads to declare the binding, and the Worker refuses to construct
    without it. Use a burn address, never a real one.
+
+This item originally proposed creating `.github/workflows/ci.yml`. That was
+written before PR #50 shipped, and following it now would produce two workflows
+running overlapping checks on the same events.
 
 Deliberately out of scope: deploying anything, and any job that needs
 Cloudflare or CDP credentials. CI should prove the code builds and the free
@@ -83,7 +88,7 @@ covers three of them. The rest are separate items:
 | Tier | Covered by | Runs on |
 |---|---|---|
 | 1. Compile | this item (`tsc --noEmit`) | every PR |
-| 2. Lint | `XC-007` — no linter exists in the repo yet | every PR |
+| 2. Lint | `XC-012` — no linter exists in the repo yet | every PR |
 | 3. Unit | this item; `XC-003` adds the coverage gate | every PR |
 | 4. Contract | `MCP-002`'s drift check between the two MCP surfaces | every PR |
 | 5. Component | `MON-010` — Worker paid path vs. a mocked facilitator | every PR |
@@ -109,7 +114,7 @@ check hangs off.
 
 Revised 2026-08-03, back to `P1`: PR #50 landed the Python half, so the "no CI at
 all" urgency is spent. It stays `ready` and stays the pipeline root — the
-remaining scope still unblocks `XC-007`, `XC-009`, and `XC-008`, and still gives
+remaining scope still unblocks `XC-012`, `XC-009`, and `XC-008`, and still gives
 `MON-010`'s suite somewhere to run — but the most valuable half is already
 merged.
 
@@ -125,6 +130,6 @@ merged.
 
 Two notes for whoever finishes it. The shipped workflow is named `tests.yml`
 rather than the `ci.yml` this item proposed — keep the existing name and add jobs
-to it rather than introducing a second file, since `XC-007`, `XC-009`, and
+to it rather than introducing a second file, since `XC-012`, `XC-009`, and
 `MON-010` all expect one place to hang off. And it runs `uv run python -m
 unittest discover -s tests -v` directly, without a separate `uv sync` step.

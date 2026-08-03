@@ -5,9 +5,9 @@ priority: P2
 effort: M
 component: cross-cutting
 status: in-review
-related: [XC-004, XC-007, MON-002, MON-010, MON-008, MCP-002]
-blockers: [XC-004, MON-008]
-dependencies: ["Base Sepolia buyer wallet with a monitored faucet balance", "GitHub repository secrets for the buyer key"]
+related: [XC-004, XC-012, MON-002, MON-010, MON-008, MCP-002]
+blockers: [MON-008]
+dependencies: ["Base Sepolia buyer wallet with a monitored faucet balance", "A protected GitHub Environment holding the buyer key — not a repository secret"]
 github_issue: null
 created: 2026-08-01
 updated: 2026-08-03
@@ -56,8 +56,14 @@ teach people to ignore a red build.
 
 - [ ] A scheduled and merge-triggered job completes a real Base Sepolia payment
       against the QA deployment and asserts the receipt and the served content
-- [ ] The job never runs on pull requests or forks, and the buyer key is a
-      repository secret that no other job can read
+- [ ] The job never runs on pull requests or forks, and never uses the
+      `pull_request_target` trigger, which is the one event that would hand the
+      buyer key to fork-authored code
+- [ ] The buyer key lives in a GitHub **Environment** secret with protection
+      rules, not a repository secret — repository secrets are readable by every
+      workflow in the repo, which is the exposure this is meant to close
+- [ ] Third-party actions in the credentialed job are pinned to a full commit
+      SHA rather than a tag
 - [ ] An exhausted or unfunded buyer wallet fails the run with a message naming
       funding as the cause, distinct from an assertion failure
 - [ ] A run is bounded to a known maximum number of paid calls, with the existing
@@ -69,10 +75,21 @@ teach people to ignore a red build.
 
 ## Notes
 
+Blocked on `MON-008` only — without a standing QA deployment there is nothing to
+run against. `XC-004` is sequencing rather than a blocker: this suite lives in
+its own credentialed workflow, so it does not wait on the PR jobs, though it is
+worth far less before the cheaper tiers exist to catch things first.
+
 This is the sixth and last tier of the CI pipeline sketched in `XC-004`'s notes:
 compile, lint, unit, contract, component, live. Each tier below it exists so this
 one can stay small — by the time a change reaches here, the only untested things
 left should be the facilitator, the chain, and the deployment itself.
+
+The buyer key is a hot self-custody key living in CI. Even on a testnet, decide
+its rotation story when this is built — who can rotate it, and what happens to a
+run in flight when they do — rather than discovering there isn't one. It is the
+first standing credential in the repository and sets the pattern the mainnet
+work (`MON-005`) will inherit.
 
 Flake policy matters more than coverage here. Third-party testnet infrastructure
 will have bad days. Decide up front whether a live failure blocks a release or

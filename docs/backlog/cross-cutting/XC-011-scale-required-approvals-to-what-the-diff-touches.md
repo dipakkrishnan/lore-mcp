@@ -5,7 +5,7 @@ priority: P2
 effort: M
 component: cross-cutting
 status: in-review
-related: [XC-004, XC-007, XC-009, XC-010]
+related: [XC-004, XC-012, XC-009, XC-010]
 blockers: []
 dependencies: ["Repository admin access to configure branch protection or a ruleset — the current backlog author has push but not admin"]
 github_issue: null
@@ -26,7 +26,7 @@ rather than by decision, which means it is not recorded anywhere and cannot be
 selectively tightened.
 
 That matters most for one path. CI is the mechanism that enforces every other
-gate in this pipeline: the test tiers `XC-004` hangs, the lint gate `XC-007`
+gate in this pipeline: the test tiers `XC-004` hangs, the lint gate `XC-012`
 adds, the type check `XC-009` adds, the title check `XC-010` adds. A pull
 request that edits or deletes a workflow can disable all of them, and it is the
 one class of change where an unreviewed merge removes the safety net itself
@@ -99,7 +99,7 @@ insufficiently-permissioned read returns — the empty ruleset list and absent
 `CODEOWNERS` are the stronger evidence, and an admin should confirm from
 settings before assuming `main` is entirely unprotected.
 
-Sequencing against the rest of the pipeline: this is worth more after `XC-007`,
+Sequencing against the rest of the pipeline: this is worth more after `XC-012`,
 `XC-009`, and `XC-010` land, because each one adds another gate that a workflow
 edit could remove. It is not blocked by them — the rule protects
 `.github/workflows/tests.yml`, which already exists.

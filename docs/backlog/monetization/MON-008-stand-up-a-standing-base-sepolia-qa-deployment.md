@@ -7,7 +7,7 @@ component: monetization
 status: in-review
 related: [MON-002, MON-003, MON-005, MON-006, MON-010, XC-008]
 blockers: [MON-002]
-dependencies: ["Cloudflare account with Workers and D1", "Base Sepolia wallet funded from the CDP faucet", "GitHub repository secrets for the deploy token"]
+dependencies: ["Cloudflare account with Workers and D1", "Base Sepolia wallet funded from the CDP faucet", "A protected GitHub Environment holding the deploy token — not a repository secret"]
 github_issue: null
 created: 2026-08-01
 updated: 2026-08-03
@@ -66,8 +66,12 @@ target exists, is reproducible, and is documented.
       `npm run smoke -- <qa-url>` passes against it
 - [ ] The QA recipient wallet and QA buyer wallet are distinct from each other
       and from any wallet used elsewhere, both on Base Sepolia only
-- [ ] The deploy credential is a scoped API token in repository secrets, is used
-      by no pull-request job, and cannot run on a fork
+- [ ] The deploy credential is a scoped API token in a protected GitHub
+      **Environment**, not a repository secret — the latter is readable by every
+      workflow in the repo, including any future one
+- [ ] The deploy job is used by no pull-request job, cannot run on a fork, and
+      never uses `pull_request_target`
+- [ ] Third-party actions in the deploy job are pinned to a full commit SHA
 - [ ] The node README says how to reach QA, what is in it, and that anything
       in it is disposable
 

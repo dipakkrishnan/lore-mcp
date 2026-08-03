@@ -1,12 +1,12 @@
 ---
-id: XC-007
+id: XC-012
 title: Gate pull requests on a lint and format check
 priority: P2
 effort: S
 component: cross-cutting
 status: in-review
 related: [XC-003, XC-004]
-blockers: [XC-004]
+blockers: []
 dependencies: []
 github_issue: null
 created: 2026-08-01
@@ -44,9 +44,9 @@ both off the workflow `XC-004` creates.
 2. **Worker** — `eslint` with `typescript-eslint`'s type-checked config, whose
    whole point here is `no-floating-promises` and `no-misused-promises`. Add it
    as `npm run lint` in `lore/node/package.json`, alongside the existing `check`.
-3. **CI** — a lint job in `.github/workflows/ci.yml` running both. It needs no
-   credentials, so it belongs in the same credential-free tier as `XC-004`'s
-   existing jobs.
+3. **CI** — a lint job in the existing `.github/workflows/tests.yml`, running
+   both. It needs no credentials, so it belongs in the same credential-free tier
+   as that workflow's existing job.
 
 Fix the existing violations in the same change rather than starting with a
 suppression file — the codebase is small enough that a baseline of ignores would
@@ -71,24 +71,24 @@ Sized `S` on the size of the tree: 115 lines of Worker TypeScript and nine
 Python modules. If the first `ruff check` run turns up a large fixable diff,
 land the formatter as its own commit so the rule-violation fixes stay reviewable.
 
-Blocked on `XC-004` only for the gating half — the configs and the two commands
-can be written and used locally before the workflow exists.
+Not blocked, though only half of it can be finished alone: the configs and the
+two commands can be written and used locally today, while the gate itself needs
+the workflow `XC-004` extends. `XC-009` and `MON-010` are unblocked on the same
+reasoning — the check can exist before anything runs it.
 
 Deliberately not in scope: type checking `lore/` with `mypy`. That is its own
-item — `XC-009`.
+item, `XC-009`, and it is `S` rather than a large job because `lore/` is already
+95-of-96 annotated — the annotations are simply unchecked. The split between the
+two items is about linting and type checking being separate tools with separate
+configuration, not about type checking being expensive.
 
-Correction (2026-08-01): this note originally justified that split by calling
-`lore/` "an untyped 1,951-line codebase". That was wrong. 95 of its 96 functions
-are fully annotated; the annotations are simply unchecked. `XC-009` is therefore
-`S`, not the large job implied here, and the split stands only because linting
-and type checking are separate tools with separate configuration — not because
-type checking is expensive.
+Filed at `P2` rather than `P1`. The tree is small — 115 lines of node TypeScript,
+ten Python modules — and no lint-class defect has actually been observed in it,
+so the payoff is "stop accumulating" rather than "fix something broken", which
+does not outrank proving the payment rail (`MON-010`). It stays cheap and worth
+doing; it just rides along after `XC-004` rather than ahead of behavioural work.
+`no-floating-promises` on the settlement path is the one rule here that is
+defect-prevention rather than hygiene.
 
-Prioritization pass 2026-08-01 lowered this from `P1` to `P2`, correcting the
-priority it was filed at the same day. The tree is small (115 lines of Worker
-TypeScript, nine Python modules) and no lint-class defect has actually been
-observed in it, so the payoff is "stop accumulating" rather than "fix something
-broken" — which does not outrank proving the payment rail (`MON-002`, `MON-010`).
-It stays cheap and worth doing; it just rides along after `XC-004` rather than
-ahead of behavioural work. `no-floating-promises` on the settlement path is the
-one rule here that is defect-prevention rather than hygiene.
+Renumbered from `XC-007` to `XC-012` on 2026-08-03: open PR #47 filed its own
+`XC-007` on 2026-07-31, a day before this one, and has the better claim.

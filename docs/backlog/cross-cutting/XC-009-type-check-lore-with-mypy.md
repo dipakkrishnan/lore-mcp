@@ -5,8 +5,8 @@ priority: P2
 effort: S
 component: cross-cutting
 status: in-review
-related: [XC-003, XC-004, XC-007]
-blockers: [XC-004]
+related: [XC-003, XC-004, XC-012]
+blockers: []
 dependencies: []
 github_issue: null
 created: 2026-08-01
@@ -47,7 +47,7 @@ arrived with the node-deploy work and brought a new one with it.
 ## Proposed approach
 
 1. Add `mypy` to the `dev` optional-dependency group in `pyproject.toml` — the
-   same group `XC-003` introduces for `pytest`/`coverage` and `XC-007` uses for
+   same group `XC-003` introduces for `pytest`/`coverage` and `XC-012` uses for
    `ruff`.
 2. Configure `[tool.mypy]` in `pyproject.toml` against `lore/` only. Start
    strict enough to be worth having (`warn_unused_ignores`,
@@ -78,14 +78,13 @@ tends to produce a large, low-value diff. Revisit once `XC-003` has reshaped it.
 
 ## Notes
 
-Filed 2026-08-01 from a prioritization-pass finding, and it corrects a claim
-made the same day in `XC-007`'s notes: that item described `lore/` as "an
-untyped 1,951-line codebase" and scoped type checking out as a large separate
-job. That was wrong — the annotations are already there. This is `S`, not the
-`L`-shaped effort that phrasing implied. `XC-007`'s note has been amended.
+Filed 2026-08-01 from a prioritization-pass finding. It is `S` rather than the
+`L`-shaped job that "add a type checker" usually implies, because the annotations
+already exist across `lore/` — only the checking is missing.
 
-Blocked on `XC-004` for the gating half only, like `XC-007` — the config and the
-command can land and be run locally before the workflow exists.
+Not blocked, on the same reasoning as `XC-012` and `MON-010`: the config and the
+command can land and be run locally before the workflow that gates them exists.
+`XC-004` is where the gate hangs.
 
 The `store.py:411` finding is the one worth a second look during
 implementation. `cursor.lastrowid` is typed `int | None`, and the code assumes
