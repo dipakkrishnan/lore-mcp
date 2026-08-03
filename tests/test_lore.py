@@ -19,6 +19,7 @@ from lore import deploy as deploy_module
 from lore.cli import (
     blueprint_apply,
     blueprint_show,
+    capture_apply,
     main,
     manual,
     parser,
@@ -353,10 +354,119 @@ class LoreTest(unittest.TestCase):
             else:
                 self.assertIn(f"search --status {status} --limit 0 --json", prompt)
 
+    def test_capture_apply_saves_private_memories_and_deduplicates(self) -> None:
+        payload = [
+            {
+                "title": "Hire management\nbefore rapid growth",
+                "content": "Add the management layer.\r\nBefore hiring\tthe next ten engineers.",
+                "project": "team scaling",
+                "source_path": "field-notes.pdf#page=8",
+            },
+            {
+                "title": "Voice-only observation",
+                "content": "Spoken directly in the attended agent session.",
+                "project": "general",
+            },
+        ]
+        first = StringIO()
+        with patch("sys.stdin", StringIO(json.dumps(payload))), redirect_stdout(first):
+            self.assertEqual(capture_apply("-"), 0)
+        saved = json.loads(first.getvalue())
+        self.assertEqual(saved[0]["status"], "added")
+
+        second = StringIO()
+        with patch("sys.stdin", StringIO(json.dumps(payload))), redirect_stdout(second):
+            self.assertEqual(capture_apply("-"), 0)
+        self.assertEqual(json.loads(second.getvalue())[0]["status"], "unchanged")
+
+        with Store() as store:
+            memories = store.search("management")
+            spoken = store.search("spoken")
+        self.assertEqual(len(memories), 1)
+        self.assertIs(memories[0].status, Status.PRIVATE)
+        self.assertEqual(memories[0].source, "capture")
+        self.assertEqual(memories[0].origin, "attended")
+        self.assertEqual(memories[0].source_path, "field-notes.pdf#page=8")
+        self.assertEqual(memories[0].title, "Hire management before rapid growth")
+        self.assertEqual(
+            memories[0].content,
+            "Add the management layer.\nBefore hiring the next ten engineers.",
+        )
+        self.assertEqual(saved[0]["id"], memories[0].id)
+        self.assertEqual(spoken[0].source_path, "agent-session")
+        self.assertEqual(saved[1]["id"], spoken[0].id)
+        self.assertEqual(self._discover()["publication_count"], 0)
+
+    def test_correcting_a_locator_updates_the_memory_instead_of_duplicating_it(self) -> None:
+        # The skill's correction loop re-applies the same approved text with a
+        # fixed source_path; that must be an update to one row, not a sibling.
+        entry = {
+            "title": "Hire management before rapid growth",
+            "content": "Add the management layer first.",
+            "source_path": "field-notes.pdf",
+        }
+
+        def apply(payload):
+            output = StringIO()
+            with patch("sys.stdin", StringIO(json.dumps(payload))), redirect_stdout(output):
+                self.assertEqual(capture_apply("-"), 0)
+            return json.loads(output.getvalue())[0]
+
+        first = apply([entry])
+        corrected = apply([{**entry, "source_path": "field-notes.pdf#page=8"}])
+        replay = apply([{**entry, "source_path": "field-notes.pdf#page=8"}])
+
+        self.assertEqual(first["status"], "added")
+        self.assertEqual(corrected["status"], "updated")
+        self.assertEqual(replay["status"], "unchanged")
+        self.assertEqual(corrected["id"], first["id"])
+        with Store() as store:
+            memories = store.search("management")
+        self.assertEqual(len(memories), 1)
+        self.assertEqual(memories[0].source_path, "field-notes.pdf#page=8")
+
+    def test_memory_card_shows_a_file_locator_but_not_the_session_sentinel(self) -> None:
+        base = dict(
+            id=1, source="capture", origin="attended", title="t", content="c",
+            project="", status="private", updated_at="now",
+        )
+        for source_path, visible in (("field-notes.pdf#page=8", True), ("agent-session", False)):
+            output = StringIO()
+            with redirect_stdout(output):
+                memory_card(Memory(source_path=source_path, **base))
+            self.assertEqual(source_path in output.getvalue(), visible)
+
+    def test_capture_apply_rejects_bad_entries_before_writing(self) -> None:
+        cases = [
+            ([], "at least 1 item"),
+            ([{"title": "", "content": "x"}], "at least 1 character"),
+            ([{"title": "x", "content": "y", "source_path": ""}], "at least 1 character"),
+            (
+                [
+                    {"title": "valid", "content": "must not be partially saved"},
+                    {"title": "", "content": "invalid second entry"},
+                ],
+                "at least 1 character",
+            ),
+            (
+                [{"title": "x", "content": "y", "status": "published"}],
+                "Extra inputs are not permitted",
+            ),
+        ]
+        for payload, message in cases:
+            with self.subTest(message=message), self.assertRaisesRegex(ValueError, message):
+                with patch("sys.stdin", StringIO(json.dumps(payload))):
+                    capture_apply("-")
+        with Store() as store:
+            self.assertEqual(store.counts()["private"], 0)
+
     def test_node_deploy_materializes_without_dev_artifacts(self) -> None:
-        target = deploy_module.materialize()
+        target = deploy_module.materialize(0.37)
         self.assertTrue((target / "src/index.ts").is_file())
         self.assertTrue((target / "scripts/pay.ts").is_file())
+        self.assertIn(
+            "export const PRICE_USD = 0.37;", (target / "src/price.ts").read_text()
+        )
         self.assertTrue((target / ".buyer.env.example").is_file())
         self.assertFalse((target / "node_modules").exists())
         self.assertFalse((target / ".buyer.env").exists())
@@ -369,12 +479,18 @@ class LoreTest(unittest.TestCase):
         config.write_text(
             config.read_text().replace("REPLACE_WITH_YOUR_D1_ID", "d1-id-owner-pasted")
         )
-        deploy_module.materialize()
+        deploy_module.materialize(0.42)
         self.assertEqual((target / ".buyer.env").read_text(), "BUYER_TEST_PRIVATE_KEY=untouched")
         self.assertIn('"database_id": "d1-id-owner-pasted"', config.read_text())
         self.assertNotIn("REPLACE_WITH_YOUR_D1_ID", config.read_text())
+        self.assertIn(
+            "export const PRICE_USD = 0.42;", (target / "src/price.ts").read_text()
+        )
 
     def test_node_deploy_drives_wrangler_and_records_the_url(self) -> None:
+        with Store() as store:
+            store.set_setting("price_usd", 0.37)
+
         def fake_run(args, **kwargs):
             stdout = ""
             if args[0].endswith("wrangler") and args[1] == "deploy":
@@ -406,6 +522,10 @@ class LoreTest(unittest.TestCase):
             '"database_id": "11111111-2222-3333-4444-555555555555"', config.read_text()
         )
         self.assertIn(("secret", "put", "LORE_WALLET"), wrangler_calls)
+        self.assertIn(
+            "export const PRICE_USD = 0.37;",
+            (config.parent / "src/price.ts").read_text(),
+        )
         # The first push creates the publications table before the smoke check.
         push.assert_called_once()
         self.assertIn(
@@ -419,6 +539,9 @@ class LoreTest(unittest.TestCase):
     def test_node_deploy_records_the_url_before_the_secret_put(self) -> None:
         # If `secret put` fails, the node is already live — the URL must have
         # been recorded so `lore status` can recover it.
+        with Store() as store:
+            store.set_setting("price_usd", 0.01)
+
         def fake_run(args, **kwargs):
             if args[1:] == ("secret", "put", "LORE_WALLET"):
                 return subprocess.CompletedProcess(args, 1, stdout="", stderr="vault down")
@@ -447,6 +570,7 @@ class LoreTest(unittest.TestCase):
         # route, not a dead node — the previously recorded URL must survive.
         with Store() as store:
             store.set_setting("node_url", "https://lore.example.workers.dev/mcp")
+            store.set_setting("price_usd", 0.01)
 
         def fake_run(args, **kwargs):
             stdout = ""
@@ -469,6 +593,9 @@ class LoreTest(unittest.TestCase):
     def test_node_deploy_finds_an_already_created_d1_database(self) -> None:
         # `d1 create` on a rerun says "already exists"; the id is then
         # recovered from `d1 list` instead of failing the deploy.
+        with Store() as store:
+            store.set_setting("price_usd", 0.01)
+
         def fake_run(args, **kwargs):
             if args[1:] == ("d1", "create", "lore-publications"):
                 return subprocess.CompletedProcess(
@@ -503,6 +630,37 @@ class LoreTest(unittest.TestCase):
             self.assertRaisesRegex(OSError, "nodejs.org"),
         ):
             deploy_module.deploy("0x" + "1" * 40)
+        with (
+            patch("lore.deploy.shutil.which", return_value="/usr/bin/npm"),
+            self.assertRaisesRegex(ValueError, "no publication price is set"),
+        ):
+            deploy_module.deploy("0x" + "1" * 40)
+
+    def test_node_deploy_tells_a_free_node_apart_from_an_unpriced_one(self) -> None:
+        # `lore price 0` is a supported final state; the refusal must not tell
+        # the owner to set a price they already deliberately set.
+        cases = (
+            (0, "stop here"),
+            (5e-7, "at least"),  # positive but renders as PRICE_USD = 0
+            ("bogus", "at least"),  # hand-edited settings, not reachable via CLI
+        )
+        for stored, message in cases:
+            with self.subTest(stored=stored):
+                with Store() as store:
+                    store.set_setting("price_usd", stored)
+                with (
+                    patch("lore.deploy.shutil.which", return_value="/usr/bin/npm"),
+                    self.assertRaisesRegex(ValueError, message),
+                ):
+                    deploy_module.deploy("0x" + "1" * 40)
+
+    def test_price_change_warns_that_the_deployed_node_still_charges_the_old_price(self) -> None:
+        with Store() as store:
+            store.set_setting("node_url", "https://lore.example.workers.dev/mcp")
+        output = StringIO()
+        with redirect_stdout(output):
+            price(0.50)
+        self.assertIn("still charges its old price", output.getvalue())
 
     def test_synthesis_index_is_not_imported_as_memory(self) -> None:
         root = Path(os.environ["LORE_HOME"]) / "memories"
@@ -911,14 +1069,15 @@ class LoreTest(unittest.TestCase):
         }
         cases = [
             ([{**valid, "provenance": [999]}], "unknown memories"),
-            ([{**valid, "title": ""}], "non-empty title"),
-            ([{**valid, "topic": ""}], "non-empty title"),
+            ([{**valid, "title": ""}], "at least 1 character"),
+            ([{**valid, "topic": ""}], "at least 1 character"),
             ([{**valid, "teaser": ""}], "non-empty teaser"),
             ([{k: v for k, v in valid.items() if k != "teaser"}], "non-empty teaser"),
-            ([{**valid, "provenance": []}], "non-empty list"),
-            ([{**valid, "kind": "secret"}], "PublicationKind"),
-            ([{**valid, "extra": 1}], "unexpected candidate field"),
-            ([], "non-empty JSON array"),
+            ([{**valid, "provenance": []}], "at least 1 item"),
+            ([{**valid, "provenance": [True]}], "valid integer"),
+            ([{**valid, "kind": "secret"}], "claim.*content"),
+            ([{**valid, "extra": 1}], "Extra inputs are not permitted"),
+            ([], "at least 1 item"),
         ]
         for payload, message in cases:
             candidates = base / "bad.json"
@@ -969,7 +1128,7 @@ class LoreTest(unittest.TestCase):
                 topic="documents", provenance=[second],
             )
             self.assertGreater(doc_id, 0)
-            with self.assertRaisesRegex(ValueError, "not a valid PublicationKind"):
+            with self.assertRaisesRegex(ValueError, "claim.*content"):
                 store.add_publication(title="Bad", content="x", kind="secret")
             revoked_public_id = next(
                 p.public_id for p in store.list_publications() if p.id == pid
@@ -984,8 +1143,8 @@ class LoreTest(unittest.TestCase):
         memory_id = self._seed_memory("Boundary evidence", "private")
         with Store() as store:
             for topic, provenance, message in (
-                ("", [memory_id], "topic cannot be empty"),
-                ("boundary", [], "non-empty list"),
+                ("", [memory_id], "at least 1 character"),
+                ("boundary", [], "at least 1 item"),
                 ("boundary", [memory_id + 999], "unknown memories"),
             ):
                 with self.subTest(message=message), self.assertRaisesRegex(ValueError, message):
@@ -1141,7 +1300,7 @@ class LoreTest(unittest.TestCase):
         ):
             data = _blueprint_input()
             data[field] = value
-            with self.assertRaisesRegex(ValueError, "unexpected blueprint field"):
+            with self.assertRaisesRegex(ValueError, "Extra inputs are not permitted"):
                 blueprint.normalize(data)
 
     def test_blueprint_files_are_owner_private(self) -> None:
@@ -1153,42 +1312,45 @@ class LoreTest(unittest.TestCase):
     def test_blueprint_rejects_unknown_persona(self) -> None:
         data = _blueprint_input()
         data["persona"] = "wizard"
-        with self.assertRaisesRegex(ValueError, "unknown persona"):
+        with self.assertRaisesRegex(ValueError, "storyteller"):
             blueprint.normalize(data)
 
     def test_blueprint_rejects_bad_axis_and_version(self) -> None:
         data = _blueprint_input()
         data["organizing_axis"] = "alphabetical"
-        with self.assertRaisesRegex(ValueError, "unknown organizing axis"):
+        with self.assertRaisesRegex(ValueError, "chronological"):
             blueprint.normalize(data)
         data = _blueprint_input()
         data["version"] = 2
-        with self.assertRaisesRegex(ValueError, "unsupported blueprint version"):
+        with self.assertRaisesRegex(ValueError, "Input should be 1"):
             blueprint.normalize(data)
 
     def test_blueprint_rejects_missing_required(self) -> None:
         data = _blueprint_input()
         data["name"] = "   "
-        with self.assertRaisesRegex(ValueError, "name cannot be empty"):
+        with self.assertRaisesRegex(ValueError, "at least 1 character"):
             blueprint.normalize(data)
         data = _blueprint_input()
         data["topic_outline"] = []
-        with self.assertRaisesRegex(ValueError, "topic_outline cannot be empty"):
+        with self.assertRaisesRegex(ValueError, "at least 1 item"):
+            blueprint.normalize(data)
+        data["topic_outline"] = ["same"] * (blueprint.MAX_ITEMS + 1)
+        with self.assertRaisesRegex(ValueError, "cannot exceed"):
             blueprint.normalize(data)
 
     def test_blueprint_rejects_every_malformed_hand_off(self) -> None:
         """FR12/FR13 guarantees: an agent assembles this JSON, so every cap is reachable."""
-        with self.assertRaisesRegex(ValueError, "must be a JSON object"):
+        with self.assertRaisesRegex(ValueError, "valid dictionary"):
             blueprint.normalize(["not", "an", "object"])
 
         for field, value, message in (
-            ("name", 42, "name must be a string"),
-            ("name", "x" * (blueprint.MAX_NAME_LENGTH + 1), "cannot exceed"),
-            ("storytelling", "x" * (blueprint.MAX_TEXT_LENGTH + 1), "cannot exceed"),
-            ("topic_outline", "not a list", "must be a list"),
+            ("name", 42, "valid string"),
+            ("name", "x" * (blueprint.MAX_NAME_LENGTH + 1), "at most"),
+            ("storytelling", "x" * (blueprint.MAX_TEXT_LENGTH + 1), "at most"),
+            ("topic_outline", "not a list", "valid list"),
             ("topic_outline", ["a"] * (blueprint.MAX_ITEMS + 1), "cannot exceed"),
-            ("topic_outline", [1, 2], "items must be strings"),
-            ("topic_outline", ["x" * (blueprint.MAX_ITEM_LENGTH + 1)], "items cannot exceed"),
+            ("topic_outline", [1, 2], "valid string"),
+            ("topic_outline", ["x" * (blueprint.MAX_ITEM_LENGTH + 1)], "cannot exceed"),
         ):
             data = _blueprint_input()
             data[field] = value

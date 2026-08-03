@@ -7,7 +7,9 @@ import sys
 from dataclasses import replace
 from enum import Enum
 from pathlib import Path
+from typing import Annotated, Literal
 
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 from windup import Task, install as install_task, remove as remove_task, status as task_status
 
 from .paths import claude_home, codex_home, home, write_private
@@ -15,16 +17,6 @@ from .store import STATUSES
 
 PROFILE = "automation/profile.json"
 PROMPT = "automation/synthesis-prompt.md"
-# Fields that belong in profile.json. The onboarding checkpoint reuses this file to
-# carry its own state; persist only these so that state never leaks into the profile
-# the synthesis prompt reads.
-PROFILE_FIELDS = (
-    "role", "domains", "valuable_context", "preferences",
-    "boundaries", "executor", "model", "cadence", "hour",
-)
-TEXT_FIELDS = (
-    "role", "domains", "valuable_context", "preferences", "boundaries", "model",
-)
 AUTOMATION_ID = "lore-memory-synthesis"
 # The profile describes a person, not the sessions they were inferred from. Rejecting
 # unknown field names keeps transcripts out by the front door; this keeps them from
@@ -43,6 +35,54 @@ class Agent(str, Enum):
         return self.value
 
 
+class AutomationProfile(BaseModel):
+    """Synthesis settings accepted from the onboarding checkpoint."""
+
+    # Checkpoint-only fields are deliberately ignored instead of reaching profile.json.
+    model_config = ConfigDict(extra="ignore", frozen=True)
+
+    role: str | None = None
+    domains: str | None = None
+    valuable_context: str | None = None
+    preferences: str | None = None
+    boundaries: str | None = None
+    executor: Agent | Literal[""] | None = None
+    model: str | None = None
+    cadence: Literal["daily", "weekly"] | None = None
+    hour: Annotated[int, Field(strict=True, ge=0, le=23)] | None = None
+
+    @field_validator(
+        "role", "domains", "valuable_context", "preferences", "boundaries", "model",
+        mode="before",
+    )
+    @classmethod
+    def clean_text(cls, value: object) -> object:
+        if not isinstance(value, str):
+            return value
+        cleaned = " ".join(value.split())
+        if len(cleaned) > MAX_FIELD_LENGTH:
+            raise ValueError(f"automation profile field cannot exceed {MAX_FIELD_LENGTH} characters")
+        return cleaned
+
+    @field_validator("executor", mode="before")
+    @classmethod
+    def known_executor(cls, value: object) -> object:
+        if value in (None, ""):
+            return value
+        try:
+            return Agent(value)
+        except (TypeError, ValueError) as error:
+            supported = ", ".join(str(agent) for agent in Agent)
+            raise ValueError(
+                f"automation profile executor must be one of: {supported}"
+            ) from error
+
+
+# Fields the checkpoint may carry into profile.json; derived from the model instead
+# of restated, so a new field can't be added to one without the other noticing.
+PROFILE_FIELDS = tuple(AutomationProfile.model_fields)
+
+
 def profile_path() -> Path:
     """Return the owner-local automation profile path."""
     return home() / PROFILE
@@ -53,55 +93,29 @@ def prompt_path() -> Path:
     return home() / PROMPT
 
 
-def check_executor(value: object) -> Agent:
-    """Resolve a synthesis executor, naming the supported agents when it is unknown."""
-    try:
-        return Agent(str(value))
-    except ValueError as error:
-        supported = ", ".join(str(agent) for agent in Agent)
-        raise ValueError(
-            f"automation profile executor must be one of: {supported}"
-        ) from error
-
-
 def check_fields(profile: dict[str, object]) -> dict[str, object]:
-    """Validate and normalize the profile fields, treating every one as optional.
+    """Validate and normalize the profile fields the checkpoint understands.
 
-    The onboarding checkpoint collects these same fields one answer at a time, so
-    each is checked only when present; `save_profile` adds the requirements that
-    apply to a complete profile.
+    Every field is optional here: the checkpoint collects them one answer at a
+    time, and `AutomationProfile` requires none of them until `save_profile`
+    persists a complete one. Anything outside the model's fields — the
+    interview's own `phase1_done` flag — passes through untouched rather than
+    being silently dropped, which is what the model's `extra="ignore"` would
+    otherwise do to it.
     """
-    profile = dict(profile)
-    for key in TEXT_FIELDS:
-        if key in profile and not isinstance(profile[key], str):
-            raise ValueError(f"automation profile field {key} must be text")
-        if key in profile:
-            profile[key] = " ".join(str(profile[key]).split())
-            if len(profile[key]) > MAX_FIELD_LENGTH:
-                raise ValueError(
-                    f"automation profile field {key} cannot exceed "
-                    f"{MAX_FIELD_LENGTH} characters"
-                )
-    if profile.get("cadence", "daily") not in ("daily", "weekly"):
-        raise ValueError("automation profile cadence must be daily or weekly")
-    hour = profile.get("hour", 21)
-    if isinstance(hour, bool) or not isinstance(hour, int) or not 0 <= hour <= 23:
-        raise ValueError("automation profile hour must be between 0 and 23")
-    # An executor is only needed to install a schedule: a profile saved with
-    # --no-schedule may legitimately leave it empty, and the interview has not
-    # chosen one yet when it records its first answers.
-    if profile.get("executor"):
-        check_executor(profile["executor"])
-    return profile
+    known = {key: value for key, value in profile.items() if key in PROFILE_FIELDS}
+    extra = {key: value for key, value in profile.items() if key not in PROFILE_FIELDS}
+    validated = AutomationProfile.model_validate(known).model_dump(
+        mode="json", exclude_none=True, exclude_unset=True
+    )
+    return {**extra, **validated}
 
 
-def save_profile(profile: dict[str, object]) -> dict[str, object]:
+def save_profile(profile: object) -> dict[str, object]:
     """Persist a profile and regenerate the shared synthesis prompt."""
-    profile = check_fields({
-        key: profile[key]
-        for key in PROFILE_FIELDS
-        if key in profile and profile[key] is not None
-    })
+    profile = AutomationProfile.model_validate(profile).model_dump(
+        mode="json", exclude_none=True, exclude_unset=True
+    )
     prompt_content = build_prompt(profile)
     # Profiles and prompts contain private context; `write_private` keeps them
     # owner-only and keeps a failed write from destroying the profile in place.

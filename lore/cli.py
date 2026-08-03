@@ -6,14 +6,22 @@ import math
 import os
 import sys
 from pathlib import Path
+from typing import Annotated
+
+from pydantic import Field, TypeAdapter
 
 from . import blueprint as blueprint_module
+from . import capture as capture_module
 from . import deploy as deploy_module
 from .paths import home
 from .sources import available_sources, scan
-from .store import STATUSES, Publication, PublicationKind, Store
+from .store import STATUSES, Publication, PublicationInput, Store
 from .ui import (ask, confirm, heading, logo, memory_card, muted, paint,
                  publication_card, success)
+
+PUBLICATION_CANDIDATES = TypeAdapter(
+    Annotated[list[PublicationInput], Field(min_length=1)]
+)
 
 
 def parser() -> argparse.ArgumentParser:
@@ -41,6 +49,13 @@ def parser() -> argparse.ArgumentParser:
     profile = commands.add_parser("profile", help="save an agent-written synthesis profile")
     profile.add_argument("path", help="JSON profile file; use - for stdin")
     profile.add_argument("--no-schedule", action="store_true", help="write the profile without installing schedules")
+
+    capture = commands.add_parser("capture", help="save owner-approved private memories")
+    capture_commands = capture.add_subparsers(dest="capture_command", required=True)
+    capture_apply = capture_commands.add_parser(
+        "apply", help="validate and save structured memory entries as private"
+    )
+    capture_apply.add_argument("file", help="JSON array written by an agent; use - for stdin")
 
     commands.add_parser("status", help="show source and review status")
     commands.add_parser("help", help="show the Lore workflow manual")
@@ -129,6 +144,8 @@ def main(argv: list[str] | None = None) -> int:
             return search(" ".join(args.query), args.status, args.limit, args.json)
         if args.command == "profile":
             return profile(args.path, not args.no_schedule)
+        if args.command == "capture":
+            return capture_apply(args.file)
         if args.command == "status":
             return status()
         if args.command == "help":
@@ -205,28 +222,31 @@ def manual() -> int:
   3. lore sync
      Import memories created or changed since setup.
 
-  4. lore review [words] [--status private|discarded]
+  4. lore capture apply <file|->
+     Validate and privately save memories approved in an attended agent session.
+
+  5. lore review [words] [--status private|discarded]
      Walk the private library and keep or discard; revisit any prior decision.
      Reviewing never discloses anything — only a publication does that.
 
-  5. lore search [words] [--status STATUS]
+  6. lore search [words] [--status STATUS]
      Inspect the local library without changing disclosure.
 
-  6. lore price [USD]
+  7. lore price [USD]
      Show or set the advertised price per publication.
 
-  7. lore status
+  8. lore status
      Check imports, onboarding progress, the private library, active
      publications, and price.
 
-  8. lore serve
+  9. lore serve
      Start the MCP endpoint used by local agents or a protected gateway.
 
-  9. lore node deploy
+ 10. lore node deploy
      Deploy your node to your own Cloudflare account (source ships with Lore;
      the URL lands in `lore status`).
 
- 10. lore blueprint show
+ 11. lore blueprint show
      See the shape of your lore captured by the gamified onboarding skill
      (run `lore blueprint apply <file>` from that skill to update it).
 
@@ -286,6 +306,18 @@ def sync(names: set[str] | None = None) -> int:
         report = scan(store, names)
     for name, item in report.items():
         print(f"{name:<20} {item['added']} added, {item['updated']} updated, {item['unchanged']} unchanged")
+    return 0
+
+
+def capture_apply(file: str) -> int:
+    """Validate and save memories the owner corrected in an attended agent session."""
+    text = (
+        sys.stdin.read()
+        if file == "-"
+        else Path(file).read_text(encoding="utf-8")
+    )
+    results = capture_module.save(json.loads(text))
+    print(json.dumps(results, indent=2))
     return 0
 
 
@@ -409,7 +441,12 @@ def price(amount: float | None) -> int:
         if not math.isfinite(amount) or amount < 0:
             raise ValueError("price must be a finite, non-negative number")
         store.set_setting("price_usd", round(amount, 6))
+        node_url = store.setting("node_url", None)
     success("Publications are free" if amount == 0 else f"Publication price set to ${amount:.2f}")
+    if node_url:
+        # The deployed Worker charges the price baked in at deploy time; a
+        # saved setting proves nothing about what the live node charges.
+        muted("Your deployed node still charges its old price until `lore node deploy` reruns.")
     return 0
 
 
@@ -484,38 +521,23 @@ def _interactive() -> bool:
 
 def _candidate(raw: object, missing_check: Store) -> Publication:
     """Validate one drafted candidate into a previewable Publication."""
-    if not isinstance(raw, dict):
-        raise ValueError("each candidate must be a JSON object")
-    unexpected = raw.keys() - {"title", "content", "kind", "topic", "teaser", "provenance"}
-    if unexpected:
-        raise ValueError(f"unexpected candidate field: {sorted(unexpected)[0]}")
-    title = str(raw.get("title", "")).strip()
-    content = str(raw.get("content", "")).strip()
-    topic = str(raw.get("topic", "")).strip()
-    teaser = str(raw.get("teaser", "")).strip()
-    if not title or not content or not topic:
-        raise ValueError("candidates need a non-empty title, content, and topic")
-    if not teaser:
+    candidate = PublicationInput.model_validate(raw)
+    if not candidate.teaser:
         # The teaser is the entire free surface for this publication, so approval
         # without one would advertise nothing — draft it question-shaped: what the
         # publication answers, never the lesson itself.
         raise ValueError("candidates need a non-empty teaser (the free advertisement)")
-    provenance = raw.get("provenance", [])
-    if not isinstance(provenance, list) or not provenance or not all(
-        isinstance(i, int) and not isinstance(i, bool) for i in provenance
-    ):
-        raise ValueError("candidate provenance must be a non-empty list of memory ids")
-    missing = missing_check.missing_memories(provenance)
+    missing = missing_check.missing_memories(candidate.provenance)
     if missing:
         raise ValueError(f"candidate provenance references unknown memories: {missing}")
     return Publication(
         id=0,
-        title=title,
-        content=content,
-        kind=PublicationKind(raw.get("kind", "claim")),
-        topic=topic,
-        teaser=teaser,
-        provenance=provenance,
+        title=candidate.title,
+        content=candidate.content,
+        kind=candidate.kind,
+        topic=candidate.topic,
+        teaser=candidate.teaser,
+        provenance=candidate.provenance,
         active=1,
         created_at="",
         updated_at="",
@@ -529,9 +551,7 @@ def publication_apply(path: str) -> int:
             "publication approval needs an attended interactive terminal; "
             "piped and background approval is disabled"
         )
-    data = json.loads(Path(path).read_text(encoding="utf-8"))
-    if not isinstance(data, list) or not data:
-        raise ValueError("candidates file must be a non-empty JSON array")
+    data = PUBLICATION_CANDIDATES.validate_json(Path(path).read_text(encoding="utf-8"))
     logo()
     with Store() as store:
         candidates = [_candidate(raw, store) for raw in data]

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Lore Publish"
+  short_description: "Draft owner-approved Lore publications"
+  default_prompt: "Use $lore-publish to draft a bounded publication from my private Lore memories."

@@ -270,7 +270,7 @@ class OnboardingTest(unittest.TestCase):
         self.assertIn("unreadable", self._run(onboarding_show))
 
     def test_a_non_text_profile_answer_is_rejected(self) -> None:
-        with self.assertRaisesRegex(ValueError, "role must be text"):
+        with self.assertRaisesRegex(ValueError, "valid string"):
             onboarding.save_checkpoint({"role": 42})
 
     def test_checkpoint_rejects_unknown_or_malformed_answers(self) -> None:
@@ -542,7 +542,7 @@ class OnboardingTest(unittest.TestCase):
 
     def test_a_transcript_cannot_be_parked_in_a_profile_field(self) -> None:
         """The interview records answers about a person, not the sessions they came from."""
-        with self.assertRaisesRegex(ValueError, "valuable_context cannot exceed"):
+        with self.assertRaisesRegex(ValueError, "cannot exceed 2000 characters"):
             onboarding.save_checkpoint({"valuable_context": "x" * 5000})
 
 

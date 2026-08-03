@@ -18,6 +18,11 @@ exists at the edge. With zero publications the rail still proves end to end, but
 catalog is empty and there is nothing to buy; that is why mainnet is gated on
 having at least one.
 
+> **Agent-system controls:** In Claude Code, use `AskUserQuestion` for owner
+> decisions. In Codex, ask directly in chat unless the current mode explicitly
+> provides a structured question control. Never block because a named question
+> tool is unavailable.
+
 ## How to drive — read this first
 
 The owner should never have to figure out where to go or what comes next. You are
@@ -29,9 +34,9 @@ the guide; the skill is your script.
   quote. The owner personally does two things: log in to Cloudflare, and click
   around their own wallet app and faucet pages.
 - **Announce, then open.** Before any browser step, say in one sentence what the
-  page is and what the owner will do there — then open it for them (`open <url>`
-  on macOS, `xdg-open` on Linux). Never spring a tab on someone mid-thought, and
-  never open a page you haven't framed.
+  page is and what the owner will do there — then use the host's browser control
+  when available, otherwise the platform's URL opener. Never spring a tab on
+  someone mid-thought, and never open a page you haven't framed.
 - **Defer at decision points.** Price, path order, wallet choice, stopping early —
   ask one question with a recommendation and take the owner's answer. Mechanics
   are yours; decisions are theirs.
@@ -68,7 +73,7 @@ Either answer runs the same steps in a different order.
 
 Before asking for anything, tell the owner everything this takes: a self-custody
 **payout address** on Base (public by design), a free-tier **Cloudflare account**
-(their login, never seen here), a **price** per answer in USD, and a throwaway
+(their login, never seen here), a **price** per publication in USD, and a throwaway
 **test buyer** that `npm run pay` creates and funds from a faucet. On the test
 network all of it is free — faucet funds are play money. Then say this once,
 plainly:
@@ -101,7 +106,8 @@ later reads.
 ## 4. Price
 
 Run `lore price 0.01` (or the owner's chosen amount — their call, `0.01` is the
-recommendation). `lore price 0` is free and a supported place to stop.
+recommendation). `lore price 0` is free and a supported place to stop; deploying
+the paid node requires a positive price.
 
 ## 5. Deploy the node
 
@@ -122,8 +128,9 @@ lore node deploy --wallet <payout-address>   # the public 0x address from step 3
 It stages the node at `~/.lore/node`, installs dependencies, creates the D1
 database, deploys, stores the payout address as the Worker's `LORE_WALLET` secret
 (Cloudflare's vault, not this machine), pushes the active publication set, and
-smoke-checks the live node with real MCP calls. It spends nothing. If a step
-fails it prints what to do next; `npx wrangler tail` streams live errors.
+smoke-checks the live node with real MCP calls. The staged Worker advertises and
+charges the configured price; rerun deploy after changing it. It spends nothing.
+If a step fails it prints what to do next; `npx wrangler tail` streams live errors.
 Rerunning is always safe — it is also the redeploy path.
 
 Deployed earlier? `lore status` shows the URL as `Node (last deploy):` — ask the
