@@ -4,7 +4,7 @@ title: Run tests and checks in CI on every pull request
 priority: P1
 effort: S
 component: cross-cutting
-status: ready
+status: completed
 related: [XC-003, XC-012, XC-008, MON-010, MCP-002]
 blockers: []
 dependencies: []
@@ -61,13 +61,13 @@ path works; it must not hold keys that can move money.
 
 ## Acceptance criteria
 
-- [ ] A workflow runs on every pull request and on pushes to `main`
-- [ ] The Python suite runs and a deliberately broken test fails the run
-- [ ] `lore/node/` is typechecked and its smoke test runs against a locally served
+- [x] A workflow runs on every pull request and on pushes to `main`
+- [x] The Python suite runs and a deliberately broken test fails the run
+- [x] `lore/node/` is typechecked and its smoke test runs against a locally served
       Worker, with a placeholder wallet supplied by CI rather than a secret
-- [ ] The README's development section names the same commands CI runs, so
+- [x] The README's development section names the same commands CI runs, so
       local and CI checks cannot drift
-- [ ] No job requires a deployment credential or a funded wallet
+- [x] No job requires a deployment credential or a funded wallet
 
 ## Notes
 
@@ -124,12 +124,28 @@ merged.
 |---|---|
 | Workflow runs on every PR and on pushes to `main` | done (`tests.yml`) |
 | Python suite runs; a broken test fails the run | done |
-| `lore/node/` typechecked, smoke test run with a placeholder wallet | **not started** |
-| README development section names the same commands CI runs | **not started** |
-| No job needs a deployment credential or funded wallet | holds |
+| `lore/node/` typechecked, smoke test run with a placeholder wallet | done (`node` job) |
+| README development section names the same commands CI runs | done |
+| No job needs a deployment credential or funded wallet | done |
 
-Two notes for whoever finishes it. The shipped workflow is named `tests.yml`
-rather than the `ci.yml` this item proposed — keep the existing name and add jobs
-to it rather than introducing a second file, since `XC-012`, `XC-009`, and
-`MON-010` all expect one place to hang off. And it runs `uv run python -m
-unittest discover -s tests -v` directly, without a separate `uv sync` step.
+Note for whoever finishes it (now closed out). The shipped workflow is named
+`tests.yml` rather than the `ci.yml` this item proposed — kept the existing
+name and added the `node` job to it rather than introducing a second file,
+since `XC-012`, `XC-009`, and `MON-010` all expect one place to hang off. It
+runs `uv run python -m unittest discover -s tests -v` directly, without a
+separate `uv sync` step.
+
+### Implementation notes (2026-08-03)
+
+The smoke test needs more than a placeholder wallet: `discover()` selects
+from the `publications` table that only exists once `lore push` (or `lore
+push --local`) has run against the Worker's D1 binding. A fresh `wrangler
+dev` has no such table, so `discover` 500s and the smoke test fails on a
+clean checkout. The `node` job seeds an empty `publications` table directly
+via `npx wrangler d1 execute lore-publications --local` before starting the
+Worker — local-only, no credential — using the same schema `lore push`
+creates (`lore/cli.py:_push_sql`). That schema is now duplicated in two
+places; if it changes, the workflow's seed step needs a matching update.
+
+`actions/setup-node` is pinned to `node-version: lts/*` since no Node version
+was pinned elsewhere in the repo (no `.nvmrc`, no `engines` field).

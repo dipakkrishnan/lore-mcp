@@ -329,6 +329,20 @@ uv run lore --help
 `uv.lock` is committed, so contributors and CI resolve the same project setup.
 The curl installer remains independent of `uv` for end users.
 
+The Worker in `lore/node/` has its own checks, run from that directory:
+
+```sh
+cp .dev.vars.example .dev.vars   # set LORE_WALLET to any valid address
+npm install
+npm run types && npm run check
+npm run dev                      # MCP at http://localhost:8787/mcp
+npm run smoke                    # free discover + unpaid x402 challenge
+```
+
+CI (`.github/workflows/tests.yml`) runs the same `types`, `check`, `dev`, and
+`smoke` commands against a placeholder wallet, so local and CI checks cannot
+drift.
+
 The implementation uses only the Python standard library: `argparse`, `sqlite3`,
 `subprocess`, and `http.server`. There is no application framework, vector
 database, or MCP SDK to install.
