@@ -141,12 +141,14 @@ class SkillContractTest(unittest.TestCase):
                     self.assertTrue(linked.is_dir())
                     self.assertEqual(linked.resolve(), path.parent.resolve())
 
-    def test_skills_do_not_require_one_hosts_prompt_syntax(self) -> None:
+    def test_skills_handle_host_prompt_syntax(self) -> None:
         for path in SKILLS.glob("*/*.md"):
             text = path.read_text(encoding="utf-8")
             with self.subTest(skill=path.parent.name):
                 self.assertNotIn("$ARGUMENTS", text)
-                self.assertNotIn("AskUserQuestion", text)
+        onboard = (SKILLS / "lore-onboard/SKILL.md").read_text(encoding="utf-8")
+        self.assertIn("Claude Code, use `AskUserQuestion`", onboard)
+        self.assertIn("In Codex, ask directly in chat", onboard)
 
     def test_every_owner_skill_reaches_both_places_an_agent_looks(self) -> None:
         """Discovery is all-or-nothing: an unlinked or uncopied skill simply never runs."""

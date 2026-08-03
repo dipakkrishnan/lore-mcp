@@ -94,8 +94,12 @@ From that, draft every profile field *before* asking anything. A wrong guess is 
 
 ## 3. Confirm in one pass
 
-Use the host's structured question control when available; otherwise ask in plain
-chat. Ask one question per field, with your draft first and labeled as a proposal
+**Agent-system caveat:** in Claude Code, use `AskUserQuestion` for enumerated
+choices. In Codex, ask directly in chat unless the current mode explicitly
+provides a structured question control. Never block onboarding because a named
+question tool is unavailable.
+
+Ask one question per field, with your draft first and labeled as a proposal
 ("Looks right", plus 2-3 genuinely different readings). Put the evidence in the
 description — "from 14 sessions across lore-mcp and deep-review" — so the user
 corrects a claim, not rates a guess.
