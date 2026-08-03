@@ -59,7 +59,8 @@ Tell Claude or Codex **"Capture this in Lore"**, then dictate, paste, point it a
 a local file, or drag in a PDF or image. The host agent reads the material and
 the `lore-capture` skill proposes bounded memories with private source
 references, lets you correct them, and saves only what you approve. Lore does
-not copy the original artifact. It may then offer to draft a publication, but
+not keep a copy of the file itself — only the memory text you approve, which
+may quote from it. It may then offer to draft a publication, but
 publishing remains a separate review and approval step.
 The validated `lore capture apply -` command owns local writes; the skill never
 edits SQLite directly or sends private captures to the paid MCP surface.

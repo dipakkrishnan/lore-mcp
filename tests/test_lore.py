@@ -380,6 +380,45 @@ class LoreTest(unittest.TestCase):
         self.assertEqual(saved[1]["id"], spoken[0].id)
         self.assertEqual(self._discover()["publication_count"], 0)
 
+    def test_correcting_a_locator_updates_the_memory_instead_of_duplicating_it(self) -> None:
+        # The skill's correction loop re-applies the same approved text with a
+        # fixed source_path; that must be an update to one row, not a sibling.
+        entry = {
+            "title": "Hire management before rapid growth",
+            "content": "Add the management layer first.",
+            "source_path": "field-notes.pdf",
+        }
+
+        def apply(payload):
+            output = StringIO()
+            with patch("sys.stdin", StringIO(json.dumps(payload))), redirect_stdout(output):
+                self.assertEqual(capture_apply("-"), 0)
+            return json.loads(output.getvalue())[0]
+
+        first = apply([entry])
+        corrected = apply([{**entry, "source_path": "field-notes.pdf#page=8"}])
+        replay = apply([{**entry, "source_path": "field-notes.pdf#page=8"}])
+
+        self.assertEqual(first["status"], "added")
+        self.assertEqual(corrected["status"], "updated")
+        self.assertEqual(replay["status"], "unchanged")
+        self.assertEqual(corrected["id"], first["id"])
+        with Store() as store:
+            memories = store.search("management")
+        self.assertEqual(len(memories), 1)
+        self.assertEqual(memories[0].source_path, "field-notes.pdf#page=8")
+
+    def test_memory_card_shows_a_file_locator_but_not_the_session_sentinel(self) -> None:
+        base = dict(
+            id=1, source="capture", origin="attended", title="t", content="c",
+            project="", status="private", updated_at="now",
+        )
+        for source_path, visible in (("field-notes.pdf#page=8", True), ("agent-session", False)):
+            output = StringIO()
+            with redirect_stdout(output):
+                memory_card(Memory(source_path=source_path, **base))
+            self.assertEqual(source_path in output.getvalue(), visible)
+
     def test_capture_apply_rejects_bad_entries_before_writing(self) -> None:
         cases = [
             ([], "at least 1 item"),
