@@ -17,10 +17,14 @@ import { FIXTURE_PUBLICATION_ID } from "./setup";
 type CallToolResult = Awaited<ReturnType<Client["callTool"]>>;
 type PaymentRequired = Parameters<x402Client["createPaymentPayload"]>[0];
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
 async function connect(): Promise<Client> {
   const client = new Client({ name: "lore-canary-test", version: "0.1.0" });
   const workerFetch = ((input: RequestInfo | URL, init?: RequestInit) =>
-    exports.default.fetch(input as string, init)) as typeof fetch;
+    exports.default.fetch(input, init)) as typeof fetch;
   await client.connect(
     new StreamableHTTPClientTransport(new URL("https://worker.test/mcp"), { fetch: workerFetch })
   );
@@ -28,11 +32,14 @@ async function connect(): Promise<Client> {
 }
 
 function textOf(result: CallToolResult): Record<string, unknown> {
-  return JSON.parse((result.content as { text: string }[])[0].text);
+  const text = (result.content as { text: string }[])[0].text;
+  const payload: unknown = JSON.parse(text);
+  if (!isRecord(payload)) throw new Error("tool returned a non-object payload");
+  return payload;
 }
 
 function x402ErrorOf(result: CallToolResult): PaymentRequired {
-  const error = (result._meta as Record<string, unknown> | undefined)?.["x402/error"];
+  const error = result._meta?.["x402/error"];
   expect(error).toBeTruthy();
   return error as PaymentRequired;
 }
@@ -110,11 +117,12 @@ describe("get (paid)", () => {
         _meta: { "x402/payment": token }
       });
       expect(result.isError).toBe(true);
-      expect((result._meta as Record<string, unknown> | undefined)?.["x402/error"]).toBeTruthy();
+      expect(result._meta?.["x402/error"]).toBeTruthy();
       expect(JSON.stringify(result)).not.toContain("secret owner-approved content");
-      const settleCalls = fetchSpy.mock.calls.filter(([input]) =>
-        new URL(String(input)).pathname === "/settle"
-      );
+      const settleCalls = fetchSpy.mock.calls.filter(([input]) => {
+        const url = input instanceof Request ? input.url : input;
+        return new URL(url).pathname === "/settle";
+      });
       expect(settleCalls).toHaveLength(0);
     } finally {
       await client.close();
