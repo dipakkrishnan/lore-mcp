@@ -8,7 +8,7 @@
       "name": "lore",
       "source": {
         "source": "local",
-        "path": "./"
+        "path": "./plugins/lore"
       },
       "policy": {
         "installation": "AVAILABLE",
