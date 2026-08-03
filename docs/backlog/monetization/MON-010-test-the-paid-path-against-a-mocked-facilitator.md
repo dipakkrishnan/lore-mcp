@@ -4,7 +4,7 @@ title: Test the Worker's paid path against a mocked facilitator
 priority: P1
 effort: M
 component: monetization
-status: ready
+status: completed
 related: [MON-002, MON-003, MON-007, MON-008, XC-004]
 blockers: []
 dependencies: []
@@ -57,18 +57,18 @@ deployment. This item does not replace it, and does not need it to change.
 
 ## Acceptance criteria
 
-- [ ] The paid `answer` handler executes in an automated test with a stubbed
+- [x] The paid `answer` handler executes in an automated test with a stubbed
       facilitator and returns publication content — no network, no wallet, no
       faucet funds
-- [ ] An invalid credential and a replayed credential each fail closed: the tool
+- [x] An invalid credential and a replayed credential each fail closed: the tool
       handler is never invoked and no content is returned
-- [ ] A facilitator that 5xxs or times out fails closed rather than serving
+- [x] A facilitator that 5xxs or times out fails closed rather than serving
       content unpaid
-- [ ] `discover` returns titles and topics only — a test fails if publication
+- [x] `discover` returns titles and topics only — a test fails if publication
       `content` ever appears on the free surface
-- [ ] The suite runs with `npm test` in `lore/node/`, needs no credentials, and is
+- [x] The suite runs with `npm test` in `lore/node/`, needs no credentials, and is
       wired into the CI workflow `XC-004` creates
-- [ ] The facilitator URL is configurable via `env` and still defaults to
+- [x] The facilitator URL is configurable via `env` and still defaults to
       `https://x402.org/facilitator` when unset
 
 ## Notes
@@ -98,3 +98,40 @@ a *buyer* completing a purchase from inside an agent. This is about the *seller*
 side proving its paid path without spending anything. They meet at the same
 handler from opposite directions, which is worth remembering when either
 changes.
+
+## Implementation notes (2026-08-03)
+
+Implemented as scoped: `@cloudflare/vitest-pool-workers` runs `lore/node`'s
+tests in `workerd` against real Durable Object and local D1 bindings; only
+`globalThis.fetch` calls to the facilitator origin are mocked
+(`test/facilitator.ts`), via `vi.spyOn`, not the newer `fetchMock` API this
+package version doesn't export. `vitest.config.ts` points every test at a
+fixed stub URL (`https://facilitator.test`, overriding `LORE_FACILITATOR_URL`
+through `miniflare.bindings`); each test varies the *response* the stub
+returns rather than the URL, since only one override is needed for the whole
+suite.
+
+The Worker's paid tool is named `get`, not `answer` — the acceptance criteria
+above predate that naming and were left as written; "the paid `answer`
+handler" refers to the same thing.
+
+`settle-then-vanish` (settlement succeeding on-chain but the response being
+lost) from the Proposed approach is out of scope here: nothing in the current
+handler could behave differently for it, since there is no idempotency
+tracking to exercise (that gap is what `MON-002`'s Problem section flags as
+still open, not something this item was asked to fix). What's covered instead
+is the strictly-weaker "settle call fails outright" case (`http-error`), which
+does exercise a real code path — settle failing after a successful verify
+returns `SETTLEMENT_FAILED` rather than content, even though `cb` already read
+the row from D1.
+
+Buyer credentials are throwaway `viem` keys generated per test
+(`generatePrivateKey()`) and never touch a real chain — the same client
+machinery `scripts/pay.ts` uses, but with `x402Client`/`registerExactEvmScheme`
+driven directly instead of through `withX402Client`, so a "replay" test can
+capture and resubmit the exact same signed token across two calls.
+
+Local repro note for future readers: `npm run types` regenerates `env.d.ts`
+from `.dev.vars` when present — CI creates `.dev.vars` with a burn-address
+`LORE_WALLET` before running `types`, so run the same locally before
+regenerating, or `LORE_WALLET` silently drops out of the generated `Env`.
