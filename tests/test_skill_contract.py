@@ -354,9 +354,7 @@ class SkillContractTest(unittest.TestCase):
         self,
     ) -> None:
         skill = (
-            (OWNER_SKILLS / "lore-capture/SKILL.md")
-            .read_text(encoding="utf-8")
-            .lower()
+            (OWNER_SKILLS / "lore-capture/SKILL.md").read_text(encoding="utf-8").lower()
         )
         for boundary in (
             "save nothing until the owner clearly approves",
