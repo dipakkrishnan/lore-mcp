@@ -120,6 +120,39 @@ class SkillContractTest(unittest.TestCase):
             with self.subTest(skill=path.parent.name):
                 self.assertIn("use when", description.lower())
 
+    def test_every_skill_has_host_metadata(self) -> None:
+        """Skills should render and invoke cleanly in hosts, not only via symlinks."""
+        for path in _skill_files():
+            name = path.parent.name
+            metadata = path.parent / "agents/openai.yaml"
+            with self.subTest(skill=name):
+                self.assertTrue(metadata.is_file())
+                text = metadata.read_text(encoding="utf-8")
+                fields = dict(re.findall(r'^  (\w+): "([^"]+)"$', text, re.MULTILINE))
+                self.assertEqual(
+                    set(fields),
+                    {"display_name", "short_description", "default_prompt"},
+                )
+                self.assertGreaterEqual(len(fields["short_description"]), 25)
+                self.assertLessEqual(len(fields["short_description"]), 64)
+                self.assertIn(f"${name}", fields["default_prompt"])
+                for host in (".agents", ".claude"):
+                    linked = ROOT / host / "skills" / name
+                    self.assertTrue(linked.is_dir())
+                    self.assertEqual(linked.resolve(), path.parent.resolve())
+
+    def test_skills_handle_host_prompt_syntax(self) -> None:
+        for path in SKILLS.glob("*/*.md"):
+            text = path.read_text(encoding="utf-8")
+            with self.subTest(skill=path.parent.name):
+                self.assertNotIn("$ARGUMENTS", text)
+        for skill in _owner_skills():
+            text = (skill / "SKILL.md").read_text(encoding="utf-8")
+            with self.subTest(skill=skill.name):
+                self.assertIn("Claude Code, use `AskUserQuestion`", text)
+                self.assertIn("In Codex, ask directly in chat", text)
+                self.assertIn("Never block because a named question", text)
+
     def test_every_owner_skill_reaches_both_places_an_agent_looks(self) -> None:
         """Discovery is all-or-nothing: an unlinked or uncopied skill simply never runs."""
         installer = INSTALLER.read_text(encoding="utf-8")

@@ -53,14 +53,17 @@ runs `lore sync`, then invokes `claude -p` with the saved prompt and narrow perm
 Remote Claude routines cannot read local memory files. Keep the Mac awake when a local
 Claude task is due.
 
-## Voice capture
+## Personal content capture
 
-Tell Claude or Codex **"Capture this in Lore"**, then dictate or paste naturally.
-The `lore-capture` skill proposes bounded memories, lets you correct them, and
-saves only what you approve as private. It may then offer to draft a publication,
-but publishing remains a separate review and approval step. The skill uses
-`lore capture apply -` as a validated local write boundary; it never edits
-SQLite directly and never sends private captures to the paid MCP surface.
+Tell Claude or Codex **"Capture this in Lore"**, then dictate, paste, point it at
+a local file, or drag in a PDF or image. The host agent reads the material and
+the `lore-capture` skill proposes bounded memories with private source
+references, lets you correct them, and saves only what you approve. Lore does
+not keep a copy of the file itself — only the memory text you approve, which
+may quote from it. It may then offer to draft a publication, but
+publishing remains a separate review and approval step.
+The validated `lore capture apply -` command owns local writes; the skill never
+edits SQLite directly or sends private captures to the paid MCP surface.
 
 ## Guided onboarding
 

@@ -52,6 +52,11 @@ the proposal** (the `lore-onboard` phase-2 pattern: correcting beats
 blank-slate authoring) → land as `private` memories with file/source
 provenance through the validated `lore capture apply` command.
 
+For files and images, the approved entry carries a private `source_path`: the
+exact path plus a page/section locator when the runtime has one, or an
+`attachment:<name>` label for a dragged item without a durable path. Lore stores
+that reference and the derived memory, not a copy of the source artifact.
+
 ## The conversation is the staging area
 
 Do not interrupt a developing thought to confirm candidate memories. Wait for a

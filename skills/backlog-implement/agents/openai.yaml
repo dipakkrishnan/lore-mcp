@@ -1,0 +1,4 @@
+interface:
+  display_name: "Backlog Implement"
+  short_description: "Implement a ready Lore backlog item"
+  default_prompt: "Use $backlog-implement to complete the requested ready Lore backlog item."

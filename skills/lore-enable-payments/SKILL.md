@@ -18,6 +18,11 @@ exists at the edge. With zero publications the rail still proves end to end, but
 catalog is empty and there is nothing to buy; that is why mainnet is gated on
 having at least one.
 
+> **Agent-system controls:** In Claude Code, use `AskUserQuestion` for owner
+> decisions. In Codex, ask directly in chat unless the current mode explicitly
+> provides a structured question control. Never block because a named question
+> tool is unavailable.
+
 ## How to drive — read this first
 
 The owner should never have to figure out where to go or what comes next. You are
@@ -29,9 +34,9 @@ the guide; the skill is your script.
   quote. The owner personally does two things: log in to Cloudflare, and click
   around their own wallet app and faucet pages.
 - **Announce, then open.** Before any browser step, say in one sentence what the
-  page is and what the owner will do there — then open it for them (`open <url>`
-  on macOS, `xdg-open` on Linux). Never spring a tab on someone mid-thought, and
-  never open a page you haven't framed.
+  page is and what the owner will do there — then use the host's browser control
+  when available, otherwise the platform's URL opener. Never spring a tab on
+  someone mid-thought, and never open a page you haven't framed.
 - **Defer at decision points.** Price, path order, wallet choice, stopping early —
   ask one question with a recommendation and take the owner's answer. Mechanics
   are yours; decisions are theirs.

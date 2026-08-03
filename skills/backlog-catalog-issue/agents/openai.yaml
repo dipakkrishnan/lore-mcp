@@ -1,0 +1,4 @@
+interface:
+  display_name: "Catalog GitHub Issue"
+  short_description: "Catalog GitHub issues into Lore's backlog"
+  default_prompt: "Use $backlog-catalog-issue to catalog this GitHub issue into the Lore backlog."

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Backlog Ideate"
+  short_description: "Turn an idea into a Lore backlog item"
+  default_prompt: "Use $backlog-ideate to turn this idea into a well-formed Lore backlog item."
