@@ -12,3 +12,48 @@ jobs:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v5
       - run: uv run python -m unittest discover -s tests -v
+
+  node:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: lore/node
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+      - run: npm ci
+      # Burn address: syntactically valid so wrangler can construct the
+      # Worker, never a real payout wallet.
+      - run: echo "LORE_WALLET=0x000000000000000000000000000000000000dEaD" > .dev.vars
+      - run: npm run types
+      - run: npm run check
+      - name: Seed an empty local publications table
+        # Mirrors the schema `lore push` maintains (lore/cli.py:_push_sql).
+        # discover() selects from this table; without it the Worker 500s.
+        run: |
+          cat <<'SQL' > /tmp/seed-publications.sql
+          DROP TABLE IF EXISTS publications;
+          CREATE TABLE publications (
+            public_id TEXT PRIMARY KEY, title TEXT NOT NULL, content TEXT NOT NULL,
+            kind TEXT NOT NULL, topic TEXT NOT NULL DEFAULT '',
+            teaser TEXT NOT NULL DEFAULT '', updated_at TEXT NOT NULL DEFAULT ''
+          );
+          SQL
+          npx wrangler d1 execute lore-publications --local --file /tmp/seed-publications.sql -y
+      - name: Smoke test against a locally served Worker
+        run: |
+          nohup npm run dev > wrangler-dev.log 2>&1 &
+          echo $! > wrangler-dev.pid
+          for i in $(seq 1 30); do
+            curl -s -o /dev/null http://127.0.0.1:8787/mcp && break
+            sleep 1
+          done
+          npm run smoke
+      - name: Show Worker dev log on failure
+        if: failure()
+        run: cat wrangler-dev.log
+      - name: Stop the Worker
+        if: always()
+        run: kill "$(cat wrangler-dev.pid)" 2>/dev/null || true
