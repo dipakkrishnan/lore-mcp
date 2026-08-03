@@ -4,7 +4,7 @@ title: Add reusable PR templates the backlog skills can reference
 priority: P2
 effort: M
 component: cross-cutting
-status: in-review
+status: ready
 related: []
 blockers: []
 dependencies: []
@@ -63,3 +63,7 @@ Surfaced 2026-08-03 after manually authoring several backlog PR bodies
 audit-clean/no-conflicts boilerplate. Scope note: this only templates the PR
 *body*; it doesn't change the shared rule that only a human (or an explicit
 ask) triggers a push — see `implementation.md`'s "do not push" line.
+
+**Prioritization pass 2026-08-03:** promoted `in-review` → `ready` at `P2`.
+Unblocked, criteria are concrete, and it's process tooling rather than
+user-facing work — worth doing but not ahead of this pass's `P1` items.

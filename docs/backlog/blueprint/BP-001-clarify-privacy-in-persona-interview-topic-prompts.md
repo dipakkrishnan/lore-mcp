@@ -4,7 +4,7 @@ title: Clarify that persona-interview topic/domain answers stay private
 priority: P2
 effort: S
 component: blueprint
-status: in-review
+status: ready
 related: []
 blockers: []
 dependencies: []
@@ -65,3 +65,8 @@ the two skills don't describe the same guarantee two different ways.
 Surfaced 2026-08-03 from a live onboarding walkthrough transcript quoted
 above. Related in spirit to XC-005 (dry-running owner skills as
 conversations), which would be a natural way to verify the fix once made.
+
+**Prioritization pass 2026-08-03:** promoted `in-review` → `ready` at `P2`.
+Unblocked, criteria are concrete, and the third criterion (a fresh
+conversational run reads as private) can be checked by hand — it doesn't need
+`XC-005`'s protocol to exist first, just the practice.

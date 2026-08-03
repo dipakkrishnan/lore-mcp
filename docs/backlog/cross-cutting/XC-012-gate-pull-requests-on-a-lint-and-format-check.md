@@ -1,10 +1,10 @@
 ---
 id: XC-012
 title: Gate pull requests on a lint and format check
-priority: P2
+priority: P1
 effort: S
 component: cross-cutting
-status: in-review
+status: ready
 related: [XC-003, XC-004]
 blockers: []
 dependencies: []
@@ -92,3 +92,8 @@ defect-prevention rather than hygiene.
 
 Renumbered from `XC-007` to `XC-012` on 2026-08-03: open PR #47 filed its own
 `XC-007` on 2026-07-31, a day before this one, and has the better claim.
+
+**Prioritization pass 2026-08-03:** `XC-004` is `completed`, so the workflow
+this rides along after now exists, and `MON-010` (the payment rail this was
+filed behind) is also `completed`. Promoted `in-review` → `ready` at `P1` —
+both the sequencing reasons to hold this at `P2` no longer apply.

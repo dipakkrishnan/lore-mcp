@@ -1,10 +1,10 @@
 ---
 id: XC-009
 title: Type-check lore/ with mypy so its annotations mean something
-priority: P2
+priority: P1
 effort: S
 component: cross-cutting
-status: in-review
+status: ready
 related: [XC-003, XC-004, XC-012]
 blockers: []
 dependencies: []
@@ -92,3 +92,7 @@ an INSERT always populates it. That is true for sqlite3 in practice, so the fix
 is likely an assertion that documents the assumption rather than a behaviour
 change — but it is the only finding here that could become a `TypeError` in
 production rather than a lie in a signature.
+
+**Prioritization pass 2026-08-03:** `XC-004` is `completed`, so the workflow
+this item's gate hangs off now exists. Promoted `in-review` → `ready` at `P1`
+— small effort, seven already-identified real findings, and unblocked.
