@@ -6,45 +6,91 @@ import math
 import os
 import sys
 from pathlib import Path
+from typing import Annotated
+
+from pydantic import Field, TypeAdapter
 
 from . import blueprint as blueprint_module
+from . import capture as capture_module
 from . import deploy as deploy_module
 from .paths import home
 from .sources import available_sources, scan
-from .store import STATUSES, Publication, PublicationKind, Store
-from .ui import ask, confirm, heading, logo, memory_card, muted, publication_card, success
+from .store import STATUSES, Publication, PublicationInput, Store
+from .ui import (
+    ask,
+    confirm,
+    heading,
+    logo,
+    memory_card,
+    muted,
+    publication_card,
+    success,
+)
+
+PUBLICATION_CANDIDATES = TypeAdapter(
+    Annotated[list[PublicationInput], Field(min_length=1)]
+)
 
 
 def parser() -> argparse.ArgumentParser:
     """Build the Lore command-line parser."""
-    root = argparse.ArgumentParser(prog="lore", description="Local memory for personal agents")
+    root = argparse.ArgumentParser(
+        prog="lore", description="Local memory for personal agents"
+    )
     commands = root.add_subparsers(dest="command")
 
     setup = commands.add_parser("setup", help="guided first-time setup")
-    setup.add_argument("--yes", action="store_true", help="enable detected sources without prompting")
+    setup.add_argument(
+        "--yes", action="store_true", help="enable detected sources without prompting"
+    )
 
     sync = commands.add_parser("sync", help="import new and changed memories")
-    sync.add_argument("--source", action="append", choices=[s.name for s in available_sources()])
+    sync.add_argument(
+        "--source", action="append", choices=[s.name for s in available_sources()]
+    )
 
     review = commands.add_parser("review", help="keep or discard memories")
     review.add_argument("query", nargs="*", help="words to narrow the review queue")
     review.add_argument("--status", choices=STATUSES, default="private")
-    review.add_argument("--limit", type=int, default=0, help="maximum to review; 0 means all")
+    review.add_argument(
+        "--limit", type=int, default=0, help="maximum to review; 0 means all"
+    )
 
     search = commands.add_parser("search", help="search local memories")
     search.add_argument("query", nargs="*", help="words to search for")
     search.add_argument("--status", choices=STATUSES)
-    search.add_argument("--limit", type=int, default=20, help="maximum results; 0 means all")
+    search.add_argument(
+        "--limit", type=int, default=20, help="maximum results; 0 means all"
+    )
     search.add_argument("--json", action="store_true")
 
-    profile = commands.add_parser("profile", help="save an agent-written synthesis profile")
+    profile = commands.add_parser(
+        "profile", help="save an agent-written synthesis profile"
+    )
     profile.add_argument("path", help="JSON profile file; use - for stdin")
-    profile.add_argument("--no-schedule", action="store_true", help="write the profile without installing schedules")
+    profile.add_argument(
+        "--no-schedule",
+        action="store_true",
+        help="write the profile without installing schedules",
+    )
+
+    capture = commands.add_parser(
+        "capture", help="save owner-approved private memories"
+    )
+    capture_commands = capture.add_subparsers(dest="capture_command", required=True)
+    capture_apply = capture_commands.add_parser(
+        "apply", help="validate and save structured memory entries as private"
+    )
+    capture_apply.add_argument(
+        "file", help="JSON array written by an agent; use - for stdin"
+    )
 
     commands.add_parser("status", help="show source and review status")
     commands.add_parser("help", help="show the Lore workflow manual")
     price = commands.add_parser("price", help="show or set the per-publication price")
-    price.add_argument("amount", nargs="?", type=float, help="USD per publication; use 0 for free")
+    price.add_argument(
+        "amount", nargs="?", type=float, help="USD per publication; use 0 for free"
+    )
     serve = commands.add_parser("serve", help="run the Lore MCP server")
     serve.add_argument("--transport", choices=["stdio", "http"], default="stdio")
     serve.add_argument("--host", default="127.0.0.1")
@@ -57,7 +103,8 @@ def parser() -> argparse.ArgumentParser:
         "deploy", help="deploy the node Worker to your own Cloudflare account"
     )
     node_deploy.add_argument(
-        "--wallet", help="public payout address (0x + 40 hex) set as the node's LORE_WALLET"
+        "--wallet",
+        help="public payout address (0x + 40 hex) set as the node's LORE_WALLET",
     )
 
     publication = commands.add_parser(
@@ -118,6 +165,8 @@ def main(argv: list[str] | None = None) -> int:
             return search(" ".join(args.query), args.status, args.limit, args.json)
         if args.command == "profile":
             return profile(args.path, not args.no_schedule)
+        if args.command == "capture":
+            return capture_apply(args.file)
         if args.command == "status":
             return status()
         if args.command == "help":
@@ -127,7 +176,14 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "serve":
             from .mcp import main as serve
 
-            serve_args = ["--transport", args.transport, "--host", args.host, "--port", str(args.port)]
+            serve_args = [
+                "--transport",
+                args.transport,
+                "--host",
+                args.host,
+                "--port",
+                str(args.port),
+            ]
             if args.token:
                 serve_args.extend(["--token", args.token])
             return serve(serve_args)
@@ -186,27 +242,30 @@ def manual() -> int:
   2. lore sync
      Import memories created or changed since setup.
 
-  3. lore review [words] [--status private|discarded]
+  3. lore capture apply <file|->
+     Validate and privately save memories approved in an attended agent session.
+
+  4. lore review [words] [--status private|discarded]
      Walk the private library and keep or discard; revisit any prior decision.
      Reviewing never discloses anything — only a publication does that.
 
-  4. lore search [words] [--status STATUS]
+  5. lore search [words] [--status STATUS]
      Inspect the local library without changing disclosure.
 
-  5. lore price [USD]
+  6. lore price [USD]
      Show or set the advertised price per publication.
 
-  6. lore status
+  7. lore status
      Check imports, the private library, active publications, and price.
 
-  7. lore serve
+  8. lore serve
      Start the MCP endpoint used by local agents or a protected gateway.
 
-  8. lore node deploy
+  9. lore node deploy
      Deploy your node to your own Cloudflare account (source ships with Lore;
      the URL lands in `lore status`).
 
-  9. lore blueprint show
+  10. lore blueprint show
      See the shape of your lore captured by the gamified onboarding skill
      (run `lore blueprint apply <file>` from that skill to update it).
 
@@ -222,15 +281,23 @@ def setup(yes: bool = False) -> int:
     automation_dir = home() / "automation"
     automation_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
     automation_dir.chmod(0o700)
-    muted("Lore imports only agent-generated memory files. Session transcripts stay untouched.")
+    muted(
+        "Lore imports only agent-generated memory files. Session transcripts stay untouched."
+    )
     native = [source for source in available_sources() if source.origin == "native"]
     enabled: list[str] = []
     heading("Detected agents")
     for source in native:
         count = len(source.files())
-        state = f"{count} memory file{'s' if count != 1 else ''}" if source.root.exists() else "not found"
+        state = (
+            f"{count} memory file{'s' if count != 1 else ''}"
+            if source.root.exists()
+            else "not found"
+        )
         print(f"  {source.label:<14} {state}")
-        if source.root.exists() and (yes or confirm(f"Import {source.label} memories?")):
+        if source.root.exists() and (
+            yes or confirm(f"Import {source.label} memories?")
+        ):
             enabled.append(source.name)
     with Store() as store:
         store.set_setting("sources", enabled)
@@ -250,7 +317,17 @@ def sync(names: set[str] | None = None) -> int:
             names = configured | {"automation"}
         report = scan(store, names)
     for name, item in report.items():
-        print(f"{name:<20} {item['added']} added, {item['updated']} updated, {item['unchanged']} unchanged")
+        print(
+            f"{name:<20} {item['added']} added, {item['updated']} updated, {item['unchanged']} unchanged"
+        )
+    return 0
+
+
+def capture_apply(file: str) -> int:
+    """Validate and save memories the owner corrected in an attended agent session."""
+    text = sys.stdin.read() if file == "-" else Path(file).read_text(encoding="utf-8")
+    results = capture_module.save(json.loads(text))
+    print(json.dumps(results, indent=2))
     return 0
 
 
@@ -335,7 +412,9 @@ def status() -> int:
         marker = "●" if enabled else "○"
         print(f"  {marker} {source.label:<14} {sources.get(source.name, 0)} imported")
     print(f"\nDatabase: {database_path}")
-    print(f"Publication price: {'not set' if answer_price is None else f'${answer_price:.2f}'}")
+    print(
+        f"Publication price: {'not set' if answer_price is None else f'${answer_price:.2f}'}"
+    )
     if node_url:
         # A cache of remote truth, not local truth like the price: another
         # machine or the Cloudflare dashboard can move the node after this.
@@ -353,7 +432,18 @@ def price(amount: float | None) -> int:
         if not math.isfinite(amount) or amount < 0:
             raise ValueError("price must be a finite, non-negative number")
         store.set_setting("price_usd", round(amount, 6))
-    success("Publications are free" if amount == 0 else f"Publication price set to ${amount:.2f}")
+        node_url = store.setting("node_url", None)
+    success(
+        "Publications are free"
+        if amount == 0
+        else f"Publication price set to ${amount:.2f}"
+    )
+    if node_url:
+        # The deployed Worker charges the price baked in at deploy time; a
+        # saved setting proves nothing about what the live node charges.
+        muted(
+            "Your deployed node still charges its old price until `lore node deploy` reruns."
+        )
     return 0
 
 
@@ -363,8 +453,6 @@ def profile(path: str, schedule: bool = True) -> int:
 
     text = sys.stdin.read() if path == "-" else Path(path).read_text(encoding="utf-8")
     data = json.loads(text)
-    if not isinstance(data, dict):
-        raise ValueError("profile must be a JSON object")
     data = automation.save_profile(data)
     success(f"Saved profile to {automation.profile_path()}")
     if not schedule:
@@ -382,38 +470,23 @@ def _interactive() -> bool:
 
 def _candidate(raw: object, missing_check: Store) -> Publication:
     """Validate one drafted candidate into a previewable Publication."""
-    if not isinstance(raw, dict):
-        raise ValueError("each candidate must be a JSON object")
-    unexpected = raw.keys() - {"title", "content", "kind", "topic", "teaser", "provenance"}
-    if unexpected:
-        raise ValueError(f"unexpected candidate field: {sorted(unexpected)[0]}")
-    title = str(raw.get("title", "")).strip()
-    content = str(raw.get("content", "")).strip()
-    topic = str(raw.get("topic", "")).strip()
-    teaser = str(raw.get("teaser", "")).strip()
-    if not title or not content or not topic:
-        raise ValueError("candidates need a non-empty title, content, and topic")
-    if not teaser:
+    candidate = PublicationInput.model_validate(raw)
+    if not candidate.teaser:
         # The teaser is the entire free surface for this publication, so approval
         # without one would advertise nothing — draft it question-shaped: what the
         # publication answers, never the lesson itself.
         raise ValueError("candidates need a non-empty teaser (the free advertisement)")
-    provenance = raw.get("provenance", [])
-    if not isinstance(provenance, list) or not provenance or not all(
-        isinstance(i, int) and not isinstance(i, bool) for i in provenance
-    ):
-        raise ValueError("candidate provenance must be a non-empty list of memory ids")
-    missing = missing_check.missing_memories(provenance)
+    missing = missing_check.missing_memories(candidate.provenance)
     if missing:
         raise ValueError(f"candidate provenance references unknown memories: {missing}")
     return Publication(
         id=0,
-        title=title,
-        content=content,
-        kind=PublicationKind(raw.get("kind", "claim")),
-        topic=topic,
-        teaser=teaser,
-        provenance=provenance,
+        title=candidate.title,
+        content=candidate.content,
+        kind=candidate.kind,
+        topic=candidate.topic,
+        teaser=candidate.teaser,
+        provenance=candidate.provenance,
         active=1,
         created_at="",
         updated_at="",
@@ -427,9 +500,7 @@ def publication_apply(path: str) -> int:
             "publication approval needs an attended interactive terminal; "
             "piped and background approval is disabled"
         )
-    data = json.loads(Path(path).read_text(encoding="utf-8"))
-    if not isinstance(data, list) or not data:
-        raise ValueError("candidates file must be a non-empty JSON array")
+    data = PUBLICATION_CANDIDATES.validate_json(Path(path).read_text(encoding="utf-8"))
     logo()
     with Store() as store:
         candidates = [_candidate(raw, store) for raw in data]
@@ -463,12 +534,16 @@ def publication_apply(path: str) -> int:
                     )
                     continue
                 if choice == "q":
-                    success(f"Approved {approved} publication{'s' if approved != 1 else ''}")
+                    success(
+                        f"Approved {approved} publication{'s' if approved != 1 else ''}"
+                    )
                     return 0
                 break  # reject: save nothing, move on
     success(f"Approved {approved} publication{'s' if approved != 1 else ''}")
     if approved:
-        muted("These are now answerable over MCP. Revoke any time: lore publication revoke <id>")
+        muted(
+            "These are now answerable over MCP. Revoke any time: lore publication revoke <id>"
+        )
     return 0
 
 
@@ -501,6 +576,7 @@ def _push_sql(publications: list[Publication]) -> str:
     idempotent, and a revoked publication is guaranteed gone because nothing
     that isn't in this script survives it.
     """
+
     def quote(value: str) -> str:
         return "'" + value.replace("'", "''") + "'"
 
@@ -543,8 +619,17 @@ def push(worker_dir: str, local: bool = False) -> int:
         script_path = handle.name
     target = ["--local"] if local else ["--remote"]
     result = subprocess.run(
-        ["npx", "wrangler", "d1", "execute", "lore-publications", *target,
-         "--file", script_path, "-y"],
+        [
+            "npx",
+            "wrangler",
+            "d1",
+            "execute",
+            "lore-publications",
+            *target,
+            "--file",
+            script_path,
+            "-y",
+        ],
         cwd=worker,
     )
     os.unlink(script_path)
@@ -554,7 +639,9 @@ def push(worker_dir: str, local: bool = False) -> int:
             "and that `lore-publications` exists (npx wrangler d1 create lore-publications)"
         )
     where = "local dev database" if local else "deployed node"
-    success(f"Pushed {len(active)} active publication{'s' if len(active) != 1 else ''} to the {where}")
+    success(
+        f"Pushed {len(active)} active publication{'s' if len(active) != 1 else ''} to the {where}"
+    )
     if not active:
         muted("The node now serves nothing. That is a valid state, not an error.")
     return 0
@@ -572,7 +659,9 @@ def blueprint_apply(file: str) -> int:
     """Validate and persist a blueprint file written by the onboarding skill."""
     blueprint_module.apply(file)
     success("Lore blueprint captured")
-    print(f"Run `lore blueprint show` to see your lore map, at {blueprint_module.lore_map_path()}")
+    print(
+        f"Run `lore blueprint show` to see your lore map, at {blueprint_module.lore_map_path()}"
+    )
     return 0
 
 

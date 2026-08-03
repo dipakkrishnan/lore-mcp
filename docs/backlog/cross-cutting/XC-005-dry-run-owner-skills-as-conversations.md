@@ -1,16 +1,16 @@
 ---
 id: XC-005
 title: Dry-run every owner skill as a conversation, not just a document
-priority: P2
+priority: P1
 effort: M
 component: cross-cutting
-status: in-review
+status: ready
 related: [XC-004, MON-006]
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-07-30
-updated: 2026-07-30
+updated: 2026-08-01
 ---
 
 ## Problem
@@ -49,3 +49,12 @@ and that is acceptable.
 From the PR #42 discussion of what the contract tests cannot cover. The other
 un-automated items from that discussion are tracked elsewhere: live Base
 Sepolia settlement (MON-002), the two-person paid test (MON-005).
+
+Prioritization pass 2026-08-01 raised this from `P2` to `P1` and promoted it to
+`ready` on timing rather than on any change to the item itself. `lore-onboard`
+is being actively rewritten right now (the `feat/onboarding-experience` line of
+work), and a dry-run protocol is worth most immediately after those changes land
+and least once they have shipped to owners untested. The "unclear whether this
+can be automated" question in the approach does not block starting: both
+acceptance criteria describe the manual checklist, and deciding it stays manual
+is a valid outcome.

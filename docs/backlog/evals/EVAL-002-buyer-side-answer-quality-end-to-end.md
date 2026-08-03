@@ -1,16 +1,16 @@
 ---
 id: EVAL-002
 title: Evaluate answer quality from the buyer's side of the MCP surface
-priority: P2
+priority: P1
 effort: M
 component: evals
-status: in-review
+status: ready
 related: [EVAL-001, MCP-001]
 blockers: [XC-002, MON-003]
 dependencies: []
 github_issue: null
 created: 2026-07-30
-updated: 2026-07-30
+updated: 2026-08-03
 ---
 
 ## Problem
@@ -55,3 +55,9 @@ From the PR #42 discussion: after the rail is proven, "buyer agent getting
 good answers" is the last unverified link in the seller-first chain. Related
 to MCP-001 (browsing is one proposed fix for the vocabulary gap this eval
 would measure — this item provides the measurement either way).
+
+**Prioritization pass 2026-08-03:** both blockers (`XC-002`, `MON-003`) are
+`completed`. Promoted `in-review` → `ready` at `P1` — this is the last
+unverified link in the seller-first chain per the note above, criteria are
+concrete, and `MCP-003` (the paid proxy tier) lists this item as one of its
+own blockers, so it's on the critical path for more than itself.

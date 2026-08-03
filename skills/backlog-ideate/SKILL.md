@@ -6,10 +6,12 @@ description: Turn a raw idea, TODO, or complaint into a well-formed backlog item
 # Backlog: ideation
 
 Read `docs/backlog/agents/AGENTS.md` for the shared rules, then
-`docs/backlog/agents/ideation.md` and follow it exactly against the idea
-described in `$ARGUMENTS` (or the surrounding conversation if no arguments
-were given).
+`docs/backlog/agents/ideation.md` and follow it exactly against the idea in the
+request or surrounding conversation.
 
-Do not regenerate `docs/backlog/INDEX.md` yourself — end by suggesting the
-`backlog-audit` skill (or running the `audit` playbook) to fold the new item
-in.
+Do not regenerate `docs/backlog/INDEX.md` yourself. If you actually created
+a new item this run, invoke the `backlog-audit` skill (via the Skill tool)
+before finishing so `INDEX.md` reflects it — don't just suggest it to the
+user. If the idea turned out to be a duplicate and you only folded notes
+into an existing item, there's no new item for audit to fold in, so skip
+the call.

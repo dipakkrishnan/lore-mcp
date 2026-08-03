@@ -23,14 +23,41 @@ transcripts during initial import.
 lore help                     # show the end-user workflow
 lore setup                    # import native memory; then onboard with an agent
 lore sync                     # import new or changed memory files
+lore capture apply -          # validated private write path used by capture agents
 lore review                   # keep private / discard
 lore review launch --status private  # revisit a prior decision
 lore search "failed launch"   # SQLite full-text recall
 lore price 0.50               # advertise a fixed per-publication price
 lore status
-lore node deploy --wallet 0x… # deploy your node to your own Cloudflare account
+lore node deploy --wallet 0x… # deploy at the configured price; rerun after price changes
 lore blueprint show            # see the shape of your lore, once captured
 ```
+
+### Agent plugins
+
+The installer already copies Lore's owner-facing skills into Claude and Codex. To
+install the same workflows as a marketplace plugin instead, install Lore with the
+command above, then add this repository's marketplace.
+
+Claude Code:
+
+```text
+/plugin marketplace add dipakkrishnan/lore-mcp
+/plugin install lore@lore-marketplace
+/reload-plugins
+```
+
+Codex CLI:
+
+```sh
+codex plugin marketplace add dipakkrishnan/lore-mcp
+codex plugin add lore@lore-marketplace
+```
+
+Restart the Codex app to browse Lore in its Plugins directory, or start a new
+Claude or Codex session after installation. The plugin packages only the four
+owner workflows; repository-maintenance skills are not included. The `lore`
+command remains the local, owner-controlled runtime.
 
 Set `LORE_HOME` to use a location other than `~/.lore`. Lore also respects
 `CODEX_HOME` and `CLAUDE_HOME` when discovering agent data.
@@ -52,9 +79,21 @@ runs `lore sync`, then invokes `claude -p` with the saved prompt and narrow perm
 Remote Claude routines cannot read local memory files. Keep the Mac awake when a local
 Claude task is due.
 
+## Personal content capture
+
+Tell Claude or Codex **"Capture this in Lore"**, then dictate, paste, point it at
+a local file, or drag in a PDF or image. The host agent reads the material and
+the `lore-capture` skill proposes bounded memories with private source
+references, lets you correct them, and saves only what you approve. Lore does
+not keep a copy of the file itself — only the memory text you approve, which
+may quote from it. It may then offer to draft a publication, but
+publishing remains a separate review and approval step.
+The validated `lore capture apply -` command owns local writes; the skill never
+edits SQLite directly or sends private captures to the paid MCP surface.
+
 ## Guided onboarding
 
-The `lore-onboard` skill (`skills/lore-onboard/SKILL.md`) runs the whole first-time setup
+The `lore-onboard` skill (`plugins/lore/skills/lore-onboard/SKILL.md`) runs the whole first-time setup
 as one conversation inside a Claude or Codex session, in two phases:
 
 1. **Persona interview → blueprint.** Pick an archetype — Storyteller, elementary
@@ -68,7 +107,7 @@ as one conversation inside a Claude or Codex session, in two phases:
    from phase 1 steers where it reads deeply. Captured with `lore profile`.
 
 When you are ready to charge for publications, the `lore-enable-payments` skill
-(`skills/lore-enable-payments/SKILL.md`) walks you from a self-custody payout address
+(`plugins/lore/skills/lore-enable-payments/SKILL.md`) walks you from a self-custody payout address
 to a deployed node and a proven test-network payment — with free as a first-class
 place to stop.
 
@@ -308,13 +347,33 @@ indexed text without resetting the owner's disclosure decision.
 ## Development
 
 ```sh
-uv sync
+uv sync --extra dev
+uv run --extra dev ruff check lore tests
+uv run --extra dev ruff format --check lore tests
 uv run python -m unittest discover -s tests -v
 uv run lore --help
 ```
 
 `uv.lock` is committed, so contributors and CI resolve the same project setup.
 The curl installer remains independent of `uv` for end users.
+
+The Worker in `lore/node/` has its own checks, run from that directory:
+
+```sh
+cp .dev.vars.example .dev.vars   # set LORE_WALLET to any valid address
+npm ci
+npm run lint
+npm run types && npm run check
+npm test                         # Workerd component tests with a mocked facilitator
+npm run dev                      # MCP at http://localhost:8787/mcp
+npm run smoke                    # free discover + unpaid x402 challenge
+```
+
+CI (`.github/workflows/tests.yml`) reports six separate checks: Python lint,
+Python unit tests, Node lint, Node compiler checks, Node component tests, and
+the Worker smoke test. Each runs the same local command against a placeholder
+wallet where the Worker requires one, so failures are immediately attributable
+to a single stage.
 
 The implementation uses only the Python standard library: `argparse`, `sqlite3`,
 `subprocess`, and `http.server`. There is no application framework, vector

@@ -46,11 +46,17 @@ def confirm(prompt: str, default: bool = True) -> bool:
     return default
 
 
-def memory_card(memory: Memory, current: int | None = None, total: int | None = None) -> None:
+def memory_card(
+    memory: Memory, current: int | None = None, total: int | None = None
+) -> None:
     label = f"Memory {current} of {total}" if current and total else memory.status
     print(f"\n{paint('2', '─' * 72)}")
     print(paint("1", memory.title.translate(CONTROL_CHARACTERS)))
     metadata = f"{label} · {memory.source} · {memory.project or 'general'}"
+    if memory.source_path and memory.source_path != "agent-session":
+        # The locator is the provenance the owner captured; without it the card
+        # gives no way back to the file, page, or attachment it came from.
+        metadata += f" · {memory.source_path}"
     print(paint("2", metadata.translate(CONTROL_CHARACTERS)))
     print()
     body = memory.content
@@ -73,7 +79,9 @@ def publication_card(
         label += " · source changed"
     print(f"\n{paint('2', '─' * 72)}")
     print(paint("1", publication.title.translate(CONTROL_CHARACTERS)))
-    metadata = f"{label} · {publication.kind} · {len(publication.provenance)} source memories"
+    metadata = (
+        f"{label} · {publication.kind} · {len(publication.provenance)} source memories"
+    )
     if publication.topic:
         # The topic is externally visible wherever discovery groups by it, so it is
         # shown on the approval card: approving the publication approves the label.

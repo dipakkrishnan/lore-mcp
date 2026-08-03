@@ -1,16 +1,16 @@
 ---
 id: EVAL-001
 title: Evaluate the real Lore pipeline instead of a roleplay prompt
-priority: P2
-effort: L
+priority: P1
+effort: S
 component: evals
-status: in-review
+status: ready
 related: []
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-07-30
-updated: 2026-07-30
+updated: 2026-08-03
 ---
 
 ## Problem
@@ -63,3 +63,24 @@ codex exec incantation) into windup as a one-shot `run_json(prompt, agent,
 model, schema)` — windup's `_agent_command` already owns per-agent CLI
 knowledge, and today three copies of it exist across run.py and windup.
 Model invocation stays out of `lore/` core, which is stdlib-only by design.
+
+Prioritization pass 2026-08-01 held this at `P2` and `in-review`, reasoning that
+building against the `answer` surface now would mean rebuilding it after
+`XC-002`. A closer look the same day found that reasoning obsolete: most of this
+item is already built on `main`. `evals/integration.py` (commit `0b15ebf`, "Add
+the full-pipeline integration eval") seeds a throwaway `LORE_HOME`, runs the
+shipped prompt via `lore.automation.build_prompt`, queries the real MCP surface
+via `lore.mcp.call_tool("answer")`, and carries a deterministic
+`forbidden_scan` at the external boundary — criteria 1, 2, and 3.
+
+What is not evident is criterion 4: that a deliberate `build_prompt` regression
+has been demonstrated to flip a benchmark result. Verify that one, then this is
+`completed` rather than `in-review`. Left for `implementation` or `audit` to
+resolve, since prioritization does not move items to `completed`.
+
+**Prioritization pass 2026-08-03:** corrected `effort` from `L` to `S` — three
+of four criteria are already built on `main` per the note above, and what's
+left is running one deliberate `build_prompt` regression and confirming it
+flips a benchmark result, not the original-sized harness build. Promoted to
+`P1` and `ready` on the same basis: small remaining effort, and it's the last
+step before this closes as `completed`.

@@ -18,15 +18,15 @@ so the choice feels like it matters.
    assembling the JSON below, writing it to a temp file, and running
    `lore blueprint apply <file>` — the single validating write path.
 2. **One question at a time**, in the chosen persona's voice after the opener.
-   **Default to `AskUserQuestion` so the owner picks instead of composing** — the goal is
-   for them to think less. This includes the questions phrased open-endedly below (topic
-   outline, focus vs. general): read the owner's actual projects/domains from their
-   history and offer *those* as selectable options rather than asking them to type a
-   list. Use `multiSelect` when several answers apply, and put your best guess first.
-   `AskUserQuestion` allows at most **4 options** (plus an automatic "Other"); when a
-   question has more, see the opener's tool note. Drop to plain chat only when you truly
-   cannot enumerate the choices — a free-form name, or a voice/storytelling answer that
-   resists a fixed menu.
+   **Default to the host's structured question control when available so the owner
+   picks instead of composing** — the goal is for them to think less. This includes
+   the questions phrased open-endedly below (topic outline, focus vs. general): read
+   the owner's actual projects/domains from their history and offer *those* as
+   selectable options rather than asking them to type a list. Use multi-select when
+   several answers apply, and put your best guess first. Keep each question within
+   the host's option limit. Drop to plain chat when no structured control exists or
+   the answer genuinely cannot be enumerated — a free-form name, or a
+   voice/storytelling answer that resists a fixed menu.
 3. **Map every free-text answer to the canonical enum** in the Crosswalk before
    assembling JSON. Never invent a persona or axis value.
 4. **Show the assembled map and get explicit confirmation before applying.**
@@ -37,11 +37,10 @@ so the choice feels like it matters.
 > "What's your name, and which of these do you most identify with — Storyteller,
 > elementary schoolteacher, college professor, business executive, or wise sage?"
 
-**Tool note:** this is five personas but `AskUserQuestion` caps at four options, so ask
-the opener in plain chat as a numbered list — folding the fifth into "Other" would hide a
-real choice. This is the *one* question that must be plain chat; every question after it
-uses `AskUserQuestion` wherever the options can be enumerated (Rule 2). The name is
-free-form — collect it in the same plain-chat opener.
+**Tool note:** this is five personas, which exceeds the option limit in some hosts,
+so ask the opener in plain chat as a numbered list — folding the fifth into "Other"
+would hide a real choice. The name is free-form; collect it in the same opener. Use
+the host's structured question control for later questions when it fits.
 
 Map to a `persona` value, then tell the owner how that choice shapes their lore, e.g.:
 

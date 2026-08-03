@@ -4,13 +4,13 @@ title: Bulk-prune the private library instead of one card at a time
 priority: P1
 effort: S
 component: cli-ux
-status: in-review
+status: ready
 related: [STO-001, XC-001, XC-002]
 blockers: [STO-001]
 dependencies: []
 github_issue: https://github.com/dipakkrishnan/lore-mcp/issues/6
 created: 2026-07-26
-updated: 2026-07-30
+updated: 2026-08-03
 ---
 
 ## Problem
@@ -77,3 +77,8 @@ What a rebase has to deal with, recorded so it isn't rediscovered:
 - `Store.set_status_many` returns `rowcount`, which counts rows *matched*, so it
   reports "Marked 3 memories private" even when all three already were. Hence the
   new acceptance criterion above.
+
+**Prioritization pass 2026-08-03:** `STO-001` is `completed`, so the blocker this
+was parked on is clear. Promoted `in-review` → `ready` at `P1` — the acceptance
+criteria are concrete and the rebase notes above are a punch list, not an open
+design question.
