@@ -15,7 +15,7 @@ import { generatePrivateKey } from "viem/accounts";
 const network = "eip155:84532";
 const asset = "0x036CbD53842c5426634e7929541eC2318f3dCF7e";
 const payTo = "0x000000000000000000000000000000000000dEaD";
-let signedRetry = false;
+let signedRetries = 0;
 
 function remoteServer(): Server {
   const server = new Server(
@@ -62,7 +62,7 @@ function remoteServer(): Server {
     }
     const payment = JSON.parse(atob(String(token))) as { accepted: { network: string } };
     assert.equal(payment.accepted.network, network);
-    signedRetry = true;
+    signedRetries += 1;
     return {
       content: [{ type: "text", text: "paid content" }],
       _meta: {
@@ -102,7 +102,15 @@ try {
   await client.connect(
     new StdioClientTransport({
       command: process.execPath,
-      args: ["--import", "tsx", "src/index.ts", "--node", `http://127.0.0.1:${address.port}/mcp`],
+      args: [
+        "--import",
+        "tsx",
+        "src/index.ts",
+        "--node",
+        `http://127.0.0.1:${address.port}/mcp`,
+        "--max-usd",
+        "0.01"
+      ],
       env: { ...process.env, X402_PRIVATE_KEY: generatePrivateKey() },
       stderr: "inherit"
     })
@@ -111,10 +119,15 @@ try {
   assert.match(tools.tools[0]?.description ?? "", /paid tool.*\$0\.01/);
 
   const result = await client.callTool({ name: "get", arguments: {} });
-  assert(signedRetry, "bridge did not sign and retry the x402 challenge");
+  assert.equal(signedRetries, 1, "bridge did not sign and retry the x402 challenge");
   assert.match(JSON.stringify(result.content), /paid content/);
   assert.match(JSON.stringify(result.content), /x402 settlement receipt.*0xfixturetransaction/);
-  console.log("ok: bridge signed, retried, and surfaced the settlement receipt");
+
+  const overBudget = await client.callTool({ name: "get", arguments: {} });
+  assert(overBudget.isError, "bridge exceeded its cumulative spend cap");
+  assert.match(JSON.stringify(overBudget.content), /declined/i);
+  assert.equal(signedRetries, 1, "bridge signed a second payment over its cap");
+  console.log("ok: bridge paid once, surfaced the receipt, and stopped at its spend cap");
 } finally {
   await client.close();
   httpServer.close();

@@ -91,6 +91,8 @@ if (!Number.isFinite(maxUsd) || maxUsd < 0) {
   console.error("--max-usd must be a non-negative number");
   process.exit(1);
 }
+const maxPaymentValue = BigInt(Math.round(maxUsd * 1e6));
+let authorizedPaymentValue = 0n;
 
 const account = privateKeyToAccount(bridgeKey());
 emit("startup", {
@@ -106,9 +108,31 @@ await remote.connect(new StreamableHTTPClientTransport(new URL(values.node)));
 const paid = withX402Client(remote, {
   account: toClientEvmSigner(account),
   network: values.network,
-  // USDC has 6 decimals; the cap is enforced by the wrapper per call.
-  maxPaymentValue: BigInt(Math.round(maxUsd * 1e6)),
+  // USDC has 6 decimals. The SDK enforces this per call; the callback below
+  // reserves against the same cap across the lifetime of this process.
+  maxPaymentValue,
   confirmationCallback: async (accepts) => {
+    const selected = accepts[0];
+    if (selected?.scheme === "exact") {
+      try {
+        const amount = BigInt(selected.amount);
+        if (
+          amount <= maxPaymentValue &&
+          authorizedPaymentValue + amount > maxPaymentValue
+        ) {
+          emit("declined", {
+            reason: "cumulative spend cap",
+            amount: selected.amount,
+            authorized: authorizedPaymentValue.toString(),
+            cap: maxPaymentValue.toString()
+          });
+          return false;
+        }
+        if (amount <= maxPaymentValue) authorizedPaymentValue += amount;
+      } catch {
+        // The SDK returns the original payment error for malformed amounts.
+      }
+    }
     emit("challenge", { accepts });
     return true;
   }
