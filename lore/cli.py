@@ -460,7 +460,7 @@ def profile(path: str, schedule: bool = True) -> int:
         muted("Existing schedules still use their previously installed prompt.")
         return 0
     try:
-        executor = automation.Agent(str(data["executor"]))
+        executor = automation.Agent(str(data.get("executor", "")))
         automation.install(data)
     except (OSError, ValueError) as error:
         # The profile is already on disk, so a bare traceback here would read as a

@@ -517,6 +517,25 @@ class ProfileTest(LoreTestCase):
         self.assertIn("schedule was not installed", report)
         self.assertIn(str(automation.profile_path()), report)
 
+    def test_a_missing_executor_key_reports_a_retry_command_instead_of_crashing(
+        self,
+    ) -> None:
+        # A partial-onboarding profile that never set "executor" comes back from
+        # save_profile()'s exclude_unset=True with no "executor" key at all — distinct
+        # from the blank-string case above. Bare `data["executor"]` raises KeyError,
+        # which the except clause does not catch, escaping past the handler.
+        path = self.lore_home / "profile.json"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps({"role": "maintainer"}))
+
+        errors = StringIO()
+        with patch.object(sys, "stderr", errors):
+            self.assertEqual(cli.profile(str(path)), 1)
+
+        report = errors.getvalue()
+        self.assertIn("schedule was not installed", report)
+        self.assertIn(str(automation.profile_path()), report)
+
 
 class CaptureCommandTest(LoreTestCase):
     def test_capture_apply_reads_stdin_and_prints_the_outcome(self) -> None:
