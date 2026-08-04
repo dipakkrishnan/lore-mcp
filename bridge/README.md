@@ -37,7 +37,7 @@ spend through the bridge. Never give the bridge a key that holds real savings.
 |------|---------|---------|
 | `--node <url>` | required | Remote MCP endpoint to front |
 | `--network` | `eip155:84532` (Base Sepolia) | CAIP-2 network; `eip155:8453` for Base mainnet |
-| `--max-usd` | `1` | Per-call spend cap, enforced before signing |
+| `--max-usd` | `1` | Per-call and process-lifetime authorization cap |
 
 ## Checks
 
