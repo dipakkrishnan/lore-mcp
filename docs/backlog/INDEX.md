@@ -10,6 +10,7 @@ obsolete), then `priority` (P0 → P3).
 
 | ID | Title | Priority | Effort | Component | Status | Related | Blockers | Dependencies | Issue |
 |---|---|---|---|---|---|---|---|---|---|
+| [XC-013](./cross-cutting/XC-013-test-the-worker-request-path-not-just-its-leaf-modules.md) | Test the Worker's request path, not just its leaf modules | P2 | M | cross-cutting | ideation | XC-003, XC-004, MCP-001, MON-002, MON-003, MON-006 | — | "@cloudflare/vitest-pool-workers loading the MCP SDK's CJS dependencies" | — |
 | [EVAL-003](./evals/EVAL-003-run-the-bench-without-requiring-both-agent-clis.md) | Run the bench without requiring both agent CLIs installed | P2 | M | evals | in-review | EVAL-001, EVAL-002 | — | "windup (separate repo) — `run_json` lands there, not in lore-mcp" | — |
 | [MCP-003](./mcp-server/MCP-003-paid-proxy-answer-tier-over-approved-publications.md) | Add a paid proxy answer tier over approved publications | P2 | L | mcp-server | in-review | MCP-001, MCP-002, EVAL-002, CAP-001, ONB-001 | MCP-001, EVAL-002 | — | — |
 | [MON-007](./monetization/MON-007-buyer-side-wallet-for-claude-mcp-clients.md) | Let a Claude MCP client complete a paid x402 purchase with its own wallet | P2 | M | monetization | in-review | MON-002, MON-005 | — | "A worked example: an owner with a live node and a friend willing to test buy-side" | — |
@@ -33,7 +34,7 @@ obsolete), then `priority` (P0 → P3).
 | [XC-010](./cross-cutting/XC-010-require-a-backlog-id-in-every-pr-title.md) | Require a backlog id in every pull request title | P1 | S | cross-cutting | ready | XC-004, XC-007, XC-011 | — | — | — |
 | [BP-001](./blueprint/BP-001-clarify-privacy-in-persona-interview-topic-prompts.md) | Clarify that persona-interview topic/domain answers stay private | P2 | S | blueprint | ready | — | — | — | — |
 | [DOC-002](./docs/DOC-002-document-lore-as-an-interactive-masterclass.md) | Document Lore as an interactive masterclass and coaching surface | P2 | XS | docs | ready | XC-002, MCP-001 | — | — | — |
-| [XC-003](./cross-cutting/XC-003-split-test-suite-per-module-and-gate-coverage.md) | Split the test suite into per-module files and gate coverage at 90% | P2 | L | cross-cutting | ready | STO-001, XC-002 | — | — | — |
+| [XC-003](./cross-cutting/XC-003-split-test-suite-per-module-and-gate-coverage.md) | Split the test suite into per-module files and gate coverage at 90% | P2 | L | cross-cutting | in-progress | STO-001, XC-002 | — | — | — |
 | [XC-007](./cross-cutting/XC-007-pr-templates-for-backlog-skills.md) | Add reusable PR templates the backlog skills can reference | P2 | M | cross-cutting | ready | — | — | — | — |
 | [MCP-001](./mcp-server/MCP-001-browsable-publication-tree-for-discovery.md) | Give discover an owner-approved manifest of the node's offerings | P2 | L | mcp-server | in-progress | STO-001, XC-002, MCP-002, MCP-003 | XC-002 | — | — |
 | [STO-001](./store-import/STO-001-private-by-default-and-publications-table.md) | Private-by-default memories and a separate publications table | P0 | M | store-import | completed | CLI-001, ONB-001, XC-001, XC-002 | — | — | [#6](https://github.com/dipakkrishnan/lore-mcp/issues/6) |

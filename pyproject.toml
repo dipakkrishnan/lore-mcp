@@ -22,6 +22,12 @@ dev = [
     "ruff>=0.16.1",
 ]
 
+[dependency-groups]
+dev = [
+    "pytest>=8",
+    "coverage[toml]>=7.4",
+]
+
 [tool.ruff]
 extend-exclude = ["lore/node"]
 
@@ -47,3 +53,19 @@ lore = [
     "node/src/*.ts",
     "node/scripts/*.ts",
 ]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+# Only `lore/` counts toward the percentage: including `tests/` would let a large,
+# fully-executed test file mask an untested module.
+[tool.coverage.run]
+source = ["lore"]
+branch = true
+
+[tool.coverage.report]
+show_missing = true
+# The cheap outer guard. `tests/coverage_gate.py` is the real gate: fail_under
+# checks one global combined number, so a file at 96% statements / 70% branches
+# hides behind it.
+fail_under = 90
