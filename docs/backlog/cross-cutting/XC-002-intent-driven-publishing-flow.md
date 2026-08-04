@@ -1,16 +1,16 @@
 ---
 id: XC-002
-title: Intent-driven publishing flow (lore-publish + publication apply/list/revoke)
+title: Intent-driven publishing flow (lore-publish + publication review/list/revoke)
 priority: P1
 effort: L
 component: cross-cutting
-status: in-review
+status: completed
 related: [STO-001, CLI-001, XC-001, MCP-001]
 blockers: [STO-001]
 dependencies: []
 github_issue: https://github.com/dipakkrishnan/lore-mcp/issues/6
 created: 2026-07-27
-updated: 2026-07-29
+updated: 2026-08-01
 ---
 
 ## Problem
@@ -31,7 +31,7 @@ do):
   about X"; the agent searches the private library, drafts 1-3 concise bounded
   publication candidates with their supporting private sources, and shows them.
   Agents may **draft but cannot approve**.
-- `lore publication apply <file>` — validates, previews, and requires interactive
+- `lore publication review <file>` — validates, previews, and requires interactive
   owner approval per candidate (approve / revise / reject); saves only approved
   text to the publications table with provenance references.
 - `lore publication list` — shows active and revoked publications.
@@ -53,8 +53,9 @@ automatically disclosed externally.
 
 ## Acceptance criteria
 
-- [ ] `lore publication apply` cannot save a publication without an explicit
-      interactive owner approval step; no agent/automated path can approve.
+- [ ] `lore publication review` requires an attended interactive confirmation
+      and exposes no non-interactive approval flag; the agent skill forbids
+      invoking or answering that prompt on the owner's behalf.
 - [ ] `list` shows active and revoked; `revoke` flips state and the publication is
       immediately unreachable from `discover`/`answer`.
 - [ ] Publishing one topic takes no more than three owner decisions.
@@ -79,3 +80,7 @@ question is **resolved (Shane + Dipak): bounded claims**, not request-time synth
 policies — easier to inspect, approve, audit, and revoke. The one extension to the
 doc is that a publication may also be explicitly-promoted verbatim content, not only
 a derived claim.
+
+**Completed 2026-08-01.** Merged via #38 (squash included the `publication
+review` rename and grounded-metadata follow-ups). Edge replication of the
+approved set landed with MON-003; `lore push` is the sync path.

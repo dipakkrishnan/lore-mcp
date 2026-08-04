@@ -1,0 +1,38 @@
+{
+  "name": "lore",
+  "version": "0.1.0",
+  "description": "Portable, private, monetizable context for personal agents",
+  "author": {
+    "name": "Dipak Krishnan",
+    "url": "https://github.com/dipakkrishnan"
+  },
+  "homepage": "https://github.com/dipakkrishnan/lore-mcp",
+  "repository": "https://github.com/dipakkrishnan/lore-mcp",
+  "license": "MIT",
+  "keywords": [
+    "memory",
+    "personal-agents",
+    "mcp",
+    "privacy"
+  ],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Lore",
+    "shortDescription": "Private memory workflows for personal agents",
+    "longDescription": "Lore gives Codex workflows to capture, organize, publish, and optionally monetize owner-controlled context while keeping raw memories private.",
+    "developerName": "Dipak Krishnan",
+    "category": "Productivity",
+    "capabilities": [
+      "Read",
+      "Write"
+    ],
+    "websiteURL": "https://github.com/dipakkrishnan/lore-mcp",
+    "privacyPolicyURL": "https://github.com/dipakkrishnan/lore-mcp/blob/main/PRIVACY.md",
+    "defaultPrompt": [
+      "Onboard me to Lore.",
+      "Capture this in Lore.",
+      "Publish what I learned about this."
+    ],
+    "brandColor": "#6B5B45"
+  }
+}

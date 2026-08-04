@@ -1,0 +1,4 @@
+interface:
+  display_name: "Lore Enable Payments"
+  short_description: "Set up and test a paid Lore node"
+  default_prompt: "Use $lore-enable-payments to guide me through enabling and testing payments on my Lore node."

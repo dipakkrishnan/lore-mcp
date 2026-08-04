@@ -1,0 +1,4 @@
+interface:
+  display_name: "Lore Capture"
+  short_description: "Turn personal content into private Lore memories"
+  default_prompt: "Use $lore-capture to review this content and privately save the memories I approve."

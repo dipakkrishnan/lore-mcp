@@ -102,7 +102,9 @@ def main() -> int:
     checks: dict[str, object] = report["checks"]  # type: ignore[assignment]
     failures: list[str] = report["failures"]  # type: ignore[assignment]
 
-    def record(name: str, ok: bool, detail: object = None, *, gating: bool = True) -> None:
+    def record(
+        name: str, ok: bool, detail: object = None, *, gating: bool = True
+    ) -> None:
         checks[name] = {"ok": ok, "detail": detail}
         if not ok and gating:
             failures.append(name)

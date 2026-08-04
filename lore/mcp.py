@@ -19,37 +19,46 @@ import sys
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
 
+from pydantic import BaseModel, ConfigDict, Field
+
 from . import __version__
 from .store import Store
 
 PROTOCOL_VERSION = "2025-11-25"
 
+
+class DiscoverArguments(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+
+class GetArguments(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, str_strip_whitespace=True)
+
+    id: str = Field(min_length=1)
+
+
 TOOLS = [
     {
         "name": "discover",
         "title": "Discover Lore",
-        "description": "Check whether this Lore node has owner-approved context relevant to a query. Free and content-safe.",
-        "inputSchema": {
-            "type": "object",
-            "properties": {"query": {"type": "string", "minLength": 1}},
-            "required": ["query"],
-            "additionalProperties": False,
-        },
+        "description": (
+            "Return this node's full catalog of owner-approved publications: "
+            "teasers grouped by topic, with ids, freshness, and price. Free. "
+            "Choose zero, one, multiple, or all ids; call get once per chosen id."
+        ),
+        "inputSchema": DiscoverArguments.model_json_schema(),
         "annotations": {"readOnlyHint": True, "openWorldHint": False},
     },
     {
-        "name": "answer",
-        "title": "Answer from Lore",
-        "description": "Return owner-approved evidence relevant to a query.",
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "query": {"type": "string", "minLength": 1},
-                "max_results": {"type": "integer", "minimum": 1, "maximum": 10, "default": 5},
-            },
-            "required": ["query"],
-            "additionalProperties": False,
-        },
+        "name": "get",
+        "title": "Get a publication",
+        "description": (
+            "Fetch one owner-approved publication by its id from the discover "
+            "catalog. Each call buys exactly one publication. Damaged ids are "
+            "rejected before payment; use a current catalog because payment settles "
+            "before lookup and a just-revoked id can still be billed."
+        ),
+        "inputSchema": GetArguments.model_json_schema(),
         "annotations": {"readOnlyHint": True, "openWorldHint": False},
     },
 ]
@@ -80,7 +89,10 @@ def dispatch(message: object) -> dict[str, Any] | None:
                 "protocolVersion": version,
                 "capabilities": {"tools": {"listChanged": False}},
                 "serverInfo": {"name": "lore", "version": __version__},
-                "instructions": "Use discover before answer. Only owner-approved publications are returned.",
+                "instructions": (
+                    "discover returns the full catalog free. Choose zero, one, multiple, "
+                    "or all ids; call get once per chosen id, buying one publication each."
+                ),
             }
         elif method == "ping":
             result = {}
@@ -100,57 +112,46 @@ def dispatch(message: object) -> dict[str, Any] | None:
 
 def call_tool(name: object, arguments: object) -> dict[str, Any]:
     """Run a Lore MCP tool against owner-approved publications only."""
-    if name not in {"discover", "answer"}:
+    if name not in {"discover", "get"}:
         raise ValueError(f"unknown tool: {name}")
-    if not isinstance(arguments, dict):
-        raise TypeError("arguments must be an object")
-    allowed = {"query", "max_results"} if name == "answer" else {"query"}
-    unexpected = arguments.keys() - allowed
-    if unexpected:
-        raise ValueError(f"unexpected argument: {sorted(unexpected)[0]}")
-    query = arguments.get("query", "")
-    if not isinstance(query, str):
-        raise TypeError("query must be a string")
-    query = query.strip()
-    if not query:
-        raise ValueError("query is required")
+    parsed = (
+        GetArguments.model_validate(arguments)
+        if name == "get"
+        else DiscoverArguments.model_validate(arguments)
+    )
     with Store() as store:
         if name == "discover":
-            matches = store.search_publications(query, limit=5)
-            payload = {
-                "can_help": bool(matches),
-                "match_count": len(matches),
-                "topics": [publication.title for publication in matches],
+            # The free surface is the manifest: what exists, never what it says.
+            payload = store.manifest() | {
                 "price_usd": store.setting("price_usd", None),
-                "disclosure": "Only owner-approved publications are available.",
+                "disclosure": "Choose any advertised ids; get buys one publication per call.",
             }
-        elif name == "answer":
-            limit = arguments.get("max_results", 5)
-            if isinstance(limit, bool) or not isinstance(limit, int) or not 1 <= limit <= 10:
-                raise ValueError("max_results must be an integer from 1 to 10")
-            matches = store.search_publications(query, limit=limit)
+        elif name == "get":
+            publication = store.get_publication(parsed.id)
             payload = {
-                "answer_context": [
-                    {
-                        "title": publication.title,
-                        "content": publication.content,
-                        # Provenance is owner-visible only. The private memory
-                        # ids behind a publication are never sent to a buyer:
-                        # they leak the size and shape of the private library.
-                        "provenance": {
-                            "kind": publication.kind,
-                            "updated_at": publication.updated_at,
-                        },
-                    }
-                    for publication in matches
-                ],
-                "disclosure": "Context is owner-approved; the caller should preserve provenance when synthesizing an answer.",
+                "publication": {
+                    "id": publication.public_id,
+                    "title": publication.title,
+                    "content": publication.content,
+                    "topic": publication.topic,
+                    # The private memory ids behind a publication are never sent
+                    # to a buyer: they leak the size and shape of the library.
+                    "kind": publication.kind,
+                    "updated_at": publication.updated_at,
+                },
+                "disclosure": "Content is owner-approved; preserve attribution when synthesizing.",
             }
-    return {"content": [{"type": "text", "text": json.dumps(payload, ensure_ascii=False)}]}
+    return {
+        "content": [{"type": "text", "text": json.dumps(payload, ensure_ascii=False)}]
+    }
 
 
 def _error(request_id: object, code: int, message: str) -> dict[str, Any]:
-    return {"jsonrpc": "2.0", "id": request_id, "error": {"code": code, "message": message}}
+    return {
+        "jsonrpc": "2.0",
+        "id": request_id,
+        "error": {"code": code, "message": message},
+    }
 
 
 def stdio() -> int:
@@ -176,7 +177,9 @@ def http(host: str, port: int, token: str | None = None) -> int:
             if self.path == "/health":
                 self._send(200, {"status": "ok", "service": "lore"})
             else:
-                self._send(405, {"error": "SSE listening is not offered; use POST /mcp"})
+                self._send(
+                    405, {"error": "SSE listening is not offered; use POST /mcp"}
+                )
 
         def do_POST(self) -> None:
             if self.path != "/mcp":
@@ -233,4 +236,6 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--port", type=int, default=8765)
     parser.add_argument("--token", default=os.environ.get("LORE_MCP_TOKEN"))
     args = parser.parse_args(argv)
-    return http(args.host, args.port, args.token) if args.transport == "http" else stdio()
+    return (
+        http(args.host, args.port, args.token) if args.transport == "http" else stdio()
+    )

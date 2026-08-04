@@ -1,0 +1,4 @@
+interface:
+  display_name: "Backlog Prioritize"
+  short_description: "Rank and ready Lore backlog work"
+  default_prompt: "Use $backlog-prioritize to rank the current Lore backlog by impact and effort."

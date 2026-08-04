@@ -4,7 +4,7 @@ import os
 import sys
 import textwrap
 
-from .store import Memory
+from .store import Memory, Publication
 
 COLOR = sys.stdout.isatty() and "NO_COLOR" not in os.environ
 CONTROL_CHARACTERS = dict.fromkeys((*range(32), *range(127, 160)))
@@ -46,16 +46,52 @@ def confirm(prompt: str, default: bool = True) -> bool:
     return default
 
 
-def memory_card(memory: Memory, current: int | None = None, total: int | None = None) -> None:
+def memory_card(
+    memory: Memory, current: int | None = None, total: int | None = None
+) -> None:
     label = f"Memory {current} of {total}" if current and total else memory.status
     print(f"\n{paint('2', '─' * 72)}")
     print(paint("1", memory.title.translate(CONTROL_CHARACTERS)))
     metadata = f"{label} · {memory.source} · {memory.project or 'general'}"
+    if memory.source_path and memory.source_path != "agent-session":
+        # The locator is the provenance the owner captured; without it the card
+        # gives no way back to the file, page, or attachment it came from.
+        metadata += f" · {memory.source_path}"
     print(paint("2", metadata.translate(CONTROL_CHARACTERS)))
     print()
     body = memory.content
     if len(body) > 1800:
         body = body[:1800].rstrip() + "\n…"
     for paragraph in body.splitlines():
+        paragraph = paragraph.translate(CONTROL_CHARACTERS)
+        print(textwrap.fill(paragraph, width=78) if paragraph else "")
+
+
+def publication_card(
+    publication: Publication, current: int | None = None, total: int | None = None
+) -> None:
+    label = (
+        f"Candidate {current} of {total}"
+        if current and total
+        else ("active" if publication.active else "revoked")
+    )
+    if publication.source_changed_at:
+        label += " · source changed"
+    print(f"\n{paint('2', '─' * 72)}")
+    print(paint("1", publication.title.translate(CONTROL_CHARACTERS)))
+    metadata = (
+        f"{label} · {publication.kind} · {len(publication.provenance)} source memories"
+    )
+    if publication.topic:
+        # The topic is externally visible wherever discovery groups by it, so it is
+        # shown on the approval card: approving the publication approves the label.
+        metadata += f" · topic: {publication.topic}"
+    print(paint("2", metadata.translate(CONTROL_CHARACTERS)))
+    if publication.teaser:
+        # The teaser is the free surface: it is what every buyer reads without
+        # paying, so approving the publication approves this advertisement.
+        print(paint("2", f"teaser: {publication.teaser}".translate(CONTROL_CHARACTERS)))
+    print()
+    for paragraph in publication.content.splitlines():
         paragraph = paragraph.translate(CONTROL_CHARACTERS)
         print(textwrap.fill(paragraph, width=78) if paragraph else "")

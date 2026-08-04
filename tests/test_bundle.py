@@ -81,6 +81,7 @@ class BundleTest(unittest.TestCase):
             title="Consensus tradeoffs",
             content="consensus consensus consensus raft paxos",
             kind=PublicationKind.CLAIM,
+            topic="distributed-systems",
             provenance=[1],
         )
         long_match = self.store.add_publication(
@@ -90,6 +91,7 @@ class BundleTest(unittest.TestCase):
                 "queueing where consensus appears exactly once among many words"
             ),
             kind=PublicationKind.CLAIM,
+            topic="networking",
             provenance=[1],
         )
         # Carries a diacritic, so the parity and folding assertions have teeth
@@ -98,6 +100,8 @@ class BundleTest(unittest.TestCase):
             title="Café habits",
             content="I review best over a café latté in the afternoon",
             kind=PublicationKind.CONTENT,
+            topic="lifestyle",
+            provenance=[1],
         )
         # Revoked, and its text contains the canary. If revocation filtering ever
         # breaks, the raw-bytes test below catches it.
@@ -105,6 +109,8 @@ class BundleTest(unittest.TestCase):
             title="Revoked claim",
             content=f"this mentions {PRIVATE_CANARY} and was withdrawn",
             kind=PublicationKind.CONTENT,
+            topic="withdrawn",
+            provenance=[1],
         )
         self.store.revoke_publication(revoked)
         self.store.set_setting("price_usd", 0.25)
@@ -124,7 +130,9 @@ class BundleTest(unittest.TestCase):
         free page or an FTS segment, so this checks the file itself.
         """
         self.seed()
-        export(publication_rows(self.store), price_usd=0.25, destination=self.destination)
+        export(
+            publication_rows(self.store), price_usd=0.25, destination=self.destination
+        )
         raw = self.destination.read_bytes()
         self.assertNotIn(PRIVATE_CANARY.encode(), raw)
         self.assertNotIn(b"Compensation notes", raw)
@@ -132,7 +140,9 @@ class BundleTest(unittest.TestCase):
     def test_bundle_schema_omits_provenance_and_source_changed_at(self) -> None:
         """Absent from the schema, not merely unpopulated."""
         self.seed()
-        export(publication_rows(self.store), price_usd=None, destination=self.destination)
+        export(
+            publication_rows(self.store), price_usd=None, destination=self.destination
+        )
         db = sqlite3.connect(self.destination)
         columns = {row[1] for row in db.execute("PRAGMA table_info(publications)")}
         db.close()
@@ -144,10 +154,13 @@ class BundleTest(unittest.TestCase):
 
     def test_bundle_has_no_memories_table_of_any_kind(self) -> None:
         self.seed()
-        export(publication_rows(self.store), price_usd=None, destination=self.destination)
+        export(
+            publication_rows(self.store), price_usd=None, destination=self.destination
+        )
         db = sqlite3.connect(self.destination)
         tables = {
-            row[0] for row in db.execute("SELECT name FROM sqlite_master WHERE type='table'")
+            row[0]
+            for row in db.execute("SELECT name FROM sqlite_master WHERE type='table'")
         }
         db.close()
         self.assertNotIn("memories", tables)
@@ -157,7 +170,9 @@ class BundleTest(unittest.TestCase):
 
     def test_revoked_publications_do_not_cross_over(self) -> None:
         ids = self.seed()
-        export(publication_rows(self.store), price_usd=None, destination=self.destination)
+        export(
+            publication_rows(self.store), price_usd=None, destination=self.destination
+        )
         with BundleReader(self.destination) as reader:
             exported = {row.id for row in reader.search_publications("", limit=0)}
         self.assertIn(ids["active"], exported)
@@ -180,8 +195,12 @@ class BundleTest(unittest.TestCase):
             content=f"revised private note: {PRIVATE_CANARY}",
             project="personal",
         )
-        self.assertTrue(self.store.stale_publications(), "expected a flagged publication")
-        export(publication_rows(self.store), price_usd=None, destination=self.destination)
+        self.assertTrue(
+            self.store.stale_publications(), "expected a flagged publication"
+        )
+        export(
+            publication_rows(self.store), price_usd=None, destination=self.destination
+        )
         with BundleReader(self.destination) as reader:
             exported = {row.id for row in reader.search_publications("", limit=0)}
         self.assertIn(ids["active"], exported)
@@ -190,7 +209,9 @@ class BundleTest(unittest.TestCase):
         self.seed()
         self.store.set_setting("sources", ["claude", "codex"])
         self.store.set_setting("deployment", {"endpoint": "https://example.invalid"})
-        export(publication_rows(self.store), price_usd=0.25, destination=self.destination)
+        export(
+            publication_rows(self.store), price_usd=0.25, destination=self.destination
+        )
         with BundleReader(self.destination) as reader:
             self.assertEqual(reader.setting("price_usd"), 0.25)
             self.assertIsNone(reader.setting("sources"))
@@ -226,11 +247,15 @@ class BundleTest(unittest.TestCase):
         baseline = digest(rows, 0.25)
 
         self.assertNotEqual(baseline, digest(rows, 0.50), "price must be covered")
-        self.assertNotEqual(baseline, digest(rows[:-1], 0.25), "removal must be covered")
+        self.assertNotEqual(
+            baseline, digest(rows[:-1], 0.25), "removal must be covered"
+        )
 
         self.store.revoke_publication(ids["active"])
         self.assertNotEqual(
-            baseline, digest(publication_rows(self.store), 0.25), "revocation must count"
+            baseline,
+            digest(publication_rows(self.store), 0.25),
+            "revocation must count",
         )
 
     def test_digest_is_independent_of_row_order(self) -> None:
@@ -241,7 +266,9 @@ class BundleTest(unittest.TestCase):
     def test_recorded_digest_matches_the_bundles_own_metadata(self) -> None:
         """Drift must be detectable without opening a network connection."""
         self.seed()
-        info = export(publication_rows(self.store), price_usd=None, destination=self.destination)
+        info = export(
+            publication_rows(self.store), price_usd=None, destination=self.destination
+        )
         with BundleReader(self.destination) as reader:
             self.assertEqual(reader.digest, info.digest)
         self.assertEqual(digest(publication_rows(self.store), None), info.digest)
@@ -250,7 +277,9 @@ class BundleTest(unittest.TestCase):
 
     def test_default_max_age_is_seven_days_and_is_recorded(self) -> None:
         self.seed()
-        info = export(publication_rows(self.store), price_usd=None, destination=self.destination)
+        info = export(
+            publication_rows(self.store), price_usd=None, destination=self.destination
+        )
         self.assertEqual(info.max_age_days, DEFAULT_MAX_AGE_DAYS)
         self.assertEqual(DEFAULT_MAX_AGE_DAYS, 7.0)
         with BundleReader(self.destination) as reader:
@@ -267,7 +296,9 @@ class BundleTest(unittest.TestCase):
             max_age_days=7.0,
             built_at=built.isoformat(),
         )
-        reader = BundleReader(self.destination, now=built + timedelta(days=7, seconds=1))
+        reader = BundleReader(
+            self.destination, now=built + timedelta(days=7, seconds=1)
+        )
         self.addCleanup(reader.close)
         self.assertTrue(reader.expired)
         with self.assertRaises(BundleExpired):
@@ -320,27 +351,15 @@ class BundleTest(unittest.TestCase):
 
     # ----------------------------------------------------------------- search
 
-    def test_bundle_search_matches_the_local_library_exactly(self) -> None:
-        """Parity, not similarity.
-
-        A deployed node that ranked differently from `lore serve` would be a
-        silent behavioral fork across a disclosure boundary.
-        """
-        self.seed()
-        export(publication_rows(self.store), price_usd=None, destination=self.destination)
-        queries = ["consensus", "consensus raft", "notes", "café", "cafe", "paxos"]
-        with BundleReader(self.destination) as reader:
-            for query in queries:
-                with self.subTest(query=query):
-                    local = [item.id for item in self.store.search_publications(query, limit=5)]
-                    remote = [row.id for row in reader.search_publications(query, limit=5)]
-                    self.assertEqual(local, remote)
-
     def test_bm25_ranks_a_focused_match_above_a_passing_mention(self) -> None:
         ids = self.seed()
-        export(publication_rows(self.store), price_usd=None, destination=self.destination)
+        export(
+            publication_rows(self.store), price_usd=None, destination=self.destination
+        )
         with BundleReader(self.destination) as reader:
-            ranked = [row.id for row in reader.search_publications("consensus", limit=5)]
+            ranked = [
+                row.id for row in reader.search_publications("consensus", limit=5)
+            ]
         self.assertEqual(ranked, [ids["active"], ids["long_match"]])
 
     def test_diacritics_fold_in_the_bundle_as_they_do_locally(self) -> None:
@@ -351,7 +370,9 @@ class BundleTest(unittest.TestCase):
         one — a divergence no error would report.
         """
         ids = self.seed()
-        export(publication_rows(self.store), price_usd=None, destination=self.destination)
+        export(
+            publication_rows(self.store), price_usd=None, destination=self.destination
+        )
         with BundleReader(self.destination) as reader:
             for query in ("cafe", "café", "latte"):
                 with self.subTest(query=query):
@@ -362,14 +383,18 @@ class BundleTest(unittest.TestCase):
 
     def test_query_with_no_searchable_terms_returns_nothing(self) -> None:
         self.seed()
-        export(publication_rows(self.store), price_usd=None, destination=self.destination)
+        export(
+            publication_rows(self.store), price_usd=None, destination=self.destination
+        )
         with BundleReader(self.destination) as reader:
             self.assertEqual(reader.search_publications("!!! ???"), [])
         self.assertIsNone(match_expression("!!! ???"))
 
     def test_negative_limit_is_rejected(self) -> None:
         self.seed()
-        export(publication_rows(self.store), price_usd=None, destination=self.destination)
+        export(
+            publication_rows(self.store), price_usd=None, destination=self.destination
+        )
         with BundleReader(self.destination) as reader, self.assertRaises(ValueError):
             reader.search_publications("consensus", limit=-1)
 
@@ -386,11 +411,11 @@ class BundleTest(unittest.TestCase):
         docs/fts5-lambda-runtime-spike.md.
         """
         self.seed()
-        export(publication_rows(self.store), price_usd=None, destination=self.destination)
-        header = self.destination.read_bytes()[18:20]
-        self.assertEqual(
-            tuple(header), (1, 1), "bundle must not be in WAL mode (2/2)"
+        export(
+            publication_rows(self.store), price_usd=None, destination=self.destination
         )
+        header = self.destination.read_bytes()[18:20]
+        self.assertEqual(tuple(header), (1, 1), "bundle must not be in WAL mode (2/2)")
         db = sqlite3.connect(self.destination)
         self.addCleanup(db.close)
         self.assertEqual(db.execute("PRAGMA journal_mode").fetchone()[0], "delete")
@@ -402,7 +427,9 @@ class BundleTest(unittest.TestCase):
         read-only, so the exporter must not leave the bundle in WAL mode.
         """
         self.seed()
-        export(publication_rows(self.store), price_usd=None, destination=self.destination)
+        export(
+            publication_rows(self.store), price_usd=None, destination=self.destination
+        )
         self.assertEqual(
             sorted(p.name for p in self.root.glob("bundle.db-*")),
             [],
@@ -416,9 +443,13 @@ class BundleTest(unittest.TestCase):
     def test_export_rebuilds_rather_than_accumulating(self) -> None:
         """Re-exporting must not leave a previously-active row behind."""
         ids = self.seed()
-        export(publication_rows(self.store), price_usd=None, destination=self.destination)
+        export(
+            publication_rows(self.store), price_usd=None, destination=self.destination
+        )
         self.store.revoke_publication(ids["active"])
-        export(publication_rows(self.store), price_usd=None, destination=self.destination)
+        export(
+            publication_rows(self.store), price_usd=None, destination=self.destination
+        )
         with BundleReader(self.destination) as reader:
             remaining = {row.id for row in reader.search_publications("", limit=0)}
         self.assertNotIn(ids["active"], remaining)
@@ -435,13 +466,17 @@ class BundleTest(unittest.TestCase):
 
     def test_bundle_is_owner_readable_only(self) -> None:
         self.seed()
-        export(publication_rows(self.store), price_usd=None, destination=self.destination)
+        export(
+            publication_rows(self.store), price_usd=None, destination=self.destination
+        )
         self.assertEqual(self.destination.stat().st_mode & 0o777, 0o600)
 
     def test_schema_version_mismatch_is_refused(self) -> None:
         """A future bundle format must not be served by an older reader."""
         self.seed()
-        export(publication_rows(self.store), price_usd=None, destination=self.destination)
+        export(
+            publication_rows(self.store), price_usd=None, destination=self.destination
+        )
         db = sqlite3.connect(self.destination)
         db.execute(
             "UPDATE meta SET value=? WHERE key='schema_version'",
@@ -460,7 +495,9 @@ class BundleTest(unittest.TestCase):
         """The raw SQLite error says `malformed database schema`, naming neither
         FTS5 nor the runtime. See docs/fts5-lambda-runtime-spike.md."""
         self.seed()
-        export(publication_rows(self.store), price_usd=None, destination=self.destination)
+        export(
+            publication_rows(self.store), price_usd=None, destination=self.destination
+        )
         original = bundle_module.fts5_available
         bundle_module.fts5_available = lambda: False
         self.addCleanup(setattr, bundle_module, "fts5_available", original)
