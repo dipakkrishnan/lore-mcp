@@ -20,9 +20,12 @@ import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-# The installer ships `skills/lore-*` to both homes, so the glob is the contract:
-# a new owner skill that fails to ship should fail here, not in someone's setup.
-OWNER_SKILLS = sorted(path for path in (ROOT / "skills").glob("lore-*") if path.is_dir())
+# The installer ships `plugins/lore/skills/lore-*` to both homes, so the glob is
+# the contract: a new owner skill that fails to ship should fail here, not in
+# someone's setup.
+OWNER_SKILLS = sorted(
+    path for path in (ROOT / "plugins/lore/skills").glob("lore-*") if path.is_dir()
+)
 AGENT_HOMES = (".agents/skills", ".claude/skills")
 
 
@@ -47,7 +50,9 @@ class InstallerTest(unittest.TestCase):
         # the sandbox for the script's rm -rf to be harmless.
         environment = {
             "HOME": str(self.home),
-            "PATH": path if path is not None else f"{self.bin}{os.pathsep}{os.environ['PATH']}",
+            "PATH": path
+            if path is not None
+            else f"{self.bin}{os.pathsep}{os.environ['PATH']}",
             "LORE_SOURCE_DIR": str(ROOT),
             "LORE_SKIP_SETUP": "1",
         }
@@ -87,7 +92,9 @@ class InstallerTest(unittest.TestCase):
             for skill in OWNER_SKILLS:
                 stale = self.home / home / skill.name
                 stale.mkdir(parents=True)
-                (stale / "retired-phase.md").write_text("instructions that no longer apply")
+                (stale / "retired-phase.md").write_text(
+                    "instructions that no longer apply"
+                )
 
         self.assertEqual(self._install().returncode, 0)
 

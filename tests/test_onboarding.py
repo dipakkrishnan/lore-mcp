@@ -18,9 +18,17 @@ from pathlib import Path
 from unittest.mock import patch
 
 from lore import automation, blueprint, onboarding
-from lore.cli import dashboard, main, manual, onboarding_save, onboarding_show
+from lore.cli import (
+    dashboard,
+    main,
+    manual,
+    onboarding_save,
+    onboarding_show,
+    review,
+    setup,
+    status,
+)
 from lore.cli import profile as profile_command
-from lore.cli import review, setup, status
 from lore.store import Store
 
 
@@ -156,15 +164,21 @@ class OnboardingTest(unittest.TestCase):
         # command that dispatched nowhere would return.
         self.assertIn("Import agent memories", self._run(main, ["onboarding"]))
         self.assertIn("No blueprint yet", self._run(main, ["blueprint"]))
-        saved = self._run(main, ["onboarding", "save", str(self._write("a.json", {"role": "x"}))])
+        saved = self._run(
+            main, ["onboarding", "save", str(self._write("a.json", {"role": "x"}))]
+        )
         self.assertIn("Saved answers", saved)
 
         errors = StringIO()
         with redirect_stdout(StringIO()), redirect_stderr(errors):
             rejected = self._write("bad.json", {"transcript": "a whole session"})
             self.assertEqual(main(["onboarding", "save", str(rejected)]), 1)
-            self.assertEqual(main(["profile", str(Path(self.tmp.name) / "missing.json")]), 1)
-            self.assertEqual(main(["blueprint", "apply", str(self._write("b.json", {}))]), 1)
+            self.assertEqual(
+                main(["profile", str(Path(self.tmp.name) / "missing.json")]), 1
+            )
+            self.assertEqual(
+                main(["blueprint", "apply", str(self._write("b.json", {}))]), 1
+            )
 
         self.assertIn("unexpected onboarding field", errors.getvalue())
         self.assertIn("profile file not found", errors.getvalue())
@@ -181,9 +195,9 @@ class OnboardingTest(unittest.TestCase):
             self.assertEqual(dashboard(), 0)
         report = output.getvalue()
 
-        self.assertIn("No private memories to review", report)   # [r]
-        self.assertIn("No matching memories", report)         # [/]
-        self.assertIn("added", report)                        # [s]
+        self.assertIn("No private memories to review", report)  # [r]
+        self.assertIn("No matching memories", report)  # [/]
+        self.assertIn("added", report)  # [s]
         self.assertIn("Onboarding", report)
 
     def test_bare_lore_outside_a_terminal_reports_status(self) -> None:
@@ -191,7 +205,10 @@ class OnboardingTest(unittest.TestCase):
         self.assertIn("Onboarding", self._run(main, []))
 
     def test_a_cancelled_command_is_distinguishable_from_a_failed_one(self) -> None:
-        with patch("lore.cli.status", side_effect=KeyboardInterrupt), redirect_stdout(StringIO()):
+        with (
+            patch("lore.cli.status", side_effect=KeyboardInterrupt),
+            redirect_stdout(StringIO()),
+        ):
             self.assertEqual(main(["status"]), 130)
 
     # --- the schedule, as the scheduler sees it ---------------------------------------
@@ -203,7 +220,9 @@ class OnboardingTest(unittest.TestCase):
     def test_a_saved_profile_is_not_reported_as_a_running_schedule(self) -> None:
         """`--no-schedule` and a failed install leave identical files behind."""
         self._finish_interview()
-        self._run(profile_command, str(self._write("p.json", _profile_answers())), False)
+        self._run(
+            profile_command, str(self._write("p.json", _profile_answers())), False
+        )
 
         report = self._run(onboarding_show)
         self.assertIn("no local task", report)
@@ -229,7 +248,9 @@ class OnboardingTest(unittest.TestCase):
 
     def test_a_malformed_profile_cannot_break_the_schedule_check(self) -> None:
         automation.profile_path().parent.mkdir(mode=0o700, parents=True, exist_ok=True)
-        automation.profile_path().write_text(json.dumps({"executor": "codex", "hour": 99}))
+        automation.profile_path().write_text(
+            json.dumps({"executor": "codex", "hour": 99})
+        )
         self.assertFalse(automation.scheduled({"executor": "codex", "hour": 99}))
         self.assertIn("no local task", self._run(onboarding_show))
 
@@ -256,9 +277,13 @@ class OnboardingTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "answers must be a JSON object"):
             onboarding.save_checkpoint(["role"])
         with redirect_stdout(StringIO()), redirect_stderr(StringIO()):
-            self.assertEqual(main(["onboarding", "save", str(self._write("l.json", ["x"]))]), 1)
+            self.assertEqual(
+                main(["onboarding", "save", str(self._write("l.json", ["x"]))]), 1
+            )
 
-        onboarding.checkpoint_path().parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+        onboarding.checkpoint_path().parent.mkdir(
+            mode=0o700, parents=True, exist_ok=True
+        )
         onboarding.checkpoint_path().write_text('"a bare string"')
         with self.assertRaisesRegex(ValueError, "checkpoint is not a JSON object"):
             onboarding.load_checkpoint()
@@ -289,17 +314,22 @@ class OnboardingTest(unittest.TestCase):
         self.assertEqual(onboarding.load_checkpoint(), {})
 
     def test_checkpoint_command_accepts_a_file_or_stdin(self) -> None:
-        report = self._run(onboarding_save, str(self._write("answers.json", {"role": "maintainer"})))
+        report = self._run(
+            onboarding_save, str(self._write("answers.json", {"role": "maintainer"}))
+        )
         self.assertIn("role", report)
         with patch("sys.stdin", StringIO(json.dumps({"domains": "developer tools"}))):
             self._run(onboarding_save, "-")
         self.assertEqual(
-            onboarding.load_checkpoint(), {"role": "maintainer", "domains": "developer tools"}
+            onboarding.load_checkpoint(),
+            {"role": "maintainer", "domains": "developer tools"},
         )
 
     def test_checkpoint_feeds_lore_profile_without_leaking_state(self) -> None:
         """The documented hand-off: the checkpoint file is what `lore profile` reads."""
-        self._run(onboarding_save, str(self._write("answers.json", {"phase1_done": True})))
+        self._run(
+            onboarding_save, str(self._write("answers.json", {"phase1_done": True}))
+        )
         self._run(onboarding_save, str(self._write("more.json", _profile_answers())))
 
         with (
@@ -329,9 +359,13 @@ class OnboardingTest(unittest.TestCase):
         self.assertIn("Onboarding", self._run(status))
 
     def test_saving_over_a_corrupt_checkpoint_says_how_to_recover(self) -> None:
-        onboarding.checkpoint_path().parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+        onboarding.checkpoint_path().parent.mkdir(
+            mode=0o700, parents=True, exist_ok=True
+        )
         onboarding.checkpoint_path().write_text("{ truncated")
-        with self.assertRaisesRegex(ValueError, "delete it to start the interview over"):
+        with self.assertRaisesRegex(
+            ValueError, "delete it to start the interview over"
+        ):
             onboarding.save_checkpoint({"role": "maintainer"})
 
     def test_empty_answers_are_rejected(self) -> None:
@@ -419,12 +453,16 @@ class OnboardingTest(unittest.TestCase):
             patch("lore.automation.install_task", return_value=Path("task")),
             patch("lore.automation.remove_task"),
         ):
-            report = self._run(profile_command, str(self._write("p.json", _profile_answers())))
+            report = self._run(
+                profile_command, str(self._write("p.json", _profile_answers()))
+            )
         self.assertIn("lore review", report)
 
     def test_profile_without_a_schedule_still_points_at_review(self) -> None:
         """`--no-schedule` skips automation, not the owner's next decision."""
-        report = self._run(profile_command, str(self._write("p.json", _profile_answers())), False)
+        report = self._run(
+            profile_command, str(self._write("p.json", _profile_answers())), False
+        )
         self.assertIn("lore review", report)
 
     def test_manual_documents_the_onboarding_commands(self) -> None:
@@ -433,7 +471,7 @@ class OnboardingTest(unittest.TestCase):
         self.assertIn("lore onboarding", report)
 
     def test_declining_every_agent_is_not_reported_as_finding_nothing(self) -> None:
-        """"Nothing found" and "you said no to everything" need different answers."""
+        """ "Nothing found" and "you said no to everything" need different answers."""
         memory = Path(os.environ["CODEX_HOME"]) / "memories/MEMORY.md"
         memory.parent.mkdir(parents=True)
         memory.write_text("# Preference\n\nKeep setup short.")

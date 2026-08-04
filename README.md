@@ -34,6 +34,32 @@ lore node deploy --wallet 0x… # deploy at the configured price; rerun after pr
 lore blueprint show            # see the shape of your lore, once captured
 ```
 
+### Agent plugins
+
+The installer already copies Lore's owner-facing skills into Claude and Codex. To
+install the same workflows as a marketplace plugin instead, install Lore with the
+command above, then add this repository's marketplace.
+
+Claude Code:
+
+```text
+/plugin marketplace add dipakkrishnan/lore-mcp
+/plugin install lore@lore-marketplace
+/reload-plugins
+```
+
+Codex CLI:
+
+```sh
+codex plugin marketplace add dipakkrishnan/lore-mcp
+codex plugin add lore@lore-marketplace
+```
+
+Restart the Codex app to browse Lore in its Plugins directory, or start a new
+Claude or Codex session after installation. The plugin packages only the four
+owner workflows; repository-maintenance skills are not included. The `lore`
+command remains the local, owner-controlled runtime.
+
 Set `LORE_HOME` to use a location other than `~/.lore`. Lore also respects
 `CODEX_HOME` and `CLAUDE_HOME` when discovering agent data.
 
@@ -68,7 +94,7 @@ edits SQLite directly or sends private captures to the paid MCP surface.
 
 ## Guided onboarding
 
-The `lore-onboard` skill (`skills/lore-onboard/SKILL.md`) runs the whole first-time setup
+The `lore-onboard` skill (`plugins/lore/skills/lore-onboard/SKILL.md`) runs the whole first-time setup
 as one conversation inside a Claude or Codex session, in two phases:
 
 1. **Persona interview → blueprint.** Pick an archetype — Storyteller, elementary
@@ -82,7 +108,7 @@ as one conversation inside a Claude or Codex session, in two phases:
    from phase 1 steers where it reads deeply. Captured with `lore profile`.
 
 When you are ready to charge for publications, the `lore-enable-payments` skill
-(`skills/lore-enable-payments/SKILL.md`) walks you from a self-custody payout address
+(`plugins/lore/skills/lore-enable-payments/SKILL.md`) walks you from a self-custody payout address
 to a deployed node and a proven test-network payment — with free as a first-class
 place to stop.
 
@@ -328,8 +354,12 @@ indexed text without resetting the owner's disclosure decision.
 ## Development
 
 ```sh
-uv sync
-uv run python -m unittest discover -s tests -v
+uv sync --extra dev
+uv run --extra dev ruff check lore tests
+uv run --extra dev ruff format --check lore tests
+uv run pytest                     # the Python suite
+uv run pytest tests/test_cli.py   # one module's tests, in isolation
+uv run python tests/gate.py       # every check, with the coverage floor enforced
 uv run lore --help
 ```
 
@@ -340,19 +370,79 @@ The Worker in `lore/node/` has its own checks, run from that directory:
 
 ```sh
 cp .dev.vars.example .dev.vars   # set LORE_WALLET to any valid address
-npm install
+npm ci
+npm run lint
 npm run types && npm run check
+npm test                         # Workerd component tests with a mocked facilitator
 npm run dev                      # MCP at http://localhost:8787/mcp
 npm run smoke                    # free discover + unpaid x402 challenge
 ```
 
-CI (`.github/workflows/tests.yml`) runs the same `types`, `check`, `dev`, and
-`smoke` commands against a placeholder wallet, so local and CI checks cannot
-drift.
+CI (`.github/workflows/tests.yml`) reports six separate checks: Python lint,
+Python unit tests, Node lint, Node compiler checks, Node component tests, and
+the Worker smoke test. Each runs the same local command against a placeholder
+wallet where the Worker requires one, so failures are immediately attributable
+to a single stage. CI does not currently run `tests/gate.py`'s coverage floor
+or the `tests/node/` unit tests below — see the gate section for what that
+means in practice.
+
+### The gate
+
+`tests/gate.py` is the single command that has to pass locally before either
+side of the repo is trusted. It covers both languages and exits non-zero if
+either does.
+
+**Python (`lore/`)** — runs the suite under coverage and fails if **any** file
+falls below 90% on statement coverage *or* branch coverage. That per-file,
+per-metric check is the point: coverage.py's `fail_under` (kept in
+`pyproject.toml` as a cheap outer guard) only sees one global combined number,
+behind which a file at 96% statements and 70% branches hides. Coverage measures
+`lore/` only; test code never counts toward the percentage. CI's Python unit
+job runs the suite but not under this coverage floor — an uncovered regression
+in `lore/` currently only fails locally, not in CI.
+
+**Worker (`lore/node/`)** — type-checks it (`tsc --noEmit`), bundles it
+(`wrangler deploy --dry-run`, so a break shows up here rather than halfway
+through someone's `lore node deploy`), and runs the unit tests in `tests/node/`
+(below). There is no coverage floor on the Worker; see `docs/backlog/` XC-013
+for what its own test suite (in `lore/node/test/`, run by CI as "Node component
+tests") does and does not cover.
+
+The Worker checks need dependencies installed:
+
+```sh
+npm --prefix lore/node install && npm --prefix tests/node install
+```
+
+Without them the gate reports the Worker section as SKIPPED and still passes, so
+a Python-only change never requires a Node toolchain. `--require-node` turns
+that skip into a failure; nothing in CI passes that flag today.
+
+### Test layout
+
+`tests/` holds one file per module in `lore/`, named after it, plus
+`tests/test_skill_contract.py` (which pins `skills/` and the README against the
+real parser) and `tests/helpers.py` for the shared fixtures. Each file passes on
+its own, so a failure names its owning component.
+
+`tests/node/` holds unit tests over two of the Worker's leaf modules —
+`src/price.ts` (the dollars→USDC-base-units conversion) and `src/wallet.ts`
+(the fail-closed payout guard) — and is deliberately its own npm package rather
+than a folder inside `lore/node/`: `lore/node/package.json` ships inside the
+wheel and every dependency listed there gets installed on an owner's machine by
+`lore node deploy`. They run in workerd via `@cloudflare/vitest-pool-workers`,
+same as `lore/node/test/`'s own component suite (which exercises the Worker's
+actual request path end to end against a mocked facilitator — see MON-010 —
+rather than these two modules in isolation).
+
+Python tests are `unittest.TestCase`-based and pytest collects them as-is, so
+`python -m unittest discover -s tests` still works if you prefer it.
 
 The implementation uses only the Python standard library: `argparse`, `sqlite3`,
 `subprocess`, and `http.server`. There is no application framework, vector
-database, or MCP SDK to install.
+database, or MCP SDK to install. `pytest` and `coverage` are dev-only
+dependencies in the `dev` group, which `uv run` includes by default; `ruff` is
+a separate `dev` extra, which `uv run` only picks up with `--extra dev`.
 
 ## Status
 

@@ -32,9 +32,7 @@ class DiscoverArguments(BaseModel):
 
 
 class GetArguments(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid", frozen=True, str_strip_whitespace=True
-    )
+    model_config = ConfigDict(extra="forbid", frozen=True, str_strip_whitespace=True)
 
     id: str = Field(min_length=1)
 
@@ -143,11 +141,17 @@ def call_tool(name: object, arguments: object) -> dict[str, Any]:
                 },
                 "disclosure": "Content is owner-approved; preserve attribution when synthesizing.",
             }
-    return {"content": [{"type": "text", "text": json.dumps(payload, ensure_ascii=False)}]}
+    return {
+        "content": [{"type": "text", "text": json.dumps(payload, ensure_ascii=False)}]
+    }
 
 
 def _error(request_id: object, code: int, message: str) -> dict[str, Any]:
-    return {"jsonrpc": "2.0", "id": request_id, "error": {"code": code, "message": message}}
+    return {
+        "jsonrpc": "2.0",
+        "id": request_id,
+        "error": {"code": code, "message": message},
+    }
 
 
 def stdio() -> int:
@@ -173,7 +177,9 @@ def http(host: str, port: int, token: str | None = None) -> int:
             if self.path == "/health":
                 self._send(200, {"status": "ok", "service": "lore"})
             else:
-                self._send(405, {"error": "SSE listening is not offered; use POST /mcp"})
+                self._send(
+                    405, {"error": "SSE listening is not offered; use POST /mcp"}
+                )
 
         def do_POST(self) -> None:
             if self.path != "/mcp":
@@ -230,4 +236,6 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--port", type=int, default=8765)
     parser.add_argument("--token", default=os.environ.get("LORE_MCP_TOKEN"))
     args = parser.parse_args(argv)
-    return http(args.host, args.port, args.token) if args.transport == "http" else stdio()
+    return (
+        http(args.host, args.port, args.token) if args.transport == "http" else stdio()
+    )

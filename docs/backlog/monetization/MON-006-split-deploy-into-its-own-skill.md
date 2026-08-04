@@ -1,16 +1,16 @@
 ---
 id: MON-006
 title: Move deploy mechanics from the skill into the CLI when edge serving lands
-priority: P2
-effort: M
+priority: P1
+effort: S
 component: monetization
-status: in-review
-related: [MON-002, MON-005, XC-005]
+status: ready
+related: [MON-002, MON-004, MON-005, XC-005]
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-07-30
-updated: 2026-08-01
+updated: 2026-08-03
 ---
 
 ## Problem
@@ -69,3 +69,9 @@ resolves the config placeholder, and runs a first `lore push`, so the smoke
 check passes before anything is published. Remaining here: revocation
 reaching the node without a manual `lore push`, and renaming the worker from
 its canary name.
+
+**Prioritization pass 2026-08-03:** most of acceptance criterion 1 is already
+built per the notes above; what's left (revocation reaching the node, the
+canary rename) is small. Corrected `effort` to `S`, added `MON-004` to
+`related` since it owns the revocation-push mechanism this item's second
+criterion depends on, and promoted to `P1` / `ready`.

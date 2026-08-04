@@ -11,6 +11,29 @@ import { PRICE_USD, usdcBaseUnits } from "../src/price.js";
 const BUYER_ENV = new URL("../.buyer.env", import.meta.url);
 const USDC_BASE_SEPOLIA = "0x036CbD53842c5426634e7929541eC2318f3dCF7e";
 
+type CatalogEntry = { id: string; teaser: string };
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+function catalogEntries(text: string): CatalogEntry[] {
+  const payload: unknown = JSON.parse(text);
+  if (!isRecord(payload) || !isRecord(payload.topics)) {
+    throw new Error("discover returned an invalid catalog");
+  }
+
+  return Object.values(payload.topics).flatMap((entries) => {
+    if (!Array.isArray(entries)) throw new Error("discover returned invalid topic entries");
+    return entries.map((entry) => {
+      if (!isRecord(entry) || typeof entry.id !== "string" || typeof entry.teaser !== "string") {
+        throw new Error("discover returned an invalid catalog entry");
+      }
+      return { id: entry.id, teaser: entry.teaser };
+    });
+  });
+}
+
 // The throwaway buyer provisions itself: no wallet-app key export (passkey
 // accounts have none to give), no hand-edited env file to destroy a key with.
 function buyerKey(): `0x${string}` {
@@ -88,10 +111,11 @@ try {
   // Read the free catalog first and buy the first advertised publication —
   // ids are opaque tokens, so paying against a guessed id would just bill a
   // not-found. Never spend against an empty catalog.
-  const discover = await client.callTool({ name: "discover", arguments: {} });
-  const catalog = JSON.parse((discover.content as { text: string }[])[0].text);
-  const first = (Object.values(catalog.topics as Record<string, { id: string; teaser: string }[]>)
-    .flat())[0];
+  // withX402Client mutates `client` in place, so even the free discover call
+  // must go through the payment-wrapped signature — null picks the default
+  // approval callback, and a free tool never triggers it.
+  const discover = await paidClient.callTool(null, { name: "discover", arguments: {} });
+  const first = catalogEntries((discover.content as { text: string }[])[0].text)[0];
   if (!first) {
     console.error("The catalog is empty — approve a publication and `lore push` before paying.");
     process.exit(1);

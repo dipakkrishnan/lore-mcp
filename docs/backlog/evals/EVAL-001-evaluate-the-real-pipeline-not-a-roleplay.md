@@ -1,16 +1,16 @@
 ---
 id: EVAL-001
 title: Evaluate the real Lore pipeline instead of a roleplay prompt
-priority: P2
-effort: L
+priority: P1
+effort: S
 component: evals
-status: in-review
+status: ready
 related: []
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-07-30
-updated: 2026-08-01
+updated: 2026-08-03
 ---
 
 ## Problem
@@ -77,3 +77,10 @@ What is not evident is criterion 4: that a deliberate `build_prompt` regression
 has been demonstrated to flip a benchmark result. Verify that one, then this is
 `completed` rather than `in-review`. Left for `implementation` or `audit` to
 resolve, since prioritization does not move items to `completed`.
+
+**Prioritization pass 2026-08-03:** corrected `effort` from `L` to `S` — three
+of four criteria are already built on `main` per the note above, and what's
+left is running one deliberate `build_prompt` regression and confirming it
+flips a benchmark result, not the original-sized harness build. Promoted to
+`P1` and `ready` on the same basis: small remaining effort, and it's the last
+step before this closes as `completed`.

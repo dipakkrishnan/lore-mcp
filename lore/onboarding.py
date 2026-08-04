@@ -86,7 +86,9 @@ def save_checkpoint(answers: dict) -> dict:
 
     # The checkpoint holds draft personal context the owner has not approved yet, and
     # a half-written one costs them the whole interview — `write_private` covers both.
-    write_private(checkpoint_path(), json.dumps(checkpoint, indent=2, allow_nan=False) + "\n")
+    write_private(
+        checkpoint_path(), json.dumps(checkpoint, indent=2, allow_nan=False) + "\n"
+    )
     return checkpoint
 
 

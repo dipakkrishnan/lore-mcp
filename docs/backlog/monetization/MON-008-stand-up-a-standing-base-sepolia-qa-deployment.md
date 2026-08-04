@@ -1,10 +1,10 @@
 ---
 id: MON-008
 title: Stand up a standing Base Sepolia QA deployment of the Worker
-priority: P2
+priority: P1
 effort: M
 component: monetization
-status: in-review
+status: ready
 related: [MON-002, MON-003, MON-005, MON-006, MON-010, XC-008]
 blockers: [MON-002]
 dependencies: ["Cloudflare account with Workers and D1", "Base Sepolia wallet funded from the CDP faucet", "A protected GitHub Environment holding the deploy token — not a repository secret"]
@@ -89,3 +89,8 @@ Overlaps with `MON-006` at the edges: that item moves *owner-facing* deploy
 mechanics into the CLI, and notes the canary rename. This item is the
 maintainers' own environment. If `MON-006` lands first, deploy QA with whatever
 command it produces rather than duplicating wrangler invocations.
+
+**Prioritization pass 2026-08-03:** blocker `MON-002` is `completed`. Promoted
+`in-review` → `ready` at `P1` — criteria are extensive but concrete, and
+`XC-008` (the live testnet suite) is itself blocked on this landing, so it's
+on the critical path for more than its own acceptance criteria.

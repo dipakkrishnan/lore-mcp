@@ -21,7 +21,9 @@ def write_private(path: Path, text: str) -> None:
     directory.chmod(0o700)
     # The temporary file shares the directory so the replace stays within one
     # filesystem, which is what makes it atomic.
-    handle, created = tempfile.mkstemp(dir=directory, prefix=f".{path.name}.", suffix=".tmp")
+    handle, created = tempfile.mkstemp(
+        dir=directory, prefix=f".{path.name}.", suffix=".tmp"
+    )
     os.close(handle)
     temporary = Path(created)
     try:
@@ -49,4 +51,3 @@ def codex_home() -> Path:
 
 def claude_home() -> Path:
     return Path(os.environ.get("CLAUDE_HOME", "~/.claude")).expanduser()
-

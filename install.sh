@@ -35,7 +35,7 @@ mkdir -p "$BIN_DIR"
 UV_TOOL_DIR="$INSTALL_DIR" UV_TOOL_BIN_DIR="$BIN_DIR" uv tool install --force --reinstall "$SOURCE_DIR"
 # Every owner-facing skill ships to both agent homes. Discovery is all-or-nothing:
 # a skill that reaches only one of them simply never runs for half of users.
-for SKILL_DIR in "$SOURCE_DIR"/skills/lore-*; do
+for SKILL_DIR in "$SOURCE_DIR"/plugins/lore/skills/lore-*; do
   [ -d "$SKILL_DIR" ] || continue
   SKILL_NAME="$(basename "$SKILL_DIR")"
   rm -rf "$HOME/.agents/skills/$SKILL_NAME" "$HOME/.claude/skills/$SKILL_NAME"

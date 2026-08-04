@@ -84,7 +84,11 @@ def scan(store: Store, names: set[str] | None = None) -> dict[str, dict[str, int
 
 def _title(path: Path, content: str) -> str:
     match = re.search(r"^#\s+(.+)$", content, re.MULTILINE)
-    return match.group(1).strip() if match else path.stem.replace("_", " ").replace("-", " ").title()
+    return (
+        match.group(1).strip()
+        if match
+        else path.stem.replace("_", " ").replace("-", " ").title()
+    )
 
 
 def _project(source: Source, path: Path) -> str:

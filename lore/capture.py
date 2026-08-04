@@ -89,7 +89,5 @@ def save(raw: object) -> list[dict[str, object]]:
             row = store.db.execute(
                 "SELECT id FROM memories WHERE source_key=?", (source_key,)
             ).fetchone()
-            results.append(
-                {"id": row["id"], "status": outcome, "title": entry.title}
-            )
+            results.append({"id": row["id"], "status": outcome, "title": entry.title})
     return results
