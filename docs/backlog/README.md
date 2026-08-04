@@ -100,6 +100,26 @@ demand. This flow needs the `gh` CLI authenticated with at least triage
 access on the target repo (to add labels and comments) — see
 `automation/README.md` for details and current status.
 
+## Pull request title convention
+
+Every pull request title must start with either:
+
+- a real backlog id, `ID: summary` (e.g. `XC-010: require a backlog id in
+  every pull request title`) — the id must resolve to a file under
+  `docs/backlog/`, or
+- one of a closed set of exception prefixes, for pull requests that
+  genuinely have no single owning item: `Backlog:` (backlog
+  ideation/grooming PRs, including ones that touch several items at once),
+  `chore:` (dependency bumps, formatting, other non-backlog housekeeping),
+  `revert:` (reverting a prior merge).
+
+This is enforced by the `PR title` workflow (`.github/workflows/pr-title.yml`,
+`.github/scripts/check_pr_title.py`) on every `opened`, `edited`, `reopened`,
+and `synchronize` event, so a title fixed to pass and then changed back is
+caught by the next push rather than left stale. The exception list is
+intentionally short and lives in the script, not a label — a label doesn't
+show up in `git log`, a prefix does.
+
 ## Manual workflow (no agent)
 
 You can do all of this by hand too:
