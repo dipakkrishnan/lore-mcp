@@ -161,6 +161,14 @@ class PromptTest(LoreTestCase):
 
 
 class InstallTest(LoreTestCase):
+    def test_install_rejects_an_invalid_hour_from_a_saved_profile(self) -> None:
+        # Profiles are normally validated by save_profile(), but install() also
+        # reads persisted JSON and must not turn malformed data into a schedule.
+        for hour in ("9", True, -1, 24):
+            with self.subTest(hour=hour):
+                with self.assertRaisesRegex(ValueError, "profile hour"):
+                    automation.install({"executor": "codex", "hour": hour})
+
     def test_a_codex_schedule_hands_off_with_no_claude_specific_grants(self) -> None:
         profile = automation.save_profile(automation_profile())
         with patch("lore.automation.remove_task") as remove:

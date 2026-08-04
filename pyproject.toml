@@ -19,6 +19,7 @@ lore = "lore.cli:main"
 
 [project.optional-dependencies]
 dev = [
+    "mypy>=1.18",
     "ruff>=0.16.1",
 ]
 
@@ -33,6 +34,12 @@ extend-exclude = ["lore/node"]
 
 [tool.ruff.lint]
 select = ["E4", "E7", "E9", "F", "I", "B"]
+
+[tool.mypy]
+files = ["lore"]
+disallow_untyped_defs = true
+warn_return_any = true
+warn_unused_ignores = true
 
 [tool.setuptools]
 packages = ["lore"]

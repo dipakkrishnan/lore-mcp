@@ -350,6 +350,7 @@ indexed text without resetting the owner's disclosure decision.
 uv sync --extra dev
 uv run --extra dev ruff check lore tests
 uv run --extra dev ruff format --check lore tests
+uv run --extra dev mypy lore
 uv run pytest                     # the Python suite
 uv run pytest tests/test_cli.py   # one module's tests, in isolation
 uv run python tests/gate.py       # every check, with the coverage floor enforced

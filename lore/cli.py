@@ -27,7 +27,7 @@ from .ui import (
     success,
 )
 
-PUBLICATION_CANDIDATES = TypeAdapter(
+PUBLICATION_CANDIDATES: TypeAdapter[list[PublicationInput]] = TypeAdapter(
     Annotated[list[PublicationInput], Field(min_length=1)]
 )
 
@@ -309,11 +309,18 @@ def setup(yes: bool = False) -> int:
     return 0
 
 
+def _configured_sources(value: object) -> set[str]:
+    """Validate source names recovered from the JSON settings boundary."""
+    if not isinstance(value, list) or not all(isinstance(name, str) for name in value):
+        raise ValueError("configured sources must be a list of names")
+    return set(value)
+
+
 def sync(names: set[str] | None = None) -> int:
     """Import new and changed memories from configured sources."""
     with Store() as store:
         if names is None:
-            configured = set(store.setting("sources", []))
+            configured = _configured_sources(store.setting("sources", []))
             names = configured | {"automation"}
         report = scan(store, names)
     for name, item in report.items():
@@ -388,7 +395,7 @@ def status() -> int:
     with Store() as store:
         counts = store.counts()
         sources = store.source_counts()
-        configured = set(store.setting("sources", []))
+        configured = _configured_sources(store.setting("sources", []))
         database_path = store.path
         answer_price = store.setting("price_usd", None)
         node_url = store.setting("node_url", None)
@@ -683,7 +690,7 @@ def publication_reapprove(publication_id: int) -> int:
 
 def blueprint_apply(file: str) -> int:
     """Validate and persist a blueprint file written by the onboarding skill."""
-    blueprint_module.apply(file)
+    blueprint_module.apply(Path(file))
     success("Lore blueprint captured")
     print(
         f"Run `lore blueprint show` to see your lore map, at {blueprint_module.lore_map_path()}"
