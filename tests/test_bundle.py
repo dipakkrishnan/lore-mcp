@@ -42,10 +42,11 @@ def publication_rows(store: Store) -> list[BundlePublication]:
     """
     return [
         BundlePublication(
-            id=item.id,
+            public_id=item.public_id,
             title=item.title,
             content=item.content,
             kind=str(item.kind),
+            topic=item.topic,
             created_at=item.created_at,
             updated_at=item.updated_at,
         )
@@ -64,6 +65,18 @@ class BundleTest(unittest.TestCase):
     def tearDown(self) -> None:
         self.store.close()
         self.tmp.cleanup()
+
+    def public_id(self, internal_id: int) -> str:
+        """Look up the buyer-facing id for a `seed()`-returned internal id.
+
+        `seed()` returns the internal ids `add_publication`/`revoke_publication`
+        take, but the bundle only ever exposes `public_id` — tests comparing
+        against exported rows go through this to bridge the two.
+        """
+        row = self.store.db.execute(
+            "SELECT public_id FROM publications WHERE id=?", (internal_id,)
+        ).fetchone()
+        return row[0]
 
     def seed(self) -> dict[str, int]:
         """Build a library with a private memory and a mix of publications."""
@@ -147,7 +160,17 @@ class BundleTest(unittest.TestCase):
         columns = {row[1] for row in db.execute("PRAGMA table_info(publications)")}
         db.close()
         self.assertEqual(
-            columns, {"id", "title", "content", "kind", "created_at", "updated_at"}
+            columns,
+            {
+                "id",
+                "public_id",
+                "title",
+                "content",
+                "kind",
+                "topic",
+                "created_at",
+                "updated_at",
+            },
         )
         self.assertNotIn("provenance", columns)
         self.assertNotIn("source_changed_at", columns)
@@ -174,9 +197,11 @@ class BundleTest(unittest.TestCase):
             publication_rows(self.store), price_usd=None, destination=self.destination
         )
         with BundleReader(self.destination) as reader:
-            exported = {row.id for row in reader.search_publications("", limit=0)}
-        self.assertIn(ids["active"], exported)
-        self.assertNotIn(ids["revoked"], exported)
+            exported = {
+                row.public_id for row in reader.search_publications("", limit=0)
+            }
+        self.assertIn(self.public_id(ids["active"]), exported)
+        self.assertNotIn(self.public_id(ids["revoked"]), exported)
 
     def test_flagged_but_active_publications_still_cross_over(self) -> None:
         """A stale-source flag is an owner-facing review signal, not a revocation.
@@ -202,8 +227,10 @@ class BundleTest(unittest.TestCase):
             publication_rows(self.store), price_usd=None, destination=self.destination
         )
         with BundleReader(self.destination) as reader:
-            exported = {row.id for row in reader.search_publications("", limit=0)}
-        self.assertIn(ids["active"], exported)
+            exported = {
+                row.public_id for row in reader.search_publications("", limit=0)
+            }
+        self.assertIn(self.public_id(ids["active"]), exported)
 
     def test_only_price_crosses_over_from_settings(self) -> None:
         self.seed()
@@ -358,9 +385,12 @@ class BundleTest(unittest.TestCase):
         )
         with BundleReader(self.destination) as reader:
             ranked = [
-                row.id for row in reader.search_publications("consensus", limit=5)
+                row.public_id
+                for row in reader.search_publications("consensus", limit=5)
             ]
-        self.assertEqual(ranked, [ids["active"], ids["long_match"]])
+        self.assertEqual(
+            ranked, [self.public_id(ids["active"]), self.public_id(ids["long_match"])]
+        )
 
     def test_diacritics_fold_in_the_bundle_as_they_do_locally(self) -> None:
         """`remove_diacritics 2` must survive the export.
@@ -377,8 +407,8 @@ class BundleTest(unittest.TestCase):
             for query in ("cafe", "café", "latte"):
                 with self.subTest(query=query):
                     self.assertEqual(
-                        [row.id for row in reader.search_publications(query)],
-                        [ids["diacritic"]],
+                        [row.public_id for row in reader.search_publications(query)],
+                        [self.public_id(ids["diacritic"])],
                     )
 
     def test_query_with_no_searchable_terms_returns_nothing(self) -> None:
@@ -451,8 +481,10 @@ class BundleTest(unittest.TestCase):
             publication_rows(self.store), price_usd=None, destination=self.destination
         )
         with BundleReader(self.destination) as reader:
-            remaining = {row.id for row in reader.search_publications("", limit=0)}
-        self.assertNotIn(ids["active"], remaining)
+            remaining = {
+                row.public_id for row in reader.search_publications("", limit=0)
+            }
+        self.assertNotIn(self.public_id(ids["active"]), remaining)
         self.assertNotIn(
             b"consensus consensus consensus", self.destination.read_bytes()
         )
