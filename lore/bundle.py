@@ -5,8 +5,9 @@ what goes into that copy is a security boundary rather than a serialization
 detail. This module owns both ends of it — writing the export and reading it back
 — and is the only place that decides which columns cross over.
 
-What crosses: active publications' `id`, `title`, `content`, `kind`,
-`created_at`, `updated_at`, plus the `price_usd` setting.
+What crosses: active publications' `public_id`, `title`, `content`, `kind`,
+`topic`, `created_at`, `updated_at`, plus the `price_usd` setting. The internal
+integer primary key never crosses — see `public_id` below.
 
 What never crosses: memories of any status, revoked publications, `provenance`,
 and `source_changed_at`. `provenance` is omitted because `STO-001` requires that
@@ -34,13 +35,24 @@ from .search import fts5_available, match_expression
 
 # Bumped when the bundle's shape changes. It is part of the digest, so a format
 # change reads as drift and forces a re-push rather than being silently served.
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 # The owner-facing default, per docs/node-deployment.md. Its only job is bounding
 # how long a revoked publication can stay answerable from a copy.
 DEFAULT_MAX_AGE_DAYS = 7.0
 
-_EXPORTED_COLUMNS = ("id", "title", "content", "kind", "created_at", "updated_at")
+# The buyer-facing shape. Deliberately `public_id`, never the internal `id`:
+# sequential integer ids on the wire leak withdrawals, because revoking one
+# leaves a visible gap in the sequence (see `lore.store.Publication.public_id`).
+_EXPORTED_COLUMNS = (
+    "public_id",
+    "title",
+    "content",
+    "kind",
+    "topic",
+    "created_at",
+    "updated_at",
+)
 
 # Sentinel for `BundleReader(max_age_days=...)`: use the bound the bundle records.
 # A distinct object, because both `None` (bound disabled) and every number are
@@ -50,9 +62,11 @@ INHERIT_MAX_AGE = object()
 SCHEMA = """
 CREATE TABLE publications (
     id INTEGER PRIMARY KEY,
+    public_id TEXT NOT NULL,
     title TEXT NOT NULL,
     content TEXT NOT NULL,
     kind TEXT NOT NULL,
+    topic TEXT NOT NULL,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
 );
@@ -82,14 +96,18 @@ class BundlePublication(NamedTuple):
     """A publication as it exists inside a bundle.
 
     Field-compatible with the attributes `lore.mcp.call_tool` reads off a
-    `lore.store.Publication`, so the MCP tool code runs unchanged against either.
-    A NamedTuple rather than a pydantic model keeps this module dependency-free.
+    `lore.store.Publication` (`public_id`, `title`, `content`, `topic`, `kind`,
+    `updated_at`), so the MCP tool code runs unchanged against either. Carries
+    `public_id`, never the internal integer primary key — see the module
+    docstring. A NamedTuple rather than a pydantic model keeps this module
+    dependency-free.
     """
 
-    id: int
+    public_id: str
     title: str
     content: str
     kind: str
+    topic: str
     created_at: str
     updated_at: str
 
@@ -109,7 +127,7 @@ class BundleInfo:
 def _normalize(
     publications: Iterable[BundlePublication],
 ) -> list[BundlePublication]:
-    """Coerce rows to `BundlePublication` and order them by id.
+    """Coerce rows to `BundlePublication` and order them by public_id.
 
     Ordering is what makes the digest independent of the query that produced the
     rows, so the same library always hashes the same way.
@@ -118,7 +136,7 @@ def _normalize(
         row if isinstance(row, BundlePublication) else BundlePublication(*row)
         for row in publications
     ]
-    return sorted(rows, key=lambda row: row.id)
+    return sorted(rows, key=lambda row: row.public_id)
 
 
 def digest(
