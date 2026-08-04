@@ -36,6 +36,7 @@ jobs:
           node-version: lts/*
       - run: npm ci
       - run: npm run check
+      - run: npm test
 
   node-lint:
     name: Node lint
