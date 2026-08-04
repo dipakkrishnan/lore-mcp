@@ -5,12 +5,12 @@ priority: P2
 effort: M
 component: cross-cutting
 status: in-review
-related: [XC-004, XC-012, XC-009, XC-010]
+related: [XC-004, XC-012, XC-009, XC-010, XC-014]
 blockers: []
 dependencies: ["Repository admin access to configure branch protection or a ruleset — the current backlog author has push but not admin"]
 github_issue: null
 created: 2026-08-03
-updated: 2026-08-03
+updated: 2026-08-04
 ---
 
 ## Problem
@@ -103,3 +103,8 @@ Sequencing against the rest of the pipeline: this is worth more after `XC-012`,
 `XC-009`, and `XC-010` land, because each one adds another gate that a workflow
 edit could remove. It is not blocked by them — the rule protects
 `.github/workflows/tests.yml`, which already exists.
+
+**2026-08-04:** `XC-014` filed to cover the narrower, more urgent half of
+this problem — making the status checks that already exist actually block a
+merge — separately from this item's path-scaled approval mechanism. Same
+admin dependency; worth executing together if picked up in the same pass.
