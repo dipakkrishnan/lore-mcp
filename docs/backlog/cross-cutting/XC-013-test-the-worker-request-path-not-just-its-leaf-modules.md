@@ -4,13 +4,13 @@ title: Test the Worker's request path, not just its leaf modules
 priority: P2
 effort: M
 component: cross-cutting
-status: ideation
+status: in-review
 related: [XC-003, XC-004, MCP-001, MON-002, MON-003, MON-006]
 blockers: []
 dependencies: ["@cloudflare/vitest-pool-workers loading the MCP SDK's CJS dependencies"]
 github_issue: null
 created: 2026-07-31
-updated: 2026-08-03
+updated: 2026-08-04
 ---
 
 ## Problem
@@ -96,3 +96,7 @@ Path 1 above (try a newer pool/wrangler version, or check whether the crash is
 specific to how the entry point is invoked) is worth revisiting with
 `lore/node/test/` as a working reference before assuming the blocker still
 applies.
+
+**Audit 2026-08-04:** promoted `ideation` → `in-review` — has a concrete
+`## Problem` and a checklist of acceptance criteria, so it's ready for a
+prioritization pass rather than needing further ideation work.
