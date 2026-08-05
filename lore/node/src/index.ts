@@ -3,6 +3,7 @@ import { McpAgent } from "agents/mcp";
 import { withX402 } from "agents/x402";
 import { createHash } from "node:crypto";
 import { z } from "zod";
+import { facilitator, network, networkLabel } from "./network.js";
 import { PRICE_USD } from "./price.js";
 import { payTo } from "./wallet.js";
 
@@ -47,11 +48,11 @@ async function manifest(env: Env): Promise<Record<string, unknown>> {
 // recommended stateless createMcpHandler path.
 export class LorePaidMCP extends McpAgent<Env> {
   server = withX402(
-    new McpServer({ name: "Lore x402 canary", version: "0.1.0" }),
+    new McpServer({ name: `Lore x402 (${networkLabel(this.env)})`, version: "0.1.0" }),
     {
-      network: "eip155:84532",
+      network: network(this.env),
       recipient: payTo(this.env),
-      facilitator: { url: this.env.LORE_FACILITATOR_URL || "https://x402.org/facilitator" }
+      facilitator: facilitator(this.env)
     }
   );
 
@@ -71,6 +72,7 @@ export class LorePaidMCP extends McpAgent<Env> {
             type: "text" as const,
             text: JSON.stringify({
               ...(await manifest(this.env)),
+              network: network(this.env),
               price_usd: PRICE_USD,
               disclosure: "Choose any advertised ids; get buys one publication per call."
             })

@@ -55,6 +55,26 @@ npm run pay -- <your node URL from lore status>
 The script caps payment at the deployed price and prints the MCP result plus
 the x402 settlement receipt. Never use a funded mainnet key here.
 
+## Mainnet cutover (real money — read all of this first)
+
+The node runs Base Sepolia (`eip155:84532`) against the free `x402.org`
+facilitator unless every step below is taken; nothing defaults or falls back
+to mainnet (MON-005). Cut over only after a full Sepolia payment has settled
+end to end.
+
+```sh
+npx wrangler secret put CDP_API_KEY_ID      # from your Coinbase CDP account
+npx wrangler secret put CDP_API_KEY_SECRET
+npx wrangler secret put LORE_NETWORK        # enter exactly: eip155:8453
+npx wrangler deploy
+```
+
+On mainnet the Worker uses Coinbase's authenticated CDP facilitator; if either
+credential is missing it refuses to start rather than serving unsettleable
+answers. The server names itself `Lore x402 (MAINNET)` and `discover` reports
+`network: eip155:8453`, so a deployed node's mode is visible at a glance. To
+return to the testnet, delete the `LORE_NETWORK` secret and redeploy.
+
 ## Developing the node itself (repo checkout only)
 
 Contributors working in the lore-mcp repository can run the node locally from
