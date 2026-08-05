@@ -392,6 +392,7 @@ def status() -> int:
         database_path = store.path
         answer_price = store.setting("price_usd", None)
         node_url = store.setting("node_url", None)
+        revocation_pending = store.setting("revocation_pending", False)
         published = len(store.list_publications(active_only=True))
         stale = len(store.stale_publications())
     heading("Library")
@@ -419,6 +420,11 @@ def status() -> int:
         # A cache of remote truth, not local truth like the price: another
         # machine or the Cloudflare dashboard can move the node after this.
         print(f"Node (last deploy): {node_url}")
+    if revocation_pending:
+        print(
+            "A revocation has NOT reached the deployed node — it still serves "
+            "the old set. Run: lore push"
+        )
     return 0
 
 
@@ -561,12 +567,27 @@ def publication_list() -> int:
 
 
 def publication_revoke(publication_id: int) -> int:
-    """Immediately remove a publication from external retrieval."""
+    """Immediately remove a publication from external retrieval.
+
+    "Immediately" includes the deployed node (MON-004): revocation is a push,
+    not a wait. A failed push is recorded so `lore status` keeps saying the
+    edge is stale until a push lands — never silently dropped.
+    """
     with Store() as store:
         store.revoke_publication(publication_id)
+        node_url = store.setting("node_url", None)
     success(f"Revoked publication {publication_id}; it is no longer answerable")
-    muted("A deployed node still holds the old set until you run: lore push")
-    return 0
+    if not node_url:
+        return 0
+    try:
+        return push(str(home() / "node"))
+    except (OSError, ValueError) as error:
+        with Store() as store:
+            store.set_setting("revocation_pending", True)
+        raise ValueError(
+            "revoked locally, but the deployed node still serves the old set "
+            f"({error}) — run `lore push` to finish; `lore status` will remind you"
+        ) from error
 
 
 def _push_sql(publications: list[Publication]) -> str:
@@ -638,6 +659,11 @@ def push(worker_dir: str, local: bool = False) -> int:
             "wrangler could not write the edge database — check `npx wrangler login` "
             "and that `lore-publications` exists (npx wrangler d1 create lore-publications)"
         )
+    if not local:
+        # A remote push is a full replace, so whatever revocation was pending
+        # is now guaranteed gone from the edge.
+        with Store() as store:
+            store.set_setting("revocation_pending", False)
     where = "local dev database" if local else "deployed node"
     success(
         f"Pushed {len(active)} active publication{'s' if len(active) != 1 else ''} to the {where}"
