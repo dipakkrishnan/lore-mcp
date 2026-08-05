@@ -88,7 +88,20 @@ Say it is outside what you can advise on.
 
 **Ask first whether they already have an EVM wallet** (MetaMask, Rainbow, Rabby,
 Coinbase Wallet, hardware — anything with a stable Base address they control).
-Have one? Copy the address, go. If not, walk them through Coinbase Wallet — the
+
+**Have one? That branch gets driven too — "copy the address" is not guidance.**
+Ask *which* wallet app, then give the exact taps for that app (this is where a
+live run stalled: the owner was told to "open Base," but Base is a network
+selection inside the wallet, not a site — say that plainly). The generic shape,
+adapted to their app: open the app or extension → **Receive** → select network
+**Base** (same address across EVM chains; what matters is they're *receiving on
+Base*) → **Copy**. Two traps to name before they tap: the icon that opens
+prices/buy-buttons/portfolio is the Coinbase *exchange* app, not Coinbase
+Wallet — its deposit addresses can rotate and silently break payouts; and the
+network label must read Base, not Ethereum or Solana — a wrong-network payout
+address means x402 settles funds they'll never see, with no error anywhere.
+
+No wallet? Walk them through Coinbase Wallet — the
 self-custody app at `coinbase.com/wallet`, *not* the exchange app (an exchange
 deposit address can rotate, and x402 would keep settling into an account nobody
 watches, with no error anywhere). Announce the page, open it, then one step at a
@@ -111,7 +124,14 @@ the paid node requires a positive price.
 
 ## 5. Deploy the node
 
-Verify two prerequisites from state, then one command:
+Verify three prerequisites from state, then one command:
+
+0. `node --version` — `lore node deploy` needs Node to stage the Worker and run
+   wrangler, and a fresh machine may not have it. Missing? Say what you're
+   installing and why, get a yes, then install via the platform's package
+   manager (`brew install node` on macOS) **in the background** while the
+   wallet/price steps proceed — the owner should never sit watching a package
+   manager.
 
 1. `npx wrangler whoami` — not logged in? See "interactive logins" above. Free
    tier is enough.

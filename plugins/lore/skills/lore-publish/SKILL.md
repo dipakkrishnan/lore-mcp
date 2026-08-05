@@ -76,15 +76,20 @@ Write the candidates to `~/.lore/publish-candidates.json`:
 
 ## 4. Hand approval to the owner
 
-Show the drafts in conversation, then have the owner run approval themselves:
+Show the drafts in conversation, then have the owner run approval **in a real
+terminal window** (Terminal, iTerm — not inside the agent session):
 
 ```
-! lore publication review ~/.lore/publish-candidates.json
+lore publication review ~/.lore/publish-candidates.json
 ```
 
-(In Claude Code the owner can use the `!` prefix themselves; otherwise they run
-it in any terminal.) They approve, edit, or reject each candidate. Do not run
-or answer this command yourself; an interactive prompt is not permission.
+Do NOT suggest the Claude Code `!` prefix — the review gate requires an
+attended interactive TTY and correctly rejects the `!` route as
+piped/background input; sending the owner there is a scripted dead end (a live
+run hit it). If `lore` isn't on their PATH, give the full form:
+`~/.local/bin/lore publication review ~/.lore/publish-candidates.json`. They
+approve, edit, or reject each candidate. Do not run or answer this command
+yourself; an interactive prompt is not permission.
 
 ## 5. Confirm and close the loop
 
@@ -98,6 +103,14 @@ Lore rejects a damaged id before payment. Revoke any time with
 `lore publication revoke <id>`; if a source memory changes later,
 `lore status` flags it and `lore publication reapprove <id>` or `revoke`
 resolves it. Delete `publish-candidates.json` once applied.
+
+Then keep the experience continuous: if no node is deployed (`lore status`
+shows none), end with one question — deploy and price these now (route into
+`lore-enable-payments`), or leave them approved-but-unreachable. Both are
+first-class answers; the point is the owner chooses at the seam instead of
+discovering later that "active" wasn't "reachable" (a live run hit exactly
+that surprise). If a node exists, the seam question is `lore push` instead —
+approved changes don't reach the edge until pushed.
 
 ## Rules
 
