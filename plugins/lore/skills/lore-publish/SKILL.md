@@ -41,8 +41,9 @@ statement of what the owner knows, at the precision the evidence supports.
 
 - Keep the owner's domain vocabulary, sample sizes, and outcome counts exact.
 - Bounded means it answers one question well — not a topic dump.
-- Never include: secrets, credentials, health or financial data, third-party
-  private information, or anything the profile's boundaries exclude. When the
+- Never include: secrets and credentials, health and financial data,
+  third-party private information, or anything the profile's boundaries
+  exclude. When the
   evidence is entangled with excluded material, paraphrase around it or drop
   the claim.
 - `kind` is `"claim"` unless the owner explicitly asks to publish a specific
@@ -85,8 +86,7 @@ lore publication review ~/.lore/publish-candidates.json
 
 Do NOT suggest the Claude Code `!` prefix — the review gate requires an
 attended interactive TTY and correctly rejects the `!` route as
-piped/background input; sending the owner there is a scripted dead end (a live
-run hit it). If `lore` isn't on their PATH, give the full form:
+piped/background input. If `lore` isn't on their PATH, give the full form:
 `~/.local/bin/lore publication review ~/.lore/publish-candidates.json`. They
 approve, edit, or reject each candidate. Do not run or answer this command
 yourself; an interactive prompt is not permission.
@@ -104,12 +104,11 @@ Lore rejects a damaged id before payment. Revoke any time with
 `lore status` flags it and `lore publication reapprove <id>` or `revoke`
 resolves it. Delete `publish-candidates.json` once applied.
 
-Then keep the experience continuous: if no node is deployed (`lore status`
-shows none), end with one question — deploy and price these now (route into
-`lore-enable-payments`), or leave them approved-but-unreachable. Both are
-first-class answers; the point is the owner chooses at the seam instead of
-discovering later that "active" wasn't "reachable" (a live run hit exactly
-that surprise). If a node exists, the seam question is `lore push` instead —
+Then keep the experience continuous — "active" is not "reachable," and the
+owner should choose at the seam, not discover the gap later. No node deployed
+(`lore status` shows none)? End with one question: deploy and price these now
+(route into `lore-enable-payments`), or leave them approved-but-unreachable —
+both first-class answers. Node exists? The question is `lore push` instead:
 approved changes don't reach the edge until pushed.
 
 ## Rules

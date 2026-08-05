@@ -88,28 +88,28 @@ Say it is outside what you can advise on.
 
 **Ask first whether they already have an EVM wallet** (MetaMask, Rainbow, Rabby,
 Coinbase Wallet, hardware — anything with a stable Base address they control).
+Name the two traps before either branch: an app showing prices, buy buttons,
+and a portfolio is the Coinbase *exchange* app, not a self-custody wallet —
+exchange deposit addresses can rotate and silently break payouts; and the
+network label must read **Base**, not Ethereum or Solana — a wrong-network
+payout address means x402 settles funds they'll never see, with no error
+anywhere. Base is a network selection *inside* the wallet, not a site — say
+that plainly before anyone goes looking for a Base app.
 
-**Have one? That branch gets driven too — "copy the address" is not guidance.**
-Ask *which* wallet app, then give the exact taps for that app (this is where a
-live run stalled: the owner was told to "open Base," but Base is a network
-selection inside the wallet, not a site — say that plainly). The generic shape,
-adapted to their app: open the app or extension → **Receive** → select network
-**Base** (same address across EVM chains; what matters is they're *receiving on
-Base*) → **Copy**. Two traps to name before they tap: the icon that opens
-prices/buy-buttons/portfolio is the Coinbase *exchange* app, not Coinbase
-Wallet — its deposit addresses can rotate and silently break payouts; and the
-network label must read Base, not Ethereum or Solana — a wrong-network payout
-address means x402 settles funds they'll never see, with no error anywhere.
+**Has one:** ask *which* app, then drive it with that app's exact taps — "copy
+the address" is not guidance. Generic shape, adapted to their app: open the app
+or extension → **Receive** → network **Base** (same address across EVM chains;
+what matters is receiving on Base) → **Copy**.
 
-No wallet? Walk them through Coinbase Wallet — the
-self-custody app at `coinbase.com/wallet`, *not* the exchange app (an exchange
-deposit address can rotate, and x402 would keep settling into an account nobody
-watches, with no error anywhere). Announce the page, open it, then one step at a
-time: **Create new wallet** (passkey setup is the safer default — no phrase to
+**Needs one:** walk them through Coinbase Wallet — the self-custody app at
+`coinbase.com/wallet`. Announce the page, open it, then one step at a time:
+**Create new wallet** (passkey setup is the safer default — no phrase to
 mishandle; classic setups show a **recovery phrase**: paper backup, confirm in
 app); skip all purchases, verification, and funding — an empty wallet is the
-goal; then **Receive → Base → Copy address**. The owner pastes the address here
-(`0x` + 40 hex, public by design); validate the format before using it.
+goal; then **Receive → Base → Copy address**.
+
+Either way, the owner pastes the address here (`0x` + 40 hex, public by
+design); validate the format before using it.
 
 Never ask for the recovery phrase, and never accept it if pasted — that phrase
 *is* the wallet. If it lands in the conversation anyway, the wallet is
