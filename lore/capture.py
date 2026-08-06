@@ -46,7 +46,7 @@ class CaptureEntry(BaseModel):
         return value.translate(_CONTENT_CONTROLS).strip()
 
 
-CaptureBatch = TypeAdapter(
+CaptureBatch: TypeAdapter[list[CaptureEntry]] = TypeAdapter(
     Annotated[list[CaptureEntry], Field(min_length=1, max_length=MAX_ENTRIES)]
 )
 

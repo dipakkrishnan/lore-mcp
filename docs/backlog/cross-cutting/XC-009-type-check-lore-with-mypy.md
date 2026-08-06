@@ -4,13 +4,13 @@ title: Type-check lore/ with mypy so its annotations mean something
 priority: P1
 effort: S
 component: cross-cutting
-status: ready
+status: completed
 related: [XC-003, XC-004, XC-012]
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-08-01
-updated: 2026-08-03
+updated: 2026-08-04
 ---
 
 ## Problem
@@ -66,14 +66,14 @@ tends to produce a large, low-value diff. Revisit once `XC-003` has reshaped it.
 
 ## Acceptance criteria
 
-- [ ] `mypy` runs clean over `lore/` with the configuration committed in
+- [x] `mypy` runs clean over `lore/` with the configuration committed in
       `pyproject.toml` rather than passed on the command line
-- [ ] All seven findings above are fixed at the source, not silenced — any
+- [x] All seven findings above are fixed at the source, not silenced — any
       remaining `# type: ignore` names its rule and says why in a comment
-- [ ] A pull request that introduces a type error fails CI
-- [ ] The command is named in the README's development section alongside the
+- [x] A pull request that introduces a type error fails CI
+- [x] The command is named in the README's development section alongside the
       other checks
-- [ ] `apply()`'s signature and its caller agree, whichever direction that is
+- [x] `apply()`'s signature and its caller agree, whichever direction that is
       resolved in
 
 ## Notes
@@ -96,3 +96,9 @@ production rather than a lie in a signature.
 **Prioritization pass 2026-08-03:** `XC-004` is `completed`, so the workflow
 this item's gate hangs off now exists. Promoted `in-review` → `ready` at `P1`
 — small effort, seven already-identified real findings, and unblocked.
+
+**Implementation 2026-08-04:** Added `mypy` to the dev extra with a committed
+`lore/` configuration, a `python-types` CI job, and the matching README command.
+The current main baseline had grown to 14 findings across seven modules; all are
+now fixed at their validation or type boundaries without suppressions. Verified
+with `uv run --extra dev mypy lore`, Ruff, 237 Python tests, and `tests/gate.py`.

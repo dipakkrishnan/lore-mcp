@@ -50,12 +50,13 @@ def materialize(price_usd: float) -> Path:
         match = re.search(r'"database_id":\s*"([^"]+)"', config.read_text())
         if match and match.group(1) != D1_PLACEHOLDER:
             existing_id = match.group(1)
-    shutil.copytree(
-        resources.files("lore") / "node",
-        target,
-        dirs_exist_ok=True,
-        ignore=shutil.ignore_patterns(*EXCLUDED),
-    )
+    with resources.as_file(resources.files("lore") / "node") as source_dir:
+        shutil.copytree(
+            source_dir,
+            target,
+            dirs_exist_ok=True,
+            ignore=shutil.ignore_patterns(*EXCLUDED),
+        )
     price_file = target / "src/price.ts"
     source = price_file.read_text()
     if PRICE_DECLARATION not in source:
@@ -142,19 +143,26 @@ def deploy(wallet: str | None) -> int:
         raise ValueError(
             "no publication price is set; set one with `lore price <USD>` before deploying"
         )
-    numeric = (
-        not isinstance(configured_price, bool)
-        and isinstance(configured_price, (int, float))
-        and math.isfinite(configured_price)
-    )
-    if numeric and configured_price == 0:
+    if isinstance(configured_price, bool) or not isinstance(
+        configured_price, (int, float)
+    ):
+        raise ValueError(
+            f"the publication price must be a number of at least ${MINIMUM_PRICE:.6f}; "
+            "set it with `lore price <USD>` and rerun"
+        )
+    if not math.isfinite(configured_price):
+        raise ValueError(
+            f"the publication price must be a number of at least ${MINIMUM_PRICE:.6f}; "
+            "set it with `lore price <USD>` and rerun"
+        )
+    if configured_price == 0:
         raise ValueError(
             "publications are free (`lore price 0`), which needs no deployed node; "
             "set a positive price with `lore price <USD>` to deploy, or stop here"
         )
     # The floor keeps the guard and the price formatter in agreement: anything
     # below 1e-6 renders as `PRICE_USD = 0`, a paid node that charges nothing.
-    if not numeric or configured_price < MINIMUM_PRICE:
+    if configured_price < MINIMUM_PRICE:
         raise ValueError(
             f"the publication price must be a number of at least ${MINIMUM_PRICE:.6f}; "
             "set it with `lore price <USD>` and rerun"
