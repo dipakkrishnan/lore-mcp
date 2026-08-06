@@ -330,6 +330,26 @@ class Store:
             raise ValueError(f"memory not found: {memory_id}")
         self.db.commit()
 
+    def set_status_many(self, ids: list[int], status: str) -> int:
+        """Set a retention status across many memories in one statement.
+
+        Returns the count of rows actually changed, not merely matched — a row
+        already at `status` doesn't count, so a caller can report a truthful
+        "N marked" instead of the size of the set it targeted.
+        """
+        if status not in STATUSES:
+            raise ValueError(f"invalid status: {status}")
+        if not ids:
+            return 0
+        placeholders = ",".join("?" for _ in ids)
+        cursor = self.db.execute(
+            f"UPDATE memories SET status=?,updated_at=? "
+            f"WHERE id IN ({placeholders}) AND status!=?",
+            (status, datetime.now(timezone.utc).isoformat(), *ids, status),
+        )
+        self.db.commit()
+        return cursor.rowcount
+
     def search(
         self, query: str, *, status: str | None = None, limit: int = 20
     ) -> list[Memory]:

@@ -55,6 +55,12 @@ def parser() -> argparse.ArgumentParser:
     review.add_argument(
         "--limit", type=int, default=0, help="maximum to review; 0 means all"
     )
+    review.add_argument(
+        "--all",
+        choices=STATUSES,
+        default=None,
+        help="apply this status to every match in one command, non-interactively",
+    )
 
     search = commands.add_parser("search", help="search local memories")
     search.add_argument("query", nargs="*", help="words to search for")
@@ -160,7 +166,7 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "sync":
             return sync(set(args.source) if args.source else None)
         if args.command == "review":
-            return review(" ".join(args.query), args.status, args.limit)
+            return review(" ".join(args.query), args.status, args.limit, args.all)
         if args.command == "search":
             return search(" ".join(args.query), args.status, args.limit, args.json)
         if args.command == "profile":
@@ -245,8 +251,9 @@ def manual() -> int:
   3. lore capture apply <file|->
      Validate and privately save memories approved in an attended agent session.
 
-  4. lore review [words] [--status private|discarded]
+  4. lore review [words] [--status private|discarded] [--all private|discarded]
      Walk the private library and keep or discard; revisit any prior decision.
+     --all applies one status to every match in one command, no prompting.
      Reviewing never discloses anything — only a publication does that.
 
   5. lore search [words] [--status STATUS]
@@ -338,7 +345,12 @@ def capture_apply(file: str) -> int:
     return 0
 
 
-def review(query: str = "", status_name: str = "private", limit: int = 0) -> int:
+def review(
+    query: str = "",
+    status_name: str = "private",
+    limit: int = 0,
+    all_status: str | None = None,
+) -> int:
     """Let the owner revisit a targeted memory queue.
 
     Imports are private on arrival, so review is a retention pass over the
@@ -354,11 +366,23 @@ def review(query: str = "", status_name: str = "private", limit: int = 0) -> int
         if not memories:
             success(f"No {status_name} memories to review")
             return 0
+        if all_status:
+            changed = store.set_status_many([m.id for m in memories], all_status)
+            success(f"Marked {changed} memories as {all_status}")
+            return 0
         for index, memory in enumerate(memories, 1):
             memory_card(memory, index, len(memories))
             print("\n  [k] keep private   [d] discard   [s] skip   [q] quit")
+            print("  [K] keep all remaining private   [D] discard all remaining")
             while True:
-                choice = ask("Choose", "k").lower()
+                raw = ask("Choose", "k")
+                if raw in ("K", "D"):
+                    remaining_status = "private" if raw == "K" else "discarded"
+                    remaining_ids = [m.id for m in memories[index - 1 :]]
+                    changed = store.set_status_many(remaining_ids, remaining_status)
+                    success(f"Marked {changed} memories as {remaining_status}")
+                    return 0
+                choice = raw.lower()
                 # No disclosure choice here by design: review is retention only.
                 new_status = {"k": "private", "p": "private", "d": "discarded"}.get(
                     choice
