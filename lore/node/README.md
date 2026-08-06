@@ -62,8 +62,30 @@ facilitator unless every step below is taken; nothing defaults or falls back
 to mainnet (MON-005). Cut over only after a full Sepolia payment has settled
 end to end.
 
+**Getting the CDP credentials** (a first live cutover hit every one of these):
+
+- Keys are minted at `portal.cdp.coinbase.com` → **API keys** in the left
+  nav's settings cluster. Beware the decoy: the "API key wallets" product
+  page creates server-controlled *wallets*, which you do not want — the right
+  page is a plain table of keys with a **Create API key** button, and it
+  talks about authenticating requests, not creating wallets.
+- In the create dialog: **Secret API key**; *opt out* of IP allowlisting (the
+  caller is a Cloudflare Worker with no stable egress IPs — pinning IPs
+  breaks settlement randomly); leave the Trade/Transfer/Receive account
+  scopes unchecked — the facilitator authenticates settlement calls and
+  never touches funds in any Coinbase account.
+- The secret is shown once. It goes straight from that tab into the
+  `wrangler secret put` prompt below — never into an agent conversation, a
+  file, or a clipboard manager. A lost secret is not an incident: mint a
+  replacement key.
+- **Secrets are scoped to the worker's name.** If you intend to rename the
+  worker, rename and redeploy first — secrets vaulted against the old name
+  do not carry over.
+
+Then, from `~/.lore/node`, in a real terminal:
+
 ```sh
-npx wrangler secret put CDP_API_KEY_ID      # from your Coinbase CDP account
+npx wrangler secret put CDP_API_KEY_ID      # paste at the prompt
 npx wrangler secret put CDP_API_KEY_SECRET
 npx wrangler secret put LORE_NETWORK        # enter exactly: eip155:8453
 npx wrangler deploy
