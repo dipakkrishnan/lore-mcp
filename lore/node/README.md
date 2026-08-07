@@ -43,17 +43,18 @@ lore node deploy --wallet <your public 0x payout address>
 
 ## Make the test payment
 
-Create a dedicated Base Sepolia buyer wallet (never your payout wallet), fund
-it with faucet test USDC, then in this directory:
+In this directory:
 
 ```sh
-cp .buyer.env.example .buyer.env
-# Edit .buyer.env yourself and set the buyer key there.
 npm run pay -- <your node URL from lore status>
 ```
 
-The script caps payment at the deployed price and prints the MCP result plus
-the x402 settlement receipt. Never use a funded mainnet key here.
+On first run the script provisions its own dedicated Base Sepolia buyer key
+in `.buyer.env` (mode 400 — never open or edit it; it is not your payout
+wallet). If the buyer holds less than the deployed price it prints the
+address to fund plus faucet links; send it test USDC and re-run. The script
+caps payment at the deployed price and prints the MCP result plus the x402
+settlement receipt.
 
 ## Mainnet cutover (real money — read all of this first)
 
