@@ -59,13 +59,16 @@ class RenderTest(unittest.TestCase):
         self,
     ) -> None:
         for name in render_pr_body.available_templates():
-            if name == "README":
-                continue
             required, _ = render_pr_body.load_template(name)
             self.assertTrue(required, f"{name}.md declares no {{{{placeholder}}}}")
             values = {key: key.upper() for key in required}
             body = render_pr_body.render(name, values)
             self.assertNotIn("{{", body)
+
+    def test_readme_is_not_a_template(self) -> None:
+        self.assertNotIn("README", render_pr_body.available_templates())
+        with self.assertRaises(SystemExit):
+            render_pr_body.render("README", {})
 
 
 class ParseVarsTest(unittest.TestCase):
