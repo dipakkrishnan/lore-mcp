@@ -55,7 +55,6 @@ lore = [
     "node/wrangler.jsonc",
     "node/env.d.ts",
     "node/README.md",
-    "node/.buyer.env.example",
     "node/.dev.vars.example",
     "node/src/*.ts",
     "node/scripts/*.ts",

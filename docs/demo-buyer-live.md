@@ -78,7 +78,7 @@ proven by `pay.ts` against this exact Worker), and re-exposes `discover` and
 results; the key never enters context. Buyer setup collapses to:
 
 ```sh
-claude mcp add lore-buyer -- npx lore-buyer --node https://<node>/mcp
+claude mcp add lore-buyer -- npm --prefix /path/to/lore-mcp/bridge run start -- --node https://<node>/mcp
 ```
 
 Key custody, in order of demo-worthiness: the self-provisioning throwaway key

@@ -288,6 +288,31 @@ may choose any subset of the catalog, including all of it, and pays separately
 for each selection. Damaged ids fail validation before payment. Per-publication
 pricing or bundles can be added if one fixed price becomes a measured constraint.
 
+## Buying from a node
+
+Buying needs no Lore install and no Coinbase/CDP account — CDP is the
+seller's settlement facilitator, not the buyer's. A buyer runs
+[`bridge/`](bridge/README.md), a local MCP server that fronts the seller's
+node and holds the paying key; the agent sees `discover` and `get` as
+ordinary tools and payment happens between them. Clone this repository, then:
+
+```sh
+npm --prefix bridge install
+
+# Claude Code
+claude mcp add lore-buyer -- npm --prefix /path/to/lore-mcp/bridge run start -- --node https://<host>/mcp --network eip155:8453 --max-usd 0.05
+
+# Codex CLI
+codex mcp add lore-buyer -- npm --prefix /path/to/lore-mcp/bridge run start -- --node https://<host>/mcp --network eip155:8453 --max-usd 0.05
+```
+
+Match `--network` to the node (`discover` reports it; `eip155:84532` is Base
+Sepolia for test nodes). On first run the bridge self-provisions a throwaway
+signing key at `~/.x402-bridge/key.env` and logs its address — fund that
+address with USDC on the node's network, only ever with what you are willing
+to spend. The bridge refuses any charge off its configured network or beyond
+`--max-usd`.
+
 ## Privacy boundary
 
 A gateway can enforce access and verify payment at the edge; it does not decide
@@ -334,7 +359,7 @@ Lore MCP is the connective layer between personal memory, agent discovery, owner
 │   ├── INDEX.md            # semantic index
 │   └── <topic>.md          # synthesized topic memory
 ├── node/                   # deployable Worker source staged by `lore node deploy`
-│   └── .buyer.env          # test-buyer key, owner-created, never overwritten
+│   └── .buyer.env          # test-buyer key, self-provisioned by `npm run pay`, never overwritten
 └── blueprint/
     ├── blueprint.json      # captured shape of your lore (persona, axis, topics)
     └── lore-map.md         # human-readable rendering of the blueprint

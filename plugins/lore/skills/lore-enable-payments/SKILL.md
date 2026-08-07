@@ -197,16 +197,35 @@ If an owner insists on using their own key instead, they edit `.buyer.env`
 themselves, in their own editor — nothing in this flow ever needs a private key
 pasted into the conversation, and anything key-shaped pasted here is refused.
 
-## 7. Mainnet, later — not part of this skill
+## 7. Mainnet — gated, and driven only when the gates hold
 
-Real money is a separate, deliberate step, taken only after a two-person paid
-test has settled. It requires all of: at least one active publication (a real
-buyer must never pay real USDC against an empty catalog); an **explicit** owner
-confirmation; and Coinbase Developer Platform API keys (`portal.cdp.coinbase.com`)
-set as Worker secrets via `npx wrangler secret put` in `~/.lore/node` — they live
-in Cloudflare's vault, never on this machine and never in this conversation. The
-test-network facilitator needs no keys; CDP is the only facilitator that settles
-Base mainnet.
+Real money is a separate, deliberate step. Never initiate it; the owner asks.
+When they do, verify the gates **from state** before driving anything:
 
-If the owner asks to go to mainnet now, say it is gated on the above and leave
-the node on the test network.
+1. At least one active publication pushed to the node (a real buyer must
+   never pay real USDC against an empty catalog) — `lore publication list`
+   and the node's own `discover` manifest.
+2. A full test-network payment settled end to end, including one from a
+   wallet that is not the owner's own machine.
+3. The owner's **explicit** confirmation that they are switching to real
+   money — this step, uniquely, is never inferred from context.
+
+Any gate fails → say which, leave the node on the test network, stop.
+
+All gates hold → drive the **Mainnet cutover** section of
+`~/.lore/node/README.md` like any other section of this skill: one step at a
+time, announce each portal page before opening it, verify each step from
+state. The runbook carries the sharp edges — the API-keys page hides behind
+an "API key wallets" decoy; the create dialog's right answers (opt out of IP
+allowlisting for a Worker, leave the account scopes unchecked); secrets are
+scoped to the worker's *name*, so any rename happens before vaulting; and the
+key values go from the CDP tab into `wrangler secret put` prompts in a real
+terminal — they live in Cloudflare's vault, never on this machine and never
+in this conversation. The test-network facilitator needs no keys; CDP is the
+only facilitator that settles Base mainnet.
+
+After the cutover deploy, close the loop where the owner can see it: the
+server names itself `Lore x402 (MAINNET)` and `discover` reports
+`network: eip155:8453` — show both. The first real purchase needs a buyer
+holding real USDC; there are no mainnet faucets, and the throwaway test buyer
+stays on the test network.
