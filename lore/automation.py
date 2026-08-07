@@ -13,16 +13,19 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 from windup import Task
 from windup import install as install_task
 from windup import remove as remove_task
+from windup import status as task_status
 
-from .paths import claude_home, codex_home, home
+from .paths import claude_home, codex_home, home, write_private
 from .store import STATUSES
 
 PROFILE = "automation/profile.json"
 PROMPT = "automation/synthesis-prompt.md"
-# Fields that belong in profile.json. The onboarding checkpoint reuses this file to
-# carry its own state; persist only these so that state never leaks into the profile
-# the synthesis prompt reads.
 AUTOMATION_ID = "lore-memory-synthesis"
+# The profile describes a person, not the sessions they were inferred from. Rejecting
+# unknown field names keeps transcripts out by the front door; this keeps them from
+# being pasted into a field that is legitimately free text. Generous on purpose — it
+# is a ceiling on kind, not a target for length.
+MAX_FIELD_LENGTH = 2000
 
 
 class Agent(str, Enum):
@@ -64,7 +67,12 @@ class AutomationProfile(BaseModel):
     def clean_text(cls, value: object) -> object:
         if not isinstance(value, str):
             return value
-        return " ".join(value.split())
+        cleaned = " ".join(value.split())
+        if len(cleaned) > MAX_FIELD_LENGTH:
+            raise ValueError(
+                f"automation profile field cannot exceed {MAX_FIELD_LENGTH} characters"
+            )
+        return cleaned
 
     @field_validator("executor", mode="before")
     @classmethod
@@ -74,9 +82,15 @@ class AutomationProfile(BaseModel):
         try:
             return Agent(value)
         except (TypeError, ValueError) as error:
+            supported = ", ".join(str(agent) for agent in Agent)
             raise ValueError(
-                "automation profile contains an unknown executor"
+                f"automation profile executor must be one of: {supported}"
             ) from error
+
+
+# Fields the checkpoint may carry into profile.json; derived from the model instead
+# of restated, so a new field can't be added to one without the other noticing.
+PROFILE_FIELDS = tuple(AutomationProfile.model_fields)
 
 
 def profile_path() -> Path:
@@ -89,26 +103,34 @@ def prompt_path() -> Path:
     return home() / PROMPT
 
 
+def check_fields(profile: dict[str, object]) -> dict[str, object]:
+    """Validate and normalize the profile fields the checkpoint understands.
+
+    Every field is optional here: the checkpoint collects them one answer at a
+    time, and `AutomationProfile` requires none of them until `save_profile`
+    persists a complete one. Anything outside the model's fields — the
+    interview's own `phase1_done` flag — passes through untouched rather than
+    being silently dropped, which is what the model's `extra="ignore"` would
+    otherwise do to it.
+    """
+    known = {key: value for key, value in profile.items() if key in PROFILE_FIELDS}
+    extra = {key: value for key, value in profile.items() if key not in PROFILE_FIELDS}
+    validated = AutomationProfile.model_validate(known).model_dump(
+        mode="json", exclude_none=True, exclude_unset=True
+    )
+    return {**extra, **validated}
+
+
 def save_profile(profile: object) -> dict[str, object]:
     """Persist a profile and regenerate the shared synthesis prompt."""
     profile = AutomationProfile.model_validate(profile).model_dump(
         mode="json", exclude_none=True, exclude_unset=True
     )
     prompt_content = build_prompt(profile)
-    path = profile_path()
-    directory = path.parent
-    # Profiles and prompts contain private context; keep them owner-only.
-    directory.mkdir(mode=0o700, parents=True, exist_ok=True)
-    directory.chmod(0o700)
-    path.touch(mode=0o600, exist_ok=True)
-    path.chmod(0o600)
-    path.write_text(
-        json.dumps(profile, indent=2, allow_nan=False) + "\n", encoding="utf-8"
-    )
-    prompt = prompt_path()
-    prompt.touch(mode=0o600, exist_ok=True)
-    prompt.chmod(0o600)
-    prompt.write_text(prompt_content, encoding="utf-8")
+    # Profiles and prompts contain private context; `write_private` keeps them
+    # owner-only and keeps a failed write from destroying the profile in place.
+    write_private(profile_path(), json.dumps(profile, indent=2, allow_nan=False) + "\n")
+    write_private(prompt_path(), prompt_content)
     return profile
 
 
@@ -206,8 +228,8 @@ Do not modify either agent's native memory or session history.
 """
 
 
-def install(profile: dict[str, object]) -> Path:
-    """Install the selected executor's recurring synthesis task."""
+def build_task(profile: dict[str, object]) -> Task:
+    """Describe the recurring synthesis task this profile asks for."""
     name = str(profile.get("executor", "") or "")
     if not name:
         raise ValueError("profile has no executor; set one, or save with --no-schedule")
@@ -251,8 +273,31 @@ def install(profile: dict[str, object]) -> Path:
             else ()
         ),
     )
-    other = Agent.CLAUDE if executor == Agent.CODEX else Agent.CODEX
+    return task
+
+
+def install(profile: dict[str, object]) -> Path:
+    """Install the selected executor's recurring synthesis task."""
+    task = build_task(profile)
+    other = Agent.CLAUDE if task.agent == Agent.CODEX else Agent.CODEX
     # Keep the current schedule alive unless its replacement installs successfully.
     installed = install_task(task, codex_home=codex_home())
     remove_task(replace(task, agent=other), codex_home=codex_home())
     return installed
+
+
+def scheduled(profile: dict[str, object]) -> bool:
+    """Report whether the executor's scheduler actually holds the synthesis task.
+
+    A saved profile proves nothing ran: `--no-schedule` writes one deliberately, a
+    failed install leaves one behind, and a schedule can be removed afterwards. Ask
+    the scheduler instead, and treat a profile it cannot even describe as unscheduled.
+    """
+    try:
+        return task_status(build_task(profile), codex_home=codex_home())
+    except (OSError, TypeError, ValueError, KeyError):
+        # TypeError included deliberately: `save_profile` strips None, so only a
+        # hand-edited profile reaches `int(None)` in `build_task` — and a
+        # hand-edited profile is precisely what must read as unscheduled here
+        # rather than tracebacking out of `lore status`.
+        return False

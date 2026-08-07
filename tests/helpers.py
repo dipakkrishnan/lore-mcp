@@ -35,6 +35,12 @@ class LoreTestCase(unittest.TestCase):
         os.environ["LORE_HOME"] = str(self.lore_home)
         os.environ["CLAUDE_HOME"] = str(self.claude_home)
         os.environ["CODEX_HOME"] = str(self.codex_home)
+        # windup resolves a Claude schedule's plist through Path.home(), which none
+        # of the vars above cover — an unsandboxed test that installed or removed
+        # one for real would reach into the developer's actual ~/Library/LaunchAgents.
+        home = root / "home"
+        home.mkdir()
+        os.environ["HOME"] = str(home)
         self.addCleanup(self.tmp.cleanup)
 
     def seed_memory(self, title: str, status: str = "private") -> int:

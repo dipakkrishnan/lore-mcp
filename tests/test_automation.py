@@ -85,7 +85,11 @@ class ProfileTest(LoreTestCase):
         self.assertEqual(profile.get("executor", ""), "")
         with self.assertRaisesRegex(ValueError, "no-schedule"):
             automation.install(profile)
-        with self.assertRaisesRegex(ValueError, "unknown executor"):
+        # The rejection names the executors that would work, rather than only
+        # reporting that this one does not.
+        with self.assertRaisesRegex(
+            ValueError, "executor must be one of: claude, codex"
+        ):
             automation.save_profile({"executor": "cursor"})
 
     def test_the_agent_enum_renders_as_its_wire_value(self) -> None:

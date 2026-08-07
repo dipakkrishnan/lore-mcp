@@ -278,7 +278,10 @@ class ReviewTest(LoreTestCase):
             captured() as output,
         ):
             self.assertEqual(cli.review(), 0)
-        self.assertNotIn("publish", output.getvalue().lower())
+        # "publish" only ever appears in the banner ruling it out; nothing here
+        # confirms an actual disclosure took place.
+        self.assertIn("Neither publishes anything", output.getvalue())
+        self.assertNotIn("Published", output.getvalue())
         with Store() as store:
             self.assertEqual(store.counts()["private"], 1)
 
@@ -484,7 +487,9 @@ class ProfileTest(LoreTestCase):
         path = self.lore_home / "profile.json"
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(json.dumps(["not", "an", "object"]))
-        with self.assertRaisesRegex(ValueError, "valid dictionary"):
+        # A named, actionable message rather than Pydantic's raw "valid dictionary" —
+        # an agent assembled this file, so the error has to read as an instruction.
+        with self.assertRaisesRegex(ValueError, "profile must be a JSON object"):
             cli.profile(str(path))
 
 
