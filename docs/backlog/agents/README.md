@@ -8,10 +8,10 @@ body.
 
 | Shape | Template | Used by |
 |---|---|---|
-| A new item was filed (`ideation` output) | [`new-item.md`](./new-item.md) | `ideation.md` |
-| An item was cataloged from a GitHub issue | [`github-issue-cataloged.md`](./github-issue-cataloged.md) | `ideation.md`, "Cataloging a GitHub issue" |
-| An item reached `completed` | [`completed-item.md`](./completed-item.md) | `implementation.md` |
-| Only `audit` ran (findings and/or a regenerated `INDEX.md`, no item completed) | [`index-regenerated.md`](./index-regenerated.md) | `audit.md` |
+| A new item was filed (`ideation` output) | [`new-item.md`](./pr-templates/new-item.md) | `ideation.md` |
+| An item was cataloged from a GitHub issue | [`github-issue-cataloged.md`](./pr-templates/github-issue-cataloged.md) | `ideation.md`, "Cataloging a GitHub issue" |
+| An item reached `completed` | [`completed-item.md`](./pr-templates/completed-item.md) | `implementation.md` |
+| Only `audit` ran (findings and/or a regenerated `INDEX.md`, no item completed) | [`index-regenerated.md`](./pr-templates/index-regenerated.md) | `audit.md` |
 
 ## Rendering one
 
@@ -36,8 +36,8 @@ gh pr create --title "XC-007: ..." --body "$(python3 docs/backlog/agents/render_
 
 ## Adding a template
 
-Add `<shape>.md` here with `{{placeholder}}` tokens wherever the body must
-vary; everything else is fixed boilerplate. `render_pr_body.py` derives the
-required variables from whatever `{{...}}` tokens the file contains — no
-separate list to keep in sync. Then link the new template from whichever
-playbook(s) in `../` produce that shape of PR.
+Add `<shape>.md` under `pr-templates/` with `{{placeholder}}` tokens wherever
+the body must vary; everything else is fixed boilerplate. `render_pr_body.py`
+derives the required variables from whatever `{{...}}` tokens the file
+contains — no separate list to keep in sync. Then link the new template from
+whichever playbook(s) in `./` produce that shape of PR.
