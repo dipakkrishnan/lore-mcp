@@ -319,14 +319,25 @@ A gateway can enforce access and verify payment at the edge; it does not decide
 what private context is safe to release. Lore MCP must enforce that boundary
 locally.
 
-The minimum safeguards are:
+Enforced in code today:
 
-- pre-retrieval and post-generation policy checks;
-- provenance for derived claims;
-- per-buyer and per-topic limits;
-- protection against repeated queries that reconstruct private material;
-- explicit handling of third-party and confidential information;
-- revocable permissions and an owner-visible audit log.
+- only owner-approved, active publications ever reach the edge — `lore push`
+  exports `publications WHERE active=1` and nothing else, so private memory
+  cannot be served by construction;
+- approval requires an attended interactive session (a TTY gate agents
+  cannot drive), and every publication must cite the real private memories
+  it derives from — provenance buyers never see;
+- revocation takes effect locally at once and is pushed to the edge, with a
+  persistent `lore status` reminder if the push fails;
+- the free surface advertises only owner-approved teasers, topics, and
+  day-truncated freshness.
+
+Convention today, in the drafting skills rather than validators: explicit
+handling of third-party and confidential information.
+
+Not yet implemented: per-buyer and per-topic limits, protection against
+repeated queries that reconstruct private material, pre-retrieval and
+post-generation policy checks, and an owner-visible audit log.
 
 ## First version
 
@@ -466,10 +477,12 @@ a separate `dev` extra, which `uv run` only picks up with `--extra dev`.
 ## Status
 
 The local CLI, agent-memory import, FTS5 search, review flow, assisted synthesis,
-basic stdio/HTTP MCP server, test-network payment enforcement (the x402
-Worker deployed by `lore node deploy`), and publications serving from the
-deployed node (`lore push`) are implemented. Repeated-query extraction
-protection, remote identity, and marketplace discovery remain future work.
+basic stdio/HTTP MCP server, x402 payment enforcement (the Worker deployed by
+`lore node deploy` — Base Sepolia by default, Base mainnet behind an explicit
+opt-in secret), and publications serving from the deployed node (`lore push`)
+are implemented; real purchases have settled on Base mainnet. Repeated-query
+extraction protection, remote identity, and marketplace discovery remain
+future work.
 
 ## Related infrastructure
 
