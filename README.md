@@ -12,7 +12,7 @@ Lore uses Python 3.10+, SQLite, Git, and [uv](https://docs.astral.sh/uv/). Inspe
 [`install.sh`](./install.sh), then install the current release:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/dipakkrishnan/lore-mcp/main/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/dipakkrishnan/lore-mcp/v0.1.0/install.sh | sh
 ```
 
 The installer places Lore under `~/.local/share/lore`, links the `lore` command
