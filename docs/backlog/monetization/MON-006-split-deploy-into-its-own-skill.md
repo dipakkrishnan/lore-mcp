@@ -10,7 +10,7 @@ blockers: []
 dependencies: []
 github_issue: null
 created: 2026-07-30
-updated: 2026-08-03
+updated: 2026-08-05
 ---
 
 ## Problem
@@ -75,3 +75,9 @@ built per the notes above; what's left (revocation reaching the node, the
 canary rename) is small. Corrected `effort` to `S`, added `MON-004` to
 `related` since it owns the revocation-push mechanism this item's second
 criterion depends on, and promoted to `P1` / `ready`.
+
+**Completed 2026-08-05.** Deploy mechanics moved into `lore node deploy` (#44);
+revocation reach landed as MON-004 (#78); the worker rename — the last
+remainder — shipped here: `lore-x402-canary` → `lore`, live at
+lore.dipakrkrishnan.workers.dev/mcp, old worker deleted, rename verified by a
+settled Sepolia paid retrieval of real publication content (tx 0xfd3ef8b0...).
