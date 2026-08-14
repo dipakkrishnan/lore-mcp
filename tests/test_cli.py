@@ -29,6 +29,10 @@ class ParserTest(unittest.TestCase):
             (["setup", "--yes"], {"command": "setup", "yes": True}),
             (["sync", "--source", "codex"], {"command": "sync", "source": ["codex"]}),
             (["review", "a", "b", "--limit", "3"], {"query": ["a", "b"], "limit": 3}),
+            (
+                ["review", "--all", "discarded"],
+                {"all": "discarded"},
+            ),
             (["search", "x", "--json"], {"json": True, "limit": 20}),
             (["profile", "-", "--no-schedule"], {"path": "-", "no_schedule": True}),
             (
@@ -71,6 +75,7 @@ class ParserTest(unittest.TestCase):
     def test_unknown_values_are_refused_by_the_parser(self) -> None:
         for argv in (
             ["review", "--status", "external"],
+            ["review", "--all", "external"],
             ["serve", "--transport", "grpc"],
             ["sync", "--source", "notion"],
             ["node"],  # `node` alone does nothing; a subcommand is required
@@ -91,7 +96,12 @@ class MainDispatchTest(LoreTestCase):
                 ({"codex", "claude"},),
             ),
             (["sync"], "sync", (None,)),
-            (["review", "a", "b"], "review", ("a b", "private", 0)),
+            (["review", "a", "b"], "review", ("a b", "private", 0, None)),
+            (
+                ["review", "--status", "private", "--all", "discarded"],
+                "review",
+                ("", "private", 0, "discarded"),
+            ),
             (["search", "a", "--limit", "5"], "search", ("a", None, 5, False)),
             (["profile", "p.json"], "profile", ("p.json", True)),
             (["profile", "p.json", "--no-schedule"], "profile", ("p.json", False)),
@@ -313,6 +323,49 @@ class ReviewTest(LoreTestCase):
             self.assertEqual(store.counts()["discarded"], 2)
         with self.assertRaisesRegex(ValueError, "limit cannot be negative"):
             cli.review("", "private", -1)
+
+    def test_all_status_bulk_discards_a_filtered_set_without_prompting(self) -> None:
+        for title in ("First lesson", "Second lesson", "Third lesson"):
+            self.seed_memory(title)
+        with patch.object(cli, "ask") as ask, captured() as output:
+            self.assertEqual(cli.review("", "private", 0, "discarded"), 0)
+        ask.assert_not_called()
+        self.assertIn("Marked 3 memories as discarded", output.getvalue())
+        with Store() as store:
+            self.assertEqual(store.counts(), {"private": 0, "discarded": 3})
+
+    def test_all_status_reports_only_rows_actually_changed(self) -> None:
+        self.seed_memory("Already discarded", "discarded")
+        self.seed_memory("Still private")
+        with captured() as output:
+            # Filtering on status=discarded means only the first memory matches;
+            # marking it discarded again should change nothing.
+            self.assertEqual(cli.review("", "discarded", 0, "discarded"), 0)
+        self.assertIn("Marked 0 memories as discarded", output.getvalue())
+
+    def test_all_status_on_an_empty_match_says_so_and_marks_nothing(self) -> None:
+        with patch.object(cli, "ask") as ask, captured() as output:
+            self.assertEqual(cli.review("", "private", 0, "discarded"), 0)
+        ask.assert_not_called()
+        self.assertIn("No private memories to review", output.getvalue())
+
+    def test_apply_all_remaining_from_inside_the_interactive_loop(self) -> None:
+        for title in ("First lesson", "Second lesson", "Third lesson"):
+            self.seed_memory(title)
+        # Keep the first card individually, then discard everything left.
+        with patch.object(cli, "ask", side_effect=["k", "D"]), captured() as output:
+            self.assertEqual(cli.review(), 0)
+        self.assertIn("Marked 2 memories as discarded", output.getvalue())
+        with Store() as store:
+            self.assertEqual(store.counts(), {"private": 1, "discarded": 2})
+
+    def test_apply_all_remaining_reports_only_rows_actually_changed(self) -> None:
+        self.seed_memory("Only lesson")
+        with patch.object(cli, "ask", return_value="K"), captured() as output:
+            self.assertEqual(cli.review(), 0)
+        # It was already private, so keeping it private "for all remaining"
+        # changes nothing — the count must say so, not report the match size.
+        self.assertIn("Marked 0 memories as private", output.getvalue())
 
 
 class SearchTest(LoreTestCase):
