@@ -23,6 +23,14 @@ jobs:
       - uses: astral-sh/setup-uv@v5
       - run: uv run python -m unittest discover -s tests -v
 
+  python-types:
+    name: Python type checks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - run: uv run --extra dev mypy lore
+
   bridge-check:
     name: Bridge compiler checks
     runs-on: ubuntu-latest

@@ -371,6 +371,17 @@ class StatusTest(LoreTestCase):
         self.assertIn("● Codex", text)
         self.assertIn("○ Claude Code", text)
 
+    def test_status_keeps_reminding_while_a_revocation_has_not_reached_the_node(
+        self,
+    ) -> None:
+        with Store() as store:
+            store.set_setting("revocation_pending", True)
+        with captured() as output:
+            cli.status()
+        text = output.getvalue()
+        self.assertIn("NOT reached the deployed node", text)
+        self.assertIn("lore push", text)
+
     def test_status_nudges_when_a_publication_outlived_its_source(self) -> None:
         memory_id = self.seed_memory("Project lesson")
         with Store() as store:
@@ -798,16 +809,42 @@ class PublicationCommandTest(LoreTestCase):
             with self.subTest(expected=expected):
                 self.assertIn(expected, text)
 
-    def test_revoke_removes_it_and_warns_that_the_edge_is_stale(self) -> None:
+    def test_revoke_without_a_deployed_node_stays_local(self) -> None:
         pid = self.publish()
-        with captured() as out:
+        with patch.object(cli, "push") as push, captured() as out:
             self.assertEqual(cli.publication_revoke(pid), 0)
+        push.assert_not_called()
         self.assertIn(f"Revoked publication {pid}", out.getvalue())
-        # Revoking locally does not reach a deployed node. Saying so is the
-        # difference between a revocation and the belief in one.
-        self.assertIn("lore push", out.getvalue())
         with Store() as store:
             self.assertEqual(store.list_publications(active_only=True), [])
+            self.assertFalse(store.setting("revocation_pending", False))
+
+    def test_revoke_pushes_to_the_deployed_node_immediately(self) -> None:
+        # "Immediately" is the MON-004 invariant: revoking may not wait for
+        # whenever the owner next remembers to push.
+        pid = self.publish()
+        with Store() as store:
+            store.set_setting("node_url", "https://node.example/mcp")
+        with patch.object(cli, "push", return_value=0) as push, captured():
+            self.assertEqual(cli.publication_revoke(pid), 0)
+        push.assert_called_once_with(str(cli.home() / "node"))
+
+    def test_a_failed_revocation_push_is_recorded_never_silently_dropped(self) -> None:
+        pid = self.publish()
+        with Store() as store:
+            store.set_setting("node_url", "https://node.example/mcp")
+        with (
+            patch.object(cli, "push", side_effect=ValueError("wrangler down")),
+            captured(),
+            self.assertRaises(ValueError) as raised,
+        ):
+            cli.publication_revoke(pid)
+        self.assertIn("lore push", str(raised.exception))
+        with Store() as store:
+            # The local revocation still landed...
+            self.assertEqual(store.list_publications(active_only=True), [])
+            # ...and the unreached edge is recorded, not forgotten.
+            self.assertTrue(store.setting("revocation_pending", False))
 
     def test_reapprove_clears_the_stale_flag_without_changing_the_text(self) -> None:
         pid = self.publish()
@@ -950,6 +987,20 @@ class PushTest(LoreTestCase):
         _, run, out = self._push(local=True)
         self.assertIn("--local", run.call_args.args[0])
         self.assertIn("local dev database", out.getvalue())
+
+    def test_a_remote_push_clears_a_pending_revocation_but_a_local_one_does_not(
+        self,
+    ) -> None:
+        # A remote push is a full replace, so it discharges the debt; a push
+        # to the local dev database proves nothing about the deployed node.
+        with Store() as store:
+            store.set_setting("revocation_pending", True)
+        self._push(local=True)
+        with Store() as store:
+            self.assertTrue(store.setting("revocation_pending", False))
+        self._push()
+        with Store() as store:
+            self.assertFalse(store.setting("revocation_pending", True))
 
     def test_the_sql_file_is_cleaned_up_after_a_push(self) -> None:
         self.publish()

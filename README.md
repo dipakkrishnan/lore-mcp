@@ -1,10 +1,10 @@
 # Lore MCP
 
-**Portable, private, monetizable context for personal agents.**
+**Private memory for personal agents, with optional paid sharing.**
 
-Lore MCP is a local-first memory layer that lets any personal agent build a durable understanding of its owner—and lets the owner decide when other agents may pay to query that understanding.
-
-> Your agents build your lore. You decide who can access it.
+Lore keeps agent memory on your computer. You can use it privately, or approve
+specific publications for other agents to buy. Your private library is never
+exposed to buyers.
 
 ## Install
 
@@ -12,7 +12,7 @@ Lore uses Python 3.10+, SQLite, Git, and [uv](https://docs.astral.sh/uv/). Inspe
 [`install.sh`](./install.sh), then install the current release:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/dipakkrishnan/lore-mcp/main/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/dipakkrishnan/lore-mcp/v0.1.0/install.sh | sh
 ```
 
 The installer places Lore under `~/.local/share/lore`, links the `lore` command
@@ -64,20 +64,15 @@ Set `LORE_HOME` to use a location other than `~/.lore`. Lore also respects
 
 ## Agent-assisted synthesis
 
-Native memory is deliberately selective, so Lore asks one agent to revisit remembered
-and owner-approved context and synthesize durable judgments:
-
-After `lore setup`, tell Claude or Codex **“Onboard me to Lore.”** The installed skill
-drafts your profile from agent history, asks you to correct it, and configures one
-synthesis executor, cadence, and optional model. Codex and Claude memories remain
-independent input sources; the selected executor writes topic-based memories plus an
-`INDEX.md` semantic index. Its first run analyzes useful history and can delegate a
-large cold-start corpus to subagents.
+After `lore setup`, tell Claude or Codex **“Onboard me to Lore.”** The installed
+skill drafts a profile from your agent history, asks you to correct it, and sets
+up recurring synthesis. The selected agent turns imported memories into topic
+files and an `INDEX.md` index.
 
 Codex uses its local automation definition. Claude uses a macOS LaunchAgent that first
 runs `lore sync`, then invokes `claude -p` with the saved prompt and narrow permissions.
-Remote Claude routines cannot read local memory files. Keep the Mac awake when a local
-Claude task is due.
+Remote Claude routines cannot read local files. Keep the Mac awake when a local
+Claude task is scheduled.
 
 ## Personal content capture
 
@@ -93,26 +88,19 @@ edits SQLite directly or sends private captures to the paid MCP surface.
 
 ## Guided onboarding
 
-The `lore-onboard` skill (`plugins/lore/skills/lore-onboard/SKILL.md`) runs the whole first-time setup
-as one conversation inside a Claude or Codex session, in two phases:
+The `lore-onboard` skill runs first-time setup in a Claude or Codex session:
 
-1. **Persona interview → blueprint.** Pick an archetype — Storyteller, elementary
-   schoolteacher, college professor, business executive, or wise sage — and it seeds how
-   your lore is organized (chronological, by theme, by project, or by knowledge), how deep
-   it goes, and how you like to tell it. Captured with `lore blueprint apply`; view it any
-   time with `lore blueprint show`.
-2. **Profile → automation.** The skill then reads your existing agent memory, drafts a
-   synthesis profile you correct rather than authoring from blank prompts, installs the
-   recurring synthesis task, and lets its first run process useful history. The blueprint
-   from phase 1 steers where it reads deeply. Captured with `lore profile`.
+1. Choose how you want Lore organized and how much detail it should keep. This
+   becomes your blueprint; view it with `lore blueprint show`.
+2. Correct the suggested synthesis profile, then choose the agent and schedule
+   for recurring synthesis.
 
 When you are ready to charge for publications, the `lore-enable-payments` skill
-(`plugins/lore/skills/lore-enable-payments/SKILL.md`) walks you from a self-custody payout address
-to a deployed node and a proven test-network payment — with free as a first-class
-place to stop.
+walks you through setting a payout address, deploying a node, and testing a
+payment. You can stop before enabling payments.
 
-The blueprint (shape) and the profile (what steers synthesis) stay separate artifacts. See
-`docs/gamified-onboarding.md` for the persona design.
+The blueprint controls the shape of your library. The profile controls what the
+synthesis task looks for.
 
 ## Backlog
 
@@ -120,97 +108,16 @@ Planned and in-flight work on Lore itself is tracked as a git-versioned backlog 
 `docs/backlog/`, organized by component with per-item metadata (priority, effort, status,
 blockers). See `docs/backlog/README.md` for the schema and how to manage it.
 
-## The idea
-
-People are beginning to use agents across coding, research, communication, planning, and everyday life. Those agents encounter valuable context: preferences, relationships, decisions, project histories, failed approaches, hard-won know-how, and the reasons behind past choices.
-
-Today that context is fragmented across tools or disappears at the end of a session. Lore MCP gives agents one owner-controlled place to preserve and retrieve it.
-
-The memory is useful privately first. Some of it may also be valuable to someone else's agent. When it is, the owner can sell a bounded, approved publication through MCP rather than sharing the underlying library.
-
-```text
-agent activity
-      ↓
-raw memories
-      ↓
-consolidated lore
-      ↓
-private recall or permissioned paid publications
-```
-
-## Why “lore”?
-
-Memory is what was stored. Lore is the context assembled from it:
-
-- what happened;
-- how something evolved;
-- who was involved;
-- why a decision was made;
-- what failed and under which conditions;
-- what is informally understood but absent from official records.
-
-“What’s the lore there?” is already a natural way to ask for the history and context behind something. Lore MCP makes that question addressable by agents.
-
-## Principles
-
-### Local first
-
-Raw sources and private memory stay on infrastructure controlled by the owner. A paid caller receives one approved publication, not library access.
-
-### Agent agnostic
-
-Lore should accrue independently of whichever personal agent wins. Codex, Claude Code, Pi, Hermes, and future agents should be able to read and write the same memory through MCP and portable skills.
-
-### Useful before monetized
-
-The owner should benefit from better continuity, recall, and personalization even if nobody ever purchases a publication.
-
-### Human-owned policy
-
-Agents may propose memories, consolidate them, and draft publications. Only the
-owner may approve a publication, and only publications are externally readable.
-
-### Bounded publications, not raw access
-
-The commercial unit is one bounded publication explicitly approved by the owner. Raw notes, conversations, and documents are not exposed by default.
-
-### Existing payment rails
-
-Lore MCP does not build a payments network. Payment negotiation, verification,
-metering, and settlement belong to whatever gateway sits in front of the HTTP
-route. Lore's own responsibility stops at deciding what may be disclosed.
-
 ## How it works
 
-### 1. Accumulate
+1. `lore sync` imports supported agent memories into a local SQLite database.
+2. A scheduled agent turns useful imports into topic-based memory files.
+3. You review memories and decide what stays private or is discarded.
+4. An agent may draft a publication, but only you can approve it.
+5. A deployed node lists approved publications and accepts payment for them.
 
-Personal agents write observations, preferences, episodes, decisions, and provenance into a local staging area.
-
-### 2. Consolidate
-
-A context-janitor skill periodically turns noisy activity into durable lore, resolving duplication and preserving links to supporting sources.
-
-### 3. Govern
-
-Memories are private. Disclosure is a separate, explicit act: the owner approves
-a bounded publication, which is the only thing an external caller can reach.
-
-### 4. Advertise
-
-The node publishes a coarse capability manifest—topics, recency, kinds of experience, and disclosure limits—without publishing the underlying memory or a searchable private index.
-
-### 5. Discover
-
-Discovery happens at two levels:
-
-1. Agent and plugin marketplaces help a buyer find potentially relevant Lore MCP endpoints.
-2. A free `discover` call returns a node's full catalog — owner-approved teasers grouped by topic, with ids, freshness, and price. The buying agent reads it and decides what is worth fetching; there is no server-side search to guess vocabulary against.
-
-### 6. Fetch and settle
-
-A buyer calls `get` with a publication id chosen from the catalog. If payment is required, the gateway in front of the route
-answers with the price and payment requirements; the buyer authorizes and retries.
-After verification, the node returns that owner-approved publication.
+Lore remains useful as a private memory library even if you never publish or
+charge for anything.
 
 ```text
 buyer task
@@ -228,7 +135,7 @@ local retrieval ←── verified payment
 owner-approved publication
 ```
 
-## Initial MCP surface
+## Public MCP surface
 
 The public surface has two tools:
 
@@ -239,8 +146,6 @@ A buyer may choose zero, one, multiple, or every advertised id, calling `get`
 once per selection. Publication ids contain a checksum: a damaged copy is
 rejected before payment. Use ids from a current catalog; a publication revoked
 between `discover` and `get` can still be billed because settlement precedes lookup.
-
-Private owner-facing operations such as remembering, forgetting, consolidating, reviewing, and changing policy can be added only as the local memory implementation requires them.
 
 ### Run the MCP server
 
@@ -281,46 +186,52 @@ owner's machine only ever pushes approved publications outward — no tunnel, no
 inbound path to the private library. The deployed node serves only the
 owner-approved publications `lore push` maintains in its edge database.
 
-## Monetization
+## Buying from a node
 
-Each `get` buys one publication at the fixed price shown by `discover`. A buyer
-may choose any subset of the catalog, including all of it, and pays separately
-for each selection. Damaged ids fail validation before payment. Per-publication
-pricing or bundles can be added if one fixed price becomes a measured constraint.
+Buying needs no Lore install and no Coinbase/CDP account — CDP is the
+seller's settlement facilitator, not the buyer's. A buyer runs
+[`bridge/`](bridge/README.md), a local MCP server that fronts the seller's
+node and holds the paying key; the agent sees `discover` and `get` as
+ordinary tools and payment happens between them. Clone this repository, then:
+
+```sh
+npm --prefix bridge install
+
+# Claude Code
+claude mcp add lore-buyer -- npm --prefix /path/to/lore-mcp/bridge run start -- --node https://<host>/mcp --network eip155:8453 --max-usd 0.05
+
+# Codex CLI
+codex mcp add lore-buyer -- npm --prefix /path/to/lore-mcp/bridge run start -- --node https://<host>/mcp --network eip155:8453 --max-usd 0.05
+```
+
+Match `--network` to the node (`discover` reports it; `eip155:84532` is Base
+Sepolia for test nodes). On first run the bridge self-provisions a throwaway
+signing key at `~/.x402-bridge/key.env` and logs its address — fund that
+address with USDC on the node's network, only ever with what you are willing
+to spend. The bridge refuses any charge off its configured network or beyond
+`--max-usd`.
 
 ## Privacy boundary
 
-A gateway can enforce access and verify payment at the edge; it does not decide
-what private context is safe to release. Lore MCP must enforce that boundary
-locally.
+Enforced in code today:
 
-The minimum safeguards are:
+- only owner-approved, active publications ever reach the edge — `lore push`
+  exports `publications WHERE active=1` and nothing else, so private memory
+  cannot be served by construction;
+- approval requires an attended interactive session (a TTY gate agents
+  cannot drive), and every publication must cite the real private memories
+  it derives from — provenance buyers never see;
+- revocation takes effect locally at once and is pushed to the edge, with a
+  persistent `lore status` reminder if the push fails;
+- the free surface advertises only owner-approved teasers, topics, and
+  day-truncated freshness.
 
-- pre-retrieval and post-generation policy checks;
-- provenance for derived claims;
-- per-buyer and per-topic limits;
-- protection against repeated queries that reconstruct private material;
-- explicit handling of third-party and confidential information;
-- revocable permissions and an owner-visible audit log.
+Drafting skills ask agents to handle third-party and confidential information,
+but this is guidance rather than a code-level validator.
 
-## First version
-
-The smallest useful prototype is:
-
-1. a local memory store;
-2. one context-janitor skill usable by multiple agents;
-3. a capability manifest;
-4. `discover` and `get` MCP tools;
-5. a payment boundary — shipped as the x402 Worker deployed by `lore node deploy`;
-6. a simple disclosure policy and audit trail.
-
-It does not need a new personal agent, hosted raw-memory service, proprietary payment rail, or standalone marketplace. Existing agent marketplaces can provide initial distribution while the protocol proves that agents will pay for useful personal context.
-
-## The bet
-
-Personal agents will become more valuable as they accumulate context. That context belongs to the person who generated it. If another agent benefits from querying it, the owner should be able to grant controlled access and receive payment without surrendering the underlying library.
-
-Lore MCP is the connective layer between personal memory, agent discovery, owner-controlled disclosure, and machine-native payment.
+Not yet implemented: per-buyer and per-topic limits, protection against
+repeated queries that reconstruct private material, pre-retrieval and
+post-generation policy checks, and an owner-visible audit log.
 
 ## Local data
 
@@ -334,7 +245,7 @@ Lore MCP is the connective layer between personal memory, agent discovery, owner
 │   ├── INDEX.md            # semantic index
 │   └── <topic>.md          # synthesized topic memory
 ├── node/                   # deployable Worker source staged by `lore node deploy`
-│   └── .buyer.env          # test-buyer key, owner-created, never overwritten
+│   └── .buyer.env          # test-buyer key, self-provisioned by `npm run pay`, never overwritten
 └── blueprint/
     ├── blueprint.json      # captured shape of your lore (persona, axis, topics)
     └── lore-map.md         # human-readable rendering of the blueprint
@@ -350,6 +261,7 @@ indexed text without resetting the owner's disclosure decision.
 uv sync --extra dev
 uv run --extra dev ruff check lore tests
 uv run --extra dev ruff format --check lore tests
+uv run --extra dev mypy lore
 uv run pytest                     # the Python suite
 uv run pytest tests/test_cli.py   # one module's tests, in isolation
 uv run python tests/gate.py       # every check, with the coverage floor enforced
@@ -371,35 +283,13 @@ npm run dev                      # MCP at http://localhost:8787/mcp
 npm run smoke                    # free discover + unpaid x402 challenge
 ```
 
-CI (`.github/workflows/tests.yml`) reports six separate checks: Python lint,
-Python unit tests, Node lint, Node compiler checks, Node component tests, and
-the Worker smoke test. Each runs the same local command against a placeholder
-wallet where the Worker requires one, so failures are immediately attributable
-to a single stage. CI does not currently run `tests/gate.py`'s coverage floor
-or the `tests/node/` unit tests below — see the gate section for what that
-means in practice.
+CI runs Python and Node lint, tests, compiler checks, and the Worker smoke test.
+It does not currently run the local coverage floor or `tests/node/`.
 
 ### The gate
 
-`tests/gate.py` is the single command that has to pass locally before either
-side of the repo is trusted. It covers both languages and exits non-zero if
-either does.
-
-**Python (`lore/`)** — runs the suite under coverage and fails if **any** file
-falls below 90% on statement coverage *or* branch coverage. That per-file,
-per-metric check is the point: coverage.py's `fail_under` (kept in
-`pyproject.toml` as a cheap outer guard) only sees one global combined number,
-behind which a file at 96% statements and 70% branches hides. Coverage measures
-`lore/` only; test code never counts toward the percentage. CI's Python unit
-job runs the suite but not under this coverage floor — an uncovered regression
-in `lore/` currently only fails locally, not in CI.
-
-**Worker (`lore/node/`)** — type-checks it (`tsc --noEmit`), bundles it
-(`wrangler deploy --dry-run`, so a break shows up here rather than halfway
-through someone's `lore node deploy`), and runs the unit tests in `tests/node/`
-(below). There is no coverage floor on the Worker; see `docs/backlog/` XC-013
-for what its own test suite (in `lore/node/test/`, run by CI as "Node component
-tests") does and does not cover.
+`tests/gate.py` runs the Python suite with a 90% per-file statement and branch
+coverage floor. It also type-checks, bundles, and tests the Worker.
 
 The Worker checks need dependencies installed:
 
@@ -407,43 +297,15 @@ The Worker checks need dependencies installed:
 npm --prefix lore/node install && npm --prefix tests/node install
 ```
 
-Without them the gate reports the Worker section as SKIPPED and still passes, so
-a Python-only change never requires a Node toolchain. `--require-node` turns
-that skip into a failure; nothing in CI passes that flag today.
-
-### Test layout
-
-`tests/` holds one file per module in `lore/`, named after it, plus
-`tests/test_skill_contract.py` (which pins `skills/` and the README against the
-real parser) and `tests/helpers.py` for the shared fixtures. Each file passes on
-its own, so a failure names its owning component.
-
-`tests/node/` holds unit tests over two of the Worker's leaf modules —
-`src/price.ts` (the dollars→USDC-base-units conversion) and `src/wallet.ts`
-(the fail-closed payout guard) — and is deliberately its own npm package rather
-than a folder inside `lore/node/`: `lore/node/package.json` ships inside the
-wheel and every dependency listed there gets installed on an owner's machine by
-`lore node deploy`. They run in workerd via `@cloudflare/vitest-pool-workers`,
-same as `lore/node/test/`'s own component suite (which exercises the Worker's
-actual request path end to end against a mocked facilitator — see MON-010 —
-rather than these two modules in isolation).
-
-Python tests are `unittest.TestCase`-based and pytest collects them as-is, so
-`python -m unittest discover -s tests` still works if you prefer it.
-
-The implementation uses only the Python standard library: `argparse`, `sqlite3`,
-`subprocess`, and `http.server`. There is no application framework, vector
-database, or MCP SDK to install. `pytest` and `coverage` are dev-only
-dependencies in the `dev` group, which `uv run` includes by default; `ruff` is
-a separate `dev` extra, which `uv run` only picks up with `--extra dev`.
+Without the Node dependencies, the Worker part is skipped. Pass
+`--require-node` to make missing dependencies a failure.
 
 ## Status
 
-The local CLI, agent-memory import, FTS5 search, review flow, assisted synthesis,
-basic stdio/HTTP MCP server, test-network payment enforcement (the x402
-Worker deployed by `lore node deploy`), and publications serving from the
-deployed node (`lore push`) are implemented. Repeated-query extraction
-protection, remote identity, and marketplace discovery remain future work.
+The local CLI, memory import, search, review, synthesis, MCP server, publication
+flow, and x402 payments are implemented. Test deployments use Base Sepolia;
+Base mainnet requires an explicit opt-in. Repeated-query protection, remote
+identity, and marketplace discovery are not yet implemented.
 
 ## Related infrastructure
 

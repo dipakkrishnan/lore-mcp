@@ -7,7 +7,13 @@ process; the model only ever sees "payment required" → "paid" as tool
 results. Nothing here is lore-specific: point it at any x402 v2 MCP server.
 
 ```sh
+npm --prefix /path/to/bridge install
+
+# Claude Code
 claude mcp add lore-buyer -- npm --prefix /path/to/bridge run start -- --node https://<host>/mcp
+
+# Codex CLI
+codex mcp add lore-buyer -- npm --prefix /path/to/bridge run start -- --node https://<host>/mcp
 ```
 
 ## How it works
@@ -37,7 +43,7 @@ spend through the bridge. Never give the bridge a key that holds real savings.
 |------|---------|---------|
 | `--node <url>` | required | Remote MCP endpoint to front |
 | `--network` | `eip155:84532` (Base Sepolia) | CAIP-2 network; `eip155:8453` for Base mainnet |
-| `--max-usd` | `1` | Per-call spend cap, enforced before signing |
+| `--max-usd` | `1` | Per-call and process-lifetime authorization cap |
 
 ## Checks
 

@@ -408,13 +408,15 @@ class Store:
         publication without one is never rendered in the manifest, so nothing
         reaches the free surface that wasn't written as an advertisement.
         """
-        publication = PublicationInput(
-            title=title,
-            content=content,
-            kind=kind,
-            topic=topic,
-            teaser=teaser,
-            provenance=provenance,
+        publication = PublicationInput.model_validate(
+            {
+                "title": title,
+                "content": content,
+                "kind": kind,
+                "topic": topic,
+                "teaser": teaser,
+                "provenance": provenance,
+            }
         )
         missing = self.missing_memories(publication.provenance)
         if missing:
@@ -438,7 +440,9 @@ class Store:
             ),
         )
         self.db.commit()
-        return int(cursor.lastrowid)
+        if cursor.lastrowid is None:
+            raise OSError("SQLite did not return an id for the new publication")
+        return cursor.lastrowid
 
     def missing_memories(self, ids: list[int]) -> list[int]:
         """Return the subset of ids with no memory row, preserving order."""

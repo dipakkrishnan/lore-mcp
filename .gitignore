@@ -8,3 +8,4 @@ build/
 htmlcov/
 .pytest_cache/
 node_modules/
+.env

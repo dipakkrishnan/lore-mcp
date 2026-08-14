@@ -91,6 +91,8 @@ if (!Number.isFinite(maxUsd) || maxUsd < 0) {
   console.error("--max-usd must be a non-negative number");
   process.exit(1);
 }
+const maxPaymentValue = BigInt(Math.round(maxUsd * 1e6));
+let authorizedPaymentValue = 0n;
 
 const account = privateKeyToAccount(bridgeKey());
 emit("startup", {
@@ -106,9 +108,43 @@ await remote.connect(new StreamableHTTPClientTransport(new URL(values.node)));
 const paid = withX402Client(remote, {
   account: toClientEvmSigner(account),
   network: values.network,
-  // USDC has 6 decimals; the cap is enforced by the wrapper per call.
-  maxPaymentValue: BigInt(Math.round(maxUsd * 1e6)),
+  // USDC has 6 decimals. The SDK enforces this per call; the callback below
+  // reserves against the same cap across the lifetime of this process.
+  maxPaymentValue,
   confirmationCallback: async (accepts) => {
+    // The SDK signs whichever entry survives its network filtering — not
+    // necessarily accepts[0] — so approving here approves *any* entry. A
+    // hostile node can pair a cheap decoy on a filtered-out network with an
+    // expensive entry on ours. Every entry must therefore be one this
+    // process would pay: exact scheme, the configured network, and within
+    // the remaining budget. Anything else declines the whole challenge.
+    let amount: bigint;
+    try {
+      if (accepts.length === 0) throw new Error("empty accepts");
+      amount = accepts.reduce((max, entry) => {
+        if (entry.scheme !== "exact" || entry.network !== values.network) {
+          throw new Error(`${entry.scheme} on ${entry.network}`);
+        }
+        const value = BigInt(entry.amount);
+        return value > max ? value : max;
+      }, 0n);
+    } catch (err) {
+      emit("declined", {
+        reason: `unacceptable payment option: ${err instanceof Error ? err.message : String(err)}`,
+        accepts
+      });
+      return false;
+    }
+    if (authorizedPaymentValue + amount > maxPaymentValue) {
+      emit("declined", {
+        reason: "cumulative spend cap",
+        amount: amount.toString(),
+        authorized: authorizedPaymentValue.toString(),
+        cap: maxPaymentValue.toString()
+      });
+      return false;
+    }
+    authorizedPaymentValue += amount;
     emit("challenge", { accepts });
     return true;
   }

@@ -212,6 +212,9 @@ def install(profile: dict[str, object]) -> Path:
     if not name:
         raise ValueError("profile has no executor; set one, or save with --no-schedule")
     executor = Agent(name)
+    hour = profile.get("hour", 21)
+    if isinstance(hour, bool) or not isinstance(hour, int) or not 0 <= hour <= 23:
+        raise ValueError("profile hour must be an integer from 0 through 23")
     lore = (sys.executable, "-m", "lore")
     search_path = os.pathsep.join(
         (
@@ -234,7 +237,7 @@ def install(profile: dict[str, object]) -> Path:
         prompt_path=prompt_path(),
         cwd=home(),
         cadence=str(profile.get("cadence", "daily")),
-        hour=int(profile.get("hour", 21)),
+        hour=hour,
         model=str(profile.get("model", "")),
         before=("env", f"LORE_HOME={home()}", *lore, "sync"),
         add_dirs=(claude_home(), codex_home()) if executor == Agent.CLAUDE else (),
