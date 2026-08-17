@@ -1,0 +1,80 @@
+{
+  "title": "Lore buyer-side answer quality",
+  "instructions": "Act as a buying agent. You know nothing about the owner beyond what the free catalog advertises. Read the catalog's teasers, decide which ids (if any) are worth paying to fetch for the given question, then judge whether what you fetched actually answered it.",
+  "cases": [
+    {
+      "id": "relevant-match",
+      "owner_publications": [
+        {
+          "title": "How we cut onboarding drop-off from 40% to 12%",
+          "teaser": "What actually reduced signup abandonment in our onboarding flow",
+          "topic": "growth",
+          "content": "We removed the mandatory email-verification step before the first successful action and moved it to an async reminder after value was delivered. First-session drop-off fell from 40% to 12% over a 6-week rollout across 3,400 signups. Deferring verification was the single biggest lever, not any copy change."
+        },
+        {
+          "title": "Why we sunset our Slack integration",
+          "teaser": "The maintenance cost that made us kill a well-used integration",
+          "topic": "product",
+          "content": "The Slack integration had 800 weekly active users but consumed 30% of support tickets from OAuth token-expiry edge cases. We deprecated it after failing to fix the root cause twice."
+        }
+      ],
+      "buyer_query": "What's one concrete thing that reduced signup abandonment for you?",
+      "criteria": [
+        {
+          "id": "M-001",
+          "title": "Buyer fetches the publication that actually answers the query",
+          "deliverable": "fetched",
+          "match_criteria": "PASS if the fetched content names deferring email verification as the lever and cites the 40% to 12% drop with the 6-week/3,400-signup basis. FAIL if the Slack publication is fetched instead, or the onboarding publication's fetched content is missing or misstated."
+        }
+      ]
+    },
+    {
+      "id": "vocabulary-gap",
+      "owner_publications": [
+        {
+          "title": "The permission model that finally got pilot users past setup",
+          "teaser": "What access scope worked when broad permissions stalled onboarding",
+          "topic": "integrations",
+          "content": "Requesting broad write access up front stalled our pilot at the OAuth consent screen -- three of five testers abandoned there. Switching to read-only access on one named resource, with write requested only at the exact action that needed it, got all five testers through setup."
+        },
+        {
+          "title": "Pricing page copy test results",
+          "teaser": "What headline moved trial starts on the pricing page",
+          "topic": "growth",
+          "content": "Swapping the pricing page headline from a feature list to a single outcome statement raised trial starts by 18% over a two-week A/B test."
+        }
+      ],
+      "buyer_query": "I'm building a third-party plugin -- what's the least-friction way to ask for account access during setup so people don't bail?",
+      "criteria": [
+        {
+          "id": "V-001",
+          "title": "Buyer finds the access-scope lesson despite different wording",
+          "deliverable": "fetched",
+          "match_criteria": "PASS if the fetched content is the access-scope publication and states the read-only-first, expand-on-demand lesson with the three-of-five-abandoned versus all-five-completed evidence. FAIL if the pricing publication is fetched instead, or nothing is fetched despite a relevant publication existing in the catalog."
+        }
+      ]
+    },
+    {
+      "id": "misleading-teaser",
+      "owner_publications": [
+        {
+          "title": "How I priced my first consulting retainer",
+          "teaser": "The exact monthly rate that landed my first retainer client",
+          "topic": "pricing",
+          "content": "Pricing consulting work is highly situational and depends on many factors including experience, market, and scope. I'd encourage anyone starting out to think carefully about their value proposition and negotiate confidently. Every situation is different."
+        }
+      ],
+      "buyer_query": "What monthly rate did they land their first retainer at?",
+      "criteria": [
+        {
+          "id": "T-001",
+          "title": "Judge correctly flags a teaser that oversells its content",
+          "deliverable": "fetched",
+          "match_criteria": "PASS only if the fetched content states a specific monthly rate figure answering the query. FAIL if the content is generic advice with no concrete rate, even though the teaser promised one.",
+          "expected_verdict": "fail"
+        }
+      ],
+      "notes": "Deliberately constructed so the catalog's teaser promises a fact the content never delivers -- discover would tell a buyer this node 'can help' and the fetched answer has nothing relevant. This case's criterion is expected to verdict fail; that is the harness catching the failure mode (EVAL-002 acceptance criterion 1), not a defect in the fixture or the judge."
+    }
+  ]
+}
