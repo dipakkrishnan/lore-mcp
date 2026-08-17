@@ -106,3 +106,31 @@ points `evals/buyer.py --model ... ` at a deployed QA Worker (a `--endpoint`
 flag and an HTTP-based `call_tool` wrapper is the only code change likely
 needed — `evals/buyer.py`'s `discover`/`fetch` functions are the only two
 functions that would need an HTTP variant).
+
+**Review-response pass 2026-08-17:** addressed PR #103 round-1 review.
+`misleading-teaser`'s `T-001` previously gated `as_expected` on the judge's
+verdict alone, so a buyer that never selected the misleading publication (a
+`buyer_select` miss, an unrelated bug) would score identically to a buyer that
+selected it and got the misleading content back — both hit the
+`fetch([])`/"(nothing fetched)" or actual-content path and could plausibly
+judge `fail` either way. `seed()` now returns a title -> public_id map, and
+criteria can declare `requires_selected_title` to assert the buyer actually
+selected that specific fixture before trusting the verdict; `buyer_task.json`'s
+`T-001` uses it. Also aligned with `integration.py`'s `PRISTINE_ENV` pattern —
+`buyer.py`'s two `run_model` calls now pass a pre-mutation environment
+snapshot, so a future step that also sets `CLAUDE_HOME`/`CODEX_HOME` (today
+only `LORE_HOME` is touched) won't leak the throwaway home into the agent
+CLI's auth/config.
+
+Re-ran all three cases live (`uv run python3 evals/buyer.py`, `claude-sonnet-5`
+buyer / `claude-opus-5` judge) after both fixes: `relevant-match` M-001 pass,
+`vocabulary-gap` V-001 pass, `misleading-teaser` T-001 fail (expected fail),
+`all_pass: true`. `misleading-teaser`'s `selected_ids` in that run
+(`["e106be27da80405c4fda4d9f"]`) is non-empty and matches the seeded
+publication, confirming the new gate is exercised for real rather than
+trivially satisfied. Full JSON output attached as a PR comment. Did not act on
+the review's two "minor, non-blocking" notes beyond the `PRISTINE_ENV`
+alignment above — the vocabulary-gap query's partial term overlap ("access",
+"setup") is a narrative-strength observation about the fixture, not a defect,
+and reworking it risked changing what the case actually exercises without a
+concrete failure mode to fix.

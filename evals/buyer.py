@@ -31,6 +31,11 @@ from pathlib import Path
 
 from run import DEFAULT_JUDGE_MODEL, VERDICT_SCHEMA, judge_prompt, run_model
 
+# Snapshot before run_case mutates LORE_HOME, same reason as integration.py's
+# PRISTINE_ENV: the `claude` subprocess must keep seeing its real home for
+# auth/config, not the throwaway one lore's in-process imports need.
+PRISTINE_ENV = dict(os.environ)
+
 TASK_PATH = Path(__file__).with_name("buyer_task.json")
 
 # The buyer agent's own default. Kept Claude-family (see CLAUDE_PREFIXES in
@@ -46,13 +51,15 @@ SELECTION_SCHEMA = {
 }
 
 
-def seed(case: dict[str, object], lore_home: Path) -> None:
+def seed(case: dict[str, object], lore_home: Path) -> dict[str, str]:
     """Write the case's owner_publications directly into a throwaway store.
 
     Bypasses synthesis entirely: each publication gets one backing memory
     (provenance requires at least one id) whose content mirrors the
     publication, then `add_publication` runs exactly the call the CLI makes
-    after owner approval.
+    after owner approval. Returns a title -> public_id map so callers can
+    assert a specific fixture was (or wasn't) selected, independent of the
+    judge's verdict on whatever ended up fetched.
     """
     from lore.store import Store
 
@@ -76,6 +83,10 @@ def seed(case: dict[str, object], lore_home: Path) -> None:
                 teaser=str(item["teaser"]),
                 provenance=[memory_id],
             )
+        return {
+            publication.title: publication.public_id
+            for publication in store.list_publications()
+        }
 
 
 def discover() -> dict[str, object]:
@@ -110,6 +121,7 @@ none look relevant. Respond with JSON only, no other text, matching
 {{"ids": ["..."]}}.""",
         model,
         SELECTION_SCHEMA,
+        env=PRISTINE_ENV,
     )
     advertised = {
         entry["id"] for entries in catalog["topics"].values() for entry in entries
@@ -140,7 +152,7 @@ def run_case(
     with tempfile.TemporaryDirectory() as tmp:
         os.environ["LORE_HOME"] = str(Path(tmp) / "lore")
 
-        seed(case, Path(tmp) / "lore")
+        publication_ids = seed(case, Path(tmp) / "lore")
         catalog = discover()
         selected = buyer_select(case, catalog, args.model)
         fetched_text = fetch(selected)
@@ -152,6 +164,7 @@ def run_case(
                 judge_prompt(task, deliverables[criterion["deliverable"]], criterion),
                 args.judge_model,
                 VERDICT_SCHEMA,
+                env=PRISTINE_ENV,
             )
             # Most criteria expect "pass" (the real behavior should be good);
             # `misleading-teaser`'s fixture expects "fail" on purpose -- that
@@ -159,8 +172,21 @@ def run_case(
             # regression. `as_expected` is what should gate CI/exit codes;
             # `verdict` on its own is not enough once a case can expect fail.
             expected = criterion.get("expected_verdict", "pass")
+            as_expected = verdict["verdict"] == expected
+            # A criterion can name the fixture it depends on being fetched
+            # (`requires_selected_title`) -- without this, a judge failing the
+            # sentinel "(nothing fetched)" text scores identically to a judge
+            # failing the fixture's actual misleading content, even though
+            # only the latter is the failure mode the criterion claims to
+            # catch. Gate `as_expected` on the buyer having actually selected
+            # that publication, not just on the verdict matching.
+            requires_title = criterion.get("requires_selected_title")
+            if requires_title is not None:
+                as_expected = as_expected and (
+                    publication_ids.get(str(requires_title)) in selected
+                )
             criteria_results.append(
-                {**criterion, **verdict, "as_expected": verdict["verdict"] == expected}
+                {**criterion, **verdict, "as_expected": as_expected}
             )
             print(
                 f"  {criterion['id']}: {str(verdict['verdict']).upper()}"

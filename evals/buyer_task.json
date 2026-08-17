@@ -71,7 +71,8 @@
           "title": "Judge correctly flags a teaser that oversells its content",
           "deliverable": "fetched",
           "match_criteria": "PASS only if the fetched content states a specific monthly rate figure answering the query. FAIL if the content is generic advice with no concrete rate, even though the teaser promised one.",
-          "expected_verdict": "fail"
+          "expected_verdict": "fail",
+          "requires_selected_title": "How I priced my first consulting retainer"
         }
       ],
       "notes": "Deliberately constructed so the catalog's teaser promises a fact the content never delivers -- discover would tell a buyer this node 'can help' and the fetched answer has nothing relevant. This case's criterion is expected to verdict fail; that is the harness catching the failure mode (EVAL-002 acceptance criterion 1), not a defect in the fixture or the judge."
