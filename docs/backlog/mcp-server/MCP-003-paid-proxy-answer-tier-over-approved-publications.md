@@ -6,7 +6,7 @@ effort: L
 component: mcp-server
 status: in-review
 related: [MCP-001, MCP-002, EVAL-002, CAP-001, ONB-001, MON-009, MON-014, BP-001]
-blockers: [EVAL-002, MON-009]
+blockers: [MCP-001, EVAL-002, MON-009]
 dependencies: []
 github_issue: null
 created: 2026-08-02
@@ -84,12 +84,15 @@ recorded in `docs/answer-tier.md`. The reputational risk remains the design
 driver — a wrong proxy answer is the owner being wrong, for money — hence
 citations, honest coverage refusal, and the eval gate.
 
-Blockers updated 2026-08-17: `MCP-001` (manifest) is completed and dropped as
-a blocker. `EVAL-002` remains the quality gate (its phase 2). `MON-009` added:
-the answer tier needs its own price and the pricing-unit decision, which
-pulls that item onto this critical path. `MON-014` (bridge keep-alive for
-long-running paid calls) is required for buyers to actually survive the
-latency but is independently shippable, so it is related, not a blocker.
+Blockers updated 2026-08-17: `MCP-001` (manifest) stays a blocker — the
+agent's `catalog()` tool is the manifest query `discover` already runs, which
+presumes MCP-001's owner-approved manifest exists and is stable, and MCP-001
+is still `in-progress` (blocked on XC-002). `EVAL-002` remains the quality
+gate (its phase 2). `MON-009` added: the answer tier needs its own price and
+the pricing-unit decision, which pulls that item onto this critical path.
+`MON-014` (bridge keep-alive for long-running paid calls) is required for
+buyers to actually survive the latency but is independently shippable, so it
+is related, not a blocker.
 
 Deliberately deferred: web-search tool for the agent (quality lever, but adds
 cost/latency/injection surface — revisit when EVAL-002 shows grounding
