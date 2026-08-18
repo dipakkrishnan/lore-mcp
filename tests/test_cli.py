@@ -42,6 +42,16 @@ class ParserTest(unittest.TestCase):
             (["status"], {"command": "status"}),
             (["help"], {"command": "help"}),
             (["price", "1.5"], {"amount": 1.5}),
+            (
+                ["answer", "on", "p.txt", "0.5"],
+                {
+                    "command": "answer",
+                    "answer_command": "on",
+                    "file": "p.txt",
+                    "price": 0.5,
+                },
+            ),
+            (["answer", "off"], {"answer_command": "off"}),
             (["serve", "--transport", "http"], {"transport": "http", "port": 8765}),
             (
                 ["node", "deploy", "--wallet", "0xabc"],
@@ -79,6 +89,7 @@ class ParserTest(unittest.TestCase):
             ["serve", "--transport", "grpc"],
             ["sync", "--source", "notion"],
             ["node"],  # `node` alone does nothing; a subcommand is required
+            ["answer"],
         ):
             with self.subTest(argv=argv):
                 with captured(), patch.object(sys, "stderr", StringIO()):
@@ -110,6 +121,8 @@ class MainDispatchTest(LoreTestCase):
             (["help"], "manual", ()),
             (["price", "2"], "price", (2.0,)),
             (["price"], "price", (None,)),
+            (["answer", "on", "p.txt", "2"], "answer_enable", ("p.txt", 2.0)),
+            (["answer", "off"], "answer_disable", ()),
             (["blueprint", "apply", "f.json"], "blueprint_apply", ("f.json",)),
             (["blueprint", "show"], "blueprint_show", ()),
             (["blueprint"], "blueprint_show", ()),
@@ -498,6 +511,66 @@ class PriceTest(LoreTestCase):
         with captured() as output:
             cli.price(0.50)
         self.assertNotIn("still charges", output.getvalue())
+
+
+class AnswerCommandTest(LoreTestCase):
+    def proxy_file(
+        self, text: str = "Act as Ada's concise, evidence-first proxy."
+    ) -> str:
+        path = self.lore_home / "proxy.txt"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(text, encoding="utf-8")
+        return str(path)
+
+    def test_enabling_needs_an_attended_terminal(self) -> None:
+        with patch.object(cli, "_interactive", return_value=False):
+            with self.assertRaisesRegex(ValueError, "attended interactive terminal"):
+                cli.answer_enable(self.proxy_file(), 0.5)
+
+    def test_enabling_approves_proxy_price_and_switch_together(self) -> None:
+        path = self.proxy_file()
+        with (
+            patch.object(cli, "_interactive", return_value=True),
+            patch.object(cli, "confirm", return_value=False),
+            captured() as output,
+        ):
+            self.assertEqual(cli.answer_enable(path, 0.5), 0)
+        self.assertIn("Act as Ada", output.getvalue())
+        with Store() as store:
+            self.assertIsNone(store.setting("proxy_preamble", None))
+
+        with (
+            patch.object(cli, "_interactive", return_value=True),
+            patch.object(cli, "confirm", return_value=True),
+            captured() as output,
+        ):
+            self.assertEqual(cli.answer_enable(path, 0.5), 0)
+        self.assertIn("enabled at $0.50", output.getvalue())
+        with Store() as store:
+            settings = store.answer_settings()
+        self.assertEqual(
+            settings.proxy_preamble, "Act as Ada's concise, evidence-first proxy."
+        )
+        self.assertEqual(settings.answer_price_usd, 0.5)
+        self.assertTrue(settings.answer_enabled)
+
+    def test_invalid_price_or_empty_proxy_is_refused(self) -> None:
+        for amount in (0.0, -1.0, float("nan"), float("inf")):
+            with self.subTest(amount=amount):
+                with (
+                    patch.object(cli, "_interactive", return_value=True),
+                    self.assertRaisesRegex(ValueError, "positive"),
+                ):
+                    cli.answer_enable(self.proxy_file(), amount)
+        with patch.object(cli, "_interactive", return_value=True):
+            with self.assertRaisesRegex(ValueError, "empty"):
+                cli.answer_enable(self.proxy_file("   \n"), 0.5)
+
+    def test_disabling_needs_nothing_and_reminds_about_push(self) -> None:
+        with captured() as output:
+            self.assertEqual(cli.answer_disable(), 0)
+        self.assertIn("disabled", output.getvalue())
+        self.assertIn("lore push", output.getvalue())
 
 
 class ProfileTest(LoreTestCase):
@@ -952,6 +1025,10 @@ class PushTest(LoreTestCase):
         with Store() as store:
             return store.list_publications(active_only=True)
 
+    def push_sql(self, publications: list) -> str:
+        with Store() as store:
+            return cli._push_sql(publications, store.answer_settings())
+
     def _push(self, returncode: int = 0, **kwargs: object):
         result = subprocess.CompletedProcess(("wrangler",), returncode)
         with patch("subprocess.run", return_value=result) as run, captured() as out:
@@ -970,7 +1047,7 @@ class PushTest(LoreTestCase):
             kept_public_id = next(
                 p.public_id for p in store.list_publications() if p.id == kept
             )
-        sql = cli._push_sql(self.active())
+        sql = self.push_sql(self.active())
         self.assertIn("DROP TABLE IF EXISTS publications;", sql)
         self.assertIn("CREATE TABLE publications", sql)
         self.assertIn("Kept claim", sql)
@@ -988,7 +1065,7 @@ class PushTest(LoreTestCase):
             content="it" + chr(39) + "s bounded",
             teaser="What Ada" + chr(39) + "s claim tells a buyer",
         )
-        sql = cli._push_sql(self.active())
+        sql = self.push_sql(self.active())
         q = chr(39)
         self.assertIn(f"{q}Ada{q}{q}s claim{q}", sql)
         self.assertIn(f"{q}it{q}{q}s bounded{q}", sql)
@@ -999,7 +1076,7 @@ class PushTest(LoreTestCase):
         self,
     ) -> None:
         self.publish(teaser="an ad")
-        sql = cli._push_sql(self.active())
+        sql = self.push_sql(self.active())
         with sqlite3.connect(":memory:") as db:
             db.execute(
                 "CREATE TABLE publications (id INTEGER PRIMARY KEY, title TEXT NOT NULL, "
@@ -1016,9 +1093,37 @@ class PushTest(LoreTestCase):
     def test_an_empty_active_set_is_still_a_valid_push(self) -> None:
         # Revoking everything has to be pushable, or the final revocation can
         # never reach the edge.
-        sql = cli._push_sql([])
+        sql = self.push_sql([])
         self.assertIn("DROP TABLE IF EXISTS publications;", sql)
-        self.assertNotIn("INSERT INTO", sql)
+        self.assertNotIn("INSERT INTO publications", sql)
+
+    def test_push_ships_the_answer_settings_alongside_publications(self) -> None:
+        with Store() as store:
+            store.set_setting(
+                "proxy_preamble", "Ada" + chr(39) + "s public proxy charter"
+            )
+            store.set_setting("answer_price_usd", 0.5)
+            store.set_setting("answer_enabled", True)
+        sql = self.push_sql([])
+        self.assertIn("DROP TABLE IF EXISTS node_settings;", sql)
+        self.assertIn("CREATE TABLE node_settings", sql)
+        q = chr(39)
+        self.assertIn(f"{q}Ada{q}{q}s public proxy charter{q}", sql)
+        self.assertIn(f"{q}answer_price_usd{q},{q}0.500000{q}", sql)
+        self.assertIn(f"{q}answer_enabled{q},{q}true{q}", sql)
+
+    def test_push_ships_disabled_defaults_so_an_unconfigured_node_stays_off(
+        self,
+    ) -> None:
+        sql = self.push_sql([])
+        self.assertIn("'answer_enabled','false'", sql)
+        self.assertIn("'answer_price_usd','0.000000'", sql)
+
+    def test_push_refuses_a_hand_enabled_tier_missing_proxy_or_price(self) -> None:
+        with Store() as store:
+            store.set_setting("answer_enabled", True)
+        with self.assertRaises(ValueError):
+            self.push_sql([])
 
     def test_pushing_nothing_reports_it_as_valid_rather_than_an_error(self) -> None:
         # After revoking everything, the owner still has to push, and the node
