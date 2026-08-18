@@ -60,6 +60,16 @@ Map to a `persona` value, then tell the owner how that choice shapes their lore,
 | General section | Backdrop | Light touch | Survey level | Summary-only | Passing mentions |
 | Voice section | How I tell it | How I teach it | How I lecture | How I brief it | How I counsel |
 
+## Privacy note (state once, before Topic outline)
+
+Right before asking the Topic outline question below, say plainly, once, regardless
+of persona: naming topics here only organizes how the lore is stored — it's private
+structural metadata, not a disclosure decision. No memory is ever reachable over MCP
+on its own; sharing anything later takes a publication the owner drafts and approves
+themselves. This matches the equivalent stakes line in `SKILL.md` Phase 2 (stated
+before the `valuable_context` question) — use consistent wording, not a second way of
+describing the same guarantee.
+
 ## Persona-flavored questions (all five reach the same goals)
 
 | Goal | Storyteller | Schoolteacher | Professor | Executive | Sage |

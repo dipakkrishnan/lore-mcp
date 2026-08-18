@@ -1,0 +1,14 @@
+[
+  {
+    "name": "discover",
+    "description": "Return this node's full catalog of owner-approved publications: teasers grouped by topic, with ids, freshness, and price. Free. Choose zero, one, multiple, or all ids; call get once per chosen id.",
+    "required": []
+  },
+  {
+    "name": "get",
+    "description": "Fetch one owner-approved publication by its id from the discover catalog. Each call buys exactly one publication. Damaged ids are rejected before payment; use a current catalog because a just-revoked id can still be billed.",
+    "required": [
+      "id"
+    ]
+  }
+]
