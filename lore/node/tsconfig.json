@@ -13,5 +13,5 @@
     "types": ["node", "@cloudflare/workers-types", "@cloudflare/vitest-pool-workers"],
     "verbatimModuleSyntax": true
   },
-  "include": ["env.d.ts", "scripts/**/*.ts", "src/**/*.ts", "test/**/*.ts", "vitest.config.ts"]
+  "include": ["env.d.ts", "eval/**/*.ts", "scripts/**/*.ts", "src/**/*.ts", "test/**/*.ts", "vitest*.config.ts"]
 }

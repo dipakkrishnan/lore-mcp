@@ -15,7 +15,7 @@ from . import capture as capture_module
 from . import deploy as deploy_module
 from .paths import home
 from .sources import available_sources, scan
-from .store import STATUSES, Publication, PublicationInput, Store
+from .store import STATUSES, AnswerSettings, Publication, PublicationInput, Store
 from .ui import (
     ask,
     confirm,
@@ -98,6 +98,16 @@ def parser() -> argparse.ArgumentParser:
     price.add_argument(
         "amount", nargs="?", type=float, help="USD per publication; use 0 for free"
     )
+    answer = commands.add_parser(
+        "answer", help="enable or disable the paid answer tier"
+    )
+    answer_commands = answer.add_subparsers(dest="answer_command", required=True)
+    answer_on = answer_commands.add_parser(
+        "on", help="approve a proxy charter, set a price, and enable"
+    )
+    answer_on.add_argument("file", help="text file holding the public proxy charter")
+    answer_on.add_argument("price", type=float, help="USD per answer; must be positive")
+    answer_commands.add_parser("off", help="disable the answer tier")
     serve = commands.add_parser("serve", help="run the Lore MCP server")
     serve.add_argument("--transport", choices=["stdio", "http"], default="stdio")
     serve.add_argument("--host", default="127.0.0.1")
@@ -180,6 +190,10 @@ def main(argv: list[str] | None = None) -> int:
             return manual()
         if args.command == "price":
             return price(args.amount)
+        if args.command == "answer":
+            if args.answer_command == "on":
+                return answer_enable(args.file, args.price)
+            return answer_disable()
         if args.command == "serve":
             from .mcp import main as serve
 
@@ -262,6 +276,9 @@ def manual() -> int:
 
   6. lore price [USD]
      Show or set the advertised price per publication.
+
+  6b. lore answer on <proxy-file> <price> | off
+     Enable the paid answer tier or switch it off. Ships on the next `lore push`.
 
   7. lore status
      Check imports, the private library, active publications, and price.
@@ -422,7 +439,8 @@ def status() -> int:
         sources = store.source_counts()
         configured = _configured_sources(store.setting("sources", []))
         database_path = store.path
-        answer_price = store.setting("price_usd", None)
+        publication_price = store.setting("price_usd", None)
+        answer_settings = store.answer_settings()
         node_url = store.setting("node_url", None)
         revocation_pending = store.setting("revocation_pending", False)
         published = len(store.list_publications(active_only=True))
@@ -446,7 +464,15 @@ def status() -> int:
         print(f"  {marker} {source.label:<14} {sources.get(source.name, 0)} imported")
     print(f"\nDatabase: {database_path}")
     print(
-        f"Publication price: {'not set' if answer_price is None else f'${answer_price:.2f}'}"
+        f"Publication price: {'not set' if publication_price is None else f'${publication_price:.2f}'}"
+    )
+    print(
+        "Answer tier: "
+        + (
+            f"enabled (${answer_settings.answer_price_usd:.2f} per answer)"
+            if answer_settings.answer_enabled
+            else "disabled"
+        )
     )
     if node_url:
         # A cache of remote truth, not local truth like the price: another
@@ -482,6 +508,47 @@ def price(amount: float | None) -> int:
         muted(
             "Your deployed node still charges its old price until `lore node deploy` reruns."
         )
+    return 0
+
+
+def answer_enable(path: str, price: float) -> int:
+    if not _interactive():
+        raise ValueError(
+            "proxy approval needs an attended interactive terminal; "
+            "piped and background approval is disabled"
+        )
+    if not math.isfinite(price) or price <= 0:
+        raise ValueError("the answer price must be a positive number")
+    text = Path(path).read_text(encoding="utf-8").strip()
+    if not text:
+        raise ValueError("the proxy file is empty; nothing to approve")
+    heading("Public proxy charter")
+    print(text)
+    muted(
+        "\nThis text is public: it ships to your node and frames every paid "
+        "answer. It is separate from your private blueprint."
+    )
+    if not confirm("Approve this proxy charter for the deployed node?"):
+        print("Not approved; nothing saved.")
+        return 0
+    with Store() as store:
+        store.set_answer_settings(
+            AnswerSettings(
+                proxy_preamble=text,
+                answer_price_usd=round(price, 6),
+                answer_enabled=True,
+            )
+        )
+    success(f"Answer tier enabled at ${price:.2f} per answer")
+    muted("Ship it with `lore push`.")
+    return 0
+
+
+def answer_disable() -> int:
+    with Store() as store:
+        store.set_setting("answer_enabled", False)
+    success("Answer tier disabled")
+    muted("The deployed node picks up the change on the next `lore push`.")
     return 0
 
 
@@ -632,12 +699,14 @@ def publication_revoke(publication_id: int) -> int:
         ) from error
 
 
-def _push_sql(publications: list[Publication]) -> str:
+def _push_sql(publications: list[Publication], answer: AnswerSettings) -> str:
     """Render the full-replace SQL for the edge database.
 
     Full replace, not diffing: the active set is small, the operation is
     idempotent, and a revoked publication is guaranteed gone because nothing
-    that isn't in this script survives it.
+    that isn't in this script survives it. Owner-shipped state only: the
+    Worker's own tables (answer tickets and answers) are buyer state and are
+    never touched here.
     """
 
     def quote(value: str) -> str:
@@ -660,6 +729,21 @@ def _push_sql(publications: list[Publication]) -> str:
         f"{quote(p.topic)},{quote(p.teaser)},{quote(p.updated_at)});"
         for p in publications
     )
+    settings = {
+        "proxy_preamble": answer.proxy_preamble,
+        "answer_price_usd": f"{answer.answer_price_usd:.6f}",
+        "answer_enabled": "true" if answer.answer_enabled else "false",
+    }
+    statements.extend(
+        [
+            "DROP TABLE IF EXISTS node_settings;",
+            "CREATE TABLE node_settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);",
+            *(
+                f"INSERT INTO node_settings(key,value) VALUES ({quote(key)},{quote(value)});"
+                for key, value in settings.items()
+            ),
+        ]
+    )
     return "\n".join(statements) + "\n"
 
 
@@ -676,7 +760,8 @@ def push(worker_dir: str, local: bool = False) -> int:
         )
     with Store() as store:
         active = store.list_publications(active_only=True)
-    script = _push_sql(active)
+        answer_settings = store.answer_settings()
+    script = _push_sql(active, answer_settings)
     with tempfile.NamedTemporaryFile("w", suffix=".sql", delete=False) as handle:
         handle.write(script)
         script_path = handle.name
