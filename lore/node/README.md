@@ -51,15 +51,14 @@ model calls with your own API key, so set the per-answer price above the
 per-answer cost the stored telemetry reports.
 
 ```sh
-npx wrangler secret put ANTHROPIC_API_KEY   # the node's model access
-lore answer persona <file>                  # review and approve the public persona
-lore answer price 0.50                      # the answer tier's own price
-lore answer on
+npx wrangler secret put ANTHROPIC_API_KEY
+lore answer on <persona-file> 0.50
 lore push                                   # ship persona, price, and the switch
 ```
 
-`LORE_ANSWER_MODEL` (a Worker var) overrides the default model. Turn the tier
-off any time with `lore answer off` and a push.
+The default model is `claude-sonnet-5`. Set `LORE_ANSWER_MODEL` to
+`gpt-5.6-luna` and add `OPENAI_API_KEY` to use OpenAI instead. Turn the tier off
+with `lore answer off` and a push.
 
 ## Make the test payment
 

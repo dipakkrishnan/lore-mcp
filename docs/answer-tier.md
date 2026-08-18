@@ -110,7 +110,7 @@ out of band.
 All at the edge (D1), alongside the existing `publications` table. Nothing
 here contains private memory.
 
-### Inputs — `answer_tickets`
+### `answer_jobs`
 
 | column | notes |
 |---|---|
@@ -118,24 +118,15 @@ here contains private memory.
 | `question` | buyer's verbatim question |
 | `price_usd` | what was charged |
 | `status` | `running → complete \| refused \| failed` |
-| `created_at`, `updated_at` | |
+| `answer`, `cited_publication_ids`, `reason` | terminal result |
+| `model`, `input_tokens`, `output_tokens`, `cost_usd` | unit economics |
+| `tool_calls`, `duration_ms` | agent telemetry |
+| `created_at`, `updated_at` | lifecycle |
 
 Refused questions can become the owner's demand signal for what to publish
 next. Because buyer questions may contain buyer-sensitive context, `discover`
 and the `answer` description disclose retention before payment; questions are
 never republished or served to other buyers.
-
-### Outputs — `answers`
-
-| column | notes |
-|---|---|
-| `ticket_id` | FK |
-| `answer` | final text, owner-voiced |
-| `cited_publication_ids` | JSON array, validated against active publications |
-| `refusal_reason` | set when `status = refused` |
-| `model`, `input_tokens`, `output_tokens`, `cost_usd` | unit economics per answer — must be visible to prove price > cost (`MON-009`) |
-| `tool_calls`, `duration_ms` | agent-loop telemetry |
-| `completed_at` | |
 
 ### Owner-approved config — `node_settings` (or new `persona` row)
 
@@ -147,11 +138,11 @@ never republished or served to other buyers.
 
 ## 5. The agent (Tier 1 — ship this)
 
-A simple tool-calling agent on the Cloudflare Agents SDK — the `agents`
-package the Worker already uses (`McpAgent` is Durable-Object-backed). No
-container, no filesystem, no CLI: the corpus is a bounded set of D1 rows, so
-the agent gets a **memory-view toolset** over the database, analogous to a
-built-in memory tool — a read-only view, not a general filesystem. The
+A Pi core agent runs inside the Cloudflare `McpAgent` scheduled task. The
+Cloudflare Agent owns MCP, payment, and scheduling; the short-lived Pi Agent
+owns model calls and tool execution. No container, filesystem, or coding-agent
+CLI is involved. The bounded D1 corpus is exposed through a **memory-view
+toolset**: a read-only view, not a general filesystem. The
 catalog itself is context, not a tool: the kickoff **user prompt** carries
 the manifest (the same topic-grouped listing `discover` serves) in an
 `<available_publications>` block, followed by the buyer's question, so the
@@ -163,8 +154,8 @@ that the agent is effectively a subagent with two single-purpose tools:
 | `memory_view` | one publication's full row by required `public_id` (active publications only — the same rows `get` serves) |
 | `memory_search` | search over title + content — the vocabulary-gap workhorse |
 
-Loop shape (Messages API calls from the DO; seller's Anthropic key in a
-Worker secret, so the seller pays inference out of revenue):
+Loop shape (Pi provider calls from the scheduled task; the seller's model key
+is a Worker secret, so the seller pays inference out of revenue):
 
 1. **Coverage check** against the in-context catalog, from turn one — refuse
    honestly here, post-payment.
@@ -175,12 +166,10 @@ Worker secret, so the seller pays inference out of revenue):
    active? Would the persona actually say this? One revision pass.
 5. Store the answer + telemetry; mark the ticket terminal.
 
-Budgets, enforced in code not prompt: max tool calls (~15), max model turns
-(~6), max wall-clock via DO alarm (fail the ticket as `failed`, not hang),
-and a per-answer cost ceiling derived from `answer_price_usd`. Worker CPU
-limits are on CPU time, not wall time awaiting `fetch`, so a 1–4 minute loop
-is comfortably in bounds; ticket state lives in D1 so a retried alarm resumes
-or fails cleanly.
+The code allows six model turns and three minutes. Pi supplies tool validation,
+provider translation, aborts, and token/cost accounting. Tier 1 does not
+checkpoint or resume a partial transcript. The D1 job row is the durable claim
+check and eventually becomes `complete`, `refused`, or `failed`.
 
 **Future tools, deliberately not now:** web search (ground the buyer's
 context, e.g. "given today's X, what would you do") raises answer quality but
