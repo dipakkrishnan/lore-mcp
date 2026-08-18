@@ -1,5 +1,5 @@
 import { Agent, type StreamFn } from "@earendil-works/pi-agent-core";
-import { createModels } from "@earendil-works/pi-ai";
+import type { Provider } from "@earendil-works/pi-ai";
 import { anthropicProvider } from "@earendil-works/pi-ai/providers/anthropic";
 import { openaiProvider } from "@earendil-works/pi-ai/providers/openai";
 import {
@@ -33,7 +33,7 @@ function systemPrompt(proxy: string): string {
   );
 }
 
-function modelConfig(env: AnswerEnv) {
+function modelConfig(env: AnswerEnv): { id: string; provider: Provider; apiKey: string } {
   const id = env.LORE_ANSWER_MODEL || DEFAULT_MODEL;
   if (id === "claude-sonnet-5") {
     if (!env.ANTHROPIC_API_KEY) throw new Error("the node has no ANTHROPIC_API_KEY secret");
@@ -65,9 +65,7 @@ export async function runAnswer(env: AnswerEnv, ticketId: string): Promise<void>
   try {
     const selected = modelConfig(env);
     requestedModel = selected.id;
-    const models = createModels();
-    models.setProvider(selected.provider);
-    const model = models.getModel(selected.provider.id, selected.id);
+    const model = selected.provider.getModels().find(({ id }) => id === selected.id);
     if (!model) throw new Error(`Pi does not know model: ${selected.id}`);
 
     const streamFn: StreamFn = (nextModel, context, options) => {
@@ -77,7 +75,7 @@ export async function runAnswer(env: AnswerEnv, ticketId: string): Promise<void>
         maxTokens: 4096,
         toolChoice: nextModel.provider === "anthropic" ? "any" : "required"
       };
-      return models.streamSimple(nextModel, context, requestOptions);
+      return selected.provider.streamSimple(nextModel, context, requestOptions);
     };
 
     let turns = 0;
