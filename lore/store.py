@@ -9,7 +9,7 @@ from datetime import datetime, timezone
 from enum import Enum
 from pathlib import Path
 
-from pydantic import BaseModel, ConfigDict, Field, StrictInt
+from pydantic import BaseModel, ConfigDict, Field, StrictInt, model_validator
 
 from .paths import database
 
@@ -128,6 +128,33 @@ class Publication(BaseModel):
             {key: row[key] for key in row.keys()}
             | {"provenance": json.loads(row["provenance"])}
         )
+
+
+class AnswerSettings(BaseModel):
+    """What `lore push` ships to the node for the paid answer tier (MCP-003).
+
+    The persona preamble is a *disclosed* artifact, approved by the owner via
+    `lore answer persona` — it is not the private blueprint. Validated here at
+    the push boundary so a hand-edited database can never enable the tier
+    without the persona and price the Worker requires.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    persona_preamble: str = ""
+    answer_price_usd: float = 0.0
+    answer_enabled: bool = False
+
+    @model_validator(mode="after")
+    def _enabled_needs_persona_and_price(self) -> "AnswerSettings":
+        if self.answer_enabled and not (
+            self.persona_preamble.strip() and self.answer_price_usd > 0
+        ):
+            raise ValueError(
+                "the answer tier cannot be enabled without an approved persona "
+                "and a positive answer price"
+            )
+        return self
 
 
 class Store:
@@ -411,6 +438,16 @@ class Store:
             (key, json.dumps(value, allow_nan=False)),
         )
         self.db.commit()
+
+    def answer_settings(self) -> AnswerSettings:
+        """Read and validate the answer-tier settings (MCP-003)."""
+        return AnswerSettings.model_validate(
+            {
+                "persona_preamble": self.setting("persona_preamble", ""),
+                "answer_price_usd": self.setting("answer_price_usd", 0.0),
+                "answer_enabled": self.setting("answer_enabled", False),
+            }
+        )
 
     def add_publication(
         self,

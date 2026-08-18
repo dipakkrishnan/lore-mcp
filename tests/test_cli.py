@@ -42,6 +42,17 @@ class ParserTest(unittest.TestCase):
             (["status"], {"command": "status"}),
             (["help"], {"command": "help"}),
             (["price", "1.5"], {"amount": 1.5}),
+            (
+                ["answer", "price", "0.5"],
+                {"command": "answer", "answer_command": "price", "amount": 0.5},
+            ),
+            (
+                ["answer", "persona", "p.txt"],
+                {"answer_command": "persona", "file": "p.txt"},
+            ),
+            (["answer", "on"], {"answer_command": "on"}),
+            (["answer", "off"], {"answer_command": "off"}),
+            (["answer"], {"command": "answer", "answer_command": None}),
             (["serve", "--transport", "http"], {"transport": "http", "port": 8765}),
             (
                 ["node", "deploy", "--wallet", "0xabc"],
@@ -110,6 +121,11 @@ class MainDispatchTest(LoreTestCase):
             (["help"], "manual", ()),
             (["price", "2"], "price", (2.0,)),
             (["price"], "price", (None,)),
+            (["answer", "price", "2"], "answer_price", (2.0,)),
+            (["answer", "persona", "p.txt"], "answer_persona", ("p.txt",)),
+            (["answer", "on"], "answer_toggle", (True,)),
+            (["answer", "off"], "answer_toggle", (False,)),
+            (["answer"], "answer_show", ()),
             (["blueprint", "apply", "f.json"], "blueprint_apply", ("f.json",)),
             (["blueprint", "show"], "blueprint_show", ()),
             (["blueprint"], "blueprint_show", ()),
@@ -498,6 +514,107 @@ class PriceTest(LoreTestCase):
         with captured() as output:
             cli.price(0.50)
         self.assertNotIn("still charges", output.getvalue())
+
+
+class AnswerCommandTest(LoreTestCase):
+    """`lore answer` configures the paid answer tier; nothing here discloses —
+    only persona approval does, and it demands an attended terminal."""
+
+    def persona_file(self, text: str = "Answer as Ada: terse, evidence-first.") -> str:
+        path = self.lore_home / "persona.txt"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(text, encoding="utf-8")
+        return str(path)
+
+    def approve_persona(self) -> None:
+        with (
+            patch.object(cli, "_interactive", return_value=True),
+            patch.object(cli, "confirm", return_value=True),
+            captured(),
+        ):
+            cli.answer_persona(self.persona_file())
+
+    def test_show_reports_disabled_until_everything_is_configured(self) -> None:
+        with captured() as output:
+            self.assertEqual(cli.answer_show(), 0)
+        text = output.getvalue()
+        self.assertIn("Answer tier: disabled", text)
+        self.assertIn("Answer price: not set", text)
+        self.assertIn("Persona: not approved", text)
+
+    def test_answer_price_is_its_own_setting_and_must_be_positive(self) -> None:
+        with captured() as output:
+            self.assertEqual(cli.answer_price(0.5), 0)
+        self.assertIn("$0.50", output.getvalue())
+        with Store() as store:
+            self.assertEqual(store.setting("answer_price_usd"), 0.5)
+            # The publication price is untouched: the tiers price separately.
+            self.assertIsNone(store.setting("price_usd", None))
+        with captured() as output:
+            cli.answer_price(None)
+        self.assertIn("$0.50 per answer", output.getvalue())
+        for amount in (0.0, -1.0, float("nan"), float("inf")):
+            with self.subTest(amount=amount):
+                with self.assertRaisesRegex(ValueError, "positive"):
+                    cli.answer_price(amount)
+
+    def test_persona_approval_needs_an_attended_terminal(self) -> None:
+        with patch.object(cli, "_interactive", return_value=False):
+            with self.assertRaisesRegex(ValueError, "attended interactive terminal"):
+                cli.answer_persona(self.persona_file())
+
+    def test_persona_approval_shows_the_text_and_saves_only_on_yes(self) -> None:
+        path = self.persona_file()
+        with (
+            patch.object(cli, "_interactive", return_value=True),
+            patch.object(cli, "confirm", return_value=False),
+            captured() as output,
+        ):
+            self.assertEqual(cli.answer_persona(path), 0)
+        self.assertIn("Answer as Ada", output.getvalue())
+        with Store() as store:
+            self.assertIsNone(store.setting("persona_preamble", None))
+
+        with (
+            patch.object(cli, "_interactive", return_value=True),
+            patch.object(cli, "confirm", return_value=True),
+            captured() as output,
+        ):
+            self.assertEqual(cli.answer_persona(path), 0)
+        self.assertIn("Persona approved", output.getvalue())
+        with Store() as store:
+            self.assertEqual(
+                store.setting("persona_preamble"),
+                "Answer as Ada: terse, evidence-first.",
+            )
+
+    def test_an_empty_persona_file_is_refused(self) -> None:
+        with patch.object(cli, "_interactive", return_value=True):
+            with self.assertRaisesRegex(ValueError, "empty"):
+                cli.answer_persona(self.persona_file("   \n"))
+
+    def test_enabling_requires_a_persona_and_a_price_in_that_order(self) -> None:
+        with self.assertRaisesRegex(ValueError, "lore answer persona"):
+            cli.answer_toggle(True)
+        self.approve_persona()
+        with self.assertRaisesRegex(ValueError, "lore answer price"):
+            cli.answer_toggle(True)
+        with captured():
+            cli.answer_price(0.5)
+        with captured() as output:
+            self.assertEqual(cli.answer_toggle(True), 0)
+        self.assertIn("enabled", output.getvalue())
+        with Store() as store:
+            self.assertTrue(store.answer_settings().answer_enabled)
+        with captured() as output:
+            cli.answer_show()
+        self.assertIn("enabled", output.getvalue())
+
+    def test_disabling_needs_nothing_and_reminds_about_push(self) -> None:
+        with captured() as output:
+            self.assertEqual(cli.answer_toggle(False), 0)
+        self.assertIn("disabled", output.getvalue())
+        self.assertIn("lore push", output.getvalue())
 
 
 class ProfileTest(LoreTestCase):
@@ -952,6 +1069,10 @@ class PushTest(LoreTestCase):
         with Store() as store:
             return store.list_publications(active_only=True)
 
+    def push_sql(self, publications: list) -> str:
+        with Store() as store:
+            return cli._push_sql(publications, store.answer_settings())
+
     def _push(self, returncode: int = 0, **kwargs: object):
         result = subprocess.CompletedProcess(("wrangler",), returncode)
         with patch("subprocess.run", return_value=result) as run, captured() as out:
@@ -970,7 +1091,7 @@ class PushTest(LoreTestCase):
             kept_public_id = next(
                 p.public_id for p in store.list_publications() if p.id == kept
             )
-        sql = cli._push_sql(self.active())
+        sql = self.push_sql(self.active())
         self.assertIn("DROP TABLE IF EXISTS publications;", sql)
         self.assertIn("CREATE TABLE publications", sql)
         self.assertIn("Kept claim", sql)
@@ -988,7 +1109,7 @@ class PushTest(LoreTestCase):
             content="it" + chr(39) + "s bounded",
             teaser="What Ada" + chr(39) + "s claim tells a buyer",
         )
-        sql = cli._push_sql(self.active())
+        sql = self.push_sql(self.active())
         q = chr(39)
         self.assertIn(f"{q}Ada{q}{q}s claim{q}", sql)
         self.assertIn(f"{q}it{q}{q}s bounded{q}", sql)
@@ -999,7 +1120,7 @@ class PushTest(LoreTestCase):
         self,
     ) -> None:
         self.publish(teaser="an ad")
-        sql = cli._push_sql(self.active())
+        sql = self.push_sql(self.active())
         with sqlite3.connect(":memory:") as db:
             db.execute(
                 "CREATE TABLE publications (id INTEGER PRIMARY KEY, title TEXT NOT NULL, "
@@ -1016,9 +1137,40 @@ class PushTest(LoreTestCase):
     def test_an_empty_active_set_is_still_a_valid_push(self) -> None:
         # Revoking everything has to be pushable, or the final revocation can
         # never reach the edge.
-        sql = cli._push_sql([])
+        sql = self.push_sql([])
         self.assertIn("DROP TABLE IF EXISTS publications;", sql)
-        self.assertNotIn("INSERT INTO", sql)
+        self.assertNotIn("INSERT INTO publications", sql)
+
+    def test_push_ships_the_answer_settings_alongside_publications(self) -> None:
+        # The answer tier's config rides the same full-replace push (MCP-003):
+        # the node converges on the owner's latest persona, price, and switch.
+        with Store() as store:
+            store.set_setting("persona_preamble", "Ada" + chr(39) + "s public voice")
+            store.set_setting("answer_price_usd", 0.5)
+            store.set_setting("answer_enabled", True)
+        sql = self.push_sql([])
+        self.assertIn("DROP TABLE IF EXISTS node_settings;", sql)
+        self.assertIn("CREATE TABLE node_settings", sql)
+        q = chr(39)
+        # The persona is owner prose: quoted like any other shipped text.
+        self.assertIn(f"{q}Ada{q}{q}s public voice{q}", sql)
+        self.assertIn(f"{q}answer_price_usd{q},{q}0.500000{q}", sql)
+        self.assertIn(f"{q}answer_enabled{q},{q}true{q}", sql)
+
+    def test_push_ships_disabled_defaults_so_an_unconfigured_node_stays_off(
+        self,
+    ) -> None:
+        sql = self.push_sql([])
+        self.assertIn("'answer_enabled','false'", sql)
+        self.assertIn("'answer_price_usd','0.000000'", sql)
+
+    def test_push_refuses_a_hand_enabled_tier_missing_persona_or_price(self) -> None:
+        # `lore answer on` guards this; a hand-edited database must not slip
+        # an unusable enabled tier past the push boundary.
+        with Store() as store:
+            store.set_setting("answer_enabled", True)
+        with self.assertRaises(ValueError):
+            self.push_sql([])
 
     def test_pushing_nothing_reports_it_as_valid_rather_than_an_error(self) -> None:
         # After revoking everything, the owner still has to push, and the node

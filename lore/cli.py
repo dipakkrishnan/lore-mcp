@@ -15,7 +15,7 @@ from . import capture as capture_module
 from . import deploy as deploy_module
 from .paths import home
 from .sources import available_sources, scan
-from .store import STATUSES, Publication, PublicationInput, Store
+from .store import STATUSES, AnswerSettings, Publication, PublicationInput, Store
 from .ui import (
     ask,
     confirm,
@@ -98,6 +98,24 @@ def parser() -> argparse.ArgumentParser:
     price.add_argument(
         "amount", nargs="?", type=float, help="USD per publication; use 0 for free"
     )
+    answer = commands.add_parser(
+        "answer", help="configure the paid answer tier (persona, price, on/off)"
+    )
+    answer_commands = answer.add_subparsers(dest="answer_command")
+    answer_price_parser = answer_commands.add_parser(
+        "price", help="set the per-answer price (distinct from the publication price)"
+    )
+    answer_price_parser.add_argument(
+        "amount", nargs="?", type=float, help="USD per answer; must be positive"
+    )
+    answer_persona_parser = answer_commands.add_parser(
+        "persona", help="review and approve the public persona preamble from a file"
+    )
+    answer_persona_parser.add_argument("file", help="text file holding the persona")
+    answer_commands.add_parser(
+        "on", help="enable the answer tier (needs an approved persona and a price)"
+    )
+    answer_commands.add_parser("off", help="disable the answer tier")
     serve = commands.add_parser("serve", help="run the Lore MCP server")
     serve.add_argument("--transport", choices=["stdio", "http"], default="stdio")
     serve.add_argument("--host", default="127.0.0.1")
@@ -180,6 +198,16 @@ def main(argv: list[str] | None = None) -> int:
             return manual()
         if args.command == "price":
             return price(args.amount)
+        if args.command == "answer":
+            if args.answer_command == "price":
+                return answer_price(args.amount)
+            if args.answer_command == "persona":
+                return answer_persona(args.file)
+            if args.answer_command == "on":
+                return answer_toggle(True)
+            if args.answer_command == "off":
+                return answer_toggle(False)
+            return answer_show()
         if args.command == "serve":
             from .mcp import main as serve
 
@@ -262,6 +290,10 @@ def manual() -> int:
 
   6. lore price [USD]
      Show or set the advertised price per publication.
+
+  6b. lore answer [price <USD> | persona <file> | on | off]
+     Configure the paid answer tier: approve the public persona, set the
+     per-answer price, and switch it on. Ships on the next `lore push`.
 
   7. lore status
      Check imports, the private library, active publications, and price.
@@ -422,7 +454,8 @@ def status() -> int:
         sources = store.source_counts()
         configured = _configured_sources(store.setting("sources", []))
         database_path = store.path
-        answer_price = store.setting("price_usd", None)
+        publication_price = store.setting("price_usd", None)
+        answer_settings = store.answer_settings()
         node_url = store.setting("node_url", None)
         revocation_pending = store.setting("revocation_pending", False)
         published = len(store.list_publications(active_only=True))
@@ -446,7 +479,15 @@ def status() -> int:
         print(f"  {marker} {source.label:<14} {sources.get(source.name, 0)} imported")
     print(f"\nDatabase: {database_path}")
     print(
-        f"Publication price: {'not set' if answer_price is None else f'${answer_price:.2f}'}"
+        f"Publication price: {'not set' if publication_price is None else f'${publication_price:.2f}'}"
+    )
+    print(
+        "Answer tier: "
+        + (
+            f"enabled (${answer_settings.answer_price_usd:.2f} per answer)"
+            if answer_settings.answer_enabled
+            else "disabled"
+        )
     )
     if node_url:
         # A cache of remote truth, not local truth like the price: another
@@ -482,6 +523,96 @@ def price(amount: float | None) -> int:
         muted(
             "Your deployed node still charges its old price until `lore node deploy` reruns."
         )
+    return 0
+
+
+def answer_show() -> int:
+    """Print the answer tier's configuration state."""
+    with Store() as store:
+        settings = store.answer_settings()
+    print(f"Answer tier: {'enabled' if settings.answer_enabled else 'disabled'}")
+    print(
+        "Answer price: "
+        + (
+            "not set"
+            if settings.answer_price_usd <= 0
+            else f"${settings.answer_price_usd:.2f} per answer"
+        )
+    )
+    print(
+        f"Persona: {'approved' if settings.persona_preamble.strip() else 'not approved'}"
+    )
+    if settings.answer_enabled:
+        muted("The deployed node picks up changes on the next `lore push`.")
+    return 0
+
+
+def answer_price(amount: float | None) -> int:
+    """Show or set the per-answer price, the answer tier's own price (MON-009)."""
+    with Store() as store:
+        if amount is None:
+            current = store.answer_settings().answer_price_usd
+            print("not set" if current <= 0 else f"${current:.2f} per answer")
+            return 0
+        if not math.isfinite(amount) or amount <= 0:
+            raise ValueError(
+                "the answer price must be a positive number — an answer runs a "
+                "model loop the node pays for, so free answers lose money"
+            )
+        store.set_setting("answer_price_usd", round(amount, 6))
+    success(f"Answer price set to ${amount:.2f}")
+    muted(
+        "Each answer costs real model inference; check the node's per-answer "
+        "cost telemetry stays below this price. Ship it with `lore push`."
+    )
+    return 0
+
+
+def answer_persona(path: str) -> int:
+    """Review and approve the public persona preamble.
+
+    The persona is a *disclosed* artifact: it ships to the edge and shapes
+    every paid answer. It goes through the same attended approval gate as a
+    publication, and it is never derived from the private blueprint.
+    """
+    if not _interactive():
+        raise ValueError(
+            "persona approval needs an attended interactive terminal; "
+            "piped and background approval is disabled"
+        )
+    text = Path(path).read_text(encoding="utf-8").strip()
+    if not text:
+        raise ValueError("the persona file is empty; nothing to approve")
+    heading("Public persona preamble")
+    print(text)
+    muted(
+        "\nThis text is public: it ships to your node and frames every paid "
+        "answer. It is separate from your private blueprint."
+    )
+    if not confirm("Approve this persona for the deployed node?"):
+        print("Not approved; nothing saved.")
+        return 0
+    with Store() as store:
+        store.set_setting("persona_preamble", text)
+    success("Persona approved")
+    muted("Ship it with `lore push`.")
+    return 0
+
+
+def answer_toggle(enabled: bool) -> int:
+    """Enable or disable the answer tier; enabling revalidates its inputs."""
+    with Store() as store:
+        if enabled:
+            settings = store.answer_settings()
+            if not settings.persona_preamble.strip():
+                raise ValueError(
+                    "no approved persona; run `lore answer persona <file>` first"
+                )
+            if settings.answer_price_usd <= 0:
+                raise ValueError("no answer price; run `lore answer price <USD>` first")
+        store.set_setting("answer_enabled", enabled)
+    success(f"Answer tier {'enabled' if enabled else 'disabled'}")
+    muted("The deployed node picks up the change on the next `lore push`.")
     return 0
 
 
@@ -632,12 +763,14 @@ def publication_revoke(publication_id: int) -> int:
         ) from error
 
 
-def _push_sql(publications: list[Publication]) -> str:
+def _push_sql(publications: list[Publication], answer: AnswerSettings) -> str:
     """Render the full-replace SQL for the edge database.
 
     Full replace, not diffing: the active set is small, the operation is
     idempotent, and a revoked publication is guaranteed gone because nothing
-    that isn't in this script survives it.
+    that isn't in this script survives it. Owner-shipped state only: the
+    Worker's own tables (answer tickets and answers) are buyer state and are
+    never touched here.
     """
 
     def quote(value: str) -> str:
@@ -660,6 +793,24 @@ def _push_sql(publications: list[Publication]) -> str:
         f"{quote(p.topic)},{quote(p.teaser)},{quote(p.updated_at)});"
         for p in publications
     )
+    # The answer tier's settings (MCP-003): always shipped, so disabling or
+    # re-pricing locally converges the node on the next push. Values are plain
+    # strings; the Worker fails closed on anything it cannot parse.
+    settings = {
+        "persona_preamble": answer.persona_preamble,
+        "answer_price_usd": f"{answer.answer_price_usd:.6f}",
+        "answer_enabled": "true" if answer.answer_enabled else "false",
+    }
+    statements.extend(
+        [
+            "DROP TABLE IF EXISTS node_settings;",
+            "CREATE TABLE node_settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);",
+            *(
+                f"INSERT INTO node_settings(key,value) VALUES ({quote(key)},{quote(value)});"
+                for key, value in settings.items()
+            ),
+        ]
+    )
     return "\n".join(statements) + "\n"
 
 
@@ -676,7 +827,8 @@ def push(worker_dir: str, local: bool = False) -> int:
         )
     with Store() as store:
         active = store.list_publications(active_only=True)
-    script = _push_sql(active)
+        answer_settings = store.answer_settings()
+    script = _push_sql(active, answer_settings)
     with tempfile.NamedTemporaryFile("w", suffix=".sql", delete=False) as handle:
         handle.write(script)
         script_path = handle.name

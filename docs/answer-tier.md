@@ -118,6 +118,15 @@ Citations are an upsell funnel into `get` (verify what I said, buy the
 source), and every cited id is validated against active publications before
 the answer is stored.
 
+The `failed` outcome (budget or wall-clock exhaustion, or an agent error —
+§5) has the same money contract as `refused`: the buyer paid at submission
+and no automated refund exists until the x402 wrapper grows a pre-settlement
+hook, so `result` returns `failed` with a plain reason and an explicit
+no-refund note pointing at the node owner. Unlike `refused`, a failure is
+the node's fault, not the question's — the stored reason and per-ticket
+telemetry exist so the owner can see failures, fix them, and make it right
+out of band.
+
 ## 4. Data model
 
 All at the edge (D1), alongside the existing `publications` table. Nothing

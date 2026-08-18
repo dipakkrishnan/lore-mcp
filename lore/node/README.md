@@ -41,6 +41,26 @@ lore node deploy --wallet <your public 0x payout address>
 `lore status` shows the node URL as `Node (last deploy):` afterwards. Files you create here
 (`.buyer.env`, `.dev.vars`) survive redeploys; everything else is overwritten.
 
+## Enable the paid answer tier (optional)
+
+The node can also sell synthesized answers (`can_answer` free, `answer` paid,
+`result` free — see `docs/answer-tier.md`). The tier is off until you opt in;
+its agent reads **approved publications only**, framed by a persona you
+approve — never your private memories or blueprint. The node pays for the
+model calls with your own API key, so set the per-answer price above the
+per-answer cost the stored telemetry reports.
+
+```sh
+npx wrangler secret put ANTHROPIC_API_KEY   # the node's model access
+lore answer persona <file>                  # review and approve the public persona
+lore answer price 0.50                      # the answer tier's own price
+lore answer on
+lore push                                   # ship persona, price, and the switch
+```
+
+`LORE_ANSWER_MODEL` (a Worker var) overrides the default model. Turn the tier
+off any time with `lore answer off` and a push.
+
 ## Make the test payment
 
 In this directory:

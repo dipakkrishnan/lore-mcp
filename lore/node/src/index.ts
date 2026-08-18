@@ -1,46 +1,29 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { McpAgent } from "agents/mcp";
 import { withX402 } from "agents/x402";
-import { createHash } from "node:crypto";
 import { z } from "zod";
+import {
+  ESTIMATE_SECONDS,
+  RETENTION_DISCLOSURE,
+  coverageProbe,
+  createTicket,
+  manifest,
+  readAnswerSettings,
+  runAnswer,
+  ticketResult,
+  validPublicId
+} from "./answer.js";
 import { facilitator, network, networkLabel } from "./network.js";
 import { PRICE_USD } from "./price.js";
 import { payTo } from "./wallet.js";
 
-function validPublicId(value: string): boolean {
-  const body = value.slice(0, 16);
-  return (
-    /^[0-9a-f]{24}$/.test(value) &&
-    value.slice(16) === createHash("sha256").update(body).digest("hex").slice(0, 8)
-  );
-}
+const ANSWER_DISABLED = { error: "the answer tier is not enabled on this node" };
 
-interface ManifestRow {
-  id: string;
-  teaser: string;
-  topic: string;
-  kind: string;
-  updated_at: string;
-}
-
-// The D1 table `lore push` maintains. Rows here are owner-approved publications
-// and nothing else — no private data exists at the edge to leak. The manifest
-// selects only the advertisement columns: what exists, never what it says. Ids
-// are opaque public tokens (no sequence, so no revocation gaps) and freshness
-// is truncated to the day (full timestamps reveal approval-session structure).
-// Mirrors Store.manifest() in lore/store.py — the smoke script diffs the two.
-async function manifest(env: Env): Promise<Record<string, unknown>> {
-  const { results } = await env.LORE_DB.prepare(
-    `SELECT public_id AS id, teaser, topic, kind,
-            substr(updated_at, 1, 10) AS updated_at
-     FROM publications WHERE teaser <> ''
-     ORDER BY topic, updated_at DESC, public_id`
-  ).all<ManifestRow>();
-  const topics: Record<string, object[]> = {};
-  for (const { id, teaser, topic, kind, updated_at } of results) {
-    (topics[topic] ??= []).push({ id, teaser, kind, updated_at });
-  }
-  return { manifest_version: 1, publication_count: results.length, topics };
+function asText(payload: unknown, isError = false) {
+  return {
+    content: [{ type: "text" as const, text: JSON.stringify(payload) }],
+    isError: isError || undefined
+  };
 }
 
 // ponytail: withX402 (which provides paidTool) only works on the legacy
@@ -56,6 +39,12 @@ export class LorePaidMCP extends McpAgent<Env> {
     }
   );
 
+  /** Runs behind `answer` via the DO scheduler, so payment settles and the
+   * ticket returns immediately while the agent works (spec §3). */
+  async runAnswerTicket(payload: { ticketId: string }) {
+    await runAnswer(this.env, payload.ticketId);
+  }
+
   async init() {
     this.server.registerTool(
       "discover",
@@ -66,19 +55,13 @@ export class LorePaidMCP extends McpAgent<Env> {
           "Choose zero, one, multiple, or all ids; call get once per chosen id.",
         inputSchema: {}
       },
-      async () => ({
-        content: [
-          {
-            type: "text" as const,
-            text: JSON.stringify({
-              ...(await manifest(this.env)),
-              network: network(this.env),
-              price_usd: PRICE_USD,
-              disclosure: "Choose any advertised ids; get buys one publication per call."
-            })
-          }
-        ]
-      })
+      async () =>
+        asText({
+          ...(await manifest(this.env)),
+          network: network(this.env),
+          price_usd: PRICE_USD,
+          disclosure: "Choose any advertised ids; get buys one publication per call."
+        })
     );
 
     this.server.paidTool(
@@ -107,23 +90,98 @@ export class LorePaidMCP extends McpAgent<Env> {
         )
           .bind(id)
           .first();
-        return {
-          content: [
-            {
-              type: "text" as const,
-              text: JSON.stringify(
-                row
-                  ? {
-                      publication: row,
-                      disclosure:
-                        "Content is owner-approved; preserve attribution when synthesizing."
-                    }
-                  : { error: `publication not found: ${id}` }
-              )
-            }
-          ],
-          isError: row ? undefined : true
-        };
+        return asText(
+          row
+            ? {
+                publication: row,
+                disclosure: "Content is owner-approved; preserve attribution when synthesizing."
+              }
+            : { error: `publication not found: ${id}` },
+          !row
+        );
+      }
+    );
+
+    // The answer tier (MCP-003, docs/answer-tier.md). The three tools are
+    // always registered so the surface matches the contract; when the owner
+    // has not enabled the tier they refuse cleanly and `answer` takes no
+    // payment (it registers as a free tool that only says so).
+    const settings = await readAnswerSettings(this.env.LORE_DB);
+    const question = {
+      question: z.string().trim().min(1).max(4000)
+    };
+    const answerDescription =
+      "Buy a synthesized answer from the owner's approved publications, in the " +
+      "owner's voice. Payment settles at submission and returns a ticket " +
+      "immediately; poll result until it completes. Ask can_answer first: no " +
+      "coverage means refusal after payment, and there are no automated refunds.";
+
+    this.server.registerTool(
+      "can_answer",
+      {
+        description:
+          "Free coverage probe for the paid answer tool: reports whether the " +
+          "owner's publications can answer a question, with the price. " +
+          "Questions sent to this node are retained and visible to its owner.",
+        inputSchema: question
+      },
+      async (args) => {
+        if (!settings.enabled) return asText(ANSWER_DISABLED, true);
+        try {
+          return asText(await coverageProbe(this.env, args.question, settings));
+        } catch (error) {
+          return asText({ error: String(error).slice(0, 500) }, true);
+        }
+      }
+    );
+
+    if (settings.enabled) {
+      this.server.paidTool(
+        "answer",
+        answerDescription,
+        settings.priceUsd,
+        question,
+        {}, // paidTool's output schema; unstructured text only.
+        async (args) => {
+          // Settlement already happened (paidTool settles before the handler);
+          // from here the only honest outcomes are a ticket or a stored
+          // terminal status the buyer can poll.
+          const ticket = await createTicket(this.env, args.question, settings.priceUsd);
+          await this.schedule(0, "runAnswerTicket", { ticketId: ticket });
+          return asText({
+            ticket,
+            status: "running",
+            poll: "result",
+            estimate_seconds: ESTIMATE_SECONDS,
+            retention_disclosure: RETENTION_DISCLOSURE
+          });
+        }
+      );
+    } else {
+      this.server.registerTool(
+        "answer",
+        { description: answerDescription, inputSchema: question },
+        async () => asText(ANSWER_DISABLED, true)
+      );
+    }
+
+    this.server.registerTool(
+      "result",
+      {
+        description:
+          "Fetch the outcome of a paid answer ticket. Free and idempotent; keep " +
+          "polling while status is running. Terminal statuses: complete, refused " +
+          "(no coverage), failed (agent error or timeout — no automated refund yet).",
+        inputSchema: {
+          ticket: z.string().trim().refine(validPublicId, {
+            message: "invalid ticket id; use the one answer returned"
+          })
+        }
+      },
+      async (args) => {
+        if (!settings.enabled) return asText(ANSWER_DISABLED, true);
+        const outcome = await ticketResult(this.env, args.ticket);
+        return asText(outcome, "error" in outcome);
       }
     );
   }
