@@ -179,13 +179,13 @@ package the Worker already uses (`McpAgent` is Durable-Object-backed). No
 container, no filesystem, no CLI: the corpus is a bounded set of D1 rows, so
 the agent gets a **memory-view toolset** over the database, analogous to a
 built-in memory tool — a read-only view, not a general filesystem. It is
-effectively a subagent with three tools:
+effectively a subagent with two tools, mirroring the memory tool's `view`
+shape (list a directory vs. read a file):
 
 | tool | implementation |
 |---|---|
-| `catalog()` | the manifest query `discover` already runs (topics, teasers, ids, freshness) |
-| `read(id)` | full publication row by `public_id` (active publications only — the same rows `get` serves) |
-| `search(query)` | FTS over title + content (D1 is SQLite; FTS5) — the vocabulary-gap workhorse |
+| `memory_view` | without an id: the manifest query `discover` already runs (topics, teasers, ids, freshness); with a `public_id`: that publication's full row (active publications only — the same rows `get` serves) |
+| `memory_search` | search over title + content — the vocabulary-gap workhorse |
 
 Loop shape (Messages API calls from the DO; seller's Anthropic key in a
 Worker secret, so the seller pays inference out of revenue):
