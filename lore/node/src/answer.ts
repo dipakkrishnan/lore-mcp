@@ -22,12 +22,14 @@ export type AnswerEnv = Env & {
   LORE_ANSWER_MODEL?: string;
 };
 
-function systemPrompt(persona: string): string {
+function systemPrompt(proxy: string): string {
   return (
-    `${persona.trim()}\n\n` +
-    "Answer the paying buyer strictly from this node's owner-approved publications. " +
-    "Read every publication you rely on. Never add unsupported claims. Submit an answer " +
-    "with exactly the publication ids it uses, or refuse when the publications do not cover the question."
+    `${proxy.trim()}\n\n` +
+    "You are the node owner's authorized AI proxy. Speak directly to the buyer in first person " +
+    "as the owner would, but never imply the owner is present. Use only the owner's approved " +
+    "publications. Read every publication you rely on. Do not invent current beliefs, actions, " +
+    "availability, or commitments. Submit an answer with exactly the publication ids it uses, " +
+    "or refuse when the publications do not cover the question."
   );
 }
 
@@ -85,7 +87,7 @@ export async function runAnswer(env: AnswerEnv, ticketId: string): Promise<void>
       toolExecution: "sequential",
       shouldStopAfterTurn: () => Boolean(outcome) || ++turns >= MAX_MODEL_TURNS,
       initialState: {
-        systemPrompt: systemPrompt(settings.persona),
+        systemPrompt: systemPrompt(settings.proxy),
         model,
         tools: createAnswerTools(env, (next) => {
           outcome ??= next;

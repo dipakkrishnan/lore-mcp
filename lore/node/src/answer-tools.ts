@@ -1,10 +1,11 @@
 import type { AgentTool } from "@earendil-works/pi-agent-core";
 import { Type } from "@earendil-works/pi-ai";
-import type { AnswerOutcome } from "./answer-state.js";
-import { validPublicId } from "./answer-state.js";
+import { type AnswerOutcome, validPublicId } from "./answer-state.js";
 
-async function validCitations(env: Env, cited: string[]): Promise<string[]> {
-  const candidates = [...new Set(cited.filter(validPublicId))];
+async function validCitations(env: Env, viewed: Set<string>, cited: string[]) {
+  const candidates = [...new Set(cited)].filter(
+    (id) => validPublicId(id) && viewed.has(id)
+  );
   if (!candidates.length) return [];
   const placeholders = candidates.map((_, index) => `?${index + 1}`).join(",");
   const { results } = await env.LORE_DB.prepare(
@@ -12,10 +13,12 @@ async function validCitations(env: Env, cited: string[]): Promise<string[]> {
   )
     .bind(...candidates)
     .all<{ public_id: string }>();
-  return results.map(({ public_id }) => public_id);
+  const active = new Set(results.map(({ public_id }) => public_id));
+  return candidates.filter((id) => active.has(id));
 }
 
 export function createAnswerTools(env: Env, finish: (outcome: AnswerOutcome) => void) {
+  const viewed = new Set<string>();
   const viewParameters = Type.Object(
     { public_id: Type.String() },
     { additionalProperties: false }
@@ -34,6 +37,7 @@ export function createAnswerTools(env: Env, finish: (outcome: AnswerOutcome) => 
       )
         .bind(public_id)
         .first();
+      if (row) viewed.add(public_id);
       return {
         content: [{ type: "text", text: JSON.stringify(row ?? { error: "publication not found" }) }],
         details: {}
@@ -65,7 +69,7 @@ export function createAnswerTools(env: Env, finish: (outcome: AnswerOutcome) => 
   const submitParameters = Type.Object(
     {
       answer: Type.String({ minLength: 1 }),
-      cited_publication_ids: Type.Array(Type.String())
+      cited_publication_ids: Type.Array(Type.String(), { minItems: 1 })
     },
     { additionalProperties: false }
   );
@@ -75,10 +79,19 @@ export function createAnswerTools(env: Env, finish: (outcome: AnswerOutcome) => 
     description: "Deliver a grounded final answer and every publication id it uses.",
     parameters: submitParameters,
     async execute(_callId, { answer, cited_publication_ids }) {
+      const cited = await validCitations(env, viewed, cited_publication_ids);
+      if (!cited.length) {
+        return {
+          content: [
+            { type: "text", text: "read and cite at least one publication before submitting" }
+          ],
+          details: {}
+        };
+      }
       finish({
         status: "complete",
         answer,
-        cited: await validCitations(env, cited_publication_ids)
+        cited
       });
       return { content: [{ type: "text", text: "answer accepted" }], details: {}, terminate: true };
     }

@@ -243,25 +243,29 @@ class SettingsTest(LoreTestCase):
             settings = store.answer_settings()
         self.assertFalse(settings.answer_enabled)
         self.assertEqual(settings.answer_price_usd, 0.0)
-        self.assertEqual(settings.persona_preamble, "")
+        self.assertEqual(settings.proxy_preamble, "")
 
     def test_answer_settings_round_trip_through_the_settings_table(self) -> None:
         with Store() as store:
-            store.set_setting("persona_preamble", "Ada's public voice")
-            store.set_setting("answer_price_usd", 0.5)
-            store.set_setting("answer_enabled", True)
+            store.set_answer_settings(
+                AnswerSettings(
+                    proxy_preamble="Ada's public proxy charter",
+                    answer_price_usd=0.5,
+                    answer_enabled=True,
+                )
+            )
             settings = store.answer_settings()
         self.assertTrue(settings.answer_enabled)
         self.assertEqual(settings.answer_price_usd, 0.5)
-        self.assertEqual(settings.persona_preamble, "Ada's public voice")
+        self.assertEqual(settings.proxy_preamble, "Ada's public proxy charter")
 
-    def test_an_enabled_tier_without_persona_or_price_fails_validation(self) -> None:
-        for missing in ("persona_preamble", "answer_price_usd"):
+    def test_an_enabled_tier_without_proxy_or_price_fails_validation(self) -> None:
+        for missing in ("proxy_preamble", "answer_price_usd"):
             with self.subTest(missing=missing), Store() as store:
-                store.set_setting("persona_preamble", "voice")
+                store.set_setting("proxy_preamble", "proxy")
                 store.set_setting("answer_price_usd", 0.5)
                 store.set_setting("answer_enabled", True)
-                store.set_setting(missing, "" if missing == "persona_preamble" else 0.0)
+                store.set_setting(missing, "" if missing == "proxy_preamble" else 0.0)
                 with self.assertRaises(ValueError):
                     store.answer_settings()
 

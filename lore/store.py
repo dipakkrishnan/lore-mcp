@@ -133,17 +133,17 @@ class Publication(BaseModel):
 class AnswerSettings(BaseModel):
     model_config = ConfigDict(frozen=True)
 
-    persona_preamble: str = ""
+    proxy_preamble: str = ""
     answer_price_usd: float = 0.0
     answer_enabled: bool = False
 
     @model_validator(mode="after")
-    def enabled_needs_persona_and_price(self) -> "AnswerSettings":
+    def enabled_needs_proxy_and_price(self) -> "AnswerSettings":
         if self.answer_enabled and not (
-            self.persona_preamble.strip() and self.answer_price_usd > 0
+            self.proxy_preamble.strip() and self.answer_price_usd > 0
         ):
             raise ValueError(
-                "the answer tier cannot be enabled without an approved persona "
+                "the answer tier cannot be enabled without an approved proxy charter "
                 "and a positive answer price"
             )
         return self
@@ -434,11 +434,27 @@ class Store:
     def answer_settings(self) -> AnswerSettings:
         return AnswerSettings.model_validate(
             {
-                "persona_preamble": self.setting("persona_preamble", ""),
+                "proxy_preamble": self.setting("proxy_preamble", ""),
                 "answer_price_usd": self.setting("answer_price_usd", 0.0),
                 "answer_enabled": self.setting("answer_enabled", False),
             }
         )
+
+    def set_answer_settings(self, settings: AnswerSettings) -> None:
+        values = {
+            "proxy_preamble": settings.proxy_preamble,
+            "answer_price_usd": settings.answer_price_usd,
+            "answer_enabled": settings.answer_enabled,
+        }
+        with self.db:
+            self.db.executemany(
+                "INSERT INTO settings(key,value) VALUES (?,?) "
+                "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+                [
+                    (key, json.dumps(value, allow_nan=False))
+                    for key, value in values.items()
+                ],
+            )
 
     def add_publication(
         self,

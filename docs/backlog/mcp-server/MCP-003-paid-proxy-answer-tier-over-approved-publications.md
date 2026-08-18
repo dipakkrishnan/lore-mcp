@@ -36,7 +36,7 @@ Full design: `docs/answer-tier.md`. Summary of the decided shape:
 - **Memory boundary (hard constraint, unchanged):** the answer-time agent
   reads approved publications only — never private memories. Buyers are
   adversarial strangers paying pennies per question; the read boundary is
-  the anti-extraction defense. The owner-approved **public persona preamble**
+  the anti-extraction defense. The owner-approved **public proxy charter**
   (distinct from the private blueprint, BP-001) is a new disclosed artifact
   shipped by `lore push`.
 - **Two-tool async contract:** `answer(question)` is paid, settles at
@@ -46,26 +46,26 @@ Full design: `docs/answer-tier.md`. Summary of the decided shape:
 - **Data model** (see design doc §4): one `answer_jobs` row holds the verbatim
   question, price, status, answer/refusal, validated citations, model, tokens,
   `cost_usd`, tool calls, duration, and timestamps. Node settings hold
-  `persona_preamble`, `answer_price_usd`, and `answer_enabled`.
+  `proxy_preamble`, `answer_price_usd`, and `answer_enabled`.
 
 ## Acceptance criteria
 
 - [ ] A buying agent can pay for `answer(question)` and, via `result`,
-      receive a synthesized answer citing publication ids, at a price set
+      receive an answer from the owner's AI proxy citing publication ids, at a price set
       independently of the per-publication fetch price.
 - [ ] The answer path provably reads only active publications — the agent's
       only data access is the memory-view toolset; no code path from the
       agent to the memories table or the private blueprint.
 - [ ] `discover` quotes the answer price and discloses question retention;
       uncovered paid questions complete as `refused` rather than confabulating.
-- [ ] The persona preamble served at answer time is a distinct,
+- [ ] The proxy charter served at answer time is a distinct,
       owner-approved artifact — the tier stays disabled until the owner
       approves one and sets a price.
 - [ ] Every stored answer records model, tokens, and cost, and measured cost
       clears the configured answer price.
 - [ ] Every cited id resolves to an active publication at answer time.
 - [ ] The tier does not ship until the EVAL-002 phase-2 harness judges
-      answer and refusal quality (owner-voiced and grounded vs.
+      answer and refusal quality (faithful proxy and grounded vs.
       generic-model-with-citations).
 
 ## Notes

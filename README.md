@@ -286,6 +286,17 @@ npm run smoke                    # free discover + unpaid x402 challenge
 CI runs Python and Node lint, tests, compiler checks, and the Worker smoke test.
 It does not currently run the local coverage floor or `tests/node/`.
 
+Evaluate the configured proxy against approved local publications without a
+payment or deployment:
+
+```sh
+./lore-test.sh "What would you advise here?"   # uses ANTHROPIC_API_KEY from your environment
+```
+
+The evaluator uses the production Pi agent inside workerd and a temporary D1
+database, prints its answer, citations, token cost, and duration, then deletes
+the temporary state. The model call is real and incurs provider charges.
+
 ### The gate
 
 `tests/gate.py` runs the Python suite with a 90% per-file statement and branch

@@ -43,17 +43,17 @@ lore node deploy --wallet <your public 0x payout address>
 
 ## Enable the paid answer tier (optional)
 
-The node can also sell synthesized answers (`answer` paid, `result` free — see
+The node can also sell answers from the owner's AI proxy (`answer` paid, `result` free — see
 `docs/answer-tier.md`). The tier is off until you opt in;
-its agent reads **approved publications only**, framed by a persona you
+its agent reads **approved publications only**, framed by a public proxy charter you
 approve — never your private memories or blueprint. The node pays for the
 model calls with your own API key, so set the per-answer price above the
 per-answer cost the stored telemetry reports.
 
 ```sh
 npx wrangler secret put ANTHROPIC_API_KEY
-lore answer on <persona-file> 0.50
-lore push                                   # ship persona, price, and the switch
+lore answer on <proxy-file> 0.50
+lore push                                   # ship proxy charter, price, and the switch
 ```
 
 The default model is `claude-sonnet-5`. Set `LORE_ANSWER_MODEL` to

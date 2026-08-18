@@ -26,9 +26,6 @@ function asText(payload: unknown, isError = false) {
   };
 }
 
-// ponytail: withX402 (which provides paidTool) only works on the legacy
-// McpAgent class today; migrate when Cloudflare supports x402 on its
-// recommended stateless createMcpHandler path.
 export class LorePaidMCP extends McpAgent<Env> {
   server = withX402(
     new McpServer({ name: `Lore x402 (${networkLabel(this.env)})`, version: "0.1.0" }),
@@ -40,7 +37,7 @@ export class LorePaidMCP extends McpAgent<Env> {
   );
 
   async runAnswerTicket(payload: { ticketId: string }) {
-    await runAnswer(this.env, payload.ticketId);
+    await this.keepAliveWhile(() => runAnswer(this.env, payload.ticketId));
   }
 
   async init() {
@@ -81,15 +78,8 @@ export class LorePaidMCP extends McpAgent<Env> {
           message: "invalid publication id; run discover again"
         })
       },
-      {}, // paidTool's output schema; unstructured text only.
+      {},
       async ({ id }) => {
-        // Paid and free read the same rows: payment decides whether a caller
-        // is served, never what is servable. One payment maps to exactly one
-        // publication, chosen by the buyer from the catalog. The checksum rejects
-        // damaged ids before payment; the remaining billable miss is a revocation
-        // racing a recent discover, because paidTool settles before this handler.
-        // ponytail: charged not-found on that race; refund or pre-check when
-        // the x402 wrapper exposes a pre-settlement hook.
         const row = await this.env.LORE_DB.prepare(
           `SELECT public_id AS id, title, content, topic, kind, updated_at
            FROM publications WHERE public_id = ?1`
@@ -112,8 +102,8 @@ export class LorePaidMCP extends McpAgent<Env> {
       question: z.string().trim().min(1).max(4000)
     };
     const answerDescription =
-      "Buy a synthesized answer from the owner's approved publications, in the " +
-      "owner's voice. Payment settles at submission and returns a ticket " +
+      "Buy a response from the owner's authorized AI proxy, grounded in the " +
+      "owner's approved publications. Payment settles at submission and returns a ticket " +
       "immediately; poll result until it completes. Questions are retained and " +
       "visible to the owner. Unsupported questions are refused after payment; " +
       "there are no automated refunds.";

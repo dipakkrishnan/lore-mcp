@@ -514,8 +514,10 @@ class PriceTest(LoreTestCase):
 
 
 class AnswerCommandTest(LoreTestCase):
-    def persona_file(self, text: str = "Answer as Ada: terse, evidence-first.") -> str:
-        path = self.lore_home / "persona.txt"
+    def proxy_file(
+        self, text: str = "Act as Ada's concise, evidence-first proxy."
+    ) -> str:
+        path = self.lore_home / "proxy.txt"
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(text, encoding="utf-8")
         return str(path)
@@ -523,19 +525,19 @@ class AnswerCommandTest(LoreTestCase):
     def test_enabling_needs_an_attended_terminal(self) -> None:
         with patch.object(cli, "_interactive", return_value=False):
             with self.assertRaisesRegex(ValueError, "attended interactive terminal"):
-                cli.answer_enable(self.persona_file(), 0.5)
+                cli.answer_enable(self.proxy_file(), 0.5)
 
-    def test_enabling_approves_persona_price_and_switch_together(self) -> None:
-        path = self.persona_file()
+    def test_enabling_approves_proxy_price_and_switch_together(self) -> None:
+        path = self.proxy_file()
         with (
             patch.object(cli, "_interactive", return_value=True),
             patch.object(cli, "confirm", return_value=False),
             captured() as output,
         ):
             self.assertEqual(cli.answer_enable(path, 0.5), 0)
-        self.assertIn("Answer as Ada", output.getvalue())
+        self.assertIn("Act as Ada", output.getvalue())
         with Store() as store:
-            self.assertIsNone(store.setting("persona_preamble", None))
+            self.assertIsNone(store.setting("proxy_preamble", None))
 
         with (
             patch.object(cli, "_interactive", return_value=True),
@@ -547,22 +549,22 @@ class AnswerCommandTest(LoreTestCase):
         with Store() as store:
             settings = store.answer_settings()
         self.assertEqual(
-            settings.persona_preamble, "Answer as Ada: terse, evidence-first."
+            settings.proxy_preamble, "Act as Ada's concise, evidence-first proxy."
         )
         self.assertEqual(settings.answer_price_usd, 0.5)
         self.assertTrue(settings.answer_enabled)
 
-    def test_invalid_price_or_empty_persona_is_refused(self) -> None:
+    def test_invalid_price_or_empty_proxy_is_refused(self) -> None:
         for amount in (0.0, -1.0, float("nan"), float("inf")):
             with self.subTest(amount=amount):
                 with (
                     patch.object(cli, "_interactive", return_value=True),
                     self.assertRaisesRegex(ValueError, "positive"),
                 ):
-                    cli.answer_enable(self.persona_file(), amount)
+                    cli.answer_enable(self.proxy_file(), amount)
         with patch.object(cli, "_interactive", return_value=True):
             with self.assertRaisesRegex(ValueError, "empty"):
-                cli.answer_enable(self.persona_file("   \n"), 0.5)
+                cli.answer_enable(self.proxy_file("   \n"), 0.5)
 
     def test_disabling_needs_nothing_and_reminds_about_push(self) -> None:
         with captured() as output:
@@ -1097,14 +1099,16 @@ class PushTest(LoreTestCase):
 
     def test_push_ships_the_answer_settings_alongside_publications(self) -> None:
         with Store() as store:
-            store.set_setting("persona_preamble", "Ada" + chr(39) + "s public voice")
+            store.set_setting(
+                "proxy_preamble", "Ada" + chr(39) + "s public proxy charter"
+            )
             store.set_setting("answer_price_usd", 0.5)
             store.set_setting("answer_enabled", True)
         sql = self.push_sql([])
         self.assertIn("DROP TABLE IF EXISTS node_settings;", sql)
         self.assertIn("CREATE TABLE node_settings", sql)
         q = chr(39)
-        self.assertIn(f"{q}Ada{q}{q}s public voice{q}", sql)
+        self.assertIn(f"{q}Ada{q}{q}s public proxy charter{q}", sql)
         self.assertIn(f"{q}answer_price_usd{q},{q}0.500000{q}", sql)
         self.assertIn(f"{q}answer_enabled{q},{q}true{q}", sql)
 
@@ -1115,7 +1119,7 @@ class PushTest(LoreTestCase):
         self.assertIn("'answer_enabled','false'", sql)
         self.assertIn("'answer_price_usd','0.000000'", sql)
 
-    def test_push_refuses_a_hand_enabled_tier_missing_persona_or_price(self) -> None:
+    def test_push_refuses_a_hand_enabled_tier_missing_proxy_or_price(self) -> None:
         with Store() as store:
             store.set_setting("answer_enabled", True)
         with self.assertRaises(ValueError):

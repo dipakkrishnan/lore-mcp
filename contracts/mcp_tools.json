@@ -1,7 +1,7 @@
 [
   {
     "name": "answer",
-    "description": "Buy a synthesized answer from the owner's approved publications, in the owner's voice. Payment settles at submission and returns a ticket immediately; poll result until it completes. Questions are retained and visible to the owner. Unsupported questions are refused after payment; there are no automated refunds.",
+    "description": "Buy a response from the owner's authorized AI proxy, grounded in the owner's approved publications. Payment settles at submission and returns a ticket immediately; poll result until it completes. Questions are retained and visible to the owner. Unsupported questions are refused after payment; there are no automated refunds.",
     "required": [
       "question"
     ],

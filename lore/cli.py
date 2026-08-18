@@ -103,9 +103,9 @@ def parser() -> argparse.ArgumentParser:
     )
     answer_commands = answer.add_subparsers(dest="answer_command", required=True)
     answer_on = answer_commands.add_parser(
-        "on", help="approve a persona, set a price, and enable"
+        "on", help="approve a proxy charter, set a price, and enable"
     )
-    answer_on.add_argument("file", help="text file holding the public persona")
+    answer_on.add_argument("file", help="text file holding the public proxy charter")
     answer_on.add_argument("price", type=float, help="USD per answer; must be positive")
     answer_commands.add_parser("off", help="disable the answer tier")
     serve = commands.add_parser("serve", help="run the Lore MCP server")
@@ -277,7 +277,7 @@ def manual() -> int:
   6. lore price [USD]
      Show or set the advertised price per publication.
 
-  6b. lore answer on <persona-file> <price> | off
+  6b. lore answer on <proxy-file> <price> | off
      Enable the paid answer tier or switch it off. Ships on the next `lore push`.
 
   7. lore status
@@ -514,27 +514,31 @@ def price(amount: float | None) -> int:
 def answer_enable(path: str, price: float) -> int:
     if not _interactive():
         raise ValueError(
-            "persona approval needs an attended interactive terminal; "
+            "proxy approval needs an attended interactive terminal; "
             "piped and background approval is disabled"
         )
     if not math.isfinite(price) or price <= 0:
         raise ValueError("the answer price must be a positive number")
     text = Path(path).read_text(encoding="utf-8").strip()
     if not text:
-        raise ValueError("the persona file is empty; nothing to approve")
-    heading("Public persona preamble")
+        raise ValueError("the proxy file is empty; nothing to approve")
+    heading("Public proxy charter")
     print(text)
     muted(
         "\nThis text is public: it ships to your node and frames every paid "
         "answer. It is separate from your private blueprint."
     )
-    if not confirm("Approve this persona for the deployed node?"):
+    if not confirm("Approve this proxy charter for the deployed node?"):
         print("Not approved; nothing saved.")
         return 0
     with Store() as store:
-        store.set_setting("persona_preamble", text)
-        store.set_setting("answer_price_usd", round(price, 6))
-        store.set_setting("answer_enabled", True)
+        store.set_answer_settings(
+            AnswerSettings(
+                proxy_preamble=text,
+                answer_price_usd=round(price, 6),
+                answer_enabled=True,
+            )
+        )
     success(f"Answer tier enabled at ${price:.2f} per answer")
     muted("Ship it with `lore push` and verify cost telemetry stays below the price.")
     return 0
@@ -726,7 +730,7 @@ def _push_sql(publications: list[Publication], answer: AnswerSettings) -> str:
         for p in publications
     )
     settings = {
-        "persona_preamble": answer.persona_preamble,
+        "proxy_preamble": answer.proxy_preamble,
         "answer_price_usd": f"{answer.answer_price_usd:.6f}",
         "answer_enabled": "true" if answer.answer_enabled else "false",
     }

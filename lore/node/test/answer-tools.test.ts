@@ -6,7 +6,7 @@ import { createAnswerTools } from "../src/answer-tools";
 import { FIXTURE_PUBLICATION_ID } from "./setup";
 
 describe("answer tools", () => {
-  it("reads only publications and validates submitted citations", async () => {
+  it("accepts only citations the agent actually read", async () => {
     let outcome: AnswerOutcome | undefined;
     const tools = createAnswerTools(env, (next) => {
       outcome = next;
@@ -31,5 +31,39 @@ describe("answer tools", () => {
       answer: "grounded",
       cited: [FIXTURE_PUBLICATION_ID]
     });
+  });
+
+  it("rejects an answer until the agent reads a cited publication", async () => {
+    let outcome: AnswerOutcome | undefined;
+    const submit = createAnswerTools(env, (next) => {
+      outcome = next;
+    }).find(({ name }) => name === "submit_answer") as AgentTool | undefined;
+    if (!submit) throw new Error("missing submit_answer");
+    const result = await submit.execute("test", {
+      answer: "ungrounded",
+      cited_publication_ids: [FIXTURE_PUBLICATION_ID]
+    });
+    expect(result.terminate).toBeUndefined();
+    expect(JSON.stringify(result.content)).toContain("read and cite");
+    expect(outcome).toBeUndefined();
+  });
+
+  it("rejects a citation revoked after it was read", async () => {
+    let outcome: AnswerOutcome | undefined;
+    const tools = createAnswerTools(env, (next) => {
+      outcome = next;
+    });
+    const view = tools.find(({ name }) => name === "memory_view") as AgentTool;
+    const submit = tools.find(({ name }) => name === "submit_answer") as AgentTool;
+    await view.execute("test", { public_id: FIXTURE_PUBLICATION_ID });
+    await env.LORE_DB.prepare("DELETE FROM publications WHERE public_id=?1")
+      .bind(FIXTURE_PUBLICATION_ID)
+      .run();
+    const result = await submit.execute("test", {
+      answer: "stale",
+      cited_publication_ids: [FIXTURE_PUBLICATION_ID]
+    });
+    expect(result.terminate).toBeUndefined();
+    expect(outcome).toBeUndefined();
   });
 });
