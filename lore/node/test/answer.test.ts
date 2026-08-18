@@ -6,7 +6,16 @@ import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/
 import { env, exports } from "cloudflare:workers";
 import { generatePrivateKey, privateKeyToAccount } from "viem/accounts";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
-import { newTicketId } from "../src/answer";
+import {
+  createTicket,
+  DEADLINE_MS,
+  ensureAnswerSchema,
+  newTicketId,
+  persistOutcome,
+  RESULT_GRACE_MS,
+  ticketResult
+} from "../src/answer";
+import type { Telemetry } from "../src/answer";
 import { mockFacilitator } from "./facilitator";
 import { FIXTURE_PUBLICATION_ID } from "./setup";
 
@@ -225,5 +234,83 @@ describe("answer (paid) and result", () => {
     } finally {
       await client.close();
     }
+  });
+});
+
+describe("the grace-period crash-net race against a real completion", () => {
+  const TELEMETRY: Telemetry = {
+    model: "claude-opus-5",
+    inputTokens: 100,
+    outputTokens: 50,
+    costUsd: 0.01,
+    toolCalls: 1
+  };
+
+  beforeAll(async () => {
+    await ensureAnswerSchema(env.LORE_DB);
+  });
+
+  async function backdateCreatedAt(ticketId: string): Promise<void> {
+    await env.LORE_DB.prepare("UPDATE answer_tickets SET created_at=?2 WHERE ticket_id=?1")
+      .bind(ticketId, new Date(Date.now() - DEADLINE_MS - RESULT_GRACE_MS - 1_000).toISOString())
+      .run();
+  }
+
+  it("does not resurrect a ticket the grace-period sweep already finalized", async () => {
+    const ticketId = await createTicket(env, "raced question", ANSWER_PRICE);
+    await backdateCreatedAt(ticketId);
+
+    const swept = await ticketResult(env, ticketId);
+    expect(swept.status).toBe("failed");
+
+    await persistOutcome(
+      env,
+      ticketId,
+      { status: "complete", answer: "Arrived too late", cited: [] },
+      TELEMETRY,
+      Date.now()
+    );
+
+    const row = await env.LORE_DB.prepare(
+      "SELECT status FROM answer_tickets WHERE ticket_id = ?1"
+    )
+      .bind(ticketId)
+      .first<{ status: string }>();
+    expect(row?.status).toBe("failed");
+  });
+
+  it("reports the real outcome instead of a hardcoded failure when the agent finishes mid-sweep", async () => {
+    const ticketId = await createTicket(env, "raced question 2", ANSWER_PRICE);
+    await backdateCreatedAt(ticketId);
+
+    const realPrepare = env.LORE_DB.prepare.bind(env.LORE_DB);
+    vi.spyOn(env.LORE_DB, "prepare").mockImplementation((sql: string) => {
+      const stmt = realPrepare(sql);
+      if (!sql.startsWith("UPDATE answer_tickets SET status='failed'")) return stmt;
+      const realBind = stmt.bind.bind(stmt);
+      stmt.bind = (...bindArgs: unknown[]) => {
+        const bound = realBind(...bindArgs);
+        const realRun = bound.run.bind(bound);
+        bound.run = async () => {
+          // The agent's own run finishes and commits between the sweep's
+          // read and its guarded write — exactly the interleaving the
+          // guard on persistOutcome's UPDATE (and the re-read here) exist for.
+          await persistOutcome(
+            env,
+            ticketId,
+            { status: "complete", answer: "Won the race", cited: [] },
+            TELEMETRY,
+            Date.now()
+          );
+          return realRun();
+        };
+        return bound;
+      };
+      return stmt;
+    });
+
+    const outcome = await ticketResult(env, ticketId);
+    expect(outcome.status).toBe("complete");
+    expect(outcome.answer).toBe("Won the race");
   });
 });

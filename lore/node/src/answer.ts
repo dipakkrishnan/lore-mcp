@@ -8,8 +8,8 @@ const NO_REFUND_NOTE = "No automated refund exists yet; contact the node owner."
 
 const MAX_MODEL_TURNS = 6;
 const MAX_TOOL_CALLS = 15;
-const DEADLINE_MS = 180_000;
-const RESULT_GRACE_MS = 60_000;
+export const DEADLINE_MS = 180_000;
+export const RESULT_GRACE_MS = 60_000;
 export const ESTIMATE_SECONDS = 120;
 
 const DEFAULT_MODEL = "claude-opus-5";
@@ -287,14 +287,14 @@ export async function createTicket(env: Env, question: string, priceUsd: number)
   return ticketId;
 }
 
-interface Finish {
+export interface Finish {
   status: "complete" | "refused" | "failed";
   answer?: string;
   cited?: string[];
   reason?: string;
 }
 
-interface Telemetry {
+export interface Telemetry {
   model: string;
   inputTokens: number;
   outputTokens: number;
@@ -302,7 +302,7 @@ interface Telemetry {
   toolCalls: number;
 }
 
-async function persistOutcome(
+export async function persistOutcome(
   env: Env,
   ticketId: string,
   finish: Finish,
@@ -310,6 +310,11 @@ async function persistOutcome(
   startedMs: number
 ): Promise<void> {
   const now = new Date().toISOString();
+  // Guarded so a ticket the grace-period crash-net in ticketResult already
+  // finalized (e.g. this same agent run overran its own deadline) can't be
+  // silently flipped back — the buyer was already told the earlier status
+  // and stops polling on any terminal reply, so a late unconditional write
+  // here would resurrect a status no one ever sees.
   await env.LORE_DB.batch([
     env.LORE_DB.prepare(
       "INSERT OR REPLACE INTO answers(ticket_id,answer,cited_publication_ids,refusal_reason," +
@@ -329,7 +334,7 @@ async function persistOutcome(
       now
     ),
     env.LORE_DB.prepare(
-      "UPDATE answer_tickets SET status=?2, updated_at=?3 WHERE ticket_id=?1"
+      "UPDATE answer_tickets SET status=?2, updated_at=?3 WHERE ticket_id=?1 AND status='running'"
     ).bind(ticketId, finish.status, now)
   ]);
 }
@@ -456,13 +461,22 @@ export async function ticketResult(env: Env, ticketId: string): Promise<Record<s
   if (row.status === "running") {
     const age = Date.now() - Date.parse(row.created_at);
     if (age > DEADLINE_MS + RESULT_GRACE_MS) {
-      const reason = "the agent did not finish in time";
-      await env.LORE_DB.prepare(
+      const outcome = await env.LORE_DB.prepare(
         "UPDATE answer_tickets SET status='failed', updated_at=?2 WHERE ticket_id=?1 AND status='running'"
       )
         .bind(ticketId, new Date().toISOString())
         .run();
-      return { status: "failed", reason, note: NO_REFUND_NOTE };
+      // The guard can lose the race to a `persistOutcome` call that finished
+      // this same ticket a moment earlier — in that case zero rows changed,
+      // and the ticket's real terminal status is whatever persistOutcome
+      // wrote, not "failed". Re-read and report the truth instead of the
+      // crash-net's assumption.
+      if (!outcome.meta.changes) return ticketResult(env, ticketId);
+      return {
+        status: "failed",
+        reason: "the agent did not finish in time",
+        note: NO_REFUND_NOTE
+      };
     }
     return { status: "running", estimate_seconds: ESTIMATE_SECONDS };
   }
