@@ -10,7 +10,7 @@ blockers: []
 dependencies: []
 github_issue: null
 created: 2026-08-02
-updated: 2026-08-03
+updated: 2026-08-17
 ---
 
 ## Problem
@@ -61,3 +61,12 @@ counts, multi-id demand, and seller pricing effort" — evidence that doesn't
 exist yet with no live buyers against a standing deployment. Left `in-review`
 rather than promoted; revisit once `MON-008`/`XC-008` are producing real usage
 data.
+
+**2026-08-17 — pulled onto the answer-tier critical path.** `MCP-003` (now the
+agentic answer tier, `docs/answer-tier.md`) lists this item as a blocker: an
+answer is backed by a 5–15-call agent loop whose inference cost the seller
+pays, so it cannot inherit the single per-publication `PRICE_USD` — at the
+current $0.01 it would be underwater. Minimum decision this item now owes
+before `MCP-003` ships: a separate `answer_price_usd`, set by the owner, with
+per-answer cost telemetry (stored on each answer) proving price clears cost.
+The broader bundle/per-publication questions can still wait for POC evidence.
