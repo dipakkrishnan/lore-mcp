@@ -28,15 +28,11 @@ owner's experience, only the material behind it.
 
 Full design: `docs/answer-tier.md`. Summary of the decided shape:
 
-- **A real agent, not a single prompt.** A tool-calling agent on the
-  Cloudflare Agents SDK (Durable Object — the `agents` package the Worker
-  already uses), given a read-only **memory-view toolset** over D1:
+- **A real agent, not a single prompt.** Pi core runs inside the Cloudflare
+  `McpAgent` scheduled task with a read-only **memory-view toolset** over D1:
   `memory_view(public_id)` and `memory_search(query)`. The catalog is included
-  in the initial prompt. Loop: coverage check →
-  gather (multi-hop) → draft in the owner's voice → self-critique → cite.
-  Budgets (tool calls, model turns, wall clock, cost) enforced in code. No
-  container or filesystem at this tier; Workflows/Containers are future tiers
-  behind the same contract.
+  in the initial prompt. Six model turns and a three-minute deadline bound the
+  run. No container, filesystem, or coding-agent CLI is present at this tier.
 - **Memory boundary (hard constraint, unchanged):** the answer-time agent
   reads approved publications only — never private memories. Buyers are
   adversarial strangers paying pennies per question; the read boundary is
@@ -47,12 +43,10 @@ Full design: `docs/answer-tier.md`. Summary of the decided shape:
   submission, and returns a ticket; `result(ticket)` is a free idempotent poll.
   `discover` advertises the answer price and retention disclosure, and the
   buyer judges teaser coverage without charging the seller for a model call.
-- **Data model** (see design doc §4): `answer_tickets` (verbatim question,
-  price, status), `answers` (text, validated citations, and per-answer
-  model/token/cost telemetry), and
-  node settings for `persona_preamble` + `answer_price_usd` +
-  `answer_enabled`. The question log doubles as the owner's demand signal
-  for what to publish next.
+- **Data model** (see design doc §4): one `answer_jobs` row holds the verbatim
+  question, price, status, answer/refusal, validated citations, model, tokens,
+  `cost_usd`, tool calls, duration, and timestamps. Node settings hold
+  `persona_preamble`, `answer_price_usd`, and `answer_enabled`.
 
 ## Acceptance criteria
 

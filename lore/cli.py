@@ -99,22 +99,14 @@ def parser() -> argparse.ArgumentParser:
         "amount", nargs="?", type=float, help="USD per publication; use 0 for free"
     )
     answer = commands.add_parser(
-        "answer", help="configure the paid answer tier (persona, price, on/off)"
+        "answer", help="enable or disable the paid answer tier"
     )
-    answer_commands = answer.add_subparsers(dest="answer_command")
-    answer_price_parser = answer_commands.add_parser(
-        "price", help="set the per-answer price (distinct from the publication price)"
+    answer_commands = answer.add_subparsers(dest="answer_command", required=True)
+    answer_on = answer_commands.add_parser(
+        "on", help="approve a persona, set a price, and enable"
     )
-    answer_price_parser.add_argument(
-        "amount", nargs="?", type=float, help="USD per answer; must be positive"
-    )
-    answer_persona_parser = answer_commands.add_parser(
-        "persona", help="review and approve the public persona preamble from a file"
-    )
-    answer_persona_parser.add_argument("file", help="text file holding the persona")
-    answer_commands.add_parser(
-        "on", help="enable the answer tier (needs an approved persona and a price)"
-    )
+    answer_on.add_argument("file", help="text file holding the public persona")
+    answer_on.add_argument("price", type=float, help="USD per answer; must be positive")
     answer_commands.add_parser("off", help="disable the answer tier")
     answer_economics_parser = answer_commands.add_parser(
         "economics",
@@ -208,17 +200,11 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "price":
             return price(args.amount)
         if args.command == "answer":
-            if args.answer_command == "price":
-                return answer_price(args.amount)
-            if args.answer_command == "persona":
-                return answer_persona(args.file)
             if args.answer_command == "on":
-                return answer_toggle(True)
-            if args.answer_command == "off":
-                return answer_toggle(False)
+                return answer_enable(args.file, args.price)
             if args.answer_command == "economics":
                 return answer_economics(args.worker_dir)
-            return answer_show()
+            return answer_disable()
         if args.command == "serve":
             from .mcp import main as serve
 
@@ -302,9 +288,8 @@ def manual() -> int:
   6. lore price [USD]
      Show or set the advertised price per publication.
 
-  6b. lore answer [price <USD> | persona <file> | on | off]
-     Configure the paid answer tier: approve the public persona, set the
-     per-answer price, and switch it on. Ships on the next `lore push`.
+  6b. lore answer on <persona-file> <price> | off
+     Enable the paid answer tier or switch it off. Ships on the next `lore push`.
 
   7. lore status
      Check imports, the private library, active publications, and price.
@@ -537,53 +522,14 @@ def price(amount: float | None) -> int:
     return 0
 
 
-def answer_show() -> int:
-    with Store() as store:
-        settings = store.answer_settings()
-    print(f"Answer tier: {'enabled' if settings.answer_enabled else 'disabled'}")
-    print(
-        "Answer price: "
-        + (
-            "not set"
-            if settings.answer_price_usd <= 0
-            else f"${settings.answer_price_usd:.2f} per answer"
-        )
-    )
-    print(
-        f"Persona: {'approved' if settings.persona_preamble.strip() else 'not approved'}"
-    )
-    if settings.answer_enabled:
-        muted("The deployed node picks up changes on the next `lore push`.")
-    return 0
-
-
-def answer_price(amount: float | None) -> int:
-    with Store() as store:
-        if amount is None:
-            current = store.answer_settings().answer_price_usd
-            print("not set" if current <= 0 else f"${current:.2f} per answer")
-            return 0
-        if not math.isfinite(amount) or amount <= 0:
-            raise ValueError(
-                "the answer price must be a positive number — an answer runs a "
-                "model loop the node pays for, so free answers lose money"
-            )
-        store.set_setting("answer_price_usd", round(amount, 6))
-    success(f"Answer price set to ${amount:.2f}")
-    muted(
-        "Each answer costs real model inference. Ship it with `lore push`, then "
-        "run `lore answer economics` after a few real answers to confirm this "
-        "price actually clears cost."
-    )
-    return 0
-
-
-def answer_persona(path: str) -> int:
+def answer_enable(path: str, price: float) -> int:
     if not _interactive():
         raise ValueError(
             "persona approval needs an attended interactive terminal; "
             "piped and background approval is disabled"
         )
+    if not math.isfinite(price) or price <= 0:
+        raise ValueError("the answer price must be a positive number")
     text = Path(path).read_text(encoding="utf-8").strip()
     if not text:
         raise ValueError("the persona file is empty; nothing to approve")
@@ -598,23 +544,20 @@ def answer_persona(path: str) -> int:
         return 0
     with Store() as store:
         store.set_setting("persona_preamble", text)
-    success("Persona approved")
-    muted("Ship it with `lore push`.")
+        store.set_setting("answer_price_usd", round(price, 6))
+        store.set_setting("answer_enabled", True)
+    success(f"Answer tier enabled at ${price:.2f} per answer")
+    muted(
+        "Ship it with `lore push`, then run `lore answer economics` after a few "
+        "real answers to confirm this price actually clears cost."
+    )
     return 0
 
 
-def answer_toggle(enabled: bool) -> int:
+def answer_disable() -> int:
     with Store() as store:
-        if enabled:
-            settings = store.answer_settings()
-            if not settings.persona_preamble.strip():
-                raise ValueError(
-                    "no approved persona; run `lore answer persona <file>` first"
-                )
-            if settings.answer_price_usd <= 0:
-                raise ValueError("no answer price; run `lore answer price <USD>` first")
-        store.set_setting("answer_enabled", enabled)
-    success(f"Answer tier {'enabled' if enabled else 'disabled'}")
+        store.set_setting("answer_enabled", False)
+    success("Answer tier disabled")
     muted("The deployed node picks up the change on the next `lore push`.")
     return 0
 
@@ -624,7 +567,7 @@ def answer_economics(worker_dir: str) -> int:
 
     MON-009's minimum bar for shipping the answer tier: a positive price alone
     proves nothing — the agent loop's inference cost is real money the owner
-    pays, so the price has to actually clear it (docs/answer-tier.md ยง8).
+    pays, so the price has to actually clear it (docs/answer-tier.md §8).
     """
     import subprocess
 

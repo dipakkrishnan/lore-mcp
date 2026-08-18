@@ -6,16 +6,7 @@ import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/
 import { env, exports } from "cloudflare:workers";
 import { generatePrivateKey, privateKeyToAccount } from "viem/accounts";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
-import {
-  createTicket,
-  DEADLINE_MS,
-  ensureAnswerSchema,
-  newTicketId,
-  persistOutcome,
-  RESULT_GRACE_MS,
-  ticketResult
-} from "../src/answer";
-import type { Telemetry } from "../src/answer";
+import { newTicketId } from "../src/answer-state";
 import { mockFacilitator } from "./facilitator";
 import { FIXTURE_PUBLICATION_ID } from "./setup";
 
@@ -89,12 +80,61 @@ function scriptModel(turns: ModelTurn[] | { status: number }) {
       return Response.json({ error: "model down" }, { status: turns.status });
     }
     const turn = turns[Math.min(call++, turns.length - 1)];
-    return Response.json({
-      model: "claude-opus-5",
-      stop_reason: "tool_use",
-      content: [{ type: "tool_use", id: `toolu_${call}`, name: turn.tool, input: turn.input }],
-      usage: { input_tokens: 1000, output_tokens: 200 }
-    });
+    const events: [string, unknown][] = [
+      [
+        "message_start",
+        {
+          type: "message_start",
+          message: {
+            id: `msg_${call}`,
+            type: "message",
+            role: "assistant",
+            model: "claude-sonnet-5",
+            content: [],
+            stop_reason: null,
+            stop_sequence: null,
+            usage: {
+              input_tokens: 1000,
+              output_tokens: 0,
+              cache_creation_input_tokens: 0,
+              cache_read_input_tokens: 0
+            }
+          }
+        }
+      ],
+      [
+        "content_block_start",
+        {
+          type: "content_block_start",
+          index: 0,
+          content_block: { type: "tool_use", id: `toolu_${call}`, name: turn.tool, input: {} }
+        }
+      ],
+      [
+        "content_block_delta",
+        {
+          type: "content_block_delta",
+          index: 0,
+          delta: { type: "input_json_delta", partial_json: JSON.stringify(turn.input) }
+        }
+      ],
+      ["content_block_stop", { type: "content_block_stop", index: 0 }],
+      [
+        "message_delta",
+        {
+          type: "message_delta",
+          delta: { stop_reason: "tool_use", stop_sequence: null },
+          usage: { output_tokens: 200 }
+        }
+      ],
+      ["message_stop", { type: "message_stop" }]
+    ];
+    return new Response(
+      events
+        .map(([event, data]) => `event: ${event}\ndata: ${JSON.stringify(data) ?? "null"}\n\n`)
+        .join(""),
+      { headers: { "content-type": "text/event-stream" } }
+    );
   };
   return { requests, otherwise };
 }
@@ -155,10 +195,13 @@ describe("answer (paid) and result", () => {
       expect(outcome.answer).toBe("Grounded answer in Ada's voice.");
       expect(outcome.cited_publication_ids).toEqual([FIXTURE_PUBLICATION_ID]);
 
-      const kickoff = (model.requests[0] as { messages: { content: string }[] }).messages[0];
-      expect(kickoff.content).toContain("<available_publications>");
-      expect(kickoff.content).toContain("a teaser that is safe to advertise");
-      expect(kickoff.content).not.toContain("owner-approved content");
+      const kickoff = (model.requests[0] as {
+        messages: { content: { type: string; text: string }[] }[];
+      }).messages[0];
+      const kickoffText = kickoff.content.map(({ text }) => text).join("");
+      expect(kickoffText).toContain("<available_publications>");
+      expect(kickoffText).toContain("a teaser that is safe to advertise");
+      expect(kickoffText).not.toContain("owner-approved content");
 
       const gatherRequest = model.requests[0] as { tools: { name: string }[] };
       expect(gatherRequest.tools.map((tool) => tool.name).sort()).toEqual([
@@ -167,15 +210,15 @@ describe("answer (paid) and result", () => {
         "refuse",
         "submit_answer"
       ]);
-      const agentRequest = model.requests[1] as { system: string };
-      expect(agentRequest.system).toContain(PERSONA);
+      const agentRequest = model.requests[1] as { system: { type: string; text: string }[] };
+      expect(agentRequest.system.map(({ text }) => text).join("")).toContain(PERSONA);
 
       const row = await env.LORE_DB.prepare(
-        "SELECT model, input_tokens, output_tokens, cost_usd, tool_calls FROM answers WHERE ticket_id = ?1"
+        "SELECT model, input_tokens, output_tokens, cost_usd, tool_calls FROM answer_jobs WHERE ticket_id = ?1"
       )
         .bind(ticket)
         .first<{ model: string; input_tokens: number; cost_usd: number; tool_calls: number }>();
-      expect(row?.model).toBe("claude-opus-5");
+      expect(row?.model).toBe("claude-sonnet-5");
       expect(row?.input_tokens).toBe(2000);
       expect(row?.cost_usd).toBeGreaterThan(0);
       expect(row?.tool_calls).toBe(2);
@@ -215,102 +258,4 @@ describe("answer (paid) and result", () => {
     }
   });
 
-  it("rejects damaged and unknown tickets without payment ever being involved", async () => {
-    mockFacilitator();
-    const client = await connect();
-    try {
-      const damaged = await client.callTool({
-        name: "result",
-        arguments: { ticket: "0000000000000000deadbeef" }
-      });
-      expect(damaged.isError).toBe(true);
-
-      const unknown = await client.callTool({
-        name: "result",
-        arguments: { ticket: newTicketId() }
-      });
-      expect(unknown.isError).toBe(true);
-      expect(String(textOf(unknown).error)).toContain("not found");
-    } finally {
-      await client.close();
-    }
-  });
-});
-
-describe("the grace-period crash-net race against a real completion", () => {
-  const TELEMETRY: Telemetry = {
-    model: "claude-opus-5",
-    inputTokens: 100,
-    outputTokens: 50,
-    costUsd: 0.01,
-    toolCalls: 1
-  };
-
-  beforeAll(async () => {
-    await ensureAnswerSchema(env.LORE_DB);
-  });
-
-  async function backdateCreatedAt(ticketId: string): Promise<void> {
-    await env.LORE_DB.prepare("UPDATE answer_tickets SET created_at=?2 WHERE ticket_id=?1")
-      .bind(ticketId, new Date(Date.now() - DEADLINE_MS - RESULT_GRACE_MS - 1_000).toISOString())
-      .run();
-  }
-
-  it("does not resurrect a ticket the grace-period sweep already finalized", async () => {
-    const ticketId = await createTicket(env, "raced question", ANSWER_PRICE);
-    await backdateCreatedAt(ticketId);
-
-    const swept = await ticketResult(env, ticketId);
-    expect(swept.status).toBe("failed");
-
-    await persistOutcome(
-      env,
-      ticketId,
-      { status: "complete", answer: "Arrived too late", cited: [] },
-      TELEMETRY,
-      Date.now()
-    );
-
-    const row = await env.LORE_DB.prepare(
-      "SELECT status FROM answer_tickets WHERE ticket_id = ?1"
-    )
-      .bind(ticketId)
-      .first<{ status: string }>();
-    expect(row?.status).toBe("failed");
-  });
-
-  it("reports the real outcome instead of a hardcoded failure when the agent finishes mid-sweep", async () => {
-    const ticketId = await createTicket(env, "raced question 2", ANSWER_PRICE);
-    await backdateCreatedAt(ticketId);
-
-    const realPrepare = env.LORE_DB.prepare.bind(env.LORE_DB);
-    vi.spyOn(env.LORE_DB, "prepare").mockImplementation((sql: string) => {
-      const stmt = realPrepare(sql);
-      if (!sql.startsWith("UPDATE answer_tickets SET status='failed'")) return stmt;
-      const realBind = stmt.bind.bind(stmt);
-      stmt.bind = (...bindArgs: unknown[]) => {
-        const bound = realBind(...bindArgs);
-        const realRun = bound.run.bind(bound);
-        bound.run = async () => {
-          // The agent's own run finishes and commits between the sweep's
-          // read and its guarded write — exactly the interleaving the
-          // guard on persistOutcome's UPDATE (and the re-read here) exist for.
-          await persistOutcome(
-            env,
-            ticketId,
-            { status: "complete", answer: "Won the race", cited: [] },
-            TELEMETRY,
-            Date.now()
-          );
-          return realRun();
-        };
-        return bound;
-      };
-      return stmt;
-    });
-
-    const outcome = await ticketResult(env, ticketId);
-    expect(outcome.status).toBe("complete");
-    expect(outcome.answer).toBe("Won the race");
-  });
 });

@@ -43,20 +43,19 @@ class ParserTest(unittest.TestCase):
             (["help"], {"command": "help"}),
             (["price", "1.5"], {"amount": 1.5}),
             (
-                ["answer", "price", "0.5"],
-                {"command": "answer", "answer_command": "price", "amount": 0.5},
+                ["answer", "on", "p.txt", "0.5"],
+                {
+                    "command": "answer",
+                    "answer_command": "on",
+                    "file": "p.txt",
+                    "price": 0.5,
+                },
             ),
-            (
-                ["answer", "persona", "p.txt"],
-                {"answer_command": "persona", "file": "p.txt"},
-            ),
-            (["answer", "on"], {"answer_command": "on"}),
             (["answer", "off"], {"answer_command": "off"}),
             (
                 ["answer", "economics", "--worker-dir", "x"],
                 {"answer_command": "economics", "worker_dir": "x"},
             ),
-            (["answer"], {"command": "answer", "answer_command": None}),
             (["serve", "--transport", "http"], {"transport": "http", "port": 8765}),
             (
                 ["node", "deploy", "--wallet", "0xabc"],
@@ -94,6 +93,7 @@ class ParserTest(unittest.TestCase):
             ["serve", "--transport", "grpc"],
             ["sync", "--source", "notion"],
             ["node"],  # `node` alone does nothing; a subcommand is required
+            ["answer"],
         ):
             with self.subTest(argv=argv):
                 with captured(), patch.object(sys, "stderr", StringIO()):
@@ -125,11 +125,8 @@ class MainDispatchTest(LoreTestCase):
             (["help"], "manual", ()),
             (["price", "2"], "price", (2.0,)),
             (["price"], "price", (None,)),
-            (["answer", "price", "2"], "answer_price", (2.0,)),
-            (["answer", "persona", "p.txt"], "answer_persona", ("p.txt",)),
-            (["answer", "on"], "answer_toggle", (True,)),
-            (["answer", "off"], "answer_toggle", (False,)),
-            (["answer"], "answer_show", ()),
+            (["answer", "on", "p.txt", "2"], "answer_enable", ("p.txt", 2.0)),
+            (["answer", "off"], "answer_disable", ()),
             (["blueprint", "apply", "f.json"], "blueprint_apply", ("f.json",)),
             (["blueprint", "show"], "blueprint_show", ()),
             (["blueprint"], "blueprint_show", ()),
@@ -534,50 +531,19 @@ class AnswerCommandTest(LoreTestCase):
         path.write_text(text, encoding="utf-8")
         return str(path)
 
-    def approve_persona(self) -> None:
-        with (
-            patch.object(cli, "_interactive", return_value=True),
-            patch.object(cli, "confirm", return_value=True),
-            captured(),
-        ):
-            cli.answer_persona(self.persona_file())
-
-    def test_show_reports_disabled_until_everything_is_configured(self) -> None:
-        with captured() as output:
-            self.assertEqual(cli.answer_show(), 0)
-        text = output.getvalue()
-        self.assertIn("Answer tier: disabled", text)
-        self.assertIn("Answer price: not set", text)
-        self.assertIn("Persona: not approved", text)
-
-    def test_answer_price_is_its_own_setting_and_must_be_positive(self) -> None:
-        with captured() as output:
-            self.assertEqual(cli.answer_price(0.5), 0)
-        self.assertIn("$0.50", output.getvalue())
-        with Store() as store:
-            self.assertEqual(store.setting("answer_price_usd"), 0.5)
-            self.assertIsNone(store.setting("price_usd", None))
-        with captured() as output:
-            cli.answer_price(None)
-        self.assertIn("$0.50 per answer", output.getvalue())
-        for amount in (0.0, -1.0, float("nan"), float("inf")):
-            with self.subTest(amount=amount):
-                with self.assertRaisesRegex(ValueError, "positive"):
-                    cli.answer_price(amount)
-
-    def test_persona_approval_needs_an_attended_terminal(self) -> None:
+    def test_enabling_needs_an_attended_terminal(self) -> None:
         with patch.object(cli, "_interactive", return_value=False):
             with self.assertRaisesRegex(ValueError, "attended interactive terminal"):
-                cli.answer_persona(self.persona_file())
+                cli.answer_enable(self.persona_file(), 0.5)
 
-    def test_persona_approval_shows_the_text_and_saves_only_on_yes(self) -> None:
+    def test_enabling_approves_persona_price_and_switch_together(self) -> None:
         path = self.persona_file()
         with (
             patch.object(cli, "_interactive", return_value=True),
             patch.object(cli, "confirm", return_value=False),
             captured() as output,
         ):
-            self.assertEqual(cli.answer_persona(path), 0)
+            self.assertEqual(cli.answer_enable(path, 0.5), 0)
         self.assertIn("Answer as Ada", output.getvalue())
         with Store() as store:
             self.assertIsNone(store.setting("persona_preamble", None))
@@ -587,39 +553,31 @@ class AnswerCommandTest(LoreTestCase):
             patch.object(cli, "confirm", return_value=True),
             captured() as output,
         ):
-            self.assertEqual(cli.answer_persona(path), 0)
-        self.assertIn("Persona approved", output.getvalue())
+            self.assertEqual(cli.answer_enable(path, 0.5), 0)
+        self.assertIn("enabled at $0.50", output.getvalue())
         with Store() as store:
-            self.assertEqual(
-                store.setting("persona_preamble"),
-                "Answer as Ada: terse, evidence-first.",
-            )
+            settings = store.answer_settings()
+        self.assertEqual(
+            settings.persona_preamble, "Answer as Ada: terse, evidence-first."
+        )
+        self.assertEqual(settings.answer_price_usd, 0.5)
+        self.assertTrue(settings.answer_enabled)
 
-    def test_an_empty_persona_file_is_refused(self) -> None:
+    def test_invalid_price_or_empty_persona_is_refused(self) -> None:
+        for amount in (0.0, -1.0, float("nan"), float("inf")):
+            with self.subTest(amount=amount):
+                with (
+                    patch.object(cli, "_interactive", return_value=True),
+                    self.assertRaisesRegex(ValueError, "positive"),
+                ):
+                    cli.answer_enable(self.persona_file(), amount)
         with patch.object(cli, "_interactive", return_value=True):
             with self.assertRaisesRegex(ValueError, "empty"):
-                cli.answer_persona(self.persona_file("   \n"))
-
-    def test_enabling_requires_a_persona_and_a_price_in_that_order(self) -> None:
-        with self.assertRaisesRegex(ValueError, "lore answer persona"):
-            cli.answer_toggle(True)
-        self.approve_persona()
-        with self.assertRaisesRegex(ValueError, "lore answer price"):
-            cli.answer_toggle(True)
-        with captured():
-            cli.answer_price(0.5)
-        with captured() as output:
-            self.assertEqual(cli.answer_toggle(True), 0)
-        self.assertIn("enabled", output.getvalue())
-        with Store() as store:
-            self.assertTrue(store.answer_settings().answer_enabled)
-        with captured() as output:
-            cli.answer_show()
-        self.assertIn("enabled", output.getvalue())
+                cli.answer_enable(self.persona_file("   \n"), 0.5)
 
     def test_disabling_needs_nothing_and_reminds_about_push(self) -> None:
         with captured() as output:
-            self.assertEqual(cli.answer_toggle(False), 0)
+            self.assertEqual(cli.answer_disable(), 0)
         self.assertIn("disabled", output.getvalue())
         self.assertIn("lore push", output.getvalue())
 

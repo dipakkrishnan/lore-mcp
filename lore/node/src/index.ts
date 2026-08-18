@@ -9,10 +9,10 @@ import {
   ensureAnswerSchema,
   manifest,
   readAnswerSettings,
-  runAnswer,
   ticketResult,
   validPublicId
-} from "./answer.js";
+} from "./answer-state.js";
+import { runAnswer } from "./answer.js";
 import { facilitator, network, networkLabel } from "./network.js";
 import { PRICE_USD } from "./price.js";
 import { payTo } from "./wallet.js";

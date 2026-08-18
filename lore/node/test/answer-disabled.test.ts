@@ -41,13 +41,8 @@ describe("answer tier disabled (the default)", () => {
       const now = new Date().toISOString();
       const ticket = "0000000000000000fcdb4b42";
       await env.LORE_DB.prepare(
-        "INSERT INTO answer_tickets(ticket_id,question,price_usd,status,created_at,updated_at) " +
-          "VALUES (?1,'question',0.25,'complete',?2,?2)"
-      )
-        .bind(ticket, now)
-        .run();
-      await env.LORE_DB.prepare(
-        "INSERT INTO answers(ticket_id,answer,completed_at) VALUES (?1,'prior answer',?2)"
+        "INSERT INTO answer_jobs(ticket_id,question,price_usd,status,answer,created_at,updated_at) " +
+          "VALUES (?1,'question',0.25,'complete','prior answer',?2,?2)"
       )
         .bind(ticket, now)
         .run();

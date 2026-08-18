@@ -138,7 +138,7 @@ class AnswerSettings(BaseModel):
     answer_enabled: bool = False
 
     @model_validator(mode="after")
-    def _enabled_needs_persona_and_price(self) -> "AnswerSettings":
+    def enabled_needs_persona_and_price(self) -> "AnswerSettings":
         if self.answer_enabled and not (
             self.persona_preamble.strip() and self.answer_price_usd > 0
         ):
