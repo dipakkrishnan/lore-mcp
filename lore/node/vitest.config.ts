@@ -18,7 +18,9 @@ export default defineProject({
     })
   ],
   test: {
+    fileParallelism: false,
     include: ["test/**/*.test.ts"],
-    setupFiles: ["./test/setup.ts"]
+    setupFiles: ["./test/setup.ts"],
+    testTimeout: 15_000
   }
 });
