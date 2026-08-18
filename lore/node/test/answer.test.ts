@@ -157,7 +157,7 @@ describe("answer (paid) and result", () => {
   it("sells a ticket, runs the agent in the owner's voice, and validates citations", async () => {
     const bogus = newTicketId(); // structurally valid, but no such publication
     const model = scriptModel([
-      { tool: "read_publication", input: { id: FIXTURE_PUBLICATION_ID } },
+      { tool: "memory_view", input: { id: FIXTURE_PUBLICATION_ID } },
       {
         tool: "submit_answer",
         input: {
@@ -176,7 +176,15 @@ describe("answer (paid) and result", () => {
       // Only citations naming a real publication survive (spec §4).
       expect(outcome.cited_publication_ids).toEqual([FIXTURE_PUBLICATION_ID]);
 
-      // The agent speaks as the approved persona, over publications only.
+      // The agent speaks as the approved persona, over publications only —
+      // via the two-tool memory view mirroring Claude Code's memory tool.
+      const gatherRequest = model.requests[0] as { tools: { name: string }[] };
+      expect(gatherRequest.tools.map((tool) => tool.name).sort()).toEqual([
+        "memory_search",
+        "memory_view",
+        "refuse",
+        "submit_answer"
+      ]);
       const agentRequest = model.requests[1] as { system: string };
       expect(agentRequest.system).toContain(PERSONA);
 

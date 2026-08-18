@@ -213,24 +213,24 @@ function cost(model: string, inputTokens: number, outputTokens: number): number 
 
 // --- The memory view: the only data access the agent has ---------------------
 
+// Shaped like Claude Code's memory tool: one `view` that lists the library
+// or reads one entry, one `search`. The library is the publications table
+// and nothing else.
 const MEMORY_VIEW_TOOLS: ModelTool[] = [
   {
-    name: "catalog",
-    description: "List every publication: topics, teasers, ids, freshness.",
-    input_schema: { type: "object", properties: {}, additionalProperties: false }
-  },
-  {
-    name: "read_publication",
-    description: "Read one publication's full content by its catalog id.",
+    name: "memory_view",
+    description:
+      "View the publication library. Without an id: list every publication " +
+      "(topics, teasers, ids, freshness). With an id: read that publication's " +
+      "full content.",
     input_schema: {
       type: "object",
       properties: { id: { type: "string" } },
-      required: ["id"],
       additionalProperties: false
     }
   },
   {
-    name: "search_publications",
+    name: "memory_search",
     description: "Search publication titles, teasers, and content for words.",
     input_schema: {
       type: "object",
@@ -271,11 +271,9 @@ const FINISH_TOOLS: ModelTool[] = [
 ];
 
 async function runMemoryView(env: Env, name: string, input: Record<string, unknown>): Promise<string> {
-  if (name === "catalog") {
-    return JSON.stringify(await manifest(env));
-  }
-  if (name === "read_publication") {
+  if (name === "memory_view") {
     const id = asString(input.id);
+    if (!id) return JSON.stringify(await manifest(env));
     if (!validPublicId(id)) return JSON.stringify({ error: "invalid publication id" });
     const row = await env.LORE_DB.prepare(
       "SELECT public_id AS id, title, content, topic, kind FROM publications WHERE public_id = ?1"
@@ -284,7 +282,7 @@ async function runMemoryView(env: Env, name: string, input: Record<string, unkno
       .first();
     return JSON.stringify(row ?? { error: `publication not found: ${id}` });
   }
-  if (name === "search_publications") {
+  if (name === "memory_search") {
     // LIKE, not FTS: the corpus is a handful of rows (spec §5 names FTS as the
     // eventual workhorse; build it when a real corpus outgrows this).
     const needle = `%${asString(input.query).replace(/[%_]/g, " ")}%`;
