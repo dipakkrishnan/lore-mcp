@@ -29,6 +29,10 @@ class ParserTest(unittest.TestCase):
             (["setup", "--yes"], {"command": "setup", "yes": True}),
             (["sync", "--source", "codex"], {"command": "sync", "source": ["codex"]}),
             (["review", "a", "b", "--limit", "3"], {"query": ["a", "b"], "limit": 3}),
+            (
+                ["review", "--all", "discarded"],
+                {"all": "discarded"},
+            ),
             (["search", "x", "--json"], {"json": True, "limit": 20}),
             (["profile", "-", "--no-schedule"], {"path": "-", "no_schedule": True}),
             (
@@ -71,6 +75,7 @@ class ParserTest(unittest.TestCase):
     def test_unknown_values_are_refused_by_the_parser(self) -> None:
         for argv in (
             ["review", "--status", "external"],
+            ["review", "--all", "external"],
             ["serve", "--transport", "grpc"],
             ["sync", "--source", "notion"],
             ["node"],  # `node` alone does nothing; a subcommand is required
@@ -91,7 +96,12 @@ class MainDispatchTest(LoreTestCase):
                 ({"codex", "claude"},),
             ),
             (["sync"], "sync", (None,)),
-            (["review", "a", "b"], "review", ("a b", "private", 0)),
+            (["review", "a", "b"], "review", ("a b", "private", 0, None)),
+            (
+                ["review", "--status", "private", "--all", "discarded"],
+                "review",
+                ("", "private", 0, "discarded"),
+            ),
             (["search", "a", "--limit", "5"], "search", ("a", None, 5, False)),
             (["profile", "p.json"], "profile", ("p.json", True)),
             (["profile", "p.json", "--no-schedule"], "profile", ("p.json", False)),
@@ -314,6 +324,49 @@ class ReviewTest(LoreTestCase):
         with self.assertRaisesRegex(ValueError, "limit cannot be negative"):
             cli.review("", "private", -1)
 
+    def test_all_status_bulk_discards_a_filtered_set_without_prompting(self) -> None:
+        for title in ("First lesson", "Second lesson", "Third lesson"):
+            self.seed_memory(title)
+        with patch.object(cli, "ask") as ask, captured() as output:
+            self.assertEqual(cli.review("", "private", 0, "discarded"), 0)
+        ask.assert_not_called()
+        self.assertIn("Marked 3 memories as discarded", output.getvalue())
+        with Store() as store:
+            self.assertEqual(store.counts(), {"private": 0, "discarded": 3})
+
+    def test_all_status_reports_only_rows_actually_changed(self) -> None:
+        self.seed_memory("Already discarded", "discarded")
+        self.seed_memory("Still private")
+        with captured() as output:
+            # Filtering on status=discarded means only the first memory matches;
+            # marking it discarded again should change nothing.
+            self.assertEqual(cli.review("", "discarded", 0, "discarded"), 0)
+        self.assertIn("Marked 0 memories as discarded", output.getvalue())
+
+    def test_all_status_on_an_empty_match_says_so_and_marks_nothing(self) -> None:
+        with patch.object(cli, "ask") as ask, captured() as output:
+            self.assertEqual(cli.review("", "private", 0, "discarded"), 0)
+        ask.assert_not_called()
+        self.assertIn("No private memories to review", output.getvalue())
+
+    def test_apply_all_remaining_from_inside_the_interactive_loop(self) -> None:
+        for title in ("First lesson", "Second lesson", "Third lesson"):
+            self.seed_memory(title)
+        # Keep the first card individually, then discard everything left.
+        with patch.object(cli, "ask", side_effect=["k", "D"]), captured() as output:
+            self.assertEqual(cli.review(), 0)
+        self.assertIn("Marked 2 memories as discarded", output.getvalue())
+        with Store() as store:
+            self.assertEqual(store.counts(), {"private": 1, "discarded": 2})
+
+    def test_apply_all_remaining_reports_only_rows_actually_changed(self) -> None:
+        self.seed_memory("Only lesson")
+        with patch.object(cli, "ask", return_value="K"), captured() as output:
+            self.assertEqual(cli.review(), 0)
+        # It was already private, so keeping it private "for all remaining"
+        # changes nothing — the count must say so, not report the match size.
+        self.assertIn("Marked 0 memories as private", output.getvalue())
+
 
 class SearchTest(LoreTestCase):
     def test_search_prints_cards_or_json_and_says_when_there_is_nothing(self) -> None:
@@ -486,6 +539,66 @@ class ProfileTest(LoreTestCase):
         path.write_text(json.dumps(["not", "an", "object"]))
         with self.assertRaisesRegex(ValueError, "valid dictionary"):
             cli.profile(str(path))
+
+    def test_profile_reports_a_failed_schedule_instead_of_a_bare_error(self) -> None:
+        path = self.lore_home / "profile.json"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps({"role": "maintainer", "executor": "claude"}))
+
+        errors = StringIO()
+        with (
+            patch.object(
+                automation,
+                "install",
+                side_effect=OSError("Claude CLI is not installed"),
+            ),
+            patch.object(sys, "stderr", errors),
+        ):
+            self.assertEqual(cli.profile(str(path)), 1)
+
+        report = errors.getvalue()
+        self.assertIn("schedule was not installed", report)
+        self.assertIn("Claude CLI is not installed", report)
+        self.assertIn("which claude", report)
+        # The profile is on disk, so the retry command it points at has something to read.
+        self.assertIn(str(automation.profile_path()), report)
+        self.assertTrue(automation.profile_path().is_file())
+
+    def test_a_blank_executor_reports_a_retry_command_instead_of_crashing(self) -> None:
+        # executor: "" is a valid saved profile (no schedule chosen yet); scheduling
+        # it anyway fails Agent("") before automation.install() is ever reached. The
+        # widened `except` must still catch it rather than let the construction
+        # raise straight past the handler.
+        path = self.lore_home / "profile.json"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps({"role": "maintainer", "executor": ""}))
+
+        errors = StringIO()
+        with patch.object(sys, "stderr", errors):
+            self.assertEqual(cli.profile(str(path)), 1)
+
+        report = errors.getvalue()
+        self.assertIn("schedule was not installed", report)
+        self.assertIn(str(automation.profile_path()), report)
+
+    def test_a_missing_executor_key_reports_a_retry_command_instead_of_crashing(
+        self,
+    ) -> None:
+        # A partial-onboarding profile that never set "executor" comes back from
+        # save_profile()'s exclude_unset=True with no "executor" key at all — distinct
+        # from the blank-string case above. Bare `data["executor"]` raises KeyError,
+        # which the except clause does not catch, escaping past the handler.
+        path = self.lore_home / "profile.json"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps({"role": "maintainer"}))
+
+        errors = StringIO()
+        with patch.object(sys, "stderr", errors):
+            self.assertEqual(cli.profile(str(path)), 1)
+
+        report = errors.getvalue()
+        self.assertIn("schedule was not installed", report)
+        self.assertIn(str(automation.profile_path()), report)
 
 
 class CaptureCommandTest(LoreTestCase):
