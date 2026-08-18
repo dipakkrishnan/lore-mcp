@@ -213,19 +213,21 @@ function cost(model: string, inputTokens: number, outputTokens: number): number 
 
 // --- The memory view: the only data access the agent has ---------------------
 
-// Shaped like Claude Code's memory tool: one `view` that lists the library
-// or reads one entry, one `search`. The library is the publications table
-// and nothing else.
+// Shaped like Claude Code's memory tool: one `view`, one `search`. Both are
+// single-purpose — the library listing is not a tool but context, seeded
+// into the kickoff prompt as an <available_publications> block, so coverage
+// is judged from turn one without a fetch. The library is the publications
+// table and nothing else.
 const MEMORY_VIEW_TOOLS: ModelTool[] = [
   {
     name: "memory_view",
     description:
-      "View the publication library. Without an id: list every publication " +
-      "(topics, teasers, ids, freshness). With an id: read that publication's " +
-      "full content.",
+      "Read one publication's full content by the public_id listed in " +
+      "<available_publications>.",
     input_schema: {
       type: "object",
-      properties: { id: { type: "string" } },
+      properties: { public_id: { type: "string" } },
+      required: ["public_id"],
       additionalProperties: false
     }
   },
@@ -272,8 +274,7 @@ const FINISH_TOOLS: ModelTool[] = [
 
 async function runMemoryView(env: Env, name: string, input: Record<string, unknown>): Promise<string> {
   if (name === "memory_view") {
-    const id = asString(input.id);
-    if (!id) return JSON.stringify(await manifest(env));
+    const id = asString(input.public_id);
     if (!validPublicId(id)) return JSON.stringify({ error: "invalid publication id" });
     const row = await env.LORE_DB.prepare(
       "SELECT public_id AS id, title, content, topic, kind FROM publications WHERE public_id = ?1"
@@ -470,14 +471,16 @@ export async function runAnswer(env: AnswerEnv, ticketId: string): Promise<void>
 
   try {
     const settings = await readAnswerSettings(env.LORE_DB);
+    // The catalog rides the kickoff prompt (the same manifest can_answer and
+    // discover serve), so the coverage check happens from turn one with no
+    // fetch round-trip.
     const catalog = JSON.stringify(await manifest(env));
     const messages: object[] = [
       {
         role: "user",
         content:
-          "Answer this question from a paying buyer.\n\n" +
-          `Question:\n${ticket.question}\n\n` +
-          `Catalog of the publications available to you:\n${catalog}`
+          `<available_publications>\n${catalog}\n</available_publications>\n\n` +
+          `Answer this question from a paying buyer:\n${ticket.question}`
       }
     ];
 

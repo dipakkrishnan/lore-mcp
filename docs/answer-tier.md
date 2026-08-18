@@ -178,19 +178,23 @@ A simple tool-calling agent on the Cloudflare Agents SDK — the `agents`
 package the Worker already uses (`McpAgent` is Durable-Object-backed). No
 container, no filesystem, no CLI: the corpus is a bounded set of D1 rows, so
 the agent gets a **memory-view toolset** over the database, analogous to a
-built-in memory tool — a read-only view, not a general filesystem. It is
-effectively a subagent with two tools, mirroring the memory tool's `view`
-shape (list a directory vs. read a file):
+built-in memory tool — a read-only view, not a general filesystem. The
+catalog itself is context, not a tool: the kickoff **user prompt** carries
+the manifest (the same topic-grouped listing `discover` serves) in an
+`<available_publications>` block, followed by the buyer's question, so the
+coverage check happens from turn one with no fetch round-trip. On top of
+that the agent is effectively a subagent with two single-purpose tools:
 
 | tool | implementation |
 |---|---|
-| `memory_view` | without an id: the manifest query `discover` already runs (topics, teasers, ids, freshness); with a `public_id`: that publication's full row (active publications only — the same rows `get` serves) |
+| `memory_view` | one publication's full row by required `public_id` (active publications only — the same rows `get` serves) |
 | `memory_search` | search over title + content — the vocabulary-gap workhorse |
 
 Loop shape (Messages API calls from the DO; seller's Anthropic key in a
 Worker secret, so the seller pays inference out of revenue):
 
-1. **Coverage check** against the catalog — refuse honestly here, post-payment.
+1. **Coverage check** against the in-context catalog, from turn one — refuse
+   honestly here, post-payment.
 2. **Gather**: search + read the relevant publications (multi-hop; an answer
    may cross-reference several).
 3. **Draft** in the persona voice, citing ids.

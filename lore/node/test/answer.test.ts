@@ -157,7 +157,7 @@ describe("answer (paid) and result", () => {
   it("sells a ticket, runs the agent in the owner's voice, and validates citations", async () => {
     const bogus = newTicketId(); // structurally valid, but no such publication
     const model = scriptModel([
-      { tool: "memory_view", input: { id: FIXTURE_PUBLICATION_ID } },
+      { tool: "memory_view", input: { public_id: FIXTURE_PUBLICATION_ID } },
       {
         tool: "submit_answer",
         input: {
@@ -176,8 +176,16 @@ describe("answer (paid) and result", () => {
       // Only citations naming a real publication survive (spec §4).
       expect(outcome.cited_publication_ids).toEqual([FIXTURE_PUBLICATION_ID]);
 
+      // The catalog is context, not a tool: the kickoff user message carries
+      // the manifest in an <available_publications> block (teasers, never
+      // content), so coverage is judged from turn one without a fetch.
+      const kickoff = (model.requests[0] as { messages: { content: string }[] }).messages[0];
+      expect(kickoff.content).toContain("<available_publications>");
+      expect(kickoff.content).toContain("a teaser that is safe to advertise");
+      expect(kickoff.content).not.toContain("owner-approved content");
+
       // The agent speaks as the approved persona, over publications only —
-      // via the two-tool memory view mirroring Claude Code's memory tool.
+      // via the two single-purpose memory tools.
       const gatherRequest = model.requests[0] as { tools: { name: string }[] };
       expect(gatherRequest.tools.map((tool) => tool.name).sort()).toEqual([
         "memory_search",
