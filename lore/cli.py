@@ -527,7 +527,6 @@ def price(amount: float | None) -> int:
 
 
 def answer_show() -> int:
-    """Print the answer tier's configuration state."""
     with Store() as store:
         settings = store.answer_settings()
     print(f"Answer tier: {'enabled' if settings.answer_enabled else 'disabled'}")
@@ -548,7 +547,6 @@ def answer_show() -> int:
 
 
 def answer_price(amount: float | None) -> int:
-    """Show or set the per-answer price, the answer tier's own price (MON-009)."""
     with Store() as store:
         if amount is None:
             current = store.answer_settings().answer_price_usd
@@ -569,12 +567,6 @@ def answer_price(amount: float | None) -> int:
 
 
 def answer_persona(path: str) -> int:
-    """Review and approve the public persona preamble.
-
-    The persona is a *disclosed* artifact: it ships to the edge and shapes
-    every paid answer. It goes through the same attended approval gate as a
-    publication, and it is never derived from the private blueprint.
-    """
     if not _interactive():
         raise ValueError(
             "persona approval needs an attended interactive terminal; "
@@ -600,7 +592,6 @@ def answer_persona(path: str) -> int:
 
 
 def answer_toggle(enabled: bool) -> int:
-    """Enable or disable the answer tier; enabling revalidates its inputs."""
     with Store() as store:
         if enabled:
             settings = store.answer_settings()
@@ -793,9 +784,6 @@ def _push_sql(publications: list[Publication], answer: AnswerSettings) -> str:
         f"{quote(p.topic)},{quote(p.teaser)},{quote(p.updated_at)});"
         for p in publications
     )
-    # The answer tier's settings (MCP-003): always shipped, so disabling or
-    # re-pricing locally converges the node on the next push. Values are plain
-    # strings; the Worker fails closed on anything it cannot parse.
     settings = {
         "persona_preamble": answer.persona_preamble,
         "answer_price_usd": f"{answer.answer_price_usd:.6f}",

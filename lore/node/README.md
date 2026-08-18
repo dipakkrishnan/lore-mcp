@@ -43,8 +43,8 @@ lore node deploy --wallet <your public 0x payout address>
 
 ## Enable the paid answer tier (optional)
 
-The node can also sell synthesized answers (`can_answer` free, `answer` paid,
-`result` free — see `docs/answer-tier.md`). The tier is off until you opt in;
+The node can also sell synthesized answers (`answer` paid, `result` free — see
+`docs/answer-tier.md`). The tier is off until you opt in;
 its agent reads **approved publications only**, framed by a persona you
 approve — never your private memories or blueprint. The node pays for the
 model calls with your own API key, so set the per-answer price above the

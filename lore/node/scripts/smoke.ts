@@ -25,7 +25,7 @@ try {
   const tools = await client.listTools();
   assert.deepEqual(
     tools.tools.map(({ name }) => name).sort(),
-    ["answer", "can_answer", "discover", "get", "result"]
+    ["answer", "discover", "get", "result"]
   );
 
   const discover = await client.callTool({

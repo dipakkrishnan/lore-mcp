@@ -517,9 +517,6 @@ class PriceTest(LoreTestCase):
 
 
 class AnswerCommandTest(LoreTestCase):
-    """`lore answer` configures the paid answer tier; nothing here discloses —
-    only persona approval does, and it demands an attended terminal."""
-
     def persona_file(self, text: str = "Answer as Ada: terse, evidence-first.") -> str:
         path = self.lore_home / "persona.txt"
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -548,7 +545,6 @@ class AnswerCommandTest(LoreTestCase):
         self.assertIn("$0.50", output.getvalue())
         with Store() as store:
             self.assertEqual(store.setting("answer_price_usd"), 0.5)
-            # The publication price is untouched: the tiers price separately.
             self.assertIsNone(store.setting("price_usd", None))
         with captured() as output:
             cli.answer_price(None)
@@ -1142,8 +1138,6 @@ class PushTest(LoreTestCase):
         self.assertNotIn("INSERT INTO publications", sql)
 
     def test_push_ships_the_answer_settings_alongside_publications(self) -> None:
-        # The answer tier's config rides the same full-replace push (MCP-003):
-        # the node converges on the owner's latest persona, price, and switch.
         with Store() as store:
             store.set_setting("persona_preamble", "Ada" + chr(39) + "s public voice")
             store.set_setting("answer_price_usd", 0.5)
@@ -1152,7 +1146,6 @@ class PushTest(LoreTestCase):
         self.assertIn("DROP TABLE IF EXISTS node_settings;", sql)
         self.assertIn("CREATE TABLE node_settings", sql)
         q = chr(39)
-        # The persona is owner prose: quoted like any other shipped text.
         self.assertIn(f"{q}Ada{q}{q}s public voice{q}", sql)
         self.assertIn(f"{q}answer_price_usd{q},{q}0.500000{q}", sql)
         self.assertIn(f"{q}answer_enabled{q},{q}true{q}", sql)
@@ -1165,8 +1158,6 @@ class PushTest(LoreTestCase):
         self.assertIn("'answer_price_usd','0.000000'", sql)
 
     def test_push_refuses_a_hand_enabled_tier_missing_persona_or_price(self) -> None:
-        # `lore answer on` guards this; a hand-edited database must not slip
-        # an unusable enabled tier past the push boundary.
         with Store() as store:
             store.set_setting("answer_enabled", True)
         with self.assertRaises(ValueError):

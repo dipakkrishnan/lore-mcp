@@ -1,7 +1,3 @@
-// The answer tier (MCP-003) with the owner opt-in ON: coverage probe, paid
-// ticket, agent loop, and the poll — against a stubbed facilitator and a
-// scripted model API. The disabled default lives in answer-disabled.test.ts,
-// because node_settings written here are rolled back per test file.
 import { toClientEvmSigner } from "@x402/evm";
 import { registerExactEvmScheme } from "@x402/evm/exact/client";
 import { x402Client } from "@x402/core/client";
@@ -18,7 +14,6 @@ const PERSONA = "Answer as Ada: terse, evidence-first, no hedging.";
 const ANSWER_PRICE = 0.25;
 
 beforeAll(async () => {
-  // What `lore push` ships when the owner has run `lore answer ... on`.
   await env.LORE_DB.exec(
     "CREATE TABLE IF NOT EXISTS node_settings (key TEXT PRIMARY KEY, value TEXT NOT NULL)"
   );
@@ -67,7 +62,6 @@ async function buildPaymentToken(x402Error: PaymentRequired): Promise<string> {
   return btoa(JSON.stringify(paymentPayload));
 }
 
-/** A scripted model: each entry answers one Messages API call, in order. */
 interface ModelTurn {
   tool: string;
   input: Record<string, unknown>;
@@ -126,36 +120,9 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-describe("can_answer (free)", () => {
-  it("returns the model's coverage verdict with the price and retention disclosure", async () => {
-    const model = scriptModel([
-      { tool: "report_coverage", input: { coverage: "yes", reason: "covered", topics: ["testing"] } }
-    ]);
-    mockFacilitator({ otherwise: model.otherwise });
-    const client = await connect();
-    try {
-      const result = await client.callTool({
-        name: "can_answer",
-        arguments: { question: "What does the fixture teach?" }
-      });
-      expect(result.isError).toBeUndefined();
-      const payload = textOf(result);
-      expect(payload.coverage).toBe("yes");
-      expect(payload.price_usd).toBe(ANSWER_PRICE);
-      expect(payload.retention_disclosure).toContain("retained");
-      // The probe sees the catalog (teasers), never publication content.
-      const body = JSON.stringify(model.requests[0]);
-      expect(body).toContain("a teaser that is safe to advertise");
-      expect(body).not.toContain("owner-approved content");
-    } finally {
-      await client.close();
-    }
-  });
-});
-
 describe("answer (paid) and result", () => {
   it("sells a ticket, runs the agent in the owner's voice, and validates citations", async () => {
-    const bogus = newTicketId(); // structurally valid, but no such publication
+    const bogus = newTicketId();
     const model = scriptModel([
       { tool: "memory_view", input: { public_id: FIXTURE_PUBLICATION_ID } },
       {
@@ -169,23 +136,21 @@ describe("answer (paid) and result", () => {
     mockFacilitator({ otherwise: model.otherwise });
     const client = await connect();
     try {
+      const discover = textOf(await client.callTool({ name: "discover", arguments: {} }));
+      expect(discover.answer_price_usd).toBe(ANSWER_PRICE);
+      expect(discover.answer_retention_disclosure).toContain("retained");
+
       const ticket = await buyAnswer(client, "What does the fixture teach?");
       const outcome = await pollResult(client, ticket);
       expect(outcome.status).toBe("complete");
       expect(outcome.answer).toBe("Grounded answer in Ada's voice.");
-      // Only citations naming a real publication survive (spec §4).
       expect(outcome.cited_publication_ids).toEqual([FIXTURE_PUBLICATION_ID]);
 
-      // The catalog is context, not a tool: the kickoff user message carries
-      // the manifest in an <available_publications> block (teasers, never
-      // content), so coverage is judged from turn one without a fetch.
       const kickoff = (model.requests[0] as { messages: { content: string }[] }).messages[0];
       expect(kickoff.content).toContain("<available_publications>");
       expect(kickoff.content).toContain("a teaser that is safe to advertise");
       expect(kickoff.content).not.toContain("owner-approved content");
 
-      // The agent speaks as the approved persona, over publications only —
-      // via the two single-purpose memory tools.
       const gatherRequest = model.requests[0] as { tools: { name: string }[] };
       expect(gatherRequest.tools.map((tool) => tool.name).sort()).toEqual([
         "memory_search",
@@ -196,7 +161,6 @@ describe("answer (paid) and result", () => {
       const agentRequest = model.requests[1] as { system: string };
       expect(agentRequest.system).toContain(PERSONA);
 
-      // Telemetry lands with the answer (spec §4): cost proof for MON-009.
       const row = await env.LORE_DB.prepare(
         "SELECT model, input_tokens, output_tokens, cost_usd, tool_calls FROM answers WHERE ticket_id = ?1"
       )

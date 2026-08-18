@@ -256,8 +256,6 @@ class SettingsTest(LoreTestCase):
         self.assertEqual(settings.persona_preamble, "Ada's public voice")
 
     def test_an_enabled_tier_without_persona_or_price_fails_validation(self) -> None:
-        # The Pydantic boundary: a hand-edited database cannot ship an enabled
-        # tier the Worker would have to fail closed on anyway.
         for missing in ("persona_preamble", "answer_price_usd"):
             with self.subTest(missing=missing), Store() as store:
                 store.set_setting("persona_preamble", "voice")

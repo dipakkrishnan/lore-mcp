@@ -131,14 +131,6 @@ class Publication(BaseModel):
 
 
 class AnswerSettings(BaseModel):
-    """What `lore push` ships to the node for the paid answer tier (MCP-003).
-
-    The persona preamble is a *disclosed* artifact, approved by the owner via
-    `lore answer persona` — it is not the private blueprint. Validated here at
-    the push boundary so a hand-edited database can never enable the tier
-    without the persona and price the Worker requires.
-    """
-
     model_config = ConfigDict(frozen=True)
 
     persona_preamble: str = ""
@@ -440,7 +432,6 @@ class Store:
         self.db.commit()
 
     def answer_settings(self) -> AnswerSettings:
-        """Read and validate the answer-tier settings (MCP-003)."""
         return AnswerSettings.model_validate(
             {
                 "persona_preamble": self.setting("persona_preamble", ""),

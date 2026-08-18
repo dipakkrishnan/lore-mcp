@@ -62,30 +62,10 @@ Two consequences:
 
 ## 3. Tool contract
 
-Three tools. Payment settles at submission; the work is asynchronous; results
-are fetched by ticket. This is deliberate: `paidTool` settles **before** the
-handler runs, so "refuse without charging" must live in a free tool, and an
-async ticket keeps the contract stable when answer latency grows from ~90s
-(Tier 1) to tens of minutes (a future Tier 3).
-
-### `can_answer(question)` — free
-
-Coverage probe and price quote. Runs a cheap model pass over the manifest
-(and, if needed, publication content) and returns:
-
-```json
-{
-  "coverage": "yes | partial | no",
-  "reason": "one-sentence honest basis for the verdict",
-  "topics": ["topics the answer would draw from"],
-  "price_usd": 0.25,
-  "retention_disclosure": "Your question is retained by this node and visible to its owner."
-}
-```
-
-This is the trust surface: a node that says "no" when it can't help is the
-early reputation mechanism. `EVAL-002` phase 2 scores exactly this verdict
-("would a buyer who paid after this feel cheated?").
+Two tools. `discover` advertises the answer price and question-retention
+disclosure alongside the catalog, so the buyer's own agent can judge coverage
+from the same teasers a separate probe would see. Payment settles at
+submission; work is asynchronous and fetched by ticket.
 
 ### `answer(question)` — paid
 
@@ -95,11 +75,9 @@ Settles payment, creates a ticket, kicks off the agent, returns immediately:
 { "ticket": "<opaque id>", "status": "running", "poll": "result", "estimate_seconds": 120 }
 ```
 
-Post-payment the agent re-runs the coverage check; if it genuinely cannot
-answer, the ticket completes as `refused` with the reason stored. No refund
-path exists until the x402 wrapper exposes a pre-settlement hook (same
-`ponytail` as `get`'s revocation race) — the free `can_answer` probe is what
-makes this case rare and defensible.
+Post-payment the agent checks coverage against the catalog and publications.
+If it cannot answer, the ticket completes as `refused` with the reason stored.
+No refund path exists until the x402 wrapper exposes a pre-settlement hook.
 
 ### `result(ticket)` — free
 
@@ -138,18 +116,14 @@ here contains private memory.
 |---|---|
 | `ticket_id` | opaque public token, same checksum scheme as `public_id` (no sequence) |
 | `question` | buyer's verbatim question |
-| `payer` | wallet address from settlement (already public on-chain) |
-| `price_usd`, `settlement_ref` | what was charged; tx reference if the wrapper surfaces it |
-| `coverage_verdict` | verdict at submission time (`yes/partial/no`) |
+| `price_usd` | what was charged |
 | `status` | `running → complete \| refused \| failed` |
 | `created_at`, `updated_at` | |
 
-The question log is a product asset, not just plumbing: **unanswerable and
-partially-covered questions are the owner's demand signal for what to publish
-next.** `lore status` / a future `lore questions` should surface them to the
-owner, closing the loop back into `lore-publish`. Because buyer questions may
-contain buyer-sensitive context, the retention disclosure in `can_answer` is
-mandatory, and questions are never republished or served to other buyers.
+Refused questions can become the owner's demand signal for what to publish
+next. Because buyer questions may contain buyer-sensitive context, `discover`
+and the `answer` description disclose retention before payment; questions are
+never republished or served to other buyers.
 
 ### Outputs — `answers`
 
@@ -161,7 +135,6 @@ mandatory, and questions are never republished or served to other buyers.
 | `refusal_reason` | set when `status = refused` |
 | `model`, `input_tokens`, `output_tokens`, `cost_usd` | unit economics per answer — must be visible to prove price > cost (`MON-009`) |
 | `tool_calls`, `duration_ms` | agent-loop telemetry |
-| `trace` | private agent trace (tool calls + intermediate drafts) for owner debugging; never served to buyers |
 | `completed_at` | |
 
 ### Owner-approved config — `node_settings` (or new `persona` row)
@@ -233,8 +206,7 @@ a filesystem: only needed if the agent must checkpoint context across steps
 
 - MCP clients default to ~60s per tool call but reset on **progress
   notifications**; streamable HTTP holds the connection fine. `answer`
-  returns in seconds (ticket), so only `can_answer` and `result` need to be
-  fast — they are.
+  returns in seconds (ticket), and `result` is a quick poll.
 - **The bridge is the weakest timeout in the chain** (`MON-014`): the
   x402-mcp-bridge must forward progress notifications / apply generous
   timeouts, or buyer clients die mid-call regardless of what the node does.
@@ -244,7 +216,7 @@ a filesystem: only needed if the agent must checkpoint context across steps
 
 ## 8. Economics
 
-An agent loop is 5–15 model calls per answer; per-answer inference cost is
+An agent loop is up to six model calls per answer; per-answer inference cost is
 real money. Constraints:
 
 - `answer_price_usd` must clear measured `cost_usd` with margin — which is
@@ -257,9 +229,6 @@ real money. Constraints:
 
 ## 9. Ship gate
 
-`MCP-003` does not ship until `EVAL-002` phase 2 judges: (a) `can_answer`
-honesty — paid-after-yes buyers don't feel cheated; (b) answer quality —
-owner-voiced and grounded beats generic-model-with-citations; (c) the
-refusal path — uncovered questions refuse rather than confabulate. Phase 1
-of `EVAL-002` (discover/get teaser honesty) is unblocked today and needs
-none of this design.
+`MCP-003` does not ship until `EVAL-002` phase 2 judges answer quality,
+grounding, citation validity, and refusal honesty. Phase 1 of `EVAL-002`
+(discover/get teaser honesty) is unblocked today and needs none of this design.

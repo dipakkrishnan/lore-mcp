@@ -5,8 +5,8 @@ import { z } from "zod";
 import {
   ESTIMATE_SECONDS,
   RETENTION_DISCLOSURE,
-  coverageProbe,
   createTicket,
+  ensureAnswerSchema,
   manifest,
   readAnswerSettings,
   runAnswer,
@@ -39,13 +39,13 @@ export class LorePaidMCP extends McpAgent<Env> {
     }
   );
 
-  /** Runs behind `answer` via the DO scheduler, so payment settles and the
-   * ticket returns immediately while the agent works (spec §3). */
   async runAnswerTicket(payload: { ticketId: string }) {
     await runAnswer(this.env, payload.ticketId);
   }
 
   async init() {
+    await ensureAnswerSchema(this.env.LORE_DB);
+    const settings = await readAnswerSettings(this.env.LORE_DB);
     this.server.registerTool(
       "discover",
       {
@@ -60,6 +60,12 @@ export class LorePaidMCP extends McpAgent<Env> {
           ...(await manifest(this.env)),
           network: network(this.env),
           price_usd: PRICE_USD,
+          ...(settings.enabled
+            ? {
+                answer_price_usd: settings.priceUsd,
+                answer_retention_disclosure: RETENTION_DISCLOSURE
+              }
+            : {}),
           disclosure: "Choose any advertised ids; get buys one publication per call."
         })
     );
@@ -102,38 +108,15 @@ export class LorePaidMCP extends McpAgent<Env> {
       }
     );
 
-    // The answer tier (MCP-003, docs/answer-tier.md). The three tools are
-    // always registered so the surface matches the contract; when the owner
-    // has not enabled the tier they refuse cleanly and `answer` takes no
-    // payment (it registers as a free tool that only says so).
-    const settings = await readAnswerSettings(this.env.LORE_DB);
     const question = {
       question: z.string().trim().min(1).max(4000)
     };
     const answerDescription =
       "Buy a synthesized answer from the owner's approved publications, in the " +
       "owner's voice. Payment settles at submission and returns a ticket " +
-      "immediately; poll result until it completes. Ask can_answer first: no " +
-      "coverage means refusal after payment, and there are no automated refunds.";
-
-    this.server.registerTool(
-      "can_answer",
-      {
-        description:
-          "Free coverage probe for the paid answer tool: reports whether the " +
-          "owner's publications can answer a question, with the price. " +
-          "Questions sent to this node are retained and visible to its owner.",
-        inputSchema: question
-      },
-      async (args) => {
-        if (!settings.enabled) return asText(ANSWER_DISABLED, true);
-        try {
-          return asText(await coverageProbe(this.env, args.question, settings));
-        } catch (error) {
-          return asText({ error: String(error).slice(0, 500) }, true);
-        }
-      }
-    );
+      "immediately; poll result until it completes. Questions are retained and " +
+      "visible to the owner. Unsupported questions are refused after payment; " +
+      "there are no automated refunds.";
 
     if (settings.enabled) {
       this.server.paidTool(
@@ -141,11 +124,8 @@ export class LorePaidMCP extends McpAgent<Env> {
         answerDescription,
         settings.priceUsd,
         question,
-        {}, // paidTool's output schema; unstructured text only.
+        {},
         async (args) => {
-          // Settlement already happened (paidTool settles before the handler);
-          // from here the only honest outcomes are a ticket or a stored
-          // terminal status the buyer can poll.
           const ticket = await createTicket(this.env, args.question, settings.priceUsd);
           await this.schedule(0, "runAnswerTicket", { ticketId: ticket });
           return asText({
@@ -179,7 +159,6 @@ export class LorePaidMCP extends McpAgent<Env> {
         }
       },
       async (args) => {
-        if (!settings.enabled) return asText(ANSWER_DISABLED, true);
         const outcome = await ticketResult(this.env, args.ticket);
         return asText(outcome, "error" in outcome);
       }
