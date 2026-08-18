@@ -108,15 +108,6 @@ def parser() -> argparse.ArgumentParser:
     answer_on.add_argument("file", help="text file holding the public proxy charter")
     answer_on.add_argument("price", type=float, help="USD per answer; must be positive")
     answer_commands.add_parser("off", help="disable the answer tier")
-    answer_economics_parser = answer_commands.add_parser(
-        "economics",
-        help="compare the deployed node's recorded per-answer cost against the configured price",
-    )
-    answer_economics_parser.add_argument(
-        "--worker-dir",
-        default=str(home() / "node"),
-        help="the node source directory (default: the one `lore node deploy` stages)",
-    )
     serve = commands.add_parser("serve", help="run the Lore MCP server")
     serve.add_argument("--transport", choices=["stdio", "http"], default="stdio")
     serve.add_argument("--host", default="127.0.0.1")
@@ -202,8 +193,6 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "answer":
             if args.answer_command == "on":
                 return answer_enable(args.file, args.price)
-            if args.answer_command == "economics":
-                return answer_economics(args.worker_dir)
             return answer_disable()
         if args.command == "serve":
             from .mcp import main as serve
@@ -551,10 +540,7 @@ def answer_enable(path: str, price: float) -> int:
             )
         )
     success(f"Answer tier enabled at ${price:.2f} per answer")
-    muted(
-        "Ship it with `lore push`, then run `lore answer economics` after a few "
-        "real answers to confirm this price actually clears cost."
-    )
+    muted("Ship it with `lore push`.")
     return 0
 
 
@@ -563,77 +549,6 @@ def answer_disable() -> int:
         store.set_setting("answer_enabled", False)
     success("Answer tier disabled")
     muted("The deployed node picks up the change on the next `lore push`.")
-    return 0
-
-
-def answer_economics(worker_dir: str) -> int:
-    """Compare the node's recorded per-answer cost telemetry against the price.
-
-    MON-009's minimum bar for shipping the answer tier: a positive price alone
-    proves nothing — the agent loop's inference cost is real money the owner
-    pays, so the price has to actually clear it (docs/answer-tier.md §8).
-    """
-    import subprocess
-
-    with Store() as store:
-        price = store.answer_settings().answer_price_usd
-        node_url = store.setting("node_url", None)
-    if not node_url:
-        muted(
-            "No deployed node yet — run `lore node deploy`, sell a few real "
-            "answers, then check again."
-        )
-        return 0
-    worker = Path(worker_dir)
-    if not (worker / "wrangler.jsonc").is_file():
-        raise ValueError(
-            f"no node source at {worker}/ — run `lore node deploy` first, "
-            "or pass --worker-dir (contributors: --worker-dir lore/node)"
-        )
-    result = subprocess.run(
-        [
-            "npx",
-            "wrangler",
-            "d1",
-            "execute",
-            "lore-publications",
-            "--remote",
-            "--json",
-            "--command",
-            "SELECT count(*) AS n, avg(cost_usd) AS avg_cost, max(cost_usd) AS max_cost "
-            "FROM answers WHERE status = 'complete'",
-        ],
-        cwd=worker,
-        capture_output=True,
-        text=True,
-    )
-    if result.returncode != 0:
-        raise ValueError(
-            "wrangler could not read the edge database — check `npx wrangler login` "
-            f"and that `lore-publications` exists\n{result.stderr}"
-        )
-    row = json.loads(result.stdout)[0]["results"][0]
-    if not row["n"]:
-        muted("No completed answers recorded yet — nothing to compare against price.")
-        return 0
-    avg_cost, max_cost = row["avg_cost"], row["max_cost"]
-    heading("Answer tier economics")
-    print(f"  {row['n']} completed answer{'' if row['n'] == 1 else 's'}")
-    print(f"  Average cost: ${avg_cost:.4f}  ·  Highest cost: ${max_cost:.4f}")
-    print(f"  Configured price: ${price:.2f}")
-    if max_cost >= price:
-        warn(
-            f"At least one answer cost (${max_cost:.4f}) has not cleared the "
-            f"${price:.2f} price — this node has served an answer at a loss. "
-            "Run `lore answer price <USD>` to raise it."
-        )
-    elif avg_cost >= price * 0.5:
-        muted(
-            f"Average cost (${avg_cost:.4f}) is over half the ${price:.2f} price — "
-            "thin margin, worth watching as volume grows."
-        )
-    else:
-        success("Price clears cost with margin to spare.")
     return 0
 
 

@@ -218,9 +218,6 @@ real money. Constraints:
   why cost telemetry is a first-class output column, and why the answer tier
   needs **its own price** rather than inheriting the per-publication
   `PRICE_USD`. That pulls `MON-009` onto this design's critical path.
-  `lore answer economics` reads the deployed node's recorded `cost_usd`
-  telemetry and warns when the configured price hasn't cleared it — the
-  concrete minimum this owes `MON-009` before a price can be trusted.
 - Cost levers, in order: smaller model for gather/coverage passes with the
   strongest model only for the voiced draft; two-pass retrieval instead of
   inlining; caps from section 5.

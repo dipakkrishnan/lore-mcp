@@ -52,10 +52,6 @@ class ParserTest(unittest.TestCase):
                 },
             ),
             (["answer", "off"], {"answer_command": "off"}),
-            (
-                ["answer", "economics", "--worker-dir", "x"],
-                {"answer_command": "economics", "worker_dir": "x"},
-            ),
             (["serve", "--transport", "http"], {"transport": "http", "port": 8765}),
             (
                 ["node", "deploy", "--wallet", "0xabc"],
@@ -151,13 +147,6 @@ class MainDispatchTest(LoreTestCase):
         with patch("lore.mcp.main", return_value=0) as serve:
             cli.main(["serve", "--token", "abc"])
         self.assertIn("--token", serve.call_args.args[0])
-
-    def test_answer_economics_forwards_the_worker_directory(self) -> None:
-        with patch.object(cli, "answer_economics", return_value=0) as economics:
-            self.assertEqual(
-                cli.main(["answer", "economics", "--worker-dir", "lore/node"]), 0
-            )
-        self.assertEqual(economics.call_args.args, ("lore/node",))
 
     def test_push_forwards_the_worker_directory_and_target(self) -> None:
         with patch.object(cli, "push", return_value=0) as push:
@@ -582,95 +571,6 @@ class AnswerCommandTest(LoreTestCase):
             self.assertEqual(cli.answer_disable(), 0)
         self.assertIn("disabled", output.getvalue())
         self.assertIn("lore push", output.getvalue())
-
-    def economics_worker(self) -> Path:
-        worker = self.lore_home / "node"
-        worker.mkdir(parents=True, exist_ok=True)
-        (worker / "wrangler.jsonc").write_text("{}")
-        return worker
-
-    def d1_rows(self, n: int, avg_cost: float = 0.0, max_cost: float = 0.0):
-        payload = json.dumps(
-            [{"results": [{"n": n, "avg_cost": avg_cost, "max_cost": max_cost}]}]
-        )
-        return subprocess.CompletedProcess(("wrangler",), 0, stdout=payload)
-
-    def test_economics_without_a_deployed_node_says_so(self) -> None:
-        with captured() as output:
-            self.assertEqual(cli.answer_economics(str(self.economics_worker())), 0)
-        self.assertIn("No deployed node", output.getvalue())
-
-    def test_economics_with_no_completed_answers_says_so(self) -> None:
-        with Store() as store:
-            store.set_setting("node_url", "https://node.example.workers.dev")
-        with (
-            patch("subprocess.run", return_value=self.d1_rows(0)),
-            captured() as output,
-        ):
-            self.assertEqual(cli.answer_economics(str(self.economics_worker())), 0)
-        self.assertIn("No completed answers recorded yet", output.getvalue())
-
-    def test_economics_warns_when_an_answer_cost_at_or_above_the_price(self) -> None:
-        with Store() as store:
-            store.set_setting("node_url", "https://node.example.workers.dev")
-            store.set_setting("answer_price_usd", 0.25)
-        errors = StringIO()
-        with (
-            patch(
-                "subprocess.run",
-                return_value=self.d1_rows(3, avg_cost=0.1, max_cost=0.3),
-            ),
-            patch.object(sys, "stderr", errors),
-            captured(),
-        ):
-            self.assertEqual(cli.answer_economics(str(self.economics_worker())), 0)
-        text = errors.getvalue()
-        self.assertIn("has not cleared", text)
-        self.assertIn("lore answer price", text)
-
-    def test_economics_notes_a_thin_but_not_yet_losing_margin(self) -> None:
-        with Store() as store:
-            store.set_setting("node_url", "https://node.example.workers.dev")
-            store.set_setting("answer_price_usd", 1.0)
-        with (
-            patch(
-                "subprocess.run",
-                return_value=self.d1_rows(3, avg_cost=0.6, max_cost=0.9),
-            ),
-            captured() as output,
-        ):
-            self.assertEqual(cli.answer_economics(str(self.economics_worker())), 0)
-        self.assertIn("thin margin", output.getvalue())
-
-    def test_economics_surfaces_a_wrangler_read_failure(self) -> None:
-        with Store() as store:
-            store.set_setting("node_url", "https://node.example.workers.dev")
-        failure = subprocess.CompletedProcess(
-            ("wrangler",), 1, stdout="", stderr="not logged in"
-        )
-        with patch("subprocess.run", return_value=failure):
-            with self.assertRaisesRegex(ValueError, "not logged in"):
-                cli.answer_economics(str(self.economics_worker()))
-
-    def test_economics_reports_healthy_margin(self) -> None:
-        with Store() as store:
-            store.set_setting("node_url", "https://node.example.workers.dev")
-            store.set_setting("answer_price_usd", 1.0)
-        with (
-            patch(
-                "subprocess.run",
-                return_value=self.d1_rows(3, avg_cost=0.05, max_cost=0.1),
-            ),
-            captured() as output,
-        ):
-            self.assertEqual(cli.answer_economics(str(self.economics_worker())), 0)
-        self.assertIn("clears cost with margin to spare", output.getvalue())
-
-    def test_economics_without_a_node_source_says_how_to_get_one(self) -> None:
-        with Store() as store:
-            store.set_setting("node_url", "https://node.example.workers.dev")
-        with self.assertRaisesRegex(ValueError, "lore node deploy"):
-            cli.answer_economics(str(self.lore_home / "no-such-node"))
 
 
 class ProfileTest(LoreTestCase):
