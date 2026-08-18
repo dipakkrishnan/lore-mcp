@@ -137,6 +137,31 @@ class RetentionTest(LoreTestCase):
             with self.assertRaisesRegex(ValueError, "memory not found"):
                 store.set_status(999, "private")
 
+    def test_set_status_many_changes_a_batch_in_one_statement(self) -> None:
+        ids = [self.seed_memory(f"Lesson {n}") for n in range(3)]
+        with Store() as store:
+            changed = store.set_status_many(ids, "discarded")
+            self.assertEqual(changed, 3)
+            self.assertEqual(store.counts(), {"private": 0, "discarded": 3})
+
+    def test_set_status_many_reports_only_rows_actually_changed(self) -> None:
+        already = self.seed_memory("Already discarded", "discarded")
+        untouched = self.seed_memory("Still private")
+        with Store() as store:
+            # `already` is already discarded, so only `untouched` really changes.
+            changed = store.set_status_many([already, untouched], "discarded")
+            self.assertEqual(changed, 1)
+
+    def test_set_status_many_with_no_ids_is_a_no_op(self) -> None:
+        with Store() as store:
+            self.assertEqual(store.set_status_many([], "discarded"), 0)
+
+    def test_set_status_many_rejects_an_invalid_status(self) -> None:
+        memory_id = self.seed_memory("A lesson")
+        with Store() as store:
+            with self.assertRaisesRegex(ValueError, "invalid status"):
+                store.set_status_many([memory_id], "external")
+
     def test_put_reports_added_updated_and_unchanged(self) -> None:
         fields = {
             "source": "test",
