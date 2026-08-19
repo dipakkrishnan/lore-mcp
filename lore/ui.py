@@ -30,6 +30,10 @@ def muted(text: str) -> None:
     print(paint("2", text))
 
 
+def warn(text: str) -> None:
+    print(paint("33", f"! {text}"), file=sys.stderr)
+
+
 def ask(prompt: str, default: str = "") -> str:
     hint = f" [{default}]" if default else ""
     answer = input(f"{paint('36', '?')} {prompt}{hint}: ").strip()

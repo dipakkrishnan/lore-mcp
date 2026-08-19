@@ -41,19 +41,39 @@ lore node deploy --wallet <your public 0x payout address>
 `lore status` shows the node URL as `Node (last deploy):` afterwards. Files you create here
 (`.buyer.env`, `.dev.vars`) survive redeploys; everything else is overwritten.
 
-## Make the test payment
+## Enable the paid answer tier (optional)
 
-Create a dedicated Base Sepolia buyer wallet (never your payout wallet), fund
-it with faucet test USDC, then in this directory:
+The node can also sell answers from the owner's AI proxy (`answer` paid, `result` free — see
+`docs/answer-tier.md`). The tier is off until you opt in;
+its agent reads **approved publications only**, framed by a public proxy charter you
+approve — never your private memories or blueprint. The node pays for the
+model calls with your own API key, so set the per-answer price above the
+per-answer cost the stored telemetry reports.
 
 ```sh
-cp .buyer.env.example .buyer.env
-# Edit .buyer.env yourself and set the buyer key there.
+npx wrangler secret put ANTHROPIC_API_KEY
+lore answer on <proxy-file> 0.50
+lore push                                   # ship proxy charter, price, and the switch
+```
+
+The default model is `claude-sonnet-5`. Set `LORE_ANSWER_MODEL` to
+`gpt-5.6-luna` and add `OPENAI_API_KEY` to use OpenAI instead. Turn the tier off
+with `lore answer off` and a push.
+
+## Make the test payment
+
+In this directory:
+
+```sh
 npm run pay -- <your node URL from lore status>
 ```
 
-The script caps payment at the deployed price and prints the MCP result plus
-the x402 settlement receipt. Never use a funded mainnet key here.
+On first run the script provisions its own dedicated Base Sepolia buyer key
+in `.buyer.env` (mode 400 — never open or edit it; it is not your payout
+wallet). If the buyer holds less than the deployed price it prints the
+address to fund plus faucet links; send it test USDC and re-run. The script
+caps payment at the deployed price and prints the MCP result plus the x402
+settlement receipt.
 
 ## Mainnet cutover (real money — read all of this first)
 

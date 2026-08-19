@@ -7,7 +7,13 @@ process; the model only ever sees "payment required" → "paid" as tool
 results. Nothing here is lore-specific: point it at any x402 v2 MCP server.
 
 ```sh
+npm --prefix /path/to/bridge install
+
+# Claude Code
 claude mcp add lore-buyer -- npm --prefix /path/to/bridge run start -- --node https://<host>/mcp
+
+# Codex CLI
+codex mcp add lore-buyer -- npm --prefix /path/to/bridge run start -- --node https://<host>/mcp
 ```
 
 ## How it works

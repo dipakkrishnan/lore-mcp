@@ -4,13 +4,13 @@ title: Require the CI status checks to actually block merging to main
 priority: P1
 effort: S
 component: cross-cutting
-status: in-review
+status: completed
 related: [XC-004, XC-009, XC-010, XC-011, XC-012]
 blockers: []
 dependencies: ["Repository admin access to configure branch protection or a ruleset — the current backlog author has push but not admin"]
 github_issue: null
 created: 2026-08-04
-updated: 2026-08-04
+updated: 2026-08-10
 ---
 
 ## Problem
@@ -54,14 +54,14 @@ runs" into "a check that blocks."
 
 ## Acceptance criteria
 
-- [ ] A pull request cannot merge into `main` while any required status
+- [x] A pull request cannot merge into `main` while any required status
       check is failing or still running
-- [ ] A direct push to `main` that bypasses a pull request is rejected
-- [ ] The list of required checks is recorded outside GitHub's settings UI
+- [x] A direct push to `main` that bypasses a pull request is rejected
+- [x] The list of required checks is recorded outside GitHub's settings UI
       (README note or checked-in ruleset export), so adding or removing one
       is a reviewable change
-- [ ] A branch behind `main` must be updated before merging
-- [ ] Verified live: a throwaway pull request with a deliberately failing
+- [x] A branch behind `main` must be updated before merging
+- [x] Verified live: a throwaway pull request with a deliberately failing
       check shows the merge button blocked
 
 ## Notes
@@ -81,3 +81,13 @@ Related to but distinct from `XC-011`: `XC-011` builds a new path-scaled
 the status checks that *already exist* merge-blocking (a settings change,
 no new mechanism). They can land independently, but doing both in the same
 settings pass avoids touching branch protection twice.
+
+**Completed 2026-08-10.** Ruleset `protect-main` (id 20622557, active)
+configured on `main` and checked into `.github/rulesets/protect-main.json`
+(#95) — byte-for-byte match against the live ruleset, no bypass actors,
+`strict_required_status_checks_policy: true`. AC5 verified live with a
+throwaway PR (dipakkrishnan/lore-mcp#96, deliberately failing `ruff check`
+via an unused import): `gh api repos/dipakkrishnan/lore-mcp/pulls/96` showed
+`"mergeable": true, "mergeable_state": "blocked"` while the check was
+failing, confirming the ruleset — not just a missing approval — is what
+blocks the merge button. #96 closed and its branch deleted once verified.

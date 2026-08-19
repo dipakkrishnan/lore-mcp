@@ -4,7 +4,7 @@ title: Bulk-prune the private library instead of one card at a time
 priority: P1
 effort: S
 component: cli-ux
-status: ready
+status: in-review
 related: [STO-001, XC-001, XC-002]
 blockers: [STO-001]
 dependencies: []
@@ -82,3 +82,11 @@ What a rebase has to deal with, recorded so it isn't rediscovered:
 was parked on is clear. Promoted `in-review` → `ready` at `P1` — the acceptance
 criteria are concrete and the rebase notes above are a punch list, not an open
 design question.
+
+**2026-08-06:** PR #18 was closed rather than rebased — its branch predates STO-001
+landing and its `pending`-queue tests don't translate. Re-implemented fresh on
+`feat/cli-001-bulk-review` (PR #85) against current `main`: same shape (`--all`,
+apply-to-all-remaining, `Store.set_status_many`), but `set_status_many` now returns
+rows *changed* rather than matched from the start, and the interactive keys are
+`K`/`D` (uppercase keep/discard) to match the post-STO-001 `[k]/[d]` card. Moved
+`ready` → `in-review`.
