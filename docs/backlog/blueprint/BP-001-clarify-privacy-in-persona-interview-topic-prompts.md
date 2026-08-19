@@ -4,13 +4,13 @@ title: Clarify that persona-interview topic/domain answers stay private
 priority: P2
 effort: S
 component: blueprint
-status: ready
+status: completed
 related: []
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-08-03
-updated: 2026-08-03
+updated: 2026-08-07
 ---
 
 ## Problem
@@ -52,12 +52,12 @@ the two skills don't describe the same guarantee two different ways.
 
 ## Acceptance criteria
 
-- [ ] The persona interview states, before or alongside the topic-outline
+- [x] The persona interview states, before or alongside the topic-outline
       question, that topic/domain answers are private and do not themselves
       disclose anything externally
-- [ ] The wording matches or explicitly cross-references the disclosure
+- [x] The wording matches or explicitly cross-references the disclosure
       framing in `lore-enable-payments`'s valuable_context stakes statement
-- [ ] A fresh conversational run of the interview (see XC-005) reads as
+- [x] A fresh conversational run of the interview (see XC-005) reads as
       unambiguously private before the owner is asked to name topics
 
 ## Notes
@@ -70,3 +70,29 @@ conversations), which would be a natural way to verify the fix once made.
 Unblocked, criteria are concrete, and the third criterion (a fresh
 conversational run reads as private) can be checked by hand — it doesn't need
 `XC-005`'s protocol to exist first, just the practice.
+
+**Implementation 2026-08-07:** added a "Privacy note (state once, before Topic
+outline)" section to `persona-interview.md`, placed immediately before the
+"Persona-flavored questions" table so it fires ahead of every persona's
+Topic-outline question, not just Sage's.
+
+Correction on criterion 2's sourcing: the stakes line as quoted in this
+item's Problem section does not currently exist verbatim in
+`lore-enable-payments/SKILL.md` — grepping that file turns up no
+disclosure/valuable_context framing at all. The actual analogous statement
+lives in `lore-onboard/SKILL.md` Phase 2, immediately before its own
+`valuable_context` question ("This shapes what the synthesis task hunts for.
+Everything lands private, and no memory is ever readable outside this
+machine, whatever you do to it. Sharing anything takes a publication you
+write and approve yourself."). Either the quoted text drifted since this item
+was filed or the attribution was always to the wrong skill. The new note
+cross-references and matches wording with that Phase 2 line instead, since
+it's the one that actually exists in the same skill today — same guarantee,
+one consistent phrasing, just corrected to its real location.
+
+Criterion 3 ("fresh conversational run... reads as unambiguously private")
+was verified by close reading of the rendered flow, not a live dry-run agent
+session — `XC-005`'s dry-run protocol still doesn't exist as tooling, same
+gap the prioritization note above anticipated. The note's placement
+(immediately before the Topic-outline row, ahead of all five personas) and
+plain-language content satisfy the criterion by inspection.

@@ -1,51 +1,31 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { McpAgent } from "agents/mcp";
 import { withX402 } from "agents/x402";
-import { createHash } from "node:crypto";
 import { z } from "zod";
+import {
+  ESTIMATE_SECONDS,
+  RETENTION_DISCLOSURE,
+  createTicket,
+  ensureAnswerSchema,
+  manifest,
+  readAnswerSettings,
+  ticketResult,
+  validPublicId
+} from "./answer-state.js";
+import { runAnswer } from "./answer.js";
 import { facilitator, network, networkLabel } from "./network.js";
 import { PRICE_USD } from "./price.js";
 import { payTo } from "./wallet.js";
 
-function validPublicId(value: string): boolean {
-  const body = value.slice(0, 16);
-  return (
-    /^[0-9a-f]{24}$/.test(value) &&
-    value.slice(16) === createHash("sha256").update(body).digest("hex").slice(0, 8)
-  );
+const ANSWER_DISABLED = { error: "the answer tier is not enabled on this node" };
+
+function asText(payload: unknown, isError = false) {
+  return {
+    content: [{ type: "text" as const, text: JSON.stringify(payload) }],
+    isError: isError || undefined
+  };
 }
 
-interface ManifestRow {
-  id: string;
-  teaser: string;
-  topic: string;
-  kind: string;
-  updated_at: string;
-}
-
-// The D1 table `lore push` maintains. Rows here are owner-approved publications
-// and nothing else — no private data exists at the edge to leak. The manifest
-// selects only the advertisement columns: what exists, never what it says. Ids
-// are opaque public tokens (no sequence, so no revocation gaps) and freshness
-// is truncated to the day (full timestamps reveal approval-session structure).
-// Mirrors Store.manifest() in lore/store.py — the smoke script diffs the two.
-async function manifest(env: Env): Promise<Record<string, unknown>> {
-  const { results } = await env.LORE_DB.prepare(
-    `SELECT public_id AS id, teaser, topic, kind,
-            substr(updated_at, 1, 10) AS updated_at
-     FROM publications WHERE teaser <> ''
-     ORDER BY topic, updated_at DESC, public_id`
-  ).all<ManifestRow>();
-  const topics: Record<string, object[]> = {};
-  for (const { id, teaser, topic, kind, updated_at } of results) {
-    (topics[topic] ??= []).push({ id, teaser, kind, updated_at });
-  }
-  return { manifest_version: 1, publication_count: results.length, topics };
-}
-
-// ponytail: withX402 (which provides paidTool) only works on the legacy
-// McpAgent class today; migrate when Cloudflare supports x402 on its
-// recommended stateless createMcpHandler path.
 export class LorePaidMCP extends McpAgent<Env> {
   server = withX402(
     new McpServer({ name: `Lore x402 (${networkLabel(this.env)})`, version: "0.1.0" }),
@@ -56,7 +36,13 @@ export class LorePaidMCP extends McpAgent<Env> {
     }
   );
 
+  async runAnswerTicket(payload: { ticketId: string }) {
+    await this.keepAliveWhile(() => runAnswer(this.env, payload.ticketId));
+  }
+
   async init() {
+    await ensureAnswerSchema(this.env.LORE_DB);
+    const settings = await readAnswerSettings(this.env.LORE_DB);
     this.server.registerTool(
       "discover",
       {
@@ -66,19 +52,19 @@ export class LorePaidMCP extends McpAgent<Env> {
           "Choose zero, one, multiple, or all ids; call get once per chosen id.",
         inputSchema: {}
       },
-      async () => ({
-        content: [
-          {
-            type: "text" as const,
-            text: JSON.stringify({
-              ...(await manifest(this.env)),
-              network: network(this.env),
-              price_usd: PRICE_USD,
-              disclosure: "Choose any advertised ids; get buys one publication per call."
-            })
-          }
-        ]
-      })
+      async () =>
+        asText({
+          ...(await manifest(this.env)),
+          network: network(this.env),
+          price_usd: PRICE_USD,
+          ...(settings.enabled
+            ? {
+                answer_price_usd: settings.priceUsd,
+                answer_retention_disclosure: RETENTION_DISCLOSURE
+              }
+            : {}),
+          disclosure: "Choose any advertised ids; get buys one publication per call."
+        })
     );
 
     this.server.paidTool(
@@ -92,38 +78,79 @@ export class LorePaidMCP extends McpAgent<Env> {
           message: "invalid publication id; run discover again"
         })
       },
-      {}, // paidTool's output schema; unstructured text only.
+      {},
       async ({ id }) => {
-        // Paid and free read the same rows: payment decides whether a caller
-        // is served, never what is servable. One payment maps to exactly one
-        // publication, chosen by the buyer from the catalog. The checksum rejects
-        // damaged ids before payment; the remaining billable miss is a revocation
-        // racing a recent discover, because paidTool settles before this handler.
-        // ponytail: charged not-found on that race; refund or pre-check when
-        // the x402 wrapper exposes a pre-settlement hook.
         const row = await this.env.LORE_DB.prepare(
           `SELECT public_id AS id, title, content, topic, kind, updated_at
            FROM publications WHERE public_id = ?1`
         )
           .bind(id)
           .first();
-        return {
-          content: [
-            {
-              type: "text" as const,
-              text: JSON.stringify(
-                row
-                  ? {
-                      publication: row,
-                      disclosure:
-                        "Content is owner-approved; preserve attribution when synthesizing."
-                    }
-                  : { error: `publication not found: ${id}` }
-              )
-            }
-          ],
-          isError: row ? undefined : true
-        };
+        return asText(
+          row
+            ? {
+                publication: row,
+                disclosure: "Content is owner-approved; preserve attribution when synthesizing."
+              }
+            : { error: `publication not found: ${id}` },
+          !row
+        );
+      }
+    );
+
+    const question = {
+      question: z.string().trim().min(1).max(4000)
+    };
+    const answerDescription =
+      "Buy a response from the owner's authorized AI proxy, grounded in the " +
+      "owner's approved publications. Payment settles at submission and returns a ticket " +
+      "immediately; poll result until it completes. Questions are retained and " +
+      "visible to the owner. Unsupported questions are refused after payment; " +
+      "there are no automated refunds.";
+
+    if (settings.enabled) {
+      this.server.paidTool(
+        "answer",
+        answerDescription,
+        settings.priceUsd,
+        question,
+        {},
+        async (args) => {
+          const ticket = await createTicket(this.env, args.question, settings.priceUsd);
+          await this.schedule(0, "runAnswerTicket", { ticketId: ticket });
+          return asText({
+            ticket,
+            status: "running",
+            poll: "result",
+            estimate_seconds: ESTIMATE_SECONDS,
+            retention_disclosure: RETENTION_DISCLOSURE
+          });
+        }
+      );
+    } else {
+      this.server.registerTool(
+        "answer",
+        { description: answerDescription, inputSchema: question },
+        async () => asText(ANSWER_DISABLED, true)
+      );
+    }
+
+    this.server.registerTool(
+      "result",
+      {
+        description:
+          "Fetch the outcome of a paid answer ticket. Free and idempotent; keep " +
+          "polling while status is running. Terminal statuses: complete, refused " +
+          "(no coverage), failed (agent error or timeout — no automated refund yet).",
+        inputSchema: {
+          ticket: z.string().trim().refine(validPublicId, {
+            message: "invalid ticket id; use the one answer returned"
+          })
+        }
+      },
+      async (args) => {
+        const outcome = await ticketResult(this.env, args.ticket);
+        return asText(outcome, "error" in outcome);
       }
     );
   }

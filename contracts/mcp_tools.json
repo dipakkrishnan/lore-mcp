@@ -1,5 +1,15 @@
 [
   {
+    "name": "answer",
+    "description": "Buy a response from the owner's authorized AI proxy, grounded in the owner's approved publications. Payment settles at submission and returns a ticket immediately; poll result until it completes. Questions are retained and visible to the owner. Unsupported questions are refused after payment; there are no automated refunds.",
+    "required": [
+      "question"
+    ],
+    "surfaces": [
+      "worker"
+    ]
+  },
+  {
     "name": "discover",
     "description": "Return this node's full catalog of owner-approved publications: teasers grouped by topic, with ids, freshness, and price. Free. Choose zero, one, multiple, or all ids; call get once per chosen id.",
     "required": []
@@ -9,6 +19,16 @@
     "description": "Fetch one owner-approved publication by its id from the discover catalog. Each call buys exactly one publication. Damaged ids are rejected before payment; use a current catalog because a just-revoked id can still be billed.",
     "required": [
       "id"
+    ]
+  },
+  {
+    "name": "result",
+    "description": "Fetch the outcome of a paid answer ticket. Free and idempotent; keep polling while status is running. Terminal statuses: complete, refused (no coverage), failed (agent error or timeout — no automated refund yet).",
+    "required": [
+      "ticket"
+    ],
+    "surfaces": [
+      "worker"
     ]
   }
 ]

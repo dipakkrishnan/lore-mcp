@@ -54,6 +54,10 @@ Ideation can be triggered by:
    so prioritization picks it up. Otherwise leave it at `ideation`.
 9. **Do not touch `INDEX.md` directly.** Run (or hand off to) the `audit`
    playbook to fold the new item in.
+10. **If a PR is warranted for the new item(s)**, render its body from
+    [`pr-templates/new-item.md`](./pr-templates/new-item.md) via
+    [`render_pr_body.py`](./render_pr_body.py) rather than composing it
+    freehand.
 
 ## Cataloging a GitHub issue
 
@@ -92,6 +96,11 @@ on the target repo.
    ```
    The label-create line is idempotent (ignore "already exists"); the
    edit line is what actually matters and must not be skipped.
+
+If a PR is warranted for the cataloged item(s), render its body from
+[`pr-templates/github-issue-cataloged.md`](./pr-templates/github-issue-cataloged.md)
+via [`render_pr_body.py`](./render_pr_body.py) instead of `new-item.md` —
+it links back to the source issue.
 
 ## What ideation does not do
 
