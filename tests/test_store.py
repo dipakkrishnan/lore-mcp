@@ -16,6 +16,7 @@ from helpers import LoreTestCase
 
 from lore.store import (
     STATUSES,
+    AnswerSettings,
     Memory,
     Publication,
     PublicationKind,
@@ -236,6 +237,48 @@ class SettingsTest(LoreTestCase):
         with Store() as store:
             with self.assertRaises(ValueError):
                 store.set_setting("price_usd", float("nan"))
+
+    def test_answer_settings_default_to_a_disabled_tier(self) -> None:
+        with Store() as store:
+            settings = store.answer_settings()
+        self.assertFalse(settings.answer_enabled)
+        self.assertEqual(settings.answer_price_usd, 0.0)
+        self.assertEqual(settings.proxy_preamble, "")
+
+    def test_answer_settings_round_trip_through_the_settings_table(self) -> None:
+        with Store() as store:
+            store.set_answer_settings(
+                AnswerSettings(
+                    proxy_preamble="Ada's public proxy charter",
+                    answer_price_usd=0.5,
+                    answer_enabled=True,
+                )
+            )
+            settings = store.answer_settings()
+        self.assertTrue(settings.answer_enabled)
+        self.assertEqual(settings.answer_price_usd, 0.5)
+        self.assertEqual(settings.proxy_preamble, "Ada's public proxy charter")
+
+    def test_an_enabled_tier_without_proxy_or_price_fails_validation(self) -> None:
+        for missing in ("proxy_preamble", "answer_price_usd"):
+            with self.subTest(missing=missing), Store() as store:
+                store.set_setting("proxy_preamble", "proxy")
+                store.set_setting("answer_price_usd", 0.5)
+                store.set_setting("answer_enabled", True)
+                store.set_setting(missing, "" if missing == "proxy_preamble" else 0.0)
+                with self.assertRaises(ValueError):
+                    store.answer_settings()
+
+    def test_answer_settings_reject_a_corrupt_price_type(self) -> None:
+        with Store() as store:
+            store.set_setting("answer_price_usd", "not a number")
+            with self.assertRaises(ValueError):
+                store.answer_settings()
+
+    def test_answer_settings_model_is_frozen(self) -> None:
+        settings = AnswerSettings()
+        with self.assertRaises(ValueError):
+            settings.answer_enabled = True  # type: ignore[misc]
 
 
 class PublicationTest(LoreTestCase):

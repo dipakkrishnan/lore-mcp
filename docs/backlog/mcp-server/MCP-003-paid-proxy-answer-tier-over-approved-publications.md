@@ -28,51 +28,44 @@ owner's experience, only the material behind it.
 
 Full design: `docs/answer-tier.md`. Summary of the decided shape:
 
-- **A real agent, not a single prompt.** A tool-calling agent on the
-  Cloudflare Agents SDK (Durable Object — the `agents` package the Worker
-  already uses), given a read-only **memory-view toolset** over D1:
-  `catalog()`, `read(id)`, `search(query)` (FTS). Loop: coverage check →
-  gather (multi-hop) → draft in the owner's voice → self-critique → cite.
-  Budgets (tool calls, model turns, wall clock, cost) enforced in code. No
-  container or filesystem at this tier; Workflows/Containers are future tiers
-  behind the same contract.
+- **A real agent, not a single prompt.** Pi core runs inside the Cloudflare
+  `McpAgent` scheduled task with a read-only **memory-view toolset** over D1:
+  `memory_view(public_id)` and `memory_search(query)`. The catalog is included
+  in the initial prompt. Six model turns and a three-minute deadline bound the
+  run. No container, filesystem, or coding-agent CLI is present at this tier.
 - **Memory boundary (hard constraint, unchanged):** the answer-time agent
   reads approved publications only — never private memories. Buyers are
   adversarial strangers paying pennies per question; the read boundary is
-  the anti-extraction defense. The owner-approved **public persona preamble**
+  the anti-extraction defense. The owner-approved **public proxy charter**
   (distinct from the private blueprint, BP-001) is a new disclosed artifact
   shipped by `lore push`.
-- **Three-tool async contract**, because `paidTool` settles before the
-  handler runs and agent latency will grow: `can_answer(question)` free
-  coverage probe + price quote (the refuse-without-charging surface, and the
-  trust signal EVAL-002 phase 2 scores); `answer(question)` paid, settles at
-  submission, returns a ticket; `result(ticket)` free idempotent poll.
-- **Data model** (see design doc §4): `answer_tickets` (verbatim question,
-  payer, price, coverage verdict, status), `answers` (text, validated
-  citations, per-answer model/token/cost telemetry, private trace), and
-  node settings for `persona_preamble` + `answer_price_usd` +
-  `answer_enabled`. The question log doubles as the owner's demand signal
-  for what to publish next.
+- **Two-tool async contract:** `answer(question)` is paid, settles at
+  submission, and returns a ticket; `result(ticket)` is a free idempotent poll.
+  `discover` advertises the answer price and retention disclosure, and the
+  buyer judges teaser coverage without charging the seller for a model call.
+- **Data model** (see design doc §4): one `answer_jobs` row holds the verbatim
+  question, price, status, answer/refusal, validated citations, model, tokens,
+  `cost_usd`, tool calls, duration, and timestamps. Node settings hold
+  `proxy_preamble`, `answer_price_usd`, and `answer_enabled`.
 
 ## Acceptance criteria
 
 - [ ] A buying agent can pay for `answer(question)` and, via `result`,
-      receive a synthesized answer citing publication ids, at a price set
+      receive an answer from the owner's AI proxy citing publication ids, at a price set
       independently of the per-publication fetch price.
 - [ ] The answer path provably reads only active publications — the agent's
       only data access is the memory-view toolset; no code path from the
       agent to the memories table or the private blueprint.
-- [ ] `can_answer` is free, states coverage honestly, quotes the price, and
-      discloses question retention; a question with no coverage is refused
-      there without charging.
-- [ ] The persona preamble served at answer time is a distinct,
+- [ ] `discover` quotes the answer price and discloses question retention;
+      uncovered paid questions complete as `refused` rather than confabulating.
+- [ ] The proxy charter served at answer time is a distinct,
       owner-approved artifact — the tier stays disabled until the owner
       approves one and sets a price.
 - [ ] Every stored answer records model, tokens, and cost, and measured cost
       clears the configured answer price.
 - [ ] Every cited id resolves to an active publication at answer time.
 - [ ] The tier does not ship until the EVAL-002 phase-2 harness judges
-      `can_answer` honesty and answer quality (owner-voiced and grounded vs.
+      answer and refusal quality (faithful proxy and grounded vs.
       generic-model-with-citations).
 
 ## Notes

@@ -20,7 +20,7 @@ makes it the weakest timeout in the chain. MCP clients default to roughly 60
 seconds per tool call, reset only by progress notifications. Today every node
 tool returns in seconds, so nothing exposes this — but the answer tier
 (`MCP-003`) introduces calls backed by an agent loop, and even its fast paths
-(`can_answer`, a slow `result` poll) can exceed a strict default on a cold
+(a slow `result` poll) can exceed a strict default on a cold
 node. If the bridge swallows progress notifications or applies its own tight
 timeout, buyer clients will die mid-call no matter how well the node behaves,
 and on a *paid* call that is money spent for a transport failure.
