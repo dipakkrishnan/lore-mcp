@@ -44,6 +44,10 @@ allowed to write `INDEX.md`. Read `AGENTS.md` for the shared rules first.
 9. **Report findings** (dupes, broken refs, cycles, stale items, promotions
    made) to whoever invoked the audit. Hard errors (dupes, cycles, broken
    refs) should be surfaced clearly, not buried in a wall of routine notes.
+10. **If a PR is warranted for this pass**, render its body from
+    [`pr-templates/index-regenerated.md`](./pr-templates/index-regenerated.md)
+    via [`render_pr_body.py`](./render_pr_body.py) rather than composing it
+    freehand.
 
 ## What audit does not do
 

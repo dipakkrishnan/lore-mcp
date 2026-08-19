@@ -4,13 +4,13 @@ title: Add reusable PR templates the backlog skills can reference
 priority: P2
 effort: M
 component: cross-cutting
-status: ready
+status: completed
 related: []
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-08-03
-updated: 2026-08-03
+updated: 2026-08-07
 ---
 
 ## Problem
@@ -47,13 +47,13 @@ templating the body doesn't help much if the trigger stays undocumented.
 
 ## Acceptance criteria
 
-- [ ] At least one reference template exists per current backlog PR shape:
+- [x] At least one reference template exists per current backlog PR shape:
       new item filed, item completed, index regenerated
-- [ ] `ideation.md`, `implementation.md`, and `audit.md` each link to the
+- [x] `ideation.md`, `implementation.md`, and `audit.md` each link to the
       template they should use when a PR is warranted
-- [ ] A template-filling script exists and can render a complete PR body
+- [x] A template-filling script exists and can render a complete PR body
       from an id + template name, not just serve as a copy-paste reference
-- [ ] Using a template on the next real backlog PR produces a materially
+- [x] Using a template on the next real backlog PR produces a materially
       shorter authored prompt than composing the body freehand
 
 ## Notes
@@ -67,3 +67,27 @@ ask) triggers a push — see `implementation.md`'s "do not push" line.
 **Prioritization pass 2026-08-03:** promoted `in-review` → `ready` at `P2`.
 Unblocked, criteria are concrete, and it's process tooling rather than
 user-facing work — worth doing but not ahead of this pass's `P1` items.
+
+**Completed 2026-08-07:** shipped four templates under
+`docs/backlog/agents/pr-templates/` (`new-item.md`, `completed-item.md`,
+`index-regenerated.md`, `github-issue-cataloged.md` — the fourth beyond the
+three named in the acceptance criteria, since `ideation.md`'s
+issue-cataloging path is a distinct PR shape from a plain new-item PR) plus
+`render_pr_body.py`, which derives each template's required `{{vars}}` by
+scanning the file rather than keeping a separate declared list, and fails
+loudly on an unknown template or a missing var instead of emitting a body
+with `{{...}}` left in it. Linked from `ideation.md` (both the general flow
+and the issue-cataloging flow), `implementation.md`, and `audit.md`. This
+PR's own body was rendered from `completed-item.md` via the script — see
+the PR for the exact command, satisfying AC4 by construction rather than by
+separate demonstration. Covered by `tests/test_pr_templates.py` (7 cases:
+successful render, missing-var and unknown-template failures, every shipped
+template rendering cleanly with only its own declared vars, `--var` parsing,
+and the CLI entry point).
+
+Scope note: the Proposed approach's third paragraph — settling *when* a
+backlog PR gets opened at all — is **not** resolved by this item. The
+acceptance criteria don't ask for it, and doing so would be a policy change
+better suited to its own item; `implementation.md`'s existing "do not push"
+line still governs. Left as an open question for a future `ideation` pass
+if it's worth pursuing.
