@@ -75,10 +75,9 @@ harness lands against what exists:
   publication actually serves the question. Drive the real MCP surface and a
   deployed Worker, not a roleplay.
 - **Phase 2 (lands with `MCP-003`):** extend the same harness to the answer
-  tier's contract — `can_answer` honesty (a paid-after-yes buyer got their
-  money's worth; a no-coverage question was refused free), answer quality
-  (owner-voiced and grounded vs. generic-model-with-citations), and citation
-  validity. This phase is the ship gate `MCP-003` names.
+  tier's contract — answer quality (owner-voiced and grounded vs.
+  generic-model-with-citations), refusal honesty for uncovered questions, and
+  citation validity. This phase is the ship gate `MCP-003` names.
 
 The original acceptance criteria read "answer" — for phase 1, read them
 against `get`; phase-2 criteria live in `MCP-003` and `docs/answer-tier.md`

@@ -10,7 +10,13 @@ import { describe, expect, it } from "vitest";
 // Bundled at transform time, not read from disk at run time — the workerd
 // sandbox this suite runs in (`@cloudflare/vitest-pool-workers`) has no
 // access to the host filesystem.
-import canonical from "../../../contracts/mcp_tools.json";
+import contract from "../../../contracts/mcp_tools.json";
+
+// Entries may scope themselves to one surface (the answer tier is
+// worker-only); an entry without `surfaces` is shared by both.
+const canonical = contract
+  .filter((tool) => !("surfaces" in tool) || (tool.surfaces ?? []).includes("worker"))
+  .map(({ name, description, required }) => ({ name, description, required }));
 
 async function connect(): Promise<Client> {
   const client = new Client({ name: "lore-contract-test", version: "0.1.0" });
