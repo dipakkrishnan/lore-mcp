@@ -4,13 +4,13 @@ title: Introduce paid proxy answers through the owner skills
 priority: P2
 effort: M
 component: cross-cutting
-status: in-review
+status: completed
 related: [MCP-003, XC-005]
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-08-18
-updated: 2026-08-18
+updated: 2026-08-20
 ---
 
 ## Problem
@@ -40,17 +40,17 @@ approval mechanics outside the payments skill.
 
 ## Acceptance criteria
 
-- [ ] A fresh owner can move from onboarding to publishing to Monetize and is
+- [x] A fresh owner can move from onboarding to publishing to Monetize and is
       offered paid proxy answers only after at least one publication is
       approved.
-- [ ] Before approval, the flow explains `get` versus `answer` and makes clear
+- [x] Before approval, the flow explains `get` versus `answer` and makes clear
       that proxy instructions are public behavior guidance, not an API key,
       secret, private blueprint, or claim that the owner is present.
-- [ ] The owner sees and explicitly approves the exact proxy instructions and
+- [x] The owner sees and explicitly approves the exact proxy instructions and
       per-answer price in an attended terminal; no skill silently enables the
       tier or approves on the owner's behalf.
-- [ ] Private-only, free, and publication-only paths remain valid end states.
-- [ ] The conversational dry-run for the three skill handoffs covers both
+- [x] Private-only, free, and publication-only paths remain valid end states.
+- [x] The conversational dry-run for the three skill handoffs covers both
       accepting and declining the paid-answer offer.
 
 ## Notes
@@ -58,3 +58,9 @@ approval mechanics outside the payments skill.
 This is cross-cutting because it changes the onboarding, publishing, and
 payments skills as one owner journey. `MCP-003` owns the buyer-facing answer
 tool; this item owns how the seller understands and enables it.
+
+The accepting dry-run follows onboarding → one approved publication → Monetize →
+`get` plus optional `answer` → exact public instructions and price → attended
+approval → push. The declining dry-run ends at private-only,
+approved-but-unreachable, free, or publication-only without running
+`lore answer on`.
