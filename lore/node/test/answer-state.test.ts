@@ -67,4 +67,21 @@ describe("answer job state", () => {
     expect(await ticketResult(env, ticket)).toMatchObject({ status: "failed" });
     expect(await ticketResult(env, newTicketId())).toHaveProperty("error");
   });
+
+  it("lets an in-flight resume win over the staleness check while its checkpoint is live", async () => {
+    const ticket = await createTicket(env, "question", 0.25);
+    await env.LORE_DB.prepare("UPDATE answer_jobs SET created_at=?2 WHERE ticket_id=?1")
+      .bind(ticket, "2020-01-01T00:00:00Z")
+      .run();
+    await saveCheckpoint(env, ticket, { messages: [], turns: 1, viewed: [] });
+    expect(await ticketResult(env, ticket)).toMatchObject({ status: "running" });
+    expect(await readCheckpoint(env, ticket)).not.toBeNull();
+
+    await env.LORE_DB.prepare(
+      "UPDATE answer_checkpoints SET expires_at='2020-01-01T00:00:00Z' WHERE ticket_id=?1"
+    )
+      .bind(ticket)
+      .run();
+    expect(await ticketResult(env, ticket)).toMatchObject({ status: "failed" });
+  });
 });

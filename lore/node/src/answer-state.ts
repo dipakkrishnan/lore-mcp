@@ -243,10 +243,23 @@ export async function finishJob(
   return result.meta.changes === 1;
 }
 
+async function hasLiveCheckpoint(env: Env, ticketId: string): Promise<boolean> {
+  const row = await env.LORE_DB.prepare(
+    "SELECT 1 FROM answer_checkpoints WHERE ticket_id=?1 AND expires_at>?2"
+  )
+    .bind(ticketId, new Date().toISOString())
+    .first();
+  return row !== null;
+}
+
 export async function ticketResult(env: Env, ticketId: string): Promise<Record<string, unknown>> {
   let job = await readJob(env, ticketId);
   if (!job) return { error: `ticket not found: ${ticketId}` };
-  if (job.status === "running" && Date.now() - Date.parse(job.created_at) > DEADLINE_MS + RESULT_GRACE_MS) {
+  if (
+    job.status === "running" &&
+    Date.now() - Date.parse(job.created_at) > DEADLINE_MS + RESULT_GRACE_MS &&
+    !(await hasLiveCheckpoint(env, ticketId))
+  ) {
     await env.LORE_DB.batch([
       env.LORE_DB.prepare(
         "UPDATE answer_jobs SET status='failed', reason=?2, updated_at=?3 " +
