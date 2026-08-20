@@ -54,10 +54,17 @@ _EXPORTED_COLUMNS = (
     "updated_at",
 )
 
+
 # Sentinel for `BundleReader(max_age_days=...)`: use the bound the bundle records.
-# A distinct object, because both `None` (bound disabled) and every number are
-# meaningful values the caller may legitimately pass.
-INHERIT_MAX_AGE = object()
+# A dedicated class, because both `None` (bound disabled) and every number are
+# meaningful values the caller may legitimately pass, and a distinct type (unlike
+# a bare `object()`) lets mypy narrow the `isinstance(max_age_days, _InheritMaxAge)`
+# check below.
+class _InheritMaxAge:
+    pass
+
+
+INHERIT_MAX_AGE = _InheritMaxAge()
 
 SCHEMA = """
 CREATE TABLE publications (
@@ -248,7 +255,7 @@ class BundleReader:
         self,
         path: Path,
         *,
-        max_age_days: float | None | object = INHERIT_MAX_AGE,
+        max_age_days: float | None | _InheritMaxAge = INHERIT_MAX_AGE,
         now: datetime | None = None,
     ):
         """Open a bundle.
@@ -280,9 +287,9 @@ class BundleReader:
                 f"bundle schema version {version!r} is not {SCHEMA_VERSION}"
             )
         self._now = now
-        self._max_age_days = (
+        self._max_age_days: float | None = (
             self._meta.get("max_age_days")
-            if max_age_days is INHERIT_MAX_AGE
+            if isinstance(max_age_days, _InheritMaxAge)
             else max_age_days
         )
 
