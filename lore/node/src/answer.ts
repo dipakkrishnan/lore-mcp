@@ -78,7 +78,7 @@ export async function runAnswer(
         ...options,
         apiKey: selected.apiKey,
         maxTokens: 1024,
-        toolChoice: nextModel.provider === "anthropic" ? "auto" : "required"
+        toolChoice: nextModel.provider === "anthropic" ? "any" : "required"
       };
       return selected.provider.streamSimple(nextModel, context, requestOptions);
     };
