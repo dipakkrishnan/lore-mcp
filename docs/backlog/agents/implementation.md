@@ -30,6 +30,10 @@ rules first.
    spawned, tradeoffs made) in `## Notes`.
 8. **Do not hand-edit `INDEX.md`.** Run (or hand off to) the `audit`
    playbook afterward so the index reflects the new status.
+9. **If a PR is warranted for this item**, render its body from
+   [`pr-templates/completed-item.md`](./pr-templates/completed-item.md) via
+   [`render_pr_body.py`](./render_pr_body.py) rather than composing it
+   freehand.
 
 ## What implementation does not do
 
