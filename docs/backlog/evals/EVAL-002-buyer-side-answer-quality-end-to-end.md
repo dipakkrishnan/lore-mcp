@@ -62,6 +62,27 @@ unverified link in the seller-first chain per the note above, criteria are
 concrete, and `MCP-003` (the paid proxy tier) lists this item as one of its
 own blockers, so it's on the critical path for more than itself.
 
+**Rescope 2026-08-17:** this item predates the shipped tool surface — it was
+written for `discover` + `answer`, but the deployed node serves `discover` +
+`get` (fetch by id), and `answer` is now the redesigned agentic tier in
+`MCP-003` / `docs/answer-tier.md`. Split the work into two phases so the
+harness lands against what exists:
+
+- **Phase 1 (unblocked now, this item's core):** judge the shipped
+  `discover` → `get` path. Buyer-phrased questions that deliberately don't
+  reuse owner vocabulary; score teaser honesty ("would a buyer who paid for
+  this id after reading its teaser feel cheated?") and whether the fetched
+  publication actually serves the question. Drive the real MCP surface and a
+  deployed Worker, not a roleplay.
+- **Phase 2 (lands with `MCP-003`):** extend the same harness to the answer
+  tier's contract — answer quality (owner-voiced and grounded vs.
+  generic-model-with-citations), refusal honesty for uncovered questions, and
+  citation validity. This phase is the ship gate `MCP-003` names.
+
+The original acceptance criteria read "answer" — for phase 1, read them
+against `get`; phase-2 criteria live in `MCP-003` and `docs/answer-tier.md`
+§9.
+
 **Implementation pass 2026-08-17:** added `evals/buyer.py` + `evals/buyer_task.json`,
 extending `EVAL-001`'s harness one hop outward per the proposed approach.
 Deliberately does not call `synthesize()`/`codex exec` the way
@@ -134,3 +155,10 @@ alignment above — the vocabulary-gap query's partial term overlap ("access",
 "setup") is a narrative-strength observation about the fixture, not a defect,
 and reworking it risked changing what the case actually exercises without a
 concrete failure mode to fix.
+
+**Reconciled with the rescope above:** this implementation already targets the
+rescoped surface — `evals/buyer.py` calls `discover` and `get`, never
+`answer`, so all three cases satisfy Phase 1 as written. Phase 1's "against a
+deployed Worker" clause remains the same open box the implementation-pass note
+above already tracks under `MON-008`; Phase 2 (the `MCP-003` answer-tier
+contract) is unstarted.

@@ -22,7 +22,13 @@ CONTRACT_PATH = Path(__file__).resolve().parent.parent / "contracts" / "mcp_tool
 
 class MCPContractTest(unittest.TestCase):
     def test_tools_match_the_shared_contract(self) -> None:
-        canonical = json.loads(CONTRACT_PATH.read_text(encoding="utf-8"))
+        # Entries may scope themselves to one surface (the answer tier is
+        # worker-only); an entry without `surfaces` is shared by both.
+        canonical = [
+            {key: entry[key] for key in ("name", "description", "required")}
+            for entry in json.loads(CONTRACT_PATH.read_text(encoding="utf-8"))
+            if "stdio" in entry.get("surfaces", ["stdio", "worker"])
+        ]
         actual = sorted(
             (
                 {

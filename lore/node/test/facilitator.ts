@@ -18,6 +18,9 @@ interface MockFacilitatorOptions {
   verify?: FacilitatorReply | FacilitatorReply[];
   /** Behavior for `/settle` calls, consumed in order; the last entry repeats. */
   settle?: FacilitatorReply | FacilitatorReply[];
+  /** Handler for non-facilitator origins (the answer tests stub the model
+   * API this way); without one, any other outbound fetch still throws. */
+  otherwise?: (request: Request) => Promise<Response> | Response;
 }
 
 function nextReply(queue: FacilitatorReply[], index: number): FacilitatorReply {
@@ -69,6 +72,7 @@ export function mockFacilitator(options: MockFacilitatorOptions = {}) {
     const request = new Request(input, init);
     const url = new URL(request.url);
     if (url.origin !== new URL(FACILITATOR_URL).origin) {
+      if (options.otherwise) return options.otherwise(request);
       throw new Error(`unexpected outbound fetch during test: ${request.method} ${url}`);
     }
 

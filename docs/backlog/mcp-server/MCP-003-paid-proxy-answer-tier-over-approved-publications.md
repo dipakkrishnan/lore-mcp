@@ -1,69 +1,96 @@
 ---
 id: MCP-003
-title: Add a paid proxy answer tier over approved publications
+title: Add a paid agentic answer tier over approved publications
 priority: P2
 effort: L
 component: mcp-server
 status: in-review
-related: [MCP-001, MCP-002, EVAL-002, CAP-001, ONB-001]
-blockers: [MCP-001, EVAL-002]
+related: [MCP-001, MCP-002, EVAL-002, CAP-001, ONB-001, MON-009, MON-014, BP-001]
+blockers: [MCP-001, EVAL-002, MON-009]
 dependencies: []
 github_issue: null
 created: 2026-08-02
-updated: 2026-08-02
+updated: 2026-08-17
 ---
 
 ## Problem
 
-The catalog surface (manifest-first `discover`, fetch-by-id) sells the owner's
+The catalog surface (manifest-first `discover`, paid `get`) sells the owner's
 raw publications, but the scarcest asset in someone's lore is not the
 documents — it is the judgment: what an 80/20 version of the owner would
 emphasize, dismiss, or apply to the buyer's specific question. Today a buying
 agent must synthesize that itself from fetched content, with none of the
-owner's weighting. There is no way to buy an answer *from* the owner's
-experience, only the material behind it — "go through my agent before you
-reach me" has no tool.
+owner's weighting, and must guess the right publications from teasers (the
+vocabulary gap EVAL-002 names). There is no way to buy an answer *from* the
+owner's experience, only the material behind it.
 
 ## Proposed approach
 
-A third, premium-priced MCP tool on top of the catalog: `answer(question)`
-runs a model call over the owner's **approved publications only**, prompted
-with the owner's blueprint persona (from `lore-onboard`), and returns a
-synthesized answer in the owner's voice. Hard constraints, by design not
-option:
+Full design: `docs/answer-tier.md`. Summary of the decided shape:
 
-- The proxy never reads private memories. Synthesis over private material
-  happens at publish time, where the owner approves the derived claims; the
-  answer-time model sees only what any buyer could already fetch.
-- Every answer cites the publication ids it drew from, so the buyer can
-  `get` and verify (and the citation is an upsell).
-- The proxy refuses before payment when the manifest shows no coverage for
-  the question — the bounded, indexed corpus makes "my lore doesn't cover
-  this" a check the model can actually make.
-
-The improvement loop is owner-side capture only: more dictation (CAP-001),
-more imported documents, more session context (ONB-001), better synthesis.
-No buyer feedback mechanism is proposed.
+- **A real agent, not a single prompt.** Pi core runs inside the Cloudflare
+  `McpAgent` scheduled task with a read-only **memory-view toolset** over D1:
+  `memory_view(public_id)` and `memory_search(query)`. The catalog is included
+  in the initial prompt. Six model turns and a three-minute deadline bound the
+  run. No container, filesystem, or coding-agent CLI is present at this tier.
+- **Memory boundary (hard constraint, unchanged):** the answer-time agent
+  reads approved publications only — never private memories. Buyers are
+  adversarial strangers paying pennies per question; the read boundary is
+  the anti-extraction defense. The owner-approved **public proxy charter**
+  (distinct from the private blueprint, BP-001) is a new disclosed artifact
+  shipped by `lore push`.
+- **Two-tool async contract:** `answer(question)` is paid, settles at
+  submission, and returns a ticket; `result(ticket)` is a free idempotent poll.
+  `discover` advertises the answer price and retention disclosure, and the
+  buyer judges teaser coverage without charging the seller for a model call.
+- **Data model** (see design doc §4): one `answer_jobs` row holds the verbatim
+  question, price, status, answer/refusal, validated citations, model, tokens,
+  `cost_usd`, tool calls, duration, and timestamps. Node settings hold
+  `proxy_preamble`, `answer_price_usd`, and `answer_enabled`.
 
 ## Acceptance criteria
 
-- [ ] A buying agent can pay for `answer(question)` and receive a synthesized
-      answer citing publication ids, at a price above the per-publication
-      fetch price.
-- [ ] The answer path provably reads only active publications — no code path
-      from the proxy prompt to the memories table.
-- [ ] A question with no manifest coverage is refused without charging.
-- [ ] The tier does not ship until the EVAL-002 harness judges proxy answers
-      (owner-voiced and grounded vs. generic-model-with-citations).
+- [ ] A buying agent can pay for `answer(question)` and, via `result`,
+      receive an answer from the owner's AI proxy citing publication ids, at a price set
+      independently of the per-publication fetch price.
+- [ ] The answer path provably reads only active publications — the agent's
+      only data access is the memory-view toolset; no code path from the
+      agent to the memories table or the private blueprint.
+- [ ] `discover` quotes the answer price and discloses question retention;
+      uncovered paid questions complete as `refused` rather than confabulating.
+- [ ] The proxy charter served at answer time is a distinct,
+      owner-approved artifact — the tier stays disabled until the owner
+      approves one and sets a price.
+- [ ] Every stored answer records model, tokens, and cost, and measured cost
+      clears the configured answer price.
+- [ ] Every cited id resolves to an active publication at answer time.
+- [ ] The tier does not ship until the EVAL-002 phase-2 harness judges
+      answer and refusal quality (faithful proxy and grounded vs.
+      generic-model-with-citations).
 
 ## Notes
 
-From the 2026-08-01/02 vision discussion on simplifying the tool surface:
-manifest-first catalog is the substrate (MCP-001), this tier is the oracle on
-top. The reputational risk is the design driver — a wrong proxy answer is the
-owner being wrong, for money — hence citations + refusal as requirements.
-Blocked on MCP-001 (needs the manifest for the coverage check and ids for
-citations) and on EVAL-002 (the quality gate). Open questions: where the
-model call runs (Workers AI vs. API key, cost per answer must clear the
-price), and whether `answer` keeps that name while the catalog's fetch tool
-takes `get`.
+From the 2026-08-01/02 vision discussion (manifest-first catalog as substrate,
+this tier as the oracle on top); reshaped 2026-08-16/17: agent-not-prompt,
+ticket contract, memory-view toolset, and the memory-boundary decision are
+recorded in `docs/answer-tier.md`. The reputational risk remains the design
+driver — a wrong proxy answer is the owner being wrong, for money — hence
+citations, honest coverage refusal, and the eval gate.
+
+Blockers updated 2026-08-17: `MCP-001` (manifest) stays a blocker — the
+agent's `catalog()` tool is the manifest query `discover` already runs, which
+presumes MCP-001's owner-approved manifest exists and is stable, and MCP-001
+is still `in-progress` (blocked on XC-002). `EVAL-002` remains the quality
+gate (its phase 2). `MON-009` added: the answer tier needs its own price and
+the pricing-unit decision, which pulls that item onto this critical path.
+`MON-014` (bridge keep-alive for long-running paid calls) is required for
+buyers to actually survive the latency but is independently shippable, so it
+is related, not a blocker.
+
+Deliberately deferred: web-search tool for the agent (quality lever, but adds
+cost/latency/injection surface — revisit when EVAL-002 shows grounding
+failures publications can't fix); refunds for post-payment refusals (needs a
+pre-settlement hook from the x402 wrapper — same ponytail as `get`'s
+revocation race); Tier 2/3 runtimes (Workflows, Containers with the Claude
+Agent SDK) — the contract is designed so they slot in without breaking
+buyers.
