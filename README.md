@@ -8,16 +8,20 @@ exposed to buyers.
 
 ## Install
 
-Lore uses Python 3.10+, SQLite, Git, and [uv](https://docs.astral.sh/uv/). Inspect
-[`install.sh`](./install.sh), then install the current release:
+Installed the Lore plugin first? Tell the agent **“Onboard me to Lore.”** It will
+explain the local runtime, ask permission, install it, and verify it for you.
+
+For a standalone install, inspect [`install.sh`](./install.sh), then run the current
+release:
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/dipakkrishnan/lore-mcp/v0.1.0/install.sh | sh
 ```
 
-The installer places Lore under `~/.local/share/lore`, links the `lore` command
-into `~/.local/bin`, and starts the guided setup. It never reads conversation
-transcripts during initial import.
+The installer bootstraps [uv](https://docs.astral.sh/uv/) and a compatible Python when
+needed, places Lore under `~/.local/share/lore`, links the `lore` command into
+`~/.local/bin`, and starts the guided setup. It never reads conversation transcripts
+during initial import.
 
 ```sh
 lore help                     # show the end-user workflow
