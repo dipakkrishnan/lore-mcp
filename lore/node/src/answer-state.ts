@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import type { AgentMessage } from "@earendil-works/pi-agent-core";
 
 export const RETENTION_DISCLOSURE =
   "Questions sent to this node are retained and visible to its owner.";
@@ -9,6 +10,7 @@ export const ESTIMATE_SECONDS = 120;
 
 const DEADLINE_MS = 180_000;
 const RESULT_GRACE_MS = 60_000;
+const CHECKPOINT_TTL_MS = 15 * 60_000;
 const NO_REFUND_NOTE = "No automated refund exists yet; contact the node owner.";
 
 export interface AnswerSettings {
@@ -31,6 +33,12 @@ export interface AnswerTelemetry {
   costUsd: number;
   toolCalls: number;
   durationMs: number;
+}
+
+export interface AnswerCheckpoint {
+  messages: AgentMessage[];
+  turns: number;
+  viewed: string[];
 }
 
 interface ManifestRow {
@@ -106,8 +114,9 @@ export async function readAnswerSettings(db: D1Database): Promise<AnswerSettings
 }
 
 export async function ensureAnswerSchema(db: D1Database): Promise<void> {
-  await db.prepare(
-    `CREATE TABLE IF NOT EXISTS answer_jobs (
+  await db.batch([
+    db.prepare(
+      `CREATE TABLE IF NOT EXISTS answer_jobs (
       ticket_id TEXT PRIMARY KEY,
       question TEXT NOT NULL,
       price_usd REAL NOT NULL,
@@ -125,7 +134,20 @@ export async function ensureAnswerSchema(db: D1Database): Promise<void> {
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
     )`
-  ).run();
+    ),
+    db.prepare(
+      `CREATE TABLE IF NOT EXISTS answer_checkpoints (
+      ticket_id TEXT PRIMARY KEY,
+      messages TEXT NOT NULL,
+      turns INTEGER NOT NULL,
+      viewed_publication_ids TEXT NOT NULL,
+      expires_at TEXT NOT NULL
+    )`
+    ),
+    db
+      .prepare("DELETE FROM answer_checkpoints WHERE expires_at <= ?1")
+      .bind(new Date().toISOString())
+  ]);
 }
 
 export async function createTicket(env: Env, question: string, priceUsd: number): Promise<string> {
@@ -151,33 +173,73 @@ export async function runningJob(env: Env, ticketId: string): Promise<AnswerJob 
   return job?.status === "running" ? job : null;
 }
 
+export async function readCheckpoint(env: Env, ticketId: string): Promise<AnswerCheckpoint | null> {
+  const row = await env.LORE_DB.prepare(
+    "SELECT messages,turns,viewed_publication_ids FROM answer_checkpoints " +
+      "WHERE ticket_id=?1 AND expires_at>?2"
+  )
+    .bind(ticketId, new Date().toISOString())
+    .first<{ messages: string; turns: number; viewed_publication_ids: string }>();
+  return row
+    ? {
+        messages: JSON.parse(row.messages) as AgentMessage[],
+        turns: row.turns,
+        viewed: JSON.parse(row.viewed_publication_ids) as string[]
+      }
+    : null;
+}
+
+export async function saveCheckpoint(
+  env: Env,
+  ticketId: string,
+  checkpoint: AnswerCheckpoint
+): Promise<void> {
+  const expiresAt = new Date(Date.now() + CHECKPOINT_TTL_MS).toISOString();
+  await env.LORE_DB.prepare(
+    `INSERT INTO answer_checkpoints(ticket_id,messages,turns,viewed_publication_ids,expires_at)
+     SELECT ?1,?2,?3,?4,?5 WHERE EXISTS (
+       SELECT 1 FROM answer_jobs WHERE ticket_id=?1 AND status='running'
+     ) ON CONFLICT(ticket_id) DO UPDATE SET messages=?2,turns=?3,
+       viewed_publication_ids=?4,expires_at=?5`
+  )
+    .bind(
+      ticketId,
+      JSON.stringify(checkpoint.messages),
+      checkpoint.turns,
+      JSON.stringify(checkpoint.viewed),
+      expiresAt
+    )
+    .run();
+}
+
 export async function finishJob(
   env: Env,
   ticketId: string,
   outcome: AnswerOutcome,
   telemetry: AnswerTelemetry
 ): Promise<boolean> {
-  const result = await env.LORE_DB.prepare(
-    `UPDATE answer_jobs SET status=?2, answer=?3, cited_publication_ids=?4, reason=?5,
+  const [result] = await env.LORE_DB.batch([
+    env.LORE_DB.prepare(
+      `UPDATE answer_jobs SET status=?2, answer=?3, cited_publication_ids=?4, reason=?5,
        model=?6, input_tokens=?7, output_tokens=?8, cost_usd=?9, tool_calls=?10,
        duration_ms=?11, updated_at=?12
      WHERE ticket_id=?1 AND status='running'`
-  )
-    .bind(
-      ticketId,
-      outcome.status,
-      outcome.answer ?? "",
-      JSON.stringify(outcome.cited ?? []),
-      outcome.reason ?? "",
-      telemetry.model,
-      telemetry.inputTokens,
-      telemetry.outputTokens,
-      telemetry.costUsd,
-      telemetry.toolCalls,
-      telemetry.durationMs,
-      new Date().toISOString()
-    )
-    .run();
+    ).bind(
+        ticketId,
+        outcome.status,
+        outcome.answer ?? "",
+        JSON.stringify(outcome.cited ?? []),
+        outcome.reason ?? "",
+        telemetry.model,
+        telemetry.inputTokens,
+        telemetry.outputTokens,
+        telemetry.costUsd,
+        telemetry.toolCalls,
+        telemetry.durationMs,
+        new Date().toISOString()
+      ),
+    env.LORE_DB.prepare("DELETE FROM answer_checkpoints WHERE ticket_id=?1").bind(ticketId)
+  ]);
   return result.meta.changes === 1;
 }
 
@@ -185,12 +247,13 @@ export async function ticketResult(env: Env, ticketId: string): Promise<Record<s
   let job = await readJob(env, ticketId);
   if (!job) return { error: `ticket not found: ${ticketId}` };
   if (job.status === "running" && Date.now() - Date.parse(job.created_at) > DEADLINE_MS + RESULT_GRACE_MS) {
-    await env.LORE_DB.prepare(
-      "UPDATE answer_jobs SET status='failed', reason=?2, updated_at=?3 " +
-        "WHERE ticket_id=?1 AND status='running'"
-    )
-      .bind(ticketId, "the agent did not finish in time", new Date().toISOString())
-      .run();
+    await env.LORE_DB.batch([
+      env.LORE_DB.prepare(
+        "UPDATE answer_jobs SET status='failed', reason=?2, updated_at=?3 " +
+          "WHERE ticket_id=?1 AND status='running'"
+      ).bind(ticketId, "the agent did not finish in time", new Date().toISOString()),
+      env.LORE_DB.prepare("DELETE FROM answer_checkpoints WHERE ticket_id=?1").bind(ticketId)
+    ]);
     job = (await readJob(env, ticketId)) ?? job;
   }
   if (job.status === "running") return { status: "running", estimate_seconds: ESTIMATE_SECONDS };

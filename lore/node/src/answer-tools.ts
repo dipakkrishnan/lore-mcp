@@ -17,8 +17,11 @@ async function validCitations(env: Env, viewed: Set<string>, cited: string[]) {
   return candidates.filter((id) => active.has(id));
 }
 
-export function createAnswerTools(env: Env, finish: (outcome: AnswerOutcome) => void) {
-  const viewed = new Set<string>();
+export function createAnswerTools(
+  env: Env,
+  finish: (outcome: AnswerOutcome) => void,
+  viewed = new Set<string>()
+) {
   const viewParameters = Type.Object(
     { public_id: Type.String() },
     { additionalProperties: false }

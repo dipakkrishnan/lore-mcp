@@ -5,6 +5,8 @@ import {
   ensureAnswerSchema,
   finishJob,
   newTicketId,
+  readCheckpoint,
+  saveCheckpoint,
   ticketResult
 } from "../src/answer-state";
 
@@ -15,6 +17,7 @@ beforeAll(async () => {
 describe("answer job state", () => {
   it("stores cost and lets only the first terminal update win", async () => {
     const ticket = await createTicket(env, "question", 0.25);
+    await saveCheckpoint(env, ticket, { messages: [], turns: 1, viewed: [] });
     const telemetry = {
       model: "claude-sonnet-5",
       inputTokens: 100,
@@ -41,6 +44,19 @@ describe("answer job state", () => {
       .bind(ticket)
       .first<{ status: string; cost_usd: number }>();
     expect(row).toEqual({ status: "complete", cost_usd: 0.004 });
+    expect(await readCheckpoint(env, ticket)).toBeNull();
+  });
+
+  it("purges expired checkpoints", async () => {
+    const ticket = await createTicket(env, "question", 0.25);
+    await saveCheckpoint(env, ticket, { messages: [], turns: 1, viewed: [] });
+    await env.LORE_DB.prepare(
+      "UPDATE answer_checkpoints SET expires_at='2020-01-01T00:00:00Z' WHERE ticket_id=?1"
+    )
+      .bind(ticket)
+      .run();
+    await ensureAnswerSchema(env.LORE_DB);
+    expect(await readCheckpoint(env, ticket)).toBeNull();
   });
 
   it("fails stale jobs and reports unknown tickets", async () => {

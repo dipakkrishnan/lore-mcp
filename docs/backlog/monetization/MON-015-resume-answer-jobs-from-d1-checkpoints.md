@@ -4,13 +4,13 @@ title: Resume answer jobs from D1 checkpoints
 priority: P2
 effort: M
 component: monetization
-status: in-review
+status: completed
 related: [MCP-003, MON-014]
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-08-18
-updated: 2026-08-18
+updated: 2026-08-20
 ---
 
 ## Problem
@@ -38,18 +38,18 @@ Object or Pi `SessionStorage` adapter needs evidence that D1 is insufficient.
 
 ## Acceptance criteria
 
-- [ ] A Workers test stops an answer job after at least one completed tool turn,
+- [x] A Workers test stops an answer job after at least one completed tool turn,
       starts it in a fresh isolate, and the same ticket reaches a terminal
       result from its saved transcript.
-- [ ] Recovery does not create a second ticket, repeat payment, or overwrite a
+- [x] Recovery does not create a second ticket, repeat payment, or overwrite a
       terminal job; token, tool-call, and `cost_usd` telemetry covers all
       attempts without double-counting the restored transcript.
-- [ ] Checkpoints contain no owner-private memories or credentials and have a
+- [x] Checkpoints contain no owner-private memories or credentials and have a
       bounded retention policy for abandoned jobs.
-- [ ] The implementation uses the existing D1 binding and Pi state restoration,
+- [x] The implementation uses the existing D1 binding and Pi state restoration,
       unless the spike records a concrete missing recovery guarantee that
       requires a Cloudflare-specific Pi session adapter.
-- [ ] The dependency/runbook notes state that Pi's packaged SQLite adapter is
+- [x] The dependency/runbook notes state that Pi's packaged SQLite adapter is
       Node-specific and is not directly usable in the Worker runtime.
 
 ## Notes
@@ -58,3 +58,10 @@ Pi's `sessionId` option is only forwarded to model providers for caching; it is
 not durable session storage. The reusable pieces here are `initialState`,
 `agent.state.messages`, lifecycle events, and—only if needed—the harness
 session interfaces.
+
+Implemented with one `answer_checkpoints` table in the existing D1 binding.
+Each completed turn replaces the ticket's transcript, turn count, and viewed
+publication ids; terminal and stale jobs delete it. Checkpoints expire after 15
+minutes and schema initialization purges expired rows. The Workers test
+stores a post-tool checkpoint, aborts every live Durable Object, and resumes the
+same ticket through a newly instantiated `LorePaidMCP` and Pi `Agent`.
