@@ -16,6 +16,7 @@ from helpers import LoreTestCase
 
 from lore.store import (
     STATUSES,
+    AnswerSettings,
     Memory,
     Publication,
     PublicationKind,
@@ -137,6 +138,31 @@ class RetentionTest(LoreTestCase):
             with self.assertRaisesRegex(ValueError, "memory not found"):
                 store.set_status(999, "private")
 
+    def test_set_status_many_changes_a_batch_in_one_statement(self) -> None:
+        ids = [self.seed_memory(f"Lesson {n}") for n in range(3)]
+        with Store() as store:
+            changed = store.set_status_many(ids, "discarded")
+            self.assertEqual(changed, 3)
+            self.assertEqual(store.counts(), {"private": 0, "discarded": 3})
+
+    def test_set_status_many_reports_only_rows_actually_changed(self) -> None:
+        already = self.seed_memory("Already discarded", "discarded")
+        untouched = self.seed_memory("Still private")
+        with Store() as store:
+            # `already` is already discarded, so only `untouched` really changes.
+            changed = store.set_status_many([already, untouched], "discarded")
+            self.assertEqual(changed, 1)
+
+    def test_set_status_many_with_no_ids_is_a_no_op(self) -> None:
+        with Store() as store:
+            self.assertEqual(store.set_status_many([], "discarded"), 0)
+
+    def test_set_status_many_rejects_an_invalid_status(self) -> None:
+        memory_id = self.seed_memory("A lesson")
+        with Store() as store:
+            with self.assertRaisesRegex(ValueError, "invalid status"):
+                store.set_status_many([memory_id], "external")
+
     def test_put_reports_added_updated_and_unchanged(self) -> None:
         fields = {
             "source": "test",
@@ -211,6 +237,48 @@ class SettingsTest(LoreTestCase):
         with Store() as store:
             with self.assertRaises(ValueError):
                 store.set_setting("price_usd", float("nan"))
+
+    def test_answer_settings_default_to_a_disabled_tier(self) -> None:
+        with Store() as store:
+            settings = store.answer_settings()
+        self.assertFalse(settings.answer_enabled)
+        self.assertEqual(settings.answer_price_usd, 0.0)
+        self.assertEqual(settings.proxy_preamble, "")
+
+    def test_answer_settings_round_trip_through_the_settings_table(self) -> None:
+        with Store() as store:
+            store.set_answer_settings(
+                AnswerSettings(
+                    proxy_preamble="Ada's public proxy charter",
+                    answer_price_usd=0.5,
+                    answer_enabled=True,
+                )
+            )
+            settings = store.answer_settings()
+        self.assertTrue(settings.answer_enabled)
+        self.assertEqual(settings.answer_price_usd, 0.5)
+        self.assertEqual(settings.proxy_preamble, "Ada's public proxy charter")
+
+    def test_an_enabled_tier_without_proxy_or_price_fails_validation(self) -> None:
+        for missing in ("proxy_preamble", "answer_price_usd"):
+            with self.subTest(missing=missing), Store() as store:
+                store.set_setting("proxy_preamble", "proxy")
+                store.set_setting("answer_price_usd", 0.5)
+                store.set_setting("answer_enabled", True)
+                store.set_setting(missing, "" if missing == "proxy_preamble" else 0.0)
+                with self.assertRaises(ValueError):
+                    store.answer_settings()
+
+    def test_answer_settings_reject_a_corrupt_price_type(self) -> None:
+        with Store() as store:
+            store.set_setting("answer_price_usd", "not a number")
+            with self.assertRaises(ValueError):
+                store.answer_settings()
+
+    def test_answer_settings_model_is_frozen(self) -> None:
+        settings = AnswerSettings()
+        with self.assertRaises(ValueError):
+            settings.answer_enabled = True  # type: ignore[misc]
 
 
 class PublicationTest(LoreTestCase):

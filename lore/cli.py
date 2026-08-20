@@ -15,7 +15,7 @@ from . import capture as capture_module
 from . import deploy as deploy_module
 from .paths import home
 from .sources import available_sources, scan
-from .store import STATUSES, Publication, PublicationInput, Store
+from .store import STATUSES, AnswerSettings, Publication, PublicationInput, Store
 from .ui import (
     ask,
     confirm,
@@ -25,9 +25,10 @@ from .ui import (
     muted,
     publication_card,
     success,
+    warn,
 )
 
-PUBLICATION_CANDIDATES = TypeAdapter(
+PUBLICATION_CANDIDATES: TypeAdapter[list[PublicationInput]] = TypeAdapter(
     Annotated[list[PublicationInput], Field(min_length=1)]
 )
 
@@ -54,6 +55,12 @@ def parser() -> argparse.ArgumentParser:
     review.add_argument("--status", choices=STATUSES, default="private")
     review.add_argument(
         "--limit", type=int, default=0, help="maximum to review; 0 means all"
+    )
+    review.add_argument(
+        "--all",
+        choices=STATUSES,
+        default=None,
+        help="apply this status to every match in one command, non-interactively",
     )
 
     search = commands.add_parser("search", help="search local memories")
@@ -91,6 +98,16 @@ def parser() -> argparse.ArgumentParser:
     price.add_argument(
         "amount", nargs="?", type=float, help="USD per publication; use 0 for free"
     )
+    answer = commands.add_parser(
+        "answer", help="enable or disable the paid answer tier"
+    )
+    answer_commands = answer.add_subparsers(dest="answer_command", required=True)
+    answer_on = answer_commands.add_parser(
+        "on", help="approve a proxy charter, set a price, and enable"
+    )
+    answer_on.add_argument("file", help="text file holding the public proxy charter")
+    answer_on.add_argument("price", type=float, help="USD per answer; must be positive")
+    answer_commands.add_parser("off", help="disable the answer tier")
     serve = commands.add_parser("serve", help="run the Lore MCP server")
     serve.add_argument("--transport", choices=["stdio", "http"], default="stdio")
     serve.add_argument("--host", default="127.0.0.1")
@@ -160,7 +177,7 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "sync":
             return sync(set(args.source) if args.source else None)
         if args.command == "review":
-            return review(" ".join(args.query), args.status, args.limit)
+            return review(" ".join(args.query), args.status, args.limit, args.all)
         if args.command == "search":
             return search(" ".join(args.query), args.status, args.limit, args.json)
         if args.command == "profile":
@@ -173,6 +190,10 @@ def main(argv: list[str] | None = None) -> int:
             return manual()
         if args.command == "price":
             return price(args.amount)
+        if args.command == "answer":
+            if args.answer_command == "on":
+                return answer_enable(args.file, args.price)
+            return answer_disable()
         if args.command == "serve":
             from .mcp import main as serve
 
@@ -245,8 +266,9 @@ def manual() -> int:
   3. lore capture apply <file|->
      Validate and privately save memories approved in an attended agent session.
 
-  4. lore review [words] [--status private|discarded]
+  4. lore review [words] [--status private|discarded] [--all private|discarded]
      Walk the private library and keep or discard; revisit any prior decision.
+     --all applies one status to every match in one command, no prompting.
      Reviewing never discloses anything — only a publication does that.
 
   5. lore search [words] [--status STATUS]
@@ -254,6 +276,9 @@ def manual() -> int:
 
   6. lore price [USD]
      Show or set the advertised price per publication.
+
+  6b. lore answer on <proxy-file> <price> | off
+     Enable the paid answer tier or switch it off. Ships on the next `lore push`.
 
   7. lore status
      Check imports, the private library, active publications, and price.
@@ -309,11 +334,18 @@ def setup(yes: bool = False) -> int:
     return 0
 
 
+def _configured_sources(value: object) -> set[str]:
+    """Validate source names recovered from the JSON settings boundary."""
+    if not isinstance(value, list) or not all(isinstance(name, str) for name in value):
+        raise ValueError("configured sources must be a list of names")
+    return set(value)
+
+
 def sync(names: set[str] | None = None) -> int:
     """Import new and changed memories from configured sources."""
     with Store() as store:
         if names is None:
-            configured = set(store.setting("sources", []))
+            configured = _configured_sources(store.setting("sources", []))
             names = configured | {"automation"}
         report = scan(store, names)
     for name, item in report.items():
@@ -331,7 +363,12 @@ def capture_apply(file: str) -> int:
     return 0
 
 
-def review(query: str = "", status_name: str = "private", limit: int = 0) -> int:
+def review(
+    query: str = "",
+    status_name: str = "private",
+    limit: int = 0,
+    all_status: str | None = None,
+) -> int:
     """Let the owner revisit a targeted memory queue.
 
     Imports are private on arrival, so review is a retention pass over the
@@ -347,11 +384,23 @@ def review(query: str = "", status_name: str = "private", limit: int = 0) -> int
         if not memories:
             success(f"No {status_name} memories to review")
             return 0
+        if all_status:
+            changed = store.set_status_many([m.id for m in memories], all_status)
+            success(f"Marked {changed} memories as {all_status}")
+            return 0
         for index, memory in enumerate(memories, 1):
             memory_card(memory, index, len(memories))
             print("\n  [k] keep private   [d] discard   [s] skip   [q] quit")
+            print("  [K] keep all remaining private   [D] discard all remaining")
             while True:
-                choice = ask("Choose", "k").lower()
+                raw = ask("Choose", "k")
+                if raw in ("K", "D"):
+                    remaining_status = "private" if raw == "K" else "discarded"
+                    remaining_ids = [m.id for m in memories[index - 1 :]]
+                    changed = store.set_status_many(remaining_ids, remaining_status)
+                    success(f"Marked {changed} memories as {remaining_status}")
+                    return 0
+                choice = raw.lower()
                 # No disclosure choice here by design: review is retention only.
                 new_status = {"k": "private", "p": "private", "d": "discarded"}.get(
                     choice
@@ -388,10 +437,12 @@ def status() -> int:
     with Store() as store:
         counts = store.counts()
         sources = store.source_counts()
-        configured = set(store.setting("sources", []))
+        configured = _configured_sources(store.setting("sources", []))
         database_path = store.path
-        answer_price = store.setting("price_usd", None)
+        publication_price = store.setting("price_usd", None)
+        answer_settings = store.answer_settings()
         node_url = store.setting("node_url", None)
+        revocation_pending = store.setting("revocation_pending", False)
         published = len(store.list_publications(active_only=True))
         stale = len(store.stale_publications())
     heading("Library")
@@ -413,12 +464,25 @@ def status() -> int:
         print(f"  {marker} {source.label:<14} {sources.get(source.name, 0)} imported")
     print(f"\nDatabase: {database_path}")
     print(
-        f"Publication price: {'not set' if answer_price is None else f'${answer_price:.2f}'}"
+        f"Publication price: {'not set' if publication_price is None else f'${publication_price:.2f}'}"
+    )
+    print(
+        "Answer tier: "
+        + (
+            f"enabled (${answer_settings.answer_price_usd:.2f} per answer)"
+            if answer_settings.answer_enabled
+            else "disabled"
+        )
     )
     if node_url:
         # A cache of remote truth, not local truth like the price: another
         # machine or the Cloudflare dashboard can move the node after this.
         print(f"Node (last deploy): {node_url}")
+    if revocation_pending:
+        print(
+            "A revocation has NOT reached the deployed node — it still serves "
+            "the old set. Run: lore push"
+        )
     return 0
 
 
@@ -447,6 +511,47 @@ def price(amount: float | None) -> int:
     return 0
 
 
+def answer_enable(path: str, price: float) -> int:
+    if not _interactive():
+        raise ValueError(
+            "proxy approval needs an attended interactive terminal; "
+            "piped and background approval is disabled"
+        )
+    if not math.isfinite(price) or price <= 0:
+        raise ValueError("the answer price must be a positive number")
+    text = Path(path).read_text(encoding="utf-8").strip()
+    if not text:
+        raise ValueError("the proxy file is empty; nothing to approve")
+    heading("Public proxy charter")
+    print(text)
+    muted(
+        "\nThis text is public: it ships to your node and frames every paid "
+        "answer. It is separate from your private blueprint."
+    )
+    if not confirm("Approve this proxy charter for the deployed node?"):
+        print("Not approved; nothing saved.")
+        return 0
+    with Store() as store:
+        store.set_answer_settings(
+            AnswerSettings(
+                proxy_preamble=text,
+                answer_price_usd=round(price, 6),
+                answer_enabled=True,
+            )
+        )
+    success(f"Answer tier enabled at ${price:.2f} per answer")
+    muted("Ship it with `lore push`.")
+    return 0
+
+
+def answer_disable() -> int:
+    with Store() as store:
+        store.set_setting("answer_enabled", False)
+    success("Answer tier disabled")
+    muted("The deployed node picks up the change on the next `lore push`.")
+    return 0
+
+
 def profile(path: str, schedule: bool = True) -> int:
     """Save a profile written by an onboarding agent and install its schedule."""
     from . import automation
@@ -458,8 +563,18 @@ def profile(path: str, schedule: bool = True) -> int:
     if not schedule:
         muted("Existing schedules still use their previously installed prompt.")
         return 0
-    automation.install(data)
-    success(f"Configured {str(data['executor']).title()} local schedule")
+    try:
+        executor = automation.Agent(str(data.get("executor", "")))
+        automation.install(data)
+    except (OSError, ValueError) as error:
+        # The profile is already on disk, so a bare traceback here would read as a
+        # total failure and leave the owner with no way to finish the install. Widened
+        # to ValueError too: windup raises it far more often than OSError (a bad
+        # cadence, hour, or missing prompt file are all ValueErrors), and a bad
+        # "executor" value raises before install() is ever called.
+        warn(automation.schedule_failure(str(data.get("executor", "")), error))
+        return 1
+    success(f"Configured {str(executor).title()} local schedule")
     return 0
 
 
@@ -561,20 +676,37 @@ def publication_list() -> int:
 
 
 def publication_revoke(publication_id: int) -> int:
-    """Immediately remove a publication from external retrieval."""
+    """Immediately remove a publication from external retrieval.
+
+    "Immediately" includes the deployed node (MON-004): revocation is a push,
+    not a wait. A failed push is recorded so `lore status` keeps saying the
+    edge is stale until a push lands — never silently dropped.
+    """
     with Store() as store:
         store.revoke_publication(publication_id)
+        node_url = store.setting("node_url", None)
     success(f"Revoked publication {publication_id}; it is no longer answerable")
-    muted("A deployed node still holds the old set until you run: lore push")
-    return 0
+    if not node_url:
+        return 0
+    try:
+        return push(str(home() / "node"))
+    except (OSError, ValueError) as error:
+        with Store() as store:
+            store.set_setting("revocation_pending", True)
+        raise ValueError(
+            "revoked locally, but the deployed node still serves the old set "
+            f"({error}) — run `lore push` to finish; `lore status` will remind you"
+        ) from error
 
 
-def _push_sql(publications: list[Publication]) -> str:
+def _push_sql(publications: list[Publication], answer: AnswerSettings) -> str:
     """Render the full-replace SQL for the edge database.
 
     Full replace, not diffing: the active set is small, the operation is
     idempotent, and a revoked publication is guaranteed gone because nothing
-    that isn't in this script survives it.
+    that isn't in this script survives it. Owner-shipped state only: the
+    Worker's own tables (answer tickets and answers) are buyer state and are
+    never touched here.
     """
 
     def quote(value: str) -> str:
@@ -597,6 +729,21 @@ def _push_sql(publications: list[Publication]) -> str:
         f"{quote(p.topic)},{quote(p.teaser)},{quote(p.updated_at)});"
         for p in publications
     )
+    settings = {
+        "proxy_preamble": answer.proxy_preamble,
+        "answer_price_usd": f"{answer.answer_price_usd:.6f}",
+        "answer_enabled": "true" if answer.answer_enabled else "false",
+    }
+    statements.extend(
+        [
+            "DROP TABLE IF EXISTS node_settings;",
+            "CREATE TABLE node_settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);",
+            *(
+                f"INSERT INTO node_settings(key,value) VALUES ({quote(key)},{quote(value)});"
+                for key, value in settings.items()
+            ),
+        ]
+    )
     return "\n".join(statements) + "\n"
 
 
@@ -613,7 +760,8 @@ def push(worker_dir: str, local: bool = False) -> int:
         )
     with Store() as store:
         active = store.list_publications(active_only=True)
-    script = _push_sql(active)
+        answer_settings = store.answer_settings()
+    script = _push_sql(active, answer_settings)
     with tempfile.NamedTemporaryFile("w", suffix=".sql", delete=False) as handle:
         handle.write(script)
         script_path = handle.name
@@ -638,6 +786,11 @@ def push(worker_dir: str, local: bool = False) -> int:
             "wrangler could not write the edge database — check `npx wrangler login` "
             "and that `lore-publications` exists (npx wrangler d1 create lore-publications)"
         )
+    if not local:
+        # A remote push is a full replace, so whatever revocation was pending
+        # is now guaranteed gone from the edge.
+        with Store() as store:
+            store.set_setting("revocation_pending", False)
     where = "local dev database" if local else "deployed node"
     success(
         f"Pushed {len(active)} active publication{'s' if len(active) != 1 else ''} to the {where}"
@@ -657,7 +810,7 @@ def publication_reapprove(publication_id: int) -> int:
 
 def blueprint_apply(file: str) -> int:
     """Validate and persist a blueprint file written by the onboarding skill."""
-    blueprint_module.apply(file)
+    blueprint_module.apply(Path(file))
     success("Lore blueprint captured")
     print(
         f"Run `lore blueprint show` to see your lore map, at {blueprint_module.lore_map_path()}"

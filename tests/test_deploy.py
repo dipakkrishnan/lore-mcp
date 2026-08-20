@@ -111,7 +111,6 @@ class MaterializeTest(LoreTestCase):
         for shipped in (
             "src/index.ts",
             "scripts/pay.ts",
-            ".buyer.env.example",
             "package.json",
         ):
             with self.subTest(file=shipped):

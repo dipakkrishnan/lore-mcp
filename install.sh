@@ -2,7 +2,7 @@
 set -eu
 
 REPOSITORY="dipakkrishnan/lore-mcp"
-VERSION="${LORE_VERSION:-main}"
+VERSION="${LORE_VERSION:-v0.1.0}"
 INSTALL_DIR="${LORE_INSTALL_DIR:-$HOME/.local/share/lore}"
 BIN_DIR="${LORE_BIN_DIR:-$HOME/.local/bin}"
 TMP_DIR="$(mktemp -d)"

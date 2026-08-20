@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Literal
+from typing import Literal, TypedDict
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -22,7 +22,24 @@ MAX_ITEMS = 50
 # organizing axis, depth posture, and section framing for the owner's lore. A new
 # persona is one entry here (plus a column in the skill's question table) — nothing
 # in normalize()/render_map()/the CLI branches on a specific persona name.
-PERSONA_PROFILES = {
+Persona = Literal["storyteller", "schoolteacher", "professor", "executive", "sage"]
+Axis = Literal["chronological", "theme", "project", "knowledge"]
+
+
+class SectionLabels(TypedDict):
+    outline: str
+    focus: str
+    general: str
+    voice: str
+
+
+class PersonaProfile(TypedDict):
+    axis: Axis
+    depth_default: str
+    section_labels: SectionLabels
+
+
+PERSONA_PROFILES: dict[Persona, PersonaProfile] = {
     "storyteller": {
         "axis": "chronological",
         "depth_default": "narrative",
@@ -77,8 +94,6 @@ PERSONA_PROFILES = {
 
 PERSONAS = tuple(PERSONA_PROFILES)
 AXES = ("chronological", "theme", "project", "knowledge")
-Persona = Literal["storyteller", "schoolteacher", "professor", "executive", "sage"]
-Axis = Literal["chronological", "theme", "project", "knowledge"]
 _CONTROLS_TO_SPACES = dict.fromkeys(CONTROL_CHARACTERS, " ")
 
 
@@ -145,7 +160,10 @@ def load_blueprint() -> dict | None:
     path = blueprint_path()
     if not path.exists():
         return None
-    return json.loads(path.read_text(encoding="utf-8"))
+    blueprint = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(blueprint, dict):
+        raise ValueError("saved blueprint must be a JSON object")
+    return blueprint
 
 
 def normalize(raw: object) -> dict:

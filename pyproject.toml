@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools>=68"]
+requires = ["setuptools>=77"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -15,7 +15,8 @@ readme = "README.md"
 # node from being deployable but unsearchable. See
 # docs/fts5-lambda-runtime-spike.md.
 requires-python = ">=3.12"
-license = {text = "MIT"}
+license = "MIT"
+license-files = ["LICENSE"]
 dependencies = [
     "pydantic>=2",
     "windup @ git+https://github.com/dipakkrishnan/windup.git@372af8a",
@@ -26,6 +27,7 @@ lore = "lore.cli:main"
 
 [project.optional-dependencies]
 dev = [
+    "mypy>=1.18",
     "ruff>=0.16.1",
 ]
 
@@ -41,6 +43,12 @@ extend-exclude = ["lore/node"]
 [tool.ruff.lint]
 select = ["E4", "E7", "E9", "F", "I", "B"]
 
+[tool.mypy]
+files = ["lore"]
+disallow_untyped_defs = true
+warn_return_any = true
+warn_unused_ignores = true
+
 [tool.setuptools]
 packages = ["lore"]
 
@@ -55,7 +63,6 @@ lore = [
     "node/wrangler.jsonc",
     "node/env.d.ts",
     "node/README.md",
-    "node/.buyer.env.example",
     "node/.dev.vars.example",
     "node/src/*.ts",
     "node/scripts/*.ts",
