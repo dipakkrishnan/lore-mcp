@@ -1,12 +1,21 @@
 import { toClientEvmSigner } from "@x402/evm";
+import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import { registerExactEvmScheme } from "@x402/evm/exact/client";
 import { x402Client } from "@x402/core/client";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { env, exports } from "cloudflare:workers";
+import { abortAllDurableObjects, runInDurableObject } from "cloudflare:test";
 import { generatePrivateKey, privateKeyToAccount } from "viem/accounts";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
-import { newTicketId } from "../src/answer-state";
+import {
+  createTicket,
+  ensureAnswerSchema,
+  newTicketId,
+  readCheckpoint,
+  saveCheckpoint,
+  ticketResult
+} from "../src/answer-state";
 import { mockFacilitator } from "./facilitator";
 import { scriptModel } from "./model";
 import { FIXTURE_PUBLICATION_ID } from "./setup";
@@ -15,6 +24,7 @@ const PROXY = "Act as Ada's concise, evidence-first proxy with no hedging.";
 const ANSWER_PRICE = 0.25;
 
 beforeAll(async () => {
+  await ensureAnswerSchema(env.LORE_DB);
   await env.LORE_DB.exec(
     "CREATE TABLE IF NOT EXISTS node_settings (key TEXT PRIMARY KEY, value TEXT NOT NULL)"
   );
@@ -94,6 +104,92 @@ afterEach(() => {
 });
 
 describe("answer (paid) and result", () => {
+  it("resumes a checkpointed tool turn in a fresh agent", async () => {
+    const ticket = await createTicket(env, "What does the fixture teach?", ANSWER_PRICE);
+    const messages: AgentMessage[] = [
+      { role: "user", content: "checkpointed buyer question", timestamp: 1 },
+      {
+        role: "assistant",
+        api: "anthropic-messages",
+        provider: "anthropic",
+        model: "claude-sonnet-5",
+        content: [
+          {
+            type: "toolCall",
+            id: "toolu_checkpoint",
+            name: "memory_view",
+            arguments: { public_id: FIXTURE_PUBLICATION_ID }
+          }
+        ],
+        usage: {
+          input: 1000,
+          output: 200,
+          cacheRead: 0,
+          cacheWrite: 0,
+          totalTokens: 1200,
+          cost: { input: 0.003, output: 0.001, cacheRead: 0, cacheWrite: 0, total: 0.004 }
+        },
+        stopReason: "toolUse",
+        timestamp: 2
+      },
+      {
+        role: "toolResult",
+        toolCallId: "toolu_checkpoint",
+        toolName: "memory_view",
+        content: [{ type: "text", text: '{"id":"0000000000000000fcdb4b42"}' }],
+        details: {},
+        isError: false,
+        timestamp: 3
+      }
+    ];
+    const objectId = env.LorePaidMCP.idFromName("checkpoint-resume");
+    await runInDurableObject(env.LorePaidMCP.get(objectId), () =>
+      saveCheckpoint(env, ticket, {
+        messages,
+        turns: 1,
+        viewed: [FIXTURE_PUBLICATION_ID]
+      })
+    );
+    const stored = await env.LORE_DB.prepare(
+      "SELECT messages FROM answer_checkpoints WHERE ticket_id=?1"
+    )
+      .bind(ticket)
+      .first<{ messages: string }>();
+    expect(stored?.messages).not.toContain(PROXY);
+    expect(stored?.messages).not.toContain("test-key");
+
+    const model = scriptModel([
+      {
+        tool: "submit_answer",
+        input: {
+          answer: "Resumed answer from Ada's proxy.",
+          cited_publication_ids: [FIXTURE_PUBLICATION_ID]
+        }
+      }
+    ]);
+    vi.spyOn(globalThis, "fetch").mockImplementation((input, init) =>
+      model.otherwise(new Request(input, init))
+    );
+    await abortAllDurableObjects();
+    const freshObject = env.LorePaidMCP.get(objectId);
+    await freshObject.runAnswerTicket({ ticketId: ticket });
+
+    expect(await ticketResult(env, ticket)).toMatchObject({
+      status: "complete",
+      answer: "Resumed answer from Ada's proxy."
+    });
+    expect(await readCheckpoint(env, ticket)).toBeNull();
+    expect(model.requests).toHaveLength(1);
+    const row = await env.LORE_DB.prepare(
+      "SELECT input_tokens,output_tokens,cost_usd,tool_calls FROM answer_jobs WHERE ticket_id=?1"
+    )
+      .bind(ticket)
+      .first();
+    expect(row).toEqual({ input_tokens: 2000, output_tokens: 400, cost_usd: 0.008, tool_calls: 2 });
+    await freshObject.runAnswerTicket({ ticketId: ticket });
+    expect(model.requests).toHaveLength(1);
+  });
+
   it("sells a ticket, runs the owner's proxy, and validates citations", async () => {
     const bogus = newTicketId();
     const model = scriptModel([

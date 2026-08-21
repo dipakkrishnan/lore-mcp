@@ -7,8 +7,10 @@ import {
   type AnswerTelemetry,
   finishJob,
   manifest,
+  readCheckpoint,
   readAnswerSettings,
-  runningJob
+  runningJob,
+  saveCheckpoint
 } from "./answer-state.js";
 import { createAnswerTools } from "./answer-tools.js";
 
@@ -83,31 +85,52 @@ export async function runAnswer(
       return selected.provider.streamSimple(nextModel, context, requestOptions);
     };
 
-    let turns = 0;
+    const checkpoint = await readCheckpoint(env, ticketId);
+    let turns = checkpoint?.turns ?? 0;
+    const viewed = new Set(checkpoint?.viewed ?? []);
     const settings = await readAnswerSettings(env.LORE_DB);
     const agent = new Agent({
       streamFn,
       toolExecution: "sequential",
-      shouldStopAfterTurn: () => Boolean(outcome) || ++turns >= MAX_MODEL_TURNS,
+      shouldStopAfterTurn: () => Boolean(outcome) || turns >= MAX_MODEL_TURNS,
       initialState: {
         systemPrompt: systemPrompt(settings.proxy),
         model,
-        tools: createAnswerTools(env, (next) => {
-          outcome ??= next;
-        })
+        messages: checkpoint?.messages,
+        tools: createAnswerTools(
+          env,
+          (next) => {
+            outcome ??= next;
+          },
+          viewed
+        )
       }
     });
     agent.subscribe((event) => {
       if (event.type === "tool_execution_start") onToolCall?.(event.toolName);
     });
 
+    agent.subscribe(async (event) => {
+      if (event.type !== "turn_end") return;
+      turns += 1;
+      await saveCheckpoint(env, ticketId, {
+        messages: agent.state.messages,
+        turns,
+        viewed: [...viewed]
+      });
+    });
+
     const catalog = JSON.stringify(await manifest(env));
     const timer = setTimeout(() => agent.abort(), DEADLINE_MS);
     try {
-      await agent.prompt(
-        `<available_publications>\n${catalog}\n</available_publications>\n\n` +
-          `Answer this question from a paying buyer:\n${job.question}`
-      );
+      if (checkpoint) {
+        await agent.continue();
+      } else {
+        await agent.prompt(
+          `<available_publications>\n${catalog}\n</available_publications>\n\n` +
+            `Answer this question from a paying buyer:\n${job.question}`
+        );
+      }
     } finally {
       clearTimeout(timer);
     }

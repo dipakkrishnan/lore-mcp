@@ -30,16 +30,23 @@ lore setup --yes                  # import existing agent memory files now
 
 Everything below assumes `~/.lore` (or `$LORE_HOME`).
 
-If `lore status` fails because `lore` is missing, install it first — tell the user, then
-run the curl one-liner from the README (plugin installs ship these skills but not the
-CLI). In a repo checkout, use:
+If `lore status` fails because `lore` is missing, explain that the plugin needs a
+small local runtime under `~/.local` to keep the library on this machine, then ask
+permission to install it and wait for the answer. A refusal changes nothing; stop.
+
+After approval, run the installer yourself. Never ask the owner to type, paste, or
+understand `curl`. The installer bootstraps `uv` and a compatible Python if needed.
+In a repo checkout, use:
 
 ```sh
 LORE_SKIP_SETUP=1 sh install.sh
 export PATH="$HOME/.local/bin:$PATH"
 ```
 
-If install fails (no `python3`, `uv`, or `curl`), stop and report — don't retry-loop.
+Otherwise run the README installer with `LORE_SKIP_SETUP=1`, then add
+`$HOME/.local/bin` to `PATH`. Run `lore status` again and continue to
+`lore setup --yes` only after it succeeds. If Git or curl is missing, or installation
+fails, report the exact prerequisite and stop — don't retry-loop.
 
 Checkpoint file: `$LORE_HOME/automation/onboarding.json`. **Read it first.** If it
 exists, tell the user what is already done and resume — never re-ask an answered
