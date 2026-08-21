@@ -88,15 +88,28 @@ Say it is outside what you can advise on.
 
 **Ask first whether they already have an EVM wallet** (MetaMask, Rainbow, Rabby,
 Coinbase Wallet, hardware — anything with a stable Base address they control).
-Have one? Copy the address, go. If not, walk them through Coinbase Wallet — the
-self-custody app at `coinbase.com/wallet`, *not* the exchange app (an exchange
-deposit address can rotate, and x402 would keep settling into an account nobody
-watches, with no error anywhere). Announce the page, open it, then one step at a
-time: **Create new wallet** (passkey setup is the safer default — no phrase to
+Name the two traps before either branch: an app showing prices, buy buttons,
+and a portfolio is the Coinbase *exchange* app, not a self-custody wallet —
+exchange deposit addresses can rotate and silently break payouts; and the
+network label must read **Base**, not Ethereum or Solana — a wrong-network
+payout address means x402 settles funds they'll never see, with no error
+anywhere. Base is a network selection *inside* the wallet, not a site — say
+that plainly before anyone goes looking for a Base app.
+
+**Has one:** ask *which* app, then drive it with that app's exact taps — "copy
+the address" is not guidance. Generic shape, adapted to their app: open the app
+or extension → **Receive** → network **Base** (same address across EVM chains;
+what matters is receiving on Base) → **Copy**.
+
+**Needs one:** walk them through Coinbase Wallet — the self-custody app at
+`coinbase.com/wallet`. Announce the page, open it, then one step at a time:
+**Create new wallet** (passkey setup is the safer default — no phrase to
 mishandle; classic setups show a **recovery phrase**: paper backup, confirm in
 app); skip all purchases, verification, and funding — an empty wallet is the
-goal; then **Receive → Base → Copy address**. The owner pastes the address here
-(`0x` + 40 hex, public by design); validate the format before using it.
+goal; then **Receive → Base → Copy address**.
+
+Either way, the owner pastes the address here (`0x` + 40 hex, public by
+design); validate the format before using it.
 
 Never ask for the recovery phrase, and never accept it if pasted — that phrase
 *is* the wallet. If it lands in the conversation anyway, the wallet is
@@ -111,7 +124,14 @@ the paid node requires a positive price.
 
 ## 5. Deploy the node
 
-Verify two prerequisites from state, then one command:
+Verify three prerequisites from state, then one command:
+
+0. `node --version` — `lore node deploy` needs Node to stage the Worker and run
+   wrangler, and a fresh machine may not have it. Missing? Say what you're
+   installing and why, get a yes, then install via the platform's package
+   manager (`brew install node` on macOS) **in the background** while the
+   wallet/price steps proceed — the owner should never sit watching a package
+   manager.
 
 1. `npx wrangler whoami` — not logged in? See "interactive logins" above. Free
    tier is enough.
@@ -177,16 +197,35 @@ If an owner insists on using their own key instead, they edit `.buyer.env`
 themselves, in their own editor — nothing in this flow ever needs a private key
 pasted into the conversation, and anything key-shaped pasted here is refused.
 
-## 7. Mainnet, later — not part of this skill
+## 7. Mainnet — gated, and driven only when the gates hold
 
-Real money is a separate, deliberate step, taken only after a two-person paid
-test has settled. It requires all of: at least one active publication (a real
-buyer must never pay real USDC against an empty catalog); an **explicit** owner
-confirmation; and Coinbase Developer Platform API keys (`portal.cdp.coinbase.com`)
-set as Worker secrets via `npx wrangler secret put` in `~/.lore/node` — they live
-in Cloudflare's vault, never on this machine and never in this conversation. The
-test-network facilitator needs no keys; CDP is the only facilitator that settles
-Base mainnet.
+Real money is a separate, deliberate step. Never initiate it; the owner asks.
+When they do, verify the gates **from state** before driving anything:
 
-If the owner asks to go to mainnet now, say it is gated on the above and leave
-the node on the test network.
+1. At least one active publication pushed to the node (a real buyer must
+   never pay real USDC against an empty catalog) — `lore publication list`
+   and the node's own `discover` manifest.
+2. A full test-network payment settled end to end, including one from a
+   wallet that is not the owner's own machine.
+3. The owner's **explicit** confirmation that they are switching to real
+   money — this step, uniquely, is never inferred from context.
+
+Any gate fails → say which, leave the node on the test network, stop.
+
+All gates hold → drive the **Mainnet cutover** section of
+`~/.lore/node/README.md` like any other section of this skill: one step at a
+time, announce each portal page before opening it, verify each step from
+state. The runbook carries the sharp edges — the API-keys page hides behind
+an "API key wallets" decoy; the create dialog's right answers (opt out of IP
+allowlisting for a Worker, leave the account scopes unchecked); secrets are
+scoped to the worker's *name*, so any rename happens before vaulting; and the
+key values go from the CDP tab into `wrangler secret put` prompts in a real
+terminal — they live in Cloudflare's vault, never on this machine and never
+in this conversation. The test-network facilitator needs no keys; CDP is the
+only facilitator that settles Base mainnet.
+
+After the cutover deploy, close the loop where the owner can see it: the
+server names itself `Lore x402 (MAINNET)` and `discover` reports
+`network: eip155:8453` — show both. The first real purchase needs a buyer
+holding real USDC; there are no mainnet faucets, and the throwaway test buyer
+stays on the test network.

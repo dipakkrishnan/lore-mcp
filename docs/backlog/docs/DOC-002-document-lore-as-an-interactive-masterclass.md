@@ -4,13 +4,13 @@ title: Document Lore as an interactive masterclass and coaching surface
 priority: P2
 effort: XS
 component: docs
-status: ready
+status: in-review
 related: [XC-002, MCP-001]
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-08-01
-updated: 2026-08-03
+updated: 2026-08-07
 ---
 
 ## Problem
@@ -58,3 +58,10 @@ existing answer loop.
 **Prioritization pass 2026-08-03:** promoted `in-review` → `ready` at `P2`.
 Unblocked, `XS` effort, and the criteria describe a self-contained writing task
 with no open design questions.
+
+**2026-08-07:** product note written at `docs/masterclass-coaching.md`, all
+five acceptance criteria addressed. `ready` → `in-review` pending PR review;
+the shipped `discover`/`get` surface has no `answer` tool yet (`MCP-003` is
+still `in-review`), so the note is explicit about which use cases work today
+via client-side synthesis over `get` versus which need `MCP-003`'s `answer`
+tool once it lands.

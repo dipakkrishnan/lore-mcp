@@ -4,13 +4,13 @@ title: Propagate publication revocation to the edge immediately
 priority: P1
 effort: S
 component: monetization
-status: ready
+status: in-review
 related: [MON-003, XC-002]
 blockers: [MON-003]
 dependencies: []
 github_issue: https://github.com/dipakkrishnan/lore-mcp/issues/25
 created: 2026-07-30
-updated: 2026-08-03
+updated: 2026-08-05
 ---
 
 ## Problem

@@ -165,6 +165,14 @@ class PromptTest(LoreTestCase):
 
 
 class InstallTest(LoreTestCase):
+    def test_install_rejects_an_invalid_hour_from_a_saved_profile(self) -> None:
+        # Profiles are normally validated by save_profile(), but install() also
+        # reads persisted JSON and must not turn malformed data into a schedule.
+        for hour in ("9", True, -1, 24):
+            with self.subTest(hour=hour):
+                with self.assertRaisesRegex(ValueError, "profile hour"):
+                    automation.install({"executor": "codex", "hour": hour})
+
     def test_a_codex_schedule_hands_off_with_no_claude_specific_grants(self) -> None:
         profile = automation.save_profile(automation_profile())
         with patch("lore.automation.remove_task") as remove:
@@ -240,6 +248,56 @@ class InstallTest(LoreTestCase):
         self.assertEqual(task.cadence, "daily")
         self.assertEqual(task.hour, 21)
         self.assertEqual(task.model, "")
+
+
+class ScheduleFailureTest(LoreTestCase):
+    def test_schedule_failure_maps_each_cause_to_an_actionable_fix(self) -> None:
+        # windup raises each of these as OSError.
+        expected_os_fixes = {
+            "Claude local scheduling currently requires macOS": '"executor": "codex"',
+            "Claude CLI is not installed": "which claude",
+            "launchctl bootstrap failed": "launchctl print",
+            # Real launchd stderr never says "launchctl".
+            "Bootstrap failed: 5: Input/output error": "launchctl print",
+            "disk quota exceeded": "Resolve the error above",
+        }
+        for reason, fix in expected_os_fixes.items():
+            with self.subTest(reason=reason):
+                report = automation.schedule_failure(
+                    automation.Agent.CLAUDE, OSError(reason)
+                )
+                self.assertIn(reason, report)
+                self.assertIn(fix, report)
+                # Every failure names the command that finishes the install by hand.
+                self.assertIn(automation.retry_command(), report)
+
+        # windup raises these as ValueError — the more common case, and the reason
+        # the caller must widen its `except` clause, not just this function's markers.
+        expected_value_fixes = {
+            "task prompt does not exist: /home/.lore/automation/synthesis-prompt.md": (
+                "synthesis prompt file is missing"
+            ),
+            "task hour must be between 0 and 23": '"hour" field must be 0-23',
+        }
+        for reason, fix in expected_value_fixes.items():
+            with self.subTest(reason=reason):
+                report = automation.schedule_failure(
+                    automation.Agent.CLAUDE, ValueError(reason)
+                )
+                self.assertIn(reason, report)
+                self.assertIn(fix, report)
+                self.assertIn(automation.retry_command(), report)
+
+        blank = automation.schedule_failure(automation.Agent.CODEX, OSError())
+        self.assertIn("Codex schedule was not installed", blank)
+        self.assertIn("the local scheduler rejected the task", blank)
+
+    def test_a_non_agent_executor_argument_does_not_crash_the_formatter(self) -> None:
+        # A saved profile with no executor ("") fails Agent("") before an Agent
+        # instance exists; the caller passes the raw string straight through.
+        report = automation.schedule_failure("", ValueError("'' is not a valid Agent"))
+        self.assertIn("'' is not a valid Agent", report)
+        self.assertIn(automation.retry_command(), report)
 
 
 if __name__ == "__main__":

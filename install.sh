@@ -2,19 +2,18 @@
 set -eu
 
 REPOSITORY="dipakkrishnan/lore-mcp"
-VERSION="${LORE_VERSION:-main}"
+VERSION="${LORE_VERSION:-v0.1.0}"
 INSTALL_DIR="${LORE_INSTALL_DIR:-$HOME/.local/share/lore}"
 BIN_DIR="${LORE_BIN_DIR:-$HOME/.local/bin}"
-command -v python3 >/dev/null 2>&1 || { echo "Lore needs Python 3.10 or newer." >&2; exit 1; }
-command -v uv >/dev/null 2>&1 || {
-  echo "Lore needs uv: https://docs.astral.sh/uv/getting-started/installation/" >&2
-  exit 1
-}
 command -v git >/dev/null 2>&1 || { echo "Lore needs git." >&2; exit 1; }
-python3 -c 'import sys; raise SystemExit(sys.version_info < (3, 10))' || {
-  echo "Lore needs Python 3.10 or newer." >&2
-  exit 1
-}
+if ! command -v uv >/dev/null 2>&1; then
+  command -v curl >/dev/null 2>&1 || { echo "Lore needs curl to install uv." >&2; exit 1; }
+  echo "Installing uv..."
+  curl -LsSf https://astral.sh/uv/install.sh | UV_NO_MODIFY_PATH=1 sh
+  PATH="$HOME/.local/bin:$PATH"
+  export PATH
+fi
+command -v uv >/dev/null 2>&1 || { echo "uv installation failed." >&2; exit 1; }
 
 if [ -n "${LORE_SOURCE_DIR:-}" ]; then
   SOURCE_DIR="$LORE_SOURCE_DIR"

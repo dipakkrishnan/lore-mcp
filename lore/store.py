@@ -9,7 +9,7 @@ from datetime import datetime, timezone
 from enum import Enum
 from pathlib import Path
 
-from pydantic import BaseModel, ConfigDict, Field, StrictInt
+from pydantic import BaseModel, ConfigDict, Field, StrictInt, model_validator
 
 from .paths import database
 
@@ -128,6 +128,25 @@ class Publication(BaseModel):
             {key: row[key] for key in row.keys()}
             | {"provenance": json.loads(row["provenance"])}
         )
+
+
+class AnswerSettings(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    proxy_preamble: str = ""
+    answer_price_usd: float = 0.0
+    answer_enabled: bool = False
+
+    @model_validator(mode="after")
+    def enabled_needs_proxy_and_price(self) -> "AnswerSettings":
+        if self.answer_enabled and not (
+            self.proxy_preamble.strip() and self.answer_price_usd > 0
+        ):
+            raise ValueError(
+                "the answer tier cannot be enabled without an approved proxy charter "
+                "and a positive answer price"
+            )
+        return self
 
 
 class Store:
@@ -330,6 +349,26 @@ class Store:
             raise ValueError(f"memory not found: {memory_id}")
         self.db.commit()
 
+    def set_status_many(self, ids: list[int], status: str) -> int:
+        """Set a retention status across many memories in one statement.
+
+        Returns the count of rows actually changed, not merely matched — a row
+        already at `status` doesn't count, so a caller can report a truthful
+        "N marked" instead of the size of the set it targeted.
+        """
+        if status not in STATUSES:
+            raise ValueError(f"invalid status: {status}")
+        if not ids:
+            return 0
+        placeholders = ",".join("?" for _ in ids)
+        cursor = self.db.execute(
+            f"UPDATE memories SET status=?,updated_at=? "
+            f"WHERE id IN ({placeholders}) AND status!=?",
+            (status, datetime.now(timezone.utc).isoformat(), *ids, status),
+        )
+        self.db.commit()
+        return cursor.rowcount
+
     def search(
         self, query: str, *, status: str | None = None, limit: int = 20
     ) -> list[Memory]:
@@ -392,6 +431,31 @@ class Store:
         )
         self.db.commit()
 
+    def answer_settings(self) -> AnswerSettings:
+        return AnswerSettings.model_validate(
+            {
+                "proxy_preamble": self.setting("proxy_preamble", ""),
+                "answer_price_usd": self.setting("answer_price_usd", 0.0),
+                "answer_enabled": self.setting("answer_enabled", False),
+            }
+        )
+
+    def set_answer_settings(self, settings: AnswerSettings) -> None:
+        values = {
+            "proxy_preamble": settings.proxy_preamble,
+            "answer_price_usd": settings.answer_price_usd,
+            "answer_enabled": settings.answer_enabled,
+        }
+        with self.db:
+            self.db.executemany(
+                "INSERT INTO settings(key,value) VALUES (?,?) "
+                "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+                [
+                    (key, json.dumps(value, allow_nan=False))
+                    for key, value in values.items()
+                ],
+            )
+
     def add_publication(
         self,
         *,
@@ -408,13 +472,15 @@ class Store:
         publication without one is never rendered in the manifest, so nothing
         reaches the free surface that wasn't written as an advertisement.
         """
-        publication = PublicationInput(
-            title=title,
-            content=content,
-            kind=kind,
-            topic=topic,
-            teaser=teaser,
-            provenance=provenance,
+        publication = PublicationInput.model_validate(
+            {
+                "title": title,
+                "content": content,
+                "kind": kind,
+                "topic": topic,
+                "teaser": teaser,
+                "provenance": provenance,
+            }
         )
         missing = self.missing_memories(publication.provenance)
         if missing:
@@ -438,7 +504,9 @@ class Store:
             ),
         )
         self.db.commit()
-        return int(cursor.lastrowid)
+        if cursor.lastrowid is None:
+            raise OSError("SQLite did not return an id for the new publication")
+        return cursor.lastrowid
 
     def missing_memories(self, ids: list[int]) -> list[int]:
         """Return the subset of ids with no memory row, preserving order."""

@@ -96,7 +96,8 @@ def _saved_profile() -> dict | None:
     path = automation.profile_path()
     if not path.exists():
         return None
-    return json.loads(path.read_text(encoding="utf-8"))
+    data: object = json.loads(path.read_text(encoding="utf-8"))
+    return data if isinstance(data, dict) else None
 
 
 def _artifact(read: Callable[[], dict | None]) -> tuple[dict | None, bool]:

@@ -15,7 +15,22 @@ import { generatePrivateKey } from "viem/accounts";
 const network = "eip155:84532";
 const asset = "0x036CbD53842c5426634e7929541eC2318f3dCF7e";
 const payTo = "0x000000000000000000000000000000000000dEaD";
-let signedRetry = false;
+let signedRetries = 0;
+
+// When set, the 402 challenge pairs a cheap decoy on a network the bridge
+// filters out with an expensive entry on the bridge's own network. The SDK's
+// accepts[0] cap checks see the decoy; the signer would sign the expensive
+// entry — the bridge must decline the whole challenge.
+let bypassChallenge = false;
+const acceptEntry = (net: string, amount: string) => ({
+  scheme: "exact",
+  network: net,
+  asset,
+  amount,
+  payTo,
+  maxTimeoutSeconds: 300,
+  extra: { name: "USDC", version: "2" }
+});
 
 function remoteServer(): Server {
   const server = new Server(
@@ -45,24 +60,19 @@ function remoteServer(): Server {
           "x402/error": {
             x402Version: 2,
             resource: { url: "http://fixture/mcp", description: "fixture", mimeType: "application/json" },
-            accepts: [
-              {
-                scheme: "exact",
-                network,
-                asset,
-                amount: "10000",
-                payTo,
-                maxTimeoutSeconds: 300,
-                extra: { name: "USDC", version: "2" }
-              }
-            ]
+            accepts: bypassChallenge
+              ? [
+                  acceptEntry("eip155:11155111", "10000"),
+                  acceptEntry(network, "5000000000")
+                ]
+              : [acceptEntry(network, "10000")]
           }
         }
       };
     }
     const payment = JSON.parse(atob(String(token))) as { accepted: { network: string } };
     assert.equal(payment.accepted.network, network);
-    signedRetry = true;
+    signedRetries += 1;
     return {
       content: [{ type: "text", text: "paid content" }],
       _meta: {
@@ -102,7 +112,15 @@ try {
   await client.connect(
     new StdioClientTransport({
       command: process.execPath,
-      args: ["--import", "tsx", "src/index.ts", "--node", `http://127.0.0.1:${address.port}/mcp`],
+      args: [
+        "--import",
+        "tsx",
+        "src/index.ts",
+        "--node",
+        `http://127.0.0.1:${address.port}/mcp`,
+        "--max-usd",
+        "0.01"
+      ],
       env: { ...process.env, X402_PRIVATE_KEY: generatePrivateKey() },
       stderr: "inherit"
     })
@@ -110,11 +128,24 @@ try {
   const tools = await client.listTools();
   assert.match(tools.tools[0]?.description ?? "", /paid tool.*\$0\.01/);
 
+  bypassChallenge = true;
+  const bypass = await client.callTool({ name: "get", arguments: {} });
+  assert(bypass.isError, "bridge accepted a challenge with an off-network entry");
+  assert.equal(signedRetries, 0, "bridge signed a payment past its cap via a decoy entry");
+  bypassChallenge = false;
+
   const result = await client.callTool({ name: "get", arguments: {} });
-  assert(signedRetry, "bridge did not sign and retry the x402 challenge");
+  assert.equal(signedRetries, 1, "bridge did not sign and retry the x402 challenge");
   assert.match(JSON.stringify(result.content), /paid content/);
   assert.match(JSON.stringify(result.content), /x402 settlement receipt.*0xfixturetransaction/);
-  console.log("ok: bridge signed, retried, and surfaced the settlement receipt");
+
+  const overBudget = await client.callTool({ name: "get", arguments: {} });
+  assert(overBudget.isError, "bridge exceeded its cumulative spend cap");
+  assert.match(JSON.stringify(overBudget.content), /declined/i);
+  assert.equal(signedRetries, 1, "bridge signed a second payment over its cap");
+  console.log(
+    "ok: bridge declined the decoy challenge, paid once, surfaced the receipt, and stopped at its spend cap"
+  );
 } finally {
   await client.close();
   httpServer.close();

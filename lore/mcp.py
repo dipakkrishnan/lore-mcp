@@ -55,8 +55,8 @@ TOOLS = [
         "description": (
             "Fetch one owner-approved publication by its id from the discover "
             "catalog. Each call buys exactly one publication. Damaged ids are "
-            "rejected before payment; use a current catalog because payment settles "
-            "before lookup and a just-revoked id can still be billed."
+            "rejected before payment; use a current catalog because a "
+            "just-revoked id can still be billed."
         ),
         "inputSchema": GetArguments.model_json_schema(),
         "annotations": {"readOnlyHint": True, "openWorldHint": False},
@@ -112,35 +112,37 @@ def dispatch(message: object) -> dict[str, Any] | None:
 
 def call_tool(name: object, arguments: object) -> dict[str, Any]:
     """Run a Lore MCP tool against owner-approved publications only."""
-    if name not in {"discover", "get"}:
-        raise ValueError(f"unknown tool: {name}")
-    parsed = (
-        GetArguments.model_validate(arguments)
-        if name == "get"
-        else DiscoverArguments.model_validate(arguments)
-    )
-    with Store() as store:
-        if name == "discover":
+    if name == "discover":
+        DiscoverArguments.model_validate(arguments)
+        with Store() as store:
             # The free surface is the manifest: what exists, never what it says.
             payload = store.manifest() | {
                 "price_usd": store.setting("price_usd", None),
                 "disclosure": "Choose any advertised ids; get buys one publication per call.",
             }
-        elif name == "get":
-            publication = store.get_publication(parsed.id)
-            payload = {
-                "publication": {
-                    "id": publication.public_id,
-                    "title": publication.title,
-                    "content": publication.content,
-                    "topic": publication.topic,
-                    # The private memory ids behind a publication are never sent
-                    # to a buyer: they leak the size and shape of the library.
-                    "kind": publication.kind,
-                    "updated_at": publication.updated_at,
-                },
-                "disclosure": "Content is owner-approved; preserve attribution when synthesizing.",
-            }
+        return {
+            "content": [
+                {"type": "text", "text": json.dumps(payload, ensure_ascii=False)}
+            ]
+        }
+    if name != "get":
+        raise ValueError(f"unknown tool: {name}")
+    parsed = GetArguments.model_validate(arguments)
+    with Store() as store:
+        publication = store.get_publication(parsed.id)
+        payload = {
+            "publication": {
+                "id": publication.public_id,
+                "title": publication.title,
+                "content": publication.content,
+                "topic": publication.topic,
+                # The private memory ids behind a publication are never sent
+                # to a buyer: they leak the size and shape of the library.
+                "kind": publication.kind,
+                "updated_at": publication.updated_at,
+            },
+            "disclosure": "Content is owner-approved; preserve attribution when synthesizing.",
+        }
     return {
         "content": [{"type": "text", "text": json.dumps(payload, ensure_ascii=False)}]
     }

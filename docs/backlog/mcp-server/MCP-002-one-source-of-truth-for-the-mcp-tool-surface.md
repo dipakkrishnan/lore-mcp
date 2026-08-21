@@ -4,13 +4,13 @@ title: Keep one source of truth for the MCP tool surface
 priority: P1
 effort: S
 component: mcp-server
-status: ready
+status: in-review
 related: [MON-003, MCP-001, XC-004, XC-008]
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-07-30
-updated: 2026-08-03
+updated: 2026-08-06
 ---
 
 ## Problem
@@ -42,11 +42,11 @@ argument bounds across `lore/mcp.py`'s `TOOLS` list and
 
 ## Acceptance criteria
 
-- [ ] A tool added, renamed, or given a new argument on one surface cannot ship
+- [x] A tool added, renamed, or given a new argument on one surface cannot ship
       without the other surface being updated or the check failing
-- [ ] `max_results` is consistent across both surfaces, or its absence at the
+- [x] `max_results` is consistent across both surfaces, or its absence at the
       edge is deliberate and documented
-- [ ] The disclosure language a buyer sees does not depend on which surface they
+- [x] The disclosure language a buyer sees does not depend on which surface they
       reached
 
 ## Notes
@@ -78,3 +78,25 @@ comparison test — and it is `ready` immediately at roughly `S`.
 deferred — comparison test, per its own reasoning above (only option that's a
 CI job, not a build step). Corrected `effort` to `S` and promoted to `P1` /
 `ready`.
+
+**Implementation, 2026-08-06:** `max_results` no longer exists on either
+surface — `MCP-001`'s manifest-first rework (`discover` returns the full free
+catalog, no pagination arg) landed on both `lore/mcp.py` and
+`lore/node/src/index.ts` since this item's problem statement was written, so
+that half of the divergence resolved itself rather than needing a fix.
+
+What was still live: `get`'s description text had drifted — the Python copy
+carried an extra clause ("because payment settles before lookup and...") the
+Worker's did not. Standardized on the Worker's shorter wording (it's the
+buyer-facing, already-deployed copy) and added `contracts/mcp_tools.json` as
+the single canonical source for each tool's name, description, and required
+arguments. `tests/test_mcp_contract.py` checks `lore.mcp.TOOLS` against it;
+`lore/node/test/mcp-contract.test.ts` checks the Worker's real
+`tools/list` response (via an in-process MCP client, same pattern as
+`paid-path.test.ts`) against it — each surface verifies itself against the
+shared file in its own existing CI job (`python-unit`, `node-component`), so
+no new CI job was needed and drift on either side fails that side's own PR
+check. `tsconfig.json` gained `resolveJsonModule: true` so the Worker-side
+test can import the JSON directly — the workerd sandbox `vitest-pool-workers`
+runs tests in has no host filesystem access, so `readFileSync` isn't an
+option there.

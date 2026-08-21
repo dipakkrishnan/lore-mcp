@@ -4,13 +4,13 @@ title: Require a backlog id in every pull request title
 priority: P1
 effort: S
 component: cross-cutting
-status: ready
-related: [XC-004, XC-007, XC-011]
+status: completed
+related: [XC-004, XC-007, XC-011, XC-014]
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-08-03
-updated: 2026-08-03
+updated: 2026-08-04
 ---
 
 ## Problem
@@ -67,17 +67,17 @@ message so the fix is obvious without opening this item.
 
 ## Acceptance criteria
 
-- [ ] A pull request titled without a leading `ID: ` (and not matching an
+- [x] A pull request titled without a leading `ID: ` (and not matching an
       allowed exception form) fails the check
-- [ ] A pull request whose id is well-formed but has no matching file under
+- [x] A pull request whose id is well-formed but has no matching file under
       `docs/backlog/` fails, with a message naming the unknown id
-- [ ] Editing a pull request title re-runs the check rather than leaving a stale
+- [x] Editing a pull request title re-runs the check rather than leaving a stale
       result
-- [ ] The exception path for multi-item and no-item pull requests is documented
+- [x] The exception path for multi-item and no-item pull requests is documented
       in `docs/backlog/README.md`, and is a closed set rather than a free-text
       escape
-- [ ] The failure message states the required format and the allowed exceptions
-- [ ] The check runs on pull requests from forks without needing write
+- [x] The failure message states the required format and the allowed exceptions
+- [x] The check runs on pull requests from forks without needing write
       permissions or repository secrets
 
 ## Notes
@@ -107,3 +107,20 @@ allowlist wide enough that legitimate work always has a passing form.
 Unblocked, small effort, and the open questions above (allowlist form,
 required-vs-advisory) both carry a clear stated recommendation — handing this
 to implementation as-is means picking the recommendation, not inventing one.
+
+**Implementation 2026-08-04:** built as recommended — a `pull_request`
+workflow (`.github/workflows/pr-title.yml`) on `[opened, edited, reopened,
+synchronize]` running `.github/scripts/check_pr_title.py`, which checks
+shape (`^[A-Z]{2,5}-\d{3}: \S`) then existence (`docs/backlog/*/<ID>-*.md`),
+with the `Backlog:`/`chore:`/`revert:` allowlist as the alternative to the id
+form. Exception path documented in `docs/backlog/README.md`. Uses the
+default `pull_request` trigger (not `pull_request_target`) and `permissions:
+contents: read`, so it runs on fork PRs with no secrets or elevated token —
+satisfies that criterion without needing anything special.
+
+Left as a follow-up, not blocking completion: the required-vs-advisory
+branch-protection setting. The recommendation from filing stands (required),
+but turning it on needs repository admin to configure required status
+checks, and the current backlog author has push, not admin — same gap noted
+in `XC-011`. The workflow runs and reports on every PR either way; only its
+enforcement is soft until someone with admin flips it.
