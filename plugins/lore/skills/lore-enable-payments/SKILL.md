@@ -31,8 +31,8 @@ the guide; the skill is your script.
 - **One step at a time.** One line on what this step is for, do it or open it,
   confirm it worked, move on. Never paste the flow as a wall of steps.
 - **You run the commands.** Every shell command here is yours to execute, not to
-  quote. The owner personally does two things: log in to Cloudflare, and click
-  around their own wallet app and faucet pages.
+  quote. The owner personally handles Cloudflare login, their wallet and faucet,
+  provider secrets, and attended publication or proxy approval.
 - **Announce, then open.** Before any browser step, say in one sentence what the
   page is and what the owner will do there — then use the host's browser control
   when available, otherwise the platform's URL opener. Never spring a tab on
@@ -57,7 +57,7 @@ the guide; the skill is your script.
   | **Payout** | The owner, in their wallet app | *Receives* every payment; set as `LORE_WALLET` |
   | **Buyer** (throwaway) | `~/.lore/node/.buyer.env`, self-generated | *Pays* the one test transaction |
 
-## 1. Pick the path
+## 1. Pick the path and buyer products
 
 Read `lore status`, then ask one question:
 
@@ -68,6 +68,17 @@ Read `lore status`, then ask one question:
   here after.
 
 Either answer runs the same steps in a different order.
+
+Only when at least one publication is active, explain the two products and ask one
+question: keep publication access only, or also add paid answers.
+
+- `get` returns one approved publication exactly, at the publication price.
+- `answer` optionally adds a new response in the owner's first-person proxy voice,
+  grounded only in approved publications, at its own per-answer price. It does not
+  mean the owner is present.
+
+If they decline answers, skip every answer-specific step. Publication-only, free,
+and private-only are complete outcomes.
 
 ## 2. Show the whole cost first
 
@@ -122,6 +133,18 @@ Run `lore price 0.01` (or the owner's chosen amount — their call, `0.01` is th
 recommendation). `lore price 0` is free and a supported place to stop; deploying
 the paid node requires a positive price.
 
+If they chose answers, draft two to four lines of **public proxy instructions** from
+their confirmed voice. The instructions should tell the agent to answer as their
+authorized proxy, cite approved publications, distinguish documented experience
+from inference, refuse uncovered questions, and stay concise. Do not copy private
+profile or blueprint content. Explain before showing the draft: this is public
+behavior guidance, not an API key, secret, access to private memory, or a claim that
+the owner is present.
+
+Show the exact instructions and ask for a per-answer price that clears expected model
+cost. Write the accepted draft to a temporary text file outside `~/.lore`; do not
+enable it yet. If they decline the draft or price, continue without answers.
+
 ## 5. Deploy the node
 
 Verify three prerequisites from state, then one command:
@@ -155,6 +178,25 @@ Rerunning is always safe — it is also the redeploy path.
 
 Deployed earlier? `lore status` shows the URL as `Node (last deploy):` — ask the
 owner only if status cannot answer. After any publication change: `lore push`.
+
+If they chose answers, select Anthropic or OpenAI after the base node exists. From
+`~/.lore/node`, the owner enters the provider key through
+`npx wrangler secret put ANTHROPIC_API_KEY` or
+`npx wrangler secret put OPENAI_API_KEY` in their own terminal; never ask them to
+paste it into conversation. For OpenAI, they also run
+`npx wrangler secret put LORE_ANSWER_MODEL` and enter `gpt-5.6-luna`. Verify the
+secret names with `npx wrangler secret list`.
+
+Then show the exact draft and price again and have the owner run this in a real
+terminal:
+
+```sh
+lore answer on <temporary-proxy-file> <per-answer-price>
+```
+
+The command prints both and asks for approval. Never invoke it, answer its prompt, or
+work around its interactive gate. A rejection saves nothing. After approval, run
+`lore push`; `lore answer off` plus another push returns to publication-only.
 
 ## 6. Prove one payment on the test network
 

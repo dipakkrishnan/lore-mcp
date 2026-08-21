@@ -109,7 +109,9 @@ owner should choose at the seam, not discover the gap later. No node deployed
 (`lore status` shows none)? End with one question: deploy and price these now
 (route into `lore-enable-payments`), or leave them approved-but-unreachable —
 both first-class answers. Node exists? The question is `lore push` instead:
-approved changes don't reach the edge until pushed.
+approved changes don't reach the edge until pushed. If they choose Monetize,
+say that the payment flow will ask whether to keep the exact publication through
+`get` only or also add grounded proxy responses through `answer`.
 
 ## Rules
 
