@@ -350,6 +350,31 @@ class SkillContractTest(unittest.TestCase):
         self.assertIn("lore price 0", skill)
         self.assertIn("has not failed", skill)
 
+    def test_owner_handoffs_offer_and_decline_paid_proxy_answers(self) -> None:
+        onboard = " ".join(
+            (OWNER_SKILLS / "lore-onboard/SKILL.md").read_text().lower().split()
+        )
+        publish = " ".join(
+            (OWNER_SKILLS / "lore-publish/SKILL.md").read_text().lower().split()
+        )
+        payments = " ".join(
+            (OWNER_SKILLS / "lore-enable-payments/SKILL.md").read_text().lower().split()
+        )
+
+        self.assertIn("only after a publication is approved", onboard)
+        for product in ("`get`", "`answer`", "or also add"):
+            self.assertIn(product, publish)
+            self.assertIn(product, payments)
+        for boundary in (
+            "public behavior guidance",
+            "not an api key",
+            "does not mean the owner is present",
+            "lore answer on <temporary-proxy-file> <per-answer-price>",
+            "a rejection saves nothing",
+            "publication-only, free, and private-only are complete outcomes",
+        ):
+            self.assertIn(boundary, payments)
+
     def test_onboarding_owns_the_runtime_install(self) -> None:
         skill = " ".join(
             (OWNER_SKILLS / "lore-onboard/SKILL.md").read_text().lower().split()
