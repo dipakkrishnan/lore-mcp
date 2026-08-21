@@ -74,8 +74,17 @@ it("runs the owner's proxy", async () => {
   }
 
   const ticket = await createTicket(evalEnv, evalEnv.LORE_EVAL_QUESTION, input.price);
-  await runAnswer(evalEnv, ticket);
+  const toolCalls: string[] = [];
+  await runAnswer(evalEnv, ticket, (name) => toolCalls.push(name));
   const result = await ticketResult(evalEnv, ticket);
+  const citations =
+    result.status === "complete" && Array.isArray(result.cited_publication_ids)
+      ? input.publications
+          .filter(({ public_id }) =>
+            (result.cited_publication_ids as string[]).includes(public_id)
+          )
+          .map(({ public_id, title }) => ({ public_id, title }))
+      : [];
   const telemetry = await evalEnv.LORE_DB.prepare(
     "SELECT model,input_tokens,output_tokens,cost_usd,tool_calls,duration_ms FROM answer_jobs WHERE ticket_id=?1"
   )
@@ -83,7 +92,7 @@ it("runs the owner's proxy", async () => {
     .first();
 
   console.log(
-    `\n${JSON.stringify({ question: evalEnv.LORE_EVAL_QUESTION, result, telemetry }, null, 2)}\n`
+    `\n${JSON.stringify({ question: evalEnv.LORE_EVAL_QUESTION, toolCalls, citations, result, telemetry }, null, 2)}\n`
   );
   expect(result.status, JSON.stringify(result)).not.toBe("failed");
 });

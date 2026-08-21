@@ -31,7 +31,8 @@ function systemPrompt(proxy: string): string {
     "as the owner would, but never imply the owner is present. Use only the owner's approved " +
     "publications. Read every publication you rely on. Do not invent current beliefs, actions, " +
     "availability, or commitments. Submit an answer with exactly the publication ids it uses, " +
-    "or refuse when the publications do not cover the question."
+    "or refuse when the publications do not cover the question. View matching manifest teasers " +
+    "directly; search only when no teaser matches."
   );
 }
 
@@ -48,7 +49,11 @@ function modelConfig(env: AnswerEnv): { id: string; provider: Provider; apiKey: 
   throw new Error(`unsupported answer model: ${id}`);
 }
 
-export async function runAnswer(env: AnswerEnv, ticketId: string): Promise<void> {
+export async function runAnswer(
+  env: AnswerEnv,
+  ticketId: string,
+  onToolCall?: (name: string) => void
+): Promise<void> {
   const started = Date.now();
   const job = await runningJob(env, ticketId);
   if (!job) return;
@@ -74,7 +79,7 @@ export async function runAnswer(env: AnswerEnv, ticketId: string): Promise<void>
       const requestOptions = {
         ...options,
         apiKey: selected.apiKey,
-        maxTokens: 4096,
+        maxTokens: 1024,
         toolChoice: nextModel.provider === "anthropic" ? "any" : "required"
       };
       return selected.provider.streamSimple(nextModel, context, requestOptions);
@@ -101,6 +106,10 @@ export async function runAnswer(env: AnswerEnv, ticketId: string): Promise<void>
         )
       }
     });
+    agent.subscribe((event) => {
+      if (event.type === "tool_execution_start") onToolCall?.(event.toolName);
+    });
+
     agent.subscribe(async (event) => {
       if (event.type !== "turn_end") return;
       turns += 1;
