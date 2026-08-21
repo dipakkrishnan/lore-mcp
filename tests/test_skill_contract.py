@@ -375,6 +375,19 @@ class SkillContractTest(unittest.TestCase):
         ):
             self.assertIn(boundary, payments)
 
+    def test_onboarding_owns_the_runtime_install(self) -> None:
+        skill = " ".join(
+            (OWNER_SKILLS / "lore-onboard/SKILL.md").read_text().lower().split()
+        )
+        for boundary in (
+            "ask permission to install it and wait",
+            "never ask the owner to type, paste, or understand `curl`",
+            "run `lore status` again",
+            "only after it succeeds",
+            "a refusal changes nothing",
+        ):
+            self.assertIn(boundary, skill)
+
     def test_capture_skill_requires_private_approval_before_publish_handoff(
         self,
     ) -> None:
