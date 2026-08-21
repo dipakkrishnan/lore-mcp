@@ -58,7 +58,10 @@ lore push                                   # ship proxy charter, price, and the
 
 The default model is `claude-sonnet-5`. Set `LORE_ANSWER_MODEL` to
 `gpt-5.6-luna` and add `OPENAI_API_KEY` to use OpenAI instead. Turn the tier off
-with `lore answer off` and a push.
+with `lore answer off` and a push. Completed turns are checkpointed in the
+existing D1 database so a fresh Worker invocation can resume the same ticket.
+Pi's packaged SQLite session adapter uses Node's `node:sqlite` and cannot run in
+a Worker isolate.
 
 ## Make the test payment
 
