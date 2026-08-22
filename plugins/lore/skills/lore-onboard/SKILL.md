@@ -12,14 +12,17 @@ synthesis *profile*, using the Phase 1 blueprint to steer where you look and how
 frame it. The blueprint makes Phase 2 sharper; do them in order.
 
 > **Agent-system controls:** In Claude Code, use `AskUserQuestion` for owner
-> decisions. In Codex, ask directly in chat unless the current mode explicitly
-> provides a structured question control. Never block because a named question
-> tool is unavailable.
+> decisions. In the Lore desktop app, use `ask_user` for every question, including
+> the five-persona opener — it has no option limit. In Codex, ask directly in chat
+> unless the current mode explicitly provides a structured question control.
+> Never block because a named question tool is unavailable.
 
-Two separate artifacts, two validated write commands — never write either directly:
+Two separate artifacts, two validated write commands — never write either directly.
+Both read JSON from stdin through a quoted heredoc, exactly as shown below; do not
+substitute a temp file, `echo`, `printf`, a pipe, or another delimiter:
 
-- `lore blueprint apply <file>` → `~/.lore/blueprint/blueprint.json` (the shape)
-- `lore profile <file>` → `~/.lore/automation/profile.json` (what steers synthesis)
+- `lore blueprint apply - <<'LORE_BLUEPRINT'` → `~/.lore/blueprint/blueprint.json` (the shape)
+- `lore profile - <<'LORE_PROFILE'` → `~/.lore/automation/profile.json` (what steers synthesis)
 
 ## 0. Preconditions
 
@@ -48,14 +51,17 @@ Otherwise run the README installer with `LORE_SKIP_SETUP=1`, then add
 `lore setup --yes` only after it succeeds. If Git or curl is missing, or installation
 fails, report the exact prerequisite and stop — don't retry-loop.
 
-Checkpoint file: `$LORE_HOME/automation/onboarding.json`. **Read it first.** If it
-exists, tell the user what is already done and resume — never re-ask an answered
-question or re-run a finished phase. Write it after *every* answer, not at the end.
+Checkpoint file: `$LORE_HOME/automation/onboarding.json`. **Read it first** with
+your file-reading tool. If it exists, tell the user what is already done and resume —
+never re-ask an answered question or re-run a finished phase. Write it after *every*
+answer, not at the end, with exactly this command (`lore setup` creates the folder):
 
-```json
+```sh
+cat > "${LORE_HOME:-$HOME/.lore}/automation/onboarding.json" <<'LORE_CHECKPOINT'
 {"phase1_done": false, "role": "", "domains": "", "valuable_context": "",
  "preferences": "", "boundaries": "", "executor": "", "model": "",
  "cadence": "daily", "hour": 21}
+LORE_CHECKPOINT
 ```
 
 ## 1. Persona interview → blueprint
@@ -82,18 +88,19 @@ Use it to aim, don't just proceed:
 - **`persona` / `organizing_axis`** → how to frame `valuable_context` and `domains`
   (a Professor's expertise map reads differently from an Executive's decision log).
 
-Then read the evidence (cheap, read-only; adjust globs to what exists):
+Then read the evidence with exactly these read-only commands:
 
 ```sh
-ls ~/.claude/projects/ | head -50                    # project names = domains
-ls ~/.claude/projects/*/memory/*.md 2>/dev/null | head -50
-ls ~/.codex/memories/ ~/.codex/automations/ 2>/dev/null
-ls -lt ~/.claude/projects/*/*.jsonl 2>/dev/null | head -20   # recency and volume
+ls "${CLAUDE_HOME:-$HOME/.claude}/projects"                                   # project names = domains
+ls "${CLAUDE_HOME:-$HOME/.claude}"/projects/*/memory/*.md 2>/dev/null
+ls "${CODEX_HOME:-$HOME/.codex}/memories" "${CODEX_HOME:-$HOME/.codex}/automations" 2>/dev/null
+ls -lt "${CLAUDE_HOME:-$HOME/.claude}"/projects/*/*.jsonl 2>/dev/null         # recency and volume
+which claude codex
 ```
 
-Read the memory `.md` files in full — they're already distilled. Open recent `.jsonl`
-transcripts only for `focus_topics` where the memory files are thin. Note installed
-agents (`which claude codex`).
+Read the memory `.md` files in full with your file-reading tool — they're already
+distilled. Open recent `.jsonl` transcripts only for `focus_topics` where the memory
+files are thin.
 
 From that, draft every profile field *before* asking anything. A wrong guess is fine; a
 `role` of "software engineering" is not — it means you didn't read.
@@ -128,7 +135,10 @@ enabled sources. Free-text only on "Other". Write the checkpoint after each answ
 ## 4. Save and schedule
 
 ```sh
-lore profile ~/.lore/automation/onboarding.json
+lore profile - <<'LORE_PROFILE'
+{"role": "...", "domains": "...", "valuable_context": "...", "preferences": "...",
+ "boundaries": "...", "executor": "claude", "model": "", "cadence": "daily", "hour": 21}
+LORE_PROFILE
 ```
 
 Validates the profile, writes `profile.json` plus the executor prompt (0600), and installs

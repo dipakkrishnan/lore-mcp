@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Literal, TypedDict
@@ -242,13 +243,18 @@ def render_map(blueprint: dict) -> str:
 
 
 def apply(file: Path) -> dict:
-    """Read a blueprint JSON file, validate and normalize it, and persist it.
+    """Read a blueprint JSON file (or stdin for `-`), validate, normalize, persist.
 
     This is the single write path for the blueprint artifact: the interviewing
     agent hands over a file rather than writing `~/.lore/blueprint/*` directly.
     """
     try:
-        raw = json.loads(Path(file).read_text(encoding="utf-8"))
+        text = (
+            sys.stdin.read()
+            if str(file) == "-"
+            else Path(file).read_text(encoding="utf-8")
+        )
+        raw = json.loads(text)
     except FileNotFoundError as error:
         raise OSError(f"blueprint file not found: {file}") from error
     except json.JSONDecodeError as error:

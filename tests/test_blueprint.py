@@ -9,8 +9,11 @@ from __future__ import annotations
 
 import json
 import stat
+import sys
 import unittest
+from io import StringIO
 from pathlib import Path
+from unittest.mock import patch
 
 from helpers import LoreTestCase, blueprint_input
 
@@ -216,6 +219,15 @@ class ApplyTest(LoreTestCase):
         self.assertEqual(
             stat.S_IMODE(blueprint.blueprint_path().parent.stat().st_mode), 0o700
         )
+
+    def test_a_dash_reads_the_blueprint_from_stdin(self) -> None:
+        with patch.object(sys, "stdin", StringIO(json.dumps(blueprint_input()))):
+            self.assertEqual(blueprint.apply(Path("-"))["name"], "Ada")
+        with (
+            patch.object(sys, "stdin", StringIO("{not json")),
+            self.assertRaisesRegex(ValueError, "not valid JSON"),
+        ):
+            blueprint.apply(Path("-"))
 
     def test_a_missing_or_malformed_file_fails_with_a_readable_message(self) -> None:
         with self.assertRaisesRegex(OSError, "blueprint file not found"):

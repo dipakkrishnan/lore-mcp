@@ -126,7 +126,7 @@ app.whenReady().then(async () => {
     skillsDir: resolve(__dirname, "../../../plugins/lore/skills"),
     credentials,
     emit,
-    approveBash: async (command, entries) => (await request("bash-approval", { command, entries })) === true,
+    approveBash: async (command, action) => (await request("bash-approval", { command, action })) === true,
     askUser: async (questions) =>
       /** @type {Record<string, string>} */ (await request("question", { questions })),
     authPrompt: async (prompt) =>

@@ -78,6 +78,11 @@ type PublicationCandidate = {
   provenance: number[];
 };
 
+type BashAction =
+  | { kind: "import" }
+  | { kind: "capture"; entries: CaptureEntry[] }
+  | { kind: "blueprint" | "profile"; fields: Record<string, unknown> };
+
 type AgentTask = "capture" | "setup" | "publish";
 
 interface Window {
@@ -121,13 +126,14 @@ type AuthPrompt =
     };
 
 type AgentRequest =
-  | { type: "bash-approval"; id: string; command: string; entries: CaptureEntry[] }
+  | { type: "bash-approval"; id: string; command: string; action: BashAction }
   | { type: "question"; id: string; questions: OwnerQuestion[] }
   | { type: "auth-prompt"; id: string; prompt: AuthPrompt };
 
 type AgentEvent =
   | AgentRequest
   | { type: "working"; active: boolean }
+  | { type: "changed" }
   | { type: "message"; text: string }
   | { type: "auth"; message?: string; event?: import("@earendil-works/pi-ai").AuthEvent };
 
@@ -144,7 +150,7 @@ type LoreAgentOptions = {
   skillsDir: string;
   credentials: import("@earendil-works/pi-ai").CredentialStore;
   emit(event: AgentEvent): void;
-  approveBash(command: string, entries: CaptureEntry[]): Promise<boolean>;
+  approveBash(command: string, action: BashAction): Promise<boolean>;
   askUser(questions: OwnerQuestion[]): Promise<Record<string, string>>;
   authPrompt(prompt: import("@earendil-works/pi-ai").AuthPrompt): Promise<string>;
   authEvent(event: import("@earendil-works/pi-ai").AuthEvent): void;

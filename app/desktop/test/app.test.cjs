@@ -48,10 +48,16 @@ test("auto-allows a complete read-only Lore command without prompting", async ()
   const commands = [
     "lore status",
     "lore desktop-state",
+    "lore search Kestrel --status private --limit 0 --json",
     "lore blueprint show",
     "lore publication list",
-    "lore search Kestrel --status private --limit 0 --json",
-    `lore publication draft - <<'LORE_PUBLISH'\n[{"title":"x","teaser":"y","content":"z","topic":"t","provenance":[1]}]\nLORE_PUBLISH`
+    `lore publication draft - <<'LORE_PUBLISH'\n[{"title":"x","teaser":"y","content":"z","topic":"t","provenance":[1]}]\nLORE_PUBLISH`,
+    "which claude codex",
+    'ls "${CLAUDE_HOME:-$HOME/.claude}/projects"',
+    'ls "${CLAUDE_HOME:-$HOME/.claude}"/projects/*/memory/*.md 2>/dev/null',
+    'ls "${CODEX_HOME:-$HOME/.codex}/memories" "${CODEX_HOME:-$HOME/.codex}/automations" 2>/dev/null',
+    'ls -lt "${CLAUDE_HOME:-$HOME/.claude}"/projects/*/*.jsonl 2>/dev/null',
+    `cat > "\${LORE_HOME:-$HOME/.lore}/automation/onboarding.json" <<'LORE_CHECKPOINT'\n{"phase1_done": true, "role": "maintainer"}\nLORE_CHECKPOINT`
   ];
   for (const command of commands) assert.equal(await handler(bashEvent(command)), undefined, command);
   assert.equal(prompted, false);
@@ -80,24 +86,41 @@ LORE_CAPTURE`;
   const denied = await bashHandler(async () => false);
   assert.equal((await denied(bashEvent(command))).block, true);
 
-  const allowed = await bashHandler(async (actual, entries) => {
+  const allowed = await bashHandler(async (actual, action) => {
     assert.equal(actual, command);
-    assert.deepEqual(entries, [
-      { title: "Rollback rehearsal", content: "Rehearse before cutover.", project: "Juniper" }
-    ]);
+    assert.deepEqual(action, {
+      kind: "capture",
+      entries: [{ title: "Rollback rehearsal", content: "Rehearse before cutover.", project: "Juniper" }]
+    });
     return true;
   });
   assert.equal(await allowed(bashEvent(command)), undefined);
 });
 
 test("only a non-empty array of titled memories counts as a capture", async () => {
-  const { captureEntries } = await import("../src/agent.mjs");
+  const { classifyBash } = await import("../src/agent.mjs");
   const wrap = (body) => `lore capture apply - <<'LORE_CAPTURE'\n${body}\nLORE_CAPTURE`;
-  assert.equal(captureEntries(wrap("[]")), null);
-  assert.equal(captureEntries(wrap('{"title":"x","content":"y"}')), null);
-  assert.equal(captureEntries(wrap('[{"title":"x"}]')), null);
-  assert.equal(captureEntries(wrap("not json")), null);
-  assert.deepEqual(captureEntries(wrap('[{"title":"x","content":"y"}]')), [{ title: "x", content: "y" }]);
+  assert.equal(classifyBash(wrap("[]")), null);
+  assert.equal(classifyBash(wrap('{"title":"x","content":"y"}')), null);
+  assert.equal(classifyBash(wrap('[{"title":"x"}]')), null);
+  assert.equal(classifyBash(wrap("not json")), null);
+  assert.deepEqual(classifyBash(wrap('[{"title":"x","content":"y"}]')), { kind: "capture", entries: [{ title: "x", content: "y" }] });
+});
+
+test("setup writes ask once each and carry what they mean", async () => {
+  const { classifyBash } = await import("../src/agent.mjs");
+  const blueprint = { version: 1, name: "Ada", persona: "professor", topic_outline: ["consensus"], storytelling: "Lectures." };
+  const profile = { role: "maintainer", executor: "claude", cadence: "daily", hour: 21 };
+  assert.deepEqual(classifyBash("lore setup --yes"), { kind: "import" });
+  assert.deepEqual(
+    classifyBash(`lore blueprint apply - <<'LORE_BLUEPRINT'\n${JSON.stringify(blueprint, null, 2)}\nLORE_BLUEPRINT`),
+    { kind: "blueprint", fields: blueprint }
+  );
+  assert.deepEqual(classifyBash(`lore profile - <<'LORE_PROFILE'\n${JSON.stringify(profile)}\nLORE_PROFILE`), { kind: "profile", fields: profile });
+  for (const body of ["[]", '["x"]', "not json", "null", '"text"']) {
+    assert.equal(classifyBash(`lore blueprint apply - <<'LORE_BLUEPRINT'\n${body}\nLORE_BLUEPRINT`), null, body);
+    assert.equal(classifyBash(`lore profile - <<'LORE_PROFILE'\n${body}\nLORE_PROFILE`), null, body);
+  }
 });
 
 test("hard-denies malformed, non-Lore, compound, and owner-only commands", async () => {
@@ -124,7 +147,31 @@ test("hard-denies malformed, non-Lore, compound, and owner-only commands", async
     "lore answer on - 1",
     "lore answer off",
     "lore push",
-    "lore node deploy"
+    "lore node deploy",
+    "lore setup",
+    "lore setup --yes --source codex",
+    "lore blueprint apply blueprint.json",
+    "lore blueprint apply - <<'EOF'\n{}\nEOF",
+    "lore blueprint apply - < blueprint.json",
+    "lore profile ~/.lore/automation/onboarding.json",
+    "lore profile - --no-schedule <<'LORE_PROFILE'\n{}\nLORE_PROFILE",
+    "lore review",
+    "which claude codex lore",
+    "which claude",
+    "ls ~/.claude/projects",
+    'ls "${CLAUDE_HOME:-$HOME/.claude}/projects" | head -50',
+    'ls "${CLAUDE_HOME:-$HOME/.claude}/projects"; cat ~/.ssh/id_rsa',
+    'ls "${CLAUDE_HOME:-$HOME/.claude}"/projects/*/*.jsonl 2>/dev/null',
+    'ls -la "${CLAUDE_HOME:-$HOME/.claude}/projects"',
+    'ls "${CODEX_HOME:-$HOME/.codex}"',
+    'cat "${LORE_HOME:-$HOME/.lore}/automation/onboarding.json"',
+    `cat > "$LORE_HOME/automation/onboarding.json" <<'LORE_CHECKPOINT'\n{}\nLORE_CHECKPOINT`,
+    `cat > "\${LORE_HOME:-$HOME/.lore}/automation/profile.json" <<'LORE_CHECKPOINT'\n{}\nLORE_CHECKPOINT`,
+    `cat > "\${LORE_HOME:-$HOME/.lore}/automation/onboarding.json" <<'EOF'\n{}\nEOF`,
+    `cat > "\${LORE_HOME:-$HOME/.lore}/automation/onboarding.json" <<'LORE_CHECKPOINT'\nnot json\nLORE_CHECKPOINT`,
+    `cat > "\${LORE_HOME:-$HOME/.lore}/automation/onboarding.json" <<'LORE_CHECKPOINT'\n[]\nLORE_CHECKPOINT`,
+    `cat > "\${LORE_HOME:-$HOME/.lore}/automation/onboarding.json" <<'LORE_CHECKPOINT'\n{}\nLORE_CHECKPOINT\nrm -rf ~\nLORE_CHECKPOINT`,
+    `cat >> "\${LORE_HOME:-$HOME/.lore}/automation/onboarding.json" <<'LORE_CHECKPOINT'\n{}\nLORE_CHECKPOINT`
   ];
   for (const command of commands) {
     const result = await handler(bashEvent(command));

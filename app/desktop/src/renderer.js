@@ -51,6 +51,12 @@ const NETWORKS = { "eip155:8453": "Base", "eip155:84532": "Base Sepolia, test ne
 const money = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" });
 const shortDate = new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric" });
 const longDate = new Intl.DateTimeFormat("en-US", { weekday: "long", month: "long", day: "numeric" });
+const clock = new Intl.DateTimeFormat("en-US", { hour: "numeric" });
+const SETUP_STEPS = /** @type {const} */ ([
+  ["sources_configured", "Connect your agents"],
+  ["blueprint_configured", "Shape your Lore"],
+  ["profile_configured", "Set the rhythm"]
+]);
 
 /**
  * @template {keyof HTMLElementTagNameMap} K
@@ -155,10 +161,12 @@ function needsYou(s) {
     node.append(lead, action);
     rows.push(node);
   };
-  if (!s.setup.sources_configured) add("Connect your agents", "Let Lore read what Claude Code and Codex already remember.", button("Start", "secondary", startSetup));
-  if (!s.setup.blueprint_configured) add("Tell Lore what it's for", "A five-minute conversation shapes what Lore keeps and what it sells.", button("Start", "secondary", startSetup));
-  if (!s.setup.profile_configured) add("Choose how Lore learns from your agents", "Decide which model writes new memories, and how often.", button("Start", "secondary", startSetup));
-  if (s.library.counts.private && !candidates.length) add("Publish something", "Pick a topic you know well. Lore drafts up to three things to sell; you approve each one.", button("Publish", "secondary", startPublish));
+  if (task !== "setup") {
+    if (!s.setup.sources_configured) add("Connect your agents", "Let Lore read what Claude Code and Codex already remember.", button("Start", "secondary", startSetup));
+    if (!s.setup.blueprint_configured) add("Tell Lore what it's for", "A five-minute conversation shapes what Lore keeps and what it sells.", button("Start", "secondary", startSetup));
+    if (!s.setup.profile_configured) add("Choose how Lore learns from your agents", "Decide which model writes new memories, and how often.", button("Start", "secondary", startSetup));
+    if (s.library.counts.private && !candidates.length) add("Publish something", "Pick a topic you know well. Lore drafts up to three things to sell; you approve each one.", button("Publish", "secondary", startPublish));
+  }
   const changed = s.publications.items.filter((item) => item.needs_review).length;
   if (changed) {
     add(
@@ -208,10 +216,24 @@ function firstRun(s) {
 }
 
 /** @param {Snapshot} s */
+function setupSteps(s) {
+  const node = el("div", "setup-steps");
+  const now = SETUP_STEPS.findIndex(([flag]) => !s.setup[flag]);
+  for (const [index, [flag, label]] of SETUP_STEPS.entries()) {
+    const step = el("span", s.setup[flag] ? "done" : index === now ? "now" : "");
+    step.append(el("span", "n", s.setup[flag] ? "✓" : String(index + 1)), document.createTextNode(label));
+    node.append(step);
+  }
+  return node;
+}
+
+/** @param {Snapshot} s */
 function renderToday(s) {
-  const fresh = !firstRunDismissed && s.library.counts.private === 0 && !s.setup.blueprint_configured && !s.setup.profile_configured;
+  const setup = task === "setup";
+  const fresh = !setup && !firstRunDismissed && s.library.counts.private === 0 && !s.setup.blueprint_configured && !s.setup.profile_configured;
   /** @type {HTMLElement[]} */
   const parts = [];
+  if (setup) parts.push(setupSteps(s));
   if (fresh) parts.push(firstRun(s));
   if (candidates.length) parts.push(section("Approve what to sell", approvals(), el("span", "hint", "Only what you approve ever leaves this Mac.")));
   if (pushOffer) parts.push(seamCard());
@@ -450,14 +472,34 @@ function working(active) {
 function renderRequest(event) {
   const box = el("form", "card lead request");
   if (event.type === "bash-approval") {
-    if (event.entries.length) {
-      const n = event.entries.length;
+    const { action } = event;
+    const decide = (/** @type {string} */ no, /** @type {string} */ yes, /** @type {string} */ hint) => {
+      const actions = el("div", "actions");
+      actions.style.justifyContent = "space-between";
+      actions.style.alignItems = "center";
+      const group = el("div");
+      group.style.display = "flex";
+      group.style.gap = "8px";
+      group.append(button(no, "secondary", () => respond(event.id, false)), button(yes, "primary", () => respond(event.id, true)));
+      actions.append(el("span", "hint", hint), group);
+      box.append(actions);
+    };
+    const fields = (/** @type {Array<[string, unknown]>} */ pairs) => {
+      const list = el("dl", "fields");
+      for (const [label, value] of pairs) {
+        const text = Array.isArray(value) ? value.join(", ") : value ? String(value) : "";
+        if (text) list.append(el("dt", "", label), el("dd", "", text));
+      }
+      box.append(list);
+    };
+    if (action.kind === "capture") {
+      const n = action.entries.length;
       box.append(el("p", "q", n === 1 ? "Keep this memory?" : `Keep these ${n} memories?`));
       const list = el("div");
       list.style.display = "flex";
       list.style.flexDirection = "column";
       list.style.gap = "10px";
-      for (const entry of event.entries) {
+      for (const entry of action.entries) {
         const memory = el("div", "memory");
         memory.append(el("b", "", entry.title), el("p", "", entry.content));
         if (entry.project) {
@@ -468,20 +510,24 @@ function renderRequest(event) {
         list.append(memory);
       }
       box.append(list);
-      const actions = el("div", "actions");
-      actions.style.justifyContent = "space-between";
-      actions.style.alignItems = "center";
-      const group = el("div");
-      group.style.display = "flex";
-      group.style.gap = "8px";
-      group.append(button("Not now", "secondary", () => respond(event.id, false)), button(n === 1 ? "Keep it" : "Keep all", "primary", () => respond(event.id, true)));
-      actions.append(el("span", "hint", "Private. Only on this Mac until you choose to sell."), group);
-      box.append(actions);
+      decide("Not now", n === 1 ? "Keep it" : "Keep all", "Private. Only on this Mac until you choose to sell.");
+    } else if (action.kind === "import") {
+      box.append(el("p", "q", "Import what Claude Code and Codex already remember?"));
+      decide("Not now", "Import", "Private. Lore reads their memory files and never changes them.");
+    } else if (action.kind === "blueprint") {
+      const f = action.fields;
+      box.append(el("p", "q", "Use this shape for your Lore?"));
+      fields([["Name", f.name], ["Told as", f.persona], ["Organized by", f.organizing_axis], ["Topics", f.topic_outline], ["In depth", f.focus_topics], ["Lightly", f.general_areas], ["Voice", f.storytelling]]);
+      decide("Not yet", "Use it", "You can reshape it any time from Settings.");
+    } else if (action.kind === "profile") {
+      const f = action.fields;
+      const hour = clock.format(new Date(2000, 0, 1, typeof f.hour === "number" ? f.hour : 21)).toLowerCase();
+      box.append(el("p", "q", `Finish setup and start writing memories ${f.cadence === "weekly" ? "every week" : "every day"} at ${hour}?`));
+      fields([["You", f.role], ["Domains", f.domains], ["Worth keeping", f.valuable_context], ["How you work", f.preferences], ["Never kept", f.boundaries], ["Written by", `${f.executor === "codex" ? "Codex" : "Claude Code"}${f.model ? ` (${f.model})` : ""}`]]);
+      decide("Not yet", "Finish setup", "Runs on this Mac. Every new memory stays private until you sell it.");
     } else {
       box.append(el("p", "q", "Lore wants to run this"), el("pre", "", event.command));
-      const actions = el("div", "actions");
-      actions.append(button("Deny", "secondary", () => respond(event.id, false)), button("Allow once", "primary", () => respond(event.id, true)));
-      box.append(actions);
+      decide("Deny", "Allow once", "");
     }
   } else if (event.type === "question") {
     for (const [index, question] of event.questions.entries()) {
@@ -688,6 +734,7 @@ function enter() {
 
 window.lore.onAgentEvent((event) => {
   if (event.type === "working") working(event.active);
+  else if (event.type === "changed") void load();
   else if (event.type === "message") say(event.text);
   else if (event.type === "auth") {
     const detail = event.event;

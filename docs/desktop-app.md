@@ -48,9 +48,10 @@ Load-bearing rules, in priority order:
 2. **Pi keeps its native runtime.** The app uses Pi's supported
    `createAgentSession()` path with native skills, read, and Bash. Lore adds
    only the `ask_user` extension and product prompt. A `tool_call` extension
-   auto-allows complete read-only Lore commands, asks once for the exact
-   private-capture heredoc, and blocks everything else. Prompt instructions
-   are not the security boundary.
+   holds one table of anchored commands: the skills' read-only commands run
+   silently, each exact write heredoc (capture, import, blueprint, profile)
+   asks once as a card that says what it means, and everything else is
+   blocked. Prompt instructions are not the security boundary.
 3. **The agent cannot approve.** Approval cards are app-invoked UI routed to
    existing Lore validation. Allowing a Bash command is not approval of a
    publication, payment, or deployment. The CLI treats the app as a second
