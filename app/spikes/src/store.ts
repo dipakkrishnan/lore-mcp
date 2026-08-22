@@ -7,12 +7,8 @@ import type {
   CredentialStore
 } from "@earendil-works/pi-ai";
 
-/**
- * File-backed CredentialStore for terminal spikes. The desktop app replaces
- * the read/write primitives with Electron safeStorage over the same
- * interface; everything else (per-provider serialization, refresh inside
- * modify) is identical, which is the point of the spike.
- */
+// The desktop app swaps the file primitives for Electron safeStorage behind
+// the same CredentialStore interface.
 export class FileCredentialStore implements CredentialStore {
   private chains = new Map<string, Promise<unknown>>();
 
