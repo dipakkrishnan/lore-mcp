@@ -91,6 +91,7 @@ app.whenReady().then(async () => {
     credentials,
     emit,
     approveBash: async (command) => (await request("bash-approval", { command })) === true,
+    reportBash: (decision) => emit({ type: "bash-policy", decision }),
     askUser: async (questions) =>
       /** @type {Record<string, string>} */ (await request("question", { questions })),
     authPrompt: async (prompt) =>

@@ -11,6 +11,8 @@ const authStatus = /** @type {HTMLDivElement} */ (document.querySelector("#auth-
 
 /** @type {Snapshot | null} */
 let state = null;
+/** @type {"safe-read" | "blocked" | null} */
+let bashActivity = null;
 /** @typedef {"today" | "lore" | "store"} View */
 /** @type {View} */
 let view = "today";
@@ -276,8 +278,8 @@ async function login(providerId, type, secret) {
 function renderRequest(event) {
   const form = element("form", "agent-card");
   if (event.type === "bash-approval") {
-    note("Bash is waiting for your approval.");
-    form.append(element("h3", "", "Allow this command?"), element("pre", "", event.command));
+    note("Lore needs approval to save a private memory.");
+    form.append(element("h3", "", "Save this private memory?"), element("pre", "", event.command));
     const approve = element("button", "", "Allow once");
     const deny = element("button", "secondary", "Deny");
     approve.type = deny.type = "button";
@@ -366,15 +368,27 @@ window.lore.onAgentEvent((event) => {
     submit.disabled = event.active;
     if (event.active) note("Lore is listening…");
   } else if (event.type === "tool") {
-    note(
-      event.active
-        ? `${event.name} requested…`
-        : event.failed
-          ? `${event.name} did not run.`
-          : `${event.name} finished.`
-    );
+    if (event.name === "bash" && bashActivity) {
+      if (!event.active) {
+        if (bashActivity === "safe-read") {
+          note(event.failed ? "The safe read failed." : "Safe read finished.");
+        }
+        bashActivity = null;
+      }
+    } else {
+      note(
+        event.active
+          ? `${event.name} requested…`
+          : event.failed
+            ? `${event.name} did not run.`
+            : `${event.name} finished.`
+      );
+    }
   } else if (event.type === "message") {
     note(event.text);
+  } else if (event.type === "bash-policy") {
+    bashActivity = event.decision === "auto-allowed" ? "safe-read" : "blocked";
+    note(bashActivity === "safe-read" ? "Lore is running a safe read-only check." : "Lore blocked an unsupported command before it could run.");
   } else if (
     event.type === "bash-approval" ||
     event.type === "question" ||

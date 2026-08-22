@@ -25,8 +25,9 @@ its model, tool, and lifecycle support.
 Run Pi's supported `createAgentSession()` runtime in Electron's main process
 and expose one persistent input in the renderer. Load the existing capture
 skill with Pi's native read and Bash tools plus Lore's `ask_user` extension.
-Forward Pi lifecycle events to show real tool activity. Every native Bash call
-must be approved by the owner before Pi executes it.
+Forward Pi lifecycle events to show real tool activity. A pre-execution hook
+auto-allows only anchored read-only Lore commands, asks once for the exact
+private-capture heredoc, and blocks every other Bash command.
 
 Sign-in uses `pi-ai`'s existing OAuth flows — `auth/oauth/anthropic` for a
 Claude subscription and `auth/oauth/openai-codex` for a ChatGPT subscription —
@@ -42,9 +43,10 @@ API-key secrets and its existing bypass of Pi's auth layer.
 - [x] A user can type or use operating-system dictation in one input and
       complete an attended `lore-capture` flow through embedded Pi.
 - [x] Pi runs outside the renderer; IPC exposes prompts, structured questions,
-      lifecycle data, and explicit approval for each native Bash call.
-- [x] A Pi `tool_call` extension blocks native Bash until the owner approves
-      the exact command; denial leaves the command unexecuted.
+      lifecycle data, and the one private-save approval.
+- [x] A Pi `tool_call` extension auto-allows only complete read-only Lore
+      commands, asks once for the exact private-capture heredoc, and blocks
+      malformed, non-Lore, compound, and owner-only commands before execution.
 - [x] Tool activity shown in the UI comes from actual Pi lifecycle events.
 - [x] Provider credentials are never stored in Lore SQLite, renderer storage,
       logs, or job payloads.
@@ -80,8 +82,8 @@ Implementation was explicitly approved and promoted by the owner on
 2026-08-22 after APP-002 completed.
 
 Implemented with Pi's native `AgentSession`, read, Bash, and lifecycle events.
-The only Lore tool is `ask_user`; every Bash call is blocked by Pi's supported
-pre-execution hook until the renderer approves the exact command. A real
-Electron run denied a synthetic save without mutation, then allowed it once
-and verified private memory #1 through the temporary Lore store. Electron
-`safeStorage` round-tripped a credential across two app processes.
+The only Lore tool is `ask_user`; Pi's supported pre-execution hook enforces a
+deterministic three-way Bash policy. A real Electron run denied a synthetic
+save without mutation, then allowed it once and verified private memory #1
+through the temporary Lore store. Electron `safeStorage` round-tripped a
+credential across two app processes.

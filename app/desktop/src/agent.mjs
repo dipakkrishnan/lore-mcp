@@ -10,17 +10,52 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import { Type } from "@earendil-works/pi-ai";
 
-/** @param {(command: string) => Promise<boolean>} approve */
-export function bashApprovalExtension(approve) {
+const READ_ONLY_BASH = [
+  /^lore status$/,
+  /^lore desktop-state$/,
+  /^lore search(?: (?:[A-Za-z0-9][A-Za-z0-9._:/-]*|--status (?:private|discarded)|--limit (?:0|[1-9]\d*)|--json))*$/
+];
+const CAPTURE_BASH = /^lore capture apply - <<'LORE_CAPTURE'\n([\s\S]+)\nLORE_CAPTURE$/;
+
+/** @param {string} command @returns {"allow" | "approve" | "deny"} */
+export function classifyBash(command) {
+  if (READ_ONLY_BASH.some((pattern) => pattern.test(command))) return "allow";
+  const capture = command.match(CAPTURE_BASH);
+  if (!capture) return "deny";
+  try {
+    return Array.isArray(JSON.parse(capture[1])) ? "approve" : "deny";
+  } catch {
+    return "deny";
+  }
+}
+
+/**
+ * @param {(command: string) => Promise<boolean>} approve
+ * @param {(decision: "auto-allowed" | "blocked") => void} report
+ */
+export function bashPolicyExtension(approve, report = () => {}) {
   return {
-    name: "bash-approval",
+    name: "bash-policy",
     hidden: true,
     /** @param {import("@earendil-works/pi-coding-agent").ExtensionAPI} pi */
     factory(pi) {
       pi.on("tool_call", async (event) => {
         if (!isToolCallEventType("bash", event)) return;
-        if (await approve(event.input.command)) return;
-        return { block: true, reason: "The owner denied this Bash command.", terminate: true };
+        const decision = classifyBash(event.input.command);
+        if (decision === "allow") {
+          report("auto-allowed");
+          return;
+        }
+        if (decision === "approve" && (await approve(event.input.command))) return;
+        if (decision === "deny") report("blocked");
+        return {
+          block: true,
+          reason:
+            decision === "deny"
+              ? "Lore blocked a command outside the desktop capture policy."
+              : "The owner denied this private save.",
+          terminate: true
+        };
       });
     }
   };
@@ -55,7 +90,7 @@ export class LoreAgent {
       agentDir: resolve(options.loreHome, ".pi"),
       settingsManager: settings,
       additionalSkillPaths: [options.skillsDir],
-      extensionFactories: [bashApprovalExtension(options.approveBash)],
+      extensionFactories: [bashPolicyExtension(options.approveBash, options.reportBash)],
       noExtensions: true,
       noPromptTemplates: true,
       noThemes: true,
@@ -64,8 +99,11 @@ export class LoreAgent {
         "You are Lore's attended desktop capture agent.",
         "Use the lore-capture skill exactly; skip install steps because Lore is already provisioned.",
         "Use native read and Bash only for this capture, and use ask_user for structured decisions.",
+        "For read-only checks, Bash may use only: lore status, lore desktop-state, or token-safe lore search arguments.",
+        "When invoking Bash to save, use exactly this shape with real newlines: lore capture apply - <<'LORE_CAPTURE' newline JSON array newline LORE_CAPTURE.",
+        "Do not use echo, printf, a pipe, a temporary file, or any other redirect.",
         "Never publish, price, deploy, enable payments, or run attended approval commands in this build.",
-        "Every Bash command requires separate owner approval enforced outside this prompt."
+        "Bash policy is enforced outside this prompt: safe reads run automatically, recognized private saves require approval, and everything else is blocked."
       ].join(" ")
     });
     await resources.reload();

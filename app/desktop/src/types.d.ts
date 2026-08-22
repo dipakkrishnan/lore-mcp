@@ -114,6 +114,7 @@ type AgentEvent =
   | { type: "working"; active: boolean }
   | { type: "tool"; name: string; active: boolean; failed?: boolean }
   | { type: "message"; text: string }
+  | { type: "bash-policy"; decision: "auto-allowed" | "blocked" }
   | { type: "auth"; message?: string; event?: import("@earendil-works/pi-ai").AuthEvent };
 
 type LoreAgentInstance = {
@@ -129,6 +130,7 @@ type LoreAgentOptions = {
   credentials: import("@earendil-works/pi-ai").CredentialStore;
   emit(event: AgentEvent): void;
   approveBash(command: string): Promise<boolean>;
+  reportBash(decision: "auto-allowed" | "blocked"): void;
   askUser(questions: OwnerQuestion[]): Promise<Record<string, string>>;
   authPrompt(prompt: import("@earendil-works/pi-ai").AuthPrompt): Promise<string>;
   authEvent(event: import("@earendil-works/pi-ai").AuthEvent): void;

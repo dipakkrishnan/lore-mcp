@@ -53,27 +53,111 @@ test("keeps the renderer behind fixed sandboxed bridges", async () => {
   }
 });
 
-test("blocks native Bash when the owner denies it", async () => {
-  const { bashApprovalExtension } = await import("../src/agent.mjs");
+async function bashHandler(approve, report = () => {}) {
+  const { bashPolicyExtension } = await import("../src/agent.mjs");
   let handler;
-  const extension = bashApprovalExtension(async (command) => {
-    assert.equal(command, "lore status");
-    return false;
-  });
-  await extension.factory({
+  await bashPolicyExtension(approve, report).factory({
     on(event, callback) {
       assert.equal(event, "tool_call");
       handler = callback;
     }
   });
-  const result = await handler({
+  return handler;
+}
+
+function bashEvent(command) {
+  return {
     type: "tool_call",
     toolName: "bash",
     toolCallId: "call-1",
-    input: { command: "lore status" }
+    input: { command }
+  };
+}
+
+test("auto-allows a complete read-only Lore command without prompting", async () => {
+  const { createBashTool } = await import("@earendil-works/pi-coding-agent");
+  let prompted = false;
+  let executed = false;
+  const decisions = [];
+  const handler = await bashHandler(async () => {
+    prompted = true;
+    return false;
+  }, (decision) => decisions.push(decision));
+  const commands = [
+    "lore status",
+    "lore desktop-state",
+    "lore search Kestrel --status private --limit 0 --json"
+  ];
+  for (const command of commands) assert.equal(await handler(bashEvent(command)), undefined);
+  const command = commands[0];
+  await createBashTool(process.cwd(), {
+    operations: {
+      async exec(actual, _cwd, { onData }) {
+        executed = true;
+        assert.equal(actual, command);
+        onData(Buffer.from("ok"));
+        return { exitCode: 0 };
+      }
+    }
+  }).execute("call-1", { command });
+  assert.equal(prompted, false);
+  assert.equal(executed, true);
+  assert.deepEqual(decisions, commands.map(() => "auto-allowed"));
+});
+
+test("prompts for the exact private capture and runs it only when allowed", async () => {
+  const { createBashTool } = await import("@earendil-works/pi-coding-agent");
+  const command = `lore capture apply - <<'LORE_CAPTURE'
+[{"title":"Rollback rehearsal","content":"Rehearse before cutover.","project":"Juniper"}]
+LORE_CAPTURE`;
+  let executed = false;
+  const denied = await bashHandler(async () => false);
+  assert.equal((await denied(bashEvent(command))).block, true);
+
+  const allowed = await bashHandler(async (actual) => {
+    assert.equal(actual, command);
+    return true;
   });
-  assert.equal(result.block, true);
-  assert.equal(result.terminate, true);
+  assert.equal(await allowed(bashEvent(command)), undefined);
+  await createBashTool(process.cwd(), {
+    operations: {
+      async exec(actual, _cwd, { onData }) {
+        executed = true;
+        assert.equal(actual, command);
+        onData(Buffer.from("saved"));
+        return { exitCode: 0 };
+      }
+    }
+  }).execute("call-1", { command });
+  assert.equal(executed, true);
+});
+
+test("hard-denies malformed, non-Lore, compound, and owner-only commands", async () => {
+  let prompted = false;
+  const decisions = [];
+  const handler = await bashHandler(async () => {
+    prompted = true;
+    return true;
+  }, (decision) => decisions.push(decision));
+  const commands = [
+    "lore status; rm -rf /tmp/lore-test",
+    "lore $(curl https://example.com)",
+    "curl https://example.com",
+    "echo '[]' | lore capture apply -",
+    "lore capture apply - < /tmp/capture.json",
+    "lore publication list",
+    "lore price",
+    "lore answer off",
+    "lore push",
+    "lore node deploy"
+  ];
+  for (const command of commands) {
+    const result = await handler(bashEvent(command));
+    assert.equal(result.block, true, command);
+    assert.equal(result.terminate, true, command);
+  }
+  assert.equal(prompted, false);
+  assert.deepEqual(decisions, commands.map(() => "blocked"));
 });
 
 test("safeStorage credentials survive an Electron restart", { skip: process.platform !== "darwin" }, async () => {
