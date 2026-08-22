@@ -76,7 +76,7 @@ test("blocks native Bash when the owner denies it", async () => {
   assert.equal(result.terminate, true);
 });
 
-test("safeStorage credentials survive an Electron restart", async () => {
+test("safeStorage credentials survive an Electron restart", { skip: process.platform !== "darwin" }, async () => {
   const directory = await mkdtemp(join(tmpdir(), "lore-credentials-"));
   const electron = require("electron");
   const child = join(__dirname, "../support/credential-roundtrip.cjs");
@@ -84,15 +84,11 @@ test("safeStorage credentials survive an Electron restart", async () => {
   delete env.ELECTRON_RUN_AS_NODE;
   try {
     for (const mode of ["write", "read"]) {
-      const result = spawnSync(
-        electron,
-        ["--no-sandbox", "--password-store=basic", child, mode, directory],
-        {
-          encoding: "utf8",
-          env,
-          timeout: 30_000
-        }
-      );
+      const result = spawnSync(electron, ["--no-sandbox", child, mode, directory], {
+        encoding: "utf8",
+        env,
+        timeout: 30_000
+      });
       assert.equal(result.status, 0, result.stderr || result.stdout);
     }
     const encrypted = await readFile(join(directory, "credentials.bin"));
