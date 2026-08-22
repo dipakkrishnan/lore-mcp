@@ -4,6 +4,7 @@ const { app, safeStorage } = require("electron");
 
 const [mode, directory] = process.argv.slice(-2);
 app.setPath("userData", directory);
+app.commandLine.appendSwitch("password-store", "basic");
 
 app
   .whenReady()
