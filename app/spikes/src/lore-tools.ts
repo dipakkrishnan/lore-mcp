@@ -2,7 +2,7 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { readFileSync, realpathSync } from "node:fs";
 import { homedir } from "node:os";
-import { resolve } from "node:path";
+import { join, resolve } from "node:path";
 import type { AgentTool } from "@earendil-works/pi-agent-core";
 import { Type } from "@earendil-works/pi-ai";
 import { ask } from "./interaction.js";
@@ -10,10 +10,21 @@ import { ask } from "./interaction.js";
 const run = promisify(execFile);
 
 /**
- * The exact three-seam tool surface from APP-004. This file is the reference
+ * The exact four-seam tool surface from APP-004. This file is the reference
  * implementation the Electron main process will lift: same allowlist, same
  * scoping, different ask_user transport (IPC instead of readline).
  */
+
+// The owner skills route to each other (onboard → enable-payments/capture,
+// capture → publish, publish ↔ enable-payments), so the surface includes the
+// desktop equivalent of the agent-runtime Skill tool. On-demand loading is
+// itself a boundary: capture cannot publish while lore-publish is unloaded.
+export const SKILL_NAMES = [
+  "lore-onboard",
+  "lore-capture",
+  "lore-publish",
+  "lore-enable-payments"
+] as const;
 
 // First token → allowed second tokens (null = any/none). Approval and serve
 // subcommands are deliberately absent: approvals stay app-invoked.
@@ -46,7 +57,7 @@ function text(value: string) {
   return { content: [{ type: "text" as const, text: value }], details: {} };
 }
 
-export function createLoreTools(loreHome: string): AgentTool<any>[] {
+export function createLoreTools(loreHome: string, skillsDir: string): AgentTool<any>[] {
   const cliParameters = Type.Object(
     { argv: Type.Array(Type.String(), { minItems: 1 }) },
     { additionalProperties: false }
@@ -162,5 +173,23 @@ export function createLoreTools(loreHome: string): AgentTool<any>[] {
     }
   };
 
-  return [loreCli, readContextFile, askUser];
+  const loadParameters = Type.Object(
+    { name: Type.Union(SKILL_NAMES.map((name) => Type.Literal(name))) },
+    { additionalProperties: false }
+  );
+  const loadSkill: AgentTool<typeof loadParameters> = {
+    name: "load_skill",
+    label: "Load a Lore skill",
+    description:
+      "Load one owner skill's instructions when the current flow routes there: " +
+      SKILL_NAMES.join(", ") +
+      ". The returned document becomes your instructions for that flow.",
+    parameters: loadParameters,
+    async execute(_callId, { name }) {
+      const body = readFileSync(join(skillsDir, name, "SKILL.md"), "utf8");
+      return text(`You are now in the ${name} flow. Follow these instructions:\n\n${body}`);
+    }
+  };
+
+  return [loreCli, readContextFile, askUser, loadSkill];
 }

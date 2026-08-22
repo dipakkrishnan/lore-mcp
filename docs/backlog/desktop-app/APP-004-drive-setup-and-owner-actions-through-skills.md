@@ -31,16 +31,24 @@ push, and deploy actions through the existing Lore validation paths.
 
 How a skill executes inside the app: the relevant `SKILL.md` loads verbatim as
 the Pi session's instructions, and Pi never receives a shell. Its tool surface
-is exactly three seams — `lore_cli`, which spawns the packaged `lore` binary
+is exactly four seams — `lore_cli`, which spawns the packaged `lore` binary
 with an allowlisted argv (`status`, `setup`, `sync`, `search`, `capture
 apply`, `blueprint apply`, `profile`, `price`, `publication list`, `push`,
 `node deploy`) and rejects everything else, including the attended approval
 subcommands, which stay app-invoked; a read-only file tool scoped to the
 agent-history roots the skills import from and to Lore-written draft files;
-and the `ask_user` seam from `APP-003`. The skills' shell blocks are almost
+the `ask_user` seam from `APP-003`; and `load_skill`, which returns one of
+the four owner `SKILL.md` documents verbatim — the desktop equivalent of the
+agent-runtime Skill tool. The skills route to each other (onboard offers
+monetize and names capture as the recurring motion, capture hands selected
+memories to publish, publish and enable-payments route into each other), so
+handoffs need on-demand loading — which is also a boundary: capture cannot
+publish while `lore-publish` is unloaded. The skills' shell blocks are almost
 entirely `lore` invocations, so their instructions map onto this surface
 without rewriting them; skill steps that install the runtime short-circuit
-because the app has already provisioned it (`APP-005`).
+because the app has already provisioned it (`APP-005`). Skill steps that tell
+the owner to run an interactive TTY command themselves (`lore review`) become
+app UI, not agent tools.
 
 Record only local owner-job status and resumable Pi session state in the
 existing Lore SQLite database. "Resume" is state-derived, not transcript

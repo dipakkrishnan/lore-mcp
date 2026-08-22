@@ -45,9 +45,12 @@ Load-bearing rules, in priority order:
 1. **The app never touches SQLite directly.** All reads come from the
    `APP-001` versioned-JSON snapshot; all writes go through `lore` CLI
    subcommands so the Python validation paths stay authoritative.
-2. **Pi never gets a shell.** Its whole tool surface is three seams
+2. **Pi never gets a shell.** Its whole tool surface is four seams
    (`APP-004`): an allowlisted `lore_cli` tool, a scoped read-only file tool
-   for agent-history import, and the `ask_user` structured-question seam.
+   for agent-history import, the `ask_user` structured-question seam, and
+   `load_skill` — the desktop equivalent of the agent-runtime Skill tool,
+   needed because the owner skills route to each other (onboard → monetize,
+   capture → publish, publish ↔ enable-payments).
 3. **The agent cannot approve.** Approval cards are app-invoked UI routed to a
    dedicated CLI command excluded from Pi's allowlist — the desktop equivalent
    of the TTY-required approvals.
