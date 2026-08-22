@@ -84,11 +84,15 @@ test("safeStorage credentials survive an Electron restart", async () => {
   delete env.ELECTRON_RUN_AS_NODE;
   try {
     for (const mode of ["write", "read"]) {
-      const result = spawnSync(electron, ["--no-sandbox", child, mode, directory], {
-        encoding: "utf8",
-        env,
-        timeout: 30_000
-      });
+      const result = spawnSync(
+        electron,
+        ["--no-sandbox", "--password-store=basic", child, mode, directory],
+        {
+          encoding: "utf8",
+          env,
+          timeout: 30_000
+        }
+      );
       assert.equal(result.status, 0, result.stderr || result.stdout);
     }
     const encrypted = await readFile(join(directory, "credentials.bin"));
