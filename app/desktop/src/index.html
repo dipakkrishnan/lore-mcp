@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'"
+    />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Lore</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <a class="skip-link" href="#main">Skip to content</a>
+    <div class="shell">
+      <aside>
+        <div class="brand"><span aria-hidden="true">L</span> Lore</div>
+        <nav aria-label="Main navigation">
+          <button type="button" data-view="today" aria-pressed="true">Today</button>
+          <button type="button" data-view="lore" aria-pressed="false">My Lore</button>
+          <button type="button" data-view="store" aria-pressed="false">Store</button>
+        </nav>
+        <p class="aside-note">Your context stays on this Mac.</p>
+      </aside>
+      <main id="main" tabindex="-1">
+        <header>
+          <p class="eyebrow">Owner console</p>
+          <h1 id="title">Today</h1>
+          <p id="subtitle">A clear view of your Lore.</p>
+        </header>
+        <div id="status" class="status" role="status" aria-live="polite">Loading…</div>
+        <div id="content"></div>
+      </main>
+    </div>
+    <script src="renderer.js"></script>
+  </body>
+</html>

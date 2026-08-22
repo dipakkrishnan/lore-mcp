@@ -1,0 +1,16 @@
+{
+  "name": "lore-desktop",
+  "private": true,
+  "version": "0.0.0",
+  "main": "src/main.cjs",
+  "scripts": {
+    "start": "electron .",
+    "check": "tsc --noEmit",
+    "test": "node --test"
+  },
+  "devDependencies": {
+    "@types/node": "26.0.1",
+    "electron": "43.4.1",
+    "typescript": "6.0.3"
+  }
+}
