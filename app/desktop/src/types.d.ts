@@ -70,5 +70,66 @@ type Snapshot = {
 };
 
 interface Window {
-  lore: { snapshot(): Promise<Snapshot> };
+  lore: {
+    snapshot(): Promise<Snapshot>;
+    agentStatus(): Promise<AgentStatus>;
+    prompt(text: string): Promise<void>;
+    respond(response: { id: string; value: unknown }): Promise<void>;
+    login(input: {
+      providerId: string;
+      type: "oauth" | "api_key";
+      secret?: string;
+    }): Promise<AgentStatus>;
+    onAgentEvent(listener: (event: AgentEvent) => void): () => void;
+  };
 }
+
+type AgentStatus = {
+  credentials: ReadonlyArray<{ providerId: string; type: "oauth" | "api_key" }>;
+  busy: boolean;
+};
+
+type OwnerQuestion = {
+  question: string;
+  header: string;
+  options: Array<{ label: string; description: string }>;
+  multiSelect: boolean;
+};
+
+type AuthPrompt =
+  | { type: "text" | "secret" | "manual_code"; message: string; placeholder?: string }
+  | {
+      type: "select";
+      message: string;
+      options: ReadonlyArray<{ id: string; label: string; description?: string }>;
+    };
+
+type AgentRequest =
+  | { type: "bash-approval"; id: string; command: string }
+  | { type: "question"; id: string; questions: OwnerQuestion[] }
+  | { type: "auth-prompt"; id: string; prompt: AuthPrompt };
+
+type AgentEvent =
+  | AgentRequest
+  | { type: "working"; active: boolean }
+  | { type: "tool"; name: string; active: boolean; failed?: boolean }
+  | { type: "message"; text: string }
+  | { type: "auth"; message?: string; event?: import("@earendil-works/pi-ai").AuthEvent };
+
+type LoreAgentInstance = {
+  status(): Promise<AgentStatus>;
+  prompt(text: string): Promise<void>;
+  login(providerId: string, type: "oauth" | "api_key", secret?: string): Promise<AgentStatus>;
+  dispose(): void;
+};
+
+type LoreAgentOptions = {
+  loreHome: string;
+  skillsDir: string;
+  credentials: import("@earendil-works/pi-ai").CredentialStore;
+  emit(event: AgentEvent): void;
+  approveBash(command: string): Promise<boolean>;
+  askUser(questions: OwnerQuestion[]): Promise<Record<string, string>>;
+  authPrompt(prompt: import("@earendil-works/pi-ai").AuthPrompt): Promise<string>;
+  authEvent(event: import("@earendil-works/pi-ai").AuthEvent): void;
+};

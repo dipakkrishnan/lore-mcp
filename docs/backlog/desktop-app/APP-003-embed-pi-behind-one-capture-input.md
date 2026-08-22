@@ -4,7 +4,7 @@ title: Embed Pi behind one desktop capture input
 priority: P1
 effort: M
 component: desktop-app
-status: in-review
+status: completed
 related: [APP-002, CAP-001]
 blockers: [APP-002]
 dependencies: []
@@ -22,10 +22,11 @@ its model, tool, and lifecycle support.
 
 ## Proposed approach
 
-Run Pi Agent Core in Electron's main process and expose one persistent input in
-the renderer. Start with the existing attended capture and read/search
-capabilities; do not add publishing, payment, or deployment writes in this PR.
-Forward Pi lifecycle events only to show real tool and job activity.
+Run Pi's supported `createAgentSession()` runtime in Electron's main process
+and expose one persistent input in the renderer. Load the existing capture
+skill with Pi's native read and Bash tools plus Lore's `ask_user` extension.
+Forward Pi lifecycle events to show real tool activity. Every native Bash call
+must be approved by the owner before Pi executes it.
 
 Sign-in uses `pi-ai`'s existing OAuth flows — `auth/oauth/anthropic` for a
 Claude subscription and `auth/oauth/openai-codex` for a ChatGPT subscription —
@@ -38,16 +39,18 @@ API-key secrets and its existing bypass of Pi's auth layer.
 
 ## Acceptance criteria
 
-- [ ] A user can type or use operating-system dictation in one input and
+- [x] A user can type or use operating-system dictation in one input and
       complete an attended `lore-capture` flow through embedded Pi.
-- [ ] Pi runs outside the renderer and exposes only named Lore tools through
-      narrow IPC.
-- [ ] Tool activity shown in the UI comes from actual Pi lifecycle events.
-- [ ] Provider credentials are never stored in Lore SQLite, renderer storage,
+- [x] Pi runs outside the renderer; IPC exposes prompts, structured questions,
+      lifecycle data, and explicit approval for each native Bash call.
+- [x] A Pi `tool_call` extension blocks native Bash until the owner approves
+      the exact command; denial leaves the command unexecuted.
+- [x] Tool activity shown in the UI comes from actual Pi lifecycle events.
+- [x] Provider credentials are never stored in Lore SQLite, renderer storage,
       logs, or job payloads.
-- [ ] A local test script runs a synthetic capture session and verifies the
+- [x] A local test script runs a synthetic capture session and verifies the
       resulting private memory through Lore's real store.
-- [ ] Sign-in completes with a Claude or ChatGPT subscription through Pi's
+- [x] Sign-in completes with a Claude or ChatGPT subscription through Pi's
       existing OAuth flows, or with a pasted API key, and the credential
       round-trips through the `safeStorage`-backed store across app restarts.
 
@@ -68,9 +71,17 @@ a dedicated CLI command Pi cannot call.
 Native macOS dictation is sufficient for the first version, so custom audio
 capture is out of scope.
 
-Run raw Pi `Agent`, not `AgentHarness`: as of pi 0.84.2 the harness is
-published and typed but the pi CLI's own main loop still runs on
-`createAgentSession()` over raw `Agent` — the same substrate as our Worker
-answer path. Revisit harness (and its SQLite session backend) once pi's CLI
-cuts over to it. The skills layer (`loadSkills` and friends) is
-production-load-bearing in pi today and is safe to use.
+Use Pi 0.84.2's supported `createAgentSession()`/`AgentSession` path. Do not
+add a second assistant loop or replace native read/Bash with custom Lore
+wrappers. Pi's `tool_call` extension hook is the security boundary for Bash;
+the product prompt is guidance, not enforcement.
+
+Implementation was explicitly approved and promoted by the owner on
+2026-08-22 after APP-002 completed.
+
+Implemented with Pi's native `AgentSession`, read, Bash, and lifecycle events.
+The only Lore tool is `ask_user`; every Bash call is blocked by Pi's supported
+pre-execution hook until the renderer approves the exact command. A real
+Electron run denied a synthetic save without mutation, then allowed it once
+and verified private memory #1 through the temporary Lore store. Electron
+`safeStorage` round-tripped a credential across two app processes.

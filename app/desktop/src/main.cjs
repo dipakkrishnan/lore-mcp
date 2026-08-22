@@ -1,15 +1,63 @@
-const { app, BrowserWindow, ipcMain, shell } = require("electron");
-const { join } = require("node:path");
+const { randomUUID } = require("node:crypto");
+const { join, resolve } = require("node:path");
+const { app, BrowserWindow, ipcMain, safeStorage, shell } = require("electron");
 const { readState } = require("./state.cjs");
 
-ipcMain.handle("snapshot:read", readState);
+if (process.env.LORE_DESKTOP_USER_DATA) app.setPath("userData", process.env.LORE_DESKTOP_USER_DATA);
+
+/** @type {LoreAgentInstance} */
+let agent;
+/** @type {import("electron").BrowserWindow | undefined} */
+let window;
+/** @type {Map<string, {resolve(value: unknown): void, reject(error: Error): void}>} */
+const pending = new Map();
+
+/** @param {AgentEvent} event */
+function emit(event) {
+  window?.webContents.send("agent:event", event);
+}
+
+/** @param {AgentRequest["type"]} type @param {Record<string, unknown>} payload */
+function request(type, payload) {
+  if (!window || window.isDestroyed()) return Promise.reject(new Error("Lore window is closed"));
+  const id = randomUUID();
+  emit(/** @type {AgentRequest} */ ({ type, id, ...payload }));
+  return new Promise((resolve, reject) => pending.set(id, { resolve, reject }));
+}
+
+function registerIpc() {
+  ipcMain.handle("snapshot:read", readState);
+  ipcMain.handle("agent:status", () => agent.status());
+  ipcMain.handle("agent:prompt", (_event, text) => {
+    if (typeof text !== "string" || text.length > 100_000) throw new Error("Invalid capture text");
+    return agent.prompt(text);
+  });
+  ipcMain.handle("agent:respond", (_event, response) => {
+    if (!response || typeof response.id !== "string" || !pending.has(response.id)) {
+      throw new Error("Unknown agent request");
+    }
+    pending.get(response.id)?.resolve(response.value);
+    pending.delete(response.id);
+  });
+  ipcMain.handle("auth:login", (_event, input) => {
+    const allowed = new Set([
+      "anthropic:oauth",
+      "anthropic:api_key",
+      "openai-codex:oauth",
+      "openai:api_key"
+    ]);
+    if (!input || !allowed.has(`${input.providerId}:${input.type}`)) throw new Error("Unsupported sign-in");
+    if (input.secret !== undefined && typeof input.secret !== "string") throw new Error("Invalid key");
+    return agent.login(input.providerId, input.type, input.secret);
+  });
+}
 
 function createWindow() {
-  const window = new BrowserWindow({
+  window = new BrowserWindow({
     width: 1040,
-    height: 720,
+    height: 760,
     minWidth: 760,
-    minHeight: 560,
+    minHeight: 620,
     backgroundColor: "#f6f5f1",
     webPreferences: {
       preload: join(__dirname, "preload.cjs"),
@@ -19,20 +67,54 @@ function createWindow() {
     }
   });
   window.webContents.setWindowOpenHandler(({ url }) => {
-    if (url.startsWith("https://") || url.startsWith("http://")) {
-      void shell.openExternal(url);
-    }
+    if (url.startsWith("https://") || url.startsWith("http://")) void shell.openExternal(url);
     return { action: "deny" };
   });
   window.webContents.on("will-navigate", (event) => event.preventDefault());
+  window.on("closed", () => {
+    window = undefined;
+    for (const waiter of pending.values()) waiter.reject(new Error("Lore window closed"));
+    pending.clear();
+  });
   void window.loadFile(join(__dirname, "index.html"));
 }
 
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
+  const [{ LoreAgent }, { CredentialStore }] = await Promise.all([
+    import("./agent.mjs"),
+    import("./credentials.mjs")
+  ]);
+  const credentials = new CredentialStore(join(app.getPath("userData"), "credentials.bin"), safeStorage);
+  agent = await LoreAgent.create({
+    loreHome: process.env.LORE_HOME || join(app.getPath("home"), ".lore"),
+    skillsDir: resolve(__dirname, "../../../plugins/lore/skills"),
+    credentials,
+    emit,
+    approveBash: async (command) => (await request("bash-approval", { command })) === true,
+    askUser: async (questions) =>
+      /** @type {Record<string, string>} */ (await request("question", { questions })),
+    authPrompt: async (prompt) =>
+      String(await request("auth-prompt", { prompt: { ...prompt, signal: undefined } })),
+    authEvent: (event) => {
+      if (event.type === "auth_url") {
+        void shell.openExternal(event.url);
+        emit({ type: "auth", message: event.instructions || "Complete sign-in in your browser." });
+      } else {
+        emit({ type: "auth", event });
+      }
+    }
+  });
+  registerIpc();
   createWindow();
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
   });
+});
+
+app.on("before-quit", () => {
+  agent?.dispose();
+  for (const waiter of pending.values()) waiter.reject(new Error("Lore closed"));
+  pending.clear();
 });
 
 app.on("window-all-closed", () => {

@@ -3,6 +3,11 @@ const subtitle = /** @type {HTMLParagraphElement} */ (document.querySelector("#s
 const status = /** @type {HTMLDivElement} */ (document.querySelector("#status"));
 const content = /** @type {HTMLDivElement} */ (document.querySelector("#content"));
 const buttons = /** @type {HTMLButtonElement[]} */ ([...document.querySelectorAll("nav button")]);
+const captureForm = /** @type {HTMLFormElement} */ (document.querySelector("#capture-form"));
+const captureInput = /** @type {HTMLTextAreaElement} */ (document.querySelector("#capture-input"));
+const activity = /** @type {HTMLDivElement} */ (document.querySelector("#agent-activity"));
+const request = /** @type {HTMLDivElement} */ (document.querySelector("#agent-request"));
+const authStatus = /** @type {HTMLDivElement} */ (document.querySelector("#auth-status"));
 
 /** @type {Snapshot | null} */
 let state = null;
@@ -204,6 +209,204 @@ async function load() {
   }
 }
 
+/** @param {string} text */
+function note(text) {
+  activity.replaceChildren(element("p", "", text));
+}
+
+/** @param {AgentStatus} agent */
+function renderAuth(agent) {
+  authStatus.replaceChildren();
+  if (agent.credentials.length) {
+    authStatus.append(element("span", "signed-in", "Signed in"));
+    return;
+  }
+  const claude = element("button", "quiet", "Sign in with Claude");
+  const chatgpt = element("button", "quiet", "Sign in with ChatGPT");
+  const key = element("button", "quiet", "Use API key");
+  for (const button of [claude, chatgpt, key]) button.type = "button";
+  claude.addEventListener("click", () => login("anthropic", "oauth"));
+  chatgpt.addEventListener("click", () => login("openai-codex", "oauth"));
+  key.addEventListener("click", renderKeyForm);
+  authStatus.append(claude, chatgpt, key);
+}
+
+function renderKeyForm() {
+  const form = element("form", "key-form");
+  const provider = document.createElement("select");
+  provider.setAttribute("aria-label", "API provider");
+  for (const [value, label] of [["anthropic", "Anthropic"], ["openai", "OpenAI"]]) {
+    const option = document.createElement("option");
+    option.value = value;
+    option.textContent = label;
+    provider.append(option);
+  }
+  const input = document.createElement("input");
+  input.type = "password";
+  input.required = true;
+  input.autocomplete = "off";
+  input.placeholder = "API key";
+  input.setAttribute("aria-label", "API key");
+  const submit = element("button", "quiet", "Save");
+  submit.type = "submit";
+  form.append(provider, input, submit);
+  form.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const secret = input.value;
+    input.value = "";
+    await login(provider.value, "api_key", secret);
+  });
+  authStatus.replaceChildren(form);
+  input.focus();
+}
+
+/** @param {string} providerId @param {"oauth" | "api_key"} type @param {string} [secret] */
+async function login(providerId, type, secret) {
+  note("Starting sign-in…");
+  try {
+    renderAuth(await window.lore.login({ providerId, type, secret }));
+    request.replaceChildren();
+    note("Sign-in complete.");
+  } catch (error) {
+    note(error instanceof Error ? error.message : "Sign-in failed.");
+  }
+}
+
+/** @param {AgentRequest} event */
+function renderRequest(event) {
+  const form = element("form", "agent-card");
+  if (event.type === "bash-approval") {
+    note("Bash is waiting for your approval.");
+    form.append(element("h3", "", "Allow this command?"), element("pre", "", event.command));
+    const approve = element("button", "", "Allow once");
+    const deny = element("button", "secondary", "Deny");
+    approve.type = deny.type = "button";
+    approve.addEventListener("click", () => respond(event.id, true));
+    deny.addEventListener("click", () => respond(event.id, false));
+    form.append(approve, deny);
+  } else if (event.type === "question") {
+    form.append(element("h3", "", "Lore needs your input"));
+    for (const [index, question] of event.questions.entries()) {
+      const fieldset = document.createElement("fieldset");
+      fieldset.dataset.question = question.question;
+      fieldset.append(element("legend", "", question.question));
+      for (const option of question.options) {
+        const label = element("label", "choice");
+        const input = document.createElement("input");
+        input.type = question.multiSelect ? "checkbox" : "radio";
+        input.name = `question-${index}`;
+        input.value = option.label;
+        label.append(input, document.createTextNode(`${option.label} — ${option.description}`));
+        fieldset.append(label);
+      }
+      const other = document.createElement("input");
+      other.type = "text";
+      other.placeholder = "Or type your answer";
+      other.className = "other-answer";
+      fieldset.append(other);
+      form.append(fieldset);
+    }
+    const submit = element("button", "", "Continue");
+    submit.type = "submit";
+    form.append(submit);
+    form.addEventListener("submit", (submitEvent) => {
+      submitEvent.preventDefault();
+      /** @type {Record<string, string>} */
+      const answers = {};
+      for (const fieldset of form.querySelectorAll("fieldset")) {
+        const selected = [...fieldset.querySelectorAll("input:checked")].map(
+          (input) => /** @type {HTMLInputElement} */ (input).value
+        );
+        const other = /** @type {HTMLInputElement} */ (fieldset.querySelector(".other-answer"));
+        const question = fieldset.dataset.question;
+        if (question) answers[question] = other.value.trim() || selected.join(", ");
+      }
+      respond(event.id, answers);
+    });
+  } else if (event.type === "auth-prompt") {
+    form.append(element("h3", "", event.prompt.message));
+    let input;
+    if (event.prompt.type === "select") {
+      input = document.createElement("select");
+      for (const option of event.prompt.options) {
+        const item = document.createElement("option");
+        item.value = option.id;
+        item.textContent = option.label;
+        input.append(item);
+      }
+    } else {
+      input = document.createElement("input");
+      input.type = event.prompt.type === "secret" ? "password" : "text";
+      input.placeholder = event.prompt.placeholder || "";
+    }
+    const submit = element("button", "", "Continue");
+    submit.type = "submit";
+    form.append(input, submit);
+    form.addEventListener("submit", (submitEvent) => {
+      submitEvent.preventDefault();
+      const value = input.value;
+      input.value = "";
+      respond(event.id, value);
+    });
+  }
+  request.replaceChildren(form);
+  /** @type {HTMLElement | null} */ (form.querySelector("button, input, select"))?.focus();
+}
+
+/** @param {string} id @param {unknown} value */
+async function respond(id, value) {
+  request.replaceChildren();
+  await window.lore.respond({ id, value });
+}
+
+window.lore.onAgentEvent((event) => {
+  if (event.type === "working") {
+    captureInput.disabled = event.active;
+    const submit = /** @type {HTMLButtonElement} */ (captureForm.querySelector("button"));
+    submit.disabled = event.active;
+    if (event.active) note("Lore is listening…");
+  } else if (event.type === "tool") {
+    note(
+      event.active
+        ? `${event.name} requested…`
+        : event.failed
+          ? `${event.name} did not run.`
+          : `${event.name} finished.`
+    );
+  } else if (event.type === "message") {
+    note(event.text);
+  } else if (
+    event.type === "bash-approval" ||
+    event.type === "question" ||
+    event.type === "auth-prompt"
+  ) {
+    renderRequest(event);
+  } else if (event.type === "auth") {
+    const detail = event.event;
+    note(
+      event.message ||
+        (detail?.type === "device_code"
+          ? `Open ${detail.verificationUri} and enter ${detail.userCode}.`
+          : detail && "message" in detail
+            ? detail.message
+            : "Continue sign-in.")
+    );
+  }
+});
+
+captureForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const text = captureInput.value.trim();
+  if (!text) return;
+  try {
+    await window.lore.prompt(text);
+    captureInput.value = "";
+    await load();
+  } catch (error) {
+    note(error instanceof Error ? error.message : "Capture failed.");
+  }
+});
+
 for (const button of buttons) {
   button.addEventListener("click", () => {
     view = /** @type {View} */ (button.dataset.view || "today");
@@ -213,3 +416,4 @@ for (const button of buttons) {
 }
 
 void load();
+window.lore.agentStatus().then(renderAuth).catch(() => note("Sign-in status is unavailable."));

@@ -45,17 +45,14 @@ Load-bearing rules, in priority order:
 1. **The app never touches SQLite directly.** All reads come from the
    `APP-001` versioned-JSON snapshot; all writes go through `lore` CLI
    subcommands so the Python validation paths stay authoritative.
-2. **Pi never gets a shell.** Its whole tool surface is three tools
-   (`APP-004`): an allowlisted `lore_cli` tool, a scoped read-only file tool
-   (agent-history roots, Lore home, skills directory), and the `ask_user`
-   structured-question seam. Skills use Pi's native skills layer —
-   `loadSkills` discovery, the system-prompt listing, `formatSkillInvocation`
-   for explicit starts — and the skills' routes to each other (onboard →
-   monetize, capture → publish, publish ↔ enable-payments) resolve by
-   reading the routed skill's file through the scoped read tool.
-3. **The agent cannot approve.** Approval cards are app-invoked UI routed to a
-   dedicated CLI command excluded from Pi's allowlist — the desktop equivalent
-   of the TTY-required approvals.
+2. **Pi keeps its native runtime.** The app uses Pi's supported
+   `createAgentSession()` path with native skills, read, and Bash. Lore adds
+   only the `ask_user` extension and product prompt. A `tool_call` extension
+   blocks every Bash call until the owner approves the exact command; prompt
+   instructions are not the security boundary.
+3. **The agent cannot approve.** Approval cards are app-invoked UI routed to
+   existing Lore validation. Allowing a Bash command is not approval of a
+   publication, payment, or deployment.
 4. **Skills stay the source of truth.** `SKILL.md` loads verbatim as Pi's
    instructions; the app renders questions and progress. No parallel
    onboarding state machine — the setup checklist derives from the snapshot.
