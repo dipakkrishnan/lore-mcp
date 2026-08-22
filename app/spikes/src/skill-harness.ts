@@ -9,7 +9,7 @@ import { Terminal } from "./terminal.js";
 const args = process.argv.slice(2);
 const skillName = args.find((a) => !a.startsWith("--")) ?? "lore-capture";
 const repoRoot = resolve(fileURLToPath(import.meta.url), "../../../..");
-const loreHome = args.includes("--real") ? join(homedir(), ".lore") : join(homedir(), ".lore-spike-home");
+const loreHome = join(homedir(), ".lore-spike-home");
 mkdirSync(loreHome, { recursive: true });
 
 const terminal = new Terminal();
@@ -19,12 +19,12 @@ const kernel = await LoreKernel.create({
   credentials: new FileCredentialStore(join(homedir(), ".lore", "spike-credentials.json")),
   owner: terminal
 });
-const agent = await kernel.agent(process.env.LORE_SPIKE_MODEL ?? "claude-sonnet-5");
+const session = await kernel.session(process.env.LORE_SPIKE_MODEL ?? "claude-sonnet-5");
 
-console.log(`Skill: ${skillName}\nLore home: ${loreHome}\nModel: ${agent.state.model.id}\n`);
+console.log(`Skill: ${skillName}\nLore home: ${loreHome}\nModel: ${session.model?.id}\n`);
 
 let sessionCost = 0;
-agent.subscribe((event) => {
+session.subscribe((event) => {
   if (event.type === "tool_execution_start") {
     console.log(`  ⚙ ${event.toolName}`);
   } else if (event.type === "message_end" && event.message.role === "assistant") {
@@ -39,10 +39,14 @@ agent.subscribe((event) => {
 
 console.log("Type to talk to the agent; 'quit' exits.\n");
 let input = kernel.invocation(skillName);
-for (;;) {
-  await agent.prompt(input);
-  const line = (await terminal.read("you> ")).trim();
-  if (line === "quit" || line === "exit") break;
-  input = line;
+try {
+  for (;;) {
+    await session.prompt(input);
+    const line = (await terminal.read("you> ")).trim();
+    if (line === "quit" || line === "exit") break;
+    input = line;
+  }
+} finally {
+  session.dispose();
 }
 console.log(`\nSession model cost: $${sessionCost.toFixed(4)}`);
