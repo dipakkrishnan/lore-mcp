@@ -67,3 +67,10 @@ a dedicated CLI command Pi cannot call.
 
 Native macOS dictation is sufficient for the first version, so custom audio
 capture is out of scope.
+
+Run raw Pi `Agent`, not `AgentHarness`: as of pi 0.84.2 the harness is
+published and typed but the pi CLI's own main loop still runs on
+`createAgentSession()` over raw `Agent` — the same substrate as our Worker
+answer path. Revisit harness (and its SQLite session backend) once pi's CLI
+cuts over to it. The skills layer (`loadSkills` and friends) is
+production-load-bearing in pi today and is safe to use.
