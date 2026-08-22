@@ -65,11 +65,17 @@ def _post(
 def _response(response: HTTPResponse) -> dict[str, object]:
     text = response.read().decode()
     if response.headers.get_content_type() == "text/event-stream":
-        text = next(
-            line.removeprefix("data: ")
-            for line in text.splitlines()
-            if line.startswith("data: ")
+        data_line = next(
+            (
+                line.removeprefix("data: ")
+                for line in text.splitlines()
+                if line.startswith("data: ")
+            ),
+            None,
         )
+        if data_line is None:
+            raise ValueError("event-stream response had no data line")
+        text = data_line
     return OBJECT.validate_json(text)
 
 

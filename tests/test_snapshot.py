@@ -224,6 +224,23 @@ class DesktopSnapshotTest(LoreTestCase):
         self.assertEqual(state["node"]["live"]["publication_count"], None)
         self.assertEqual(state["publications"]["counts"]["live"], None)
 
+    def test_event_stream_with_no_data_line_is_unreachable_not_a_crash(self) -> None:
+        response = Mock()
+        response.read.return_value = b"event: heartbeat\n\n"
+        response.headers.get_content_type.return_value = "text/event-stream"
+        with self.assertRaises(ValueError):
+            snapshot._response(response)
+        with Store() as store:
+            store.set_setting("node_url", "https://cold-start.example/mcp")
+        with patch(
+            "lore.snapshot._remote_manifest",
+            side_effect=ValueError("event-stream response had no data line"),
+        ):
+            with captured() as output:
+                self.assertEqual(cli.main(["desktop-state"]), 0)
+        state = json.loads(output.getvalue())
+        self.assertEqual(state["node"]["live"]["state"], "unreachable")
+
 
 if __name__ == "__main__":
     unittest.main()
