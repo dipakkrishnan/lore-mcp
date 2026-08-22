@@ -5,8 +5,8 @@ priority: P1
 effort: L
 component: desktop-app
 status: in-review
-related: [APP-004, EVAL-002, XC-008]
-blockers: [APP-004]
+related: [APP-004, APP-006, APP-007, EVAL-002, XC-008]
+blockers: [APP-004, APP-006, APP-007]
 dependencies: ["Apple Developer signing credentials for public distribution", "A testnet-funded buyer wallet for the live paid-path proof"]
 github_issue: null
 created: 2026-08-21
