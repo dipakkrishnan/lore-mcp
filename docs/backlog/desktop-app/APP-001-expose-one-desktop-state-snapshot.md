@@ -4,7 +4,7 @@ title: Expose one machine-readable desktop state snapshot
 priority: P1
 effort: M
 component: desktop-app
-status: in-review
+status: completed
 related: [MON-013, MON-015, STO-001]
 blockers: []
 dependencies: []
@@ -31,14 +31,14 @@ analytics store.
 
 ## Acceptance criteria
 
-- [ ] One CLI command returns versioned JSON with no ANSI or explanatory text.
-- [ ] The snapshot covers onboarding readiness, library/publication states,
+- [x] One CLI command returns versioned JSON with no ANSI or explanatory text.
+- [x] The snapshot covers onboarding readiness, library/publication states,
       configured prices, node URL, and whether approved publications are live.
-- [ ] A missing or unreachable deployment is represented as data rather than a
+- [x] A missing or unreachable deployment is represented as data rather than a
       command failure.
-- [ ] The snapshot contains no private memory bodies, credentials, or wallet
+- [x] The snapshot contains no private memory bodies, credentials, or wallet
       secrets.
-- [ ] A subprocess test proves the JSON contract from a temporary Lore home.
+- [x] A subprocess test proves the JSON contract from a temporary Lore home.
 
 ## Notes
 
@@ -52,3 +52,8 @@ a snapshot field: that credential lives in the app's OS keychain, which the
 Python CLI cannot and must not read. The app composes its own auth facts over
 the snapshot when it renders the setup checklist. Keep the two sources
 separate so the CLI contract never grows a dependency on app-side secrets.
+
+Implemented as `lore desktop-state`. Live state comes from the node's free
+`discover` tool. Drafts and answer-job totals remain explicitly unavailable
+because neither has an owner-readable source of truth. Implementation was
+explicitly approved by the owner on 2026-08-22.

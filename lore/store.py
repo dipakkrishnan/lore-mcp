@@ -415,6 +415,20 @@ class Store:
             )
         }
 
+    def memory_inventory(self) -> list[dict[str, object]]:
+        rows = self.db.execute(
+            "SELECT id,title,project,status,source,updated_at "
+            "FROM memories ORDER BY updated_at DESC,id"
+        ).fetchall()
+        return [dict(row) for row in rows]
+
+    def publication_inventory(self) -> list[dict[str, object]]:
+        rows = self.db.execute(
+            "SELECT id,public_id,title,kind,topic,active,updated_at,source_changed_at "
+            "FROM publications ORDER BY updated_at DESC,id"
+        ).fetchall()
+        return [dict(row) for row in rows]
+
     def setting(self, key: str, default: object = None) -> object:
         """Read a JSON-backed setting or return its default."""
         row = self.db.execute(

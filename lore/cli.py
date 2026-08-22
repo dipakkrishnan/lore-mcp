@@ -93,6 +93,7 @@ def parser() -> argparse.ArgumentParser:
     )
 
     commands.add_parser("status", help="show source and review status")
+    commands.add_parser("desktop-state", help="print the desktop app state as JSON")
     commands.add_parser("help", help="show the Lore workflow manual")
     price = commands.add_parser("price", help="show or set the per-publication price")
     price.add_argument(
@@ -186,6 +187,11 @@ def main(argv: list[str] | None = None) -> int:
             return capture_apply(args.file)
         if args.command == "status":
             return status()
+        if args.command == "desktop-state":
+            from .snapshot import build
+
+            print(json.dumps(build(), separators=(",", ":"), allow_nan=False))
+            return 0
         if args.command == "help":
             return manual()
         if args.command == "price":
