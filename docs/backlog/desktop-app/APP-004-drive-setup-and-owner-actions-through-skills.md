@@ -1,11 +1,11 @@
 ---
 id: APP-004
-title: Drive setup and owner actions through existing Lore skills
+title: Guide first-run setup through the existing onboarding skill
 priority: P1
-effort: L
+effort: M
 component: desktop-app
-status: in-review
-related: [APP-003, ONB-003, AUT-001, XC-005, XC-017]
+status: ready
+related: [APP-003, APP-006, APP-007, ONB-003, AUT-001, XC-005]
 blockers: [APP-003]
 dependencies: []
 github_issue: null
@@ -15,61 +15,43 @@ updated: 2026-08-22
 
 ## Problem
 
-A desktop app that merely exposes controls would recreate Lore's onboarding,
-privacy, publishing, and payment rules in UI code. A new owner instead needs a
-guided first run that imports existing agent context, asks for corrections,
-sets up ongoing synthesis, and optionally configures a payout address and
-deployment without requiring terminal knowledge.
+A new owner currently lands in the vendor console before Lore knows anything
+about them. They need the existing onboarding conversation to import agent
+context, collect corrections, establish a blueprint, and install synthesis
+without requiring terminal knowledge or a second UI-owned workflow.
 
 ## Proposed approach
 
-Let embedded Pi drive the existing `lore-onboard`, `lore-publish`, and
-`lore-enable-payments` skills while Electron renders questions, approvals,
-links, and progress natively. Derive the setup checklist from `APP-001` rather
-than adding an onboarding state machine. Route review, approve, revoke, price,
-push, and deploy actions through the existing Lore validation paths.
+Invoke `lore-onboard` through the `AgentSession` kernel established by
+`APP-003`. Pi keeps its native skills, read, and Bash capabilities; Lore keeps
+only `ask_user` and the product prompt, and every Bash call remains subject to
+the existing exact-command approval gate.
 
-Skills run through the `AgentSession` kernel established by `APP-003`. Pi's
-native skills layer discovers the packaged `SKILL.md` files; explicit starts
-invoke the matching skill and routed handoffs remain ordinary skill loading.
-Pi keeps its native read and Bash capabilities, with every Bash call gated by
-the owner-approval extension from `APP-003`. Lore adds only `ask_user` and the
-product prompt. Approval-only Lore commands remain app-invoked through their
-existing validation paths and are separate from generic Bash approval.
-
-Record only local owner-job status and resumable Pi session state in the
-existing Lore SQLite database. "Resume" is state-derived, not transcript
-restoration: Pi has no built-in session persistence (the answer path resumes
-by replaying a checkpointed message array, `MON-015`), and for owner setup
-the durable truth is Lore state, not a transcript — a replayed conversation
-can act on facts the owner has since changed. After a restart the app starts
-a fresh Pi session seeded with the current `APP-001` snapshot and the active
-skill, and the checklist plus jobs table carry the progress. Do not build
-transcript checkpointing for setup flows. Windup or the operating-system
-scheduler remains the scheduler; the app only displays those runs and can
-initiate an attended run.
+Render a short setup checklist from the versioned `APP-001` snapshot. The
+skill's existing `$LORE_HOME/automation/onboarding.json` checkpoint and Lore's
+validated CLI writes remain the durable truth. After restart, start a fresh Pi
+session with the current snapshot and invoke the skill again; do not persist or
+replay transcripts and do not add a UI-owned onboarding state machine.
 
 ## Acceptance criteria
 
-- [ ] A net-new owner can install Lore, auto-scan supported agent history,
-      correct proposed memories, establish a blueprint, and install synthesis
-      without typing terminal commands.
-- [ ] The optional Monetize path collects only a payout address and price,
-      never a seed phrase, private key, or buyer spending credential, then
-      deploys and verifies the node through the existing payment skill.
-- [ ] Publication, pricing, answer, push, and deployment actions preserve the
-      existing attended approval and validation guarantees.
-- [ ] Setup progress is derived from real Lore state and resumes after the app
-      or Pi session restarts.
-- [ ] One minimal jobs table in the existing local SQLite database records job
-      kind, status, summary/error, and timestamps for capture, synthesis, and
-      deployment runs shown on Today.
-- [ ] Once setup is complete, the setup checklist disappears and the app opens
-      into the three-view vendor console.
+- [ ] An owner with the Lore runtime available can start setup from Today and
+      complete source import, blueprint confirmation, profile creation, and
+      synthesis scheduling through the existing `lore-onboard` skill without
+      typing terminal commands.
+- [ ] Questions use `ask_user`; native Bash still shows the exact command and
+      does not execute until the owner approves it.
+- [ ] The checklist is derived only from `APP-001` setup fields and disappears
+      once sources, blueprint, and profile are configured.
+- [ ] Closing the app mid-setup and reopening it resumes from the skill's real
+      checkpoint and current Lore state without replaying a transcript or
+      repeating completed setup work.
+- [ ] A temporary Lore home proves the renderer-to-Pi-to-skill-to-CLI path for
+      a synthetic first-run setup.
 
 ## Notes
 
-The skills remain the owner-journey source of truth. The app is their native
-host, not a parallel wizard. Before implementation, trace the actual skill
-flows through the `APP-003` kernel and split this item if onboarding, owner
-actions, and durable jobs do not form one reviewable change.
+The skill remains the owner-journey source of truth. The app is its native
+host, not a parallel wizard. Runtime provisioning stays in `APP-005`; owner
+publication/payment actions and durable job history are split into `APP-006`
+and `APP-007`.
