@@ -156,15 +156,11 @@ h1 {
   gap: 0.85rem;
 }
 
-.metric,
-.panel {
+.metric {
   border: 1px solid #deddd7;
   border-radius: 0.85rem;
   background: #fff;
   box-shadow: 0 1px 2px rgb(25 35 29 / 4%);
-}
-
-.metric {
   min-height: 130px;
   padding: 1.1rem;
 }
@@ -183,8 +179,7 @@ h1 {
 }
 
 .metric p,
-.empty,
-.panel-intro {
+.empty {
   margin: 0;
   color: #696e67;
   font-size: 0.85rem;
@@ -192,6 +187,10 @@ h1 {
 }
 
 .panel {
+  border: 1px solid #deddd7;
+  border-radius: 0.85rem;
+  background: #fff;
+  box-shadow: 0 1px 2px rgb(25 35 29 / 4%);
   margin-top: 1rem;
   padding: 1.25rem;
 }
@@ -202,7 +201,10 @@ h1 {
 }
 
 .panel-intro {
-  margin-top: 0.35rem;
+  margin: 0.35rem 0 0;
+  color: #696e67;
+  font-size: 0.85rem;
+  line-height: 1.45;
 }
 
 .checklist,
@@ -212,8 +214,7 @@ h1 {
   list-style: none;
 }
 
-.checklist li,
-.items li {
+.checklist li {
   display: flex;
   justify-content: space-between;
   gap: 1rem;
@@ -233,6 +234,8 @@ h1 {
 
 .items li {
   display: block;
+  padding: 0.75rem 0;
+  border-top: 1px solid #ecebe7;
 }
 
 .items h3 {

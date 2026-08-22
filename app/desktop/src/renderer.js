@@ -11,8 +11,6 @@ const authStatus = /** @type {HTMLDivElement} */ (document.querySelector("#auth-
 
 /** @type {Snapshot | null} */
 let state = null;
-/** @type {"safe-read" | "blocked" | null} */
-let bashActivity = null;
 /** @typedef {"today" | "lore" | "store"} View */
 /** @type {View} */
 let view = "today";
@@ -43,6 +41,10 @@ function money(value) {
   return typeof value === "number"
     ? new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(value)
     : "Not set";
+}
+
+function nodeLabel(state = "not_configured") {
+  return state === "online" ? "Online" : state === "unreachable" ? "Offline" : "Not configured";
 }
 
 /**
@@ -107,7 +109,7 @@ function renderToday(snapshot) {
   }
   const setup = panel("Setup", "Lore stays useful when these three foundations are in place.");
   setup.append(checklist);
-  const live = snapshot.node.live.state === "online" ? "Live" : snapshot.node.live.state === "unreachable" ? "Offline" : "Not configured";
+  const live = nodeLabel(snapshot.node.live.state);
   return [
     grid(
       metric("Private memories", snapshot.library.counts.private, "Held only on this Mac"),
@@ -141,7 +143,7 @@ function renderStore(snapshot) {
   const pending = publications.filter((item) => item.state === "approved" && item.live === false);
   const unknown = publications.filter((item) => item.state === "approved" && item.live === null);
   const revoked = publications.filter((item) => item.state === "revoked");
-  const nodeState = snapshot.node.live.state === "online" ? "Online" : snapshot.node.live.state === "unreachable" ? "Offline" : "Not configured";
+  const nodeState = nodeLabel(snapshot.node.live.state);
   const summary = grid(
     metric("Publication price", money(snapshot.pricing.publication_usd), "Configured on this Mac"),
     metric("Live price", money(snapshot.node.live.publication_price_usd), "Verified from the node"),
@@ -162,7 +164,6 @@ function renderStore(snapshot) {
     ["Live", liveItems, "No publications are confirmed live."],
     ["Approved, not live", pending, "No approved publications are waiting to go live."],
     ["Approved, live status unknown", unknown, "Live status is available."],
-    ["Drafts", [], "Drafts are not tracked by Lore yet."],
     ["Revoked", revoked, "No revoked publications."]
   ];
   const panels = groups.map(([heading, items, emptyText]) => {
@@ -368,27 +369,15 @@ window.lore.onAgentEvent((event) => {
     submit.disabled = event.active;
     if (event.active) note("Lore is listening…");
   } else if (event.type === "tool") {
-    if (event.name === "bash" && bashActivity) {
-      if (!event.active) {
-        if (bashActivity === "safe-read") {
-          note(event.failed ? "The safe read failed." : "Safe read finished.");
-        }
-        bashActivity = null;
-      }
-    } else {
-      note(
-        event.active
-          ? `${event.name} requested…`
-          : event.failed
-            ? `${event.name} did not run.`
-            : `${event.name} finished.`
-      );
-    }
+    note(
+      event.active
+        ? `${event.name} requested…`
+        : event.failed
+          ? `${event.name} did not run.`
+          : `${event.name} finished.`
+    );
   } else if (event.type === "message") {
     note(event.text);
-  } else if (event.type === "bash-policy") {
-    bashActivity = event.decision === "auto-allowed" ? "safe-read" : "blocked";
-    note(bashActivity === "safe-read" ? "Lore is running a safe read-only check." : "Lore blocked an unsupported command before it could run.");
   } else if (
     event.type === "bash-approval" ||
     event.type === "question" ||

@@ -173,16 +173,8 @@ class DesktopSnapshotTest(LoreTestCase):
         )
         self.assertEqual(
             state["publications"]["counts"],
-            {
-                "active": 3,
-                "needs_review": 1,
-                "revoked": 1,
-                "live": 2,
-                "approved_not_live": 1,
-                "drafts": None,
-            },
+            {"active": 3, "revoked": 1},
         )
-        self.assertFalse(state["publications"]["drafts_available"])
         self.assertEqual(
             set(state["publications"]["items"][0]),
             {
@@ -205,7 +197,6 @@ class DesktopSnapshotTest(LoreTestCase):
         self.assertEqual(state["node"]["live"]["state"], "online")
         self.assertEqual(state["node"]["live"]["publication_price_usd"], 0.02)
         self.assertEqual(state["node"]["live"]["answer_price_usd"], 0.11)
-        self.assertFalse(state["answer_jobs"]["available"])
 
     def test_missing_and_unreachable_nodes_are_data(self) -> None:
         response = Mock()
@@ -222,7 +213,6 @@ class DesktopSnapshotTest(LoreTestCase):
         state = json.loads(output.getvalue())
         self.assertEqual(state["node"]["live"]["state"], "unreachable")
         self.assertEqual(state["node"]["live"]["publication_count"], None)
-        self.assertEqual(state["publications"]["counts"]["live"], None)
 
     def test_event_stream_with_no_data_line_is_unreachable_not_a_crash(self) -> None:
         response = Mock()

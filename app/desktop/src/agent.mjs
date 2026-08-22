@@ -1,6 +1,7 @@
 import { resolve } from "node:path";
 import {
   createAgentSession,
+  createBashTool,
   DefaultResourceLoader,
   defineTool,
   isToolCallEventType,
@@ -31,9 +32,8 @@ export function classifyBash(command) {
 
 /**
  * @param {(command: string) => Promise<boolean>} approve
- * @param {(decision: "auto-allowed" | "blocked") => void} report
  */
-export function bashPolicyExtension(approve, report = () => {}) {
+export function bashPolicyExtension(approve) {
   return {
     name: "bash-policy",
     hidden: true,
@@ -42,12 +42,8 @@ export function bashPolicyExtension(approve, report = () => {}) {
       pi.on("tool_call", async (event) => {
         if (!isToolCallEventType("bash", event)) return;
         const decision = classifyBash(event.input.command);
-        if (decision === "allow") {
-          report("auto-allowed");
-          return;
-        }
+        if (decision === "allow") return;
         if (decision === "approve" && (await approve(event.input.command))) return;
-        if (decision === "deny") report("blocked");
         return {
           block: true,
           reason:
@@ -81,8 +77,6 @@ export class LoreAgent {
 
   /** @param {LoreAgentOptions} options */
   static async create(options) {
-    process.env.LORE_HOME = options.loreHome;
-    process.env.NO_COLOR = "1";
     const models = await ModelRuntime.create({ credentials: options.credentials });
     const settings = SettingsManager.inMemory();
     const resources = new DefaultResourceLoader({
@@ -90,20 +84,15 @@ export class LoreAgent {
       agentDir: resolve(options.loreHome, ".pi"),
       settingsManager: settings,
       additionalSkillPaths: [options.skillsDir],
-      extensionFactories: [bashPolicyExtension(options.approveBash, options.reportBash)],
+      extensionFactories: [bashPolicyExtension(options.approveBash)],
       noExtensions: true,
       noPromptTemplates: true,
       noThemes: true,
       noContextFiles: true,
       systemPrompt: [
         "You are Lore's attended desktop capture agent.",
-        "Use the lore-capture skill exactly; skip install steps because Lore is already provisioned.",
-        "Use native read and Bash only for this capture, and use ask_user for structured decisions.",
-        "For read-only checks, Bash may use only: lore status, lore desktop-state, or token-safe lore search arguments.",
-        "When invoking Bash to save, use exactly this shape with real newlines: lore capture apply - <<'LORE_CAPTURE' newline JSON array newline LORE_CAPTURE.",
-        "Do not use echo, printf, a pipe, a temporary file, or any other redirect.",
-        "Never publish, price, deploy, enable payments, or run attended approval commands in this build.",
-        "Bash policy is enforced outside this prompt: safe reads run automatically, recognized private saves require approval, and everything else is blocked."
+        "Use the lore-capture skill exactly and skip its install steps because Lore is already provisioned.",
+        "Bash policy is enforced outside this prompt."
       ].join(" ")
     });
     await resources.reload();
@@ -165,7 +154,15 @@ export class LoreAgent {
       settingsManager: this.settings,
       sessionManager: SessionManager.inMemory(this.options.loreHome),
       tools: ["read", "bash", "ask_user"],
-      customTools: [this.#askTool()]
+      customTools: [
+        createBashTool(this.options.loreHome, {
+          spawnHook: (context) => ({
+            ...context,
+            env: { ...context.env, LORE_HOME: this.options.loreHome, NO_COLOR: "1" }
+          })
+        }),
+        this.#askTool()
+      ]
     });
     session.subscribe((event) => {
       if (event.type === "tool_execution_start") {

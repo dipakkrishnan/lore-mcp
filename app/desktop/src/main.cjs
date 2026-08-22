@@ -25,8 +25,8 @@ function request(type, payload) {
   return new Promise((resolve, reject) => pending.set(id, { resolve, reject }));
 }
 
-function registerIpc() {
-  ipcMain.handle("snapshot:read", readState);
+function registerIpc(loreHome = join(app.getPath("home"), ".lore")) {
+  ipcMain.handle("snapshot:read", () => readState(loreHome));
   ipcMain.handle("agent:status", () => agent.status());
   ipcMain.handle("agent:prompt", (_event, text) => {
     if (typeof text !== "string" || text.length > 100_000) throw new Error("Invalid capture text");
@@ -84,14 +84,14 @@ app.whenReady().then(async () => {
     import("./agent.mjs"),
     import("./credentials.mjs")
   ]);
+  const loreHome = process.env.LORE_HOME || join(app.getPath("home"), ".lore");
   const credentials = new CredentialStore(join(app.getPath("userData"), "credentials.bin"), safeStorage);
   agent = await LoreAgent.create({
-    loreHome: process.env.LORE_HOME || join(app.getPath("home"), ".lore"),
+    loreHome,
     skillsDir: resolve(__dirname, "../../../plugins/lore/skills"),
     credentials,
     emit,
     approveBash: async (command) => (await request("bash-approval", { command })) === true,
-    reportBash: (decision) => emit({ type: "bash-policy", decision }),
     askUser: async (questions) =>
       /** @type {Record<string, string>} */ (await request("question", { questions })),
     authPrompt: async (prompt) =>
@@ -105,7 +105,7 @@ app.whenReady().then(async () => {
       }
     }
   });
-  registerIpc();
+  registerIpc(loreHome);
   createWindow();
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
