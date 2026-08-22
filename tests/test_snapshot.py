@@ -124,6 +124,20 @@ class DesktopSnapshotTest(LoreTestCase):
         (project / "session.jsonl").write_text(
             '{"type":"queue-operation"}\n{"cwd":"/Users/owner/code/juniper"}\n'
         )
+        silent = self.claude_home / "projects" / "-Users-owner-code-silent"
+        silent.mkdir()
+        (silent / "session.jsonl").write_text('[]\n{"cwd":""}\n')
+        with Store() as store:
+            store.put(
+                source="test",
+                origin="native",
+                source_path="silent",
+                source_key="silent",
+                fingerprint="silent",
+                title="Silent project",
+                content="no session names it",
+                project="-Users-owner-code-silent",
+            )
         blueprint.blueprint_path().parent.mkdir(parents=True, exist_ok=True)
         blueprint.blueprint_path().write_text("{}")
         automation.profile_path().parent.mkdir(parents=True, exist_ok=True)
@@ -173,7 +187,7 @@ class DesktopSnapshotTest(LoreTestCase):
                 "profile_configured": True,
             },
         )
-        self.assertEqual(state["library"]["counts"], {"private": 5, "discarded": 0})
+        self.assertEqual(state["library"]["counts"], {"private": 6, "discarded": 0})
         self.assertEqual(
             set(state["library"]["items"][0]),
             {
@@ -191,6 +205,12 @@ class DesktopSnapshotTest(LoreTestCase):
         }
         self.assertEqual(labels["Safe private title"], "juniper")
         self.assertEqual(labels["live memory"], "")
+        self.assertEqual(
+            labels["Silent project"],
+            "-Users-owner-code-silent".removeprefix(
+                "-" + str(Path.home()).strip("/").replace("/", "-") + "-"
+            ),
+        )
         self.assertEqual(state["home"], str(home()))
         self.assertEqual(
             state["publications"]["counts"],
