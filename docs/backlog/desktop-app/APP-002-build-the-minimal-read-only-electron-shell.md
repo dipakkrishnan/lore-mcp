@@ -4,13 +4,13 @@ title: Build the minimal read-only Electron shell
 priority: P1
 effort: M
 component: desktop-app
-status: in-review
+status: completed
 related: [APP-001]
 blockers: [APP-001]
 dependencies: []
 github_issue: null
 created: 2026-08-21
-updated: 2026-08-21
+updated: 2026-08-22
 ---
 
 ## Problem
@@ -29,18 +29,23 @@ CSS unless the implementation proves a framework is necessary.
 
 ## Acceptance criteria
 
-- [ ] The app starts locally with one documented command and renders Today,
+- [x] The app starts locally with one documented command and renders Today,
       Lore, and Store from the snapshot contract.
-- [ ] Lore distinguishes private, published, and needs-review inventory; Store
+- [x] Lore distinguishes private, published, and needs-review inventory; Store
       distinguishes live, approved-but-not-live, drafts, and revoked items.
-- [ ] Store shows the current price, node link, and deployment state without an
+- [x] Store shows the current price, node link, and deployment state without an
       analytics dashboard or speculative charts.
-- [ ] Electron context isolation is enabled and the renderer cannot invoke
+- [x] Electron context isolation is enabled and the renderer cannot invoke
       arbitrary commands or read arbitrary files.
-- [ ] Empty, not-configured, offline, and error states are readable and
+- [x] Empty, not-configured, offline, and error states are readable and
       keyboard accessible.
 
 ## Notes
 
 This PR is intentionally read-only. It establishes the simple post-setup
 vendor console before adding an agent or owner actions.
+
+Implemented with Electron and native DOM/CSS. The preload exposes only
+`snapshot:read`; the main process runs only `uv run lore desktop-state`.
+Pi, onboarding actions, jobs, packaging, and charts remain out of scope.
+Implementation was explicitly approved by the owner on 2026-08-22.
