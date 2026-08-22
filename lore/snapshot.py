@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import urllib.request
 from http.client import HTTPResponse
-from typing import Literal, cast
+from typing import Any, Literal, cast
 
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter
 
@@ -30,20 +30,7 @@ class Manifest(BaseModel):
     network: str | None = None
 
 
-class ToolText(BaseModel):
-    type: Literal["text"]
-    text: str
-
-
-class ToolResult(BaseModel):
-    content: list[ToolText] = Field(min_length=1)
-
-
-class ToolResponse(BaseModel):
-    result: ToolResult
-
-
-OBJECT = TypeAdapter(dict[str, object])
+OBJECT = TypeAdapter(dict[str, Any])
 
 
 def _post(
@@ -62,7 +49,7 @@ def _post(
     return cast(HTTPResponse, urllib.request.urlopen(request, timeout=5))
 
 
-def _response(response: HTTPResponse) -> dict[str, object]:
+def _response(response: HTTPResponse) -> dict[str, Any]:
     text = response.read().decode()
     if response.headers.get_content_type() == "text/event-stream":
         data_line = next(
@@ -107,7 +94,7 @@ def _remote_manifest(url: str) -> Manifest:
     }
     with _post(url, call, session) as response:
         result = _response(response)
-    text = ToolResponse.model_validate(result).result.content[0].text
+    text = result["result"]["content"][0]["text"]
     manifest = json.loads(text)
     return Manifest.model_validate(manifest)
 
@@ -162,15 +149,7 @@ def build() -> dict[str, object]:
 
     publication_counts = {
         "active": sum(p["state"] == "approved" for p in publications),
-        "needs_review": sum(bool(p["needs_review"]) for p in publications),
         "revoked": sum(p["state"] == "revoked" for p in publications),
-        "live": None
-        if live_ids is None
-        else sum(p["state"] == "approved" and p["live"] is True for p in publications),
-        "approved_not_live": None
-        if live_ids is None
-        else sum(p["state"] == "approved" and p["live"] is False for p in publications),
-        "drafts": None,
     }
 
     sources = [
@@ -200,7 +179,6 @@ def build() -> dict[str, object]:
         },
         "publications": {
             "counts": publication_counts,
-            "drafts_available": False,
             "items": publications,
         },
         "pricing": {
@@ -213,9 +191,5 @@ def build() -> dict[str, object]:
             "staged": (home() / "node/wrangler.jsonc").is_file(),
             "revocation_pending": revocation_pending,
             "live": live,
-        },
-        "answer_jobs": {
-            "available": False,
-            "reason": "The deployed node has no owner-authenticated job totals endpoint.",
         },
     }

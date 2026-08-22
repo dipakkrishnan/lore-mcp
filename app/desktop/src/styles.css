@@ -23,7 +23,10 @@ a {
 
 button:focus-visible,
 a:focus-visible,
-main:focus-visible {
+main:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
   outline: 3px solid #39735a;
   outline-offset: 3px;
 }
@@ -153,15 +156,11 @@ h1 {
   gap: 0.85rem;
 }
 
-.metric,
-.panel {
+.metric {
   border: 1px solid #deddd7;
   border-radius: 0.85rem;
   background: #fff;
   box-shadow: 0 1px 2px rgb(25 35 29 / 4%);
-}
-
-.metric {
   min-height: 130px;
   padding: 1.1rem;
 }
@@ -180,8 +179,7 @@ h1 {
 }
 
 .metric p,
-.empty,
-.panel-intro {
+.empty {
   margin: 0;
   color: #696e67;
   font-size: 0.85rem;
@@ -189,6 +187,10 @@ h1 {
 }
 
 .panel {
+  border: 1px solid #deddd7;
+  border-radius: 0.85rem;
+  background: #fff;
+  box-shadow: 0 1px 2px rgb(25 35 29 / 4%);
   margin-top: 1rem;
   padding: 1.25rem;
 }
@@ -199,7 +201,10 @@ h1 {
 }
 
 .panel-intro {
-  margin-top: 0.35rem;
+  margin: 0.35rem 0 0;
+  color: #696e67;
+  font-size: 0.85rem;
+  line-height: 1.45;
 }
 
 .checklist,
@@ -209,8 +214,7 @@ h1 {
   list-style: none;
 }
 
-.checklist li,
-.items li {
+.checklist li {
   display: flex;
   justify-content: space-between;
   gap: 1rem;
@@ -230,6 +234,8 @@ h1 {
 
 .items li {
   display: block;
+  padding: 0.75rem 0;
+  border-top: 1px solid #ecebe7;
 }
 
 .items h3 {
@@ -273,6 +279,155 @@ h1 {
   cursor: pointer;
 }
 
+.capture {
+  position: sticky;
+  bottom: 1rem;
+  margin-top: 1.5rem;
+  padding: 1rem;
+  border: 1px solid #cfd8d1;
+  border-radius: 0.9rem;
+  background: rgb(255 255 255 / 96%);
+  box-shadow: 0 8px 30px rgb(25 35 29 / 10%);
+  backdrop-filter: blur(12px);
+}
+
+.capture-heading {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.capture h2,
+.capture h3,
+.capture p {
+  margin: 0;
+}
+
+.capture h2 {
+  font-size: 1rem;
+}
+
+.capture-heading p,
+.agent-activity {
+  margin-top: 0.25rem;
+  color: #696e67;
+  font-size: 0.82rem;
+  line-height: 1.45;
+}
+
+#capture-form,
+.key-form {
+  display: flex;
+  gap: 0.6rem;
+  margin-top: 0.75rem;
+}
+
+textarea,
+input,
+select {
+  min-width: 0;
+  padding: 0.65rem 0.75rem;
+  border: 1px solid #cccec9;
+  border-radius: 0.55rem;
+  color: inherit;
+  background: white;
+  font: inherit;
+}
+
+textarea {
+  flex: 1;
+  resize: vertical;
+}
+
+.capture button,
+.agent-card button {
+  padding: 0.65rem 0.9rem;
+  border: 0;
+  border-radius: 0.55rem;
+  color: white;
+  background: #244f3d;
+  cursor: pointer;
+}
+
+.capture button:disabled {
+  cursor: wait;
+  opacity: 0.5;
+}
+
+.auth-status {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: end;
+  gap: 0.35rem;
+}
+
+.capture .quiet,
+.agent-card .secondary {
+  padding: 0.45rem 0.65rem;
+  color: #244f3d;
+  border: 1px solid #c2d1c7;
+  background: #f4f8f5;
+  font-size: 0.78rem;
+}
+
+.signed-in {
+  color: #39735a;
+  font-size: 0.8rem;
+  font-weight: 700;
+}
+
+.agent-card {
+  margin-top: 0.75rem;
+  padding: 0.85rem;
+  border-radius: 0.65rem;
+  background: #f2f5f2;
+}
+
+.agent-card h3 {
+  margin-bottom: 0.65rem;
+}
+
+.agent-card pre {
+  max-height: 9rem;
+  overflow: auto;
+  padding: 0.75rem;
+  white-space: pre-wrap;
+  word-break: break-word;
+  background: white;
+}
+
+.agent-card fieldset {
+  margin: 0.75rem 0;
+  border: 1px solid #d7dbd7;
+  border-radius: 0.55rem;
+}
+
+.choice {
+  display: block;
+  margin: 0.45rem 0;
+}
+
+.choice input {
+  margin-right: 0.45rem;
+}
+
+.other-answer {
+  width: 100%;
+  margin-top: 0.4rem;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
 @media (max-width: 760px) {
   .shell {
     grid-template-columns: 170px 1fr;
@@ -284,5 +439,14 @@ h1 {
 
   main {
     padding-inline: 1.5rem;
+  }
+
+  .capture-heading {
+    display: block;
+  }
+
+  .auth-status {
+    justify-content: start;
+    margin-top: 0.75rem;
   }
 }

@@ -46,9 +46,11 @@ Structure the approved entries as a JSON array with `title`, `content`, and
 optional `project` and `source_path` fields. Use the exact local path plus a
 locator such as `#page=8` when available; for a dragged attachment without a
 stable path, use a label such as `attachment:IMG_2048.jpg`. Voice and paste may
-omit it. This is a private process boundary, not a document the owner manages:
+omit it. Save through this exact private process boundary, including
+`LORE_CAPTURE` as the quoted delimiter:
 
-```json
+```sh
+lore capture apply - <<'LORE_CAPTURE'
 [
   {
     "title": "Hire management before rapid growth",
@@ -57,16 +59,12 @@ omit it. This is a private process boundary, not a document the owner manages:
     "source_path": "field-notes.pdf#page=8"
   }
 ]
+LORE_CAPTURE
 ```
 
-Pass that array on stdin to:
+Do not substitute `EOF`, `echo`, `printf`, a pipe, a temporary file, or another
+command shape.
 
-```sh
-lore capture apply -
-```
-
-Use the runtime's stdin facility. If it cannot supply stdin, use a mode-0600
-temporary file outside `~/.lore`, pass its path instead of `-`, then delete it.
 Never edit `lore.db`, write under `~/.lore` directly, call `Store.put` through
 Python, or add a write tool to the paid MCP surface. The command validates the
 whole batch, deduplicates exact replays, stores every entry as `private`, and

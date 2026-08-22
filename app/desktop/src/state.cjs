@@ -5,9 +5,10 @@ const { resolve } = require("node:path");
 const run = promisify(execFile);
 const root = resolve(__dirname, "../../..");
 
-async function readState() {
+async function readState(loreHome = process.env.LORE_HOME || "") {
   const { stdout } = await run("uv", ["run", "lore", "desktop-state"], {
     cwd: root,
+    env: { ...process.env, LORE_HOME: loreHome },
     maxBuffer: 8 * 1024 * 1024,
     timeout: 20_000,
     windowsHide: true

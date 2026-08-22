@@ -30,6 +30,26 @@
         </header>
         <div id="status" class="status" role="status" aria-live="polite">Loading…</div>
         <div id="content"></div>
+        <section class="capture" aria-labelledby="capture-title">
+          <div class="capture-heading">
+            <div>
+              <h2 id="capture-title">Capture</h2>
+              <p>Tell Lore what you know. Mac dictation works here.</p>
+            </div>
+            <div id="auth-status" class="auth-status"></div>
+          </div>
+          <div id="agent-activity" class="agent-activity" aria-live="polite"></div>
+          <div id="agent-request"></div>
+          <form id="capture-form">
+            <label class="sr-only" for="capture-input">What should Lore remember?</label>
+            <textarea
+              id="capture-input"
+              rows="2"
+              placeholder="Share an experience, lesson, or idea…"
+            ></textarea>
+            <button type="submit">Capture</button>
+          </form>
+        </section>
       </main>
     </div>
     <script src="renderer.js"></script>
