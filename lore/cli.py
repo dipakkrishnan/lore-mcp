@@ -8,7 +8,7 @@ import sys
 from pathlib import Path
 from typing import Annotated
 
-from pydantic import Field, TypeAdapter
+from pydantic import BaseModel, ConfigDict, Field, TypeAdapter
 
 from . import blueprint as blueprint_module
 from . import capture as capture_module
@@ -31,6 +31,15 @@ from .ui import (
 PUBLICATION_CANDIDATES: TypeAdapter[list[PublicationInput]] = TypeAdapter(
     Annotated[list[PublicationInput], Field(min_length=1)]
 )
+
+
+class PublicationDecision(BaseModel):
+    """One approval card answered in the Lore desktop app."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    candidate: PublicationInput
+    approve: bool
 
 
 def parser() -> argparse.ArgumentParser:
@@ -133,6 +142,18 @@ def parser() -> argparse.ArgumentParser:
         "review", help="review drafted candidates and approve each interactively"
     )
     publication_review.add_argument("file", help="JSON file of drafted candidates")
+    publication_draft = publication_commands.add_parser(
+        "draft", help="validate drafted candidates and stage them for approval"
+    )
+    publication_draft.add_argument(
+        "file", help="JSON array of candidates; use - for stdin"
+    )
+    publication_commands.add_parser(
+        "candidates", help="print the staged candidates as JSON"
+    )
+    publication_commands.add_parser(
+        "decide", help="apply one approval card from the Lore desktop app (stdin)"
+    )
     publication_commands.add_parser("list", help="show active and revoked publications")
     publication_revoke = publication_commands.add_parser(
         "revoke", help="immediately remove a publication from MCP retrieval"
@@ -220,6 +241,12 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "publication":
             if args.publication_command == "review":
                 return publication_apply(args.file)
+            if args.publication_command == "draft":
+                return publication_draft(args.file)
+            if args.publication_command == "candidates":
+                return publication_candidates()
+            if args.publication_command == "decide":
+                return publication_decide()
             if args.publication_command == "revoke":
                 return publication_revoke(args.id)
             if args.publication_command == "reapprove":
@@ -518,25 +545,30 @@ def price(amount: float | None) -> int:
 
 
 def answer_enable(path: str, price: float) -> int:
-    if not _interactive():
+    desktop = path == "-"
+    if desktop:
+        text = _desktop_decision("proxy approval").strip()
+    elif _interactive():
+        text = Path(path).read_text(encoding="utf-8").strip()
+    else:
         raise ValueError(
             "proxy approval needs an attended interactive terminal; "
             "piped and background approval is disabled"
         )
     if not math.isfinite(price) or price <= 0:
         raise ValueError("the answer price must be a positive number")
-    text = Path(path).read_text(encoding="utf-8").strip()
     if not text:
         raise ValueError("the proxy file is empty; nothing to approve")
-    heading("Public proxy charter")
-    print(text)
-    muted(
-        "\nThis text is public: it ships to your node and frames every paid "
-        "answer. It is separate from your private blueprint."
-    )
-    if not confirm("Approve this proxy charter for the deployed node?"):
-        print("Not approved; nothing saved.")
-        return 0
+    if not desktop:
+        heading("Public proxy charter")
+        print(text)
+        muted(
+            "\nThis text is public: it ships to your node and frames every paid "
+            "answer. It is separate from your private blueprint."
+        )
+        if not confirm("Approve this proxy charter for the deployed node?"):
+            print("Not approved; nothing saved.")
+            return 0
     with Store() as store:
         store.set_answer_settings(
             AnswerSettings(
@@ -587,6 +619,51 @@ def profile(path: str, schedule: bool = True) -> int:
 def _interactive() -> bool:
     """Whether approval is running in an attended interactive terminal."""
     return sys.stdin.isatty() and sys.stdout.isatty()
+
+
+def _attended() -> bool:
+    """Whether the Lore desktop app, the other attended surface, is piping a decision."""
+    return (
+        os.environ.get("LORE_ATTENDED_SURFACE") == "desktop" and not sys.stdin.isatty()
+    )
+
+
+def _desktop_decision(what: str) -> str:
+    """Read one owner decision from the desktop app; refuse every other pipe."""
+    if not _attended():
+        raise ValueError(
+            f"{what} on stdin is accepted only from the Lore desktop app; "
+            "piped and background approval is disabled"
+        )
+    return sys.stdin.read()
+
+
+def _candidates_path() -> Path:
+    return home() / "publish-candidates.json"
+
+
+def _validated_candidates(text: str) -> list[PublicationInput]:
+    """Validate a drafted batch the way review does, provenance included."""
+    candidates = PUBLICATION_CANDIDATES.validate_json(text)
+    with Store() as store:
+        for candidate in candidates:
+            _candidate(candidate, store)
+    return candidates
+
+
+def _staged() -> list[PublicationInput]:
+    path = _candidates_path()
+    if not path.is_file():
+        return []
+    return _validated_candidates(path.read_text(encoding="utf-8"))
+
+
+def _stage(candidates: list[PublicationInput]) -> None:
+    path = _candidates_path()
+    if candidates:
+        path.write_bytes(PUBLICATION_CANDIDATES.dump_json(candidates, indent=2))
+    else:
+        path.unlink(missing_ok=True)
 
 
 def _candidate(raw: object, missing_check: Store) -> Publication:
@@ -665,6 +742,41 @@ def publication_apply(path: str) -> int:
         muted(
             "These are now answerable over MCP. Revoke any time: lore publication revoke <id>"
         )
+    return 0
+
+
+def publication_draft(file: str) -> int:
+    """Validate agent-drafted candidates and stage them for the owner's approval."""
+    text = sys.stdin.read() if file == "-" else Path(file).read_text(encoding="utf-8")
+    candidates = _validated_candidates(text)
+    _stage(candidates)
+    success(
+        f"Drafted {len(candidates)} candidate{'s' if len(candidates) != 1 else ''} "
+        "for the owner to approve"
+    )
+    return 0
+
+
+def publication_candidates() -> int:
+    """Print the staged candidates, exactly as the approval cards will show them."""
+    print(json.dumps([candidate.model_dump(mode="json") for candidate in _staged()]))
+    return 0
+
+
+def publication_decide() -> int:
+    """Apply one approval card the owner answered in the Lore desktop app."""
+    decision = PublicationDecision.model_validate_json(
+        _desktop_decision("publication approval")
+    )
+    staged = _staged()
+    remaining = [c for c in staged if c.model_dump() != decision.candidate.model_dump()]
+    if len(remaining) == len(staged):
+        raise ValueError("that candidate is not drafted; nothing saved")
+    if decision.approve:
+        with Store() as store:
+            store.add_publication(**decision.candidate.model_dump())
+    _stage(remaining)
+    print(json.dumps({"approved": decision.approve, "remaining": len(remaining)}))
     return 0
 
 

@@ -53,7 +53,12 @@ Load-bearing rules, in priority order:
    are not the security boundary.
 3. **The agent cannot approve.** Approval cards are app-invoked UI routed to
    existing Lore validation. Allowing a Bash command is not approval of a
-   publication, payment, or deployment.
+   publication, payment, or deployment. The CLI treats the app as a second
+   attended surface: `lore publication decide` and `lore answer on -` read one
+   decision from stdin only when Electron main sets
+   `LORE_ATTENDED_SURFACE=desktop` on a non-TTY pipe, and the Bash policy
+   hard-denies every `lore publication` and `lore answer` mutation, so the
+   marker never helps the model.
 4. **Skills stay the source of truth.** `SKILL.md` loads verbatim as Pi's
    instructions; the app renders questions and progress. No parallel
    onboarding state machine — the setup checklist derives from the snapshot.

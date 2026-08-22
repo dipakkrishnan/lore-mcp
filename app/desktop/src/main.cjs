@@ -1,11 +1,11 @@
 const { randomUUID } = require("node:crypto");
 const { join, resolve } = require("node:path");
 const { app, BrowserWindow, dialog, ipcMain, safeStorage, shell } = require("electron");
-const { readState, searchMemories } = require("./state.cjs");
+const { lore, readState, searchMemories, candidates, decide } = require("./state.cjs");
 
 if (process.env.LORE_DESKTOP_USER_DATA) app.setPath("userData", process.env.LORE_DESKTOP_USER_DATA);
 
-const TASKS = new Set(["capture", "setup"]);
+const TASKS = new Set(["capture", "setup", "publish"]);
 const LOGINS = new Set(["anthropic:oauth", "anthropic:api_key", "openai-codex:oauth", "openai:api_key"]);
 
 /** @type {LoreAgentInstance} */
@@ -57,6 +57,27 @@ function registerIpc(loreHome) {
   ipcMain.handle("search:query", (_event, query) => {
     if (typeof query !== "string" || query.length > 200) throw new Error("Invalid search");
     return searchMemories(loreHome, query);
+  });
+  ipcMain.handle("publication:candidates", () => candidates(loreHome));
+  ipcMain.handle("publication:decide", (_event, input) => {
+    if (!input || typeof input.approve !== "boolean" || !input.candidate || typeof input.candidate !== "object") {
+      throw new Error("Invalid decision");
+    }
+    return decide(loreHome, input.candidate, input.approve);
+  });
+  /** @param {unknown} id */
+  const publicationId = (id) => {
+    if (!Number.isInteger(id) || /** @type {number} */ (id) < 1) throw new Error("Invalid publication");
+    return String(id);
+  };
+  ipcMain.handle("publication:reapprove", async (_event, id) => {
+    await lore(loreHome, ["publication", "reapprove", publicationId(id)]);
+  });
+  ipcMain.handle("publication:revoke", async (_event, id) => {
+    await lore(loreHome, ["publication", "revoke", publicationId(id)]);
+  });
+  ipcMain.handle("store:push", async () => {
+    await lore(loreHome, ["push"]);
   });
   ipcMain.handle("files:pick", async () => {
     if (!window) return [];
