@@ -1,9 +1,12 @@
 const { randomUUID } = require("node:crypto");
 const { join, resolve } = require("node:path");
-const { app, BrowserWindow, ipcMain, safeStorage, shell } = require("electron");
-const { readState } = require("./state.cjs");
+const { app, BrowserWindow, dialog, ipcMain, safeStorage, shell } = require("electron");
+const { readState, searchMemories } = require("./state.cjs");
 
 if (process.env.LORE_DESKTOP_USER_DATA) app.setPath("userData", process.env.LORE_DESKTOP_USER_DATA);
+
+const TASKS = new Set(["capture", "setup"]);
+const LOGINS = new Set(["anthropic:oauth", "anthropic:api_key", "openai-codex:oauth", "openai:api_key"]);
 
 /** @type {LoreAgentInstance} */
 let agent;
@@ -25,12 +28,15 @@ function request(type, payload) {
   return new Promise((resolve, reject) => pending.set(id, { resolve, reject }));
 }
 
-function registerIpc(loreHome = join(app.getPath("home"), ".lore")) {
+/** @param {string} loreHome */
+function registerIpc(loreHome) {
   ipcMain.handle("snapshot:read", () => readState(loreHome));
   ipcMain.handle("agent:status", () => agent.status());
-  ipcMain.handle("agent:prompt", (_event, text) => {
-    if (typeof text !== "string" || text.length > 100_000) throw new Error("Invalid capture text");
-    return agent.prompt(text);
+  ipcMain.handle("agent:prompt", (_event, input) => {
+    if (!input || typeof input.text !== "string" || input.text.length > 100_000 || !TASKS.has(input.task)) {
+      throw new Error("Invalid prompt");
+    }
+    return agent.prompt(input.text, input.task);
   });
   ipcMain.handle("agent:respond", (_event, response) => {
     if (!response || typeof response.id !== "string" || !pending.has(response.id)) {
@@ -40,15 +46,22 @@ function registerIpc(loreHome = join(app.getPath("home"), ".lore")) {
     pending.delete(response.id);
   });
   ipcMain.handle("auth:login", (_event, input) => {
-    const allowed = new Set([
-      "anthropic:oauth",
-      "anthropic:api_key",
-      "openai-codex:oauth",
-      "openai:api_key"
-    ]);
-    if (!input || !allowed.has(`${input.providerId}:${input.type}`)) throw new Error("Unsupported sign-in");
+    if (!input || !LOGINS.has(`${input.providerId}:${input.type}`)) throw new Error("Unsupported sign-in");
     if (input.secret !== undefined && typeof input.secret !== "string") throw new Error("Invalid key");
     return agent.login(input.providerId, input.type, input.secret);
+  });
+  ipcMain.handle("auth:logout", (_event, providerId) => {
+    if (typeof providerId !== "string") throw new Error("Invalid provider");
+    return agent.logout(providerId);
+  });
+  ipcMain.handle("search:query", (_event, query) => {
+    if (typeof query !== "string" || query.length > 200) throw new Error("Invalid search");
+    return searchMemories(loreHome, query);
+  });
+  ipcMain.handle("files:pick", async () => {
+    if (!window) return [];
+    const { filePaths } = await dialog.showOpenDialog(window, { properties: ["openFile", "multiSelections"] });
+    return filePaths;
   });
 }
 
@@ -58,7 +71,8 @@ function createWindow() {
     height: 760,
     minWidth: 760,
     minHeight: 620,
-    backgroundColor: "#f6f5f1",
+    backgroundColor: "#f7f3ea",
+    titleBarStyle: "hiddenInset",
     webPreferences: {
       preload: join(__dirname, "preload.cjs"),
       contextIsolation: true,
@@ -91,7 +105,7 @@ app.whenReady().then(async () => {
     skillsDir: resolve(__dirname, "../../../plugins/lore/skills"),
     credentials,
     emit,
-    approveBash: async (command) => (await request("bash-approval", { command })) === true,
+    approveBash: async (command, entries) => (await request("bash-approval", { command, entries })) === true,
     askUser: async (questions) =>
       /** @type {Record<string, string>} */ (await request("question", { questions })),
     authPrompt: async (prompt) =>
@@ -99,7 +113,7 @@ app.whenReady().then(async () => {
     authEvent: (event) => {
       if (event.type === "auth_url") {
         void shell.openExternal(event.url);
-        emit({ type: "auth", message: event.instructions || "Complete sign-in in your browser." });
+        emit({ type: "auth", message: event.instructions || "Finish signing in in your browser, then come back here." });
       } else {
         emit({ type: "auth", event });
       }

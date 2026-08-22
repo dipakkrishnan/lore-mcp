@@ -81,6 +81,7 @@ class DesktopSnapshotTest(LoreTestCase):
                 fingerprint="safe",
                 title="Safe private title",
                 content="PRIVATE BODY SECRET",
+                project="-Users-owner-code-juniper",
             )
             store.set_setting("sources", ["codex"])
             store.set_setting("price_usd", 0.01)
@@ -117,6 +118,12 @@ class DesktopSnapshotTest(LoreTestCase):
 
     def test_subprocess_returns_the_complete_safe_contract(self) -> None:
         ids = self.seed()
+        project = self.claude_home / "projects" / "-Users-owner-code-juniper"
+        project.mkdir(parents=True)
+        (project / "broken.jsonl").write_text("not json\n")
+        (project / "session.jsonl").write_text(
+            '{"type":"queue-operation"}\n{"cwd":"/Users/owner/code/juniper"}\n'
+        )
         blueprint.blueprint_path().parent.mkdir(parents=True, exist_ok=True)
         blueprint.blueprint_path().write_text("{}")
         automation.profile_path().parent.mkdir(parents=True, exist_ok=True)
@@ -169,8 +176,22 @@ class DesktopSnapshotTest(LoreTestCase):
         self.assertEqual(state["library"]["counts"], {"private": 5, "discarded": 0})
         self.assertEqual(
             set(state["library"]["items"][0]),
-            {"id", "title", "project", "status", "source", "updated_at"},
+            {
+                "id",
+                "title",
+                "project",
+                "project_label",
+                "status",
+                "source",
+                "updated_at",
+            },
         )
+        labels = {
+            item["title"]: item["project_label"] for item in state["library"]["items"]
+        }
+        self.assertEqual(labels["Safe private title"], "juniper")
+        self.assertEqual(labels["live memory"], "")
+        self.assertEqual(state["home"], str(home()))
         self.assertEqual(
             state["publications"]["counts"],
             {"active": 3, "revoked": 1},
