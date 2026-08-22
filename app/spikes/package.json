@@ -1,0 +1,21 @@
+{
+  "name": "lore-desktop-spikes",
+  "private": true,
+  "version": "0.0.0",
+  "description": "Electron-free de-risking spikes for the Lore desktop app (APP-003/APP-004). Not shipped.",
+  "type": "module",
+  "scripts": {
+    "auth": "tsx src/auth-spike.ts",
+    "harness": "tsx src/skill-harness.ts",
+    "check": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@earendil-works/pi-agent-core": "0.84.2",
+    "@earendil-works/pi-ai": "0.84.2"
+  },
+  "devDependencies": {
+    "@types/node": "26.0.1",
+    "tsx": "4.20.6",
+    "typescript": "6.0.3"
+  }
+}
