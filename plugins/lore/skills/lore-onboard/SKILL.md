@@ -16,10 +16,12 @@ frame it. The blueprint makes Phase 2 sharper; do them in order.
 > provides a structured question control. Never block because a named question
 > tool is unavailable.
 
-Two separate artifacts, two validated write commands — never write either directly:
+Three artifacts, three validated write commands — never write any of them directly:
 
 - `lore blueprint apply <file>` → `~/.lore/blueprint/blueprint.json` (the shape)
 - `lore profile <file>` → `~/.lore/automation/profile.json` (what steers synthesis)
+- `lore onboarding save <file>` → `~/.lore/automation/onboarding.json` (the answers
+  so far, so an interrupted interview resumes instead of restarting)
 
 ## 0. Preconditions
 
@@ -48,22 +50,32 @@ Otherwise run the README installer with `LORE_SKIP_SETUP=1`, then add
 `lore setup --yes` only after it succeeds. If Git or curl is missing, or installation
 fails, report the exact prerequisite and stop — don't retry-loop.
 
-Checkpoint file: `$LORE_HOME/automation/onboarding.json`. **Read it first.** If it
-exists, tell the user what is already done and resume — never re-ask an answered
-question or re-run a finished phase. Write it after *every* answer, not at the end.
-
-```json
-{"phase1_done": false, "role": "", "domains": "", "valuable_context": "",
- "preferences": "", "boundaries": "", "executor": "", "model": "",
- "cadence": "daily", "hour": 21}
+```sh
+lore onboarding                   # what is already done, and the next step
 ```
+
+**Run it first.** It reads each step's state off the artifact that proves it, so it is
+right even if a previous session died mid-interview. Tell the user what is already done
+and resume there — never re-ask an answered question or re-run a finished phase.
+
+Record each answer as it is given, not at the end:
+
+```sh
+printf '%s' '{"role": "..."}' > "$tmpfile" && lore onboarding save "$tmpfile"
+```
+
+`save` merges into the checkpoint, so each call carries only the new answers. It accepts
+`phase1_done` plus every profile field — `role`, `domains`, `valuable_context`,
+`preferences`, `boundaries`, `executor`, `model`, `cadence`, `hour` — and rejects
+anything else, including session content.
 
 ## 1. Persona interview → blueprint
 
 Follow `persona-interview.md` (in this skill's folder). It asks the owner to pick an
 archetype — Storyteller, schoolteacher, professor, executive, sage — and captures topic
 outline, focus vs. general areas, organizing axis, and voice, then persists them with
-`lore blueprint apply`. Set `phase1_done: true` in the checkpoint when it confirms.
+`lore blueprint apply`. Record `{"phase1_done": true}` with `lore onboarding save` when
+it confirms.
 
 Skip Phase 1 only if the user explicitly declines the persona step; Phase 2 still works
 without a blueprint, just with less to go on.
@@ -123,7 +135,7 @@ Then `boundaries` (default: secrets and third-party private data). Combine the o
 synthesis executor, its optional model, cadence, and hour into one final scheduling
 exchange — that keeps the whole pass to about five questions. Codex and Claude memories
 remain independent input sources; the executor only chooses which agent synthesizes all
-enabled sources. Free-text only on "Other". Write the checkpoint after each answer.
+enabled sources. Free-text only on "Other". Run `lore onboarding save` after each answer.
 
 ## 4. Save and schedule
 
@@ -146,13 +158,14 @@ Do not duplicate that work during onboarding.
 ## 6. Hand off
 
 ```sh
-lore status
+lore onboarding       # confirm every step now reads done
 lore blueprint show   # the shape they chose
 lore review           # walk the private library and keep or discard
 ```
 
 Tell them: everything is private on arrival, `lore review` is a keep-or-discard pass that
-never shares anything, and the schedule runs itself from here.
+never shares anything, and the schedule runs itself from here. If `lore onboarding` still
+shows an unfinished step, finish it now rather than handing over a half-done setup.
 
 Then offer the next rungs once, without pushing: publishing (approving specific
 publications for disclosure) and the Monetize branch (the `lore-enable-payments`
@@ -164,8 +177,9 @@ outcome, not a step toward one.
 
 ## Rules
 
-- Never write `~/.lore/blueprint/*`, `profile.json`, or any Lore file directly — only
-  through `lore blueprint apply` and `lore profile`.
+- Never write `~/.lore/blueprint/*`, `profile.json`, `onboarding.json`, or any Lore file
+  directly — only through `lore blueprint apply`, `lore onboarding save`, and
+  `lore profile`.
 - Never write to native agent memory (`~/.claude/projects/*/memory/`,
   `~/.codex/memories/`). Lore reads those; it does not own them.
 - Never put session content in the profile — the profile is about the person.

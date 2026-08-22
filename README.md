@@ -26,6 +26,7 @@ during initial import.
 ```sh
 lore help                     # show the end-user workflow
 lore setup                    # import native memory; then onboard with an agent
+lore onboarding               # how far onboarding got, and the next step
 lore sync                     # import new or changed memory files
 lore capture apply -          # validated private write path used by capture agents
 lore review                   # keep private / discard
@@ -105,6 +106,12 @@ payment. You can stop before enabling payments.
 
 The blueprint controls the shape of your library. The profile controls what the
 synthesis task looks for.
+
+Onboarding spans a CLI import, an agent conversation, and a scheduler, so it is built to
+be interrupted. `lore onboarding` reports each step from the artifact that proves it done
+and names the one command that moves you forward; `lore status` carries the short version.
+The skill records answers as they are given with `lore onboarding save`, so a session that
+dies mid-interview resumes instead of restarting.
 
 ## Backlog
 

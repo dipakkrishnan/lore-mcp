@@ -19,6 +19,7 @@ import re
 import unittest
 from pathlib import Path
 
+from lore import blueprint, onboarding
 from lore.cli import parser
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -407,3 +408,113 @@ class SkillContractTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+# The onboarding skill carries contracts no other skill has: it restates the persona
+# registry as markdown tables, assembles a JSON artifact `apply` validates, and is
+# triggered by a phrase the CLI itself prints. Those live here rather than in the
+# all-skills contract above, which deliberately knows nothing about any one skill.
+ONBOARD = OWNER_SKILLS / "lore-onboard"
+SKILL = ONBOARD / "SKILL.md"
+INTERVIEW = ONBOARD / "persona-interview.md"
+
+
+def _table(text: str, header_start: str) -> dict[str, list[str]]:
+    """Read one markdown table into {row label: cells}, keyed by its header row."""
+    lines = text.splitlines()
+    start = next(
+        index for index, line in enumerate(lines) if line.startswith(header_start)
+    )
+    rows: dict[str, list[str]] = {}
+    for line in lines[start:]:
+        if not line.startswith("|"):
+            break
+        cells = [cell.strip() for cell in line.strip().strip("|").split("|")]
+        rows[cells[0]] = cells[1:]
+    return rows
+
+
+def _section(text: str, heading: str) -> str:
+    """Return one markdown section, up to the next heading of the same level."""
+    level = heading.split(" ")[0]
+    start = text.index(heading)
+    rest = text[start + len(heading) :]
+    end = rest.find(f"\n{level} ")
+    return rest if end == -1 else rest[:end]
+
+
+class OnboardingSkillContractTest(unittest.TestCase):
+    def setUp(self) -> None:
+        self.skill = SKILL.read_text(encoding="utf-8")
+        self.interview = INTERVIEW.read_text(encoding="utf-8")
+
+    def test_the_interview_can_ask_about_every_persona_the_code_accepts(self) -> None:
+        """Adding a persona in code without a question column ships an unusable archetype."""
+        questions = _table(self.interview, "| Goal |")
+        columns = {cell.lower() for cell in questions["Goal"]}
+        structure = _table(self.interview, "| | Storyteller")
+        crosswalk = _section(
+            self.interview, "## Crosswalk (free text → canonical enum)"
+        )
+
+        self.assertEqual(
+            {cell.lower() for cell in structure[""]}, set(blueprint.PERSONAS)
+        )
+        for persona in blueprint.PERSONAS:
+            with self.subTest(persona=persona):
+                self.assertIn(persona, columns)
+                self.assertIn(f"`{persona}`", crosswalk)
+
+    def test_the_structure_table_matches_the_persona_registry(self) -> None:
+        """The table restates PERSONA_PROFILES; duplicated data drifts unless pinned."""
+        structure = _table(self.interview, "| | Storyteller")
+        personas = [cell.lower() for cell in structure[""]]
+        rows = {
+            "Default axis": "axis",
+            "Outline section": "outline",
+            "Focus section": "focus",
+            "General section": "general",
+            "Voice section": "voice",
+        }
+        for row, key in rows.items():
+            for index, persona in enumerate(personas):
+                profile = blueprint.PERSONA_PROFILES[persona]
+                expected = (
+                    profile["axis"] if key == "axis" else profile["section_labels"][key]
+                )
+                with self.subTest(row=row, persona=persona):
+                    self.assertEqual(structure[row][index], expected)
+
+    def test_every_organizing_axis_has_a_crosswalk_entry(self) -> None:
+        """An axis with no phrasing to map from is an override the owner cannot request."""
+        crosswalk = _section(
+            self.interview, "## Crosswalk (free text → canonical enum)"
+        )
+        for axis in blueprint.AXES:
+            with self.subTest(axis=axis):
+                self.assertIn(f"`{axis}`", crosswalk)
+
+    def test_the_blueprint_template_is_exactly_what_apply_accepts(self) -> None:
+        """The skill assembles this shape verbatim; `apply` rejects any field it invents."""
+        block = self.interview.split("```json", 1)[1].split("```", 1)[0]
+        template = json.loads(block)
+        self.assertEqual(set(template), set(blueprint.BlueprintInput.model_fields))
+
+        # Placeholders stand in for owner answers; the enum-valued ones must be real.
+        template["persona"] = "professor"
+        template["organizing_axis"] = "theme"
+        self.assertEqual(blueprint.normalize(template)["organizing_axis"], "theme")
+        # The template says to omit the axis unless overridden — that must also apply.
+        del template["organizing_axis"]
+        self.assertEqual(blueprint.normalize(template)["organizing_axis"], "knowledge")
+
+    def test_the_skill_documents_every_checkpoint_field(self) -> None:
+        """An answer the skill never records is one the owner is asked for twice."""
+        preconditions = _section(self.skill, "## 0. Preconditions")
+        documented = set(re.findall(r"`([a-z0-9_]+)`", preconditions))
+        self.assertEqual(onboarding.ACCEPTED_FIELDS - documented, set())
+
+    def test_the_skill_triggers_on_the_phrase_the_cli_tells_people_to_say(self) -> None:
+        """`lore setup` ends by quoting a phrase; a skill that ignores it never runs."""
+        description = _frontmatter(self.skill)["description"].lower()
+        self.assertIn(onboarding.TRIGGER.lower().rstrip("."), description)
