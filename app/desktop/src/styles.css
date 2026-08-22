@@ -45,6 +45,8 @@ textarea, input, [contenteditable] { -webkit-user-select: text; user-select: tex
 .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 [hidden] { display: none !important; }
 :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.skip-link { position: fixed; left: 16px; top: -60px; z-index: 2; padding: 10px 14px; color: var(--surface); background: var(--accent); border-radius: var(--radius-sm); }
+.skip-link:focus { top: 12px; }
 .mono { font-family: var(--mono); font-variant-numeric: tabular-nums; }
 .serif { font-family: var(--serif); }
 

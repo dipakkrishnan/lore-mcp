@@ -312,23 +312,26 @@ function renderSettings(s) {
     node.append(el("span", `dot ${ok ? "ok" : ""}`), document.createTextNode(label));
     return node;
   };
-  const accountValue = value(providerName);
-  if (icon) {
-    const img = el("img");
-    img.src = icon;
-    img.alt = "";
-    img.width = 14;
-    img.height = 14;
-    accountValue.prepend(img);
-  }
-  if (provider) accountValue.append(button("Sign out", "quiet", () => signOut(provider.providerId)));
   const sources = s.library.sources.map((source) =>
     row(source.label, source.enabled ? `${source.imported} ${source.imported === 1 ? "memory" : "memories"} imported` : "Not connected", value(status(source.enabled, source.enabled ? "Connected" : "Off")), false)
   );
   sources.push(row("How often Lore reads them", "New memories are written from what your agents learned.", value(status(s.setup.profile_configured, s.setup.profile_configured ? "Set" : "Not set"), ...(s.setup.profile_configured ? [] : [button("Start", "secondary", startSetup)])), false));
   const live = s.node.live;
   return [
-    section("Account", card([row(`Signed in with ${providerName}`, "Your subscription reads and writes your memories with you.", accountValue, false)])),
+    section("Account", card((auth?.credentials.length ? auth.credentials : [null]).map((credential) => {
+      const [name, icon] = credential ? PROVIDERS[/** @type {keyof typeof PROVIDERS} */ (credential.providerId)] ?? [credential.providerId, ""] : ["No one", ""];
+      const trailing = value(name);
+      if (icon) {
+        const img = el("img");
+        img.src = icon;
+        img.alt = "";
+        img.width = 14;
+        img.height = 14;
+        trailing.prepend(img);
+      }
+      if (credential) trailing.append(button("Sign out", "quiet", () => signOut(credential.providerId)));
+      return row(`Signed in with ${name}`, credential?.type === "api_key" ? "An API key on this Mac reads and writes your memories with you." : "Your subscription reads and writes your memories with you.", trailing, false);
+    }))),
     section("Where memories come from", card(sources)),
     section("What Lore keeps", card([
       row("Lore's shape", "What it keeps, what it ignores, what it may sell. Set in a short conversation.", value(status(s.setup.blueprint_configured, s.setup.blueprint_configured ? "Set" : "Not set"), ...(s.setup.blueprint_configured ? [] : [button("Start", "secondary", startSetup)])), false),
@@ -632,10 +635,20 @@ $("#dictate").addEventListener("click", () => {
   input.focus();
   say("Press the dictation key on your keyboard (or fn twice), then speak. Lore listens to whatever lands in the box.");
 });
-$("#attach").addEventListener("click", async () => {
-  attachments.push(...(await window.lore.pickFiles()).filter((path) => !attachments.includes(path)));
+const GUARDED = /(^|\/)\.[^/]*$|\/\.(ssh|aws|gnupg)\/|\.(pem|key|p12|pfx|keychain(-db)?)$|id_(rsa|ed25519|ecdsa)/;
+/** @param {string[]} paths */
+function attach(paths) {
+  for (const path of paths) {
+    if (attachments.includes(path)) continue;
+    if (GUARDED.test(path)) {
+      say(`${path.split("/").pop()} looks like a credential or hidden file, so Lore won't read it. Rename or copy it first if you really mean to.`);
+      continue;
+    }
+    attachments.push(path);
+  }
   renderAttachments();
-});
+}
+$("#attach").addEventListener("click", async () => attach(await window.lore.pickFiles()));
 for (const type of ["dragenter", "dragover"]) {
   document.addEventListener(type, (event) => { event.preventDefault(); composer.classList.add("dropping"); });
 }
@@ -643,21 +656,21 @@ document.addEventListener("dragleave", (event) => { if (!event.relatedTarget) co
 document.addEventListener("drop", (event) => {
   event.preventDefault();
   composer.classList.remove("dropping");
-  for (const file of event.dataTransfer?.files ?? []) {
-    const path = window.lore.pathFor(file);
-    if (path && !attachments.includes(path)) attachments.push(path);
-  }
-  renderAttachments();
+  attach([...(event.dataTransfer?.files ?? [])].map((file) => window.lore.pathFor(file)).filter(Boolean));
   if (attachments.length) show("today");
 });
 
 for (const nav of navButtons) nav.addEventListener("click", () => show(/** @type {View} */ (nav.dataset.view)));
 let searchTimer = 0;
+let searchSeq = 0;
 search.addEventListener("input", () => {
   window.clearTimeout(searchTimer);
   const query = search.value.trim();
+  const seq = ++searchSeq;
   searchTimer = window.setTimeout(async () => {
-    hits = query ? await window.lore.search(query) : null;
+    const found = query ? await window.lore.search(query) : null;
+    if (seq !== searchSeq) return;
+    hits = found;
     view = "memories";
     render();
   }, 250);
