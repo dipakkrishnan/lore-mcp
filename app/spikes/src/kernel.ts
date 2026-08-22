@@ -83,7 +83,7 @@ export class LoreKernel {
       resourceLoader: this.resources,
       settingsManager: this.settings,
       sessionManager: SessionManager.inMemory(this.options.loreHome),
-      tools: ["read", "bash"],
+      tools: ["read", "bash", "ask_user"],
       customTools: [this.askTool()]
     });
     return session;
@@ -95,7 +95,7 @@ export class LoreKernel {
       "Lore skills are your workflows. Read and follow the matching skill, including its handoffs.",
       "Use bash only for the active Lore workflow and prefer lore CLI commands.",
       "Skip installation steps because the desktop app already provisioned Lore.",
-      "Use ask_user for structured decisions and plain chat for open conversation.",
+      "Use ask_user for structured decisions and plain chat for open conversation; ask_user is this runtime's equivalent of Claude Code's AskUserQuestion.",
       "Never run attended approval commands; present the content and let the app show its approval UI."
     ].join(" ");
   }
