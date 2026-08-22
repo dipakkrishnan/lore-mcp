@@ -10,7 +10,7 @@ blockers: [APP-004]
 dependencies: ["Apple Developer signing credentials for public distribution", "A testnet-funded buyer wallet for the live paid-path proof"]
 github_issue: null
 created: 2026-08-21
-updated: 2026-08-21
+updated: 2026-08-22
 ---
 
 ## Problem
@@ -30,6 +30,19 @@ call, and confirmation in the Store and Today views. Automate the local path;
 keep the credentialed deployment and payment portion as an explicit bounded
 live test.
 
+Runtime provisioning, so a clean machine needs no terminal: ship the `uv`
+binary and a prebuilt wheelhouse (the `lore-mcp` wheel, a `windup` wheel, and
+their dependencies — the git dependency must be wheeled at build time so
+first launch needs no git) inside the app bundle's Resources. On first launch
+the app runs `uv tool install --find-links <Resources/wheels>` into an
+app-owned prefix, letting `uv` fetch its pinned managed Python; network on
+first launch is acceptable because inference already requires it. Pin every
+version at package time and sign all bundled Mach-O binaries as part of
+notarization. This supersedes the earlier "require the Lore runtime to be
+installed first" stance, which contradicted the clean-machine criterion. An
+existing `~/.local` CLI install is left untouched; the app prefers its own
+prefix.
+
 ## Acceptance criteria
 
 - [ ] A clean macOS account can install and launch the packaged app without a
@@ -47,5 +60,5 @@ live test.
 ## Notes
 
 Windows, Linux, auto-update infrastructure, custom audio, cloud sync, local
-models, and trend charts are out of scope. Add them only after real owner usage
-shows which one is necessary.
+models, trend charts, and the menu-bar/global-shortcut capture surface are out
+of scope. Add them only after real owner usage shows which one is necessary.

@@ -10,7 +10,7 @@ blockers: []
 dependencies: []
 github_issue: null
 created: 2026-08-21
-updated: 2026-08-21
+updated: 2026-08-22
 ---
 
 ## Problem
@@ -46,3 +46,9 @@ This is the read model for the desktop app, not a new domain API. `MON-013`
 owns the underlying local-versus-deployed drift semantics. Revenue trends are
 deferred until real transaction history and an owner-authenticated read path
 exist; current truth is enough for the first Store view.
+
+Provider sign-in state (Claude/OpenAI credential presence) is deliberately not
+a snapshot field: that credential lives in the app's OS keychain, which the
+Python CLI cannot and must not read. The app composes its own auth facts over
+the snapshot when it renders the setup checklist. Keep the two sources
+separate so the CLI contract never grows a dependency on app-side secrets.
