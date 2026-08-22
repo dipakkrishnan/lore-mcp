@@ -19,6 +19,7 @@ one ID prefix:
 | `monetization/` | `MON` | pricing, the x402 Worker (`lore/node/`, `lore/deploy.py`), settlement |
 | `cli-ux/` | `CLI` | `lore/cli.py`, `lore/ui.py` |
 | `onboarding/` | `ONB` | `skills/lore-onboard/`, `install.sh` |
+| `desktop-app/` | `APP` | Electron owner app, embedded Pi runtime, onboarding, store console |
 | `docs/` | `DOC` | top-level README, `docs/*.md` |
 | `cross-cutting/` | `XC` | spans multiple components, or project-wide |
 
