@@ -7,7 +7,14 @@ name = "lore-mcp"
 version = "0.1.0"
 description = "Portable, private, monetizable context for personal agents"
 readme = "README.md"
-requires-python = ">=3.10"
+# 3.12 is a floor set by SQLite, not by any language feature Lore uses. Lore's
+# search is FTS5/BM25, and a deployed node reads an exported bundle with the same
+# code. The AWS Lambda python3.10 and python3.11 runtimes ship SQLite 3.7.17 with
+# no FTS5 module, which cannot even open a bundle; python3.12 ships 3.40.0, which
+# can. Keeping the local floor and the deployment floor identical is what stops a
+# node from being deployable but unsearchable. See
+# docs/fts5-lambda-runtime-spike.md.
+requires-python = ">=3.12"
 license = "MIT"
 license-files = ["LICENSE"]
 dependencies = [

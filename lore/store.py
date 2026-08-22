@@ -12,6 +12,7 @@ from pathlib import Path
 from pydantic import BaseModel, ConfigDict, Field, StrictInt, model_validator
 
 from .paths import database
+from .search import match_expression
 
 
 class Status(str, Enum):
@@ -380,10 +381,9 @@ class Store:
         status_sql = " AND m.status=?" if status else ""
         args: list[object] = []
         if query.strip():
-            terms = re.findall(r"[\w-]+", query, re.UNICODE)
-            if not terms:
+            match = match_expression(query)
+            if match is None:
                 return []
-            match = " AND ".join(f'"{term.replace(chr(34), "")}"' for term in terms)
             sql = (
                 "SELECT m.* FROM memories_fts f JOIN memories m ON m.id=f.rowid "
                 f"WHERE memories_fts MATCH ?{status_sql} "
