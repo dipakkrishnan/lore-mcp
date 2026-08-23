@@ -214,6 +214,9 @@ legend { font-weight: 500; font-size: 14px; margin-bottom: 6px; }
 .t b.sans { font-family: var(--sans); font-size: 14px; }
 .t span, .t a { font-size: 12px; color: var(--muted); }
 .t a { color: var(--accent); }
+.address { display: flex; align-items: baseline; gap: 12px; font-size: 12px; }
+.address a:not(.mono) { color: var(--muted); }
+.address a:not(.mono):hover { color: var(--accent); }
 .row .v { display: flex; align-items: center; gap: 10px; flex-shrink: 0; font-size: 13px; color: var(--ink-soft); }
 .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--attention); flex-shrink: 0; }
 .dot.ok { background: var(--accent); }
