@@ -71,13 +71,13 @@ function registerIpc(loreHome) {
     return String(id);
   };
   ipcMain.handle("publication:reapprove", async (_event, id) => {
-    await lore(loreHome, ["publication", "reapprove", publicationId(id)]);
+    await lore(loreHome, ["publication", "reapprove", publicationId(id)], "");
   });
   ipcMain.handle("publication:revoke", async (_event, id) => {
-    await lore(loreHome, ["publication", "revoke", publicationId(id)]);
+    await lore(loreHome, ["publication", "revoke", publicationId(id)], "");
   });
   ipcMain.handle("store:push", async () => {
-    await lore(loreHome, ["push"]);
+    await lore(loreHome, ["push"], "");
   });
   ipcMain.handle("files:pick", async () => {
     if (!window) return [];

@@ -32,8 +32,12 @@ Electron.
 
 - [x] An owner can draft a bounded publication through the existing skill and
       review the exact candidate before any disclosure occurs.
-- [x] Publication, proxy-answer, pricing, revoke, push, and deploy actions run
-      through existing Lore validation and preserve every attended approval.
+- [x] Publication, revoke, push, and (via review follow-up) every desktop-
+      reachable owner action runs through existing Lore validation with its own
+      Python-side attendance check, never the Bash classifier alone.
+- [ ] Proxy-answer, pricing, and deploy reach the app with the same gate when
+      the store flow lands; the unwired `lore answer on -` path was removed
+      until that PR wires and exercises it.
 - [x] Generic Bash approval cannot approve a publication, proxy charter, or
       payment/deployment decision on the owner's behalf.
 - [x] The app never requests or stores a seed phrase, private key, or buyer
@@ -49,10 +53,11 @@ TTY approval without weakening it. Do not replace that gate with a renderer
 boolean or have Pi answer it.
 
 Resolved in PR `claude/app-006-attended-gates`: the desktop app is a second
-attended surface, not a TTY emulation. `lore publication decide` and
-`lore answer on -` read one decision from stdin only when Electron main sets
+attended surface, not a TTY emulation. `lore publication decide`
+reads one decision from stdin only when Electron main sets
 `LORE_ATTENDED_SURFACE=desktop` and stdin is not a TTY; every other pipe is
-refused, and the Bash policy hard-denies every `lore publication` and
+refused; `revoke`, `reapprove`, and `push` require a terminal or that same
+marker, and the Bash policy hard-denies every `lore publication` and
 `lore answer` mutation regardless of the marker, so the model can never reach
 them. Drafts go through `lore publication draft -` (validated, staged in
 `$LORE_HOME/publish-candidates.json`) and a decision must equal a staged card

@@ -545,30 +545,25 @@ def price(amount: float | None) -> int:
 
 
 def answer_enable(path: str, price: float) -> int:
-    desktop = path == "-"
-    if desktop:
-        text = _desktop_decision("proxy approval").strip()
-    elif _interactive():
-        text = Path(path).read_text(encoding="utf-8").strip()
-    else:
+    if not _interactive():
         raise ValueError(
             "proxy approval needs an attended interactive terminal; "
             "piped and background approval is disabled"
         )
     if not math.isfinite(price) or price <= 0:
         raise ValueError("the answer price must be a positive number")
+    text = Path(path).read_text(encoding="utf-8").strip()
     if not text:
         raise ValueError("the proxy file is empty; nothing to approve")
-    if not desktop:
-        heading("Public proxy charter")
-        print(text)
-        muted(
-            "\nThis text is public: it ships to your node and frames every paid "
-            "answer. It is separate from your private blueprint."
-        )
-        if not confirm("Approve this proxy charter for the deployed node?"):
-            print("Not approved; nothing saved.")
-            return 0
+    heading("Public proxy charter")
+    print(text)
+    muted(
+        "\nThis text is public: it ships to your node and frames every paid "
+        "answer. It is separate from your private blueprint."
+    )
+    if not confirm("Approve this proxy charter for the deployed node?"):
+        print("Not approved; nothing saved.")
+        return 0
     with Store() as store:
         store.set_answer_settings(
             AnswerSettings(
@@ -638,6 +633,15 @@ def _desktop_decision(what: str) -> str:
     return sys.stdin.read()
 
 
+def _owner_action(what: str) -> None:
+    """Owner actions run from a terminal or the desktop app, never a pipe."""
+    if not (_interactive() or _attended()):
+        raise ValueError(
+            f"{what} needs an attended terminal or the Lore desktop app; "
+            "piped and background use is disabled"
+        )
+
+
 def _candidates_path() -> Path:
     return home() / "publish-candidates.json"
 
@@ -662,6 +666,7 @@ def _stage(candidates: list[PublicationInput]) -> None:
     path = _candidates_path()
     if candidates:
         path.write_bytes(PUBLICATION_CANDIDATES.dump_json(candidates, indent=2))
+        path.chmod(0o600)
     else:
         path.unlink(missing_ok=True)
 
@@ -769,14 +774,18 @@ def publication_decide() -> int:
         _desktop_decision("publication approval")
     )
     staged = _staged()
-    remaining = [c for c in staged if c.model_dump() != decision.candidate.model_dump()]
-    if len(remaining) == len(staged):
+    dumped = decision.candidate.model_dump()
+    for index, candidate in enumerate(staged):
+        if candidate.model_dump() == dumped:
+            del staged[index]
+            break
+    else:
         raise ValueError("that candidate is not drafted; nothing saved")
     if decision.approve:
         with Store() as store:
             store.add_publication(**decision.candidate.model_dump())
-    _stage(remaining)
-    print(json.dumps({"approved": decision.approve, "remaining": len(remaining)}))
+    _stage(staged)
+    print(json.dumps({"approved": decision.approve, "remaining": len(staged)}))
     return 0
 
 
@@ -800,6 +809,7 @@ def publication_revoke(publication_id: int) -> int:
     not a wait. A failed push is recorded so `lore status` keeps saying the
     edge is stale until a push lands — never silently dropped.
     """
+    _owner_action("revoking a publication")
     with Store() as store:
         store.revoke_publication(publication_id)
         node_url = store.setting("node_url", None)
@@ -867,6 +877,7 @@ def _push_sql(publications: list[Publication], answer: AnswerSettings) -> str:
 
 def push(worker_dir: str, local: bool = False) -> int:
     """Replace the deployed node's publications with the local active set."""
+    _owner_action("pushing publications")
     import subprocess
     import tempfile
 
@@ -920,6 +931,7 @@ def push(worker_dir: str, local: bool = False) -> int:
 
 def publication_reapprove(publication_id: int) -> int:
     """Keep a publication as-is after its source memory changed."""
+    _owner_action("re-approving a publication")
     with Store() as store:
         store.clear_publication_flag(publication_id)
     success(f"Re-approved publication {publication_id} as published")

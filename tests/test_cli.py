@@ -588,25 +588,6 @@ class AnswerCommandTest(LoreTestCase):
             with self.assertRaisesRegex(ValueError, "empty"):
                 cli.answer_enable(self.proxy_file("   \n"), 0.5)
 
-    def test_the_desktop_app_enables_from_stdin_without_the_terminal_prompt(
-        self,
-    ) -> None:
-        with desktop_stdin("Act as Ada's proxy."), patch.object(cli, "confirm") as ask:
-            with captured():
-                self.assertEqual(cli.answer_enable("-", 0.5), 0)
-        ask.assert_not_called()
-        with Store() as store:
-            self.assertEqual(
-                store.answer_settings().proxy_preamble, "Act as Ada's proxy."
-            )
-
-    def test_stdin_enabling_is_refused_off_the_desktop_app(self) -> None:
-        with patch.object(sys, "stdin", StringIO("Act as Ada's proxy.")):
-            with self.assertRaisesRegex(ValueError, "only from the Lore desktop app"):
-                cli.answer_enable("-", 0.5)
-        with Store() as store:
-            self.assertFalse(store.answer_settings().answer_enabled)
-
     def test_disabling_needs_nothing_and_reminds_about_push(self) -> None:
         with captured() as output:
             self.assertEqual(cli.answer_disable(), 0)
@@ -978,6 +959,33 @@ class PublicationApplyTest(LoreTestCase):
             self.assertEqual([p.title for p in store.list_publications()], ["First"])
         self.assertFalse(self.staged_path.exists())
 
+    def test_identical_drafts_are_consumed_one_card_at_a_time(self) -> None:
+        memory = self.seed_memory("twin evidence")
+        card = {
+            "title": "Twin claim",
+            "teaser": "What did the twin runs show?",
+            "content": "The same lesson, drafted twice.",
+            "kind": "claim",
+            "topic": "testing",
+            "provenance": [memory],
+        }
+        with desktop_stdin(json.dumps([card, card])), captured():
+            cli.publication_draft("-")
+        self.assertEqual(cli._candidates_path().stat().st_mode & 0o777, 0o600)
+        with (
+            desktop_stdin(json.dumps({"candidate": card, "approve": False})),
+            captured() as out,
+        ):
+            self.assertEqual(cli.publication_decide(), 0)
+        self.assertEqual(json.loads(out.getvalue())["remaining"], 1)
+        with (
+            desktop_stdin(json.dumps({"candidate": card, "approve": True})),
+            captured(),
+        ):
+            self.assertEqual(cli.publication_decide(), 0)
+        with Store() as store:
+            self.assertEqual(len(store.list_publications(active_only=True)), 1)
+
     def test_a_card_that_was_never_drafted_or_was_altered_saves_nothing(self) -> None:
         (first,) = self.drafted()
         for candidate, message in (
@@ -1023,6 +1031,7 @@ class PublicationApplyTest(LoreTestCase):
 class PublicationCommandTest(LoreTestCase):
     def setUp(self) -> None:
         super().setUp()
+        self.enterContext(patch.object(cli, "_interactive", return_value=True))
         self.memory_id = self.seed_memory("Pricing lesson")
 
     def publish(self, title: str = "Pricing claim") -> int:
@@ -1057,6 +1066,22 @@ class PublicationCommandTest(LoreTestCase):
         ):
             with self.subTest(expected=expected):
                 self.assertIn(expected, text)
+
+    def test_owner_actions_refuse_pipes_that_are_not_the_desktop_app(self) -> None:
+        pid = self.publish()
+        with patch.object(cli, "_interactive", return_value=False):
+            for action in (
+                lambda: cli.publication_revoke(pid),
+                lambda: cli.publication_reapprove(pid),
+                lambda: cli.push(str(cli.home() / "node")),
+            ):
+                with self.assertRaisesRegex(
+                    ValueError, "attended terminal or the Lore desktop app"
+                ):
+                    action()
+            with desktop_stdin(""), patch.object(cli, "push") as push, captured():
+                self.assertEqual(cli.publication_revoke(pid), 0)
+            push.assert_not_called()
 
     def test_revoke_without_a_deployed_node_stays_local(self) -> None:
         pid = self.publish()
@@ -1127,6 +1152,7 @@ class PushTest(LoreTestCase):
 
     def setUp(self) -> None:
         super().setUp()
+        self.enterContext(patch.object(cli, "_interactive", return_value=True))
         self.memory_id = self.seed_memory("Pricing lesson")
         self.worker = self.lore_home / "node"
         self.worker.mkdir(parents=True)
