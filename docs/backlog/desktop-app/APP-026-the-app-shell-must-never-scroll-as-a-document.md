@@ -24,12 +24,16 @@ element itself was scrollable by 224px; any `focus()` or
 
 ## Proposed approach
 
-Two layers, because CSS alone cannot do it: `overflow: clip` on
-html/body stops user scrolling, but per spec the viewport stays
-script-scrollable whatever the root's overflow value — `focus()` and
-`scrollIntoView` still moved it in the repro. A one-line scroll listener
-snaps `documentElement.scrollTop` back to 0. `#main` remains the only
-scroll container; its own scroll position is unaffected.
+Three layers, found the hard way. `overflow: clip` on html/body stops
+user scrolling, but the viewport stays script-scrollable regardless of
+the root's overflow value — and Chromium dispatches no scroll event for
+those scrolls, so a listener can never snap it back. So: (1) the app's
+own code never scrolls the viewport — thread and card scrolling set
+`#main.scrollTop` directly, and every `focus()` passes
+`preventScroll: true`; (2) a requestAnimationFrame watchdog resets
+`documentElement.scrollTop` for engine-initiated scrolls (caret
+visibility while typing); (3) `overflow: clip` keeps user input from
+scrolling the root. `#main` remains the only scroll container.
 
 ## Acceptance criteria
 
