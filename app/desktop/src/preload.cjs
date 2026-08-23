@@ -13,6 +13,8 @@ contextBridge.exposeInMainWorld("lore", {
   logout: (providerId) => ipcRenderer.invoke("auth:logout", providerId),
   /** @param {string} query */
   search: (query) => ipcRenderer.invoke("search:query", query),
+  /** @param {number} id */
+  memory: (id) => ipcRenderer.invoke("memory:read", id),
   candidates: () => ipcRenderer.invoke("publication:candidates"),
   /** @param {{candidate: PublicationCandidate, approve: boolean}} input */
   decide: (input) => ipcRenderer.invoke("publication:decide", input),

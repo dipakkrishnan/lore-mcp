@@ -80,6 +80,12 @@ def parser() -> argparse.ArgumentParser:
     )
     search.add_argument("--json", action="store_true")
 
+    memory = commands.add_parser("memory", help="read one memory")
+    memory_commands = memory.add_subparsers(dest="memory_command", required=True)
+    memory_show = memory_commands.add_parser("show", help="print one memory in full")
+    memory_show.add_argument("id", type=int)
+    memory_show.add_argument("--json", action="store_true")
+
     profile = commands.add_parser(
         "profile", help="save an agent-written synthesis profile"
     )
@@ -204,6 +210,8 @@ def main(argv: list[str] | None = None) -> int:
             return review(" ".join(args.query), args.status, args.limit, args.all)
         if args.command == "search":
             return search(" ".join(args.query), args.status, args.limit, args.json)
+        if args.command == "memory":
+            return show_memory(args.id, args.json)
         if args.command == "profile":
             return profile(args.path, not args.no_schedule)
         if args.command == "capture":
@@ -462,6 +470,19 @@ def search(query: str, status_name: str | None, limit: int, as_json: bool) -> in
         print("No matching memories.")
         return 0
     for memory in memories:
+        memory_card(memory)
+    return 0
+
+
+def show_memory(memory_id: int, as_json: bool) -> int:
+    """Print one memory as a card or JSON."""
+    with Store() as store:
+        memory = store.get(memory_id)
+    if memory is None:
+        raise ValueError(f"memory not found: {memory_id}")
+    if as_json:
+        print(json.dumps(memory.__dict__, indent=2))
+    else:
         memory_card(memory)
     return 0
 

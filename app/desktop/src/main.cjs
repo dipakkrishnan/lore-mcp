@@ -2,7 +2,7 @@ const { randomUUID } = require("node:crypto");
 const { join } = require("node:path");
 const { app, BrowserWindow, dialog, ipcMain, safeStorage, shell } = require("electron");
 const { provision, skillsDir } = require("./runtime.cjs");
-const { lore, readState, searchMemories, candidates, decide, useRuntime } = require("./state.cjs");
+const { lore, readState, searchMemories, readMemory, candidates, decide, useRuntime } = require("./state.cjs");
 
 if (process.env.LORE_DESKTOP_USER_DATA) app.setPath("userData", process.env.LORE_DESKTOP_USER_DATA);
 
@@ -59,6 +59,7 @@ function registerIpc(loreHome) {
     if (typeof query !== "string" || query.length > 200) throw new Error("Invalid search");
     return searchMemories(loreHome, query);
   });
+  ipcMain.handle("memory:read", (_event, id) => readMemory(loreHome, id));
   ipcMain.handle("publication:candidates", () => candidates(loreHome));
   ipcMain.handle("publication:decide", (_event, input) => {
     if (!input || typeof input.approve !== "boolean" || !input.candidate || typeof input.candidate !== "object") {

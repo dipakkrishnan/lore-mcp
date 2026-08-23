@@ -4,7 +4,7 @@ title: Give sections a readable vertical rhythm
 priority: P2
 effort: S
 component: desktop-app
-status: in-review
+status: completed
 related: [APP-009, APP-011]
 blockers: []
 dependencies: []
@@ -35,14 +35,21 @@ and the 10px row padding are tight against 17px serif titles. Keep this to
 
 ## Acceptance criteria
 
-- [ ] On Today and Store, the space above a section label is visibly larger
+- [x] On Today and Store, the space above a section label is visibly larger
       than the space between that label and its card.
-- [ ] The screenshot helper (`support/screenshot.cjs`) renders of `today`,
+- [x] The screenshot helper (`support/screenshot.cjs`) renders of `today`,
       `memories`, and `store` are re-checked after the change.
-- [ ] No row truncates or wraps differently than before at the minimum window
+- [x] No row truncates or wraps differently than before at the minimum window
       width.
 
 ## Notes
+
+Completed on the APP-011/APP-012 PR: between-section gap 30px (main and
+`#content`), label-to-card 8px, row padding 12px, title-to-subtitle 3px.
+Re-checked with `support/screenshot.cjs` on today/memories/store and at the
+760px minimum width. The helper now signs the renderer in through
+`window.__lore.signIn()` so it renders the app shell in dev mode instead of
+the welcome gate (the APP-013 note).
 
 Found while dogfooding the packaged app on 2026-08-22. Visual polish was
 explicitly deferred in APP-009 until core functionality landed; this is the

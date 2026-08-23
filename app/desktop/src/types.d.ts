@@ -67,6 +67,16 @@ type SearchHit = {
   updated_at: string;
 };
 
+type Memory = {
+  id: number;
+  title: string;
+  content: string;
+  project: string;
+  source: string;
+  status: string;
+  updated_at: string;
+};
+
 type CaptureEntry = { title: string; content: string; project?: string; source_path?: string };
 
 type PublicationCandidate = {
@@ -94,6 +104,7 @@ interface Window {
     login(input: { providerId: string; type: "oauth" | "api_key"; secret?: string }): Promise<AgentStatus>;
     logout(providerId: string): Promise<AgentStatus>;
     search(query: string): Promise<SearchHit[]>;
+    memory(id: number): Promise<Memory>;
     candidates(): Promise<PublicationCandidate[]>;
     decide(input: { candidate: PublicationCandidate; approve: boolean }): Promise<void>;
     reapprove(id: number): Promise<void>;

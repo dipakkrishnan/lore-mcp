@@ -242,3 +242,14 @@ test("safeStorage credentials survive an Electron restart", { skip: process.plat
     await rm(directory, { recursive: true });
   }
 });
+
+test("memory reads validate the id before any CLI call, and say when it is unknown", async () => {
+  const { readMemory } = require("../src/state.cjs");
+  for (const bad of [0, -1, 1.5, "1", null]) await assert.rejects(readMemory("/nonexistent", bad), { message: /Invalid memory/ });
+  const directory = await mkdtemp(join(tmpdir(), "lore-desktop-"));
+  try {
+    await assert.rejects(readMemory(directory, 999), { message: /memory not found: 999/ });
+  } finally {
+    await rm(directory, { recursive: true });
+  }
+});
