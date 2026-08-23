@@ -4,7 +4,7 @@ title: Make Today a simple inbox for unfinished Lore tasks
 priority: P1
 effort: M
 component: desktop-app
-status: in-review
+status: ready
 related: [APP-017, APP-018, APP-007, APP-004, APP-009, APP-015, APP-016]
 blockers: [APP-018]
 dependencies: []
@@ -72,3 +72,4 @@ history, six-card taxonomy, standing policies, inferred progress, or granular
 working animation. Standing policy remains APP-008 work and must not alter the
 deterministic Bash boundary here. The design canvas remains directional; this
 item's smaller contract is authoritative.
+Approved by Dipak on 2026-08-23 as the implementation contract.
