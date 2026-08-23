@@ -426,7 +426,7 @@ function renderSettings(s) {
       row("Where it lives", "Everything stays on this Mac. Only what you approve for sale ever leaves.", value(Object.assign(el("span", "mono", s.home), { style: "color: var(--muted)" })), false)
     ])),
     section("Your store", card([
-      row("Your store", s.node.url ? s.node.url.replace(/^https?:\/\//, "").replace(/\/mcp$/, "") : "Not opened yet.", value(status(live.state === "online", live.state === "online" ? `Live on ${networkLabel(live.network) || "your node"}` : nodeLabel(live.state))), false),
+      row("Address", s.node.url ? s.node.url.replace(/^https?:\/\//, "").replace(/\/mcp$/, "") : "Not opened yet.", value(status(live.state === "online", live.state === "online" ? `Live on ${networkLabel(live.network) || "your node"}` : nodeLabel(live.state))), false),
       row("Prices", "What a buyer's agent pays per call.", value(Object.assign(el("span", "mono", `${price(s.pricing.publication_usd)} publication${s.pricing.answer_enabled ? ` · ${price(s.pricing.answer_usd)} answer` : ""}`), {})), false)
     ]))
   ];
