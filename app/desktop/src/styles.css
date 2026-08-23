@@ -167,6 +167,8 @@ h2 { font-size: 12px; font-weight: 600; letter-spacing: 0.06em; text-transform: 
 .log .line .mark { margin-top: 2px; opacity: 0.7; }
 .log .line:last-child .mark { opacity: 1; }
 .log .line.live p { color: var(--muted); white-space: pre-wrap; }
+.log .line.owner p { color: var(--ink); }
+.log .line.owner .you { flex-shrink: 0; width: 18px; margin-top: 3px; font-size: 10px; font-weight: 600; letter-spacing: 0.04em; color: var(--muted); text-transform: uppercase; }
 .log .line.live .mark { animation: pulse 1.4s ease-in-out infinite; }
 @media (prefers-reduced-motion: reduce) { .log .line.live .mark { animation: none; } }
 .log .line p { -webkit-user-select: text; user-select: text; white-space: pre-wrap; }
@@ -215,6 +217,7 @@ legend { font-weight: 500; font-size: 14px; margin-bottom: 6px; }
 .t span, .t a { font-size: 12px; color: var(--muted); }
 .t a { color: var(--accent); }
 .address { display: flex; align-items: baseline; gap: 12px; font-size: 12px; }
+.address .mono { color: var(--accent); -webkit-user-select: text; user-select: text; }
 .address a:not(.mono) { color: var(--muted); }
 .address a:not(.mono):hover { color: var(--accent); }
 .row .v { display: flex; align-items: center; gap: 10px; flex-shrink: 0; font-size: 13px; color: var(--ink-soft); }
