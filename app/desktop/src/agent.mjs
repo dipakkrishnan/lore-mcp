@@ -38,7 +38,30 @@ const TASKS = {
 const TASK_STATES = new Set(["needs_you", "working", "stopped", "done"]);
 const PERSONAS = ["storyteller", "schoolteacher", "professor", "executive", "sage"];
 const AXES = ["chronological", "theme", "project", "knowledge"];
-const STOPPED = "Lore stopped before doing something it isn't allowed to do here. Tell it how to continue.";
+const GUIDE = "Lore didn't run that. It auto-runs read-only commands (lore status/desktop-state/search/blueprint show/publication list; ls, cat, head, tail, grep, find, wc, which, printf, echo) over ~/.lore, ~/.claude, and ~/.codex, chained with ; or pipes. Writes must use the skill's exact single commands so the owner can approve them.";
+const READ_BINS = new Set(["ls", "cat", "head", "tail", "wc", "grep", "find", "which", "printf", "echo", "date", "sort", "uniq", "stat", "file"]);
+const LORE_READS = /^lore (?:status|desktop-state|search|blueprint show|publication list|memory show)(?: |$)/;
+const SAFE_REDIRECT = /^(?:2>&1|2>\/dev\/null|<\/dev\/null)$/;
+const SAFE_ROOT = /\.(?:lore|claude|codex)(?:[\/"'}]|$)|^\/dev\/null$/;
+
+/** @param {string} command */
+export function readOnly(command) {
+  if (/[`\n]|\$\(|<\(|>\(/.test(command)) return false;
+  for (const piece of command.split(/&&|\|\||[;|]/)) {
+    const segment = piece.trim();
+    const tokens = segment.split(/\s+/).filter(Boolean);
+    if (!tokens.length) continue;
+    if (!LORE_READS.test(segment) && !READ_BINS.has(tokens[0])) return false;
+    for (const raw of tokens.slice(1)) {
+      const token = raw.replace(/^["']|["']$/g, "");
+      if (token.includes("..")) return false;
+      if (/[<>]/.test(token) && !SAFE_REDIRECT.test(token)) return false;
+      if (tokens[0] === "find" && /^-(?:exec|execdir|ok|okdir|delete|fprint)/.test(token)) return false;
+      if (token.includes("/") && /^[~/$]/.test(token) && !SAFE_ROOT.test(token)) return false;
+    }
+  }
+  return true;
+}
 const CLOSED = "Lore was closed before this finished.";
 const MODELS = ["anthropic/claude-sonnet-5", "openai-codex/gpt-5.6-luna", "openai/gpt-5.6-luna"];
 const MAX_TURNS = 60;
@@ -124,11 +147,11 @@ export function classifyBash(command) {
     if (Array.isArray(body) || kind === "import") return null;
     return kind === "allow" ? kind : { kind, fields: /** @type {Record<string, unknown>} */ (body) };
   }
-  return null;
+  return readOnly(command) ? "allow" : null;
 }
 
-/** @param {(command: string, action: BashAction) => Promise<boolean>} approve @param {() => void} [stopped] */
-export function bashPolicyExtension(approve, stopped = () => {}) {
+/** @param {(command: string, action: BashAction) => Promise<boolean>} approve */
+export function bashPolicyExtension(approve) {
   return {
     name: "bash-policy",
     hidden: true,
@@ -139,10 +162,8 @@ export function bashPolicyExtension(approve, stopped = () => {}) {
         const command = event.input.command;
         const action = classifyBash(command);
         if (action === "allow") return;
-        if (action?.kind === "malformed") return { block: true, reason: action.reason };
         if (action) return (await approve(command, action)) ? undefined : { block: true, reason: "The owner chose not to do this. Ask them how to continue." };
-        stopped();
-        return { block: true, reason: "Lore blocked a command outside the desktop policy.", terminate: true };
+        return { block: true, reason: GUIDE };
       });
     }
   };
@@ -182,8 +203,9 @@ export class LoreAgent {
       agentDir: resolve(options.loreHome, ".pi"),
       settingsManager: settings,
       additionalSkillPaths: [options.skillsDir],
-      extensionFactories: [bashPolicyExtension((command, action) => agent.#approve(command, action), () => agent.#stopCurrent())],
+      extensionFactories: [bashPolicyExtension((command, action) => agent.#approve(command, action))],
       noExtensions: true,
+      noSkills: true,
       noPromptTemplates: true,
       noThemes: true,
       noContextFiles: true,
@@ -191,6 +213,7 @@ export class LoreAgent {
         "You are Lore's desktop agent, talking with the owner inside the Lore app.",
         "Follow the skill named in the first message exactly and skip its install steps because Lore is already provisioned.",
         "Ask the owner everything through ask_user — decisions and open questions alike; offer the likely answers as options, and the owner can always type their own. Never end a turn with a question in prose.",
+        "Keep every message light: a sentence or two, question text under fifteen words, option labels of a few words with one short description, and never restate what a card already shows.",
         "During onboarding, gather evidence first, then call propose_blueprint once with one bounded proposal; that tool saves the owner-approved shape.",
         "Never mention tools, commands, or files to the owner; speak about memories, their Lore, and their store.",
         "Bash policy is enforced outside this prompt."
@@ -277,13 +300,6 @@ export class LoreAgent {
     const record = appendTaskRecord(session.sessionManager, task, state, phase);
     this.options.emit({ type: "task", task: record });
     return record;
-  }
-
-  #stopCurrent() {
-    const task = this.#activeTask;
-    const session = task && this.#sessions.get(task);
-    if (task && session) this.#record(session, task, "stopped", "Needs another try");
-    this.options.emit({ type: "stopped", text: STOPPED });
   }
 
   /** @param {string} command @param {BashAction} action */

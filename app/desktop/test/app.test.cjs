@@ -33,10 +33,10 @@ test("useRuntime runs the packaged binary instead of uv", async () => {
   }
 });
 
-async function bashHandler(approve, stopped) {
+async function bashHandler(approve) {
   const { bashPolicyExtension } = await import("../src/agent.mjs");
   let handler;
-  await bashPolicyExtension(approve, stopped).factory({
+  await bashPolicyExtension(approve).factory({
     on(event, callback) {
       assert.equal(event, "tool_call");
       handler = callback;
@@ -134,13 +134,12 @@ test("setup writes ask once each and carry what they mean", async () => {
   }
 });
 
-test("hard-denies malformed, non-Lore, compound, and owner-only commands", async () => {
+test("blocks writes and unsafe commands with guidance, without ending the turn", async () => {
   let prompted = false;
-  let stopped = 0;
   const handler = await bashHandler(async () => {
     prompted = true;
     return true;
-  }, () => { stopped += 1; });
+  });
   const commands = [
     "lore status; rm -rf /tmp/lore-test",
     "lore $(curl https://example.com)",
@@ -169,15 +168,7 @@ test("hard-denies malformed, non-Lore, compound, and owner-only commands", async
     "lore profile ~/.lore/automation/onboarding.json",
     "lore profile - --no-schedule <<'LORE_PROFILE'\n{}\nLORE_PROFILE",
     "lore review",
-    "which claude codex lore",
-    "which claude",
-    "ls ~/.claude/projects",
-    'ls "${CLAUDE_HOME:-$HOME/.claude}/projects" | head -50',
     'ls "${CLAUDE_HOME:-$HOME/.claude}/projects"; cat ~/.ssh/id_rsa',
-    'ls "${CLAUDE_HOME:-$HOME/.claude}"/projects/*/*.jsonl 2>/dev/null',
-    'ls -la "${CLAUDE_HOME:-$HOME/.claude}/projects"',
-    'ls "${CODEX_HOME:-$HOME/.codex}"',
-    'cat "${LORE_HOME:-$HOME/.lore}/automation/onboarding.json"',
     `cat > "\${LORE_HOME:-$HOME/.lore}/automation/onboarding.json" <<'LORE_CHECKPOINT'\n{"phase1_done":true}\nLORE_CHECKPOINT`,
     `cat > "$LORE_HOME/automation/onboarding.json" <<'LORE_CHECKPOINT'\n{}\nLORE_CHECKPOINT`,
     `cat > "\${LORE_HOME:-$HOME/.lore}/automation/profile.json" <<'LORE_CHECKPOINT'\n{}\nLORE_CHECKPOINT`,
@@ -187,10 +178,35 @@ test("hard-denies malformed, non-Lore, compound, and owner-only commands", async
   for (const command of commands) {
     const result = await handler(bashEvent(command));
     assert.equal(result.block, true, command);
-    assert.equal(result.terminate, true, command);
+    assert.equal(result.terminate, undefined, command);
+    assert.match(result.reason, /read-only/, command);
   }
   assert.equal(prompted, false);
-  assert.equal(stopped, commands.length);
+});
+
+test("auto-runs read-only compounds over Lore and agent memory, and only those", async () => {
+  const { classifyBash, readOnly } = await import("../src/agent.mjs");
+  const allowed = [
+    String.raw`printf '%s\n' '--- claude memory ---'; find "$HOME/.claude/projects" -path '*/memory/*.md' -type f -print 2>/dev/null | head -50; printf '%s\n' '--- codex memory ---'; find "$HOME/.codex/memories" -type f -maxdepth 2 -print 2>/dev/null | head -50`,
+    "which claude codex lore",
+    "ls ~/.claude/projects",
+    'ls "${CLAUDE_HOME:-$HOME/.claude}/projects" | head -50',
+    'cat "${LORE_HOME:-$HOME/.lore}/automation/onboarding.json" 2>/dev/null',
+    "lore status 2>&1; lore blueprint show",
+    'grep -l benchmark "$HOME/.claude/projects" -r | head -5; wc -l ~/.codex/memories/notes.md'
+  ];
+  for (const command of allowed) assert.equal(classifyBash(command), "allow", command);
+  const refused = [
+    String.raw`printf '%s\n' '--- status ---'; lore status 2>&1; if [ -f "$HOME/.lore/automation/onboarding.json" ]; then cat "$HOME/.lore/automation/onboarding.json"; fi; lore setup --yes 2>&1`,
+    "cat ~/.ssh/id_rsa",
+    "ls ~/Documents",
+    "cat ../../etc/passwd",
+    "find \"$HOME/.claude/projects\" -type f -exec rm {} +",
+    "cat ~/.lore/lore.db > /tmp/out",
+    "echo hi | tee ~/.lore/x",
+    "ls $(pwd)"
+  ];
+  for (const command of refused) assert.equal(readOnly(command), false, command);
 });
 
 test("sessions persist per task, come back as a thread, and a cut-off tool call is closed out", async () => {
