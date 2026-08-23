@@ -49,6 +49,12 @@ async function searchMemories(loreHome, query) {
   return JSON.parse(await lore(loreHome, ["search", ...terms, "--status", "private", "--limit", "30", "--json"]));
 }
 
+/** @param {string} loreHome @param {unknown} id @returns {Promise<Memory>} */
+async function readMemory(loreHome, id) {
+  if (!Number.isInteger(id) || /** @type {number} */ (id) < 1) throw new Error("Invalid memory");
+  return JSON.parse(await lore(loreHome, ["memory", "show", String(id), "--json"]));
+}
+
 /** @param {string} loreHome @returns {Promise<PublicationCandidate[]>} */
 async function candidates(loreHome) {
   return JSON.parse(await lore(loreHome, ["publication", "candidates"]));
@@ -59,4 +65,4 @@ async function decide(loreHome, candidate, approve) {
   await lore(loreHome, ["publication", "decide"], JSON.stringify({ candidate, approve }));
 }
 
-module.exports = { lore, readState, searchMemories, candidates, decide, useRuntime };
+module.exports = { lore, readState, searchMemories, readMemory, candidates, decide, useRuntime };

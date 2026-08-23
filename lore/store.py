@@ -397,6 +397,13 @@ class Store:
         args.append(limit or -1)
         return [Memory.from_row(row) for row in self.db.execute(sql, args).fetchall()]
 
+    def get(self, memory_id: int) -> Memory | None:
+        """Return one memory by id, or None."""
+        row = self.db.execute(
+            "SELECT * FROM memories WHERE id=?", (memory_id,)
+        ).fetchone()
+        return Memory.from_row(row) if row else None
+
     def counts(self) -> dict[str, int]:
         """Return memory counts for every retention status."""
         counts = {status: 0 for status in STATUSES}

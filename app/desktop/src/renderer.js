@@ -100,6 +100,52 @@ function row(label, detail, trailing, serif = true) {
   return node;
 }
 
+/** @param {number | string} id @param {string} title @param {string} detail */
+function memoryRow(id, title, detail) {
+  const node = el("button", "row link");
+  node.type = "button";
+  const text = el("div", "t");
+  text.append(el("b", "", title), el("span", "", detail));
+  node.append(text, chip("Private"));
+  node.addEventListener("click", () => openMemory(Number(id)));
+  return node;
+}
+
+/** @param {number} id */
+async function openMemory(id) {
+  /** @type {Memory} */
+  let memory;
+  try {
+    memory = await window.lore.memory(id);
+  } catch (error) {
+    say(error instanceof Error ? error.message : "Lore could not open that.");
+    return;
+  }
+  closeSheet();
+  const sheet = el("div", "sheet");
+  sheet.setAttribute("role", "dialog");
+  sheet.setAttribute("aria-modal", "true");
+  sheet.setAttribute("aria-label", memory.title);
+  const panel = el("div", "card sheet-panel");
+  const head = el("div", "sheet-head");
+  const text = el("div", "t");
+  text.append(el("b", "", memory.title), el("span", "", [memory.project, memory.source, when(memory.updated_at)].filter(Boolean).join(" · ")));
+  const close = el("button", "icon-btn", "×");
+  close.type = "button";
+  close.setAttribute("aria-label", "Close");
+  close.addEventListener("click", closeSheet);
+  head.append(text, close);
+  panel.append(head, el("p", "body", memory.content));
+  sheet.append(panel);
+  sheet.addEventListener("click", (event) => { if (event.target === sheet) closeSheet(); });
+  document.body.append(sheet);
+  close.focus();
+}
+
+function closeSheet() {
+  document.querySelector(".sheet")?.remove();
+}
+
 /** @param {string} heading @param {HTMLElement} body @param {HTMLElement} [aside] */
 function section(heading, body, aside) {
   const node = el("section", "section");
@@ -237,7 +283,7 @@ function renderToday(s) {
   all.type = "button";
   all.addEventListener("click", () => show("memories"));
   parts.push(section("Recently kept", recent.length
-    ? card(recent.map((item) => row(item.title, [item.project_label, when(item.updated_at)].filter(Boolean).join(" · "), chip("Private"))))
+    ? card(recent.map((item) => memoryRow(item.id, item.title, [item.project_label, when(item.updated_at)].filter(Boolean).join(" · "))))
     : Object.assign(el("div", "card pad empty", "Nothing kept yet. The box above is where it begins — or let setup bring in what your agents already know."), {}),
     recent.length ? all : undefined));
   const strip = el("div", "strip");
@@ -263,8 +309,8 @@ function renderToday(s) {
 /** @param {Snapshot} s */
 function renderMemories(s) {
   const items = hits
-    ? hits.map((hit) => row(hit.title, [hit.project, when(hit.updated_at)].filter(Boolean).join(" · "), chip("Private")))
-    : s.library.items.filter((item) => item.status === "private").map((item) => row(item.title, [item.project_label, when(item.updated_at)].filter(Boolean).join(" · "), chip("Private")));
+    ? hits.map((hit) => memoryRow(hit.id, hit.title, [hit.project, when(hit.updated_at)].filter(Boolean).join(" · ")))
+    : s.library.items.filter((item) => item.status === "private").map((item) => memoryRow(item.id, item.title, [item.project_label, when(item.updated_at)].filter(Boolean).join(" · ")));
   const heading = hits ? `${hits.length} ${hits.length === 1 ? "match" : "matches"}` : `${items.length} private`;
   const body = items.length ? card(items) : el("div", "card pad empty", hits ? "Nothing matches that." : "Nothing kept yet.");
   return [section(heading, body)];
@@ -821,6 +867,7 @@ search.addEventListener("input", () => {
 $("#search-form").addEventListener("submit", (event) => event.preventDefault());
 document.addEventListener("keydown", (event) => {
   if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") { event.preventDefault(); search.focus(); search.select(); }
+  if (event.key === "Escape" && document.querySelector(".sheet")) { event.preventDefault(); closeSheet(); }
 });
 
 for (const node of document.querySelectorAll("[data-login]")) {
@@ -839,7 +886,7 @@ keyForm.addEventListener("submit", (event) => {
   void signIn(provider, "api_key", value);
 });
 
-Object.assign(window, { __lore: { show, preview: renderRequest } });
+Object.assign(window, { __lore: { show, preview: renderRequest, signIn: () => { auth = { credentials: [{ providerId: "anthropic", type: "oauth" }], busy: false }; enter(); } } });
 
 function boot() {
   window.lore.agentStatus().then((result) => { auth = result; enter(); }).catch(() => { auth = { credentials: [], busy: false }; enter(); });

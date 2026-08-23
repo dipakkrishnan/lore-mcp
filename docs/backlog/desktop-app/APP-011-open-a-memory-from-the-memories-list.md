@@ -4,7 +4,7 @@ title: Open a memory from the Memories list
 priority: P1
 effort: M
 component: desktop-app
-status: in-review
+status: completed
 related: [APP-001, APP-002, APP-009, APP-010, CLI-001]
 blockers: []
 dependencies: []
@@ -39,20 +39,27 @@ is read-only.
 
 ## Acceptance criteria
 
-- [ ] `lore memory show <id> --json` prints one memory as JSON and exits
+- [x] `lore memory show <id> --json` prints one memory as JSON and exits
       non-zero with a plain message for an unknown id.
-- [ ] Clicking a row in Memories (list or search results) shows that memory's
+- [x] Clicking a row in Memories (list or search results) shows that memory's
       full content, title, project, source, and date without leaving the view,
       and can be dismissed with Escape or a close control.
-- [ ] Rows are real buttons: focusable, activatable with Enter/Space, with a
+- [x] Rows are real buttons: focusable, activatable with Enter/Space, with a
       pointer cursor.
-- [ ] `lore desktop-state` output is unchanged; bodies are fetched per click.
-- [ ] The `memory:read` handler rejects non-integer and non-positive ids
+- [x] `lore desktop-state` output is unchanged; bodies are fetched per click.
+- [x] The `memory:read` handler rejects non-integer and non-positive ids
       before invoking the CLI.
-- [ ] Desktop tests cover the IPC validation; a Python test covers
+- [x] Desktop tests cover the IPC validation; a Python test covers
       `memory show` for a known and an unknown id.
 
 ## Notes
+
+Completed on the APP-011/APP-012 PR. `lore memory show <id> [--json]` backs a
+`memory:read` IPC whose id validation lives in `state.cjs` (tested without
+Electron); Memories rows, search hits, and Today's Recently kept are buttons
+opening a fixed sheet (Escape, ×, or backdrop closes). The body renders as
+plain pre-wrapped text, so synthesized Markdown shows its `#` and `-`
+literally — fine for read-only; render it if the sheet ever grows actions.
 
 Found while dogfooding the packaged app on 2026-08-22 (PR #121 era). The
 design frames (Aug 22 canvas) show Memories as an inventory and never drew a

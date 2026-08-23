@@ -47,6 +47,10 @@ class ParserTest(unittest.TestCase):
                 {"all": "discarded"},
             ),
             (["search", "x", "--json"], {"json": True, "limit": 20}),
+            (
+                ["memory", "show", "7", "--json"],
+                {"command": "memory", "memory_command": "show", "id": 7, "json": True},
+            ),
             (["profile", "-", "--no-schedule"], {"path": "-", "no_schedule": True}),
             (
                 ["capture", "apply", "-"],
@@ -423,6 +427,23 @@ class SearchTest(LoreTestCase):
         with captured() as output:
             cli.search("absent", None, 20, True)
         self.assertEqual(json.loads(output.getvalue()), [])
+
+
+class ShowMemoryTest(LoreTestCase):
+    def test_show_prints_one_memory_and_refuses_an_unknown_id(self) -> None:
+        memory_id = self.seed_memory("Kept lesson")
+        with captured() as output:
+            self.assertEqual(cli.show_memory(memory_id, True), 0)
+        payload = json.loads(output.getvalue())
+        self.assertEqual(payload["id"], memory_id)
+        self.assertEqual(payload["title"], "Kept lesson")
+        self.assertIn("content", payload)
+        with captured() as output:
+            self.assertEqual(cli.show_memory(memory_id, False), 0)
+        self.assertIn("Kept lesson", output.getvalue())
+        with self.assertRaisesRegex(ValueError, "memory not found: 999"):
+            cli.show_memory(999, True)
+        self.assertEqual(cli.main(["memory", "show", "999"]), 1)
 
 
 class StatusTest(LoreTestCase):
