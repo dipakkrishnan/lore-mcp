@@ -50,6 +50,7 @@ function registerIpc(loreHome) {
     if (!TASKS.has(task)) throw new Error("Invalid task");
     return agent.history(task);
   });
+  ipcMain.handle("agent:tasks", () => agent.tasks());
   ipcMain.handle("agent:respond", (_event, response) => {
     if (!response || typeof response.id !== "string" || !pending.has(response.id)) {
       throw new Error("Unknown agent request");
@@ -153,6 +154,12 @@ async function start() {
     approveBash: async (command, action) => (await request("bash-approval", { command, action })) === true,
     askUser: async (questions) =>
       /** @type {Record<string, string>} */ (await request("question", { questions })),
+    proposeBlueprint: async (fields, evidence) => {
+      const edited = /** @type {BlueprintFields} */ (await request("blueprint", { fields, evidence }));
+      await lore(loreHome, ["blueprint", "apply", "-"], JSON.stringify(edited));
+      emit({ type: "changed" });
+      return edited;
+    },
     authPrompt: async ({ signal, ...prompt }) => String(await request("auth-prompt", { prompt }, signal)),
     authEvent: (event) => {
       if (event.type === "auth_url") {

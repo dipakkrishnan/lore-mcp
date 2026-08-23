@@ -424,14 +424,14 @@ class Store:
 
     def memory_inventory(self) -> list[dict[str, object]]:
         rows = self.db.execute(
-            "SELECT id,title,project,status,source,updated_at "
+            "SELECT id,title,project,status,updated_at "
             "FROM memories ORDER BY updated_at DESC,id"
         ).fetchall()
         return [dict(row) for row in rows]
 
     def publication_inventory(self) -> list[dict[str, object]]:
         rows = self.db.execute(
-            "SELECT id,public_id,title,kind,topic,active,updated_at,source_changed_at "
+            "SELECT id,public_id,title,topic,active "
             "FROM publications ORDER BY updated_at DESC,id"
         ).fetchall()
         return [dict(row) for row in rows]

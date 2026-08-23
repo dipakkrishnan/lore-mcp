@@ -1,7 +1,6 @@
 const { app, BrowserWindow } = require("electron");
 
 const [out, view = "today"] = process.argv.slice(-2);
-process.env.LORE_DESKTOP_SCREENSHOT = "1";
 require("../src/main.cjs");
 
 app.on("browser-window-created", (_event, window) => {

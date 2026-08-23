@@ -7,6 +7,7 @@ contextBridge.exposeInMainWorld("lore", {
   prompt: (input) => ipcRenderer.invoke("agent:prompt", input),
   /** @param {AgentTask} task */
   history: (task) => ipcRenderer.invoke("agent:history", task),
+  tasks: () => ipcRenderer.invoke("agent:tasks"),
   /** @param {{id: string, value: unknown}} response */
   respond: (response) => ipcRenderer.invoke("agent:respond", response),
   /** @param {{providerId: string, type: "oauth" | "api_key", secret?: string}} input */

@@ -10,7 +10,7 @@ blockers: []
 dependencies: []
 github_issue: null
 created: 2026-08-22
-updated: 2026-08-22
+updated: 2026-08-23
 ---
 
 ## Problem
@@ -34,7 +34,7 @@ everything else before opening the file.
 - [ ] A read outside the approved files and roots is blocked before file bytes
       reach the model provider.
 - [ ] Canonical path checks reject `..` traversal and symlink escapes.
-- [ ] An owner-selected attachment, the Lore checkpoint, and a bundled skill
+- [ ] An owner-selected attachment and a bundled skill
       resource remain readable, while a rejected credential-shaped attachment
       does not.
 - [ ] Onboarding can read explicitly approved Claude or Codex history roots

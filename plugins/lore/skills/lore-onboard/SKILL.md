@@ -51,14 +51,17 @@ Otherwise run the README installer with `LORE_SKIP_SETUP=1`, then add
 `lore setup --yes` only after it succeeds. If Git or curl is missing, or installation
 fails, report the exact prerequisite and stop — don't retry-loop.
 
-Checkpoint file: `$LORE_HOME/automation/onboarding.json`. **Read it first** with
-your file-reading tool. If it exists, tell the user what is already done and resume —
-never re-ask an answered question or re-run a finished phase. Write it after *every*
-answer, not at the end, with exactly this command (`lore setup` creates the folder).
-Keep every field below, and add Phase 1 answers as they arrive, using the blueprint's
-names and types (`name`, `persona`, `organizing_axis`, `storytelling` as strings;
-`topic_outline`, `focus_topics`, `general_areas` as lists of strings) — nothing else.
-If the write is refused, the refusal says which field is wrong; fix it and write again.
+**Other hosts only:** use `$LORE_HOME/automation/onboarding.json` as a checkpoint.
+Read it first with your file-reading tool. If it exists, tell the user what is already
+done and resume — never re-ask an answered question or re-run a finished phase. Write
+it after *every* answer, not at the end, with exactly this command (`lore setup`
+creates the folder). Keep every field below, and add Phase 1 answers as they arrive,
+using the blueprint's names and types (`name`, `persona`, `organizing_axis`,
+`storytelling` as strings; `topic_outline`, `focus_topics`, `general_areas` as lists
+of strings) — nothing else.
+
+**Lore desktop:** do not read or write this checkpoint. The app restores the native Pi
+session, including every owner answer and completed tool result.
 
 ```sh
 cat > "${LORE_HOME:-$HOME/.lore}/automation/onboarding.json" <<'LORE_CHECKPOINT'
@@ -70,15 +73,27 @@ LORE_CHECKPOINT
 
 ## 1. Persona interview → blueprint
 
+**Lore desktop:** skip the serial persona interview. Read the Phase 2 evidence first,
+then call `propose_blueprint` exactly once with a short evidence summary and one complete
+blueprint proposal. The owner edits that typed card and chooses **Use this shape**; the
+tool validates and saves it through `lore blueprint apply`. Never recover fields from
+conversation text or construct a Bash heredoc. Continue to Phase 2 without reading the same evidence again, and ask a follow-up
+only when the evidence cannot support a required field.
+
+**Other hosts:** follow the interview below.
+
 Follow `persona-interview.md` (in this skill's folder). It asks the owner to pick an
 archetype — Storyteller, schoolteacher, professor, executive, sage — and captures topic
 outline, focus vs. general areas, organizing axis, and voice, then persists them with
-`lore blueprint apply`. Set `phase1_done: true` in the checkpoint when it confirms.
+`lore blueprint apply`. On other hosts, set `phase1_done: true` in the checkpoint
+when it confirms.
 
 Skip Phase 1 only if the user explicitly declines the persona step; Phase 2 still works
 without a blueprint, just with less to go on.
 
 ## 2. Draft the profile — seeded by the blueprint
+
+In Lore desktop, reuse the evidence already read for the blueprint proposal.
 
 Start by reading what Phase 1 captured:
 
@@ -134,7 +149,8 @@ Then `boundaries` (default: secrets and third-party private data). Combine the o
 synthesis executor, its optional model, cadence, and hour into one final scheduling
 exchange — that keeps the whole pass to about five questions. Codex and Claude memories
 remain independent input sources; the executor only chooses which agent synthesizes all
-enabled sources. Free-text only on "Other". Write the checkpoint after each answer.
+enabled sources. Free-text only on "Other". On other hosts, write the checkpoint after
+each answer; Lore desktop persists the conversation itself.
 
 ## 4. Save and schedule
 

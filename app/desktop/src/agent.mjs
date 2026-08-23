@@ -12,7 +12,7 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import { Type } from "@earendil-works/pi-ai";
 
-/** @type {Array<[RegExp, "allow" | "draft" | "checkpoint" | BashAction["kind"]]>} */
+/** @type {Array<[RegExp, "allow" | "draft" | BashAction["kind"]]>} */
 const BASH_POLICY = [
   [/^lore status$/, "allow"],
   [/^lore desktop-state$/, "allow"],
@@ -25,57 +25,80 @@ const BASH_POLICY = [
   [/^ls "\$\{CLAUDE_HOME:-\$HOME\/\.claude\}"\/projects\/\*\/memory\/\*\.md 2>\/dev\/null$/, "allow"],
   [/^ls "\$\{CODEX_HOME:-\$HOME\/\.codex\}\/memories" "\$\{CODEX_HOME:-\$HOME\/\.codex\}\/automations" 2>\/dev\/null$/, "allow"],
   [/^ls -lt "\$\{CLAUDE_HOME:-\$HOME\/\.claude\}"\/projects\/\*\/\*\.jsonl 2>\/dev\/null$/, "allow"],
-  [/^cat > "\$\{LORE_HOME:-\$HOME\/\.lore\}\/automation\/onboarding\.json" <<'LORE_CHECKPOINT'\n([\s\S]+)\nLORE_CHECKPOINT$/, "checkpoint"],
   [/^lore setup --yes$/, "import"],
   [/^lore capture apply - <<'LORE_CAPTURE'\n([\s\S]+)\nLORE_CAPTURE$/, "capture"],
-  [/^lore blueprint apply - <<'LORE_BLUEPRINT'\n([\s\S]+)\nLORE_BLUEPRINT$/, "blueprint"],
   [/^lore profile - <<'LORE_PROFILE'\n([\s\S]+)\nLORE_PROFILE$/, "profile"]
 ];
-const CHECKPOINT_FIELDS = {
-  phase1_done: "boolean",
-  role: "string",
-  domains: "string",
-  valuable_context: "string",
-  preferences: "string",
-  boundaries: "string",
-  executor: "string",
-  model: "string",
-  cadence: "string",
-  hour: "number"
-};
-const CHECKPOINT_DRAFT = {
-  name: "string",
-  persona: "string",
-  organizing_axis: "string",
-  topic_outline: "list",
-  focus_topics: "list",
-  general_areas: "list",
-  storytelling: "string"
-};
 const SKILLS = { capture: "lore-capture", setup: "lore-onboard", publish: "lore-publish" };
+const TASKS = {
+  capture: { title: "Capture a memory", phase: "Review the capture" },
+  setup: { title: "Set up your Lore", phase: "Shape your Lore" },
+  publish: { title: "Publish from your Lore", phase: "Draft publications" }
+};
+const TASK_STATES = new Set(["needs_you", "working", "stopped", "done"]);
+const PERSONAS = ["storyteller", "schoolteacher", "professor", "executive", "sage"];
+const AXES = ["chronological", "theme", "project", "knowledge"];
 const STOPPED = "Lore stopped before doing something it isn't allowed to do here. Tell it how to continue.";
 const CLOSED = "Lore was closed before this finished.";
 const MODELS = ["anthropic/claude-sonnet-5", "openai-codex/gpt-5.6-luna", "openai/gpt-5.6-luna"];
+const MAX_TURNS = 60;
+const CAPPED = "That reply took more steps than Lore allows at once, so it paused. Say continue to keep going.";
 
-/** @param {unknown} body @returns {string[]} */
-function checkpointProblems(body) {
-  if (!body || typeof body !== "object" || Array.isArray(body)) return ["it must be a JSON object"];
-  const checkpoint = /** @type {Record<string, unknown>} */ (body);
-  const problems = [];
-  for (const [key, type] of Object.entries(CHECKPOINT_FIELDS)) {
-    if (!(key in checkpoint)) problems.push(`"${key}" is missing`);
-    else if (typeof checkpoint[key] !== type) problems.push(`"${key}" must be a ${type}`);
+/** @param {unknown} value @returns {value is BlueprintFields} */
+export function validBlueprint(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const fields = /** @type {Record<string, unknown>} */ (value);
+  const allowed = new Set(["version", "name", "persona", "organizing_axis", "topic_outline", "focus_topics", "general_areas", "storytelling"]);
+  if (Object.keys(fields).some((key) => !allowed.has(key))) return false;
+  const list = (/** @type {unknown} */ items) => Array.isArray(items) && items.length <= 50 && items.every((item) => typeof item === "string" && item.length <= 300);
+  return fields.version === 1
+    && typeof fields.name === "string" && fields.name.length > 0 && fields.name.length <= 200
+    && PERSONAS.includes(/** @type {string} */ (fields.persona))
+    && (fields.organizing_axis === undefined || AXES.includes(/** @type {string} */ (fields.organizing_axis)))
+    && Array.isArray(fields.topic_outline) && fields.topic_outline.length > 0 && list(fields.topic_outline)
+    && list(fields.focus_topics) && list(fields.general_areas)
+    && typeof fields.storytelling === "string" && fields.storytelling.length > 0 && fields.storytelling.length <= 1000;
+}
+
+/** @param {import("@earendil-works/pi-coding-agent").SessionManager} manager @param {AgentTask} kind @returns {TaskRecord | null} */
+export function latestTaskRecord(manager, kind) {
+  for (const entry of [...manager.getEntries()].reverse()) {
+    if (entry.type !== "custom" || entry.customType !== "lore.task") continue;
+    const data = entry.data;
+    if (!data || typeof data !== "object" || Array.isArray(data)) continue;
+    const record = /** @type {Record<string, unknown>} */ (data);
+    if (record.version !== 1 || record.kind !== kind || record.title !== TASKS[kind].title || !TASK_STATES.has(/** @type {string} */ (record.state)) || typeof record.phase !== "string") continue;
+    return /** @type {TaskRecord} */ ({ ...record, updatedAt: entry.timestamp });
   }
-  for (const [key, value] of Object.entries(checkpoint)) {
-    if (key in CHECKPOINT_FIELDS) continue;
-    const type = CHECKPOINT_DRAFT[/** @type {keyof typeof CHECKPOINT_DRAFT} */ (key)];
-    if (!type) problems.push(`"${key}" is not a checkpoint field`);
-    else if (type === "list" ? !Array.isArray(value) || !value.every((item) => typeof item === "string") : typeof value !== type)
-      problems.push(`"${key}" must be a ${type === "list" ? "list of strings" : type}`);
+  return null;
+}
+
+/** @param {import("@earendil-works/pi-coding-agent").SessionManager} manager @param {AgentTask} kind @param {TaskState} state @param {string} [phase] */
+function appendTaskRecord(manager, kind, state, phase = TASKS[kind].phase) {
+  const current = latestTaskRecord(manager, kind);
+  if (current?.state === state && current.phase === phase) return current;
+  manager.appendCustomEntry("lore.task", { version: 1, kind, title: TASKS[kind].title, state, phase });
+  return /** @type {TaskRecord} */ ({ version: 1, kind, title: TASKS[kind].title, state, phase, updatedAt: new Date().toISOString() });
+}
+
+/** @param {TaskState | undefined} state @param {AgentTask} task @param {boolean} completed @returns {[TaskState, string] | null} */
+export function closingRecord(state, task, completed) {
+  if (state !== "working") return null;
+  return completed || task === "publish" ? ["done", "Finished"] : ["stopped", "Ready to resume"];
+}
+
+/** @param {import("@earendil-works/pi-coding-agent").SessionManager} manager @param {AgentTask} task */
+function repairInterrupted(manager, task) {
+  const last = manager.buildSessionContext().messages.at(-1);
+  if (last?.role !== "assistant") return manager;
+  let interrupted = false;
+  for (const block of last.content) {
+    if (block.type !== "toolCall") continue;
+    manager.appendMessage({ role: "toolResult", toolCallId: block.id, toolName: block.name, content: [{ type: "text", text: CLOSED }], isError: true, timestamp: Date.now() });
+    interrupted = true;
   }
-  if (!["daily", "weekly"].includes(/** @type {string} */ (checkpoint.cadence))) problems.push('"cadence" must be "daily" or "weekly"');
-  if (!Number.isInteger(checkpoint.hour) || /** @type {number} */ (checkpoint.hour) < 0 || /** @type {number} */ (checkpoint.hour) > 23) problems.push('"hour" must be a whole number from 0 to 23');
-  return problems;
+  if (interrupted) appendTaskRecord(manager, task, "stopped", "Ready to resume");
+  return manager;
 }
 
 /** @param {string} command @returns {BashVerdict} */
@@ -89,12 +112,7 @@ export function classifyBash(command) {
     try {
       body = JSON.parse(match[1]);
     } catch {
-      if (kind === "checkpoint") return { kind: "malformed", reason: "The checkpoint was not saved: it is not valid JSON. Write it again with exactly the fields the skill shows." };
       return null;
-    }
-    if (kind === "checkpoint") {
-      const problems = checkpointProblems(body);
-      return problems.length ? { kind: "malformed", reason: `The checkpoint was not saved: ${problems.join("; ")}. Write it again with exactly the fields the skill shows.` } : "allow";
     }
     if (!body || typeof body !== "object") return null;
     if (kind === "draft") return Array.isArray(body) && body.length ? "allow" : null;
@@ -134,7 +152,11 @@ export class LoreAgent {
   /** @type {Map<AgentTask, import("@earendil-works/pi-coding-agent").AgentSession>} */
   #sessions = new Map();
   #busy = false;
-  #captureSaved = false;
+  #completed = false;
+  #turns = 0;
+  #capped = false;
+  /** @type {AgentTask | null} */
+  #activeTask = null;
 
   /**
    * @param {LoreAgentOptions} options
@@ -160,7 +182,7 @@ export class LoreAgent {
       agentDir: resolve(options.loreHome, ".pi"),
       settingsManager: settings,
       additionalSkillPaths: [options.skillsDir],
-      extensionFactories: [bashPolicyExtension((command, action) => agent.#approve(command, action), () => options.emit({ type: "stopped", text: STOPPED }))],
+      extensionFactories: [bashPolicyExtension((command, action) => agent.#approve(command, action), () => agent.#stopCurrent())],
       noExtensions: true,
       noPromptTemplates: true,
       noThemes: true,
@@ -169,6 +191,7 @@ export class LoreAgent {
         "You are Lore's desktop agent, talking with the owner inside the Lore app.",
         "Follow the skill named in the first message exactly and skip its install steps because Lore is already provisioned.",
         "Ask the owner everything through ask_user — decisions and open questions alike; offer the likely answers as options, and the owner can always type their own. Never end a turn with a question in prose.",
+        "During onboarding, gather evidence first, then call propose_blueprint once with one bounded proposal; that tool saves the owner-approved shape.",
         "Never mention tools, commands, or files to the owner; speak about memories, their Lore, and their store.",
         "Bash policy is enforced outside this prompt."
       ].join(" ")
@@ -181,16 +204,23 @@ export class LoreAgent {
   /** @param {string} loreHome @param {AgentTask} task */
   static sessionFor(loreHome, task) {
     const dir = resolve(loreHome, ".pi", "sessions", task);
-    const manager = task === "setup" ? SessionManager.continueRecent(loreHome, dir) : SessionManager.create(loreHome, dir);
-    const last = manager.buildSessionContext().messages.at(-1);
-    if (last?.role === "assistant") {
-      for (const block of last.content) {
-        if (block.type === "toolCall") {
-          manager.appendMessage({ role: "toolResult", toolCallId: block.id, toolName: block.name, content: [{ type: "text", text: CLOSED }], isError: true, timestamp: Date.now() });
-        }
-      }
+    const recent = SessionManager.continueRecent(loreHome, dir);
+    const record = latestTaskRecord(recent, task);
+    const manager = record?.state !== "done" && (record || (task === "setup" && recent.buildSessionContext().messages.length))
+      ? recent
+      : SessionManager.create(loreHome, dir);
+    return repairInterrupted(manager, task);
+  }
+
+  /** @param {string} loreHome @returns {TaskRecord[]} */
+  static tasks(loreHome) {
+    /** @type {TaskRecord[]} */
+    const records = [];
+    for (const kind of /** @type {AgentTask[]} */ (Object.keys(TASKS))) {
+      const record = latestTaskRecord(SessionManager.continueRecent(loreHome, resolve(loreHome, ".pi", "sessions", kind)), kind);
+      if (record && record.state !== "done") records.push(record);
     }
-    return manager;
+    return records.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)).slice(0, 3);
   }
 
   /** @param {string} loreHome @param {AgentTask} task @returns {Line[]} */
@@ -217,6 +247,15 @@ export class LoreAgent {
         } catch {
           // An old or interrupted tool result should not hide the rest of the thread.
         }
+      } else if (message.role === "toolResult" && message.toolName === "propose_blueprint" && !message.isError) {
+        const first = message.content[0];
+        if (first?.type !== "text") continue;
+        try {
+          const fields = JSON.parse(first.text);
+          if (validBlueprint(fields)) lines.push({ text: `${fields.name} · ${fields.persona} · ${fields.topic_outline.join(", ")}`, owner: true });
+        } catch {
+          // Ignore an old malformed result and keep restoring the thread.
+        }
       }
     }
     return lines;
@@ -227,15 +266,42 @@ export class LoreAgent {
     return LoreAgent.history(this.options.loreHome, task);
   }
 
+  tasks() {
+    return LoreAgent.tasks(this.options.loreHome).map((record) =>
+      this.#sessions.has(record.kind) ? record : { ...record, state: /** @type {TaskState} */ ("stopped"), phase: "Ready to resume" }
+    );
+  }
+
+  /** @param {import("@earendil-works/pi-coding-agent").AgentSession} session @param {AgentTask} task @param {TaskState} state @param {string} [phase] */
+  #record(session, task, state, phase) {
+    const record = appendTaskRecord(session.sessionManager, task, state, phase);
+    this.options.emit({ type: "task", task: record });
+    return record;
+  }
+
+  #stopCurrent() {
+    const task = this.#activeTask;
+    const session = task && this.#sessions.get(task);
+    if (task && session) this.#record(session, task, "stopped", "Needs another try");
+    this.options.emit({ type: "stopped", text: STOPPED });
+  }
+
   /** @param {string} command @param {BashAction} action */
   async #approve(command, action) {
-    const approved = await this.options.approveBash(command, action);
-    if (approved && action.kind === "capture") this.#captureSaved = true;
-    return approved;
+    const task = this.#activeTask;
+    const session = task && this.#sessions.get(task);
+    if (task && session) this.#record(session, task, "needs_you");
+    try {
+      const approved = await this.options.approveBash(command, action);
+      if (approved && ((task === "capture" && action.kind === "capture") || (task === "setup" && action.kind === "profile"))) this.#completed = true;
+      return approved;
+    } finally {
+      if (task && session) this.#record(session, task, "working");
+    }
   }
 
   async status() {
-    return { credentials: await this.options.credentials.list(), busy: this.#busy };
+    return { credentials: await this.options.credentials.list() };
   }
 
   /** @param {string} providerId @param {"oauth" | "api_key"} type @param {string | undefined} secret */
@@ -265,18 +331,30 @@ export class LoreAgent {
     if (this.#busy) throw new Error("Lore is already working");
     if (!text.trim()) throw new Error("Nothing to capture");
     this.#busy = true;
+    this.#activeTask = task;
+    this.#completed = false;
+    this.#turns = 0;
+    this.#capped = false;
     this.options.emit({ type: "working", active: true });
     try {
-      if (task === "publish" || (task === "capture" && this.#captureSaved)) {
-        this.#sessions.get(task)?.dispose();
+      const open = this.#sessions.get(task);
+      if (open && latestTaskRecord(open.sessionManager, task)?.state === "done") {
+        open.dispose();
         this.#sessions.delete(task);
-        this.#captureSaved = false;
       }
       const existing = this.#sessions.get(task);
       const [session, resumed] = existing ? [existing, true] : await this.#newSession(task);
+      this.#record(session, task, "working");
       await session.prompt(resumed ? text : `/skill:${SKILLS[task]}\n\n${text}`);
+      const closing = closingRecord(latestTaskRecord(session.sessionManager, task)?.state, task, this.#completed);
+      if (closing) this.#record(session, task, closing[0], closing[1]);
+    } catch (error) {
+      const session = this.#sessions.get(task);
+      if (session && latestTaskRecord(session.sessionManager, task)?.state !== "stopped") this.#record(session, task, "stopped", "Needs another try");
+      throw error;
     } finally {
       this.#busy = false;
+      this.#activeTask = null;
       this.options.emit({ type: "working", active: false });
     }
   }
@@ -284,7 +362,7 @@ export class LoreAgent {
   dispose() {
     for (const session of this.#sessions.values()) session.dispose();
     this.#sessions.clear();
-    this.#captureSaved = false;
+    this.#activeTask = null;
   }
 
   /** @param {AgentTask} task @returns {Promise<[import("@earendil-works/pi-coding-agent").AgentSession, boolean]>} */
@@ -302,7 +380,7 @@ export class LoreAgent {
       resourceLoader: this.resources,
       settingsManager: this.settings,
       sessionManager,
-      tools: ["read", "bash", "ask_user"],
+      tools: ["read", "bash", "ask_user", "propose_blueprint"],
       customTools: [
         createBashTool(this.options.loreHome, {
           spawnHook: (context) => ({
@@ -315,7 +393,8 @@ export class LoreAgent {
             }
           })
         }),
-        this.#askTool()
+        this.#askTool(),
+        this.#blueprintTool()
       ]
     });
     session.subscribe((event) => {
@@ -329,8 +408,12 @@ export class LoreAgent {
       if (event.type === "tool_execution_end" && event.toolName === "bash") this.options.emit({ type: "changed" });
       if (event.type !== "message_end" || event.message.role !== "assistant") return;
       if (event.message.stopReason === "error" || event.message.stopReason === "aborted") {
-        this.options.emit({ type: "message", text: event.message.errorMessage || "Lore's model did not answer." });
+        this.options.emit({ type: "message", text: this.#capped ? CAPPED : event.message.errorMessage || "Lore's model did not answer." });
         return;
+      }
+      if (++this.#turns >= MAX_TURNS && !this.#capped) {
+        this.#capped = true;
+        void session.abort();
       }
       const text = event.message.content
         .map((block) => (block.type === "text" ? block.text : ""))
@@ -359,10 +442,48 @@ export class LoreAgent {
       label: "Ask the owner",
       description: "Ask the owner structured questions. Offer the likely answers as options; the owner can always type something else.",
       parameters,
-      execute: async (_id, { questions }) => ({
-        content: [{ type: "text", text: JSON.stringify({ answers: await this.options.askUser(questions) }) }],
-        details: {}
-      })
+      execute: async (_id, { questions }) => {
+        const task = this.#activeTask;
+        const session = task && this.#sessions.get(task);
+        if (task && session) this.#record(session, task, "needs_you");
+        try {
+          return { content: [{ type: "text", text: JSON.stringify({ answers: await this.options.askUser(questions) }) }], details: {} };
+        } finally {
+          if (task && session) this.#record(session, task, "working");
+        }
+      }
+    });
+  }
+
+  #blueprintTool() {
+    const fields = {
+      version: Type.Literal(1),
+      name: Type.String({ minLength: 1, maxLength: 200 }),
+      persona: Type.Union(PERSONAS.map((persona) => Type.Literal(persona))),
+      organizing_axis: Type.Optional(Type.Union(AXES.map((axis) => Type.Literal(axis)))),
+      topic_outline: Type.Array(Type.String({ maxLength: 300 }), { minItems: 1, maxItems: 50 }),
+      focus_topics: Type.Array(Type.String({ maxLength: 300 }), { maxItems: 50 }),
+      general_areas: Type.Array(Type.String({ maxLength: 300 }), { maxItems: 50 }),
+      storytelling: Type.String({ minLength: 1, maxLength: 1000 })
+    };
+    return defineTool({
+      name: "propose_blueprint",
+      label: "Propose the owner's Lore shape",
+      description: "Show and save one evidence-backed Lore blueprint for the owner to edit. Call once during desktop onboarding.",
+      parameters: Type.Object({ evidence: Type.String({ minLength: 1, maxLength: 240 }), ...fields }),
+      execute: async (_id, { evidence, ...proposal }) => {
+        if (!validBlueprint(proposal)) throw new Error("Invalid blueprint proposal");
+        const task = this.#activeTask;
+        const session = task && this.#sessions.get(task);
+        if (task && session) this.#record(session, task, "needs_you", "Review your Lore shape");
+        try {
+          const edited = await this.options.proposeBlueprint(/** @type {BlueprintFields} */ (proposal), evidence);
+          if (!validBlueprint(edited)) throw new Error("Invalid blueprint edits");
+          return { content: [{ type: "text", text: JSON.stringify(edited) }], details: {} };
+        } finally {
+          if (task && session) this.#record(session, task, "working", "Lore shape saved");
+        }
+      }
     });
   }
 }

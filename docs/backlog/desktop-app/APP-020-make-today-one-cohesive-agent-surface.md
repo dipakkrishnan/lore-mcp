@@ -4,7 +4,7 @@ title: Make Today a simple inbox for unfinished Lore tasks
 priority: P1
 effort: M
 component: desktop-app
-status: ready
+status: completed
 related: [APP-017, APP-018, APP-007, APP-004, APP-009, APP-015, APP-016]
 blockers: [APP-018]
 dependencies: []
@@ -52,16 +52,16 @@ vocabulary, and a low-fi "one thread" alternate).
 
 ## Acceptance criteria
 
-- [ ] Task state is stored as versioned custom Pi session entries and survives
+- [x] Task state is stored as versioned custom Pi session entries and survives
       relaunch; no code derives it from prose, tool arguments, or heredocs.
-- [ ] Today shows no more than three unfinished tasks and one pending card;
+- [x] Today shows no more than three unfinished tasks and one pending card;
       completed work remains in Memories or Store instead of a task ledger.
-- [ ] A pending card is answerable from Today without opening the task.
-- [ ] Opening a task shows only its title/state, phase, thread, current card,
+- [x] A pending card is answerable from Today without opening the task.
+- [x] Opening a task shows only its title/state, phase, thread, current card,
       and reply composer.
-- [ ] Onboarding shows the pre-flight, then one editable blueprint card that
+- [x] Onboarding shows the pre-flight, then one editable blueprint card that
       writes through `lore blueprint apply` on approval.
-- [ ] Tests prove typed task records, task listing, interruption/resume, and
+- [x] Tests prove typed task records, task listing, interruption/resume, and
       the blueprint tool's bounded input.
 
 ## Notes
@@ -73,3 +73,7 @@ working animation. Standing policy remains APP-008 work and must not alter the
 deterministic Bash boundary here. The design canvas remains directional; this
 item's smaller contract is authoritative.
 Approved by Dipak on 2026-08-23 as the implementation contract.
+Implemented with fixed task kinds as their identities and Pi custom entries as the
+only task store. No task database, generated ids, transcript parser, or semantic
+progress tool was needed; lifecycle events supply the useful phase. The old first-run
+step dashboard was removed so Today has one onboarding prompt instead of two.

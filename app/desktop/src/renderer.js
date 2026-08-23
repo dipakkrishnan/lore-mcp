@@ -9,9 +9,11 @@ const title = $("#title");
 const status = $("#status");
 const content = $("#content");
 const account = $("#account");
+const taskBack = /** @type {HTMLButtonElement} */ ($("#task-back"));
 const captureArea = $("#capture");
 const composer = /** @type {HTMLFormElement} */ ($("#composer"));
 const input = /** @type {HTMLTextAreaElement} */ ($("#capture-input"));
+const inputLabel = /** @type {HTMLLabelElement} */ (composer.querySelector("label"));
 const attachmentList = $("#attachments");
 const submit = /** @type {HTMLButtonElement} */ ($("#capture-submit"));
 const agentPanel = $("#agent");
@@ -29,6 +31,12 @@ let auth = null;
 let view = "today";
 /** @type {AgentTask} */
 let task = "capture";
+/** @type {TaskRecord[]} */
+let taskItems = [];
+/** @type {AgentTask | null} */
+let detailTask = null;
+/** @type {TaskRecord | null} */
+let detailRecord = null;
 /** @type {string[]} */
 let attachments = [];
 /** @type {SearchHit[] | null} */
@@ -37,8 +45,6 @@ let liveText = "";
 let previewSignIn = false;
 /** @type {Line[]} */
 const lines = [];
-let resumed = false;
-let firstRunDismissed = false;
 /** @type {PublicationCandidate[]} */
 let candidates = [];
 let approvedThisPass = false;
@@ -56,11 +62,8 @@ const money = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD
 const shortDate = new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric" });
 const longDate = new Intl.DateTimeFormat("en-US", { weekday: "long", month: "long", day: "numeric" });
 const clock = new Intl.DateTimeFormat("en-US", { hour: "numeric" });
-const SETUP_STEPS = /** @type {const} */ ([
-  ["sources_configured", "Connect your agents"],
-  ["blueprint_configured", "Shape your Lore"],
-  ["profile_configured", "Set the rhythm"]
-]);
+const TASK_TITLES = { capture: "Capture a memory", setup: "Set up your Lore", publish: "Publish from your Lore" };
+const TASK_STATES = { needs_you: "Needs you", working: "Working", stopped: "Stopped", done: "Done" };
 
 /**
  * @template {keyof HTMLElementTagNameMap} K
@@ -259,76 +262,33 @@ function needsYou(s) {
     node.append(lead, action);
     rows.push(node);
   };
-  if (task !== "setup") {
-    if (!s.setup.sources_configured) add("Connect your agents", "Let Lore read what Claude Code and Codex already remember.", button("Start", "secondary", startSetup));
-    if (!s.setup.blueprint_configured) add("Tell Lore what it's for", "A five-minute conversation shapes what Lore keeps and what it sells.", button("Start", "secondary", startSetup));
-    if (!s.setup.profile_configured) add("Choose how Lore learns from your agents", "Decide which model writes new memories, and how often.", button("Start", "secondary", startSetup));
-    if (s.library.counts.private && !candidates.length) add("Publish something", "Pick a topic you know well. Lore drafts up to three things to sell; you approve each one.", button("Publish", "secondary", startPublish));
-  }
+  if (!s.setup.sources_configured) add("Connect your agents", "Let Lore read what Claude Code and Codex already remember.", button("Start", "secondary", startSetup));
+  else if (!s.setup.blueprint_configured) add("Shape your Lore", "Review one proposal based on what your agents already know.", button("Start", "secondary", startSetup));
+  else if (!s.setup.profile_configured) add("Set the rhythm", "Choose which model writes new memories, and how often.", button("Start", "secondary", startSetup));
+  else if (s.library.counts.private && !candidates.length) add("Publish something", "Lore drafts up to three things to sell; you approve each one.", button("Publish", "secondary", startPublish));
   return rows;
 }
 
 /** @param {Snapshot} s */
-function firstRun(s) {
-  const found = s.library.sources.filter((source) => source.imported > 0);
-  const node = el("div", "card pad lead");
-  node.style.display = "flex";
-  node.style.flexDirection = "column";
-  node.style.gap = "12px";
-  const says = el("div", "lore-says");
-  says.append(mark(), el("p", "", found.length
-    ? `Your agents already wrote memories — ${found.map((f) => `${f.imported} in ${f.label}`).join(", ")}. Give me about eight minutes and I'll learn the shape you want, draft who you are from what's there, and start writing your Lore on a schedule.`
-    : "Give me about eight minutes and I'll learn the shape you want for your Lore and start writing it on a schedule."));
-  const steps = el("div", "steps");
-  for (const [n, label, detail, time] of [
-    ["1", "Shape your Lore", "Pick how it's organized and how it's told. Five quick questions.", "5 min"],
-    ["2", "Read your agents", "I draft who you are and what's valuable. You correct me.", "2 min"],
-    ["3", "Set the rhythm", "Which model writes new memories, and when.", "1 min"]
-  ]) {
-    const step = el("div", "step");
-    const text = el("div", "t");
-    text.append(el("b", "", label), el("span", "", detail));
-    step.append(el("span", "n", n), text, el("span", "time", time));
-    steps.append(step);
-  }
-  const actions = el("div", "request");
-  actions.style.padding = "0";
-  const foot = el("div", "actions");
-  foot.style.justifyContent = "space-between";
-  foot.style.alignItems = "center";
-  const group = el("div");
-  group.style.display = "flex";
-  group.style.gap = "8px";
-  group.append(button("Later", "quiet", () => { firstRunDismissed = true; render(); }), button("Start", "primary", startSetup));
-  foot.append(el("span", "hint", "Everything stays on this Mac. Nothing is sold unless you approve it."), group);
-  node.append(says, steps, foot);
-  return node;
-}
-
-/** @param {Snapshot} s */
-function setupSteps(s) {
-  const node = el("div", "setup-steps");
-  const now = SETUP_STEPS.findIndex(([flag]) => !s.setup[flag]);
-  for (const [index, [flag, label]] of SETUP_STEPS.entries()) {
-    const step = el("span", s.setup[flag] ? "done" : index === now ? "now" : "");
-    step.append(el("span", "n", s.setup[flag] ? "✓" : String(index + 1)), document.createTextNode(label));
-    node.append(step);
-  }
-  return node;
-}
-
-/** @param {Snapshot} s */
 function renderToday(s) {
-  const setup = task === "setup";
-  const fresh = !setup && !firstRunDismissed && s.library.counts.private === 0 && !s.setup.blueprint_configured && !s.setup.profile_configured;
+  if (detailTask) return [];
   /** @type {HTMLElement[]} */
   const parts = [];
-  if (setup) parts.push(setupSteps(s));
-  if (fresh) parts.push(firstRun(s));
   if (candidates.length) parts.push(section("Approve what to sell", approvals(), el("span", "hint", "Only what you approve ever leaves this Mac.")));
   if (pushOffer) parts.push(seamCard());
-  const attention = fresh ? [] : needsYou(s);
+  const attention = needsYou(s);
   if (attention.length) parts.push(section("Needs you", card(attention)));
+  if (taskItems.length) {
+    parts.push(section("Unfinished", card(taskItems.slice(0, 3).map((item) => {
+      const open = el("button", "row link");
+      open.type = "button";
+      const text = el("div", "t");
+      text.append(el("b", "", item.title), el("span", "", item.phase));
+      open.append(text, chip(TASK_STATES[item.state], item.state === "working" ? "ok" : ""));
+      open.addEventListener("click", () => void openTask(item.kind, item));
+      return open;
+    }))));
+  }
   const strip = el("div", "strip");
   /** @type {Array<[string, string] | null>} */
   const facts = [
@@ -420,8 +380,6 @@ function renderStore(s) {
 
 /** @param {Snapshot} s */
 function renderSettings(s) {
-  const provider = auth?.credentials[0];
-  const [providerName, icon] = provider ? PROVIDERS[/** @type {keyof typeof PROVIDERS} */ (provider.providerId)] ?? [provider.providerId, ""] : ["No one", ""];
   const value = (/** @type {(string | HTMLElement)[]} */ ...parts) => {
     const node = el("div", "v");
     node.append(...parts);
@@ -462,7 +420,7 @@ function renderSettings(s) {
     ])),
     section("Your store", card([
       row("Address", s.node.url ? storeAddress(s.node.url) : "Not opened yet.", value(status(live.state === "online", live.state === "online" ? `Live on ${networkLabel(live.network) || "your node"}` : nodeLabel(live.state))), false),
-      row("Prices", "What a buyer's agent pays per call.", value(Object.assign(el("span", "mono", `${price(s.pricing.publication_usd)} publication${s.pricing.answer_enabled ? ` · ${price(s.pricing.answer_usd)} answer` : ""}`), {})), false)
+      row("Prices", "What a buyer's agent pays per call.", value(el("span", "mono", `${price(s.pricing.publication_usd)} publication${s.pricing.answer_enabled ? ` · ${price(s.pricing.answer_usd)} answer` : ""}`)), false)
     ]))
   ];
 }
@@ -470,12 +428,16 @@ function renderSettings(s) {
 const renderers = { today: renderToday, memories: renderMemories, store: renderStore, settings: renderSettings };
 
 function render() {
-  const heading = { today: greeting(), memories: "Memories", store: "Store", settings: "Settings" }[view];
-  eyebrow.textContent = view === "today" ? longDate.format(new Date()) : "";
+  const detail = view === "today" ? detailTask : null;
+  const heading = detail ? detailRecord?.title ?? TASK_TITLES[detail] : { today: greeting(), memories: "Memories", store: "Store", settings: "Settings" }[view];
+  eyebrow.textContent = detail ? `${TASK_STATES[detailRecord?.state ?? "working"]} · ${detailRecord?.phase ?? "Starting"}` : view === "today" ? longDate.format(new Date()) : "";
   title.textContent = heading;
+  taskBack.hidden = !detail;
   captureArea.hidden = view !== "today";
-  input.placeholder = task === "capture" ? "What did you learn today?" : "Reply to Lore…";
-  submit.textContent = task === "capture" ? "Capture" : "Send";
+  log.hidden = !detail;
+  input.placeholder = detail ? "Reply to Lore…" : "What did you learn today?";
+  inputLabel.textContent = detail ? "Reply to Lore" : "What did you learn today?";
+  submit.textContent = detail ? "Send" : "Capture";
   for (const nav of navButtons) nav.setAttribute("aria-pressed", String(nav.dataset.view === view));
   if (!snapshot) return;
   $("[data-count=memories]").textContent = String(snapshot.library.counts.private);
@@ -515,14 +477,9 @@ function show(next) {
 async function load() {
   status.textContent = snapshot ? "" : "Loading…";
   try {
-    [snapshot, candidates] = await Promise.all([window.lore.snapshot(), window.lore.candidates().catch(() => [])]);
+    [snapshot, candidates, taskItems] = await Promise.all([window.lore.snapshot(), window.lore.candidates().catch(() => []), window.lore.tasks().catch(() => [])]);
     status.textContent = "";
-    if (task === "setup" && snapshot.setup.profile_configured) task = "capture";
-    if (!resumed) {
-      resumed = true;
-      const history = snapshot.setup.profile_configured ? [] : await window.lore.history("setup").catch(() => []);
-      if (history.length) { task = "setup"; lines.push(...history); renderLog(); }
-    }
+    if (detailTask) detailRecord = taskItems.find((item) => item.kind === detailTask) ?? detailRecord;
     render();
   } catch {
     status.textContent = "";
@@ -615,11 +572,6 @@ function renderRequest(event) {
     } else if (action.kind === "import") {
       box.append(el("p", "q", "Import what Claude Code and Codex already remember?"));
       decide("Not now", "Import", "Private. Lore reads their memory files and never changes them.");
-    } else if (action.kind === "blueprint") {
-      const f = action.fields;
-      box.append(el("p", "q", "Use this shape for your Lore?"));
-      fields([["Name", f.name], ["Told as", f.persona], ["Organized by", f.organizing_axis], ["Topics", f.topic_outline], ["In depth", f.focus_topics], ["Lightly", f.general_areas], ["Voice", f.storytelling]]);
-      decide("Not yet", "Use it", "You can reshape it any time from Settings.");
     } else if (action.kind === "profile") {
       const f = action.fields;
       const hour = clock.format(new Date(2000, 0, 1, typeof f.hour === "number" ? f.hour : 21)).toLowerCase();
@@ -669,6 +621,62 @@ function renderRequest(event) {
       }
       respond(event.id, answers, Object.values(answers).filter(Boolean).join(" · "));
     });
+  } else if (event.type === "blueprint") {
+    box.append(el("p", "q", "Use this shape for your Lore?"), el("p", "hint", event.evidence));
+    const inputs = el("div", "blueprint-fields");
+    /** @type {Record<string, HTMLInputElement | HTMLSelectElement>} */
+    const controls = {};
+    const add = (/** @type {string} */ key, /** @type {string} */ label, /** @type {string} */ value) => {
+      const field = el("label");
+      field.append(el("span", "", label));
+      const inputField = el("input");
+      inputField.type = "text";
+      inputField.value = value;
+      field.append(inputField);
+      controls[key] = inputField;
+      inputs.append(field);
+    };
+    add("name", "Name", event.fields.name);
+    for (const [key, label] of [["persona", "Told as"], ["organizing_axis", "Organized by"]]) {
+      const field = el("label");
+      field.append(el("span", "", label));
+      const select = el("select");
+      const choices = key === "persona" ? ["storyteller", "schoolteacher", "professor", "executive", "sage"] : ["chronological", "theme", "project", "knowledge"];
+      for (const choice of choices) {
+        const option = el("option", "", choice);
+        option.value = choice;
+        option.selected = choice === /** @type {Record<string, unknown>} */ (event.fields)[key];
+        select.append(option);
+      }
+      field.append(select);
+      controls[key] = select;
+      inputs.append(field);
+    }
+    add("topic_outline", "Topics", event.fields.topic_outline.join(", "));
+    add("focus_topics", "In depth", event.fields.focus_topics.join(", "));
+    add("general_areas", "Lightly", event.fields.general_areas.join(", "));
+    add("storytelling", "Voice", event.fields.storytelling);
+    box.append(inputs);
+    const actions = el("div", "actions");
+    const use = el("button", "btn primary sm", "Use this shape");
+    use.type = "submit";
+    actions.append(use);
+    box.append(actions);
+    box.addEventListener("submit", (submitEvent) => {
+      submitEvent.preventDefault();
+      const list = (/** @type {string} */ key) => controls[key].value.split(",").map((item) => item.trim()).filter(Boolean);
+      const fields = {
+        version: 1,
+        name: controls.name.value.trim(),
+        persona: controls.persona.value,
+        organizing_axis: controls.organizing_axis.value,
+        topic_outline: list("topic_outline"),
+        focus_topics: list("focus_topics"),
+        general_areas: list("general_areas"),
+        storytelling: controls.storytelling.value.trim()
+      };
+      respond(event.id, fields, `${fields.name} · ${fields.persona} · ${fields.topic_outline.join(", ")}`);
+    });
   } else {
     box.append(el("p", "q", event.prompt.message));
     /** @type {HTMLInputElement | HTMLSelectElement} */
@@ -714,16 +722,34 @@ async function respond(id, value, echo) {
 }
 
 async function startSetup() {
-  task = "setup";
-  show("today");
+  await openTask("setup");
   await send("Let's set up my Lore.");
 }
 
 async function startPublish() {
-  task = "publish";
-  show("today");
+  await openTask("publish");
   await send("Help me publish something from my Lore.");
+}
+
+/** @param {AgentTask} kind @param {TaskRecord} [record] */
+async function openTask(kind, record) {
+  task = kind;
+  detailTask = kind;
+  detailRecord = record ?? taskItems.find((item) => item.kind === kind) ?? null;
+  lines.splice(0, lines.length, ...await window.lore.history(kind).catch(() => []));
+  liveText = "";
+  show("today");
+  renderLog();
+}
+
+function closeTask() {
+  detailTask = null;
+  detailRecord = null;
   task = "capture";
+  lines.splice(0);
+  liveText = "";
+  renderLog();
+  render();
 }
 
 function approvals() {
@@ -843,6 +869,13 @@ window.lore.onAgentEvent((event) => {
   else if (event.type === "changed") void load();
   else if (event.type === "message") say(event.text);
   else if (event.type === "stopped") { say(event.text, false, true); input.focus(); }
+  else if (event.type === "task") {
+    if (detailTask === event.task.kind) detailRecord = event.task;
+    taskItems = event.task.state === "done"
+      ? taskItems.filter((item) => item.kind !== event.task.kind)
+      : [event.task, ...taskItems.filter((item) => item.kind !== event.task.kind)].slice(0, 3);
+    render();
+  }
   else if (event.type === "progress") {
     if (event.done) {
       welcome.classList.remove("provisioning");
@@ -851,7 +884,7 @@ window.lore.onAgentEvent((event) => {
     } else {
       welcome.classList.add("provisioning");
       welcomeNote.textContent = event.error ?? event.text ?? "";
-      if (!auth) { auth = { credentials: [], busy: false }; enter(); }
+      if (!auth) { auth = { credentials: [] }; enter(); }
     }
   } else if (event.type === "dismiss") {
     if (/** @type {HTMLElement | null} */ (requestSlot.firstElementChild)?.dataset.id === event.id) { requestSlot.replaceChildren(); renderLog(); }
@@ -865,6 +898,13 @@ composer.addEventListener("submit", async (event) => {
   event.preventDefault();
   const text = input.value.trim();
   if (!text && !attachments.length) return;
+  if (!detailTask) {
+    task = "capture";
+    detailTask = "capture";
+    detailRecord = null;
+    lines.splice(0);
+    render();
+  }
   input.value = "";
   input.style.height = "";
   await send(text || "Please read the attached files.");
@@ -906,7 +946,12 @@ document.addEventListener("drop", (event) => {
   if (attachments.length) show("today");
 });
 
-for (const nav of navButtons) nav.addEventListener("click", () => show(/** @type {View} */ (nav.dataset.view)));
+taskBack.addEventListener("click", closeTask);
+for (const nav of navButtons) nav.addEventListener("click", () => {
+  const next = /** @type {View} */ (nav.dataset.view);
+  if (next === "today" && detailTask) closeTask();
+  else show(next);
+});
 let searchTimer = 0;
 let searchSeq = 0;
 search.addEventListener("input", () => {
@@ -943,11 +988,11 @@ keyForm.addEventListener("submit", (event) => {
   void signIn(provider, "api_key", value);
 });
 
-Object.assign(window, { __lore: { show, preview: renderRequest, signIn: () => { previewSignIn = true; auth = { credentials: [{ providerId: "anthropic", type: "oauth" }], busy: false }; enter(); } } });
+Object.assign(window, { __lore: { show, preview: renderRequest, signIn: () => { previewSignIn = true; auth = { credentials: [{ providerId: "anthropic", type: "oauth" }] }; enter(); } } });
 
 function boot() {
   if (previewSignIn) return;
-  window.lore.agentStatus().then((result) => { auth = result; enter(); }).catch(() => { auth = { credentials: [], busy: false }; enter(); });
+  window.lore.agentStatus().then((result) => { auth = result; enter(); }).catch(() => { auth = { credentials: [] }; enter(); });
 }
 
 boot();

@@ -71,8 +71,7 @@ test("auto-allows a complete read-only Lore command without prompting", async ()
     'ls "${CLAUDE_HOME:-$HOME/.claude}/projects"',
     'ls "${CLAUDE_HOME:-$HOME/.claude}"/projects/*/memory/*.md 2>/dev/null',
     'ls "${CODEX_HOME:-$HOME/.codex}/memories" "${CODEX_HOME:-$HOME/.codex}/automations" 2>/dev/null',
-    'ls -lt "${CLAUDE_HOME:-$HOME/.claude}"/projects/*/*.jsonl 2>/dev/null',
-    `cat > "\${LORE_HOME:-$HOME/.lore}/automation/onboarding.json" <<'LORE_CHECKPOINT'\n{"phase1_done":true,"role":"maintainer","domains":"systems","valuable_context":"reviews","preferences":"concise","boundaries":"private","executor":"claude","model":"sonnet","cadence":"daily","hour":21}\nLORE_CHECKPOINT`
+    'ls -lt "${CLAUDE_HOME:-$HOME/.claude}"/projects/*/*.jsonl 2>/dev/null'
   ];
   for (const command of commands) assert.equal(await handler(bashEvent(command)), undefined, command);
   assert.equal(prompted, false);
@@ -127,49 +126,12 @@ test("only a non-empty array of titled memories counts as a capture", async () =
 
 test("setup writes ask once each and carry what they mean", async () => {
   const { classifyBash } = await import("../src/agent.mjs");
-  const blueprint = { version: 1, name: "Ada", persona: "professor", topic_outline: ["consensus"], storytelling: "Lectures." };
   const profile = { role: "maintainer", executor: "claude", cadence: "daily", hour: 21 };
   assert.deepEqual(classifyBash("lore setup --yes"), { kind: "import" });
-  assert.deepEqual(
-    classifyBash(`lore blueprint apply - <<'LORE_BLUEPRINT'\n${JSON.stringify(blueprint, null, 2)}\nLORE_BLUEPRINT`),
-    { kind: "blueprint", fields: blueprint }
-  );
   assert.deepEqual(classifyBash(`lore profile - <<'LORE_PROFILE'\n${JSON.stringify(profile)}\nLORE_PROFILE`), { kind: "profile", fields: profile });
   for (const body of ["[]", '["x"]', "not json", "null", '"text"']) {
-    assert.equal(classifyBash(`lore blueprint apply - <<'LORE_BLUEPRINT'\n${body}\nLORE_BLUEPRINT`), null, body);
     assert.equal(classifyBash(`lore profile - <<'LORE_PROFILE'\n${body}\nLORE_PROFILE`), null, body);
   }
-});
-
-test("a malformed checkpoint is refused with the reason and the turn goes on", async () => {
-  const { classifyBash } = await import("../src/agent.mjs");
-  let prompted = false;
-  const handler = await bashHandler(async () => {
-    prompted = true;
-    return true;
-  });
-  const wrap = (/** @type {string} */ body) => `cat > "\${LORE_HOME:-$HOME/.lore}/automation/onboarding.json" <<'LORE_CHECKPOINT'\n${body}\nLORE_CHECKPOINT`;
-  const full = { phase1_done: false, role: "", domains: "", valuable_context: "", preferences: "", boundaries: "", executor: "", model: "", cadence: "daily", hour: 21 };
-  assert.equal(classifyBash(wrap(JSON.stringify(full))), "allow");
-  assert.equal(classifyBash(wrap(JSON.stringify({ ...full, name: "Ada", persona: "professor", topic_outline: ["consensus"], focus_topics: [], general_areas: [], storytelling: "Lectures." }))), "allow");
-  for (const [body, reason] of [
-    ["{}", /"phase1_done" is missing/],
-    ["not json", /not valid JSON/],
-    ["[]", /must be a JSON object/],
-    [`{}\nLORE_CHECKPOINT\nrm -rf ~`, /not valid JSON/],
-    [JSON.stringify({ ...full, path: "/etc/passwd" }), /"path" is not a checkpoint field/],
-    [JSON.stringify({ ...full, role: {} }), /"role" must be a string/],
-    [JSON.stringify({ ...full, model: null }), /"model" must be a string/],
-    [JSON.stringify({ ...full, topic_outline: "consensus" }), /"topic_outline" must be a list of strings/],
-    [JSON.stringify({ ...full, cadence: "monthly" }), /"cadence" must be "daily" or "weekly"/],
-    [JSON.stringify({ ...full, hour: 24 }), /"hour" must be a whole number from 0 to 23/]
-  ]) {
-    const result = await handler(bashEvent(wrap(body)));
-    assert.equal(result.block, true, body);
-    assert.equal(result.terminate, undefined, body);
-    assert.match(result.reason, /** @type {RegExp} */ (reason), body);
-  }
-  assert.equal(prompted, false);
 });
 
 test("hard-denies malformed, non-Lore, compound, and owner-only commands", async () => {
@@ -201,6 +163,7 @@ test("hard-denies malformed, non-Lore, compound, and owner-only commands", async
     "lore setup",
     "lore setup --yes --source codex",
     "lore blueprint apply blueprint.json",
+    "lore blueprint apply - <<'LORE_BLUEPRINT'\n{}\nLORE_BLUEPRINT",
     "lore blueprint apply - <<'EOF'\n{}\nEOF",
     "lore blueprint apply - < blueprint.json",
     "lore profile ~/.lore/automation/onboarding.json",
@@ -215,6 +178,7 @@ test("hard-denies malformed, non-Lore, compound, and owner-only commands", async
     'ls -la "${CLAUDE_HOME:-$HOME/.claude}/projects"',
     'ls "${CODEX_HOME:-$HOME/.codex}"',
     'cat "${LORE_HOME:-$HOME/.lore}/automation/onboarding.json"',
+    `cat > "\${LORE_HOME:-$HOME/.lore}/automation/onboarding.json" <<'LORE_CHECKPOINT'\n{"phase1_done":true}\nLORE_CHECKPOINT`,
     `cat > "$LORE_HOME/automation/onboarding.json" <<'LORE_CHECKPOINT'\n{}\nLORE_CHECKPOINT`,
     `cat > "\${LORE_HOME:-$HOME/.lore}/automation/profile.json" <<'LORE_CHECKPOINT'\n{}\nLORE_CHECKPOINT`,
     `cat > "\${LORE_HOME:-$HOME/.lore}/automation/onboarding.json" <<'EOF'\n{}\nEOF`,
@@ -251,8 +215,92 @@ test("sessions persist per task, come back as a thread, and a cut-off tool call 
     const messages = resumed.buildSessionContext().messages;
     assert.equal(messages.length, 6);
     assert.deepEqual({ role: messages[5].role, toolCallId: messages[5].toolCallId, isError: messages[5].isError }, { role: "toolResult", toolCallId: "call-2", isError: true });
+    assert.deepEqual(LoreAgent.tasks(home).map(({ kind, state, phase }) => ({ kind, state, phase })), [
+      { kind: "setup", state: "stopped", phase: "Ready to resume" }
+    ]);
     assert.equal(SessionManager.create(home).buildSessionContext().messages.length, 0);
     assert.equal(LoreAgent.sessionFor(home, "capture").buildSessionContext().messages.length, 0);
+  } finally {
+    await rm(home, { recursive: true });
+  }
+});
+
+test("typed task records survive relaunch and only unfinished known tasks are listed", async () => {
+  const { LoreAgent, latestTaskRecord } = await import("../src/agent.mjs");
+  const { SessionManager } = await import("@earendil-works/pi-coding-agent");
+  const home = await mkdtemp(join(tmpdir(), "lore-desktop-"));
+  try {
+    const write = (kind, data) => {
+      const manager = SessionManager.create(home, join(home, ".pi", "sessions", kind));
+      manager.appendCustomEntry("lore.task", data);
+      manager.appendMessage({ role: "assistant", content: [{ type: "text", text: "Started." }], api: "anthropic-messages", provider: "anthropic", model: "m", usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } }, stopReason: "stop", timestamp: 1 });
+      return manager;
+    };
+    const capture = write("capture", { version: 1, kind: "capture", title: "Capture a memory", state: "working", phase: "Review the capture" });
+    capture.appendCustomEntry("lore.task", { version: 2, kind: "capture", title: "Injected", state: "working", phase: "Bad" });
+    write("setup", { version: 1, kind: "setup", title: "Set up your Lore", state: "needs_you", phase: "Review your Lore shape" });
+    write("publish", { version: 1, kind: "publish", title: "Publish from your Lore", state: "done", phase: "Finished" });
+    assert.equal(latestTaskRecord(capture, "capture").title, "Capture a memory");
+    assert.deepEqual(LoreAgent.tasks(home).map(({ kind, state }) => ({ kind, state })).sort((a, b) => a.kind.localeCompare(b.kind)), [
+      { kind: "capture", state: "working" },
+      { kind: "setup", state: "needs_you" }
+    ]);
+  } finally {
+    await rm(home, { recursive: true });
+  }
+});
+
+test("an early-ended turn stays resumable, and listing never writes to a live session", async () => {
+  const { LoreAgent, closingRecord } = await import("../src/agent.mjs");
+  assert.deepEqual(closingRecord("working", "setup", false), ["stopped", "Ready to resume"]);
+  assert.deepEqual(closingRecord("working", "capture", false), ["stopped", "Ready to resume"]);
+  assert.deepEqual(closingRecord("working", "setup", true), ["done", "Finished"]);
+  assert.deepEqual(closingRecord("working", "publish", false), ["done", "Finished"]);
+  assert.equal(closingRecord("needs_you", "setup", false), null);
+  assert.equal(closingRecord(undefined, "setup", false), null);
+  const home = await mkdtemp(join(tmpdir(), "lore-desktop-"));
+  try {
+    const live = LoreAgent.sessionFor(home, "setup");
+    live.appendMessage({ role: "user", content: "Let's set up my Lore.", timestamp: 1 });
+    live.appendCustomEntry("lore.task", { version: 1, kind: "setup", title: "Set up your Lore", state: "needs_you", phase: "Shape your Lore" });
+    live.appendMessage({ role: "assistant", content: [{ type: "toolCall", id: "q1", name: "ask_user", arguments: {} }], api: "anthropic-messages", provider: "anthropic", model: "m", usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } }, stopReason: "toolUse", timestamp: 2 });
+    const before = (await readFile(live.getSessionFile(), "utf8")).split("\n").filter(Boolean).length;
+    assert.deepEqual(LoreAgent.tasks(home).map(({ kind, state }) => ({ kind, state })), [{ kind: "setup", state: "needs_you" }]);
+    assert.equal((await readFile(live.getSessionFile(), "utf8")).split("\n").filter(Boolean).length, before, "listing must not write");
+    const idle = new LoreAgent(/** @type {LoreAgentOptions} */ ({ loreHome: home }), /** @type {never} */ (null), /** @type {never} */ (null), /** @type {never} */ (null));
+    assert.deepEqual(idle.tasks().map(({ state, phase }) => ({ state, phase })), [{ state: "stopped", phase: "Ready to resume" }]);
+    const resumedFile = LoreAgent.sessionFor(home, "setup").getSessionFile();
+    assert.equal(resumedFile, live.getSessionFile(), "a resumable session continues the same file");
+  } finally {
+    await rm(home, { recursive: true });
+  }
+});
+
+test("the blueprint proposal boundary accepts only the CLI's bounded shape", async () => {
+  const { validBlueprint } = await import("../src/agent.mjs");
+  const { lore } = require("../src/state.cjs");
+  const valid = {
+    version: 1,
+    name: "Ada",
+    persona: "professor",
+    organizing_axis: "knowledge",
+    topic_outline: ["distributed systems"],
+    focus_topics: ["consensus"],
+    general_areas: [],
+    storytelling: "Concise lectures"
+  };
+  assert.equal(validBlueprint(valid), true);
+  for (const invalid of [
+    { ...valid, version: 2 },
+    { ...valid, persona: "wizard" },
+    { ...valid, topic_outline: [] },
+    { ...valid, source_path: "/etc/passwd" },
+    { ...valid, storytelling: "x".repeat(1001) }
+  ]) assert.equal(validBlueprint(invalid), false);
+  const home = await mkdtemp(join(tmpdir(), "lore-desktop-"));
+  try {
+    await lore(home, ["blueprint", "apply", "-"], JSON.stringify(valid));
+    assert.equal(JSON.parse(await readFile(join(home, "blueprint", "blueprint.json"), "utf8")).name, "Ada");
   } finally {
     await rm(home, { recursive: true });
   }

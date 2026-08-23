@@ -125,6 +125,8 @@ main:focus { outline: none; }
 main { flex: 1; min-width: 0; overflow: auto; padding: 28px 44px 26px; display: flex; flex-direction: column; gap: 30px; }
 #content { display: flex; flex-direction: column; gap: 30px; }
 main header { display: flex; flex-direction: column; gap: 4px; }
+.back { align-self: flex-start; color: var(--accent); font-size: 13px; margin-bottom: 4px; }
+.back:hover { text-decoration: underline; }
 .eyebrow { font-size: 12px; color: var(--muted); letter-spacing: 0.02em; }
 .eyebrow:empty { display: none; }
 h1 { font-family: var(--serif); font-weight: 500; font-size: 27px; line-height: 1.15; letter-spacing: -0.01em; }
@@ -199,10 +201,10 @@ legend { font-weight: 500; font-size: 14px; margin-bottom: 6px; }
 .fields { display: grid; grid-template-columns: max-content 1fr; gap: 6px 14px; font-size: 14px; margin: 0; }
 .fields dt { color: var(--muted); }
 .fields dd { margin: 0; color: var(--ink-soft); line-height: 1.5; -webkit-user-select: text; user-select: text; }
-.setup-steps { display: flex; flex-wrap: wrap; gap: 8px 20px; padding-bottom: 6px; font-size: 13px; color: var(--muted); }
-.setup-steps > span { display: inline-flex; align-items: center; gap: 8px; }
-.setup-steps .now { color: var(--ink); font-weight: 500; }
-.setup-steps .done { color: var(--accent); }
+.blueprint-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.blueprint-fields label { display: flex; flex-direction: column; gap: 4px; color: var(--muted); font-size: 12px; }
+.blueprint-fields label:nth-child(4), .blueprint-fields label:nth-child(7) { grid-column: 1 / -1; }
+.blueprint-fields input, .blueprint-fields select { color: var(--ink); }
 .request pre { margin: 0; padding: 10px 12px; border-radius: var(--radius-sm); background: var(--hover); font-family: var(--mono); font-size: 12px; white-space: pre-wrap; -webkit-user-select: text; user-select: text; }
 
 /* Rows */
@@ -229,19 +231,6 @@ legend { font-weight: 500; font-size: 14px; margin-bottom: 6px; }
 .chip.ok { background: var(--accent-soft); color: var(--accent); }
 .strip { display: flex; flex-wrap: wrap; gap: 8px 22px; font-size: 13px; color: var(--muted); padding-top: 8px; border-top: 1px solid var(--line); }
 .strip b { color: var(--ink); font-weight: 500; font-family: var(--mono); }
-
-/* First run */
-.steps { display: flex; flex-direction: column; }
-.step { display: flex; gap: 14px; align-items: flex-start; padding: 12px 0; border-top: 1px solid var(--line-soft); }
-.step:first-child { border-top: 0; }
-.step .n, .setup-steps .n { width: 24px; height: 24px; border-radius: 50%; background: var(--accent-soft); color: var(--accent); display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 600; flex-shrink: 0; font-family: var(--mono); }
-.step .t { display: flex; flex-direction: column; gap: 2px; }
-.step b { font-weight: 500; font-size: 14px; }
-.step span { font-size: 13px; color: var(--muted); }
-.step .time { margin-left: auto; font-size: 12px; color: var(--faint); white-space: nowrap; font-family: var(--mono); }
-.lore-says { display: flex; gap: 12px; align-items: flex-start; }
-.lore-says .mark { width: 22px; height: 22px; border-radius: 6px; margin-top: 2px; }
-.lore-says p { font-size: 14px; }
 
 /* Store status */
 .store-bar { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 16px 20px; }
