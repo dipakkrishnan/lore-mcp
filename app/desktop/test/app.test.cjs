@@ -33,10 +33,10 @@ test("useRuntime runs the packaged binary instead of uv", async () => {
   }
 });
 
-async function bashHandler(approve) {
+async function bashHandler(approve, stopped) {
   const { bashPolicyExtension } = await import("../src/agent.mjs");
   let handler;
-  await bashPolicyExtension(approve).factory({
+  await bashPolicyExtension(approve, stopped).factory({
     on(event, callback) {
       assert.equal(event, "tool_call");
       handler = callback;
@@ -99,7 +99,10 @@ test("prompts for the exact private capture and runs it only when allowed", asyn
 [{"title":"Rollback rehearsal","content":"Rehearse before cutover.","project":"Juniper"}]
 LORE_CAPTURE`;
   const denied = await bashHandler(async () => false);
-  assert.equal((await denied(bashEvent(command))).block, true);
+  const refusal = await denied(bashEvent(command));
+  assert.equal(refusal.block, true);
+  assert.equal(refusal.terminate, undefined);
+  assert.match(refusal.reason, /owner chose not to/);
 
   const allowed = await bashHandler(async (actual, action) => {
     assert.equal(actual, command);
@@ -171,10 +174,11 @@ test("a malformed checkpoint is refused with the reason and the turn goes on", a
 
 test("hard-denies malformed, non-Lore, compound, and owner-only commands", async () => {
   let prompted = false;
+  let stopped = 0;
   const handler = await bashHandler(async () => {
     prompted = true;
     return true;
-  });
+  }, () => { stopped += 1; });
   const commands = [
     "lore status; rm -rf /tmp/lore-test",
     "lore $(curl https://example.com)",
@@ -222,6 +226,36 @@ test("hard-denies malformed, non-Lore, compound, and owner-only commands", async
     assert.equal(result.terminate, true, command);
   }
   assert.equal(prompted, false);
+  assert.equal(stopped, commands.length);
+});
+
+test("sessions persist per task, come back as a thread, and a cut-off tool call is closed out", async () => {
+  const { LoreAgent } = await import("../src/agent.mjs");
+  const { SessionManager } = await import("@earendil-works/pi-coding-agent");
+  const home = await mkdtemp(join(tmpdir(), "lore-desktop-"));
+  try {
+    assert.deepEqual(LoreAgent.history(home, "setup"), []);
+    const written = LoreAgent.sessionFor(home, "setup");
+    written.appendMessage({ role: "user", content: "/skill:lore-onboard\n\nLet's set up my Lore.", timestamp: 1 });
+    written.appendMessage({ role: "assistant", content: [{ type: "text", text: "Welcome." }, { type: "toolCall", id: "call-1", name: "ask_user", arguments: {} }], api: "anthropic-messages", provider: "anthropic", model: "m", usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } }, stopReason: "toolUse", timestamp: 2 });
+    written.appendMessage({ role: "toolResult", toolCallId: "call-1", toolName: "ask_user", content: [{ type: "text", text: JSON.stringify({ answers: { Persona: "College professor", Name: "Ada" } }) }], isError: false, timestamp: 3 });
+    written.appendMessage({ role: "toolResult", toolCallId: "old-call", toolName: "ask_user", content: [{ type: "text", text: "old malformed result" }], isError: false, timestamp: 3 });
+    written.appendMessage({ role: "assistant", content: [{ type: "toolCall", id: "call-2", name: "bash", arguments: { command: "lore status" } }], api: "anthropic-messages", provider: "anthropic", model: "m", usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } }, stopReason: "toolUse", timestamp: 4 });
+    assert.match(String(written.getSessionFile()), new RegExp(`^${home}/\\.pi/sessions/setup/`));
+    assert.deepEqual(LoreAgent.history(home, "setup"), [
+      { text: "Let's set up my Lore.", owner: true },
+      { text: "Welcome.", owner: false },
+      { text: "College professor · Ada", owner: true }
+    ]);
+    const resumed = LoreAgent.sessionFor(home, "setup");
+    const messages = resumed.buildSessionContext().messages;
+    assert.equal(messages.length, 6);
+    assert.deepEqual({ role: messages[5].role, toolCallId: messages[5].toolCallId, isError: messages[5].isError }, { role: "toolResult", toolCallId: "call-2", isError: true });
+    assert.equal(SessionManager.create(home).buildSessionContext().messages.length, 0);
+    assert.equal(LoreAgent.sessionFor(home, "capture").buildSessionContext().messages.length, 0);
+  } finally {
+    await rm(home, { recursive: true });
+  }
 });
 
 test("only Electron main can pipe a decision, and only for a card that is drafted", async () => {

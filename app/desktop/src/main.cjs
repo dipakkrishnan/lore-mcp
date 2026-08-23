@@ -46,6 +46,10 @@ function registerIpc(loreHome) {
     }
     return agent.prompt(input.text, input.task);
   });
+  ipcMain.handle("agent:history", (_event, task) => {
+    if (!TASKS.has(task)) throw new Error("Invalid task");
+    return agent.history(task);
+  });
   ipcMain.handle("agent:respond", (_event, response) => {
     if (!response || typeof response.id !== "string" || !pending.has(response.id)) {
       throw new Error("Unknown agent request");

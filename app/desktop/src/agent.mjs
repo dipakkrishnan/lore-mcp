@@ -53,6 +53,8 @@ const CHECKPOINT_DRAFT = {
   storytelling: "string"
 };
 const SKILLS = { capture: "lore-capture", setup: "lore-onboard", publish: "lore-publish" };
+const STOPPED = "Lore stopped before doing something it isn't allowed to do here. Tell it how to continue.";
+const CLOSED = "Lore was closed before this finished.";
 const MODELS = ["anthropic/claude-sonnet-5", "openai-codex/gpt-5.6-luna", "openai/gpt-5.6-luna"];
 
 /** @param {unknown} body @returns {string[]} */
@@ -107,8 +109,8 @@ export function classifyBash(command) {
   return null;
 }
 
-/** @param {(command: string, action: BashAction) => Promise<boolean>} approve */
-export function bashPolicyExtension(approve) {
+/** @param {(command: string, action: BashAction) => Promise<boolean>} approve @param {() => void} [stopped] */
+export function bashPolicyExtension(approve, stopped = () => {}) {
   return {
     name: "bash-policy",
     hidden: true,
@@ -120,12 +122,9 @@ export function bashPolicyExtension(approve) {
         const action = classifyBash(command);
         if (action === "allow") return;
         if (action?.kind === "malformed") return { block: true, reason: action.reason };
-        if (action && (await approve(command, action))) return;
-        return {
-          block: true,
-          reason: action ? "The owner chose not to do this." : "Lore blocked a command outside the desktop policy.",
-          terminate: true
-        };
+        if (action) return (await approve(command, action)) ? undefined : { block: true, reason: "The owner chose not to do this. Ask them how to continue." };
+        stopped();
+        return { block: true, reason: "Lore blocked a command outside the desktop policy.", terminate: true };
       });
     }
   };
@@ -161,7 +160,7 @@ export class LoreAgent {
       agentDir: resolve(options.loreHome, ".pi"),
       settingsManager: settings,
       additionalSkillPaths: [options.skillsDir],
-      extensionFactories: [bashPolicyExtension((command, action) => agent.#approve(command, action))],
+      extensionFactories: [bashPolicyExtension((command, action) => agent.#approve(command, action), () => options.emit({ type: "stopped", text: STOPPED }))],
       noExtensions: true,
       noPromptTemplates: true,
       noThemes: true,
@@ -177,6 +176,55 @@ export class LoreAgent {
     await resources.reload();
     agent = new LoreAgent(options, models, settings, resources);
     return agent;
+  }
+
+  /** @param {string} loreHome @param {AgentTask} task */
+  static sessionFor(loreHome, task) {
+    const dir = resolve(loreHome, ".pi", "sessions", task);
+    const manager = task === "setup" ? SessionManager.continueRecent(loreHome, dir) : SessionManager.create(loreHome, dir);
+    const last = manager.buildSessionContext().messages.at(-1);
+    if (last?.role === "assistant") {
+      for (const block of last.content) {
+        if (block.type === "toolCall") {
+          manager.appendMessage({ role: "toolResult", toolCallId: block.id, toolName: block.name, content: [{ type: "text", text: CLOSED }], isError: true, timestamp: Date.now() });
+        }
+      }
+    }
+    return manager;
+  }
+
+  /** @param {string} loreHome @param {AgentTask} task @returns {Line[]} */
+  static history(loreHome, task) {
+    const { messages } = SessionManager.continueRecent(loreHome, resolve(loreHome, ".pi", "sessions", task)).buildSessionContext();
+    /** @type {Line[]} */
+    const lines = [];
+    for (const message of messages) {
+      if (message.role === "user") {
+        const text = typeof message.content === "string" ? message.content : message.content.map((block) => (block.type === "text" ? block.text : "")).join("");
+        lines.push({ text: text.replace(/^\/skill:\S+\n\n/, ""), owner: true });
+      } else if (message.role === "assistant") {
+        const text = message.content.map((block) => (block.type === "text" ? block.text : "")).join("").trim();
+        if (text) lines.push({ text, owner: false });
+      } else if (message.role === "toolResult" && message.toolName === "ask_user" && !message.isError) {
+        const first = message.content[0];
+        if (first?.type !== "text") continue;
+        try {
+          const result = /** @type {{answers?: Record<string, unknown>}} */ (JSON.parse(first.text));
+          const answers = result.answers && !Array.isArray(result.answers)
+            ? Object.values(result.answers).filter((value) => typeof value === "string" && value).join(" · ")
+            : "";
+          if (answers) lines.push({ text: answers, owner: true });
+        } catch {
+          // An old or interrupted tool result should not hide the rest of the thread.
+        }
+      }
+    }
+    return lines;
+  }
+
+  /** @param {AgentTask} task */
+  history(task) {
+    return LoreAgent.history(this.options.loreHome, task);
   }
 
   /** @param {string} command @param {BashAction} action */
@@ -225,8 +273,8 @@ export class LoreAgent {
         this.#captureSaved = false;
       }
       const existing = this.#sessions.get(task);
-      const session = existing ?? (await this.#newSession(task));
-      await session.prompt(existing ? text : `/skill:${SKILLS[task]}\n\n${text}`);
+      const [session, resumed] = existing ? [existing, true] : await this.#newSession(task);
+      await session.prompt(resumed ? text : `/skill:${SKILLS[task]}\n\n${text}`);
     } finally {
       this.#busy = false;
       this.options.emit({ type: "working", active: false });
@@ -239,11 +287,13 @@ export class LoreAgent {
     this.#captureSaved = false;
   }
 
-  /** @param {AgentTask} task */
+  /** @param {AgentTask} task @returns {Promise<[import("@earendil-works/pi-coding-agent").AgentSession, boolean]>} */
   async #newSession(task) {
     const { scopedModels } = await resolveModelScopeWithDiagnostics(MODELS, this.models);
     const model = scopedModels.at(0)?.model ?? (await this.models.getAvailable()).at(0);
     if (!model) throw new Error("Sign in with Claude, ChatGPT, or an API key first");
+    const sessionManager = LoreAgent.sessionFor(this.options.loreHome, task);
+    const resumed = sessionManager.buildSessionContext().messages.length > 0;
     const { session } = await createAgentSession({
       cwd: this.options.loreHome,
       agentDir: resolve(this.options.loreHome, ".pi"),
@@ -251,7 +301,7 @@ export class LoreAgent {
       model,
       resourceLoader: this.resources,
       settingsManager: this.settings,
-      sessionManager: SessionManager.inMemory(this.options.loreHome),
+      sessionManager,
       tools: ["read", "bash", "ask_user"],
       customTools: [
         createBashTool(this.options.loreHome, {
@@ -289,7 +339,7 @@ export class LoreAgent {
       if (text) this.options.emit({ type: "message", text });
     });
     this.#sessions.set(task, session);
-    return session;
+    return [session, resumed];
   }
 
   #askTool() {
