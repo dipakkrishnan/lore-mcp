@@ -770,9 +770,10 @@ input.addEventListener("input", () => {
 input.addEventListener("keydown", (event) => {
   if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); composer.requestSubmit(); }
 });
+const DICTATE_HINT = "Press the dictation key on your keyboard (or fn twice), then speak. Lore listens to whatever lands in the box.";
 $("#dictate").addEventListener("click", () => {
   input.focus();
-  say("Press the dictation key on your keyboard (or fn twice), then speak. Lore listens to whatever lands in the box.");
+  if (lines.at(-1) !== DICTATE_HINT) say(DICTATE_HINT);
 });
 const GUARDED = /(^|\/)\.[^/]*$|\/\.(ssh|aws|gnupg)\/|\.(pem|key|p12|pfx|keychain(-db)?)$|id_(rsa|ed25519|ecdsa)/;
 /** @param {string[]} paths */
