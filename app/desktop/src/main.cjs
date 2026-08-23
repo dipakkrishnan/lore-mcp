@@ -51,6 +51,10 @@ function registerIpc(loreHome) {
     return agent.history(task);
   });
   ipcMain.handle("agent:tasks", () => agent.tasks());
+  ipcMain.handle("agent:restart", (_event, task) => {
+    if (!TASKS.has(task)) throw new Error("Invalid task");
+    agent.restart(task);
+  });
   ipcMain.handle("agent:respond", (_event, response) => {
     if (!response || typeof response.id !== "string" || !pending.has(response.id)) {
       throw new Error("Unknown agent request");
@@ -151,7 +155,6 @@ async function start() {
     binDir: runtime?.binDir,
     credentials,
     emit,
-    approveBash: async (command, action) => (await request("bash-approval", { command, action })) === true,
     askUser: async (questions) =>
       /** @type {Record<string, string>} */ (await request("question", { questions })),
     proposeBlueprint: async (fields, evidence) => {
