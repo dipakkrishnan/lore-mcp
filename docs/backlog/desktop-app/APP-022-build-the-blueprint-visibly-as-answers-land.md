@@ -1,10 +1,10 @@
 ---
 id: APP-022
-title: Build the blueprint visibly as answers land, instead of a history of replies
+title: Build the blueprint visibly during the evidence scan
 priority: P2
 effort: M
 component: desktop-app
-status: in-review
+status: ready
 related: [APP-020, APP-021, APP-009]
 blockers: []
 dependencies: []
@@ -24,24 +24,32 @@ way."
 
 ## Proposed approach
 
-A persistent blueprint panel beside or above the thread during setup: the
-same fields as the propose_blueprint card (name, told-as, topics, depth,
-voice), starting as ghost placeholders and filling in with a small
-animation as each answer or evidence pass lands. The kernel already emits
-typed events at each step (`task` records, ask_user answers,
-propose_blueprint payload); the panel derives from those — no new model
-output format. The final card then reads as "confirm what you watched get
-built" rather than a wall of fields.
+Animate the *evidence scan*, not a replay of the owner's answers: with
+propose-first onboarding there are only one or two cards, so the show
+happens while Lore reads the agents' memories. A ghost blueprint panel
+(name, told-as, topics, depth, voice) sits above the thread; as the scan
+progresses, topics pop in one by one ("lore-mcp… deep-review… learner"),
+depth markers appear, and the owner watches the guess form before being
+asked anything. The panel derives only from typed events the kernel
+already emits (task records, tool progress, the propose_blueprint
+payload) — no prose parsing, no new model output format. The final
+approval card is the same panel switched to confirm mode, so there is one
+component and one source of truth. Motion stays restrained: fields settle
+into place; nothing celebratory; reduced-motion respected.
 
 ## Acceptance criteria
 
-- [ ] During setup, a blueprint panel shows fields filling as answers land,
-      with a subtle animation (reduced-motion respected).
-- [ ] The panel derives only from typed events already emitted; no prose
-      parsing.
-- [ ] The final approval card visually matches the panel the owner watched.
+- [ ] During the evidence scan, the ghost panel fills field by field from
+      typed events; the owner sees the proposal form before any question.
+- [ ] The approval card is the panel in confirm mode — one component.
+- [ ] No prose parsing; reduced-motion honored; nothing animates after the
+      panel is settled.
 
 ## Notes
 
-Filed from mid-dogfood feedback. Pairs with the brevity rule from APP-021 —
-the panel carries the state so messages can stay short.
+Filed from mid-dogfood feedback, rescoped 2026-08-23 after review: the
+original "animate as answers land" framing had little to animate under
+propose-first onboarding. This is also the strongest launch-demo moment —
+an agent visibly assembling your professional shape from your own history.
+Pairs with APP-021's brevity rule: the panel carries state so messages
+stay short.

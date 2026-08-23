@@ -1,10 +1,10 @@
 ---
 id: APP-008
-title: Evaluate learned Bash auto mode after real use
+title: Replace the bash regex boundary with an OS sandbox; cards stay UX
 priority: P2
 effort: M
 component: desktop-app
-status: in-review
+status: ready
 related: [APP-003, APP-004]
 blockers: []
 dependencies: ["Evidence from real owner command and approval usage"]
@@ -15,29 +15,36 @@ updated: 2026-08-23
 
 ## Problem
 
-APP-003's deterministic Bash rules are intentionally narrow. Evolving skill
-commands may eventually create approval friction or remain blocked until the
-rules catch up, but adding a learned classifier before real usage demonstrates
-that problem would add cost and uncertainty to a working security boundary.
+The evidence this item was waiting for arrived on 2026-08-23: the first live
+onboarding stalled on sensible read-only compounds, silently swallowed
+`lore setup --yes`, and ended with the `lore profile` write missing the
+exact regex — "blocked by your Lore store's desktop policy." APP-021
+widened the gate (read-only classifier, guiding non-terminating blocks),
+but string matching is still doing a security boundary's job, and every
+future skill change risks another silent stall.
 
 ## Proposed approach
 
-Wait for real command and approval evidence. If it shows material friction,
-evaluate an optional learned risk signal only inside a deterministic envelope
-of commands already eligible to run; deterministic hard-denies execute first
-and cannot be overridden. Unavailable, uncertain, or malformed classifier
-output falls back to the deterministic decision.
+Sandbox-first, per the 2026-08-23 research below: run the agent's bash
+under Anthropic's sandbox-runtime (seatbelt on macOS) scoped to
+`$LORE_HOME` plus read-only `~/.claude` and `~/.codex`, network off.
+Anything the sandbox contains runs without a prompt; the approval cards
+remain only for the owner-meaning writes (capture, profile, publish
+draft), as UX rather than enforcement. Evaluate `pi-sandbox` as the
+drop-in before hand-rolling; if `sandbox-exec` is unavailable, fall back
+to the current APP-021 policy, never to open bash. A learned classifier
+stays out of scope until the sandbox is the floor.
 
 ## Acceptance criteria
 
-- [ ] Real owner usage demonstrates and documents approval friction or repeated
-      safe-command lag before implementation begins.
-- [ ] Deterministic hard-denies remain authoritative for non-Lore, compound,
-      owner-only, and otherwise unsupported commands regardless of classifier
-      output.
-- [ ] The classifier is described and tested as a prompt-reduction hint, never
-      as a security boundary, and failure falls back to the deterministic
-      policy.
+- [ ] Agent bash runs inside an OS sandbox limited to `$LORE_HOME` (rw),
+      `~/.claude` and `~/.codex` (ro), no network.
+- [ ] The read-only classifier and exact-command table stop being the
+      security boundary; cards still gate capture/profile/publish drafts.
+- [ ] Sandbox unavailable → fall back to the APP-021 policy with a logged
+      warning, never to unrestricted bash.
+- [ ] A command that escapes the sandbox scope fails with a reason the
+      model can act on, without ending the turn.
 - [ ] A bounded comparison shows fewer unnecessary prompts without increasing
       the set of commands eligible to bypass deterministic hard-denies.
 
