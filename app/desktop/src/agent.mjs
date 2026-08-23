@@ -171,6 +171,7 @@ export class LoreAgent {
     /** @type {import("@earendil-works/pi-ai").AuthInteraction} */
     const interaction = {
       prompt: async (prompt) => {
+        if (prompt.type === "select") return prompt.options[0].id;
         if (prompt.type === "secret" && secret) return secret;
         return this.options.authPrompt(prompt);
       },
