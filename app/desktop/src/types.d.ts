@@ -82,7 +82,7 @@ type BashAction =
   | { kind: "capture"; entries: CaptureEntry[] }
   | { kind: "profile"; fields: Record<string, unknown> };
 
-type BashVerdict = "allow" | BashAction | { kind: "malformed"; reason: string } | null;
+type BashVerdict = "allow" | BashAction | null;
 
 type AgentTask = "capture" | "setup" | "publish";
 type TaskState = "needs_you" | "working" | "stopped" | "done";
