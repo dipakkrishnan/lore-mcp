@@ -24,5 +24,6 @@ rm -f "$OUT/wheels/.gitignore" "$OUT/requirements.txt"
 
 WINDUP_VERSION="$(basename "$OUT"/wheels/windup-*.whl | cut -d- -f2)"
 echo "windup==$WINDUP_VERSION" > "$OUT/overrides.txt"
-BUILD_ID="$(ls "$OUT/wheels" | sort | shasum | cut -d' ' -f1)"
+BUILD_ID="$(cd "$OUT/wheels" && cksum ./*.whl | cksum | awk '{print $1}')"
+[ -n "$BUILD_ID" ]
 printf '{"python": "%s", "build": "%s"}\n' "$PYTHON_VERSION" "$BUILD_ID" > "$OUT/runtime.json"
