@@ -49,13 +49,11 @@ Load-bearing rules, in priority order:
    `createAgentSession()` path with native skills, read, and Bash. Lore adds
    only the `ask_user` extension and product prompt. A `tool_call` extension
    holds one table of anchored commands: the skills' read-only commands run
-   silently, each exact write heredoc (capture, import, blueprint, profile)
+   silently, each exact write operation (capture, import, blueprint, profile)
    asks once as a card that says what it means, and everything else is
-   blocked. One disclosed exception: the onboarding checkpoint heredoc
-   autosaves silently after each answer — it holds only answers the owner
-   just gave through `ask_user`, its path is exact, and its body must match
-   the complete checkpoint schema and value constraints. Prompt instructions
-   are not the security boundary.
+   blocked. The native Pi session persists the desktop conversation and
+   completed tool results; the app has no separate onboarding checkpoint
+   write. Prompt instructions are not the security boundary.
 3. **The agent cannot approve.** Approval cards are app-invoked UI routed to
    existing Lore validation. Allowing a Bash command is not approval of a
    publication, payment, or deployment. The CLI treats the app as a second
@@ -95,11 +93,9 @@ signing implications in `APP-005`.
 `APP-001` snapshot → `APP-002` read-only shell → `APP-003` embedded Pi +
 capture → `APP-004` skills-driven setup and owner actions → `APP-005`
 packaged macOS proof with a synthetic persona and a bounded testnet buyer
-call. The checkpoint gate is after APP-003: if capture through the app does
+call. The product gate is after APP-003: if capture through the app does
 not feel better than capture through Claude Code, the remaining desktop work
-is premature. De-risking spikes that need no Electron: OAuth sign-in plus
-Keychain round-trip in a bare main process, and each skill dry-run under Pi
-with the exact `APP-004` tool surface in a terminal harness (`XC-005`).
+is premature.
 
 ## Still open (tracked, not blocking)
 

@@ -71,8 +71,7 @@ test("auto-allows a complete read-only Lore command without prompting", async ()
     'ls "${CLAUDE_HOME:-$HOME/.claude}/projects"',
     'ls "${CLAUDE_HOME:-$HOME/.claude}"/projects/*/memory/*.md 2>/dev/null',
     'ls "${CODEX_HOME:-$HOME/.codex}/memories" "${CODEX_HOME:-$HOME/.codex}/automations" 2>/dev/null',
-    'ls -lt "${CLAUDE_HOME:-$HOME/.claude}"/projects/*/*.jsonl 2>/dev/null',
-    `cat > "\${LORE_HOME:-$HOME/.lore}/automation/onboarding.json" <<'LORE_CHECKPOINT'\n{"phase1_done":true,"role":"maintainer","domains":"systems","valuable_context":"reviews","preferences":"concise","boundaries":"private","executor":"claude","model":"sonnet","cadence":"daily","hour":21}\nLORE_CHECKPOINT`
+    'ls -lt "${CLAUDE_HOME:-$HOME/.claude}"/projects/*/*.jsonl 2>/dev/null'
   ];
   for (const command of commands) assert.equal(await handler(bashEvent(command)), undefined, command);
   assert.equal(prompted, false);
@@ -135,37 +134,6 @@ test("setup writes ask once each and carry what they mean", async () => {
   }
 });
 
-test("a malformed checkpoint is refused with the reason and the turn goes on", async () => {
-  const { classifyBash } = await import("../src/agent.mjs");
-  let prompted = false;
-  const handler = await bashHandler(async () => {
-    prompted = true;
-    return true;
-  });
-  const wrap = (/** @type {string} */ body) => `cat > "\${LORE_HOME:-$HOME/.lore}/automation/onboarding.json" <<'LORE_CHECKPOINT'\n${body}\nLORE_CHECKPOINT`;
-  const full = { phase1_done: false, role: "", domains: "", valuable_context: "", preferences: "", boundaries: "", executor: "", model: "", cadence: "daily", hour: 21 };
-  assert.equal(classifyBash(wrap(JSON.stringify(full))), "allow");
-  assert.equal(classifyBash(wrap(JSON.stringify({ ...full, name: "Ada", persona: "professor", topic_outline: ["consensus"], focus_topics: [], general_areas: [], storytelling: "Lectures." }))), "allow");
-  for (const [body, reason] of [
-    ["{}", /"phase1_done" is missing/],
-    ["not json", /not valid JSON/],
-    ["[]", /must be a JSON object/],
-    [`{}\nLORE_CHECKPOINT\nrm -rf ~`, /not valid JSON/],
-    [JSON.stringify({ ...full, path: "/etc/passwd" }), /"path" is not a checkpoint field/],
-    [JSON.stringify({ ...full, role: {} }), /"role" must be a string/],
-    [JSON.stringify({ ...full, model: null }), /"model" must be a string/],
-    [JSON.stringify({ ...full, topic_outline: "consensus" }), /"topic_outline" must be a list of strings/],
-    [JSON.stringify({ ...full, cadence: "monthly" }), /"cadence" must be "daily" or "weekly"/],
-    [JSON.stringify({ ...full, hour: 24 }), /"hour" must be a whole number from 0 to 23/]
-  ]) {
-    const result = await handler(bashEvent(wrap(body)));
-    assert.equal(result.block, true, body);
-    assert.equal(result.terminate, undefined, body);
-    assert.match(result.reason, /** @type {RegExp} */ (reason), body);
-  }
-  assert.equal(prompted, false);
-});
-
 test("hard-denies malformed, non-Lore, compound, and owner-only commands", async () => {
   let prompted = false;
   let stopped = 0;
@@ -210,6 +178,7 @@ test("hard-denies malformed, non-Lore, compound, and owner-only commands", async
     'ls -la "${CLAUDE_HOME:-$HOME/.claude}/projects"',
     'ls "${CODEX_HOME:-$HOME/.codex}"',
     'cat "${LORE_HOME:-$HOME/.lore}/automation/onboarding.json"',
+    `cat > "\${LORE_HOME:-$HOME/.lore}/automation/onboarding.json" <<'LORE_CHECKPOINT'\n{"phase1_done":true}\nLORE_CHECKPOINT`,
     `cat > "$LORE_HOME/automation/onboarding.json" <<'LORE_CHECKPOINT'\n{}\nLORE_CHECKPOINT`,
     `cat > "\${LORE_HOME:-$HOME/.lore}/automation/profile.json" <<'LORE_CHECKPOINT'\n{}\nLORE_CHECKPOINT`,
     `cat > "\${LORE_HOME:-$HOME/.lore}/automation/onboarding.json" <<'EOF'\n{}\nEOF`,

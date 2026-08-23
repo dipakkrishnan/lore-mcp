@@ -380,8 +380,6 @@ function renderStore(s) {
 
 /** @param {Snapshot} s */
 function renderSettings(s) {
-  const provider = auth?.credentials[0];
-  const [providerName, icon] = provider ? PROVIDERS[/** @type {keyof typeof PROVIDERS} */ (provider.providerId)] ?? [provider.providerId, ""] : ["No one", ""];
   const value = (/** @type {(string | HTMLElement)[]} */ ...parts) => {
     const node = el("div", "v");
     node.append(...parts);
@@ -422,7 +420,7 @@ function renderSettings(s) {
     ])),
     section("Your store", card([
       row("Address", s.node.url ? storeAddress(s.node.url) : "Not opened yet.", value(status(live.state === "online", live.state === "online" ? `Live on ${networkLabel(live.network) || "your node"}` : nodeLabel(live.state))), false),
-      row("Prices", "What a buyer's agent pays per call.", value(Object.assign(el("span", "mono", `${price(s.pricing.publication_usd)} publication${s.pricing.answer_enabled ? ` · ${price(s.pricing.answer_usd)} answer` : ""}`), {})), false)
+      row("Prices", "What a buyer's agent pays per call.", value(el("span", "mono", `${price(s.pricing.publication_usd)} publication${s.pricing.answer_enabled ? ` · ${price(s.pricing.answer_usd)} answer` : ""}`)), false)
     ]))
   ];
 }
@@ -886,7 +884,7 @@ window.lore.onAgentEvent((event) => {
     } else {
       welcome.classList.add("provisioning");
       welcomeNote.textContent = event.error ?? event.text ?? "";
-      if (!auth) { auth = { credentials: [], busy: false }; enter(); }
+      if (!auth) { auth = { credentials: [] }; enter(); }
     }
   } else if (event.type === "dismiss") {
     if (/** @type {HTMLElement | null} */ (requestSlot.firstElementChild)?.dataset.id === event.id) { requestSlot.replaceChildren(); renderLog(); }
@@ -990,11 +988,11 @@ keyForm.addEventListener("submit", (event) => {
   void signIn(provider, "api_key", value);
 });
 
-Object.assign(window, { __lore: { show, preview: renderRequest, signIn: () => { previewSignIn = true; auth = { credentials: [{ providerId: "anthropic", type: "oauth" }], busy: false }; enter(); } } });
+Object.assign(window, { __lore: { show, preview: renderRequest, signIn: () => { previewSignIn = true; auth = { credentials: [{ providerId: "anthropic", type: "oauth" }] }; enter(); } } });
 
 function boot() {
   if (previewSignIn) return;
-  window.lore.agentStatus().then((result) => { auth = result; enter(); }).catch(() => { auth = { credentials: [], busy: false }; enter(); });
+  window.lore.agentStatus().then((result) => { auth = result; enter(); }).catch(() => { auth = { credentials: [] }; enter(); });
 }
 
 boot();

@@ -142,9 +142,6 @@ class DesktopSnapshotTest(LoreTestCase):
         blueprint.blueprint_path().write_text("{}")
         automation.profile_path().parent.mkdir(parents=True, exist_ok=True)
         automation.profile_path().write_text("{}")
-        node = home() / "node"
-        node.mkdir()
-        (node / "wrangler.jsonc").write_text("{}")
         live_ids = [ids["Live publication"], ids["Stale publication"]]
         manifest = {
             "manifest_version": 1,
@@ -187,16 +184,14 @@ class DesktopSnapshotTest(LoreTestCase):
                 "profile_configured": True,
             },
         )
-        self.assertEqual(state["library"]["counts"], {"private": 6, "discarded": 0})
+        self.assertEqual(state["library"]["counts"], {"private": 6})
         self.assertEqual(
             set(state["library"]["items"][0]),
             {
                 "id",
                 "title",
-                "project",
                 "project_label",
                 "status",
-                "source",
                 "updated_at",
             },
         )
@@ -220,14 +215,9 @@ class DesktopSnapshotTest(LoreTestCase):
             set(state["publications"]["items"][0]),
             {
                 "id",
-                "public_id",
                 "title",
-                "kind",
                 "topic",
-                "updated_at",
-                "source_changed_at",
                 "state",
-                "needs_review",
                 "live",
             },
         )
@@ -236,8 +226,7 @@ class DesktopSnapshotTest(LoreTestCase):
             {"publication_usd": 0.01, "answer_usd": 0.1, "answer_enabled": True},
         )
         self.assertEqual(state["node"]["live"]["state"], "online")
-        self.assertEqual(state["node"]["live"]["publication_price_usd"], 0.02)
-        self.assertEqual(state["node"]["live"]["answer_price_usd"], 0.11)
+        self.assertEqual(state["node"]["live"]["network"], "eip155:8453")
 
     def test_missing_and_unreachable_nodes_are_data(self) -> None:
         response = Mock()
@@ -253,7 +242,7 @@ class DesktopSnapshotTest(LoreTestCase):
                 self.assertEqual(cli.main(["desktop-state"]), 0)
         state = json.loads(output.getvalue())
         self.assertEqual(state["node"]["live"]["state"], "unreachable")
-        self.assertEqual(state["node"]["live"]["publication_count"], None)
+        self.assertEqual(state["node"]["live"]["network"], None)
 
     def test_event_stream_with_no_data_line_is_unreachable_not_a_crash(self) -> None:
         response = Mock()
