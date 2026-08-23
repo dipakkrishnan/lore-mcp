@@ -67,6 +67,8 @@ type SearchHit = {
   updated_at: string;
 };
 
+declare const marked: { parse(source: string, options?: { async?: false }): string; use(options: { renderer?: Record<string, () => string> }): void };
+
 type Memory = {
   id: number;
   title: string;
