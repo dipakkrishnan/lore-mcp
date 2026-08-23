@@ -107,7 +107,6 @@ interface Window {
     memory(id: number): Promise<Memory>;
     candidates(): Promise<PublicationCandidate[]>;
     decide(input: { candidate: PublicationCandidate; approve: boolean }): Promise<void>;
-    reapprove(id: number): Promise<void>;
     revoke(id: number): Promise<void>;
     push(): Promise<void>;
     pickFiles(): Promise<string[]>;
@@ -143,6 +142,7 @@ type AgentRequest =
 
 type AgentEvent =
   | AgentRequest
+  | { type: "dismiss"; id: string }
   | { type: "working"; active: boolean }
   | { type: "changed" }
   | { type: "message"; text: string }

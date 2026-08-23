@@ -8,6 +8,7 @@ module.exports = {
     name: "Lore",
     appBundleId: "com.lore.desktop",
     appCategoryType: "public.app-category.productivity",
+    icon: join(out, "icon"),
     ignore: [/^\/(packaging|out|test|support)($|\/)/, /^\/(test-capture\.sh|tsconfig\.json|forge\.config\.js)$/],
     extraResource: [
       join(out, "uv"),
@@ -28,7 +29,9 @@ module.exports = {
       : {})
   },
   hooks: {
-    generateAssets: () => execFileSync(join(__dirname, "packaging/wheelhouse.sh"), { stdio: "inherit" })
+    generateAssets: () => {
+      for (const script of ["icon.sh", "wheelhouse.sh"]) execFileSync(join(__dirname, "packaging", script), { stdio: "inherit" });
+    }
   },
   makers: [{ name: "@electron-forge/maker-zip", platforms: ["darwin"] }]
 };
