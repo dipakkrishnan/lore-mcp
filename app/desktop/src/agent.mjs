@@ -6,6 +6,7 @@ import {
   defineTool,
   isToolCallEventType,
   ModelRuntime,
+  resolveModelScopeWithDiagnostics,
   SessionManager,
   SettingsManager
 } from "@earendil-works/pi-coding-agent";
@@ -43,6 +44,7 @@ const CHECKPOINT_FIELDS = {
   hour: "number"
 };
 const SKILLS = { capture: "lore-capture", setup: "lore-onboard", publish: "lore-publish" };
+const MODELS = ["anthropic/claude-sonnet-5", "openai-codex/gpt-5.5", "openai/gpt-5.5"];
 
 /** @param {string} command @returns {"allow" | BashAction | null} */
 export function classifyBash(command) {
@@ -217,11 +219,8 @@ export class LoreAgent {
 
   /** @param {AgentTask} task */
   async #newSession(task) {
-    const available = await this.models.getAvailable();
-    const model =
-      available.find(({ provider, id }) => provider === "anthropic" && id.includes("sonnet")) ??
-      available.find(({ provider }) => provider === "openai-codex") ??
-      available.at(0);
+    const { scopedModels } = await resolveModelScopeWithDiagnostics(MODELS, this.models);
+    const model = scopedModels.at(0)?.model ?? (await this.models.getAvailable()).at(0);
     if (!model) throw new Error("Sign in with Claude, ChatGPT, or an API key first");
     const { session } = await createAgentSession({
       cwd: this.options.loreHome,
@@ -250,6 +249,10 @@ export class LoreAgent {
     session.subscribe((event) => {
       if (event.type === "tool_execution_end" && event.toolName === "bash") this.options.emit({ type: "changed" });
       if (event.type !== "message_end" || event.message.role !== "assistant") return;
+      if (event.message.stopReason === "error" || event.message.stopReason === "aborted") {
+        this.options.emit({ type: "message", text: event.message.errorMessage || "Lore's model did not answer." });
+        return;
+      }
       const text = event.message.content
         .map((block) => (block.type === "text" ? block.text : ""))
         .join("")

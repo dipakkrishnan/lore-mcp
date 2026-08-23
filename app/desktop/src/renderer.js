@@ -100,6 +100,8 @@ function row(label, detail, trailing, serif = true) {
   return node;
 }
 
+marked.use({ renderer: { html: () => "" } });
+
 /** @param {number | string} id @param {string} title @param {string} detail */
 function memoryRow(id, title, detail) {
   const node = el("button", "row link");
@@ -135,7 +137,9 @@ async function openMemory(id) {
   close.setAttribute("aria-label", "Close");
   close.addEventListener("click", closeSheet);
   head.append(text, close);
-  panel.append(head, el("p", "body", memory.content));
+  const body = el("div", "body");
+  body.innerHTML = marked.parse(memory.content, { async: false });
+  panel.append(head, body);
   sheet.append(panel);
   sheet.addEventListener("click", (event) => { if (event.target === sheet) closeSheet(); });
   document.body.append(sheet);
