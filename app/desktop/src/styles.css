@@ -24,7 +24,7 @@
 }
 
 * { box-sizing: border-box; }
-html, body { height: 100%; }
+html, body { height: 100%; overflow: clip; }
 body {
   margin: 0;
   background: var(--bg);

@@ -20,6 +20,7 @@ const agentPanel = $("#agent");
 const log = $("#log");
 const requestSlot = $("#request");
 const search = /** @type {HTMLInputElement} */ ($("#search"));
+const mainEl = $("#main");
 const navButtons = /** @type {HTMLButtonElement[]} */ ([...document.querySelectorAll("nav button")]);
 
 /** @typedef {"today" | "memories" | "store" | "settings"} View */
@@ -471,7 +472,7 @@ function show(next) {
   view = next;
   if (next !== "memories") { hits = null; search.value = ""; }
   render();
-  $("#main").focus();
+  mainEl.focus({ preventScroll: true });
 }
 
 async function load() {
@@ -515,7 +516,7 @@ function renderLog() {
     log.append(line);
   }
   agentPanel.hidden = !lines.length && !liveText && !requestSlot.childElementCount;
-  log.lastElementChild?.scrollIntoView({ block: "nearest" });
+  if (log.lastElementChild) mainEl.scrollTop = mainEl.scrollHeight;
 }
 
 /** @param {boolean} active */
@@ -709,8 +710,8 @@ function renderRequest(event) {
   requestSlot.replaceChildren(box);
   agentPanel.hidden = false;
   if (view !== "today") show("today");
-  box.scrollIntoView({ block: "nearest" });
-  /** @type {HTMLElement | null} */ (box.querySelector("input[type=text], input[type=password], select"))?.focus();
+  mainEl.scrollTop = mainEl.scrollHeight;
+  /** @type {HTMLElement | null} */ (box.querySelector("input[type=text], input[type=password], select"))?.focus({ preventScroll: true });
 }
 
 /** @param {string} id @param {unknown} value @param {string} [echo] */
@@ -868,7 +869,7 @@ window.lore.onAgentEvent((event) => {
   else if (event.type === "live") live(event.text);
   else if (event.type === "changed") void load();
   else if (event.type === "message") say(event.text);
-  else if (event.type === "stopped") { say(event.text, false, true); input.focus(); }
+  else if (event.type === "stopped") { say(event.text, false, true); input.focus({ preventScroll: true }); }
   else if (event.type === "task") {
     if (detailTask === event.task.kind) detailRecord = event.task;
     taskItems = event.task.state === "done"
@@ -967,6 +968,10 @@ search.addEventListener("input", () => {
   }, 250);
 });
 $("#search-form").addEventListener("submit", (event) => event.preventDefault());
+(function pinViewport() {
+  if (document.documentElement.scrollTop) document.documentElement.scrollTop = 0;
+  requestAnimationFrame(pinViewport);
+})();
 document.addEventListener("keydown", (event) => {
   if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") { event.preventDefault(); search.focus(); search.select(); }
   if (event.key === "Escape" && document.querySelector(".sheet")) { event.preventDefault(); closeSheet(); }
