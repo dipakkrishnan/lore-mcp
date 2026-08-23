@@ -11,45 +11,69 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import { Type } from "@earendil-works/pi-ai";
 
-const READ_ONLY_BASH = [
-  /^lore status$/,
-  /^lore desktop-state$/,
-  /^lore blueprint show$/,
-  /^lore publication list$/,
-  /^lore search(?: (?:[A-Za-z0-9][A-Za-z0-9._:/-]*|--status (?:private|discarded)|--limit (?:0|[1-9]\d*)|--json))*$/
+/** @type {Array<[RegExp, "allow" | "draft" | "checkpoint" | BashAction["kind"]]>} */
+const BASH_POLICY = [
+  [/^lore status$/, "allow"],
+  [/^lore desktop-state$/, "allow"],
+  [/^lore search(?: (?:[A-Za-z0-9][A-Za-z0-9._:/-]*|--status (?:private|discarded)|--limit (?:0|[1-9]\d*)|--json))*$/, "allow"],
+  [/^lore blueprint show$/, "allow"],
+  [/^lore publication list$/, "allow"],
+  [/^lore publication draft - <<'LORE_PUBLISH'\n([\s\S]+)\nLORE_PUBLISH$/, "draft"],
+  [/^which claude codex$/, "allow"],
+  [/^ls "\$\{CLAUDE_HOME:-\$HOME\/\.claude\}\/projects"$/, "allow"],
+  [/^ls "\$\{CLAUDE_HOME:-\$HOME\/\.claude\}"\/projects\/\*\/memory\/\*\.md 2>\/dev\/null$/, "allow"],
+  [/^ls "\$\{CODEX_HOME:-\$HOME\/\.codex\}\/memories" "\$\{CODEX_HOME:-\$HOME\/\.codex\}\/automations" 2>\/dev\/null$/, "allow"],
+  [/^ls -lt "\$\{CLAUDE_HOME:-\$HOME\/\.claude\}"\/projects\/\*\/\*\.jsonl 2>\/dev\/null$/, "allow"],
+  [/^cat > "\$\{LORE_HOME:-\$HOME\/\.lore\}\/automation\/onboarding\.json" <<'LORE_CHECKPOINT'\n([\s\S]+)\nLORE_CHECKPOINT$/, "checkpoint"],
+  [/^lore setup --yes$/, "import"],
+  [/^lore capture apply - <<'LORE_CAPTURE'\n([\s\S]+)\nLORE_CAPTURE$/, "capture"],
+  [/^lore blueprint apply - <<'LORE_BLUEPRINT'\n([\s\S]+)\nLORE_BLUEPRINT$/, "blueprint"],
+  [/^lore profile - <<'LORE_PROFILE'\n([\s\S]+)\nLORE_PROFILE$/, "profile"]
 ];
-const CAPTURE_BASH = /^lore capture apply - <<'LORE_CAPTURE'\n([\s\S]+)\nLORE_CAPTURE$/;
-const DRAFT_BASH = /^lore publication draft - <<'LORE_PUBLISH'\n([\s\S]+)\nLORE_PUBLISH$/;
+const CHECKPOINT_FIELDS = new Set([
+  "phase1_done",
+  "role",
+  "domains",
+  "valuable_context",
+  "preferences",
+  "boundaries",
+  "executor",
+  "model",
+  "cadence",
+  "hour"
+]);
 const SKILLS = { capture: "lore-capture", setup: "lore-onboard", publish: "lore-publish" };
 
-/** @param {string} command @param {RegExp} pattern @returns {unknown[] | null} */
-function heredocArray(command, pattern) {
-  const match = command.match(pattern);
-  if (!match) return null;
-  try {
-    /** @type {unknown} */
-    const parsed = JSON.parse(match[1]);
-    return Array.isArray(parsed) && parsed.length ? parsed : null;
-  } catch {
-    return null;
-  }
-}
-
-/** @param {string} command @returns {CaptureEntry[] | null} */
-export function captureEntries(command) {
-  const entries = /** @type {CaptureEntry[] | null} */ (heredocArray(command, CAPTURE_BASH));
-  return entries?.every((entry) => entry && typeof entry.title === "string" && typeof entry.content === "string")
-    ? entries
-    : null;
-}
-
-/** @param {string} command @returns {"allow" | "approve" | "deny"} */
+/** @param {string} command @returns {"allow" | BashAction | null} */
 export function classifyBash(command) {
-  if (READ_ONLY_BASH.some((pattern) => pattern.test(command)) || heredocArray(command, DRAFT_BASH)) return "allow";
-  return captureEntries(command) ? "approve" : "deny";
+  for (const [pattern, kind] of BASH_POLICY) {
+    const match = command.match(pattern);
+    if (!match) continue;
+    if (match[1] === undefined) return kind === "allow" ? kind : kind === "import" ? { kind } : null;
+    /** @type {unknown} */
+    let body;
+    try {
+      body = JSON.parse(match[1]);
+    } catch {
+      return null;
+    }
+    if (!body || typeof body !== "object") return null;
+    if (kind === "draft") return Array.isArray(body) && body.length ? "allow" : null;
+    if (kind === "checkpoint") {
+      return !Array.isArray(body) && Object.keys(body).every((key) => CHECKPOINT_FIELDS.has(key)) ? "allow" : null;
+    }
+    if (kind === "capture") {
+      const entries = /** @type {CaptureEntry[]} */ (body);
+      const titled = Array.isArray(body) && body.length > 0 && entries.every((entry) => entry && typeof entry.title === "string" && typeof entry.content === "string");
+      return titled ? { kind, entries } : null;
+    }
+    if (Array.isArray(body) || kind === "import") return null;
+    return kind === "allow" ? kind : { kind, fields: /** @type {Record<string, unknown>} */ (body) };
+  }
+  return null;
 }
 
-/** @param {(command: string, entries: CaptureEntry[]) => Promise<boolean>} approve */
+/** @param {(command: string, action: BashAction) => Promise<boolean>} approve */
 export function bashPolicyExtension(approve) {
   return {
     name: "bash-policy",
@@ -59,15 +83,12 @@ export function bashPolicyExtension(approve) {
       pi.on("tool_call", async (event) => {
         if (!isToolCallEventType("bash", event)) return;
         const command = event.input.command;
-        const decision = classifyBash(command);
-        if (decision === "allow") return;
-        if (decision === "approve" && (await approve(command, captureEntries(command) ?? []))) return;
+        const action = classifyBash(command);
+        if (action === "allow") return;
+        if (action && (await approve(command, action))) return;
         return {
           block: true,
-          reason:
-            decision === "deny"
-              ? "Lore blocked a command outside the desktop policy."
-              : "The owner chose not to save this.",
+          reason: action ? "The owner chose not to do this." : "Lore blocked a command outside the desktop policy.",
           terminate: true
         };
       });
@@ -105,7 +126,7 @@ export class LoreAgent {
       agentDir: resolve(options.loreHome, ".pi"),
       settingsManager: settings,
       additionalSkillPaths: [options.skillsDir],
-      extensionFactories: [bashPolicyExtension((command, entries) => agent.#approve(command, entries))],
+      extensionFactories: [bashPolicyExtension((command, action) => agent.#approve(command, action))],
       noExtensions: true,
       noPromptTemplates: true,
       noThemes: true,
@@ -122,10 +143,10 @@ export class LoreAgent {
     return agent;
   }
 
-  /** @param {string} command @param {CaptureEntry[]} entries */
-  async #approve(command, entries) {
-    const approved = await this.options.approveBash(command, entries);
-    if (approved) this.#captureSaved = true;
+  /** @param {string} command @param {BashAction} action */
+  async #approve(command, action) {
+    const approved = await this.options.approveBash(command, action);
+    if (approved && action.kind === "capture") this.#captureSaved = true;
     return approved;
   }
 
@@ -209,6 +230,7 @@ export class LoreAgent {
       ]
     });
     session.subscribe((event) => {
+      if (event.type === "tool_execution_end" && event.toolName === "bash") this.options.emit({ type: "changed" });
       if (event.type !== "message_end" || event.message.role !== "assistant") return;
       const text = event.message.content
         .map((block) => (block.type === "text" ? block.text : ""))

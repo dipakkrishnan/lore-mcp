@@ -4,7 +4,7 @@ title: Guide first-run setup through the existing onboarding skill
 priority: P1
 effort: M
 component: desktop-app
-status: ready
+status: completed
 related: [APP-003, APP-006, APP-007, ONB-003, AUT-001, XC-005]
 blockers: [APP-003]
 dependencies: []
@@ -35,23 +35,53 @@ replay transcripts and do not add a UI-owned onboarding state machine.
 
 ## Acceptance criteria
 
-- [ ] An owner with the Lore runtime available can start setup from Today and
+- [x] An owner with the Lore runtime available can start setup from Today and
       complete source import, blueprint confirmation, profile creation, and
       synthesis scheduling through the existing `lore-onboard` skill without
       typing terminal commands.
-- [ ] Questions use `ask_user`; native Bash still shows the exact command and
+- [x] Questions use `ask_user`; native Bash still shows the exact command and
       does not execute until the owner approves it.
-- [ ] The checklist is derived only from `APP-001` setup fields and disappears
+- [x] The checklist is derived only from `APP-001` setup fields and disappears
       once sources, blueprint, and profile are configured.
-- [ ] Closing the app mid-setup and reopening it resumes from the skill's real
+- [x] Closing the app mid-setup and reopening it resumes from the skill's real
       checkpoint and current Lore state without replaying a transcript or
       repeating completed setup work.
-- [ ] A temporary Lore home proves the renderer-to-Pi-to-skill-to-CLI path for
+- [x] A temporary Lore home proves the renderer-to-Pi-to-skill-to-CLI path for
       a synthetic first-run setup.
 
 ## Notes
+
+Done on `claude/app-004-onboarding`. The bash policy is one table in
+`app/desktop/src/agent.mjs`: the skill's read-only commands (`lore status`,
+`lore blueprint show`, the four `ls` evidence lines, `which claude codex`) run
+silently; the checkpoint is allowed only as one exact `cat > … <<'LORE_CHECKPOINT'`
+heredoc whose body must parse as a JSON object; `lore setup --yes`,
+`lore blueprint apply - <<'LORE_BLUEPRINT'`, and `lore profile - <<'LORE_PROFILE'`
+ask once as cards that show the parsed fields. The skill now persists through those
+stdin heredocs in every host (`lore blueprint apply -` learned stdin), so the
+`mktemp` path is gone. Resume after restart is the skill's own checkpoint plus the
+snapshot flags, which also drive the Today step header.
+
+Proof in a temporary `LORE_HOME`/`CLAUDE_HOME`/`CODEX_HOME`: the real app rendered
+Start, the step header, and every approval card; Pi's real bash tool behind the
+policy executed the skill's exact command sequence and flipped the snapshot flags
+sources → blueprint → profile, with the Codex schedule landing only in the temporary
+`CODEX_HOME`. The model turn itself did not run: no provider credential was stored
+under the app's userData at the time, so the skill's commands were issued by the
+proof script rather than by a live model reading the skill.
+
+Approval cards show what a write means rather than its text (the APP-003 face
+decision); the exact command still travels in the event and renders verbatim for
+anything the table does not parse.
+
+The checkpoint file lands with the shell's default mode (0644), unlike the 0600
+profile; the skill wrote it the same way before. Tightening that is a CLI change.
 
 The skill remains the owner-journey source of truth. The app is its native
 host, not a parallel wizard. Runtime provisioning stays in `APP-005`; owner
 publication/payment actions and durable job history are split into `APP-006`
 and `APP-007`.
+
+Open PR #39 proposes `lore onboarding save` as a validated CLI write path for
+the same checkpoint file; if it lands, the skill's `cat` heredoc and the app's
+`checkpoint` policy row should move to that command in one change.

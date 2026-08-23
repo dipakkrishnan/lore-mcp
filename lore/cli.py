@@ -181,7 +181,9 @@ def parser() -> argparse.ArgumentParser:
     blueprint_apply = blueprint_commands.add_parser(
         "apply", help="validate and persist a blueprint file"
     )
-    blueprint_apply.add_argument("file", help="path to a blueprint JSON file")
+    blueprint_apply.add_argument(
+        "file", help="path to a blueprint JSON file; use - for stdin"
+    )
     blueprint_commands.add_parser("show", help="show the current lore map")
     return root
 

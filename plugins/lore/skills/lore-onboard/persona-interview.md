@@ -15,8 +15,8 @@ so the choice feels like it matters.
 ## Rules
 
 1. **Never write `~/.lore/blueprint/*` (or any Lore file) directly.** Persist only by
-   assembling the JSON below, writing it to a temp file, and running
-   `lore blueprint apply <file>` — the single validating write path.
+   assembling the JSON below and handing it to `lore blueprint apply -` through the
+   exact heredoc at the end — the single validating write path.
 2. **One question at a time**, in the chosen persona's voice after the opener.
    **Default to the host's structured question control when available so the owner
    picks instead of composing** — the goal is for them to think less. This includes
@@ -39,8 +39,10 @@ so the choice feels like it matters.
 
 **Tool note:** this is five personas, which exceeds the option limit in some hosts,
 so ask the opener in plain chat as a numbered list — folding the fifth into "Other"
-would hide a real choice. The name is free-form; collect it in the same opener. Use
-the host's structured question control for later questions when it fits.
+would hide a real choice. In the Lore desktop app, `ask_user` has no limit: ask it
+there with all five as options, plus a second question for the name (no options).
+The name is free-form; collect it in the same opener. Use the host's structured
+question control for later questions when it fits.
 
 Map to a `persona` value, then tell the owner how that choice shapes their lore, e.g.:
 
@@ -111,16 +113,15 @@ rejects them as input).
 }
 ```
 
-Then:
+Then, with exactly this shape (no temp file, `echo`, pipe, or other delimiter):
 
 ```sh
-tmpfile=$(mktemp)
-cat > "$tmpfile" <<'EOF'
+lore blueprint apply - <<'LORE_BLUEPRINT'
 <the JSON above>
-EOF
-lore blueprint apply "$tmpfile"
-lore blueprint show
+LORE_BLUEPRINT
 ```
+
+followed by `lore blueprint show`.
 
 Show the rendered `lore blueprint show` output as confirmation. If `apply` errors, fix
 the offending field and retry — don't ask the owner to debug JSON. Then return to

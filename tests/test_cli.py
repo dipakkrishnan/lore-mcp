@@ -74,6 +74,7 @@ class ParserTest(unittest.TestCase):
                 ["blueprint", "apply", "f.json"],
                 {"blueprint_command": "apply", "file": "f.json"},
             ),
+            (["blueprint", "apply", "-"], {"blueprint_command": "apply", "file": "-"}),
             (["blueprint", "show"], {"blueprint_command": "show"}),
             (
                 ["publication", "review", "c.json"],
@@ -745,6 +746,12 @@ class BlueprintCommandTest(LoreTestCase):
         with captured() as output:
             self.assertEqual(cli.blueprint_show(), 0)
         self.assertIn("Chapters", output.getvalue())
+
+    def test_apply_reads_the_blueprint_from_stdin(self) -> None:
+        payload = StringIO(json.dumps(blueprint_input(name="Grace")))
+        with patch.object(sys, "stdin", payload), captured():
+            self.assertEqual(cli.blueprint_apply("-"), 0)
+        self.assertEqual(blueprint.load_blueprint()["name"], "Grace")
 
     def test_show_falls_back_to_the_raw_blueprint_then_to_a_nudge(self) -> None:
         with captured() as output:
