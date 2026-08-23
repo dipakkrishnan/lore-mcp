@@ -111,6 +111,22 @@ class PromptTest(LoreTestCase):
             with self.subTest(expected=expected):
                 self.assertIn(expected, prompt)
 
+    def test_later_runs_add_only_net_new_claims_named_by_the_claim(self) -> None:
+        for cadence, window in (("daily", "last day"), ("weekly", "last week")):
+            prompt = automation.build_prompt(
+                {**automation_profile(), "cadence": cadence}
+            )
+            with self.subTest(cadence=cadence):
+                self.assertIn(window, prompt)
+        for expected in (
+            "search the library for it",
+            "write only what\nis net new",
+            "never by date, run, or the word",
+            "`deep-review-wedge.md`",
+        ):
+            with self.subTest(expected=expected):
+                self.assertIn(expected, prompt)
+
     def test_the_readable_statuses_are_derived_from_the_store(self) -> None:
         # Hardcoding the status model here is how the prompt goes stale after a
         # schema change; deriving it makes that impossible.
