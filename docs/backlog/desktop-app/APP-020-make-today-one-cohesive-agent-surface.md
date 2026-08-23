@@ -1,8 +1,8 @@
 ---
 id: APP-020
-title: Make Today one cohesive agent surface — tasks, typed cards, live steps, named states
+title: Make Today a simple inbox for unfinished Lore tasks
 priority: P1
-effort: L
+effort: M
 component: desktop-app
 status: in-review
 related: [APP-017, APP-018, APP-007, APP-004, APP-009, APP-015, APP-016]
@@ -15,16 +15,12 @@ updated: 2026-08-23
 
 ## Problem
 
-Memories, Store, and Settings hold up; every path that enters an agent
-conversation does not. The thread is the only object, so setup steps,
-the stats strip, and "Needs you" sit beside it as unrelated widgets; a
-pending question is invisible unless the thread is on screen; a turn can
-end in a state with no name; and an unfinished setup has no row to come
-back to. Research on Town, Grok Bot, Claude Cowork, ChatGPT Work, Cursor 3
-and Raycast (2026-08-23) converges on the same shape: the task is the
-object and the thread is its detail view; approvals are typed cards with a
-standing policy; working state is a live step list; terminal states are
-named; sessions are durable and listed from the shell.
+Memories, Store, and Settings hold up, but an unfinished agent conversation
+has no durable, obvious place to resume. Today also uses the same composer
+for starting a capture and replying inside setup, which makes one interaction
+look like two unrelated modes. Inferring task state later from assistant prose
+or Bash heredocs would make the product depend on model wording and shell
+formatting rather than an explicit contract.
 
 ## Proposed approach
 
@@ -33,49 +29,46 @@ Design canvas: https://claude.ai/code/artifact/e2b6e778-ea36-4d72-9b9c-7fdd947df
 and resumed, onboarding as pre-flight + one editable blueprint, the card
 vocabulary, and a low-fi "one thread" alternate).
 
-- **Tasks** — every entry point (Start, Publish, a capture) becomes a Task
-  row on Today: title, state chip (Needs you / Working / Done / Stopped),
-  one-line last event, time. Rows are rebuilt from the persisted pi
-  sessions (APP-018) so they survive a relaunch. Opening a row shows the
-  task view: step list, thread, current card, composer reading "Reply to
-  Lore…" with a Send button.
-- **Needs you** — the pending card itself renders at the top of Today
-  ("From Set up my Lore · step 2 of 3"), answerable without opening the
-  task.
-- **Cards** — six kernel-emitted types: Choice (single/multi, free text
-  always), Confirm (keep), Approve (publication), Stopped, Done, Working.
-  Confirm carries a standing policy ("Ask each time / Always allow").
-- **Steps** — the step bar is the plan; the current step shows live
-  sub-steps (check / pulse / empty); the live line streams under the
-  thread.
-- **Stopped** — what happened, why, what to do: "Try again" / "Tell Lore
-  what to do"; the composer focuses with "Tell Lore what to do…".
-- **Onboarding** — deterministic pre-flight first ("Read before asking":
-  what was read, what was skipped), then ONE editable blueprint card drafted
-  from the evidence (name, persona segmented, topics / in depth / lightly
-  as chips, voice) with "Change it" / "Use this shape". Five serial
-  questions collapse into a proposal the owner corrects.
+- **Explicit task records** — write a versioned `lore.task` custom entry into
+  the existing Pi session with `SessionManager.appendCustomEntry()`. The app
+  owns `kind`, `title`, and state (`needs_you`, `working`, `stopped`, `done`);
+  `tasks()` reads only the latest typed entry. It never parses conversation
+  text, model output, or Bash commands.
+- **Today** — greeting, at most one pending card, up to three unfinished task
+  rows, the capture composer, and the existing facts strip. Completed capture
+  and publication tasks disappear because Memories and Store already record
+  their outcomes.
+- **Task view** — back link, title and state, one short phase label, thread,
+  current question or approval, and a composer labelled "Reply to Lore…".
+  No timeline, dashboard, or second task navigation system.
+- **Progress** — working/needs-you/stopped/done come from app lifecycle events.
+  If a skill must name a semantic phase, add one bounded `task_progress` tool
+  that appends a typed custom entry; do not infer it from prose or Bash.
+- **Onboarding** — show one quiet evidence line, then one editable blueprint
+  proposed from that evidence. A typed `propose_blueprint` tool returns the
+  owner's edits; "Use this shape" invokes the existing validated
+  `lore blueprint apply` write path. Ask serial questions only for fields the
+  evidence cannot support.
 
 ## Acceptance criteria
 
-- [ ] Today shows Task rows with the four named states, rebuilt from
-      persisted sessions on launch; opening one shows its thread and steps.
+- [ ] Task state is stored as versioned custom Pi session entries and survives
+      relaunch; no code derives it from prose, tool arguments, or heredocs.
+- [ ] Today shows no more than three unfinished tasks and one pending card;
+      completed work remains in Memories or Store instead of a task ledger.
 - [ ] A pending card is answerable from Today without opening the task.
-- [ ] Every owner interruption is one of the six card types; nothing else
-      asks in prose.
-- [ ] A stopped turn renders the Stopped card with both actions.
+- [ ] Opening a task shows only its title/state, phase, thread, current card,
+      and reply composer.
 - [ ] Onboarding shows the pre-flight, then one editable blueprint card that
       writes through `lore blueprint apply` on approval.
-- [ ] The working step list reflects real kernel progress (tool calls
-      mapped to sub-steps), not a scripted animation.
+- [ ] Tests prove typed task records, task listing, interruption/resume, and
+      the blueprint tool's bounded input.
 
 ## Notes
 
 Filed from Dipak's request on 2026-08-23 ("this cohesion work is pretty
-fundamental; it needs to feel seamless"). The alternate on page 2 (Today as
-a single thread, Grok Bot style) is cheaper but buries pending cards and has
-no per-task timeline; Main holds the leading candidate. The step list needs
-a kernel-side mapping from skill phases to sub-steps — likely a small
-`progress` event the skill emits through a tool, not inference from bash
-commands. Standing policies on Confirm cards interact with the deterministic
-bash policy (APP-008 learned auto mode).
+fundamental; it needs to feel seamless"). Scope cut after review: no full task
+history, six-card taxonomy, standing policies, inferred progress, or granular
+working animation. Standing policy remains APP-008 work and must not alter the
+deterministic Bash boundary here. The design canvas remains directional; this
+item's smaller contract is authoritative.

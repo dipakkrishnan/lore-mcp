@@ -239,6 +239,7 @@ test("sessions persist per task, come back as a thread, and a cut-off tool call 
     written.appendMessage({ role: "user", content: "/skill:lore-onboard\n\nLet's set up my Lore.", timestamp: 1 });
     written.appendMessage({ role: "assistant", content: [{ type: "text", text: "Welcome." }, { type: "toolCall", id: "call-1", name: "ask_user", arguments: {} }], api: "anthropic-messages", provider: "anthropic", model: "m", usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } }, stopReason: "toolUse", timestamp: 2 });
     written.appendMessage({ role: "toolResult", toolCallId: "call-1", toolName: "ask_user", content: [{ type: "text", text: JSON.stringify({ answers: { Persona: "College professor", Name: "Ada" } }) }], isError: false, timestamp: 3 });
+    written.appendMessage({ role: "toolResult", toolCallId: "old-call", toolName: "ask_user", content: [{ type: "text", text: "old malformed result" }], isError: false, timestamp: 3 });
     written.appendMessage({ role: "assistant", content: [{ type: "toolCall", id: "call-2", name: "bash", arguments: { command: "lore status" } }], api: "anthropic-messages", provider: "anthropic", model: "m", usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } }, stopReason: "toolUse", timestamp: 4 });
     assert.match(String(written.getSessionFile()), new RegExp(`^${home}/\\.pi/sessions/setup/`));
     assert.deepEqual(LoreAgent.history(home, "setup"), [
@@ -248,8 +249,8 @@ test("sessions persist per task, come back as a thread, and a cut-off tool call 
     ]);
     const resumed = LoreAgent.sessionFor(home, "setup");
     const messages = resumed.buildSessionContext().messages;
-    assert.equal(messages.length, 5);
-    assert.deepEqual({ role: messages[4].role, toolCallId: messages[4].toolCallId, isError: messages[4].isError }, { role: "toolResult", toolCallId: "call-2", isError: true });
+    assert.equal(messages.length, 6);
+    assert.deepEqual({ role: messages[5].role, toolCallId: messages[5].toolCallId, isError: messages[5].isError }, { role: "toolResult", toolCallId: "call-2", isError: true });
     assert.equal(SessionManager.create(home).buildSessionContext().messages.length, 0);
     assert.equal(LoreAgent.sessionFor(home, "capture").buildSessionContext().messages.length, 0);
   } finally {

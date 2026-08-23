@@ -207,8 +207,16 @@ export class LoreAgent {
         if (text) lines.push({ text, owner: false });
       } else if (message.role === "toolResult" && message.toolName === "ask_user" && !message.isError) {
         const first = message.content[0];
-        const answers = first?.type === "text" ? Object.values(JSON.parse(first.text).answers).filter(Boolean).join(" · ") : "";
-        if (answers) lines.push({ text: answers, owner: true });
+        if (first?.type !== "text") continue;
+        try {
+          const result = /** @type {{answers?: Record<string, unknown>}} */ (JSON.parse(first.text));
+          const answers = result.answers && !Array.isArray(result.answers)
+            ? Object.values(result.answers).filter((value) => typeof value === "string" && value).join(" · ")
+            : "";
+          if (answers) lines.push({ text: answers, owner: true });
+        } catch {
+          // An old or interrupted tool result should not hide the rest of the thread.
+        }
       }
     }
     return lines;
