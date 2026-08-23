@@ -8,18 +8,31 @@ so with an exit code and a message rather than a traceback.
 from __future__ import annotations
 
 import json
+import os
 import sqlite3
 import subprocess
 import sys
 import unittest
+from contextlib import contextmanager
 from io import StringIO
 from pathlib import Path
+from typing import Iterator
 from unittest.mock import patch
 
 from helpers import LoreTestCase, blueprint_input, captured
 
 from lore import automation, blueprint, cli
 from lore.store import PublicationKind, Status, Store
+
+
+@contextmanager
+def desktop_stdin(text: str) -> Iterator[None]:
+    """Stand in for Electron main piping a decision with the attended marker set."""
+    with (
+        patch.dict(os.environ, {"LORE_ATTENDED_SURFACE": "desktop"}),
+        patch.object(sys, "stdin", StringIO(text)),
+    ):
+        yield
 
 
 class ParserTest(unittest.TestCase):
@@ -67,6 +80,12 @@ class ParserTest(unittest.TestCase):
                 {"publication_command": "review", "file": "c.json"},
             ),
             (["publication", "list"], {"publication_command": "list"}),
+            (
+                ["publication", "draft", "-"],
+                {"publication_command": "draft", "file": "-"},
+            ),
+            (["publication", "candidates"], {"publication_command": "candidates"}),
+            (["publication", "decide"], {"publication_command": "decide"}),
             (
                 ["publication", "revoke", "7"],
                 {"publication_command": "revoke", "id": 7},
@@ -129,6 +148,9 @@ class MainDispatchTest(LoreTestCase):
             (["publication", "review", "c.json"], "publication_apply", ("c.json",)),
             (["publication", "list"], "publication_list", ()),
             (["publication"], "publication_list", ()),
+            (["publication", "draft", "-"], "publication_draft", ("-",)),
+            (["publication", "candidates"], "publication_candidates", ()),
+            (["publication", "decide"], "publication_decide", ()),
             (["publication", "revoke", "7"], "publication_revoke", (7,)),
             (["publication", "reapprove", "7"], "publication_reapprove", (7,)),
         ):
@@ -896,10 +918,120 @@ class PublicationApplyTest(LoreTestCase):
         with Store() as store:
             self.assertIs(store.list_publications()[0].kind, PublicationKind.CONTENT)
 
+    def drafted(self, *overrides: dict) -> list[dict]:
+        """Stage candidates the way the desktop agent does: a JSON array on stdin."""
+        with open(self.candidates(*overrides), encoding="utf-8") as batch:
+            with patch.object(sys, "stdin", batch), captured():
+                self.assertEqual(cli.publication_draft("-"), 0)
+        return json.loads(self.staged_path.read_text(encoding="utf-8"))
+
+    @property
+    def staged_path(self) -> Path:
+        return self.lore_home / "publish-candidates.json"
+
+    def test_drafting_validates_then_stages_for_approval(self) -> None:
+        staged = self.drafted({"title": "First"}, {"title": "Second"})
+        self.assertEqual([c["title"] for c in staged], ["First", "Second"])
+        with captured() as out:
+            self.assertEqual(cli.publication_candidates(), 0)
+        self.assertEqual(json.loads(out.getvalue()), staged)
+        with self.assertRaisesRegex(ValueError, "unknown memories"):
+            cli.publication_draft(self.candidates({"provenance": [9999]}))
+        self.assertEqual(json.loads(self.staged_path.read_text()), staged)
+        with Store() as store:
+            self.assertEqual(store.list_publications(), [])
+
+    def test_nothing_is_staged_until_something_is_drafted(self) -> None:
+        with captured() as out:
+            self.assertEqual(cli.publication_candidates(), 0)
+        self.assertEqual(json.loads(out.getvalue()), [])
+
+    def test_the_desktop_app_approves_exactly_the_card_it_showed(self) -> None:
+        first, second = self.drafted({"title": "First"}, {"title": "Second"})
+        with desktop_stdin(json.dumps({"candidate": first, "approve": True})):
+            with captured() as out:
+                self.assertEqual(cli.publication_decide(), 0)
+        self.assertEqual(json.loads(out.getvalue()), {"approved": True, "remaining": 1})
+        with desktop_stdin(json.dumps({"candidate": second, "approve": False})):
+            with captured():
+                self.assertEqual(cli.publication_decide(), 0)
+        with Store() as store:
+            self.assertEqual([p.title for p in store.list_publications()], ["First"])
+        self.assertFalse(self.staged_path.exists())
+
+    def test_identical_drafts_are_consumed_one_card_at_a_time(self) -> None:
+        memory = self.seed_memory("twin evidence")
+        card = {
+            "title": "Twin claim",
+            "teaser": "What did the twin runs show?",
+            "content": "The same lesson, drafted twice.",
+            "kind": "claim",
+            "topic": "testing",
+            "provenance": [memory],
+        }
+        with desktop_stdin(json.dumps([card, card])), captured():
+            cli.publication_draft("-")
+        self.assertEqual(cli._candidates_path().stat().st_mode & 0o777, 0o600)
+        with (
+            desktop_stdin(json.dumps({"candidate": card, "approve": False})),
+            captured() as out,
+        ):
+            self.assertEqual(cli.publication_decide(), 0)
+        self.assertEqual(json.loads(out.getvalue())["remaining"], 1)
+        with (
+            desktop_stdin(json.dumps({"candidate": card, "approve": True})),
+            captured(),
+        ):
+            self.assertEqual(cli.publication_decide(), 0)
+        with Store() as store:
+            self.assertEqual(len(store.list_publications(active_only=True)), 1)
+
+    def test_a_card_that_was_never_drafted_or_was_altered_saves_nothing(self) -> None:
+        (first,) = self.drafted()
+        for candidate, message in (
+            (first | {"content": "a different claim"}, "not drafted"),
+            (first | {"extra": 1}, "Extra inputs"),
+            ({}, "Field required"),
+        ):
+            with self.subTest(candidate=candidate):
+                with desktop_stdin(
+                    json.dumps({"candidate": candidate, "approve": True})
+                ):
+                    with self.assertRaisesRegex(ValueError, message):
+                        cli.publication_decide()
+        with Store() as store:
+            self.assertEqual(store.list_publications(), [])
+        self.assertTrue(self.staged_path.exists())
+
+    def test_stdin_decisions_are_refused_off_the_desktop_app(self) -> None:
+        # The marker is what Electron main sets; a TTY or any other pipe with it
+        # is not the app, so neither the model's shell nor a script can decide.
+        (first,) = self.drafted()
+        payload = json.dumps({"candidate": first, "approve": True})
+        for marker, tty in ((None, False), ("desktop", True), ("shell", False)):
+            stdin = StringIO(payload)
+            with self.subTest(marker=marker, tty=tty):
+                with (
+                    patch.dict(os.environ),
+                    patch.object(sys, "stdin", stdin),
+                    patch.object(stdin, "isatty", return_value=tty),
+                ):
+                    os.environ.pop("LORE_ATTENDED_SURFACE", None)
+                    if marker:
+                        os.environ["LORE_ATTENDED_SURFACE"] = marker
+                    with self.assertRaisesRegex(
+                        ValueError, "only from the Lore desktop app"
+                    ):
+                        cli.publication_decide()
+        with Store() as store:
+            self.assertEqual(store.list_publications(), [])
+        self.assertTrue(self.staged_path.exists())
+
 
 class PublicationCommandTest(LoreTestCase):
     def setUp(self) -> None:
         super().setUp()
+        self.enterContext(patch.object(cli, "_interactive", return_value=True))
         self.memory_id = self.seed_memory("Pricing lesson")
 
     def publish(self, title: str = "Pricing claim") -> int:
@@ -934,6 +1066,22 @@ class PublicationCommandTest(LoreTestCase):
         ):
             with self.subTest(expected=expected):
                 self.assertIn(expected, text)
+
+    def test_owner_actions_refuse_pipes_that_are_not_the_desktop_app(self) -> None:
+        pid = self.publish()
+        with patch.object(cli, "_interactive", return_value=False):
+            for action in (
+                lambda: cli.publication_revoke(pid),
+                lambda: cli.publication_reapprove(pid),
+                lambda: cli.push(str(cli.home() / "node")),
+            ):
+                with self.assertRaisesRegex(
+                    ValueError, "attended terminal or the Lore desktop app"
+                ):
+                    action()
+            with desktop_stdin(""), patch.object(cli, "push") as push, captured():
+                self.assertEqual(cli.publication_revoke(pid), 0)
+            push.assert_not_called()
 
     def test_revoke_without_a_deployed_node_stays_local(self) -> None:
         pid = self.publish()
@@ -1004,6 +1152,7 @@ class PushTest(LoreTestCase):
 
     def setUp(self) -> None:
         super().setUp()
+        self.enterContext(patch.object(cli, "_interactive", return_value=True))
         self.memory_id = self.seed_memory("Pricing lesson")
         self.worker = self.lore_home / "node"
         self.worker.mkdir(parents=True)

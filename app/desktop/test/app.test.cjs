@@ -48,9 +48,12 @@ test("auto-allows a complete read-only Lore command without prompting", async ()
   const commands = [
     "lore status",
     "lore desktop-state",
-    "lore search Kestrel --status private --limit 0 --json"
+    "lore blueprint show",
+    "lore publication list",
+    "lore search Kestrel --status private --limit 0 --json",
+    `lore publication draft - <<'LORE_PUBLISH'\n[{"title":"x","teaser":"y","content":"z","topic":"t","provenance":[1]}]\nLORE_PUBLISH`
   ];
-  for (const command of commands) assert.equal(await handler(bashEvent(command)), undefined);
+  for (const command of commands) assert.equal(await handler(bashEvent(command)), undefined, command);
   assert.equal(prompted, false);
 
   const { createAgentSession, createBashTool, ModelRuntime, SessionManager, SettingsManager } =
@@ -109,8 +112,16 @@ test("hard-denies malformed, non-Lore, compound, and owner-only commands", async
     "curl https://example.com",
     "echo '[]' | lore capture apply -",
     "lore capture apply - < /tmp/capture.json",
-    "lore publication list",
+    "lore publication review ~/.lore/publish-candidates.json",
+    "lore publication decide",
+    "LORE_ATTENDED_SURFACE=desktop lore publication decide",
+    "echo '{}' | lore publication decide",
+    "lore publication draft - < /tmp/candidates.json",
+    "lore publication draft - <<'LORE_PUBLISH'\nLORE_PUBLISH\nlore publication decide\nLORE_PUBLISH",
+    "lore publication revoke 1",
+    "lore publication reapprove 1",
     "lore price",
+    "lore answer on - 1",
     "lore answer off",
     "lore push",
     "lore node deploy"
@@ -121,6 +132,27 @@ test("hard-denies malformed, non-Lore, compound, and owner-only commands", async
     assert.equal(result.terminate, true, command);
   }
   assert.equal(prompted, false);
+});
+
+test("only Electron main can pipe a decision, and only for a card that is drafted", async () => {
+  const { decide } = require("../src/state.cjs");
+  const directory = await mkdtemp(join(tmpdir(), "lore-desktop-"));
+  const card = { title: "x", teaser: "y", content: "z", kind: "claim", topic: "t", provenance: [1] };
+  try {
+    const piped = spawnSync("uv", ["run", "lore", "publication", "decide"], {
+      cwd: join(__dirname, "../../.."),
+      env: { ...process.env, LORE_HOME: directory, NO_COLOR: "1" },
+      input: JSON.stringify({ candidate: card, approve: true }),
+      encoding: "utf8"
+    });
+    assert.equal(piped.status, 1);
+    assert.match(piped.stderr, /only from the Lore desktop app/);
+    await assert.rejects(decide(directory, card, true), { message: /not drafted/ });
+    const state = await readState(directory);
+    assert.equal(state.publications.counts.active, 0);
+  } finally {
+    await rm(directory, { recursive: true });
+  }
 });
 
 test("safeStorage credentials survive an Electron restart", { skip: process.platform !== "darwin" }, async () => {

@@ -69,7 +69,16 @@ type SearchHit = {
 
 type CaptureEntry = { title: string; content: string; project?: string; source_path?: string };
 
-type AgentTask = "capture" | "setup";
+type PublicationCandidate = {
+  title: string;
+  teaser: string;
+  content: string;
+  kind: "claim" | "content";
+  topic: string;
+  provenance: number[];
+};
+
+type AgentTask = "capture" | "setup" | "publish";
 
 interface Window {
   lore: {
@@ -80,6 +89,11 @@ interface Window {
     login(input: { providerId: string; type: "oauth" | "api_key"; secret?: string }): Promise<AgentStatus>;
     logout(providerId: string): Promise<AgentStatus>;
     search(query: string): Promise<SearchHit[]>;
+    candidates(): Promise<PublicationCandidate[]>;
+    decide(input: { candidate: PublicationCandidate; approve: boolean }): Promise<void>;
+    reapprove(id: number): Promise<void>;
+    revoke(id: number): Promise<void>;
+    push(): Promise<void>;
     pickFiles(): Promise<string[]>;
     pathFor(file: File): string;
     onAgentEvent(listener: (event: AgentEvent) => void): () => void;

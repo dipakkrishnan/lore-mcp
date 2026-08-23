@@ -16,6 +16,20 @@ the approval prompt on the owner's behalf.
 > provides a structured question control. Never block because a named question
 > tool is unavailable.
 
+> **In the Lore desktop app** (your system prompt says you are Lore's desktop
+> agent): the app is the attended surface. Stage the drafts with
+> `lore publication draft -` and a quoted heredoc instead of writing a file,
+> then stop after one sentence saying the drafts are ready to approve below.
+> The app shows each card, takes Approve or Skip from the owner, and asks the
+> push question itself. Skip sections 4 and 5: never send the owner to a
+> terminal and never ask the closing question yourself.
+>
+> ```sh
+> lore publication draft - <<'LORE_PUBLISH'
+> [{"title": "...", "teaser": "...", "content": "...", "kind": "claim", "topic": "...", "provenance": [12]}]
+> LORE_PUBLISH
+> ```
+
 ## 1. Understand the intent
 
 The owner says something like "publish what I learned about pricing agent

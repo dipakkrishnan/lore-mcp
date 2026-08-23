@@ -8,7 +8,7 @@ import sys
 from pathlib import Path
 from typing import Annotated
 
-from pydantic import Field, TypeAdapter
+from pydantic import BaseModel, ConfigDict, Field, TypeAdapter
 
 from . import blueprint as blueprint_module
 from . import capture as capture_module
@@ -31,6 +31,15 @@ from .ui import (
 PUBLICATION_CANDIDATES: TypeAdapter[list[PublicationInput]] = TypeAdapter(
     Annotated[list[PublicationInput], Field(min_length=1)]
 )
+
+
+class PublicationDecision(BaseModel):
+    """One approval card answered in the Lore desktop app."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    candidate: PublicationInput
+    approve: bool
 
 
 def parser() -> argparse.ArgumentParser:
@@ -133,6 +142,18 @@ def parser() -> argparse.ArgumentParser:
         "review", help="review drafted candidates and approve each interactively"
     )
     publication_review.add_argument("file", help="JSON file of drafted candidates")
+    publication_draft = publication_commands.add_parser(
+        "draft", help="validate drafted candidates and stage them for approval"
+    )
+    publication_draft.add_argument(
+        "file", help="JSON array of candidates; use - for stdin"
+    )
+    publication_commands.add_parser(
+        "candidates", help="print the staged candidates as JSON"
+    )
+    publication_commands.add_parser(
+        "decide", help="apply one approval card from the Lore desktop app (stdin)"
+    )
     publication_commands.add_parser("list", help="show active and revoked publications")
     publication_revoke = publication_commands.add_parser(
         "revoke", help="immediately remove a publication from MCP retrieval"
@@ -220,6 +241,12 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "publication":
             if args.publication_command == "review":
                 return publication_apply(args.file)
+            if args.publication_command == "draft":
+                return publication_draft(args.file)
+            if args.publication_command == "candidates":
+                return publication_candidates()
+            if args.publication_command == "decide":
+                return publication_decide()
             if args.publication_command == "revoke":
                 return publication_revoke(args.id)
             if args.publication_command == "reapprove":
@@ -589,6 +616,61 @@ def _interactive() -> bool:
     return sys.stdin.isatty() and sys.stdout.isatty()
 
 
+def _attended() -> bool:
+    """Whether the Lore desktop app, the other attended surface, is piping a decision."""
+    return (
+        os.environ.get("LORE_ATTENDED_SURFACE") == "desktop" and not sys.stdin.isatty()
+    )
+
+
+def _desktop_decision(what: str) -> str:
+    """Read one owner decision from the desktop app; refuse every other pipe."""
+    if not _attended():
+        raise ValueError(
+            f"{what} on stdin is accepted only from the Lore desktop app; "
+            "piped and background approval is disabled"
+        )
+    return sys.stdin.read()
+
+
+def _owner_action(what: str) -> None:
+    """Owner actions run from a terminal or the desktop app, never a pipe."""
+    if not (_interactive() or _attended()):
+        raise ValueError(
+            f"{what} needs an attended terminal or the Lore desktop app; "
+            "piped and background use is disabled"
+        )
+
+
+def _candidates_path() -> Path:
+    return home() / "publish-candidates.json"
+
+
+def _validated_candidates(text: str) -> list[PublicationInput]:
+    """Validate a drafted batch the way review does, provenance included."""
+    candidates = PUBLICATION_CANDIDATES.validate_json(text)
+    with Store() as store:
+        for candidate in candidates:
+            _candidate(candidate, store)
+    return candidates
+
+
+def _staged() -> list[PublicationInput]:
+    path = _candidates_path()
+    if not path.is_file():
+        return []
+    return _validated_candidates(path.read_text(encoding="utf-8"))
+
+
+def _stage(candidates: list[PublicationInput]) -> None:
+    path = _candidates_path()
+    if candidates:
+        path.write_bytes(PUBLICATION_CANDIDATES.dump_json(candidates, indent=2))
+        path.chmod(0o600)
+    else:
+        path.unlink(missing_ok=True)
+
+
 def _candidate(raw: object, missing_check: Store) -> Publication:
     """Validate one drafted candidate into a previewable Publication."""
     candidate = PublicationInput.model_validate(raw)
@@ -668,6 +750,45 @@ def publication_apply(path: str) -> int:
     return 0
 
 
+def publication_draft(file: str) -> int:
+    """Validate agent-drafted candidates and stage them for the owner's approval."""
+    text = sys.stdin.read() if file == "-" else Path(file).read_text(encoding="utf-8")
+    candidates = _validated_candidates(text)
+    _stage(candidates)
+    success(
+        f"Drafted {len(candidates)} candidate{'s' if len(candidates) != 1 else ''} "
+        "for the owner to approve"
+    )
+    return 0
+
+
+def publication_candidates() -> int:
+    """Print the staged candidates, exactly as the approval cards will show them."""
+    print(json.dumps([candidate.model_dump(mode="json") for candidate in _staged()]))
+    return 0
+
+
+def publication_decide() -> int:
+    """Apply one approval card the owner answered in the Lore desktop app."""
+    decision = PublicationDecision.model_validate_json(
+        _desktop_decision("publication approval")
+    )
+    staged = _staged()
+    dumped = decision.candidate.model_dump()
+    for index, candidate in enumerate(staged):
+        if candidate.model_dump() == dumped:
+            del staged[index]
+            break
+    else:
+        raise ValueError("that candidate is not drafted; nothing saved")
+    if decision.approve:
+        with Store() as store:
+            store.add_publication(**decision.candidate.model_dump())
+    _stage(staged)
+    print(json.dumps({"approved": decision.approve, "remaining": len(staged)}))
+    return 0
+
+
 def publication_list() -> int:
     """Show every publication and its disclosure state."""
     with Store() as store:
@@ -688,6 +809,7 @@ def publication_revoke(publication_id: int) -> int:
     not a wait. A failed push is recorded so `lore status` keeps saying the
     edge is stale until a push lands — never silently dropped.
     """
+    _owner_action("revoking a publication")
     with Store() as store:
         store.revoke_publication(publication_id)
         node_url = store.setting("node_url", None)
@@ -755,6 +877,7 @@ def _push_sql(publications: list[Publication], answer: AnswerSettings) -> str:
 
 def push(worker_dir: str, local: bool = False) -> int:
     """Replace the deployed node's publications with the local active set."""
+    _owner_action("pushing publications")
     import subprocess
     import tempfile
 
@@ -808,6 +931,7 @@ def push(worker_dir: str, local: bool = False) -> int:
 
 def publication_reapprove(publication_id: int) -> int:
     """Keep a publication as-is after its source memory changed."""
+    _owner_action("re-approving a publication")
     with Store() as store:
         store.clear_publication_flag(publication_id)
     success(f"Re-approved publication {publication_id} as published")

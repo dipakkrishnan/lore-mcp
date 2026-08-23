@@ -14,31 +14,38 @@ import { Type } from "@earendil-works/pi-ai";
 const READ_ONLY_BASH = [
   /^lore status$/,
   /^lore desktop-state$/,
+  /^lore blueprint show$/,
+  /^lore publication list$/,
   /^lore search(?: (?:[A-Za-z0-9][A-Za-z0-9._:/-]*|--status (?:private|discarded)|--limit (?:0|[1-9]\d*)|--json))*$/
 ];
 const CAPTURE_BASH = /^lore capture apply - <<'LORE_CAPTURE'\n([\s\S]+)\nLORE_CAPTURE$/;
-const SKILLS = { capture: "lore-capture", setup: "lore-onboard" };
+const DRAFT_BASH = /^lore publication draft - <<'LORE_PUBLISH'\n([\s\S]+)\nLORE_PUBLISH$/;
+const SKILLS = { capture: "lore-capture", setup: "lore-onboard", publish: "lore-publish" };
 
-/** @param {string} command @returns {CaptureEntry[] | null} */
-export function captureEntries(command) {
-  const match = command.match(CAPTURE_BASH);
+/** @param {string} command @param {RegExp} pattern @returns {unknown[] | null} */
+function heredocArray(command, pattern) {
+  const match = command.match(pattern);
   if (!match) return null;
   try {
     /** @type {unknown} */
     const parsed = JSON.parse(match[1]);
-    if (!Array.isArray(parsed) || !parsed.length) return null;
-    const entries = /** @type {CaptureEntry[]} */ (parsed);
-    return entries.every((entry) => entry && typeof entry.title === "string" && typeof entry.content === "string")
-      ? entries
-      : null;
+    return Array.isArray(parsed) && parsed.length ? parsed : null;
   } catch {
     return null;
   }
 }
 
+/** @param {string} command @returns {CaptureEntry[] | null} */
+export function captureEntries(command) {
+  const entries = /** @type {CaptureEntry[] | null} */ (heredocArray(command, CAPTURE_BASH));
+  return entries?.every((entry) => entry && typeof entry.title === "string" && typeof entry.content === "string")
+    ? entries
+    : null;
+}
+
 /** @param {string} command @returns {"allow" | "approve" | "deny"} */
 export function classifyBash(command) {
-  if (READ_ONLY_BASH.some((pattern) => pattern.test(command))) return "allow";
+  if (READ_ONLY_BASH.some((pattern) => pattern.test(command)) || heredocArray(command, DRAFT_BASH)) return "allow";
   return captureEntries(command) ? "approve" : "deny";
 }
 
@@ -154,9 +161,9 @@ export class LoreAgent {
     this.#busy = true;
     this.options.emit({ type: "working", active: true });
     try {
-      if (task === "capture" && this.#captureSaved) {
-        this.#sessions.get("capture")?.dispose();
-        this.#sessions.delete("capture");
+      if (task === "publish" || (task === "capture" && this.#captureSaved)) {
+        this.#sessions.get(task)?.dispose();
+        this.#sessions.delete(task);
         this.#captureSaved = false;
       }
       const existing = this.#sessions.get(task);

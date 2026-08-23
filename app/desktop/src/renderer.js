@@ -36,6 +36,10 @@ let hits = null;
 /** @type {string[]} */
 const lines = [];
 let firstRunDismissed = false;
+/** @type {PublicationCandidate[]} */
+let candidates = [];
+let approvedThisPass = false;
+let pushOffer = false;
 
 const RING = `<svg viewBox="0 0 26 26" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M13 4.5a8.5 8.5 0 1 1-6 2.5"></path><path d="M13 9a4 4 0 1 1-2.8 1.2"></path><circle cx="13" cy="13" r="1.2" fill="currentColor" stroke="none"></circle></svg>`;
 const PROVIDERS = {
@@ -154,6 +158,7 @@ function needsYou(s) {
   if (!s.setup.sources_configured) add("Connect your agents", "Let Lore read what Claude Code and Codex already remember.", button("Start", "secondary", startSetup));
   if (!s.setup.blueprint_configured) add("Tell Lore what it's for", "A five-minute conversation shapes what Lore keeps and what it sells.", button("Start", "secondary", startSetup));
   if (!s.setup.profile_configured) add("Choose how Lore learns from your agents", "Decide which model writes new memories, and how often.", button("Start", "secondary", startSetup));
+  if (s.library.counts.private && !candidates.length) add("Publish something", "Pick a topic you know well. Lore drafts up to three things to sell; you approve each one.", button("Publish", "secondary", startPublish));
   const changed = s.publications.items.filter((item) => item.needs_review).length;
   if (changed) {
     add(
@@ -208,6 +213,8 @@ function renderToday(s) {
   /** @type {HTMLElement[]} */
   const parts = [];
   if (fresh) parts.push(firstRun(s));
+  if (candidates.length) parts.push(section("Approve what to sell", approvals(), el("span", "hint", "Only what you approve ever leaves this Mac.")));
+  if (pushOffer) parts.push(seamCard());
   const attention = fresh ? [] : needsYou(s);
   if (attention.length) parts.push(section("Needs you", card(attention)));
   const recent = s.library.items.filter((item) => item.status === "private").slice(0, 5);
@@ -280,7 +287,13 @@ function renderStore(s) {
   const state = (item) => item.needs_review ? chip("Changed", "warn") : item.live === true ? chip("Live", "ok") : item.live === false ? chip("Not live yet") : chip("Approved");
   /** @type {HTMLElement[]} */
   const parts = [bar];
-  if (changed.length) parts.push(section("Needs you", card(changed.map((item) => row(item.title, "The memory behind this changed after you approved it. Re-approve or take it down from Lore.", chip("Changed", "warn"))))));
+  if (changed.length) parts.push(section("Needs you", card(changed.map((item) => {
+    const group = el("div");
+    group.style.display = "flex";
+    group.style.gap = "8px";
+    group.append(button("Take down", "secondary", () => act(window.lore.revoke, item.id)), button("Re-approve", "primary", () => act(window.lore.reapprove, item.id)));
+    return row(item.title, "The memory behind this changed after you approved it.", group);
+  }))));
   parts.push(section("For sale", approved.length
     ? card(approved.map((item) => row(item.title, item.topic, state(item))))
     : el("div", "card pad empty", "Nothing for sale yet. Publish something from Today."),
@@ -390,7 +403,7 @@ function show(next) {
 async function load() {
   status.textContent = snapshot ? "" : "Loading…";
   try {
-    snapshot = await window.lore.snapshot();
+    [snapshot, candidates] = await Promise.all([window.lore.snapshot(), window.lore.candidates().catch(() => [])]);
     status.textContent = "";
     if (task === "setup" && snapshot.setup.profile_configured) task = "capture";
     render();
@@ -426,7 +439,7 @@ function working(active) {
   composer.classList.toggle("working", active);
   if (active) {
     const pill = el("span", "pill");
-    pill.append(el("i"), document.createTextNode(task === "setup" ? "Lore is thinking…" : "Lore is reading this…"));
+    pill.append(el("i"), document.createTextNode({ setup: "Lore is thinking…", publish: "Lore is drafting…", capture: "Lore is reading this…" }[task]));
     status.replaceChildren(pill);
   } else {
     status.replaceChildren();
@@ -554,6 +567,72 @@ async function startSetup() {
   task = "setup";
   show("today");
   await send("Let's set up my Lore.");
+}
+
+async function startPublish() {
+  task = "publish";
+  show("today");
+  await send("Help me publish something from my Lore.");
+  task = "capture";
+}
+
+function approvals() {
+  const list = el("div", "card pad");
+  list.style.display = "flex";
+  list.style.flexDirection = "column";
+  list.style.gap = "10px";
+  for (const candidate of candidates) {
+    const memory = el("div", "memory");
+    memory.append(el("b", "", candidate.title));
+    for (const [label, text] of [["Free teaser, what buyers see first", candidate.teaser], ["Paid content, what a buyer's agent gets", candidate.content]]) {
+      memory.append(el("span", "hint", label), el("p", "", text));
+    }
+    const meta = el("div", "meta");
+    meta.append(chip(candidate.topic));
+    if (candidate.kind === "content") meta.append(chip("Verbatim"));
+    const group = el("div");
+    group.style.display = "flex";
+    group.style.gap = "8px";
+    group.style.marginLeft = "auto";
+    group.append(button("Skip", "secondary", () => decide(candidate, false)), button("Approve", "primary", () => decide(candidate, true)));
+    meta.append(group);
+    memory.append(meta);
+    list.append(memory);
+  }
+  return list;
+}
+
+function seamCard() {
+  const box = el("div", "card lead request");
+  box.append(el("p", "q", "Push to your store now?"), el("p", "hint", "Approved publications reach buyers only after a push. Leaving it is fine; the next push carries it."));
+  const actions = el("div", "actions");
+  actions.append(button("Leave it for now", "secondary", () => { pushOffer = false; render(); }), button("Push now", "primary", () => act(window.lore.push)));
+  box.append(actions);
+  return box;
+}
+
+/** @param {PublicationCandidate} candidate @param {boolean} approve */
+async function decide(candidate, approve) {
+  if ((await act(() => window.lore.decide({ candidate, approve }))) && approve) approvedThisPass = true;
+  if (candidates.length || !approvedThisPass) return;
+  approvedThisPass = false;
+  pushOffer = Boolean(snapshot?.node.url);
+  if (!pushOffer) say("Approved. It goes on sale the moment you open a store.");
+  render();
+}
+
+/** @param {(id: number) => Promise<void>} action @param {number} [id] */
+async function act(action, id = 0) {
+  pushOffer = false;
+  let done = true;
+  try {
+    await action(id);
+  } catch (error) {
+    done = false;
+    say(error instanceof Error ? error.message : "Lore could not do that.");
+  }
+  await load();
+  return done;
 }
 
 /** @param {string} text */
