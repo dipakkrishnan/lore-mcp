@@ -250,6 +250,32 @@ test("typed task records survive relaunch and only unfinished known tasks are li
   }
 });
 
+test("an early-ended turn stays resumable, and listing never writes to a live session", async () => {
+  const { LoreAgent, closingRecord } = await import("../src/agent.mjs");
+  assert.deepEqual(closingRecord("working", "setup", false), ["stopped", "Ready to resume"]);
+  assert.deepEqual(closingRecord("working", "capture", false), ["stopped", "Ready to resume"]);
+  assert.deepEqual(closingRecord("working", "setup", true), ["done", "Finished"]);
+  assert.deepEqual(closingRecord("working", "publish", false), ["done", "Finished"]);
+  assert.equal(closingRecord("needs_you", "setup", false), null);
+  assert.equal(closingRecord(undefined, "setup", false), null);
+  const home = await mkdtemp(join(tmpdir(), "lore-desktop-"));
+  try {
+    const live = LoreAgent.sessionFor(home, "setup");
+    live.appendMessage({ role: "user", content: "Let's set up my Lore.", timestamp: 1 });
+    live.appendCustomEntry("lore.task", { version: 1, kind: "setup", title: "Set up your Lore", state: "needs_you", phase: "Shape your Lore" });
+    live.appendMessage({ role: "assistant", content: [{ type: "toolCall", id: "q1", name: "ask_user", arguments: {} }], api: "anthropic-messages", provider: "anthropic", model: "m", usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } }, stopReason: "toolUse", timestamp: 2 });
+    const before = (await readFile(live.getSessionFile(), "utf8")).split("\n").filter(Boolean).length;
+    assert.deepEqual(LoreAgent.tasks(home).map(({ kind, state }) => ({ kind, state })), [{ kind: "setup", state: "needs_you" }]);
+    assert.equal((await readFile(live.getSessionFile(), "utf8")).split("\n").filter(Boolean).length, before, "listing must not write");
+    const idle = new LoreAgent(/** @type {LoreAgentOptions} */ ({ loreHome: home }), /** @type {never} */ (null), /** @type {never} */ (null), /** @type {never} */ (null));
+    assert.deepEqual(idle.tasks().map(({ state, phase }) => ({ state, phase })), [{ state: "stopped", phase: "Ready to resume" }]);
+    const resumedFile = LoreAgent.sessionFor(home, "setup").getSessionFile();
+    assert.equal(resumedFile, live.getSessionFile(), "a resumable session continues the same file");
+  } finally {
+    await rm(home, { recursive: true });
+  }
+});
+
 test("the blueprint proposal boundary accepts only the CLI's bounded shape", async () => {
   const { validBlueprint } = await import("../src/agent.mjs");
   const { lore } = require("../src/state.cjs");

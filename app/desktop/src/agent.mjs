@@ -41,6 +41,8 @@ const AXES = ["chronological", "theme", "project", "knowledge"];
 const STOPPED = "Lore stopped before doing something it isn't allowed to do here. Tell it how to continue.";
 const CLOSED = "Lore was closed before this finished.";
 const MODELS = ["anthropic/claude-sonnet-5", "openai-codex/gpt-5.6-luna", "openai/gpt-5.6-luna"];
+const MAX_TURNS = 60;
+const CAPPED = "That reply took more steps than Lore allows at once, so it paused. Say continue to keep going.";
 
 /** @param {unknown} value @returns {value is BlueprintFields} */
 export function validBlueprint(value) {
@@ -77,6 +79,12 @@ function appendTaskRecord(manager, kind, state, phase = TASKS[kind].phase) {
   if (current?.state === state && current.phase === phase) return current;
   manager.appendCustomEntry("lore.task", { version: 1, kind, title: TASKS[kind].title, state, phase });
   return /** @type {TaskRecord} */ ({ version: 1, kind, title: TASKS[kind].title, state, phase, updatedAt: new Date().toISOString() });
+}
+
+/** @param {TaskState | undefined} state @param {AgentTask} task @param {boolean} completed @returns {[TaskState, string] | null} */
+export function closingRecord(state, task, completed) {
+  if (state !== "working") return null;
+  return completed || task === "publish" ? ["done", "Finished"] : ["stopped", "Ready to resume"];
 }
 
 /** @param {import("@earendil-works/pi-coding-agent").SessionManager} manager @param {AgentTask} task */
@@ -144,6 +152,9 @@ export class LoreAgent {
   /** @type {Map<AgentTask, import("@earendil-works/pi-coding-agent").AgentSession>} */
   #sessions = new Map();
   #busy = false;
+  #completed = false;
+  #turns = 0;
+  #capped = false;
   /** @type {AgentTask | null} */
   #activeTask = null;
 
@@ -206,8 +217,7 @@ export class LoreAgent {
     /** @type {TaskRecord[]} */
     const records = [];
     for (const kind of /** @type {AgentTask[]} */ (Object.keys(TASKS))) {
-      const manager = repairInterrupted(SessionManager.continueRecent(loreHome, resolve(loreHome, ".pi", "sessions", kind)), kind);
-      const record = latestTaskRecord(manager, kind);
+      const record = latestTaskRecord(SessionManager.continueRecent(loreHome, resolve(loreHome, ".pi", "sessions", kind)), kind);
       if (record && record.state !== "done") records.push(record);
     }
     return records.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)).slice(0, 3);
@@ -257,7 +267,9 @@ export class LoreAgent {
   }
 
   tasks() {
-    return LoreAgent.tasks(this.options.loreHome);
+    return LoreAgent.tasks(this.options.loreHome).map((record) =>
+      this.#sessions.has(record.kind) ? record : { ...record, state: /** @type {TaskState} */ ("stopped"), phase: "Ready to resume" }
+    );
   }
 
   /** @param {import("@earendil-works/pi-coding-agent").AgentSession} session @param {AgentTask} task @param {TaskState} state @param {string} [phase] */
@@ -280,7 +292,9 @@ export class LoreAgent {
     const session = task && this.#sessions.get(task);
     if (task && session) this.#record(session, task, "needs_you");
     try {
-      return await this.options.approveBash(command, action);
+      const approved = await this.options.approveBash(command, action);
+      if (approved && ((task === "capture" && action.kind === "capture") || (task === "setup" && action.kind === "profile"))) this.#completed = true;
+      return approved;
     } finally {
       if (task && session) this.#record(session, task, "working");
     }
@@ -318,6 +332,9 @@ export class LoreAgent {
     if (!text.trim()) throw new Error("Nothing to capture");
     this.#busy = true;
     this.#activeTask = task;
+    this.#completed = false;
+    this.#turns = 0;
+    this.#capped = false;
     this.options.emit({ type: "working", active: true });
     try {
       const open = this.#sessions.get(task);
@@ -329,7 +346,8 @@ export class LoreAgent {
       const [session, resumed] = existing ? [existing, true] : await this.#newSession(task);
       this.#record(session, task, "working");
       await session.prompt(resumed ? text : `/skill:${SKILLS[task]}\n\n${text}`);
-      if (latestTaskRecord(session.sessionManager, task)?.state === "working") this.#record(session, task, "done", "Finished");
+      const closing = closingRecord(latestTaskRecord(session.sessionManager, task)?.state, task, this.#completed);
+      if (closing) this.#record(session, task, closing[0], closing[1]);
     } catch (error) {
       const session = this.#sessions.get(task);
       if (session && latestTaskRecord(session.sessionManager, task)?.state !== "stopped") this.#record(session, task, "stopped", "Needs another try");
@@ -390,8 +408,12 @@ export class LoreAgent {
       if (event.type === "tool_execution_end" && event.toolName === "bash") this.options.emit({ type: "changed" });
       if (event.type !== "message_end" || event.message.role !== "assistant") return;
       if (event.message.stopReason === "error" || event.message.stopReason === "aborted") {
-        this.options.emit({ type: "message", text: event.message.errorMessage || "Lore's model did not answer." });
+        this.options.emit({ type: "message", text: this.#capped ? CAPPED : event.message.errorMessage || "Lore's model did not answer." });
         return;
+      }
+      if (++this.#turns >= MAX_TURNS && !this.#capped) {
+        this.#capped = true;
+        void session.abort();
       }
       const text = event.message.content
         .map((block) => (block.type === "text" ? block.text : ""))
