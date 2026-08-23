@@ -33,6 +33,7 @@ let task = "capture";
 let attachments = [];
 /** @type {SearchHit[] | null} */
 let hits = null;
+let liveText = "";
 /** @type {string[]} */
 const lines = [];
 let firstRunDismissed = false;
@@ -495,6 +496,13 @@ async function load() {
 function say(text) {
   lines.push(text);
   while (lines.length > 6) lines.shift();
+  liveText = "";
+  renderLog();
+}
+
+/** @param {string} text */
+function live(text) {
+  liveText = text;
   renderLog();
 }
 
@@ -504,7 +512,12 @@ function renderLog() {
     line.append(mark("mark mark-sm"), el("p", "", text));
     return line;
   }));
-  agentPanel.hidden = !lines.length && !requestSlot.childElementCount;
+  if (liveText) {
+    const line = el("div", "line live");
+    line.append(mark("mark mark-sm"), el("p", "", liveText));
+    log.append(line);
+  }
+  agentPanel.hidden = !lines.length && !liveText && !requestSlot.childElementCount;
 }
 
 /** @param {boolean} active */
@@ -594,8 +607,8 @@ function renderRequest(event) {
         pick.type = question.multiSelect ? "checkbox" : "radio";
         pick.name = `question-${index}`;
         pick.value = option.label;
-        label.append(pick, document.createTextNode(option.label));
-        if (option.description) label.append(el("small", "", ` — ${option.description}`));
+        label.append(pick, el("span", "", option.label));
+        if (option.description) label.append(el("small", "", option.description));
         choices.append(label);
       }
       fieldset.append(choices);
@@ -787,7 +800,8 @@ function enter() {
 }
 
 window.lore.onAgentEvent((event) => {
-  if (event.type === "working") working(event.active);
+  if (event.type === "working") { working(event.active); if (!event.active) live(""); }
+  else if (event.type === "live") live(event.text);
   else if (event.type === "changed") void load();
   else if (event.type === "message") say(event.text);
   else if (event.type === "progress") {
