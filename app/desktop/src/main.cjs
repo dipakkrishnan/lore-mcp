@@ -73,6 +73,10 @@ function registerIpc(loreHome) {
     }
     return decide(loreHome, input.candidate, input.approve);
   });
+  ipcMain.handle("publication:revoke", async (_event, id) => {
+    if (!Number.isInteger(id) || id < 1) throw new Error("Invalid publication");
+    await lore(loreHome, ["publication", "revoke", String(id)], "");
+  });
   ipcMain.handle("store:push", async () => {
     await lore(loreHome, ["push"], "");
   });

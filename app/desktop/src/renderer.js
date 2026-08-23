@@ -39,6 +39,7 @@ let firstRunDismissed = false;
 /** @type {PublicationCandidate[]} */
 let candidates = [];
 let approvedThisPass = false;
+/** @type {string | false} */
 let pushOffer = false;
 
 const RING = `<svg viewBox="0 0 26 26" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M13 4.5a8.5 8.5 0 1 1-6 2.5"></path><path d="M13 9a4 4 0 1 1-2.8 1.2"></path><circle cx="13" cy="13" r="1.2" fill="currentColor" stroke="none"></circle></svg>`;
@@ -298,10 +299,28 @@ function renderStore(s) {
   const revoked = s.publications.items.filter((item) => item.state === "revoked");
   /** @param {PublicationItem} item */
   const state = (item) => item.live === true ? chip("Live", "ok") : item.live === false ? chip("Not live yet") : chip("Approved");
+  /** @param {PublicationItem} item */
+  const controls = (item) => {
+    const trailing = el("div", "v");
+    const ask = button("Take down", "secondary", () => {
+      trailing.replaceChildren(
+        el("span", "hint", "Buyers lose it for good."),
+        button("Keep", "secondary", () => trailing.replaceChildren(state(item), ask)),
+        button("Take down", "primary", async () => {
+          if (!(await act(() => window.lore.revoke(item.id)))) return;
+          pushOffer = live.state === "online" ? "It stays on sale until you push." : false;
+          render();
+        })
+      );
+    });
+    trailing.append(state(item), ask);
+    return trailing;
+  };
   /** @type {HTMLElement[]} */
   const parts = [bar];
+  if (pushOffer) parts.push(seamCard());
   parts.push(section("For sale", approved.length
-    ? card(approved.map((item) => row(item.title, item.topic, state(item))))
+    ? card(approved.map((item) => row(item.title, item.topic, controls(item))))
     : el("div", "card pad empty", "Nothing for sale yet. Publish something from Today."),
     el("span", "hint", approved.length ? `${approved.length} ${approved.length === 1 ? "publication" : "publications"}${live.state === "online" ? " · confirmed on your node" : ""}` : "")));
   if (revoked.length) parts.push(section("Taken down", card(revoked.map((item) => row(item.title, item.topic, chip("Revoked"))))));
@@ -635,7 +654,7 @@ function approvals() {
 
 function seamCard() {
   const box = el("div", "card lead request");
-  box.append(el("p", "q", "Push to your store now?"), el("p", "hint", "Approved publications reach buyers only after a push. Leaving it is fine; the next push carries it."));
+  box.append(el("p", "q", "Push to your store now?"), el("p", "hint", pushOffer || ""));
   const actions = el("div", "actions");
   actions.append(button("Leave it for now", "secondary", () => { pushOffer = false; render(); }), button("Push now", "primary", () => act(window.lore.push)));
   box.append(actions);
@@ -647,7 +666,7 @@ async function decide(candidate, approve) {
   if ((await act(() => window.lore.decide({ candidate, approve }))) && approve) approvedThisPass = true;
   if (candidates.length || !approvedThisPass) return;
   approvedThisPass = false;
-  pushOffer = Boolean(snapshot?.node.url);
+  pushOffer = snapshot?.node.url ? "Approved publications reach buyers only after a push. Leaving it is fine; the next push carries it." : false;
   if (!pushOffer) say("Approved. It goes on sale the moment you open a store.");
   render();
 }
