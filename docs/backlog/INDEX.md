@@ -86,4 +86,5 @@ obsolete), then `priority` (P0 → P3).
 | [CAP-001](./capture/CAP-001-lore-capture-skill-for-attended-non-session-intake.md) | Build the lore-capture skill for attended non-session intake | P2 | M | capture | completed | — | — | — | — |
 | [XC-007](./cross-cutting/XC-007-pr-templates-for-backlog-skills.md) | Add reusable PR templates the backlog skills can reference | P2 | M | cross-cutting | completed | — | — | — | — |
 | [XC-017](./cross-cutting/XC-017-introduce-paid-proxy-answers-through-owner-skills.md) | Introduce paid proxy answers through the owner skills | P2 | M | cross-cutting | completed | MCP-003, XC-005 | — | — | — |
+| [XC-021](./cross-cutting/XC-021-remove-dead-desktop-paths.md) | Remove dead desktop paths | P2 | S | cross-cutting | completed | APP-001, APP-004, APP-020 | — | — | — |
 | [MON-001](./monetization/MON-001-cloudflare-gateway-deployment-guide.md) | Write a deployment guide for the Cloudflare Tunnel / Monetization Gateway path | P2 | L | monetization | obsolete | — | — | — | — |

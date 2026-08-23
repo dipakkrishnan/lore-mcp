@@ -12,7 +12,7 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import { Type } from "@earendil-works/pi-ai";
 
-/** @type {Array<[RegExp, "allow" | "draft" | "checkpoint" | BashAction["kind"]]>} */
+/** @type {Array<[RegExp, "allow" | "draft" | BashAction["kind"]]>} */
 const BASH_POLICY = [
   [/^lore status$/, "allow"],
   [/^lore desktop-state$/, "allow"],
@@ -25,32 +25,10 @@ const BASH_POLICY = [
   [/^ls "\$\{CLAUDE_HOME:-\$HOME\/\.claude\}"\/projects\/\*\/memory\/\*\.md 2>\/dev\/null$/, "allow"],
   [/^ls "\$\{CODEX_HOME:-\$HOME\/\.codex\}\/memories" "\$\{CODEX_HOME:-\$HOME\/\.codex\}\/automations" 2>\/dev\/null$/, "allow"],
   [/^ls -lt "\$\{CLAUDE_HOME:-\$HOME\/\.claude\}"\/projects\/\*\/\*\.jsonl 2>\/dev\/null$/, "allow"],
-  [/^cat > "\$\{LORE_HOME:-\$HOME\/\.lore\}\/automation\/onboarding\.json" <<'LORE_CHECKPOINT'\n([\s\S]+)\nLORE_CHECKPOINT$/, "checkpoint"],
   [/^lore setup --yes$/, "import"],
   [/^lore capture apply - <<'LORE_CAPTURE'\n([\s\S]+)\nLORE_CAPTURE$/, "capture"],
   [/^lore profile - <<'LORE_PROFILE'\n([\s\S]+)\nLORE_PROFILE$/, "profile"]
 ];
-const CHECKPOINT_FIELDS = {
-  phase1_done: "boolean",
-  role: "string",
-  domains: "string",
-  valuable_context: "string",
-  preferences: "string",
-  boundaries: "string",
-  executor: "string",
-  model: "string",
-  cadence: "string",
-  hour: "number"
-};
-const CHECKPOINT_DRAFT = {
-  name: "string",
-  persona: "string",
-  organizing_axis: "string",
-  topic_outline: "list",
-  focus_topics: "list",
-  general_areas: "list",
-  storytelling: "string"
-};
 const SKILLS = { capture: "lore-capture", setup: "lore-onboard", publish: "lore-publish" };
 const TASKS = {
   capture: { title: "Capture a memory", phase: "Review the capture" },
@@ -115,27 +93,6 @@ function repairInterrupted(manager, task) {
   return manager;
 }
 
-/** @param {unknown} body @returns {string[]} */
-function checkpointProblems(body) {
-  if (!body || typeof body !== "object" || Array.isArray(body)) return ["it must be a JSON object"];
-  const checkpoint = /** @type {Record<string, unknown>} */ (body);
-  const problems = [];
-  for (const [key, type] of Object.entries(CHECKPOINT_FIELDS)) {
-    if (!(key in checkpoint)) problems.push(`"${key}" is missing`);
-    else if (typeof checkpoint[key] !== type) problems.push(`"${key}" must be a ${type}`);
-  }
-  for (const [key, value] of Object.entries(checkpoint)) {
-    if (key in CHECKPOINT_FIELDS) continue;
-    const type = CHECKPOINT_DRAFT[/** @type {keyof typeof CHECKPOINT_DRAFT} */ (key)];
-    if (!type) problems.push(`"${key}" is not a checkpoint field`);
-    else if (type === "list" ? !Array.isArray(value) || !value.every((item) => typeof item === "string") : typeof value !== type)
-      problems.push(`"${key}" must be a ${type === "list" ? "list of strings" : type}`);
-  }
-  if (!["daily", "weekly"].includes(/** @type {string} */ (checkpoint.cadence))) problems.push('"cadence" must be "daily" or "weekly"');
-  if (!Number.isInteger(checkpoint.hour) || /** @type {number} */ (checkpoint.hour) < 0 || /** @type {number} */ (checkpoint.hour) > 23) problems.push('"hour" must be a whole number from 0 to 23');
-  return problems;
-}
-
 /** @param {string} command @returns {BashVerdict} */
 export function classifyBash(command) {
   for (const [pattern, kind] of BASH_POLICY) {
@@ -147,12 +104,7 @@ export function classifyBash(command) {
     try {
       body = JSON.parse(match[1]);
     } catch {
-      if (kind === "checkpoint") return { kind: "malformed", reason: "The checkpoint was not saved: it is not valid JSON. Write it again with exactly the fields the skill shows." };
       return null;
-    }
-    if (kind === "checkpoint") {
-      const problems = checkpointProblems(body);
-      return problems.length ? { kind: "malformed", reason: `The checkpoint was not saved: ${problems.join("; ")}. Write it again with exactly the fields the skill shows.` } : "allow";
     }
     if (!body || typeof body !== "object") return null;
     if (kind === "draft") return Array.isArray(body) && body.length ? "allow" : null;
@@ -335,7 +287,7 @@ export class LoreAgent {
   }
 
   async status() {
-    return { credentials: await this.options.credentials.list(), busy: this.#busy };
+    return { credentials: await this.options.credentials.list() };
   }
 
   /** @param {string} providerId @param {"oauth" | "api_key"} type @param {string | undefined} secret */

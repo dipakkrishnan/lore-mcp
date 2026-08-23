@@ -7,7 +7,7 @@ from itertools import islice
 from pathlib import Path
 from typing import Any, Literal, cast
 
-from pydantic import BaseModel, ConfigDict, Field, TypeAdapter
+from pydantic import BaseModel, ConfigDict, TypeAdapter
 
 from . import automation, blueprint
 from .paths import claude_home, home
@@ -25,10 +25,7 @@ class Manifest(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
     manifest_version: Literal[1]
-    publication_count: int = Field(ge=0)
     topics: dict[str, list[ManifestEntry]]
-    price_usd: float | None = None
-    answer_price_usd: float | None = None
     network: str | None = None
 
 
@@ -102,29 +99,14 @@ def _remote_manifest(url: str) -> Manifest:
 
 
 def _live_state(node_url: str | None) -> tuple[dict[str, object], set[str] | None]:
-    empty: dict[str, object] = {
-        "publication_count": None,
-        "publication_price_usd": None,
-        "answer_price_usd": None,
-        "network": None,
-    }
     if not node_url:
-        return {"state": "not_configured", **empty}, None
+        return {"state": "not_configured", "network": None}, None
     try:
         manifest = _remote_manifest(node_url)
-    except (OSError, ValueError, KeyError, IndexError, TypeError) as error:
-        return {"state": "unreachable", "error": str(error)[:300], **empty}, None
+    except (OSError, ValueError, KeyError, IndexError, TypeError):
+        return {"state": "unreachable", "network": None}, None
     ids = {entry.id for entries in manifest.topics.values() for entry in entries}
-    return (
-        {
-            "state": "online",
-            "publication_count": manifest.publication_count,
-            "publication_price_usd": manifest.price_usd,
-            "answer_price_usd": manifest.answer_price_usd,
-            "network": manifest.network,
-        },
-        ids,
-    )
+    return {"state": "online", "network": manifest.network}, ids
 
 
 def _session_cwd(path: Path) -> str | None:
@@ -165,21 +147,18 @@ def build() -> dict[str, object]:
         answer_price = store.setting("answer_price_usd", 0.0)
         answer_enabled = store.setting("answer_enabled", False) is True
         node_url = store.setting("node_url", None)
-        revocation_pending = bool(store.setting("revocation_pending", False))
 
     live, live_ids = _live_state(node_url if isinstance(node_url, str) else None)
     labels = _claude_project_labels()
     prefix = "-" + str(Path.home()).strip("/").replace("/", "-") + "-"
     for memory in memories:
-        project = str(memory["project"])
+        project = str(memory.pop("project"))
         memory["project_label"] = labels.get(project) or project.removeprefix(prefix)
     for publication in publications:
         active = bool(publication.pop("active"))
-        needs_review = active and publication["source_changed_at"] is not None
-        is_live = None if live_ids is None else publication["public_id"] in live_ids
+        public_id = publication.pop("public_id")
         publication["state"] = "approved" if active else "revoked"
-        publication["needs_review"] = needs_review
-        publication["live"] = is_live
+        publication["live"] = None if live_ids is None else public_id in live_ids
 
     publication_counts = {
         "active": sum(p["state"] == "approved" for p in publications),
@@ -207,7 +186,6 @@ def build() -> dict[str, object]:
         "library": {
             "counts": {
                 "private": sum(m["status"] == "private" for m in memories),
-                "discarded": sum(m["status"] == "discarded" for m in memories),
             },
             "sources": sources,
             "items": memories,
@@ -223,8 +201,6 @@ def build() -> dict[str, object]:
         },
         "node": {
             "url": node_url if isinstance(node_url, str) else None,
-            "staged": (home() / "node/wrangler.jsonc").is_file(),
-            "revocation_pending": revocation_pending,
             "live": live,
         },
     }
