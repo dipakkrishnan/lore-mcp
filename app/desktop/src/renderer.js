@@ -283,14 +283,6 @@ function renderToday(s) {
   if (pushOffer) parts.push(seamCard());
   const attention = fresh ? [] : needsYou(s);
   if (attention.length) parts.push(section("Needs you", card(attention)));
-  const recent = s.library.items.filter((item) => item.status === "private").slice(0, 5);
-  const all = el("button", "", `All ${s.library.counts.private} →`);
-  all.type = "button";
-  all.addEventListener("click", () => show("memories"));
-  parts.push(section("Recently kept", recent.length
-    ? card(recent.map((item) => memoryRow(item.id, item.title, [item.project_label, when(item.updated_at)].filter(Boolean).join(" · "))))
-    : Object.assign(el("div", "card pad empty", "Nothing kept yet. The box above is where it begins — or let setup bring in what your agents already know."), {}),
-    recent.length ? all : undefined));
   const strip = el("div", "strip");
   /** @type {Array<[string, string] | null>} */
   const facts = [
