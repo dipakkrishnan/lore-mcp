@@ -17,22 +17,32 @@ const READ_ONLY_BASH = [
   /^lore search(?: (?:[A-Za-z0-9][A-Za-z0-9._:/-]*|--status (?:private|discarded)|--limit (?:0|[1-9]\d*)|--json))*$/
 ];
 const CAPTURE_BASH = /^lore capture apply - <<'LORE_CAPTURE'\n([\s\S]+)\nLORE_CAPTURE$/;
+const SKILLS = { capture: "lore-capture", setup: "lore-onboard" };
+
+/** @param {string} command @returns {CaptureEntry[] | null} */
+export function captureEntries(command) {
+  const match = command.match(CAPTURE_BASH);
+  if (!match) return null;
+  try {
+    /** @type {unknown} */
+    const parsed = JSON.parse(match[1]);
+    if (!Array.isArray(parsed) || !parsed.length) return null;
+    const entries = /** @type {CaptureEntry[]} */ (parsed);
+    return entries.every((entry) => entry && typeof entry.title === "string" && typeof entry.content === "string")
+      ? entries
+      : null;
+  } catch {
+    return null;
+  }
+}
 
 /** @param {string} command @returns {"allow" | "approve" | "deny"} */
 export function classifyBash(command) {
   if (READ_ONLY_BASH.some((pattern) => pattern.test(command))) return "allow";
-  const capture = command.match(CAPTURE_BASH);
-  if (!capture) return "deny";
-  try {
-    return Array.isArray(JSON.parse(capture[1])) ? "approve" : "deny";
-  } catch {
-    return "deny";
-  }
+  return captureEntries(command) ? "approve" : "deny";
 }
 
-/**
- * @param {(command: string) => Promise<boolean>} approve
- */
+/** @param {(command: string, entries: CaptureEntry[]) => Promise<boolean>} approve */
 export function bashPolicyExtension(approve) {
   return {
     name: "bash-policy",
@@ -41,15 +51,16 @@ export function bashPolicyExtension(approve) {
     factory(pi) {
       pi.on("tool_call", async (event) => {
         if (!isToolCallEventType("bash", event)) return;
-        const decision = classifyBash(event.input.command);
+        const command = event.input.command;
+        const decision = classifyBash(command);
         if (decision === "allow") return;
-        if (decision === "approve" && (await approve(event.input.command))) return;
+        if (decision === "approve" && (await approve(command, captureEntries(command) ?? []))) return;
         return {
           block: true,
           reason:
             decision === "deny"
-              ? "Lore blocked a command outside the desktop capture policy."
-              : "The owner denied this private save.",
+              ? "Lore blocked a command outside the desktop policy."
+              : "The owner chose not to save this.",
           terminate: true
         };
       });
@@ -58,9 +69,10 @@ export function bashPolicyExtension(approve) {
 }
 
 export class LoreAgent {
-  /** @type {import("@earendil-works/pi-coding-agent").AgentSession | undefined} */
-  #session;
+  /** @type {Map<AgentTask, import("@earendil-works/pi-coding-agent").AgentSession>} */
+  #sessions = new Map();
   #busy = false;
+  #captureSaved = false;
 
   /**
    * @param {LoreAgentOptions} options
@@ -77,6 +89,8 @@ export class LoreAgent {
 
   /** @param {LoreAgentOptions} options */
   static async create(options) {
+    /** @type {LoreAgent} */
+    let agent;
     const models = await ModelRuntime.create({ credentials: options.credentials });
     const settings = SettingsManager.inMemory();
     const resources = new DefaultResourceLoader({
@@ -84,19 +98,28 @@ export class LoreAgent {
       agentDir: resolve(options.loreHome, ".pi"),
       settingsManager: settings,
       additionalSkillPaths: [options.skillsDir],
-      extensionFactories: [bashPolicyExtension(options.approveBash)],
+      extensionFactories: [bashPolicyExtension((command, entries) => agent.#approve(command, entries))],
       noExtensions: true,
       noPromptTemplates: true,
       noThemes: true,
       noContextFiles: true,
       systemPrompt: [
-        "You are Lore's attended desktop capture agent.",
-        "Use the lore-capture skill exactly and skip its install steps because Lore is already provisioned.",
+        "You are Lore's desktop agent, talking with the owner inside the Lore app.",
+        "Follow the skill named in the first message exactly and skip its install steps because Lore is already provisioned.",
+        "Use ask_user for every owner decision. Never mention tools, commands, or files to the owner; speak about memories, their Lore, and their store.",
         "Bash policy is enforced outside this prompt."
       ].join(" ")
     });
     await resources.reload();
-    return new LoreAgent(options, models, settings, resources);
+    agent = new LoreAgent(options, models, settings, resources);
+    return agent;
+  }
+
+  /** @param {string} command @param {CaptureEntry[]} entries */
+  async #approve(command, entries) {
+    const approved = await this.options.approveBash(command, entries);
+    if (approved) this.#captureSaved = true;
+    return approved;
   }
 
   async status() {
@@ -117,16 +140,28 @@ export class LoreAgent {
     return this.status();
   }
 
-  /** @param {string} text */
-  async prompt(text) {
+  /** @param {string} providerId */
+  async logout(providerId) {
+    await this.options.credentials.delete(providerId);
+    this.dispose();
+    return this.status();
+  }
+
+  /** @param {string} text @param {AgentTask} task */
+  async prompt(text, task) {
     if (this.#busy) throw new Error("Lore is already working");
-    if (!text.trim()) throw new Error("Capture text is empty");
+    if (!text.trim()) throw new Error("Nothing to capture");
     this.#busy = true;
     this.options.emit({ type: "working", active: true });
     try {
-      const session = await this.#getSession();
-      const input = session.messages.length ? text : `/skill:lore-capture\n\n${text}`;
-      await session.prompt(input);
+      if (task === "capture" && this.#captureSaved) {
+        this.#sessions.get("capture")?.dispose();
+        this.#sessions.delete("capture");
+        this.#captureSaved = false;
+      }
+      const existing = this.#sessions.get(task);
+      const session = existing ?? (await this.#newSession(task));
+      await session.prompt(existing ? text : `/skill:${SKILLS[task]}\n\n${text}`);
     } finally {
       this.#busy = false;
       this.options.emit({ type: "working", active: false });
@@ -134,11 +169,13 @@ export class LoreAgent {
   }
 
   dispose() {
-    this.#session?.dispose();
+    for (const session of this.#sessions.values()) session.dispose();
+    this.#sessions.clear();
+    this.#captureSaved = false;
   }
 
-  async #getSession() {
-    if (this.#session) return this.#session;
+  /** @param {AgentTask} task */
+  async #newSession(task) {
     const available = await this.models.getAvailable();
     const model =
       available.find(({ provider, id }) => provider === "anthropic" && id.includes("sonnet")) ??
@@ -165,24 +202,14 @@ export class LoreAgent {
       ]
     });
     session.subscribe((event) => {
-      if (event.type === "tool_execution_start") {
-        this.options.emit({ type: "tool", name: event.toolName, active: true });
-      } else if (event.type === "tool_execution_end") {
-        this.options.emit({
-          type: "tool",
-          name: event.toolName,
-          active: false,
-          failed: event.isError
-        });
-      } else if (event.type === "message_end" && event.message.role === "assistant") {
-        const text = event.message.content
-          .map((block) => (block.type === "text" ? block.text : ""))
-          .join("")
-          .trim();
-        if (text) this.options.emit({ type: "message", text });
-      }
+      if (event.type !== "message_end" || event.message.role !== "assistant") return;
+      const text = event.message.content
+        .map((block) => (block.type === "text" ? block.text : ""))
+        .join("")
+        .trim();
+      if (text) this.options.emit({ type: "message", text });
     });
-    this.#session = session;
+    this.#sessions.set(task, session);
     return session;
   }
 
@@ -192,9 +219,7 @@ export class LoreAgent {
         Type.Object({
           question: Type.String(),
           header: Type.String(),
-          options: Type.Array(
-            Type.Object({ label: Type.String(), description: Type.String() })
-          ),
+          options: Type.Array(Type.Object({ label: Type.String(), description: Type.String() })),
           multiSelect: Type.Boolean()
         }),
         { minItems: 1, maxItems: 4 }
@@ -203,15 +228,10 @@ export class LoreAgent {
     return defineTool({
       name: "ask_user",
       label: "Ask the owner",
-      description: "Ask the owner structured questions during an attended Lore capture.",
+      description: "Ask the owner structured questions. Offer the likely answers as options; the owner can always type something else.",
       parameters,
       execute: async (_id, { questions }) => ({
-        content: [
-          {
-            type: "text",
-            text: JSON.stringify({ answers: await this.options.askUser(questions) })
-          }
-        ],
+        content: [{ type: "text", text: JSON.stringify({ answers: await this.options.askUser(questions) }) }],
         details: {}
       })
     });

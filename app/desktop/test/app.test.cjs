@@ -11,6 +11,7 @@ test("reads only the fixed APP-001 snapshot", async () => {
   try {
     const state = await readState(directory);
     assert.equal(state.version, 1);
+    assert.equal(state.home, directory);
     assert.equal(state.node.live.state, "not_configured");
   } finally {
     await rm(directory, { recursive: true });
@@ -76,11 +77,24 @@ LORE_CAPTURE`;
   const denied = await bashHandler(async () => false);
   assert.equal((await denied(bashEvent(command))).block, true);
 
-  const allowed = await bashHandler(async (actual) => {
+  const allowed = await bashHandler(async (actual, entries) => {
     assert.equal(actual, command);
+    assert.deepEqual(entries, [
+      { title: "Rollback rehearsal", content: "Rehearse before cutover.", project: "Juniper" }
+    ]);
     return true;
   });
   assert.equal(await allowed(bashEvent(command)), undefined);
+});
+
+test("only a non-empty array of titled memories counts as a capture", async () => {
+  const { captureEntries } = await import("../src/agent.mjs");
+  const wrap = (body) => `lore capture apply - <<'LORE_CAPTURE'\n${body}\nLORE_CAPTURE`;
+  assert.equal(captureEntries(wrap("[]")), null);
+  assert.equal(captureEntries(wrap('{"title":"x","content":"y"}')), null);
+  assert.equal(captureEntries(wrap('[{"title":"x"}]')), null);
+  assert.equal(captureEntries(wrap("not json")), null);
+  assert.deepEqual(captureEntries(wrap('[{"title":"x","content":"y"}]')), [{ title: "x", content: "y" }]);
 });
 
 test("hard-denies malformed, non-Lore, compound, and owner-only commands", async () => {

@@ -3,12 +3,14 @@ from __future__ import annotations
 import json
 import urllib.request
 from http.client import HTTPResponse
+from itertools import islice
+from pathlib import Path
 from typing import Any, Literal, cast
 
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter
 
 from . import automation, blueprint
-from .paths import home
+from .paths import claude_home, home
 from .sources import available_sources
 from .store import Store
 
@@ -125,6 +127,33 @@ def _live_state(node_url: str | None) -> tuple[dict[str, object], set[str] | Non
     )
 
 
+def _session_cwd(path: Path) -> str | None:
+    with path.open(encoding="utf-8", errors="replace") as lines:
+        for line in islice(lines, 40):
+            try:
+                record = json.loads(line)
+            except ValueError:
+                continue
+            cwd = record.get("cwd") if isinstance(record, dict) else None
+            if isinstance(cwd, str) and cwd:
+                return cwd
+    return None
+
+
+def _claude_project_labels() -> dict[str, str]:
+    labels: dict[str, str] = {}
+    projects = claude_home() / "projects"
+    if not projects.is_dir():
+        return labels
+    for slug in projects.iterdir():
+        for session in slug.glob("*.jsonl"):
+            cwd = _session_cwd(session)
+            if cwd:
+                labels[slug.name] = Path(cwd).name
+                break
+    return labels
+
+
 def build() -> dict[str, object]:
     missing = object()
     with Store() as store:
@@ -139,6 +168,11 @@ def build() -> dict[str, object]:
         revocation_pending = bool(store.setting("revocation_pending", False))
 
     live, live_ids = _live_state(node_url if isinstance(node_url, str) else None)
+    labels = _claude_project_labels()
+    prefix = "-" + str(Path.home()).strip("/").replace("/", "-") + "-"
+    for memory in memories:
+        project = str(memory["project"])
+        memory["project_label"] = labels.get(project) or project.removeprefix(prefix)
     for publication in publications:
         active = bool(publication.pop("active"))
         needs_review = active and publication["source_changed_at"] is not None
@@ -164,6 +198,7 @@ def build() -> dict[str, object]:
     ]
     return {
         "version": 1,
+        "home": str(home()),
         "setup": {
             "sources_configured": configured is not missing,
             "blueprint_configured": blueprint.blueprint_path().is_file(),

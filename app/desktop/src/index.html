@@ -6,50 +6,71 @@
       http-equiv="Content-Security-Policy"
       content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'"
     />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Lore</title>
     <link rel="stylesheet" href="styles.css" />
   </head>
-  <body>
+  <body data-state="loading">
     <a class="skip-link" href="#main">Skip to content</a>
-    <div class="shell">
+    <section id="welcome" class="welcome" hidden>
+      <div class="welcome-inner">
+        <span class="mark mark-lg" aria-hidden="true"><svg viewBox="0 0 26 26" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M13 4.5a8.5 8.5 0 1 1-6 2.5"></path><path d="M13 9a4 4 0 1 1-2.8 1.2"></path><circle cx="13" cy="13" r="1.2" fill="currentColor" stroke="none"></circle></svg></span>
+        <h1>Own your memories.<br />Monetize your expertise.</h1>
+        <div class="welcome-actions">
+          <button type="button" class="btn provider" data-login="anthropic:oauth"><img src="assets/claude.svg" alt="" width="20" height="20" /> Continue with Claude</button>
+          <button type="button" class="btn provider" data-login="openai-codex:oauth"><img src="assets/openai.svg" alt="" width="20" height="20" /> Continue with ChatGPT</button>
+          <button type="button" class="btn quiet" id="welcome-key">Use an API key instead</button>
+        </div>
+        <form id="key-form" class="key-form" hidden>
+          <select id="key-provider" aria-label="API provider">
+            <option value="anthropic">Anthropic</option>
+            <option value="openai">OpenAI</option>
+          </select>
+          <input id="key-secret" type="password" required autocomplete="off" placeholder="API key" aria-label="API key" />
+          <button type="submit" class="btn primary">Save</button>
+        </form>
+        <p id="welcome-note" class="hint" role="status" aria-live="polite"></p>
+      </div>
+    </section>
+
+    <div id="app" class="app" hidden>
       <aside>
-        <div class="brand"><span aria-hidden="true">L</span> Lore</div>
-        <nav aria-label="Main navigation">
-          <button type="button" data-view="today" aria-pressed="true">Today</button>
-          <button type="button" data-view="lore" aria-pressed="false">My Lore</button>
-          <button type="button" data-view="store" aria-pressed="false">Store</button>
+        <div class="brand"><span class="mark" aria-hidden="true"><svg viewBox="0 0 26 26" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M13 4.5a8.5 8.5 0 1 1-6 2.5"></path><path d="M13 9a4 4 0 1 1-2.8 1.2"></path><circle cx="13" cy="13" r="1.2" fill="currentColor" stroke="none"></circle></svg></span> Lore</div>
+        <form id="search-form" class="search" role="search">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"></circle><path d="M20 20l-3.5-3.5"></path></svg>
+          <input id="search" type="search" placeholder="Search memories" aria-label="Search memories" autocomplete="off" />
+          <kbd>⌘K</kbd>
+        </form>
+        <nav aria-label="Main">
+          <button type="button" data-view="today" aria-pressed="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="4"></circle><path d="M12 2v2M12 20v2M2 12h2M20 12h2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"></path></svg>Today</button>
+          <button type="button" data-view="memories" aria-pressed="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 3h12v18l-6-4-6 4z"></path></svg>Memories<span class="count" data-count="memories"></span></button>
+          <button type="button" data-view="store" aria-pressed="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 12l-8 8-9-9V3h8z"></path><circle cx="7.5" cy="7.5" r="1.5"></circle></svg>Store<span class="count" data-count="store"></span></button>
+          <button type="button" data-view="settings" aria-pressed="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h9M17 7h3M4 12h3M11 12h9M4 17h11M19 17h1"></path><circle cx="15" cy="7" r="2"></circle><circle cx="9" cy="12" r="2"></circle><circle cx="17" cy="17" r="2"></circle></svg>Settings</button>
         </nav>
-        <p class="aside-note">Your context stays on this Mac.</p>
+        <div id="account" class="account"></div>
       </aside>
       <main id="main" tabindex="-1">
         <header>
-          <p class="eyebrow">Owner console</p>
-          <h1 id="title">Today</h1>
-          <p id="subtitle">A clear view of your Lore.</p>
+          <p class="eyebrow" id="eyebrow"></p>
+          <h1 id="title"></h1>
         </header>
-        <div id="status" class="status" role="status" aria-live="polite">Loading…</div>
-        <div id="content"></div>
-        <section class="capture" aria-labelledby="capture-title">
-          <div class="capture-heading">
-            <div>
-              <h2 id="capture-title">Capture</h2>
-              <p>Tell Lore what you know. Mac dictation works here.</p>
+        <section id="capture" class="capture-area" aria-label="Capture">
+          <form id="composer" class="composer">
+            <label class="sr-only" for="capture-input">What did you learn today?</label>
+            <textarea id="capture-input" rows="1" placeholder="What did you learn today?"></textarea>
+            <div id="attachments" class="attachments"></div>
+            <div class="composer-actions">
+              <button type="button" class="icon-btn" id="dictate" title="Dictate" aria-label="Dictate"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3a3 3 0 0 1 3 3v6a3 3 0 0 1-6 0V6a3 3 0 0 1 3-3z"></path><path d="M19 11a7 7 0 0 1-14 0M12 18v3"></path></svg></button>
+              <button type="button" class="icon-btn" id="attach" title="Add a file" aria-label="Add a file"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12l-8.5 8.5a5 5 0 0 1-7-7L14 5a3.5 3.5 0 0 1 5 5l-8.5 8.5a2 2 0 0 1-3-3L15 8"></path></svg></button>
+              <button type="submit" class="btn primary" id="capture-submit">Capture</button>
             </div>
-            <div id="auth-status" class="auth-status"></div>
-          </div>
-          <div id="agent-activity" class="agent-activity" aria-live="polite"></div>
-          <div id="agent-request"></div>
-          <form id="capture-form">
-            <label class="sr-only" for="capture-input">What should Lore remember?</label>
-            <textarea
-              id="capture-input"
-              rows="2"
-              placeholder="Share an experience, lesson, or idea…"
-            ></textarea>
-            <button type="submit">Capture</button>
           </form>
+          <div id="agent" class="agent" hidden>
+            <div id="log" class="log" aria-live="polite"></div>
+            <div id="request"></div>
+          </div>
         </section>
+        <div id="status" class="status" role="status" aria-live="polite"></div>
+        <div id="content"></div>
       </main>
     </div>
     <script src="renderer.js"></script>

@@ -1,14 +1,21 @@
-const { contextBridge, ipcRenderer } = require("electron");
+const { contextBridge, ipcRenderer, webUtils } = require("electron");
 
 contextBridge.exposeInMainWorld("lore", {
   snapshot: () => ipcRenderer.invoke("snapshot:read"),
   agentStatus: () => ipcRenderer.invoke("agent:status"),
-  /** @param {string} text */
-  prompt: (text) => ipcRenderer.invoke("agent:prompt", text),
+  /** @param {{text: string, task: AgentTask}} input */
+  prompt: (input) => ipcRenderer.invoke("agent:prompt", input),
   /** @param {{id: string, value: unknown}} response */
   respond: (response) => ipcRenderer.invoke("agent:respond", response),
   /** @param {{providerId: string, type: "oauth" | "api_key", secret?: string}} input */
   login: (input) => ipcRenderer.invoke("auth:login", input),
+  /** @param {string} providerId */
+  logout: (providerId) => ipcRenderer.invoke("auth:logout", providerId),
+  /** @param {string} query */
+  search: (query) => ipcRenderer.invoke("search:query", query),
+  pickFiles: () => ipcRenderer.invoke("files:pick"),
+  /** @param {File} file */
+  pathFor: (file) => webUtils.getPathForFile(file),
   /** @param {(event: AgentEvent) => void} listener */
   onAgentEvent: (listener) => {
     /** @param {import("electron").IpcRendererEvent} _event @param {AgentEvent} value */
