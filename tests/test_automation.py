@@ -113,7 +113,9 @@ class PromptTest(LoreTestCase):
 
     def test_later_runs_add_only_net_new_claims_named_by_the_claim(self) -> None:
         for cadence, window in (("daily", "last day"), ("weekly", "last week")):
-            prompt = automation.build_prompt({**automation_profile(), "cadence": cadence})
+            prompt = automation.build_prompt(
+                {**automation_profile(), "cadence": cadence}
+            )
             with self.subTest(cadence=cadence):
                 self.assertIn(window, prompt)
         for expected in (
