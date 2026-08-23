@@ -91,7 +91,7 @@ input[type="text"], input[type="password"], input[type="search"], select, textar
 }
 
 /* Shell */
-.app { height: 100%; display: flex; }
+.app { position: fixed; inset: 0; display: flex; }
 aside {
   width: 224px; flex-shrink: 0; border-right: 1px solid var(--line); background: var(--bg-aside);
   display: flex; flex-direction: column; padding: 44px 12px 16px; gap: 14px; -webkit-app-region: drag;

@@ -934,10 +934,6 @@ search.addEventListener("input", () => {
   }, 250);
 });
 $("#search-form").addEventListener("submit", (event) => event.preventDefault());
-(function pinViewport() {
-  if (document.documentElement.scrollTop) document.documentElement.scrollTop = 0;
-  requestAnimationFrame(pinViewport);
-})();
 document.addEventListener("keydown", (event) => {
   if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") { event.preventDefault(); search.focus(); search.select(); }
   if (event.key === "Escape" && document.querySelector(".sheet")) { event.preventDefault(); closeSheet(); }
