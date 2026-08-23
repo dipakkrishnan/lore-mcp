@@ -70,6 +70,15 @@ LORE_CHECKPOINT
 
 ## 1. Persona interview → blueprint
 
+**Lore desktop:** skip the serial persona interview. Read the Phase 2 evidence first,
+then call `propose_blueprint` exactly once with a short evidence summary and one complete
+blueprint proposal. The owner edits that typed card and chooses **Use this shape**. Apply
+the returned fields through `lore blueprint apply`; never recover them from conversation
+text. Continue to Phase 2 without reading the same evidence again, and ask a follow-up
+only when the evidence cannot support a required field.
+
+**Other hosts:** follow the interview below.
+
 Follow `persona-interview.md` (in this skill's folder). It asks the owner to pick an
 archetype — Storyteller, schoolteacher, professor, executive, sage — and captures topic
 outline, focus vs. general areas, organizing axis, and voice, then persists them with
@@ -79,6 +88,8 @@ Skip Phase 1 only if the user explicitly declines the persona step; Phase 2 stil
 without a blueprint, just with less to go on.
 
 ## 2. Draft the profile — seeded by the blueprint
+
+In Lore desktop, reuse the evidence already read for the blueprint proposal.
 
 Start by reading what Phase 1 captured:
 

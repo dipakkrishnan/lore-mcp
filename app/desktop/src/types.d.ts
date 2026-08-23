@@ -98,6 +98,27 @@ type BashAction =
 type BashVerdict = "allow" | BashAction | { kind: "malformed"; reason: string } | null;
 
 type AgentTask = "capture" | "setup" | "publish";
+type TaskState = "needs_you" | "working" | "stopped" | "done";
+
+type TaskRecord = {
+  version: 1;
+  kind: AgentTask;
+  title: string;
+  state: TaskState;
+  phase: string;
+  updatedAt: string;
+};
+
+type BlueprintFields = {
+  version: 1;
+  name: string;
+  persona: "storyteller" | "schoolteacher" | "professor" | "executive" | "sage";
+  organizing_axis?: "chronological" | "theme" | "project" | "knowledge";
+  topic_outline: string[];
+  focus_topics: string[];
+  general_areas: string[];
+  storytelling: string;
+};
 
 type Line = { text: string; owner: boolean; stopped?: boolean };
 
@@ -107,6 +128,7 @@ interface Window {
     agentStatus(): Promise<AgentStatus>;
     prompt(input: { text: string; task: AgentTask }): Promise<void>;
     history(task: AgentTask): Promise<Line[]>;
+    tasks(): Promise<TaskRecord[]>;
     respond(response: { id: string; value: unknown }): Promise<void>;
     login(input: { providerId: string; type: "oauth" | "api_key"; secret?: string }): Promise<AgentStatus>;
     logout(providerId: string): Promise<AgentStatus>;
@@ -145,6 +167,7 @@ type AuthPrompt =
 type AgentRequest =
   | { type: "bash-approval"; id: string; command: string; action: BashAction }
   | { type: "question"; id: string; questions: OwnerQuestion[] }
+  | { type: "blueprint"; id: string; fields: BlueprintFields; evidence: string }
   | { type: "auth-prompt"; id: string; prompt: AuthPrompt };
 
 type AgentEvent =
@@ -155,6 +178,7 @@ type AgentEvent =
   | { type: "changed" }
   | { type: "message"; text: string }
   | { type: "stopped"; text: string }
+  | { type: "task"; task: TaskRecord }
   | { type: "auth"; message?: string; event?: import("@earendil-works/pi-ai").AuthEvent }
   | { type: "progress"; text?: string; done?: boolean; error?: string };
 
@@ -162,6 +186,7 @@ type LoreAgentInstance = {
   status(): Promise<AgentStatus>;
   prompt(text: string, task: AgentTask): Promise<void>;
   history(task: AgentTask): Line[];
+  tasks(): TaskRecord[];
   login(providerId: string, type: "oauth" | "api_key", secret?: string): Promise<AgentStatus>;
   logout(providerId: string): Promise<AgentStatus>;
   dispose(): void;
@@ -175,6 +200,7 @@ type LoreAgentOptions = {
   emit(event: AgentEvent): void;
   approveBash(command: string, action: BashAction): Promise<boolean>;
   askUser(questions: OwnerQuestion[]): Promise<Record<string, string>>;
+  proposeBlueprint(fields: BlueprintFields, evidence: string): Promise<BlueprintFields>;
   authPrompt(prompt: import("@earendil-works/pi-ai").AuthPrompt): Promise<string>;
   authEvent(event: import("@earendil-works/pi-ai").AuthEvent): void;
 };

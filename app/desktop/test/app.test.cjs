@@ -251,11 +251,61 @@ test("sessions persist per task, come back as a thread, and a cut-off tool call 
     const messages = resumed.buildSessionContext().messages;
     assert.equal(messages.length, 6);
     assert.deepEqual({ role: messages[5].role, toolCallId: messages[5].toolCallId, isError: messages[5].isError }, { role: "toolResult", toolCallId: "call-2", isError: true });
+    assert.deepEqual(LoreAgent.tasks(home).map(({ kind, state, phase }) => ({ kind, state, phase })), [
+      { kind: "setup", state: "stopped", phase: "Ready to resume" }
+    ]);
     assert.equal(SessionManager.create(home).buildSessionContext().messages.length, 0);
     assert.equal(LoreAgent.sessionFor(home, "capture").buildSessionContext().messages.length, 0);
   } finally {
     await rm(home, { recursive: true });
   }
+});
+
+test("typed task records survive relaunch and only unfinished known tasks are listed", async () => {
+  const { LoreAgent, latestTaskRecord } = await import("../src/agent.mjs");
+  const { SessionManager } = await import("@earendil-works/pi-coding-agent");
+  const home = await mkdtemp(join(tmpdir(), "lore-desktop-"));
+  try {
+    const write = (kind, data) => {
+      const manager = SessionManager.create(home, join(home, ".pi", "sessions", kind));
+      manager.appendCustomEntry("lore.task", data);
+      manager.appendMessage({ role: "assistant", content: [{ type: "text", text: "Started." }], api: "anthropic-messages", provider: "anthropic", model: "m", usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } }, stopReason: "stop", timestamp: 1 });
+      return manager;
+    };
+    const capture = write("capture", { version: 1, kind: "capture", title: "Capture a memory", state: "working", phase: "Review the capture" });
+    capture.appendCustomEntry("lore.task", { version: 2, kind: "capture", title: "Injected", state: "working", phase: "Bad" });
+    write("setup", { version: 1, kind: "setup", title: "Set up your Lore", state: "needs_you", phase: "Review your Lore shape" });
+    write("publish", { version: 1, kind: "publish", title: "Publish from your Lore", state: "done", phase: "Finished" });
+    assert.equal(latestTaskRecord(capture, "capture").title, "Capture a memory");
+    assert.deepEqual(LoreAgent.tasks(home).map(({ kind, state }) => ({ kind, state })).sort((a, b) => a.kind.localeCompare(b.kind)), [
+      { kind: "capture", state: "working" },
+      { kind: "setup", state: "needs_you" }
+    ]);
+  } finally {
+    await rm(home, { recursive: true });
+  }
+});
+
+test("the blueprint proposal boundary accepts only the CLI's bounded shape", async () => {
+  const { validBlueprint } = await import("../src/agent.mjs");
+  const valid = {
+    version: 1,
+    name: "Ada",
+    persona: "professor",
+    organizing_axis: "knowledge",
+    topic_outline: ["distributed systems"],
+    focus_topics: ["consensus"],
+    general_areas: [],
+    storytelling: "Concise lectures"
+  };
+  assert.equal(validBlueprint(valid), true);
+  for (const invalid of [
+    { ...valid, version: 2 },
+    { ...valid, persona: "wizard" },
+    { ...valid, topic_outline: [] },
+    { ...valid, source_path: "/etc/passwd" },
+    { ...valid, storytelling: "x".repeat(1001) }
+  ]) assert.equal(validBlueprint(invalid), false);
 });
 
 test("only Electron main can pipe a decision, and only for a card that is drafted", async () => {
