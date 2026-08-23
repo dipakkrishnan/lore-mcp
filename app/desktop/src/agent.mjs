@@ -11,7 +11,7 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import { Type } from "@earendil-works/pi-ai";
 
-/** @type {Array<[RegExp, "allow" | "draft" | BashAction["kind"]]>} */
+/** @type {Array<[RegExp, "allow" | "draft" | "checkpoint" | BashAction["kind"]]>} */
 const BASH_POLICY = [
   [/^lore status$/, "allow"],
   [/^lore desktop-state$/, "allow"],
@@ -24,12 +24,24 @@ const BASH_POLICY = [
   [/^ls "\$\{CLAUDE_HOME:-\$HOME\/\.claude\}"\/projects\/\*\/memory\/\*\.md 2>\/dev\/null$/, "allow"],
   [/^ls "\$\{CODEX_HOME:-\$HOME\/\.codex\}\/memories" "\$\{CODEX_HOME:-\$HOME\/\.codex\}\/automations" 2>\/dev\/null$/, "allow"],
   [/^ls -lt "\$\{CLAUDE_HOME:-\$HOME\/\.claude\}"\/projects\/\*\/\*\.jsonl 2>\/dev\/null$/, "allow"],
-  [/^cat > "\$\{LORE_HOME:-\$HOME\/\.lore\}\/automation\/onboarding\.json" <<'LORE_CHECKPOINT'\n([\s\S]+)\nLORE_CHECKPOINT$/, "allow"],
+  [/^cat > "\$\{LORE_HOME:-\$HOME\/\.lore\}\/automation\/onboarding\.json" <<'LORE_CHECKPOINT'\n([\s\S]+)\nLORE_CHECKPOINT$/, "checkpoint"],
   [/^lore setup --yes$/, "import"],
   [/^lore capture apply - <<'LORE_CAPTURE'\n([\s\S]+)\nLORE_CAPTURE$/, "capture"],
   [/^lore blueprint apply - <<'LORE_BLUEPRINT'\n([\s\S]+)\nLORE_BLUEPRINT$/, "blueprint"],
   [/^lore profile - <<'LORE_PROFILE'\n([\s\S]+)\nLORE_PROFILE$/, "profile"]
 ];
+const CHECKPOINT_FIELDS = new Set([
+  "phase1_done",
+  "role",
+  "domains",
+  "valuable_context",
+  "preferences",
+  "boundaries",
+  "executor",
+  "model",
+  "cadence",
+  "hour"
+]);
 const SKILLS = { capture: "lore-capture", setup: "lore-onboard", publish: "lore-publish" };
 
 /** @param {string} command @returns {"allow" | BashAction | null} */
@@ -47,6 +59,9 @@ export function classifyBash(command) {
     }
     if (!body || typeof body !== "object") return null;
     if (kind === "draft") return Array.isArray(body) && body.length ? "allow" : null;
+    if (kind === "checkpoint") {
+      return !Array.isArray(body) && Object.keys(body).every((key) => CHECKPOINT_FIELDS.has(key)) ? "allow" : null;
+    }
     if (kind === "capture") {
       const entries = /** @type {CaptureEntry[]} */ (body);
       const titled = Array.isArray(body) && body.length > 0 && entries.every((entry) => entry && typeof entry.title === "string" && typeof entry.content === "string");

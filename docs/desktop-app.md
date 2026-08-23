@@ -51,11 +51,15 @@ Load-bearing rules, in priority order:
    holds one table of anchored commands: the skills' read-only commands run
    silently, each exact write heredoc (capture, import, blueprint, profile)
    asks once as a card that says what it means, and everything else is
-   blocked. Prompt instructions are not the security boundary.
+   blocked. One disclosed exception: the onboarding checkpoint heredoc
+   autosaves silently after each answer — it holds only answers the owner
+   just gave through `ask_user`, its path is exact, and its body must be a
+   JSON object with only known checkpoint fields. Prompt instructions are
+   not the security boundary.
 3. **The agent cannot approve.** Approval cards are app-invoked UI routed to
    existing Lore validation. Allowing a Bash command is not approval of a
    publication, payment, or deployment. The CLI treats the app as a second
-   attended surface: `lore publication decide` and `lore answer on -` read one
+   attended surface: `lore publication decide` reads one
    decision from stdin only when Electron main sets
    `LORE_ATTENDED_SURFACE=desktop` on a non-TTY pipe, and the Bash policy
    hard-denies every `lore publication` and `lore answer` mutation, so the

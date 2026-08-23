@@ -171,7 +171,8 @@ test("hard-denies malformed, non-Lore, compound, and owner-only commands", async
     `cat > "\${LORE_HOME:-$HOME/.lore}/automation/onboarding.json" <<'LORE_CHECKPOINT'\nnot json\nLORE_CHECKPOINT`,
     `cat > "\${LORE_HOME:-$HOME/.lore}/automation/onboarding.json" <<'LORE_CHECKPOINT'\n[]\nLORE_CHECKPOINT`,
     `cat > "\${LORE_HOME:-$HOME/.lore}/automation/onboarding.json" <<'LORE_CHECKPOINT'\n{}\nLORE_CHECKPOINT\nrm -rf ~\nLORE_CHECKPOINT`,
-    `cat >> "\${LORE_HOME:-$HOME/.lore}/automation/onboarding.json" <<'LORE_CHECKPOINT'\n{}\nLORE_CHECKPOINT`
+    `cat >> "\${LORE_HOME:-$HOME/.lore}/automation/onboarding.json" <<'LORE_CHECKPOINT'\n{}\nLORE_CHECKPOINT`,
+    `cat > "\${LORE_HOME:-$HOME/.lore}/automation/onboarding.json" <<'LORE_CHECKPOINT'\n{"phase1_done": true, "path": "/etc/passwd"}\nLORE_CHECKPOINT`
   ];
   for (const command of commands) {
     const result = await handler(bashEvent(command));

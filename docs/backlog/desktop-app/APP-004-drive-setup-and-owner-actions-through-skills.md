@@ -81,3 +81,7 @@ The skill remains the owner-journey source of truth. The app is its native
 host, not a parallel wizard. Runtime provisioning stays in `APP-005`; owner
 publication/payment actions and durable job history are split into `APP-006`
 and `APP-007`.
+
+Open PR #39 proposes `lore onboarding save` as a validated CLI write path for
+the same checkpoint file; if it lands, the skill's `cat` heredoc and the app's
+`checkpoint` policy row should move to that command in one change.
