@@ -135,7 +135,8 @@ type AgentEvent =
   | { type: "working"; active: boolean }
   | { type: "changed" }
   | { type: "message"; text: string }
-  | { type: "auth"; message?: string; event?: import("@earendil-works/pi-ai").AuthEvent };
+  | { type: "auth"; message?: string; event?: import("@earendil-works/pi-ai").AuthEvent }
+  | { type: "progress"; text?: string; done?: boolean; error?: string };
 
 type LoreAgentInstance = {
   status(): Promise<AgentStatus>;
@@ -148,6 +149,7 @@ type LoreAgentInstance = {
 type LoreAgentOptions = {
   loreHome: string;
   skillsDir: string;
+  binDir?: string;
   credentials: import("@earendil-works/pi-ai").CredentialStore;
   emit(event: AgentEvent): void;
   approveBash(command: string, action: BashAction): Promise<boolean>;

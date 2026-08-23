@@ -223,7 +223,12 @@ export class LoreAgent {
         createBashTool(this.options.loreHome, {
           spawnHook: (context) => ({
             ...context,
-            env: { ...context.env, LORE_HOME: this.options.loreHome, NO_COLOR: "1" }
+            env: {
+              ...context.env,
+              LORE_HOME: this.options.loreHome,
+              NO_COLOR: "1",
+              ...(this.options.binDir ? { PATH: `${this.options.binDir}:${context.env.PATH ?? process.env.PATH ?? ""}` } : {})
+            }
           })
         }),
         this.#askTool()

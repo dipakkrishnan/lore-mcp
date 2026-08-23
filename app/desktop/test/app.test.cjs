@@ -1,5 +1,5 @@
 const assert = require("node:assert/strict");
-const { mkdtemp, readFile, rm } = require("node:fs/promises");
+const { mkdtemp, readFile, rm, writeFile } = require("node:fs/promises");
 const { tmpdir } = require("node:os");
 const { join } = require("node:path");
 const { spawnSync } = require("node:child_process");
@@ -14,6 +14,21 @@ test("reads only the fixed APP-001 snapshot", async () => {
     assert.equal(state.home, directory);
     assert.equal(state.node.live.state, "not_configured");
   } finally {
+    await rm(directory, { recursive: true });
+  }
+});
+
+test("useRuntime runs the packaged binary instead of uv", async () => {
+  const { useRuntime } = require("../src/state.cjs");
+  const directory = await mkdtemp(join(tmpdir(), "lore-desktop-"));
+  try {
+    const bin = join(directory, "lore");
+    await writeFile(bin, '#!/bin/sh\necho \'{"version":1}\'\n', { mode: 0o755 });
+    useRuntime(bin);
+    const state = await readState(directory);
+    assert.equal(state.version, 1);
+  } finally {
+    useRuntime();
     await rm(directory, { recursive: true });
   }
 });

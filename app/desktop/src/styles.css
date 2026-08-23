@@ -63,6 +63,7 @@ textarea, input, [contenteditable] { -webkit-user-select: text; user-select: tex
 .welcome-inner { width: 520px; display: flex; flex-direction: column; align-items: center; gap: 28px; -webkit-app-region: no-drag; }
 .welcome h1 { font-family: var(--serif); font-weight: 400; font-size: 40px; line-height: 1.2; color: #2a2e2a; text-align: center; text-wrap: balance; }
 .welcome-actions { display: flex; flex-direction: column; gap: 10px; width: 100%; }
+.welcome.provisioning .welcome-actions, .welcome.provisioning .key-form { display: none; }
 .key-form { display: flex; gap: 8px; width: 100%; }
 .key-form input { flex: 1; }
 

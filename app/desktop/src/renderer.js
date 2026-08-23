@@ -736,7 +736,17 @@ window.lore.onAgentEvent((event) => {
   if (event.type === "working") working(event.active);
   else if (event.type === "changed") void load();
   else if (event.type === "message") say(event.text);
-  else if (event.type === "auth") {
+  else if (event.type === "progress") {
+    if (event.done) {
+      welcome.classList.remove("provisioning");
+      welcomeNote.textContent = "";
+      boot();
+    } else {
+      welcome.classList.add("provisioning");
+      welcomeNote.textContent = event.error ?? event.text ?? "";
+      if (!auth) { auth = { credentials: [], busy: false }; enter(); }
+    }
+  } else if (event.type === "auth") {
     const detail = event.event;
     welcomeNote.textContent = event.message || (detail?.type === "device_code" ? `Open ${detail.verificationUri} and enter ${detail.userCode}.` : detail && "message" in detail ? detail.message : "Continue signing in.");
   } else renderRequest(event);
@@ -824,4 +834,8 @@ keyForm.addEventListener("submit", (event) => {
 
 Object.assign(window, { __lore: { show, preview: renderRequest } });
 
-window.lore.agentStatus().then((result) => { auth = result; enter(); }).catch(() => { auth = { credentials: [], busy: false }; enter(); });
+function boot() {
+  window.lore.agentStatus().then((result) => { auth = result; enter(); }).catch(() => { auth = { credentials: [], busy: false }; enter(); });
+}
+
+boot();
