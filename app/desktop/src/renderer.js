@@ -39,6 +39,7 @@ let firstRunDismissed = false;
 /** @type {PublicationCandidate[]} */
 let candidates = [];
 let approvedThisPass = false;
+/** @type {string | false} */
 let pushOffer = false;
 
 const RING = `<svg viewBox="0 0 26 26" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M13 4.5a8.5 8.5 0 1 1-6 2.5"></path><path d="M13 9a4 4 0 1 1-2.8 1.2"></path><circle cx="13" cy="13" r="1.2" fill="currentColor" stroke="none"></circle></svg>`;
@@ -166,14 +167,6 @@ function needsYou(s) {
     if (!s.setup.blueprint_configured) add("Tell Lore what it's for", "A five-minute conversation shapes what Lore keeps and what it sells.", button("Start", "secondary", startSetup));
     if (!s.setup.profile_configured) add("Choose how Lore learns from your agents", "Decide which model writes new memories, and how often.", button("Start", "secondary", startSetup));
     if (s.library.counts.private && !candidates.length) add("Publish something", "Pick a topic you know well. Lore drafts up to three things to sell; you approve each one.", button("Publish", "secondary", startPublish));
-  }
-  const changed = s.publications.items.filter((item) => item.needs_review).length;
-  if (changed) {
-    add(
-      `${changed} ${changed === 1 ? "thing" : "things"} you sell ${changed === 1 ? "has" : "have"} changed underneath`,
-      "The memories behind them were edited since you approved them.",
-      button("Review", "secondary", () => show("store"))
-    );
   }
   return rows;
 }
@@ -303,21 +296,31 @@ function renderStore(s) {
   }
   bar.append(lead, prices);
   const approved = s.publications.items.filter((item) => item.state === "approved");
-  const changed = approved.filter((item) => item.needs_review);
   const revoked = s.publications.items.filter((item) => item.state === "revoked");
   /** @param {PublicationItem} item */
-  const state = (item) => item.needs_review ? chip("Changed", "warn") : item.live === true ? chip("Live", "ok") : item.live === false ? chip("Not live yet") : chip("Approved");
+  const state = (item) => item.live === true ? chip("Live", "ok") : item.live === false ? chip("Not live yet") : chip("Approved");
+  /** @param {PublicationItem} item */
+  const controls = (item) => {
+    const trailing = el("div", "v");
+    const ask = button("Take down", "secondary", () => {
+      trailing.replaceChildren(
+        el("span", "hint", "Buyers lose it for good."),
+        button("Keep", "secondary", () => trailing.replaceChildren(state(item), ask)),
+        button("Take down", "primary", async () => {
+          if (!(await act(() => window.lore.revoke(item.id)))) return;
+          pushOffer = live.state === "online" ? "It stays on sale until you push." : false;
+          render();
+        })
+      );
+    });
+    trailing.append(state(item), ask);
+    return trailing;
+  };
   /** @type {HTMLElement[]} */
   const parts = [bar];
-  if (changed.length) parts.push(section("Needs you", card(changed.map((item) => {
-    const group = el("div");
-    group.style.display = "flex";
-    group.style.gap = "8px";
-    group.append(button("Take down", "secondary", () => act(window.lore.revoke, item.id)), button("Re-approve", "primary", () => act(window.lore.reapprove, item.id)));
-    return row(item.title, "The memory behind this changed after you approved it.", group);
-  }))));
+  if (pushOffer) parts.push(seamCard());
   parts.push(section("For sale", approved.length
-    ? card(approved.map((item) => row(item.title, item.topic, state(item))))
+    ? card(approved.map((item) => row(item.title, item.topic, controls(item))))
     : el("div", "card pad empty", "Nothing for sale yet. Publish something from Today."),
     el("span", "hint", approved.length ? `${approved.length} ${approved.length === 1 ? "publication" : "publications"}${live.state === "online" ? " · confirmed on your node" : ""}` : "")));
   if (revoked.length) parts.push(section("Taken down", card(revoked.map((item) => row(item.title, item.topic, chip("Revoked"))))));
@@ -596,6 +599,7 @@ function renderRequest(event) {
       respond(event.id, value);
     });
   }
+  box.dataset.id = event.id;
   requestSlot.replaceChildren(box);
   agentPanel.hidden = false;
   if (view !== "today") show("today");
@@ -650,7 +654,7 @@ function approvals() {
 
 function seamCard() {
   const box = el("div", "card lead request");
-  box.append(el("p", "q", "Push to your store now?"), el("p", "hint", "Approved publications reach buyers only after a push. Leaving it is fine; the next push carries it."));
+  box.append(el("p", "q", "Push to your store now?"), el("p", "hint", pushOffer || ""));
   const actions = el("div", "actions");
   actions.append(button("Leave it for now", "secondary", () => { pushOffer = false; render(); }), button("Push now", "primary", () => act(window.lore.push)));
   box.append(actions);
@@ -662,17 +666,17 @@ async function decide(candidate, approve) {
   if ((await act(() => window.lore.decide({ candidate, approve }))) && approve) approvedThisPass = true;
   if (candidates.length || !approvedThisPass) return;
   approvedThisPass = false;
-  pushOffer = Boolean(snapshot?.node.url);
+  pushOffer = snapshot?.node.url ? "Approved publications reach buyers only after a push. Leaving it is fine; the next push carries it." : false;
   if (!pushOffer) say("Approved. It goes on sale the moment you open a store.");
   render();
 }
 
-/** @param {(id: number) => Promise<void>} action @param {number} [id] */
-async function act(action, id = 0) {
+/** @param {() => Promise<void>} action */
+async function act(action) {
   pushOffer = false;
   let done = true;
   try {
-    await action(id);
+    await action();
   } catch (error) {
     done = false;
     say(error instanceof Error ? error.message : "Lore could not do that.");
@@ -746,6 +750,8 @@ window.lore.onAgentEvent((event) => {
       welcomeNote.textContent = event.error ?? event.text ?? "";
       if (!auth) { auth = { credentials: [], busy: false }; enter(); }
     }
+  } else if (event.type === "dismiss") {
+    if (/** @type {HTMLElement | null} */ (requestSlot.firstElementChild)?.dataset.id === event.id) { requestSlot.replaceChildren(); renderLog(); }
   } else if (event.type === "auth") {
     const detail = event.event;
     welcomeNote.textContent = event.message || (detail?.type === "device_code" ? `Open ${detail.verificationUri} and enter ${detail.userCode}.` : detail && "message" in detail ? detail.message : "Continue signing in.");
@@ -767,9 +773,10 @@ input.addEventListener("input", () => {
 input.addEventListener("keydown", (event) => {
   if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); composer.requestSubmit(); }
 });
+const DICTATE_HINT = "Press the dictation key on your keyboard (or fn twice), then speak. Lore listens to whatever lands in the box.";
 $("#dictate").addEventListener("click", () => {
   input.focus();
-  say("Press the dictation key on your keyboard (or fn twice), then speak. Lore listens to whatever lands in the box.");
+  if (lines.at(-1) !== DICTATE_HINT) say(DICTATE_HINT);
 });
 const GUARDED = /(^|\/)\.[^/]*$|\/\.(ssh|aws|gnupg)\/|\.(pem|key|p12|pfx|keychain(-db)?)$|id_(rsa|ed25519|ecdsa)/;
 /** @param {string[]} paths */

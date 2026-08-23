@@ -21,12 +21,19 @@ function emit(event) {
   window?.webContents.send("agent:event", event);
 }
 
-/** @param {AgentRequest["type"]} type @param {Record<string, unknown>} payload */
-function request(type, payload) {
+/** @param {AgentRequest["type"]} type @param {Record<string, unknown>} payload @param {AbortSignal} [signal] */
+function request(type, payload, signal) {
   if (!window || window.isDestroyed()) return Promise.reject(new Error("Lore window is closed"));
   const id = randomUUID();
   emit(/** @type {AgentRequest} */ ({ type, id, ...payload }));
-  return new Promise((resolve, reject) => pending.set(id, { resolve, reject }));
+  return new Promise((resolve, reject) => {
+    pending.set(id, { resolve, reject });
+    signal?.addEventListener("abort", () => {
+      if (!pending.delete(id)) return;
+      emit({ type: "dismiss", id });
+      reject(new Error("Cancelled"));
+    }, { once: true });
+  });
 }
 
 /** @param {string} loreHome */
@@ -66,16 +73,9 @@ function registerIpc(loreHome) {
     }
     return decide(loreHome, input.candidate, input.approve);
   });
-  /** @param {unknown} id */
-  const publicationId = (id) => {
-    if (!Number.isInteger(id) || /** @type {number} */ (id) < 1) throw new Error("Invalid publication");
-    return String(id);
-  };
-  ipcMain.handle("publication:reapprove", async (_event, id) => {
-    await lore(loreHome, ["publication", "reapprove", publicationId(id)], "");
-  });
   ipcMain.handle("publication:revoke", async (_event, id) => {
-    await lore(loreHome, ["publication", "revoke", publicationId(id)], "");
+    if (!Number.isInteger(id) || id < 1) throw new Error("Invalid publication");
+    await lore(loreHome, ["publication", "revoke", String(id)], "");
   });
   ipcMain.handle("store:push", async () => {
     await lore(loreHome, ["push"], "");
@@ -148,8 +148,7 @@ async function start() {
     approveBash: async (command, action) => (await request("bash-approval", { command, action })) === true,
     askUser: async (questions) =>
       /** @type {Record<string, string>} */ (await request("question", { questions })),
-    authPrompt: async (prompt) =>
-      String(await request("auth-prompt", { prompt: { ...prompt, signal: undefined } })),
+    authPrompt: async ({ signal, ...prompt }) => String(await request("auth-prompt", { prompt }, signal)),
     authEvent: (event) => {
       if (event.type === "auth_url") {
         void shell.openExternal(event.url);
