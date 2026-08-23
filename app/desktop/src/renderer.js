@@ -35,9 +35,9 @@ let attachments = [];
 let hits = null;
 let liveText = "";
 let previewSignIn = false;
-/** @type {string[]} */
-/** @type {Array<{text: string, owner: boolean}>} */
+/** @type {Line[]} */
 const lines = [];
+let resumed = false;
 let firstRunDismissed = false;
 /** @type {PublicationCandidate[]} */
 let candidates = [];
@@ -512,6 +512,11 @@ async function load() {
     [snapshot, candidates] = await Promise.all([window.lore.snapshot(), window.lore.candidates().catch(() => [])]);
     status.textContent = "";
     if (task === "setup" && snapshot.setup.profile_configured) task = "capture";
+    if (!resumed) {
+      resumed = true;
+      const history = snapshot.setup.profile_configured ? [] : await window.lore.history("setup").catch(() => []);
+      if (history.length) { task = "setup"; lines.push(...history); renderLog(); }
+    }
     render();
   } catch {
     status.textContent = "";
@@ -522,10 +527,9 @@ async function load() {
   }
 }
 
-/** @param {string} text */
-/** @param {string} text @param {boolean} [owner] */
-function say(text, owner = false) {
-  lines.push({ text, owner });
+/** @param {string} text @param {boolean} [owner] @param {boolean} [stopped] */
+function say(text, owner = false, stopped = false) {
+  lines.push({ text, owner, stopped });
   if (!owner) liveText = "";
   renderLog();
 }
@@ -537,8 +541,8 @@ function live(text) {
 }
 
 function renderLog() {
-  log.replaceChildren(...lines.map(({ text, owner }) => {
-    const line = el("div", owner ? "line owner" : "line");
+  log.replaceChildren(...lines.map(({ text, owner, stopped }) => {
+    const line = el("div", owner ? "line owner" : stopped ? "line stop" : "line");
     line.append(owner ? el("span", "you", "You") : mark("mark mark-sm"), owner ? el("p", "", text) : markdown(text));
     return line;
   }));
@@ -832,6 +836,7 @@ window.lore.onAgentEvent((event) => {
   else if (event.type === "live") live(event.text);
   else if (event.type === "changed") void load();
   else if (event.type === "message") say(event.text);
+  else if (event.type === "stopped") { say(event.text, false, true); input.focus(); }
   else if (event.type === "progress") {
     if (event.done) {
       welcome.classList.remove("provisioning");

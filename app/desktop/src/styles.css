@@ -166,6 +166,8 @@ h2 { font-size: 12px; font-weight: 600; letter-spacing: 0.06em; text-transform: 
 .log .line .mark { margin-top: 2px; }
 .log .line .md { min-width: 0; }
 .log .line.live { color: var(--muted); }
+.log .line.stop .md { color: var(--attention-ink); }
+.log .line.stop .mark { background: var(--attention); }
 .log .line.owner p { color: var(--ink); }
 .log .line.owner .you { flex-shrink: 0; width: 18px; margin-top: 3px; font-size: 10px; font-weight: 600; letter-spacing: 0.04em; color: var(--muted); text-transform: uppercase; }
 .log .line.live .mark { animation: pulse 1.4s ease-in-out infinite; }

@@ -99,11 +99,14 @@ type BashVerdict = "allow" | BashAction | { kind: "malformed"; reason: string } 
 
 type AgentTask = "capture" | "setup" | "publish";
 
+type Line = { text: string; owner: boolean; stopped?: boolean };
+
 interface Window {
   lore: {
     snapshot(): Promise<Snapshot>;
     agentStatus(): Promise<AgentStatus>;
     prompt(input: { text: string; task: AgentTask }): Promise<void>;
+    history(task: AgentTask): Promise<Line[]>;
     respond(response: { id: string; value: unknown }): Promise<void>;
     login(input: { providerId: string; type: "oauth" | "api_key"; secret?: string }): Promise<AgentStatus>;
     logout(providerId: string): Promise<AgentStatus>;
@@ -151,12 +154,14 @@ type AgentEvent =
   | { type: "working"; active: boolean }
   | { type: "changed" }
   | { type: "message"; text: string }
+  | { type: "stopped"; text: string }
   | { type: "auth"; message?: string; event?: import("@earendil-works/pi-ai").AuthEvent }
   | { type: "progress"; text?: string; done?: boolean; error?: string };
 
 type LoreAgentInstance = {
   status(): Promise<AgentStatus>;
   prompt(text: string, task: AgentTask): Promise<void>;
+  history(task: AgentTask): Line[];
   login(providerId: string, type: "oauth" | "api_key", secret?: string): Promise<AgentStatus>;
   logout(providerId: string): Promise<AgentStatus>;
   dispose(): void;
