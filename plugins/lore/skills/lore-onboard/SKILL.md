@@ -54,7 +54,11 @@ fails, report the exact prerequisite and stop — don't retry-loop.
 Checkpoint file: `$LORE_HOME/automation/onboarding.json`. **Read it first** with
 your file-reading tool. If it exists, tell the user what is already done and resume —
 never re-ask an answered question or re-run a finished phase. Write it after *every*
-answer, not at the end, with exactly this command (`lore setup` creates the folder):
+answer, not at the end, with exactly this command (`lore setup` creates the folder).
+Keep every field below, and add Phase 1 answers as they arrive, using the blueprint's
+names and types (`name`, `persona`, `organizing_axis`, `storytelling` as strings;
+`topic_outline`, `focus_topics`, `general_areas` as lists of strings) — nothing else.
+If the write is refused, the refusal says which field is wrong; fix it and write again.
 
 ```sh
 cat > "${LORE_HOME:-$HOME/.lore}/automation/onboarding.json" <<'LORE_CHECKPOINT'

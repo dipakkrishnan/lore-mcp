@@ -54,6 +54,10 @@
           <h1 id="title"></h1>
         </header>
         <section id="capture" class="capture-area" aria-label="Capture">
+          <div id="agent" class="agent" hidden>
+            <div id="log" class="log" aria-live="polite"></div>
+            <div id="request"></div>
+          </div>
           <form id="composer" class="composer">
             <label class="sr-only" for="capture-input">What did you learn today?</label>
             <textarea id="capture-input" rows="1" placeholder="What did you learn today?"></textarea>
@@ -64,10 +68,6 @@
               <button type="submit" class="btn primary" id="capture-submit">Capture</button>
             </div>
           </form>
-          <div id="agent" class="agent" hidden>
-            <div id="log" class="log" aria-live="polite"></div>
-            <div id="request"></div>
-          </div>
         </section>
         <div id="status" class="status" role="status" aria-live="polite"></div>
         <div id="content"></div>
