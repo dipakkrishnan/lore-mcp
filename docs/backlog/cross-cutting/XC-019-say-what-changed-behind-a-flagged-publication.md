@@ -57,6 +57,16 @@ flag only when the diff is non-empty.
 
 ## Notes
 
+2026-08-22, later the same evening: the owner judged the alert noise — "if
+there's no point to showing it to someone and it's confusing to me, it'll be
+confusing to someone else" — and the desktop surfaces were removed on PR #121
+(Today card, Store "Needs you" section, "Changed" chip, and the app-side
+reapprove/revoke IPC that only they used). The flag and both CLI commands
+remain. This item is therefore about *reintroducing* the surface, and the
+bar for doing so is the second layer: do not show the owner a flag without
+showing them the diff. If that never becomes worth building, the store-level
+flag should be reconsidered too rather than left as CLI-only debt.
+
 Spans `lore/store.py` (snapshot at approval), `lore/cli.py` / `lore/ui.py`
 (publication card), `lore/snapshot.py` (desktop-state fields), and the desktop
 Store and Today views — hence cross-cutting. Found while dogfooding the
