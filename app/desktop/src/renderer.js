@@ -36,6 +36,7 @@ let hits = null;
 let liveText = "";
 let previewSignIn = false;
 /** @type {string[]} */
+/** @type {Array<{text: string, owner: boolean}>} */
 const lines = [];
 let firstRunDismissed = false;
 /** @type {PublicationCandidate[]} */
@@ -205,11 +206,7 @@ function workerConsole(url) {
 /** @param {string} url */
 function storeAddress(url) {
   const node = el("span", "address");
-  const link = el("a", "mono", url.replace(/^https?:\/\//, "").replace(/\/mcp$/, ""));
-  link.href = url;
-  link.target = "_blank";
-  link.rel = "noreferrer";
-  node.append(link);
+  node.append(el("span", "mono", url.replace(/^https?:\/\//, "").replace(/\/mcp$/, "")));
   const console = workerConsole(url);
   if (console) {
     const open = el("a", "", "Cloudflare ↗");
@@ -455,6 +452,7 @@ function render() {
   eyebrow.textContent = view === "today" ? longDate.format(new Date()) : "";
   title.textContent = heading;
   captureArea.hidden = view !== "today";
+  input.placeholder = task === "capture" ? "What did you learn today?" : "Reply to Lore…";
   for (const nav of navButtons) nav.setAttribute("aria-pressed", String(nav.dataset.view === view));
   if (!snapshot) return;
   $("[data-count=memories]").textContent = String(snapshot.library.counts.private);
@@ -508,10 +506,11 @@ async function load() {
 }
 
 /** @param {string} text */
-function say(text) {
-  lines.push(text);
-  while (lines.length > 6) lines.shift();
-  liveText = "";
+/** @param {string} text @param {boolean} [owner] */
+function say(text, owner = false) {
+  lines.push({ text, owner });
+  while (lines.length > 8) lines.shift();
+  if (!owner) liveText = "";
   renderLog();
 }
 
@@ -522,9 +521,9 @@ function live(text) {
 }
 
 function renderLog() {
-  log.replaceChildren(...lines.map((text) => {
-    const line = el("div", "line");
-    line.append(mark("mark mark-sm"), el("p", "", text));
+  log.replaceChildren(...lines.map(({ text, owner }) => {
+    const line = el("div", owner ? "line owner" : "line");
+    line.append(owner ? el("span", "you", "You") : mark("mark mark-sm"), el("p", "", text));
     return line;
   }));
   if (liveText) {
@@ -540,13 +539,7 @@ function working(active) {
   input.disabled = active;
   submit.disabled = active;
   composer.classList.toggle("working", active);
-  if (active) {
-    const pill = el("span", "pill");
-    pill.append(el("i"), document.createTextNode({ setup: "Lore is thinking…", publish: "Lore is drafting…", capture: "Lore is reading this…" }[task]));
-    status.replaceChildren(pill);
-  } else {
-    status.replaceChildren();
-  }
+  if (active && !liveText) live({ setup: "Thinking…", publish: "Drafting…", capture: "Reading this…" }[task]);
 }
 
 /** @param {AgentRequest} event */
@@ -768,6 +761,7 @@ async function send(text) {
   const files = attachments.length ? `\n\nFiles to read:\n${attachments.map((path) => `- ${path}`).join("\n")}` : "";
   attachments = [];
   renderAttachments();
+  say(text, true);
   try {
     await window.lore.prompt({ text: text + files, task });
     await load();
@@ -855,7 +849,7 @@ input.addEventListener("keydown", (event) => {
 const DICTATE_HINT = "Press the dictation key on your keyboard (or fn twice), then speak. Lore listens to whatever lands in the box.";
 $("#dictate").addEventListener("click", () => {
   input.focus();
-  if (lines.at(-1) !== DICTATE_HINT) say(DICTATE_HINT);
+  if (lines.at(-1)?.text !== DICTATE_HINT) say(DICTATE_HINT);
 });
 const GUARDED = /(^|\/)\.[^/]*$|\/\.(ssh|aws|gnupg)\/|\.(pem|key|p12|pfx|keychain(-db)?)$|id_(rsa|ed25519|ecdsa)/;
 /** @param {string[]} paths */
