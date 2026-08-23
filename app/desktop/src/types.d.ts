@@ -145,6 +145,7 @@ type AgentRequest =
 type AgentEvent =
   | AgentRequest
   | { type: "dismiss"; id: string }
+  | { type: "live"; text: string }
   | { type: "working"; active: boolean }
   | { type: "changed" }
   | { type: "message"; text: string }

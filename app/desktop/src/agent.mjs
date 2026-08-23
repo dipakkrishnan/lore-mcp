@@ -247,6 +247,13 @@ export class LoreAgent {
       ]
     });
     session.subscribe((event) => {
+      if (event.type === "tool_execution_start" && event.toolName !== "ask_user") {
+        this.options.emit({ type: "live", text: event.toolName === "read" ? "Reading…" : "Looking through your Lore…" });
+      }
+      if (event.type === "message_update" && event.assistantMessageEvent.type === "text_delta") {
+        const text = event.assistantMessageEvent.partial.content.map((block) => (block.type === "text" ? block.text : "")).join("");
+        this.options.emit({ type: "live", text });
+      }
       if (event.type === "tool_execution_end" && event.toolName === "bash") this.options.emit({ type: "changed" });
       if (event.type !== "message_end" || event.message.role !== "assistant") return;
       if (event.message.stopReason === "error" || event.message.stopReason === "aborted") {
