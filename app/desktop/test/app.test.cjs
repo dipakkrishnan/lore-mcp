@@ -204,7 +204,11 @@ test("auto-runs read-only compounds over Lore and agent memory, and only those",
     "find \"$HOME/.claude/projects\" -type f -exec rm {} +",
     "cat ~/.lore/lore.db > /tmp/out",
     "echo hi | tee ~/.lore/x",
-    "ls $(pwd)"
+    "ls $(pwd)",
+    "sort ~/.lore/input -o ~/.lore/lore.db",
+    "uniq ~/.lore/input ~/.lore/lore.db",
+    "find ~/.lore -fls ~/.lore/out",
+    "date 01010000"
   ];
   for (const command of refused) assert.equal(readOnly(command), false, command);
 });

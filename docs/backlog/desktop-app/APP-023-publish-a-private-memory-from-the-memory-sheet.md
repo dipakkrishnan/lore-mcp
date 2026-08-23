@@ -22,15 +22,17 @@ be an easy way to transition a private memory to published."
 
 ## Proposed approach
 
-A "Publish" action on the memory sheet (and per row) that starts the
-publish task seeded with that memory: the prompt names the memory id, the
-skill drafts candidates from it (plus obvious neighbors), and the normal
-approval cards and pricing follow. Same validated path — `lore publication
-draft` + owner approval — just entered from where the owner already is.
+A single "Publish" action on the open memory sheet starts the publish task
+with the memory id in its typed task context. The skill drafts from that memory
+only, and the normal approval cards and pricing follow. Same validated path —
+`lore publication draft` + owner approval — just entered from where the owner
+already is.
 
 ## Acceptance criteria
 
-- [ ] The memory sheet and each private row offer Publish.
-- [ ] It opens the publish task pre-scoped to that memory; drafts cite it
-      in provenance.
+- [ ] The open sheet for a private memory offers Publish.
+- [ ] The publish task stores the selected memory id in its task record and
+      stays scoped to it when resumed.
+- [ ] Drafts cite the selected memory in provenance; neighboring memories are
+      included only when the owner asks.
 - [ ] Nothing changes in the approval or pricing contract.

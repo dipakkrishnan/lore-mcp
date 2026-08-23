@@ -39,7 +39,7 @@ const TASK_STATES = new Set(["needs_you", "working", "stopped", "done"]);
 const PERSONAS = ["storyteller", "schoolteacher", "professor", "executive", "sage"];
 const AXES = ["chronological", "theme", "project", "knowledge"];
 const GUIDE = "Lore didn't run that. It auto-runs read-only commands (lore status/desktop-state/search/blueprint show/publication list; ls, cat, head, tail, grep, find, wc, which, printf, echo) over ~/.lore, ~/.claude, and ~/.codex, chained with ; or pipes. Writes must use the skill's exact single commands so the owner can approve them.";
-const READ_BINS = new Set(["ls", "cat", "head", "tail", "wc", "grep", "find", "which", "printf", "echo", "date", "sort", "uniq", "stat", "file"]);
+const READ_BINS = new Set(["ls", "cat", "head", "tail", "wc", "grep", "find", "which", "printf", "echo", "stat", "file"]);
 const LORE_READS = /^lore (?:status|desktop-state|search|blueprint show|publication list|memory show)(?: |$)/;
 const SAFE_REDIRECT = /^(?:2>&1|2>\/dev\/null|<\/dev\/null)$/;
 const SAFE_ROOT = /\.(?:lore|claude|codex)(?:[\/"'}]|$)|^\/dev\/null$/;
@@ -56,7 +56,7 @@ export function readOnly(command) {
       const token = raw.replace(/^["']|["']$/g, "");
       if (token.includes("..")) return false;
       if (/[<>]/.test(token) && !SAFE_REDIRECT.test(token)) return false;
-      if (tokens[0] === "find" && /^-(?:exec|execdir|ok|okdir|delete|fprint)/.test(token)) return false;
+      if (tokens[0] === "find" && /^-(?:exec|execdir|ok|okdir|delete|fprint|fls)/.test(token)) return false;
       if (token.includes("/") && /^[~/$]/.test(token) && !SAFE_ROOT.test(token)) return false;
     }
   }
