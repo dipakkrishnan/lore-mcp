@@ -73,17 +73,6 @@ function registerIpc(loreHome) {
     }
     return decide(loreHome, input.candidate, input.approve);
   });
-  /** @param {unknown} id */
-  const publicationId = (id) => {
-    if (!Number.isInteger(id) || /** @type {number} */ (id) < 1) throw new Error("Invalid publication");
-    return String(id);
-  };
-  ipcMain.handle("publication:reapprove", async (_event, id) => {
-    await lore(loreHome, ["publication", "reapprove", publicationId(id)], "");
-  });
-  ipcMain.handle("publication:revoke", async (_event, id) => {
-    await lore(loreHome, ["publication", "revoke", publicationId(id)], "");
-  });
   ipcMain.handle("store:push", async () => {
     await lore(loreHome, ["push"], "");
   });

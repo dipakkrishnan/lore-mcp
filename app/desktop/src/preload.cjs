@@ -16,10 +16,6 @@ contextBridge.exposeInMainWorld("lore", {
   candidates: () => ipcRenderer.invoke("publication:candidates"),
   /** @param {{candidate: PublicationCandidate, approve: boolean}} input */
   decide: (input) => ipcRenderer.invoke("publication:decide", input),
-  /** @param {number} id */
-  reapprove: (id) => ipcRenderer.invoke("publication:reapprove", id),
-  /** @param {number} id */
-  revoke: (id) => ipcRenderer.invoke("publication:revoke", id),
   push: () => ipcRenderer.invoke("store:push"),
   pickFiles: () => ipcRenderer.invoke("files:pick"),
   /** @param {File} file */

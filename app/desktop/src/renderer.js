@@ -167,14 +167,6 @@ function needsYou(s) {
     if (!s.setup.profile_configured) add("Choose how Lore learns from your agents", "Decide which model writes new memories, and how often.", button("Start", "secondary", startSetup));
     if (s.library.counts.private && !candidates.length) add("Publish something", "Pick a topic you know well. Lore drafts up to three things to sell; you approve each one.", button("Publish", "secondary", startPublish));
   }
-  const changed = s.publications.items.filter((item) => item.needs_review).length;
-  if (changed) {
-    add(
-      `${changed} ${changed === 1 ? "thing" : "things"} you sell ${changed === 1 ? "has" : "have"} changed underneath`,
-      "The memories behind them were edited since you approved them.",
-      button("Review", "secondary", () => show("store"))
-    );
-  }
   return rows;
 }
 
@@ -303,19 +295,11 @@ function renderStore(s) {
   }
   bar.append(lead, prices);
   const approved = s.publications.items.filter((item) => item.state === "approved");
-  const changed = approved.filter((item) => item.needs_review);
   const revoked = s.publications.items.filter((item) => item.state === "revoked");
   /** @param {PublicationItem} item */
-  const state = (item) => item.needs_review ? chip("Changed", "warn") : item.live === true ? chip("Live", "ok") : item.live === false ? chip("Not live yet") : chip("Approved");
+  const state = (item) => item.live === true ? chip("Live", "ok") : item.live === false ? chip("Not live yet") : chip("Approved");
   /** @type {HTMLElement[]} */
   const parts = [bar];
-  if (changed.length) parts.push(section("Needs you", card(changed.map((item) => {
-    const group = el("div");
-    group.style.display = "flex";
-    group.style.gap = "8px";
-    group.append(button("Take down", "secondary", () => act(window.lore.revoke, item.id)), button("Re-approve", "primary", () => act(window.lore.reapprove, item.id)));
-    return row(item.title, "The memory behind this changed after you approved it.", group);
-  }))));
   parts.push(section("For sale", approved.length
     ? card(approved.map((item) => row(item.title, item.topic, state(item))))
     : el("div", "card pad empty", "Nothing for sale yet. Publish something from Today."),
@@ -668,12 +652,12 @@ async function decide(candidate, approve) {
   render();
 }
 
-/** @param {(id: number) => Promise<void>} action @param {number} [id] */
-async function act(action, id = 0) {
+/** @param {() => Promise<void>} action */
+async function act(action) {
   pushOffer = false;
   let done = true;
   try {
-    await action(id);
+    await action();
   } catch (error) {
     done = false;
     say(error instanceof Error ? error.message : "Lore could not do that.");
