@@ -32,8 +32,9 @@ npm --prefix app/desktop run make   # unsigned Lore.app, zipped under app/deskto
 ```
 
 The `packaging/icon.sh` hook renders `packaging/icon.svg` into the bundle's
-`icon.icns` with macOS's own `qlmanage`, `sips`, and `iconutil`, so the Dock
-shows the Lore mark instead of Electron's.
+`icon.icns`: Electron rasterizes it with a transparent margin (`icon.cjs`),
+then `sips` and `iconutil` build the icon set. The Dock shows the Lore mark
+instead of Electron's.
 
 The `packaging/wheelhouse.sh` hook bundles a pinned `uv` and a wheelhouse —
 the lore-mcp wheel, a windup wheel built from its git pin, and every
