@@ -5,12 +5,20 @@ const { resolve } = require("node:path");
 const run = promisify(execFile);
 const root = resolve(__dirname, "../../..");
 
+/** @type {{file: string, args: string[], cwd?: string}} */
+let runtime = { file: "uv", args: ["run", "lore"], cwd: root };
+
+/** @param {string} [file] */
+function useRuntime(file) {
+  runtime = file ? { file, args: [] } : { file: "uv", args: ["run", "lore"], cwd: root };
+}
+
 /** @param {string} loreHome @param {string[]} args @param {string} [decision] */
 async function lore(loreHome, args, decision) {
   const attended = decision === undefined ? {} : { LORE_ATTENDED_SURFACE: "desktop" };
   const env = { ...process.env, LORE_HOME: loreHome, NO_COLOR: "1", ...attended };
-  const pending = run("uv", ["run", "lore", ...args], {
-    cwd: root,
+  const pending = run(runtime.file, [...runtime.args, ...args], {
+    cwd: runtime.cwd,
     env,
     maxBuffer: 8 * 1024 * 1024,
     timeout: 120_000,
@@ -51,4 +59,4 @@ async function decide(loreHome, candidate, approve) {
   await lore(loreHome, ["publication", "decide"], JSON.stringify({ candidate, approve }));
 }
 
-module.exports = { lore, readState, searchMemories, candidates, decide };
+module.exports = { lore, readState, searchMemories, candidates, decide, useRuntime };

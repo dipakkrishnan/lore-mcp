@@ -9,3 +9,5 @@ htmlcov/
 .pytest_cache/
 node_modules
 .env
+app/desktop/packaging/out/
+app/desktop/out/

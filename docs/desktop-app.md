@@ -53,9 +53,9 @@ Load-bearing rules, in priority order:
    asks once as a card that says what it means, and everything else is
    blocked. One disclosed exception: the onboarding checkpoint heredoc
    autosaves silently after each answer — it holds only answers the owner
-   just gave through `ask_user`, its path is exact, and its body must be a
-   JSON object with only known checkpoint fields. Prompt instructions are
-   not the security boundary.
+   just gave through `ask_user`, its path is exact, and its body must match
+   the complete checkpoint schema and value constraints. Prompt instructions
+   are not the security boundary.
 3. **The agent cannot approve.** Approval cards are app-invoked UI routed to
    existing Lore validation. Allowing a Bash command is not approval of a
    publication, payment, or deployment. The CLI treats the app as a second

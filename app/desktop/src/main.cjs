@@ -1,7 +1,8 @@
 const { randomUUID } = require("node:crypto");
-const { join, resolve } = require("node:path");
+const { join } = require("node:path");
 const { app, BrowserWindow, dialog, ipcMain, safeStorage, shell } = require("electron");
-const { lore, readState, searchMemories, candidates, decide } = require("./state.cjs");
+const { provision, skillsDir } = require("./runtime.cjs");
+const { lore, readState, searchMemories, candidates, decide, useRuntime } = require("./state.cjs");
 
 if (process.env.LORE_DESKTOP_USER_DATA) app.setPath("userData", process.env.LORE_DESKTOP_USER_DATA);
 
@@ -115,6 +116,23 @@ function createWindow() {
 }
 
 app.whenReady().then(async () => {
+  createWindow();
+  await new Promise((loaded) => window?.webContents.once("did-finish-load", () => loaded(undefined)));
+  try {
+    await start();
+    emit({ type: "progress", done: true });
+  } catch (error) {
+    console.error(error);
+    emit({ type: "progress", error: "Lore could not finish setting up. Check your internet connection, then reopen Lore." });
+  }
+  app.on("activate", () => {
+    if (BrowserWindow.getAllWindows().length === 0) createWindow();
+  });
+});
+
+async function start() {
+  const runtime = await provision(emit);
+  if (runtime) useRuntime(runtime.bin);
   const [{ LoreAgent }, { CredentialStore }] = await Promise.all([
     import("./agent.mjs"),
     import("./credentials.mjs")
@@ -123,7 +141,8 @@ app.whenReady().then(async () => {
   const credentials = new CredentialStore(join(app.getPath("userData"), "credentials.bin"), safeStorage);
   agent = await LoreAgent.create({
     loreHome,
-    skillsDir: resolve(__dirname, "../../../plugins/lore/skills"),
+    skillsDir,
+    binDir: runtime?.binDir,
     credentials,
     emit,
     approveBash: async (command, action) => (await request("bash-approval", { command, action })) === true,
@@ -141,11 +160,7 @@ app.whenReady().then(async () => {
     }
   });
   registerIpc(loreHome);
-  createWindow();
-  app.on("activate", () => {
-    if (BrowserWindow.getAllWindows().length === 0) createWindow();
-  });
-});
+}
 
 app.on("before-quit", () => {
   agent?.dispose();

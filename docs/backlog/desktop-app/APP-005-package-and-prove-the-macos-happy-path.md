@@ -4,7 +4,7 @@ title: Package and prove the macOS desktop happy path
 priority: P1
 effort: L
 component: desktop-app
-status: in-review
+status: in-progress
 related: [APP-004, APP-006, APP-007, EVAL-002, XC-008]
 blockers: [APP-004, APP-006, APP-007]
 dependencies: ["Apple Developer signing credentials for public distribution", "A testnet-funded buyer wallet for the live paid-path proof"]
@@ -62,3 +62,14 @@ prefix.
 Windows, Linux, auto-update infrastructure, custom audio, cloud sync, local
 models, trend charts, and the menu-bar/global-shortcut capture surface are out
 of scope. Add them only after real owner usage shows which one is necessary.
+
+Only the packaging/provisioning half is delivered so far: an unsigned
+self-provisioning `Lore.app` (Electron Forge, bundled `uv` + wheelhouse,
+first-launch install into an app-owned prefix, streamed progress on the
+welcome screen), proven against a stripped `HOME`/`PATH` environment on this
+machine. Signing/notarization and the synthetic-persona live proof wait on
+the Apple Developer credentials the owner has requested; the paid-path proof
+waits on the store deployment flow (APP-006 follow-up). The zip maker is used
+instead of dmg because `appdmg`'s native modules do not build on current
+Node. Bundle id `com.lore.desktop` needs owner confirmation before the first
+signed build.

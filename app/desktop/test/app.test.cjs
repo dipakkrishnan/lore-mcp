@@ -1,5 +1,5 @@
 const assert = require("node:assert/strict");
-const { mkdtemp, readFile, rm } = require("node:fs/promises");
+const { mkdtemp, readFile, rm, writeFile } = require("node:fs/promises");
 const { tmpdir } = require("node:os");
 const { join } = require("node:path");
 const { spawnSync } = require("node:child_process");
@@ -14,6 +14,21 @@ test("reads only the fixed APP-001 snapshot", async () => {
     assert.equal(state.home, directory);
     assert.equal(state.node.live.state, "not_configured");
   } finally {
+    await rm(directory, { recursive: true });
+  }
+});
+
+test("useRuntime runs the packaged binary instead of uv", async () => {
+  const { useRuntime } = require("../src/state.cjs");
+  const directory = await mkdtemp(join(tmpdir(), "lore-desktop-"));
+  try {
+    const bin = join(directory, "lore");
+    await writeFile(bin, '#!/bin/sh\necho \'{"version":1}\'\n', { mode: 0o755 });
+    useRuntime(bin);
+    const state = await readState(directory);
+    assert.equal(state.version, 1);
+  } finally {
+    useRuntime();
     await rm(directory, { recursive: true });
   }
 });
@@ -57,7 +72,7 @@ test("auto-allows a complete read-only Lore command without prompting", async ()
     'ls "${CLAUDE_HOME:-$HOME/.claude}"/projects/*/memory/*.md 2>/dev/null',
     'ls "${CODEX_HOME:-$HOME/.codex}/memories" "${CODEX_HOME:-$HOME/.codex}/automations" 2>/dev/null',
     'ls -lt "${CLAUDE_HOME:-$HOME/.claude}"/projects/*/*.jsonl 2>/dev/null',
-    `cat > "\${LORE_HOME:-$HOME/.lore}/automation/onboarding.json" <<'LORE_CHECKPOINT'\n{"phase1_done": true, "role": "maintainer"}\nLORE_CHECKPOINT`
+    `cat > "\${LORE_HOME:-$HOME/.lore}/automation/onboarding.json" <<'LORE_CHECKPOINT'\n{"phase1_done":true,"role":"maintainer","domains":"systems","valuable_context":"reviews","preferences":"concise","boundaries":"private","executor":"claude","model":"sonnet","cadence":"daily","hour":21}\nLORE_CHECKPOINT`
   ];
   for (const command of commands) assert.equal(await handler(bashEvent(command)), undefined, command);
   assert.equal(prompted, false);
@@ -172,7 +187,10 @@ test("hard-denies malformed, non-Lore, compound, and owner-only commands", async
     `cat > "\${LORE_HOME:-$HOME/.lore}/automation/onboarding.json" <<'LORE_CHECKPOINT'\n[]\nLORE_CHECKPOINT`,
     `cat > "\${LORE_HOME:-$HOME/.lore}/automation/onboarding.json" <<'LORE_CHECKPOINT'\n{}\nLORE_CHECKPOINT\nrm -rf ~\nLORE_CHECKPOINT`,
     `cat >> "\${LORE_HOME:-$HOME/.lore}/automation/onboarding.json" <<'LORE_CHECKPOINT'\n{}\nLORE_CHECKPOINT`,
-    `cat > "\${LORE_HOME:-$HOME/.lore}/automation/onboarding.json" <<'LORE_CHECKPOINT'\n{"phase1_done": true, "path": "/etc/passwd"}\nLORE_CHECKPOINT`
+    `cat > "\${LORE_HOME:-$HOME/.lore}/automation/onboarding.json" <<'LORE_CHECKPOINT'\n{"phase1_done": true, "path": "/etc/passwd"}\nLORE_CHECKPOINT`,
+    `cat > "\${LORE_HOME:-$HOME/.lore}/automation/onboarding.json" <<'LORE_CHECKPOINT'\n{"phase1_done":true,"role":{},"domains":"systems","valuable_context":"reviews","preferences":"concise","boundaries":"private","executor":"claude","model":"sonnet","cadence":"daily","hour":21}\nLORE_CHECKPOINT`,
+    `cat > "\${LORE_HOME:-$HOME/.lore}/automation/onboarding.json" <<'LORE_CHECKPOINT'\n{"phase1_done":true,"role":"maintainer","domains":"systems","valuable_context":"reviews","preferences":"concise","boundaries":"private","executor":"claude","model":"sonnet","cadence":"monthly","hour":21}\nLORE_CHECKPOINT`,
+    `cat > "\${LORE_HOME:-$HOME/.lore}/automation/onboarding.json" <<'LORE_CHECKPOINT'\n{"phase1_done":true,"role":"maintainer","domains":"systems","valuable_context":"reviews","preferences":"concise","boundaries":"private","executor":"claude","model":"sonnet","cadence":"daily","hour":24}\nLORE_CHECKPOINT`
   ];
   for (const command of commands) {
     const result = await handler(bashEvent(command));

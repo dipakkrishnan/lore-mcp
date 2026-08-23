@@ -30,18 +30,18 @@ const BASH_POLICY = [
   [/^lore blueprint apply - <<'LORE_BLUEPRINT'\n([\s\S]+)\nLORE_BLUEPRINT$/, "blueprint"],
   [/^lore profile - <<'LORE_PROFILE'\n([\s\S]+)\nLORE_PROFILE$/, "profile"]
 ];
-const CHECKPOINT_FIELDS = new Set([
-  "phase1_done",
-  "role",
-  "domains",
-  "valuable_context",
-  "preferences",
-  "boundaries",
-  "executor",
-  "model",
-  "cadence",
-  "hour"
-]);
+const CHECKPOINT_FIELDS = {
+  phase1_done: "boolean",
+  role: "string",
+  domains: "string",
+  valuable_context: "string",
+  preferences: "string",
+  boundaries: "string",
+  executor: "string",
+  model: "string",
+  cadence: "string",
+  hour: "number"
+};
 const SKILLS = { capture: "lore-capture", setup: "lore-onboard", publish: "lore-publish" };
 
 /** @param {string} command @returns {"allow" | BashAction | null} */
@@ -60,7 +60,19 @@ export function classifyBash(command) {
     if (!body || typeof body !== "object") return null;
     if (kind === "draft") return Array.isArray(body) && body.length ? "allow" : null;
     if (kind === "checkpoint") {
-      return !Array.isArray(body) && Object.keys(body).every((key) => CHECKPOINT_FIELDS.has(key)) ? "allow" : null;
+      const checkpoint = /** @type {Record<string, unknown>} */ (body);
+      if (
+        Array.isArray(body) ||
+        Object.keys(checkpoint).length !== Object.keys(CHECKPOINT_FIELDS).length ||
+        !Object.entries(CHECKPOINT_FIELDS).every(([key, type]) => typeof checkpoint[key] === type)
+      )
+        return null;
+      return ["daily", "weekly"].includes(/** @type {string} */ (checkpoint.cadence)) &&
+        Number.isInteger(checkpoint.hour) &&
+        /** @type {number} */ (checkpoint.hour) >= 0 &&
+        /** @type {number} */ (checkpoint.hour) <= 23
+        ? "allow"
+        : null;
     }
     if (kind === "capture") {
       const entries = /** @type {CaptureEntry[]} */ (body);
@@ -223,7 +235,12 @@ export class LoreAgent {
         createBashTool(this.options.loreHome, {
           spawnHook: (context) => ({
             ...context,
-            env: { ...context.env, LORE_HOME: this.options.loreHome, NO_COLOR: "1" }
+            env: {
+              ...context.env,
+              LORE_HOME: this.options.loreHome,
+              NO_COLOR: "1",
+              ...(this.options.binDir ? { PATH: `${this.options.binDir}:${context.env.PATH ?? process.env.PATH ?? ""}` } : {})
+            }
           })
         }),
         this.#askTool()
