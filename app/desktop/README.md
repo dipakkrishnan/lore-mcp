@@ -31,6 +31,10 @@ LORE_HOME=$(mktemp -d) app/desktop/node_modules/.bin/electron app/desktop/suppor
 npm --prefix app/desktop run make   # unsigned Lore.app, zipped under app/desktop/out/make/
 ```
 
+The `packaging/icon.sh` hook renders `packaging/icon.svg` into the bundle's
+`icon.icns` with macOS's own `qlmanage`, `sips`, and `iconutil`, so the Dock
+shows the Lore mark instead of Electron's.
+
 The `packaging/wheelhouse.sh` hook bundles a pinned `uv` and a wheelhouse —
 the lore-mcp wheel, a windup wheel built from its git pin, and every
 dependency at the versions in `uv.lock` — into the bundle's Resources. On

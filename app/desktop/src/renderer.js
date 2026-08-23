@@ -596,6 +596,7 @@ function renderRequest(event) {
       respond(event.id, value);
     });
   }
+  box.dataset.id = event.id;
   requestSlot.replaceChildren(box);
   agentPanel.hidden = false;
   if (view !== "today") show("today");
@@ -746,6 +747,8 @@ window.lore.onAgentEvent((event) => {
       welcomeNote.textContent = event.error ?? event.text ?? "";
       if (!auth) { auth = { credentials: [], busy: false }; enter(); }
     }
+  } else if (event.type === "dismiss") {
+    if (/** @type {HTMLElement | null} */ (requestSlot.firstElementChild)?.dataset.id === event.id) { requestSlot.replaceChildren(); renderLog(); }
   } else if (event.type === "auth") {
     const detail = event.event;
     welcomeNote.textContent = event.message || (detail?.type === "device_code" ? `Open ${detail.verificationUri} and enter ${detail.userCode}.` : detail && "message" in detail ? detail.message : "Continue signing in.");

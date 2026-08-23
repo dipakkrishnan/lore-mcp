@@ -21,12 +21,19 @@ function emit(event) {
   window?.webContents.send("agent:event", event);
 }
 
-/** @param {AgentRequest["type"]} type @param {Record<string, unknown>} payload */
-function request(type, payload) {
+/** @param {AgentRequest["type"]} type @param {Record<string, unknown>} payload @param {AbortSignal} [signal] */
+function request(type, payload, signal) {
   if (!window || window.isDestroyed()) return Promise.reject(new Error("Lore window is closed"));
   const id = randomUUID();
   emit(/** @type {AgentRequest} */ ({ type, id, ...payload }));
-  return new Promise((resolve, reject) => pending.set(id, { resolve, reject }));
+  return new Promise((resolve, reject) => {
+    pending.set(id, { resolve, reject });
+    signal?.addEventListener("abort", () => {
+      if (!pending.delete(id)) return;
+      emit({ type: "dismiss", id });
+      reject(new Error("Cancelled"));
+    }, { once: true });
+  });
 }
 
 /** @param {string} loreHome */
@@ -148,8 +155,7 @@ async function start() {
     approveBash: async (command, action) => (await request("bash-approval", { command, action })) === true,
     askUser: async (questions) =>
       /** @type {Record<string, string>} */ (await request("question", { questions })),
-    authPrompt: async (prompt) =>
-      String(await request("auth-prompt", { prompt: { ...prompt, signal: undefined } })),
+    authPrompt: async ({ signal, ...prompt }) => String(await request("auth-prompt", { prompt }, signal)),
     authEvent: (event) => {
       if (event.type === "auth_url") {
         void shell.openExternal(event.url);
