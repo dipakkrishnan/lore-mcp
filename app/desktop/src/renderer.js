@@ -34,6 +34,7 @@ let attachments = [];
 /** @type {SearchHit[] | null} */
 let hits = null;
 let liveText = "";
+let previewSignIn = false;
 /** @type {string[]} */
 const lines = [];
 let firstRunDismissed = false;
@@ -918,9 +919,10 @@ keyForm.addEventListener("submit", (event) => {
   void signIn(provider, "api_key", value);
 });
 
-Object.assign(window, { __lore: { show, preview: renderRequest, signIn: () => { auth = { credentials: [{ providerId: "anthropic", type: "oauth" }], busy: false }; enter(); } } });
+Object.assign(window, { __lore: { show, preview: renderRequest, signIn: () => { previewSignIn = true; auth = { credentials: [{ providerId: "anthropic", type: "oauth" }], busy: false }; enter(); } } });
 
 function boot() {
+  if (previewSignIn) return;
   window.lore.agentStatus().then((result) => { auth = result; enter(); }).catch(() => { auth = { credentials: [], busy: false }; enter(); });
 }
 
