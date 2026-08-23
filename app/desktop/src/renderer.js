@@ -90,12 +90,12 @@ function button(label, kind, onClick) {
   return node;
 }
 
-/** @param {string} label @param {string} [detail] @param {HTMLElement} [trailing] @param {boolean} [serif] */
+/** @param {string} label @param {string | HTMLElement} [detail] @param {HTMLElement} [trailing] @param {boolean} [serif] */
 function row(label, detail, trailing, serif = true) {
   const node = el("div", "row");
   const text = el("div", "t");
   text.append(el("b", serif ? "" : "sans", label));
-  if (detail) text.append(el("span", "", detail));
+  if (detail) text.append(typeof detail === "string" ? el("span", "", detail) : detail);
   node.append(text);
   if (trailing) node.append(trailing);
   return node;
@@ -192,6 +192,32 @@ function nodeLabel(state) {
 /** @param {string | null} network */
 function networkLabel(network) {
   return (network && NETWORKS[/** @type {keyof typeof NETWORKS} */ (network)]) || network || "";
+}
+
+/** @param {string} url */
+function workerConsole(url) {
+  const host = new URL(url).hostname;
+  if (!host.endsWith(".workers.dev")) return null;
+  return `https://dash.cloudflare.com/?to=/:account/workers/services/view/${host.split(".")[0]}`;
+}
+
+/** @param {string} url */
+function storeAddress(url) {
+  const node = el("span", "address");
+  const link = el("a", "mono", url.replace(/^https?:\/\//, "").replace(/\/mcp$/, ""));
+  link.href = url;
+  link.target = "_blank";
+  link.rel = "noreferrer";
+  node.append(link);
+  const console = workerConsole(url);
+  if (console) {
+    const open = el("a", "", "Cloudflare ↗");
+    open.href = console;
+    open.target = "_blank";
+    open.rel = "noreferrer";
+    node.append(open);
+  }
+  return node;
 }
 
 function greeting() {
@@ -322,11 +348,7 @@ function renderStore(s) {
   const text = el("div", "t");
   text.append(el("b", "sans", live.state === "online" ? `Live, answering on ${networkLabel(live.network) || "your node"}` : live.state === "unreachable" ? "Your node isn't answering" : "No store yet"));
   if (s.node.url) {
-    const link = el("a", "mono", s.node.url.replace(/^https?:\/\//, "").replace(/\/mcp$/, ""));
-    link.href = s.node.url;
-    link.target = "_blank";
-    link.rel = "noreferrer";
-    text.append(link);
+    text.append(storeAddress(s.node.url));
   } else {
     text.append(el("span", "", "Open one from Today when you're ready to sell."));
   }
@@ -419,7 +441,7 @@ function renderSettings(s) {
       row("Where it lives", "Everything stays on this Mac. Only what you approve for sale ever leaves.", value(Object.assign(el("span", "mono", s.home), { style: "color: var(--muted)" })), false)
     ])),
     section("Your store", card([
-      row("Address", s.node.url ? s.node.url.replace(/^https?:\/\//, "").replace(/\/mcp$/, "") : "Not opened yet.", value(status(live.state === "online", live.state === "online" ? `Live on ${networkLabel(live.network) || "your node"}` : nodeLabel(live.state))), false),
+      row("Address", s.node.url ? storeAddress(s.node.url) : "Not opened yet.", value(status(live.state === "online", live.state === "online" ? `Live on ${networkLabel(live.network) || "your node"}` : nodeLabel(live.state))), false),
       row("Prices", "What a buyer's agent pays per call.", value(Object.assign(el("span", "mono", `${price(s.pricing.publication_usd)} publication${s.pricing.answer_enabled ? ` · ${price(s.pricing.answer_usd)} answer` : ""}`), {})), false)
     ]))
   ];

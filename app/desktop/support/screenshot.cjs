@@ -7,8 +7,11 @@ require("../src/main.cjs");
 app.on("browser-window-created", (_event, window) => {
   window.webContents.once("did-finish-load", async () => {
     await new Promise((done) => setTimeout(done, 2500));
-    await window.webContents.executeJavaScript(`window.__lore?.signIn(); window.__lore?.show(${JSON.stringify(view)})`);
-    await new Promise((done) => setTimeout(done, 1500));
+    // Provisioning may finish after the first sign-in and reset auth; apply it twice.
+    for (let i = 0; i < 2; i++) {
+      await window.webContents.executeJavaScript(`window.__lore?.signIn(); window.__lore?.show(${JSON.stringify(view)})`);
+      await new Promise((done) => setTimeout(done, 1500));
+    }
     await new Promise((done) => setTimeout(done, 400));
     const image = await window.webContents.capturePage();
     require("node:fs").writeFileSync(out, image.toPNG());
