@@ -24,12 +24,15 @@ element itself was scrollable by 224px; any `focus()` or
 
 ## Proposed approach
 
-Clamp the root: `html, body { overflow: hidden }`. `#main` remains the
-only scroll container. Verified by the same repro: after the clamp,
-forcing `documentElement.scrollTop = 400` leaves it at 0.
+Two layers, because CSS alone cannot do it: `overflow: clip` on
+html/body stops user scrolling, but per spec the viewport stays
+script-scrollable whatever the root's overflow value — `focus()` and
+`scrollIntoView` still moved it in the repro. A one-line scroll listener
+snaps `documentElement.scrollTop` back to 0. `#main` remains the only
+scroll container; its own scroll position is unaffected.
 
 ## Acceptance criteria
 
 - [x] With a long thread, the document cannot scroll; only `#main` does.
-- [x] Repro script confirms `documentElement.scrollTop` stays 0.
+- [x] Repro script confirms `documentElement.scrollTop` returns to 0 after a forced scroll.
 - [x] Desktop typecheck and tests pass.
