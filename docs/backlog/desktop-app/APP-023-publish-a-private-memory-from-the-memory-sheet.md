@@ -4,7 +4,7 @@ title: Publish a private memory straight from the memory sheet
 priority: P1
 effort: S
 component: desktop-app
-status: in-review
+status: ready
 related: [APP-011, APP-019, XC-002, APP-020]
 blockers: []
 dependencies: []
