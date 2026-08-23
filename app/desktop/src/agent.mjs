@@ -44,7 +44,7 @@ const CHECKPOINT_FIELDS = {
   hour: "number"
 };
 const SKILLS = { capture: "lore-capture", setup: "lore-onboard", publish: "lore-publish" };
-const MODELS = ["anthropic/claude-sonnet-5", "openai-codex/gpt-5.5", "openai/gpt-5.5"];
+const MODELS = ["anthropic/claude-sonnet-5", "openai-codex/gpt-5.6-luna", "openai/gpt-5.6-luna"];
 
 /** @param {string} command @returns {"allow" | BashAction | null} */
 export function classifyBash(command) {
