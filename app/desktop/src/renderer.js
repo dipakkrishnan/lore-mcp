@@ -76,6 +76,11 @@ function el(tag, className = "", text) {
   return node;
 }
 
+/** @param {unknown} error @param {string} fallback */
+function reason(error, fallback) {
+  return error instanceof Error ? error.message.replace(/^Error invoking remote method '[^']+': (?:Error: )?/, "") : fallback;
+}
+
 /** @param {string} className */
 function mark(className = "mark") {
   const node = el("span", className);
@@ -104,6 +109,14 @@ function row(label, detail, trailing, serif = true) {
 }
 
 marked.use({ renderer: { html: () => "" } });
+const FRONTMATTER = /^---\n([\s\S]*?)\n---\n*/;
+
+/** @param {string} text */
+function markdown(text) {
+  const node = el("div", "md");
+  node.innerHTML = marked.parse(text, { async: false });
+  return node;
+}
 
 /** @param {number | string} id @param {string} title @param {string} detail */
 function memoryRow(id, title, detail) {
@@ -123,7 +136,7 @@ async function openMemory(id) {
   try {
     memory = await window.lore.memory(id);
   } catch (error) {
-    say(error instanceof Error ? error.message : "Lore could not open that.");
+    say(reason(error, "Lore could not open that."));
     return;
   }
   closeSheet();
@@ -140,8 +153,11 @@ async function openMemory(id) {
   close.setAttribute("aria-label", "Close");
   close.addEventListener("click", closeSheet);
   head.append(text, close);
-  const body = el("div", "body");
-  body.innerHTML = marked.parse(memory.content, { async: false });
+  const meta = memory.content.match(FRONTMATTER)?.[1] ?? "";
+  const body = markdown(memory.content.replace(FRONTMATTER, ""));
+  body.classList.add("body");
+  const description = meta.match(/^description:\s*(.+)$/m)?.[1].trim().replace(/^(["'])(.*)\1$/, "$2");
+  if (description) body.prepend(el("p", "lede", description));
   panel.append(head, body);
   sheet.append(panel);
   sheet.addEventListener("click", (event) => { if (event.target === sheet) closeSheet(); });
@@ -453,6 +469,7 @@ function render() {
   title.textContent = heading;
   captureArea.hidden = view !== "today";
   input.placeholder = task === "capture" ? "What did you learn today?" : "Reply to Lore…";
+  submit.textContent = task === "capture" ? "Capture" : "Send";
   for (const nav of navButtons) nav.setAttribute("aria-pressed", String(nav.dataset.view === view));
   if (!snapshot) return;
   $("[data-count=memories]").textContent = String(snapshot.library.counts.private);
@@ -509,7 +526,6 @@ async function load() {
 /** @param {string} text @param {boolean} [owner] */
 function say(text, owner = false) {
   lines.push({ text, owner });
-  while (lines.length > 8) lines.shift();
   if (!owner) liveText = "";
   renderLog();
 }
@@ -523,15 +539,16 @@ function live(text) {
 function renderLog() {
   log.replaceChildren(...lines.map(({ text, owner }) => {
     const line = el("div", owner ? "line owner" : "line");
-    line.append(owner ? el("span", "you", "You") : mark("mark mark-sm"), el("p", "", text));
+    line.append(owner ? el("span", "you", "You") : mark("mark mark-sm"), owner ? el("p", "", text) : markdown(text));
     return line;
   }));
   if (liveText) {
     const line = el("div", "line live");
-    line.append(mark("mark mark-sm"), el("p", "", liveText));
+    line.append(mark("mark mark-sm"), markdown(liveText));
     log.append(line);
   }
   agentPanel.hidden = !lines.length && !liveText && !requestSlot.childElementCount;
+  log.lastElementChild?.scrollIntoView({ block: "nearest" });
 }
 
 /** @param {boolean} active */
@@ -554,7 +571,7 @@ function renderRequest(event) {
       const group = el("div");
       group.style.display = "flex";
       group.style.gap = "8px";
-      group.append(button(no, "secondary", () => respond(event.id, false)), button(yes, "primary", () => respond(event.id, true)));
+      group.append(button(no, "secondary", () => respond(event.id, false, no)), button(yes, "primary", () => respond(event.id, true, yes)));
       actions.append(el("span", "hint", hint), group);
       box.append(actions);
     };
@@ -640,7 +657,7 @@ function renderRequest(event) {
         const other = /** @type {HTMLInputElement} */ (fieldset.querySelector(".other-answer"));
         if (fieldset.dataset.question) answers[fieldset.dataset.question] = other.value.trim() || picked.join(", ");
       }
-      respond(event.id, answers);
+      respond(event.id, answers, Object.values(answers).filter(Boolean).join(" · "));
     });
   } else {
     box.append(el("p", "q", event.prompt.message));
@@ -674,13 +691,15 @@ function renderRequest(event) {
   requestSlot.replaceChildren(box);
   agentPanel.hidden = false;
   if (view !== "today") show("today");
+  box.scrollIntoView({ block: "nearest" });
   /** @type {HTMLElement | null} */ (box.querySelector("input[type=text], input[type=password], select"))?.focus();
 }
 
-/** @param {string} id @param {unknown} value */
-async function respond(id, value) {
+/** @param {string} id @param {unknown} value @param {string} [echo] */
+async function respond(id, value, echo) {
   requestSlot.replaceChildren();
-  renderLog();
+  if (echo) say(echo, true);
+  else renderLog();
   await window.lore.respond({ id, value });
 }
 
@@ -750,7 +769,7 @@ async function act(action) {
     await action();
   } catch (error) {
     done = false;
-    say(error instanceof Error ? error.message : "Lore could not do that.");
+    say(reason(error, "Lore could not do that."));
   }
   await load();
   return done;
@@ -766,7 +785,7 @@ async function send(text) {
     await window.lore.prompt({ text: text + files, task });
     await load();
   } catch (error) {
-    say(error instanceof Error ? error.message : "Something went wrong.");
+    say(reason(error, "Something went wrong."));
   }
 }
 
@@ -790,7 +809,7 @@ async function signIn(providerId, type, secret) {
     welcomeNote.textContent = "";
     enter();
   } catch (error) {
-    welcomeNote.textContent = error instanceof Error ? error.message : "Sign-in didn't complete.";
+    welcomeNote.textContent = reason(error, "Sign-in didn't complete.");
   }
 }
 

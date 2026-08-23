@@ -43,10 +43,40 @@ const CHECKPOINT_FIELDS = {
   cadence: "string",
   hour: "number"
 };
+const CHECKPOINT_DRAFT = {
+  name: "string",
+  persona: "string",
+  organizing_axis: "string",
+  topic_outline: "list",
+  focus_topics: "list",
+  general_areas: "list",
+  storytelling: "string"
+};
 const SKILLS = { capture: "lore-capture", setup: "lore-onboard", publish: "lore-publish" };
 const MODELS = ["anthropic/claude-sonnet-5", "openai-codex/gpt-5.6-luna", "openai/gpt-5.6-luna"];
 
-/** @param {string} command @returns {"allow" | BashAction | null} */
+/** @param {unknown} body @returns {string[]} */
+function checkpointProblems(body) {
+  if (!body || typeof body !== "object" || Array.isArray(body)) return ["it must be a JSON object"];
+  const checkpoint = /** @type {Record<string, unknown>} */ (body);
+  const problems = [];
+  for (const [key, type] of Object.entries(CHECKPOINT_FIELDS)) {
+    if (!(key in checkpoint)) problems.push(`"${key}" is missing`);
+    else if (typeof checkpoint[key] !== type) problems.push(`"${key}" must be a ${type}`);
+  }
+  for (const [key, value] of Object.entries(checkpoint)) {
+    if (key in CHECKPOINT_FIELDS) continue;
+    const type = CHECKPOINT_DRAFT[/** @type {keyof typeof CHECKPOINT_DRAFT} */ (key)];
+    if (!type) problems.push(`"${key}" is not a checkpoint field`);
+    else if (type === "list" ? !Array.isArray(value) || !value.every((item) => typeof item === "string") : typeof value !== type)
+      problems.push(`"${key}" must be a ${type === "list" ? "list of strings" : type}`);
+  }
+  if (!["daily", "weekly"].includes(/** @type {string} */ (checkpoint.cadence))) problems.push('"cadence" must be "daily" or "weekly"');
+  if (!Number.isInteger(checkpoint.hour) || /** @type {number} */ (checkpoint.hour) < 0 || /** @type {number} */ (checkpoint.hour) > 23) problems.push('"hour" must be a whole number from 0 to 23');
+  return problems;
+}
+
+/** @param {string} command @returns {BashVerdict} */
 export function classifyBash(command) {
   for (const [pattern, kind] of BASH_POLICY) {
     const match = command.match(pattern);
@@ -57,25 +87,15 @@ export function classifyBash(command) {
     try {
       body = JSON.parse(match[1]);
     } catch {
+      if (kind === "checkpoint") return { kind: "malformed", reason: "The checkpoint was not saved: it is not valid JSON. Write it again with exactly the fields the skill shows." };
       return null;
+    }
+    if (kind === "checkpoint") {
+      const problems = checkpointProblems(body);
+      return problems.length ? { kind: "malformed", reason: `The checkpoint was not saved: ${problems.join("; ")}. Write it again with exactly the fields the skill shows.` } : "allow";
     }
     if (!body || typeof body !== "object") return null;
     if (kind === "draft") return Array.isArray(body) && body.length ? "allow" : null;
-    if (kind === "checkpoint") {
-      const checkpoint = /** @type {Record<string, unknown>} */ (body);
-      if (
-        Array.isArray(body) ||
-        Object.keys(checkpoint).length !== Object.keys(CHECKPOINT_FIELDS).length ||
-        !Object.entries(CHECKPOINT_FIELDS).every(([key, type]) => typeof checkpoint[key] === type)
-      )
-        return null;
-      return ["daily", "weekly"].includes(/** @type {string} */ (checkpoint.cadence)) &&
-        Number.isInteger(checkpoint.hour) &&
-        /** @type {number} */ (checkpoint.hour) >= 0 &&
-        /** @type {number} */ (checkpoint.hour) <= 23
-        ? "allow"
-        : null;
-    }
     if (kind === "capture") {
       const entries = /** @type {CaptureEntry[]} */ (body);
       const titled = Array.isArray(body) && body.length > 0 && entries.every((entry) => entry && typeof entry.title === "string" && typeof entry.content === "string");
@@ -99,6 +119,7 @@ export function bashPolicyExtension(approve) {
         const command = event.input.command;
         const action = classifyBash(command);
         if (action === "allow") return;
+        if (action?.kind === "malformed") return { block: true, reason: action.reason };
         if (action && (await approve(command, action))) return;
         return {
           block: true,

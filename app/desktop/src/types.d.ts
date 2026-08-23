@@ -95,6 +95,8 @@ type BashAction =
   | { kind: "capture"; entries: CaptureEntry[] }
   | { kind: "blueprint" | "profile"; fields: Record<string, unknown> };
 
+type BashVerdict = "allow" | BashAction | { kind: "malformed"; reason: string } | null;
+
 type AgentTask = "capture" | "setup" | "publish";
 
 interface Window {
