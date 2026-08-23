@@ -66,8 +66,6 @@ type Memory = {
   updated_at: string;
 };
 
-type CaptureEntry = { title: string; content: string; project?: string; source_path?: string };
-
 type PublicationCandidate = {
   title: string;
   teaser: string;
@@ -76,13 +74,6 @@ type PublicationCandidate = {
   topic: string;
   provenance: number[];
 };
-
-type BashAction =
-  | { kind: "import" }
-  | { kind: "capture"; entries: CaptureEntry[] }
-  | { kind: "profile"; fields: Record<string, unknown> };
-
-type BashVerdict = "allow" | BashAction | null;
 
 type AgentTask = "capture" | "setup" | "publish";
 type TaskState = "needs_you" | "working" | "stopped" | "done";
@@ -116,6 +107,7 @@ interface Window {
     prompt(input: { text: string; task: AgentTask }): Promise<void>;
     history(task: AgentTask): Promise<Line[]>;
     tasks(): Promise<TaskRecord[]>;
+    restart(task: AgentTask): Promise<void>;
     respond(response: { id: string; value: unknown }): Promise<void>;
     login(input: { providerId: string; type: "oauth" | "api_key"; secret?: string }): Promise<AgentStatus>;
     logout(providerId: string): Promise<AgentStatus>;
@@ -151,7 +143,6 @@ type AuthPrompt =
     };
 
 type AgentRequest =
-  | { type: "bash-approval"; id: string; command: string; action: BashAction }
   | { type: "question"; id: string; questions: OwnerQuestion[] }
   | { type: "blueprint"; id: string; fields: BlueprintFields; evidence: string }
   | { type: "auth-prompt"; id: string; prompt: AuthPrompt };
@@ -173,6 +164,7 @@ type LoreAgentInstance = {
   prompt(text: string, task: AgentTask): Promise<void>;
   history(task: AgentTask): Line[];
   tasks(): TaskRecord[];
+  restart(task: AgentTask): void;
   login(providerId: string, type: "oauth" | "api_key", secret?: string): Promise<AgentStatus>;
   logout(providerId: string): Promise<AgentStatus>;
   dispose(): void;
@@ -184,7 +176,6 @@ type LoreAgentOptions = {
   binDir?: string;
   credentials: import("@earendil-works/pi-ai").CredentialStore;
   emit(event: AgentEvent): void;
-  approveBash(command: string, action: BashAction): Promise<boolean>;
   askUser(questions: OwnerQuestion[]): Promise<Record<string, string>>;
   proposeBlueprint(fields: BlueprintFields, evidence: string): Promise<BlueprintFields>;
   authPrompt(prompt: import("@earendil-works/pi-ai").AuthPrompt): Promise<string>;

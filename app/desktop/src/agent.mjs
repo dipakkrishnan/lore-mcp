@@ -4,7 +4,6 @@ import {
   createBashTool,
   DefaultResourceLoader,
   defineTool,
-  isToolCallEventType,
   ModelRuntime,
   resolveModelScopeWithDiagnostics,
   SessionManager,
@@ -12,23 +11,6 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import { Type } from "@earendil-works/pi-ai";
 
-/** @type {Array<[RegExp, "allow" | "draft" | BashAction["kind"]]>} */
-const BASH_POLICY = [
-  [/^lore status$/, "allow"],
-  [/^lore desktop-state$/, "allow"],
-  [/^lore search(?: (?:[A-Za-z0-9][A-Za-z0-9._:/-]*|--status (?:private|discarded)|--limit (?:0|[1-9]\d*)|--json))*$/, "allow"],
-  [/^lore blueprint show$/, "allow"],
-  [/^lore publication list$/, "allow"],
-  [/^lore publication draft - <<'LORE_PUBLISH'\n([\s\S]+)\nLORE_PUBLISH$/, "draft"],
-  [/^which claude codex$/, "allow"],
-  [/^ls "\$\{CLAUDE_HOME:-\$HOME\/\.claude\}\/projects"$/, "allow"],
-  [/^ls "\$\{CLAUDE_HOME:-\$HOME\/\.claude\}"\/projects\/\*\/memory\/\*\.md 2>\/dev\/null$/, "allow"],
-  [/^ls "\$\{CODEX_HOME:-\$HOME\/\.codex\}\/memories" "\$\{CODEX_HOME:-\$HOME\/\.codex\}\/automations" 2>\/dev\/null$/, "allow"],
-  [/^ls -lt "\$\{CLAUDE_HOME:-\$HOME\/\.claude\}"\/projects\/\*\/\*\.jsonl 2>\/dev\/null$/, "allow"],
-  [/^lore setup --yes$/, "import"],
-  [/^lore capture apply - <<'LORE_CAPTURE'\n([\s\S]+)\nLORE_CAPTURE$/, "capture"],
-  [/^lore profile - <<'LORE_PROFILE'\n([\s\S]+)\nLORE_PROFILE$/, "profile"]
-];
 const SKILLS = { capture: "lore-capture", setup: "lore-onboard", publish: "lore-publish" };
 const TASKS = {
   capture: { title: "Capture a memory", phase: "Review the capture" },
@@ -38,30 +20,6 @@ const TASKS = {
 const TASK_STATES = new Set(["needs_you", "working", "stopped", "done"]);
 const PERSONAS = ["storyteller", "schoolteacher", "professor", "executive", "sage"];
 const AXES = ["chronological", "theme", "project", "knowledge"];
-const GUIDE = "Lore didn't run that. It auto-runs read-only commands (lore status/desktop-state/search/blueprint show/publication list; ls, cat, head, tail, grep, find, wc, which, printf, echo) over ~/.lore, ~/.claude, and ~/.codex, chained with ; or pipes. Writes must use the skill's exact single commands so the owner can approve them.";
-const READ_BINS = new Set(["ls", "cat", "head", "tail", "wc", "grep", "find", "which", "printf", "echo", "date", "sort", "uniq", "stat", "file"]);
-const LORE_READS = /^lore (?:status|desktop-state|search|blueprint show|publication list|memory show)(?: |$)/;
-const SAFE_REDIRECT = /^(?:2>&1|2>\/dev\/null|<\/dev\/null)$/;
-const SAFE_ROOT = /\.(?:lore|claude|codex)(?:[\/"'}]|$)|^\/dev\/null$/;
-
-/** @param {string} command */
-export function readOnly(command) {
-  if (/[`\n]|\$\(|<\(|>\(/.test(command)) return false;
-  for (const piece of command.split(/&&|\|\||[;|]/)) {
-    const segment = piece.trim();
-    const tokens = segment.split(/\s+/).filter(Boolean);
-    if (!tokens.length) continue;
-    if (!LORE_READS.test(segment) && !READ_BINS.has(tokens[0])) return false;
-    for (const raw of tokens.slice(1)) {
-      const token = raw.replace(/^["']|["']$/g, "");
-      if (token.includes("..")) return false;
-      if (/[<>]/.test(token) && !SAFE_REDIRECT.test(token)) return false;
-      if (tokens[0] === "find" && /^-(?:exec|execdir|ok|okdir|delete|fprint)/.test(token)) return false;
-      if (token.includes("/") && /^[~/$]/.test(token) && !SAFE_ROOT.test(token)) return false;
-    }
-  }
-  return true;
-}
 const CLOSED = "Lore was closed before this finished.";
 const MODELS = ["anthropic/claude-sonnet-5", "openai-codex/gpt-5.6-luna", "openai/gpt-5.6-luna"];
 const MAX_TURNS = 60;
@@ -124,51 +82,6 @@ function repairInterrupted(manager, task) {
   return manager;
 }
 
-/** @param {string} command @returns {BashVerdict} */
-export function classifyBash(command) {
-  for (const [pattern, kind] of BASH_POLICY) {
-    const match = command.match(pattern);
-    if (!match) continue;
-    if (match[1] === undefined) return kind === "allow" ? kind : kind === "import" ? { kind } : null;
-    /** @type {unknown} */
-    let body;
-    try {
-      body = JSON.parse(match[1]);
-    } catch {
-      return null;
-    }
-    if (!body || typeof body !== "object") return null;
-    if (kind === "draft") return Array.isArray(body) && body.length ? "allow" : null;
-    if (kind === "capture") {
-      const entries = /** @type {CaptureEntry[]} */ (body);
-      const titled = Array.isArray(body) && body.length > 0 && entries.every((entry) => entry && typeof entry.title === "string" && typeof entry.content === "string");
-      return titled ? { kind, entries } : null;
-    }
-    if (Array.isArray(body) || kind === "import") return null;
-    return kind === "allow" ? kind : { kind, fields: /** @type {Record<string, unknown>} */ (body) };
-  }
-  return readOnly(command) ? "allow" : null;
-}
-
-/** @param {(command: string, action: BashAction) => Promise<boolean>} approve */
-export function bashPolicyExtension(approve) {
-  return {
-    name: "bash-policy",
-    hidden: true,
-    /** @param {import("@earendil-works/pi-coding-agent").ExtensionAPI} pi */
-    factory(pi) {
-      pi.on("tool_call", async (event) => {
-        if (!isToolCallEventType("bash", event)) return;
-        const command = event.input.command;
-        const action = classifyBash(command);
-        if (action === "allow") return;
-        if (action) return (await approve(command, action)) ? undefined : { block: true, reason: "The owner chose not to do this. Ask them how to continue." };
-        return { block: true, reason: GUIDE };
-      });
-    }
-  };
-}
-
 export class LoreAgent {
   /** @type {Map<AgentTask, import("@earendil-works/pi-coding-agent").AgentSession>} */
   #sessions = new Map();
@@ -194,8 +107,6 @@ export class LoreAgent {
 
   /** @param {LoreAgentOptions} options */
   static async create(options) {
-    /** @type {LoreAgent} */
-    let agent;
     const models = await ModelRuntime.create({ credentials: options.credentials });
     const settings = SettingsManager.inMemory();
     const resources = new DefaultResourceLoader({
@@ -203,7 +114,6 @@ export class LoreAgent {
       agentDir: resolve(options.loreHome, ".pi"),
       settingsManager: settings,
       additionalSkillPaths: [options.skillsDir],
-      extensionFactories: [bashPolicyExtension((command, action) => agent.#approve(command, action))],
       noExtensions: true,
       noSkills: true,
       noPromptTemplates: true,
@@ -216,12 +126,11 @@ export class LoreAgent {
         "Keep every message light: a sentence or two, question text under fifteen words, option labels of a few words with one short description, and never restate what a card already shows.",
         "During onboarding, gather evidence first, then call propose_blueprint once with one bounded proposal; that tool saves the owner-approved shape.",
         "Never mention tools, commands, or files to the owner; speak about memories, their Lore, and their store.",
-        "Bash policy is enforced outside this prompt."
+        "Call finish_task when the current task is complete."
       ].join(" ")
     });
     await resources.reload();
-    agent = new LoreAgent(options, models, settings, resources);
-    return agent;
+    return new LoreAgent(options, models, settings, resources);
   }
 
   /** @param {string} loreHome @param {AgentTask} task */
@@ -302,20 +211,6 @@ export class LoreAgent {
     return record;
   }
 
-  /** @param {string} command @param {BashAction} action */
-  async #approve(command, action) {
-    const task = this.#activeTask;
-    const session = task && this.#sessions.get(task);
-    if (task && session) this.#record(session, task, "needs_you");
-    try {
-      const approved = await this.options.approveBash(command, action);
-      if (approved && ((task === "capture" && action.kind === "capture") || (task === "setup" && action.kind === "profile"))) this.#completed = true;
-      return approved;
-    } finally {
-      if (task && session) this.#record(session, task, "working");
-    }
-  }
-
   async status() {
     return { credentials: await this.options.credentials.list() };
   }
@@ -381,6 +276,19 @@ export class LoreAgent {
     this.#activeTask = null;
   }
 
+  /** @param {AgentTask} task */
+  restart(task) {
+    if (this.#busy) throw new Error("Lore is still working");
+    const open = this.#sessions.get(task);
+    const manager = open?.sessionManager ?? SessionManager.continueRecent(this.options.loreHome, resolve(this.options.loreHome, ".pi", "sessions", task));
+    const current = latestTaskRecord(manager, task);
+    if (!current || current.state === "done") return;
+    const record = appendTaskRecord(manager, task, "done", "Started over");
+    open?.dispose();
+    this.#sessions.delete(task);
+    this.options.emit({ type: "task", task: record });
+  }
+
   /** @param {AgentTask} task @returns {Promise<[import("@earendil-works/pi-coding-agent").AgentSession, boolean]>} */
   async #newSession(task) {
     const { scopedModels } = await resolveModelScopeWithDiagnostics(MODELS, this.models);
@@ -396,7 +304,7 @@ export class LoreAgent {
       resourceLoader: this.resources,
       settingsManager: this.settings,
       sessionManager,
-      tools: ["read", "bash", "ask_user", "propose_blueprint"],
+      tools: ["read", "write", "edit", "bash", "ask_user", "propose_blueprint", "finish_task"],
       customTools: [
         createBashTool(this.options.loreHome, {
           spawnHook: (context) => ({
@@ -410,7 +318,8 @@ export class LoreAgent {
           })
         }),
         this.#askTool(),
-        this.#blueprintTool()
+        this.#blueprintTool(),
+        this.#finishTool()
       ]
     });
     session.subscribe((event) => {
@@ -499,6 +408,19 @@ export class LoreAgent {
         } finally {
           if (task && session) this.#record(session, task, "working", "Lore shape saved");
         }
+      }
+    });
+  }
+
+  #finishTool() {
+    return defineTool({
+      name: "finish_task",
+      label: "Finish the task",
+      description: "Mark the current Lore task complete after its requested work succeeds.",
+      parameters: Type.Object({}),
+      execute: async () => {
+        this.#completed = true;
+        return { content: [{ type: "text", text: "Task complete" }], details: {} };
       }
     });
   }

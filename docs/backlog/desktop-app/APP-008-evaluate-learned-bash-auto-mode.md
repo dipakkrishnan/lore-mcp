@@ -4,7 +4,7 @@ title: Replace the bash regex boundary with an OS sandbox; cards stay UX
 priority: P2
 effort: M
 component: desktop-app
-status: ready
+status: in-review
 related: [APP-003, APP-004]
 blockers: []
 dependencies: ["Evidence from real owner command and approval usage"]
@@ -23,17 +23,20 @@ widened the gate (read-only classifier, guiding non-terminating blocks),
 but string matching is still doing a security boundary's job, and every
 future skill change risks another silent stall.
 
+APP-027 removes that temporary policy for owner-only dogfood so the product
+can be evaluated without policy-induced failures. This item is the boundary
+required before Lore expands beyond that narrow use.
+
 ## Proposed approach
 
-Sandbox-first, per the 2026-08-23 research below: run the agent's bash
+Before broader beta, run the agent's bash
 under Anthropic's sandbox-runtime (seatbelt on macOS) scoped to
 `$LORE_HOME` plus read-only `~/.claude` and `~/.codex`, network off.
 Anything the sandbox contains runs without a prompt; the approval cards
 remain only for the owner-meaning writes (capture, profile, publish
 draft), as UX rather than enforcement. Evaluate `pi-sandbox` as the
-drop-in before hand-rolling; if `sandbox-exec` is unavailable, fall back
-to the current APP-021 policy, never to open bash. A learned classifier
-stays out of scope until the sandbox is the floor.
+drop-in before hand-rolling. A learned classifier stays out of scope until
+the sandbox is the floor.
 
 ## Acceptance criteria
 
@@ -41,8 +44,8 @@ stays out of scope until the sandbox is the floor.
       `~/.claude` and `~/.codex` (ro), no network.
 - [ ] The read-only classifier and exact-command table stop being the
       security boundary; cards still gate capture/profile/publish drafts.
-- [ ] Sandbox unavailable → fall back to the APP-021 policy with a logged
-      warning, never to unrestricted bash.
+- [ ] The app refuses to start an agent session if its required sandbox is
+      unavailable.
 - [ ] A command that escapes the sandbox scope fails with a reason the
       model can act on, without ending the turn.
 - [ ] A bounded comparison shows fewer unnecessary prompts without increasing

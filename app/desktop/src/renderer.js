@@ -10,6 +10,7 @@ const status = $("#status");
 const content = $("#content");
 const account = $("#account");
 const taskBack = /** @type {HTMLButtonElement} */ ($("#task-back"));
+const taskRestart = /** @type {HTMLButtonElement} */ ($("#task-restart"));
 const captureArea = $("#capture");
 const composer = /** @type {HTMLFormElement} */ ($("#composer"));
 const input = /** @type {HTMLTextAreaElement} */ ($("#capture-input"));
@@ -62,7 +63,6 @@ const NETWORKS = { "eip155:8453": "Base", "eip155:84532": "Base Sepolia, test ne
 const money = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" });
 const shortDate = new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric" });
 const longDate = new Intl.DateTimeFormat("en-US", { weekday: "long", month: "long", day: "numeric" });
-const clock = new Intl.DateTimeFormat("en-US", { hour: "numeric" });
 const TASK_TITLES = { capture: "Capture a memory", setup: "Set up your Lore", publish: "Publish from your Lore" };
 const TASK_STATES = { needs_you: "Needs you", working: "Working", stopped: "Stopped", done: "Done" };
 
@@ -281,13 +281,16 @@ function renderToday(s) {
   if (attention.length) parts.push(section("Needs you", card(attention)));
   if (taskItems.length) {
     parts.push(section("Unfinished", card(taskItems.slice(0, 3).map((item) => {
-      const open = el("button", "row link");
+      const row = el("div", "row");
+      const open = el("button", "task-link");
       open.type = "button";
       const text = el("div", "t");
       text.append(el("b", "", item.title), el("span", "", item.phase));
       open.append(text, chip(TASK_STATES[item.state], item.state === "working" ? "ok" : ""));
       open.addEventListener("click", () => void openTask(item.kind, item));
-      return open;
+      row.append(open);
+      if (item.state === "stopped") row.append(button("Start over", "quiet", () => void startOver(item.kind)));
+      return row;
     }))));
   }
   const strip = el("div", "strip");
@@ -434,6 +437,7 @@ function render() {
   eyebrow.textContent = detail ? `${TASK_STATES[detailRecord?.state ?? "working"]} · ${detailRecord?.phase ?? "Starting"}` : view === "today" ? longDate.format(new Date()) : "";
   title.textContent = heading;
   taskBack.hidden = !detail;
+  taskRestart.hidden = !detail || detailRecord?.state !== "stopped";
   captureArea.hidden = view !== "today";
   log.hidden = !detail;
   input.placeholder = detail ? "Reply to Lore…" : "What did you learn today?";
@@ -530,60 +534,7 @@ function working(active) {
 /** @param {AgentRequest} event */
 function renderRequest(event) {
   const box = el("form", "card lead request");
-  if (event.type === "bash-approval") {
-    const { action } = event;
-    const decide = (/** @type {string} */ no, /** @type {string} */ yes, /** @type {string} */ hint) => {
-      const actions = el("div", "actions");
-      actions.style.justifyContent = "space-between";
-      actions.style.alignItems = "center";
-      const group = el("div");
-      group.style.display = "flex";
-      group.style.gap = "8px";
-      group.append(button(no, "secondary", () => respond(event.id, false, no)), button(yes, "primary", () => respond(event.id, true, yes)));
-      actions.append(el("span", "hint", hint), group);
-      box.append(actions);
-    };
-    const fields = (/** @type {Array<[string, unknown]>} */ pairs) => {
-      const list = el("dl", "fields");
-      for (const [label, value] of pairs) {
-        const text = Array.isArray(value) ? value.join(", ") : value ? String(value) : "";
-        if (text) list.append(el("dt", "", label), el("dd", "", text));
-      }
-      box.append(list);
-    };
-    if (action.kind === "capture") {
-      const n = action.entries.length;
-      box.append(el("p", "q", n === 1 ? "Keep this memory?" : `Keep these ${n} memories?`));
-      const list = el("div");
-      list.style.display = "flex";
-      list.style.flexDirection = "column";
-      list.style.gap = "10px";
-      for (const entry of action.entries) {
-        const memory = el("div", "memory");
-        memory.append(el("b", "", entry.title), el("p", "", entry.content));
-        if (entry.project) {
-          const meta = el("div", "meta");
-          meta.append(chip(entry.project));
-          memory.append(meta);
-        }
-        list.append(memory);
-      }
-      box.append(list);
-      decide("Not now", n === 1 ? "Keep it" : "Keep all", "Private. Only on this Mac until you choose to sell.");
-    } else if (action.kind === "import") {
-      box.append(el("p", "q", "Import what Claude Code and Codex already remember?"));
-      decide("Not now", "Import", "Private. Lore reads their memory files and never changes them.");
-    } else if (action.kind === "profile") {
-      const f = action.fields;
-      const hour = clock.format(new Date(2000, 0, 1, typeof f.hour === "number" ? f.hour : 21)).toLowerCase();
-      box.append(el("p", "q", `Finish setup and start writing memories ${f.cadence === "weekly" ? "every week" : "every day"} at ${hour}?`));
-      fields([["You", f.role], ["Domains", f.domains], ["Worth keeping", f.valuable_context], ["How you work", f.preferences], ["Never kept", f.boundaries], ["Written by", `${f.executor === "codex" ? "Codex" : "Claude Code"}${f.model ? ` (${f.model})` : ""}`]]);
-      decide("Not yet", "Finish setup", "Runs on this Mac. Every new memory stays private until you sell it.");
-    } else {
-      box.append(el("p", "q", "Lore wants to run this"), el("pre", "", event.command));
-      decide("Deny", "Allow once", "");
-    }
-  } else if (event.type === "question") {
+  if (event.type === "question") {
     for (const [index, question] of event.questions.entries()) {
       const fieldset = el("fieldset");
       fieldset.dataset.question = question.question;
@@ -741,6 +692,20 @@ async function openTask(kind, record) {
   liveText = "";
   show("today");
   renderLog();
+}
+
+/** @param {AgentTask} kind */
+async function startOver(kind) {
+  await window.lore.restart(kind);
+  task = kind;
+  detailTask = kind;
+  detailRecord = null;
+  lines.splice(0);
+  liveText = "";
+  requestSlot.replaceChildren();
+  show("today");
+  renderLog();
+  input.focus({ preventScroll: true });
 }
 
 function closeTask() {
@@ -948,6 +913,7 @@ document.addEventListener("drop", (event) => {
 });
 
 taskBack.addEventListener("click", closeTask);
+taskRestart.addEventListener("click", () => { if (detailTask) void startOver(detailTask); });
 for (const nav of navButtons) nav.addEventListener("click", () => {
   const next = /** @type {View} */ (nav.dataset.view);
   if (next === "today" && detailTask) closeTask();
