@@ -93,7 +93,7 @@ type PublicationCandidate = {
 type BashAction =
   | { kind: "import" }
   | { kind: "capture"; entries: CaptureEntry[] }
-  | { kind: "blueprint" | "profile"; fields: Record<string, unknown> };
+  | { kind: "profile"; fields: Record<string, unknown> };
 
 type BashVerdict = "allow" | BashAction | { kind: "malformed"; reason: string } | null;
 

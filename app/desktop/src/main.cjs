@@ -154,8 +154,12 @@ async function start() {
     approveBash: async (command, action) => (await request("bash-approval", { command, action })) === true,
     askUser: async (questions) =>
       /** @type {Record<string, string>} */ (await request("question", { questions })),
-    proposeBlueprint: async (fields, evidence) =>
-      /** @type {BlueprintFields} */ (await request("blueprint", { fields, evidence })),
+    proposeBlueprint: async (fields, evidence) => {
+      const edited = /** @type {BlueprintFields} */ (await request("blueprint", { fields, evidence }));
+      await lore(loreHome, ["blueprint", "apply", "-"], JSON.stringify(edited));
+      emit({ type: "changed" });
+      return edited;
+    },
     authPrompt: async ({ signal, ...prompt }) => String(await request("auth-prompt", { prompt }, signal)),
     authEvent: (event) => {
       if (event.type === "auth_url") {

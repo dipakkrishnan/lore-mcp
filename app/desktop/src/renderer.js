@@ -574,11 +574,6 @@ function renderRequest(event) {
     } else if (action.kind === "import") {
       box.append(el("p", "q", "Import what Claude Code and Codex already remember?"));
       decide("Not now", "Import", "Private. Lore reads their memory files and never changes them.");
-    } else if (action.kind === "blueprint") {
-      const f = action.fields;
-      box.append(el("p", "q", "Use this shape for your Lore?"));
-      fields([["Name", f.name], ["Told as", f.persona], ["Organized by", f.organizing_axis], ["Topics", f.topic_outline], ["In depth", f.focus_topics], ["Lightly", f.general_areas], ["Voice", f.storytelling]]);
-      decide("Not yet", "Use it", "You can reshape it any time from Settings.");
     } else if (action.kind === "profile") {
       const f = action.fields;
       const hour = clock.format(new Date(2000, 0, 1, typeof f.hour === "number" ? f.hour : 21)).toLowerCase();

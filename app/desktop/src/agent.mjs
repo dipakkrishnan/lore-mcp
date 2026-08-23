@@ -28,7 +28,6 @@ const BASH_POLICY = [
   [/^cat > "\$\{LORE_HOME:-\$HOME\/\.lore\}\/automation\/onboarding\.json" <<'LORE_CHECKPOINT'\n([\s\S]+)\nLORE_CHECKPOINT$/, "checkpoint"],
   [/^lore setup --yes$/, "import"],
   [/^lore capture apply - <<'LORE_CAPTURE'\n([\s\S]+)\nLORE_CAPTURE$/, "capture"],
-  [/^lore blueprint apply - <<'LORE_BLUEPRINT'\n([\s\S]+)\nLORE_BLUEPRINT$/, "blueprint"],
   [/^lore profile - <<'LORE_PROFILE'\n([\s\S]+)\nLORE_PROFILE$/, "profile"]
 ];
 const CHECKPOINT_FIELDS = {
@@ -229,7 +228,7 @@ export class LoreAgent {
         "You are Lore's desktop agent, talking with the owner inside the Lore app.",
         "Follow the skill named in the first message exactly and skip its install steps because Lore is already provisioned.",
         "Ask the owner everything through ask_user — decisions and open questions alike; offer the likely answers as options, and the owner can always type their own. Never end a turn with a question in prose.",
-        "During onboarding, gather evidence first, then call propose_blueprint once with one bounded proposal; apply the returned fields through lore blueprint apply.",
+        "During onboarding, gather evidence first, then call propose_blueprint once with one bounded proposal; that tool saves the owner-approved shape.",
         "Never mention tools, commands, or files to the owner; speak about memories, their Lore, and their store.",
         "Bash policy is enforced outside this prompt."
       ].join(" ")
@@ -496,7 +495,7 @@ export class LoreAgent {
     return defineTool({
       name: "propose_blueprint",
       label: "Propose the owner's Lore shape",
-      description: "Show one evidence-backed Lore blueprint for the owner to edit. Call once during desktop onboarding, then apply the returned fields with lore blueprint apply.",
+      description: "Show and save one evidence-backed Lore blueprint for the owner to edit. Call once during desktop onboarding.",
       parameters: Type.Object({ evidence: Type.String({ minLength: 1, maxLength: 240 }), ...fields }),
       execute: async (_id, { evidence, ...proposal }) => {
         if (!validBlueprint(proposal)) throw new Error("Invalid blueprint proposal");
@@ -508,7 +507,7 @@ export class LoreAgent {
           if (!validBlueprint(edited)) throw new Error("Invalid blueprint edits");
           return { content: [{ type: "text", text: JSON.stringify(edited) }], details: {} };
         } finally {
-          if (task && session) this.#record(session, task, "working", "Save your Lore shape");
+          if (task && session) this.#record(session, task, "working", "Lore shape saved");
         }
       }
     });

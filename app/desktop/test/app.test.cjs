@@ -127,16 +127,10 @@ test("only a non-empty array of titled memories counts as a capture", async () =
 
 test("setup writes ask once each and carry what they mean", async () => {
   const { classifyBash } = await import("../src/agent.mjs");
-  const blueprint = { version: 1, name: "Ada", persona: "professor", topic_outline: ["consensus"], storytelling: "Lectures." };
   const profile = { role: "maintainer", executor: "claude", cadence: "daily", hour: 21 };
   assert.deepEqual(classifyBash("lore setup --yes"), { kind: "import" });
-  assert.deepEqual(
-    classifyBash(`lore blueprint apply - <<'LORE_BLUEPRINT'\n${JSON.stringify(blueprint, null, 2)}\nLORE_BLUEPRINT`),
-    { kind: "blueprint", fields: blueprint }
-  );
   assert.deepEqual(classifyBash(`lore profile - <<'LORE_PROFILE'\n${JSON.stringify(profile)}\nLORE_PROFILE`), { kind: "profile", fields: profile });
   for (const body of ["[]", '["x"]', "not json", "null", '"text"']) {
-    assert.equal(classifyBash(`lore blueprint apply - <<'LORE_BLUEPRINT'\n${body}\nLORE_BLUEPRINT`), null, body);
     assert.equal(classifyBash(`lore profile - <<'LORE_PROFILE'\n${body}\nLORE_PROFILE`), null, body);
   }
 });
@@ -201,6 +195,7 @@ test("hard-denies malformed, non-Lore, compound, and owner-only commands", async
     "lore setup",
     "lore setup --yes --source codex",
     "lore blueprint apply blueprint.json",
+    "lore blueprint apply - <<'LORE_BLUEPRINT'\n{}\nLORE_BLUEPRINT",
     "lore blueprint apply - <<'EOF'\n{}\nEOF",
     "lore blueprint apply - < blueprint.json",
     "lore profile ~/.lore/automation/onboarding.json",
@@ -288,6 +283,7 @@ test("typed task records survive relaunch and only unfinished known tasks are li
 
 test("the blueprint proposal boundary accepts only the CLI's bounded shape", async () => {
   const { validBlueprint } = await import("../src/agent.mjs");
+  const { lore } = require("../src/state.cjs");
   const valid = {
     version: 1,
     name: "Ada",
@@ -306,6 +302,13 @@ test("the blueprint proposal boundary accepts only the CLI's bounded shape", asy
     { ...valid, source_path: "/etc/passwd" },
     { ...valid, storytelling: "x".repeat(1001) }
   ]) assert.equal(validBlueprint(invalid), false);
+  const home = await mkdtemp(join(tmpdir(), "lore-desktop-"));
+  try {
+    await lore(home, ["blueprint", "apply", "-"], JSON.stringify(valid));
+    assert.equal(JSON.parse(await readFile(join(home, "blueprint", "blueprint.json"), "utf8")).name, "Ada");
+  } finally {
+    await rm(home, { recursive: true });
+  }
 });
 
 test("only Electron main can pipe a decision, and only for a card that is drafted", async () => {
