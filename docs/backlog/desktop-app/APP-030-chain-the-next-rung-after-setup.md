@@ -4,13 +4,13 @@ title: Chain the next rung after setup — publish and open-your-store from the 
 priority: P1
 effort: M
 component: desktop-app
-status: in-review
+status: in-progress
 related: [APP-020, APP-023, APP-019, MON-006]
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-08-23
-updated: 2026-08-23
+updated: 2026-08-25
 ---
 
 ## Problem
@@ -26,23 +26,31 @@ setup and have no path to a store or Base without the CLI.
 
 ## Proposed approach
 
-Make the Done card carry the next rung as actions: "Publish something"
-(existing publish task) and "Open your store" — a new `deploy` task kind
-running `lore-enable-payments`, with the payments/deploy owner gates
-(address, price, deploy, push) as typed cards like capture/profile were.
-The design doc's rule stands: the hand-off chain continues, never
-stopping at "Finish setup." Respect MON-006 (deploy mechanics moving into
-the CLI) so the skill drives validated commands, not mechanics.
+Setup ends on a Done card that says so ("Your Lore is set up. This thread
+is closed. What comes next is a separate step") and offers the next rung as
+task-spawning buttons — *Open your store* and *Publish something* — so the
+hand-off no longer lives as prose in a conversation that `finish_task` has
+already ended. *Open your store* is a new `deploy` task kind running
+`lore-enable-payments` with its own title, thread, records, and Start over.
+Post-#143 the skill already runs through open tools, so Electron adds no
+deployment mechanics. Rails live in the skill: test network by default,
+mainnet an explicit choice, and `wrangler login` and Push remain the owner's.
+The desktop path stays publication-only; the optional paid-answer tier keeps
+its existing terminal-attended gate and is tracked separately in APP-035.
 
 ## Acceptance criteria
 
-- [ ] Setup's Done card offers Publish something and Open your store as
-      buttons; both start their task with one click.
-- [ ] `lore-enable-payments` runs as a desktop task end to end on a fresh
-      LORE_HOME: payout address, price, deploy, and test payment reachable
-      without a terminal.
-- [ ] The chain is offered once, not pushed: dismissing it leaves the
-      normal Today inbox.
+- [x] Setup's Done card offers Open your store and Publish something; each
+      starts its own task with a fresh thread and title.
+- [x] `deploy` is a task kind (session dir, records, title, Start over)
+      running `lore-enable-payments`; Today's Needs-you offers it once the
+      profile exists and no node does.
+- [x] The skill defaults to the test network, keeps `wrangler login` and
+      Push with the owner, stays publication-only, and never touches the
+      onboarding checkpoint.
+- [ ] Live proof: a fresh `LORE_HOME` reaches a Sepolia node and completes a
+      paid publication `get`; terminal handoffs are limited to authentication
+      and explained before the owner leaves the app.
 
 ## Notes
 
@@ -50,3 +58,9 @@ MON-006 already moved deterministic deployment into the CLI. Keep this desktop
 work thin: one new task kind drives the existing skill and CLI through typed
 owner gates. If implementation starts recreating deployment mechanics in
 Electron, split it rather than expanding this item.
+
+Implemented 2026-08-24 (PR pending). Simplified 2026-08-25 by removing the
+optional desktop paid-answer bridge: its environment-marker attendance check
+was forgeable from agent Bash, while publication payments already prove the
+core store loop. APP-035 retains that feature behind a future unforgeable owner
+boundary. Left in-progress until the scratch-home deployment/payment proof.

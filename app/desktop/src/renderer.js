@@ -67,7 +67,7 @@ const NETWORKS = { "eip155:8453": "Base", "eip155:84532": "Base Sepolia, test ne
 const money = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" });
 const shortDate = new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric" });
 const longDate = new Intl.DateTimeFormat("en-US", { weekday: "long", month: "long", day: "numeric" });
-const TASK_TITLES = { capture: "Capture a memory", setup: "Set up your Lore", publish: "Publish from your Lore" };
+const TASK_TITLES = { capture: "Capture a memory", setup: "Set up your Lore", publish: "Publish from your Lore", deploy: "Open your store" };
 const TASK_STATES = { needs_you: "Needs you", working: "Working", stopped: "Stopped", done: "Done" };
 
 /**
@@ -285,7 +285,10 @@ function needsYou(s) {
   if (!s.setup.sources_configured) add("Connect your agents", "Let Lore read what Claude Code and Codex already remember.", button("Start", "secondary", startSetup));
   else if (!s.setup.blueprint_configured) add("Shape your Lore", "Review one proposal based on what your agents already know.", button("Start", "secondary", startSetup));
   else if (!s.setup.profile_configured) add("Set the rhythm", "Choose which model writes new memories, and how often.", button("Start", "secondary", startSetup));
-  else if (s.library.counts.private && !candidates.length) add("Publish something", "Lore drafts up to three things to sell; you approve each one.", button("Publish", "secondary", startPublish));
+  else {
+    if (!s.node.url) add("Open your store", "A payout address, a price, and a node on the test network first. Free until you say otherwise.", button("Open", "secondary", startDeploy));
+    if (s.library.counts.private && !candidates.length) add("Publish something", "Lore drafts up to three things to sell; you approve each one.", button("Publish", "secondary", startPublish));
+  }
   return rows;
 }
 
@@ -314,6 +317,7 @@ function renderToday(s) {
     if (detailTask === "publish" && candidates.length) detailParts.push(section("Approve what to sell", approvals(), el("span", "hint", "Only what you approve ever leaves this Mac.")));
     if (detailTask === "publish" && (pushOffer || pushing)) detailParts.push(seamCard());
     if (detailTask === "publish" && pushedNote) detailParts.push(pushReceipt(s));
+    if ((detailTask === "setup" || detailTask === "deploy") && detailRecord?.state === "done") detailParts.push(nextRung(s));
     return detailParts;
   }
   /** @type {HTMLElement[]} */
@@ -602,7 +606,7 @@ function working(active) {
   submit.disabled = active;
   composer.classList.toggle("working", active);
   input.placeholder = active ? "Lore is working…" : detailTask ? "Reply to Lore…" : "What did you learn today?";
-  if (active && !liveText) live({ setup: "Thinking…", publish: "Drafting…", capture: "Reading this…" }[task]);
+  if (active && !liveText) live({ setup: "Thinking…", publish: "Drafting…", capture: "Reading this…", deploy: "Setting up your store…" }[task]);
 }
 
 /** @param {AgentRequest} event */
@@ -765,6 +769,36 @@ async function respond(id, value, echo) {
 async function startSetup() {
   await openTask("setup");
   await send("Let's set up my Lore.");
+}
+
+async function startDeploy() {
+  await openTask("deploy");
+  await send("Help me open my store.");
+}
+
+/** @param {Snapshot} s */
+function nextRung(s) {
+  const box = el("div", "card lead request");
+  const finished = detailTask === "deploy";
+  box.append(
+    el("p", "q", finished ? "Your store is open." : "Your Lore is set up."),
+    el("p", "hint", finished
+      ? "This thread is closed. Publications reach buyers after a push; everything else stays on this Mac."
+      : "This thread is closed. What comes next is a separate step — take it now, or any time from Today.")
+  );
+  const actions = el("div", "actions");
+  if (s.node.url) {
+    const live = el("a", "btn secondary sm", "Your store ↗");
+    live.href = s.node.url.replace(/\/mcp$/, "");
+    live.target = "_blank";
+    live.rel = "noreferrer";
+    actions.append(live);
+  } else if (!finished) {
+    actions.append(button("Open your store", "secondary", () => void startDeploy()));
+  }
+  actions.append(button("Publish something", "primary", () => void startPublish()));
+  box.append(actions);
+  return box;
 }
 
 async function startPublish() {
