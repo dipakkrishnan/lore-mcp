@@ -987,6 +987,55 @@ class PublicationApplyTest(LoreTestCase):
             self.assertEqual([p.title for p in store.list_publications()], ["First"])
         self.assertFalse(self.staged_path.exists())
 
+    def test_the_owner_can_edit_prose_but_not_a_drafts_identity(self) -> None:
+        (original,) = self.drafted()
+        edited = original | {
+            "title": "Owner title",
+            "teaser": "What did the owner clarify?",
+            "content": "The owner's final wording.",
+        }
+        for field, value in (
+            ("topic", "different"),
+            ("kind", "content"),
+            ("provenance", [self.seed_memory("other evidence")]),
+        ):
+            with self.subTest(field=field):
+                payload = {
+                    "original": original,
+                    "candidate": edited | {field: value},
+                    "approve": True,
+                }
+                with desktop_stdin(json.dumps(payload)):
+                    with self.assertRaisesRegex(ValueError, "only a draft's title"):
+                        cli.publication_decide()
+        with desktop_stdin(
+            json.dumps(
+                {
+                    "original": original,
+                    "candidate": edited | {"teaser": ""},
+                    "approve": True,
+                }
+            )
+        ):
+            with self.assertRaisesRegex(ValueError, "non-empty teaser"):
+                cli.publication_decide()
+        self.assertTrue(self.staged_path.exists())
+        with desktop_stdin(
+            json.dumps({"original": original, "candidate": edited, "approve": True})
+        ):
+            with captured():
+                self.assertEqual(cli.publication_decide(), 0)
+        with Store() as store:
+            publication = store.list_publications()[0]
+        self.assertEqual(
+            (publication.title, publication.teaser, publication.content),
+            (edited["title"], edited["teaser"], edited["content"]),
+        )
+        self.assertEqual(publication.kind.value, original["kind"])
+        self.assertEqual(publication.topic, original["topic"])
+        self.assertEqual(publication.provenance, original["provenance"])
+        self.assertFalse(self.staged_path.exists())
+
     def test_identical_drafts_are_consumed_one_card_at_a_time(self) -> None:
         memory = self.seed_memory("twin evidence")
         card = {

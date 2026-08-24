@@ -78,10 +78,10 @@ function registerIpc(loreHome) {
   ipcMain.handle("memory:read", (_event, id) => readMemory(loreHome, id));
   ipcMain.handle("publication:candidates", () => candidates(loreHome));
   ipcMain.handle("publication:decide", (_event, input) => {
-    if (!input || typeof input.approve !== "boolean" || !input.candidate || typeof input.candidate !== "object") {
+    if (!input || typeof input.approve !== "boolean" || !input.original || typeof input.original !== "object" || !input.candidate || typeof input.candidate !== "object") {
       throw new Error("Invalid decision");
     }
-    return decide(loreHome, input.candidate, input.approve);
+    return decide(loreHome, input.original, input.candidate, input.approve);
   });
   ipcMain.handle("publication:revoke", async (_event, id) => {
     if (!Number.isInteger(id) || id < 1) throw new Error("Invalid publication");

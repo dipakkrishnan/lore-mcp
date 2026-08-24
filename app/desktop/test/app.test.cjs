@@ -189,7 +189,7 @@ test("only Electron main can pipe a decision, and only for a card that is drafte
     });
     assert.equal(piped.status, 1);
     assert.match(piped.stderr, /only from the Lore desktop app/);
-    await assert.rejects(decide(directory, card, true), { message: /not drafted/ });
+    await assert.rejects(decide(directory, card, card, true), { message: /not drafted/ });
     const state = await readState(directory);
     assert.equal(state.publications.counts.active, 0);
   } finally {

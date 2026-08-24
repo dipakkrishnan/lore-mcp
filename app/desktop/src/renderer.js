@@ -496,6 +496,7 @@ function render() {
   $("[data-count=memories]").textContent = String(snapshot.library.counts.private);
   $("[data-count=store]").textContent = String(snapshot.publications.counts.active);
   content.replaceChildren(...renderers[view](snapshot));
+  for (const area of content.querySelectorAll("textarea")) fit(/** @type {HTMLTextAreaElement} */ (area));
   renderAccount();
 }
 
@@ -813,10 +814,20 @@ function approvals() {
   list.style.gap = "10px";
   for (const candidate of candidates) {
     const memory = el("div", "memory");
-    memory.append(el("b", "", candidate.title));
-    for (const [label, text] of [["Free teaser, what buyers see first", candidate.teaser], ["Paid content, what a buyer's agent gets", candidate.content]]) {
-      memory.append(el("span", "hint", label), el("p", "", text));
-    }
+    const field = (/** @type {string} */ label, /** @type {string} */ value, singleLine = false) => {
+      const wrapper = el("label", "draft-field");
+      wrapper.append(el("span", "hint", label));
+      const control = singleLine ? el("input", "draft-title") : el("textarea");
+      if (control instanceof HTMLInputElement) control.type = "text";
+      else { control.rows = 1; control.addEventListener("input", () => fit(control)); }
+      control.value = value;
+      wrapper.append(control);
+      memory.append(wrapper);
+      return control;
+    };
+    const title = field("Title", candidate.title, true);
+    const teaser = field("Free teaser, what buyers see first", candidate.teaser);
+    const paid = field("Paid content, what a buyer's agent gets", candidate.content);
     const meta = el("div", "meta");
     meta.append(chip(candidate.topic));
     if (candidate.kind === "content") meta.append(chip("Verbatim"));
@@ -824,7 +835,10 @@ function approvals() {
     group.style.display = "flex";
     group.style.gap = "8px";
     group.style.marginLeft = "auto";
-    group.append(button("Skip", "secondary", () => decide(candidate, false)), button("Approve", "primary", () => decide(candidate, true)));
+    group.append(
+      button("Skip", "secondary", () => decide(candidate, false)),
+      button("Approve", "primary", () => decide(candidate, true, { ...candidate, title: title.value, teaser: teaser.value, content: paid.value }))
+    );
     meta.append(group);
     memory.append(meta);
     list.append(memory);
@@ -872,9 +886,9 @@ function pushReceipt(s) {
   return box;
 }
 
-/** @param {PublicationCandidate} candidate @param {boolean} approve */
-async function decide(candidate, approve) {
-  if ((await act(() => window.lore.decide({ candidate, approve }))) && approve) approvedThisPass = true;
+/** @param {PublicationCandidate} original @param {boolean} approve @param {PublicationCandidate} [candidate] */
+async function decide(original, approve, candidate = original) {
+  if ((await act(() => window.lore.decide({ original, candidate, approve }))) && approve) approvedThisPass = true;
   if (candidates.length || !approvedThisPass) return;
   approvedThisPass = false;
   pushOffer = snapshot?.node.url ? "Approved publications reach buyers only after a push. Leaving it is fine; the next push carries it." : false;

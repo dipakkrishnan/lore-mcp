@@ -60,9 +60,9 @@ async function candidates(loreHome) {
   return JSON.parse(await lore(loreHome, ["publication", "candidates"]));
 }
 
-/** @param {string} loreHome @param {PublicationCandidate} candidate @param {boolean} approve */
-async function decide(loreHome, candidate, approve) {
-  await lore(loreHome, ["publication", "decide"], JSON.stringify({ candidate, approve }));
+/** @param {string} loreHome @param {PublicationCandidate} original @param {PublicationCandidate} candidate @param {boolean} approve */
+async function decide(loreHome, original, candidate, approve) {
+  await lore(loreHome, ["publication", "decide"], JSON.stringify({ original, candidate, approve }));
 }
 
 module.exports = { lore, readState, searchMemories, readMemory, candidates, decide, useRuntime };

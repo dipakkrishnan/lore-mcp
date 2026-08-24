@@ -21,7 +21,7 @@ contextBridge.exposeInMainWorld("lore", {
   /** @param {number} id */
   memory: (id) => ipcRenderer.invoke("memory:read", id),
   candidates: () => ipcRenderer.invoke("publication:candidates"),
-  /** @param {{candidate: PublicationCandidate, approve: boolean}} input */
+  /** @param {{original: PublicationCandidate, candidate: PublicationCandidate, approve: boolean}} input */
   decide: (input) => ipcRenderer.invoke("publication:decide", input),
   /** @param {number} id */
   revoke: (id) => ipcRenderer.invoke("publication:revoke", id),
