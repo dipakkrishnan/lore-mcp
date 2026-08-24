@@ -843,7 +843,7 @@ function seamCard() {
     const offer = pushOffer;
     if (await act(window.lore.push)) {
       const live = snapshot ? `${snapshot.publications.counts.active} ${snapshot.publications.counts.active === 1 ? "publication" : "publications"}` : "publications";
-      pushedNote = `Pushed · ${live} live on your node`;
+      pushedNote = `Pushed · ${live} sent to your node`;
     } else {
       pushOffer = offer;
     }
