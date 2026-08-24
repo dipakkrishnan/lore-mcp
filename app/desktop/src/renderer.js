@@ -478,7 +478,7 @@ const renderers = { today: renderToday, memories: renderMemories, store: renderS
 
 function render() {
   const detail = view === "today" ? detailTask : null;
-  const heading = detail ? detailRecord?.title ?? TASK_TITLES[detail] : { today: greeting(), memories: "Memories", store: "Store", settings: "Settings" }[view];
+  const heading = detail ? detailRecord?.title ?? TASK_TITLES[detail] : { today: greeting(), memories: "Memories", store: "For Sale", settings: "Settings" }[view];
   const pendingDrafts = detail === "publish" && candidates.length;
   eyebrow.textContent = detail
     ? pendingDrafts ? `Needs you · ${draftsPhase()}` : `${TASK_STATES[detailRecord?.state ?? "working"]} · ${detailRecord?.phase ?? "Starting"}`
