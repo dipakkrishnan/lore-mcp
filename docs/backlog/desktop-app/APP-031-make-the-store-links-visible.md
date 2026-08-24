@@ -4,7 +4,7 @@ title: Make the store's outbound links visible
 priority: P2
 effort: XS
 component: desktop-app
-status: in-review
+status: ready
 related: [APP-009, XC-020, APP-019]
 blockers: []
 dependencies: []

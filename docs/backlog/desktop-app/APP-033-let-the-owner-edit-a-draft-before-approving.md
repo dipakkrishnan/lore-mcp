@@ -46,3 +46,9 @@ never approves):
       starting a new pass; cards refresh in place.
 - [ ] Skip/approve semantics, provenance, and "only what you approve
       leaves this Mac" unchanged; Python and desktop tests pass.
+
+## Notes
+
+Before promotion, cut the first implementation to direct owner editing. Agent
+redrafting changes publish-session lifecycle as well as the card and validated
+decision path, so it should follow only if manual editing feels insufficient.

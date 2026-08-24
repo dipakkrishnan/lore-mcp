@@ -5,7 +5,7 @@ priority: P1
 effort: M
 component: desktop-app
 status: in-review
-related: [APP-020, APP-023, APP-019, MON-006, DEP-001]
+related: [APP-020, APP-023, APP-019, MON-006]
 blockers: []
 dependencies: []
 github_issue: null
@@ -43,3 +43,10 @@ the CLI) so the skill drives validated commands, not mechanics.
       without a terminal.
 - [ ] The chain is offered once, not pushed: dismissing it leaves the
       normal Today inbox.
+
+## Notes
+
+MON-006 already moved deterministic deployment into the CLI. Keep this desktop
+work thin: one new task kind drives the existing skill and CLI through typed
+owner gates. If implementation starts recreating deployment mechanics in
+Electron, split it rather than expanding this item.

@@ -1,10 +1,10 @@
 ---
 id: APP-032
 title: Approval drafts render where the owner is
-priority: P1
+priority: P0
 effort: S
 component: desktop-app
-status: in-review
+status: ready
 related: [APP-020, APP-023, APP-006]
 blockers: []
 dependencies: []

@@ -4,7 +4,7 @@ title: Blueprint card fields grow with their content
 priority: P1
 effort: XS
 component: desktop-app
-status: in-review
+status: ready
 related: [APP-020, APP-022, APP-016]
 blockers: []
 dependencies: []
