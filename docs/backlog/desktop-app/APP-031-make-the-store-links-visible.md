@@ -4,7 +4,7 @@ title: Make the store's outbound links visible
 priority: P2
 effort: XS
 component: desktop-app
-status: ready
+status: completed
 related: [APP-009, XC-020, APP-019]
 blockers: []
 dependencies: []
@@ -28,5 +28,9 @@ itself selectable text.
 
 ## Acceptance criteria
 
-- [ ] The Cloudflare console link reads as a control, not body text.
-- [ ] Consistent treatment ready for the XC-020 payout link.
+- [x] The Cloudflare console link reads as a control, not body text.
+- [x] Consistent treatment ready for the XC-020 payout link.
+
+## Notes
+
+Implemented in the batch PR: Cloudflare link is a bordered control; positive-status dots use a new --ok token (#2f9e5b) distinct from the brand accent, per Dipak's contrast feedback.

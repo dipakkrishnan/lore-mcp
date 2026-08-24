@@ -12,6 +12,7 @@
   --accent: #244f3d;
   --accent-ink: #163426;
   --accent-soft: #e3ece6;
+  --ok: #2f9e5b;
   --attention: #b4582a;
   --attention-soft: #fbefe7;
   --attention-ink: #8f4520;
@@ -115,7 +116,12 @@ nav button:hover { background: var(--hover); }
 nav button[aria-pressed="true"] { background: var(--accent-soft); color: var(--accent-ink); }
 nav button[aria-pressed="true"] svg { color: var(--accent); }
 nav .count { margin-left: auto; font-family: var(--mono); font-size: 12px; color: var(--faint); }
-.account { margin-top: auto; display: flex; align-items: center; gap: 10px; padding: 12px 8px 0; border-top: 1px solid var(--line); }
+.account { margin-top: auto; position: relative; padding: 12px 8px 0; border-top: 1px solid var(--line); }
+.account-trigger { display: flex; align-items: center; gap: 10px; width: 100%; padding: 6px; border-radius: var(--radius-sm); text-align: left; }
+.account-trigger:hover { background: var(--hover); }
+.account-menu { position: absolute; bottom: calc(100% + 6px); left: 8px; right: 8px; background: var(--surface); border: 1px solid var(--line-strong); border-radius: var(--radius-sm); box-shadow: 0 8px 24px rgba(29, 31, 28, 0.14); padding: 4px; display: flex; flex-direction: column; z-index: 2; }
+.account-menu button { text-align: left; padding: 8px 10px; border-radius: 6px; font-size: 13px; }
+.account-menu button:hover { background: var(--hover); }
 .account .who { display: flex; flex-direction: column; line-height: 1.25; min-width: 0; }
 .account .who b { font-weight: 500; font-size: 13px; }
 .account .who span { font-size: 12px; color: var(--muted); display: flex; align-items: center; gap: 5px; }
@@ -182,6 +188,7 @@ h2 { font-size: 12px; font-weight: 600; letter-spacing: 0.06em; text-transform: 
 @media (prefers-reduced-motion: reduce) { .pill i { animation: none; } }
 
 .request { padding: 18px 20px; display: flex; flex-direction: column; gap: 14px; text-align: left; }
+.card.request { align-items: stretch; }
 .request .q { font-family: var(--serif); font-weight: 500; font-size: 20px; line-height: 1.3; }
 .request .actions { display: flex; justify-content: flex-end; gap: 8px; padding-top: 8px; border-top: 1px solid var(--line-soft); align-self: stretch; }
 .memory { border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; display: flex; flex-direction: column; gap: 6px; background: var(--surface); }
@@ -202,7 +209,8 @@ legend { font-weight: 500; font-size: 14px; margin-bottom: 6px; }
 .blueprint-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 .blueprint-fields label { display: flex; flex-direction: column; gap: 4px; color: var(--muted); font-size: 12px; }
 .blueprint-fields label:nth-child(4), .blueprint-fields label:nth-child(7) { grid-column: 1 / -1; }
-.blueprint-fields input, .blueprint-fields select { color: var(--ink); }
+.blueprint-fields input, .blueprint-fields select, .blueprint-fields textarea { color: var(--ink); }
+.blueprint-fields textarea { min-height: 36px; padding: 6px 12px; border: 1px solid var(--line-strong); border-radius: var(--radius-sm); background: var(--surface); resize: none; line-height: 1.45; overflow: hidden; }
 
 /* Rows */
 .rows { display: flex; flex-direction: column; }
@@ -219,11 +227,11 @@ legend { font-weight: 500; font-size: 14px; margin-bottom: 6px; }
 .t a { color: var(--accent); }
 .address { display: flex; align-items: baseline; gap: 12px; font-size: 12px; }
 .address .mono { color: var(--accent); -webkit-user-select: text; user-select: text; }
-.address a:not(.mono) { color: var(--muted); }
-.address a:not(.mono):hover { color: var(--accent); }
+.address a.link-btn { display: inline-flex; align-items: center; height: 22px; padding: 0 8px; border: 1px solid var(--line-strong); border-radius: 6px; background: var(--surface); color: var(--accent); font-size: 12px; }
+.address a.link-btn:hover { background: var(--hover); text-decoration: none; }
 .row .v { display: flex; align-items: center; gap: 10px; flex-shrink: 0; font-size: 13px; color: var(--ink-soft); }
 .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--attention); flex-shrink: 0; }
-.dot.ok { background: var(--accent); }
+.dot.ok { background: var(--ok); }
 .dot.off { background: #c9c4b8; }
 .chip { display: inline-flex; align-items: center; height: 22px; padding: 0 8px; border-radius: 6px; background: var(--hover); color: #4a4d47; font-size: 12px; white-space: nowrap; }
 .chip.ok { background: var(--accent-soft); color: var(--accent); }

@@ -4,7 +4,7 @@ title: One live input at a time — the card or the composer, never both
 priority: P0
 effort: S
 component: desktop-app
-status: ready
+status: completed
 related: [APP-016, APP-020, APP-028]
 blockers: []
 dependencies: []
@@ -33,10 +33,14 @@ option is reachable by tab, and free text stays an opt-in.
 
 ## Acceptance criteria
 
-- [ ] With a pending card there is exactly one visible text input: the
+- [x] With a pending card there is exactly one visible text input: the
       card's; the composer is hidden.
-- [ ] A new card is shown from its first question; no auto-focus into a
+- [x] A new card is shown from its first question; no auto-focus into a
       free-text field; no scroll past the card.
-- [ ] The composer returns, focused state intact, the moment the card is
+- [x] The composer returns, focused state intact, the moment the card is
       answered or the turn ends.
-- [ ] Desktop typecheck and tests pass.
+- [x] Desktop typecheck and tests pass.
+
+## Notes
+
+Implemented in the batch PR: composer hidden while a card is pending, disabled with 'Lore is working…' during a turn; question/blueprint cards scroll to their first question with no focus-steal; auth prompts keep focus.
