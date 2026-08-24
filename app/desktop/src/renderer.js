@@ -780,12 +780,17 @@ async function startDeploy() {
 /** @param {Snapshot} s */
 function nextRung(s) {
   const box = el("div", "card lead request");
-  const finished = detailTask === "deploy";
-  box.append(
-    el("p", "q", finished ? "Your store is open." : "Your Lore is set up."),
-    el("p", "hint", finished
+  const deploy = detailTask === "deploy";
+  const storeOpen = Boolean(s.node.url);
+  const heading = deploy ? (storeOpen ? "Your store is open." : "Your store isn't open yet.") : "Your Lore is set up.";
+  const detail = deploy
+    ? storeOpen
       ? "This thread is closed. Publications reach buyers after a push; everything else stays on this Mac."
-      : "This thread is closed. What comes next is a separate step — take it now, or any time from Today.")
+      : "This thread is closed. Try again now, or any time from Today."
+    : "This thread is closed. What comes next is a separate step — take it now, or any time from Today.";
+  box.append(
+    el("p", "q", heading),
+    el("p", "hint", detail)
   );
   const actions = el("div", "actions");
   if (s.node.url) {
@@ -794,7 +799,7 @@ function nextRung(s) {
     live.target = "_blank";
     live.rel = "noreferrer";
     actions.append(live);
-  } else if (!finished) {
+  } else {
     actions.append(button("Open your store", "secondary", () => void startDeploy()));
   }
   actions.append(button("Publish something", "primary", () => void startPublish()));
