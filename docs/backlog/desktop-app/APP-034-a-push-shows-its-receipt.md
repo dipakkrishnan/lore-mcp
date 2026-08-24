@@ -4,7 +4,7 @@ title: A push shows its receipt
 priority: P1
 effort: XS
 component: desktop-app
-status: in-review
+status: ready
 related: [APP-006, MON-013, APP-031]
 blockers: []
 dependencies: []

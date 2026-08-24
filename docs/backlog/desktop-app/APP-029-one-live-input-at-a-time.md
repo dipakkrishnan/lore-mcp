@@ -1,10 +1,10 @@
 ---
 id: APP-029
 title: One live input at a time — the card or the composer, never both
-priority: P1
+priority: P0
 effort: S
 component: desktop-app
-status: in-review
+status: ready
 related: [APP-016, APP-020, APP-028]
 blockers: []
 dependencies: []
