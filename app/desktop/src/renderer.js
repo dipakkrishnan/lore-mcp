@@ -492,6 +492,7 @@ function render() {
   taskRestart.hidden = !detail || detailRecord?.state !== "stopped";
   captureArea.hidden = view !== "today";
   log.hidden = !detail;
+  composer.hidden = Boolean(requestSlot.childElementCount) || ((detail === "setup" || detail === "deploy") && detailRecord?.state === "done");
   input.placeholder = detail ? "Reply to Lore…" : "What did you learn today?";
   inputLabel.textContent = detail ? "Reply to Lore" : "What did you learn today?";
   submit.textContent = detail ? "Send" : "Capture";
