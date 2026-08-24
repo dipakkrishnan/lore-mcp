@@ -114,7 +114,7 @@ interface Window {
     search(query: string): Promise<SearchHit[]>;
     memory(id: number): Promise<Memory>;
     candidates(): Promise<PublicationCandidate[]>;
-    decide(input: { candidate: PublicationCandidate; approve: boolean }): Promise<void>;
+    decide(input: { original: PublicationCandidate; candidate: PublicationCandidate; approve: boolean }): Promise<void>;
     revoke(id: number): Promise<void>;
     push(): Promise<void>;
     pickFiles(): Promise<string[]>;
