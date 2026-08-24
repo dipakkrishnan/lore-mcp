@@ -52,6 +52,10 @@ let candidates = [];
 let approvedThisPass = false;
 /** @type {string | false} */
 let pushOffer = false;
+let pushing = false;
+/** @type {string | false} */
+let pushedNote = false;
+let accountMenuOpen = false;
 
 const RING = `<svg viewBox="0 0 26 26" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M13 4.5a8.5 8.5 0 1 1-6 2.5"></path><path d="M13 9a4 4 0 1 1-2.8 1.2"></path><circle cx="13" cy="13" r="1.2" fill="currentColor" stroke="none"></circle></svg>`;
 const PROVIDERS = {
@@ -83,6 +87,12 @@ function el(tag, className = "", text) {
 /** @param {unknown} error @param {string} fallback */
 function reason(error, fallback) {
   return error instanceof Error ? error.message.replace(/^Error invoking remote method '[^']+': (?:Error: )?/, "") : fallback;
+}
+
+/** @param {HTMLTextAreaElement} area */
+function fit(area) {
+  area.style.height = "";
+  area.style.height = `${Math.min(area.scrollHeight, 200)}px`;
 }
 
 /** @param {string} className */
@@ -128,14 +138,23 @@ function markdown(text) {
   return node;
 }
 
+/** @param {{id: number, title: string}} memory */
+async function publishMemory(memory) {
+  closeSheet();
+  await openTask("publish");
+  await send(`Help me publish something from my Lore. Start from memory ${memory.id}: "${memory.title}".`);
+}
+
 /** @param {number | string} id @param {string} title @param {string} detail */
 function memoryRow(id, title, detail) {
-  const node = el("button", "row link");
-  node.type = "button";
+  const node = el("div", "row");
+  const open = el("button", "task-link");
+  open.type = "button";
   const text = el("div", "t");
   text.append(el("b", "", title), el("span", "", detail));
-  node.append(text, chip("Private"));
-  node.addEventListener("click", () => openMemory(Number(id)));
+  open.append(text, chip("Private"));
+  open.addEventListener("click", () => openMemory(Number(id)));
+  node.append(open, button("Publish", "quiet", () => void publishMemory({ id: Number(id), title })));
   return node;
 }
 
@@ -162,7 +181,7 @@ async function openMemory(id) {
   close.type = "button";
   close.setAttribute("aria-label", "Close");
   close.addEventListener("click", closeSheet);
-  head.append(text, close);
+  head.append(text, button("Publish", "secondary", () => void publishMemory(memory)), close);
   const meta = memory.content.match(FRONTMATTER)?.[1] ?? "";
   const body = markdown(memory.content.replace(FRONTMATTER, ""));
   body.classList.add("body");
@@ -235,7 +254,7 @@ function storeAddress(url) {
   node.append(el("span", "mono", url.replace(/^https?:\/\//, "").replace(/\/mcp$/, "")));
   const console = workerConsole(url);
   if (console) {
-    const open = el("a", "", "Cloudflare ↗");
+    const open = el("a", "link-btn", "Cloudflare ↗");
     open.href = console;
     open.target = "_blank";
     open.rel = "noreferrer";
@@ -270,17 +289,43 @@ function needsYou(s) {
   return rows;
 }
 
+function displayTasks() {
+  /** @type {TaskRecord[]} */
+  const items = taskItems.slice(0, 3).map((item) =>
+    item.kind === "publish" && candidates.length
+      ? { ...item, state: /** @type {TaskState} */ ("needs_you"), phase: draftsPhase() }
+      : item
+  );
+  if (candidates.length && !items.some((item) => item.kind === "publish")) {
+    items.unshift({ version: 1, kind: "publish", title: TASK_TITLES.publish, state: "needs_you", phase: draftsPhase(), updatedAt: new Date().toISOString() });
+  }
+  return items.slice(0, 3);
+}
+
+function draftsPhase() {
+  return `${candidates.length} ${candidates.length === 1 ? "draft" : "drafts"} to approve`;
+}
+
 /** @param {Snapshot} s */
 function renderToday(s) {
-  if (detailTask) return [];
+  if (detailTask) {
+    /** @type {HTMLElement[]} */
+    const detailParts = [];
+    if (detailTask === "publish" && candidates.length) detailParts.push(section("Approve what to sell", approvals(), el("span", "hint", "Only what you approve ever leaves this Mac.")));
+    if (detailTask === "publish" && (pushOffer || pushing)) detailParts.push(seamCard());
+    if (detailTask === "publish" && pushedNote) detailParts.push(pushReceipt(s));
+    return detailParts;
+  }
   /** @type {HTMLElement[]} */
   const parts = [];
   if (candidates.length) parts.push(section("Approve what to sell", approvals(), el("span", "hint", "Only what you approve ever leaves this Mac.")));
-  if (pushOffer) parts.push(seamCard());
+  if (pushOffer || pushing) parts.push(seamCard());
+  if (pushedNote) parts.push(pushReceipt(s));
   const attention = needsYou(s);
   if (attention.length) parts.push(section("Needs you", card(attention)));
-  if (taskItems.length) {
-    parts.push(section("Unfinished", card(taskItems.slice(0, 3).map((item) => {
+  const shown = displayTasks();
+  if (shown.length) {
+    parts.push(section("Unfinished", card(shown.map((item) => {
       const row = el("div", "row");
       const open = el("button", "task-link");
       open.type = "button";
@@ -434,7 +479,10 @@ const renderers = { today: renderToday, memories: renderMemories, store: renderS
 function render() {
   const detail = view === "today" ? detailTask : null;
   const heading = detail ? detailRecord?.title ?? TASK_TITLES[detail] : { today: greeting(), memories: "Memories", store: "Store", settings: "Settings" }[view];
-  eyebrow.textContent = detail ? `${TASK_STATES[detailRecord?.state ?? "working"]} · ${detailRecord?.phase ?? "Starting"}` : view === "today" ? longDate.format(new Date()) : "";
+  const pendingDrafts = detail === "publish" && candidates.length;
+  eyebrow.textContent = detail
+    ? pendingDrafts ? `Needs you · ${draftsPhase()}` : `${TASK_STATES[detailRecord?.state ?? "working"]} · ${detailRecord?.phase ?? "Starting"}`
+    : view === "today" ? longDate.format(new Date()) : "";
   title.textContent = heading;
   taskBack.hidden = !detail;
   taskRestart.hidden = !detail || detailRecord?.state !== "stopped";
@@ -456,6 +504,10 @@ function renderAccount() {
   const provider = auth?.credentials[0];
   if (!provider) return;
   const [name, icon] = PROVIDERS[/** @type {keyof typeof PROVIDERS} */ (provider.providerId)] ?? [provider.providerId, ""];
+  const trigger = el("button", "account-trigger");
+  trigger.type = "button";
+  trigger.setAttribute("aria-haspopup", "menu");
+  trigger.setAttribute("aria-expanded", String(accountMenuOpen));
   const who = el("div", "who");
   who.append(el("b", "", "Signed in"));
   const line = el("span");
@@ -468,7 +520,27 @@ function renderAccount() {
   const store = snapshot ? nodeLabel(snapshot.node.live.state) : "";
   line.append(document.createTextNode(`${name}${store ? ` · ${store === "Not set up" ? "Setting up" : store}` : ""}`));
   who.append(line);
-  account.append(mark(), who);
+  trigger.append(mark(), who);
+  trigger.addEventListener("click", (event) => {
+    event.stopPropagation();
+    accountMenuOpen = !accountMenuOpen;
+    renderAccount();
+  });
+  account.append(trigger);
+  if (accountMenuOpen) {
+    const menu = el("div", "account-menu");
+    menu.setAttribute("role", "menu");
+    const item = (/** @type {string} */ label, /** @type {() => void} */ onPick) => {
+      const node = el("button", "", label);
+      node.type = "button";
+      node.setAttribute("role", "menuitem");
+      node.addEventListener("click", () => { accountMenuOpen = false; onPick(); });
+      return node;
+    };
+    menu.append(item("Open Settings", () => show("settings")), item(`Sign out of ${name}`, () => void signOut(provider.providerId)));
+    account.append(menu);
+    /** @type {HTMLElement | null} */ (menu.querySelector("button"))?.focus({ preventScroll: true });
+  }
 }
 
 /** @param {View} next */
@@ -528,6 +600,7 @@ function working(active) {
   input.disabled = active;
   submit.disabled = active;
   composer.classList.toggle("working", active);
+  input.placeholder = active ? "Lore is working…" : detailTask ? "Reply to Lore…" : "What did you learn today?";
   if (active && !liveText) live({ setup: "Thinking…", publish: "Drafting…", capture: "Reading this…" }[task]);
 }
 
@@ -576,28 +649,36 @@ function renderRequest(event) {
   } else if (event.type === "blueprint") {
     box.append(el("p", "q", "Use this shape for your Lore?"), el("p", "hint", event.evidence));
     const inputs = el("div", "blueprint-fields");
-    /** @type {Record<string, HTMLInputElement | HTMLSelectElement>} */
+    /** @type {Record<string, HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>} */
     const controls = {};
-    const add = (/** @type {string} */ key, /** @type {string} */ label, /** @type {string} */ value) => {
+    const add = (/** @type {string} */ key, /** @type {string} */ label, /** @type {string} */ value, grow = true) => {
       const field = el("label");
       field.append(el("span", "", label));
-      const inputField = el("input");
-      inputField.type = "text";
+      /** @type {HTMLInputElement | HTMLTextAreaElement} */
+      let inputField;
+      if (grow) {
+        inputField = el("textarea");
+        inputField.rows = 1;
+        inputField.addEventListener("input", () => fit(/** @type {HTMLTextAreaElement} */ (inputField)));
+      } else {
+        inputField = el("input");
+        inputField.type = "text";
+      }
       inputField.value = value;
       field.append(inputField);
       controls[key] = inputField;
       inputs.append(field);
     };
-    add("name", "Name", event.fields.name);
+    add("name", "Name", event.fields.name, false);
     for (const [key, label] of [["persona", "Told as"], ["organizing_axis", "Organized by"]]) {
       const field = el("label");
       field.append(el("span", "", label));
       const select = el("select");
-      const choices = key === "persona" ? ["storyteller", "schoolteacher", "professor", "executive", "sage"] : ["chronological", "theme", "project", "knowledge"];
+      const choices = key === "persona" ? ["storyteller", "schoolteacher", "professor", "executive", "sage"] : ["", "chronological", "theme", "project", "knowledge"];
       for (const choice of choices) {
-        const option = el("option", "", choice);
+        const option = el("option", "", choice || "persona default");
         option.value = choice;
-        option.selected = choice === /** @type {Record<string, unknown>} */ (event.fields)[key];
+        option.selected = choice === (/** @type {Record<string, unknown>} */ (event.fields)[key] ?? "");
         select.append(option);
       }
       field.append(select);
@@ -621,7 +702,7 @@ function renderRequest(event) {
         version: 1,
         name: controls.name.value.trim(),
         persona: controls.persona.value,
-        organizing_axis: controls.organizing_axis.value,
+        ...(controls.organizing_axis.value ? { organizing_axis: controls.organizing_axis.value } : {}),
         topic_outline: list("topic_outline"),
         focus_topics: list("focus_topics"),
         general_areas: list("general_areas"),
@@ -660,14 +741,21 @@ function renderRequest(event) {
   box.dataset.id = event.id;
   requestSlot.replaceChildren(box);
   agentPanel.hidden = false;
+  composer.hidden = true;
   if (view !== "today") show("today");
-  mainEl.scrollTop = mainEl.scrollHeight;
-  /** @type {HTMLElement | null} */ (box.querySelector("input[type=text], input[type=password], select"))?.focus({ preventScroll: true });
+  for (const area of box.querySelectorAll("textarea")) fit(/** @type {HTMLTextAreaElement} */ (area));
+  if (event.type === "question" || event.type === "blueprint") {
+    mainEl.scrollTop = Math.max(0, box.getBoundingClientRect().top - mainEl.getBoundingClientRect().top + mainEl.scrollTop - 16);
+  } else {
+    mainEl.scrollTop = mainEl.scrollHeight;
+    /** @type {HTMLElement | null} */ (box.querySelector("input[type=text], input[type=password], select"))?.focus({ preventScroll: true });
+  }
 }
 
 /** @param {string} id @param {unknown} value @param {string} [echo] */
 async function respond(id, value, echo) {
   requestSlot.replaceChildren();
+  composer.hidden = false;
   if (echo) say(echo, true);
   else renderLog();
   await window.lore.respond({ id, value });
@@ -748,8 +836,39 @@ function seamCard() {
   const box = el("div", "card lead request");
   box.append(el("p", "q", "Push to your store now?"), el("p", "hint", pushOffer || ""));
   const actions = el("div", "actions");
-  actions.append(button("Leave it for now", "secondary", () => { pushOffer = false; render(); }), button("Push now", "primary", () => act(window.lore.push)));
-  box.append(actions);
+  const leave = button("Leave it for now", "secondary", () => { pushOffer = false; render(); });
+  const push = button(pushing ? "Pushing…" : "Push now", "primary", async () => {
+    pushing = true;
+    render();
+    const offer = pushOffer;
+    if (await act(window.lore.push)) {
+      const live = snapshot ? `${snapshot.publications.counts.active} ${snapshot.publications.counts.active === 1 ? "publication" : "publications"}` : "publications";
+      pushedNote = `Pushed · ${live} live on your node`;
+    } else {
+      pushOffer = offer;
+    }
+    pushing = false;
+    render();
+  });
+  leave.disabled = pushing;
+  push.disabled = pushing;
+  actions.append(leave, push);
+  return box;
+}
+
+/** @param {Snapshot} s */
+function pushReceipt(s) {
+  const box = el("div", "card pad lead");
+  box.append(el("span", "dot ok"));
+  const text = el("span", "", `${pushedNote} `);
+  if (s.node.url) {
+    const link = el("a", "", "Open your store ↗");
+    link.href = s.node.url.replace(/\/mcp$/, "");
+    link.target = "_blank";
+    link.rel = "noreferrer";
+    text.append(link);
+  }
+  box.append(text);
   return box;
 }
 
@@ -766,6 +885,7 @@ async function decide(candidate, approve) {
 /** @param {() => Promise<void>} action */
 async function act(action) {
   pushOffer = false;
+  pushedNote = false;
   let done = true;
   try {
     await action();
@@ -853,7 +973,7 @@ window.lore.onAgentEvent((event) => {
       if (!auth) { auth = { credentials: [] }; enter(); }
     }
   } else if (event.type === "dismiss") {
-    if (/** @type {HTMLElement | null} */ (requestSlot.firstElementChild)?.dataset.id === event.id) { requestSlot.replaceChildren(); renderLog(); }
+    if (/** @type {HTMLElement | null} */ (requestSlot.firstElementChild)?.dataset.id === event.id) { requestSlot.replaceChildren(); composer.hidden = false; renderLog(); }
   } else if (event.type === "auth") {
     const detail = event.event;
     welcomeNote.textContent = event.message || (detail?.type === "device_code" ? `Open ${detail.verificationUri} and enter ${detail.userCode}.` : detail && "message" in detail ? detail.message : "Continue signing in.");
@@ -875,10 +995,7 @@ composer.addEventListener("submit", async (event) => {
   input.style.height = "";
   await send(text || "Please read the attached files.");
 });
-input.addEventListener("input", () => {
-  input.style.height = "";
-  input.style.height = `${Math.min(input.scrollHeight, 200)}px`;
-});
+input.addEventListener("input", () => fit(input));
 input.addEventListener("keydown", (event) => {
   if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); composer.requestSubmit(); }
 });
@@ -937,6 +1054,10 @@ $("#search-form").addEventListener("submit", (event) => event.preventDefault());
 document.addEventListener("keydown", (event) => {
   if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") { event.preventDefault(); search.focus(); search.select(); }
   if (event.key === "Escape" && document.querySelector(".sheet")) { event.preventDefault(); closeSheet(); }
+  if (event.key === "Escape" && accountMenuOpen) { accountMenuOpen = false; renderAccount(); }
+});
+document.addEventListener("click", (event) => {
+  if (accountMenuOpen && !account.contains(/** @type {Node} */ (event.target))) { accountMenuOpen = false; renderAccount(); }
 });
 
 for (const node of document.querySelectorAll("[data-login]")) {

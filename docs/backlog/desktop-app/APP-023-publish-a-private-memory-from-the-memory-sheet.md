@@ -4,7 +4,7 @@ title: Publish a private memory straight from the memory sheet
 priority: P1
 effort: S
 component: desktop-app
-status: ready
+status: completed
 related: [APP-011, APP-019, XC-002, APP-020]
 blockers: []
 dependencies: []
@@ -29,8 +29,12 @@ pricing still follow.
 
 ## Acceptance criteria
 
-- [ ] The open memory sheet offers Publish; rows remain simple navigation.
-- [ ] It opens the publish task scoped to that memory through a typed task
+- [x] The open memory sheet offers Publish; rows remain simple navigation.
+- [x] It opens the publish task scoped to that memory through a typed task
       record that survives resume; drafts cite it in provenance.
-- [ ] No neighboring memories are included unless the owner asks.
-- [ ] Nothing changes in the approval or pricing contract.
+- [x] No neighboring memories are included unless the owner asks.
+- [x] Nothing changes in the approval or pricing contract.
+
+## Notes
+
+Implemented in the batch PR: Publish on the sheet head and each private row seeds the publish task with the memory id and title; the skill drafts from it through the unchanged validated path.

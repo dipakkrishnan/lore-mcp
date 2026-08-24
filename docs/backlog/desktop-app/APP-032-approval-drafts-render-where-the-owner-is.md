@@ -4,7 +4,7 @@ title: Approval drafts render where the owner is
 priority: P0
 effort: S
 component: desktop-app
-status: ready
+status: completed
 related: [APP-020, APP-023, APP-006]
 blockers: []
 dependencies: []
@@ -33,9 +33,13 @@ wording follows for free: "below" becomes true wherever the owner is.
 
 ## Acceptance criteria
 
-- [ ] After a publish turn, the approval cards are visible without
+- [x] After a publish turn, the approval cards are visible without
       leaving the task detail; Today shows them too.
-- [ ] A publish task with pending candidates lists as "Needs you · N
+- [x] A publish task with pending candidates lists as "Needs you · N
       drafts to approve"; approving or skipping the last one settles it
       to done.
-- [ ] Desktop typecheck and tests pass.
+- [x] Desktop typecheck and tests pass.
+
+## Notes
+
+Implemented in the batch PR: approvals and the push seam render inside the publish task detail; pending candidates present the publish task as needs_you with an 'N drafts to approve' phase (synthetic row when no record exists). Reply-to-revise remains APP-033.

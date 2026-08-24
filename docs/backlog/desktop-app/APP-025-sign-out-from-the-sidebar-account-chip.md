@@ -4,7 +4,7 @@ title: Sign out from the sidebar account chip
 priority: P2
 effort: XS
 component: desktop-app
-status: in-review
+status: completed
 related: [APP-009, APP-013]
 blockers: []
 dependencies: []
@@ -29,6 +29,10 @@ with an aria-expanded state.
 
 ## Acceptance criteria
 
-- [ ] Clicking the account chip opens a popover with Sign out and Settings.
-- [ ] Sign out returns to the welcome screen via the existing logout path.
-- [ ] Popover dismisses on outside click and Escape; chip is focusable.
+- [x] Clicking the account chip opens a popover with Sign out and Settings.
+- [x] Sign out returns to the welcome screen via the existing logout path.
+- [x] Popover dismisses on outside click and Escape; chip is focusable.
+
+## Notes
+
+Implemented in the batch PR: the chip is a button opening a popover (Open Settings, Sign out of <provider>); Escape and outside click dismiss; aria-haspopup/expanded set.

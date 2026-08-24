@@ -4,7 +4,7 @@ title: A push shows its receipt
 priority: P1
 effort: XS
 component: desktop-app
-status: ready
+status: completed
 related: [APP-006, MON-013, APP-031]
 blockers: []
 dependencies: []
@@ -31,6 +31,10 @@ view's push affordance when MON-013 drift lands.
 
 ## Acceptance criteria
 
-- [ ] Push shows a working state while running.
-- [ ] Success states what is now live, with a link to the store.
-- [ ] Failure keeps the card and shows the reason (existing behavior).
+- [x] Push shows a working state while running.
+- [x] Success states what is now live, with a link to the store.
+- [x] Failure keeps the card and shows the reason (existing behavior).
+
+## Notes
+
+Implemented in the batch PR: Pushing… working state, receipt line with live publication count and an Open-your-store link, failure restores the offer. Building the receipt from the node's own manifest stays with MON-013.

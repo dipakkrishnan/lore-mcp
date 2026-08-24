@@ -4,7 +4,7 @@ title: Blueprint card fields grow with their content
 priority: P1
 effort: XS
 component: desktop-app
-status: ready
+status: completed
 related: [APP-020, APP-022, APP-016]
 blockers: []
 dependencies: []
@@ -33,7 +33,11 @@ full-width, text-align left) instead of per-child stretch patches.
 
 ## Acceptance criteria
 
-- [ ] Topics/In depth/Lightly/Voice show their full value, wrapping and
+- [x] Topics/In depth/Lightly/Voice show their full value, wrapping and
       growing to fit; no horizontal scrolling within a field.
-- [ ] The card's content fills the card width; no centered shrink-wrap.
-- [ ] Desktop typecheck and tests pass.
+- [x] The card's content fills the card width; no centered shrink-wrap.
+- [x] Desktop typecheck and tests pass.
+
+## Notes
+
+Implemented in the batch PR: list and voice fields are auto-sizing textareas (shared fit helper with the composer); `.card.request { align-items: stretch }` kills the centering class. Also fixed here: Organized-by gains a 'persona default' option that omits organizing_axis instead of silently submitting 'chronological'.
