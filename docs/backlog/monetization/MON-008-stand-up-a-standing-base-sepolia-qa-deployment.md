@@ -4,13 +4,13 @@ title: Stand up a standing Base Sepolia QA deployment of the Worker
 priority: P1
 effort: M
 component: monetization
-status: ready
+status: in-review
 related: [MON-002, MON-003, MON-005, MON-006, MON-010, XC-008]
 blockers: [MON-002]
-dependencies: ["Cloudflare account with Workers and D1", "Base Sepolia wallet funded from the CDP faucet", "A protected GitHub Environment holding the deploy token — not a repository secret"]
+dependencies: ["A protected GitHub Environment named qa holding CLOUDFLARE_API_TOKEN and QA_PAYOUT_ADDRESS — not repository secrets", "A Cloudflare account authorizing that token, and a Base Sepolia wallet funded from the CDP faucet for QA_PAYOUT_ADDRESS"]
 github_issue: null
 created: 2026-08-01
-updated: 2026-08-03
+updated: 2026-08-24
 ---
 
 ## Problem
@@ -58,21 +58,24 @@ target exists, is reproducible, and is documented.
 
 ## Acceptance criteria
 
-- [ ] `wrangler.jsonc` defines a `qa` environment with its own worker name and
+- [x] `wrangler.jsonc` defines a `qa` environment with its own worker name and
       its own D1 database, and no tracked file needs hand-editing to deploy it
-- [ ] A merge to `main` redeploys QA automatically, and the deployed URL is
+- [x] A merge to `main` redeploys QA automatically, and the deployed URL is
       recorded somewhere fixed rather than recovered from wrangler state
 - [ ] QA's D1 contains seeded fixture publications after a deploy, and
-      `npm run smoke -- <qa-url>` passes against it
+      `npm run smoke -- <qa-url>` passes against it — verified locally
+      (`wrangler dev --env qa`), not yet against a live deploy (see Notes)
 - [ ] The QA recipient wallet and QA buyer wallet are distinct from each other
-      and from any wallet used elsewhere, both on Base Sepolia only
-- [ ] The deploy credential is a scoped API token in a protected GitHub
+      and from any wallet used elsewhere, both on Base Sepolia only — needs an
+      admin to mint and fund both; the workflow only wires whatever address
+      is put in `QA_PAYOUT_ADDRESS`
+- [x] The deploy credential is a scoped API token in a protected GitHub
       **Environment**, not a repository secret — the latter is readable by every
       workflow in the repo, including any future one
-- [ ] The deploy job is used by no pull-request job, cannot run on a fork, and
+- [x] The deploy job is used by no pull-request job, cannot run on a fork, and
       never uses `pull_request_target`
-- [ ] Third-party actions in the deploy job are pinned to a full commit SHA
-- [ ] The node README says how to reach QA, what is in it, and that anything
+- [x] Third-party actions in the deploy job are pinned to a full commit SHA
+- [x] The node README says how to reach QA, what is in it, and that anything
       in it is disposable
 
 ## Notes
@@ -94,3 +97,28 @@ command it produces rather than duplicating wrangler invocations.
 `in-review` → `ready` at `P1` — criteria are extensive but concrete, and
 `XC-008` (the live testnet suite) is itself blocked on this landing, so it's
 on the critical path for more than its own acceptance criteria.
+
+**Implementation 2026-08-24:** everything expressible in code is done and PR'd:
+`env.qa` in `wrangler.jsonc` (own worker name `lore-qa`, own D1 database
+`lore-publications-qa`), `.github/workflows/deploy-qa.yml` (push-to-main only,
+`environment: qa`, `actions/checkout`/`actions/setup-node` pinned to full
+commit SHAs, `contents: read` by default with `contents: write` only on the
+one job, guarded to this repository so it cannot run from a fork), the D1
+database and its id resolved and committed back automatically on first run
+(mirrors `lore/deploy.py`'s `_ensure_d1`, so no tracked file ever needs a
+manual edit), `scripts/qa-fixtures.sql` seeding two synthetic publications,
+and a README section covering how to reach QA, what it holds, and that it is
+disposable. Verified locally end to end short of a real Cloudflare account:
+`wrangler dev --env qa` plus the fixture SQL produces a `discover` manifest
+with both fixture titles, and `npm run smoke` passes against it.
+
+What is left is exactly the three things no workflow can provision for
+itself, all listed in `dependencies` above: an admin creates the GitHub
+Environment `qa` and populates `CLOUDFLARE_API_TOKEN` (scoped to Workers + D1)
+and `QA_PAYOUT_ADDRESS` (a fresh Base Sepolia address, never used elsewhere)
+as Environment secrets, and separately mints and funds a QA buyer wallet from
+the CDP faucet for `XC-008`'s live suite to spend from. Once that's in place,
+the first merge to `main` will provision the D1 database, deploy, seed
+fixtures, smoke-check, and record the live URL at `lore/node/.qa/node-url.txt`
+without further action — that first real run is what closes the two
+unchecked criteria above and moves this to `completed`.

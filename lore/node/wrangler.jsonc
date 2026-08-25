@@ -31,5 +31,42 @@
       // and paste the id it prints. Local dev (`npm run dev`) needs no id.
       "database_id": "REPLACE_WITH_YOUR_D1_ID"
     }
-  ]
+  ],
+  // The maintainers' own standing target (MON-008), deployed by
+  // .github/workflows/deploy-qa.yml on every merge to main — never an
+  // owner's node. Bindings and durable objects are not inherited from the
+  // default environment above, so they are repeated here in full rather
+  // than partially, which is what Wrangler actually requires.
+  "env": {
+    "qa": {
+      "name": "lore-qa",
+      "vars": {
+        "LORE_FACILITATOR_URL": "https://x402.org/facilitator"
+      },
+      "durable_objects": {
+        "bindings": [
+          {
+            "class_name": "LorePaidMCP",
+            "name": "LorePaidMCP"
+          }
+        ]
+      },
+      "migrations": [
+        {
+          "new_sqlite_classes": ["LorePaidMCP"],
+          "tag": "v1"
+        }
+      ],
+      "d1_databases": [
+        {
+          "binding": "LORE_DB",
+          "database_name": "lore-publications-qa",
+          // Resolved automatically on the first run of
+          // .github/workflows/deploy-qa.yml, which creates the database and
+          // commits the real id back over this placeholder — never hand-edit.
+          "database_id": "REPLACE_WITH_YOUR_QA_D1_ID"
+        }
+      ]
+    }
+  }
 }
