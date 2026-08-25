@@ -154,7 +154,7 @@ function memoryRow(id, title, detail) {
   text.append(el("b", "", title), el("span", "", detail));
   open.append(text, chip("Private"));
   open.addEventListener("click", () => openMemory(Number(id)));
-  node.append(open, button("Publish", "quiet", () => void publishMemory({ id: Number(id), title })));
+  node.append(open, button("Draft for sale", "quiet", () => void publishMemory({ id: Number(id), title })));
   return node;
 }
 
@@ -181,7 +181,7 @@ async function openMemory(id) {
   close.type = "button";
   close.setAttribute("aria-label", "Close");
   close.addEventListener("click", closeSheet);
-  head.append(text, button("Publish", "secondary", () => void publishMemory(memory)), close);
+  head.append(text, button("Draft for sale", "quiet", () => void publishMemory(memory)), close);
   const meta = memory.content.match(FRONTMATTER)?.[1] ?? "";
   const body = markdown(memory.content.replace(FRONTMATTER, ""));
   body.classList.add("body");
