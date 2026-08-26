@@ -75,7 +75,7 @@ type PublicationCandidate = {
   provenance: number[];
 };
 
-type AgentTask = "capture" | "setup" | "publish";
+type AgentTask = "capture" | "setup" | "publish" | "deploy";
 type TaskState = "needs_you" | "working" | "stopped" | "done";
 
 type TaskRecord = {
