@@ -1,0 +1,4 @@
+# Not yet deployed. Populated automatically by
+# .github/workflows/deploy-qa.yml on the first successful deploy to the qa
+# environment; this line is replaced with the live https://...workers.dev/mcp
+# URL at that point. Do not hand-edit.
