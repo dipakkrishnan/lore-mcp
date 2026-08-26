@@ -4,7 +4,7 @@ title: Move deploy mechanics from the skill into the CLI when edge serving lands
 priority: P1
 effort: S
 component: monetization
-status: completed
+status: ready
 related: [MON-002, MON-004, MON-005, XC-005]
 blockers: []
 dependencies: []
@@ -45,7 +45,7 @@ XC-002 / PR #38 merges).
       account to a live, smoke-checked node serving their active publications,
       and records the node URL in settings.
 - [x] Revocation reaches the deployed node.
-- [x] The skill's deploy section contains no wrangler invocations, and neither
+- [ ] The skill's deploy section contains no wrangler invocations, and neither
       skill nor CLI claims the node serves canary content.
 
 ## Notes
@@ -89,3 +89,15 @@ closure. Re-verified against current `main`: `lore node deploy` exists in
 `lore/node/wrangler.jsonc`'s default environment is named `lore`, not the
 canary name. All three acceptance criteria hold. Status was simply never
 flipped — moving `ready` → `completed`.
+
+**Correction (2026-08-26, review round 1):** the "zero `wrangler` references"
+claim above does not hold — `git grep -n "wrangler" origin/main --
+plugins/lore/skills/lore-enable-payments/SKILL.md` returns 10 matches,
+several inside "## 5. Deploy the node" itself: `npx wrangler whoami`,
+`npx wrangler tail`, three `npx wrangler secret put ...` calls, and
+`npx wrangler secret list`. These are auth-check/secret-entry commands the
+owner runs in their own terminal, not deploy mechanics the CLI performs, but
+criterion 3 as written says "no wrangler invocations," which is falsifiable
+and false. Reverting `status` to `ready` and unchecking criterion 3 until
+either the section genuinely has none, or the criterion is reworded to the
+narrower claim it actually means.
