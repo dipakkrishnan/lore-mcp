@@ -4,13 +4,13 @@ title: Keep one source of truth for the MCP tool surface
 priority: P1
 effort: S
 component: mcp-server
-status: in-review
+status: completed
 related: [MON-003, MCP-001, XC-004, XC-008]
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-07-30
-updated: 2026-08-06
+updated: 2026-08-26
 ---
 
 ## Problem
@@ -100,3 +100,12 @@ check. `tsconfig.json` gained `resolveJsonModule: true` so the Worker-side
 test can import the JSON directly — the workerd sandbox `vitest-pool-workers`
 runs tests in has no host filesystem access, so `readFileSync` isn't an
 option there.
+
+**Closed out (2026-08-26, audit/implementation pass):** the 2026-08-06
+implementation note above already checked all three acceptance criteria,
+but frontmatter had stayed `in-review`. Re-ran both contract tests against
+current `main`: `tests/test_mcp_contract.py` passes standalone;
+`lore/node/test/mcp-contract.test.ts` needed a local `LORE_WALLET` (the
+gitignored `lore/node/.dev.vars`, same value `tests.yml` provisions in
+CI) to run at all in this checkout — not a code issue, just local setup —
+and passes once provisioned. Moving `in-review` → `completed`.

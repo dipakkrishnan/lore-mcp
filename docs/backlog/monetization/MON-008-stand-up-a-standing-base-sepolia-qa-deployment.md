@@ -6,7 +6,7 @@ effort: M
 component: monetization
 status: in-review
 related: [MON-002, MON-003, MON-005, MON-006, MON-010, MON-016, XC-008]
-blockers: [MON-002]
+blockers: [MON-016]
 dependencies: ["A protected GitHub Environment named qa holding CLOUDFLARE_API_TOKEN and QA_PAYOUT_ADDRESS — not repository secrets", "A Cloudflare account authorizing that token, and a Base Sepolia wallet funded from the CDP faucet for QA_PAYOUT_ADDRESS"]
 github_issue: null
 created: 2026-08-01
@@ -128,3 +128,9 @@ failed loudly on every subsequent merge — a broken-looking build for
 something that was always going to need the setup step above. Fixed to warn
 and skip cleanly instead (#161). The provisioning itself is split out to
 `MON-016` so it is separately trackable and assignable.
+
+**2026-08-26 (audit):** corrected `blockers` from `[MON-002]` (completed
+back on `MON-002`'s own timeline, no longer a real blocker) to `[MON-016]`
+— `MON-016`'s own Notes already say "`MON-008` stays `in-review` until this
+closes," so the blocker relationship existed in practice; the frontmatter
+had just never been updated to say so.

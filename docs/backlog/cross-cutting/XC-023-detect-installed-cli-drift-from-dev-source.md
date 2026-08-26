@@ -1,5 +1,5 @@
 ---
-id: XC-016
+id: XC-023
 title: Detect when the installed lore CLI has drifted from the checked-out source
 priority: P2
 effort: S
@@ -10,7 +10,7 @@ blockers: []
 dependencies: []
 github_issue: null
 created: 2026-08-10
-updated: 2026-08-10
+updated: 2026-08-26
 ---
 
 ## Problem
@@ -58,3 +58,9 @@ the pre-guard code until `uv tool install --force --reinstall <repo>` was run
 explicitly. Distinct from `MON-006`, which is about deploy mechanics living in
 the CLI at all — this is about the CLI's own installed-vs-source freshness
 once those mechanics exist.
+
+**2026-08-26 (audit):** renumbered from `XC-016` to `XC-023` — three unrelated
+items had accumulated that id (this one filed 2026-08-10, "let a buyer reach a
+seller" (now `XC-022`) filed 2026-08-06, "seed the worker smoke test" filed
+2026-08-04 and merged first via #86). The seed-worker-smoke-test item keeps
+`XC-016` as the first to actually claim it.

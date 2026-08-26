@@ -4,13 +4,13 @@ title: Bulk-prune the private library instead of one card at a time
 priority: P1
 effort: S
 component: cli-ux
-status: in-review
+status: completed
 related: [STO-001, XC-001, XC-002]
 blockers: [STO-001]
 dependencies: []
 github_issue: https://github.com/dipakkrishnan/lore-mcp/issues/6
 created: 2026-07-26
-updated: 2026-08-03
+updated: 2026-08-26
 ---
 
 ## Problem
@@ -40,11 +40,11 @@ so there is no externalizing action for a bulk path to accidentally offer.
 
 ## Acceptance criteria
 
-- [ ] A non-interactive way to set one retention status across a filtered set in
+- [x] A non-interactive way to set one retention status across a filtered set in
       one command, with a printed count of how many were changed.
-- [ ] The interactive loop offers an "apply to all remaining" option.
-- [ ] The reported count reflects rows actually *changed*, not rows matched.
-- [ ] Tests cover the bulk paths and the interactive apply-all, against the
+- [x] The interactive loop offers an "apply to all remaining" option.
+- [x] The reported count reflects rows actually *changed*, not rows matched.
+- [x] Tests cover the bulk paths and the interactive apply-all, against the
       private library rather than a `pending` queue.
 
 Dropped as void: "external is never assignable via any bulk action." STO-001
@@ -90,3 +90,17 @@ apply-to-all-remaining, `Store.set_status_many`), but `set_status_many` now retu
 rows *changed* rather than matched from the start, and the interactive keys are
 `K`/`D` (uppercase keep/discard) to match the post-STO-001 `[k]/[d]` card. Moved
 `ready` → `in-review`.
+
+**Closed out (2026-08-26, audit/implementation pass):** PR #85 merged
+2026-08-14; frontmatter had stayed `in-review` since. Re-verified against
+current `main`: `lore/cli.py`'s `review()` implements `--all` (prints
+"Marked N memories as X") and the interactive `K`/`D` apply-to-all-remaining
+branch exactly as described; `Store.set_status_many` (`lore/store.py:352`)
+filters `WHERE status!=?` so its returned count is rows changed, not
+matched. `tests/test_cli.py::ReviewTest`'s five bulk/apply-all tests
+(`test_all_status_bulk_discards_a_filtered_set_without_prompting`,
+`test_all_status_reports_only_rows_actually_changed`,
+`test_all_status_on_an_empty_match_says_so_and_marks_nothing`,
+`test_apply_all_remaining_from_inside_the_interactive_loop`,
+`test_apply_all_remaining_reports_only_rows_actually_changed`) pass. All
+four acceptance criteria met. Moving `in-review` → `completed`.

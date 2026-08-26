@@ -4,13 +4,13 @@ title: Give discover an owner-approved manifest of the node's offerings
 priority: P2
 effort: L
 component: mcp-server
-status: in-progress
+status: completed
 related: [STO-001, XC-002, MCP-002, MCP-003]
 blockers: [XC-002]
 dependencies: []
 github_issue: null
 created: 2026-07-29
-updated: 2026-08-02
+updated: 2026-08-26
 ---
 
 ## Problem
@@ -89,16 +89,16 @@ grouping is restricted to structure the owner already approved.
 
 ## Acceptance criteria
 
-- [ ] A buyer's agent can read the manifest and select specific publications
+- [x] A buyer's agent can read the manifest and select specific publications
       to purchase, without issuing a keyword query.
-- [ ] Everything a buyer can observe in the manifest (or any later tree) —
+- [x] Everything a buyer can observe in the manifest (or any later tree) —
       labels, counts, ordering, structure — is derived exclusively from
       owner-approved fields of active publications. A test renders the full
       manifest and asserts it is byte-identical
       before and after private rows are added, edited, and discarded.
-- [ ] Every externally-visible node label is owner-approved text, not text
+- [x] Every externally-visible node label is owner-approved text, not text
       synthesized at request time from private material.
-- [ ] Revoking a publication removes it from the manifest immediately, and
+- [x] Revoking a publication removes it from the manifest immediately, and
       removes any grouping that existed only to hold it.
 
 ## Notes
@@ -153,3 +153,32 @@ depth/breadth limits remain open. Known ceiling carried in code: at the paid
 edge, payment settles before the lookup, so a revocation racing a recent
 discover bills one not-found; opaque ids make any other billable miss
 unreachable in practice.
+
+## Closed out (2026-08-26, audit/implementation pass)
+
+Frontmatter had stayed `in-progress` since PR #57 (2026-08-02) despite the
+shape being fully implemented and consumed downstream (`MCP-002`'s contract
+test checks `discover`/`get` against both surfaces; `XC-003`'s test suite
+covers the store-level manifest API). Verified all four acceptance criteria
+directly against current `main` rather than trusting that inference:
+
+- AC1 (no keyword query): structural — `discover` takes no query argument;
+  `get(public_id)` is the only paid read path.
+- AC2 (byte-identical manifest): `tests/test_store.py`'s
+  `test_manifest_is_byte_identical_under_private_row_changes` names this
+  criterion directly and passes.
+- AC3 (owner-approved labels only): `Store.manifest()`
+  (`lore/store.py:598`) selects only `public_id, teaser, topic, kind,
+  updated_at` — all fields written at approval time, nothing synthesized
+  from `content`/`title`/provenance at request time.
+- AC4 (revoke removes the publication and any grouping that existed only to
+  hold it): live-verified — `manifest()` is a pure query with no cache, so
+  revoking a topic's only publication removes that topic key from the next
+  read. Confirmed with a throwaway script: a lone-publication topic is
+  present before `revoke_publication()` and absent immediately after.
+
+Open questions **pricing granularity** and **depth/breadth limits**, noted
+above as deliberately out of this item's shape, live on as `MON-009` and
+have no separate item yet — worth an `ideation` pass if depth/breadth
+becomes a real problem (nothing today suggests it is one). Moving
+`in-progress` → `completed`.
