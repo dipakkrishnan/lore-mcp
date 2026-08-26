@@ -38,6 +38,9 @@ jobs:
         # reading as a broken build when nothing regressed. Warn once and
         # skip cleanly instead.
         id: configured
+        # Overrides the job's lore/node default: this step reads only env
+        # vars, and runs before actions/checkout has created that directory.
+        working-directory: .
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           QA_PAYOUT_ADDRESS: ${{ secrets.QA_PAYOUT_ADDRESS }}
