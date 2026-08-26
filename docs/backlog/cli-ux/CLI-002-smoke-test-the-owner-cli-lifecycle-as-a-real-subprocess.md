@@ -4,13 +4,13 @@ title: Smoke-test the owner CLI lifecycle as a real subprocess, not mocked handl
 priority: P1
 effort: M
 component: cli-ux
-status: in-review
+status: ready
 related: [XC-004, XC-013, XC-016]
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-08-04
-updated: 2026-08-06
+updated: 2026-08-26
 ---
 
 ## Problem
@@ -95,3 +95,5 @@ argv in, exit code and stdout out.
 different, unrelated `XC-015` ("pin the skill drive-contract in the
 contract tests") merged to `main` first via #80, so the id this item
 originally referenced was claimed by that item instead.
+
+**Prioritization pass 2026-08-26:** No blockers, explicit offline-only scope, concrete command chain given in the approach. Promoted `in-review` → `ready`.

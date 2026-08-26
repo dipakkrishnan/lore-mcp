@@ -10,7 +10,7 @@ blockers: [MON-002, MON-003, MON-004]
 dependencies: ["CDP account and API credentials", "Decision to launch the edge adapter at all"]
 github_issue: https://github.com/dipakkrishnan/lore-mcp/issues/25
 created: 2026-07-30
-updated: 2026-08-02
+updated: 2026-08-26
 ---
 
 ## Problem
@@ -56,3 +56,12 @@ contract actually looks like in practice.
 Only relevant if the edge adapter is pursued past the MPP origin gate at all —
 epic #25 makes MPP the launch rail and Cloudflare/x402 optional. If the adapter
 is dropped, close this obsolete rather than building it.
+
+**Prioritization pass 2026-08-26:** all three formal `blockers` (`MON-002`,
+`MON-003`, `MON-004`) are now `completed`. Deliberately not promoting to
+`ready` anyway — this is the one irreversible step in the whole payment
+chain (real money, real disclosure to strangers), the item's own Notes say
+"do not pull it forward for convenience," and the two real gates (CDP
+credentials, and the standing decision to launch the edge adapter at all)
+are exactly the kind of human calls a mechanical blocker check can't clear.
+Left `in-review`.

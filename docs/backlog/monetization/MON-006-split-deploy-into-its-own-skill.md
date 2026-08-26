@@ -4,13 +4,13 @@ title: Move deploy mechanics from the skill into the CLI when edge serving lands
 priority: P1
 effort: S
 component: monetization
-status: ready
+status: completed
 related: [MON-002, MON-004, MON-005, XC-005]
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-07-30
-updated: 2026-08-05
+updated: 2026-08-26
 ---
 
 ## Problem
@@ -41,11 +41,11 @@ XC-002 / PR #38 merges).
 
 ## Acceptance criteria
 
-- [ ] `lore node deploy` (name negotiable) takes an owner from a Cloudflare
+- [x] `lore node deploy` (name negotiable) takes an owner from a Cloudflare
       account to a live, smoke-checked node serving their active publications,
       and records the node URL in settings.
-- [ ] Revocation reaches the deployed node.
-- [ ] The skill's deploy section contains no wrangler invocations, and neither
+- [x] Revocation reaches the deployed node.
+- [x] The skill's deploy section contains no wrangler invocations, and neither
       skill nor CLI claims the node serves canary content.
 
 ## Notes
@@ -81,3 +81,11 @@ revocation reach landed as MON-004 (#78); the worker rename — the last
 remainder — shipped here: `lore-x402-canary` → `lore`, live at
 lore.dipakrkrishnan.workers.dev/mcp, old worker deleted, rename verified by a
 settled Sepolia paid retrieval of real publication content (tx 0xfd3ef8b0...).
+
+**Re-closed (2026-08-26, prioritization/audit pass):** frontmatter had stayed
+`ready` despite the "Completed 2026-08-05" note above already documenting
+closure. Re-verified against current `main`: `lore node deploy` exists in
+`lore/cli.py`; `skills/lore-enable-payments/` has zero `wrangler` references;
+`lore/node/wrangler.jsonc`'s default environment is named `lore`, not the
+canary name. All three acceptance criteria hold. Status was simply never
+flipped — moving `ready` → `completed`.

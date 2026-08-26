@@ -4,13 +4,13 @@ title: Say what changed behind a flagged publication
 priority: P1
 effort: M
 component: cross-cutting
-status: in-review
+status: ready
 related: [MON-004, APP-006, APP-011, STO-001]
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-08-22
-updated: 2026-08-22
+updated: 2026-08-26
 ---
 
 ## Problem
@@ -73,3 +73,5 @@ Store and Today views — hence cross-cutting. Found while dogfooding the
 packaged app on 2026-08-22. Live evidence: `publications` 3 and 4 have
 `provenance [29, 30]`, `source_changed_at 2026-08-11T01:09:57Z`, matching
 memory 30's `updated_at`.
+
+**Prioritization pass 2026-08-26:** No blockers; the "flag on any change vs. only a non-empty diff" question in the approach doesn't block the AC, which are self-contained. Promoted `in-review` → `ready`.

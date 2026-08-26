@@ -4,13 +4,13 @@ title: Link the store to its payout address on Base
 priority: P2
 effort: S
 component: cross-cutting
-status: in-review
+status: ready
 related: [APP-001, MON-004, XC-019]
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-08-23
-updated: 2026-08-23
+updated: 2026-08-26
 ---
 
 ## Problem
@@ -49,3 +49,5 @@ Raised 2026-08-23 while dogfooding: "it doesn't link me to Base or to
 Cloudflare to see my worker should I so choose." The Cloudflare half landed
 as a chore (worker name = first label of the `workers.dev` host →
 `dash.cloudflare.com/?to=/:account/workers/services/view/<name>`).
+
+**Prioritization pass 2026-08-26:** No blockers, small effort, concrete AC with the exact data source (`payTo` from the node's 402) named. Promoted `in-review` → `ready`.
