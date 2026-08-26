@@ -6,7 +6,7 @@ const { lore, readState, searchMemories, readMemory, candidates, decide, useRunt
 
 if (process.env.LORE_DESKTOP_USER_DATA) app.setPath("userData", process.env.LORE_DESKTOP_USER_DATA);
 
-const TASKS = new Set(["capture", "setup", "publish"]);
+const TASKS = new Set(["capture", "setup", "publish", "deploy"]);
 const LOGINS = new Set(["anthropic:oauth", "anthropic:api_key", "openai-codex:oauth", "openai:api_key"]);
 
 /** @type {LoreAgentInstance} */

@@ -23,6 +23,16 @@ having at least one.
 > provides a structured question control. Never block because a named question
 > tool is unavailable.
 
+> **Lore desktop:** this skill runs as the app's "Open your store" task. Ask every
+> decision through `ask_user`. You run every command yourself except two the app
+> keeps for the owner: `npx wrangler login` (they run it in their own terminal —
+> say so, then verify with `npx wrangler whoami`) and `lore push` (they press
+> **Push** in the app; never run it). Default the path to the **test network**
+> (Base Sepolia); mainnet is an explicit choice the owner makes with a publication
+> live. Keep the desktop flow publication-only; paid answers remain a separate,
+> terminal-attended option. Do not read or write
+> `~/.lore/automation/onboarding.json`.
+
 ## How to drive — read this first
 
 The owner should never have to figure out where to go or what comes next. You are
