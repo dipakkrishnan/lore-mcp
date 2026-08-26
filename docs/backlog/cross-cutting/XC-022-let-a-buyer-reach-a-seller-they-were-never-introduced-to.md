@@ -1,5 +1,5 @@
 ---
-id: XC-016
+id: XC-022
 title: Let a buyer reach a seller they were never introduced to
 priority: P3
 effort: L
@@ -10,7 +10,7 @@ blockers: []
 dependencies: ["Evidence of demand: several live nodes, and a buyer who wants one they were not handed"]
 github_issue: null
 created: 2026-08-06
-updated: 2026-08-06
+updated: 2026-08-26
 ---
 
 ## Problem
@@ -73,3 +73,10 @@ bridge process is one node, and every process shares
 funds one wallet and can buy from many sellers, but `--max-usd` is per
 process — caps do not aggregate across sellers, and N sellers is N times the
 intended exposure.
+
+**2026-08-26 (audit):** renumbered from `XC-016` to `XC-022` — three unrelated
+items had accumulated that id (this one filed 2026-08-06, `XC-016`
+"detect installed CLI drift" filed 2026-08-10, `XC-016` "seed the worker smoke
+test" filed 2026-08-04 and merged first via #86). The seed-worker-smoke-test
+item keeps `XC-016` as the first to actually claim it; this item and the
+CLI-drift item (now `XC-023`) are renumbered.
