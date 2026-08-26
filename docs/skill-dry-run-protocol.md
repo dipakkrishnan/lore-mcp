@@ -18,7 +18,7 @@ skill's current state rather than a moving target.
 One full pass per skill, per agent path (two passes total per skill):
 
 - **`lore-onboard`** — the persona interview (Phase 1) through the profile
-  draft (Phase 2) to the hand-off offer (Phase 3, step 6).
+  draft (Phase 2) to the hand-off offer (step 6).
 - **`lore-enable-payments`** — start-to-finish, including the branch where
   the owner routes to `lore-publish` first (SKILL.md:77) and resumes.
 
@@ -43,7 +43,7 @@ One full pass per skill, per agent path (two passes total per skill):
 2. **A crossed skill boundary.** Follow at least one real hand-off instead of
    stopping at the first skill's end screen:
    - `lore-onboard` → `lore-enable-payments` (the Monetize branch offered in
-     Phase 3, step 6), or
+     step 6), or
    - `lore-onboard` → `lore-publish` (the publishing branch offered in the
      same step), or
    - `lore-enable-payments`'s own publish-first branch → `lore-publish` →
