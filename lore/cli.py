@@ -39,6 +39,7 @@ class PublicationDecision(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     candidate: PublicationInput
+    original: PublicationInput | None = None
     approve: bool
 
 
@@ -797,16 +798,28 @@ def publication_decide() -> int:
         _desktop_decision("publication approval")
     )
     staged = _staged()
-    dumped = decision.candidate.model_dump()
-    for index, candidate in enumerate(staged):
+    original = decision.original or decision.candidate
+    dumped = original.model_dump()
+    for _index, candidate in enumerate(staged):
         if candidate.model_dump() == dumped:
-            del staged[index]
             break
     else:
         raise ValueError("that candidate is not drafted; nothing saved")
+    for field in ("kind", "topic", "provenance"):
+        if getattr(decision.candidate, field) != getattr(original, field):
+            raise ValueError("only a draft's title, teaser, and content can be edited")
     if decision.approve:
         with Store() as store:
-            store.add_publication(**decision.candidate.model_dump())
+            approved = _candidate(decision.candidate, store)
+            store.add_publication(
+                title=approved.title,
+                teaser=approved.teaser,
+                content=approved.content,
+                kind=approved.kind,
+                topic=approved.topic,
+                provenance=approved.provenance,
+            )
+    del staged[_index]
     _stage(staged)
     print(json.dumps({"approved": decision.approve, "remaining": len(staged)}))
     return 0

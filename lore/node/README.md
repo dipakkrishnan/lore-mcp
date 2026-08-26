@@ -120,6 +120,33 @@ answers. The server names itself `Lore x402 (MAINNET)` and `discover` reports
 `network: eip155:8453`, so a deployed node's mode is visible at a glance. To
 return to the testnet, delete the `LORE_NETWORK` secret and redeploy.
 
+## The maintainers' standing QA environment (MON-008)
+
+Separate from any owner's node: `env.qa` in `wrangler.jsonc` deploys its own
+worker (`lore-qa`), its own D1 database (`lore-publications-qa`), and its own
+payout wallet, so a QA deploy and a real owner's node never collide. It
+redeploys automatically on every merge to `main` via
+`.github/workflows/deploy-qa.yml`, which then reseeds it from
+`scripts/qa-fixtures.sql` — two synthetic fixture publications, never a real
+owner's library — and smoke-checks the result before finishing.
+
+The current URL is recorded at [`.qa/node-url.txt`](.qa/node-url.txt) (the
+workflow keeps this current; do not hand-edit it). Everything QA holds is
+disposable and can be wiped and reseeded at any time — treat it as scratch
+infrastructure for `XC-008`'s live testnet suite and manual verification,
+never as a source of real data. The QA payout wallet and the QA buyer wallet
+used against it are both dedicated to this environment, funded from the Base
+Sepolia CDP faucet, and are never reused anywhere else or on mainnet.
+
+The workflow provisions the QA D1 database itself on its first run and
+commits the resolved id back — no tracked file ever needs a manual edit. The
+one thing an admin does have to set up by hand, once, since a workflow
+cannot create its own credentials: a protected GitHub **Environment** named
+`qa` (Settings → Environments), holding `CLOUDFLARE_API_TOKEN` (scoped to
+Workers + D1 only) and `QA_PAYOUT_ADDRESS` (a dedicated Base Sepolia payout
+address) as Environment secrets — never repository secrets, which every
+workflow in the repo can read.
+
 ## Developing the node itself (repo checkout only)
 
 Contributors working in the lore-mcp repository can run the node locally from

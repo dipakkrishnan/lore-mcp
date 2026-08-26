@@ -1,0 +1,119 @@
+name: Deploy QA
+
+# The maintainers' own standing target (MON-008) — never an owner's node.
+# Deliberately its own workflow, not a job inside tests.yml: it must never be
+# reachable from a pull_request trigger (a fork PR could otherwise exfiltrate
+# the deploy token), so it only ever listens for pushes to main.
+on:
+  push:
+    branches: [main]
+
+# Read-only by default; the one job below that needs to write elevates for
+# itself. No job here runs against pull_request or pull_request_target.
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-qa
+  cancel-in-progress: false
+
+jobs:
+  deploy-qa:
+    name: Deploy the QA node
+    runs-on: ubuntu-latest
+    if: github.repository == 'dipakkrishnan/lore-mcp'
+    # A protected GitHub Environment, not a repository secret: only this job
+    # can read CLOUDFLARE_API_TOKEN and QA_PAYOUT_ADDRESS, and (once required
+    # reviewers are configured on the Environment) only after approval.
+    environment: qa
+    permissions:
+      contents: write
+    defaults:
+      run:
+        working-directory: lore/node
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          # The URL-recording commit below needs to push back to main.
+          fetch-depth: 1
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: lts/*
+
+      - run: npm ci
+
+      - name: Ensure the QA D1 database exists
+        # Idempotent, mirroring lore/deploy.py's _ensure_d1: resolves the
+        # shipped placeholder against the account on the first run only, so
+        # no tracked file ever needs a manual edit to deploy this environment.
+        id: ensure-d1
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: |
+          if ! grep -q REPLACE_WITH_YOUR_QA_D1_ID wrangler.jsonc; then
+            exit 0
+          fi
+          created=$(npx wrangler d1 create lore-publications-qa 2>&1) || true
+          echo "$created"
+          database_id=$(echo "$created" | grep -oE '[0-9a-fA-F]{8}-[0-9a-fA-F-]{27}' | head -1)
+          if [ -z "$database_id" ]; then
+            database_id=$(npx wrangler d1 list --json \
+              | node -e "const rows=JSON.parse(require('fs').readFileSync(0,'utf8'));const row=rows.find(r=>r.name==='lore-publications-qa');if(row)console.log(row.uuid);")
+          fi
+          if [ -z "$database_id" ]; then
+            echo "::error::could not determine the lore-publications-qa database id" >&2
+            exit 1
+          fi
+          sed -i "s/REPLACE_WITH_YOUR_QA_D1_ID/$database_id/" wrangler.jsonc
+
+      - name: Deploy the qa environment
+        id: deploy
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: |
+          npx wrangler deploy --env qa | tee deploy.log
+          # Wrangler colourises under TTY-ish environments; strip escapes so
+          # \S+ cannot swallow them into the matched address.
+          url=$(sed -E 's/\x1b\[[0-9;]*m//g' deploy.log | grep -oE 'https://\S+\.workers\.dev' | head -1)
+          if [ -z "$url" ]; then
+            echo "::error::wrangler deploy printed no workers.dev URL; see the log above"
+            exit 1
+          fi
+          echo "url=$url/mcp" >> "$GITHUB_OUTPUT"
+
+      - name: Set the QA payout address
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          QA_PAYOUT_ADDRESS: ${{ secrets.QA_PAYOUT_ADDRESS }}
+        run: printf '%s' "$QA_PAYOUT_ADDRESS" | npx wrangler secret put LORE_WALLET --env qa
+
+      - name: Seed fixture publications
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: npx wrangler d1 execute lore-publications-qa --env qa --remote --file scripts/qa-fixtures.sql -y
+
+      - name: Smoke-check the deployed node
+        run: npm run smoke -- "${{ steps.deploy.outputs.url }}"
+
+      - name: Record the QA node URL
+        run: |
+          mkdir -p .qa
+          echo "${{ steps.deploy.outputs.url }}" > .qa/node-url.txt
+
+      - name: Commit the resolved D1 id and recorded URL if either changed
+        # A worker name and a D1 database are both fixed once created, so
+        # this only actually commits on the very first deploy against a
+        # fresh Cloudflare account (or if the account's workers.dev
+        # subdomain ever changes). GitHub does not trigger further workflow
+        # runs from a push authenticated by the default GITHUB_TOKEN, so
+        # this cannot loop.
+        run: |
+          if git diff --quiet -- .qa/node-url.txt wrangler.jsonc; then
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add .qa/node-url.txt wrangler.jsonc
+          git commit -m "MON-008: record the QA node's D1 id and/or redeployed URL"
+          git push origin HEAD:main
