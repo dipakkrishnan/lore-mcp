@@ -5,12 +5,12 @@ priority: P1
 effort: M
 component: monetization
 status: in-review
-related: [MON-002, MON-003, MON-005, MON-006, MON-010, XC-008]
+related: [MON-002, MON-003, MON-005, MON-006, MON-010, MON-016, XC-008]
 blockers: [MON-002]
 dependencies: ["A protected GitHub Environment named qa holding CLOUDFLARE_API_TOKEN and QA_PAYOUT_ADDRESS — not repository secrets", "A Cloudflare account authorizing that token, and a Base Sepolia wallet funded from the CDP faucet for QA_PAYOUT_ADDRESS"]
 github_issue: null
 created: 2026-08-01
-updated: 2026-08-24
+updated: 2026-08-26
 ---
 
 ## Problem
@@ -122,3 +122,9 @@ the first merge to `main` will provision the D1 database, deploy, seed
 fixtures, smoke-check, and record the live URL at `lore/node/.qa/node-url.txt`
 without further action — that first real run is what closes the two
 unchecked criteria above and moves this to `completed`.
+
+**2026-08-26:** merging this landed `Deploy QA` on `main` unconfigured, which
+failed loudly on every subsequent merge — a broken-looking build for
+something that was always going to need the setup step above. Fixed to warn
+and skip cleanly instead (#161). The provisioning itself is split out to
+`MON-016` so it is separately trackable and assignable.
