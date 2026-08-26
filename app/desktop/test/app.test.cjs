@@ -151,11 +151,11 @@ test("deploy is a task kind with its own session, title, and records", async () 
   const home = await mkdtemp(join(tmpdir(), "lore-desktop-"));
   try {
     const manager = LoreAgent.sessionFor(home, "deploy");
-    manager.appendCustomEntry("lore.task", { version: 1, kind: "deploy", title: "Open your store", state: "needs_you", phase: "Approve paid answers" });
+    manager.appendCustomEntry("lore.task", { version: 1, kind: "deploy", title: "Open your store", state: "needs_you", phase: "Payout, price, deploy" });
     manager.appendMessage({ role: "user", content: "Help me open my store.", timestamp: 1 });
     manager.appendMessage({ role: "assistant", content: [{ type: "text", text: "Let's start with a payout address." }], api: "anthropic-messages", provider: "anthropic", model: "m", usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } }, stopReason: "stop", timestamp: 2 });
     assert.match(String(manager.getSessionFile()), /\/\.pi\/sessions\/deploy\//);
-    assert.equal(latestTaskRecord(manager, "deploy")?.phase, "Approve paid answers");
+    assert.equal(latestTaskRecord(manager, "deploy")?.phase, "Payout, price, deploy");
     assert.deepEqual(LoreAgent.tasks(home).map(({ kind, state }) => ({ kind, state })), [{ kind: "deploy", state: "needs_you" }]);
   } finally {
     await rm(home, { recursive: true });
