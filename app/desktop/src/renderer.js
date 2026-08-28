@@ -576,9 +576,9 @@ async function load() {
   }
 }
 
-/** @param {string} text @param {boolean} [owner] @param {boolean} [stopped] @param {Line["action"]} [action] */
-function say(text, owner = false, stopped = false, action) {
-  lines.push({ text, owner, stopped, action });
+/** @param {string} text @param {boolean} [owner] @param {boolean} [stopped] */
+function say(text, owner = false, stopped = false) {
+  lines.push({ text, owner, stopped });
   if (!owner) liveText = "";
   renderLog();
 }
@@ -590,10 +590,9 @@ function live(text) {
 }
 
 function renderLog() {
-  log.replaceChildren(...lines.map(({ text, owner, stopped, action }) => {
+  log.replaceChildren(...lines.map(({ text, owner, stopped }) => {
     const line = el("div", owner ? "line owner" : stopped ? "line stop" : "line");
     line.append(owner ? el("span", "you", "You") : mark("mark mark-sm"), owner ? el("p", "", text) : markdown(text));
-    if (action) line.append(button(action.label, "secondary", action.run));
     return line;
   }));
   if (liveText) {
@@ -1076,39 +1075,81 @@ input.addEventListener("keydown", (event) => {
   if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); composer.requestSubmit(); }
 });
 const DICTATE_HINT = "You can also press the dictation key on your keyboard (or fn twice) and speak into the box.";
+const RATE = 16000;
 const dictate = $("#dictate");
-let dictating = false;
+/** @type {{ stop(): Promise<Float32Array[]> } | null} */
+let recorder = null;
 let spoken = "";
 /** @param {boolean} on */
 function setDictating(on) {
-  dictating = on;
   dictate.classList.toggle("recording", on);
   dictate.setAttribute("aria-pressed", String(on));
-  dictate.title = on ? "Stop dictating" : "Dictate";
+  dictate.title = on ? "Stop and transcribe" : "Dictate";
   dictate.setAttribute("aria-label", dictate.title);
 }
+async function record() {
+  const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+  const context = new AudioContext({ sampleRate: RATE });
+  const source = context.createMediaStreamSource(stream);
+  const tap = context.createScriptProcessor(4096, 1, 1);
+  /** @type {Float32Array[]} */
+  const chunks = [];
+  tap.onaudioprocess = (event) => chunks.push(new Float32Array(event.inputBuffer.getChannelData(0)));
+  source.connect(tap);
+  tap.connect(context.destination);
+  return {
+    stop: async () => {
+      tap.disconnect();
+      source.disconnect();
+      for (const track of stream.getTracks()) track.stop();
+      await context.close();
+      return chunks;
+    }
+  };
+}
+/** 16-bit mono PCM WAV. @param {Float32Array[]} chunks */
+function wav(chunks) {
+  const samples = chunks.reduce((total, chunk) => total + chunk.length, 0);
+  const buffer = new ArrayBuffer(44 + samples * 2);
+  const view = new DataView(buffer);
+  const ascii = (/** @type {number} */ offset, /** @type {string} */ text) => [...text].forEach((c, i) => view.setUint8(offset + i, c.charCodeAt(0)));
+  ascii(0, "RIFF"); view.setUint32(4, 36 + samples * 2, true); ascii(8, "WAVE");
+  ascii(12, "fmt "); view.setUint32(16, 16, true); view.setUint16(20, 1, true); view.setUint16(22, 1, true);
+  view.setUint32(24, RATE, true); view.setUint32(28, RATE * 2, true); view.setUint16(32, 2, true); view.setUint16(34, 16, true);
+  ascii(36, "data"); view.setUint32(40, samples * 2, true);
+  let offset = 44;
+  for (const chunk of chunks) for (const sample of chunk) { view.setInt16(offset, Math.max(-1, Math.min(1, sample)) * 0x7fff, true); offset += 2; }
+  return buffer;
+}
 dictate.addEventListener("click", async () => {
-  if (dictating) {
-    await window.lore.stopDictation();
+  if (recorder) {
+    const active = recorder;
+    recorder = null;
+    setDictating(false);
+    live("Transcribing…");
+    try {
+      const text = await window.lore.transcribe(wav(await active.stop()));
+      input.value = spoken + text;
+      fit(input);
+      input.focus({ preventScroll: true });
+    } catch (error) {
+      say(`Lore couldn't transcribe that: ${/** @type {Error} */ (error).message}. ${DICTATE_HINT}`, false, true);
+    } finally {
+      if (liveText === "Transcribing…") live("");
+    }
     return;
   }
   spoken = input.value.trim() ? `${input.value.trimEnd()} ` : "";
-  setDictating(true);
-  input.focus({ preventScroll: true });
-  live("Listening…");
-  await window.lore.startDictation();
-});
-window.lore.onDictation(({ kind, text }) => {
-  if (kind === "partial" || kind === "final") {
-    input.value = spoken + text;
-    fit(input);
-  } else if (kind === "error") {
-    setDictating(false);
-    if (/dictation are disabled/i.test(text)) say("Dictation is off on this Mac. Turn it on under System Settings → Keyboard, then tap the microphone again.", false, true, { label: "Open Keyboard settings", run: () => void window.lore.openDictationSettings() });
-    else say(`${text} ${DICTATE_HINT}`, false, true);
-  } else if (kind === "closed") {
-    setDictating(false);
-    if (liveText === "Listening…") live("");
+  if (!(await window.lore.microphone())) {
+    say(`Lore needs the microphone: System Settings → Privacy & Security → Microphone. ${DICTATE_HINT}`, false, true);
+    return;
+  }
+  try {
+    recorder = await record();
+    setDictating(true);
+    live("Listening… tap the microphone again when you're done.");
+  } catch (error) {
+    say(`Lore couldn't start the microphone: ${/** @type {Error} */ (error).message}. ${DICTATE_HINT}`, false, true);
   }
 });
 const GUARDED = /(^|\/)\.[^/]*$|\/\.(ssh|aws|gnupg)\/|\.(pem|key|p12|pfx|keychain(-db)?)$|id_(rsa|ed25519|ecdsa)/;

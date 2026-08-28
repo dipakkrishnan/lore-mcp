@@ -85,6 +85,39 @@ test("desktop Bash is confined to Lore", { skip: process.platform !== "darwin" }
   }
 });
 
+test("dictation transcribes through the bundled whisper and leaves no audio behind", async () => {
+  const { transcribe } = require("../src/dictation.cjs");
+  const dir = await mkdtemp(join(tmpdir(), "lore-dictation-"));
+  const bin = join(dir, "whisper-cli");
+  await writeFile(bin, '#!/bin/sh\ncp "$4" "$(dirname "$0")/seen.wav"\nprintf " [BLANK_AUDIO] Add the management layer first.\\n"\n', { mode: 0o755 });
+  try {
+    const text = await transcribe({ bin, model: "model.bin", dir }, Buffer.from("RIFF"));
+    assert.equal(text, "Add the management layer first.");
+    assert.equal(await readFile(join(dir, "seen.wav"), "utf8"), "RIFF");
+    assert.deepEqual((await require("node:fs/promises").readdir(dir)).filter((name) => name.endsWith(".wav") && name !== "seen.wav"), []);
+  } finally {
+    await rm(dir, { recursive: true });
+  }
+});
+
+test("a streamed CLI command hands back each line and fails on a non-zero exit", async () => {
+  const { loreStream, useRuntime } = require("../src/state.cjs");
+  const directory = await mkdtemp(join(tmpdir(), "lore-desktop-"));
+  const fake = join(directory, "lore");
+  await writeFile(fake, '#!/bin/sh\necho "Visit this link to authenticate: https://dash.cloudflare.com/oauth2/auth?x=1"\ntest "$2" = login && exit 0\necho "lore: Cloudflare sign-in did not complete" >&2\nexit 1\n', { mode: 0o755 });
+  const lines = [];
+  try {
+    useRuntime(fake);
+    await loreStream(directory, ["node", "login"], (line) => lines.push(line));
+    assert.match(lines[0], /^Visit this link/);
+    await assert.rejects(loreStream(directory, ["node", "deploy"], (line) => lines.push(line)), /exited with 1/);
+    assert.equal(lines.at(-1), "lore: Cloudflare sign-in did not complete");
+  } finally {
+    useRuntime();
+    await rm(directory, { recursive: true });
+  }
+});
+
 test("switching tasks updates the live network policy the proxy actually filters against", { skip: process.platform !== "darwin" }, async () => {
   const { createSandboxedBashOperations, initializeBashSandbox } = await import("../src/agent.mjs");
   const { SandboxManager } = await import("@anthropic-ai/sandbox-runtime");
@@ -107,31 +140,6 @@ test("switching tasks updates the live network policy the proxy actually filters
   } finally {
     await SandboxManager.reset();
     await rm(home, { recursive: true, force: true });
-  }
-});
-
-test("the dictation helper builds and speaks the line protocol", { skip: process.platform !== "darwin" }, () => {
-  const build = spawnSync(join(__dirname, "../packaging/dictate.sh"), { encoding: "utf8" });
-  assert.equal(build.status, 0, build.stderr);
-  const source = require("node:fs").readFileSync(join(__dirname, "../packaging/dictate.swift"), "utf8");
-  for (const kind of ["ready", "partial", "final", "error"]) assert.ok(source.includes(`"${kind}"`), kind);
-});
-
-test("a streamed CLI command hands back each line and fails on a non-zero exit", async () => {
-  const { loreStream, useRuntime } = require("../src/state.cjs");
-  const directory = await mkdtemp(join(tmpdir(), "lore-desktop-"));
-  const fake = join(directory, "lore");
-  await writeFile(fake, '#!/bin/sh\necho "Visit this link to authenticate: https://dash.cloudflare.com/oauth2/auth?x=1"\ntest "$2" = login && exit 0\necho "lore: Cloudflare sign-in did not complete" >&2\nexit 1\n', { mode: 0o755 });
-  const lines = [];
-  try {
-    useRuntime(fake);
-    await loreStream(directory, ["node", "login"], (line) => lines.push(line));
-    assert.match(lines[0], /^Visit this link/);
-    await assert.rejects(loreStream(directory, ["node", "deploy"], (line) => lines.push(line)), /exited with 1/);
-    assert.equal(lines.at(-1), "lore: Cloudflare sign-in did not complete");
-  } finally {
-    useRuntime();
-    await rm(directory, { recursive: true });
   }
 });
 

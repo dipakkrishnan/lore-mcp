@@ -6,7 +6,8 @@ const { stream } = require("./state.cjs");
 const root = resolve(__dirname, "../../..");
 const resources = app.isPackaged ? process.resourcesPath : root;
 const skillsDir = join(resources, app.isPackaged ? "skills" : "plugins/lore/skills");
-const dictateBin = join(resources, app.isPackaged ? "dictate" : "app/desktop/packaging/out/dictate");
+const whisperDir = join(resources, app.isPackaged ? "whisper" : "app/desktop/packaging/out/whisper");
+const whisper = { bin: join(whisperDir, "whisper-cli"), model: join(whisperDir, "ggml-base.en.bin") };
 
 /** @param {(event: AgentEvent) => void} emit @returns {Promise<{bin: string, binDir: string} | null>} */
 async function provision(emit) {
@@ -41,4 +42,4 @@ async function provision(emit) {
   return runtime;
 }
 
-module.exports = { skillsDir, dictateBin, provision };
+module.exports = { skillsDir, whisper, provision };

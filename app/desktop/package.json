@@ -4,7 +4,7 @@
   "version": "0.0.0",
   "main": "src/main.cjs",
   "scripts": {
-    "start": "packaging/dictate.sh && electron .",
+    "start": "packaging/whisper.sh && electron .",
     "check": "tsc --noEmit",
     "test": "node --test",
     "test:capture": "./test-capture.sh",

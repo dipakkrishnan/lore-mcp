@@ -98,7 +98,7 @@ type BlueprintFields = {
   storytelling: string;
 };
 
-type Line = { text: string; owner: boolean; stopped?: boolean; action?: { label: string; run(): void } };
+type Line = { text: string; owner: boolean; stopped?: boolean };
 
 interface Window {
   lore: {
@@ -120,14 +120,11 @@ interface Window {
     pickFiles(): Promise<string[]>;
     pathFor(file: File): string;
     onAgentEvent(listener: (event: AgentEvent) => void): () => void;
-    startDictation(): Promise<void>;
-    stopDictation(): Promise<void>;
-    openDictationSettings(): Promise<void>;
-    onDictation(listener: (event: DictationEvent) => void): () => void;
+    microphone(): Promise<boolean>;
+    transcribe(wav: ArrayBuffer): Promise<string>;
   };
 }
 
-type DictationEvent = { kind: "ready" | "partial" | "final" | "error" | "closed"; text: string };
 
 type AgentStatus = {
   credentials: ReadonlyArray<{ providerId: string; type: "oauth" | "api_key" }>;
