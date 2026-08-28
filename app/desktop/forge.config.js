@@ -9,9 +9,14 @@ module.exports = {
     appBundleId: "com.lore.desktop",
     appCategoryType: "public.app-category.productivity",
     icon: join(out, "icon"),
+    extendInfo: {
+      NSMicrophoneUsageDescription: "Lore listens while you dictate a memory; the words are transcribed on this Mac."
+    },
     ignore: [/^\/(packaging|out|test|support)($|\/)/, /^\/(test-capture\.sh|tsconfig\.json|forge\.config\.js)$/],
     extraResource: [
       join(out, "uv"),
+      join(out, "node"),
+      join(out, "whisper"),
       join(out, "wheels"),
       join(out, "overrides.txt"),
       join(out, "runtime.json"),
@@ -30,7 +35,7 @@ module.exports = {
   },
   hooks: {
     generateAssets: () => {
-      for (const script of ["icon.sh", "wheelhouse.sh"]) execFileSync(join(__dirname, "packaging", script), { stdio: "inherit" });
+      for (const script of ["icon.sh", "wheelhouse.sh", "node.sh", "whisper.sh"]) execFileSync(join(__dirname, "packaging", script), { stdio: "inherit" });
     }
   },
   makers: [{ name: "@electron-forge/maker-zip", platforms: ["darwin"] }]

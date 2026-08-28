@@ -1,7 +1,11 @@
+import { randomUUID } from "node:crypto";
+import { mkdirSync, realpathSync } from "node:fs";
+import { homedir } from "node:os";
 import { resolve } from "node:path";
 import {
   createAgentSession,
   createBashTool,
+  createLocalBashOperations,
   DefaultResourceLoader,
   defineTool,
   ModelRuntime,
@@ -10,6 +14,7 @@ import {
   SettingsManager
 } from "@earendil-works/pi-coding-agent";
 import { Type } from "@earendil-works/pi-ai";
+import { SandboxManager } from "@anthropic-ai/sandbox-runtime";
 
 const SKILLS = { capture: "lore-capture", setup: "lore-onboard", publish: "lore-publish", deploy: "lore-enable-payments" };
 const TASKS = {
@@ -24,7 +29,64 @@ const AXES = ["chronological", "theme", "project", "knowledge"];
 const CLOSED = "Lore was closed before this finished.";
 const MODELS = ["anthropic/claude-sonnet-5", "openai-codex/gpt-5.6-luna", "openai/gpt-5.6-luna"];
 const MAX_TURNS = 60;
+const SANDBOX_TMPDIR = "/tmp/claude";
+/** @type {Partial<Record<AgentTask, string[]>>} Home-relative directories outside Lore that a task's commands must write. */
+const OWNER_DIRS = {
+  setup: [".codex/automations", "Library/LaunchAgents"],
+  deploy: [".wrangler", "Library/Preferences/.wrangler", "Library/Caches/.wrangler", ".npm"]
+};
 const CAPPED = "That reply took more steps than Lore allows at once, so it paused. Say continue to keep going.";
+
+/** @param {string} loreHome @param {AgentTask} task @param {string} [binDir] */
+export function bashSandboxPolicy(loreHome, task, binDir) {
+  const home = homedir();
+  const lore = realpathSync(loreHome);
+  const owned = (OWNER_DIRS[task] ?? []).map((dir) => resolve(home, dir));
+  const runtime = binDir
+    ? [resolve(binDir, ".."), ...(process.resourcesPath ? [process.resourcesPath] : [])]
+    : [resolve(home, ".local/bin/lore"), resolve(home, ".local/share/lore/lore-mcp"), resolve(home, ".local/share/uv/python"), resolve(home, ".local/share/uv/tools/lore-mcp")];
+  return {
+    network: { allowedDomains: task === "deploy" ? ["*"] : [], deniedDomains: [] },
+    filesystem: {
+      denyRead: [home],
+      allowRead: [lore, ...runtime, resolve(home, ".claude"), resolve(home, ".codex"), ...owned, ...(task === "deploy" ? [resolve(home, ".npmrc")] : [])],
+      allowWrite: [lore, ...owned],
+      denyWrite: []
+    }
+  };
+}
+
+/** @param {string} loreHome @param {string} [binDir] */
+export async function initializeBashSandbox(loreHome, binDir) {
+  mkdirSync(loreHome, { recursive: true, mode: 0o700 });
+  mkdirSync(SANDBOX_TMPDIR, { recursive: true });
+  await SandboxManager.initialize(bashSandboxPolicy(loreHome, "capture", binDir), undefined, true);
+}
+
+/** @param {string} loreHome @param {AgentTask} task @param {string} [binDir] @returns {import("@earendil-works/pi-coding-agent").BashOperations} */
+export function createSandboxedBashOperations(loreHome, task, binDir) {
+  const local = createLocalBashOperations();
+  return {
+    exec: async (command, cwd, options) => {
+      const id = randomUUID();
+      const policy = bashSandboxPolicy(loreHome, task, binDir);
+      // The mux proxy's live network filter reads the session-level config set by
+      // initialize()/updateConfig(), never the customConfig passed to wrapWithSandbox
+      // below — so without this, every task is filtered against whichever task's
+      // policy initializeBashSandbox() started the session with (always "capture").
+      SandboxManager.updateConfig(policy);
+      const wrapped = await SandboxManager.wrapWithSandbox(command, undefined, policy, options.signal, { commandId: id, commandText: command });
+      try {
+        const result = await local.exec(wrapped, cwd, options);
+        const violations = SandboxManager.annotateStderrWithSandboxFailures(id, "");
+        if (violations) options.onData(Buffer.from(violations));
+        return result;
+      } finally {
+        SandboxManager.cleanupAfterCommand();
+      }
+    }
+  };
+}
 
 /** @param {unknown} value @returns {value is BlueprintFields} */
 export function validBlueprint(value) {
@@ -108,6 +170,7 @@ export class LoreAgent {
 
   /** @param {LoreAgentOptions} options */
   static async create(options) {
+    await initializeBashSandbox(options.loreHome, options.binDir);
     const models = await ModelRuntime.create({ credentials: options.credentials });
     const settings = SettingsManager.inMemory();
     const resources = new DefaultResourceLoader({
@@ -305,9 +368,10 @@ export class LoreAgent {
       resourceLoader: this.resources,
       settingsManager: this.settings,
       sessionManager,
-      tools: ["read", "write", "edit", "bash", "ask_user", "propose_blueprint", "finish_task"],
+      tools: ["read", "write", "edit", "bash", "ask_user", "propose_blueprint", "cloudflare_login", "finish_task"],
       customTools: [
         createBashTool(this.options.loreHome, {
+          operations: createSandboxedBashOperations(this.options.loreHome, task, this.options.binDir),
           spawnHook: (context) => ({
             ...context,
             env: {
@@ -320,6 +384,7 @@ export class LoreAgent {
         }),
         this.#askTool(),
         this.#blueprintTool(),
+        this.#cloudflareTool(),
         this.#finishTool()
       ]
     });
@@ -408,6 +473,25 @@ export class LoreAgent {
           return { content: [{ type: "text", text: JSON.stringify(edited) }], details: {} };
         } finally {
           if (task && session) this.#record(session, task, "working", "Lore shape saved");
+        }
+      }
+    });
+  }
+
+  #cloudflareTool() {
+    return defineTool({
+      name: "cloudflare_login",
+      label: "Sign in to Cloudflare",
+      description: "Sign the owner in to Cloudflare through their browser. Call when wrangler says they are not authenticated; returns who is signed in, or that the owner declined for now.",
+      parameters: Type.Object({}),
+      execute: async () => {
+        const task = this.#activeTask;
+        const session = task && this.#sessions.get(task);
+        if (task && session) this.#record(session, task, "needs_you", "Sign in to Cloudflare");
+        try {
+          return { content: [{ type: "text", text: await this.options.cloudflareLogin() }], details: {} };
+        } finally {
+          if (task && session) this.#record(session, task, "working");
         }
       }
     });

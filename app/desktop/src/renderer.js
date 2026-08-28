@@ -18,6 +18,7 @@ const inputLabel = /** @type {HTMLLabelElement} */ (composer.querySelector("labe
 const attachmentList = $("#attachments");
 const submit = /** @type {HTMLButtonElement} */ ($("#capture-submit"));
 const agentPanel = $("#agent");
+const detailSlot = $("#detail");
 const log = $("#log");
 const requestSlot = $("#request");
 const search = /** @type {HTMLInputElement} */ ($("#search"));
@@ -500,8 +501,10 @@ function render() {
   if (!snapshot) return;
   $("[data-count=memories]").textContent = String(snapshot.library.counts.private);
   $("[data-count=store]").textContent = String(snapshot.publications.counts.active);
-  content.replaceChildren(...renderers[view](snapshot));
-  for (const area of content.querySelectorAll("textarea")) fit(/** @type {HTMLTextAreaElement} */ (area));
+  const parts = renderers[view](snapshot);
+  detailSlot.replaceChildren(...(detail ? parts : []));
+  content.replaceChildren(...(detail ? [] : parts));
+  for (const area of mainEl.querySelectorAll("textarea")) fit(/** @type {HTMLTextAreaElement} */ (area));
   renderAccount();
 }
 
@@ -597,7 +600,7 @@ function renderLog() {
     line.append(mark("mark mark-sm"), markdown(liveText));
     log.append(line);
   }
-  agentPanel.hidden = !lines.length && !liveText && !requestSlot.childElementCount;
+  agentPanel.hidden = !lines.length && !liveText && !requestSlot.childElementCount && !detailSlot.childElementCount;
   if (log.lastElementChild) mainEl.scrollTop = mainEl.scrollHeight;
 }
 
@@ -715,6 +718,23 @@ function renderRequest(event) {
         storytelling: controls.storytelling.value.trim()
       };
       respond(event.id, fields, `${fields.name} · ${fields.persona} · ${fields.topic_outline.join(", ")}`);
+    });
+  } else if (event.type === "cloudflare") {
+    box.append(
+      el("p", "q", "Sign in to Cloudflare?"),
+      el("p", "hint", "Your browser will open Cloudflare's sign-in page; a free account is enough. Come back here once it says you can close the page.")
+    );
+    const actions = el("div", "actions");
+    const later = el("button", "btn secondary sm", "Not now");
+    later.type = "button";
+    later.addEventListener("click", () => respond(event.id, false, "Not now"));
+    const open = el("button", "btn primary sm", "Open Cloudflare");
+    open.type = "submit";
+    actions.append(later, open);
+    box.append(actions);
+    box.addEventListener("submit", (submitEvent) => {
+      submitEvent.preventDefault();
+      respond(event.id, true, "Open Cloudflare");
     });
   } else {
     box.append(el("p", "q", event.prompt.message));
@@ -907,6 +927,7 @@ function seamCard() {
   leave.disabled = pushing;
   push.disabled = pushing;
   actions.append(leave, push);
+  box.append(actions);
   return box;
 }
 
@@ -1053,10 +1074,96 @@ input.addEventListener("input", () => fit(input));
 input.addEventListener("keydown", (event) => {
   if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); composer.requestSubmit(); }
 });
-const DICTATE_HINT = "Press the dictation key on your keyboard (or fn twice), then speak. Lore listens to whatever lands in the box.";
-$("#dictate").addEventListener("click", () => {
-  input.focus();
-  if (lines.at(-1)?.text !== DICTATE_HINT) say(DICTATE_HINT);
+const DICTATE_HINT = "You can also press the dictation key on your keyboard (or fn twice) and speak into the box.";
+const RATE = 16000;
+const MAX_DICTATION_MS = 10 * 60_000;
+const dictate = /** @type {HTMLButtonElement} */ ($("#dictate"));
+/** @type {{ stop(): Promise<Float32Array[]> } | null} */
+let recorder = null;
+let dictationLimit = 0;
+let spoken = "";
+const dictationBox = $("#dictation");
+const dictationText = $("#dictation-text");
+/** @param {"listening" | "transcribing" | null} mode */
+function dictationMode(mode) {
+  if (mode) composer.dataset.mode = mode;
+  else delete composer.dataset.mode;
+  dictationBox.hidden = !mode;
+  dictationText.textContent = mode === "listening" ? "Listening…" : mode === "transcribing" ? "Transcribing…" : "";
+  dictate.disabled = mode === "transcribing";
+  dictate.title = mode === "listening" ? "Stop dictating" : "Dictate";
+  dictate.setAttribute("aria-label", dictate.title);
+  dictate.setAttribute("aria-pressed", String(mode === "listening"));
+}
+async function record() {
+  const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+  const context = new AudioContext({ sampleRate: RATE });
+  const source = context.createMediaStreamSource(stream);
+  const tap = context.createScriptProcessor(4096, 1, 1);
+  /** @type {Float32Array[]} */
+  const chunks = [];
+  tap.onaudioprocess = (event) => {
+    chunks.push(new Float32Array(event.inputBuffer.getChannelData(0)));
+  };
+  source.connect(tap);
+  tap.connect(context.destination);
+  return {
+    stop: async () => {
+      tap.disconnect();
+      source.disconnect();
+      for (const track of stream.getTracks()) track.stop();
+      await context.close();
+      return chunks;
+    }
+  };
+}
+/** 16-bit mono PCM WAV. @param {Float32Array[]} chunks */
+function wav(chunks) {
+  const samples = chunks.reduce((total, chunk) => total + chunk.length, 0);
+  const buffer = new ArrayBuffer(44 + samples * 2);
+  const view = new DataView(buffer);
+  const ascii = (/** @type {number} */ offset, /** @type {string} */ text) => [...text].forEach((c, i) => view.setUint8(offset + i, c.charCodeAt(0)));
+  ascii(0, "RIFF"); view.setUint32(4, 36 + samples * 2, true); ascii(8, "WAVE");
+  ascii(12, "fmt "); view.setUint32(16, 16, true); view.setUint16(20, 1, true); view.setUint16(22, 1, true);
+  view.setUint32(24, RATE, true); view.setUint32(28, RATE * 2, true); view.setUint16(32, 2, true); view.setUint16(34, 16, true);
+  ascii(36, "data"); view.setUint32(40, samples * 2, true);
+  let offset = 44;
+  for (const chunk of chunks) for (const sample of chunk) { view.setInt16(offset, Math.max(-1, Math.min(1, sample)) * 0x7fff, true); offset += 2; }
+  return buffer;
+}
+dictate.addEventListener("click", async () => {
+  if (recorder) {
+    const active = recorder;
+    recorder = null;
+    clearTimeout(dictationLimit);
+    dictationMode("transcribing");
+    let text = "";
+    try {
+      text = await window.lore.transcribe(wav(await active.stop()));
+    } catch (error) {
+      say(`Lore couldn't transcribe that: ${/** @type {Error} */ (error).message}. ${DICTATE_HINT}`, false, true);
+    }
+    dictationMode(null);
+    input.value = spoken + text;
+    fit(input);
+    input.focus({ preventScroll: true });
+    return;
+  }
+  spoken = input.value.trim() ? `${input.value.trimEnd()} ` : "";
+  dictate.disabled = true;
+  try {
+    if (!(await window.lore.microphone())) {
+      say(`Lore needs the microphone: System Settings → Privacy & Security → Microphone. ${DICTATE_HINT}`, false, true);
+      return;
+    }
+    recorder = await record();
+    dictationMode("listening");
+    dictationLimit = window.setTimeout(() => dictate.click(), MAX_DICTATION_MS);
+  } catch (error) {
+    say(`Lore couldn't start the microphone: ${/** @type {Error} */ (error).message}. ${DICTATE_HINT}`, false, true);
+  } finally {
+    if (!recorder) dictate.disabled = false;
+  }
 });
 const GUARDED = /(^|\/)\.[^/]*$|\/\.(ssh|aws|gnupg)\/|\.(pem|key|p12|pfx|keychain(-db)?)$|id_(rsa|ed25519|ecdsa)/;
 /** @param {string[]} paths */

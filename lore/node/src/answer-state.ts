@@ -49,6 +49,9 @@ interface ManifestRow {
   updated_at: string;
 }
 
+export type CatalogEntry = Omit<ManifestRow, "topic">;
+export type Catalog = { manifest_version: 1; publication_count: number; topics: Record<string, CatalogEntry[]> };
+
 export interface AnswerJob {
   ticket_id: string;
   question: string;
@@ -67,14 +70,14 @@ export interface AnswerJob {
   updated_at: string;
 }
 
-export async function manifest(env: Env): Promise<Record<string, unknown>> {
+export async function manifest(env: Env): Promise<Catalog> {
   const { results } = await env.LORE_DB.prepare(
     `SELECT public_id AS id, teaser, topic, kind,
             substr(updated_at, 1, 10) AS updated_at
      FROM publications WHERE teaser <> ''
      ORDER BY topic, updated_at DESC, public_id`
   ).all<ManifestRow>();
-  const topics: Record<string, object[]> = {};
+  const topics: Record<string, CatalogEntry[]> = {};
   for (const { id, teaser, topic, kind, updated_at } of results) {
     (topics[topic] ??= []).push({ id, teaser, kind, updated_at });
   }

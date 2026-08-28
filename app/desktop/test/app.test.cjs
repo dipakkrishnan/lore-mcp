@@ -1,6 +1,6 @@
 const assert = require("node:assert/strict");
-const { mkdtemp, readFile, rm, writeFile } = require("node:fs/promises");
-const { tmpdir } = require("node:os");
+const { mkdtemp, readFile, rm, symlink, writeFile } = require("node:fs/promises");
+const { homedir, tmpdir } = require("node:os");
 const { join } = require("node:path");
 const { spawnSync } = require("node:child_process");
 const { test } = require("node:test");
@@ -50,6 +50,101 @@ test("the desktop agent has Pi's normal file and shell tools", async () => {
   assert.deepEqual(session.getActiveToolNames().sort(), ["bash", "edit", "read", "write"]);
   assert.equal(session.getAllTools().find(({ name }) => name === "bash").sourceInfo.path, "<sdk:bash>");
   session.dispose();
+});
+
+test("desktop Bash is confined to Lore", { skip: process.platform !== "darwin" }, async () => {
+  const { createSandboxedBashOperations, initializeBashSandbox } = await import("../src/agent.mjs");
+  const { SandboxManager } = await import("@anthropic-ai/sandbox-runtime");
+  const real = await mkdtemp(join(tmpdir(), "lore-sandbox-"));
+  const home = `${real}-link`;
+  await symlink(real, home);
+  const inside = join(home, "inside");
+  const escaped = `${real}-escaped`;
+  const output = [];
+  const run = (task, command) => createSandboxedBashOperations(home, task).exec(command, home, { onData: (data) => output.push(data) });
+  try {
+    await initializeBashSandbox(home);
+    const result = await run("capture", `printf inside > ${JSON.stringify(inside)}; printf escaped > ${JSON.stringify(escaped)}`);
+    assert.equal(result.exitCode, 1);
+    assert.equal(await readFile(inside, "utf8"), "inside");
+    await assert.rejects(readFile(escaped, "utf8"), { code: "ENOENT" });
+    assert.match(Buffer.concat(output).toString(), /Operation not permitted|sandbox_violations/);
+    assert.equal((await run("capture", 'printf "$TMPDIR" > "$TMPDIR/probe" && cat "$TMPDIR/probe"')).exitCode, 0);
+    assert.deepEqual(SandboxManager.getNetworkRestrictionConfig().allowedHosts, []);
+    await run("deploy", "true");
+    assert.deepEqual(SandboxManager.getNetworkRestrictionConfig().allowedHosts, ["*"]);
+    await run("setup", "true");
+    assert.ok(SandboxManager.getFsWriteConfig().allowOnly.includes(join(homedir(), ".codex/automations")));
+    await run("capture", "true");
+    assert.deepEqual(SandboxManager.getNetworkRestrictionConfig().allowedHosts, []);
+  } finally {
+    await SandboxManager.reset();
+    await rm(real, { recursive: true, force: true });
+    await rm(home, { force: true });
+    await rm(escaped, { force: true });
+  }
+});
+
+test("dictation transcribes through the bundled whisper and leaves no audio behind", async () => {
+  const { MAX_WAV_BYTES, transcribe } = require("../src/dictation.cjs");
+  const dir = await mkdtemp(join(tmpdir(), "lore-dictation-"));
+  const bin = join(dir, "whisper-cli");
+  await writeFile(bin, '#!/bin/sh\ncp "$4" "$(dirname "$0")/seen.wav"\nprintf " [BLANK_AUDIO] Add the management layer first.\\n"\n', { mode: 0o755 });
+  try {
+    const wav = Buffer.alloc(44);
+    wav.write("RIFF");
+    const text = await transcribe({ bin, model: "model.bin", dir }, wav);
+    assert.equal(text, "Add the management layer first.");
+    assert.equal((await readFile(join(dir, "seen.wav"))).subarray(0, 4).toString(), "RIFF");
+    assert.deepEqual((await require("node:fs/promises").readdir(dir)).filter((name) => name.endsWith(".wav") && name !== "seen.wav"), []);
+    await assert.rejects(transcribe({ bin, model: "model.bin", dir }, Buffer.alloc(43)), /between 44 bytes and 20 MB/);
+    await assert.rejects(transcribe({ bin, model: "model.bin", dir }, Buffer.alloc(MAX_WAV_BYTES + 1)), /between 44 bytes and 20 MB/);
+  } finally {
+    await rm(dir, { recursive: true });
+  }
+});
+
+test("a streamed CLI command hands back each line and fails on a non-zero exit", async () => {
+  const { loreStream, useRuntime } = require("../src/state.cjs");
+  const directory = await mkdtemp(join(tmpdir(), "lore-desktop-"));
+  const fake = join(directory, "lore");
+  await writeFile(fake, '#!/bin/sh\necho "Visit this link to authenticate: https://dash.cloudflare.com/oauth2/auth?x=1"\ntest "$2" = login && exit 0\necho "lore: Cloudflare sign-in did not complete" >&2\nexit 1\n', { mode: 0o755 });
+  const lines = [];
+  try {
+    useRuntime(fake);
+    await loreStream(directory, ["node", "login"], (line) => lines.push(line));
+    assert.match(lines[0], /^Visit this link/);
+    await assert.rejects(loreStream(directory, ["node", "deploy"], (line) => lines.push(line)), /exited with 1/);
+    assert.equal(lines.at(-1), "lore: Cloudflare sign-in did not complete");
+  } finally {
+    useRuntime();
+    await rm(directory, { recursive: true });
+  }
+});
+
+test("switching tasks updates the live network policy the proxy actually filters against", { skip: process.platform !== "darwin" }, async () => {
+  const { createSandboxedBashOperations, initializeBashSandbox } = await import("../src/agent.mjs");
+  const { SandboxManager } = await import("@anthropic-ai/sandbox-runtime");
+  const home = await mkdtemp(join(tmpdir(), "lore-sandbox-net-"));
+  try {
+    // initializeBashSandbox() always starts the session with the "capture"
+    // policy (empty network allowlist) regardless of which task runs first.
+    await initializeBashSandbox(home);
+    assert.deepEqual(SandboxManager.getConfig().network.allowedDomains, []);
+    // filterNetworkRequest — the mux proxy's live per-request filter — reads
+    // only this session-level config, never the customConfig exec() passes to
+    // wrapWithSandbox. Running a "deploy" command must update it in place, or
+    // deploy stays filtered against "capture"'s empty allowlist forever.
+    const result = await createSandboxedBashOperations(home, "deploy").exec("true", home, { onData: () => {} });
+    assert.equal(result.exitCode, 0);
+    assert.deepEqual(SandboxManager.getConfig().network.allowedDomains, ["*"]);
+    // And it swaps back for the next "capture" command in the same session.
+    await createSandboxedBashOperations(home, "capture").exec("true", home, { onData: () => {} });
+    assert.deepEqual(SandboxManager.getConfig().network.allowedDomains, []);
+  } finally {
+    await SandboxManager.reset();
+    await rm(home, { recursive: true, force: true });
+  }
 });
 
 test("sessions persist per task, come back as a thread, and a cut-off tool call is closed out", async () => {

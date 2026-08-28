@@ -164,12 +164,26 @@ h2 { font-size: 12px; font-weight: 600; letter-spacing: 0.06em; text-transform: 
 }
 .composer textarea::placeholder { font-family: var(--sans); font-size: 15px; color: var(--faint); }
 .composer-actions { grid-area: actions; display: flex; align-items: center; gap: 4px; }
+/* Dictation mode: the box becomes a listening bar; the mic becomes Stop. */
+.dictation { grid-area: text; display: flex; align-items: center; gap: 10px; height: 34px; overflow: hidden; font-size: 15px; color: var(--muted); }
+.dictation .rec { flex: none; width: 10px; height: 10px; border-radius: 50%; background: var(--attention); animation: pulse 1.2s ease-in-out infinite; }
+.composer[data-mode] { border-color: var(--attention); }
+.composer[data-mode] textarea, .composer[data-mode] #attach, .composer[data-mode] #capture-submit, #dictate .stop { display: none; }
+.composer[data-mode="listening"] #dictate { background: var(--attention); color: var(--surface); }
+.composer[data-mode="listening"] #dictate .mic { display: none; }
+.composer[data-mode="listening"] #dictate .stop { display: block; }
+.composer[data-mode="transcribing"] .rec { display: none; }
+.composer[data-mode="transcribing"] #dictation-text { animation: pulse 1.2s ease-in-out infinite; }
+.composer[data-mode="transcribing"] #dictate { opacity: 0.4; }
+@media (prefers-reduced-motion: reduce) { .dictation .rec, #dictation-text { animation: none; } }
 .attachments { grid-area: files; display: flex; flex-wrap: wrap; gap: 6px; }
 .attachments:empty { display: none; }
 .attachment { display: inline-flex; align-items: center; gap: 6px; height: 24px; padding: 0 4px 0 8px; border-radius: 6px; background: var(--hover); font-size: 12px; }
 .attachment button { width: 18px; height: 18px; border-radius: 4px; color: var(--muted); display: inline-flex; align-items: center; justify-content: center; }
 .attachment button:hover { background: var(--line-strong); color: var(--ink); }
 .agent { display: flex; flex-direction: column; gap: 12px; }
+.detail { display: flex; flex-direction: column; gap: 12px; }
+.detail:empty { display: none; }
 .log { display: flex; flex-direction: column; gap: 10px; }
 .log .line { display: flex; gap: 10px; align-items: flex-start; font-size: 14px; color: var(--ink-soft); }
 .log .line .mark { margin-top: 2px; }

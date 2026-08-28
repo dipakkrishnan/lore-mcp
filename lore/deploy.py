@@ -14,6 +14,7 @@ import math
 import re
 import shutil
 import subprocess
+import sys
 from importlib import resources
 from pathlib import Path
 
@@ -28,6 +29,7 @@ EXCLUDED = ("node_modules", ".wrangler", ".buyer.env", ".dev.vars", "*.log")
 WALLET = re.compile(r"0x[0-9a-fA-F]{40}")
 D1_NAME = "lore-publications"
 D1_PLACEHOLDER = "REPLACE_WITH_YOUR_D1_ID"
+NEEDS_NODE = "deploying needs Node.js; install it from nodejs.org and rerun"
 PRICE_DECLARATION = "export const PRICE_USD = 0.01;"
 # The smallest price the six-decimal formatter can render without collapsing
 # to zero; `lore price` rounds to six decimals, so this matches its floor.
@@ -127,6 +129,35 @@ def _ensure_d1(wrangler: str, target: Path) -> None:
     config.write_text(text.replace(D1_PLACEHOLDER, database_id))
 
 
+def login() -> int:
+    """Sign in to Cloudflare from the owner's browser.
+
+    Prints the link to open (the desktop app opens it itself), waits for
+    Cloudflare's callback, then says who is signed in."""
+    if not shutil.which("npm"):
+        raise OSError(NEEDS_NODE)
+    target = home() / "node"
+    if not (target / "package.json").exists():
+        target = materialize(0.0)
+    wrangler = target / "node_modules/.bin/wrangler"
+    if not wrangler.exists():
+        muted("Installing dependencies (the first run can take a minute)...")
+        _run(
+            ("npm", "install", "--no-fund", "--no-audit"),
+            target,
+            fail="npm install failed",
+        )
+    sys.stdout.flush()
+    _run((str(wrangler), "login", "--browser=false"), target, interactive=True)
+    # An interrupted login still exits 0; only whoami knows whether it landed.
+    who = _run((str(wrangler), "whoami"), target)
+    if who.returncode or "not authenticated" in f"{who.stdout}{who.stderr}".lower():
+        raise OSError("Cloudflare sign-in did not complete")
+    email = re.search(r"associated with the email (\S+)", who.stdout or "")
+    success(f"Signed in to Cloudflare as {email.group(1) if email else 'your account'}")
+    return 0
+
+
 def deploy(wallet: str | None) -> int:
     """Materialize, authenticate, ensure D1, deploy, set the payout secret,
     push the active publications, smoke-check."""
@@ -135,7 +166,7 @@ def deploy(wallet: str | None) -> int:
             "wallet must be a public EVM address: 0x plus 40 hex characters"
         )
     if not shutil.which("npm"):
-        raise OSError("deploying needs Node.js; install it from nodejs.org and rerun")
+        raise OSError(NEEDS_NODE)
 
     with Store() as store:
         configured_price = store.setting("price_usd", None)

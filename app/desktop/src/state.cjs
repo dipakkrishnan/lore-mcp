@@ -1,4 +1,5 @@
-const { execFile } = require("node:child_process");
+const { execFile, spawn } = require("node:child_process");
+const { createInterface } = require("node:readline");
 const { promisify } = require("node:util");
 const { resolve } = require("node:path");
 
@@ -33,6 +34,23 @@ async function lore(loreHome, args, decision) {
   }
 }
 
+/** @param {string} file @param {string[]} args @param {Record<string, string>} env @param {(line: string) => void} onLine @param {string} [cwd] */
+function stream(file, args, env, onLine, cwd) {
+  return new Promise((done, fail) => {
+    const child = spawn(file, args, { cwd, env: { ...process.env, ...env }, windowsHide: true });
+    for (const output of [child.stdout, child.stderr]) {
+      if (output) createInterface({ input: output }).on("line", (line) => line.trim() && onLine(line.trim()));
+    }
+    child.on("error", fail);
+    child.on("close", (code) => (code === 0 ? done(undefined) : fail(new Error(`${file} exited with ${code}`))));
+  });
+}
+
+/** Run the CLI and hand back each output line as it arrives, for commands that wait on the owner. @param {string} loreHome @param {string[]} args @param {(line: string) => void} onLine */
+function loreStream(loreHome, args, onLine) {
+  return stream(runtime.file, [...runtime.args, ...args], { LORE_HOME: loreHome, NO_COLOR: "1" }, onLine, runtime.cwd);
+}
+
 /** @param {string} loreHome */
 async function readState(loreHome) {
   const value = JSON.parse(await lore(loreHome, ["desktop-state"]));
@@ -65,4 +83,4 @@ async function decide(loreHome, original, candidate, approve) {
   await lore(loreHome, ["publication", "decide"], JSON.stringify({ original, candidate, approve }));
 }
 
-module.exports = { lore, readState, searchMemories, readMemory, candidates, decide, useRuntime };
+module.exports = { lore, loreStream, stream, readState, searchMemories, readMemory, candidates, decide, useRuntime };

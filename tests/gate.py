@@ -15,11 +15,11 @@ measurement, and pretending otherwise would be worse than saying so:
 
   * `tsc --noEmit`              — the source still type-checks
   * `wrangler deploy --dry-run` — it still bundles, which is what a deploy does
-  * `vitest run`                — the unit tests in `tests/node/`
+  * `npm test`                 — the Workerd component and unit tests
 
-The Worker checks need `npm install` to have been run in both `lore/node/` and
-`tests/node/`. Without that they are reported as SKIPPED and the gate still
-passes, so a Python-only contributor is not blocked by a Node toolchain. Pass
+The Worker checks need `npm install` to have been run in `lore/node/`. Without
+that they are reported as SKIPPED and the gate still passes, so a Python-only
+contributor is not blocked by a Node toolchain. Pass
 `--require-node` (what CI should do) to turn a skip into a failure.
 """
 
@@ -36,7 +36,6 @@ from pathlib import Path
 FLOOR = 90.0
 ROOT = Path(__file__).resolve().parent.parent
 NODE = ROOT / "lore/node"
-NODE_TESTS = ROOT / "tests/node"
 
 
 def _percent(covered: int, total: int) -> float:
@@ -97,19 +96,14 @@ def python_gate(pytest_args: list[str]) -> int:
 def node_gate(*, required: bool) -> int:
     """Type-check, bundle, and unit-test the Worker that `lore node deploy` ships."""
     _heading("Worker (lore/node)")
-    missing = [
-        str(package.relative_to(ROOT))
-        for package in (NODE, NODE_TESTS)
-        if not (package / "node_modules").is_dir()
-    ]
+    missing = (
+        [str(NODE.relative_to(ROOT))] if not (NODE / "node_modules").is_dir() else []
+    )
     if not shutil.which("npm"):
         missing.append("npm (not on PATH)")
     if missing:
         print(f"SKIPPED — dependencies not installed: {', '.join(missing)}")
-        print(
-            f"  install with: npm --prefix {NODE.relative_to(ROOT)} install"
-            f" && npm --prefix {NODE_TESTS.relative_to(ROOT)} install"
-        )
+        print(f"  install with: npm --prefix {NODE.relative_to(ROOT)} install")
         if required:
             print("gate: --require-node was passed, so a skip is a failure.")
             return 1
@@ -124,7 +118,7 @@ def node_gate(*, required: bool) -> int:
             ["npx", "wrangler", "deploy", "--dry-run", "--outdir", tempfile.mkdtemp()],
             NODE,
         ),
-        ("unit tests", ["npx", "vitest", "run", "--root", str(NODE_TESTS)], NODE_TESTS),
+        ("unit tests", ["npm", "test"], NODE),
     )
     for label, command, cwd in steps:
         print(f"\n$ {' '.join(command)}")

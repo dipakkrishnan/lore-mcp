@@ -1,8 +1,9 @@
 const { randomUUID } = require("node:crypto");
 const { join } = require("node:path");
-const { app, BrowserWindow, dialog, ipcMain, safeStorage, shell } = require("electron");
-const { provision, skillsDir } = require("./runtime.cjs");
-const { lore, readState, searchMemories, readMemory, candidates, decide, useRuntime } = require("./state.cjs");
+const { app, BrowserWindow, dialog, ipcMain, safeStorage, shell, systemPreferences } = require("electron");
+const { provision, skillsDir, whisper } = require("./runtime.cjs");
+const { transcribe } = require("./dictation.cjs");
+const { lore, loreStream, readState, searchMemories, readMemory, candidates, decide, useRuntime } = require("./state.cjs");
 
 if (process.env.LORE_DESKTOP_USER_DATA) app.setPath("userData", process.env.LORE_DESKTOP_USER_DATA);
 
@@ -15,7 +16,6 @@ let agent;
 let window;
 /** @type {Map<string, {resolve(value: unknown): void, reject(error: Error): void}>} */
 const pending = new Map();
-
 /** @param {AgentEvent} event */
 function emit(event) {
   window?.webContents.send("agent:event", event);
@@ -39,6 +39,8 @@ function request(type, payload, signal) {
 /** @param {string} loreHome */
 function registerIpc(loreHome) {
   ipcMain.handle("snapshot:read", () => readState(loreHome));
+  ipcMain.handle("dictation:permission", () => systemPreferences.askForMediaAccess("microphone"));
+  ipcMain.handle("dictation:transcribe", (_event, /** @type {ArrayBuffer} */ wav) => transcribe({ ...whisper, dir: app.getPath("temp") }, Buffer.from(wav)));
   ipcMain.handle("agent:status", () => agent.status());
   ipcMain.handle("agent:prompt", (_event, input) => {
     if (!input || typeof input.text !== "string" || input.text.length > 100_000 || !TASKS.has(input.task)) {
@@ -162,6 +164,22 @@ async function start() {
       await lore(loreHome, ["blueprint", "apply", "-"], JSON.stringify(edited));
       emit({ type: "changed" });
       return edited;
+    },
+    cloudflareLogin: async () => {
+      if (!(await request("cloudflare", {}))) return "The owner chose not to sign in to Cloudflare right now.";
+      let last = "";
+      try {
+        await loreStream(loreHome, ["node", "login"], (line) => {
+          last = line;
+          const url = line.match(/https:\/\/dash\.cloudflare\.com\/\S+/)?.[0];
+          if (!url) return;
+          void shell.openExternal(url);
+          emit({ type: "live", text: "Finish signing in to Cloudflare in your browser, then come back here." });
+        });
+      } catch (error) {
+        throw new Error(last.replace(/^lore: /, "") || /** @type {Error} */ (error).message);
+      }
+      return last;
     },
     authPrompt: async ({ signal, ...prompt }) => String(await request("auth-prompt", { prompt }, signal)),
     authEvent: (event) => {
