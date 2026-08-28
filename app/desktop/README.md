@@ -25,6 +25,31 @@ To look at a view without clicking through, render it to a PNG:
 LORE_HOME=$(mktemp -d) app/desktop/node_modules/.bin/electron app/desktop/support/screenshot.cjs out.png today
 ```
 
+## Dogfood
+
+Build once, then choose the path you want to exercise:
+
+```sh
+npm --prefix app/desktop run package
+npm --prefix app/desktop run dogfood:new      # isolated first launch
+npm --prefix app/desktop run dogfood:current  # your real current Lore
+```
+
+`dogfood:new` isolates the home directory, Lore library, app runtime, saved
+provider credentials, and agent history. It prints the sandbox path and the
+command to relaunch the same user for a persistence check. Delete that sandbox
+when you are done.
+
+For the first-run pass: sign in, finish **Set up your Lore**, capture one
+synthetic memory by voice or attachment, inspect it in the library, draft and
+approve a publication, then quit and relaunch the printed sandbox. Opening the
+store is an optional monetization check. Buyer-side paid answers remain a
+separate MCP/test-network check until they are first-class in Desktop.
+
+For the current-user pass: confirm the home summary matches your real library,
+resume any paused task, and capture something worth keeping. This path is not
+isolated: approvals and saves affect your real Lore.
+
 ## Packaging
 
 ```sh
