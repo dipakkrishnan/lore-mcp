@@ -1076,16 +1076,24 @@ input.addEventListener("keydown", (event) => {
 });
 const DICTATE_HINT = "You can also press the dictation key on your keyboard (or fn twice) and speak into the box.";
 const RATE = 16000;
-const dictate = $("#dictate");
+const dictate = /** @type {HTMLButtonElement} */ ($("#dictate"));
 /** @type {{ stop(): Promise<Float32Array[]> } | null} */
 let recorder = null;
 let spoken = "";
-/** @param {boolean} on */
-function setDictating(on) {
-  dictate.classList.toggle("recording", on);
-  dictate.setAttribute("aria-pressed", String(on));
-  dictate.title = on ? "Stop and transcribe" : "Dictate";
+const dictationBox = $("#dictation");
+const dictationText = $("#dictation-text");
+const meter = $("#dictation .meter");
+/** @param {"listening" | "transcribing" | null} mode */
+function dictationMode(mode) {
+  if (mode) composer.dataset.mode = mode;
+  else delete composer.dataset.mode;
+  dictationBox.hidden = !mode;
+  dictationText.textContent = mode === "listening" ? "Listening… tap Stop when you're done." : mode === "transcribing" ? "Transcribing…" : "";
+  dictate.disabled = mode === "transcribing";
+  dictate.title = mode === "listening" ? "Stop dictating" : "Dictate";
   dictate.setAttribute("aria-label", dictate.title);
+  dictate.setAttribute("aria-pressed", String(mode === "listening"));
+  meter.style.setProperty("--level", "0");
 }
 async function record() {
   const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -1094,7 +1102,12 @@ async function record() {
   const tap = context.createScriptProcessor(4096, 1, 1);
   /** @type {Float32Array[]} */
   const chunks = [];
-  tap.onaudioprocess = (event) => chunks.push(new Float32Array(event.inputBuffer.getChannelData(0)));
+  tap.onaudioprocess = (event) => {
+    const samples = new Float32Array(event.inputBuffer.getChannelData(0));
+    chunks.push(samples);
+    const level = Math.sqrt(samples.reduce((sum, sample) => sum + sample * sample, 0) / samples.length);
+    meter.style.setProperty("--level", String(Math.min(1, level * 6)));
+  };
   source.connect(tap);
   tap.connect(context.destination);
   return {
@@ -1125,8 +1138,7 @@ dictate.addEventListener("click", async () => {
   if (recorder) {
     const active = recorder;
     recorder = null;
-    setDictating(false);
-    live("Transcribing…");
+    dictationMode("transcribing");
     try {
       const text = await window.lore.transcribe(wav(await active.stop()));
       input.value = spoken + text;
@@ -1135,7 +1147,7 @@ dictate.addEventListener("click", async () => {
     } catch (error) {
       say(`Lore couldn't transcribe that: ${/** @type {Error} */ (error).message}. ${DICTATE_HINT}`, false, true);
     } finally {
-      if (liveText === "Transcribing…") live("");
+      dictationMode(null);
     }
     return;
   }
@@ -1146,8 +1158,7 @@ dictate.addEventListener("click", async () => {
   }
   try {
     recorder = await record();
-    setDictating(true);
-    live("Listening… tap the microphone again when you're done.");
+    dictationMode("listening");
   } catch (error) {
     say(`Lore couldn't start the microphone: ${/** @type {Error} */ (error).message}. ${DICTATE_HINT}`, false, true);
   }

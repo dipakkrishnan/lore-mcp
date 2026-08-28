@@ -87,7 +87,6 @@ textarea, input, [contenteditable] { -webkit-user-select: text; user-select: tex
 .icon-btn { width: 34px; height: 34px; border-radius: var(--radius-sm); display: inline-flex; align-items: center; justify-content: center; color: var(--muted); }
 .icon-btn:hover { background: var(--hover); color: var(--ink); }
 .icon-btn svg { width: 18px; height: 18px; }
-.icon-btn.recording { color: var(--surface); background: var(--attention); }
 input[type="text"], input[type="password"], input[type="search"], select, textarea {
   height: 36px; padding: 0 12px; border: 1px solid var(--line-strong); border-radius: var(--radius-sm); background: var(--surface);
 }
@@ -165,6 +164,23 @@ h2 { font-size: 12px; font-weight: 600; letter-spacing: 0.06em; text-transform: 
 }
 .composer textarea::placeholder { font-family: var(--sans); font-size: 15px; color: var(--faint); }
 .composer-actions { grid-area: actions; display: flex; align-items: center; gap: 4px; }
+/* Dictation mode: the box becomes a listening bar; the mic becomes Stop. */
+.dictation { grid-area: text; display: flex; align-items: center; gap: 10px; min-height: 34px; font-size: 15px; color: var(--ink); }
+.dictation .rec { width: 10px; height: 10px; border-radius: 50%; background: var(--attention); animation: pulse 1.2s ease-in-out infinite; }
+.meter { display: inline-flex; align-items: center; gap: 3px; height: 20px; --level: 0; }
+.meter b { width: 3px; height: 100%; border-radius: 2px; background: var(--attention); transform: scaleY(calc(0.15 + var(--level) * var(--gain))); transition: transform 70ms linear; }
+.meter b:nth-child(1), .meter b:nth-child(5) { --gain: 1.4; }
+.meter b:nth-child(2), .meter b:nth-child(4) { --gain: 2.6; }
+.meter b:nth-child(3) { --gain: 3.4; }
+.composer[data-mode] { border-color: var(--attention); }
+.composer[data-mode] textarea, .composer[data-mode] #attach, .composer[data-mode] #capture-submit, #dictate .stop { display: none; }
+.composer[data-mode="listening"] #dictate { background: var(--attention); color: var(--surface); }
+.composer[data-mode="listening"] #dictate .mic { display: none; }
+.composer[data-mode="listening"] #dictate .stop { display: block; }
+.composer[data-mode="transcribing"] .rec, .composer[data-mode="transcribing"] .meter { display: none; }
+.composer[data-mode="transcribing"] #dictation-text { animation: pulse 1.2s ease-in-out infinite; }
+.composer[data-mode="transcribing"] #dictate { opacity: 0.4; }
+@media (prefers-reduced-motion: reduce) { .dictation .rec, #dictation-text { animation: none; } }
 .attachments { grid-area: files; display: flex; flex-wrap: wrap; gap: 6px; }
 .attachments:empty { display: none; }
 .attachment { display: inline-flex; align-items: center; gap: 6px; height: 24px; padding: 0 4px 0 8px; border-radius: 6px; background: var(--hover); font-size: 12px; }
