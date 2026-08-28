@@ -15,6 +15,7 @@ import {
 import { runAnswer } from "./answer.js";
 import { facilitator, network, networkLabel } from "./network.js";
 import { PRICE_USD } from "./price.js";
+import { storefront } from "./storefront.js";
 import { payTo } from "./wallet.js";
 
 const ANSWER_DISABLED = { error: "the answer tier is not enabled on this node" };
@@ -156,4 +157,17 @@ export class LorePaidMCP extends McpAgent<Env> {
   }
 }
 
-export default LorePaidMCP.serve("/mcp", { binding: "LorePaidMCP" });
+const mcp = LorePaidMCP.serve("/mcp", { binding: "LorePaidMCP" });
+
+export default {
+  async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+    const url = new URL(request.url);
+    if (request.method === "GET" && url.pathname === "/") {
+      const catalog = (await manifest(env)) as Parameters<typeof storefront>[0];
+      return new Response(storefront(catalog, PRICE_USD, networkLabel(env), url.origin), {
+        headers: { "content-type": "text/html; charset=utf-8" }
+      });
+    }
+    return mcp.fetch(request, env, ctx);
+  }
+};
