@@ -120,8 +120,13 @@ interface Window {
     pickFiles(): Promise<string[]>;
     pathFor(file: File): string;
     onAgentEvent(listener: (event: AgentEvent) => void): () => void;
+    startDictation(): Promise<void>;
+    stopDictation(): Promise<void>;
+    onDictation(listener: (event: DictationEvent) => void): () => void;
   };
 }
+
+type DictationEvent = { kind: "ready" | "partial" | "final" | "error" | "closed"; text: string };
 
 type AgentStatus = {
   credentials: ReadonlyArray<{ providerId: string; type: "oauth" | "api_key" }>;

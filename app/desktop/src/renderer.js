@@ -1074,10 +1074,40 @@ input.addEventListener("input", () => fit(input));
 input.addEventListener("keydown", (event) => {
   if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); composer.requestSubmit(); }
 });
-const DICTATE_HINT = "Press the dictation key on your keyboard (or fn twice), then speak. Lore listens to whatever lands in the box.";
-$("#dictate").addEventListener("click", () => {
-  input.focus();
-  if (lines.at(-1)?.text !== DICTATE_HINT) say(DICTATE_HINT);
+const DICTATE_HINT = "You can also press the dictation key on your keyboard (or fn twice) and speak into the box.";
+const dictate = $("#dictate");
+let dictating = false;
+let spoken = "";
+/** @param {boolean} on */
+function setDictating(on) {
+  dictating = on;
+  dictate.classList.toggle("recording", on);
+  dictate.setAttribute("aria-pressed", String(on));
+  dictate.title = on ? "Stop dictating" : "Dictate";
+  dictate.setAttribute("aria-label", dictate.title);
+}
+dictate.addEventListener("click", async () => {
+  if (dictating) {
+    await window.lore.stopDictation();
+    return;
+  }
+  spoken = input.value.trim() ? `${input.value.trimEnd()} ` : "";
+  setDictating(true);
+  input.focus({ preventScroll: true });
+  live("Listening…");
+  await window.lore.startDictation();
+});
+window.lore.onDictation(({ kind, text }) => {
+  if (kind === "partial" || kind === "final") {
+    input.value = spoken + text;
+    fit(input);
+  } else if (kind === "error") {
+    setDictating(false);
+    say(`${text} ${DICTATE_HINT}`, false, true);
+  } else if (kind === "closed") {
+    setDictating(false);
+    if (liveText === "Listening…") live("");
+  }
 });
 const GUARDED = /(^|\/)\.[^/]*$|\/\.(ssh|aws|gnupg)\/|\.(pem|key|p12|pfx|keychain(-db)?)$|id_(rsa|ed25519|ecdsa)/;
 /** @param {string[]} paths */

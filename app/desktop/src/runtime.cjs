@@ -6,6 +6,7 @@ const { stream } = require("./state.cjs");
 const root = resolve(__dirname, "../../..");
 const resources = app.isPackaged ? process.resourcesPath : root;
 const skillsDir = join(resources, app.isPackaged ? "skills" : "plugins/lore/skills");
+const dictateBin = join(resources, app.isPackaged ? "dictate" : "app/desktop/packaging/out/dictate");
 
 /** @param {(event: AgentEvent) => void} emit @returns {Promise<{bin: string, binDir: string} | null>} */
 async function provision(emit) {
@@ -40,4 +41,4 @@ async function provision(emit) {
   return runtime;
 }
 
-module.exports = { skillsDir, provision };
+module.exports = { skillsDir, dictateBin, provision };

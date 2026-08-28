@@ -87,6 +87,7 @@ textarea, input, [contenteditable] { -webkit-user-select: text; user-select: tex
 .icon-btn { width: 34px; height: 34px; border-radius: var(--radius-sm); display: inline-flex; align-items: center; justify-content: center; color: var(--muted); }
 .icon-btn:hover { background: var(--hover); color: var(--ink); }
 .icon-btn svg { width: 18px; height: 18px; }
+.icon-btn.recording { color: var(--surface); background: var(--attention); }
 input[type="text"], input[type="password"], input[type="search"], select, textarea {
   height: 36px; padding: 0 12px; border: 1px solid var(--line-strong); border-radius: var(--radius-sm); background: var(--surface);
 }

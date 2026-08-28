@@ -1,7 +1,9 @@
+const { spawn } = require("node:child_process");
 const { randomUUID } = require("node:crypto");
+const { createInterface } = require("node:readline");
 const { join } = require("node:path");
 const { app, BrowserWindow, dialog, ipcMain, safeStorage, shell } = require("electron");
-const { provision, skillsDir } = require("./runtime.cjs");
+const { provision, skillsDir, dictateBin } = require("./runtime.cjs");
 const { lore, loreStream, readState, searchMemories, readMemory, candidates, decide, useRuntime } = require("./state.cjs");
 
 if (process.env.LORE_DESKTOP_USER_DATA) app.setPath("userData", process.env.LORE_DESKTOP_USER_DATA);
@@ -15,6 +17,28 @@ let agent;
 let window;
 /** @type {Map<string, {resolve(value: unknown): void, reject(error: Error): void}>} */
 const pending = new Map();
+/** @type {import("node:child_process").ChildProcess | undefined} */
+let dictation;
+
+/** @param {DictationEvent} event */
+function heard(event) {
+  window?.webContents.send("dictation", event);
+}
+
+function startDictation() {
+  if (dictation) return;
+  const child = spawn(dictateBin, [], { stdio: ["pipe", "pipe", "ignore"], windowsHide: true });
+  dictation = child;
+  createInterface({ input: child.stdout }).on("line", (line) => {
+    const tab = line.indexOf("\t");
+    heard({ kind: /** @type {DictationEvent["kind"]} */ (line.slice(0, tab)), text: line.slice(tab + 1) });
+  });
+  child.on("error", (error) => heard({ kind: "error", text: error.message }));
+  child.on("close", () => {
+    if (dictation === child) dictation = undefined;
+    heard({ kind: "closed", text: "" });
+  });
+}
 
 /** @param {AgentEvent} event */
 function emit(event) {
@@ -39,6 +63,8 @@ function request(type, payload, signal) {
 /** @param {string} loreHome */
 function registerIpc(loreHome) {
   ipcMain.handle("snapshot:read", () => readState(loreHome));
+  ipcMain.handle("dictation:start", () => startDictation());
+  ipcMain.handle("dictation:stop", () => dictation?.stdin?.end());
   ipcMain.handle("agent:status", () => agent.status());
   ipcMain.handle("agent:prompt", (_event, input) => {
     if (!input || typeof input.text !== "string" || input.text.length > 100_000 || !TASKS.has(input.task)) {
@@ -193,6 +219,7 @@ async function start() {
 }
 
 app.on("before-quit", () => {
+  dictation?.kill();
   agent?.dispose();
   for (const waiter of pending.values()) waiter.reject(new Error("Lore closed"));
   pending.clear();

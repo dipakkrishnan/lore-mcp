@@ -110,6 +110,13 @@ test("switching tasks updates the live network policy the proxy actually filters
   }
 });
 
+test("the dictation helper builds and speaks the line protocol", { skip: process.platform !== "darwin" }, () => {
+  const build = spawnSync(join(__dirname, "../packaging/dictate.sh"), { encoding: "utf8" });
+  assert.equal(build.status, 0, build.stderr);
+  const source = require("node:fs").readFileSync(join(__dirname, "../packaging/dictate.swift"), "utf8");
+  for (const kind of ["ready", "partial", "final", "error"]) assert.ok(source.includes(`"${kind}"`), kind);
+});
+
 test("a streamed CLI command hands back each line and fails on a non-zero exit", async () => {
   const { loreStream, useRuntime } = require("../src/state.cjs");
   const directory = await mkdtemp(join(tmpdir(), "lore-desktop-"));

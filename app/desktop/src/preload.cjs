@@ -29,6 +29,15 @@ contextBridge.exposeInMainWorld("lore", {
   pickFiles: () => ipcRenderer.invoke("files:pick"),
   /** @param {File} file */
   pathFor: (file) => webUtils.getPathForFile(file),
+  startDictation: () => ipcRenderer.invoke("dictation:start"),
+  stopDictation: () => ipcRenderer.invoke("dictation:stop"),
+  /** @param {(event: DictationEvent) => void} listener */
+  onDictation: (listener) => {
+    /** @param {import("electron").IpcRendererEvent} _event @param {DictationEvent} value */
+    const handler = (_event, value) => listener(value);
+    ipcRenderer.on("dictation", handler);
+    return () => ipcRenderer.removeListener("dictation", handler);
+  },
   /** @param {(event: AgentEvent) => void} listener */
   onAgentEvent: (listener) => {
     /** @param {import("electron").IpcRendererEvent} _event @param {AgentEvent} value */
