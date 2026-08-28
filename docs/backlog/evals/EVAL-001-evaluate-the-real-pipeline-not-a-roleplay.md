@@ -10,7 +10,7 @@ blockers: []
 dependencies: []
 github_issue: null
 created: 2026-07-30
-updated: 2026-08-03
+updated: 2026-08-24
 ---
 
 ## Problem
@@ -84,3 +84,36 @@ left is running one deliberate `build_prompt` regression and confirming it
 flips a benchmark result, not the original-sized harness build. Promoted to
 `P1` and `ready` on the same basis: small remaining effort, and it's the last
 step before this closes as `completed`.
+
+**Attempt 2026-08-24:** ran a real (not simulated) attempt at criterion 4.
+`evals/integration.py`'s `synthesize()` calls `codex` directly with no
+alternative path, and no working `codex` CLI was available in the
+environment this ran in, so the executor was substituted with Claude
+(single-shot `claude -p --output-format json`, the same no-tool-use
+mechanism `run_model`'s `_run_claude` already uses for candidate/judge calls
+— not a new dependency) fed the real content of a throwaway `LORE_HOME`
+seeded and imported via the real `lore setup --yes`.
+
+Five different `build_prompt` regressions were tried against `launch-advice`
+(criteria L-001, L-002) and `integration-pitch` (I-001): dropping the
+secrets/PII exclusion bullet, dropping the "preserve exact numbers" bullet,
+appending an explicit clause contradicting the exclusion bullet, dropping
+the superseded-guidance-resolution bullet, and prepending a "do not exercise
+judgment, copy everything" override before the whole prompt. None flipped
+their criterion — Claude's own alignment and competence satisfied every one
+of them regardless of what `build_prompt` said, when handed memory content
+directly rather than discovering it itself via real tool calls. A sixth
+attempt (blanking `build_prompt`'s output entirely) did change the outcome,
+but by causing the model to correctly flag the resulting bare instruction
+block as an injected/anomalous prompt and refuse outright — a refusal, not a
+judged criterion flip, so it does not count as a demonstration either.
+
+Read together, this suggests criterion 4 needs the actual candidate
+(`gpt-5.6-sol` via `codex`, not Claude) to be demonstrable: `build_prompt`'s
+guidance bullets plausibly matter more for a model with different alignment
+and no independent tendency to preserve numeric precision or withhold
+PII by default. Left `ready`/`in-review` rather than `completed`; the
+remaining work is re-running this with a working `codex` CLI (or accepting
+Claude-substitution as permanent and choosing a different, executor-neutral
+regression). Criteria 1-3 remain built and unaffected by this attempt.
+
