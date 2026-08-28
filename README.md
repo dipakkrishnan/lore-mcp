@@ -288,7 +288,7 @@ npm run smoke                    # free discover + unpaid x402 challenge
 ```
 
 CI runs Python and Node lint, tests, compiler checks, and the Worker smoke test.
-It does not currently run the local coverage floor or `tests/node/`.
+It does not currently run the local coverage floor.
 
 Evaluate the configured proxy against approved local publications without a
 payment or deployment:
@@ -309,7 +309,7 @@ coverage floor. It also type-checks, bundles, and tests the Worker.
 The Worker checks need dependencies installed:
 
 ```sh
-npm --prefix lore/node install && npm --prefix tests/node install
+npm --prefix lore/node install
 ```
 
 Without the Node dependencies, the Worker part is skipped. Pass
