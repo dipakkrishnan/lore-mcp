@@ -4,13 +4,13 @@ title: Show durable owner-job status on Today
 priority: P1
 effort: M
 component: desktop-app
-status: in-review
+status: ready
 related: [APP-003, APP-004, APP-005]
-blockers: [APP-003]
+blockers: []
 dependencies: []
 github_issue: null
 created: 2026-08-22
-updated: 2026-08-22
+updated: 2026-08-26
 ---
 
 ## Problem
@@ -48,3 +48,7 @@ current live event without creating a second scheduler or analytics store.
 
 This is local owner-operation history, not the deployed buyer `answer_jobs`
 table and not Pi transcript checkpointing.
+
+**Prioritization pass 2026-08-26:** cleared `blockers` — `APP-003` is
+`completed`. Concrete AC, no open design question. Promoted `in-review` →
+`ready`.

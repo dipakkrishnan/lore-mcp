@@ -4,13 +4,13 @@ title: Surface the real cause when a push/deploy npm or wrangler subprocess fail
 priority: P3
 effort: S
 component: monetization
-status: in-review
+status: ready
 related: [MON-006]
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-08-10
-updated: 2026-08-10
+updated: 2026-08-26
 ---
 
 ## Problem
@@ -46,3 +46,5 @@ followed by the fixed `deploy.py` guess ("check wrangler login... or that
 lore-publications exists"). Both suggested causes were red herrings; the fix
 was `env -u NODE_OPTIONS lore push`, unrelated to anything the message
 suggested checking.
+
+**Prioritization pass 2026-08-26:** No blockers, small effort, concrete shape and a real reproduction already on record. Promoted `in-review` → `ready`.

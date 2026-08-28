@@ -10,7 +10,7 @@ blockers: []
 dependencies: []
 github_issue: https://github.com/dipakkrishnan/lore-mcp/issues/6
 created: 2026-07-26
-updated: 2026-07-30
+updated: 2026-08-26
 ---
 
 ## Problem
@@ -55,3 +55,13 @@ retention-only) and specified into STO-001/XC-002 (private-by-default,
 publications-only disclosure, no bulk externalization). It stays as a review lens
 for those items; it is a candidate for closure once STO-001 and XC-002 land rather
 than something to implement on its own.
+
+**Prioritization pass 2026-08-26:** the stated closure trigger has landed —
+`STO-001`, `XC-002`, and `CLI-001` are all now `completed`, satisfying AC1
+(disclosure never defaults permissive — structural, per `STO-001`/`XC-002`'s
+publications-only model) and AC3 (no bulk-externalization path — `CLI-001`'s
+bulk action is retention-only). AC2 is not: `grep`ing the repo found no
+committed statement of the "<5 owner disclosure decisions/week" target
+anywhere (not in `README.md`, not under `docs/`). Not closing this — write
+the target down somewhere real (a natural fit: `README.md`'s disclosure
+model section) before treating this as done; left `in-review` at `P3`.

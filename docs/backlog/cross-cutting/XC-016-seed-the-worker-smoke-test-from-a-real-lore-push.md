@@ -4,13 +4,13 @@ title: Seed the Worker smoke test from a real `lore push --local`, not a hand-co
 priority: P1
 effort: S
 component: cross-cutting
-status: in-review
+status: ready
 related: [CLI-002, XC-013, XC-004]
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-08-04
-updated: 2026-08-06
+updated: 2026-08-26
 ---
 
 ## Problem
@@ -80,3 +80,5 @@ replaces what it was compensating for.
 merging because a different, unrelated `XC-015` ("pin the skill
 drive-contract in the contract tests") merged to `main` first via #80 and
 claimed that id.
+
+**Prioritization pass 2026-08-26:** No blockers, closes a real fixture-drift gap with a concrete three-step approach. Promoted `in-review` → `ready`.

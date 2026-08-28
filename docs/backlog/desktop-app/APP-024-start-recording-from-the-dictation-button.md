@@ -4,13 +4,13 @@ title: Start recording from the dictation button
 priority: P1
 effort: M
 component: desktop-app
-status: in-review
+status: ready
 related: [APP-003, APP-005, APP-009, APP-010, APP-020]
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-08-23
-updated: 2026-08-23
+updated: 2026-08-26
 ---
 
 ## Problem
@@ -44,3 +44,5 @@ hosted transcription service in this item.
       on-device or needs the network.
 - [ ] The packaged app declares the required macOS permissions and tests the
       permission, transcript, stop, and failure boundaries.
+
+**Prioritization pass 2026-08-26:** No blockers, scope explicitly excludes TTS/cross-platform/hosted transcription. Promoted `in-review` → `ready`.

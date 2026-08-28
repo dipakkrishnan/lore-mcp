@@ -4,13 +4,13 @@ title: Constrain native read to owner-selected files
 priority: P1
 effort: M
 component: desktop-app
-status: in-review
+status: ready
 related: [APP-003, APP-005, APP-009]
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-08-22
-updated: 2026-08-23
+updated: 2026-08-26
 ---
 
 ## Problem
@@ -48,3 +48,5 @@ Verified against the installed `@earendil-works/pi-coding-agent`: its default
 read operations resolve absolute paths and call the filesystem directly. This
 is unrestricted only within the permissions macOS grants the Electron process;
 it does not bypass operating-system protections.
+
+**Prioritization pass 2026-08-26:** No blockers, no open design question — path-policy shape and test list are concrete. Promoted `in-review` → `ready`.

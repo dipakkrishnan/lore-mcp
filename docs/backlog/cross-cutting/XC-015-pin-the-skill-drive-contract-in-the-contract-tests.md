@@ -4,13 +4,13 @@ title: Pin the skill drive-contract in the contract tests
 priority: P2
 effort: S
 component: cross-cutting
-status: in-review
+status: ready
 related: [XC-005, XC-003]
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-08-05
-updated: 2026-08-05
+updated: 2026-08-26
 ---
 
 ## Problem
@@ -51,3 +51,5 @@ Came out of the 2026-08-05 clean-machine onboarding review (PR #79 fixed the fou
 gaps it exposed). The general lesson recorded there: skills fail exactly where no
 live run has walked them — this item is the cheap mechanical backstop for the
 branches that XC-005-style dry-runs miss.
+
+**Prioritization pass 2026-08-26:** No blockers, small effort, concrete AC extending an existing contract-test pattern. Promoted `in-review` → `ready`.

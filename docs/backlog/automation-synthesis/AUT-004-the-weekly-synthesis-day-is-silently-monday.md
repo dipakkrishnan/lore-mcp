@@ -4,13 +4,13 @@ title: The weekly synthesis day is silently Monday, whatever the owner was told
 priority: P1
 effort: S
 component: automation-synthesis
-status: in-review
+status: ready
 related: [AUT-001, AUT-002, APP-030]
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-08-24
-updated: 2026-08-24
+updated: 2026-08-26
 ---
 
 ## Problem
@@ -47,3 +47,5 @@ profile without a weekday keeps current behavior.
 Dipak's installed automation was hand-corrected to `BYDAY=SU` on
 2026-08-24 (backup kept beside it) so the first run lands Sunday as he
 chose; the schema fix makes that unnecessary for the next owner.
+
+**Prioritization pass 2026-08-26:** No blockers, small effort, concrete AC with a named user complaint behind it. Promoted `in-review` → `ready`.

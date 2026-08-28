@@ -4,13 +4,13 @@ title: Price content natively in the desktop app
 priority: P1
 effort: M
 component: desktop-app
-status: in-review
+status: ready
 related: [MON-009, MON-013, APP-006, XC-020]
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-08-23
-updated: 2026-08-23
+updated: 2026-08-26
 ---
 
 ## Problem
@@ -57,3 +57,5 @@ Filed from Dipak's request on 2026-08-23 ("build a way to price content
 natively in the desktop app; that flow has not been super explored").
 Per-publication pricing depends on the MON-009 decision; do not block the
 global editor on it.
+
+**Prioritization pass 2026-08-26:** No blockers; per-publication pricing is explicitly deferred to `MON-009` without blocking the global editor. Concrete enough to hand to implementation. Promoted `in-review` → `ready`.
