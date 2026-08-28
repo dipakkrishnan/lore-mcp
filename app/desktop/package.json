@@ -8,6 +8,8 @@
     "check": "tsc --noEmit",
     "test": "node --test",
     "test:capture": "./test-capture.sh",
+    "dogfood:new": "./support/dogfood.sh new",
+    "dogfood:current": "./support/dogfood.sh current",
     "package": "electron-forge package",
     "make": "electron-forge make"
   },
