@@ -1,7 +1,7 @@
 const assert = require("node:assert/strict");
 const { mkdtemp, readFile, rm, writeFile } = require("node:fs/promises");
 const { tmpdir } = require("node:os");
-const { join } = require("node:path");
+const { dirname, join } = require("node:path");
 const { spawnSync } = require("node:child_process");
 const { test } = require("node:test");
 const { readState } = require("../src/state.cjs");
@@ -50,6 +50,31 @@ test("the desktop agent has Pi's normal file and shell tools", async () => {
   assert.deepEqual(session.getActiveToolNames().sort(), ["bash", "edit", "read", "write"]);
   assert.equal(session.getAllTools().find(({ name }) => name === "bash").sourceInfo.path, "<sdk:bash>");
   session.dispose();
+});
+
+test("desktop Bash is confined to Lore", { skip: process.platform !== "darwin" }, async () => {
+  const { createSandboxedBashOperations, initializeBashSandbox } = await import("../src/agent.mjs");
+  const { SandboxManager } = await import("@anthropic-ai/sandbox-runtime");
+  const home = await mkdtemp(join(tmpdir(), "lore-sandbox-"));
+  const inside = join(home, "inside");
+  const escaped = join(dirname(home), `${home.split("/").at(-1)}-escaped`);
+  const output = [];
+  try {
+    await initializeBashSandbox(home);
+    const result = await createSandboxedBashOperations(home, "capture").exec(
+      `printf inside > ${JSON.stringify(inside)}; printf escaped > ${JSON.stringify(escaped)}`,
+      home,
+      { onData: (data) => output.push(data) }
+    );
+    assert.equal(result.exitCode, 1);
+    assert.equal(await readFile(inside, "utf8"), "inside");
+    await assert.rejects(readFile(escaped, "utf8"), { code: "ENOENT" });
+    assert.match(Buffer.concat(output).toString(), /Operation not permitted|sandbox_violations/);
+  } finally {
+    await SandboxManager.reset();
+    await rm(home, { recursive: true, force: true });
+    await rm(escaped, { force: true });
+  }
 });
 
 test("sessions persist per task, come back as a thread, and a cut-off tool call is closed out", async () => {

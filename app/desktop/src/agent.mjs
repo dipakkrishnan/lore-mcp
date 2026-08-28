@@ -1,7 +1,10 @@
+import { randomUUID } from "node:crypto";
+import { homedir } from "node:os";
 import { resolve } from "node:path";
 import {
   createAgentSession,
   createBashTool,
+  createLocalBashOperations,
   DefaultResourceLoader,
   defineTool,
   ModelRuntime,
@@ -10,6 +13,7 @@ import {
   SettingsManager
 } from "@earendil-works/pi-coding-agent";
 import { Type } from "@earendil-works/pi-ai";
+import { SandboxManager } from "@anthropic-ai/sandbox-runtime";
 
 const SKILLS = { capture: "lore-capture", setup: "lore-onboard", publish: "lore-publish", deploy: "lore-enable-payments" };
 const TASKS = {
@@ -25,6 +29,48 @@ const CLOSED = "Lore was closed before this finished.";
 const MODELS = ["anthropic/claude-sonnet-5", "openai-codex/gpt-5.6-luna", "openai/gpt-5.6-luna"];
 const MAX_TURNS = 60;
 const CAPPED = "That reply took more steps than Lore allows at once, so it paused. Say continue to keep going.";
+
+/** @param {string} loreHome @param {AgentTask} task @param {string} [binDir] */
+export function bashSandboxPolicy(loreHome, task, binDir) {
+  const home = homedir();
+  const wrangler = [resolve(home, ".wrangler"), resolve(home, "Library/Preferences/.wrangler"), resolve(home, "Library/Caches/.wrangler")];
+  const runtime = binDir
+    ? [resolve(binDir, "..")]
+    : [resolve(home, ".local/bin/lore"), resolve(home, ".local/share/lore/lore-mcp"), resolve(home, ".local/share/uv/python"), resolve(home, ".local/share/uv/tools/lore-mcp")];
+  return {
+    network: { allowedDomains: task === "deploy" ? ["*"] : [], deniedDomains: [] },
+    filesystem: {
+      denyRead: [home],
+      allowRead: [loreHome, ...runtime, resolve(home, ".claude"), resolve(home, ".codex"), ...(task === "deploy" ? wrangler : [])],
+      allowWrite: [loreHome, ...(task === "deploy" ? wrangler : [])],
+      denyWrite: []
+    }
+  };
+}
+
+/** @param {string} loreHome @param {string} [binDir] */
+export async function initializeBashSandbox(loreHome, binDir) {
+  await SandboxManager.initialize(bashSandboxPolicy(loreHome, "capture", binDir), undefined, true);
+}
+
+/** @param {string} loreHome @param {AgentTask} task @param {string} [binDir] @returns {import("@earendil-works/pi-coding-agent").BashOperations} */
+export function createSandboxedBashOperations(loreHome, task, binDir) {
+  const local = createLocalBashOperations();
+  return {
+    exec: async (command, cwd, options) => {
+      const id = randomUUID();
+      const wrapped = await SandboxManager.wrapWithSandbox(command, undefined, bashSandboxPolicy(loreHome, task, binDir), options.signal, { commandId: id, commandText: command });
+      try {
+        const result = await local.exec(wrapped, cwd, options);
+        const violations = SandboxManager.annotateStderrWithSandboxFailures(id, "");
+        if (violations) options.onData(Buffer.from(violations));
+        return result;
+      } finally {
+        SandboxManager.cleanupAfterCommand();
+      }
+    }
+  };
+}
 
 /** @param {unknown} value @returns {value is BlueprintFields} */
 export function validBlueprint(value) {
@@ -108,6 +154,7 @@ export class LoreAgent {
 
   /** @param {LoreAgentOptions} options */
   static async create(options) {
+    await initializeBashSandbox(options.loreHome, options.binDir);
     const models = await ModelRuntime.create({ credentials: options.credentials });
     const settings = SettingsManager.inMemory();
     const resources = new DefaultResourceLoader({
@@ -308,6 +355,7 @@ export class LoreAgent {
       tools: ["read", "write", "edit", "bash", "ask_user", "propose_blueprint", "finish_task"],
       customTools: [
         createBashTool(this.options.loreHome, {
+          operations: createSandboxedBashOperations(this.options.loreHome, task, this.options.binDir),
           spawnHook: (context) => ({
             ...context,
             env: {

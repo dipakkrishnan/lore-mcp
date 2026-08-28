@@ -12,6 +12,7 @@
     "make": "electron-forge make"
   },
   "dependencies": {
+    "@anthropic-ai/sandbox-runtime": "0.0.73",
     "@earendil-works/pi-ai": "0.84.2",
     "@earendil-works/pi-coding-agent": "0.84.2",
     "marked": "18.0.5"

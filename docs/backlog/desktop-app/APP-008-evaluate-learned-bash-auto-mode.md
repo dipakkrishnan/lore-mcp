@@ -4,13 +4,13 @@ title: Replace the bash regex boundary with an OS sandbox; cards stay UX
 priority: P2
 effort: M
 component: desktop-app
-status: in-review
+status: in-progress
 related: [APP-003, APP-004]
 blockers: []
 dependencies: ["Evidence from real owner command and approval usage"]
 github_issue: null
 created: 2026-08-22
-updated: 2026-08-23
+updated: 2026-08-26
 ---
 
 ## Problem
