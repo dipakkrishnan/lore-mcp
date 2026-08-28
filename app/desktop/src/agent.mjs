@@ -59,7 +59,13 @@ export function createSandboxedBashOperations(loreHome, task, binDir) {
   return {
     exec: async (command, cwd, options) => {
       const id = randomUUID();
-      const wrapped = await SandboxManager.wrapWithSandbox(command, undefined, bashSandboxPolicy(loreHome, task, binDir), options.signal, { commandId: id, commandText: command });
+      const policy = bashSandboxPolicy(loreHome, task, binDir);
+      // The mux proxy's live network filter reads the session-level config set by
+      // initialize()/updateConfig(), never the customConfig passed to wrapWithSandbox
+      // below — so without this, every task is filtered against whichever task's
+      // policy initializeBashSandbox() started the session with (always "capture").
+      SandboxManager.updateConfig(policy);
+      const wrapped = await SandboxManager.wrapWithSandbox(command, undefined, policy, options.signal, { commandId: id, commandText: command });
       try {
         const result = await local.exec(wrapped, cwd, options);
         const violations = SandboxManager.annotateStderrWithSandboxFailures(id, "");

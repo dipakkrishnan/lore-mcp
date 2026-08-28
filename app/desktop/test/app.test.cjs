@@ -77,6 +77,31 @@ test("desktop Bash is confined to Lore", { skip: process.platform !== "darwin" }
   }
 });
 
+test("switching tasks updates the live network policy the proxy actually filters against", { skip: process.platform !== "darwin" }, async () => {
+  const { createSandboxedBashOperations, initializeBashSandbox } = await import("../src/agent.mjs");
+  const { SandboxManager } = await import("@anthropic-ai/sandbox-runtime");
+  const home = await mkdtemp(join(tmpdir(), "lore-sandbox-net-"));
+  try {
+    // initializeBashSandbox() always starts the session with the "capture"
+    // policy (empty network allowlist) regardless of which task runs first.
+    await initializeBashSandbox(home);
+    assert.deepEqual(SandboxManager.getConfig().network.allowedDomains, []);
+    // filterNetworkRequest — the mux proxy's live per-request filter — reads
+    // only this session-level config, never the customConfig exec() passes to
+    // wrapWithSandbox. Running a "deploy" command must update it in place, or
+    // deploy stays filtered against "capture"'s empty allowlist forever.
+    const result = await createSandboxedBashOperations(home, "deploy").exec("true", home, { onData: () => {} });
+    assert.equal(result.exitCode, 0);
+    assert.deepEqual(SandboxManager.getConfig().network.allowedDomains, ["*"]);
+    // And it swaps back for the next "capture" command in the same session.
+    await createSandboxedBashOperations(home, "capture").exec("true", home, { onData: () => {} });
+    assert.deepEqual(SandboxManager.getConfig().network.allowedDomains, []);
+  } finally {
+    await SandboxManager.reset();
+    await rm(home, { recursive: true, force: true });
+  }
+});
+
 test("sessions persist per task, come back as a thread, and a cut-off tool call is closed out", async () => {
   const { LoreAgent } = await import("../src/agent.mjs");
   const { SessionManager } = await import("@earendil-works/pi-coding-agent");
