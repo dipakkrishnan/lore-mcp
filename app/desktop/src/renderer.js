@@ -1082,30 +1082,16 @@ let recorder = null;
 let spoken = "";
 const dictationBox = $("#dictation");
 const dictationText = $("#dictation-text");
-const meter = $("#dictation .meter");
-const BARS = 24;
-for (let i = 0; i < BARS; i++) meter.append(el("b"));
-/** @type {number[]} */
-const levels = [];
 /** @param {"listening" | "transcribing" | null} mode */
 function dictationMode(mode) {
   if (mode) composer.dataset.mode = mode;
   else delete composer.dataset.mode;
   dictationBox.hidden = !mode;
-  dictationText.textContent = mode === "transcribing" ? "Transcribing…" : "";
+  dictationText.textContent = mode === "listening" ? "Listening…" : mode === "transcribing" ? "Transcribing…" : "";
   dictate.disabled = mode === "transcribing";
   dictate.title = mode === "listening" ? "Stop dictating" : "Dictate";
   dictate.setAttribute("aria-label", dictate.title);
   dictate.setAttribute("aria-pressed", String(mode === "listening"));
-  levels.splice(0);
-  for (const bar of meter.children) /** @type {HTMLElement} */ (bar).style.setProperty("--level", "0");
-}
-/** The waveform is the last ~1.5 s of loudness, newest on the right. @param {Float32Array} samples */
-function heard(samples) {
-  const rms = Math.sqrt(samples.reduce((sum, sample) => sum + sample * sample, 0) / samples.length);
-  levels.push(Math.min(1, rms * 6));
-  if (levels.length > BARS) levels.shift();
-  [...meter.children].forEach((bar, i) => /** @type {HTMLElement} */ (bar).style.setProperty("--level", String(levels[i - (BARS - levels.length)] ?? 0)));
 }
 async function record() {
   const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -1115,9 +1101,7 @@ async function record() {
   /** @type {Float32Array[]} */
   const chunks = [];
   tap.onaudioprocess = (event) => {
-    const samples = new Float32Array(event.inputBuffer.getChannelData(0));
-    chunks.push(samples);
-    heard(samples);
+    chunks.push(new Float32Array(event.inputBuffer.getChannelData(0)));
   };
   source.connect(tap);
   tap.connect(context.destination);
@@ -1150,16 +1134,16 @@ dictate.addEventListener("click", async () => {
     const active = recorder;
     recorder = null;
     dictationMode("transcribing");
+    let text = "";
     try {
-      const text = await window.lore.transcribe(wav(await active.stop()));
-      input.value = spoken + text;
-      fit(input);
-      input.focus({ preventScroll: true });
+      text = await window.lore.transcribe(wav(await active.stop()));
     } catch (error) {
       say(`Lore couldn't transcribe that: ${/** @type {Error} */ (error).message}. ${DICTATE_HINT}`, false, true);
-    } finally {
-      dictationMode(null);
     }
+    dictationMode(null);
+    input.value = spoken + text;
+    fit(input);
+    input.focus({ preventScroll: true });
     return;
   }
   spoken = input.value.trim() ? `${input.value.trimEnd()} ` : "";

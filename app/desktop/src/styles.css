@@ -165,16 +165,14 @@ h2 { font-size: 12px; font-weight: 600; letter-spacing: 0.06em; text-transform: 
 .composer textarea::placeholder { font-family: var(--sans); font-size: 15px; color: var(--faint); }
 .composer-actions { grid-area: actions; display: flex; align-items: center; gap: 4px; }
 /* Dictation mode: the box becomes a listening bar; the mic becomes Stop. */
-.dictation { grid-area: text; display: flex; align-items: center; gap: 12px; height: 34px; overflow: hidden; font-size: 15px; color: var(--ink); }
+.dictation { grid-area: text; display: flex; align-items: center; gap: 10px; height: 34px; overflow: hidden; font-size: 15px; color: var(--muted); }
 .dictation .rec { flex: none; width: 10px; height: 10px; border-radius: 50%; background: var(--attention); animation: pulse 1.2s ease-in-out infinite; }
-.meter { display: flex; align-items: center; gap: 3px; height: 22px; }
-.meter b { width: 3px; height: 100%; border-radius: 2px; background: var(--attention); --level: 0; transform: scaleY(clamp(0.12, var(--level), 1)); transition: transform 60ms linear; }
 .composer[data-mode] { border-color: var(--attention); }
 .composer[data-mode] textarea, .composer[data-mode] #attach, .composer[data-mode] #capture-submit, #dictate .stop { display: none; }
 .composer[data-mode="listening"] #dictate { background: var(--attention); color: var(--surface); }
 .composer[data-mode="listening"] #dictate .mic { display: none; }
 .composer[data-mode="listening"] #dictate .stop { display: block; }
-.composer[data-mode="transcribing"] .rec, .composer[data-mode="transcribing"] .meter { display: none; }
+.composer[data-mode="transcribing"] .rec { display: none; }
 .composer[data-mode="transcribing"] #dictation-text { animation: pulse 1.2s ease-in-out infinite; }
 .composer[data-mode="transcribing"] #dictate { opacity: 0.4; }
 @media (prefers-reduced-motion: reduce) { .dictation .rec, #dictation-text { animation: none; } }
