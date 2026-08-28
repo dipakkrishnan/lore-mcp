@@ -35,7 +35,7 @@ async function provision(emit) {
       UV_PYTHON_INSTALL_DIR: join(home, "python"),
       UV_CACHE_DIR: join(home, "cache")
     },
-    (text) => emit({ type: "progress", text })
+    (text) => console.error(`uv: ${text}`)
   );
   writeFileSync(stamp, manifest);
   return runtime;
