@@ -18,6 +18,7 @@ const inputLabel = /** @type {HTMLLabelElement} */ (composer.querySelector("labe
 const attachmentList = $("#attachments");
 const submit = /** @type {HTMLButtonElement} */ ($("#capture-submit"));
 const agentPanel = $("#agent");
+const detailSlot = $("#detail");
 const log = $("#log");
 const requestSlot = $("#request");
 const search = /** @type {HTMLInputElement} */ ($("#search"));
@@ -500,8 +501,10 @@ function render() {
   if (!snapshot) return;
   $("[data-count=memories]").textContent = String(snapshot.library.counts.private);
   $("[data-count=store]").textContent = String(snapshot.publications.counts.active);
-  content.replaceChildren(...renderers[view](snapshot));
-  for (const area of content.querySelectorAll("textarea")) fit(/** @type {HTMLTextAreaElement} */ (area));
+  const parts = renderers[view](snapshot);
+  detailSlot.replaceChildren(...(detail ? parts : []));
+  content.replaceChildren(...(detail ? [] : parts));
+  for (const area of mainEl.querySelectorAll("textarea")) fit(/** @type {HTMLTextAreaElement} */ (area));
   renderAccount();
 }
 
@@ -597,7 +600,7 @@ function renderLog() {
     line.append(mark("mark mark-sm"), markdown(liveText));
     log.append(line);
   }
-  agentPanel.hidden = !lines.length && !liveText && !requestSlot.childElementCount;
+  agentPanel.hidden = !lines.length && !liveText && !requestSlot.childElementCount && !detailSlot.childElementCount;
   if (log.lastElementChild) mainEl.scrollTop = mainEl.scrollHeight;
 }
 

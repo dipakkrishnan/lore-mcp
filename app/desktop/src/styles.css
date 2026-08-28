@@ -170,6 +170,8 @@ h2 { font-size: 12px; font-weight: 600; letter-spacing: 0.06em; text-transform: 
 .attachment button { width: 18px; height: 18px; border-radius: 4px; color: var(--muted); display: inline-flex; align-items: center; justify-content: center; }
 .attachment button:hover { background: var(--line-strong); color: var(--ink); }
 .agent { display: flex; flex-direction: column; gap: 12px; }
+.detail { display: flex; flex-direction: column; gap: 12px; }
+.detail:empty { display: none; }
 .log { display: flex; flex-direction: column; gap: 10px; }
 .log .line { display: flex; gap: 10px; align-items: flex-start; font-size: 14px; color: var(--ink-soft); }
 .log .line .mark { margin-top: 2px; }
