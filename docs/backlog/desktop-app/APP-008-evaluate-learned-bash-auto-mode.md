@@ -4,13 +4,13 @@ title: Replace the bash regex boundary with an OS sandbox; cards stay UX
 priority: P2
 effort: M
 component: desktop-app
-status: in-review
+status: ready
 related: [APP-003, APP-004]
 blockers: []
 dependencies: ["Evidence from real owner command and approval usage"]
 github_issue: null
 created: 2026-08-22
-updated: 2026-08-23
+updated: 2026-08-26
 ---
 
 ## Problem
@@ -76,3 +76,5 @@ auto-approve anything the sandbox contains; keep approval cards only for
 the owner-meaning writes (capture/profile/publish) as UX, not as the
 security mechanism; drop the exact-regex table as the boundary. Evaluate
 `pi-sandbox` as the drop-in before hand-rolling.
+
+**Prioritization pass 2026-08-26:** The dependency ("evidence from real owner command and approval usage") is satisfied — its own Problem section names the 2026-08-23 stall that supplied it — and the 2026-08-23 Research section already picked a direction (sandbox-first, evaluate `pi-sandbox` first). Promoted `in-review` → `ready`.

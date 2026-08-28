@@ -4,13 +4,13 @@ title: Bring the Codex executor to parity with Claude for synthesis
 priority: P2
 effort: S
 component: automation-synthesis
-status: in-review
+status: ready
 related: [AUT-001, AUT-002, XC-016, APP-004]
 blockers: []
 dependencies: ["windup (separate repo) for the `before` and `reasoning_effort` changes"]
 github_issue: null
 created: 2026-08-22
-updated: 2026-08-22
+updated: 2026-08-26
 ---
 
 ## Problem
@@ -66,3 +66,5 @@ Raised 2026-08-22 after a first read suggested Codex could not reach
 sessions; checking windup's installer and Codex's sandbox showed reads are
 fine and the gaps are the ones above. Codex `exec` also accepts `--add-dir`
 if a write outside `~/.lore` is ever needed; it is not today.
+
+**Prioritization pass 2026-08-26:** No blockers on the lore-mcp side (the windup dependency is noted, not blocking); five concrete, independently-checkable gaps. Promoted `in-review` → `ready`.

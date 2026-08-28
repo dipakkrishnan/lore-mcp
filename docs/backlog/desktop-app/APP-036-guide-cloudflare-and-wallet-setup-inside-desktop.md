@@ -4,13 +4,13 @@ title: Guide Cloudflare and wallet setup inside Desktop
 priority: P1
 effort: M
 component: desktop-app
-status: in-review
+status: ready
 related: [APP-004, APP-005, APP-006, APP-030, MON-006, XC-005]
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-08-25
-updated: 2026-08-25
+updated: 2026-08-26
 ---
 
 ## Problem
@@ -63,3 +63,5 @@ or secrets.
 Split from APP-030 before dogfood. APP-030 remains the publication-only handoff;
 this ticket owns the deeper first-time deployment guidance. Implement the first
 real dogfood break, not every possible Cloudflare or wallet workflow.
+
+**Prioritization pass 2026-08-26:** No blockers, scope explicitly excludes a general browser/shell bridge. Promoted `in-review` → `ready`.

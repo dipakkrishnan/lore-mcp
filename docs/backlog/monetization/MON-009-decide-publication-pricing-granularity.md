@@ -1,7 +1,7 @@
 ---
 id: MON-009
 title: Decide pricing granularity beyond one global publication price
-priority: P3
+priority: P2
 effort: M
 component: monetization
 status: in-review
@@ -10,7 +10,7 @@ blockers: []
 dependencies: []
 github_issue: null
 created: 2026-08-02
-updated: 2026-08-17
+updated: 2026-08-26
 ---
 
 ## Problem
@@ -70,3 +70,13 @@ current $0.01 it would be underwater. Minimum decision this item now owes
 before `MCP-003` ships: a separate `answer_price_usd`, set by the owner, with
 per-answer cost telemetry (stored on each answer) proving price clears cost.
 The broader bundle/per-publication questions can still wait for POC evidence.
+
+**Prioritization pass 2026-08-26:** corrected priority `P3` → `P2` — this item
+blocks `MCP-003`, which is itself `P2`; a blocker should not outrank lower
+than what it blocks. Not promoted to `ready`: acceptance criterion 5 still
+needs POC usage data that doesn't exist yet, per the 2026-08-03 note above.
+The narrower "minimum decision" this item now owes (a separate
+`answer_price_usd` plus cost telemetry, described in the 2026-08-17 note)
+reads like it could be split into its own smaller, immediately-ready item —
+flagging that as a suggestion for `backlog-ideate` rather than doing it here,
+since prioritization doesn't create items.

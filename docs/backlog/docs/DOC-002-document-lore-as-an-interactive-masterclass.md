@@ -4,13 +4,13 @@ title: Document Lore as an interactive masterclass and coaching surface
 priority: P2
 effort: XS
 component: docs
-status: in-review
+status: completed
 related: [XC-002, MCP-001]
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-08-01
-updated: 2026-08-07
+updated: 2026-08-26
 ---
 
 ## Problem
@@ -37,15 +37,15 @@ product name or a reason to add new infrastructure.
 
 ## Acceptance criteria
 
-- [ ] A concise product note explains the interactive masterclass/coaching
+- [x] A concise product note explains the interactive masterclass/coaching
       thesis in plain language and catalogs at least six distinct use cases.
-- [ ] The note identifies the common product primitive beneath those use cases
+- [x] The note identifies the common product primitive beneath those use cases
       and separates the first plausible wedge from later variants.
-- [ ] Every example respects `private memories -> explicit publication -> paid
+- [x] Every example respects `private memories -> explicit publication -> paid
       answer`; coaching is derived only from owner-approved publications.
-- [ ] The note distinguishes grounded access to someone's expertise from
+- [x] The note distinguishes grounded access to someone's expertise from
       impersonating that person or promising their endorsement.
-- [ ] The note states which use cases work on the existing `discover`/`answer`
+- [x] The note states which use cases work on the existing `discover`/`answer`
       surface and names any capability that truly requires future product work.
 
 ## Notes
@@ -65,3 +65,13 @@ the shipped `discover`/`get` surface has no `answer` tool yet (`MCP-003` is
 still `in-review`), so the note is explicit about which use cases work today
 via client-side synthesis over `get` versus which need `MCP-003`'s `answer`
 tool once it lands.
+
+**Closed out (2026-08-26, prioritization/audit pass):** the PR merged —
+`docs/masterclass-coaching.md` is present on `main` — but status never moved
+past "pending PR review." Re-read the doc against all five criteria: eight
+use cases cataloged (`## The use-case family`), the shared primitive and
+first-wedge/later-variant split both present (`## The primitive`, `## The
+first wedge`), the private→publication→answer boundary respected throughout,
+grounded-vs-impersonation addressed (`## Grounded access is not
+impersonation`), and `## What runs on today's surface, and what doesn't`
+directly satisfies the fifth criterion. Moving `in-review` → `completed`.

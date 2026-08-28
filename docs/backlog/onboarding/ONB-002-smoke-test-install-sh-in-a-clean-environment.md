@@ -4,13 +4,13 @@ title: Smoke-test install.sh in a clean, ephemeral environment
 priority: P2
 effort: S
 component: onboarding
-status: in-review
+status: ready
 related: [CLI-002, XC-004]
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-08-04
-updated: 2026-08-04
+updated: 2026-08-26
 ---
 
 ## Problem
@@ -66,3 +66,5 @@ survey. Lower priority than `CLI-002`: `install.sh` is a single linear
 script with one failure mode class (paths and copies), versus a whole
 command lifecycle with a stateful contract between steps — smaller surface,
 smaller payoff per test written.
+
+**Prioritization pass 2026-08-26:** No blockers, small effort, concrete four-step approach reusing an existing `LORE_SOURCE_DIR` escape hatch. Promoted `in-review` → `ready`.

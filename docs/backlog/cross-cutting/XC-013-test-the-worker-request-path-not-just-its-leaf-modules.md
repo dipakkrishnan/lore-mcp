@@ -4,13 +4,13 @@ title: Test the Worker's request path, not just its leaf modules
 priority: P2
 effort: M
 component: cross-cutting
-status: in-review
+status: ready
 related: [XC-003, XC-004, MCP-001, MON-002, MON-003, MON-006]
 blockers: []
 dependencies: ["@cloudflare/vitest-pool-workers loading the MCP SDK's CJS dependencies"]
 github_issue: null
 created: 2026-07-31
-updated: 2026-08-04
+updated: 2026-08-26
 ---
 
 ## Problem
@@ -100,3 +100,5 @@ applies.
 **Audit 2026-08-04:** promoted `ideation` → `in-review` — has a concrete
 `## Problem` and a checklist of acceptance criteria, so it's ready for a
 prioritization pass rather than needing further ideation work.
+
+**Prioritization pass 2026-08-26:** No formal blockers; the CJS/ajv loader issue is the problem being investigated, not a blocker on someone else's item, and `MON-010`'s working precedent (noted below) gives the first path to try. Promoted `in-review` → `ready`.

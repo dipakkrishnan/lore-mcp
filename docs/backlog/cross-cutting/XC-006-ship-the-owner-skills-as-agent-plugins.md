@@ -4,13 +4,13 @@ title: Ship the owner skill pack as agent plugins with a marketplace entry
 priority: P3
 effort: M
 component: cross-cutting
-status: in-review
+status: ready
 related: [XC-005, ONB-001]
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-07-30
-updated: 2026-07-30
+updated: 2026-08-26
 ---
 
 ## Problem
@@ -49,3 +49,5 @@ before committing to structure.
 
 From the PR #42 discussion, 2026-07-30. Deliberately after launch-critical
 work: distribution polish, not a launch gate.
+
+**Prioritization pass 2026-08-26:** No blockers, concrete AC. Stays `P3` — deliberately after launch-critical work per its own Notes — but readiness and priority are independent: unblocked and specified is enough to promote. Promoted `in-review` → `ready`.

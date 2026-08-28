@@ -4,13 +4,13 @@ title: Scale required approvals to what the diff touches
 priority: P2
 effort: M
 component: cross-cutting
-status: in-review
+status: ready
 related: [XC-004, XC-012, XC-009, XC-010, XC-014]
 blockers: []
 dependencies: ["Repository admin access to configure branch protection or a ruleset — the current backlog author has push but not admin"]
 github_issue: null
 created: 2026-08-03
-updated: 2026-08-04
+updated: 2026-08-26
 ---
 
 ## Problem
@@ -108,3 +108,5 @@ edit could remove. It is not blocked by them — the rule protects
 this problem — making the status checks that already exist actually block a
 merge — separately from this item's path-scaled approval mechanism. Same
 admin dependency; worth executing together if picked up in the same pass.
+
+**Prioritization pass 2026-08-26:** Admin-access dependency is real but not a hard blocker — `XC-014` (same admin gap, same author) already completed 2026-08-10, so an admin is reachable when needed. The mechanism trade-off (CODEOWNERS vs. a status-check job) stays open in the approach, but the AC are shape-agnostic and testable either way, unlike `MCP-002`'s pre-decision blocker. Recommend the status-check-job direction during implementation: version-controlled/extensible per the AC's own bar, and it avoids CODEOWNERS' self-approval deadlock risk. Promoted `in-review` → `ready`.
