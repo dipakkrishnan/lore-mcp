@@ -65,6 +65,7 @@ function registerIpc(loreHome) {
   ipcMain.handle("snapshot:read", () => readState(loreHome));
   ipcMain.handle("dictation:start", () => startDictation());
   ipcMain.handle("dictation:stop", () => dictation?.stdin?.end());
+  ipcMain.handle("dictation:settings", () => shell.openExternal("x-apple.systempreferences:com.apple.Keyboard-Settings.extension?Dictation"));
   ipcMain.handle("agent:status", () => agent.status());
   ipcMain.handle("agent:prompt", (_event, input) => {
     if (!input || typeof input.text !== "string" || input.text.length > 100_000 || !TASKS.has(input.task)) {

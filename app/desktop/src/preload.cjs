@@ -31,6 +31,7 @@ contextBridge.exposeInMainWorld("lore", {
   pathFor: (file) => webUtils.getPathForFile(file),
   startDictation: () => ipcRenderer.invoke("dictation:start"),
   stopDictation: () => ipcRenderer.invoke("dictation:stop"),
+  openDictationSettings: () => ipcRenderer.invoke("dictation:settings"),
   /** @param {(event: DictationEvent) => void} listener */
   onDictation: (listener) => {
     /** @param {import("electron").IpcRendererEvent} _event @param {DictationEvent} value */

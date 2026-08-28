@@ -576,9 +576,9 @@ async function load() {
   }
 }
 
-/** @param {string} text @param {boolean} [owner] @param {boolean} [stopped] */
-function say(text, owner = false, stopped = false) {
-  lines.push({ text, owner, stopped });
+/** @param {string} text @param {boolean} [owner] @param {boolean} [stopped] @param {Line["action"]} [action] */
+function say(text, owner = false, stopped = false, action) {
+  lines.push({ text, owner, stopped, action });
   if (!owner) liveText = "";
   renderLog();
 }
@@ -590,9 +590,10 @@ function live(text) {
 }
 
 function renderLog() {
-  log.replaceChildren(...lines.map(({ text, owner, stopped }) => {
+  log.replaceChildren(...lines.map(({ text, owner, stopped, action }) => {
     const line = el("div", owner ? "line owner" : stopped ? "line stop" : "line");
     line.append(owner ? el("span", "you", "You") : mark("mark mark-sm"), owner ? el("p", "", text) : markdown(text));
+    if (action) line.append(button(action.label, "secondary", action.run));
     return line;
   }));
   if (liveText) {
@@ -1103,7 +1104,8 @@ window.lore.onDictation(({ kind, text }) => {
     fit(input);
   } else if (kind === "error") {
     setDictating(false);
-    say(`${text} ${DICTATE_HINT}`, false, true);
+    if (/dictation are disabled/i.test(text)) say("Dictation is off on this Mac. Turn it on under System Settings → Keyboard, then tap the microphone again.", false, true, { label: "Open Keyboard settings", run: () => void window.lore.openDictationSettings() });
+    else say(`${text} ${DICTATE_HINT}`, false, true);
   } else if (kind === "closed") {
     setDictating(false);
     if (liveText === "Listening…") live("");

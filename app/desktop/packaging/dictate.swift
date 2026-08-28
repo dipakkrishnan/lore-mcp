@@ -28,20 +28,22 @@ func record(_ recognizer: SFSpeechRecognizer) {
     do { try engine.start() } catch { fail("The microphone could not be started: \(error.localizedDescription)") }
     emit("ready", recognizer.supportsOnDeviceRecognition ? "on-device" : "network")
     var latest = ""
+    var stopping = false
     recognizer.recognitionTask(with: request) { result, error in
         if let result {
             latest = result.bestTranscription.formattedString
             emit(result.isFinal ? "final" : "partial", latest)
             if result.isFinal { exit(0) }
         }
-        if error != nil {
-            // Ending audio with nothing said reports an error; the transcript is still the answer.
-            emit("final", latest)
-            exit(0)
+        if let error {
+            // After endAudio, "no speech" arrives as an error; before it, an error is real.
+            if stopping || !latest.isEmpty { emit("final", latest); exit(0) }
+            fail(error.localizedDescription)
         }
     }
     DispatchQueue.global().async {
         while readLine() != nil {}
+        stopping = true
         engine.stop()
         input.removeTap(onBus: 0)
         request.endAudio()

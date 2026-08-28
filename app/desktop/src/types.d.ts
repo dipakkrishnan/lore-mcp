@@ -98,7 +98,7 @@ type BlueprintFields = {
   storytelling: string;
 };
 
-type Line = { text: string; owner: boolean; stopped?: boolean };
+type Line = { text: string; owner: boolean; stopped?: boolean; action?: { label: string; run(): void } };
 
 interface Window {
   lore: {
@@ -122,6 +122,7 @@ interface Window {
     onAgentEvent(listener: (event: AgentEvent) => void): () => void;
     startDictation(): Promise<void>;
     stopDictation(): Promise<void>;
+    openDictationSettings(): Promise<void>;
     onDictation(listener: (event: DictationEvent) => void): () => void;
   };
 }
