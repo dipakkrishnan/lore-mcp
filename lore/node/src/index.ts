@@ -163,9 +163,8 @@ export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
     if (request.method === "GET" && url.pathname === "/") {
-      const catalog = (await manifest(env)) as Parameters<typeof storefront>[0];
-      return new Response(storefront(catalog, PRICE_USD, networkLabel(env), url.origin), {
-        headers: { "content-type": "text/html; charset=utf-8" }
+      return new Response(storefront(await manifest(env), PRICE_USD, networkLabel(env), url.origin), {
+        headers: { "content-type": "text/html; charset=utf-8", "cache-control": "public, max-age=60" }
       });
     }
     return mcp.fetch(request, env, ctx);

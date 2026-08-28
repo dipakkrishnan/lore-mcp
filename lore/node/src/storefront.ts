@@ -1,7 +1,6 @@
 // The page a person sees at the node's root. Agents use /mcp; an owner who
 // clicks "Open your store" should see what is for sale, not a JSON-RPC error.
-type Entry = { id: string; teaser: string; kind: string; updated_at: string };
-type Catalog = { publication_count: number; topics: Record<string, Entry[]> };
+import type { Catalog } from "./answer-state.js";
 
 const escape = (text: string) =>
   text.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c] as string);

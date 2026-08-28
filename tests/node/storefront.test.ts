@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import { storefront } from "../../lore/node/src/storefront.js";
 
 const catalog = {
+  manifest_version: 1 as const,
   publication_count: 2,
   topics: {
     "team scaling": [
@@ -29,6 +30,6 @@ describe("storefront", () => {
   });
 
   it("says so when nothing is for sale yet", () => {
-    expect(storefront({ publication_count: 0, topics: {} }, 0.01, "Base", "https://x")).toContain("Nothing for sale yet");
+    expect(storefront({ manifest_version: 1, publication_count: 0, topics: {} }, 0.01, "Base", "https://x")).toContain("Nothing for sale yet");
   });
 });
