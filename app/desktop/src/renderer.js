@@ -924,6 +924,7 @@ function seamCard() {
   leave.disabled = pushing;
   push.disabled = pushing;
   actions.append(leave, push);
+  box.append(actions);
   return box;
 }
 
