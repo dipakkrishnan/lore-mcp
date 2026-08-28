@@ -1076,9 +1076,11 @@ input.addEventListener("keydown", (event) => {
 });
 const DICTATE_HINT = "You can also press the dictation key on your keyboard (or fn twice) and speak into the box.";
 const RATE = 16000;
+const MAX_DICTATION_MS = 10 * 60_000;
 const dictate = /** @type {HTMLButtonElement} */ ($("#dictate"));
 /** @type {{ stop(): Promise<Float32Array[]> } | null} */
 let recorder = null;
+let dictationLimit = 0;
 let spoken = "";
 const dictationBox = $("#dictation");
 const dictationText = $("#dictation-text");
@@ -1133,6 +1135,7 @@ dictate.addEventListener("click", async () => {
   if (recorder) {
     const active = recorder;
     recorder = null;
+    clearTimeout(dictationLimit);
     dictationMode("transcribing");
     let text = "";
     try {
@@ -1147,15 +1150,19 @@ dictate.addEventListener("click", async () => {
     return;
   }
   spoken = input.value.trim() ? `${input.value.trimEnd()} ` : "";
-  if (!(await window.lore.microphone())) {
-    say(`Lore needs the microphone: System Settings → Privacy & Security → Microphone. ${DICTATE_HINT}`, false, true);
-    return;
-  }
+  dictate.disabled = true;
   try {
+    if (!(await window.lore.microphone())) {
+      say(`Lore needs the microphone: System Settings → Privacy & Security → Microphone. ${DICTATE_HINT}`, false, true);
+      return;
+    }
     recorder = await record();
     dictationMode("listening");
+    dictationLimit = window.setTimeout(() => dictate.click(), MAX_DICTATION_MS);
   } catch (error) {
     say(`Lore couldn't start the microphone: ${/** @type {Error} */ (error).message}. ${DICTATE_HINT}`, false, true);
+  } finally {
+    if (!recorder) dictate.disabled = false;
   }
 });
 const GUARDED = /(^|\/)\.[^/]*$|\/\.(ssh|aws|gnupg)\/|\.(pem|key|p12|pfx|keychain(-db)?)$|id_(rsa|ed25519|ecdsa)/;

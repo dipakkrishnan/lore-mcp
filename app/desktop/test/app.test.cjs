@@ -86,15 +86,19 @@ test("desktop Bash is confined to Lore", { skip: process.platform !== "darwin" }
 });
 
 test("dictation transcribes through the bundled whisper and leaves no audio behind", async () => {
-  const { transcribe } = require("../src/dictation.cjs");
+  const { MAX_WAV_BYTES, transcribe } = require("../src/dictation.cjs");
   const dir = await mkdtemp(join(tmpdir(), "lore-dictation-"));
   const bin = join(dir, "whisper-cli");
   await writeFile(bin, '#!/bin/sh\ncp "$4" "$(dirname "$0")/seen.wav"\nprintf " [BLANK_AUDIO] Add the management layer first.\\n"\n', { mode: 0o755 });
   try {
-    const text = await transcribe({ bin, model: "model.bin", dir }, Buffer.from("RIFF"));
+    const wav = Buffer.alloc(44);
+    wav.write("RIFF");
+    const text = await transcribe({ bin, model: "model.bin", dir }, wav);
     assert.equal(text, "Add the management layer first.");
-    assert.equal(await readFile(join(dir, "seen.wav"), "utf8"), "RIFF");
+    assert.equal((await readFile(join(dir, "seen.wav"))).subarray(0, 4).toString(), "RIFF");
     assert.deepEqual((await require("node:fs/promises").readdir(dir)).filter((name) => name.endsWith(".wav") && name !== "seen.wav"), []);
+    await assert.rejects(transcribe({ bin, model: "model.bin", dir }, Buffer.alloc(43)), /between 44 bytes and 20 MB/);
+    await assert.rejects(transcribe({ bin, model: "model.bin", dir }, Buffer.alloc(MAX_WAV_BYTES + 1)), /between 44 bytes and 20 MB/);
   } finally {
     await rm(dir, { recursive: true });
   }
