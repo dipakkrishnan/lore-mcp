@@ -11,11 +11,12 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import { Type } from "@earendil-works/pi-ai";
 
-const SKILLS = { capture: "lore-capture", setup: "lore-onboard", publish: "lore-publish" };
+const SKILLS = { capture: "lore-capture", setup: "lore-onboard", publish: "lore-publish", deploy: "lore-enable-payments" };
 const TASKS = {
   capture: { title: "Capture a memory", phase: "Review the capture" },
   setup: { title: "Set up your Lore", phase: "Shape your Lore" },
-  publish: { title: "Publish from your Lore", phase: "Draft publications" }
+  publish: { title: "Publish from your Lore", phase: "Draft publications" },
+  deploy: { title: "Open your store", phase: "Payout, price, deploy" }
 };
 const TASK_STATES = new Set(["needs_you", "working", "stopped", "done"]);
 const PERSONAS = ["storyteller", "schoolteacher", "professor", "executive", "sage"];

@@ -32,22 +32,48 @@ jobs:
       run:
         working-directory: lore/node
     steps:
+      - name: Check whether QA deploy is configured yet
+        # Until an admin sets up the qa Environment's secrets (MON-016 tracks
+        # this), every merge to main would otherwise fail this job loudly —
+        # reading as a broken build when nothing regressed. Warn once and
+        # skip cleanly instead.
+        id: configured
+        # Overrides the job's lore/node default: this step reads only env
+        # vars, and runs before actions/checkout has created that directory.
+        working-directory: .
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          QA_PAYOUT_ADDRESS: ${{ secrets.QA_PAYOUT_ADDRESS }}
+        run: |
+          if [ -z "$CLOUDFLARE_API_TOKEN" ] || [ -z "$QA_PAYOUT_ADDRESS" ]; then
+            echo "::warning::QA deploy skipped — the 'qa' GitHub Environment needs" \
+              "CLOUDFLARE_API_TOKEN and QA_PAYOUT_ADDRESS secrets set. See" \
+              "lore/node/README.md and the backlog item tracking this setup."
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          fi
+
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        if: steps.configured.outputs.ready == 'true'
         with:
           # The URL-recording commit below needs to push back to main.
           fetch-depth: 1
 
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        if: steps.configured.outputs.ready == 'true'
         with:
           node-version: lts/*
 
       - run: npm ci
+        if: steps.configured.outputs.ready == 'true'
 
       - name: Ensure the QA D1 database exists
         # Idempotent, mirroring lore/deploy.py's _ensure_d1: resolves the
         # shipped placeholder against the account on the first run only, so
         # no tracked file ever needs a manual edit to deploy this environment.
         id: ensure-d1
+        if: steps.configured.outputs.ready == 'true'
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
         run: |
@@ -69,6 +95,7 @@ jobs:
 
       - name: Deploy the qa environment
         id: deploy
+        if: steps.configured.outputs.ready == 'true'
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
         run: |
@@ -83,20 +110,24 @@ jobs:
           echo "url=$url/mcp" >> "$GITHUB_OUTPUT"
 
       - name: Set the QA payout address
+        if: steps.configured.outputs.ready == 'true'
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           QA_PAYOUT_ADDRESS: ${{ secrets.QA_PAYOUT_ADDRESS }}
         run: printf '%s' "$QA_PAYOUT_ADDRESS" | npx wrangler secret put LORE_WALLET --env qa
 
       - name: Seed fixture publications
+        if: steps.configured.outputs.ready == 'true'
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
         run: npx wrangler d1 execute lore-publications-qa --env qa --remote --file scripts/qa-fixtures.sql -y
 
       - name: Smoke-check the deployed node
+        if: steps.configured.outputs.ready == 'true'
         run: npm run smoke -- "${{ steps.deploy.outputs.url }}"
 
       - name: Record the QA node URL
+        if: steps.configured.outputs.ready == 'true'
         run: |
           mkdir -p .qa
           echo "${{ steps.deploy.outputs.url }}" > .qa/node-url.txt
@@ -108,6 +139,7 @@ jobs:
         # subdomain ever changes). GitHub does not trigger further workflow
         # runs from a push authenticated by the default GITHUB_TOKEN, so
         # this cannot loop.
+        if: steps.configured.outputs.ready == 'true'
         run: |
           if git diff --quiet -- .qa/node-url.txt wrangler.jsonc; then
             exit 0

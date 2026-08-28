@@ -4,13 +4,13 @@ title: Split the test suite into per-module files and gate coverage at 90%
 priority: P2
 effort: L
 component: cross-cutting
-status: in-progress
+status: completed
 related: [STO-001, XC-002]
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-07-29
-updated: 2026-08-03
+updated: 2026-08-26
 ---
 
 ## Problem
@@ -291,3 +291,29 @@ describes is worth re-attempting given this evidence.
 Every check re-verified green after this rebase: `pytest`, `ruff check`,
 `ruff format --check`, and `tests/gate.py` (`python ok`, `worker ok`), plus
 `lore/node`'s own `npm run lint` and `npm test`.
+
+## Closed out (2026-08-26, audit/implementation pass)
+
+PR #47 merged 2026-08-04; the item's own frontmatter had stayed `in-progress`
+since. Re-verified against current `main` rather than trusting the merge
+alone: `uv run python tests/gate.py`'s Python side reports every file in
+`lore/` at ≥97% statement/branch coverage; `tests/node/`'s own suite (the
+scope this item actually owns — `price.ts`/`wallet.ts` unit tests) passes
+9/9; `tsc --noEmit` and `wrangler deploy --dry-run` in `lore/node/` both pass
+clean. (The gate script's own Worker check failed on first run in this
+environment — a stale `node_modules` plus a sandbox-injected `NODE_OPTIONS`
+preload path that doesn't exist here, both environment artifacts unrelated
+to this item's code; resolved locally with `npm install` and a clean
+`NODE_OPTIONS`.)
+
+`lore/node/test/`'s newer files (`answer.test.ts`, `paid-path.test.ts`,
+`mcp-contract.test.ts` — none of them this item's own `tests/node/`)
+initially failed the same way with `LORE_WALLET must be a public EVM
+address`; turned out to be this checkout missing the gitignored
+`lore/node/.dev.vars` that `.github/workflows/tests.yml` provisions before
+every CI run. Provisioning it locally (`echo "LORE_WALLET=0x0...dEaD" >
+.dev.vars`, same value CI uses) and rerunning got all 7 files/27 tests
+green — not a regression, just local setup.
+
+All five acceptance criteria are met and verified. Moving `in-progress` →
+`completed`.
