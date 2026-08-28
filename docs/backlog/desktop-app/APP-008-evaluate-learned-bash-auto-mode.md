@@ -76,3 +76,5 @@ auto-approve anything the sandbox contains; keep approval cards only for
 the owner-meaning writes (capture/profile/publish) as UX, not as the
 security mechanism; drop the exact-regex table as the boundary. Evaluate
 `pi-sandbox` as the drop-in before hand-rolling.
+
+**Prioritization pass 2026-08-26:** The dependency ("evidence from real owner command and approval usage") is satisfied — its own Problem section names the 2026-08-23 stall that supplied it — and the 2026-08-23 Research section already picked a direction (sandbox-first, evaluate `pi-sandbox` first). Promoted `in-review` → `ready`.

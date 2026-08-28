@@ -10,7 +10,7 @@ blockers: [XC-002]
 dependencies: []
 github_issue: https://github.com/dipakkrishnan/lore-mcp/issues/6
 created: 2026-07-26
-updated: 2026-07-30
+updated: 2026-08-26
 ---
 
 ## Problem
@@ -64,3 +64,10 @@ Confirmed against the Claude Code hooks reference: `async` command hooks,
 plugin-scoped `hooks/hooks.json`, and `SessionStart` `additionalContext` all
 exist. Trap to avoid: do not add a `capture` tool to `lore serve` — that is the
 public paid MCP surface intended to sit behind the gateway.
+
+**Prioritization pass 2026-08-26:** the formal blocker (`XC-002`) is now
+`completed`, but not promoting — the "Status: deferred" section's bar is
+qualitative ("do not pick this up until intent-driven publishing has shipped
+and earned it"), not just XC-002 shipping. Flagging for reconsideration
+rather than deciding it here: worth a fresh look at whether publishing has
+"earned" this yet.

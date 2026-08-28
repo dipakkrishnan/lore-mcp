@@ -98,3 +98,15 @@ for this repo's CI; this item is the owner-facing `test`/`beta`/`production`
 split for a deployed lore. If `MON-008` lands first, its `wrangler.jsonc`
 environment-block pattern and fixture-seeding approach should be reused here
 rather than re-invented.
+
+**Prioritization pass 2026-08-26:** left `in-review`, not promoted. Unlike
+the smaller "unclear in detail" items in this pass, the standing-vs-on-demand
+question here is a real architectural fork with cost and complexity on both
+sides (three permanently-running deployments per owner vs. spin-up/teardown
+machinery) — not something to pick by inference from the item's own wording,
+the way `XC-023`'s or `MON-013`'s smaller decisions were. `MON-008`'s shipped
+code (its `wrangler.jsonc` environment-block and fixture-seeding pattern) is
+worth reading first — even though `MON-008` itself is still `in-review`,
+waiting on `MON-016`'s credential provisioning, not on anything this item
+needs — before deciding this one; the decision itself still needs a person,
+not this pass.

@@ -4,13 +4,13 @@ title: Verify the Worker is actually running newly deployed code, not a warm sta
 priority: P2
 effort: S
 component: monetization
-status: in-review
+status: ready
 related: [MON-006]
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-08-10
-updated: 2026-08-10
+updated: 2026-08-26
 ---
 
 ## Problem
@@ -53,3 +53,5 @@ version via `wrangler deployments list`), then flipped to the correct value
 on a later, unrelated retry. No code change was needed to fix it — only time
 passing — which is exactly the kind of false negative this item is about
 catching or explaining rather than leaving to guesswork.
+
+**Prioritization pass 2026-08-26:** No blockers; "unclear in detail" names a concrete shape (poll a build-time version string with backoff) that's enough to start from. Promoted `in-review` → `ready`.

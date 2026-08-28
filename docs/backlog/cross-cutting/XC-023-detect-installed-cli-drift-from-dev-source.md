@@ -4,7 +4,7 @@ title: Detect when the installed lore CLI has drifted from the checked-out sourc
 priority: P2
 effort: S
 component: cross-cutting
-status: in-review
+status: ready
 related: [MON-006]
 blockers: []
 dependencies: []
@@ -64,3 +64,12 @@ items had accumulated that id (this one filed 2026-08-10, "let a buyer reach a
 seller" (now `XC-022`) filed 2026-08-06, "seed the worker smoke test" filed
 2026-08-04 and merged first via #86). The seed-worker-smoke-test item keeps
 `XC-016` as the first to actually claim it.
+
+**Prioritization pass 2026-08-26:** the approach's two shapes (detect-and-warn
+vs. close-by-workflow with a `lore dev` mode/documented reinstall step) were
+open. The item's own closing sentence already picks one — "the goal is that
+editing packaged source and deploying without reinstalling produces a visible
+warning, not silent staleness" — so detect-and-warn is the required shape;
+treat the `lore dev`/reinstall-workflow idea as an optional complement, not a
+substitute, since only detection satisfies the acceptance criteria as
+written. Promoted `in-review` → `ready`.

@@ -4,13 +4,13 @@ title: Keep long-running paid tool calls alive through the bridge
 priority: P2
 effort: S
 component: monetization
-status: in-review
+status: ready
 related: [MON-007, MCP-003]
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-08-17
-updated: 2026-08-17
+updated: 2026-08-26
 ---
 
 ## Problem
@@ -51,3 +51,5 @@ Filed 2026-08-17 out of the answer-tier design (`docs/answer-tier.md` §7).
 Independently shippable ahead of `MCP-003` — it hardens today's paid `get`
 path against slow cold starts too — so it is related to `MCP-003`, not a
 blocker of it.
+
+**Prioritization pass 2026-08-26:** No blockers — explicitly independently shippable ahead of `MCP-003`, and hardens today's paid `get` path too. Promoted `in-review` → `ready`.
