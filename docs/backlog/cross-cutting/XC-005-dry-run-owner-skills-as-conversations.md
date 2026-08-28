@@ -4,13 +4,13 @@ title: Dry-run every owner skill as a conversation, not just a document
 priority: P1
 effort: M
 component: cross-cutting
-status: ready
+status: in-progress
 related: [XC-004, MON-006]
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-07-30
-updated: 2026-08-01
+updated: 2026-08-26
 ---
 
 ## Problem
@@ -39,7 +39,7 @@ and that is acceptable.
 
 ## Acceptance criteria
 
-- [ ] A written dry-run checklist exists (what to run, on which agents, with a
+- [x] A written dry-run checklist exists (what to run, on which agents, with a
       forced resume and a crossed skill boundary).
 - [ ] `lore-onboard` and `lore-enable-payments` have each been dry-run on both
       agent paths at least once, with findings filed.
@@ -58,3 +58,14 @@ and least once they have shipped to owners untested. The "unclear whether this
 can be automated" question in the approach does not block starting: both
 acceptance criteria describe the manual checklist, and deciding it stays manual
 is a valid outcome.
+
+**2026-08-26:** First criterion done — the protocol lives at
+`docs/skill-dry-run-protocol.md`, covering both agent paths, the forced
+resume (keyed off each skill's real checkpoint file), and three concrete
+skill-boundary crossings (`lore-onboard` → `lore-enable-payments`,
+`lore-onboard` → `lore-publish`, and `lore-enable-payments`'s own
+publish-first branch). Second criterion is unchanged: it needs a human (or an
+agent with a live conversational partner) to actually walk both skills
+end-to-end on both agent paths and file what they find — not something this
+pass can honestly claim from a solo read-through. Left `in-progress` rather
+than `completed`.
