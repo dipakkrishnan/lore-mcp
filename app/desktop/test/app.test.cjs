@@ -110,6 +110,24 @@ test("switching tasks updates the live network policy the proxy actually filters
   }
 });
 
+test("a streamed CLI command hands back each line and fails on a non-zero exit", async () => {
+  const { loreStream, useRuntime } = require("../src/state.cjs");
+  const directory = await mkdtemp(join(tmpdir(), "lore-desktop-"));
+  const fake = join(directory, "lore");
+  await writeFile(fake, '#!/bin/sh\necho "Visit this link to authenticate: https://dash.cloudflare.com/oauth2/auth?x=1"\ntest "$2" = login && exit 0\necho "lore: Cloudflare sign-in did not complete" >&2\nexit 1\n', { mode: 0o755 });
+  const lines = [];
+  try {
+    useRuntime(fake);
+    await loreStream(directory, ["node", "login"], (line) => lines.push(line));
+    assert.match(lines[0], /^Visit this link/);
+    await assert.rejects(loreStream(directory, ["node", "deploy"], (line) => lines.push(line)), /exited with 1/);
+    assert.equal(lines.at(-1), "lore: Cloudflare sign-in did not complete");
+  } finally {
+    useRuntime();
+    await rm(directory, { recursive: true });
+  }
+});
+
 test("sessions persist per task, come back as a thread, and a cut-off tool call is closed out", async () => {
   const { LoreAgent } = await import("../src/agent.mjs");
   const { SessionManager } = await import("@earendil-works/pi-coding-agent");

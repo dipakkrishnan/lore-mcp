@@ -2,7 +2,7 @@ const { randomUUID } = require("node:crypto");
 const { join } = require("node:path");
 const { app, BrowserWindow, dialog, ipcMain, safeStorage, shell } = require("electron");
 const { provision, skillsDir } = require("./runtime.cjs");
-const { lore, readState, searchMemories, readMemory, candidates, decide, useRuntime } = require("./state.cjs");
+const { lore, loreStream, readState, searchMemories, readMemory, candidates, decide, useRuntime } = require("./state.cjs");
 
 if (process.env.LORE_DESKTOP_USER_DATA) app.setPath("userData", process.env.LORE_DESKTOP_USER_DATA);
 
@@ -162,6 +162,22 @@ async function start() {
       await lore(loreHome, ["blueprint", "apply", "-"], JSON.stringify(edited));
       emit({ type: "changed" });
       return edited;
+    },
+    cloudflareLogin: async () => {
+      if (!(await request("cloudflare", {}))) return "The owner chose not to sign in to Cloudflare right now.";
+      let last = "";
+      try {
+        await loreStream(loreHome, ["node", "login"], (line) => {
+          last = line;
+          const url = line.match(/https:\/\/dash\.cloudflare\.com\/\S+/)?.[0];
+          if (!url) return;
+          void shell.openExternal(url);
+          emit({ type: "live", text: "Finish signing in to Cloudflare in your browser, then come back here." });
+        });
+      } catch (error) {
+        throw new Error(last.replace(/^lore: /, "") || /** @type {Error} */ (error).message);
+      }
+      return last;
     },
     authPrompt: async ({ signal, ...prompt }) => String(await request("auth-prompt", { prompt }, signal)),
     authEvent: (event) => {

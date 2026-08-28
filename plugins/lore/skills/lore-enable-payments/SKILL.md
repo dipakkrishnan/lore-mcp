@@ -25,9 +25,10 @@ having at least one.
 
 > **Lore desktop:** this skill runs as the app's "Open your store" task. Ask every
 > decision through `ask_user`. You run every command yourself except two the app
-> keeps for the owner: `npx wrangler login` (they run it in their own terminal —
-> say so, then verify with `npx wrangler whoami`) and `lore push` (they press
-> **Push** in the app; never run it). Default the path to the **test network**
+> keeps for the owner: Cloudflare sign-in (call `cloudflare_login`; it opens
+> Cloudflare in their browser and returns who is signed in — never send the
+> owner to a terminal) and `lore push` (they press **Push** in the app; never
+> run it). Default the path to the **test network**
 > (Base Sepolia); mainnet is an explicit choice the owner makes with a publication
 > live. Keep the desktop flow publication-only; paid answers remain a separate,
 > terminal-attended option. Do not read or write
@@ -166,8 +167,8 @@ Verify three prerequisites from state, then one command:
    wallet/price steps proceed — the owner should never sit watching a package
    manager.
 
-1. `npx wrangler whoami` — not logged in? See "interactive logins" above. Free
-   tier is enough.
+1. `npx wrangler whoami` — not logged in? In Lore desktop call `cloudflare_login`;
+   elsewhere see "interactive logins" above. Free tier is enough.
 2. If deploy later fails with "register a workers.dev subdomain" (one-time per
    account): frame and open
    `https://dash.cloudflare.com/<account-id>/workers-and-pages` (account id from

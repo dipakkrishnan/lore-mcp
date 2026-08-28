@@ -140,6 +140,7 @@ def parser() -> argparse.ArgumentParser:
         "--wallet",
         help="public payout address (0x + 40 hex) set as the node's LORE_WALLET",
     )
+    node_commands.add_parser("login", help="sign in to Cloudflare through your browser")
 
     publication = commands.add_parser(
         "publication", help="approve, list, and revoke external publications"
@@ -249,6 +250,8 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "node":
             if args.node_command == "deploy":
                 return deploy_module.deploy(args.wallet)
+            if args.node_command == "login":
+                return deploy_module.login()
         if args.command == "publication":
             if args.publication_command == "review":
                 return publication_apply(args.file)

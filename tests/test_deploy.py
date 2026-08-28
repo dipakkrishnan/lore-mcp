@@ -73,7 +73,7 @@ class _Wrangler:
             err = "402 expected, got 500" if self.smoke_fails else ""
         elif tail == ("whoami",):
             out = "logged in as ada" if self.logged_in else "You are not authenticated."
-        elif tail == ("login",):
+        elif tail[:1] == ("login",):
             code = 1 if self.login_fails else 0
         elif tail == ("secret", "list"):
             out = '[{"name":"LORE_WALLET"}]' if self.has_wallet_secret else "[]"
@@ -102,6 +102,49 @@ class _Wrangler:
             next(i for i, c in enumerate(self.commands) if c[1:] == tail)
             for tail in tails
         ]
+
+
+class LoginTest(LoreTestCase):
+    def _login(self, wrangler: _Wrangler) -> str:
+        with (
+            patch("lore.deploy.subprocess.run", side_effect=wrangler),
+            patch("lore.deploy.shutil.which", return_value="/usr/bin/npm"),
+            captured() as out,
+        ):
+            self.assertEqual(deploy_module.login(), 0)
+        return out.getvalue()
+
+    def test_a_fresh_machine_is_staged_and_installed_before_signing_in(self) -> None:
+        wrangler = _Wrangler()
+        output = self._login(wrangler)
+        self.assertTrue((self.lore_home / "node/package.json").is_file())
+        self.assertEqual(wrangler.commands[:2][0][:2], ("npm", "install"))
+        self.assertEqual(wrangler.commands[1][1:], ("login", "--browser=false"))
+        self.assertEqual(wrangler.commands[2][1:], ("whoami",))
+        self.assertIn("Signed in to Cloudflare", output)
+
+    def test_an_installed_node_signs_in_without_reinstalling(self) -> None:
+        target = deploy_module.materialize(0.1)
+        binary = target / "node_modules/.bin/wrangler"
+        binary.parent.mkdir(parents=True)
+        binary.write_text("#!/bin/sh\n")
+        wrangler = _Wrangler()
+        self._login(wrangler)
+        self.assertEqual(
+            [c[1:] for c in wrangler.commands],
+            [("login", "--browser=false"), ("whoami",)],
+        )
+
+    def test_a_sign_in_that_did_not_land_is_an_error_even_if_wrangler_exited_clean(
+        self,
+    ) -> None:
+        with (
+            patch("lore.deploy.subprocess.run", side_effect=_Wrangler(logged_in=False)),
+            patch("lore.deploy.shutil.which", return_value="/usr/bin/npm"),
+            captured(),
+            self.assertRaisesRegex(OSError, "did not complete"),
+        ):
+            deploy_module.login()
 
 
 class MaterializeTest(LoreTestCase):

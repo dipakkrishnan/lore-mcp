@@ -145,7 +145,8 @@ type AuthPrompt =
 type AgentRequest =
   | { type: "question"; id: string; questions: OwnerQuestion[] }
   | { type: "blueprint"; id: string; fields: BlueprintFields; evidence: string }
-  | { type: "auth-prompt"; id: string; prompt: AuthPrompt };
+  | { type: "auth-prompt"; id: string; prompt: AuthPrompt }
+  | { type: "cloudflare"; id: string };
 
 type AgentEvent =
   | AgentRequest
@@ -178,6 +179,7 @@ type LoreAgentOptions = {
   emit(event: AgentEvent): void;
   askUser(questions: OwnerQuestion[]): Promise<Record<string, string>>;
   proposeBlueprint(fields: BlueprintFields, evidence: string): Promise<BlueprintFields>;
+  cloudflareLogin(): Promise<string>;
   authPrompt(prompt: import("@earendil-works/pi-ai").AuthPrompt): Promise<string>;
   authEvent(event: import("@earendil-works/pi-ai").AuthEvent): void;
 };

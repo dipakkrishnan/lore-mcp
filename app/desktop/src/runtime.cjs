@@ -1,28 +1,17 @@
-const { spawn } = require("node:child_process");
 const { existsSync, mkdirSync, readFileSync, writeFileSync } = require("node:fs");
 const { join, resolve } = require("node:path");
-const { createInterface } = require("node:readline");
 const { app } = require("electron");
+const { stream } = require("./state.cjs");
 
 const root = resolve(__dirname, "../../..");
 const resources = app.isPackaged ? process.resourcesPath : root;
 const skillsDir = join(resources, app.isPackaged ? "skills" : "plugins/lore/skills");
 
-/** @param {string} file @param {string[]} args @param {Record<string, string>} env @param {(line: string) => void} onLine */
-function stream(file, args, env, onLine) {
-  return new Promise((done, fail) => {
-    const child = spawn(file, args, { env: { ...process.env, ...env } });
-    for (const output of [child.stdout, child.stderr]) {
-      if (output) createInterface({ input: output }).on("line", (line) => line.trim() && onLine(line.trim()));
-    }
-    child.on("error", fail);
-    child.on("close", (code) => (code === 0 ? done(undefined) : fail(new Error(`uv exited with ${code}`))));
-  });
-}
-
 /** @param {(event: AgentEvent) => void} emit @returns {Promise<{bin: string, binDir: string} | null>} */
 async function provision(emit) {
   if (!app.isPackaged) return null;
+  // Finder launches with launchd's bare PATH; deploys run npm and wrangler on the bundled Node.
+  process.env.PATH = [join(resources, "node/bin"), process.env.PATH].filter(Boolean).join(":");
   const home = join(app.getPath("userData"), "runtime");
   const binDir = join(home, "bin");
   const runtime = { bin: join(binDir, "lore"), binDir };

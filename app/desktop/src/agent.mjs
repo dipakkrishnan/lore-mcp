@@ -43,7 +43,7 @@ export function bashSandboxPolicy(loreHome, task, binDir) {
   const lore = realpathSync(loreHome);
   const owned = (OWNER_DIRS[task] ?? []).map((dir) => resolve(home, dir));
   const runtime = binDir
-    ? [resolve(binDir, "..")]
+    ? [resolve(binDir, ".."), ...(process.resourcesPath ? [process.resourcesPath] : [])]
     : [resolve(home, ".local/bin/lore"), resolve(home, ".local/share/lore/lore-mcp"), resolve(home, ".local/share/uv/python"), resolve(home, ".local/share/uv/tools/lore-mcp")];
   return {
     network: { allowedDomains: task === "deploy" ? ["*"] : [], deniedDomains: [] },
@@ -368,7 +368,7 @@ export class LoreAgent {
       resourceLoader: this.resources,
       settingsManager: this.settings,
       sessionManager,
-      tools: ["read", "write", "edit", "bash", "ask_user", "propose_blueprint", "finish_task"],
+      tools: ["read", "write", "edit", "bash", "ask_user", "propose_blueprint", "cloudflare_login", "finish_task"],
       customTools: [
         createBashTool(this.options.loreHome, {
           operations: createSandboxedBashOperations(this.options.loreHome, task, this.options.binDir),
@@ -384,6 +384,7 @@ export class LoreAgent {
         }),
         this.#askTool(),
         this.#blueprintTool(),
+        this.#cloudflareTool(),
         this.#finishTool()
       ]
     });
@@ -472,6 +473,25 @@ export class LoreAgent {
           return { content: [{ type: "text", text: JSON.stringify(edited) }], details: {} };
         } finally {
           if (task && session) this.#record(session, task, "working", "Lore shape saved");
+        }
+      }
+    });
+  }
+
+  #cloudflareTool() {
+    return defineTool({
+      name: "cloudflare_login",
+      label: "Sign in to Cloudflare",
+      description: "Sign the owner in to Cloudflare through their browser. Call when wrangler says they are not authenticated; returns who is signed in, or that the owner declined for now.",
+      parameters: Type.Object({}),
+      execute: async () => {
+        const task = this.#activeTask;
+        const session = task && this.#sessions.get(task);
+        if (task && session) this.#record(session, task, "needs_you", "Sign in to Cloudflare");
+        try {
+          return { content: [{ type: "text", text: await this.options.cloudflareLogin() }], details: {} };
+        } finally {
+          if (task && session) this.#record(session, task, "working");
         }
       }
     });

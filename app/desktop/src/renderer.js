@@ -716,6 +716,23 @@ function renderRequest(event) {
       };
       respond(event.id, fields, `${fields.name} · ${fields.persona} · ${fields.topic_outline.join(", ")}`);
     });
+  } else if (event.type === "cloudflare") {
+    box.append(
+      el("p", "q", "Sign in to Cloudflare?"),
+      el("p", "hint", "Your browser will open Cloudflare's sign-in page; a free account is enough. Come back here once it says you can close the page.")
+    );
+    const actions = el("div", "actions");
+    const later = el("button", "btn secondary sm", "Not now");
+    later.type = "button";
+    later.addEventListener("click", () => respond(event.id, false, "Not now"));
+    const open = el("button", "btn primary sm", "Open Cloudflare");
+    open.type = "submit";
+    actions.append(later, open);
+    box.append(actions);
+    box.addEventListener("submit", (submitEvent) => {
+      submitEvent.preventDefault();
+      respond(event.id, true, "Open Cloudflare");
+    });
   } else {
     box.append(el("p", "q", event.prompt.message));
     /** @type {HTMLInputElement | HTMLSelectElement} */
