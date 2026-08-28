@@ -1,7 +1,7 @@
 const assert = require("node:assert/strict");
-const { mkdtemp, readFile, rm, writeFile } = require("node:fs/promises");
-const { tmpdir } = require("node:os");
-const { dirname, join } = require("node:path");
+const { mkdtemp, readFile, rm, symlink, writeFile } = require("node:fs/promises");
+const { homedir, tmpdir } = require("node:os");
+const { join } = require("node:path");
 const { spawnSync } = require("node:child_process");
 const { test } = require("node:test");
 const { readState } = require("../src/state.cjs");
@@ -55,24 +55,32 @@ test("the desktop agent has Pi's normal file and shell tools", async () => {
 test("desktop Bash is confined to Lore", { skip: process.platform !== "darwin" }, async () => {
   const { createSandboxedBashOperations, initializeBashSandbox } = await import("../src/agent.mjs");
   const { SandboxManager } = await import("@anthropic-ai/sandbox-runtime");
-  const home = await mkdtemp(join(tmpdir(), "lore-sandbox-"));
+  const real = await mkdtemp(join(tmpdir(), "lore-sandbox-"));
+  const home = `${real}-link`;
+  await symlink(real, home);
   const inside = join(home, "inside");
-  const escaped = join(dirname(home), `${home.split("/").at(-1)}-escaped`);
+  const escaped = `${real}-escaped`;
   const output = [];
+  const run = (task, command) => createSandboxedBashOperations(home, task).exec(command, home, { onData: (data) => output.push(data) });
   try {
     await initializeBashSandbox(home);
-    const result = await createSandboxedBashOperations(home, "capture").exec(
-      `printf inside > ${JSON.stringify(inside)}; printf escaped > ${JSON.stringify(escaped)}`,
-      home,
-      { onData: (data) => output.push(data) }
-    );
+    const result = await run("capture", `printf inside > ${JSON.stringify(inside)}; printf escaped > ${JSON.stringify(escaped)}`);
     assert.equal(result.exitCode, 1);
     assert.equal(await readFile(inside, "utf8"), "inside");
     await assert.rejects(readFile(escaped, "utf8"), { code: "ENOENT" });
     assert.match(Buffer.concat(output).toString(), /Operation not permitted|sandbox_violations/);
+    assert.equal((await run("capture", 'printf "$TMPDIR" > "$TMPDIR/probe" && cat "$TMPDIR/probe"')).exitCode, 0);
+    assert.deepEqual(SandboxManager.getNetworkRestrictionConfig().allowedHosts, []);
+    await run("deploy", "true");
+    assert.deepEqual(SandboxManager.getNetworkRestrictionConfig().allowedHosts, ["*"]);
+    await run("setup", "true");
+    assert.ok(SandboxManager.getFsWriteConfig().allowOnly.includes(join(homedir(), ".codex/automations")));
+    await run("capture", "true");
+    assert.deepEqual(SandboxManager.getNetworkRestrictionConfig().allowedHosts, []);
   } finally {
     await SandboxManager.reset();
-    await rm(home, { recursive: true, force: true });
+    await rm(real, { recursive: true, force: true });
+    await rm(home, { force: true });
     await rm(escaped, { force: true });
   }
 });

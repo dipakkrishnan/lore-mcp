@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { mkdirSync, realpathSync } from "node:fs";
 import { homedir } from "node:os";
 import { resolve } from "node:path";
 import {
@@ -28,12 +29,19 @@ const AXES = ["chronological", "theme", "project", "knowledge"];
 const CLOSED = "Lore was closed before this finished.";
 const MODELS = ["anthropic/claude-sonnet-5", "openai-codex/gpt-5.6-luna", "openai/gpt-5.6-luna"];
 const MAX_TURNS = 60;
+const SANDBOX_TMPDIR = "/tmp/claude";
+/** @type {Partial<Record<AgentTask, string[]>>} Home-relative directories outside Lore that a task's commands must write. */
+const OWNER_DIRS = {
+  setup: [".codex/automations", "Library/LaunchAgents"],
+  deploy: [".wrangler", "Library/Preferences/.wrangler", "Library/Caches/.wrangler", ".npm"]
+};
 const CAPPED = "That reply took more steps than Lore allows at once, so it paused. Say continue to keep going.";
 
 /** @param {string} loreHome @param {AgentTask} task @param {string} [binDir] */
 export function bashSandboxPolicy(loreHome, task, binDir) {
   const home = homedir();
-  const wrangler = [resolve(home, ".wrangler"), resolve(home, "Library/Preferences/.wrangler"), resolve(home, "Library/Caches/.wrangler")];
+  const lore = realpathSync(loreHome);
+  const owned = (OWNER_DIRS[task] ?? []).map((dir) => resolve(home, dir));
   const runtime = binDir
     ? [resolve(binDir, "..")]
     : [resolve(home, ".local/bin/lore"), resolve(home, ".local/share/lore/lore-mcp"), resolve(home, ".local/share/uv/python"), resolve(home, ".local/share/uv/tools/lore-mcp")];
@@ -41,8 +49,8 @@ export function bashSandboxPolicy(loreHome, task, binDir) {
     network: { allowedDomains: task === "deploy" ? ["*"] : [], deniedDomains: [] },
     filesystem: {
       denyRead: [home],
-      allowRead: [loreHome, ...runtime, resolve(home, ".claude"), resolve(home, ".codex"), ...(task === "deploy" ? wrangler : [])],
-      allowWrite: [loreHome, ...(task === "deploy" ? wrangler : [])],
+      allowRead: [lore, ...runtime, resolve(home, ".claude"), resolve(home, ".codex"), ...owned, ...(task === "deploy" ? [resolve(home, ".npmrc")] : [])],
+      allowWrite: [lore, ...owned],
       denyWrite: []
     }
   };
@@ -50,6 +58,8 @@ export function bashSandboxPolicy(loreHome, task, binDir) {
 
 /** @param {string} loreHome @param {string} [binDir] */
 export async function initializeBashSandbox(loreHome, binDir) {
+  mkdirSync(loreHome, { recursive: true, mode: 0o700 });
+  mkdirSync(SANDBOX_TMPDIR, { recursive: true });
   await SandboxManager.initialize(bashSandboxPolicy(loreHome, "capture", binDir), undefined, true);
 }
 
