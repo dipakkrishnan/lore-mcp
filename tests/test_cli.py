@@ -51,6 +51,16 @@ class ParserTest(unittest.TestCase):
                 ["memory", "show", "7", "--json"],
                 {"command": "memory", "memory_command": "show", "id": 7, "json": True},
             ),
+            (
+                ["memory", "rename", "7", "New title", "--json"],
+                {
+                    "command": "memory",
+                    "memory_command": "rename",
+                    "id": 7,
+                    "title": "New title",
+                    "json": True,
+                },
+            ),
             (["profile", "-", "--no-schedule"], {"path": "-", "no_schedule": True}),
             (
                 ["capture", "apply", "-"],
@@ -444,6 +454,27 @@ class ShowMemoryTest(LoreTestCase):
         with self.assertRaisesRegex(ValueError, "memory not found: 999"):
             cli.show_memory(999, True)
         self.assertEqual(cli.main(["memory", "show", "999"]), 1)
+
+
+class RenameMemoryTest(LoreTestCase):
+    def test_rename_updates_the_title_and_refuses_an_unknown_id(self) -> None:
+        memory_id = self.seed_memory("Old title")
+        with captured() as output:
+            self.assertEqual(cli.rename_memory(memory_id, "New title", True), 0)
+        payload = json.loads(output.getvalue())
+        self.assertEqual(payload["id"], memory_id)
+        self.assertEqual(payload["title"], "New title")
+        with captured() as output:
+            self.assertEqual(cli.show_memory(memory_id, True), 0)
+        self.assertEqual(json.loads(output.getvalue())["title"], "New title")
+        with self.assertRaisesRegex(ValueError, "memory not found: 999"):
+            cli.rename_memory(999, "New title", True)
+        self.assertEqual(cli.main(["memory", "rename", "999", "New title"]), 1)
+
+    def test_rename_refuses_a_blank_title(self) -> None:
+        memory_id = self.seed_memory("Old title")
+        with self.assertRaisesRegex(ValueError, "title cannot be empty"):
+            cli.rename_memory(memory_id, "   ", True)
 
 
 class StatusTest(LoreTestCase):

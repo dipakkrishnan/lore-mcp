@@ -86,6 +86,10 @@ def parser() -> argparse.ArgumentParser:
     memory_show = memory_commands.add_parser("show", help="print one memory in full")
     memory_show.add_argument("id", type=int)
     memory_show.add_argument("--json", action="store_true")
+    memory_rename = memory_commands.add_parser("rename", help="rename a memory")
+    memory_rename.add_argument("id", type=int)
+    memory_rename.add_argument("title")
+    memory_rename.add_argument("--json", action="store_true")
 
     profile = commands.add_parser(
         "profile", help="save an agent-written synthesis profile"
@@ -213,6 +217,8 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "search":
             return search(" ".join(args.query), args.status, args.limit, args.json)
         if args.command == "memory":
+            if args.memory_command == "rename":
+                return rename_memory(args.id, args.title, args.json)
             return show_memory(args.id, args.json)
         if args.command == "profile":
             return profile(args.path, not args.no_schedule)
@@ -481,6 +487,20 @@ def search(query: str, status_name: str | None, limit: int, as_json: bool) -> in
 def show_memory(memory_id: int, as_json: bool) -> int:
     """Print one memory as a card or JSON."""
     with Store() as store:
+        memory = store.get(memory_id)
+    if memory is None:
+        raise ValueError(f"memory not found: {memory_id}")
+    if as_json:
+        print(json.dumps(memory.__dict__, indent=2))
+    else:
+        memory_card(memory)
+    return 0
+
+
+def rename_memory(memory_id: int, title: str, as_json: bool) -> int:
+    """Rename a memory and print the result as a card or JSON."""
+    with Store() as store:
+        store.set_title(memory_id, title)
         memory = store.get(memory_id)
     if memory is None:
         raise ValueError(f"memory not found: {memory_id}")

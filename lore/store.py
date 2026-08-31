@@ -349,6 +349,19 @@ class Store:
             raise ValueError(f"memory not found: {memory_id}")
         self.db.commit()
 
+    def set_title(self, memory_id: int, title: str) -> None:
+        """Rename a memory."""
+        title = title.strip()
+        if not title:
+            raise ValueError("title cannot be empty")
+        cursor = self.db.execute(
+            "UPDATE memories SET title=?,updated_at=? WHERE id=?",
+            (title, datetime.now(timezone.utc).isoformat(), memory_id),
+        )
+        if not cursor.rowcount:
+            raise ValueError(f"memory not found: {memory_id}")
+        self.db.commit()
+
     def set_status_many(self, ids: list[int], status: str) -> int:
         """Set a retention status across many memories in one statement.
 

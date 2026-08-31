@@ -113,6 +113,7 @@ interface Window {
     logout(providerId: string): Promise<AgentStatus>;
     search(query: string): Promise<SearchHit[]>;
     memory(id: number): Promise<Memory>;
+    renameMemory(id: number, title: string): Promise<Memory>;
     candidates(): Promise<PublicationCandidate[]>;
     decide(input: { original: PublicationCandidate; candidate: PublicationCandidate; approve: boolean }): Promise<void>;
     revoke(id: number): Promise<void>;
