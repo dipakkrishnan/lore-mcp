@@ -88,7 +88,17 @@ def parser() -> argparse.ArgumentParser:
     memory_show.add_argument("--json", action="store_true")
     memory_edit = memory_commands.add_parser("edit", help="edit a memory's content")
     memory_edit.add_argument("id", type=int)
-    memory_edit.add_argument("content", help="new content; use - for stdin")
+    memory_edit.add_argument(
+        "content",
+        nargs="?",
+        default=None,
+        help="new content; omit and pass --stdin to read from stdin",
+    )
+    memory_edit.add_argument(
+        "--stdin",
+        action="store_true",
+        help="read content from stdin instead of the positional argument",
+    )
     memory_edit.add_argument("--json", action="store_true")
 
     profile = commands.add_parser(
@@ -218,7 +228,7 @@ def main(argv: list[str] | None = None) -> int:
             return search(" ".join(args.query), args.status, args.limit, args.json)
         if args.command == "memory":
             if args.memory_command == "edit":
-                return edit_memory(args.id, args.content, args.json)
+                return edit_memory(args.id, args.content, args.json, args.stdin)
             return show_memory(args.id, args.json)
         if args.command == "profile":
             return profile(args.path, not args.no_schedule)
@@ -497,16 +507,24 @@ def show_memory(memory_id: int, as_json: bool) -> int:
     return 0
 
 
-def edit_memory(memory_id: int, content: str, as_json: bool) -> int:
+def edit_memory(
+    memory_id: int, content: str | None, as_json: bool, from_stdin: bool = False
+) -> int:
     """Edit a memory's content and print the result as a card or JSON.
 
-    `content` is the new content directly, or `-` to read it from stdin —
-    memory content is markdown body text, potentially long and multi-line, so
-    a plain positional argument is a poor fit for anyone typing it by hand.
-    The desktop app always passes content as a direct argument rather than
-    piping through stdin, since IPC already hands it a string.
+    `content` is the new content directly. Pass `--stdin` instead of a
+    positional `content` to read multi-line content from a terminal pipe —
+    content is never treated as a stdin sentinel itself, so a memory whose
+    content is literally `-` round-trips correctly. That distinction matters
+    because the desktop app always forwards content as a direct argument, and
+    a magic value would silently misfire for that one piece of content.
     """
-    text = sys.stdin.read() if content == "-" else content
+    if from_stdin:
+        text = sys.stdin.read()
+    elif content is not None:
+        text = content
+    else:
+        raise ValueError("content is required unless --stdin is given")
     with Store() as store:
         store.set_content(memory_id, text)
         memory = store.get(memory_id)

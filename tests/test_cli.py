@@ -61,6 +61,16 @@ class ParserTest(unittest.TestCase):
                     "json": True,
                 },
             ),
+            (
+                ["memory", "edit", "7", "--stdin"],
+                {
+                    "command": "memory",
+                    "memory_command": "edit",
+                    "id": 7,
+                    "content": None,
+                    "stdin": True,
+                },
+            ),
             (["profile", "-", "--no-schedule"], {"path": "-", "no_schedule": True}),
             (
                 ["capture", "apply", "-"],
@@ -480,16 +490,29 @@ class EditMemoryTest(LoreTestCase):
         with self.assertRaisesRegex(ValueError, "content cannot be empty"):
             cli.edit_memory(memory_id, "   ", True)
 
-    def test_edit_reads_content_from_stdin_when_given_a_dash(self) -> None:
+    def test_edit_reads_content_from_stdin_when_given_the_stdin_flag(self) -> None:
         memory_id = self.seed_memory("Kept lesson")
         with (
             patch.object(sys, "stdin", StringIO("Content piped in from stdin")),
             captured() as output,
         ):
-            self.assertEqual(cli.edit_memory(memory_id, "-", True), 0)
+            self.assertEqual(cli.edit_memory(memory_id, None, True, from_stdin=True), 0)
         self.assertEqual(
             json.loads(output.getvalue())["content"], "Content piped in from stdin"
         )
+
+    def test_edit_accepts_literal_dash_as_content(self) -> None:
+        """A memory whose content is literally `-` must not trigger stdin reads."""
+        memory_id = self.seed_memory("Kept lesson")
+        with captured() as output:
+            self.assertEqual(cli.edit_memory(memory_id, "-", True), 0)
+        self.assertEqual(json.loads(output.getvalue())["content"], "-")
+
+    def test_edit_requires_content_or_stdin_flag(self) -> None:
+        memory_id = self.seed_memory("Kept lesson")
+        with self.assertRaisesRegex(ValueError, "content is required unless --stdin"):
+            cli.edit_memory(memory_id, None, True)
+        self.assertEqual(cli.main(["memory", "edit", str(memory_id)]), 1)
 
 
 class StatusTest(LoreTestCase):
