@@ -5,12 +5,12 @@ priority: P2
 effort: M
 component: cross-cutting
 status: in-review
-related: [XC-004, XC-012, MON-002, MON-010, MON-008, MCP-002]
+related: [XC-004, XC-012, MON-002, MON-010, MON-008, MCP-002, EVAL-002]
 blockers: [MON-008]
 dependencies: ["Base Sepolia buyer wallet with a monitored faucet balance", "A protected GitHub Environment holding the buyer key — not a repository secret"]
 github_issue: null
 created: 2026-08-01
-updated: 2026-08-03
+updated: 2026-08-28
 ---
 
 ## Problem
@@ -39,12 +39,14 @@ teach people to ignore a red build.
 1. **When it runs** — after the QA deploy on merge to `main`, on a daily
    schedule, and on manual dispatch before a release. Never on pull requests,
    and never on forks.
-2. **What it asserts** — the full buyer journey against the live URL:
-   `discover` is free and returns seeded fixture titles; `answer` challenges;
-   `lore/node/scripts/pay.ts` settles a real Base Sepolia payment; the receipt comes
-   back in `_meta["x402/payment-response"]`; the paid response contains the
-   fixture content. Then the fail-closed cases that are safe to run live: an
-   invalid credential and a replayed credential.
+2. **What it asserts** — the bounded publication purchase against the live URL:
+   `discover` is free and returns seeded fixture titles; paid `get(id)`
+   challenges; `lore/node/scripts/pay.ts` settles a real Base Sepolia payment;
+   the receipt comes back in `_meta["x402/payment-response"]`; the paid response
+   contains the fixture publication. Then the fail-closed cases that are safe
+   to run live: an invalid credential and a replayed credential. Paid proxy
+   quality and the asynchronous `answer` → `result` path belong to `EVAL-002`,
+   not this daily rail check.
 3. **Distinguish "broken" from "out of gas".** Check the buyer's balance before
    spending and fail with a distinct, obvious message when the faucet has run
    dry. A live suite that reports a funding problem as a regression gets muted

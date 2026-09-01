@@ -3,7 +3,7 @@ const { join } = require("node:path");
 const { app, BrowserWindow, dialog, ipcMain, safeStorage, shell, systemPreferences } = require("electron");
 const { provision, skillsDir, whisper } = require("./runtime.cjs");
 const { transcribe } = require("./dictation.cjs");
-const { lore, loreStream, readState, searchMemories, readMemory, renameMemory, candidates, decide, useRuntime } = require("./state.cjs");
+const { lore, loreStream, readState, searchMemories, readMemory, renameMemory, editMemory, candidates, decide, useRuntime } = require("./state.cjs");
 
 if (process.env.LORE_DESKTOP_USER_DATA) app.setPath("userData", process.env.LORE_DESKTOP_USER_DATA);
 
@@ -81,6 +81,10 @@ function registerIpc(loreHome) {
   ipcMain.handle("memory:rename", (_event, id, title) => {
     if (typeof title !== "string") throw new Error("Invalid title");
     return renameMemory(loreHome, id, title);
+  });
+  ipcMain.handle("memory:edit", (_event, id, content) => {
+    if (typeof content !== "string") throw new Error("Invalid content");
+    return editMemory(loreHome, id, content);
   });
   ipcMain.handle("publication:candidates", () => candidates(loreHome));
   ipcMain.handle("publication:decide", (_event, input) => {

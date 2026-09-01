@@ -81,6 +81,14 @@ async function renameMemory(loreHome, id, title) {
   return JSON.parse(await lore(loreHome, ["memory", "rename", String(id), trimmed, "--json"]));
 }
 
+/** @param {string} loreHome @param {unknown} id @param {string} content @returns {Promise<Memory>} */
+async function editMemory(loreHome, id, content) {
+  if (!Number.isInteger(id) || /** @type {number} */ (id) < 1) throw new Error("Invalid memory");
+  const trimmed = content.trim();
+  if (!trimmed) throw new Error("Content cannot be empty");
+  return JSON.parse(await lore(loreHome, ["memory", "edit", String(id), trimmed, "--json"]));
+}
+
 /** @param {string} loreHome @returns {Promise<PublicationCandidate[]>} */
 async function candidates(loreHome) {
   return JSON.parse(await lore(loreHome, ["publication", "candidates"]));
@@ -99,6 +107,7 @@ module.exports = {
   searchMemories,
   readMemory,
   renameMemory,
+  editMemory,
   candidates,
   decide,
   useRuntime

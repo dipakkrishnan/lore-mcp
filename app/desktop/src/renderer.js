@@ -159,6 +159,16 @@ function memoryRow(id, title, detail) {
   return node;
 }
 
+/** Render a memory's content as markdown, pulling the description out of any frontmatter. @param {string} content */
+function renderMemoryBody(content) {
+  const meta = content.match(FRONTMATTER)?.[1] ?? "";
+  const node = markdown(content.replace(FRONTMATTER, ""));
+  node.classList.add("body");
+  const description = meta.match(/^description:\s*(.+)$/m)?.[1].trim().replace(/^(["'])(.*)\1$/, "$2");
+  if (description) node.prepend(el("p", "lede", description));
+  return node;
+}
+
 /** @param {number} id */
 async function openMemory(id) {
   /** @type {Memory} */
@@ -187,8 +197,10 @@ async function openMemory(id) {
   actions.style.display = "flex";
   actions.style.gap = "8px";
   function showActions() {
-    actions.replaceChildren(button("Rename", "quiet", startRename), button("Draft for sale", "quiet", () => void publishMemory(memory)));
+    actions.replaceChildren(button("Rename", "quiet", startRename), button("Edit", "quiet", startEdit), button("Draft for sale", "quiet", () => void publishMemory(memory)));
   }
+  /** @type {HTMLElement} */
+  let body = renderMemoryBody(memory.content);
   function startRename() {
     const input = el("input", "draft-title");
     input.type = "text";
@@ -221,13 +233,38 @@ async function openMemory(id) {
       void load();
     }
   }
+  function startEdit() {
+    const textarea = /** @type {HTMLTextAreaElement} */ (el("textarea", "body-edit"));
+    textarea.value = memory.content;
+    textarea.setAttribute("aria-label", "Memory content");
+    body.replaceWith(textarea);
+    textarea.focus();
+    actions.replaceChildren(button("Cancel", "secondary", cancelEdit), button("Save", "primary", () => void saveEdit()));
+    textarea.addEventListener("keydown", (event) => {
+      if (event.key === "Escape") { event.preventDefault(); cancelEdit(); }
+      else if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) { event.preventDefault(); void saveEdit(); }
+    });
+    function cancelEdit() {
+      textarea.replaceWith(body);
+      showActions();
+    }
+    async function saveEdit() {
+      const value = textarea.value.trim();
+      if (!value || value === memory.content) { cancelEdit(); return; }
+      try {
+        memory = await window.lore.editMemory(memory.id, value);
+      } catch (error) {
+        say(reason(error, "Lore could not save that."));
+        return;
+      }
+      body = renderMemoryBody(memory.content);
+      textarea.replaceWith(body);
+      showActions();
+      void load();
+    }
+  }
   showActions();
   head.append(text, actions, close);
-  const meta = memory.content.match(FRONTMATTER)?.[1] ?? "";
-  const body = markdown(memory.content.replace(FRONTMATTER, ""));
-  body.classList.add("body");
-  const description = meta.match(/^description:\s*(.+)$/m)?.[1].trim().replace(/^(["'])(.*)\1$/, "$2");
-  if (description) body.prepend(el("p", "lede", description));
   panel.append(head, body);
   sheet.append(panel);
   sheet.addEventListener("click", (event) => { if (event.target === sheet) closeSheet(); });
