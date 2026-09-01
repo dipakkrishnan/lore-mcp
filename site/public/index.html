@@ -3,9 +3,9 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Lore — private memory for personal agents</title>
-<meta name="description" content="Lore keeps agent memory on your Mac. Use it privately, or approve specific publications for other agents to buy.">
-<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📖</text></svg>">
+<title>Lore: private memory you can monetize</title>
+<meta name="description" content="Lore lives on your Mac, remembers across all your personal agents, and lets you sell exactly what you choose.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1024 1024'%3E%3Crect x='100' y='100' width='824' height='824' rx='185' fill='%23244f3d'/%3E%3Cg transform='translate(512 512) scale(25.5) translate(-13 -13)' fill='none' stroke='%23fffdf8' stroke-width='2' stroke-linecap='round'%3E%3Cpath d='M13 4.5a8.5 8.5 0 1 1-6 2.5'/%3E%3Cpath d='M13 9a4 4 0 1 1-2.8 1.2'/%3E%3Ccircle cx='13' cy='13' r='1.2' fill='%23fffdf8' stroke='none'/%3E%3C/g%3E%3C/svg%3E">
 <style>
   :root {
     --bg: #0e0e11;
@@ -28,7 +28,7 @@
     text-align: center;
   }
   main { max-width: 34rem; }
-  .mark { font-size: 3rem; line-height: 1; }
+  .mark { width: 72px; height: 72px; display: inline-block; }
   h1 {
     font-size: 2.6rem;
     letter-spacing: -0.02em;
@@ -38,7 +38,9 @@
   .tagline { color: var(--muted); font-size: 1.15rem; margin-bottom: 2.25rem; }
   .tagline strong { color: var(--fg); font-weight: 550; }
   .download {
-    display: inline-block;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.6rem;
     background: var(--accent);
     color: var(--accent-fg);
     font-size: 1.2rem;
@@ -51,7 +53,6 @@
   }
   .download:hover { transform: translateY(-1px); box-shadow: 0 1px 0 rgba(255,255,255,0.1) inset, 0 12px 34px rgba(232,221,200,0.2); }
   .download:active { transform: translateY(0); }
-  .requirements { color: var(--muted); font-size: 0.9rem; margin-top: 0.9rem; }
   .alt { margin-top: 2.75rem; font-size: 0.9rem; color: var(--muted); }
   .alt a { color: var(--fg); text-decoration: underline; text-underline-offset: 3px; text-decoration-color: var(--muted); }
   footer { position: fixed; bottom: 1.25rem; font-size: 0.85rem; color: var(--muted); }
@@ -60,15 +61,24 @@
 </head>
 <body>
 <main>
-  <div class="mark" aria-hidden="true">📖</div>
+  <svg class="mark" aria-hidden="true" viewBox="0 0 1024 1024">
+    <rect x="100" y="100" width="824" height="824" rx="185" fill="#244f3d"/>
+    <g transform="translate(512 512) scale(25.5) translate(-13 -13)" fill="none" stroke="#fffdf8" stroke-width="2" stroke-linecap="round">
+      <path d="M13 4.5a8.5 8.5 0 1 1-6 2.5"/>
+      <path d="M13 9a4 4 0 1 1-2.8 1.2"/>
+      <circle cx="13" cy="13" r="1.2" fill="#fffdf8" stroke="none"/>
+    </g>
+  </svg>
   <h1>Lore</h1>
-  <p class="tagline"><strong>Private memory for personal agents.</strong><br>
-  Your agent's memory lives on your Mac. Share nothing — or sell exactly what you choose.</p>
+  <p class="tagline"><strong>Private memory you can monetize.</strong><br>
+  Lore lives on your Mac, remembers across all your personal agents, and lets you sell exactly what you choose.</p>
 
   <a class="download" href="https://github.com/dipakkrishnan/lore-mcp/releases/latest/download/Lore-macOS-arm64.zip">
-    Download for&nbsp;Mac
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <path d="M12 3v12"/><path d="m6 11 6 6 6-6"/><path d="M5 21h14"/>
+    </svg>
+    Download for&nbsp;macOS
   </a>
-  <p class="requirements">macOS 14+ · Apple silicon · free</p>
 
   <p class="alt">Trouble with the direct link? Get it from the
     <a href="https://github.com/dipakkrishnan/lore-mcp/releases/latest">latest release on GitHub</a>.</p>
