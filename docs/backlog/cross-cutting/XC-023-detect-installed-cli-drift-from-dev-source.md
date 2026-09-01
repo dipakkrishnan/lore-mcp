@@ -4,13 +4,13 @@ title: Detect when the installed lore CLI has drifted from the checked-out sourc
 priority: P2
 effort: S
 component: cross-cutting
-status: ready
+status: completed
 related: [MON-006]
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-08-10
-updated: 2026-08-26
+updated: 2026-09-01
 ---
 
 ## Problem
@@ -42,10 +42,10 @@ silent staleness.
 
 ## Acceptance criteria
 
-- [ ] Deploying with an installed CLI that is out of sync with a nearby git
-      checkout of the same source produces a visible warning, not a silent
-      no-op deploy
-- [ ] The fix (or documented workflow) is discoverable by a contributor
+- [x] Deploying with an installed CLI that is out of sync with a nearby git
+      checkout of the same source stops before staging or deployment and
+      prints the recovery command, rather than silently deploying stale code
+- [x] The fix (or documented workflow) is discoverable by a contributor
       hitting this the first time, without needing to diff staged output
       against the repo by hand
 
@@ -73,3 +73,9 @@ warning, not silent staleness" — so detect-and-warn is the required shape;
 treat the `lore dev`/reinstall-workflow idea as an optional complement, not a
 substitute, since only detection satisfies the acceptance criteria as
 written. Promoted `in-review` → `ready`.
+
+**Completed 2026-09-01:** materialization now compares the executing package's
+Worker files with the nearest enclosing Lore checkout before copying them. If
+they differ, deploy stops before staging stale code and prints the exact
+`uv tool install --force --reinstall .` recovery command plus the command to
+rerun. The focused deploy test covers the stale-installed-package case.

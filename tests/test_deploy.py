@@ -148,6 +148,23 @@ class LoginTest(LoreTestCase):
 
 
 class MaterializeTest(LoreTestCase):
+    def test_an_installed_cli_refuses_to_ignore_checkout_edits(self) -> None:
+        root = self.lore_home.parent / "checkout"
+        checkout = root / "lore/node/src"
+        installed = self.lore_home.parent / "installed/node/src"
+        checkout.mkdir(parents=True)
+        installed.mkdir(parents=True)
+        (root / "pyproject.toml").write_text('[project]\nname = "lore-mcp"\n')
+        (checkout / "network.ts").write_text("new guard")
+        (installed / "network.ts").write_text("stale guard")
+
+        with patch("lore.deploy.Path.cwd", return_value=checkout):
+            with self.assertRaisesRegex(OSError, "deploy stopped") as raised:
+                deploy_module._refuse_dev_source_drift(installed.parent)
+
+        self.assertIn("uv tool install --force --reinstall .", str(raised.exception))
+        self.assertIn("rerun `lore node deploy`", str(raised.exception))
+
     def test_the_packaged_source_lands_without_dev_artifacts(self) -> None:
         target = deploy_module.materialize(0.37)
         self.assertEqual(target, self.lore_home / "node")
