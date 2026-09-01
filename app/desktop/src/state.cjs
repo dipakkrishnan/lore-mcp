@@ -81,6 +81,12 @@ async function editMemory(loreHome, id, content) {
   return JSON.parse(await lore(loreHome, ["memory", "edit", String(id), trimmed, "--json"]));
 }
 
+/** Save the memories exactly as the owner kept them on the card. @param {string} loreHome @param {ProposedMemory[]} entries @returns {Promise<SavedMemory[]>} */
+async function captureMemories(loreHome, entries) {
+  if (!entries.length) return [];
+  return JSON.parse(await lore(loreHome, ["capture", "apply", "-"], JSON.stringify(entries)));
+}
+
 /** @param {string} loreHome @returns {Promise<PublicationCandidate[]>} */
 async function candidates(loreHome) {
   return JSON.parse(await lore(loreHome, ["publication", "candidates"]));
@@ -99,6 +105,7 @@ module.exports = {
   searchMemories,
   readMemory,
   editMemory,
+  captureMemories,
   candidates,
   decide,
   useRuntime

@@ -3,7 +3,7 @@ const { join } = require("node:path");
 const { app, BrowserWindow, dialog, ipcMain, safeStorage, shell, systemPreferences } = require("electron");
 const { provision, skillsDir, whisper } = require("./runtime.cjs");
 const { transcribe } = require("./dictation.cjs");
-const { lore, loreStream, readState, searchMemories, readMemory, editMemory, candidates, decide, useRuntime } = require("./state.cjs");
+const { lore, loreStream, readState, searchMemories, readMemory, editMemory, captureMemories, candidates, decide, useRuntime } = require("./state.cjs");
 
 if (process.env.LORE_DESKTOP_USER_DATA) app.setPath("userData", process.env.LORE_DESKTOP_USER_DATA);
 
@@ -25,7 +25,7 @@ function emit(event) {
 function request(type, payload, signal) {
   if (!window || window.isDestroyed()) return Promise.reject(new Error("Lore window is closed"));
   const id = randomUUID();
-  emit(/** @type {AgentRequest} */ ({ type, id, ...payload }));
+  emit(/** @type {AgentRequest} */ ({ type, id, task: agent.activeTask, ...payload }));
   return new Promise((resolve, reject) => {
     pending.set(id, { resolve, reject });
     signal?.addEventListener("abort", () => {
@@ -43,10 +43,10 @@ function registerIpc(loreHome) {
   ipcMain.handle("dictation:transcribe", (_event, /** @type {ArrayBuffer} */ wav) => transcribe({ ...whisper, dir: app.getPath("temp") }, Buffer.from(wav)));
   ipcMain.handle("agent:status", () => agent.status());
   ipcMain.handle("agent:prompt", (_event, input) => {
-    if (!input || typeof input.text !== "string" || input.text.length > 100_000 || !TASKS.has(input.task)) {
+    if (!input || typeof input.text !== "string" || input.text.length > 100_000 || !TASKS.has(input.task) || (input.from !== undefined && !TASKS.has(input.from))) {
       throw new Error("Invalid prompt");
     }
-    return agent.prompt(input.text, input.task);
+    return agent.prompt(input.text, input.task, input.from);
   });
   ipcMain.handle("agent:history", (_event, task) => {
     if (!TASKS.has(task)) throw new Error("Invalid task");
@@ -163,6 +163,16 @@ async function start() {
     emit,
     askUser: async (questions) =>
       /** @type {Record<string, string>} */ (await request("question", { questions })),
+    proposeMemories: async (entries) => {
+      const task = agent.activeTask;
+      const decision = /** @type {MemoryDecision} */ (await request("memories", { entries }));
+      if (!Array.isArray(decision.entries)) throw new Error("Invalid memory decision");
+      if (typeof decision.note === "string" && decision.note.trim()) return { entries: decision.entries, note: decision.note.trim() };
+      const saved = await captureMemories(loreHome, decision.entries);
+      emit({ type: "saved", task, memories: saved });
+      emit({ type: "changed" });
+      return { saved };
+    },
     proposeBlueprint: async (fields, evidence) => {
       const edited = /** @type {BlueprintFields} */ (await request("blueprint", { fields, evidence }));
       await lore(loreHome, ["blueprint", "apply", "-"], JSON.stringify(edited));
@@ -178,7 +188,7 @@ async function start() {
           const url = line.match(/https:\/\/dash\.cloudflare\.com\/\S+/)?.[0];
           if (!url) return;
           void shell.openExternal(url);
-          emit({ type: "live", text: "Finish signing in to Cloudflare in your browser, then come back here." });
+          emit({ type: "live", task: agent.activeTask, text: "Finish signing in to Cloudflare in your browser, then come back here." });
         });
       } catch (error) {
         throw new Error(last.replace(/^lore: /, "") || /** @type {Error} */ (error).message);

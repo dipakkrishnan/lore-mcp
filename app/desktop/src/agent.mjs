@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { mkdirSync, realpathSync } from "node:fs";
+import { existsSync, mkdirSync, realpathSync } from "node:fs";
 import { homedir } from "node:os";
 import { resolve } from "node:path";
 import {
@@ -106,6 +106,11 @@ export function validBlueprint(value) {
     && typeof fields.storytelling === "string" && fields.storytelling.length > 0 && fields.storytelling.length <= 1000;
 }
 
+/** @param {unknown} value @returns {value is SavedMemory[]} */
+export function validSaved(value) {
+  return Array.isArray(value) && value.every((item) => item && typeof item === "object" && Number.isInteger(item.id) && item.id > 0 && typeof item.title === "string");
+}
+
 /** @param {import("@earendil-works/pi-coding-agent").SessionManager} manager @param {AgentTask} kind @returns {TaskRecord | null} */
 export function latestTaskRecord(manager, kind) {
   for (const entry of [...manager.getEntries()].reverse()) {
@@ -187,9 +192,10 @@ export class LoreAgent {
       noContextFiles: true,
       systemPrompt: [
         "You are Lore's desktop agent, talking with the owner inside the Lore app.",
-        "Follow the skill named in the first message exactly and skip its install steps because Lore is already provisioned.",
+        "Follow the skill named in the latest message that names one exactly, and skip its install steps because Lore is already provisioned.",
         "Ask the owner everything through ask_user — decisions and open questions alike; offer the likely answers as options, and the owner can always type their own. Never end a turn with a question in prose.",
         "Keep every message light: a sentence or two, question text under fifteen words, option labels of a few words with one short description, and never restate what a card already shows.",
+        "During capture, show proposed memories only through propose_memories, never in prose; that tool saves what the owner keeps and returns the saved memories, or returns the owner's correction for you to revise and propose again. After it saves, say one short sentence and call finish_task; never offer publication, the owner starts that from the saved card.",
         "During onboarding, gather evidence first, then call propose_blueprint once with one bounded proposal; that tool saves the owner-approved shape.",
         "Never mention tools, commands, or files to the owner; speak about memories, their Lore, and their store.",
         "Call finish_task when the current task is complete."
@@ -208,6 +214,13 @@ export class LoreAgent {
       ? recent
       : SessionManager.create(loreHome, dir);
     return repairInterrupted(manager, task);
+  }
+
+  /** Start `task` as a continuation of the latest `from` thread, so the agent already knows what was said. @param {string} loreHome @param {AgentTask} from @param {AgentTask} task */
+  static forkSession(loreHome, from, task) {
+    const source = SessionManager.continueRecent(loreHome, resolve(loreHome, ".pi", "sessions", from)).getSessionFile();
+    const dir = resolve(loreHome, ".pi", "sessions", task);
+    return source && existsSync(source) ? SessionManager.forkFrom(source, loreHome, dir) : SessionManager.create(loreHome, dir);
   }
 
   /** @param {string} loreHome @returns {TaskRecord[]} */
@@ -244,6 +257,16 @@ export class LoreAgent {
           if (answers) lines.push({ text: answers, owner: true });
         } catch {
           // An old or interrupted tool result should not hide the rest of the thread.
+        }
+      } else if (message.role === "toolResult" && message.toolName === "propose_memories" && !message.isError) {
+        const first = message.content[0];
+        if (first?.type !== "text") continue;
+        try {
+          const result = /** @type {MemoryOutcome} */ (JSON.parse(first.text));
+          if ("note" in result && typeof result.note === "string") lines.push({ text: result.note, owner: true });
+          else if ("saved" in result && validSaved(result.saved)) lines.push({ text: "", owner: false, saved: result.saved });
+        } catch {
+          // Ignore an old malformed result and keep restoring the thread.
         }
       } else if (message.role === "toolResult" && message.toolName === "propose_blueprint" && !message.isError) {
         const first = message.content[0];
@@ -303,8 +326,13 @@ export class LoreAgent {
     return this.status();
   }
 
-  /** @param {string} text @param {AgentTask} task */
-  async prompt(text, task) {
+  /** The task whose turn is running, so requests and messages can name the thread they belong to. */
+  get activeTask() {
+    return this.#activeTask;
+  }
+
+  /** @param {string} text @param {AgentTask} task @param {AgentTask} [from] Continue from the latest `from` thread instead of starting cold. */
+  async prompt(text, task, from) {
     if (this.#busy) throw new Error("Lore is already working");
     if (!text.trim()) throw new Error("Nothing to capture");
     this.#busy = true;
@@ -315,12 +343,12 @@ export class LoreAgent {
     this.options.emit({ type: "working", active: true });
     try {
       const open = this.#sessions.get(task);
-      if (open && latestTaskRecord(open.sessionManager, task)?.state === "done") {
+      if (open && (from || latestTaskRecord(open.sessionManager, task)?.state === "done")) {
         open.dispose();
         this.#sessions.delete(task);
       }
       const existing = this.#sessions.get(task);
-      const [session, resumed] = existing ? [existing, true] : await this.#newSession(task);
+      const [session, resumed] = existing ? [existing, true] : await this.#newSession(task, from);
       this.#record(session, task, "working");
       await session.prompt(resumed ? text : `/skill:${SKILLS[task]}\n\n${text}`);
       const closing = closingRecord(latestTaskRecord(session.sessionManager, task)?.state, task, this.#completed);
@@ -355,13 +383,13 @@ export class LoreAgent {
     this.options.emit({ type: "task", task: record });
   }
 
-  /** @param {AgentTask} task @returns {Promise<[import("@earendil-works/pi-coding-agent").AgentSession, boolean]>} */
-  async #newSession(task) {
+  /** @param {AgentTask} task @param {AgentTask} [from] @returns {Promise<[import("@earendil-works/pi-coding-agent").AgentSession, boolean]>} */
+  async #newSession(task, from) {
     const { scopedModels } = await resolveModelScopeWithDiagnostics(MODELS, this.models);
     const model = scopedModels.at(0)?.model ?? (await this.models.getAvailable()).at(0);
     if (!model) throw new Error("Sign in with Claude, ChatGPT, or an API key first");
-    const sessionManager = LoreAgent.sessionFor(this.options.loreHome, task);
-    const resumed = sessionManager.buildSessionContext().messages.length > 0;
+    const sessionManager = from ? LoreAgent.forkSession(this.options.loreHome, from, task) : LoreAgent.sessionFor(this.options.loreHome, task);
+    const resumed = !from && sessionManager.buildSessionContext().messages.length > 0;
     const { session } = await createAgentSession({
       cwd: this.options.loreHome,
       agentDir: resolve(this.options.loreHome, ".pi"),
@@ -370,7 +398,7 @@ export class LoreAgent {
       resourceLoader: this.resources,
       settingsManager: this.settings,
       sessionManager,
-      tools: ["read", "write", "edit", "bash", "ask_user", "propose_blueprint", "cloudflare_login", "finish_task"],
+      tools: ["read", "write", "edit", "bash", "ask_user", "propose_memories", "propose_blueprint", "cloudflare_login", "finish_task"],
       customTools: [
         createBashTool(this.options.loreHome, {
           operations: createSandboxedBashOperations(this.options.loreHome, task, this.options.binDir),
@@ -385,6 +413,7 @@ export class LoreAgent {
           })
         }),
         this.#askTool(),
+        this.#memoriesTool(),
         this.#blueprintTool(),
         this.#cloudflareTool(),
         this.#finishTool()
@@ -392,16 +421,16 @@ export class LoreAgent {
     });
     session.subscribe((event) => {
       if (event.type === "tool_execution_start" && event.toolName !== "ask_user") {
-        this.options.emit({ type: "live", text: event.toolName === "read" ? "Reading…" : "Looking through your Lore…" });
+        this.options.emit({ type: "live", task, text: event.toolName === "read" ? "Reading…" : "Looking through your Lore…" });
       }
       if (event.type === "message_update" && event.assistantMessageEvent.type === "text_delta") {
         const text = event.assistantMessageEvent.partial.content.map((block) => (block.type === "text" ? block.text : "")).join("");
-        this.options.emit({ type: "live", text });
+        this.options.emit({ type: "live", task, text });
       }
       if (event.type === "tool_execution_end" && event.toolName === "bash") this.options.emit({ type: "changed" });
       if (event.type !== "message_end" || event.message.role !== "assistant") return;
       if (event.message.stopReason === "error" || event.message.stopReason === "aborted") {
-        this.options.emit({ type: "message", text: this.#capped ? CAPPED : event.message.errorMessage || "Lore's model did not answer." });
+        this.options.emit({ type: "message", task, text: this.#capped ? CAPPED : event.message.errorMessage || "Lore's model did not answer." });
         return;
       }
       if (++this.#turns >= MAX_TURNS && !this.#capped) {
@@ -412,7 +441,7 @@ export class LoreAgent {
         .map((block) => (block.type === "text" ? block.text : ""))
         .join("")
         .trim();
-      if (text) this.options.emit({ type: "message", text });
+      if (text) this.options.emit({ type: "message", task, text });
     });
     this.#sessions.set(task, session);
     return [session, resumed];
@@ -441,6 +470,31 @@ export class LoreAgent {
         if (task && session) this.#record(session, task, "needs_you");
         try {
           return { content: [{ type: "text", text: JSON.stringify({ answers: await this.options.askUser(questions) }) }], details: {} };
+        } finally {
+          if (task && session) this.#record(session, task, "working");
+        }
+      }
+    });
+  }
+
+  #memoriesTool() {
+    const entry = Type.Object({
+      title: Type.String({ minLength: 1, maxLength: 300 }),
+      content: Type.String({ minLength: 1, maxLength: 20_000 }),
+      project: Type.Optional(Type.String({ maxLength: 300 })),
+      source_path: Type.Optional(Type.String({ maxLength: 2_000 }))
+    });
+    return defineTool({
+      name: "propose_memories",
+      label: "Propose memories",
+      description: "Show one to five exact memory drafts for the owner to edit, keep, or drop. Keeping saves them privately and returns the saved memories; a correction returns the owner's words for you to revise and propose again.",
+      parameters: Type.Object({ entries: Type.Array(entry, { minItems: 1, maxItems: 5 }) }),
+      execute: async (_id, { entries }) => {
+        const task = this.#activeTask;
+        const session = task && this.#sessions.get(task);
+        if (task && session) this.#record(session, task, "needs_you", "Review the capture");
+        try {
+          return { content: [{ type: "text", text: JSON.stringify(await this.options.proposeMemories(entries)) }], details: {} };
         } finally {
           if (task && session) this.#record(session, task, "working");
         }

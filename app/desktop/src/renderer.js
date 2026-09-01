@@ -57,6 +57,9 @@ let pushing = false;
 /** @type {string | false} */
 let pushedNote = false;
 let accountMenuOpen = false;
+let busy = false;
+/** The memory card awaiting the owner, so the composer can carry a spoken or typed correction to it. @type {{id: string, current(): ProposedMemory[]} | null} */
+let pendingMemories = null;
 
 const RING = `<svg viewBox="0 0 26 26" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M13 4.5a8.5 8.5 0 1 1-6 2.5"></path><path d="M13 9a4 4 0 1 1-2.8 1.2"></path><circle cx="13" cy="13" r="1.2" fill="currentColor" stroke="none"></circle></svg>`;
 const PROVIDERS = {
@@ -139,11 +142,12 @@ function markdown(text) {
   return node;
 }
 
-/** @param {{id: number, title: string}} memory */
-async function publishMemory(memory) {
+/** @param {{id: number, title: string}} memory @param {AgentTask} [from] The thread the agent should continue from. */
+async function publishMemory(memory, from) {
   closeSheet();
   await openTask("publish");
-  await send(`Help me publish something from my Lore. Start from memory ${memory.id}: "${memory.title}".`);
+  if (candidates.some((candidate) => candidate.provenance.includes(memory.id))) return;
+  await send(`Help me publish something from my Lore. Start from memory ${memory.id}: "${memory.title}".`, from);
 }
 
 /** @param {number | string} id @param {string} title @param {string} detail */
@@ -338,16 +342,7 @@ function needsYou(s) {
 }
 
 function displayTasks() {
-  /** @type {TaskRecord[]} */
-  const items = taskItems.slice(0, 3).map((item) =>
-    item.kind === "publish" && candidates.length
-      ? { ...item, state: /** @type {TaskState} */ ("needs_you"), phase: draftsPhase() }
-      : item
-  );
-  if (candidates.length && !items.some((item) => item.kind === "publish")) {
-    items.unshift({ version: 1, kind: "publish", title: TASK_TITLES.publish, state: "needs_you", phase: draftsPhase(), updatedAt: new Date().toISOString() });
-  }
-  return items.slice(0, 3);
+  return taskItems.slice(0, 3);
 }
 
 function draftsPhase() {
@@ -537,9 +532,9 @@ function render() {
   taskRestart.hidden = !detail || detailRecord?.state !== "stopped";
   captureArea.hidden = view !== "today";
   log.hidden = !detail;
-  composer.hidden = Boolean(requestSlot.childElementCount) || ((detail === "setup" || detail === "deploy") && detailRecord?.state === "done");
-  input.placeholder = detail ? "Reply to Lore…" : "What did you learn today?";
-  inputLabel.textContent = detail ? "Reply to Lore" : "What did you learn today?";
+  composer.hidden = (Boolean(requestSlot.childElementCount) && !pendingMemories) || ((detail === "setup" || detail === "deploy") && detailRecord?.state === "done");
+  input.placeholder = placeholder();
+  inputLabel.textContent = pendingMemories ? "Say what to change" : detail ? "Reply to Lore" : "What did you learn today?";
   submit.textContent = detail ? "Send" : "Capture";
   for (const nav of navButtons) nav.setAttribute("aria-pressed", String(nav.dataset.view === view));
   if (!snapshot) return;
@@ -633,10 +628,24 @@ function live(text) {
   renderLog();
 }
 
+/** What capture kept, with the one next step an owner may want. @param {SavedMemory[]} saved */
+function savedCard(saved) {
+  if (!saved.length) return el("p", "", "Nothing saved.");
+  return card(saved.map((memory) => row(
+    memory.title,
+    memory.status === "unchanged" ? "Already in your Lore" : "Saved, only on this Mac",
+    detailTask === "capture" ? button("Draft for sale", "quiet", () => void publishMemory(memory, "capture")) : undefined
+  )));
+}
+
+function placeholder() {
+  return busy && !pendingMemories ? "Lore is working…" : pendingMemories ? "Or say what to change…" : detailTask ? "Reply to Lore…" : "What did you learn today?";
+}
+
 function renderLog() {
-  log.replaceChildren(...lines.map(({ text, owner, stopped }) => {
+  log.replaceChildren(...lines.map(({ text, owner, stopped, saved }) => {
     const line = el("div", owner ? "line owner" : stopped ? "line stop" : "line");
-    line.append(owner ? el("span", "you", "You") : mark("mark mark-sm"), owner ? el("p", "", text) : markdown(text));
+    line.append(owner ? el("span", "you", "You") : mark("mark mark-sm"), saved ? savedCard(saved) : owner ? el("p", "", text) : markdown(text));
     return line;
   }));
   if (liveText) {
@@ -650,11 +659,13 @@ function renderLog() {
 
 /** @param {boolean} active */
 function working(active) {
-  input.disabled = active;
-  submit.disabled = active;
-  composer.classList.toggle("working", active);
-  input.placeholder = active ? "Lore is working…" : detailTask ? "Reply to Lore…" : "What did you learn today?";
-  if (active && !liveText) live({ setup: "Thinking…", publish: "Drafting…", capture: "Reading this…", deploy: "Setting up your store…" }[task]);
+  busy = active;
+  const locked = active && !pendingMemories;
+  input.disabled = locked;
+  submit.disabled = locked;
+  composer.classList.toggle("working", locked);
+  input.placeholder = placeholder();
+  if (active && !liveText && !pendingMemories) live({ setup: "Thinking…", publish: "Drafting…", capture: "Reading this…", deploy: "Setting up your store…" }[task]);
 }
 
 /** @param {AgentRequest} event */
@@ -699,6 +710,41 @@ function renderRequest(event) {
       }
       respond(event.id, answers, Object.values(answers).filter(Boolean).join(" · "));
     });
+  } else if (event.type === "memories") {
+    const list = draftList();
+    /** @type {Array<{entry: ProposedMemory, node: HTMLElement, title: HTMLInputElement | HTMLTextAreaElement, content: HTMLInputElement | HTMLTextAreaElement}>} */
+    let drafts = [];
+    const keep = el("button", "btn primary sm");
+    keep.type = "submit";
+    const relabel = () => { keep.textContent = drafts.length === 1 ? "Keep this memory" : "Keep these"; keep.disabled = !drafts.length; };
+    for (const entry of event.entries) {
+      const node = el("div", "memory");
+      const title = draftField(node, "Title", entry.title, true);
+      const content = draftField(node, "What to remember", entry.content);
+      const meta = el("div", "meta");
+      if (entry.project) meta.append(chip(entry.project));
+      const drop = button("Drop", "quiet", () => { drafts = drafts.filter((draft) => draft.node !== node); node.remove(); relabel(); });
+      drop.style.marginLeft = "auto";
+      meta.append(drop);
+      node.append(meta);
+      list.append(node);
+      drafts.push({ entry, node, title, content });
+    }
+    relabel();
+    const current = () => drafts.map(({ entry, title, content }) => ({ ...entry, title: title.value.trim(), content: content.value.trim() }));
+    box.append(
+      el("p", "q", event.entries.length === 1 ? "Keep this memory?" : "Keep these memories?"),
+      el("p", "hint", "Edit anything here, or say what to change below. Nothing is saved until you keep it."),
+      list
+    );
+    const actions = el("div", "actions");
+    actions.append(button("Drop all", "secondary", () => respond(event.id, { entries: [] }, "Drop them")), keep);
+    box.append(actions);
+    box.addEventListener("submit", (submitEvent) => {
+      submitEvent.preventDefault();
+      respond(event.id, { entries: current() }, drafts.length === 1 ? "Keep it" : "Keep these");
+    });
+    pendingMemories = { id: event.id, current };
   } else if (event.type === "blueprint") {
     box.append(el("p", "q", "Use this shape for your Lore?"), el("p", "hint", event.evidence));
     const inputs = el("div", "blueprint-fields");
@@ -809,12 +855,14 @@ function renderRequest(event) {
     });
   }
   box.dataset.id = event.id;
+  if (event.type !== "memories") pendingMemories = null;
   requestSlot.replaceChildren(box);
   agentPanel.hidden = false;
-  composer.hidden = true;
+  composer.hidden = !pendingMemories;
+  working(busy);
   if (view !== "today") show("today");
   for (const area of box.querySelectorAll("textarea")) fit(/** @type {HTMLTextAreaElement} */ (area));
-  if (event.type === "question" || event.type === "blueprint") {
+  if (event.type === "question" || event.type === "memories" || event.type === "blueprint") {
     mainEl.scrollTop = Math.max(0, box.getBoundingClientRect().top - mainEl.getBoundingClientRect().top + mainEl.scrollTop - 16);
   } else {
     mainEl.scrollTop = mainEl.scrollHeight;
@@ -825,6 +873,8 @@ function renderRequest(event) {
 /** @param {string} id @param {unknown} value @param {string} [echo] */
 async function respond(id, value, echo) {
   requestSlot.replaceChildren();
+  pendingMemories = null;
+  working(busy);
   composer.hidden = false;
   if (echo) say(echo, true);
   else renderLog();
@@ -911,27 +961,34 @@ function closeTask() {
   render();
 }
 
-function approvals() {
+/** An editable field on a draft card. @param {HTMLElement} parent @param {string} label @param {string} value @param {boolean} [singleLine] */
+function draftField(parent, label, value, singleLine = false) {
+  const wrapper = el("label", "draft-field");
+  wrapper.append(el("span", "hint", label));
+  const control = singleLine ? el("input", "draft-title") : el("textarea");
+  if (control instanceof HTMLInputElement) control.type = "text";
+  else { control.rows = 1; control.addEventListener("input", () => fit(control)); }
+  control.value = value;
+  wrapper.append(control);
+  parent.append(wrapper);
+  return control;
+}
+
+function draftList() {
   const list = el("div", "card pad");
   list.style.display = "flex";
   list.style.flexDirection = "column";
   list.style.gap = "10px";
+  return list;
+}
+
+function approvals() {
+  const list = draftList();
   for (const candidate of candidates) {
     const memory = el("div", "memory");
-    const field = (/** @type {string} */ label, /** @type {string} */ value, singleLine = false) => {
-      const wrapper = el("label", "draft-field");
-      wrapper.append(el("span", "hint", label));
-      const control = singleLine ? el("input", "draft-title") : el("textarea");
-      if (control instanceof HTMLInputElement) control.type = "text";
-      else { control.rows = 1; control.addEventListener("input", () => fit(control)); }
-      control.value = value;
-      wrapper.append(control);
-      memory.append(wrapper);
-      return control;
-    };
-    const title = field("Title", candidate.title, true);
-    const teaser = field("Free teaser, what buyers see first", candidate.teaser);
-    const paid = field("Paid content, what a buyer's agent gets", candidate.content);
+    const title = draftField(memory, "Title", candidate.title, true);
+    const teaser = draftField(memory, "Free teaser, what buyers see first", candidate.teaser);
+    const paid = draftField(memory, "Paid content, what a buyer's agent gets", candidate.content);
     const meta = el("div", "meta");
     meta.append(chip(candidate.topic));
     if (candidate.kind === "content") meta.append(chip("Verbatim"));
@@ -1016,14 +1073,14 @@ async function act(action) {
   return done;
 }
 
-/** @param {string} text */
-async function send(text) {
+/** @param {string} text @param {AgentTask} [from] */
+async function send(text, from) {
   const files = attachments.length ? `\n\nFiles to read:\n${attachments.map((path) => `- ${path}`).join("\n")}` : "";
   attachments = [];
   renderAttachments();
   say(text, true);
   try {
-    await window.lore.prompt({ text: text + files, task });
+    await window.lore.prompt({ text: text + files, task, from });
     await load();
   } catch (error) {
     say(reason(error, "Something went wrong."));
@@ -1068,11 +1125,13 @@ function enter() {
   if (signedIn) { render(); void load(); }
 }
 
-window.lore.onAgentEvent((event) => {
+/** @param {AgentEvent} event */
+function onEvent(event) {
   if (event.type === "working") { working(event.active); if (!event.active) live(""); }
-  else if (event.type === "live") live(event.text);
+  else if (event.type === "live") { if (event.task === task) live(event.text); }
   else if (event.type === "changed") void load();
-  else if (event.type === "message") say(event.text);
+  else if (event.type === "message") { if (event.task === task) say(event.text); }
+  else if (event.type === "saved") { if (event.task === task) { lines.push({ text: "", owner: false, saved: event.memories }); renderLog(); } }
   else if (event.type === "stopped") { say(event.text, false, true); input.focus({ preventScroll: true }); }
   else if (event.type === "task") {
     if (detailTask === event.task.kind) detailRecord = event.task;
@@ -1092,16 +1151,28 @@ window.lore.onAgentEvent((event) => {
       if (!auth) { auth = { credentials: [] }; enter(); }
     }
   } else if (event.type === "dismiss") {
-    if (/** @type {HTMLElement | null} */ (requestSlot.firstElementChild)?.dataset.id === event.id) { requestSlot.replaceChildren(); composer.hidden = false; renderLog(); }
+    if (/** @type {HTMLElement | null} */ (requestSlot.firstElementChild)?.dataset.id === event.id) { requestSlot.replaceChildren(); pendingMemories = null; working(busy); composer.hidden = false; renderLog(); }
   } else if (event.type === "auth") {
     const detail = event.event;
     welcomeNote.textContent = event.message || (detail?.type === "device_code" ? `Open ${detail.verificationUri} and enter ${detail.userCode}.` : detail && "message" in detail ? detail.message : "Continue signing in.");
+  } else if (event.task && event.task !== detailTask) {
+    // A card belongs in its own thread, never under whichever heading happens to be open.
+    void openTask(event.task).then(() => renderRequest(event));
   } else renderRequest(event);
-});
+}
+
+window.lore.onAgentEvent(onEvent);
 
 composer.addEventListener("submit", async (event) => {
   event.preventDefault();
   const text = input.value.trim();
+  if (pendingMemories) {
+    if (!text) return;
+    input.value = "";
+    input.style.height = "";
+    await respond(pendingMemories.id, { entries: pendingMemories.current(), note: text }, text);
+    return;
+  }
   if (!text && !attachments.length) return;
   if (!detailTask) {
     task = "capture";
@@ -1281,7 +1352,7 @@ keyForm.addEventListener("submit", (event) => {
   void signIn(provider, "api_key", value);
 });
 
-Object.assign(window, { __lore: { show, preview: renderRequest, signIn: () => { previewSignIn = true; auth = { credentials: [{ providerId: "anthropic", type: "oauth" }] }; enter(); } } });
+Object.assign(window, { __lore: { show, preview: renderRequest, event: onEvent, signIn: () => { previewSignIn = true; auth = { credentials: [{ providerId: "anthropic", type: "oauth" }] }; enter(); } } });
 
 function boot() {
   if (previewSignIn) return;

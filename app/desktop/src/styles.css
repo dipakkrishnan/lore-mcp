@@ -188,6 +188,7 @@ h2 { font-size: 12px; font-weight: 600; letter-spacing: 0.06em; text-transform: 
 .log .line { display: flex; gap: 10px; align-items: flex-start; font-size: 14px; color: var(--ink-soft); }
 .log .line .mark { margin-top: 2px; }
 .log .line .md { min-width: 0; }
+.log .line .card { flex: 1; min-width: 0; }
 .log .line.live { color: var(--muted); }
 .log .line.stop .md { color: var(--attention-ink); }
 .log .line.stop .mark { background: var(--attention); }

@@ -158,22 +158,68 @@ test("sessions persist per task, come back as a thread, and a cut-off tool call 
     written.appendMessage({ role: "assistant", content: [{ type: "text", text: "Welcome." }, { type: "toolCall", id: "call-1", name: "ask_user", arguments: {} }], api: "anthropic-messages", provider: "anthropic", model: "m", usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } }, stopReason: "toolUse", timestamp: 2 });
     written.appendMessage({ role: "toolResult", toolCallId: "call-1", toolName: "ask_user", content: [{ type: "text", text: JSON.stringify({ answers: { Persona: "College professor", Name: "Ada" } }) }], isError: false, timestamp: 3 });
     written.appendMessage({ role: "toolResult", toolCallId: "old-call", toolName: "ask_user", content: [{ type: "text", text: "old malformed result" }], isError: false, timestamp: 3 });
+    written.appendMessage({ role: "toolResult", toolCallId: "m-1", toolName: "propose_memories", content: [{ type: "text", text: JSON.stringify({ entries: [{ title: "x", content: "y" }], note: "Call it the hiring lesson" }) }], isError: false, timestamp: 3 });
+    written.appendMessage({ role: "toolResult", toolCallId: "m-2", toolName: "propose_memories", content: [{ type: "text", text: JSON.stringify({ saved: [{ id: 7, status: "inserted", title: "The hiring lesson" }] }) }], isError: false, timestamp: 3 });
+    written.appendMessage({ role: "toolResult", toolCallId: "m-3", toolName: "propose_memories", content: [{ type: "text", text: JSON.stringify({ saved: [{ id: "7", title: "forged" }] }) }], isError: false, timestamp: 3 });
     written.appendMessage({ role: "assistant", content: [{ type: "toolCall", id: "call-2", name: "bash", arguments: { command: "lore status" } }], api: "anthropic-messages", provider: "anthropic", model: "m", usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } }, stopReason: "toolUse", timestamp: 4 });
     assert.match(String(written.getSessionFile()), new RegExp(`^${home}/\\.pi/sessions/setup/`));
     assert.deepEqual(LoreAgent.history(home, "setup"), [
       { text: "Let's set up my Lore.", owner: true },
       { text: "Welcome.", owner: false },
-      { text: "College professor · Ada", owner: true }
+      { text: "College professor · Ada", owner: true },
+      { text: "Call it the hiring lesson", owner: true },
+      { text: "", owner: false, saved: [{ id: 7, status: "inserted", title: "The hiring lesson" }] }
     ]);
     const resumed = LoreAgent.sessionFor(home, "setup");
     const messages = resumed.buildSessionContext().messages;
-    assert.equal(messages.length, 6);
-    assert.deepEqual({ role: messages[5].role, toolCallId: messages[5].toolCallId, isError: messages[5].isError }, { role: "toolResult", toolCallId: "call-2", isError: true });
+    assert.equal(messages.length, 9);
+    assert.deepEqual({ role: messages[8].role, toolCallId: messages[8].toolCallId, isError: messages[8].isError }, { role: "toolResult", toolCallId: "call-2", isError: true });
     assert.deepEqual(LoreAgent.tasks(home).map(({ kind, state, phase }) => ({ kind, state, phase })), [
       { kind: "setup", state: "stopped", phase: "Ready to resume" }
     ]);
     assert.equal(SessionManager.create(home).buildSessionContext().messages.length, 0);
     assert.equal(LoreAgent.sessionFor(home, "capture").buildSessionContext().messages.length, 0);
+  } finally {
+    await rm(home, { recursive: true });
+  }
+});
+
+test("a memory card saves exactly what the owner kept, through the CLI's private capture boundary", async () => {
+  const { captureMemories } = require("../src/state.cjs");
+  const { validSaved } = await import("../src/agent.mjs");
+  const home = await mkdtemp(join(tmpdir(), "lore-desktop-"));
+  try {
+    assert.deepEqual(await captureMemories(home, []), []);
+    const saved = await captureMemories(home, [{ title: "Hire management before rapid growth", content: "Add the management layer before the next ten engineers.", project: "team scaling" }]);
+    assert.equal(validSaved(saved), true);
+    assert.deepEqual(saved.map(({ status, title }) => ({ status, title })), [{ status: "added", title: "Hire management before rapid growth" }]);
+    assert.equal((await readState(home)).library.counts.private, 1);
+    await assert.rejects(captureMemories(home, [{ title: "", content: "x" }]));
+    assert.equal((await readState(home)).library.counts.private, 1);
+  } finally {
+    await rm(home, { recursive: true });
+  }
+});
+
+test("draft for sale continues the capture thread instead of starting the publish agent cold", async () => {
+  const { LoreAgent, latestTaskRecord } = await import("../src/agent.mjs");
+  const home = await mkdtemp(join(tmpdir(), "lore-desktop-"));
+  try {
+    const cold = LoreAgent.forkSession(home, "capture", "publish");
+    assert.equal(cold.buildSessionContext().messages.length, 0, "no capture thread yet means a fresh publish session");
+    assert.match(String(cold.getSessionFile()), /\/\.pi\/sessions\/publish\//);
+    const capture = LoreAgent.sessionFor(home, "capture");
+    capture.appendMessage({ role: "user", content: "/skill:lore-capture\n\nI learned to hire managers before scaling.", timestamp: 1 });
+    capture.appendCustomEntry("lore.task", { version: 1, kind: "capture", title: "Capture a memory", state: "done", phase: "Finished" });
+    capture.appendMessage({ role: "assistant", content: [{ type: "text", text: "Saved." }], api: "anthropic-messages", provider: "anthropic", model: "m", usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } }, stopReason: "stop", timestamp: 2 });
+    const forked = LoreAgent.forkSession(home, "capture", "publish");
+    assert.match(String(forked.getSessionFile()), /\/\.pi\/sessions\/publish\//);
+    assert.notEqual(forked.getSessionFile(), capture.getSessionFile());
+    assert.equal(forked.getHeader()?.parentSession, capture.getSessionFile());
+    assert.deepEqual(forked.buildSessionContext().messages.map((message) => message.role), ["user", "assistant"], "the publish agent starts with the capture conversation");
+    assert.equal(latestTaskRecord(forked, "publish"), null, "capture's records never count as publish state");
+    assert.deepEqual(LoreAgent.tasks(home), []);
+    assert.deepEqual(LoreAgent.history(home, "publish").map(({ text }) => text), ["I learned to hire managers before scaling.", "Saved."]);
   } finally {
     await rm(home, { recursive: true });
   }
