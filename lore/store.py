@@ -349,6 +349,19 @@ class Store:
             raise ValueError(f"memory not found: {memory_id}")
         self.db.commit()
 
+    def set_content(self, memory_id: int, content: str) -> None:
+        """Edit a memory's content."""
+        content = content.strip()
+        if not content:
+            raise ValueError("content cannot be empty")
+        cursor = self.db.execute(
+            "UPDATE memories SET content=?,updated_at=? WHERE id=?",
+            (content, datetime.now(timezone.utc).isoformat(), memory_id),
+        )
+        if not cursor.rowcount:
+            raise ValueError(f"memory not found: {memory_id}")
+        self.db.commit()
+
     def set_status_many(self, ids: list[int], status: str) -> int:
         """Set a retention status across many memories in one statement.
 
