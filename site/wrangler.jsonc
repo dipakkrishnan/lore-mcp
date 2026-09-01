@@ -1,0 +1,14 @@
+{
+  // yourlore.dev — static download page, served as Worker assets.
+  // Deploy: npx wrangler deploy (from this directory)
+  "name": "yourlore-site",
+  "compatibility_date": "2026-09-01",
+  "assets": {
+    "directory": "./public",
+    "not_found_handling": "single-page-application"
+  },
+  "routes": [
+    { "pattern": "yourlore.dev", "custom_domain": true },
+    { "pattern": "www.yourlore.dev", "custom_domain": true }
+  ]
+}
