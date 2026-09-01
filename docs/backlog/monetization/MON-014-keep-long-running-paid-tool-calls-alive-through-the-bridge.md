@@ -4,13 +4,13 @@ title: Keep long-running paid tool calls alive through the bridge
 priority: P2
 effort: S
 component: monetization
-status: ready
+status: obsolete
 related: [MON-007, MCP-003]
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-08-17
-updated: 2026-08-26
+updated: 2026-08-28
 ---
 
 ## Problem
@@ -53,3 +53,9 @@ path against slow cold starts too — so it is related to `MCP-003`, not a
 blocker of it.
 
 **Prioritization pass 2026-08-26:** No blockers — explicitly independently shippable ahead of `MCP-003`, and hardens today's paid `get` path too. Promoted `in-review` → `ready`.
+
+**Closed 2026-08-28:** the shipped answer contract makes the paid call return a
+ticket immediately, while free `result` polling performs a bounded D1 read.
+Neither path needs a tool call held open for the agent's runtime, and no observed
+`get` timeout justifies generic bridge keep-alive machinery. Reopen as a new,
+measured transport bug if a real client times out on a bounded call.
