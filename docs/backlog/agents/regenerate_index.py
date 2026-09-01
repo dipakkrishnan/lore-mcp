@@ -265,6 +265,8 @@ def main(argv: list[str] | None = None) -> int:
     def fmt_issue(url: str) -> str:
         if not url or url == "null":
             return "—"
+        if url.isdigit():
+            url = f"https://github.com/dipakkrishnan/lore-mcp/issues/{url}"
         m = re.search(r"/issues/(\d+)$", url)
         return f"[#{m.group(1)}]({url})" if m else url
 
