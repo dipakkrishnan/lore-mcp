@@ -47,11 +47,27 @@ TABLE_HEADER = (
 )
 
 
+def strip_quotes(value: str) -> str:
+    """Strip one layer of matching leading/trailing double quotes.
+
+    Scalar frontmatter values (e.g. `github_issue: "https://.../174"`) can be
+    YAML-quoted; list values (e.g. `dependencies: [A-001, "free text"]`)
+    quote their *elements*, not the field itself, so they never start with
+    `"` here and are left untouched.
+    """
+    if len(value) >= 2 and value[0] == '"' and value[-1] == '"':
+        return value[1:-1]
+    return value
+
+
 def parse_frontmatter(text: str) -> dict[str, str] | None:
     match = FRONTMATTER_RE.match(text)
     if not match:
         return None
-    return {m.group(1): m.group(2).strip() for m in FIELD_RE.finditer(match.group(1))}
+    return {
+        m.group(1): strip_quotes(m.group(2).strip())
+        for m in FIELD_RE.finditer(match.group(1))
+    }
 
 
 def parse_list_field(raw: str | None) -> list[str]:
