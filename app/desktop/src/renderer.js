@@ -11,6 +11,7 @@ const content = $("#content");
 const account = $("#account");
 const taskBack = /** @type {HTMLButtonElement} */ ($("#task-back"));
 const taskRestart = /** @type {HTMLButtonElement} */ ($("#task-restart"));
+const addMemoryBtn = /** @type {HTMLButtonElement} */ ($("#add-memory"));
 const captureArea = $("#capture");
 const composer = /** @type {HTMLFormElement} */ ($("#composer"));
 const input = /** @type {HTMLTextAreaElement} */ ($("#capture-input"));
@@ -202,10 +203,13 @@ function closeSheet() {
 /** @param {string} heading @param {HTMLElement} body @param {HTMLElement} [aside] */
 function section(heading, body, aside) {
   const node = el("section", "section");
-  const head = el("div", "section-head");
-  head.append(el("h2", "", heading));
-  if (aside) head.append(aside);
-  node.append(head, body);
+  if (heading || aside) {
+    const head = el("div", "section-head");
+    if (heading) head.append(el("h2", "", heading));
+    if (aside) head.append(aside);
+    node.append(head);
+  }
+  node.append(body);
   return node;
 }
 
@@ -364,13 +368,17 @@ function renderToday(s) {
 }
 
 /** @param {Snapshot} s */
+function memoriesCountLabel(s) {
+  return hits ? `${hits.length} ${hits.length === 1 ? "match" : "matches"}` : `${s.library.items.filter((item) => item.status === "private").length} private`;
+}
+
+/** @param {Snapshot} s */
 function renderMemories(s) {
   const items = hits
     ? hits.map((hit) => memoryRow(hit.id, hit.title, [hit.project, when(hit.updated_at)].filter(Boolean).join(" · ")))
     : s.library.items.filter((item) => item.status === "private").map((item) => memoryRow(item.id, item.title, [item.project_label, when(item.updated_at)].filter(Boolean).join(" · ")));
-  const heading = hits ? `${hits.length} ${hits.length === 1 ? "match" : "matches"}` : `${items.length} private`;
   const body = items.length ? card(items) : el("div", "card pad empty", hits ? "Nothing matches that." : "Nothing kept yet.");
-  return [section(heading, body)];
+  return [section("", body)];
 }
 
 /** @param {Snapshot} s */
@@ -487,10 +495,12 @@ function render() {
   const pendingDrafts = detail === "publish" && candidates.length;
   eyebrow.textContent = detail
     ? pendingDrafts ? `Needs you · ${draftsPhase()}` : `${TASK_STATES[detailRecord?.state ?? "working"]} · ${detailRecord?.phase ?? "Starting"}`
-    : view === "today" ? longDate.format(new Date()) : "";
+    : view === "today" ? longDate.format(new Date())
+    : view === "memories" && snapshot ? memoriesCountLabel(snapshot) : "";
   title.textContent = heading;
   taskBack.hidden = !detail;
   taskRestart.hidden = !detail || detailRecord?.state !== "stopped";
+  addMemoryBtn.hidden = Boolean(detail) || view !== "memories";
   captureArea.hidden = view !== "today";
   log.hidden = !detail;
   composer.hidden = Boolean(requestSlot.childElementCount) || ((detail === "setup" || detail === "deploy") && detailRecord?.state === "done");
@@ -1192,6 +1202,11 @@ document.addEventListener("drop", (event) => {
 
 taskBack.addEventListener("click", closeTask);
 taskRestart.addEventListener("click", () => { if (detailTask) void startOver(detailTask); });
+addMemoryBtn.addEventListener("click", () => {
+  if (detailTask) closeTask();
+  else show("today");
+  input.focus();
+});
 for (const nav of navButtons) nav.addEventListener("click", () => {
   const next = /** @type {View} */ (nav.dataset.view);
   if (next === "today" && detailTask) closeTask();
