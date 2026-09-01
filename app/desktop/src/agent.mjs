@@ -42,8 +42,10 @@ export function bashSandboxPolicy(loreHome, task, binDir) {
   const home = homedir();
   const lore = realpathSync(loreHome);
   const owned = (OWNER_DIRS[task] ?? []).map((dir) => resolve(home, dir));
+  // Contents/, not just Resources/: node/bin/node is a shim onto Contents/MacOS/Lore,
+  // which dyld loads from Contents/Frameworks — all must stay readable under $HOME.
   const runtime = binDir
-    ? [resolve(binDir, ".."), ...(process.resourcesPath ? [process.resourcesPath] : [])]
+    ? [resolve(binDir, ".."), ...(process.resourcesPath ? [resolve(process.resourcesPath, "..")] : [])]
     : [resolve(home, ".local/bin/lore"), resolve(home, ".local/share/lore/lore-mcp"), resolve(home, ".local/share/uv/python"), resolve(home, ".local/share/uv/tools/lore-mcp")];
   return {
     network: { allowedDomains: task === "deploy" ? ["*"] : [], deniedDomains: [] },

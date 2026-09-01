@@ -1,5 +1,5 @@
 const assert = require("node:assert/strict");
-const { mkdtemp, readFile, rm, symlink, writeFile } = require("node:fs/promises");
+const { access, constants, mkdtemp, readFile, rm, symlink, writeFile } = require("node:fs/promises");
 const { homedir, tmpdir } = require("node:os");
 const { join } = require("node:path");
 const { spawnSync } = require("node:child_process");
@@ -328,6 +328,24 @@ test("safeStorage credentials survive an Electron restart", { skip: process.plat
   } finally {
     await rm(directory, { recursive: true });
   }
+});
+
+test("the bundled node is a shim that runs npm on Electron's embedded runtime", { skip: process.platform !== "darwin" }, async () => {
+  const packaging = join(__dirname, "../packaging");
+  const built = spawnSync(join(packaging, "node.sh"), { encoding: "utf8", timeout: 300_000 });
+  assert.equal(built.status, 0, built.stderr);
+  const bin = join(packaging, "out/node/bin");
+  const node = join(bin, "node");
+  await access(node, constants.X_OK);
+  assert.equal((await readFile(node)).subarray(0, 2).toString(), "#!", "bin/node must be a shim, not a standalone binary");
+  const env = { ...process.env, PATH: `${bin}:${process.env.PATH}` };
+  // defaultApp keeps yargs-based CLIs (wrangler) reading the script from argv[1].
+  const electron = spawnSync(node, ["-p", "process.versions.electron + ' ' + process.defaultApp"], { encoding: "utf8", env, timeout: 30_000 });
+  assert.equal(electron.status, 0, electron.stderr);
+  assert.equal(electron.stdout.trim(), `${require("electron/package.json").version} true`);
+  const npm = spawnSync(join(bin, "npm"), ["--version"], { encoding: "utf8", env, timeout: 60_000 });
+  assert.equal(npm.status, 0, npm.stderr);
+  assert.match(npm.stdout, /^\d+\.\d+\.\d+/);
 });
 
 test("memory reads validate the id before any CLI call, and say when it is unknown", async () => {

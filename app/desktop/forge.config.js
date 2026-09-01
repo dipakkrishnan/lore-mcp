@@ -8,9 +8,14 @@ const out = join(__dirname, "packaging/out");
 const ignored = [
   /^\/(packaging|out|test|support)($|\/)/,
   /^\/(test-capture\.sh|tsconfig\.json|forge\.config\.js)$/,
-  /^\/node_modules\/.*\.(md|markdown|d\.ts|d\.mts|d\.cts|map|flow|tsbuildinfo)$/i,
+  // License and notice files always ship (distribution compliance), whatever their extension.
+  /^\/node_modules\/.*\/(?!(licen[cs]e|copying|notice)[.-])[^/]*\.(md|markdown|d\.ts|d\.mts|d\.cts|map|flow|tsbuildinfo)$/i,
   /^\/node_modules\/.*\/(__tests__|\.github)($|\/)/,
-  /^\/node_modules\/.*\/(LICENSE|LICENCE|CHANGELOG|AUTHORS|CONTRIBUTING|\.npmignore|\.eslintrc[^/]*|\.prettierrc[^/]*|tsconfig[^/]*\.json)$/i
+  /^\/node_modules\/.*\/(CHANGELOG|AUTHORS|CONTRIBUTING|\.npmignore|\.eslintrc[^/]*|\.prettierrc[^/]*|tsconfig[^/]*\.json)$/i,
+  // The app ships darwin-arm64 only; these foreign-platform native payloads sit
+  // behind per-platform loaders (try/catch or win32-only paths) and never load.
+  /^\/node_modules\/@anthropic-ai\/sandbox-runtime\/vendor\/srt-win($|\/)/,
+  /^\/node_modules\/.*\/@mariozechner\/clipboard-(?!darwin-arm64($|\/))/
 ];
 
 module.exports = {
