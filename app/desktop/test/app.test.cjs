@@ -1,5 +1,5 @@
 const assert = require("node:assert/strict");
-const { mkdtemp, readFile, rm, symlink, writeFile } = require("node:fs/promises");
+const { access, constants, mkdtemp, readFile, rm, symlink, writeFile } = require("node:fs/promises");
 const { homedir, tmpdir } = require("node:os");
 const { join } = require("node:path");
 const { spawnSync } = require("node:child_process");
@@ -179,6 +179,13 @@ test("sessions persist per task, come back as a thread, and a cut-off tool call 
   }
 });
 
+test("desktop prefers Opus 4.8 when Anthropic is available", async () => {
+  const { MODELS } = await import("../src/agent.mjs");
+  const { getBuiltinModel } = await import("@earendil-works/pi-ai/providers/all");
+  assert.equal(MODELS[0], "anthropic/claude-opus-4-8");
+  assert.equal(getBuiltinModel("anthropic", "claude-opus-4-8").id, "claude-opus-4-8");
+});
+
 test("typed task records survive relaunch and only unfinished known tasks are listed", async () => {
   const { LoreAgent, latestTaskRecord } = await import("../src/agent.mjs");
   const { SessionManager } = await import("@earendil-works/pi-coding-agent");
@@ -328,6 +335,24 @@ test("safeStorage credentials survive an Electron restart", { skip: process.plat
   } finally {
     await rm(directory, { recursive: true });
   }
+});
+
+test("the bundled node is a shim that runs npm on Electron's embedded runtime", { skip: process.platform !== "darwin" }, async () => {
+  const packaging = join(__dirname, "../packaging");
+  const built = spawnSync(join(packaging, "node.sh"), { encoding: "utf8", timeout: 300_000 });
+  assert.equal(built.status, 0, built.stderr);
+  const bin = join(packaging, "out/node/bin");
+  const node = join(bin, "node");
+  await access(node, constants.X_OK);
+  assert.equal((await readFile(node)).subarray(0, 2).toString(), "#!", "bin/node must be a shim, not a standalone binary");
+  const env = { ...process.env, PATH: `${bin}:${process.env.PATH}` };
+  // defaultApp keeps yargs-based CLIs (wrangler) reading the script from argv[1].
+  const electron = spawnSync(node, ["-p", "process.versions.electron + ' ' + process.defaultApp"], { encoding: "utf8", env, timeout: 30_000 });
+  assert.equal(electron.status, 0, electron.stderr);
+  assert.equal(electron.stdout.trim(), `${require("electron/package.json").version} true`);
+  const npm = spawnSync(join(bin, "npm"), ["--version"], { encoding: "utf8", env, timeout: 60_000 });
+  assert.equal(npm.status, 0, npm.stderr);
+  assert.match(npm.stdout, /^\d+\.\d+\.\d+/);
 });
 
 test("memory reads validate the id before any CLI call, and say when it is unknown", async () => {

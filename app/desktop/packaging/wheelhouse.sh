@@ -22,6 +22,34 @@ rm -rf "$OUT/wheels"
   python -m pip wheel --quiet --wheel-dir "$OUT/wheels" -r "$OUT/requirements.txt"
 rm -f "$OUT/wheels/.gitignore" "$OUT/requirements.txt"
 
+if [ -n "${LORE_SIGN_IDENTITY:-}" ]; then
+  SIGN_DIR="$(mktemp -d)"
+  trap 'rm -rf "$SIGN_DIR"' EXIT HUP INT TERM
+  for WHEEL in "$OUT"/wheels/*macosx*.whl; do
+    UNPACKED="$SIGN_DIR/$(basename "$WHEEL" .whl)"
+    mkdir "$UNPACKED"
+    unzip -q "$WHEEL" -d "$UNPACKED"
+    BINARY="$(find "$UNPACKED" -type f \( -name '*.so' -o -name '*.dylib' \) -print -quit)"
+    if [ -n "$BINARY" ]; then
+      RECORD="$(find "$UNPACKED" -path '*.dist-info/RECORD' -print -quit)"
+      find "$UNPACKED" -type f \( -name '*.so' -o -name '*.dylib' \) -print | while IFS= read -r BINARY; do
+        codesign --force --options runtime --timestamp --sign "$LORE_SIGN_IDENTITY" "$BINARY"
+        RELATIVE="${BINARY#"$UNPACKED/"}"
+        HASH="$(openssl dgst -sha256 -binary "$BINARY" | openssl base64 -A | tr '+/' '-_' | tr -d '=')"
+        SIZE="$(wc -c < "$BINARY" | tr -d ' ')"
+        awk -F, -v path="$RELATIVE" -v hash="sha256=$HASH" -v size="$SIZE" \
+          'BEGIN { OFS="," } $1 == path { $2=hash; $3=size } { print }' "$RECORD" > "$RECORD.tmp"
+        mv "$RECORD.tmp" "$RECORD"
+      done
+      rm -f "$WHEEL"
+      (cd "$UNPACKED" && zip -q -X -r "$WHEEL" .)
+    fi
+    rm -rf "$UNPACKED"
+  done
+  rm -rf "$SIGN_DIR"
+  trap - EXIT HUP INT TERM
+fi
+
 WINDUP_VERSION="$(basename "$OUT"/wheels/windup-*.whl | cut -d- -f2)"
 echo "windup==$WINDUP_VERSION" > "$OUT/overrides.txt"
 BUILD_ID="$(cd "$OUT/wheels" && cksum ./*.whl | cksum | awk '{print $1}')"
