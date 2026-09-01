@@ -86,6 +86,10 @@ def parser() -> argparse.ArgumentParser:
     memory_show = memory_commands.add_parser("show", help="print one memory in full")
     memory_show.add_argument("id", type=int)
     memory_show.add_argument("--json", action="store_true")
+    memory_edit = memory_commands.add_parser("edit", help="edit a memory's content")
+    memory_edit.add_argument("id", type=int)
+    memory_edit.add_argument("content", help="new content; use - for stdin")
+    memory_edit.add_argument("--json", action="store_true")
 
     profile = commands.add_parser(
         "profile", help="save an agent-written synthesis profile"
@@ -213,6 +217,8 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "search":
             return search(" ".join(args.query), args.status, args.limit, args.json)
         if args.command == "memory":
+            if args.memory_command == "edit":
+                return edit_memory(args.id, args.content, args.json)
             return show_memory(args.id, args.json)
         if args.command == "profile":
             return profile(args.path, not args.no_schedule)
@@ -481,6 +487,28 @@ def search(query: str, status_name: str | None, limit: int, as_json: bool) -> in
 def show_memory(memory_id: int, as_json: bool) -> int:
     """Print one memory as a card or JSON."""
     with Store() as store:
+        memory = store.get(memory_id)
+    if memory is None:
+        raise ValueError(f"memory not found: {memory_id}")
+    if as_json:
+        print(json.dumps(memory.__dict__, indent=2))
+    else:
+        memory_card(memory)
+    return 0
+
+
+def edit_memory(memory_id: int, content: str, as_json: bool) -> int:
+    """Edit a memory's content and print the result as a card or JSON.
+
+    `content` is the new content directly, or `-` to read it from stdin —
+    memory content is markdown body text, potentially long and multi-line, so
+    a plain positional argument is a poor fit for anyone typing it by hand.
+    The desktop app always passes content as a direct argument rather than
+    piping through stdin, since IPC already hands it a string.
+    """
+    text = sys.stdin.read() if content == "-" else content
+    with Store() as store:
+        store.set_content(memory_id, text)
         memory = store.get(memory_id)
     if memory is None:
         raise ValueError(f"memory not found: {memory_id}")

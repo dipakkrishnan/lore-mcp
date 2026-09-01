@@ -340,3 +340,15 @@ test("memory reads validate the id before any CLI call, and say when it is unkno
     await rm(directory, { recursive: true });
   }
 });
+
+test("memory edit validates the id and content before any CLI call, and round-trips through the CLI", async () => {
+  const { editMemory } = require("../src/state.cjs");
+  for (const bad of [0, -1, 1.5, "1", null]) await assert.rejects(editMemory("/nonexistent", bad, "New content"), { message: /Invalid memory/ });
+  const directory = await mkdtemp(join(tmpdir(), "lore-desktop-"));
+  try {
+    await assert.rejects(editMemory(directory, 1, "   "), { message: /Content cannot be empty/ });
+    await assert.rejects(editMemory(directory, 999, "New content"), { message: /memory not found: 999/ });
+  } finally {
+    await rm(directory, { recursive: true });
+  }
+});

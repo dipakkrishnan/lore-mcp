@@ -51,6 +51,16 @@ class ParserTest(unittest.TestCase):
                 ["memory", "show", "7", "--json"],
                 {"command": "memory", "memory_command": "show", "id": 7, "json": True},
             ),
+            (
+                ["memory", "edit", "7", "New content", "--json"],
+                {
+                    "command": "memory",
+                    "memory_command": "edit",
+                    "id": 7,
+                    "content": "New content",
+                    "json": True,
+                },
+            ),
             (["profile", "-", "--no-schedule"], {"path": "-", "no_schedule": True}),
             (
                 ["capture", "apply", "-"],
@@ -444,6 +454,42 @@ class ShowMemoryTest(LoreTestCase):
         with self.assertRaisesRegex(ValueError, "memory not found: 999"):
             cli.show_memory(999, True)
         self.assertEqual(cli.main(["memory", "show", "999"]), 1)
+
+
+class EditMemoryTest(LoreTestCase):
+    def test_edit_updates_the_content_and_refuses_an_unknown_id(self) -> None:
+        memory_id = self.seed_memory("Kept lesson")
+        with captured() as output:
+            self.assertEqual(
+                cli.edit_memory(memory_id, "New content entirely", True), 0
+            )
+        payload = json.loads(output.getvalue())
+        self.assertEqual(payload["id"], memory_id)
+        self.assertEqual(payload["content"], "New content entirely")
+        with captured() as output:
+            self.assertEqual(cli.show_memory(memory_id, True), 0)
+        self.assertEqual(
+            json.loads(output.getvalue())["content"], "New content entirely"
+        )
+        with self.assertRaisesRegex(ValueError, "memory not found: 999"):
+            cli.edit_memory(999, "New content", True)
+        self.assertEqual(cli.main(["memory", "edit", "999", "New content"]), 1)
+
+    def test_edit_refuses_blank_content(self) -> None:
+        memory_id = self.seed_memory("Kept lesson")
+        with self.assertRaisesRegex(ValueError, "content cannot be empty"):
+            cli.edit_memory(memory_id, "   ", True)
+
+    def test_edit_reads_content_from_stdin_when_given_a_dash(self) -> None:
+        memory_id = self.seed_memory("Kept lesson")
+        with (
+            patch.object(sys, "stdin", StringIO("Content piped in from stdin")),
+            captured() as output,
+        ):
+            self.assertEqual(cli.edit_memory(memory_id, "-", True), 0)
+        self.assertEqual(
+            json.loads(output.getvalue())["content"], "Content piped in from stdin"
+        )
 
 
 class StatusTest(LoreTestCase):
