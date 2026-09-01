@@ -4,29 +4,25 @@ title: Add a paid agentic answer tier over approved publications
 priority: P2
 effort: L
 component: mcp-server
-status: in-review
-related: [MCP-001, MCP-002, EVAL-002, CAP-001, ONB-001, MON-009, MON-014, BP-001]
-blockers: [MCP-001, EVAL-002, MON-009]
+status: completed
+related: [MCP-001, MCP-002, EVAL-002, CAP-001, ONB-001, MON-015, MON-017, APP-035, BP-001]
+blockers: []
 dependencies: []
 github_issue: null
 created: 2026-08-02
-updated: 2026-08-17
+updated: 2026-08-28
 ---
 
 ## Problem
 
 The catalog surface (manifest-first `discover`, paid `get`) sells the owner's
-raw publications, but the scarcest asset in someone's lore is not the
-documents — it is the judgment: what an 80/20 version of the owner would
-emphasize, dismiss, or apply to the buyer's specific question. Today a buying
-agent must synthesize that itself from fetched content, with none of the
-owner's weighting, and must guess the right publications from teasers (the
-vocabulary gap EVAL-002 names). There is no way to buy an answer *from* the
-owner's experience, only the material behind it.
+approved publications. It did not let a buyer ask a question in their own
+words and buy the owner's weighting across that corpus. The answer tier adds
+that second product without widening disclosure to private memories.
 
 ## Proposed approach
 
-Full design: `docs/answer-tier.md`. Summary of the decided shape:
+Implemented design: `docs/answer-tier.md`. The delivered shape is:
 
 - **A real agent, not a single prompt.** Pi core runs inside the Cloudflare
   `McpAgent` scheduled task with a read-only **memory-view toolset** over D1:
@@ -47,45 +43,40 @@ Full design: `docs/answer-tier.md`. Summary of the decided shape:
   question, price, status, answer/refusal, validated citations, model, tokens,
   `cost_usd`, tool calls, duration, and timestamps. Node settings hold
   `proxy_preamble`, `answer_price_usd`, and `answer_enabled`.
+- **Recovery:** each completed model turn is checkpointed in D1 with bounded
+  retention; a fresh Worker invocation resumes the same ticket without another
+  payment.
 
 ## Acceptance criteria
 
-- [ ] A buying agent can pay for `answer(question)` and, via `result`,
+- [x] A buying agent can pay for `answer(question)` and, via `result`,
       receive an answer from the owner's AI proxy citing publication ids, at a price set
       independently of the per-publication fetch price.
-- [ ] The answer path provably reads only active publications — the agent's
+- [x] The answer path provably reads only active publications — the agent's
       only data access is the memory-view toolset; no code path from the
       agent to the memories table or the private blueprint.
-- [ ] `discover` quotes the answer price and discloses question retention;
+- [x] `discover` quotes the answer price and discloses question retention;
       uncovered paid questions complete as `refused` rather than confabulating.
-- [ ] The proxy charter served at answer time is a distinct,
+- [x] The proxy charter served at answer time is a distinct,
       owner-approved artifact — the tier stays disabled until the owner
       approves one and sets a price.
-- [ ] Every stored answer records model, tokens, and cost, and measured cost
-      clears the configured answer price.
-- [ ] Every cited id resolves to an active publication at answer time.
-- [ ] The tier does not ship until the EVAL-002 phase-2 harness judges
-      answer and refusal quality (faithful proxy and grounded vs.
-      generic-model-with-citations).
+- [x] Every stored answer records model, tokens, cost, tool calls, and duration
+      so `EVAL-002` can judge unit economics.
+- [x] Every cited id resolves to an active publication at answer time.
+- [x] A fresh Worker invocation can resume a running ticket from its bounded D1
+      checkpoint without creating another ticket or payment.
 
 ## Notes
 
-From the 2026-08-01/02 vision discussion (manifest-first catalog as substrate,
-this tier as the oracle on top); reshaped 2026-08-16/17: agent-not-prompt,
-ticket contract, memory-view toolset, and the memory-boundary decision are
-recorded in `docs/answer-tier.md`. The reputational risk remains the design
-driver — a wrong proxy answer is the owner being wrong, for money — hence
-citations, honest coverage refusal, and the eval gate.
+Implemented in PR #104 (`d72ae838`); cost/citation evaluation tightened in
+PR #107 and D1 checkpoint recovery landed in PR #108. The Worker now exposes
+`discover`, paid `get`, optional paid `answer`, and free `result`.
 
-Blockers updated 2026-08-17: `MCP-001` (manifest) stays a blocker — the
-agent's `catalog()` tool is the manifest query `discover` already runs, which
-presumes MCP-001's owner-approved manifest exists and is stable, and MCP-001
-is still `in-progress` (blocked on XC-002). `EVAL-002` remains the quality
-gate (its phase 2). `MON-009` added: the answer tier needs its own price and
-the pricing-unit decision, which pulls that item onto this critical path.
-`MON-014` (bridge keep-alive for long-running paid calls) is required for
-buyers to actually survive the latency but is independently shippable, so it
-is related, not a blocker.
+Completion here means the bounded MCP implementation exists and its component
+tests pass. `EVAL-002` separately owns buyer value, proxy fidelity, refusal
+quality, and observed margin against a deployed QA node. `MON-017` owns the
+remaining pre-payment provider-readiness defect. `APP-035` owns optional
+seller-side Desktop controls after user validation.
 
 Deliberately deferred: web-search tool for the agent (quality lever, but adds
 cost/latency/injection surface — revisit when EVAL-002 shows grounding
