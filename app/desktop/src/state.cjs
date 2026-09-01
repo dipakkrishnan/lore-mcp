@@ -73,6 +73,14 @@ async function readMemory(loreHome, id) {
   return JSON.parse(await lore(loreHome, ["memory", "show", String(id), "--json"]));
 }
 
+/** @param {string} loreHome @param {unknown} id @param {string} content @returns {Promise<Memory>} */
+async function editMemory(loreHome, id, content) {
+  if (!Number.isInteger(id) || /** @type {number} */ (id) < 1) throw new Error("Invalid memory");
+  const trimmed = content.trim();
+  if (!trimmed) throw new Error("Content cannot be empty");
+  return JSON.parse(await lore(loreHome, ["memory", "edit", String(id), trimmed, "--json"]));
+}
+
 /** @param {string} loreHome @returns {Promise<PublicationCandidate[]>} */
 async function candidates(loreHome) {
   return JSON.parse(await lore(loreHome, ["publication", "candidates"]));
@@ -83,4 +91,15 @@ async function decide(loreHome, original, candidate, approve) {
   await lore(loreHome, ["publication", "decide"], JSON.stringify({ original, candidate, approve }));
 }
 
-module.exports = { lore, loreStream, stream, readState, searchMemories, readMemory, candidates, decide, useRuntime };
+module.exports = {
+  lore,
+  loreStream,
+  stream,
+  readState,
+  searchMemories,
+  readMemory,
+  editMemory,
+  candidates,
+  decide,
+  useRuntime
+};
