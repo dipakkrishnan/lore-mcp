@@ -146,7 +146,8 @@ function markdown(text) {
 async function publishMemory(memory, from) {
   closeSheet();
   await openTask("publish");
-  if (candidates.some((candidate) => candidate.provenance.includes(memory.id))) return;
+  // A pending card for this memory, or an agent already mid-draft, is the thread itself: open it, never start a second turn.
+  if (busy || candidates.some((candidate) => candidate.provenance.includes(memory.id))) return;
   await send(`Help me publish something from my Lore. Start from memory ${memory.id}: "${memory.title}".`, from);
 }
 
