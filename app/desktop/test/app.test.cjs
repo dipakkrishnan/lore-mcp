@@ -179,6 +179,13 @@ test("sessions persist per task, come back as a thread, and a cut-off tool call 
   }
 });
 
+test("desktop prefers Opus 4.8 when Anthropic is available", async () => {
+  const { MODELS } = await import("../src/agent.mjs");
+  const { getBuiltinModel } = await import("@earendil-works/pi-ai/providers/all");
+  assert.equal(MODELS[0], "anthropic/claude-opus-4-8");
+  assert.equal(getBuiltinModel("anthropic", "claude-opus-4-8").id, "claude-opus-4-8");
+});
+
 test("typed task records survive relaunch and only unfinished known tasks are listed", async () => {
   const { LoreAgent, latestTaskRecord } = await import("../src/agent.mjs");
   const { SessionManager } = await import("@earendil-works/pi-coding-agent");
