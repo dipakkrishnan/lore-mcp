@@ -1204,7 +1204,7 @@ taskBack.addEventListener("click", closeTask);
 taskRestart.addEventListener("click", () => { if (detailTask) void startOver(detailTask); });
 addMemoryBtn.addEventListener("click", () => {
   if (detailTask) closeTask();
-  else show("today");
+  show("today");
   input.focus();
 });
 for (const nav of navButtons) nav.addEventListener("click", () => {
