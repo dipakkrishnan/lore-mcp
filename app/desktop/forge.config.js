@@ -3,6 +3,21 @@ const { join } = require("node:path");
 
 const out = join(__dirname, "packaging/out");
 
+// Everything left in node_modules is enumerated by Apple's notary scan; a
+// smaller file count is the difference between minutes and days.
+const ignored = [
+  /^\/(packaging|out|test|support)($|\/)/,
+  /^\/(test-capture\.sh|tsconfig\.json|forge\.config\.js)$/,
+  // License and notice files always ship (distribution compliance), whatever their extension.
+  /^\/node_modules\/.*\/(?!(licen[cs]e|copying|notice)[.-])[^/]*\.(md|markdown|d\.ts|d\.mts|d\.cts|map|flow|tsbuildinfo)$/i,
+  /^\/node_modules\/.*\/(__tests__|\.github)($|\/)/,
+  /^\/node_modules\/.*\/(CHANGELOG|AUTHORS|CONTRIBUTING|\.npmignore|\.eslintrc[^/]*|\.prettierrc[^/]*|tsconfig[^/]*\.json)$/i,
+  // The app ships darwin-arm64 only; these foreign-platform native payloads sit
+  // behind per-platform loaders (try/catch or win32-only paths) and never load.
+  /^\/node_modules\/@anthropic-ai\/sandbox-runtime\/vendor\/srt-win($|\/)/,
+  /^\/node_modules\/.*\/@mariozechner\/clipboard-(?!darwin-arm64($|\/))/
+];
+
 module.exports = {
   packagerConfig: {
     name: "Lore",
@@ -12,7 +27,7 @@ module.exports = {
     extendInfo: {
       NSMicrophoneUsageDescription: "Lore listens while you dictate a memory; the words are transcribed on this Mac."
     },
-    ignore: [/^\/(packaging|out|test|support)($|\/)/, /^\/(test-capture\.sh|tsconfig\.json|forge\.config\.js)$/],
+    ignore: (path) => ignored.some((pattern) => pattern.test(path)),
     extraResource: [
       join(out, "uv"),
       join(out, "node"),
