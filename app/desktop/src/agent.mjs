@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { mkdirSync, realpathSync } from "node:fs";
+import { existsSync, mkdirSync, realpathSync } from "node:fs";
 import { homedir } from "node:os";
 import { resolve } from "node:path";
 import {
@@ -27,7 +27,7 @@ const TASK_STATES = new Set(["needs_you", "working", "stopped", "done"]);
 const PERSONAS = ["storyteller", "schoolteacher", "professor", "executive", "sage"];
 const AXES = ["chronological", "theme", "project", "knowledge"];
 const CLOSED = "Lore was closed before this finished.";
-const MODELS = ["anthropic/claude-sonnet-5", "openai-codex/gpt-5.6-luna", "openai/gpt-5.6-luna"];
+export const MODELS = ["anthropic/claude-opus-4-8", "anthropic/claude-sonnet-5", "openai-codex/gpt-5.6-luna", "openai/gpt-5.6-luna"];
 const MAX_TURNS = 60;
 const SANDBOX_TMPDIR = "/tmp/claude";
 /** @type {Partial<Record<AgentTask, string[]>>} Home-relative directories outside Lore that a task's commands must write. */
@@ -42,8 +42,10 @@ export function bashSandboxPolicy(loreHome, task, binDir) {
   const home = homedir();
   const lore = realpathSync(loreHome);
   const owned = (OWNER_DIRS[task] ?? []).map((dir) => resolve(home, dir));
+  // Contents/, not just Resources/: node/bin/node is a shim onto Contents/MacOS/Lore,
+  // which dyld loads from Contents/Frameworks — all must stay readable under $HOME.
   const runtime = binDir
-    ? [resolve(binDir, ".."), ...(process.resourcesPath ? [process.resourcesPath] : [])]
+    ? [resolve(binDir, ".."), ...(process.resourcesPath ? [resolve(process.resourcesPath, "..")] : [])]
     : [resolve(home, ".local/bin/lore"), resolve(home, ".local/share/lore/lore-mcp"), resolve(home, ".local/share/uv/python"), resolve(home, ".local/share/uv/tools/lore-mcp")];
   return {
     network: { allowedDomains: task === "deploy" ? ["*"] : [], deniedDomains: [] },
@@ -102,6 +104,32 @@ export function validBlueprint(value) {
     && Array.isArray(fields.topic_outline) && fields.topic_outline.length > 0 && list(fields.topic_outline)
     && list(fields.focus_topics) && list(fields.general_areas)
     && typeof fields.storytelling === "string" && fields.storytelling.length > 0 && fields.storytelling.length <= 1000;
+}
+
+/** @param {unknown} value @returns {value is SavedMemory[]} */
+export function validSaved(value) {
+  return Array.isArray(value) && value.every((item) => item && typeof item === "object" && Number.isInteger(item.id) && item.id > 0 && typeof item.title === "string");
+}
+
+/** The entries an owner may keep from a memory card: the tool's own limits, and nothing blank. @param {unknown} value @returns {value is ProposedMemory[]} */
+export function validEntries(value) {
+  return Array.isArray(value) && value.length <= 5 && value.every((item) => item && typeof item === "object"
+    && typeof item.title === "string" && item.title.trim() !== "" && item.title.length <= 300
+    && typeof item.content === "string" && item.content.trim() !== "" && item.content.length <= 20_000
+    && (item.project === undefined || typeof item.project === "string")
+    && (item.source_path === undefined || typeof item.source_path === "string"));
+}
+
+/** The parsed JSON of a finished tool result, or null for an error, a non-text result, or an old malformed one. @param {import("@earendil-works/pi-ai").ToolResultMessage} message @returns {Record<string, any> | null} */
+function toolResultJson(message) {
+  const first = message.content[0];
+  if (message.isError || first?.type !== "text") return null;
+  try {
+    const parsed = JSON.parse(first.text);
+    return parsed && typeof parsed === "object" ? parsed : null;
+  } catch {
+    return null;
+  }
 }
 
 /** @param {import("@earendil-works/pi-coding-agent").SessionManager} manager @param {AgentTask} kind @returns {TaskRecord | null} */
@@ -185,9 +213,10 @@ export class LoreAgent {
       noContextFiles: true,
       systemPrompt: [
         "You are Lore's desktop agent, talking with the owner inside the Lore app.",
-        "Follow the skill named in the first message exactly and skip its install steps because Lore is already provisioned.",
+        "Follow the skill named in the latest message that names one exactly, and skip its install steps because Lore is already provisioned.",
         "Ask the owner everything through ask_user — decisions and open questions alike; offer the likely answers as options, and the owner can always type their own. Never end a turn with a question in prose.",
         "Keep every message light: a sentence or two, question text under fifteen words, option labels of a few words with one short description, and never restate what a card already shows.",
+        "During capture, show proposed memories only through propose_memories, never in prose; that tool saves what the owner keeps and returns the saved memories, or returns the owner's correction for you to revise and propose again. After it saves, say one short sentence and call finish_task; never offer publication, the owner starts that from the saved card.",
         "During onboarding, gather evidence first, then call propose_blueprint once with one bounded proposal; that tool saves the owner-approved shape.",
         "Never mention tools, commands, or files to the owner; speak about memories, their Lore, and their store.",
         "Call finish_task when the current task is complete."
@@ -206,6 +235,13 @@ export class LoreAgent {
       ? recent
       : SessionManager.create(loreHome, dir);
     return repairInterrupted(manager, task);
+  }
+
+  /** Start `task` as a continuation of the latest `from` thread, so the agent already knows what was said. @param {string} loreHome @param {AgentTask} from @param {AgentTask} task */
+  static forkSession(loreHome, from, task) {
+    const source = SessionManager.continueRecent(loreHome, resolve(loreHome, ".pi", "sessions", from)).getSessionFile();
+    const dir = resolve(loreHome, ".pi", "sessions", task);
+    return source && existsSync(source) ? SessionManager.forkFrom(source, loreHome, dir) : SessionManager.create(loreHome, dir);
   }
 
   /** @param {string} loreHome @returns {TaskRecord[]} */
@@ -231,26 +267,19 @@ export class LoreAgent {
       } else if (message.role === "assistant") {
         const text = message.content.map((block) => (block.type === "text" ? block.text : "")).join("").trim();
         if (text) lines.push({ text, owner: false });
-      } else if (message.role === "toolResult" && message.toolName === "ask_user" && !message.isError) {
-        const first = message.content[0];
-        if (first?.type !== "text") continue;
-        try {
-          const result = /** @type {{answers?: Record<string, unknown>}} */ (JSON.parse(first.text));
+      } else if (message.role === "toolResult") {
+        const result = toolResultJson(message);
+        if (!result) continue;
+        if (message.toolName === "ask_user") {
           const answers = result.answers && !Array.isArray(result.answers)
             ? Object.values(result.answers).filter((value) => typeof value === "string" && value).join(" · ")
             : "";
           if (answers) lines.push({ text: answers, owner: true });
-        } catch {
-          // An old or interrupted tool result should not hide the rest of the thread.
-        }
-      } else if (message.role === "toolResult" && message.toolName === "propose_blueprint" && !message.isError) {
-        const first = message.content[0];
-        if (first?.type !== "text") continue;
-        try {
-          const fields = JSON.parse(first.text);
-          if (validBlueprint(fields)) lines.push({ text: `${fields.name} · ${fields.persona} · ${fields.topic_outline.join(", ")}`, owner: true });
-        } catch {
-          // Ignore an old malformed result and keep restoring the thread.
+        } else if (message.toolName === "propose_memories") {
+          if (typeof result.note === "string") lines.push({ text: result.note, owner: true });
+          else if (validSaved(result.saved)) lines.push({ text: "", owner: false, saved: result.saved });
+        } else if (message.toolName === "propose_blueprint" && validBlueprint(result)) {
+          lines.push({ text: `${result.name} · ${result.persona} · ${result.topic_outline.join(", ")}`, owner: true });
         }
       }
     }
@@ -301,8 +330,13 @@ export class LoreAgent {
     return this.status();
   }
 
-  /** @param {string} text @param {AgentTask} task */
-  async prompt(text, task) {
+  /** The task whose turn is running, so requests and messages can name the thread they belong to. */
+  get activeTask() {
+    return this.#activeTask;
+  }
+
+  /** @param {string} text @param {AgentTask} task @param {AgentTask} [from] Continue from the latest `from` thread instead of starting cold. */
+  async prompt(text, task, from) {
     if (this.#busy) throw new Error("Lore is already working");
     if (!text.trim()) throw new Error("Nothing to capture");
     this.#busy = true;
@@ -310,15 +344,15 @@ export class LoreAgent {
     this.#completed = false;
     this.#turns = 0;
     this.#capped = false;
-    this.options.emit({ type: "working", active: true });
+    this.options.emit({ type: "working", active: true, task });
     try {
       const open = this.#sessions.get(task);
-      if (open && latestTaskRecord(open.sessionManager, task)?.state === "done") {
+      if (open && (from || latestTaskRecord(open.sessionManager, task)?.state === "done")) {
         open.dispose();
         this.#sessions.delete(task);
       }
       const existing = this.#sessions.get(task);
-      const [session, resumed] = existing ? [existing, true] : await this.#newSession(task);
+      const [session, resumed] = existing ? [existing, true] : await this.#newSession(task, from);
       this.#record(session, task, "working");
       await session.prompt(resumed ? text : `/skill:${SKILLS[task]}\n\n${text}`);
       const closing = closingRecord(latestTaskRecord(session.sessionManager, task)?.state, task, this.#completed);
@@ -330,7 +364,7 @@ export class LoreAgent {
     } finally {
       this.#busy = false;
       this.#activeTask = null;
-      this.options.emit({ type: "working", active: false });
+      this.options.emit({ type: "working", active: false, task });
     }
   }
 
@@ -353,13 +387,13 @@ export class LoreAgent {
     this.options.emit({ type: "task", task: record });
   }
 
-  /** @param {AgentTask} task @returns {Promise<[import("@earendil-works/pi-coding-agent").AgentSession, boolean]>} */
-  async #newSession(task) {
+  /** @param {AgentTask} task @param {AgentTask} [from] @returns {Promise<[import("@earendil-works/pi-coding-agent").AgentSession, boolean]>} */
+  async #newSession(task, from) {
     const { scopedModels } = await resolveModelScopeWithDiagnostics(MODELS, this.models);
     const model = scopedModels.at(0)?.model ?? (await this.models.getAvailable()).at(0);
     if (!model) throw new Error("Sign in with Claude, ChatGPT, or an API key first");
-    const sessionManager = LoreAgent.sessionFor(this.options.loreHome, task);
-    const resumed = sessionManager.buildSessionContext().messages.length > 0;
+    const sessionManager = from ? LoreAgent.forkSession(this.options.loreHome, from, task) : LoreAgent.sessionFor(this.options.loreHome, task);
+    const resumed = !from && sessionManager.buildSessionContext().messages.length > 0;
     const { session } = await createAgentSession({
       cwd: this.options.loreHome,
       agentDir: resolve(this.options.loreHome, ".pi"),
@@ -368,7 +402,7 @@ export class LoreAgent {
       resourceLoader: this.resources,
       settingsManager: this.settings,
       sessionManager,
-      tools: ["read", "write", "edit", "bash", "ask_user", "propose_blueprint", "cloudflare_login", "finish_task"],
+      tools: ["read", "write", "edit", "bash", "ask_user", "propose_memories", "propose_blueprint", "cloudflare_login", "finish_task"],
       customTools: [
         createBashTool(this.options.loreHome, {
           operations: createSandboxedBashOperations(this.options.loreHome, task, this.options.binDir),
@@ -383,6 +417,7 @@ export class LoreAgent {
           })
         }),
         this.#askTool(),
+        this.#memoriesTool(),
         this.#blueprintTool(),
         this.#cloudflareTool(),
         this.#finishTool()
@@ -390,16 +425,16 @@ export class LoreAgent {
     });
     session.subscribe((event) => {
       if (event.type === "tool_execution_start" && event.toolName !== "ask_user") {
-        this.options.emit({ type: "live", text: event.toolName === "read" ? "Reading…" : "Looking through your Lore…" });
+        this.options.emit({ type: "live", task, text: event.toolName === "read" ? "Reading…" : "Looking through your Lore…" });
       }
       if (event.type === "message_update" && event.assistantMessageEvent.type === "text_delta") {
         const text = event.assistantMessageEvent.partial.content.map((block) => (block.type === "text" ? block.text : "")).join("");
-        this.options.emit({ type: "live", text });
+        this.options.emit({ type: "live", task, text });
       }
       if (event.type === "tool_execution_end" && event.toolName === "bash") this.options.emit({ type: "changed" });
       if (event.type !== "message_end" || event.message.role !== "assistant") return;
       if (event.message.stopReason === "error" || event.message.stopReason === "aborted") {
-        this.options.emit({ type: "message", text: this.#capped ? CAPPED : event.message.errorMessage || "Lore's model did not answer." });
+        this.options.emit({ type: "message", task, text: this.#capped ? CAPPED : event.message.errorMessage || "Lore's model did not answer." });
         return;
       }
       if (++this.#turns >= MAX_TURNS && !this.#capped) {
@@ -410,10 +445,22 @@ export class LoreAgent {
         .map((block) => (block.type === "text" ? block.text : ""))
         .join("")
         .trim();
-      if (text) this.options.emit({ type: "message", text });
+      if (text) this.options.emit({ type: "message", task, text });
     });
     this.#sessions.set(task, session);
     return [session, resumed];
+  }
+
+  /** Hold the running task at needs_you while the owner acts, then hand it back to the agent. @template T @param {string | undefined} phase @param {() => Promise<T>} act @param {string} [after] */
+  async #attended(phase, act, after) {
+    const task = this.#activeTask;
+    const session = task && this.#sessions.get(task);
+    if (task && session) this.#record(session, task, "needs_you", phase);
+    try {
+      return await act();
+    } finally {
+      if (task && session) this.#record(session, task, "working", after);
+    }
   }
 
   #askTool() {
@@ -434,14 +481,27 @@ export class LoreAgent {
       description: "Ask the owner structured questions. Offer the likely answers as options; the owner can always type something else.",
       parameters,
       execute: async (_id, { questions }) => {
-        const task = this.#activeTask;
-        const session = task && this.#sessions.get(task);
-        if (task && session) this.#record(session, task, "needs_you");
-        try {
-          return { content: [{ type: "text", text: JSON.stringify({ answers: await this.options.askUser(questions) }) }], details: {} };
-        } finally {
-          if (task && session) this.#record(session, task, "working");
-        }
+        const answers = await this.#attended(undefined, () => this.options.askUser(questions));
+        return { content: [{ type: "text", text: JSON.stringify({ answers }) }], details: {} };
+      }
+    });
+  }
+
+  #memoriesTool() {
+    const entry = Type.Object({
+      title: Type.String({ minLength: 1, maxLength: 300 }),
+      content: Type.String({ minLength: 1, maxLength: 20_000 }),
+      project: Type.Optional(Type.String({ maxLength: 300 })),
+      source_path: Type.Optional(Type.String({ maxLength: 2_000 }))
+    });
+    return defineTool({
+      name: "propose_memories",
+      label: "Propose memories",
+      description: "Show one to five exact memory drafts for the owner to edit, keep, or drop. Keeping saves them privately and returns the saved memories; a correction returns the owner's words for you to revise and propose again.",
+      parameters: Type.Object({ entries: Type.Array(entry, { minItems: 1, maxItems: 5 }) }),
+      execute: async (_id, { entries }) => {
+        const outcome = await this.#attended("Review the capture", () => this.options.proposeMemories(entries));
+        return { content: [{ type: "text", text: JSON.stringify(outcome) }], details: {} };
       }
     });
   }
@@ -464,16 +524,9 @@ export class LoreAgent {
       parameters: Type.Object({ evidence: Type.String({ minLength: 1, maxLength: 240 }), ...fields }),
       execute: async (_id, { evidence, ...proposal }) => {
         if (!validBlueprint(proposal)) throw new Error("Invalid blueprint proposal");
-        const task = this.#activeTask;
-        const session = task && this.#sessions.get(task);
-        if (task && session) this.#record(session, task, "needs_you", "Review your Lore shape");
-        try {
-          const edited = await this.options.proposeBlueprint(/** @type {BlueprintFields} */ (proposal), evidence);
-          if (!validBlueprint(edited)) throw new Error("Invalid blueprint edits");
-          return { content: [{ type: "text", text: JSON.stringify(edited) }], details: {} };
-        } finally {
-          if (task && session) this.#record(session, task, "working", "Lore shape saved");
-        }
+        const edited = await this.#attended("Review your Lore shape", () => this.options.proposeBlueprint(/** @type {BlueprintFields} */ (proposal), evidence), "Lore shape saved");
+        if (!validBlueprint(edited)) throw new Error("Invalid blueprint edits");
+        return { content: [{ type: "text", text: JSON.stringify(edited) }], details: {} };
       }
     });
   }
@@ -485,14 +538,8 @@ export class LoreAgent {
       description: "Sign the owner in to Cloudflare through their browser. Call when wrangler says they are not authenticated; returns who is signed in, or that the owner declined for now.",
       parameters: Type.Object({}),
       execute: async () => {
-        const task = this.#activeTask;
-        const session = task && this.#sessions.get(task);
-        if (task && session) this.#record(session, task, "needs_you", "Sign in to Cloudflare");
-        try {
-          return { content: [{ type: "text", text: await this.options.cloudflareLogin() }], details: {} };
-        } finally {
-          if (task && session) this.#record(session, task, "working");
-        }
+        const text = await this.#attended("Sign in to Cloudflare", () => this.options.cloudflareLogin());
+        return { content: [{ type: "text", text }], details: {} };
       }
     });
   }

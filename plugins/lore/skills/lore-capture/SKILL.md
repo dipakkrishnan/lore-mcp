@@ -14,6 +14,14 @@ primary path; the host agent handles microphone and transcription.
 > provides a structured question control. Never block because a named question
 > tool is unavailable.
 
+> **In the Lore desktop app** (your system prompt says you are Lore's desktop
+> agent): call `propose_memories` with the entries instead of showing them in
+> prose or asking through `ask_user`. The app shows them as one card the owner
+> edits, keeps, or drops. Keeping saves them privately and returns the saved
+> memories; a correction returns the owner's words for you to revise and
+> propose again. Skip sections 3 and 4: never run the save command yourself,
+> and never offer publication. The owner starts that from the saved card.
+
 ## 1. Listen before structuring
 
 If the owner wants voice, tell them to use the current host's dictation control

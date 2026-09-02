@@ -4,7 +4,7 @@
   "version": "0.0.0",
   "main": "src/main.cjs",
   "scripts": {
-    "start": "packaging/whisper.sh && electron .",
+    "start": "uv tool install --force --reinstall ../.. && packaging/whisper.sh && electron .",
     "check": "tsc --noEmit",
     "test": "node --test",
     "test:capture": "./test-capture.sh",
@@ -15,8 +15,8 @@
   },
   "dependencies": {
     "@anthropic-ai/sandbox-runtime": "0.0.73",
-    "@earendil-works/pi-ai": "0.84.2",
-    "@earendil-works/pi-coding-agent": "0.84.2",
+    "@earendil-works/pi-ai": "0.84.4",
+    "@earendil-works/pi-coding-agent": "0.84.4",
     "marked": "18.0.5"
   },
   "devDependencies": {
