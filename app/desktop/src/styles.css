@@ -188,6 +188,7 @@ h2 { font-size: 12px; font-weight: 600; letter-spacing: 0.06em; text-transform: 
 .log .line { display: flex; gap: 10px; align-items: flex-start; font-size: 14px; color: var(--ink-soft); }
 .log .line .mark { margin-top: 2px; }
 .log .line .md { min-width: 0; }
+.log .line .card { flex: 1; min-width: 0; }
 .log .line.live { color: var(--muted); }
 .log .line.stop .md { color: var(--attention-ink); }
 .log .line.stop .mark { background: var(--attention); }
@@ -209,6 +210,9 @@ h2 { font-size: 12px; font-weight: 600; letter-spacing: 0.06em; text-transform: 
 .memory b { font-family: var(--serif); font-weight: 500; font-size: 18px; line-height: 1.3; }
 .memory p { font-size: 14px; color: var(--ink-soft); line-height: 1.5; -webkit-user-select: text; user-select: text; }
 .memory .meta { display: flex; gap: 8px; align-items: center; }
+.memory .meta > :last-child { margin-left: auto; }
+.memory .meta .group { display: flex; gap: 8px; }
+.card.stack { display: flex; flex-direction: column; gap: 10px; }
 .draft-field { display: flex; flex-direction: column; gap: 4px; }
 .draft-field textarea { min-height: 36px; padding: 6px 12px; resize: none; line-height: 1.45; overflow: hidden; }
 .draft-field .draft-title { font-family: var(--serif); font-size: 18px; }

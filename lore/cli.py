@@ -662,12 +662,13 @@ def profile(path: str, schedule: bool = True) -> int:
     """Save a profile written by an onboarding agent and install its schedule."""
     from . import automation
 
+    schedule = schedule and os.environ.get("LORE_SKIP_SCHEDULE") != "1"
     text = sys.stdin.read() if path == "-" else Path(path).read_text(encoding="utf-8")
     data = json.loads(text)
     data = automation.save_profile(data)
     success(f"Saved profile to {automation.profile_path()}")
     if not schedule:
-        muted("Existing schedules still use their previously installed prompt.")
+        muted("Existing schedules were not changed.")
         return 0
     try:
         executor = automation.Agent(str(data.get("executor", "")))

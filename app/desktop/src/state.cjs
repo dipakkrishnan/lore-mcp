@@ -78,7 +78,14 @@ async function editMemory(loreHome, id, content) {
   if (!Number.isInteger(id) || /** @type {number} */ (id) < 1) throw new Error("Invalid memory");
   const trimmed = content.trim();
   if (!trimmed) throw new Error("Content cannot be empty");
-  return JSON.parse(await lore(loreHome, ["memory", "edit", String(id), trimmed, "--json"]));
+  // Over stdin, not argv: content that starts with a dash is not an option.
+  return JSON.parse(await lore(loreHome, ["memory", "edit", String(id), "--stdin", "--json"], trimmed));
+}
+
+/** Save the memories exactly as the owner kept them on the card. @param {string} loreHome @param {ProposedMemory[]} entries @returns {Promise<SavedMemory[]>} */
+async function captureMemories(loreHome, entries) {
+  if (!entries.length) return [];
+  return JSON.parse(await lore(loreHome, ["capture", "apply", "-"], JSON.stringify(entries)));
 }
 
 /** @param {string} loreHome @returns {Promise<PublicationCandidate[]>} */
@@ -99,6 +106,7 @@ module.exports = {
   searchMemories,
   readMemory,
   editMemory,
+  captureMemories,
   candidates,
   decide,
   useRuntime

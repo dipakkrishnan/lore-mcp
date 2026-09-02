@@ -57,6 +57,10 @@ let pushing = false;
 /** @type {string | false} */
 let pushedNote = false;
 let accountMenuOpen = false;
+/** The task whose turn is open, while one is. @type {AgentTask | null} */
+let busy = null;
+/** The card awaiting the owner. A memory card also carries `current`, its entries as edited, so the composer can send a spoken or typed correction with them. @type {{id: string, task: AgentTask | null, box: HTMLElement, current?: () => ProposedMemory[]} | null} */
+let request = null;
 
 const RING = `<svg viewBox="0 0 26 26" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M13 4.5a8.5 8.5 0 1 1-6 2.5"></path><path d="M13 9a4 4 0 1 1-2.8 1.2"></path><circle cx="13" cy="13" r="1.2" fill="currentColor" stroke="none"></circle></svg>`;
 const PROVIDERS = {
@@ -139,11 +143,13 @@ function markdown(text) {
   return node;
 }
 
-/** @param {{id: number, title: string}} memory */
-async function publishMemory(memory) {
+/** @param {{id: number, title: string}} memory @param {AgentTask} [from] The thread the agent should continue from. */
+async function publishMemory(memory, from) {
   closeSheet();
   await openTask("publish");
-  await send(`Help me publish something from my Lore. Start from memory ${memory.id}: "${memory.title}".`);
+  // A pending draft for this memory, or the publish agent mid-draft, is the thread itself: open it, never start a second turn.
+  if (busy === "publish" || candidates.some((candidate) => candidate.provenance.includes(memory.id))) return;
+  await send(`Help me publish something from my Lore. Start from memory ${memory.id}: "${memory.title}".`, from);
 }
 
 /** @param {number | string} id @param {string} title @param {string} detail */
@@ -208,7 +214,7 @@ async function openMemory(id) {
     textarea.focus();
     actions.replaceChildren(button("Cancel", "secondary", cancelEdit), button("Save", "primary", () => void saveEdit()));
     textarea.addEventListener("keydown", (event) => {
-      if (event.key === "Escape") { event.preventDefault(); cancelEdit(); }
+      if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); cancelEdit(); }
       else if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) { event.preventDefault(); void saveEdit(); }
     });
     function cancelEdit() {
@@ -338,16 +344,7 @@ function needsYou(s) {
 }
 
 function displayTasks() {
-  /** @type {TaskRecord[]} */
-  const items = taskItems.slice(0, 3).map((item) =>
-    item.kind === "publish" && candidates.length
-      ? { ...item, state: /** @type {TaskState} */ ("needs_you"), phase: draftsPhase() }
-      : item
-  );
-  if (candidates.length && !items.some((item) => item.kind === "publish")) {
-    items.unshift({ version: 1, kind: "publish", title: TASK_TITLES.publish, state: "needs_you", phase: draftsPhase(), updatedAt: new Date().toISOString() });
-  }
-  return items.slice(0, 3);
+  return taskItems.slice(0, 3);
 }
 
 function draftsPhase() {
@@ -537,10 +534,7 @@ function render() {
   taskRestart.hidden = !detail || detailRecord?.state !== "stopped";
   captureArea.hidden = view !== "today";
   log.hidden = !detail;
-  composer.hidden = Boolean(requestSlot.childElementCount) || ((detail === "setup" || detail === "deploy") && detailRecord?.state === "done");
-  input.placeholder = detail ? "Reply to Lore…" : "What did you learn today?";
-  inputLabel.textContent = detail ? "Reply to Lore" : "What did you learn today?";
-  submit.textContent = detail ? "Send" : "Capture";
+  syncComposer();
   for (const nav of navButtons) nav.setAttribute("aria-pressed", String(nav.dataset.view === view));
   if (!snapshot) return;
   $("[data-count=memories]").textContent = String(snapshot.library.counts.private);
@@ -633,10 +627,47 @@ function live(text) {
   renderLog();
 }
 
+/** What capture kept, with the one next step an owner may want. @param {SavedMemory[]} saved */
+function savedCard(saved) {
+  if (!saved.length) return el("p", "", "Nothing saved.");
+  return card(saved.map((memory) => {
+    // Only the capture thread offers the next step; a publish thread forked from it restores these same lines.
+    const draft = detailTask === "capture" ? button("Draft for sale", "quiet", () => void publishMemory(memory, "capture")) : undefined;
+    if (draft) draft.disabled = busy !== null;
+    return row(memory.title, memory.status === "unchanged" ? "Already in your Lore" : "Saved, only on this Mac", draft);
+  }));
+}
+
+/** The card that belongs in the open thread; a card from another thread waits there. */
+function shownRequest() {
+  return request && (!request.task || request.task === detailTask) ? request : null;
+}
+
+/** Derive the composer from what is on screen: a memory card keeps it open for corrections, any other card hides it, an open turn locks it. */
+function syncComposer() {
+  const shown = shownRequest();
+  const card = shown?.current ? shown : null;
+  const locked = busy !== null && !card;
+  requestSlot.hidden = !shown;
+  composer.hidden = (shown !== null && !card) || ((detailTask === "setup" || detailTask === "deploy") && detailRecord?.state === "done");
+  input.disabled = locked;
+  submit.disabled = locked;
+  composer.classList.toggle("working", locked);
+  input.placeholder = locked ? (request?.current ? "Lore is waiting on your capture…" : "Lore is working…") : card ? "Or say what to change…" : detailTask ? "Reply to Lore…" : "What did you learn today?";
+  inputLabel.textContent = card ? "Say what to change" : detailTask ? "Reply to Lore" : "What did you learn today?";
+  submit.textContent = detailTask ? "Send" : "Capture";
+}
+
+function clearRequest() {
+  request = null;
+  requestSlot.replaceChildren();
+  syncComposer();
+}
+
 function renderLog() {
-  log.replaceChildren(...lines.map(({ text, owner, stopped }) => {
+  log.replaceChildren(...lines.map(({ text, owner, stopped, saved }) => {
     const line = el("div", owner ? "line owner" : stopped ? "line stop" : "line");
-    line.append(owner ? el("span", "you", "You") : mark("mark mark-sm"), owner ? el("p", "", text) : markdown(text));
+    line.append(owner ? el("span", "you", "You") : mark("mark mark-sm"), saved ? savedCard(saved) : owner ? el("p", "", text) : markdown(text));
     return line;
   }));
   if (liveText) {
@@ -644,22 +675,15 @@ function renderLog() {
     line.append(mark("mark mark-sm"), markdown(liveText));
     log.append(line);
   }
-  agentPanel.hidden = !lines.length && !liveText && !requestSlot.childElementCount && !detailSlot.childElementCount;
+  agentPanel.hidden = !lines.length && !liveText && !shownRequest() && !detailSlot.childElementCount;
   if (log.lastElementChild) mainEl.scrollTop = mainEl.scrollHeight;
-}
-
-/** @param {boolean} active */
-function working(active) {
-  input.disabled = active;
-  submit.disabled = active;
-  composer.classList.toggle("working", active);
-  input.placeholder = active ? "Lore is working…" : detailTask ? "Reply to Lore…" : "What did you learn today?";
-  if (active && !liveText) live({ setup: "Thinking…", publish: "Drafting…", capture: "Reading this…", deploy: "Setting up your store…" }[task]);
 }
 
 /** @param {AgentRequest} event */
 function renderRequest(event) {
-  const box = el("form", "card lead request");
+  const box = /** @type {HTMLFormElement} */ (el("form", "card lead request"));
+  /** A memory card's entries as edited. @type {(() => ProposedMemory[]) | undefined} */
+  let current;
   if (event.type === "question") {
     for (const [index, question] of event.questions.entries()) {
       const fieldset = el("fieldset");
@@ -698,6 +722,43 @@ function renderRequest(event) {
         if (fieldset.dataset.question) answers[fieldset.dataset.question] = other.value.trim() || picked.join(", ");
       }
       respond(event.id, answers, Object.values(answers).filter(Boolean).join(" · "));
+    });
+  } else if (event.type === "memories") {
+    const list = el("div", "card pad stack");
+    /** @type {Array<{entry: ProposedMemory, node: HTMLElement, title: HTMLInputElement | HTMLTextAreaElement, content: HTMLInputElement | HTMLTextAreaElement}>} */
+    let drafts = [];
+    const keep = el("button", "btn primary sm");
+    keep.type = "submit";
+    const relabel = () => { keep.textContent = drafts.length === 1 ? "Keep this memory" : "Keep these"; keep.disabled = !drafts.length; };
+    for (const entry of event.entries) {
+      const node = el("div", "memory");
+      const title = draftField(node, "Title", entry.title, true);
+      const content = draftField(node, "What to remember", entry.content);
+      title.maxLength = 300;
+      content.maxLength = 20_000;
+      const meta = el("div", "meta");
+      if (entry.project) meta.append(chip(entry.project));
+      meta.append(button("Drop", "quiet", () => { drafts = drafts.filter((draft) => draft.node !== node); node.remove(); relabel(); }));
+      node.append(meta);
+      list.append(node);
+      drafts.push({ entry, node, title, content });
+    }
+    relabel();
+    const edited = () => drafts.map(({ entry, title, content }) => ({ ...entry, title: title.value.trim(), content: content.value.trim() }));
+    current = edited;
+    box.append(
+      el("p", "q", event.entries.length === 1 ? "Keep this memory?" : "Keep these memories?"),
+      el("p", "hint", "Edit anything here, or say what to change below. Nothing is saved until you keep it."),
+      list
+    );
+    const actions = el("div", "actions");
+    actions.append(button("Drop all", "secondary", () => respond(event.id, { entries: [] }, "Drop them")), keep);
+    box.append(actions);
+    box.addEventListener("submit", (submitEvent) => {
+      submitEvent.preventDefault();
+      for (const { title, content } of drafts) for (const field of [title, content]) field.setCustomValidity(field.value.trim() ? "" : "Write something here, or drop this memory.");
+      if (!box.reportValidity()) return;
+      respond(event.id, { entries: edited() }, drafts.length === 1 ? "Keep it" : "Keep these");
     });
   } else if (event.type === "blueprint") {
     box.append(el("p", "q", "Use this shape for your Lore?"), el("p", "hint", event.evidence));
@@ -808,13 +869,13 @@ function renderRequest(event) {
       respond(event.id, value);
     });
   }
-  box.dataset.id = event.id;
+  request = { id: event.id, task: event.task, box, current };
   requestSlot.replaceChildren(box);
   agentPanel.hidden = false;
-  composer.hidden = true;
+  syncComposer();
   if (view !== "today") show("today");
   for (const area of box.querySelectorAll("textarea")) fit(/** @type {HTMLTextAreaElement} */ (area));
-  if (event.type === "question" || event.type === "blueprint") {
+  if (event.type === "question" || event.type === "memories" || event.type === "blueprint") {
     mainEl.scrollTop = Math.max(0, box.getBoundingClientRect().top - mainEl.getBoundingClientRect().top + mainEl.scrollTop - 16);
   } else {
     mainEl.scrollTop = mainEl.scrollHeight;
@@ -824,8 +885,7 @@ function renderRequest(event) {
 
 /** @param {string} id @param {unknown} value @param {string} [echo] */
 async function respond(id, value, echo) {
-  requestSlot.replaceChildren();
-  composer.hidden = false;
+  clearRequest();
   if (echo) say(echo, true);
   else renderLog();
   await window.lore.respond({ id, value });
@@ -895,7 +955,7 @@ async function startOver(kind) {
   detailRecord = null;
   lines.splice(0);
   liveText = "";
-  requestSlot.replaceChildren();
+  clearRequest();
   show("today");
   renderLog();
   input.focus({ preventScroll: true });
@@ -911,34 +971,30 @@ function closeTask() {
   render();
 }
 
+/** An editable field on a draft card. @param {HTMLElement} parent @param {string} label @param {string} value @param {boolean} [singleLine] */
+function draftField(parent, label, value, singleLine = false) {
+  const wrapper = el("label", "draft-field");
+  wrapper.append(el("span", "hint", label));
+  const control = singleLine ? el("input", "draft-title") : el("textarea");
+  if (control instanceof HTMLInputElement) control.type = "text";
+  else { control.rows = 1; control.addEventListener("input", () => fit(control)); }
+  control.value = value;
+  wrapper.append(control);
+  parent.append(wrapper);
+  return control;
+}
+
 function approvals() {
-  const list = el("div", "card pad");
-  list.style.display = "flex";
-  list.style.flexDirection = "column";
-  list.style.gap = "10px";
+  const list = el("div", "card pad stack");
   for (const candidate of candidates) {
     const memory = el("div", "memory");
-    const field = (/** @type {string} */ label, /** @type {string} */ value, singleLine = false) => {
-      const wrapper = el("label", "draft-field");
-      wrapper.append(el("span", "hint", label));
-      const control = singleLine ? el("input", "draft-title") : el("textarea");
-      if (control instanceof HTMLInputElement) control.type = "text";
-      else { control.rows = 1; control.addEventListener("input", () => fit(control)); }
-      control.value = value;
-      wrapper.append(control);
-      memory.append(wrapper);
-      return control;
-    };
-    const title = field("Title", candidate.title, true);
-    const teaser = field("Free teaser, what buyers see first", candidate.teaser);
-    const paid = field("Paid content, what a buyer's agent gets", candidate.content);
+    const title = draftField(memory, "Title", candidate.title, true);
+    const teaser = draftField(memory, "Free teaser, what buyers see first", candidate.teaser);
+    const paid = draftField(memory, "Paid content, what a buyer's agent gets", candidate.content);
     const meta = el("div", "meta");
     meta.append(chip(candidate.topic));
     if (candidate.kind === "content") meta.append(chip("Verbatim"));
-    const group = el("div");
-    group.style.display = "flex";
-    group.style.gap = "8px";
-    group.style.marginLeft = "auto";
+    const group = el("div", "group");
     group.append(
       button("Skip", "secondary", () => decide(candidate, false)),
       button("Approve", "primary", () => decide(candidate, true, { ...candidate, title: title.value, teaser: teaser.value, content: paid.value }))
@@ -1016,14 +1072,14 @@ async function act(action) {
   return done;
 }
 
-/** @param {string} text */
-async function send(text) {
+/** @param {string} text @param {AgentTask} [from] */
+async function send(text, from) {
   const files = attachments.length ? `\n\nFiles to read:\n${attachments.map((path) => `- ${path}`).join("\n")}` : "";
   attachments = [];
   renderAttachments();
   say(text, true);
   try {
-    await window.lore.prompt({ text: text + files, task });
+    await window.lore.prompt({ text: text + files, task, from });
     await load();
   } catch (error) {
     say(reason(error, "Something went wrong."));
@@ -1068,11 +1124,18 @@ function enter() {
   if (signedIn) { render(); void load(); }
 }
 
-window.lore.onAgentEvent((event) => {
-  if (event.type === "working") { working(event.active); if (!event.active) live(""); }
-  else if (event.type === "live") live(event.text);
+/** @param {AgentEvent} event */
+function onEvent(event) {
+  if (event.type === "working") {
+    busy = event.active ? event.task : null;
+    liveText = busy ? liveText || { setup: "Thinking…", publish: "Drafting…", capture: "Reading this…", deploy: "Setting up your store…" }[busy] : "";
+    syncComposer();
+    renderLog();
+  }
+  else if (event.type === "live") { if (event.task === task) live(event.text); }
   else if (event.type === "changed") void load();
-  else if (event.type === "message") say(event.text);
+  else if (event.type === "message") { if (event.task === task) say(event.text); }
+  else if (event.type === "saved") { if (event.task === task) { lines.push({ text: "", owner: false, saved: event.memories }); renderLog(); } }
   else if (event.type === "stopped") { say(event.text, false, true); input.focus({ preventScroll: true }); }
   else if (event.type === "task") {
     if (detailTask === event.task.kind) detailRecord = event.task;
@@ -1092,16 +1155,29 @@ window.lore.onAgentEvent((event) => {
       if (!auth) { auth = { credentials: [] }; enter(); }
     }
   } else if (event.type === "dismiss") {
-    if (/** @type {HTMLElement | null} */ (requestSlot.firstElementChild)?.dataset.id === event.id) { requestSlot.replaceChildren(); composer.hidden = false; renderLog(); }
+    if (request?.id === event.id) { clearRequest(); renderLog(); }
   } else if (event.type === "auth") {
     const detail = event.event;
     welcomeNote.textContent = event.message || (detail?.type === "device_code" ? `Open ${detail.verificationUri} and enter ${detail.userCode}.` : detail && "message" in detail ? detail.message : "Continue signing in.");
+  } else if (event.task && event.task !== detailTask) {
+    // A card belongs in its own thread, never under whichever heading happens to be open.
+    void openTask(event.task).then(() => renderRequest(event));
   } else renderRequest(event);
-});
+}
+
+window.lore.onAgentEvent(onEvent);
 
 composer.addEventListener("submit", async (event) => {
   event.preventDefault();
   const text = input.value.trim();
+  const card = shownRequest();
+  if (card?.current) {
+    if (!text) return;
+    input.value = "";
+    input.style.height = "";
+    await respond(card.id, { entries: card.current(), note: text }, text);
+    return;
+  }
   if (!text && !attachments.length) return;
   if (!detailTask) {
     task = "capture";
@@ -1281,7 +1357,7 @@ keyForm.addEventListener("submit", (event) => {
   void signIn(provider, "api_key", value);
 });
 
-Object.assign(window, { __lore: { show, preview: renderRequest, signIn: () => { previewSignIn = true; auth = { credentials: [{ providerId: "anthropic", type: "oauth" }] }; enter(); } } });
+Object.assign(window, { __lore: { show, preview: renderRequest, event: onEvent, signIn: () => { previewSignIn = true; auth = { credentials: [{ providerId: "anthropic", type: "oauth" }] }; enter(); } } });
 
 function boot() {
   if (previewSignIn) return;
