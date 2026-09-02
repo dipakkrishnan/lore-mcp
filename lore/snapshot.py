@@ -190,9 +190,7 @@ def build() -> dict[str, object]:
         answer_enabled = store.setting("answer_enabled", False) is True
         node_url = store.setting("node_url", None)
 
-    live, live_ids = _cached_live_state(
-        node_url if isinstance(node_url, str) else None
-    )
+    live, live_ids = _cached_live_state(node_url if isinstance(node_url, str) else None)
     labels = _claude_project_labels()
     prefix = "-" + str(Path.home()).strip("/").replace("/", "-") + "-"
     for memory in memories:

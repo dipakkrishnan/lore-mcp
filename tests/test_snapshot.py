@@ -261,7 +261,9 @@ class DesktopSnapshotTest(LoreTestCase):
             with Store() as store:
                 store.set_setting("node_url", "https://elsewhere.example/mcp")
             snapshot.build()
-            self.assertEqual(probe.call_count, 3, "a new address is never served from cache")
+            self.assertEqual(
+                probe.call_count, 3, "a new address is never served from cache"
+            )
             with patch("lore.snapshot.time.time", return_value=time.time() + 61):
                 snapshot.build()
             self.assertEqual(probe.call_count, 4, "the cache expires")
