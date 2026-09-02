@@ -3,7 +3,7 @@ const { join } = require("node:path");
 const { app, BrowserWindow, dialog, ipcMain, safeStorage, shell, systemPreferences } = require("electron");
 const { provision, skillsDir, whisper } = require("./runtime.cjs");
 const { transcribe } = require("./dictation.cjs");
-const { lore, loreStream, readState, searchMemories, readMemory, editMemory, captureMemories, candidates, decide, useRuntime } = require("./state.cjs");
+const { lore, loreStream, readState, readSales, searchMemories, readMemory, editMemory, captureMemories, candidates, decide, useRuntime } = require("./state.cjs");
 
 if (process.env.LORE_DESKTOP_USER_DATA) app.setPath("userData", process.env.LORE_DESKTOP_USER_DATA);
 
@@ -102,6 +102,7 @@ function registerIpc(loreHome) {
   ipcMain.handle("store:push", async () => {
     await lore(loreHome, ["push"], "");
   });
+  ipcMain.handle("store:sales", () => readSales(loreHome));
   ipcMain.handle("files:pick", async () => {
     if (!window) return [];
     const { filePaths } = await dialog.showOpenDialog(window, { properties: ["openFile", "multiSelections"] });

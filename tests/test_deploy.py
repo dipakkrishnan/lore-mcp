@@ -24,6 +24,18 @@ DEPLOY_OUTPUT = "Deployed lore-x402-canary\n  https://lore.example.workers.dev\n
 
 
 DATABASE_ID = "11111111-2222-3333-4444-555555555555"
+SALES = [
+    {
+        "kind": "publication",
+        "item_id": "0000000000000000fcdb4b42",
+        "title": "Fixture Publication",
+        "price_usd": 0.01,
+        "network": "eip155:84532",
+        "payer": "0xpayer",
+        "tx": "0xtx",
+        "sold_at": "2026-09-02T18:00:00.000Z",
+    }
+]
 
 
 class _Wrangler:
@@ -91,6 +103,8 @@ class _Wrangler:
             out = json.dumps([{"uuid": DATABASE_ID, "name": "lore-publications"}])
         elif tail == ("deploy",):
             out = self.deploy_output
+        elif tail[:2] == ("d1", "execute"):
+            out = json.dumps([{"results": SALES, "success": True}])
         return subprocess.CompletedProcess(args, code, stdout=out, stderr=err)
 
     def named(self, *tail: str) -> list[tuple[str, ...]]:
@@ -102,6 +116,38 @@ class _Wrangler:
             next(i for i, c in enumerate(self.commands) if c[1:] == tail)
             for tail in tails
         ]
+
+
+class SalesTest(LoreTestCase):
+    def test_reads_the_ledger_through_the_staged_node(self) -> None:
+        target = deploy_module.materialize(0.1)
+        binary = target / "node_modules/.bin/wrangler"
+        binary.parent.mkdir(parents=True)
+        binary.write_text("#!/bin/sh\n")
+        wrangler = _Wrangler()
+        with patch("lore.deploy.subprocess.run", side_effect=wrangler):
+            self.assertEqual(
+                [sale.model_dump() for sale in deploy_module.sales()], SALES
+            )
+        self.assertEqual(
+            wrangler.commands,
+            [
+                (
+                    str(binary),
+                    "d1",
+                    "execute",
+                    "lore-publications",
+                    "--remote",
+                    "--json",
+                    "--command",
+                    deploy_module.SALES_QUERY,
+                )
+            ],
+        )
+
+    def test_no_staged_node_is_a_plain_error(self) -> None:
+        with self.assertRaisesRegex(ValueError, "open your store first"):
+            deploy_module.sales()
 
 
 class LoginTest(LoreTestCase):

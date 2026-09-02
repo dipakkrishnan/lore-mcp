@@ -22,6 +22,7 @@ from unittest.mock import patch
 from helpers import LoreTestCase, blueprint_input, captured
 
 from lore import automation, blueprint, cli
+from lore import deploy as deploy_module
 from lore.store import PublicationKind, Status, Store
 
 
@@ -203,6 +204,26 @@ class MainDispatchTest(LoreTestCase):
             cli.main(["push", "--worker-dir", "lore/node"])
         self.assertEqual(push.call_args.args, ("lore/node",))
         self.assertFalse(push.call_args.kwargs["local"])
+
+    def test_node_sales_prints_the_ledger_as_json_or_text(self) -> None:
+        row = {
+            "kind": "publication",
+            "item_id": "0000000000000000fcdb4b42",
+            "title": "A",
+            "price_usd": 0.01,
+            "network": "eip155:84532",
+            "payer": "0xpayer",
+            "tx": "0xtx",
+            "sold_at": "2026-09-02T18:00:00Z",
+        }
+        rows = [deploy_module.Sale(**row)]
+        with patch("lore.deploy.sales", return_value=rows), captured() as output:
+            self.assertEqual(cli.main(["node", "sales", "--json"]), 0)
+        self.assertEqual(json.loads(output.getvalue()), [row])
+        with patch("lore.deploy.sales", return_value=rows), captured() as output:
+            self.assertEqual(cli.main(["node", "sales"]), 0)
+        self.assertIn("1 sale · $0.01", output.getvalue())
+        self.assertIn("2026-09-02  $0.01  A", output.getvalue())
 
     def test_node_deploy_forwards_the_wallet(self) -> None:
         with patch("lore.deploy.deploy", return_value=0) as deploy:

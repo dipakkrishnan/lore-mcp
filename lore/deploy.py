@@ -17,6 +17,9 @@ import subprocess
 import sys
 from importlib import resources
 from pathlib import Path
+from typing import Literal
+
+from pydantic import BaseModel, TypeAdapter
 
 from .paths import home
 from .store import Store
@@ -31,6 +34,26 @@ D1_NAME = "lore-publications"
 D1_PLACEHOLDER = "REPLACE_WITH_YOUR_D1_ID"
 NEEDS_NODE = "deploying needs Node.js; install it from nodejs.org and rerun"
 PRICE_DECLARATION = "export const PRICE_USD = 0.01;"
+SALES_QUERY = (
+    "SELECT kind, item_id, title, price_usd, network, payer, tx, sold_at "
+    "FROM sales ORDER BY sold_at DESC, id DESC"
+)
+
+
+class Sale(BaseModel):
+    """One settled paid call, as the node's ledger records it."""
+
+    kind: Literal["publication", "answer"]
+    item_id: str
+    title: str
+    price_usd: float
+    network: str
+    payer: str
+    tx: str
+    sold_at: str
+
+
+SALES = TypeAdapter(list[Sale])
 # The smallest price the six-decimal formatter can render without collapsing
 # to zero; `lore price` rounds to six decimals, so this matches its floor.
 MINIMUM_PRICE = 1e-6
@@ -182,6 +205,31 @@ def login() -> int:
     email = re.search(r"associated with the email (\S+)", who.stdout or "")
     success(f"Signed in to Cloudflare as {email.group(1) if email else 'your account'}")
     return 0
+
+
+def sales() -> list[Sale]:
+    """Read the node's sales ledger through the owner's Cloudflare login,
+    the same way `lore push` writes the edge database."""
+    target = home() / "node"
+    wrangler = target / "node_modules/.bin/wrangler"
+    if not wrangler.exists():
+        raise ValueError("no deployed node on this machine; open your store first")
+    result = _run(
+        (
+            str(wrangler),
+            "d1",
+            "execute",
+            D1_NAME,
+            "--remote",
+            "--json",
+            "--command",
+            SALES_QUERY,
+        ),
+        target,
+        fail="reading sales failed",
+    )
+    statements = json.loads(result.stdout)
+    return SALES.validate_python(statements[0]["results"])
 
 
 def deploy(wallet: str | None) -> int:

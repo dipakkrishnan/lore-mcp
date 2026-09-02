@@ -60,6 +60,11 @@ async function readState(loreHome) {
   return /** @type {Snapshot} */ (value);
 }
 
+/** @param {string} loreHome @returns {Promise<Sale[]>} */
+async function readSales(loreHome) {
+  return JSON.parse(await lore(loreHome, ["node", "sales", "--json"]));
+}
+
 /** @param {string} loreHome @param {string} query @returns {Promise<SearchHit[]>} */
 async function searchMemories(loreHome, query) {
   const terms = query.trim().split(/\s+/).filter((term) => term && !term.startsWith("-")).slice(0, 8);
@@ -103,6 +108,7 @@ module.exports = {
   loreStream,
   stream,
   readState,
+  readSales,
   searchMemories,
   readMemory,
   editMemory,
