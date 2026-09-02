@@ -66,6 +66,21 @@ type Memory = {
   updated_at: string;
 };
 
+type ProposedMemory = {
+  title: string;
+  content: string;
+  project?: string;
+  source_path?: string;
+};
+
+type SavedMemory = { id: number; status: string; title: string };
+
+/** What the owner did with a memory card: the entries as edited, plus anything they said. */
+type MemoryDecision = { entries: ProposedMemory[]; note?: string };
+
+/** What the agent hears back: the memories Lore saved, or the owner's correction to revise. */
+type MemoryOutcome = { saved: SavedMemory[] } | { entries: ProposedMemory[]; note: string };
+
 type PublicationCandidate = {
   title: string;
   teaser: string;
@@ -98,13 +113,13 @@ type BlueprintFields = {
   storytelling: string;
 };
 
-type Line = { text: string; owner: boolean; stopped?: boolean };
+type Line = { text: string; owner: boolean; stopped?: boolean; saved?: SavedMemory[] };
 
 interface Window {
   lore: {
     snapshot(): Promise<Snapshot>;
     agentStatus(): Promise<AgentStatus>;
-    prompt(input: { text: string; task: AgentTask }): Promise<void>;
+    prompt(input: { text: string; task: AgentTask; from?: AgentTask }): Promise<void>;
     history(task: AgentTask): Promise<Line[]>;
     tasks(): Promise<TaskRecord[]>;
     restart(task: AgentTask): Promise<void>;
@@ -147,26 +162,29 @@ type AuthPrompt =
     };
 
 type AgentRequest =
-  | { type: "question"; id: string; questions: OwnerQuestion[] }
-  | { type: "blueprint"; id: string; fields: BlueprintFields; evidence: string }
-  | { type: "auth-prompt"; id: string; prompt: AuthPrompt }
-  | { type: "cloudflare"; id: string };
+  | { type: "question"; id: string; task: AgentTask | null; questions: OwnerQuestion[] }
+  | { type: "memories"; id: string; task: AgentTask | null; entries: ProposedMemory[] }
+  | { type: "blueprint"; id: string; task: AgentTask | null; fields: BlueprintFields; evidence: string }
+  | { type: "auth-prompt"; id: string; task: AgentTask | null; prompt: AuthPrompt }
+  | { type: "cloudflare"; id: string; task: AgentTask | null };
 
 type AgentEvent =
   | AgentRequest
   | { type: "dismiss"; id: string }
-  | { type: "live"; text: string }
-  | { type: "working"; active: boolean }
+  | { type: "live"; task: AgentTask | null; text: string }
+  | { type: "working"; active: boolean; task: AgentTask }
   | { type: "changed" }
-  | { type: "message"; text: string }
+  | { type: "message"; task: AgentTask | null; text: string }
+  | { type: "saved"; task: AgentTask | null; memories: SavedMemory[] }
   | { type: "stopped"; text: string }
   | { type: "task"; task: TaskRecord }
   | { type: "auth"; message?: string; event?: import("@earendil-works/pi-ai").AuthEvent }
   | { type: "progress"; text?: string; done?: boolean; error?: string };
 
 type LoreAgentInstance = {
+  readonly activeTask: AgentTask | null;
   status(): Promise<AgentStatus>;
-  prompt(text: string, task: AgentTask): Promise<void>;
+  prompt(text: string, task: AgentTask, from?: AgentTask): Promise<void>;
   history(task: AgentTask): Line[];
   tasks(): TaskRecord[];
   restart(task: AgentTask): void;
@@ -182,6 +200,7 @@ type LoreAgentOptions = {
   credentials: import("@earendil-works/pi-ai").CredentialStore;
   emit(event: AgentEvent): void;
   askUser(questions: OwnerQuestion[]): Promise<Record<string, string>>;
+  proposeMemories(entries: ProposedMemory[]): Promise<MemoryOutcome>;
   proposeBlueprint(fields: BlueprintFields, evidence: string): Promise<BlueprintFields>;
   cloudflareLogin(): Promise<string>;
   authPrompt(prompt: import("@earendil-works/pi-ai").AuthPrompt): Promise<string>;
