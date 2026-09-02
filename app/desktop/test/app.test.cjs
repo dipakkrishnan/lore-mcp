@@ -33,6 +33,11 @@ test("useRuntime runs the packaged binary instead of uv", async () => {
   }
 });
 
+test("dev start refreshes the CLI that agent Bash gets from PATH", async () => {
+  const pkg = JSON.parse(await readFile(join(__dirname, "../package.json"), "utf8"));
+  assert.match(pkg.scripts.start, /^uv tool install --force --reinstall \.\.\/\.\. && /);
+});
+
 test("the desktop agent has Pi's normal file and shell tools", async () => {
   const { createAgentSession, createBashTool, ModelRuntime, SessionManager, SettingsManager } =
     await import("@earendil-works/pi-coding-agent");
