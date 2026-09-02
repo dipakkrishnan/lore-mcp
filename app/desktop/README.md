@@ -36,13 +36,12 @@ npm --prefix app/desktop run dogfood:current  # your real current Lore
 ```
 
 `dogfood:new` isolates the Lore library, app runtime, saved provider
-credentials, and agent history (via `LORE_HOME`/`LORE_DESKTOP_USER_DATA`,
-not `$HOME` — overriding `$HOME` breaks Keychain-backed sign-in, see
-APP-038). It prints the sandbox path and the command to relaunch the same
-user for a persistence check. Delete that sandbox when you are done. Note
-the `setup`/`deploy` tasks' bash sandbox still scopes some owner directories
-(`.codex`, `.wrangler`, `.npmrc`) off the real `$HOME`, so a dogfood pass
-that reaches those tasks isn't fully isolated from your real machine there.
+credentials, and Lore task history via `LORE_HOME`/`LORE_DESKTOP_USER_DATA`.
+It keeps the real `$HOME` so Keychain-backed sign-in works and onboarding can
+read real Claude and Codex history, but skips schedule installation so a
+disposable profile cannot replace live automations. It prints the sandbox
+path and the command to relaunch the same user for a persistence check.
+Delete that sandbox when you are done.
 
 For the first-run pass: sign in, finish **Set up your Lore**, capture one
 synthetic memory by voice or attachment, inspect it in the library, draft and

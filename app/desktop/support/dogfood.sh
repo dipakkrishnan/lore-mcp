@@ -17,17 +17,11 @@ case "${1:-}" in
     echo "Pass: sign in → set up → capture → inspect → publish → quit and relaunch."
     echo "To test persistence, quit Lore and rerun:"
     echo "LORE_DOGFOOD_ROOT='$dogfood_root' npm --prefix app/desktop run dogfood:new"
-    # Real $HOME on purpose: overriding it makes macOS treat safeStorage's
-    # Keychain lookup as an unrecognized identity, which triggers a
-    # SecurityAgent authorization prompt that never gets shown/answered here
-    # and hangs sign-in forever (APP-038). LORE_HOME and
-    # LORE_DESKTOP_USER_DATA already isolate everything this app itself
-    # reads or writes, so this is not a namespacing loss for Lore's own
-    # state — only for the bash-sandbox scoping the setup/deploy tasks
-    # derive from $HOME (owner dirs like .codex, .wrangler, .npmrc), which
-    # a dogfood:new pass now shares with the real user's home.
+    # Keep real $HOME for Keychain and onboarding history reads, but never
+    # replace the owner's live synthesis schedule from a disposable sandbox.
     LORE_HOME="$dogfood_root/lore" \
       LORE_DESKTOP_USER_DATA="$dogfood_root/user-data" \
+      LORE_SKIP_SCHEDULE=1 \
       "$app"
     ;;
   current)

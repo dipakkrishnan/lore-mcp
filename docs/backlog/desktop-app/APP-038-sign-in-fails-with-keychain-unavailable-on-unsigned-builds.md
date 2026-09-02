@@ -63,17 +63,12 @@ no `HOME`) returns `isEncryptionAvailable() === true` immediately, and ran
 the patched `npm run dogfood:new` end to end through `uv` provisioning
 without a hang.
 
-One real, known tradeoff from this fix: `bashSandboxPolicy`
-(`src/agent.mjs`) does use `os.homedir()` (which respects `$HOME`) to scope
-what the `setup`/`deploy` tasks' bash sandbox can read/write — `OWNER_DIRS`
-like `.codex/automations`, `.wrangler`, `.npmrc`. With `$HOME` no longer
-overridden, a `dogfood:new` pass that reaches the `setup`/`deploy` tasks now
-shares those directories with the real user's home instead of a clean
-sandbox, which is a real (if narrower) loss of "fresh machine" fidelity for
-that later part of the dogfood pass. Not fixed here — flagged for whoever
-picks this up next to decide whether it's worth a more surgical fix (e.g.
-isolating just those `OWNER_DIRS` without touching `$HOME`/Keychain
-resolution at all).
+Keeping the real `$HOME` also lets onboarding read the owner's real Claude
+and Codex history, which is required for a meaningful dogfood pass. To keep
+that read access from turning into writes to the owner's live scheduler,
+`dogfood:new` sets `LORE_SKIP_SCHEDULE=1`: `lore profile` still saves the
+generated profile under the disposable `LORE_HOME`, but does not install or
+remove Codex automations or LaunchAgents.
 
 ## Acceptance criteria
 
@@ -83,8 +78,8 @@ resolution at all).
       end to end (this item's own testing only verified the underlying
       `safeStorage` mechanism and that the app launches; no one has clicked
       through sign-in to confirm the full UI path yet).
-- [ ] Decide whether the `bashSandboxPolicy`/`OWNER_DIRS` fidelity loss noted
-      above needs its own follow-up item or is an acceptable tradeoff.
+- [x] A dogfood profile is saved inside the sandbox without installing,
+      replacing, or removing the owner's live synthesis schedules.
 
 ## Notes
 
