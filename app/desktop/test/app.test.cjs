@@ -90,6 +90,18 @@ test("desktop Bash is confined to Lore", { skip: process.platform !== "darwin" }
   }
 });
 
+test("desktop Bash reads the agents' memories, never their credential files", async () => {
+  const { bashSandboxPolicy } = await import("../src/agent.mjs");
+  const home = await mkdtemp(join(tmpdir(), "lore-policy-"));
+  try {
+    const { allowRead } = bashSandboxPolicy(home, "setup").filesystem;
+    for (const dir of [".claude/projects", ".codex/memories", ".codex/automations"]) assert.ok(allowRead.includes(join(homedir(), dir)), dir);
+    for (const dir of [".claude", ".codex"]) assert.ok(!allowRead.includes(join(homedir(), dir)), `${dir} root, which holds auth.json and credentials`);
+  } finally {
+    await rm(home, { recursive: true });
+  }
+});
+
 test("dictation transcribes through the bundled whisper and leaves no audio behind", async () => {
   const { MAX_WAV_BYTES, transcribe } = require("../src/dictation.cjs");
   const dir = await mkdtemp(join(tmpdir(), "lore-dictation-"));

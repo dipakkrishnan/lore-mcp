@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import time
 import urllib.request
 from http.client import HTTPResponse
 from itertools import islice
@@ -109,6 +110,47 @@ def _live_state(node_url: str | None) -> tuple[dict[str, object], set[str] | Non
     return {"state": "online", "network": manifest.network}, ids
 
 
+LIVE_CACHE_SECONDS = 60
+
+
+def _cached_live_state(
+    node_url: str | None,
+) -> tuple[dict[str, object], set[str] | None]:
+    """The probe is three round trips at up to 5 s each and runs on every
+    desktop refresh, so its answer is kept briefly; `forget_live` drops it
+    when a push changes what the node holds."""
+    if not node_url:
+        return _live_state(node_url)
+    with Store() as store:
+        cached = store.setting("node_live", None)
+    now = time.time()
+    if (
+        isinstance(cached, dict)
+        and cached.get("url") == node_url
+        and now - float(cached.get("checked_at", 0)) < LIVE_CACHE_SECONDS
+    ):
+        ids = cached.get("ids")
+        return cached["live"], set(ids) if isinstance(ids, list) else None
+    live, ids = _live_state(node_url)
+    with Store() as store:
+        store.set_setting(
+            "node_live",
+            {
+                "url": node_url,
+                "checked_at": now,
+                "live": live,
+                "ids": sorted(ids) if ids is not None else None,
+            },
+        )
+    return live, ids
+
+
+def forget_live() -> None:
+    """Drop the cached probe so the next snapshot asks the node again."""
+    with Store() as store:
+        store.set_setting("node_live", None)
+
+
 def _session_cwd(path: Path) -> str | None:
     with path.open(encoding="utf-8", errors="replace") as lines:
         for line in islice(lines, 40):
@@ -148,7 +190,9 @@ def build() -> dict[str, object]:
         answer_enabled = store.setting("answer_enabled", False) is True
         node_url = store.setting("node_url", None)
 
-    live, live_ids = _live_state(node_url if isinstance(node_url, str) else None)
+    live, live_ids = _cached_live_state(
+        node_url if isinstance(node_url, str) else None
+    )
     labels = _claude_project_labels()
     prefix = "-" + str(Path.home()).strip("/").replace("/", "-") + "-"
     for memory in memories:
