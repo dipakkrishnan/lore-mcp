@@ -213,7 +213,7 @@ async function openMemory(id) {
     textarea.focus();
     actions.replaceChildren(button("Cancel", "secondary", cancelEdit), button("Save", "primary", () => void saveEdit()));
     textarea.addEventListener("keydown", (event) => {
-      if (event.key === "Escape") { event.preventDefault(); cancelEdit(); }
+      if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); cancelEdit(); }
       else if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) { event.preventDefault(); void saveEdit(); }
     });
     function cancelEdit() {

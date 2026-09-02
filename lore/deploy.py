@@ -36,6 +36,31 @@ PRICE_DECLARATION = "export const PRICE_USD = 0.01;"
 MINIMUM_PRICE = 1e-6
 
 
+def _refuse_dev_source_drift(packaged: Path) -> None:
+    """Stop an installed CLI from ignoring edits in the current checkout."""
+    for root in (Path.cwd(), *Path.cwd().parents):
+        checkout = root / "lore/node"
+        project = root / "pyproject.toml"
+        if not checkout.is_dir() or not project.is_file():
+            continue
+        if 'name = "lore-mcp"' not in project.read_text():
+            continue
+        if packaged.resolve() == checkout.resolve():
+            return
+        if any(
+            not (other := checkout / source.relative_to(packaged)).is_file()
+            or source.read_bytes() != other.read_bytes()
+            for source in packaged.rglob("*")
+            if source.is_file()
+        ):
+            raise OSError(
+                "installed Lore CLI differs from this checkout; deploy stopped "
+                f"before using stale code. From {root}, run "
+                "`uv tool install --force --reinstall .`, then rerun `lore node deploy`."
+            )
+        return
+
+
 def materialize(price_usd: float) -> Path:
     """Copy the packaged Worker source to ~/.lore/node, never touching secrets.
 
@@ -53,6 +78,7 @@ def materialize(price_usd: float) -> Path:
         if match and match.group(1) != D1_PLACEHOLDER:
             existing_id = match.group(1)
     with resources.as_file(resources.files("lore") / "node") as source_dir:
+        _refuse_dev_source_drift(source_dir)
         shutil.copytree(
             source_dir,
             target,

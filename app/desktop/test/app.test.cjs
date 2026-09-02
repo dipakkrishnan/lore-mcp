@@ -33,6 +33,11 @@ test("useRuntime runs the packaged binary instead of uv", async () => {
   }
 });
 
+test("dev start refreshes the CLI that agent Bash gets from PATH", async () => {
+  const pkg = JSON.parse(await readFile(join(__dirname, "../package.json"), "utf8"));
+  assert.match(pkg.scripts.start, /^uv tool install --force --reinstall \.\.\/\.\. && /);
+});
+
 test("the desktop agent has Pi's normal file and shell tools", async () => {
   const { createAgentSession, createBashTool, ModelRuntime, SessionManager, SettingsManager } =
     await import("@earendil-works/pi-coding-agent");
@@ -419,6 +424,11 @@ test("memory edit validates the id and content before any CLI call, and round-tr
   try {
     await assert.rejects(editMemory(directory, 1, "   "), { message: /Content cannot be empty/ });
     await assert.rejects(editMemory(directory, 999, "New content"), { message: /memory not found: 999/ });
+    const { lore } = require("../src/state.cjs");
+    const [{ id }] = JSON.parse(await lore(directory, ["capture", "apply", "-"], JSON.stringify([{ title: "Bullets", content: "First draft." }])));
+    for (const content of ["-solo", "--json", "---\n- one\n- two"]) {
+      assert.equal((await editMemory(directory, id, content)).content, content, "content that looks like an option must still be content");
+    }
   } finally {
     await rm(directory, { recursive: true });
   }
