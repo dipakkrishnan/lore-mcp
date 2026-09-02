@@ -10,8 +10,13 @@ if (process.env.LORE_DESKTOP_USER_DATA) app.setPath("userData", process.env.LORE
 const TASKS = new Set(["capture", "setup", "publish", "deploy"]);
 const LOGINS = new Set(["anthropic:oauth", "anthropic:api_key", "openai-codex:oauth", "openai:api_key"]);
 
-/** @type {LoreAgentInstance} */
+/** @type {LoreAgentInstance | undefined} */
 let agent;
+/** The agent, once setup has finished. */
+function ready() {
+  if (!agent) throw new Error("Lore is still setting up on this Mac");
+  return agent;
+}
 /** @type {import("electron").BrowserWindow | undefined} */
 let window;
 /** @type {Map<string, {resolve(value: unknown): void, reject(error: Error): void}>} */
@@ -25,7 +30,7 @@ function emit(event) {
 function request(type, payload, signal) {
   if (!window || window.isDestroyed()) return Promise.reject(new Error("Lore window is closed"));
   const id = randomUUID();
-  emit(/** @type {AgentRequest} */ ({ type, id, task: agent.activeTask, ...payload }));
+  emit(/** @type {AgentRequest} */ ({ type, id, task: agent?.activeTask, ...payload }));
   return new Promise((resolve, reject) => {
     pending.set(id, { resolve, reject });
     signal?.addEventListener("abort", () => {
@@ -41,21 +46,22 @@ function registerIpc(loreHome) {
   ipcMain.handle("snapshot:read", () => readState(loreHome));
   ipcMain.handle("dictation:permission", () => systemPreferences.askForMediaAccess("microphone"));
   ipcMain.handle("dictation:transcribe", (_event, /** @type {ArrayBuffer} */ wav) => transcribe({ ...whisper, dir: app.getPath("temp") }, Buffer.from(wav)));
-  ipcMain.handle("agent:status", () => agent.status());
+  ipcMain.handle("setup:retry", () => (agent ? undefined : boot(loreHome)));
+  ipcMain.handle("agent:status", () => agent?.status() ?? { credentials: [] });
   ipcMain.handle("agent:prompt", (_event, input) => {
     if (!input || typeof input.text !== "string" || input.text.length > 100_000 || !TASKS.has(input.task) || (input.from !== undefined && !TASKS.has(input.from))) {
       throw new Error("Invalid prompt");
     }
-    return agent.prompt(input.text, input.task, input.from);
+    return ready().prompt(input.text, input.task, input.from);
   });
   ipcMain.handle("agent:history", (_event, task) => {
     if (!TASKS.has(task)) throw new Error("Invalid task");
-    return agent.history(task);
+    return ready().history(task);
   });
-  ipcMain.handle("agent:tasks", () => agent.tasks());
+  ipcMain.handle("agent:tasks", () => ready().tasks());
   ipcMain.handle("agent:restart", (_event, task) => {
     if (!TASKS.has(task)) throw new Error("Invalid task");
-    agent.restart(task);
+    ready().restart(task);
   });
   ipcMain.handle("agent:respond", (_event, response) => {
     if (!response || typeof response.id !== "string" || !pending.has(response.id)) {
@@ -67,11 +73,11 @@ function registerIpc(loreHome) {
   ipcMain.handle("auth:login", (_event, input) => {
     if (!input || !LOGINS.has(`${input.providerId}:${input.type}`)) throw new Error("Unsupported sign-in");
     if (input.secret !== undefined && typeof input.secret !== "string") throw new Error("Invalid key");
-    return agent.login(input.providerId, input.type, input.secret);
+    return ready().login(input.providerId, input.type, input.secret);
   });
   ipcMain.handle("auth:logout", (_event, providerId) => {
     if (typeof providerId !== "string") throw new Error("Invalid provider");
-    return agent.logout(providerId);
+    return ready().logout(providerId);
   });
   ipcMain.handle("search:query", (_event, query) => {
     if (typeof query !== "string" || query.length > 200) throw new Error("Invalid search");
@@ -132,28 +138,35 @@ function createWindow() {
 }
 
 app.whenReady().then(async () => {
+  const loreHome = process.env.LORE_HOME || join(app.getPath("home"), ".lore");
+  registerIpc(loreHome);
   createWindow();
   await new Promise((loaded) => window?.webContents.once("did-finish-load", () => loaded(undefined)));
-  try {
-    await start();
-    emit({ type: "progress", done: true });
-  } catch (error) {
-    console.error(error);
-    emit({ type: "progress", error: "Lore could not finish setting up. Check your internet connection, then reopen Lore." });
-  }
+  await boot(loreHome);
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
   });
 });
 
-async function start() {
+/** @param {string} loreHome */
+async function boot(loreHome) {
+  try {
+    await start(loreHome);
+    emit({ type: "progress", done: true });
+  } catch (error) {
+    console.error(error);
+    emit({ type: "progress", error: "Lore could not finish setting up on this Mac." });
+  }
+}
+
+/** @param {string} loreHome */
+async function start(loreHome) {
   const runtime = await provision(emit);
   if (runtime) useRuntime(runtime.bin);
   const [{ LoreAgent, validEntries }, { CredentialStore }] = await Promise.all([
     import("./agent.mjs"),
     import("./credentials.mjs")
   ]);
-  const loreHome = process.env.LORE_HOME || join(app.getPath("home"), ".lore");
   const credentials = new CredentialStore(join(app.getPath("userData"), "credentials.bin"), safeStorage);
   agent = await LoreAgent.create({
     loreHome,
@@ -164,7 +177,7 @@ async function start() {
     askUser: async (questions) =>
       /** @type {Record<string, string>} */ (await request("question", { questions })),
     proposeMemories: async (entries) => {
-      const task = agent.activeTask;
+      const task = agent?.activeTask ?? null;
       const decision = /** @type {MemoryDecision} */ (await request("memories", { entries }));
       if (!decision || !validEntries(decision.entries)) throw new Error("Invalid memory decision");
       if (typeof decision.note === "string" && decision.note.trim()) return { entries: decision.entries, note: decision.note.trim() };
@@ -188,7 +201,7 @@ async function start() {
           const url = line.match(/https:\/\/dash\.cloudflare\.com\/\S+/)?.[0];
           if (!url) return;
           void shell.openExternal(url);
-          emit({ type: "live", task: agent.activeTask, text: "Finish signing in to Cloudflare in your browser, then come back here." });
+          emit({ type: "live", task: agent?.activeTask ?? null, text: "Finish signing in to Cloudflare in your browser, then come back here." });
         });
       } catch (error) {
         throw new Error(last.replace(/^lore: /, "") || /** @type {Error} */ (error).message);
@@ -205,7 +218,6 @@ async function start() {
       }
     }
   });
-  registerIpc(loreHome);
 }
 
 app.on("before-quit", () => {

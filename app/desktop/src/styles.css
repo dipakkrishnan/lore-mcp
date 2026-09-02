@@ -146,7 +146,12 @@ h2 { font-size: 12px; font-weight: 600; letter-spacing: 0.06em; text-transform: 
 .card.lead { border-color: var(--accent); }
 .hint { font-size: 12px; color: var(--muted); }
 .status:empty { display: none; }
-.status { font-size: 13px; color: var(--muted); }
+.status { display: flex; flex-direction: column; gap: 8px; }
+.notice { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; padding: 10px 6px 10px 14px; font-size: 13px; line-height: 1.5; color: var(--ink-soft); background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-sm); }
+.notice.attention { color: var(--attention-ink); background: var(--attention-soft); border-color: var(--attention); }
+.notice .dismiss { flex-shrink: 0; width: 24px; height: 24px; border-radius: 6px; font-size: 16px; line-height: 1; color: inherit; opacity: 0.6; }
+.notice .dismiss:hover { opacity: 1; background: rgba(29, 31, 28, 0.06); }
+.welcome.provisioning #welcome-retry { -webkit-app-region: no-drag; }
 .empty { color: var(--muted); font-size: 14px; }
 
 /* Composer + agent */
