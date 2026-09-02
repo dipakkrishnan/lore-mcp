@@ -41,13 +41,7 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         check("agent answers after retry", status === "ok", status);
         await shot("provision-recovered");
       } else if (scenario === "store") {
-        // Fix 12: a mistyped API key is refused at sign-in, not inside the first thread.
         await waitFor(`document.body.dataset.state === "welcome" && !document.querySelector("#welcome").classList.contains("provisioning")`);
-        const refusal = await js(`window.lore.login({ providerId: "anthropic", type: "api_key", secret: "sk-ant-not-a-real-key" }).then(() => "accepted", (e) => e.message)`);
-        check("bogus key is refused", /not accepted/.test(refusal), refusal);
-        const kept = await js(`window.lore.agentStatus().then((s) => s.credentials.length)`);
-        check("bogus key is not kept", kept === 0, String(kept));
-
         await js(`window.__lore.signIn()`);
         await waitFor(`document.querySelector("#content").textContent.includes("Approve what to sell")`);
         // Fix 4: with a store open, Settings offers a way back into the deploy conversation.
@@ -83,6 +77,9 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         const eyebrow = await js(`document.querySelector("#eyebrow").textContent`);
         check("root capture joins the unfinished thread", /Ready to resume/.test(eyebrow), eyebrow);
         await shot("root-capture-joined");
+        await js(`window.__lore.openTask("deploy")`);
+        const deployLog = await js(`document.querySelector("#log").textContent`);
+        check("a completed deploy opens with fresh history", !deployLog.includes("OLD COMPLETED DEPLOY"), deployLog);
       } else {
         await js(`window.__lore.signIn()`);
         await waitFor(`document.querySelector("#content").textContent.includes("Approve what to sell")`);

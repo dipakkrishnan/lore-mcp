@@ -36,6 +36,7 @@ const OWNER_DIRS = {
   deploy: [".wrangler", "Library/Preferences/.wrangler", "Library/Caches/.wrangler", ".npm"]
 };
 const CAPPED = "That reply took more steps than Lore allows at once, so it paused. Say continue to keep going.";
+const KEY_REJECTED = /\b401\b|authentication_error|invalid[_ -](?:x-)?api[_ -]?key|incorrect api key/i;
 
 /** @param {string} loreHome @param {AgentTask} task @param {string} [binDir] */
 export function bashSandboxPolicy(loreHome, task, binDir) {
@@ -331,6 +332,7 @@ export class LoreAgent {
       ? await this.models.completeSimple(model, { messages: [{ role: "user", content: "ok", timestamp: Date.now() }] }, { maxTokens: 1 }).catch((/** @type {Error} */ error) => ({ stopReason: "error", errorMessage: error.message }))
       : { stopReason: "error", errorMessage: "" };
     if (reply.stopReason !== "error") return;
+    if (!KEY_REJECTED.test(reply.errorMessage ?? "")) throw new Error(reply.errorMessage || "Lore could not check that key right now. Try again.");
     await this.options.credentials.delete(providerId);
     throw new Error("That key was not accepted. Check it and try again.");
   }

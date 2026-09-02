@@ -981,7 +981,7 @@ async function openTask(kind, record) {
   task = kind;
   detailTask = kind;
   detailRecord = record ?? taskItems.find((item) => item.kind === kind) ?? null;
-  lines.splice(0, lines.length, ...await window.lore.history(kind).catch(() => []));
+  lines.splice(0, lines.length, ...(detailRecord ? await window.lore.history(kind).catch(() => []) : []));
   liveText = "";
   show("today");
   renderLog();
@@ -1438,7 +1438,7 @@ keyForm.addEventListener("submit", (event) => {
   void signIn(provider, "api_key", value);
 });
 
-Object.assign(window, { __lore: { show, preview: renderRequest, event: onEvent, signIn: () => { previewSignIn = true; auth = { credentials: [{ providerId: "anthropic", type: "oauth" }] }; enter(); } } });
+Object.assign(window, { __lore: { show, openTask, preview: renderRequest, event: onEvent, signIn: () => { previewSignIn = true; auth = { credentials: [{ providerId: "anthropic", type: "oauth" }] }; enter(); } } });
 
 function boot() {
   if (previewSignIn) return;

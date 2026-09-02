@@ -254,6 +254,25 @@ test("desktop prefers Opus 4.8 when Anthropic is available", async () => {
   assert.equal(getBuiltinModel("anthropic", "claude-opus-4-8").id, "claude-opus-4-8");
 });
 
+test("API-key proof deletes rejected keys, not keys it could not check", async () => {
+  const { LoreAgent } = await import("../src/agent.mjs");
+  const replies = [
+    { stopReason: "error", errorMessage: "fetch failed" },
+    { stopReason: "error", errorMessage: '401 {"error":{"type":"authentication_error"}}' }
+  ];
+  const deleted = [];
+  const agent = new LoreAgent(
+    /** @type {LoreAgentOptions} */ ({ credentials: { list: async () => [], delete: async (provider) => deleted.push(provider) }, authPrompt: async () => "", authEvent: () => {} }),
+    /** @type {never} */ ({ login: async () => {}, getAvailable: async () => [{}], completeSimple: async () => replies.shift() }),
+    /** @type {never} */ (null),
+    /** @type {never} */ (null)
+  );
+  await assert.rejects(agent.login("anthropic", "api_key", "key"), /fetch failed/);
+  assert.deepEqual(deleted, []);
+  await assert.rejects(agent.login("anthropic", "api_key", "key"), /not accepted/);
+  assert.deepEqual(deleted, ["anthropic"]);
+});
+
 test("typed task records survive relaunch and only unfinished known tasks are listed", async () => {
   const { LoreAgent, latestTaskRecord } = await import("../src/agent.mjs");
   const { SessionManager } = await import("@earendil-works/pi-coding-agent");
