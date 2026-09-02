@@ -158,11 +158,21 @@ def parser() -> argparse.ArgumentParser:
         "--wallet",
         help="public payout address (0x + 40 hex) set as the node's LORE_WALLET",
     )
+    node_deploy.add_argument(
+        "--network",
+        choices=tuple(deploy_module.NETWORKS),
+        help="switch the node to real money or back to the test network",
+    )
     node_commands.add_parser("login", help="sign in to Cloudflare through your browser")
     node_sales = node_commands.add_parser("sales", help="what your node has sold")
     node_sales.add_argument(
         "--json", action="store_true", help="print the sales as JSON"
     )
+    node_secret = node_commands.add_parser(
+        "secret",
+        help="vault a Coinbase credential on the node; the value is read from stdin",
+    )
+    node_secret.add_argument("name", choices=deploy_module.SECRETS)
 
     publication = commands.add_parser(
         "publication", help="approve, list, and revoke external publications"
@@ -275,7 +285,10 @@ def main(argv: list[str] | None = None) -> int:
             return serve(serve_args)
         if args.command == "node":
             if args.node_command == "deploy":
-                return deploy_module.deploy(args.wallet)
+                return deploy_module.deploy(args.wallet, args.network)
+            if args.node_command == "secret":
+                _owner_action("storing a node secret")
+                return deploy_module.secret(args.name, sys.stdin.read().strip())
             if args.node_command == "login":
                 return deploy_module.login()
             if args.node_command == "sales":

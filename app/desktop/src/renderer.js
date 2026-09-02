@@ -76,6 +76,7 @@ const TEST_NETWORK = "eip155:84532";
 const EXPLORERS = { "eip155:8453": "https://basescan.org", "eip155:84532": "https://sepolia.basescan.org" };
 const CHANGE_PRICE = "I want to change the price on my store. Set the new price and redeploy so buyers pay the new amount.";
 const REAL_MONEY = "I'm ready to switch my store to real money.";
+const PLAY_MONEY = "Put my store back on the test network.";
 const money = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" });
 const shortDate = new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric" });
 const longDate = new Intl.DateTimeFormat("en-US", { weekday: "long", month: "long", day: "numeric" });
@@ -613,7 +614,9 @@ function renderSettings(s) {
       row("Prices", "What a buyer's agent pays per call.", value(el("span", "mono", `${price(s.pricing.publication_usd)} publication${s.pricing.answer_enabled ? ` · ${price(s.pricing.answer_usd)} answer` : ""}`), ...(s.node.url ? [button("Change price", "quiet", () => void startDeploy(CHANGE_PRICE))] : [])), false),
       ...(live.network === TEST_NETWORK
         ? [row("Payments", "Buyers on the test network pay with play money. Switch when you want real buyers paying real money.", value(button("Switch to real payments", "secondary", () => void startDeploy(REAL_MONEY))), false)]
-        : [])
+        : live.network
+          ? [row("Payments", "Buyers pay real money. Switch back to the test network any time; nothing already paid changes.", value(button("Switch to play money", "secondary", () => void startDeploy(PLAY_MONEY))), false)]
+          : [])
     ]))
   ];
 }
@@ -1004,6 +1007,7 @@ function renderRequest(event) {
     const actions = el("div", "actions");
     const go = el("button", "btn primary sm", "Continue");
     go.type = "submit";
+    if (event.prompt.type === "secret") actions.append(button("Not now", "secondary", () => void respond(event.id, "")));
     actions.append(go);
     box.append(field, actions);
     box.addEventListener("submit", (submitEvent) => {
