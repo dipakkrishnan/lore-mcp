@@ -28,7 +28,12 @@ having at least one.
 > keeps for the owner: Cloudflare sign-in (call `cloudflare_login`; it opens
 > Cloudflare in their browser and returns who is signed in — never send the
 > owner to a terminal) and `lore push` (they press **Push** in the app; never
-> run it). Default the path to the **test network**
+> run it). Every other browser step — the wallet, the workers.dev subdomain,
+> the faucet, Basescan — goes through `open_url` with a short step title and
+> one line on what to do there; it waits for the owner and tells you whether
+> they finished, got stuck, or declined. Never paste a link into prose. If
+> `lore node deploy` stops with "not signed in to Cloudflare", call
+> `cloudflare_login` and rerun it. Default the path to the **test network**
 > (Base Sepolia); mainnet is an explicit choice the owner makes with a publication
 > live. Keep the desktop flow publication-only; paid answers remain a separate,
 > terminal-attended option. Do not read or write

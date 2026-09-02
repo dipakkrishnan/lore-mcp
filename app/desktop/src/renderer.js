@@ -962,6 +962,29 @@ function renderRequest(event) {
       submitEvent.preventDefault();
       respond(event.id, true, "Open Cloudflare");
     });
+  } else if (event.type === "open") {
+    // Two stages on one card: open the page, then say how it went. Only the heading and the buttons change.
+    const host = new URL(event.url).hostname;
+    const heading = el("p", "q", event.title);
+    box.append(heading, el("p", "hint", event.note));
+    const actions = el("div", "actions");
+    const decline = el("button", "btn secondary sm", "Not now");
+    decline.type = "button";
+    const go = el("button", "btn primary sm", `Open ${host}`);
+    go.type = "submit";
+    actions.append(decline, go);
+    box.append(actions);
+    let opened = false;
+    decline.addEventListener("click", () => respond(event.id, opened ? "stuck" : false, opened ? "I got stuck" : "Not now"));
+    box.addEventListener("submit", (submitEvent) => {
+      submitEvent.preventDefault();
+      if (opened) { void respond(event.id, "done", "Done"); return; }
+      opened = true;
+      window.open(event.url);
+      heading.textContent = "Finish in your browser, then come back here.";
+      decline.textContent = "I got stuck";
+      go.textContent = "Done";
+    });
   } else {
     box.append(el("p", "q", event.prompt.message));
     /** @type {HTMLInputElement | HTMLSelectElement} */

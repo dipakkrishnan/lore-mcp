@@ -9,6 +9,7 @@ failure never leaves `node_url` claiming a node that is not there.
 from __future__ import annotations
 
 import json
+import os
 import stat
 import subprocess
 import unittest
@@ -148,6 +149,21 @@ class SalesTest(LoreTestCase):
     def test_no_staged_node_is_a_plain_error(self) -> None:
         with self.assertRaisesRegex(ValueError, "open your store first"):
             deploy_module.sales()
+
+
+class UnattendedDeployTest(LoreTestCase):
+    def test_a_signed_out_agent_shell_stops_instead_of_starting_a_login(self) -> None:
+        with Store() as store:
+            store.set_setting("price_usd", 0.01)
+        wrangler = _Wrangler(logged_in=False)
+        with (
+            patch("lore.deploy.subprocess.run", side_effect=wrangler),
+            patch("lore.deploy.shutil.which", return_value="/usr/bin/npm"),
+            patch.dict(os.environ, {"LORE_UNATTENDED": "1"}),
+            self.assertRaisesRegex(OSError, "sign in first"),
+        ):
+            deploy_module.deploy(WALLET)
+        self.assertEqual(wrangler.named("login"), [])
 
 
 class LoginTest(LoreTestCase):

@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import math
+import os
 import re
 import shutil
 import subprocess
@@ -284,6 +285,9 @@ def deploy(wallet: str | None) -> int:
     # Some wrangler versions exit 0 while logged out and only say so in text.
     who = _run((wrangler, "whoami"), target)
     if who.returncode or "not authenticated" in f"{who.stdout}{who.stderr}".lower():
+        # The desktop agent's shell has no owner at it; the app signs in itself.
+        if os.environ.get("LORE_UNATTENDED"):
+            raise OSError("not signed in to Cloudflare; sign in first, then rerun")
         muted("Opening Cloudflare login in your browser (free tier is enough)...")
         if _run((wrangler, "login"), target, interactive=True).returncode:
             raise OSError(

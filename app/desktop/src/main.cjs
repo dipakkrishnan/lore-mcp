@@ -3,7 +3,7 @@ const { join } = require("node:path");
 const { app, BrowserWindow, dialog, ipcMain, safeStorage, shell, systemPreferences } = require("electron");
 const { provision, skillsDir, whisper } = require("./runtime.cjs");
 const { transcribe } = require("./dictation.cjs");
-const { lore, loreStream, readState, readSales, searchMemories, readMemory, renameMemory, editMemory, captureMemories, candidates, decide, useRuntime } = require("./state.cjs");
+const { lore, loreStream, openable, readState, readSales, searchMemories, readMemory, renameMemory, editMemory, captureMemories, candidates, decide, useRuntime } = require("./state.cjs");
 
 if (process.env.LORE_DESKTOP_USER_DATA) app.setPath("userData", process.env.LORE_DESKTOP_USER_DATA);
 
@@ -212,6 +212,12 @@ async function start(loreHome) {
         throw new Error(last.replace(/^lore: /, "") || /** @type {Error} */ (error).message);
       }
       return last;
+    },
+    openUrl: async (page) => {
+      if (!openable(page.url)) return "Lore does not open that address; only the wallet, Cloudflare, faucet, Basescan and Coinbase developer pages.";
+      const answer = await request("open", page);
+      if (answer === "done") return "The owner says they finished there; verify from state before going on.";
+      return answer === "stuck" ? "The owner got stuck on that page; ask what happened." : "The owner chose not to open it right now.";
     },
     authPrompt: async ({ signal, ...prompt }) => String(await request("auth-prompt", { prompt }, signal)),
     authEvent: (event) => {
