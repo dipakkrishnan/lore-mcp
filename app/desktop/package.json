@@ -4,7 +4,7 @@
   "version": "0.0.0",
   "main": "src/main.cjs",
   "scripts": {
-    "start": "packaging/whisper.sh && electron .",
+    "start": "uv tool install --force --reinstall ../.. && packaging/whisper.sh && electron .",
     "check": "tsc --noEmit",
     "test": "node --test",
     "test:capture": "./test-capture.sh",
