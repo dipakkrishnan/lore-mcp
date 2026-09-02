@@ -12,14 +12,16 @@ fi
 case "${1:-}" in
   new)
     dogfood_root="${LORE_DOGFOOD_ROOT:-$(mktemp -d "${TMPDIR:-/tmp}/lore-dogfood-new.XXXXXX")}"
-    mkdir -p "$dogfood_root/home" "$dogfood_root/lore" "$dogfood_root/user-data"
+    mkdir -p "$dogfood_root/lore" "$dogfood_root/user-data"
     echo "Fresh-user sandbox: $dogfood_root"
     echo "Pass: sign in → set up → capture → inspect → publish → quit and relaunch."
     echo "To test persistence, quit Lore and rerun:"
     echo "LORE_DOGFOOD_ROOT='$dogfood_root' npm --prefix app/desktop run dogfood:new"
-    HOME="$dogfood_root/home" \
-      LORE_HOME="$dogfood_root/lore" \
+    # Keep real $HOME for Keychain and onboarding history reads, but never
+    # replace the owner's live synthesis schedule from a disposable sandbox.
+    LORE_HOME="$dogfood_root/lore" \
       LORE_DESKTOP_USER_DATA="$dogfood_root/user-data" \
+      LORE_SKIP_SCHEDULE=1 \
       "$app"
     ;;
   current)
