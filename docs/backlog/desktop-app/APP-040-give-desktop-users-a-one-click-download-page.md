@@ -8,7 +8,7 @@ status: in-review
 related: [APP-005]
 blockers: []
 dependencies: []
-github_issue: 175
+github_issue: https://github.com/dipakkrishnan/lore-mcp/issues/175
 created: 2026-09-01
 updated: 2026-09-01
 ---
