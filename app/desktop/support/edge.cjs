@@ -40,6 +40,46 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         const status = await js(`window.lore.tasks().then((t) => Array.isArray(t) ? "ok" : "odd", (e) => e.message)`);
         check("agent answers after retry", status === "ok", status);
         await shot("provision-recovered");
+      } else if (scenario === "store") {
+        await waitFor(`document.body.dataset.state === "welcome" && !document.querySelector("#welcome").classList.contains("provisioning")`);
+        await js(`window.__lore.signIn()`);
+        await waitFor(`document.querySelector("#content").textContent.includes("Approve what to sell")`);
+        // Fix 4: with a store open, Settings offers a way back into the deploy conversation.
+        await js(`window.__lore.show("settings")`);
+        await sleep(600);
+        const settings = await js(`document.querySelector("#content").textContent`);
+        check("Settings offers Change price once a store exists", settings.includes("Change price"));
+        check("Settings offers the switch to real payments while on the test network", settings.includes("Switch to real payments"));
+        await js(`document.querySelector("#main").scrollTop = 1e6`);
+        await sleep(200);
+        await shot("settings-store");
+        // Fix 5: approved work the node does not hold yet gets a standing Push, on For Sale and under Needs you.
+        await js(`window.__lore.show("today")`);
+        await sleep(400);
+        await js(`[...document.querySelectorAll("#content button")].find((b) => b.textContent === "Approve").click()`);
+        await waitFor(`document.querySelector("#content").textContent.includes("Push to your store")`);
+        await js(`window.__lore.show("store")`);
+        await sleep(600);
+        check("For Sale bar offers Push while an approved item is not live", await js(`[...document.querySelectorAll("#content .store-bar button")].some((b) => b.textContent === "Push to your store")`));
+        check("the item reads Not live yet", await js(`document.querySelector("#content").textContent.includes("Not live yet")`));
+        check("the section hint agrees", await js(`document.querySelector("#content").textContent.includes("1 not on your store yet")`));
+        await shot("store-unpushed");
+        await js(`window.__lore.show("today")`);
+        await sleep(400);
+        check("Needs you carries the standing Push row", await js(`document.querySelector("#content").textContent.includes("1 approved, not on your store yet.")`));
+        // Fix 9: a memory typed on Today joins the unfinished capture thread instead of an empty one.
+        await js(`window.__lore.show("today")`);
+        await js(`window.__lore.event({ type: "task", task: { version: 1, kind: "capture", title: "Capture", state: "stopped", phase: "Ready to resume", updatedAt: new Date().toISOString() } })`);
+        await sleep(300);
+        check("unfinished capture is listed", await js(`document.querySelector("#content").textContent.includes("Ready to resume")`));
+        await js(`const i = document.querySelector("#capture-input"); i.value = "Something I learned"; document.querySelector("#composer").requestSubmit();`);
+        await sleep(800);
+        const eyebrow = await js(`document.querySelector("#eyebrow").textContent`);
+        check("root capture joins the unfinished thread", /Ready to resume/.test(eyebrow), eyebrow);
+        await shot("root-capture-joined");
+        await js(`window.__lore.openTask("deploy")`);
+        const deployLog = await js(`document.querySelector("#log").textContent`);
+        check("a completed deploy opens with fresh history", !deployLog.includes("OLD COMPLETED DEPLOY"), deployLog);
       } else {
         await js(`window.__lore.signIn()`);
         await waitFor(`document.querySelector("#content").textContent.includes("Approve what to sell")`);

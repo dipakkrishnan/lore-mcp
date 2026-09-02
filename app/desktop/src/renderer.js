@@ -70,6 +70,9 @@ const PROVIDERS = {
   openai: ["OpenAI", "assets/openai.svg"]
 };
 const NETWORKS = { "eip155:8453": "Base", "eip155:84532": "Base Sepolia, test network" };
+const TEST_NETWORK = "eip155:84532";
+const CHANGE_PRICE = "I want to change the price on my store. Set the new price and redeploy so buyers pay the new amount.";
+const REAL_MONEY = "I'm ready to switch my store to real money.";
 const money = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" });
 const shortDate = new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric" });
 const longDate = new Intl.DateTimeFormat("en-US", { weekday: "long", month: "long", day: "numeric" });
@@ -338,9 +341,12 @@ function needsYou(s) {
   else if (!s.setup.blueprint_configured) add("Shape your Lore", "Review one proposal based on what your agents already know.", button("Start", "secondary", startSetup));
   else if (!s.setup.profile_configured) add("Set the rhythm", "Choose which model writes new memories, and how often.", button("Start", "secondary", startSetup));
   else {
-    if (!s.node.url) add("Open your store", "A payout address, a price, and a node on the test network first. Free until you say otherwise.", button("Open", "secondary", startDeploy));
+    if (!s.node.url) add("Open your store", "A payout address, a price, and a node on the test network first. Free until you say otherwise.", button("Open", "secondary", () => void startDeploy()));
     if (s.library.counts.private && !candidates.length) add("Publish something", "Lore drafts up to three things to sell; you approve each one.", button("Publish", "secondary", startPublish));
   }
+  // Approved work a buyer cannot see yet is actionable whatever rung setup is on.
+  const waiting = unpushed(s);
+  if (waiting.length && !pushOffer && !pushing) add("Push to your store", `${waiting.length} approved, not on your store yet.`, button("Push", "secondary", pushNow));
   return rows;
 }
 
@@ -436,7 +442,13 @@ function renderStore(s) {
     prices.append(item);
   }
   bar.append(lead, prices);
+  if (unpushed(s).length && !pushOffer) {
+    const push = button(pushing ? "Pushing…" : "Push to your store", "primary", pushNow);
+    push.disabled = pushing;
+    bar.append(push);
+  }
   const approved = s.publications.items.filter((item) => item.state === "approved");
+  const waiting = unpushed(s);
   const revoked = s.publications.items.filter((item) => item.state === "revoked");
   /** @param {PublicationItem} item */
   const state = (item) => item.live === true ? chip("Live", "ok") : item.live === false ? chip("Not live yet") : chip("Approved");
@@ -463,7 +475,7 @@ function renderStore(s) {
   parts.push(section("For sale", approved.length
     ? card(approved.map((item) => row(item.title, item.topic, controls(item))))
     : el("div", "card pad empty", "Nothing for sale yet. Publish something from Today."),
-    el("span", "hint", approved.length ? `${approved.length} ${approved.length === 1 ? "publication" : "publications"}${live.state === "online" ? " · confirmed on your node" : ""}` : "")));
+    el("span", "hint", approved.length ? `${approved.length} ${approved.length === 1 ? "publication" : "publications"}${live.state !== "online" ? "" : waiting.length ? ` · ${waiting.length} not on your store yet` : " · confirmed on your node"}` : "")));
   if (revoked.length) parts.push(section("Taken down", card(revoked.map((item) => row(item.title, item.topic, chip("Revoked"))))));
   const sales = el("div", "card pad");
   sales.style.display = "flex";
@@ -516,7 +528,10 @@ function renderSettings(s) {
     ])),
     section("Your store", card([
       row("Address", s.node.url ? storeAddress(s.node.url) : "Not opened yet.", value(status(live.state === "online", live.state === "online" ? `Live on ${networkLabel(live.network) || "your node"}` : nodeLabel(live.state))), false),
-      row("Prices", "What a buyer's agent pays per call.", value(el("span", "mono", `${price(s.pricing.publication_usd)} publication${s.pricing.answer_enabled ? ` · ${price(s.pricing.answer_usd)} answer` : ""}`)), false)
+      row("Prices", "What a buyer's agent pays per call.", value(el("span", "mono", `${price(s.pricing.publication_usd)} publication${s.pricing.answer_enabled ? ` · ${price(s.pricing.answer_usd)} answer` : ""}`), ...(s.node.url ? [button("Change price", "quiet", () => void startDeploy(CHANGE_PRICE))] : [])), false),
+      ...(live.network === TEST_NETWORK
+        ? [row("Payments", "Buyers on the test network pay with play money. Switch when you want real buyers paying real money.", value(button("Switch to real payments", "secondary", () => void startDeploy(REAL_MONEY))), false)]
+        : [])
     ]))
   ];
 }
@@ -919,10 +934,12 @@ async function startSetup() {
   await send("Let's set up my Lore.");
 }
 
-async function startDeploy() {
+/** @param {string} [intent] */
+async function startDeploy(intent = "Help me open my store.") {
   await openTask("deploy");
-  await send("Help me open my store.");
+  await send(intent);
 }
+
 
 /** @param {Snapshot} s */
 function nextRung(s) {
@@ -964,7 +981,7 @@ async function openTask(kind, record) {
   task = kind;
   detailTask = kind;
   detailRecord = record ?? taskItems.find((item) => item.kind === kind) ?? null;
-  lines.splice(0, lines.length, ...await window.lore.history(kind).catch(() => []));
+  lines.splice(0, lines.length, ...(detailRecord ? await window.lore.history(kind).catch(() => []) : []));
   liveText = "";
   show("today");
   renderLog();
@@ -1057,24 +1074,31 @@ function seamCard() {
   box.append(el("p", "q", "Push to your store now?"), el("p", "hint", pushOffer || ""));
   const actions = el("div", "actions");
   const leave = button("Leave it for now", "secondary", () => { pushOffer = false; render(); });
-  const push = button(pushing ? "Pushing…" : "Push now", "primary", async () => {
-    pushing = true;
-    render();
-    const offer = pushOffer;
-    if (await act(window.lore.push)) {
-      const live = snapshot ? `${snapshot.publications.counts.active} ${snapshot.publications.counts.active === 1 ? "publication" : "publications"}` : "publications";
-      pushedNote = `Pushed · ${live} sent to your node`;
-    } else {
-      pushOffer = offer;
-    }
-    pushing = false;
-    render();
-  });
+  const push = button(pushing ? "Pushing…" : "Push now", "primary", pushNow);
   leave.disabled = pushing;
   push.disabled = pushing;
   actions.append(leave, push);
   box.append(actions);
   return box;
+}
+
+async function pushNow() {
+  pushing = true;
+  render();
+  const offer = pushOffer;
+  if (await act(window.lore.push)) {
+    const live = snapshot ? `${snapshot.publications.counts.active} ${snapshot.publications.counts.active === 1 ? "publication" : "publications"}` : "publications";
+    pushedNote = `Pushed · ${live} sent to your node`;
+  } else {
+    pushOffer = offer;
+  }
+  pushing = false;
+  render();
+}
+
+/** Approved publications a buyer cannot see yet. @param {Snapshot} s */
+function unpushed(s) {
+  return s.node.url ? s.publications.items.filter((item) => item.state === "approved" && item.live === false) : [];
 }
 
 /** @param {Snapshot} s */
@@ -1227,11 +1251,16 @@ composer.addEventListener("submit", async (event) => {
   }
   if (!text && !attachments.length) return;
   if (!detailTask) {
-    task = "capture";
-    detailTask = "capture";
-    detailRecord = null;
-    lines.splice(0);
-    render();
+    // The agent resumes an unfinished capture session, so the owner should see that conversation, not an empty thread.
+    const unfinished = taskItems.find((item) => item.kind === "capture");
+    if (unfinished) await openTask("capture", unfinished);
+    else {
+      task = "capture";
+      detailTask = "capture";
+      detailRecord = null;
+      lines.splice(0);
+      render();
+    }
   }
   input.value = "";
   input.style.height = "";
@@ -1409,7 +1438,7 @@ keyForm.addEventListener("submit", (event) => {
   void signIn(provider, "api_key", value);
 });
 
-Object.assign(window, { __lore: { show, preview: renderRequest, event: onEvent, signIn: () => { previewSignIn = true; auth = { credentials: [{ providerId: "anthropic", type: "oauth" }] }; enter(); } } });
+Object.assign(window, { __lore: { show, openTask, preview: renderRequest, event: onEvent, signIn: () => { previewSignIn = true; auth = { credentials: [{ providerId: "anthropic", type: "oauth" }] }; enter(); } } });
 
 function boot() {
   if (previewSignIn) return;

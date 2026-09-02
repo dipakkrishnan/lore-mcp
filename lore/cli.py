@@ -1006,6 +1006,9 @@ def push(worker_dir: str, local: bool = False) -> int:
         # is now guaranteed gone from the edge.
         with Store() as store:
             store.set_setting("revocation_pending", False)
+        from .snapshot import forget_live  # local import, as desktop-state does
+
+        forget_live()
     where = "local dev database" if local else "deployed node"
     success(
         f"Pushed {len(active)} active publication{'s' if len(active) != 1 else ''} to the {where}"
