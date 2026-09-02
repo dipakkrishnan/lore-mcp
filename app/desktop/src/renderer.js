@@ -57,9 +57,10 @@ let pushing = false;
 /** @type {string | false} */
 let pushedNote = false;
 let accountMenuOpen = false;
-let busy = false;
-/** The memory card awaiting the owner, so the composer can carry a spoken or typed correction to it. @type {{id: string, current(): ProposedMemory[]} | null} */
-let pendingMemories = null;
+/** The task whose turn is open, while one is. @type {AgentTask | null} */
+let busy = null;
+/** The card awaiting the owner. A memory card also carries `current`, its entries as edited, so the composer can send a spoken or typed correction with them. @type {{id: string, task: AgentTask | null, box: HTMLElement, current?: () => ProposedMemory[]} | null} */
+let request = null;
 
 const RING = `<svg viewBox="0 0 26 26" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M13 4.5a8.5 8.5 0 1 1-6 2.5"></path><path d="M13 9a4 4 0 1 1-2.8 1.2"></path><circle cx="13" cy="13" r="1.2" fill="currentColor" stroke="none"></circle></svg>`;
 const PROVIDERS = {
@@ -146,8 +147,8 @@ function markdown(text) {
 async function publishMemory(memory, from) {
   closeSheet();
   await openTask("publish");
-  // A pending card for this memory, or an agent already mid-draft, is the thread itself: open it, never start a second turn.
-  if (busy || candidates.some((candidate) => candidate.provenance.includes(memory.id))) return;
+  // A pending draft for this memory, or the publish agent mid-draft, is the thread itself: open it, never start a second turn.
+  if (busy === "publish" || candidates.some((candidate) => candidate.provenance.includes(memory.id))) return;
   await send(`Help me publish something from my Lore. Start from memory ${memory.id}: "${memory.title}".`, from);
 }
 
@@ -533,10 +534,7 @@ function render() {
   taskRestart.hidden = !detail || detailRecord?.state !== "stopped";
   captureArea.hidden = view !== "today";
   log.hidden = !detail;
-  composer.hidden = (Boolean(requestSlot.childElementCount) && !pendingMemories) || ((detail === "setup" || detail === "deploy") && detailRecord?.state === "done");
-  input.placeholder = placeholder();
-  inputLabel.textContent = pendingMemories ? "Say what to change" : detail ? "Reply to Lore" : "What did you learn today?";
-  submit.textContent = detail ? "Send" : "Capture";
+  syncComposer();
   for (const nav of navButtons) nav.setAttribute("aria-pressed", String(nav.dataset.view === view));
   if (!snapshot) return;
   $("[data-count=memories]").textContent = String(snapshot.library.counts.private);
@@ -632,15 +630,38 @@ function live(text) {
 /** What capture kept, with the one next step an owner may want. @param {SavedMemory[]} saved */
 function savedCard(saved) {
   if (!saved.length) return el("p", "", "Nothing saved.");
-  return card(saved.map((memory) => row(
-    memory.title,
-    memory.status === "unchanged" ? "Already in your Lore" : "Saved, only on this Mac",
-    detailTask === "capture" ? button("Draft for sale", "quiet", () => void publishMemory(memory, "capture")) : undefined
-  )));
+  return card(saved.map((memory) => {
+    // Only the capture thread offers the next step; a publish thread forked from it restores these same lines.
+    const draft = detailTask === "capture" ? button("Draft for sale", "quiet", () => void publishMemory(memory, "capture")) : undefined;
+    if (draft) draft.disabled = busy !== null;
+    return row(memory.title, memory.status === "unchanged" ? "Already in your Lore" : "Saved, only on this Mac", draft);
+  }));
 }
 
-function placeholder() {
-  return busy && !pendingMemories ? "Lore is working…" : pendingMemories ? "Or say what to change…" : detailTask ? "Reply to Lore…" : "What did you learn today?";
+/** The card that belongs in the open thread; a card from another thread waits there. */
+function shownRequest() {
+  return request && (!request.task || request.task === detailTask) ? request : null;
+}
+
+/** Derive the composer from what is on screen: a memory card keeps it open for corrections, any other card hides it, an open turn locks it. */
+function syncComposer() {
+  const shown = shownRequest();
+  const card = shown?.current ? shown : null;
+  const locked = busy !== null && !card;
+  requestSlot.hidden = !shown;
+  composer.hidden = (shown !== null && !card) || ((detailTask === "setup" || detailTask === "deploy") && detailRecord?.state === "done");
+  input.disabled = locked;
+  submit.disabled = locked;
+  composer.classList.toggle("working", locked);
+  input.placeholder = locked ? (request?.current ? "Lore is waiting on your capture…" : "Lore is working…") : card ? "Or say what to change…" : detailTask ? "Reply to Lore…" : "What did you learn today?";
+  inputLabel.textContent = card ? "Say what to change" : detailTask ? "Reply to Lore" : "What did you learn today?";
+  submit.textContent = detailTask ? "Send" : "Capture";
+}
+
+function clearRequest() {
+  request = null;
+  requestSlot.replaceChildren();
+  syncComposer();
 }
 
 function renderLog() {
@@ -654,24 +675,15 @@ function renderLog() {
     line.append(mark("mark mark-sm"), markdown(liveText));
     log.append(line);
   }
-  agentPanel.hidden = !lines.length && !liveText && !requestSlot.childElementCount && !detailSlot.childElementCount;
+  agentPanel.hidden = !lines.length && !liveText && !shownRequest() && !detailSlot.childElementCount;
   if (log.lastElementChild) mainEl.scrollTop = mainEl.scrollHeight;
-}
-
-/** @param {boolean} active */
-function working(active) {
-  busy = active;
-  const locked = active && !pendingMemories;
-  input.disabled = locked;
-  submit.disabled = locked;
-  composer.classList.toggle("working", locked);
-  input.placeholder = placeholder();
-  if (active && !liveText && !pendingMemories) live({ setup: "Thinking…", publish: "Drafting…", capture: "Reading this…", deploy: "Setting up your store…" }[task]);
 }
 
 /** @param {AgentRequest} event */
 function renderRequest(event) {
-  const box = el("form", "card lead request");
+  const box = /** @type {HTMLFormElement} */ (el("form", "card lead request"));
+  /** A memory card's entries as edited. @type {(() => ProposedMemory[]) | undefined} */
+  let current;
   if (event.type === "question") {
     for (const [index, question] of event.questions.entries()) {
       const fieldset = el("fieldset");
@@ -712,7 +724,7 @@ function renderRequest(event) {
       respond(event.id, answers, Object.values(answers).filter(Boolean).join(" · "));
     });
   } else if (event.type === "memories") {
-    const list = draftList();
+    const list = el("div", "card pad stack");
     /** @type {Array<{entry: ProposedMemory, node: HTMLElement, title: HTMLInputElement | HTMLTextAreaElement, content: HTMLInputElement | HTMLTextAreaElement}>} */
     let drafts = [];
     const keep = el("button", "btn primary sm");
@@ -722,17 +734,18 @@ function renderRequest(event) {
       const node = el("div", "memory");
       const title = draftField(node, "Title", entry.title, true);
       const content = draftField(node, "What to remember", entry.content);
+      title.maxLength = 300;
+      content.maxLength = 20_000;
       const meta = el("div", "meta");
       if (entry.project) meta.append(chip(entry.project));
-      const drop = button("Drop", "quiet", () => { drafts = drafts.filter((draft) => draft.node !== node); node.remove(); relabel(); });
-      drop.style.marginLeft = "auto";
-      meta.append(drop);
+      meta.append(button("Drop", "quiet", () => { drafts = drafts.filter((draft) => draft.node !== node); node.remove(); relabel(); }));
       node.append(meta);
       list.append(node);
       drafts.push({ entry, node, title, content });
     }
     relabel();
-    const current = () => drafts.map(({ entry, title, content }) => ({ ...entry, title: title.value.trim(), content: content.value.trim() }));
+    const edited = () => drafts.map(({ entry, title, content }) => ({ ...entry, title: title.value.trim(), content: content.value.trim() }));
+    current = edited;
     box.append(
       el("p", "q", event.entries.length === 1 ? "Keep this memory?" : "Keep these memories?"),
       el("p", "hint", "Edit anything here, or say what to change below. Nothing is saved until you keep it."),
@@ -743,9 +756,10 @@ function renderRequest(event) {
     box.append(actions);
     box.addEventListener("submit", (submitEvent) => {
       submitEvent.preventDefault();
-      respond(event.id, { entries: current() }, drafts.length === 1 ? "Keep it" : "Keep these");
+      for (const { title, content } of drafts) for (const field of [title, content]) field.setCustomValidity(field.value.trim() ? "" : "Write something here, or drop this memory.");
+      if (!box.reportValidity()) return;
+      respond(event.id, { entries: edited() }, drafts.length === 1 ? "Keep it" : "Keep these");
     });
-    pendingMemories = { id: event.id, current };
   } else if (event.type === "blueprint") {
     box.append(el("p", "q", "Use this shape for your Lore?"), el("p", "hint", event.evidence));
     const inputs = el("div", "blueprint-fields");
@@ -855,12 +869,10 @@ function renderRequest(event) {
       respond(event.id, value);
     });
   }
-  box.dataset.id = event.id;
-  if (event.type !== "memories") pendingMemories = null;
+  request = { id: event.id, task: event.task, box, current };
   requestSlot.replaceChildren(box);
   agentPanel.hidden = false;
-  composer.hidden = !pendingMemories;
-  working(busy);
+  syncComposer();
   if (view !== "today") show("today");
   for (const area of box.querySelectorAll("textarea")) fit(/** @type {HTMLTextAreaElement} */ (area));
   if (event.type === "question" || event.type === "memories" || event.type === "blueprint") {
@@ -873,10 +885,7 @@ function renderRequest(event) {
 
 /** @param {string} id @param {unknown} value @param {string} [echo] */
 async function respond(id, value, echo) {
-  requestSlot.replaceChildren();
-  pendingMemories = null;
-  working(busy);
-  composer.hidden = false;
+  clearRequest();
   if (echo) say(echo, true);
   else renderLog();
   await window.lore.respond({ id, value });
@@ -946,7 +955,7 @@ async function startOver(kind) {
   detailRecord = null;
   lines.splice(0);
   liveText = "";
-  requestSlot.replaceChildren();
+  clearRequest();
   show("today");
   renderLog();
   input.focus({ preventScroll: true });
@@ -975,16 +984,8 @@ function draftField(parent, label, value, singleLine = false) {
   return control;
 }
 
-function draftList() {
-  const list = el("div", "card pad");
-  list.style.display = "flex";
-  list.style.flexDirection = "column";
-  list.style.gap = "10px";
-  return list;
-}
-
 function approvals() {
-  const list = draftList();
+  const list = el("div", "card pad stack");
   for (const candidate of candidates) {
     const memory = el("div", "memory");
     const title = draftField(memory, "Title", candidate.title, true);
@@ -993,10 +994,7 @@ function approvals() {
     const meta = el("div", "meta");
     meta.append(chip(candidate.topic));
     if (candidate.kind === "content") meta.append(chip("Verbatim"));
-    const group = el("div");
-    group.style.display = "flex";
-    group.style.gap = "8px";
-    group.style.marginLeft = "auto";
+    const group = el("div", "group");
     group.append(
       button("Skip", "secondary", () => decide(candidate, false)),
       button("Approve", "primary", () => decide(candidate, true, { ...candidate, title: title.value, teaser: teaser.value, content: paid.value }))
@@ -1128,7 +1126,12 @@ function enter() {
 
 /** @param {AgentEvent} event */
 function onEvent(event) {
-  if (event.type === "working") { working(event.active); if (!event.active) live(""); }
+  if (event.type === "working") {
+    busy = event.active ? event.task : null;
+    liveText = busy ? liveText || { setup: "Thinking…", publish: "Drafting…", capture: "Reading this…", deploy: "Setting up your store…" }[busy] : "";
+    syncComposer();
+    renderLog();
+  }
   else if (event.type === "live") { if (event.task === task) live(event.text); }
   else if (event.type === "changed") void load();
   else if (event.type === "message") { if (event.task === task) say(event.text); }
@@ -1152,7 +1155,7 @@ function onEvent(event) {
       if (!auth) { auth = { credentials: [] }; enter(); }
     }
   } else if (event.type === "dismiss") {
-    if (/** @type {HTMLElement | null} */ (requestSlot.firstElementChild)?.dataset.id === event.id) { requestSlot.replaceChildren(); pendingMemories = null; working(busy); composer.hidden = false; renderLog(); }
+    if (request?.id === event.id) { clearRequest(); renderLog(); }
   } else if (event.type === "auth") {
     const detail = event.event;
     welcomeNote.textContent = event.message || (detail?.type === "device_code" ? `Open ${detail.verificationUri} and enter ${detail.userCode}.` : detail && "message" in detail ? detail.message : "Continue signing in.");
@@ -1167,11 +1170,12 @@ window.lore.onAgentEvent(onEvent);
 composer.addEventListener("submit", async (event) => {
   event.preventDefault();
   const text = input.value.trim();
-  if (pendingMemories) {
+  const card = shownRequest();
+  if (card?.current) {
     if (!text) return;
     input.value = "";
     input.style.height = "";
-    await respond(pendingMemories.id, { entries: pendingMemories.current(), note: text }, text);
+    await respond(card.id, { entries: card.current(), note: text }, text);
     return;
   }
   if (!text && !attachments.length) return;

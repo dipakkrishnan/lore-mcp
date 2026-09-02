@@ -149,7 +149,7 @@ app.whenReady().then(async () => {
 async function start() {
   const runtime = await provision(emit);
   if (runtime) useRuntime(runtime.bin);
-  const [{ LoreAgent }, { CredentialStore }] = await Promise.all([
+  const [{ LoreAgent, validEntries }, { CredentialStore }] = await Promise.all([
     import("./agent.mjs"),
     import("./credentials.mjs")
   ]);
@@ -166,7 +166,7 @@ async function start() {
     proposeMemories: async (entries) => {
       const task = agent.activeTask;
       const decision = /** @type {MemoryDecision} */ (await request("memories", { entries }));
-      if (!Array.isArray(decision.entries)) throw new Error("Invalid memory decision");
+      if (!decision || !validEntries(decision.entries)) throw new Error("Invalid memory decision");
       if (typeof decision.note === "string" && decision.note.trim()) return { entries: decision.entries, note: decision.note.trim() };
       const saved = await captureMemories(loreHome, decision.entries);
       emit({ type: "saved", task, memories: saved });

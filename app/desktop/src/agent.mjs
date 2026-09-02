@@ -111,6 +111,27 @@ export function validSaved(value) {
   return Array.isArray(value) && value.every((item) => item && typeof item === "object" && Number.isInteger(item.id) && item.id > 0 && typeof item.title === "string");
 }
 
+/** The entries an owner may keep from a memory card: the tool's own limits, and nothing blank. @param {unknown} value @returns {value is ProposedMemory[]} */
+export function validEntries(value) {
+  return Array.isArray(value) && value.length <= 5 && value.every((item) => item && typeof item === "object"
+    && typeof item.title === "string" && item.title.trim() !== "" && item.title.length <= 300
+    && typeof item.content === "string" && item.content.trim() !== "" && item.content.length <= 20_000
+    && (item.project === undefined || typeof item.project === "string")
+    && (item.source_path === undefined || typeof item.source_path === "string"));
+}
+
+/** The parsed JSON of a finished tool result, or null for an error, a non-text result, or an old malformed one. @param {import("@earendil-works/pi-ai").ToolResultMessage} message @returns {Record<string, any> | null} */
+function toolResultJson(message) {
+  const first = message.content[0];
+  if (message.isError || first?.type !== "text") return null;
+  try {
+    const parsed = JSON.parse(first.text);
+    return parsed && typeof parsed === "object" ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
 /** @param {import("@earendil-works/pi-coding-agent").SessionManager} manager @param {AgentTask} kind @returns {TaskRecord | null} */
 export function latestTaskRecord(manager, kind) {
   for (const entry of [...manager.getEntries()].reverse()) {
@@ -246,36 +267,19 @@ export class LoreAgent {
       } else if (message.role === "assistant") {
         const text = message.content.map((block) => (block.type === "text" ? block.text : "")).join("").trim();
         if (text) lines.push({ text, owner: false });
-      } else if (message.role === "toolResult" && message.toolName === "ask_user" && !message.isError) {
-        const first = message.content[0];
-        if (first?.type !== "text") continue;
-        try {
-          const result = /** @type {{answers?: Record<string, unknown>}} */ (JSON.parse(first.text));
+      } else if (message.role === "toolResult") {
+        const result = toolResultJson(message);
+        if (!result) continue;
+        if (message.toolName === "ask_user") {
           const answers = result.answers && !Array.isArray(result.answers)
             ? Object.values(result.answers).filter((value) => typeof value === "string" && value).join(" · ")
             : "";
           if (answers) lines.push({ text: answers, owner: true });
-        } catch {
-          // An old or interrupted tool result should not hide the rest of the thread.
-        }
-      } else if (message.role === "toolResult" && message.toolName === "propose_memories" && !message.isError) {
-        const first = message.content[0];
-        if (first?.type !== "text") continue;
-        try {
-          const result = /** @type {MemoryOutcome} */ (JSON.parse(first.text));
-          if ("note" in result && typeof result.note === "string") lines.push({ text: result.note, owner: true });
-          else if ("saved" in result && validSaved(result.saved)) lines.push({ text: "", owner: false, saved: result.saved });
-        } catch {
-          // Ignore an old malformed result and keep restoring the thread.
-        }
-      } else if (message.role === "toolResult" && message.toolName === "propose_blueprint" && !message.isError) {
-        const first = message.content[0];
-        if (first?.type !== "text") continue;
-        try {
-          const fields = JSON.parse(first.text);
-          if (validBlueprint(fields)) lines.push({ text: `${fields.name} · ${fields.persona} · ${fields.topic_outline.join(", ")}`, owner: true });
-        } catch {
-          // Ignore an old malformed result and keep restoring the thread.
+        } else if (message.toolName === "propose_memories") {
+          if (typeof result.note === "string") lines.push({ text: result.note, owner: true });
+          else if (validSaved(result.saved)) lines.push({ text: "", owner: false, saved: result.saved });
+        } else if (message.toolName === "propose_blueprint" && validBlueprint(result)) {
+          lines.push({ text: `${result.name} · ${result.persona} · ${result.topic_outline.join(", ")}`, owner: true });
         }
       }
     }
@@ -340,7 +344,7 @@ export class LoreAgent {
     this.#completed = false;
     this.#turns = 0;
     this.#capped = false;
-    this.options.emit({ type: "working", active: true });
+    this.options.emit({ type: "working", active: true, task });
     try {
       const open = this.#sessions.get(task);
       if (open && (from || latestTaskRecord(open.sessionManager, task)?.state === "done")) {
@@ -360,7 +364,7 @@ export class LoreAgent {
     } finally {
       this.#busy = false;
       this.#activeTask = null;
-      this.options.emit({ type: "working", active: false });
+      this.options.emit({ type: "working", active: false, task });
     }
   }
 
@@ -447,6 +451,18 @@ export class LoreAgent {
     return [session, resumed];
   }
 
+  /** Hold the running task at needs_you while the owner acts, then hand it back to the agent. @template T @param {string | undefined} phase @param {() => Promise<T>} act @param {string} [after] */
+  async #attended(phase, act, after) {
+    const task = this.#activeTask;
+    const session = task && this.#sessions.get(task);
+    if (task && session) this.#record(session, task, "needs_you", phase);
+    try {
+      return await act();
+    } finally {
+      if (task && session) this.#record(session, task, "working", after);
+    }
+  }
+
   #askTool() {
     const parameters = Type.Object({
       questions: Type.Array(
@@ -465,14 +481,8 @@ export class LoreAgent {
       description: "Ask the owner structured questions. Offer the likely answers as options; the owner can always type something else.",
       parameters,
       execute: async (_id, { questions }) => {
-        const task = this.#activeTask;
-        const session = task && this.#sessions.get(task);
-        if (task && session) this.#record(session, task, "needs_you");
-        try {
-          return { content: [{ type: "text", text: JSON.stringify({ answers: await this.options.askUser(questions) }) }], details: {} };
-        } finally {
-          if (task && session) this.#record(session, task, "working");
-        }
+        const answers = await this.#attended(undefined, () => this.options.askUser(questions));
+        return { content: [{ type: "text", text: JSON.stringify({ answers }) }], details: {} };
       }
     });
   }
@@ -490,14 +500,8 @@ export class LoreAgent {
       description: "Show one to five exact memory drafts for the owner to edit, keep, or drop. Keeping saves them privately and returns the saved memories; a correction returns the owner's words for you to revise and propose again.",
       parameters: Type.Object({ entries: Type.Array(entry, { minItems: 1, maxItems: 5 }) }),
       execute: async (_id, { entries }) => {
-        const task = this.#activeTask;
-        const session = task && this.#sessions.get(task);
-        if (task && session) this.#record(session, task, "needs_you", "Review the capture");
-        try {
-          return { content: [{ type: "text", text: JSON.stringify(await this.options.proposeMemories(entries)) }], details: {} };
-        } finally {
-          if (task && session) this.#record(session, task, "working");
-        }
+        const outcome = await this.#attended("Review the capture", () => this.options.proposeMemories(entries));
+        return { content: [{ type: "text", text: JSON.stringify(outcome) }], details: {} };
       }
     });
   }
@@ -520,16 +524,9 @@ export class LoreAgent {
       parameters: Type.Object({ evidence: Type.String({ minLength: 1, maxLength: 240 }), ...fields }),
       execute: async (_id, { evidence, ...proposal }) => {
         if (!validBlueprint(proposal)) throw new Error("Invalid blueprint proposal");
-        const task = this.#activeTask;
-        const session = task && this.#sessions.get(task);
-        if (task && session) this.#record(session, task, "needs_you", "Review your Lore shape");
-        try {
-          const edited = await this.options.proposeBlueprint(/** @type {BlueprintFields} */ (proposal), evidence);
-          if (!validBlueprint(edited)) throw new Error("Invalid blueprint edits");
-          return { content: [{ type: "text", text: JSON.stringify(edited) }], details: {} };
-        } finally {
-          if (task && session) this.#record(session, task, "working", "Lore shape saved");
-        }
+        const edited = await this.#attended("Review your Lore shape", () => this.options.proposeBlueprint(/** @type {BlueprintFields} */ (proposal), evidence), "Lore shape saved");
+        if (!validBlueprint(edited)) throw new Error("Invalid blueprint edits");
+        return { content: [{ type: "text", text: JSON.stringify(edited) }], details: {} };
       }
     });
   }
@@ -541,14 +538,8 @@ export class LoreAgent {
       description: "Sign the owner in to Cloudflare through their browser. Call when wrangler says they are not authenticated; returns who is signed in, or that the owner declined for now.",
       parameters: Type.Object({}),
       execute: async () => {
-        const task = this.#activeTask;
-        const session = task && this.#sessions.get(task);
-        if (task && session) this.#record(session, task, "needs_you", "Sign in to Cloudflare");
-        try {
-          return { content: [{ type: "text", text: await this.options.cloudflareLogin() }], details: {} };
-        } finally {
-          if (task && session) this.#record(session, task, "working");
-        }
+        const text = await this.#attended("Sign in to Cloudflare", () => this.options.cloudflareLogin());
+        return { content: [{ type: "text", text }], details: {} };
       }
     });
   }

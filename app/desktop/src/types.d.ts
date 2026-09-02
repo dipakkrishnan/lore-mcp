@@ -172,7 +172,7 @@ type AgentEvent =
   | AgentRequest
   | { type: "dismiss"; id: string }
   | { type: "live"; task: AgentTask | null; text: string }
-  | { type: "working"; active: boolean }
+  | { type: "working"; active: boolean; task: AgentTask }
   | { type: "changed" }
   | { type: "message"; task: AgentTask | null; text: string }
   | { type: "saved"; task: AgentTask | null; memories: SavedMemory[] }

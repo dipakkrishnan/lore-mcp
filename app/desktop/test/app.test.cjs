@@ -191,9 +191,14 @@ test("sessions persist per task, come back as a thread, and a cut-off tool call 
 
 test("a memory card saves exactly what the owner kept, through the CLI's private capture boundary", async () => {
   const { captureMemories } = require("../src/state.cjs");
-  const { validSaved } = await import("../src/agent.mjs");
+  const { validSaved, validEntries } = await import("../src/agent.mjs");
   const home = await mkdtemp(join(tmpdir(), "lore-desktop-"));
   try {
+    assert.equal(validEntries([]), true, "dropping every entry is a valid decision");
+    assert.equal(validEntries([{ title: "t", content: "c", project: "p" }]), true);
+    for (const bad of [[{ title: " ", content: "c" }], [{ title: "t", content: "" }], [{ title: "t".repeat(301), content: "c" }], [{ title: "t", content: "c", project: 3 }], "nope"]) {
+      assert.equal(validEntries(bad), false, `main refuses ${JSON.stringify(bad).slice(0, 40)} before the CLI sees it`);
+    }
     assert.deepEqual(await captureMemories(home, []), []);
     const saved = await captureMemories(home, [{ title: "Hire management before rapid growth", content: "Add the management layer before the next ten engineers.", project: "team scaling" }]);
     assert.equal(validSaved(saved), true);
