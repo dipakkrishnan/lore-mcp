@@ -45,5 +45,5 @@ a desktop path built on the hand-off card from APP-056.
 
 ## Notes
 
-Shipped in PR #196. Reuses the sign-in secret card rather than adding a
+Shipped in PR #198. Reuses the sign-in secret card rather than adding a
 fourth card shape; the message carries the vault note.
