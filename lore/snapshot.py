@@ -28,6 +28,10 @@ class Manifest(BaseModel):
     manifest_version: Literal[1]
     topics: dict[str, list[ManifestEntry]]
     network: str | None = None
+    # What the node actually charges, baked in at deploy time. Optional: a node
+    # deployed before `discover` advertised it answers without one, and the app
+    # must say nothing about the live price rather than guess.
+    price_usd: float | None = None
 
 
 OBJECT = TypeAdapter(dict[str, Any])
@@ -101,13 +105,17 @@ def _remote_manifest(url: str) -> Manifest:
 
 def _live_state(node_url: str | None) -> tuple[dict[str, object], set[str] | None]:
     if not node_url:
-        return {"state": "not_configured", "network": None}, None
+        return {"state": "not_configured", "network": None, "price_usd": None}, None
     try:
         manifest = _remote_manifest(node_url)
     except (OSError, ValueError, KeyError, IndexError, TypeError):
-        return {"state": "unreachable", "network": None}, None
+        return {"state": "unreachable", "network": None, "price_usd": None}, None
     ids = {entry.id for entries in manifest.topics.values() for entry in entries}
-    return {"state": "online", "network": manifest.network}, ids
+    return {
+        "state": "online",
+        "network": manifest.network,
+        "price_usd": manifest.price_usd,
+    }, ids
 
 
 LIVE_CACHE_SECONDS = 60
@@ -130,7 +138,11 @@ def _cached_live_state(
         and now - float(cached.get("checked_at", 0)) < LIVE_CACHE_SECONDS
     ):
         ids = cached.get("ids")
-        return cached["live"], set(ids) if isinstance(ids, list) else None
+        live = dict(cached["live"])
+        # A cache written before this field existed is still fresh enough to
+        # trust for liveness; it just has nothing to say about the price.
+        live.setdefault("price_usd", None)
+        return live, set(ids) if isinstance(ids, list) else None
     live, ids = _live_state(node_url)
     with Store() as store:
         store.set_setting(

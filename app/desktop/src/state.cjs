@@ -96,6 +96,18 @@ async function captureMemories(loreHome, entries) {
   return JSON.parse(await lore(loreHome, ["capture", "apply", "-"], JSON.stringify(entries)));
 }
 
+/** The one global publication price, saved through Lore's own validation.
+ * Zero is a legal CLI value ("free"), but a store the owner is pricing needs a
+ * positive one — choosing not to sell stays a conversation, not a text field.
+ * @param {string} loreHome @param {unknown} amount */
+async function setPrice(loreHome, amount) {
+  if (typeof amount !== "number" || !Number.isFinite(amount) || amount <= 0) {
+    throw new Error("A price has to be a number above zero");
+  }
+  // Attended, like revoke: the owner typed this amount on a card in the app.
+  await lore(loreHome, ["price", String(amount)], "");
+}
+
 /** @param {string} loreHome @returns {Promise<PublicationCandidate[]>} */
 async function candidates(loreHome) {
   return JSON.parse(await lore(loreHome, ["publication", "candidates"]));
@@ -116,6 +128,7 @@ module.exports = {
   renameMemory,
   editMemory,
   captureMemories,
+  setPrice,
   candidates,
   decide,
   useRuntime

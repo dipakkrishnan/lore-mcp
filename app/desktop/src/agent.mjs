@@ -219,6 +219,7 @@ export class LoreAgent {
         "Keep every message light: a sentence or two, question text under fifteen words, option labels of a few words with one short description, and never restate what a card already shows.",
         "During capture, show proposed memories only through propose_memories, never in prose; that tool saves what the owner keeps and returns the saved memories, or returns the owner's correction for you to revise and propose again. After it saves, say one short sentence and call finish_task; never offer publication, the owner starts that from the saved card.",
         "During onboarding, gather evidence first, then call propose_blueprint once with one bounded proposal; that tool saves the owner-approved shape.",
+        "To set what buyers pay per publication, call propose_price and never run a price command yourself; the owner confirms the exact amount on the card, and the tool returns what they saved or null if they declined. Work from that number, not from what you proposed.",
         "Never mention tools, commands, or files to the owner; speak about memories, their Lore, and their store.",
         "Call finish_task when the current task is complete."
       ].join(" ")
@@ -416,7 +417,7 @@ export class LoreAgent {
       resourceLoader: this.resources,
       settingsManager: this.settings,
       sessionManager,
-      tools: ["read", "write", "edit", "bash", "ask_user", "propose_memories", "propose_blueprint", "cloudflare_login", "finish_task"],
+      tools: ["read", "write", "edit", "bash", "ask_user", "propose_memories", "propose_blueprint", "propose_price", "cloudflare_login", "finish_task"],
       customTools: [
         createBashTool(this.options.loreHome, {
           operations: createSandboxedBashOperations(this.options.loreHome, task, this.options.binDir),
@@ -433,6 +434,7 @@ export class LoreAgent {
         this.#askTool(),
         this.#memoriesTool(),
         this.#blueprintTool(),
+        this.#priceTool(),
         this.#cloudflareTool(),
         this.#finishTool()
       ]
@@ -541,6 +543,24 @@ export class LoreAgent {
         const edited = await this.#attended("Review your Lore shape", () => this.options.proposeBlueprint(/** @type {BlueprintFields} */ (proposal), evidence), "Lore shape saved");
         if (!validBlueprint(edited)) throw new Error("Invalid blueprint edits");
         return { content: [{ type: "text", text: JSON.stringify(edited) }], details: {} };
+      }
+    });
+  }
+
+  #priceTool() {
+    return defineTool({
+      name: "propose_price",
+      label: "Propose a price",
+      description: "Show the owner one suggested price per publication for them to confirm or change. Returns the amount they saved, or null if they declined. The only way to set a price in the app.",
+      parameters: Type.Object({
+        amount: Type.Number({ exclusiveMinimum: 0 }),
+        reason: Type.String({ minLength: 1, maxLength: 240 })
+      }),
+      execute: async (_id, { amount, reason }) => {
+        // No "saved" phase on the way out: the owner may decline, and the card
+        // is the only thing that knows which happened.
+        const saved = await this.#attended("Set your price", () => this.options.proposePrice(amount, reason));
+        return { content: [{ type: "text", text: JSON.stringify({ price_usd: saved }) }], details: {} };
       }
     });
   }

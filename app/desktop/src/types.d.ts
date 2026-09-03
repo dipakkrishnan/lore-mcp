@@ -41,6 +41,10 @@ type Snapshot = {
     live: {
       state: "online" | "not_configured" | "unreachable";
       network: string | null;
+      // What the node itself advertises, which is the price baked in at its
+      // last deploy — not `pricing.publication_usd`, which is what the owner
+      // last saved. Null when unreachable, or when the node predates the field.
+      price_usd: number | null;
     };
   };
 };
@@ -135,6 +139,7 @@ interface Window {
     decide(input: { original: PublicationCandidate; candidate: PublicationCandidate; approve: boolean }): Promise<void>;
     revoke(id: number): Promise<void>;
     push(): Promise<void>;
+    setPrice(amount: number): Promise<void>;
     pickFiles(): Promise<string[]>;
     pathFor(file: File): string;
     onAgentEvent(listener: (event: AgentEvent) => void): () => void;
@@ -168,7 +173,8 @@ type AgentRequest =
   | { type: "memories"; id: string; task: AgentTask | null; entries: ProposedMemory[] }
   | { type: "blueprint"; id: string; task: AgentTask | null; fields: BlueprintFields; evidence: string }
   | { type: "auth-prompt"; id: string; task: AgentTask | null; prompt: AuthPrompt }
-  | { type: "cloudflare"; id: string; task: AgentTask | null };
+  | { type: "cloudflare"; id: string; task: AgentTask | null }
+  | { type: "price"; id: string; task: AgentTask | null; amount: number; reason: string };
 
 type AgentEvent =
   | AgentRequest
@@ -204,6 +210,8 @@ type LoreAgentOptions = {
   askUser(questions: OwnerQuestion[]): Promise<Record<string, string>>;
   proposeMemories(entries: ProposedMemory[]): Promise<MemoryOutcome>;
   proposeBlueprint(fields: BlueprintFields, evidence: string): Promise<BlueprintFields>;
+  /** Resolves to the amount the owner confirmed, or null if they declined. */
+  proposePrice(amount: number, reason: string): Promise<number | null>;
   cloudflareLogin(): Promise<string>;
   authPrompt(prompt: import("@earendil-works/pi-ai").AuthPrompt): Promise<string>;
   authEvent(event: import("@earendil-works/pi-ai").AuthEvent): void;
