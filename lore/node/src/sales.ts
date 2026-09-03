@@ -60,14 +60,21 @@ export function recorded<Args extends ZodRawShapeCompat>(
     const receipt = result._meta?.["x402/payment-response"] as Receipt | undefined;
     const [block] = result.content;
     if (receipt?.success && block.type === "text") {
-      const { item, title } = sold(JSON.parse(block.text), args);
-      await db
-        .prepare(
-          `INSERT INTO sales(kind,item_id,title,price_usd,network,payer,tx,sold_at)
-           VALUES (?1,?2,?3,?4,?5,?6,?7,?8)`
-        )
-        .bind(kind, item, title, priceUsd, receipt.network, receipt.payer ?? "", receipt.transaction, new Date().toISOString())
-        .run();
+      // Payment has already settled by this point (agents/x402's job, not
+      // ours) — a bookkeeping failure here must never cost the buyer the
+      // result they already paid for.
+      try {
+        const { item, title } = sold(JSON.parse(block.text), args);
+        await db
+          .prepare(
+            `INSERT INTO sales(kind,item_id,title,price_usd,network,payer,tx,sold_at)
+             VALUES (?1,?2,?3,?4,?5,?6,?7,?8)`
+          )
+          .bind(kind, item, title, priceUsd, receipt.network, receipt.payer ?? "", receipt.transaction, new Date().toISOString())
+          .run();
+      } catch (err) {
+        console.error("recorded(): failed to write sales row for a settled payment", err);
+      }
     }
     return result;
   };

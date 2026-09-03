@@ -205,6 +205,30 @@ describe("get (paid)", () => {
     }
   });
 
+  it("still returns the paid-for content when writing the sales row throws", async () => {
+    mockFacilitator();
+    const client = await connect();
+    const realPrepare = env.LORE_DB.prepare.bind(env.LORE_DB);
+    const prepareSpy = vi.spyOn(env.LORE_DB, "prepare").mockImplementation((sql: string) => {
+      if (sql.includes("INSERT INTO sales")) throw new Error("simulated D1 write failure");
+      return realPrepare(sql);
+    });
+    try {
+      const token = await challengeAndBuildToken(client);
+      const paid = await client.callTool({
+        name: "get",
+        arguments: { id: FIXTURE_PUBLICATION_ID },
+        _meta: { "x402/payment": token }
+      });
+      expect(paid.isError).toBeUndefined();
+      const publication = textOf(paid).publication as { content: string };
+      expect(publication.content).toContain("secret owner-approved content");
+    } finally {
+      prepareSpy.mockRestore();
+      await client.close();
+    }
+  });
+
   it("fails closed when settlement fails after a successful verification", async () => {
     mockFacilitator({ settle: { kind: "http-error", status: 503 } });
     const client = await connect();
