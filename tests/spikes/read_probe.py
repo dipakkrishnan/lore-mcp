@@ -30,8 +30,16 @@ def main(path: str) -> int:
     db = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
 
     # Can it open the file and read the plain table at all?
-    attempt("open_and_count_publications", lambda: db.execute("SELECT count(*) FROM publications").fetchone()[0])
-    attempt("list_tables", lambda: [r[0] for r in db.execute("SELECT name FROM sqlite_master ORDER BY name")])
+    attempt(
+        "open_and_count_publications",
+        lambda: db.execute("SELECT count(*) FROM publications").fetchone()[0],
+    )
+    attempt(
+        "list_tables",
+        lambda: [
+            r[0] for r in db.execute("SELECT name FROM sqlite_master ORDER BY name")
+        ],
+    )
 
     # The question that matters: querying the FTS index.
     def fts_query() -> list[int]:

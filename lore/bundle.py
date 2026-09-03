@@ -146,9 +146,7 @@ def _normalize(
     return sorted(rows, key=lambda row: row.public_id)
 
 
-def digest(
-    publications: Iterable[BundlePublication], price_usd: float | None
-) -> str:
+def digest(publications: Iterable[BundlePublication], price_usd: float | None) -> str:
     """Hash the bundle's *contents*, canonically.
 
     Deliberately not a hash of the file bytes: SQLite files are not stable across
@@ -280,7 +278,9 @@ class BundleReader:
                 for row in self.db.execute("SELECT key,value FROM meta")
             }
         except sqlite3.Error as error:
-            raise BundleUnreadable(f"bundle at {self.path} is not readable: {error}")
+            raise BundleUnreadable(
+                f"bundle at {self.path} is not readable: {error}"
+            ) from error
         version = self._meta.get("schema_version")
         if version != SCHEMA_VERSION:
             raise BundleUnreadable(
@@ -321,7 +321,9 @@ class BundleReader:
         try:
             built = datetime.fromisoformat(self.built_at)
         except ValueError as error:
-            raise BundleUnreadable(f"bundle has an unparseable build time: {error}")
+            raise BundleUnreadable(
+                f"bundle has an unparseable build time: {error}"
+            ) from error
         # A bundle Lore wrote always stamps an aware timestamp. Treating a naive
         # one as UTC keeps a hand-edited bundle from failing the age check with a
         # TypeError, which would read as a bug rather than as bad input.
@@ -348,7 +350,9 @@ class BundleReader:
         """Read an exported setting. Only `price_usd` is ever exported."""
         return self._meta.get(key, default)
 
-    def search_publications(self, query: str, *, limit: int = 5) -> list[BundlePublication]:
+    def search_publications(
+        self, query: str, *, limit: int = 5
+    ) -> list[BundlePublication]:
         """Search the bundle. Mirrors `Store.search_publications` exactly.
 
         Refuses to answer from an expired bundle rather than returning content,

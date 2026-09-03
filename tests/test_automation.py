@@ -11,11 +11,11 @@ import json
 import os
 import stat
 import sys
+import tomllib
 import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-import tomllib
 from helpers import LoreTestCase, automation_profile
 
 from lore import automation
