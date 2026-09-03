@@ -51,6 +51,19 @@ function loreStream(loreHome, args, onLine) {
   return stream(runtime.file, [...runtime.args, ...args], { LORE_HOME: loreHome, NO_COLOR: "1" }, onLine, runtime.cwd);
 }
 
+/** The hosts the payments skill sends an owner to; anything else stays closed. */
+const OPENABLE = new Set(["coinbase.com", "www.coinbase.com", "dash.cloudflare.com", "portal.cdp.coinbase.com", "faucet.circle.com", "basescan.org", "sepolia.basescan.org"]);
+
+/** @param {string} url */
+function openable(url) {
+  try {
+    const { protocol, hostname } = new URL(url);
+    return protocol === "https:" && OPENABLE.has(hostname);
+  } catch {
+    return false;
+  }
+}
+
 /** @param {string} loreHome */
 async function readState(loreHome) {
   const value = JSON.parse(await lore(loreHome, ["desktop-state"]));
@@ -58,6 +71,11 @@ async function readState(loreHome) {
     throw new Error("Lore returned an unsupported desktop state");
   }
   return /** @type {Snapshot} */ (value);
+}
+
+/** @param {string} loreHome @returns {Promise<Sale[]>} */
+async function readSales(loreHome) {
+  return JSON.parse(await lore(loreHome, ["node", "sales", "--json"]));
 }
 
 /** @param {string} loreHome @param {string} query @returns {Promise<SearchHit[]>} */
@@ -110,7 +128,9 @@ module.exports = {
   lore,
   loreStream,
   stream,
+  openable,
   readState,
+  readSales,
   searchMemories,
   readMemory,
   renameMemory,

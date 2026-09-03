@@ -254,8 +254,9 @@ legend { font-weight: 500; font-size: 14px; margin-bottom: 6px; }
 .t a { color: var(--accent); }
 .address { display: flex; align-items: baseline; gap: 12px; font-size: 12px; }
 .address .mono { color: var(--accent); -webkit-user-select: text; user-select: text; }
-.address a.link-btn { display: inline-flex; align-items: center; height: 22px; padding: 0 8px; border: 1px solid var(--line-strong); border-radius: 6px; background: var(--surface); color: var(--accent); font-size: 12px; }
-.address a.link-btn:hover { background: var(--hover); text-decoration: none; }
+a.link-btn { display: inline-flex; align-items: center; height: 22px; padding: 0 8px; border: 1px solid var(--line-strong); border-radius: 6px; background: var(--surface); color: var(--accent); font-size: 12px; }
+a.link-btn:hover { background: var(--hover); text-decoration: none; }
+a.link-btn.glyph { width: 22px; padding: 0; justify-content: center; color: var(--muted); }
 .row .v { display: flex; align-items: center; gap: 10px; flex-shrink: 0; font-size: 13px; color: var(--ink-soft); }
 .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--attention); flex-shrink: 0; }
 .dot.ok { background: var(--ok); }
