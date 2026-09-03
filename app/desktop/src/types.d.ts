@@ -8,6 +8,7 @@ type MemoryItem = {
 
 type PublicationItem = {
   id: number;
+  public_id: string;
   title: string;
   topic: string;
   state: "approved" | "revoked";
@@ -41,8 +42,21 @@ type Snapshot = {
     live: {
       state: "online" | "not_configured" | "unreachable";
       network: string | null;
+      payout: string | null;
     };
   };
+};
+
+/** One settled paid call, as the node's ledger records it. */
+type Sale = {
+  kind: "publication" | "answer";
+  item_id: string;
+  title: string;
+  price_usd: number;
+  network: string;
+  payer: string;
+  tx: string;
+  sold_at: string;
 };
 
 type SearchHit = {
@@ -135,6 +149,7 @@ interface Window {
     decide(input: { original: PublicationCandidate; candidate: PublicationCandidate; approve: boolean }): Promise<void>;
     revoke(id: number): Promise<void>;
     push(): Promise<void>;
+    sales(): Promise<Sale[]>;
     pickFiles(): Promise<string[]>;
     pathFor(file: File): string;
     onAgentEvent(listener: (event: AgentEvent) => void): () => void;
