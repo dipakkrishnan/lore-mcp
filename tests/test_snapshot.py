@@ -5,6 +5,7 @@ import os
 import subprocess
 import sys
 import threading
+import time
 import unittest
 from contextlib import contextmanager
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -243,6 +244,29 @@ class DesktopSnapshotTest(LoreTestCase):
         state = json.loads(output.getvalue())
         self.assertEqual(state["node"]["live"]["state"], "unreachable")
         self.assertEqual(state["node"]["live"]["network"], None)
+
+    def test_the_node_probe_is_cached_briefly_and_forgotten_after_a_push(self) -> None:
+        with Store() as store:
+            store.set_setting("node_url", "https://offline.example/mcp")
+        with patch(
+            "lore.snapshot._remote_manifest", side_effect=OSError("offline")
+        ) as probe:
+            snapshot.build()
+            state = snapshot.build()
+            self.assertEqual(probe.call_count, 1)
+            self.assertEqual(state["node"]["live"]["state"], "unreachable")
+            snapshot.forget_live()
+            snapshot.build()
+            self.assertEqual(probe.call_count, 2)
+            with Store() as store:
+                store.set_setting("node_url", "https://elsewhere.example/mcp")
+            snapshot.build()
+            self.assertEqual(
+                probe.call_count, 3, "a new address is never served from cache"
+            )
+            with patch("lore.snapshot.time.time", return_value=time.time() + 61):
+                snapshot.build()
+            self.assertEqual(probe.call_count, 4, "the cache expires")
 
     def test_event_stream_with_no_data_line_is_unreachable_not_a_crash(self) -> None:
         response = Mock()

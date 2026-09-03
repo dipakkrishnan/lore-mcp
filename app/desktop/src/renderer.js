@@ -3,6 +3,7 @@ const $ = (selector) => /** @type {HTMLElement} */ (document.querySelector(selec
 const welcome = $("#welcome");
 const appShell = $("#app");
 const welcomeNote = $("#welcome-note");
+const welcomeRetry = /** @type {HTMLButtonElement} */ ($("#welcome-retry"));
 const keyForm = /** @type {HTMLFormElement} */ ($("#key-form"));
 const eyebrow = $("#eyebrow");
 const title = $("#title");
@@ -58,6 +59,10 @@ let pushing = false;
 /** @type {string | false} */
 let pushedNote = false;
 let accountMenuOpen = false;
+/** The task whose turn is open, while one is. @type {AgentTask | null} */
+let busy = null;
+/** The card awaiting the owner. A memory card also carries `current`, its entries as edited, so the composer can send a spoken or typed correction with them. @type {{id: string, task: AgentTask | null, box: HTMLElement, current?: () => ProposedMemory[]} | null} */
+let request = null;
 
 const RING = `<svg viewBox="0 0 26 26" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M13 4.5a8.5 8.5 0 1 1-6 2.5"></path><path d="M13 9a4 4 0 1 1-2.8 1.2"></path><circle cx="13" cy="13" r="1.2" fill="currentColor" stroke="none"></circle></svg>`;
 const PROVIDERS = {
@@ -66,6 +71,9 @@ const PROVIDERS = {
   openai: ["OpenAI", "assets/openai.svg"]
 };
 const NETWORKS = { "eip155:8453": "Base", "eip155:84532": "Base Sepolia, test network" };
+const TEST_NETWORK = "eip155:84532";
+const CHANGE_PRICE = "I want to change the price on my store. Set the new price and redeploy so buyers pay the new amount.";
+const REAL_MONEY = "I'm ready to switch my store to real money.";
 const money = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" });
 const shortDate = new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric" });
 const longDate = new Intl.DateTimeFormat("en-US", { weekday: "long", month: "long", day: "numeric" });
@@ -140,11 +148,13 @@ function markdown(text) {
   return node;
 }
 
-/** @param {{id: number, title: string}} memory */
-async function publishMemory(memory) {
+/** @param {{id: number, title: string}} memory @param {AgentTask} [from] The thread the agent should continue from. */
+async function publishMemory(memory, from) {
   closeSheet();
   await openTask("publish");
-  await send(`Help me publish something from my Lore. Start from memory ${memory.id}: "${memory.title}".`);
+  // A pending draft for this memory, or the publish agent mid-draft, is the thread itself: open it, never start a second turn.
+  if (busy === "publish" || candidates.some((candidate) => candidate.provenance.includes(memory.id))) return;
+  await send(`Help me publish something from my Lore. Start from memory ${memory.id}: "${memory.title}".`, from);
 }
 
 /** @param {number | string} id @param {string} title @param {string} detail */
@@ -160,6 +170,16 @@ function memoryRow(id, title, detail) {
   return node;
 }
 
+/** Render a memory's content as markdown, pulling the description out of any frontmatter. @param {string} content */
+function renderMemoryBody(content) {
+  const meta = content.match(FRONTMATTER)?.[1] ?? "";
+  const node = markdown(content.replace(FRONTMATTER, ""));
+  node.classList.add("body");
+  const description = meta.match(/^description:\s*(.+)$/m)?.[1].trim().replace(/^(["'])(.*)\1$/, "$2");
+  if (description) node.prepend(el("p", "lede", description));
+  return node;
+}
+
 /** @param {number} id */
 async function openMemory(id) {
   /** @type {Memory} */
@@ -167,7 +187,7 @@ async function openMemory(id) {
   try {
     memory = await window.lore.memory(id);
   } catch (error) {
-    say(reason(error, "Lore could not open that."));
+    tell(reason(error, "Lore could not open that."), true);
     return;
   }
   closeSheet();
@@ -183,12 +203,46 @@ async function openMemory(id) {
   close.type = "button";
   close.setAttribute("aria-label", "Close");
   close.addEventListener("click", closeSheet);
-  head.append(text, button("Draft for sale", "quiet", () => void publishMemory(memory)), close);
-  const meta = memory.content.match(FRONTMATTER)?.[1] ?? "";
-  const body = markdown(memory.content.replace(FRONTMATTER, ""));
-  body.classList.add("body");
-  const description = meta.match(/^description:\s*(.+)$/m)?.[1].trim().replace(/^(["'])(.*)\1$/, "$2");
-  if (description) body.prepend(el("p", "lede", description));
+  const actions = el("div");
+  actions.style.display = "flex";
+  actions.style.gap = "8px";
+  function showActions() {
+    actions.replaceChildren(button("Edit", "quiet", startEdit), button("Draft for sale", "quiet", () => void publishMemory(memory)));
+  }
+  /** @type {HTMLElement} */
+  let body = renderMemoryBody(memory.content);
+  function startEdit() {
+    const textarea = /** @type {HTMLTextAreaElement} */ (el("textarea", "body-edit"));
+    textarea.value = memory.content;
+    textarea.setAttribute("aria-label", "Memory content");
+    body.replaceWith(textarea);
+    textarea.focus();
+    actions.replaceChildren(button("Cancel", "secondary", cancelEdit), button("Save", "primary", () => void saveEdit()));
+    textarea.addEventListener("keydown", (event) => {
+      if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); cancelEdit(); }
+      else if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) { event.preventDefault(); void saveEdit(); }
+    });
+    function cancelEdit() {
+      textarea.replaceWith(body);
+      showActions();
+    }
+    async function saveEdit() {
+      const value = textarea.value.trim();
+      if (!value || value === memory.content) { cancelEdit(); return; }
+      try {
+        memory = await window.lore.editMemory(memory.id, value);
+      } catch (error) {
+        tell(reason(error, "Lore could not save that."), true);
+        return;
+      }
+      body = renderMemoryBody(memory.content);
+      textarea.replaceWith(body);
+      showActions();
+      void load();
+    }
+  }
+  showActions();
+  head.append(text, actions, close);
   panel.append(head, body);
   sheet.append(panel);
   sheet.addEventListener("click", (event) => { if (event.target === sheet) closeSheet(); });
@@ -291,23 +345,17 @@ function needsYou(s) {
   else if (!s.setup.blueprint_configured) add("Shape your Lore", "Review one proposal based on what your agents already know.", button("Start", "secondary", startSetup));
   else if (!s.setup.profile_configured) add("Set the rhythm", "Choose which model writes new memories, and how often.", button("Start", "secondary", startSetup));
   else {
-    if (!s.node.url) add("Open your store", "A payout address, a price, and a node on the test network first. Free until you say otherwise.", button("Open", "secondary", startDeploy));
+    if (!s.node.url) add("Open your store", "A payout address, a price, and a node on the test network first. Free until you say otherwise.", button("Open", "secondary", () => void startDeploy()));
     if (s.library.counts.private && !candidates.length) add("Publish something", "Lore drafts up to three things to sell; you approve each one.", button("Publish", "secondary", startPublish));
   }
+  // Approved work a buyer cannot see yet is actionable whatever rung setup is on.
+  const waiting = unpushed(s);
+  if (waiting.length && !pushOffer && !pushing) add("Push to your store", `${waiting.length} approved, not on your store yet.`, button("Push", "secondary", pushNow));
   return rows;
 }
 
 function displayTasks() {
-  /** @type {TaskRecord[]} */
-  const items = taskItems.slice(0, 3).map((item) =>
-    item.kind === "publish" && candidates.length
-      ? { ...item, state: /** @type {TaskState} */ ("needs_you"), phase: draftsPhase() }
-      : item
-  );
-  if (candidates.length && !items.some((item) => item.kind === "publish")) {
-    items.unshift({ version: 1, kind: "publish", title: TASK_TITLES.publish, state: "needs_you", phase: draftsPhase(), updatedAt: new Date().toISOString() });
-  }
-  return items.slice(0, 3);
+  return taskItems.slice(0, 3);
 }
 
 function draftsPhase() {
@@ -402,7 +450,13 @@ function renderStore(s) {
     prices.append(item);
   }
   bar.append(lead, prices);
+  if (unpushed(s).length && !pushOffer) {
+    const push = button(pushing ? "Pushing…" : "Push to your store", "primary", pushNow);
+    push.disabled = pushing;
+    bar.append(push);
+  }
   const approved = s.publications.items.filter((item) => item.state === "approved");
+  const waiting = unpushed(s);
   const revoked = s.publications.items.filter((item) => item.state === "revoked");
   /** @param {PublicationItem} item */
   const state = (item) => item.live === true ? chip("Live", "ok") : item.live === false ? chip("Not live yet") : chip("Approved");
@@ -429,13 +483,13 @@ function renderStore(s) {
   parts.push(section("For sale", approved.length
     ? card(approved.map((item) => row(item.title, item.topic, controls(item))))
     : el("div", "card pad empty", "Nothing for sale yet. Publish something from Today."),
-    el("span", "hint", approved.length ? `${approved.length} ${approved.length === 1 ? "publication" : "publications"}${live.state === "online" ? " · confirmed on your node" : ""}` : "")));
+    el("span", "hint", approved.length ? `${approved.length} ${approved.length === 1 ? "publication" : "publications"}${live.state !== "online" ? "" : waiting.length ? ` · ${waiting.length} not on your store yet` : " · confirmed on your node"}` : "")));
   if (revoked.length) parts.push(section("Taken down", card(revoked.map((item) => row(item.title, item.topic, chip("Revoked"))))));
   const sales = el("div", "card pad");
   sales.style.display = "flex";
   sales.style.justifyContent = "space-between";
   sales.style.gap = "16px";
-  sales.append(el("span", "empty", "Nothing sold yet. Buyers' agents pay per call; the first one shows up here with what it paid."));
+  sales.append(el("span", "empty", "Sales don't show up here yet. Buyers' agents pay per call, and each payment lands in the payout wallet you gave when you opened your store."));
   parts.push(section("Sales", sales));
   return parts;
 }
@@ -482,7 +536,10 @@ function renderSettings(s) {
     ])),
     section("Your store", card([
       row("Address", s.node.url ? storeAddress(s.node.url) : "Not opened yet.", value(status(live.state === "online", live.state === "online" ? `Live on ${networkLabel(live.network) || "your node"}` : nodeLabel(live.state))), false),
-      row("Prices", "What a buyer's agent pays per call.", value(el("span", "mono", `${price(s.pricing.publication_usd)} publication${s.pricing.answer_enabled ? ` · ${price(s.pricing.answer_usd)} answer` : ""}`)), false)
+      row("Prices", "What a buyer's agent pays per call.", value(el("span", "mono", `${price(s.pricing.publication_usd)} publication${s.pricing.answer_enabled ? ` · ${price(s.pricing.answer_usd)} answer` : ""}`), ...(s.node.url ? [button("Change price", "quiet", () => void startDeploy(CHANGE_PRICE))] : [])), false),
+      ...(live.network === TEST_NETWORK
+        ? [row("Payments", "Buyers on the test network pay with play money. Switch when you want real buyers paying real money.", value(button("Switch to real payments", "secondary", () => void startDeploy(REAL_MONEY))), false)]
+        : [])
     ]))
   ];
 }
@@ -503,10 +560,7 @@ function render() {
   addMemoryBtn.hidden = Boolean(detail) || view !== "memories";
   captureArea.hidden = view !== "today";
   log.hidden = !detail;
-  composer.hidden = Boolean(requestSlot.childElementCount) || ((detail === "setup" || detail === "deploy") && detailRecord?.state === "done");
-  input.placeholder = detail ? "Reply to Lore…" : "What did you learn today?";
-  inputLabel.textContent = detail ? "Reply to Lore" : "What did you learn today?";
-  submit.textContent = detail ? "Send" : "Capture";
+  syncComposer();
   for (const nav of navButtons) nav.setAttribute("aria-pressed", String(nav.dataset.view === view));
   if (!snapshot) return;
   $("[data-count=memories]").textContent = String(snapshot.library.counts.private);
@@ -571,14 +625,12 @@ function show(next) {
 }
 
 async function load() {
-  status.textContent = snapshot ? "" : "Loading…";
+  if (!snapshot) content.replaceChildren(el("p", "hint", "Loading…"));
   try {
     [snapshot, candidates, taskItems] = await Promise.all([window.lore.snapshot(), window.lore.candidates().catch(() => []), window.lore.tasks().catch(() => [])]);
-    status.textContent = "";
     if (detailTask) detailRecord = taskItems.find((item) => item.kind === detailTask) ?? detailRecord;
     render();
   } catch {
-    status.textContent = "";
     const error = el("section", "card error");
     error.setAttribute("role", "alert");
     error.append(el("h2", "", "Lore could not load"), el("p", "hint", "Your data was not changed. Check that Lore is installed, then try again."), button("Try again", "secondary", load));
@@ -593,16 +645,76 @@ function say(text, owner = false, stopped = false) {
   renderLog();
 }
 
+/** @type {Array<{text: string, attention: boolean}>} */
+const notices = [];
+
+/** Something Lore did or could not do, said where the owner is: in the open thread, or as a notice above the page when the log is hidden. @param {string} text @param {boolean} [attention] */
+function tell(text, attention = false) {
+  if (!log.hidden) { say(text, false, attention); return; }
+  notices.push({ text, attention });
+  if (notices.length > 3) notices.shift();
+  renderNotices();
+}
+
+function renderNotices() {
+  status.replaceChildren(...notices.map((item) => {
+    const box = el("div", item.attention ? "notice attention" : "notice");
+    const dismiss = el("button", "dismiss", "×");
+    dismiss.type = "button";
+    dismiss.setAttribute("aria-label", "Dismiss");
+    dismiss.addEventListener("click", () => { notices.splice(notices.indexOf(item), 1); renderNotices(); });
+    box.append(el("span", "", item.text), dismiss);
+    return box;
+  }));
+}
+
 /** @param {string} text */
 function live(text) {
   liveText = text;
   renderLog();
 }
 
+/** What capture kept, with the one next step an owner may want. @param {SavedMemory[]} saved */
+function savedCard(saved) {
+  if (!saved.length) return el("p", "", "Nothing saved.");
+  return card(saved.map((memory) => {
+    // Only the capture thread offers the next step; a publish thread forked from it restores these same lines.
+    const draft = detailTask === "capture" ? button("Draft for sale", "quiet", () => void publishMemory(memory, "capture")) : undefined;
+    if (draft) draft.disabled = busy !== null;
+    return row(memory.title, memory.status === "unchanged" ? "Already in your Lore" : "Saved, only on this Mac", draft);
+  }));
+}
+
+/** The card that belongs in the open thread; a card from another thread waits there. */
+function shownRequest() {
+  return request && (!request.task || request.task === detailTask) ? request : null;
+}
+
+/** Derive the composer from what is on screen: a memory card keeps it open for corrections, any other card hides it, an open turn locks it. */
+function syncComposer() {
+  const shown = shownRequest();
+  const card = shown?.current ? shown : null;
+  const locked = busy !== null && !card;
+  requestSlot.hidden = !shown;
+  composer.hidden = (shown !== null && !card) || ((detailTask === "setup" || detailTask === "deploy") && detailRecord?.state === "done");
+  input.disabled = locked;
+  submit.disabled = locked;
+  composer.classList.toggle("working", locked);
+  input.placeholder = locked ? (request?.current ? "Lore is waiting on your capture…" : "Lore is working…") : card ? "Or say what to change…" : detailTask ? "Reply to Lore…" : "What did you learn today?";
+  inputLabel.textContent = card ? "Say what to change" : detailTask ? "Reply to Lore" : "What did you learn today?";
+  submit.textContent = detailTask ? "Send" : "Capture";
+}
+
+function clearRequest() {
+  request = null;
+  requestSlot.replaceChildren();
+  syncComposer();
+}
+
 function renderLog() {
-  log.replaceChildren(...lines.map(({ text, owner, stopped }) => {
+  log.replaceChildren(...lines.map(({ text, owner, stopped, saved }) => {
     const line = el("div", owner ? "line owner" : stopped ? "line stop" : "line");
-    line.append(owner ? el("span", "you", "You") : mark("mark mark-sm"), owner ? el("p", "", text) : markdown(text));
+    line.append(owner ? el("span", "you", "You") : mark("mark mark-sm"), saved ? savedCard(saved) : owner ? el("p", "", text) : markdown(text));
     return line;
   }));
   if (liveText) {
@@ -610,22 +722,15 @@ function renderLog() {
     line.append(mark("mark mark-sm"), markdown(liveText));
     log.append(line);
   }
-  agentPanel.hidden = !lines.length && !liveText && !requestSlot.childElementCount && !detailSlot.childElementCount;
+  agentPanel.hidden = !lines.length && !liveText && !shownRequest() && !detailSlot.childElementCount;
   if (log.lastElementChild) mainEl.scrollTop = mainEl.scrollHeight;
-}
-
-/** @param {boolean} active */
-function working(active) {
-  input.disabled = active;
-  submit.disabled = active;
-  composer.classList.toggle("working", active);
-  input.placeholder = active ? "Lore is working…" : detailTask ? "Reply to Lore…" : "What did you learn today?";
-  if (active && !liveText) live({ setup: "Thinking…", publish: "Drafting…", capture: "Reading this…", deploy: "Setting up your store…" }[task]);
 }
 
 /** @param {AgentRequest} event */
 function renderRequest(event) {
-  const box = el("form", "card lead request");
+  const box = /** @type {HTMLFormElement} */ (el("form", "card lead request"));
+  /** A memory card's entries as edited. @type {(() => ProposedMemory[]) | undefined} */
+  let current;
   if (event.type === "question") {
     for (const [index, question] of event.questions.entries()) {
       const fieldset = el("fieldset");
@@ -665,6 +770,43 @@ function renderRequest(event) {
       }
       respond(event.id, answers, Object.values(answers).filter(Boolean).join(" · "));
     });
+  } else if (event.type === "memories") {
+    const list = el("div", "card pad stack");
+    /** @type {Array<{entry: ProposedMemory, node: HTMLElement, title: HTMLInputElement | HTMLTextAreaElement, content: HTMLInputElement | HTMLTextAreaElement}>} */
+    let drafts = [];
+    const keep = el("button", "btn primary sm");
+    keep.type = "submit";
+    const relabel = () => { keep.textContent = drafts.length === 1 ? "Keep this memory" : "Keep these"; keep.disabled = !drafts.length; };
+    for (const entry of event.entries) {
+      const node = el("div", "memory");
+      const title = draftField(node, "Title", entry.title, true);
+      const content = draftField(node, "What to remember", entry.content);
+      title.maxLength = 300;
+      content.maxLength = 20_000;
+      const meta = el("div", "meta");
+      if (entry.project) meta.append(chip(entry.project));
+      meta.append(button("Drop", "quiet", () => { drafts = drafts.filter((draft) => draft.node !== node); node.remove(); relabel(); }));
+      node.append(meta);
+      list.append(node);
+      drafts.push({ entry, node, title, content });
+    }
+    relabel();
+    const edited = () => drafts.map(({ entry, title, content }) => ({ ...entry, title: title.value.trim(), content: content.value.trim() }));
+    current = edited;
+    box.append(
+      el("p", "q", event.entries.length === 1 ? "Keep this memory?" : "Keep these memories?"),
+      el("p", "hint", "Edit anything here, or say what to change below. Nothing is saved until you keep it."),
+      list
+    );
+    const actions = el("div", "actions");
+    actions.append(button("Drop all", "secondary", () => respond(event.id, { entries: [] }, "Drop them")), keep);
+    box.append(actions);
+    box.addEventListener("submit", (submitEvent) => {
+      submitEvent.preventDefault();
+      for (const { title, content } of drafts) for (const field of [title, content]) field.setCustomValidity(field.value.trim() ? "" : "Write something here, or drop this memory.");
+      if (!box.reportValidity()) return;
+      respond(event.id, { entries: edited() }, drafts.length === 1 ? "Keep it" : "Keep these");
+    });
   } else if (event.type === "blueprint") {
     box.append(el("p", "q", "Use this shape for your Lore?"), el("p", "hint", event.evidence));
     const inputs = el("div", "blueprint-fields");
@@ -682,6 +824,7 @@ function renderRequest(event) {
       } else {
         inputField = el("input");
         inputField.type = "text";
+        enterMovesOn(inputField, inputs);
       }
       inputField.value = value;
       field.append(inputField);
@@ -774,13 +917,13 @@ function renderRequest(event) {
       respond(event.id, value);
     });
   }
-  box.dataset.id = event.id;
+  request = { id: event.id, task: event.task, box, current };
   requestSlot.replaceChildren(box);
   agentPanel.hidden = false;
-  composer.hidden = true;
+  syncComposer();
   if (view !== "today") show("today");
   for (const area of box.querySelectorAll("textarea")) fit(/** @type {HTMLTextAreaElement} */ (area));
-  if (event.type === "question" || event.type === "blueprint") {
+  if (event.type === "question" || event.type === "memories" || event.type === "blueprint") {
     mainEl.scrollTop = Math.max(0, box.getBoundingClientRect().top - mainEl.getBoundingClientRect().top + mainEl.scrollTop - 16);
   } else {
     mainEl.scrollTop = mainEl.scrollHeight;
@@ -790,8 +933,7 @@ function renderRequest(event) {
 
 /** @param {string} id @param {unknown} value @param {string} [echo] */
 async function respond(id, value, echo) {
-  requestSlot.replaceChildren();
-  composer.hidden = false;
+  clearRequest();
   if (echo) say(echo, true);
   else renderLog();
   await window.lore.respond({ id, value });
@@ -802,10 +944,12 @@ async function startSetup() {
   await send("Let's set up my Lore.");
 }
 
-async function startDeploy() {
+/** @param {string} [intent] */
+async function startDeploy(intent = "Help me open my store.") {
   await openTask("deploy");
-  await send("Help me open my store.");
+  await send(intent);
 }
+
 
 /** @param {Snapshot} s */
 function nextRung(s) {
@@ -847,7 +991,7 @@ async function openTask(kind, record) {
   task = kind;
   detailTask = kind;
   detailRecord = record ?? taskItems.find((item) => item.kind === kind) ?? null;
-  lines.splice(0, lines.length, ...await window.lore.history(kind).catch(() => []));
+  lines.splice(0, lines.length, ...(detailRecord ? await window.lore.history(kind).catch(() => []) : []));
   liveText = "";
   show("today");
   renderLog();
@@ -861,7 +1005,7 @@ async function startOver(kind) {
   detailRecord = null;
   lines.splice(0);
   liveText = "";
-  requestSlot.replaceChildren();
+  clearRequest();
   show("today");
   renderLog();
   input.focus({ preventScroll: true });
@@ -877,43 +1021,62 @@ function closeTask() {
   render();
 }
 
+/** An editable field on a draft card. @param {HTMLElement} parent @param {string} label @param {string} value @param {boolean} [singleLine] */
+function draftField(parent, label, value, singleLine = false) {
+  const wrapper = el("label", "draft-field");
+  wrapper.append(el("span", "hint", label));
+  const control = singleLine ? el("input", "draft-title") : el("textarea");
+  if (control instanceof HTMLInputElement) { control.type = "text"; enterMovesOn(control, parent); }
+  else { control.rows = 1; control.addEventListener("input", () => fit(control)); }
+  control.value = value;
+  wrapper.append(control);
+  parent.append(wrapper);
+  return control;
+}
+
+/** Enter in a one-line field moves to the next field instead of submitting the card. @param {HTMLInputElement} field @param {HTMLElement} within */
+function enterMovesOn(field, within) {
+  field.addEventListener("keydown", (event) => {
+    if (event.key !== "Enter") return;
+    event.preventDefault();
+    /** @type {HTMLElement | null} */ (within.querySelector("textarea, select"))?.focus();
+  });
+}
+
+/** Approval forms outlive renders, so edits survive the agent's next event. @type {Map<string, HTMLElement>} */
+const approvalForms = new Map();
+
 function approvals() {
-  const list = el("div", "card pad");
-  list.style.display = "flex";
-  list.style.flexDirection = "column";
-  list.style.gap = "10px";
+  const list = el("div", "card pad stack");
+  const shown = new Set();
   for (const candidate of candidates) {
-    const memory = el("div", "memory");
-    const field = (/** @type {string} */ label, /** @type {string} */ value, singleLine = false) => {
-      const wrapper = el("label", "draft-field");
-      wrapper.append(el("span", "hint", label));
-      const control = singleLine ? el("input", "draft-title") : el("textarea");
-      if (control instanceof HTMLInputElement) control.type = "text";
-      else { control.rows = 1; control.addEventListener("input", () => fit(control)); }
-      control.value = value;
-      wrapper.append(control);
-      memory.append(wrapper);
-      return control;
-    };
-    const title = field("Title", candidate.title, true);
-    const teaser = field("Free teaser, what buyers see first", candidate.teaser);
-    const paid = field("Paid content, what a buyer's agent gets", candidate.content);
-    const meta = el("div", "meta");
-    meta.append(chip(candidate.topic));
-    if (candidate.kind === "content") meta.append(chip("Verbatim"));
-    const group = el("div");
-    group.style.display = "flex";
-    group.style.gap = "8px";
-    group.style.marginLeft = "auto";
-    group.append(
-      button("Skip", "secondary", () => decide(candidate, false)),
-      button("Approve", "primary", () => decide(candidate, true, { ...candidate, title: title.value, teaser: teaser.value, content: paid.value }))
-    );
-    meta.append(group);
-    memory.append(meta);
-    list.append(memory);
+    const key = JSON.stringify(candidate);
+    shown.add(key);
+    const form = approvalForms.get(key) ?? approvalForm(candidate);
+    approvalForms.set(key, form);
+    list.append(form);
   }
+  for (const key of approvalForms.keys()) if (!shown.has(key)) approvalForms.delete(key);
   return list;
+}
+
+/** @param {PublicationCandidate} candidate */
+function approvalForm(candidate) {
+  const memory = el("div", "memory");
+  const title = draftField(memory, "Title", candidate.title, true);
+  const teaser = draftField(memory, "Free teaser, what buyers see first", candidate.teaser);
+  const paid = draftField(memory, "Paid content, what a buyer's agent gets", candidate.content);
+  const meta = el("div", "meta");
+  meta.append(chip(candidate.topic));
+  if (candidate.kind === "content") meta.append(chip("Verbatim"));
+  const group = el("div", "group");
+  group.append(
+    button("Skip", "secondary", () => decide(candidate, false)),
+    button("Approve", "primary", () => decide(candidate, true, { ...candidate, title: title.value, teaser: teaser.value, content: paid.value }))
+  );
+  meta.append(group);
+  memory.append(meta);
+  return memory;
 }
 
 function seamCard() {
@@ -921,24 +1084,31 @@ function seamCard() {
   box.append(el("p", "q", "Push to your store now?"), el("p", "hint", pushOffer || ""));
   const actions = el("div", "actions");
   const leave = button("Leave it for now", "secondary", () => { pushOffer = false; render(); });
-  const push = button(pushing ? "Pushing…" : "Push now", "primary", async () => {
-    pushing = true;
-    render();
-    const offer = pushOffer;
-    if (await act(window.lore.push)) {
-      const live = snapshot ? `${snapshot.publications.counts.active} ${snapshot.publications.counts.active === 1 ? "publication" : "publications"}` : "publications";
-      pushedNote = `Pushed · ${live} sent to your node`;
-    } else {
-      pushOffer = offer;
-    }
-    pushing = false;
-    render();
-  });
+  const push = button(pushing ? "Pushing…" : "Push now", "primary", pushNow);
   leave.disabled = pushing;
   push.disabled = pushing;
   actions.append(leave, push);
   box.append(actions);
   return box;
+}
+
+async function pushNow() {
+  pushing = true;
+  render();
+  const offer = pushOffer;
+  if (await act(window.lore.push)) {
+    const live = snapshot ? `${snapshot.publications.counts.active} ${snapshot.publications.counts.active === 1 ? "publication" : "publications"}` : "publications";
+    pushedNote = `Pushed · ${live} sent to your node`;
+  } else {
+    pushOffer = offer;
+  }
+  pushing = false;
+  render();
+}
+
+/** Approved publications a buyer cannot see yet. @param {Snapshot} s */
+function unpushed(s) {
+  return s.node.url ? s.publications.items.filter((item) => item.state === "approved" && item.live === false) : [];
 }
 
 /** @param {Snapshot} s */
@@ -963,7 +1133,7 @@ async function decide(original, approve, candidate = original) {
   if (candidates.length || !approvedThisPass) return;
   approvedThisPass = false;
   pushOffer = snapshot?.node.url ? "Approved publications reach buyers only after a push. Leaving it is fine; the next push carries it." : false;
-  if (!pushOffer) say("Approved. It goes on sale the moment you open a store.");
+  if (!pushOffer) tell("Approved. It goes on sale the moment you open a store.");
   render();
 }
 
@@ -976,20 +1146,20 @@ async function act(action) {
     await action();
   } catch (error) {
     done = false;
-    say(reason(error, "Lore could not do that."));
+    tell(reason(error, "Lore could not do that."), true);
   }
   await load();
   return done;
 }
 
-/** @param {string} text */
-async function send(text) {
+/** @param {string} text @param {AgentTask} [from] */
+async function send(text, from) {
   const files = attachments.length ? `\n\nFiles to read:\n${attachments.map((path) => `- ${path}`).join("\n")}` : "";
   attachments = [];
   renderAttachments();
   say(text, true);
   try {
-    await window.lore.prompt({ text: text + files, task });
+    await window.lore.prompt({ text: text + files, task, from });
     await load();
   } catch (error) {
     say(reason(error, "Something went wrong."));
@@ -1034,11 +1204,18 @@ function enter() {
   if (signedIn) { render(); void load(); }
 }
 
-window.lore.onAgentEvent((event) => {
-  if (event.type === "working") { working(event.active); if (!event.active) live(""); }
-  else if (event.type === "live") live(event.text);
+/** @param {AgentEvent} event */
+function onEvent(event) {
+  if (event.type === "working") {
+    busy = event.active ? event.task : null;
+    liveText = busy ? liveText || { setup: "Thinking…", publish: "Drafting…", capture: "Reading this…", deploy: "Setting up your store…" }[busy] : "";
+    syncComposer();
+    renderLog();
+  }
+  else if (event.type === "live") { if (event.task === task) live(event.text); }
   else if (event.type === "changed") void load();
-  else if (event.type === "message") say(event.text);
+  else if (event.type === "message") { if (event.task === task) say(event.text); }
+  else if (event.type === "saved") { if (event.task === task) { lines.push({ text: "", owner: false, saved: event.memories }); renderLog(); } }
   else if (event.type === "stopped") { say(event.text, false, true); input.focus({ preventScroll: true }); }
   else if (event.type === "task") {
     if (detailTask === event.task.kind) detailRecord = event.task;
@@ -1055,26 +1232,45 @@ window.lore.onAgentEvent((event) => {
     } else {
       welcome.classList.add("provisioning");
       welcomeNote.textContent = event.error ?? event.text ?? "";
+      welcomeRetry.hidden = !event.error;
       if (!auth) { auth = { credentials: [] }; enter(); }
     }
   } else if (event.type === "dismiss") {
-    if (/** @type {HTMLElement | null} */ (requestSlot.firstElementChild)?.dataset.id === event.id) { requestSlot.replaceChildren(); composer.hidden = false; renderLog(); }
+    if (request?.id === event.id) { clearRequest(); renderLog(); }
   } else if (event.type === "auth") {
     const detail = event.event;
     welcomeNote.textContent = event.message || (detail?.type === "device_code" ? `Open ${detail.verificationUri} and enter ${detail.userCode}.` : detail && "message" in detail ? detail.message : "Continue signing in.");
+  } else if (event.task && event.task !== detailTask) {
+    // A card belongs in its own thread, never under whichever heading happens to be open.
+    void openTask(event.task).then(() => renderRequest(event));
   } else renderRequest(event);
-});
+}
+
+window.lore.onAgentEvent(onEvent);
 
 composer.addEventListener("submit", async (event) => {
   event.preventDefault();
   const text = input.value.trim();
+  const card = shownRequest();
+  if (card?.current) {
+    if (!text) return;
+    input.value = "";
+    input.style.height = "";
+    await respond(card.id, { entries: card.current(), note: text }, text);
+    return;
+  }
   if (!text && !attachments.length) return;
   if (!detailTask) {
-    task = "capture";
-    detailTask = "capture";
-    detailRecord = null;
-    lines.splice(0);
-    render();
+    // The agent resumes an unfinished capture session, so the owner should see that conversation, not an empty thread.
+    const unfinished = taskItems.find((item) => item.kind === "capture");
+    if (unfinished) await openTask("capture", unfinished);
+    else {
+      task = "capture";
+      detailTask = "capture";
+      detailRecord = null;
+      lines.splice(0);
+      render();
+    }
   }
   input.value = "";
   input.style.height = "";
@@ -1151,7 +1347,7 @@ dictate.addEventListener("click", async () => {
     try {
       text = await window.lore.transcribe(wav(await active.stop()));
     } catch (error) {
-      say(`Lore couldn't transcribe that: ${/** @type {Error} */ (error).message}. ${DICTATE_HINT}`, false, true);
+      tell(`Lore couldn't transcribe that: ${/** @type {Error} */ (error).message}. ${DICTATE_HINT}`, true);
     }
     dictationMode(null);
     input.value = spoken + text;
@@ -1163,14 +1359,14 @@ dictate.addEventListener("click", async () => {
   dictate.disabled = true;
   try {
     if (!(await window.lore.microphone())) {
-      say(`Lore needs the microphone: System Settings → Privacy & Security → Microphone. ${DICTATE_HINT}`, false, true);
+      tell(`Lore needs the microphone: System Settings → Privacy & Security → Microphone. ${DICTATE_HINT}`, true);
       return;
     }
     recorder = await record();
     dictationMode("listening");
     dictationLimit = window.setTimeout(() => dictate.click(), MAX_DICTATION_MS);
   } catch (error) {
-    say(`Lore couldn't start the microphone: ${/** @type {Error} */ (error).message}. ${DICTATE_HINT}`, false, true);
+    tell(`Lore couldn't start the microphone: ${/** @type {Error} */ (error).message}. ${DICTATE_HINT}`, true);
   } finally {
     if (!recorder) dictate.disabled = false;
   }
@@ -1181,7 +1377,7 @@ function attach(paths) {
   for (const path of paths) {
     if (attachments.includes(path)) continue;
     if (GUARDED.test(path)) {
-      say(`${path.split("/").pop()} looks like a credential or hidden file, so Lore won't read it. Rename or copy it first if you really mean to.`);
+      tell(`${path.split("/").pop()} looks like a credential or hidden file, so Lore won't read it. Rename or copy it first if you really mean to.`, true);
       continue;
     }
     attachments.push(path);
@@ -1227,6 +1423,11 @@ search.addEventListener("input", () => {
   }, 250);
 });
 $("#search-form").addEventListener("submit", (event) => event.preventDefault());
+welcomeRetry.addEventListener("click", () => {
+  welcomeRetry.hidden = true;
+  welcomeNote.textContent = "Setting Lore up on this Mac…";
+  void window.lore.retrySetup();
+});
 document.addEventListener("keydown", (event) => {
   if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") { event.preventDefault(); search.focus(); search.select(); }
   if (event.key === "Escape" && document.querySelector(".sheet")) { event.preventDefault(); closeSheet(); }
@@ -1252,7 +1453,7 @@ keyForm.addEventListener("submit", (event) => {
   void signIn(provider, "api_key", value);
 });
 
-Object.assign(window, { __lore: { show, preview: renderRequest, signIn: () => { previewSignIn = true; auth = { credentials: [{ providerId: "anthropic", type: "oauth" }] }; enter(); } } });
+Object.assign(window, { __lore: { show, openTask, preview: renderRequest, event: onEvent, signIn: () => { previewSignIn = true; auth = { credentials: [{ providerId: "anthropic", type: "oauth" }] }; enter(); } } });
 
 function boot() {
   if (previewSignIn) return;

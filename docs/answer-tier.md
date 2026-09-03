@@ -1,8 +1,9 @@
-# Answer tier — design
+# Answer tier
 
-Status: draft (2026-08-17). Backlog anchor: `MCP-003`. Companion items:
-`MON-014` (bridge keep-alive), `EVAL-002` (quality gate), `MON-009` (pricing
-unit).
+Status: implemented (2026-08-18); deployed buyer-value validation remains in
+`EVAL-002`. Backlog anchor: `MCP-003`. Companion items: `MON-015` (D1
+checkpoint recovery), `MON-017` (provider readiness before payment), and
+`APP-035` (optional seller-side Desktop controls).
 
 The catalog surface (`discover` free, `get` paid) sells the owner's raw
 publications. The answer tier sells access to the owner's **AI proxy**: a buyer
@@ -14,23 +15,24 @@ actually is.
 
 ## 1. Product framing
 
-Two buyer modes, only one of which exists today:
+Two buyer modes exist in the Worker; the second is optional and disabled until
+the owner configures it:
 
 - **Corpus mode** (`get`, shipped): the buyer's agent picks publications from
   teasers and does its own synthesis. Value = the content.
-- **Oracle mode** (`answer`, this design): the buyer's question doesn't map to
+- **Oracle mode** (`answer`, shipped): the buyer's question doesn't map to
   one publication — it needs the owner's weighting applied across the corpus
   to the buyer's situation. Value = the judgment. It also absorbs the
   vocabulary-gap problem: the buyer no longer has to be a good librarian of
   someone else's library, because the mapping from buyer phrasing to owner
   corpus happens node-side, with full content visible.
 
-The mental model is asynchronous, bounded, cheap consulting: the owner would
-never take a 30-minute call for $0.25, but their published judgment can answer
-that question a thousand times at that price. Early callers are
+The mental model is asynchronous, bounded consulting at a per-answer price:
+the owner's approved judgment can serve a buyer without requiring the owner to
+join a call. Early callers are
 **human-directed** (a person tells their agent "ask this node"); autonomous
 agent-initiated calls come later and depend on the trust primitives
-(discovery, reviews, receipts) tracked separately in `XC-016` (buyer
+(discovery, reviews, receipts) tracked separately in `XC-022` (buyer
 discovery).
 
 ## 2. The memory boundary (decided)
@@ -54,9 +56,9 @@ Two consequences:
 1. **The proxy charter is a new disclosed artifact.** The blueprint from
    `lore-onboard` is private by design (`BP-001`). The answer agent needs an
    owner-approved public charter — identity, voice, judgment, disclaimers, and
-   representation boundaries — distinct
-   from the blueprint, approved through the same gate publications go
-   through, and shipped to the edge by `lore push`.
+   representation boundaries — distinct from the blueprint, explicitly
+   approved in an attended terminal today, and shipped to the edge by
+   `lore push`. `APP-035` owns a future seller-side Desktop gate.
 2. If private-memory-informed answers are ever wanted, that is a new
    per-topic disclosure decision the owner opts into explicitly — never a
    side effect of an infra choice.
@@ -129,12 +131,12 @@ next. Because buyer questions may contain buyer-sensitive context, `discover`
 and the `answer` description disclose retention before payment; questions are
 never republished or served to other buyers.
 
-### Owner-approved config — `node_settings` (or new `persona` row)
+### Owner-approved config — `node_settings`
 
 | key | notes |
 |---|---|
 | `proxy_preamble` | the approved public proxy charter (section 2); shipped by `lore push` |
-| `answer_price_usd` | the answer tier's own price, distinct from the per-publication price (`MON-009`) |
+| `answer_price_usd` | the answer tier's own price, distinct from the publication price |
 | `answer_enabled` | owner opt-in flag; the tier is off until the persona is approved and a price set |
 
 ## 5. The agent (Tier 1 — ship this)
@@ -168,9 +170,10 @@ is a Worker secret, so the seller pays inference out of revenue):
 5. Store the answer + telemetry; mark the ticket terminal.
 
 The code allows six model turns and three minutes. Pi supplies tool validation,
-provider translation, aborts, and token/cost accounting. Tier 1 does not
-checkpoint or resume a partial transcript. The D1 job row is the durable claim
-check and eventually becomes `complete`, `refused`, or `failed`.
+provider translation, aborts, and token/cost accounting. After each completed
+model turn, Lore stores the transcript, turn count, and viewed publication ids
+in D1 for fifteen minutes. A fresh Worker invocation resumes the same ticket;
+the guarded terminal update removes the checkpoint without another payment.
 
 `./lore-test.sh "<question>"` runs that same Pi path against the owner's approved
 local publications in temporary workerd/D1 state. It bypasses payment so the
@@ -202,9 +205,6 @@ a filesystem: only needed if the agent must checkpoint context across steps
 - MCP clients default to ~60s per tool call but reset on **progress
   notifications**; streamable HTTP holds the connection fine. `answer`
   returns in seconds (ticket), and `result` is a quick poll.
-- **The bridge is the weakest timeout in the chain** (`MON-014`): the
-  x402-mcp-bridge must forward progress notifications / apply generous
-  timeouts, or buyer clients die mid-call regardless of what the node does.
 - Poll etiquette: `result` returns `estimate_seconds`; buyer agents poll on
   that cadence. Hosted clients (claude.ai remote MCP) are less forgiving than
   CLI clients — the ticket shape is what keeps them working.
@@ -216,14 +216,17 @@ real money. Constraints:
 
 - `answer_price_usd` must clear measured `cost_usd` with margin — which is
   why cost telemetry is a first-class output column, and why the answer tier
-  needs **its own price** rather than inheriting the per-publication
-  `PRICE_USD`. That pulls `MON-009` onto this design's critical path.
+  has **its own price** rather than inheriting the per-publication `PRICE_USD`.
+  `EVAL-002` owns measuring that margin; Lore does not automatically reprice or
+  promise a profitable floor.
 - Cost levers, in order: smaller model for gather/coverage passes with the
   strongest model only for the voiced draft; two-pass retrieval instead of
   inlining; caps from section 5.
 
-## 9. Ship gate
+## 9. Validation gate
 
-`MCP-003` does not ship until `EVAL-002` phase 2 judges answer quality,
-grounding, citation validity, and refusal honesty. Phase 1 of `EVAL-002`
-(discover/get teaser honesty) is unblocked today and needs none of this design.
+The bounded `answer`/`result` implementation is shipped but remains optional.
+Promotion and first-class seller UX wait on `EVAL-002`: a real Base Sepolia
+buyer must judge proxy fidelity, grounding, citation validity, refusal honesty,
+and observed margin against a deployed QA node. `MON-017` separately prevents a
+known-missing model provider from becoming a paid failure.

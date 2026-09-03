@@ -186,6 +186,29 @@ class RetentionTest(LoreTestCase):
             self.assertEqual(store.source_counts(), {"test": 2})
 
 
+class EditContentTest(LoreTestCase):
+    def test_set_content_edits_and_search_finds_the_new_content(self) -> None:
+        memory_id = self.seed_memory("A lesson")
+        with Store() as store:
+            store.set_content(memory_id, "Completely new content about caching")
+            edited = store.get(memory_id)
+            assert edited is not None
+            self.assertEqual(edited.content, "Completely new content about caching")
+            self.assertEqual(store.search("caching")[0].id, memory_id)
+
+    def test_set_content_rejects_blank_or_whitespace(self) -> None:
+        memory_id = self.seed_memory("A lesson")
+        with Store() as store:
+            for blank in ("", "   "):
+                with self.assertRaisesRegex(ValueError, "content cannot be empty"):
+                    store.set_content(memory_id, blank)
+
+    def test_set_content_on_a_missing_memory_is_an_error(self) -> None:
+        with Store() as store:
+            with self.assertRaisesRegex(ValueError, "memory not found"):
+                store.set_content(999, "New content")
+
+
 class SearchTest(LoreTestCase):
     def test_search_filters_orders_and_limits(self) -> None:
         self.seed_memory("Alpha lesson")

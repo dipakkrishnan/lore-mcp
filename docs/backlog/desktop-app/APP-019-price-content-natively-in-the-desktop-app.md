@@ -1,61 +1,61 @@
 ---
 id: APP-019
-title: Price content natively in the desktop app
+title: Set the global publication price in Desktop
 priority: P1
 effort: M
 component: desktop-app
 status: ready
-related: [MON-009, MON-013, APP-006, XC-020]
+related: [MON-009, MON-013, APP-006, APP-035, XC-020]
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-08-23
-updated: 2026-08-26
+updated: 2026-08-28
 ---
 
 ## Problem
 
-The only way to set what a buyer pays is the CLI: `lore price <usd>` for the
-global per-publication price and `lore answer on - <usd>` / `lore answer
-off` for the paid answer tier. The desktop app shows those numbers in four
-places (Today's strip, the Store bar, the Store and Settings rows) and lets
-the owner change none of them. An owner who approves their first
-publication in the app has no way to decide what it costs without leaving
-the app, and the pricing story itself — one global price, an optional
-answer tier, per-publication overrides still undecided in MON-009 — has
-never been walked as a product flow.
+The only way to set what a buyer pays for a publication is the CLI:
+`lore price <usd>`. Desktop shows the configured global price but cannot change
+it, so an owner who approves their first publication cannot finish opening a
+store without leaving the app. The live Worker also bakes this price in at
+deploy time; saving a new local value does not change what buyers pay.
 
 ## Proposed approach
 
-Treat pricing as an owner action routed through the existing attended
-gates, like revoke and push: an inline editor on the Store bar (and the
-Settings "Prices" row) that writes through `lore price` and `lore answer
-on/off` with `LORE_ATTENDED_SURFACE=desktop`, validates in Python, and
-refreshes the snapshot. Show the consequence before committing: what a
-buyer's agent will be charged per call, whether the node is live (a price
-change reaches buyers only after a push — reuse the push offer from APP-006),
-and the payout address from XC-020. Offer pricing at the moment it matters:
-after the first approval, and when the store goes live. Decide in MON-009
-whether a per-publication override ships here or later; if it does, it
-belongs on each For-sale row with the global price as its default.
+Add one inline editor to the For Sale summary. A fixed, typed main-process
+action saves one positive global USD price through Lore's existing validation
+and refreshes the snapshot; do not route approval through agent Bash or an
+environment marker. Other views keep displaying the same value rather than
+growing duplicate editors.
+
+Offer **Set a price** after the first publication approval and before opening a
+store. Confirm the exact per-call amount before saving. If a node is already
+live, say that it keeps charging the old price and offer the existing deploy
+task; only a successful `lore node deploy` proves the new price is live.
+
+This item does not add per-publication overrides, bundles, answer pricing, or
+automatic pricing. `MON-009` owns evidence for finer publication pricing;
+`APP-035` owns the optional answer tier.
 
 ## Acceptance criteria
 
-- [ ] Publication price and answer price (with on/off) can be set from
-      Store and Settings without the CLI; invalid values are rejected by
-      Lore's validation with the reason shown inline.
-- [ ] After a change, every surface that shows a price agrees, and a live
-      node gets the push offer.
+- [ ] One positive global publication price can be reviewed and saved from For
+      Sale without the CLI; invalid values show Lore's validation reason inline.
+- [ ] After a save, every Desktop surface that shows publication price agrees.
 - [ ] First approval with no price set leads the owner to set one.
-- [ ] Pricing is not silently applied by the agent; it is an owner action
-      with a confirm step.
+- [ ] Pricing is not silently applied by the agent: the owner confirms the
+      exact amount through the typed Desktop action.
+- [ ] Changing the price of a live node offers redeploy, never claims `push`
+      changed it, and `discover` shows the new amount after redeploy.
 - [ ] The flow is walked end to end on a real node before the item closes.
 
 ## Notes
 
-Filed from Dipak's request on 2026-08-23 ("build a way to price content
-natively in the desktop app; that flow has not been super explored").
-Per-publication pricing depends on the MON-009 decision; do not block the
-global editor on it.
+The CLI accepts zero as a local "free" setting, but `lore node deploy` rejects
+it because there is no paid store to deploy. Desktop's For Sale flow therefore
+asks for a positive price; choosing not to sell remains a separate valid path.
 
-**Prioritization pass 2026-08-26:** No blockers; per-publication pricing is explicitly deferred to `MON-009` without blocking the global editor. Concrete enough to hand to implementation. Promoted `in-review` → `ready`.
+Per-publication pricing does not block this global editor. Answer price belongs
+with the charter and enable/disable decision in `APP-035`, not in a generic
+Prices setting.
