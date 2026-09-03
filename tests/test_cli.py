@@ -748,7 +748,19 @@ class ProfileTest(LoreTestCase):
         with patch.object(automation, "install") as install, captured() as output:
             self.assertEqual(cli.profile(str(path), schedule=False), 0)
         install.assert_not_called()
-        self.assertIn("previously installed prompt", output.getvalue())
+        self.assertIn("Existing schedules were not changed", output.getvalue())
+
+    def test_dogfood_profile_does_not_touch_the_installed_schedule(self) -> None:
+        path = self.lore_home / "profile.json"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps({"role": "maintainer", "executor": "codex"}))
+        with (
+            patch.dict(os.environ, {"LORE_SKIP_SCHEDULE": "1"}),
+            patch.object(automation, "install") as install,
+            captured(),
+        ):
+            self.assertEqual(cli.profile(str(path)), 0)
+        install.assert_not_called()
 
     def test_a_profile_that_is_not_an_object_is_refused(self) -> None:
         path = self.lore_home / "profile.json"

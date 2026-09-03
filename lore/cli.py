@@ -682,12 +682,13 @@ def profile(path: str, schedule: bool = True) -> int:
     """Save a profile written by an onboarding agent and install its schedule."""
     from . import automation
 
+    schedule = schedule and os.environ.get("LORE_SKIP_SCHEDULE") != "1"
     text = sys.stdin.read() if path == "-" else Path(path).read_text(encoding="utf-8")
     data = json.loads(text)
     data = automation.save_profile(data)
     success(f"Saved profile to {automation.profile_path()}")
     if not schedule:
-        muted("Existing schedules still use their previously installed prompt.")
+        muted("Existing schedules were not changed.")
         return 0
     try:
         executor = automation.Agent(str(data.get("executor", "")))
@@ -1025,6 +1026,9 @@ def push(worker_dir: str, local: bool = False) -> int:
         # is now guaranteed gone from the edge.
         with Store() as store:
             store.set_setting("revocation_pending", False)
+        from .snapshot import forget_live  # local import, as desktop-state does
+
+        forget_live()
     where = "local dev database" if local else "deployed node"
     success(
         f"Pushed {len(active)} active publication{'s' if len(active) != 1 else ''} to the {where}"

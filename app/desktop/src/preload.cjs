@@ -2,6 +2,7 @@ const { contextBridge, ipcRenderer, webUtils } = require("electron");
 
 contextBridge.exposeInMainWorld("lore", {
   snapshot: () => ipcRenderer.invoke("snapshot:read"),
+  retrySetup: () => ipcRenderer.invoke("setup:retry"),
   agentStatus: () => ipcRenderer.invoke("agent:status"),
   /** @param {{text: string, task: AgentTask}} input */
   prompt: (input) => ipcRenderer.invoke("agent:prompt", input),

@@ -118,6 +118,7 @@ type Line = { text: string; owner: boolean; stopped?: boolean; saved?: SavedMemo
 interface Window {
   lore: {
     snapshot(): Promise<Snapshot>;
+    retrySetup(): Promise<void>;
     agentStatus(): Promise<AgentStatus>;
     prompt(input: { text: string; task: AgentTask; from?: AgentTask }): Promise<void>;
     history(task: AgentTask): Promise<Line[]>;
