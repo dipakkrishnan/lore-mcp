@@ -31,6 +31,7 @@ contextBridge.exposeInMainWorld("lore", {
   /** @param {number} id */
   revoke: (id) => ipcRenderer.invoke("publication:revoke", id),
   push: () => ipcRenderer.invoke("store:push"),
+  sales: () => ipcRenderer.invoke("store:sales"),
   pickFiles: () => ipcRenderer.invoke("files:pick"),
   /** @param {File} file */
   pathFor: (file) => webUtils.getPathForFile(file),

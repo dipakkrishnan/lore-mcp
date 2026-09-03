@@ -11,12 +11,16 @@ from __future__ import annotations
 
 import json
 import math
+import os
 import re
 import shutil
 import subprocess
 import sys
 from importlib import resources
 from pathlib import Path
+from typing import Literal
+
+from pydantic import BaseModel, TypeAdapter
 
 from .paths import home
 from .store import Store
@@ -31,6 +35,30 @@ D1_NAME = "lore-publications"
 D1_PLACEHOLDER = "REPLACE_WITH_YOUR_D1_ID"
 NEEDS_NODE = "deploying needs Node.js; install it from nodejs.org and rerun"
 PRICE_DECLARATION = "export const PRICE_USD = 0.01;"
+SALES_QUERY = (
+    "SELECT kind, item_id, title, price_usd, network, payer, tx, sold_at "
+    "FROM sales ORDER BY sold_at DESC, id DESC"
+)
+
+
+class Sale(BaseModel):
+    """One settled paid call, as the node's ledger records it."""
+
+    kind: Literal["publication", "answer"]
+    item_id: str
+    title: str
+    price_usd: float
+    network: str
+    payer: str
+    tx: str
+    sold_at: str
+
+
+SALES = TypeAdapter(list[Sale])
+# Plain words for the two chains the Worker accepts as LORE_NETWORK.
+NETWORKS = {"real": "eip155:8453", "test": "eip155:84532"}
+# The Coinbase facilitator credentials real money needs; nothing else is vaulted here.
+SECRETS = ("CDP_API_KEY_ID", "CDP_API_KEY_SECRET")
 # The smallest price the six-decimal formatter can render without collapsing
 # to zero; `lore price` rounds to six decimals, so this matches its floor.
 MINIMUM_PRICE = 1e-6
@@ -184,9 +212,54 @@ def login() -> int:
     return 0
 
 
-def deploy(wallet: str | None) -> int:
-    """Materialize, authenticate, ensure D1, deploy, set the payout secret,
-    push the active publications, smoke-check."""
+def sales() -> list[Sale]:
+    """Read the node's sales ledger through the owner's Cloudflare login,
+    the same way `lore push` writes the edge database."""
+    target = home() / "node"
+    wrangler = target / "node_modules/.bin/wrangler"
+    if not wrangler.exists():
+        raise ValueError("no deployed node on this machine; open your store first")
+    result = _run(
+        (
+            str(wrangler),
+            "d1",
+            "execute",
+            D1_NAME,
+            "--remote",
+            "--json",
+            "--command",
+            SALES_QUERY,
+        ),
+        target,
+        fail="reading sales failed",
+    )
+    statements = json.loads(result.stdout)
+    return SALES.validate_python(statements[0]["results"])
+
+
+def secret(name: str, value: str) -> int:
+    """Vault one Coinbase credential on the node."""
+    if name not in SECRETS:
+        raise ValueError(f"the node keeps only {' and '.join(SECRETS)}, not {name}")
+    if not value:
+        raise ValueError(f"no value given for {name}")
+    target = home() / "node"
+    wrangler = target / "node_modules/.bin/wrangler"
+    if not wrangler.exists():
+        raise ValueError("no deployed node on this machine; open your store first")
+    _run(
+        (str(wrangler), "secret", "put", name),
+        target,
+        input=value + "\n",
+        fail=f"storing {name} failed",
+    )
+    success(f"Stored {name} in Cloudflare's vault")
+    return 0
+
+
+def deploy(wallet: str | None, network: str | None = None) -> int:
+    """Materialize, authenticate, ensure D1, deploy, set the payout secret and
+    the network if asked, push the active publications, smoke-check."""
     if wallet and not WALLET.fullmatch(wallet):
         raise ValueError(
             "wallet must be a public EVM address: 0x plus 40 hex characters"
@@ -236,6 +309,9 @@ def deploy(wallet: str | None) -> int:
     # Some wrangler versions exit 0 while logged out and only say so in text.
     who = _run((wrangler, "whoami"), target)
     if who.returncode or "not authenticated" in f"{who.stdout}{who.stderr}".lower():
+        # The desktop agent's shell has no owner at it; the app signs in itself.
+        if os.environ.get("LORE_UNATTENDED"):
+            raise OSError("not signed in to Cloudflare; sign in first, then rerun")
         muted("Opening Cloudflare login in your browser (free tier is enough)...")
         if _run((wrangler, "login"), target, interactive=True).returncode:
             raise OSError(
@@ -274,6 +350,16 @@ def deploy(wallet: str | None) -> int:
             target,
             input=wallet + "\n",
             fail="setting LORE_WALLET failed",
+        )
+    if network:
+        # Real money needs the Coinbase credentials vaulted first (`lore node
+        # secret`); without them the Worker refuses to start and the smoke
+        # check below says so.
+        _run(
+            (wrangler, "secret", "put", "LORE_NETWORK"),
+            target,
+            input=NETWORKS[network] + "\n",
+            fail="setting LORE_NETWORK failed",
         )
 
     # First push creates the publications table (CREATE TABLE IF NOT EXISTS),

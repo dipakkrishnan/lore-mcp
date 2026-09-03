@@ -42,7 +42,8 @@ function settleResponse(reply: RespondableReply): Response {
     return Response.json({
       success: true,
       transaction: "0xfixturetransaction",
-      network: SUPPORTED_KIND.network
+      network: SUPPORTED_KIND.network,
+      payer: "0xfixturepayer"
     });
   }
   if (reply.kind === "rejected") {
