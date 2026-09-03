@@ -2,6 +2,7 @@
 // Usage: support/edge.sh seller|provision   (seeds LORE_HOME, then runs this under Electron)
 const { app } = require("electron");
 const { chmodSync, mkdirSync, writeFileSync } = require("node:fs");
+const { execFileSync } = require("node:child_process");
 const { dirname, join } = require("node:path");
 const scenario = process.argv.at(-1);
 const S = process.env.LORE_EDGE_OUT ?? process.env.LORE_HOME;
@@ -40,6 +41,45 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         const status = await js(`window.lore.tasks().then((t) => Array.isArray(t) ? "ok" : "odd", (e) => e.message)`);
         check("agent answers after retry", status === "ok", status);
         await shot("provision-recovered");
+      } else if (scenario === "jobs") {
+        // APP-007: owner-run history survives the live event that produced it,
+        // so Today must render every state it can be in — including a run that
+        // started and never reported finishing.
+        await waitFor(`document.body.dataset.state === "welcome" && !document.querySelector("#welcome").classList.contains("provisioning")`);
+        await js(`window.__lore.signIn()`);
+        await waitFor(`document.querySelector("#content").textContent.includes("Recent runs")`);
+        const runs = await js(`[...document.querySelectorAll("#content .section")].find((s) => s.textContent.includes("Recent runs")).textContent`);
+        check("a finished capture reads as done, with what it cost", /Capture/.test(runs) && /Saved what you approved/.test(runs) && /\$0\.42/.test(runs), runs);
+        check("a failed push says so", /Store update/.test(runs) && /Failed/.test(runs), runs);
+        check("a run that never reported is unfinished, not successful", /Synthesis/.test(runs) && /Unfinished/.test(runs) && /never reported/.test(runs), runs);
+        check("a run still going reads as running", /Store deploy/.test(runs) && /Running/.test(runs), runs);
+        // The failure cause names wrangler and a database to the owner, but
+        // none of it is durable — history keeps a bounded phrase.
+        check("history carries no command or path", !/wrangler|npx|\/Users\//.test(runs), runs);
+        await js(`[...document.querySelectorAll("#content .section")].find((s) => s.textContent.includes("Recent runs")).scrollIntoView()`);
+        await sleep(300);
+        await shot("today-recent-runs");
+
+        // The record is read from the snapshot, not from agent memory, so it is
+        // still here after a relaunch — which is the whole point of the table.
+        await js(`window.__lore.show("memories")`);
+        await sleep(300);
+        await js(`window.__lore.show("today")`);
+        await waitFor(`document.querySelector("#content").textContent.includes("Recent runs")`);
+        check("history survives leaving and returning", await js(`document.querySelector("#content").textContent.includes("Saved what you approved")`));
+
+        // An owner who has run nothing yet gets a sentence, not a bare heading.
+        execFileSync("uv", ["run", "python", "-c", "from lore.store import Store\nwith Store() as s:\n s.db.execute('DELETE FROM owner_jobs')\n s.db.commit()"], { cwd: join(__dirname, "../../.."), env: process.env });
+        // A "changed" event is what makes the renderer re-read the snapshot;
+        // switching views alone re-renders what it already had.
+        await js(`window.__lore.event({ type: "changed" })`);
+        await sleep(800);
+        const empty = await js(`[...document.querySelectorAll("#content .section")].find((s) => s.textContent.includes("Recent runs"))?.textContent ?? ""`);
+        check("an owner with no runs yet is told so", /Nothing has run yet/.test(empty), empty);
+        check("the rest of Today still renders", await js(`document.querySelector("#content .strip") !== null`));
+        await js(`[...document.querySelectorAll("#content .section")].find((s) => s.textContent.includes("Recent runs"))?.scrollIntoView()`);
+        await sleep(300);
+        await shot("today-recent-runs-empty");
       } else if (scenario === "store") {
         await waitFor(`document.body.dataset.state === "welcome" && !document.querySelector("#welcome").classList.contains("provisioning")`);
         await js(`window.__lore.signIn()`);

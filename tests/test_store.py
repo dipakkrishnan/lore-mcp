@@ -7,17 +7,24 @@ here makes a memory externally readable; only a publication does that.
 from __future__ import annotations
 
 import json
+import os
 import sqlite3
 import stat
 import unittest
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from helpers import LoreTestCase
 
 from lore.store import (
+    JOB_MAX_ROWS,
+    JOB_SUMMARIES,
     STATUSES,
     AnswerSettings,
+    JobKind,
+    JobStatus,
     Memory,
+    OwnerJob,
     Publication,
     PublicationKind,
     Status,
@@ -677,6 +684,237 @@ class ModelTest(unittest.TestCase):
         self.assertEqual(publication.provenance, [7, 8])
         self.assertIs(publication.kind, PublicationKind.CLAIM)
         db.close()
+
+
+class OwnerJobTest(LoreTestCase):
+    """Owner-run history: what ran, whether it finished, and what it cost.
+
+    Local operator history only — not the deployed node's buyer-facing job
+    table, and not a transcript of anything.
+    """
+
+    # A pid far above the system maximum, so it is reliably absent.
+    DEAD_PID = 4_000_000
+
+    def test_a_job_records_its_kind_status_cost_and_both_timestamps(self) -> None:
+        with Store() as store:
+            job_id = store.start_job(JobKind.CAPTURE.value, timeout_minutes=720)
+            opened = store.recent_jobs()[0]
+            self.assertIs(opened.kind, JobKind.CAPTURE)
+            self.assertIs(opened.status, JobStatus.RUNNING)
+            self.assertIsNone(opened.finished_at)
+            self.assertIsNone(opened.cost_usd)
+
+            self.assertTrue(
+                store.finish_job(
+                    job_id, "succeeded", summary="captured", count=2, cost_usd=0.125
+                )
+            )
+            closed = store.recent_jobs()[0]
+            self.assertIs(closed.status, JobStatus.SUCCEEDED)
+            self.assertEqual(closed.summary, "captured")
+            self.assertEqual(closed.count, 2)
+            self.assertEqual(closed.cost_usd, 0.125)
+            self.assertIsNotNone(closed.finished_at)
+            self.assertGreaterEqual(str(closed.finished_at), closed.started_at)
+
+    def test_a_job_needs_a_liveness_claim_so_it_can_never_hang_running(self) -> None:
+        # A row with neither a deadline nor an owning process could never be
+        # conceded, and would read as "Running" forever.
+        with Store() as store:
+            with self.assertRaises(ValueError):
+                store.start_job(JobKind.CAPTURE.value)
+            with self.assertRaises(ValueError):
+                store.start_job(JobKind.CAPTURE.value, timeout_minutes=0)
+            with self.assertRaises(ValueError):
+                store.start_job("bogus", timeout_minutes=5)
+
+    def test_the_database_itself_rejects_unknown_kinds_and_states(self) -> None:
+        # The Python guards are not the only defence: the table constrains its
+        # own vocabulary, and cannot hold a finished row that claims to be
+        # running (or a running one that claims to have finished).
+        with Store() as store:
+            for values in (
+                "('bogus','running','x',NULL)",
+                "('capture','bogus','x',NULL)",
+                "('capture','running','x','y')",
+                "('capture','succeeded','x',NULL)",
+            ):
+                with self.assertRaises(sqlite3.IntegrityError):
+                    store.db.execute(
+                        "INSERT INTO owner_jobs(kind,status,started_at,finished_at) "
+                        f"VALUES {values}"
+                    )
+
+    def test_an_interrupted_run_is_conceded_rather_than_read_as_successful(
+        self,
+    ) -> None:
+        with Store() as store:
+            store.start_job(JobKind.SYNTHESIS.value, timeout_minutes=60)
+            later = datetime.now(timezone.utc) + timedelta(hours=2)
+            self.assertEqual(store.reap_jobs(later), 1)
+            conceded = store.recent_jobs()[0]
+            # "Unknown", not "failed" — nothing observed a failure, and nothing
+            # may quietly imply success either.
+            self.assertIs(conceded.status, JobStatus.INCOMPLETE)
+            self.assertNotEqual(conceded.status, JobStatus.SUCCEEDED)
+            self.assertNotEqual(conceded.status, JobStatus.FAILED)
+            self.assertEqual(conceded.summary, "not_reported")
+            self.assertEqual(store.reap_jobs(later), 0)
+
+    def test_a_job_whose_owning_process_died_is_conceded(self) -> None:
+        with Store() as store:
+            store.start_job(
+                JobKind.CAPTURE.value, owner_pid=self.DEAD_PID, timeout_minutes=720
+            )
+            self.assertEqual(store.reap_jobs(), 1)
+            self.assertEqual(store.recent_jobs()[0].summary, "closed")
+
+    def test_a_long_run_survives_while_the_process_that_owes_it_is_alive(self) -> None:
+        # The false-reap guard, and the reason a capture may run for hours: a
+        # row is conceded when its owner dies, not when a clock runs out.
+        with Store() as store:
+            store.start_job(
+                JobKind.CAPTURE.value, owner_pid=os.getpid(), timeout_minutes=720
+            )
+            self.assertEqual(store.reap_jobs(), 0)
+            self.assertIs(store.recent_jobs()[0].status, JobStatus.RUNNING)
+
+    def test_a_late_close_repairs_a_row_that_was_conceded_early(self) -> None:
+        with Store() as store:
+            job_id = store.start_job(JobKind.SYNTHESIS.value, timeout_minutes=60)
+            store.reap_jobs(datetime.now(timezone.utc) + timedelta(hours=2))
+            self.assertTrue(
+                store.finish_job(job_id, "succeeded", summary="synthesized", count=4)
+            )
+            healed = store.recent_jobs()[0]
+            self.assertIs(healed.status, JobStatus.SUCCEEDED)
+            self.assertEqual(healed.count, 4)
+            # A settled row stays settled, though.
+            self.assertFalse(store.finish_job(job_id, "failed", summary="failed"))
+            self.assertIs(store.recent_jobs()[0].status, JobStatus.SUCCEEDED)
+
+    def test_closing_an_open_job_is_a_no_op_when_none_is_open(self) -> None:
+        # What stops a hand-run sync from inventing a scheduled run.
+        with Store() as store:
+            self.assertFalse(
+                store.close_open_job(
+                    JobKind.SYNTHESIS.value, "succeeded", summary="synthesized"
+                )
+            )
+            self.assertEqual(store.recent_jobs(), [])
+
+            store.start_job(JobKind.SYNTHESIS.value, timeout_minutes=60)
+            self.assertTrue(
+                store.close_open_job(
+                    JobKind.SYNTHESIS.value, "succeeded", summary="synthesized"
+                )
+            )
+            self.assertFalse(
+                store.close_open_job(
+                    JobKind.SYNTHESIS.value, "succeeded", summary="synthesized"
+                )
+            )
+
+    def test_history_is_bounded_but_never_prunes_a_run_still_going(self) -> None:
+        with Store() as store:
+            open_id = store.start_job(
+                JobKind.CAPTURE.value, owner_pid=os.getpid(), timeout_minutes=720
+            )
+            for _ in range(JOB_MAX_ROWS + 50):
+                closed = store.start_job(JobKind.PUSH.value, timeout_minutes=60)
+                store.finish_job(closed, "succeeded", summary="pushed")
+            settled = store.db.execute(
+                "SELECT COUNT(*) AS n FROM owner_jobs WHERE finished_at IS NOT NULL"
+            ).fetchone()
+            self.assertLessEqual(settled["n"], JOB_MAX_ROWS)
+            # The oldest row here is the one still going, so it is exactly what
+            # a count-based cap would drop first. It has to survive: pruning a
+            # live run would lose the record of work still in flight.
+            still_open = store.db.execute(
+                "SELECT id FROM owner_jobs WHERE id=?", (open_id,)
+            ).fetchone()
+            self.assertIsNotNone(still_open)
+
+    def test_a_summary_can_only_ever_be_a_known_code(self) -> None:
+        """The privacy boundary. Job rows carry a code from a closed set, so no
+        credential, path, or shell command can reach owner history even if a
+        caller tries to hand one over."""
+        with Store() as store:
+            job_id = store.start_job(JobKind.PUSH.value, timeout_minutes=60)
+            for leak in (
+                "sk-ant-oat01-not-a-real-key",
+                "npx wrangler d1 execute lore-publications",
+                "/Users/someone/.lore/lore.db",
+                "the memory said something private",
+            ):
+                with self.assertRaises(ValueError):
+                    store.finish_job(job_id, "failed", summary=leak)
+            self.assertIs(store.recent_jobs()[0].status, JobStatus.RUNNING)
+            with self.assertRaises(ValueError):
+                store.finish_job(job_id, "running")
+
+    def test_the_summary_vocabulary_is_closed(self) -> None:
+        # Pinned so adding a code is a deliberate, reviewed act.
+        self.assertEqual(
+            set(JOB_SUMMARIES),
+            {
+                "",
+                "captured",
+                "stopped",
+                "closed",
+                "model_error",
+                "synthesized",
+                "not_reported",
+                "deployed",
+                "pushed",
+                "edge_write_failed",
+                "interrupted",
+                "failed",
+            },
+        )
+
+    def test_prose_in_the_database_cannot_reach_a_reader(self) -> None:
+        # Even a hand-edited database cannot surface arbitrary text.
+        with Store() as store:
+            store.db.execute(
+                "INSERT INTO owner_jobs(kind,status,summary,started_at,finished_at) "
+                "VALUES ('push','failed','npx wrangler login','x','y')"
+            )
+            store.db.commit()
+            with self.assertRaises(ValueError):
+                store.recent_jobs()
+
+    def test_the_liveness_columns_never_reach_a_reader(self) -> None:
+        # `owner_pid` and `deadline_at` are plumbing; leaving them off the model
+        # is what keeps them out of the desktop snapshot.
+        with Store() as store:
+            store.start_job(
+                JobKind.CAPTURE.value, owner_pid=os.getpid(), timeout_minutes=720
+            )
+            self.assertEqual(
+                set(store.recent_jobs()[0].model_dump()),
+                {
+                    "id",
+                    "kind",
+                    "status",
+                    "summary",
+                    "count",
+                    "cost_usd",
+                    "started_at",
+                    "finished_at",
+                },
+            )
+            self.assertNotIn("owner_pid", OwnerJob.model_fields)
+            self.assertNotIn("deadline_at", OwnerJob.model_fields)
+
+    def test_the_table_is_created_in_a_database_that_predates_it(self) -> None:
+        with Store() as store:
+            store.db.execute("DROP TABLE owner_jobs")
+            store.db.commit()
+        with Store() as store:
+            job_id = store.start_job(JobKind.DEPLOY.value, timeout_minutes=60)
+            self.assertTrue(store.finish_job(job_id, "succeeded", summary="deployed"))
 
 
 if __name__ == "__main__":

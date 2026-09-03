@@ -10,8 +10,8 @@ jobs:
     name: Python lint
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v5
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v7
       - run: uv run --extra dev ruff check lore tests
       - run: uv run --extra dev ruff format --check lore tests
 
@@ -19,16 +19,16 @@ jobs:
     name: Python unit tests
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v5
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v7
       - run: uv run python -m unittest discover -s tests -v
 
   python-types:
     name: Python type checks
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v5
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v7
       - run: uv run --extra dev mypy lore
 
   bridge-check:
@@ -38,8 +38,8 @@ jobs:
       run:
         working-directory: bridge
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: lts/*
       - run: npm ci
@@ -53,11 +53,11 @@ jobs:
       run:
         working-directory: app/desktop
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: lts/*
-      - uses: astral-sh/setup-uv@v5
+      - uses: astral-sh/setup-uv@v7
       - run: npm ci
       - run: npm run check
       - run: npm test
@@ -70,8 +70,8 @@ jobs:
       run:
         working-directory: lore/node
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: lts/*
       - run: npm ci
@@ -84,8 +84,8 @@ jobs:
       run:
         working-directory: lore/node
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: lts/*
       - run: npm ci
@@ -102,8 +102,8 @@ jobs:
       run:
         working-directory: lore/node
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: lts/*
       - run: npm ci
@@ -118,8 +118,8 @@ jobs:
       run:
         working-directory: lore/node
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: lts/*
       - uses: astral-sh/setup-uv@v5

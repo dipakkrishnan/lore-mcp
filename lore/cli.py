@@ -15,7 +15,17 @@ from . import capture as capture_module
 from . import deploy as deploy_module
 from .paths import home
 from .sources import available_sources, scan
-from .store import STATUSES, AnswerSettings, Publication, PublicationInput, Store
+from .store import (
+    JOB_FINAL_STATUSES,
+    JOB_KINDS,
+    JOB_SUMMARIES,
+    STATUSES,
+    AnswerSettings,
+    JobKind,
+    Publication,
+    PublicationInput,
+    Store,
+)
 from .ui import (
     ask,
     confirm,
@@ -58,6 +68,13 @@ def parser() -> argparse.ArgumentParser:
     sync = commands.add_parser("sync", help="import new and changed memories")
     sync.add_argument(
         "--source", action="append", choices=[s.name for s in available_sources()]
+    )
+    # Set by the synthesis schedule's pre-run hook, which is the only place a
+    # scheduled run can be observed starting. See `sync()`.
+    sync.add_argument(
+        "--record-job",
+        action="store_true",
+        help="open a synthesis job row for the scheduled run about to start",
     )
 
     review = commands.add_parser("review", help="keep or discard memories")
@@ -125,6 +142,31 @@ def parser() -> argparse.ArgumentParser:
     capture_apply.add_argument(
         "file", help="JSON array written by an agent; use - for stdin"
     )
+
+    # Owner-run history. Machine-first: these are called by the desktop app and
+    # by the synthesis LaunchAgent's pre-run hook, never read by a human, so
+    # they print compact JSON or nothing at all.
+    job = commands.add_parser("job", help="record owner-run history")
+    job_commands = job.add_subparsers(dest="job_command", required=True)
+    job_start = job_commands.add_parser("start", help="open a running job row")
+    job_start.add_argument("kind", choices=JOB_KINDS)
+    job_start.add_argument(
+        "--pid", type=int, help="the process that owes this row a close"
+    )
+    job_start.add_argument(
+        "--timeout-minutes", type=int, help="concede the row as incomplete after this"
+    )
+    job_finish = job_commands.add_parser("finish", help="close a job row")
+    job_finish.add_argument("id", type=int)
+    job_finish.add_argument("status", choices=JOB_FINAL_STATUSES)
+    # `choices` is the outermost of three guards on the summary vocabulary: it
+    # rejects free text at the process boundary, before any Python runs, so an
+    # error message can never be interpolated into owner history from a shell.
+    job_finish.add_argument("--summary", choices=tuple(JOB_SUMMARIES), default="")
+    job_finish.add_argument("--count", type=int)
+    job_finish.add_argument("--cost-usd", type=float)
+    job_commands.add_parser("reap", help="concede jobs whose liveness claim expired")
+    job_commands.add_parser("list", help="print recent owner jobs as JSON")
 
     commands.add_parser("status", help="show source and review status")
     commands.add_parser("desktop-state", help="print the desktop app state as JSON")
@@ -239,7 +281,12 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "setup":
             return setup(args.yes)
         if args.command == "sync":
-            return sync(set(args.source) if args.source else None)
+            return sync(
+                set(args.source) if args.source else None,
+                record_job=args.record_job,
+            )
+        if args.command == "job":
+            return job(args)
         if args.command == "review":
             return review(" ".join(args.query), args.status, args.limit, args.all)
         if args.command == "search":
@@ -429,18 +476,81 @@ def _configured_sources(value: object) -> set[str]:
     return set(value)
 
 
-def sync(names: set[str] | None = None) -> int:
-    """Import new and changed memories from configured sources."""
+def sync(names: set[str] | None = None, *, record_job: bool = False) -> int:
+    """Import new and changed memories from configured sources.
+
+    This also carries both ends of the scheduled-synthesis record, because they
+    are the only two moments of that run Lore is present for. `--record-job`
+    marks the pre-run hook the scheduler itself executes, so the *start* is
+    observed rather than inferred. A later `--source automation` — the tail the
+    synthesis prompt instructs — closes that row. Nothing reports a failure, so
+    a run that dies is conceded as `incomplete` by its deadline; it is never
+    quietly recorded as a success.
+    """
     with Store() as store:
+        if record_job:
+            # No pid can own this row: the runner script execs away into the
+            # agent, so the process that will finish the work is unknowable
+            # here. The deadline is the only liveness claim available.
+            store.start_job(JobKind.SYNTHESIS.value, timeout_minutes=60)
         if names is None:
             configured = _configured_sources(store.setting("sources", []))
             names = configured | {"automation"}
         report = scan(store, names)
+        if names == {"automation"} and not record_job:
+            imported = sum(item["added"] + item["updated"] for item in report.values())
+            # A no-op when nothing is open, so a hand-run `lore sync --source
+            # automation` cannot invent a scheduled run that never happened.
+            store.close_open_job(
+                JobKind.SYNTHESIS.value,
+                "succeeded",
+                summary="synthesized",
+                count=imported,
+            )
     for name, item in report.items():
         print(
             f"{name:<20} {item['added']} added, {item['updated']} updated, {item['unchanged']} unchanged"
         )
     return 0
+
+
+def job(args: argparse.Namespace) -> int:
+    """Record owner-run history.
+
+    Deliberately not behind `_owner_action`: this writes nothing disclosable
+    and reads no memory content, and its two most important callers — the
+    synthesis LaunchAgent's pre-run hook and the desktop app — are both
+    structurally unattended. Its whole input surface is a closed vocabulary of
+    kinds, statuses, and summary codes plus two numbers, so an unattended
+    caller's worst case is a wrong row in the owner's own local history.
+    """
+    with Store() as store:
+        if args.job_command == "start":
+            job_id = store.start_job(
+                args.kind, owner_pid=args.pid, timeout_minutes=args.timeout_minutes
+            )
+            print(json.dumps({"id": job_id}, separators=(",", ":")))
+            return 0
+        if args.job_command == "finish":
+            store.finish_job(
+                args.id,
+                args.status,
+                summary=args.summary,
+                count=args.count,
+                cost_usd=args.cost_usd,
+            )
+            return 0
+        if args.job_command == "reap":
+            print(json.dumps({"reaped": store.reap_jobs()}, separators=(",", ":")))
+            return 0
+        print(
+            json.dumps(
+                [item.model_dump(mode="json") for item in store.recent_jobs()],
+                separators=(",", ":"),
+                allow_nan=False,
+            )
+        )
+        return 0
 
 
 def capture_apply(file: str) -> int:
@@ -1018,15 +1128,32 @@ def _push_sql(publications: list[Publication], answer: AnswerSettings) -> str:
 def push(worker_dir: str, local: bool = False) -> int:
     """Replace the deployed node's publications with the local active set."""
     _owner_action("pushing publications")
-    import subprocess
-    import tempfile
-
     worker = Path(worker_dir)
     if not (worker / "wrangler.jsonc").is_file():
         raise ValueError(
             f"no node source at {worker}/ — run `lore node deploy` first, "
             "or pass --worker-dir (contributors: --worker-dir lore/node)"
         )
+    # Recorded past the preconditions, so a missing node source stays a message
+    # rather than a run. One seam covers every caller: the desktop button, a
+    # terminal, and the deploy sequence's own push.
+    with Store() as store:
+        job_id = store.start_job(
+            JobKind.PUSH.value, owner_pid=os.getpid(), timeout_minutes=60
+        )
+    try:
+        return _push(worker, local, job_id)
+    except BaseException:
+        with Store() as store:
+            store.finish_job(job_id, "failed", summary="failed")
+        raise
+
+
+def _push(worker: Path, local: bool, job_id: int) -> int:
+    """Write the active publication set to the node's edge database."""
+    import subprocess
+    import tempfile
+
     with Store() as store:
         active = store.list_publications(active_only=True)
         answer_settings = store.answer_settings()
@@ -1051,6 +1178,10 @@ def push(worker_dir: str, local: bool = False) -> int:
     )
     os.unlink(script_path)
     if result.returncode != 0:
+        # The cause names commands and a database, which owner history must not
+        # carry — it goes to the terminal, while the row keeps only the code.
+        with Store() as store:
+            store.finish_job(job_id, "failed", summary="edge_write_failed")
         raise ValueError(
             "wrangler could not write the edge database — check `npx wrangler login` "
             "and that `lore-publications` exists (npx wrangler d1 create lore-publications)"
@@ -1063,6 +1194,8 @@ def push(worker_dir: str, local: bool = False) -> int:
         from .snapshot import forget_live  # local import, as desktop-state does
 
         forget_live()
+    with Store() as store:
+        store.finish_job(job_id, "succeeded", summary="pushed", count=len(active))
     where = "local dev database" if local else "deployed node"
     success(
         f"Pushed {len(active)} active publication{'s' if len(active) != 1 else ''} to the {where}"

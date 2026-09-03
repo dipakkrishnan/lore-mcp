@@ -12,6 +12,22 @@ export LORE_HOME="$root/home" LORE_DESKTOP_USER_DATA="$root/user-data" LORE_SKIP
   echo '[{"title":"Hire management before rapid growth","content":"Add the management layer before the next ten engineers join, not after.","project":"team scaling"},{"title":"Price the first tier low","content":"A low first price gets the first ten buyers; raise it once there are receipts.","project":"pricing"}]' | uv run lore capture apply - >/dev/null
   echo '[{"title":"Hire management before rapid growth","teaser":"When to add managers in a fast-growing team.","content":"Add the management layer before the next ten engineers join, not after.","kind":"claim","topic":"team scaling","provenance":[1]},{"title":"Price the first tier low","teaser":"How to set a first price.","content":"A low first price gets the first ten buyers; raise it once there are receipts.","kind":"claim","topic":"pricing","provenance":[2]}]' | uv run lore publication draft - >/dev/null
 )
+if [[ "$scenario" == "jobs" ]]; then
+  # One run of every shape Today has to render, including one still going and
+  # one that started and never reported finishing.
+  (cd "$repo_root" && uv run python -c "
+from lore.store import Store
+with Store() as store:
+ done = store.start_job('capture', timeout_minutes=720)
+ store.finish_job(done, 'succeeded', summary='captured', cost_usd=0.42)
+ bad = store.start_job('push', timeout_minutes=60)
+ store.finish_job(bad, 'failed', summary='edge_write_failed')
+ gone = store.start_job('synthesis', timeout_minutes=60)
+ store.finish_job(gone, 'incomplete', summary='not_reported')
+ # No pid: this seeding process is about to exit, and a row it owned would be
+ # conceded on the very next read. The long deadline keeps it Running.
+ store.start_job('deploy', timeout_minutes=720)")
+fi
 if [[ "$scenario" == "store" ]]; then
   (cd "$repo_root" && uv run python -c "import time
 from lore.store import Store

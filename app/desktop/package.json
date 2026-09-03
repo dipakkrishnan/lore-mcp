@@ -8,23 +8,23 @@
     "check": "tsc --noEmit",
     "test": "node --test",
     "test:capture": "./test-capture.sh",
-    "test:edge": "support/edge.sh seller && support/edge.sh provision && support/edge.sh store",
+    "test:edge": "support/edge.sh seller && support/edge.sh provision && support/edge.sh store && support/edge.sh jobs",
     "dogfood:new": "./support/dogfood.sh new",
     "dogfood:current": "./support/dogfood.sh current",
     "package": "electron-forge package",
     "make": "electron-forge make"
   },
   "dependencies": {
-    "@anthropic-ai/sandbox-runtime": "0.0.73",
+    "@anthropic-ai/sandbox-runtime": "0.0.74",
     "@earendil-works/pi-ai": "0.84.4",
     "@earendil-works/pi-coding-agent": "0.84.4",
-    "marked": "18.0.5"
+    "marked": "18.0.11"
   },
   "devDependencies": {
     "@electron-forge/cli": "7.11.2",
     "@electron-forge/maker-zip": "7.11.2",
-    "@types/node": "26.0.1",
-    "electron": "43.4.1",
-    "typescript": "6.0.3"
+    "@types/node": "26.4.0",
+    "electron": "44.1.0",
+    "typescript": "7.0.2"
   }
 }
