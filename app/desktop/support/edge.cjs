@@ -1,8 +1,8 @@
 // Walks the renderer through the edge audit's two personas against a seeded scratch home.
 // Usage: support/edge.sh seller|provision   (seeds LORE_HOME, then runs this under Electron)
 const { app } = require("electron");
-const { chmodSync, writeFileSync } = require("node:fs");
-const { join } = require("node:path");
+const { chmodSync, mkdirSync, writeFileSync } = require("node:fs");
+const { dirname, join } = require("node:path");
 const scenario = process.argv.at(-1);
 const S = process.env.LORE_EDGE_OUT ?? process.env.LORE_HOME;
 const src = join(__dirname, "../src");
@@ -49,6 +49,9 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         await sleep(600);
         const settings = await js(`document.querySelector("#content").textContent`);
         check("Settings offers Change price once a store exists", settings.includes("Change price"));
+        // Ledger: the payout address links to Basescan on the live network, on Settings and on the For Sale bar.
+        check("Settings shows the payout address", settings.includes("0xaaaa…aaaa"));
+        check("…linked to the address on Sepolia Basescan", await js(`[...document.querySelectorAll("#content a.link-btn")].some((a) => a.textContent === "Payouts ↗" && a.href === "https://sepolia.basescan.org/address/0x${"a".repeat(40)}")`));
         check("Settings offers the switch to real payments while on the test network", settings.includes("Switch to real payments"));
         await js(`document.querySelector("#main").scrollTop = 1e6`);
         await sleep(200);
@@ -58,8 +61,22 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         await sleep(400);
         await js(`[...document.querySelectorAll("#content button")].find((b) => b.textContent === "Approve").click()`);
         await waitFor(`document.querySelector("#content").textContent.includes("Push to your store")`);
+        // The staged node answers the ledger query with two sales, one of them the publication just approved.
+        const publicId = await js(`window.lore.snapshot().then((s) => s.publications.items.find((i) => i.state === "approved").public_id)`);
+        const wrangler = join(process.env.LORE_HOME, "node/node_modules/.bin/wrangler");
+        mkdirSync(dirname(wrangler), { recursive: true });
+        const sale = (item_id, title, tx, sold_at) => ({ kind: "publication", item_id, title, price_usd: 0.01, network: "eip155:84532", payer: "0xpayer", tx, sold_at });
+        writeFileSync(wrangler, `#!/bin/sh\necho '${JSON.stringify([{ results: [sale(publicId, "Hire management before rapid growth", "0xfeed", "2026-09-02T14:02:00Z"), sale("1111111111111111807ae5f3", "Choosing a co-founder", "0xbeef", "2026-09-01T21:47:00Z")], success: true }])}'\n`, { mode: 0o755 });
         await js(`window.__lore.show("store")`);
-        await sleep(600);
+        check("the ledger is checked while it loads", await js(`document.querySelector("#content").textContent.includes("Checking your store…")`));
+        await waitFor(`document.querySelector("#content").textContent.includes("2 sales")`);
+        const store = await js(`document.querySelector("#content").textContent`);
+        check("the Sales section sums the ledger", store.includes("2 sales · $0.02 · last Sep 2"), store.slice(-200));
+        check("each sale links to its transaction", await js(`[...document.querySelectorAll("#content a.link-btn.glyph")].map((a) => a.href).join(" ")`) === "https://sepolia.basescan.org/tx/0xfeed https://sepolia.basescan.org/tx/0xbeef");
+        check("no hash is spelled out in the row", !store.includes("0xfeed"));
+        check("the approved publication counts its sales", store.includes("· 1 sold"));
+        check("the For Sale bar links to payouts", await js(`[...document.querySelectorAll("#content .store-bar a.link-btn")].some((a) => a.textContent === "Payouts ↗")`));
+        await shot("store-sales");
         check("For Sale bar offers Push while an approved item is not live", await js(`[...document.querySelectorAll("#content .store-bar button")].some((b) => b.textContent === "Push to your store")`));
         check("the item reads Not live yet", await js(`document.querySelector("#content").textContent.includes("Not live yet")`));
         check("the section hint agrees", await js(`document.querySelector("#content").textContent.includes("1 not on your store yet")`));
@@ -104,6 +121,29 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         check("nothing was kept", !(await js(`document.querySelector("#log").textContent.includes("Keep")`)));
         await js(`window.__lore.event({ type: "dismiss", id: "preview-1" })`);
 
+        // open_url: one card, two stages, same size; the page opens through the window-open handler.
+        await js(`window.open = (url) => { window.__opened = url; return null; }; true`);
+        await js(`window.__lore.preview({ type: "open", id: "preview-open", task: null, title: "Fund the test buyer", url: "https://portal.cdp.coinbase.com/products/faucet", note: "Free Coinbase login. Keep Base Sepolia and USDC selected, paste 0x3f9a…d21c and press Send." })`);
+        const buttons = () => js(`[...document.querySelectorAll("#request .actions button")].map((b) => b.textContent).join("|")`);
+        check("stage one names the step and the host", await js(`document.querySelector("#request .q").textContent`) === "Fund the test buyer" && await buttons() === "Not now|Open portal.cdp.coinbase.com");
+        const before = await js(`document.querySelector("#request form").offsetHeight`);
+        await js(`document.querySelector("#request").scrollIntoView({ block: "center" }); true`);
+        await shot("open-stage-one");
+        await js(`document.querySelector("#request form").requestSubmit()`);
+        await sleep(200);
+        check("Open goes through the window-open handler", await js(`window.__opened`) === "https://portal.cdp.coinbase.com/products/faucet");
+        check("stage two swaps the heading and the buttons", await js(`document.querySelector("#request .q").textContent`) === "Finish in your browser, then come back here." && await buttons() === "I got stuck|Done");
+        check("the card keeps its size between stages", await js(`document.querySelector("#request form").offsetHeight`) === before);
+        await js(`document.querySelector("#request").scrollIntoView({ block: "center" }); true`);
+        await shot("open-stage-two");
+        await js(`document.querySelector("#request form").requestSubmit()`);
+        await sleep(200);
+        check("Done closes the card and echoes the owner", !(await js(`Boolean(document.querySelector("#request form"))`)) && await js(`document.querySelector("#log").textContent.endsWith("Done")`));
+        await js(`window.__lore.preview({ type: "open", id: "preview-open-2", task: null, title: "See the payment land", url: "https://sepolia.basescan.org/address/0x1", note: "Token Transfers shows it." })`);
+        await js(`document.querySelector("#request .actions button").click()`);
+        await sleep(200);
+        check("Not now closes the card and echoes the owner", !(await js(`Boolean(document.querySelector("#request form"))`)) && await js(`document.querySelector("#log").textContent.endsWith("Not now")`));
+
         // Fix 1, seller: approve the last draft with no store. The confirmation must be visible on the Today root.
         await js(`[...document.querySelectorAll("#content button")].find((b) => b.textContent === "Approve").click()`);
         await waitFor(`document.querySelectorAll("#content .draft-title").length === 1`);
@@ -118,11 +158,11 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         await js(`document.querySelector("#status .notice .dismiss").click()`);
         check("notice dismisses", await js(`document.querySelectorAll("#status .notice").length`) === 0);
 
-        // Fix 5: the Sales card no longer promises data nothing collects.
+        // Ledger: with no store there is nothing to read, and the section says so without a probe.
         await js(`window.__lore.show("store")`);
         await sleep(800);
         const sales = await js(`document.querySelector("#content").textContent`);
-        check("Sales copy is honest", sales.includes("Sales don't show up here yet") && !sales.includes("shows up here with what it paid"));
+        check("Sales is empty without a store", sales.includes("No sales yet."), sales.slice(-160));
         await shot("store");
 
         // Fix 1, technical: a failing CLI call on Memories surfaces as an attention notice instead of vanishing.

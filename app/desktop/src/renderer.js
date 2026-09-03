@@ -58,6 +58,8 @@ let pushing = false;
 /** @type {string | false} */
 let pushedNote = false;
 let accountMenuOpen = false;
+/** The node's ledger, read each time For Sale opens: rows, the reason it could not be read, or null while it loads. @type {Sale[] | Error | null} */
+let sales = null;
 /** The task whose turn is open, while one is. @type {AgentTask | null} */
 let busy = null;
 /** The card awaiting the owner. A memory card also carries `current`, its entries as edited, so the composer can send a spoken or typed correction with them. @type {{id: string, task: AgentTask | null, box: HTMLElement, current?: () => ProposedMemory[]} | null} */
@@ -71,8 +73,10 @@ const PROVIDERS = {
 };
 const NETWORKS = { "eip155:8453": "Base", "eip155:84532": "Base Sepolia, test network" };
 const TEST_NETWORK = "eip155:84532";
+const EXPLORERS = { "eip155:8453": "https://basescan.org", "eip155:84532": "https://sepolia.basescan.org" };
 const CHANGE_PRICE = "I want to change the price on my store. Set the new price and redeploy so buyers pay the new amount.";
 const REAL_MONEY = "I'm ready to switch my store to real money.";
+const PLAY_MONEY = "Put my store back on the test network.";
 const money = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" });
 const shortDate = new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric" });
 const longDate = new Intl.DateTimeFormat("en-US", { weekday: "long", month: "long", day: "numeric" });
@@ -197,7 +201,8 @@ async function openMemory(id) {
   const panel = el("div", "card sheet-panel");
   const head = el("div", "sheet-head");
   const text = el("div", "t");
-  text.append(el("b", "", memory.title), el("span", "", [memory.project, memory.source, when(memory.updated_at)].filter(Boolean).join(" · ")));
+  const titleLabel = el("b", "", memory.title);
+  text.append(titleLabel, el("span", "", [memory.project, memory.source, when(memory.updated_at)].filter(Boolean).join(" · ")));
   const close = el("button", "icon-btn", "×");
   close.type = "button";
   close.setAttribute("aria-label", "Close");
@@ -206,10 +211,42 @@ async function openMemory(id) {
   actions.style.display = "flex";
   actions.style.gap = "8px";
   function showActions() {
-    actions.replaceChildren(button("Edit", "quiet", startEdit), button("Draft for sale", "quiet", () => void publishMemory(memory)));
+    actions.replaceChildren(button("Rename", "quiet", startRename), button("Edit", "quiet", startEdit), button("Draft for sale", "quiet", () => void publishMemory(memory)));
   }
   /** @type {HTMLElement} */
   let body = renderMemoryBody(memory.content);
+  function startRename() {
+    const input = el("input", "draft-title");
+    input.type = "text";
+    input.value = memory.title;
+    input.setAttribute("aria-label", "Memory title");
+    titleLabel.replaceWith(input);
+    input.focus();
+    input.select();
+    actions.replaceChildren(button("Cancel", "secondary", cancelRename), button("Save", "primary", () => void saveRename()));
+    input.addEventListener("keydown", (event) => {
+      if (event.key === "Enter") { event.preventDefault(); void saveRename(); }
+      else if (event.key === "Escape") { event.preventDefault(); cancelRename(); }
+    });
+    function cancelRename() {
+      input.replaceWith(titleLabel);
+      showActions();
+    }
+    async function saveRename() {
+      const title = input.value.trim();
+      if (!title || title === memory.title) { cancelRename(); return; }
+      try {
+        memory = await window.lore.renameMemory(memory.id, title);
+      } catch (error) {
+        say(reason(error, "Lore could not rename that."));
+        return;
+      }
+      titleLabel.textContent = memory.title;
+      sheet.setAttribute("aria-label", memory.title);
+      cancelRename();
+      void load();
+    }
+  }
   function startEdit() {
     const textarea = /** @type {HTMLTextAreaElement} */ (el("textarea", "body-edit"));
     textarea.value = memory.content;
@@ -303,19 +340,35 @@ function workerConsole(url) {
   return `https://dash.cloudflare.com/?to=/:account/workers/services/view/${host.split(".")[0]}`;
 }
 
-/** @param {string} url */
-function storeAddress(url) {
-  const node = el("span", "address");
-  node.append(el("span", "mono", url.replace(/^https?:\/\//, "").replace(/\/mcp$/, "")));
+/** @param {string} label @param {string} href @param {string} [className] */
+function outLink(label, href, className = "link-btn") {
+  const link = el("a", className, label);
+  link.href = href;
+  link.target = "_blank";
+  link.rel = "noreferrer";
+  return link;
+}
+
+/** @param {string | null} network */
+function explorer(network) {
+  return EXPLORERS[/** @type {keyof typeof EXPLORERS} */ (network ?? "")] ?? EXPLORERS[TEST_NETWORK];
+}
+
+/** @param {Snapshot["node"]["live"]} live */
+function payoutLink(live) {
+  return live.payout ? outLink("Payouts ↗", `${explorer(live.network)}/address/${live.payout}`) : null;
+}
+
+/** @param {Snapshot["node"]} node */
+function storeAddress(node) {
+  const url = /** @type {string} */ (node.url);
+  const box = el("span", "address");
+  box.append(el("span", "mono", url.replace(/^https?:\/\//, "").replace(/\/mcp$/, "")));
   const console = workerConsole(url);
-  if (console) {
-    const open = el("a", "link-btn", "Cloudflare ↗");
-    open.href = console;
-    open.target = "_blank";
-    open.rel = "noreferrer";
-    node.append(open);
-  }
-  return node;
+  if (console) box.append(outLink("Cloudflare ↗", console));
+  const payouts = payoutLink(node.live);
+  if (payouts) box.append(payouts);
+  return box;
 }
 
 function greeting() {
@@ -430,7 +483,7 @@ function renderStore(s) {
   const text = el("div", "t");
   text.append(el("b", "sans", live.state === "online" ? `Live, answering on ${networkLabel(live.network) || "your node"}` : live.state === "unreachable" ? "Your node isn't answering" : "No store yet"));
   if (s.node.url) {
-    text.append(storeAddress(s.node.url));
+    text.append(storeAddress(s.node));
   } else {
     text.append(el("span", "", "Open one from Today when you're ready to sell."));
   }
@@ -450,6 +503,11 @@ function renderStore(s) {
   const approved = s.publications.items.filter((item) => item.state === "approved");
   const waiting = unpushed(s);
   const revoked = s.publications.items.filter((item) => item.state === "revoked");
+  /** @param {PublicationItem} item */
+  const sold = (item) => {
+    const count = Array.isArray(sales) ? sales.filter((sale) => sale.item_id === item.public_id).length : 0;
+    return count ? `${item.topic} · ${count} sold` : item.topic;
+  };
   /** @param {PublicationItem} item */
   const state = (item) => item.live === true ? chip("Live", "ok") : item.live === false ? chip("Not live yet") : chip("Approved");
   /** @param {PublicationItem} item */
@@ -473,17 +531,39 @@ function renderStore(s) {
   const parts = [bar];
   if (pushOffer) parts.push(seamCard());
   parts.push(section("For sale", approved.length
-    ? card(approved.map((item) => row(item.title, item.topic, controls(item))))
+    ? card(approved.map((item) => row(item.title, sold(item), controls(item))))
     : el("div", "card pad empty", "Nothing for sale yet. Publish something from Today."),
     el("span", "hint", approved.length ? `${approved.length} ${approved.length === 1 ? "publication" : "publications"}${live.state !== "online" ? "" : waiting.length ? ` · ${waiting.length} not on your store yet` : " · confirmed on your node"}` : "")));
   if (revoked.length) parts.push(section("Taken down", card(revoked.map((item) => row(item.title, item.topic, chip("Revoked"))))));
-  const sales = el("div", "card pad");
-  sales.style.display = "flex";
-  sales.style.justifyContent = "space-between";
-  sales.style.gap = "16px";
-  sales.append(el("span", "empty", "Sales don't show up here yet. Buyers' agents pay per call, and each payment lands in the payout wallet you gave when you opened your store."));
-  parts.push(section("Sales", sales));
+  parts.push(renderSales());
   return parts;
+}
+
+function renderSales() {
+  if (sales instanceof Error) return section("Sales", el("div", "card pad empty", sales.message));
+  if (sales === null) return section("Sales", el("div", "card pad empty", "Checking your store…"));
+  if (!sales.length) return section("Sales", el("div", "card pad empty", "No sales yet. When a buyer's agent pays for a publication, it shows here."));
+  const total = sales.reduce((sum, sale) => sum + sale.price_usd, 0);
+  const rows = sales.map((sale) => {
+    const trailing = el("div", "v");
+    const receipt = outLink("↗", `${explorer(sale.network)}/tx/${sale.tx}`, "link-btn glyph");
+    receipt.title = `See this payment on Basescan · ${sale.tx}`;
+    receipt.setAttribute("aria-label", "See this payment on Basescan");
+    trailing.append(el("span", "mono", price(sale.price_usd)), receipt);
+    return row(sale.title, when(sale.sold_at), trailing);
+  });
+  return section("Sales", card(rows), el("span", "hint", `${sales.length} ${sales.length === 1 ? "sale" : "sales"} · ${price(total)} · last ${when(sales[0].sold_at)}`));
+}
+
+/** Read the ledger for the open store; without one there is nothing to read. */
+async function loadSales() {
+  sales = null;
+  try {
+    sales = snapshot?.node.url ? await window.lore.sales() : [];
+  } catch (error) {
+    sales = new Error(reason(error, "Lore could not read your sales."));
+  }
+  render();
 }
 
 /** @param {Snapshot} s */
@@ -527,11 +607,16 @@ function renderSettings(s) {
       row("Where it lives", "Everything stays on this Mac. Only what you approve for sale ever leaves.", value(Object.assign(el("span", "mono", s.home), { style: "color: var(--muted)" })), false)
     ])),
     section("Your store", card([
-      row("Address", s.node.url ? storeAddress(s.node.url) : "Not opened yet.", value(status(live.state === "online", live.state === "online" ? `Live on ${networkLabel(live.network) || "your node"}` : nodeLabel(live.state))), false),
+      row("Address", s.node.url ? storeAddress(s.node) : "Not opened yet.", value(status(live.state === "online", live.state === "online" ? `Live on ${networkLabel(live.network) || "your node"}` : nodeLabel(live.state))), false),
+      ...(live.payout
+        ? [row("Payouts", "Where each payment lands. Lore never holds it.", value(el("span", "mono", `${live.payout.slice(0, 6)}…${live.payout.slice(-4)}`), /** @type {HTMLElement} */ (payoutLink(live))), false)]
+        : []),
       row("Prices", "What a buyer's agent pays per call.", value(el("span", "mono", `${price(s.pricing.publication_usd)} publication${s.pricing.answer_enabled ? ` · ${price(s.pricing.answer_usd)} answer` : ""}`), ...(s.node.url ? [button("Change price", "quiet", () => void startDeploy(CHANGE_PRICE))] : [])), false),
       ...(live.network === TEST_NETWORK
         ? [row("Payments", "Buyers on the test network pay with play money. Switch when you want real buyers paying real money.", value(button("Switch to real payments", "secondary", () => void startDeploy(REAL_MONEY))), false)]
-        : [])
+        : live.network
+          ? [row("Payments", "Buyers pay real money. Switch back to the test network any time; nothing already paid changes.", value(button("Switch to play money", "secondary", () => void startDeploy(PLAY_MONEY))), false)]
+          : [])
     ]))
   ];
 }
@@ -610,6 +695,7 @@ function renderAccount() {
 function show(next) {
   view = next;
   if (next !== "memories") { hits = null; search.value = ""; }
+  if (next === "store") void loadSales();
   render();
   mainEl.focus({ preventScroll: true });
 }
@@ -879,6 +965,29 @@ function renderRequest(event) {
       submitEvent.preventDefault();
       respond(event.id, true, "Open Cloudflare");
     });
+  } else if (event.type === "open") {
+    // Two stages on one card: open the page, then say how it went. Only the heading and the buttons change.
+    const host = new URL(event.url).hostname;
+    const heading = el("p", "q", event.title);
+    box.append(heading, el("p", "hint", event.note));
+    const actions = el("div", "actions");
+    const decline = el("button", "btn secondary sm", "Not now");
+    decline.type = "button";
+    const go = el("button", "btn primary sm", `Open ${host}`);
+    go.type = "submit";
+    actions.append(decline, go);
+    box.append(actions);
+    let opened = false;
+    decline.addEventListener("click", () => respond(event.id, opened ? "stuck" : false, opened ? "I got stuck" : "Not now"));
+    box.addEventListener("submit", (submitEvent) => {
+      submitEvent.preventDefault();
+      if (opened) { void respond(event.id, "done", "Done"); return; }
+      opened = true;
+      window.open(event.url);
+      heading.textContent = "Finish in your browser, then come back here.";
+      decline.textContent = "I got stuck";
+      go.textContent = "Done";
+    });
   } else {
     box.append(el("p", "q", event.prompt.message));
     /** @type {HTMLInputElement | HTMLSelectElement} */
@@ -898,6 +1007,7 @@ function renderRequest(event) {
     const actions = el("div", "actions");
     const go = el("button", "btn primary sm", "Continue");
     go.type = "submit";
+    if (event.prompt.type === "secret") actions.append(button("Not now", "secondary", () => void respond(event.id, "")));
     actions.append(go);
     box.append(field, actions);
     box.addEventListener("submit", (submitEvent) => {

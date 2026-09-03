@@ -28,6 +28,7 @@ class Manifest(BaseModel):
     manifest_version: Literal[1]
     topics: dict[str, list[ManifestEntry]]
     network: str | None = None
+    payout: str | None = None
 
 
 OBJECT = TypeAdapter(dict[str, Any])
@@ -101,13 +102,18 @@ def _remote_manifest(url: str) -> Manifest:
 
 def _live_state(node_url: str | None) -> tuple[dict[str, object], set[str] | None]:
     if not node_url:
-        return {"state": "not_configured", "network": None}, None
+        return {"state": "not_configured", "network": None, "payout": None}, None
     try:
         manifest = _remote_manifest(node_url)
     except (OSError, ValueError, KeyError, IndexError, TypeError):
-        return {"state": "unreachable", "network": None}, None
+        return {"state": "unreachable", "network": None, "payout": None}, None
     ids = {entry.id for entries in manifest.topics.values() for entry in entries}
-    return {"state": "online", "network": manifest.network}, ids
+    live: dict[str, object] = {
+        "state": "online",
+        "network": manifest.network,
+        "payout": manifest.payout,
+    }
+    return live, ids
 
 
 LIVE_CACHE_SECONDS = 60
@@ -198,7 +204,7 @@ def build() -> dict[str, object]:
         memory["project_label"] = labels.get(project) or project.removeprefix(prefix)
     for publication in publications:
         active = bool(publication.pop("active"))
-        public_id = publication.pop("public_id")
+        public_id = publication["public_id"]
         publication["state"] = "approved" if active else "revoked"
         publication["live"] = None if live_ids is None else public_id in live_ids
 

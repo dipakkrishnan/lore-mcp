@@ -86,6 +86,10 @@ def parser() -> argparse.ArgumentParser:
     memory_show = memory_commands.add_parser("show", help="print one memory in full")
     memory_show.add_argument("id", type=int)
     memory_show.add_argument("--json", action="store_true")
+    memory_rename = memory_commands.add_parser("rename", help="rename a memory")
+    memory_rename.add_argument("id", type=int)
+    memory_rename.add_argument("title")
+    memory_rename.add_argument("--json", action="store_true")
     memory_edit = memory_commands.add_parser("edit", help="edit a memory's content")
     memory_edit.add_argument("id", type=int)
     memory_edit.add_argument(
@@ -154,7 +158,21 @@ def parser() -> argparse.ArgumentParser:
         "--wallet",
         help="public payout address (0x + 40 hex) set as the node's LORE_WALLET",
     )
+    node_deploy.add_argument(
+        "--network",
+        choices=tuple(deploy_module.NETWORKS),
+        help="switch the node to real money or back to the test network",
+    )
     node_commands.add_parser("login", help="sign in to Cloudflare through your browser")
+    node_sales = node_commands.add_parser("sales", help="what your node has sold")
+    node_sales.add_argument(
+        "--json", action="store_true", help="print the sales as JSON"
+    )
+    node_secret = node_commands.add_parser(
+        "secret",
+        help="vault a Coinbase credential on the node; the value is read from stdin",
+    )
+    node_secret.add_argument("name", choices=deploy_module.SECRETS)
 
     publication = commands.add_parser(
         "publication", help="approve, list, and revoke external publications"
@@ -227,6 +245,8 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "search":
             return search(" ".join(args.query), args.status, args.limit, args.json)
         if args.command == "memory":
+            if args.memory_command == "rename":
+                return rename_memory(args.id, args.title, args.json)
             if args.memory_command == "edit":
                 return edit_memory(args.id, args.content, args.json, args.stdin)
             return show_memory(args.id, args.json)
@@ -265,9 +285,14 @@ def main(argv: list[str] | None = None) -> int:
             return serve(serve_args)
         if args.command == "node":
             if args.node_command == "deploy":
-                return deploy_module.deploy(args.wallet)
+                return deploy_module.deploy(args.wallet, args.network)
+            if args.node_command == "secret":
+                _owner_action("storing a node secret")
+                return deploy_module.secret(args.name, sys.stdin.read().strip())
             if args.node_command == "login":
                 return deploy_module.login()
+            if args.node_command == "sales":
+                return sales(args.json)
         if args.command == "publication":
             if args.publication_command == "review":
                 return publication_apply(args.file)
@@ -507,6 +532,20 @@ def show_memory(memory_id: int, as_json: bool) -> int:
     return 0
 
 
+def rename_memory(memory_id: int, title: str, as_json: bool) -> int:
+    """Rename a memory and print the result as a card or JSON."""
+    with Store() as store:
+        store.set_title(memory_id, title)
+        memory = store.get(memory_id)
+    if memory is None:
+        raise ValueError(f"memory not found: {memory_id}")
+    if as_json:
+        print(json.dumps(memory.__dict__, indent=2))
+    else:
+        memory_card(memory)
+    return 0
+
+
 def edit_memory(
     memory_id: int, content: str | None, as_json: bool, from_stdin: bool = False
 ) -> int:
@@ -534,6 +573,21 @@ def edit_memory(
         print(json.dumps(memory.__dict__, indent=2))
     else:
         memory_card(memory)
+    return 0
+
+
+def sales(as_json: bool) -> int:
+    rows = deploy_module.sales()
+    if as_json:
+        print(deploy_module.SALES.dump_json(rows).decode())
+        return 0
+    if not rows:
+        muted("No sales yet.")
+        return 0
+    total = sum(row.price_usd for row in rows)
+    heading(f"{len(rows)} sale{'s' if len(rows) != 1 else ''} · ${total:.2f}")
+    for row in rows:
+        print(f"  {row.sold_at[:10]}  ${row.price_usd:.2f}  {row.title}")
     return 0
 
 
