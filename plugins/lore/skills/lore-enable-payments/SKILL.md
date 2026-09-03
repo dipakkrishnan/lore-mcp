@@ -28,7 +28,12 @@ having at least one.
 > keeps for the owner: Cloudflare sign-in (call `cloudflare_login`; it opens
 > Cloudflare in their browser and returns who is signed in — never send the
 > owner to a terminal) and `lore push` (they press **Push** in the app; never
-> run it). Default the path to the **test network**
+> run it). Every other browser step — the wallet, the workers.dev subdomain,
+> the faucet, Basescan — goes through `open_url` with a short step title and
+> one line on what to do there; it waits for the owner and tells you whether
+> they finished, got stuck, or declined. Never paste a link into prose. If
+> `lore node deploy` stops with "not signed in to Cloudflare", call
+> `cloudflare_login` and rerun it. Default the path to the **test network**
 > (Base Sepolia); mainnet is an explicit choice the owner makes with a publication
 > live. Keep the desktop flow publication-only; paid answers remain a separate,
 > terminal-attended option. Do not read or write
@@ -265,7 +270,15 @@ When they do, verify the gates **from state** before driving anything:
 
 Any gate fails → say which, leave the node on the test network, stop.
 
-All gates hold → drive the **Mainnet cutover** section of
+> **Lore desktop:** all gates hold → frame and open the Coinbase Developer
+> Platform's API keys page through `open_url` (the runbook's decoy and
+> dialog notes belong in that one line), then call `store_secret` for
+> `CDP_API_KEY_ID` and again for `CDP_API_KEY_SECRET` — each shows the owner
+> a field whose value goes straight to Cloudflare's vault — then run
+> `lore node deploy --network real`. Say "real money" and "the test
+> network", never "mainnet". `lore node deploy --network test` goes back.
+
+All gates hold in a terminal → drive the **Mainnet cutover** section of
 `~/.lore/node/README.md` like any other section of this skill: one step at a
 time, announce each portal page before opening it, verify each step from
 state. The runbook carries the sharp edges — the API-keys page hides behind

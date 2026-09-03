@@ -15,6 +15,7 @@ import {
 import { runAnswer } from "./answer.js";
 import { facilitator, network, networkLabel } from "./network.js";
 import { PRICE_USD } from "./price.js";
+import { ensureSalesSchema, recorded } from "./sales.js";
 import { storefront } from "./storefront.js";
 import { payTo } from "./wallet.js";
 
@@ -43,6 +44,7 @@ export class LorePaidMCP extends McpAgent<Env> {
 
   async init() {
     await ensureAnswerSchema(this.env.LORE_DB);
+    await ensureSalesSchema(this.env.LORE_DB);
     const settings = await readAnswerSettings(this.env.LORE_DB);
     this.server.registerTool(
       "discover",
@@ -57,6 +59,7 @@ export class LorePaidMCP extends McpAgent<Env> {
         asText({
           ...(await manifest(this.env)),
           network: network(this.env),
+          payout: payTo(this.env),
           price_usd: PRICE_USD,
           ...(settings.enabled
             ? {
@@ -68,7 +71,7 @@ export class LorePaidMCP extends McpAgent<Env> {
         })
     );
 
-    this.server.paidTool(
+    const get = this.server.paidTool(
       "get",
       "Fetch one owner-approved publication by its id from the discover catalog. " +
         "Each call buys exactly one publication. Damaged ids are rejected before " +
@@ -98,6 +101,10 @@ export class LorePaidMCP extends McpAgent<Env> {
         );
       }
     );
+    recorded(this.env.LORE_DB, get, "publication", PRICE_USD, (payload) => {
+      const { publication } = payload as { publication: { id: string; title: string } };
+      return { item: publication.id, title: publication.title };
+    });
 
     const question = {
       question: z.string().trim().min(1).max(4000)
@@ -110,7 +117,7 @@ export class LorePaidMCP extends McpAgent<Env> {
       "there are no automated refunds.";
 
     if (settings.enabled) {
-      this.server.paidTool(
+      const answer = this.server.paidTool(
         "answer",
         answerDescription,
         settings.priceUsd,
@@ -128,6 +135,10 @@ export class LorePaidMCP extends McpAgent<Env> {
           });
         }
       );
+      recorded<typeof question>(this.env.LORE_DB, answer, "answer", settings.priceUsd, (payload, args) => ({
+        item: (payload as { ticket: string }).ticket,
+        title: args.question
+      }));
     } else {
       this.server.registerTool(
         "answer",

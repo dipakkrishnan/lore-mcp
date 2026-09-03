@@ -8,6 +8,7 @@ type MemoryItem = {
 
 type PublicationItem = {
   id: number;
+  public_id: string;
   title: string;
   topic: string;
   state: "approved" | "revoked";
@@ -41,8 +42,21 @@ type Snapshot = {
     live: {
       state: "online" | "not_configured" | "unreachable";
       network: string | null;
+      payout: string | null;
     };
   };
+};
+
+/** One settled paid call, as the node's ledger records it. */
+type Sale = {
+  kind: "publication" | "answer";
+  item_id: string;
+  title: string;
+  price_usd: number;
+  network: string;
+  payer: string;
+  tx: string;
+  sold_at: string;
 };
 
 type SearchHit = {
@@ -129,11 +143,13 @@ interface Window {
     logout(providerId: string): Promise<AgentStatus>;
     search(query: string): Promise<SearchHit[]>;
     memory(id: number): Promise<Memory>;
+    renameMemory(id: number, title: string): Promise<Memory>;
     editMemory(id: number, content: string): Promise<Memory>;
     candidates(): Promise<PublicationCandidate[]>;
     decide(input: { original: PublicationCandidate; candidate: PublicationCandidate; approve: boolean }): Promise<void>;
     revoke(id: number): Promise<void>;
     push(): Promise<void>;
+    sales(): Promise<Sale[]>;
     pickFiles(): Promise<string[]>;
     pathFor(file: File): string;
     onAgentEvent(listener: (event: AgentEvent) => void): () => void;
@@ -167,7 +183,8 @@ type AgentRequest =
   | { type: "memories"; id: string; task: AgentTask | null; entries: ProposedMemory[] }
   | { type: "blueprint"; id: string; task: AgentTask | null; fields: BlueprintFields; evidence: string }
   | { type: "auth-prompt"; id: string; task: AgentTask | null; prompt: AuthPrompt }
-  | { type: "cloudflare"; id: string; task: AgentTask | null };
+  | { type: "cloudflare"; id: string; task: AgentTask | null }
+  | { type: "open"; id: string; task: AgentTask | null; title: string; url: string; note: string };
 
 type AgentEvent =
   | AgentRequest
@@ -204,6 +221,8 @@ type LoreAgentOptions = {
   proposeMemories(entries: ProposedMemory[]): Promise<MemoryOutcome>;
   proposeBlueprint(fields: BlueprintFields, evidence: string): Promise<BlueprintFields>;
   cloudflareLogin(): Promise<string>;
+  openUrl(page: { title: string; url: string; note: string }): Promise<string>;
+  storeSecret(name: "CDP_API_KEY_ID" | "CDP_API_KEY_SECRET"): Promise<string>;
   authPrompt(prompt: import("@earendil-works/pi-ai").AuthPrompt): Promise<string>;
   authEvent(event: import("@earendil-works/pi-ai").AuthEvent): void;
 };

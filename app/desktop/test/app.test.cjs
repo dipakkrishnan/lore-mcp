@@ -18,6 +18,15 @@ test("reads only the fixed APP-001 snapshot", async () => {
   }
 });
 
+test("the agent may open only the pages the payments skill sends an owner to", () => {
+  const { openable } = require("../src/state.cjs");
+  assert.ok(openable("https://portal.cdp.coinbase.com/products/faucet"));
+  assert.ok(openable("https://sepolia.basescan.org/address/0x1"));
+  assert.ok(!openable("http://portal.cdp.coinbase.com/products/faucet"));
+  assert.ok(!openable("https://portal.cdp.coinbase.com.evil.example/"));
+  assert.ok(!openable("not a url"));
+});
+
 test("useRuntime runs the packaged binary instead of uv", async () => {
   const { useRuntime } = require("../src/state.cjs");
   const directory = await mkdtemp(join(tmpdir(), "lore-desktop-"));
@@ -448,6 +457,18 @@ test("memory reads validate the id before any CLI call, and say when it is unkno
   const directory = await mkdtemp(join(tmpdir(), "lore-desktop-"));
   try {
     await assert.rejects(readMemory(directory, 999), { message: /memory not found: 999/ });
+  } finally {
+    await rm(directory, { recursive: true });
+  }
+});
+
+test("memory rename validates the id and title before any CLI call, and round-trips through the CLI", async () => {
+  const { renameMemory } = require("../src/state.cjs");
+  for (const bad of [0, -1, 1.5, "1", null]) await assert.rejects(renameMemory("/nonexistent", bad, "New title"), { message: /Invalid memory/ });
+  const directory = await mkdtemp(join(tmpdir(), "lore-desktop-"));
+  try {
+    await assert.rejects(renameMemory(directory, 1, "   "), { message: /Title cannot be empty/ });
+    await assert.rejects(renameMemory(directory, 999, "New title"), { message: /memory not found: 999/ });
   } finally {
     await rm(directory, { recursive: true });
   }
