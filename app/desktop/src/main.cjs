@@ -227,6 +227,20 @@ async function start(loreHome) {
       await lore(loreHome, ["node", "secret", name], value);
       return `Stored the ${label}.`;
     },
+    job: {
+      // This process is the one that owes the row a close, so it claims the row
+      // with its own pid. The long ceiling only bounds pid reuse; it is not a
+      // turn timeout, and must never fire on a real capture.
+      start: async (kind) => {
+        const out = await lore(loreHome, ["job", "start", kind, "--pid", String(process.pid), "--timeout-minutes", "720"]);
+        const id = JSON.parse(out)?.id;
+        return typeof id === "number" ? id : null;
+      },
+      finish: async (id, status, summary, costUsd) => {
+        const cost = costUsd === null ? [] : ["--cost-usd", String(costUsd)];
+        await lore(loreHome, ["job", "finish", String(id), status, "--summary", summary, ...cost]);
+      }
+    },
     authPrompt: async ({ signal, ...prompt }) => String(await request("auth-prompt", { prompt }, signal)),
     authEvent: (event) => {
       if (event.type === "auth_url") {

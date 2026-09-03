@@ -181,6 +181,8 @@ export class LoreAgent {
   #completed = false;
   #turns = 0;
   #capped = false;
+  /** What this turn spent, summed across assistant messages, for owner history. */
+  #costUsd = 0;
   /** @type {AgentTask | null} */
   #activeTask = null;
 
@@ -358,7 +360,17 @@ export class LoreAgent {
     this.#completed = false;
     this.#turns = 0;
     this.#capped = false;
+    this.#costUsd = 0;
     this.options.emit({ type: "working", active: true, task });
+    // Durable history for the one task that produces memories. The row carries
+    // this process's pid, so a turn may run for hours and stay Running for
+    // exactly as long as the process that owes it a close is alive — and if the
+    // app dies mid-turn, the row is conceded instead of vanishing. Recording
+    // must never be able to break a capture, so failures here are swallowed.
+    const jobId = task === "capture" ? await this.options.job?.start("capture").catch(() => null) ?? null : null;
+    if (jobId !== null) this.options.emit({ type: "changed" });
+    /** @type {[string, string]} */
+    let outcome = ["failed", "failed"];
     try {
       const open = this.#sessions.get(task);
       if (open && (from || latestTaskRecord(open.sessionManager, task)?.state === "done")) {
@@ -371,13 +383,17 @@ export class LoreAgent {
       await session.prompt(resumed ? text : `/skill:${SKILLS[task]}\n\n${text}`);
       const closing = closingRecord(latestTaskRecord(session.sessionManager, task)?.state, task, this.#completed);
       if (closing) this.#record(session, task, closing[0], closing[1]);
+      outcome = this.#completed ? ["succeeded", "captured"] : ["succeeded", "stopped"];
     } catch (error) {
       const session = this.#sessions.get(task);
       if (session && latestTaskRecord(session.sessionManager, task)?.state !== "stopped") this.#record(session, task, "stopped", "Needs another try");
+      outcome = ["failed", "model_error"];
       throw error;
     } finally {
       this.#busy = false;
       this.#activeTask = null;
+      // One close covering every way a turn ends: finished, thrown, or capped.
+      if (jobId !== null) await this.options.job?.finish(jobId, outcome[0], outcome[1], this.#costUsd || null).catch(() => {});
       this.options.emit({ type: "working", active: false, task });
     }
   }
@@ -450,6 +466,9 @@ export class LoreAgent {
       }
       if (event.type === "tool_execution_end" && event.toolName === "bash") this.options.emit({ type: "changed" });
       if (event.type !== "message_end" || event.message.role !== "assistant") return;
+      // Counted before the error return, so a turn that failed still reports
+      // what it spent getting there.
+      this.#costUsd += event.message.usage?.cost?.total ?? 0;
       if (event.message.stopReason === "error" || event.message.stopReason === "aborted") {
         this.options.emit({ type: "message", task, text: this.#capped ? CAPPED : event.message.errorMessage || "Lore's model did not answer." });
         return;

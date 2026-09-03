@@ -8,7 +8,7 @@
     "check": "tsc --noEmit",
     "test": "node --test",
     "test:capture": "./test-capture.sh",
-    "test:edge": "support/edge.sh seller && support/edge.sh provision && support/edge.sh store",
+    "test:edge": "support/edge.sh seller && support/edge.sh provision && support/edge.sh store && support/edge.sh jobs",
     "dogfood:new": "./support/dogfood.sh new",
     "dogfood:current": "./support/dogfood.sh current",
     "package": "electron-forge package",
