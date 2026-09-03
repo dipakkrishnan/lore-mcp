@@ -22,6 +22,7 @@ from unittest.mock import patch
 from helpers import LoreTestCase, blueprint_input, captured
 
 from lore import automation, blueprint, cli
+from lore import deploy as deploy_module
 from lore.store import PublicationKind, Status, Store
 
 
@@ -214,10 +215,50 @@ class MainDispatchTest(LoreTestCase):
         self.assertEqual(push.call_args.args, ("lore/node",))
         self.assertFalse(push.call_args.kwargs["local"])
 
-    def test_node_deploy_forwards_the_wallet(self) -> None:
+    def test_node_sales_prints_the_ledger_as_json_or_text(self) -> None:
+        row = {
+            "kind": "publication",
+            "item_id": "0000000000000000fcdb4b42",
+            "title": "A",
+            "price_usd": 0.01,
+            "network": "eip155:84532",
+            "payer": "0xpayer",
+            "tx": "0xtx",
+            "sold_at": "2026-09-02T18:00:00Z",
+        }
+        rows = [deploy_module.Sale(**row)]
+        with patch("lore.deploy.sales", return_value=rows), captured() as output:
+            self.assertEqual(cli.main(["node", "sales", "--json"]), 0)
+        self.assertEqual(json.loads(output.getvalue()), [row])
+        with patch("lore.deploy.sales", return_value=rows), captured() as output:
+            self.assertEqual(cli.main(["node", "sales"]), 0)
+        self.assertIn("1 sale · $0.01", output.getvalue())
+        self.assertIn("2026-09-02  $0.01  A", output.getvalue())
+
+    def test_node_deploy_forwards_the_wallet_and_the_network(self) -> None:
         with patch("lore.deploy.deploy", return_value=0) as deploy:
             self.assertEqual(cli.main(["node", "deploy", "--wallet", "0x1"]), 0)
-        self.assertEqual(deploy.call_args.args, ("0x1",))
+        self.assertEqual(deploy.call_args.args, ("0x1", None))
+        with patch("lore.deploy.deploy", return_value=0) as deploy:
+            self.assertEqual(cli.main(["node", "deploy", "--network", "real"]), 0)
+        self.assertEqual(deploy.call_args.args, (None, "real"))
+
+    def test_node_secret_reads_the_value_from_an_attended_stdin_only(self) -> None:
+        with (
+            patch("lore.deploy.secret", return_value=0) as secret,
+            desktop_stdin("key-id\n"),
+        ):
+            self.assertEqual(cli.main(["node", "secret", "CDP_API_KEY_ID"]), 0)
+        self.assertEqual(secret.call_args.args, ("CDP_API_KEY_ID", "key-id"))
+        with (
+            patch("lore.deploy.secret", return_value=0) as secret,
+            patch.object(sys, "stdin", StringIO("key-id\n")),
+            patch.object(cli, "_interactive", return_value=False),
+            patch("sys.stderr", new_callable=StringIO) as stderr,
+        ):
+            self.assertEqual(cli.main(["node", "secret", "CDP_API_KEY_ID"]), 1)
+        self.assertIn("attended terminal or the Lore desktop app", stderr.getvalue())
+        secret.assert_not_called()
 
     def test_no_command_falls_back_to_status_when_not_interactive(self) -> None:
         with (

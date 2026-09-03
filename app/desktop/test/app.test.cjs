@@ -18,6 +18,15 @@ test("reads only the fixed APP-001 snapshot", async () => {
   }
 });
 
+test("the agent may open only the pages the payments skill sends an owner to", () => {
+  const { openable } = require("../src/state.cjs");
+  assert.ok(openable("https://portal.cdp.coinbase.com/products/faucet"));
+  assert.ok(openable("https://sepolia.basescan.org/address/0x1"));
+  assert.ok(!openable("http://portal.cdp.coinbase.com/products/faucet"));
+  assert.ok(!openable("https://portal.cdp.coinbase.com.evil.example/"));
+  assert.ok(!openable("not a url"));
+});
+
 test("useRuntime runs the packaged binary instead of uv", async () => {
   const { useRuntime } = require("../src/state.cjs");
   const directory = await mkdtemp(join(tmpdir(), "lore-desktop-"));

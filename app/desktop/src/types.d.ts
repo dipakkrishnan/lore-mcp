@@ -8,6 +8,7 @@ type MemoryItem = {
 
 type PublicationItem = {
   id: number;
+  public_id: string;
   title: string;
   topic: string;
   state: "approved" | "revoked";
@@ -45,8 +46,21 @@ type Snapshot = {
       // last deploy — not `pricing.publication_usd`, which is what the owner
       // last saved. Null when unreachable, or when the node predates the field.
       price_usd: number | null;
+      payout: string | null;
     };
   };
+};
+
+/** One settled paid call, as the node's ledger records it. */
+type Sale = {
+  kind: "publication" | "answer";
+  item_id: string;
+  title: string;
+  price_usd: number;
+  network: string;
+  payer: string;
+  tx: string;
+  sold_at: string;
 };
 
 type SearchHit = {
@@ -140,6 +154,7 @@ interface Window {
     revoke(id: number): Promise<void>;
     push(): Promise<void>;
     setPrice(amount: number): Promise<void>;
+    sales(): Promise<Sale[]>;
     pickFiles(): Promise<string[]>;
     pathFor(file: File): string;
     onAgentEvent(listener: (event: AgentEvent) => void): () => void;
@@ -174,7 +189,8 @@ type AgentRequest =
   | { type: "blueprint"; id: string; task: AgentTask | null; fields: BlueprintFields; evidence: string }
   | { type: "auth-prompt"; id: string; task: AgentTask | null; prompt: AuthPrompt }
   | { type: "cloudflare"; id: string; task: AgentTask | null }
-  | { type: "price"; id: string; task: AgentTask | null; amount: number; reason: string };
+  | { type: "price"; id: string; task: AgentTask | null; amount: number; reason: string }
+  | { type: "open"; id: string; task: AgentTask | null; title: string; url: string; note: string };
 
 type AgentEvent =
   | AgentRequest
@@ -213,6 +229,8 @@ type LoreAgentOptions = {
   /** Resolves to the amount the owner confirmed, or null if they declined. */
   proposePrice(amount: number, reason: string): Promise<number | null>;
   cloudflareLogin(): Promise<string>;
+  openUrl(page: { title: string; url: string; note: string }): Promise<string>;
+  storeSecret(name: "CDP_API_KEY_ID" | "CDP_API_KEY_SECRET"): Promise<string>;
   authPrompt(prompt: import("@earendil-works/pi-ai").AuthPrompt): Promise<string>;
   authEvent(event: import("@earendil-works/pi-ai").AuthEvent): void;
 };

@@ -153,6 +153,7 @@ class DesktopSnapshotTest(LoreTestCase):
                 ]
             },
             "price_usd": 0.02,
+            "payout": "0x" + "a" * 40,
             "answer_price_usd": 0.11,
             "network": "eip155:8453",
         }
@@ -216,6 +217,7 @@ class DesktopSnapshotTest(LoreTestCase):
             set(state["publications"]["items"][0]),
             {
                 "id",
+                "public_id",
                 "title",
                 "topic",
                 "state",
@@ -231,6 +233,7 @@ class DesktopSnapshotTest(LoreTestCase):
         # What the node charges, not what the owner last saved: the local
         # setting above is 0.01, the deployed node still advertises 0.02.
         self.assertEqual(state["node"]["live"]["price_usd"], 0.02)
+        self.assertEqual(state["node"]["live"]["payout"], "0x" + "a" * 40)
 
     def test_missing_and_unreachable_nodes_are_data(self) -> None:
         response = Mock()
@@ -251,6 +254,7 @@ class DesktopSnapshotTest(LoreTestCase):
         # A node we cannot reach tells us nothing about its price, and the app
         # must never name an amount it did not read.
         self.assertEqual(state["node"]["live"]["price_usd"], None)
+        self.assertEqual(state["node"]["live"]["payout"], None)
 
     def test_a_node_that_advertises_no_price_is_online_without_one(self) -> None:
         """A node deployed before `discover` carried the price is still live;

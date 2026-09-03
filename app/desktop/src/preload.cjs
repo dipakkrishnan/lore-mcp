@@ -33,6 +33,7 @@ contextBridge.exposeInMainWorld("lore", {
   push: () => ipcRenderer.invoke("store:push"),
   /** @param {number} amount */
   setPrice: (amount) => ipcRenderer.invoke("pricing:set", amount),
+  sales: () => ipcRenderer.invoke("store:sales"),
   pickFiles: () => ipcRenderer.invoke("files:pick"),
   /** @param {File} file */
   pathFor: (file) => webUtils.getPathForFile(file),
