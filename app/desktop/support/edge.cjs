@@ -121,6 +121,29 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         check("nothing was kept", !(await js(`document.querySelector("#log").textContent.includes("Keep")`)));
         await js(`window.__lore.event({ type: "dismiss", id: "preview-1" })`);
 
+        // open_url: one card, two stages, same size; the page opens through the window-open handler.
+        await js(`window.open = (url) => { window.__opened = url; return null; }; true`);
+        await js(`window.__lore.preview({ type: "open", id: "preview-open", task: null, title: "Fund the test buyer", url: "https://portal.cdp.coinbase.com/products/faucet", note: "Free Coinbase login. Keep Base Sepolia and USDC selected, paste 0x3f9a…d21c and press Send." })`);
+        const buttons = () => js(`[...document.querySelectorAll("#request .actions button")].map((b) => b.textContent).join("|")`);
+        check("stage one names the step and the host", await js(`document.querySelector("#request .q").textContent`) === "Fund the test buyer" && await buttons() === "Not now|Open portal.cdp.coinbase.com");
+        const before = await js(`document.querySelector("#request form").offsetHeight`);
+        await js(`document.querySelector("#request").scrollIntoView({ block: "center" }); true`);
+        await shot("open-stage-one");
+        await js(`document.querySelector("#request form").requestSubmit()`);
+        await sleep(200);
+        check("Open goes through the window-open handler", await js(`window.__opened`) === "https://portal.cdp.coinbase.com/products/faucet");
+        check("stage two swaps the heading and the buttons", await js(`document.querySelector("#request .q").textContent`) === "Finish in your browser, then come back here." && await buttons() === "I got stuck|Done");
+        check("the card keeps its size between stages", await js(`document.querySelector("#request form").offsetHeight`) === before);
+        await js(`document.querySelector("#request").scrollIntoView({ block: "center" }); true`);
+        await shot("open-stage-two");
+        await js(`document.querySelector("#request form").requestSubmit()`);
+        await sleep(200);
+        check("Done closes the card and echoes the owner", !(await js(`Boolean(document.querySelector("#request form"))`)) && await js(`document.querySelector("#log").textContent.endsWith("Done")`));
+        await js(`window.__lore.preview({ type: "open", id: "preview-open-2", task: null, title: "See the payment land", url: "https://sepolia.basescan.org/address/0x1", note: "Token Transfers shows it." })`);
+        await js(`document.querySelector("#request .actions button").click()`);
+        await sleep(200);
+        check("Not now closes the card and echoes the owner", !(await js(`Boolean(document.querySelector("#request form"))`)) && await js(`document.querySelector("#log").textContent.endsWith("Not now")`));
+
         // Fix 1, seller: approve the last draft with no store. The confirmation must be visible on the Today root.
         await js(`[...document.querySelectorAll("#content button")].find((b) => b.textContent === "Approve").click()`);
         await waitFor(`document.querySelectorAll("#content .draft-title").length === 1`);

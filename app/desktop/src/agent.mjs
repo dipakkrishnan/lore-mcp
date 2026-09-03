@@ -416,7 +416,7 @@ export class LoreAgent {
       resourceLoader: this.resources,
       settingsManager: this.settings,
       sessionManager,
-      tools: ["read", "write", "edit", "bash", "ask_user", "propose_memories", "propose_blueprint", "cloudflare_login", "finish_task"],
+      tools: ["read", "write", "edit", "bash", "ask_user", "propose_memories", "propose_blueprint", "cloudflare_login", "open_url", "finish_task"],
       customTools: [
         createBashTool(this.options.loreHome, {
           operations: createSandboxedBashOperations(this.options.loreHome, task, this.options.binDir),
@@ -425,6 +425,7 @@ export class LoreAgent {
             env: {
               ...context.env,
               LORE_HOME: this.options.loreHome,
+              LORE_UNATTENDED: "1",
               NO_COLOR: "1",
               ...(this.options.binDir ? { PATH: `${this.options.binDir}:${context.env.PATH ?? process.env.PATH ?? ""}` } : {})
             }
@@ -434,6 +435,7 @@ export class LoreAgent {
         this.#memoriesTool(),
         this.#blueprintTool(),
         this.#cloudflareTool(),
+        this.#openTool(),
         this.#finishTool()
       ]
     });
@@ -553,6 +555,19 @@ export class LoreAgent {
       parameters: Type.Object({}),
       execute: async () => {
         const text = await this.#attended("Sign in to Cloudflare", () => this.options.cloudflareLogin());
+        return { content: [{ type: "text", text }], details: {} };
+      }
+    });
+  }
+
+  #openTool() {
+    return defineTool({
+      name: "open_url",
+      label: "Open a page for the owner",
+      description: "Open one web page in the owner's browser for a step only they can do there: a wallet, the workers.dev subdomain, a faucet, Basescan, the Coinbase developer portal. Give the step a short title and one line on what to do on the page. Waits until the owner comes back and returns whether they finished, got stuck, or declined.",
+      parameters: Type.Object({ title: Type.String(), url: Type.String(), note: Type.String() }),
+      execute: async (_id, page) => {
+        const text = await this.#attended(page.title, () => this.options.openUrl(page));
         return { content: [{ type: "text", text }], details: {} };
       }
     });
