@@ -197,7 +197,8 @@ async function openMemory(id) {
   const panel = el("div", "card sheet-panel");
   const head = el("div", "sheet-head");
   const text = el("div", "t");
-  text.append(el("b", "", memory.title), el("span", "", [memory.project, memory.source, when(memory.updated_at)].filter(Boolean).join(" · ")));
+  const titleLabel = el("b", "", memory.title);
+  text.append(titleLabel, el("span", "", [memory.project, memory.source, when(memory.updated_at)].filter(Boolean).join(" · ")));
   const close = el("button", "icon-btn", "×");
   close.type = "button";
   close.setAttribute("aria-label", "Close");
@@ -206,10 +207,42 @@ async function openMemory(id) {
   actions.style.display = "flex";
   actions.style.gap = "8px";
   function showActions() {
-    actions.replaceChildren(button("Edit", "quiet", startEdit), button("Draft for sale", "quiet", () => void publishMemory(memory)));
+    actions.replaceChildren(button("Rename", "quiet", startRename), button("Edit", "quiet", startEdit), button("Draft for sale", "quiet", () => void publishMemory(memory)));
   }
   /** @type {HTMLElement} */
   let body = renderMemoryBody(memory.content);
+  function startRename() {
+    const input = el("input", "draft-title");
+    input.type = "text";
+    input.value = memory.title;
+    input.setAttribute("aria-label", "Memory title");
+    titleLabel.replaceWith(input);
+    input.focus();
+    input.select();
+    actions.replaceChildren(button("Cancel", "secondary", cancelRename), button("Save", "primary", () => void saveRename()));
+    input.addEventListener("keydown", (event) => {
+      if (event.key === "Enter") { event.preventDefault(); void saveRename(); }
+      else if (event.key === "Escape") { event.preventDefault(); cancelRename(); }
+    });
+    function cancelRename() {
+      input.replaceWith(titleLabel);
+      showActions();
+    }
+    async function saveRename() {
+      const title = input.value.trim();
+      if (!title || title === memory.title) { cancelRename(); return; }
+      try {
+        memory = await window.lore.renameMemory(memory.id, title);
+      } catch (error) {
+        say(reason(error, "Lore could not rename that."));
+        return;
+      }
+      titleLabel.textContent = memory.title;
+      sheet.setAttribute("aria-label", memory.title);
+      cancelRename();
+      void load();
+    }
+  }
   function startEdit() {
     const textarea = /** @type {HTMLTextAreaElement} */ (el("textarea", "body-edit"));
     textarea.value = memory.content;
