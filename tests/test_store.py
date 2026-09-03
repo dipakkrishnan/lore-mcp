@@ -186,6 +186,29 @@ class RetentionTest(LoreTestCase):
             self.assertEqual(store.source_counts(), {"test": 2})
 
 
+class RenameTest(LoreTestCase):
+    def test_set_title_renames_and_search_finds_the_new_title(self) -> None:
+        memory_id = self.seed_memory("Old title")
+        with Store() as store:
+            store.set_title(memory_id, "New title")
+            renamed = store.get(memory_id)
+            assert renamed is not None
+            self.assertEqual(renamed.title, "New title")
+            self.assertEqual(store.search("New title")[0].id, memory_id)
+
+    def test_set_title_rejects_blank_or_whitespace(self) -> None:
+        memory_id = self.seed_memory("A lesson")
+        with Store() as store:
+            for blank in ("", "   "):
+                with self.assertRaisesRegex(ValueError, "title cannot be empty"):
+                    store.set_title(memory_id, blank)
+
+    def test_set_title_on_a_missing_memory_is_an_error(self) -> None:
+        with Store() as store:
+            with self.assertRaisesRegex(ValueError, "memory not found"):
+                store.set_title(999, "New title")
+
+
 class EditContentTest(LoreTestCase):
     def test_set_content_edits_and_search_finds_the_new_content(self) -> None:
         memory_id = self.seed_memory("A lesson")
