@@ -23,7 +23,7 @@ from typing import Literal
 from pydantic import BaseModel, TypeAdapter
 
 from .paths import home
-from .store import Store
+from .store import JobKind, Store
 from .ui import muted, success
 
 # What must never reach ~/.lore/node from a dev checkout. The wheel itself
@@ -258,8 +258,7 @@ def secret(name: str, value: str) -> int:
 
 
 def deploy(wallet: str | None, network: str | None = None) -> int:
-    """Materialize, authenticate, ensure D1, deploy, set the payout secret and
-    the network if asked, push the active publications, smoke-check."""
+    """Check the preconditions, then run and record one deploy."""
     if wallet and not WALLET.fullmatch(wallet):
         raise ValueError(
             "wallet must be a public EVM address: 0x plus 40 hex characters"
@@ -298,7 +297,31 @@ def deploy(wallet: str | None, network: str | None = None) -> int:
             "set it with `lore price <USD>` and rerun"
         )
 
-    target = materialize(float(configured_price))
+    # Recorded from here, past the argument and price guards: a refused
+    # precondition is validation the owner sees immediately, not a run. This is
+    # the one seam both deploy paths cross — the desktop app reaches it through
+    # the agent's shell, a terminal reaches it through the CLI.
+    with Store() as store:
+        job_id = store.start_job(
+            JobKind.DEPLOY.value, owner_pid=os.getpid(), timeout_minutes=60
+        )
+    # Only ever a literal from the summary vocabulary. Deploy failures carry raw
+    # subprocess output naming accounts, paths, and commands; none of it may
+    # reach owner history, so the cause stays in the raised error alone.
+    outcome = ("failed", "failed")
+    try:
+        result = _deploy(float(configured_price), wallet, network)
+        outcome = ("succeeded", "deployed")
+        return result
+    finally:
+        with Store() as store:
+            store.finish_job(job_id, outcome[0], summary=outcome[1])
+
+
+def _deploy(configured_price: float, wallet: str | None, network: str | None = None) -> int:
+    """Materialize, authenticate, ensure D1, deploy, set the payout secret,
+    push the active publications, smoke-check."""
+    target = materialize(configured_price)
     muted(f"Node source staged at {target}")
     muted("Installing dependencies (the first run can take a minute)...")
     _run(

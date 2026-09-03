@@ -323,6 +323,25 @@ function when(iso) {
   return Number.isNaN(date.getTime()) ? "" : shortDate.format(date);
 }
 
+const RUN_LABELS = { capture: "Capture", synthesis: "Synthesis", deploy: "Store deploy", push: "Store update" };
+const RUN_STATES = { running: "Running", succeeded: "Done", failed: "Failed", incomplete: "Unfinished" };
+
+/** Recent owner runs, newest first. Absent when the installed CLI predates them.
+ * @param {Snapshot} s */
+function recentRuns(s) {
+  if (!s.jobs) return null;
+  const items = s.jobs.items.slice(0, 4);
+  if (!items.length) return section("Recent runs", el("p", "hint", "Nothing has run yet."));
+  return section("Recent runs", card(items.map((item) => {
+    const detail = [item.summary, when(item.started_at), typeof item.cost_usd === "number" ? money.format(item.cost_usd) : ""].filter(Boolean);
+    return row(
+      RUN_LABELS[item.kind] ?? item.kind,
+      detail.join(" · "),
+      chip(RUN_STATES[item.status] ?? item.status, item.status === "running" ? "ok" : item.status === "succeeded" ? "" : "attention")
+    );
+  })));
+}
+
 /** @param {Snapshot["node"]["live"]["state"]} state */
 function nodeLabel(state) {
   return state === "online" ? "Live" : state === "unreachable" ? "Offline" : "Not set up";
@@ -444,6 +463,8 @@ function renderToday(s) {
       return row;
     }))));
   }
+  const runs = recentRuns(s);
+  if (runs) parts.push(runs);
   const strip = el("div", "strip");
   /** @type {Array<[string, string] | null>} */
   const facts = [

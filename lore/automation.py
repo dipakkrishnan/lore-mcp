@@ -247,7 +247,12 @@ def install(profile: dict[str, object]) -> Path:
         cadence=str(profile.get("cadence", "daily")),
         hour=hour,
         model=str(profile.get("model", "")),
-        before=("env", f"LORE_HOME={home()}", *lore, "sync"),
+        # The scheduler runs this itself, before handing off to the agent, so it
+        # is the one moment a scheduled synthesis run is *observed* starting.
+        # `--record-job` opens the row here. It must stay a single exec'able
+        # argv: the scheduler joins these words with shlex, so a `&&` or `;`
+        # would be quoted into a literal argument and break the run.
+        before=("env", f"LORE_HOME={home()}", *lore, "sync", "--record-job"),
         add_dirs=(claude_home(), codex_home()) if executor == Agent.CLAUDE else (),
         allowed_tools=allowed_tools,
         environment=(
