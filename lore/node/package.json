@@ -14,8 +14,8 @@
   },
   "dependencies": {
     "@coinbase/x402": "^2.1.0",
-    "@earendil-works/pi-agent-core": "0.84.4",
-    "@earendil-works/pi-ai": "0.84.4",
+    "@earendil-works/pi-agent-core": "0.84.2",
+    "@earendil-works/pi-ai": "0.84.2",
     "@modelcontextprotocol/sdk": "1.30.0",
     "@x402/evm": "2.24.0",
     "agents": "0.22.0",
