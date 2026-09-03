@@ -8,7 +8,7 @@ import { registerExactEvmScheme } from "@x402/evm/exact/client";
 import { x402Client } from "@x402/core/client";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
-import { exports } from "cloudflare:workers";
+import { env, exports } from "cloudflare:workers";
 import { generatePrivateKey, privateKeyToAccount } from "viem/accounts";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { mockFacilitator } from "./facilitator";
@@ -63,8 +63,9 @@ async function challengeAndBuildToken(client: Client, id = FIXTURE_PUBLICATION_I
   return buildPaymentToken(x402ErrorOf(challenge));
 }
 
-afterEach(() => {
+afterEach(async () => {
   vi.restoreAllMocks();
+  await env.LORE_DB.prepare("DELETE FROM sales").run();
 });
 
 describe("discover", () => {
@@ -75,6 +76,7 @@ describe("discover", () => {
       const result = await client.callTool({ name: "discover", arguments: {} });
       expect(result.isError).toBeUndefined();
       const payload = textOf(result);
+      expect(payload.payout).toBe(env.LORE_WALLET);
       const entries = Object.values(payload.topics as Record<string, object[]>).flat();
       expect(entries.length).toBeGreaterThan(0);
       for (const entry of entries) {
@@ -87,8 +89,13 @@ describe("discover", () => {
   });
 });
 
+async function sales() {
+  const { results } = await env.LORE_DB.prepare("SELECT * FROM sales").all();
+  return results;
+}
+
 describe("get (paid)", () => {
-  it("returns publication content once the facilitator verifies and settles", async () => {
+  it("returns publication content once the facilitator verifies and settles, and records the sale", async () => {
     mockFacilitator();
     const client = await connect();
     try {
@@ -101,6 +108,17 @@ describe("get (paid)", () => {
       expect(paid.isError).toBeUndefined();
       const publication = textOf(paid).publication as { content: string };
       expect(publication.content).toContain("secret owner-approved content");
+      expect(await sales()).toMatchObject([
+        {
+          kind: "publication",
+          item_id: FIXTURE_PUBLICATION_ID,
+          title: "Fixture Publication",
+          price_usd: 0.01,
+          network: "eip155:84532",
+          payer: "0xfixturepayer",
+          tx: "0xfixturetransaction"
+        }
+      ]);
     } finally {
       await client.close();
     }
@@ -187,6 +205,30 @@ describe("get (paid)", () => {
     }
   });
 
+  it("still returns the paid-for content when writing the sales row throws", async () => {
+    mockFacilitator();
+    const client = await connect();
+    const realPrepare = env.LORE_DB.prepare.bind(env.LORE_DB);
+    const prepareSpy = vi.spyOn(env.LORE_DB, "prepare").mockImplementation((sql: string) => {
+      if (sql.includes("INSERT INTO sales")) throw new Error("simulated D1 write failure");
+      return realPrepare(sql);
+    });
+    try {
+      const token = await challengeAndBuildToken(client);
+      const paid = await client.callTool({
+        name: "get",
+        arguments: { id: FIXTURE_PUBLICATION_ID },
+        _meta: { "x402/payment": token }
+      });
+      expect(paid.isError).toBeUndefined();
+      const publication = textOf(paid).publication as { content: string };
+      expect(publication.content).toContain("secret owner-approved content");
+    } finally {
+      prepareSpy.mockRestore();
+      await client.close();
+    }
+  });
+
   it("fails closed when settlement fails after a successful verification", async () => {
     mockFacilitator({ settle: { kind: "http-error", status: 503 } });
     const client = await connect();
@@ -199,6 +241,7 @@ describe("get (paid)", () => {
       });
       expect(result.isError).toBe(true);
       expect(JSON.stringify(result)).not.toContain("secret owner-approved content");
+      expect(await sales()).toEqual([]);
     } finally {
       await client.close();
     }

@@ -153,6 +153,7 @@ class DesktopSnapshotTest(LoreTestCase):
                 ]
             },
             "price_usd": 0.02,
+            "payout": "0x" + "a" * 40,
             "answer_price_usd": 0.11,
             "network": "eip155:8453",
         }
@@ -216,6 +217,7 @@ class DesktopSnapshotTest(LoreTestCase):
             set(state["publications"]["items"][0]),
             {
                 "id",
+                "public_id",
                 "title",
                 "topic",
                 "state",
@@ -228,6 +230,7 @@ class DesktopSnapshotTest(LoreTestCase):
         )
         self.assertEqual(state["node"]["live"]["state"], "online")
         self.assertEqual(state["node"]["live"]["network"], "eip155:8453")
+        self.assertEqual(state["node"]["live"]["payout"], "0x" + "a" * 40)
 
     def test_missing_and_unreachable_nodes_are_data(self) -> None:
         response = Mock()
@@ -244,6 +247,7 @@ class DesktopSnapshotTest(LoreTestCase):
         state = json.loads(output.getvalue())
         self.assertEqual(state["node"]["live"]["state"], "unreachable")
         self.assertEqual(state["node"]["live"]["network"], None)
+        self.assertEqual(state["node"]["live"]["payout"], None)
 
     def test_the_node_probe_is_cached_briefly_and_forgotten_after_a_push(self) -> None:
         with Store() as store:
