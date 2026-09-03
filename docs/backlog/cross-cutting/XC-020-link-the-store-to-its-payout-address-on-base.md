@@ -4,13 +4,13 @@ title: Link the store to its payout address on Base
 priority: P2
 effort: S
 component: cross-cutting
-status: ready
-related: [APP-001, MON-004, XC-019]
+status: completed
+related: [APP-001, MON-004, XC-019, MON-018]
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-08-23
-updated: 2026-08-26
+updated: 2026-09-02
 ---
 
 ## Problem
@@ -36,11 +36,11 @@ call and a chain-specific formatter the app should not own.
 
 ## Acceptance criteria
 
-- [ ] `lore desktop-state` reports `node.live.payout` as the checksummed
-      `payTo` from the node's 402, or `null` when the node is unreachable.
-- [ ] Store header and Settings show a link to the payout address on the
+- [x] `lore desktop-state` reports `node.live.payout` as the address the
+      node's `discover` advertises, or `null` when the node is unreachable.
+- [x] Store header and Settings show a link to the payout address on the
       correct Basescan host for the live network; no link when unknown.
-- [ ] The probe adds at most one request to `desktop-state` and is covered by
+- [x] The probe adds at most one request to `desktop-state` and is covered by
       the existing unreachable-node test shape.
 
 ## Notes
@@ -51,3 +51,6 @@ as a chore (worker name = first label of the `workers.dev` host →
 `dash.cloudflare.com/?to=/:account/workers/services/view/<name>`).
 
 **Prioritization pass 2026-08-26:** No blockers, small effort, concrete AC with the exact data source (`payTo` from the node's 402) named. Promoted `in-review` → `ready`.
+
+**Completed 2026-09-02** with MON-018: the address comes from `discover`
+rather than a 402, so the existing probe carries it with no extra request.
