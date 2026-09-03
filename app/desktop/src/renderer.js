@@ -3,6 +3,7 @@ const $ = (selector) => /** @type {HTMLElement} */ (document.querySelector(selec
 const welcome = $("#welcome");
 const appShell = $("#app");
 const welcomeNote = $("#welcome-note");
+const welcomeRetry = /** @type {HTMLButtonElement} */ ($("#welcome-retry"));
 const keyForm = /** @type {HTMLFormElement} */ ($("#key-form"));
 const eyebrow = $("#eyebrow");
 const title = $("#title");
@@ -69,6 +70,9 @@ const PROVIDERS = {
   openai: ["OpenAI", "assets/openai.svg"]
 };
 const NETWORKS = { "eip155:8453": "Base", "eip155:84532": "Base Sepolia, test network" };
+const TEST_NETWORK = "eip155:84532";
+const CHANGE_PRICE = "I want to change the price on my store. Set the new price and redeploy so buyers pay the new amount.";
+const REAL_MONEY = "I'm ready to switch my store to real money.";
 const money = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" });
 const shortDate = new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric" });
 const longDate = new Intl.DateTimeFormat("en-US", { weekday: "long", month: "long", day: "numeric" });
@@ -182,7 +186,7 @@ async function openMemory(id) {
   try {
     memory = await window.lore.memory(id);
   } catch (error) {
-    say(reason(error, "Lore could not open that."));
+    tell(reason(error, "Lore could not open that."), true);
     return;
   }
   closeSheet();
@@ -227,7 +231,7 @@ async function openMemory(id) {
       try {
         memory = await window.lore.editMemory(memory.id, value);
       } catch (error) {
-        say(reason(error, "Lore could not save that."));
+        tell(reason(error, "Lore could not save that."), true);
         return;
       }
       body = renderMemoryBody(memory.content);
@@ -337,9 +341,12 @@ function needsYou(s) {
   else if (!s.setup.blueprint_configured) add("Shape your Lore", "Review one proposal based on what your agents already know.", button("Start", "secondary", startSetup));
   else if (!s.setup.profile_configured) add("Set the rhythm", "Choose which model writes new memories, and how often.", button("Start", "secondary", startSetup));
   else {
-    if (!s.node.url) add("Open your store", "A payout address, a price, and a node on the test network first. Free until you say otherwise.", button("Open", "secondary", startDeploy));
+    if (!s.node.url) add("Open your store", "A payout address, a price, and a node on the test network first. Free until you say otherwise.", button("Open", "secondary", () => void startDeploy()));
     if (s.library.counts.private && !candidates.length) add("Publish something", "Lore drafts up to three things to sell; you approve each one.", button("Publish", "secondary", startPublish));
   }
+  // Approved work a buyer cannot see yet is actionable whatever rung setup is on.
+  const waiting = unpushed(s);
+  if (waiting.length && !pushOffer && !pushing) add("Push to your store", `${waiting.length} approved, not on your store yet.`, button("Push", "secondary", pushNow));
   return rows;
 }
 
@@ -435,7 +442,13 @@ function renderStore(s) {
     prices.append(item);
   }
   bar.append(lead, prices);
+  if (unpushed(s).length && !pushOffer) {
+    const push = button(pushing ? "Pushing…" : "Push to your store", "primary", pushNow);
+    push.disabled = pushing;
+    bar.append(push);
+  }
   const approved = s.publications.items.filter((item) => item.state === "approved");
+  const waiting = unpushed(s);
   const revoked = s.publications.items.filter((item) => item.state === "revoked");
   /** @param {PublicationItem} item */
   const state = (item) => item.live === true ? chip("Live", "ok") : item.live === false ? chip("Not live yet") : chip("Approved");
@@ -462,13 +475,13 @@ function renderStore(s) {
   parts.push(section("For sale", approved.length
     ? card(approved.map((item) => row(item.title, item.topic, controls(item))))
     : el("div", "card pad empty", "Nothing for sale yet. Publish something from Today."),
-    el("span", "hint", approved.length ? `${approved.length} ${approved.length === 1 ? "publication" : "publications"}${live.state === "online" ? " · confirmed on your node" : ""}` : "")));
+    el("span", "hint", approved.length ? `${approved.length} ${approved.length === 1 ? "publication" : "publications"}${live.state !== "online" ? "" : waiting.length ? ` · ${waiting.length} not on your store yet` : " · confirmed on your node"}` : "")));
   if (revoked.length) parts.push(section("Taken down", card(revoked.map((item) => row(item.title, item.topic, chip("Revoked"))))));
   const sales = el("div", "card pad");
   sales.style.display = "flex";
   sales.style.justifyContent = "space-between";
   sales.style.gap = "16px";
-  sales.append(el("span", "empty", "Nothing sold yet. Buyers' agents pay per call; the first one shows up here with what it paid."));
+  sales.append(el("span", "empty", "Sales don't show up here yet. Buyers' agents pay per call, and each payment lands in the payout wallet you gave when you opened your store."));
   parts.push(section("Sales", sales));
   return parts;
 }
@@ -515,7 +528,10 @@ function renderSettings(s) {
     ])),
     section("Your store", card([
       row("Address", s.node.url ? storeAddress(s.node.url) : "Not opened yet.", value(status(live.state === "online", live.state === "online" ? `Live on ${networkLabel(live.network) || "your node"}` : nodeLabel(live.state))), false),
-      row("Prices", "What a buyer's agent pays per call.", value(el("span", "mono", `${price(s.pricing.publication_usd)} publication${s.pricing.answer_enabled ? ` · ${price(s.pricing.answer_usd)} answer` : ""}`)), false)
+      row("Prices", "What a buyer's agent pays per call.", value(el("span", "mono", `${price(s.pricing.publication_usd)} publication${s.pricing.answer_enabled ? ` · ${price(s.pricing.answer_usd)} answer` : ""}`), ...(s.node.url ? [button("Change price", "quiet", () => void startDeploy(CHANGE_PRICE))] : [])), false),
+      ...(live.network === TEST_NETWORK
+        ? [row("Payments", "Buyers on the test network pay with play money. Switch when you want real buyers paying real money.", value(button("Switch to real payments", "secondary", () => void startDeploy(REAL_MONEY))), false)]
+        : [])
     ]))
   ];
 }
@@ -599,14 +615,12 @@ function show(next) {
 }
 
 async function load() {
-  status.textContent = snapshot ? "" : "Loading…";
+  if (!snapshot) content.replaceChildren(el("p", "hint", "Loading…"));
   try {
     [snapshot, candidates, taskItems] = await Promise.all([window.lore.snapshot(), window.lore.candidates().catch(() => []), window.lore.tasks().catch(() => [])]);
-    status.textContent = "";
     if (detailTask) detailRecord = taskItems.find((item) => item.kind === detailTask) ?? detailRecord;
     render();
   } catch {
-    status.textContent = "";
     const error = el("section", "card error");
     error.setAttribute("role", "alert");
     error.append(el("h2", "", "Lore could not load"), el("p", "hint", "Your data was not changed. Check that Lore is installed, then try again."), button("Try again", "secondary", load));
@@ -619,6 +633,29 @@ function say(text, owner = false, stopped = false) {
   lines.push({ text, owner, stopped });
   if (!owner) liveText = "";
   renderLog();
+}
+
+/** @type {Array<{text: string, attention: boolean}>} */
+const notices = [];
+
+/** Something Lore did or could not do, said where the owner is: in the open thread, or as a notice above the page when the log is hidden. @param {string} text @param {boolean} [attention] */
+function tell(text, attention = false) {
+  if (!log.hidden) { say(text, false, attention); return; }
+  notices.push({ text, attention });
+  if (notices.length > 3) notices.shift();
+  renderNotices();
+}
+
+function renderNotices() {
+  status.replaceChildren(...notices.map((item) => {
+    const box = el("div", item.attention ? "notice attention" : "notice");
+    const dismiss = el("button", "dismiss", "×");
+    dismiss.type = "button";
+    dismiss.setAttribute("aria-label", "Dismiss");
+    dismiss.addEventListener("click", () => { notices.splice(notices.indexOf(item), 1); renderNotices(); });
+    box.append(el("span", "", item.text), dismiss);
+    return box;
+  }));
 }
 
 /** @param {string} text */
@@ -777,6 +814,7 @@ function renderRequest(event) {
       } else {
         inputField = el("input");
         inputField.type = "text";
+        enterMovesOn(inputField, inputs);
       }
       inputField.value = value;
       field.append(inputField);
@@ -896,10 +934,12 @@ async function startSetup() {
   await send("Let's set up my Lore.");
 }
 
-async function startDeploy() {
+/** @param {string} [intent] */
+async function startDeploy(intent = "Help me open my store.") {
   await openTask("deploy");
-  await send("Help me open my store.");
+  await send(intent);
 }
+
 
 /** @param {Snapshot} s */
 function nextRung(s) {
@@ -941,7 +981,7 @@ async function openTask(kind, record) {
   task = kind;
   detailTask = kind;
   detailRecord = record ?? taskItems.find((item) => item.kind === kind) ?? null;
-  lines.splice(0, lines.length, ...await window.lore.history(kind).catch(() => []));
+  lines.splice(0, lines.length, ...(detailRecord ? await window.lore.history(kind).catch(() => []) : []));
   liveText = "";
   show("today");
   renderLog();
@@ -976,7 +1016,7 @@ function draftField(parent, label, value, singleLine = false) {
   const wrapper = el("label", "draft-field");
   wrapper.append(el("span", "hint", label));
   const control = singleLine ? el("input", "draft-title") : el("textarea");
-  if (control instanceof HTMLInputElement) control.type = "text";
+  if (control instanceof HTMLInputElement) { control.type = "text"; enterMovesOn(control, parent); }
   else { control.rows = 1; control.addEventListener("input", () => fit(control)); }
   control.value = value;
   wrapper.append(control);
@@ -984,26 +1024,49 @@ function draftField(parent, label, value, singleLine = false) {
   return control;
 }
 
+/** Enter in a one-line field moves to the next field instead of submitting the card. @param {HTMLInputElement} field @param {HTMLElement} within */
+function enterMovesOn(field, within) {
+  field.addEventListener("keydown", (event) => {
+    if (event.key !== "Enter") return;
+    event.preventDefault();
+    /** @type {HTMLElement | null} */ (within.querySelector("textarea, select"))?.focus();
+  });
+}
+
+/** Approval forms outlive renders, so edits survive the agent's next event. @type {Map<string, HTMLElement>} */
+const approvalForms = new Map();
+
 function approvals() {
   const list = el("div", "card pad stack");
+  const shown = new Set();
   for (const candidate of candidates) {
-    const memory = el("div", "memory");
-    const title = draftField(memory, "Title", candidate.title, true);
-    const teaser = draftField(memory, "Free teaser, what buyers see first", candidate.teaser);
-    const paid = draftField(memory, "Paid content, what a buyer's agent gets", candidate.content);
-    const meta = el("div", "meta");
-    meta.append(chip(candidate.topic));
-    if (candidate.kind === "content") meta.append(chip("Verbatim"));
-    const group = el("div", "group");
-    group.append(
-      button("Skip", "secondary", () => decide(candidate, false)),
-      button("Approve", "primary", () => decide(candidate, true, { ...candidate, title: title.value, teaser: teaser.value, content: paid.value }))
-    );
-    meta.append(group);
-    memory.append(meta);
-    list.append(memory);
+    const key = JSON.stringify(candidate);
+    shown.add(key);
+    const form = approvalForms.get(key) ?? approvalForm(candidate);
+    approvalForms.set(key, form);
+    list.append(form);
   }
+  for (const key of approvalForms.keys()) if (!shown.has(key)) approvalForms.delete(key);
   return list;
+}
+
+/** @param {PublicationCandidate} candidate */
+function approvalForm(candidate) {
+  const memory = el("div", "memory");
+  const title = draftField(memory, "Title", candidate.title, true);
+  const teaser = draftField(memory, "Free teaser, what buyers see first", candidate.teaser);
+  const paid = draftField(memory, "Paid content, what a buyer's agent gets", candidate.content);
+  const meta = el("div", "meta");
+  meta.append(chip(candidate.topic));
+  if (candidate.kind === "content") meta.append(chip("Verbatim"));
+  const group = el("div", "group");
+  group.append(
+    button("Skip", "secondary", () => decide(candidate, false)),
+    button("Approve", "primary", () => decide(candidate, true, { ...candidate, title: title.value, teaser: teaser.value, content: paid.value }))
+  );
+  meta.append(group);
+  memory.append(meta);
+  return memory;
 }
 
 function seamCard() {
@@ -1011,24 +1074,31 @@ function seamCard() {
   box.append(el("p", "q", "Push to your store now?"), el("p", "hint", pushOffer || ""));
   const actions = el("div", "actions");
   const leave = button("Leave it for now", "secondary", () => { pushOffer = false; render(); });
-  const push = button(pushing ? "Pushing…" : "Push now", "primary", async () => {
-    pushing = true;
-    render();
-    const offer = pushOffer;
-    if (await act(window.lore.push)) {
-      const live = snapshot ? `${snapshot.publications.counts.active} ${snapshot.publications.counts.active === 1 ? "publication" : "publications"}` : "publications";
-      pushedNote = `Pushed · ${live} sent to your node`;
-    } else {
-      pushOffer = offer;
-    }
-    pushing = false;
-    render();
-  });
+  const push = button(pushing ? "Pushing…" : "Push now", "primary", pushNow);
   leave.disabled = pushing;
   push.disabled = pushing;
   actions.append(leave, push);
   box.append(actions);
   return box;
+}
+
+async function pushNow() {
+  pushing = true;
+  render();
+  const offer = pushOffer;
+  if (await act(window.lore.push)) {
+    const live = snapshot ? `${snapshot.publications.counts.active} ${snapshot.publications.counts.active === 1 ? "publication" : "publications"}` : "publications";
+    pushedNote = `Pushed · ${live} sent to your node`;
+  } else {
+    pushOffer = offer;
+  }
+  pushing = false;
+  render();
+}
+
+/** Approved publications a buyer cannot see yet. @param {Snapshot} s */
+function unpushed(s) {
+  return s.node.url ? s.publications.items.filter((item) => item.state === "approved" && item.live === false) : [];
 }
 
 /** @param {Snapshot} s */
@@ -1053,7 +1123,7 @@ async function decide(original, approve, candidate = original) {
   if (candidates.length || !approvedThisPass) return;
   approvedThisPass = false;
   pushOffer = snapshot?.node.url ? "Approved publications reach buyers only after a push. Leaving it is fine; the next push carries it." : false;
-  if (!pushOffer) say("Approved. It goes on sale the moment you open a store.");
+  if (!pushOffer) tell("Approved. It goes on sale the moment you open a store.");
   render();
 }
 
@@ -1066,7 +1136,7 @@ async function act(action) {
     await action();
   } catch (error) {
     done = false;
-    say(reason(error, "Lore could not do that."));
+    tell(reason(error, "Lore could not do that."), true);
   }
   await load();
   return done;
@@ -1152,6 +1222,7 @@ function onEvent(event) {
     } else {
       welcome.classList.add("provisioning");
       welcomeNote.textContent = event.error ?? event.text ?? "";
+      welcomeRetry.hidden = !event.error;
       if (!auth) { auth = { credentials: [] }; enter(); }
     }
   } else if (event.type === "dismiss") {
@@ -1180,11 +1251,16 @@ composer.addEventListener("submit", async (event) => {
   }
   if (!text && !attachments.length) return;
   if (!detailTask) {
-    task = "capture";
-    detailTask = "capture";
-    detailRecord = null;
-    lines.splice(0);
-    render();
+    // The agent resumes an unfinished capture session, so the owner should see that conversation, not an empty thread.
+    const unfinished = taskItems.find((item) => item.kind === "capture");
+    if (unfinished) await openTask("capture", unfinished);
+    else {
+      task = "capture";
+      detailTask = "capture";
+      detailRecord = null;
+      lines.splice(0);
+      render();
+    }
   }
   input.value = "";
   input.style.height = "";
@@ -1261,7 +1337,7 @@ dictate.addEventListener("click", async () => {
     try {
       text = await window.lore.transcribe(wav(await active.stop()));
     } catch (error) {
-      say(`Lore couldn't transcribe that: ${/** @type {Error} */ (error).message}. ${DICTATE_HINT}`, false, true);
+      tell(`Lore couldn't transcribe that: ${/** @type {Error} */ (error).message}. ${DICTATE_HINT}`, true);
     }
     dictationMode(null);
     input.value = spoken + text;
@@ -1273,14 +1349,14 @@ dictate.addEventListener("click", async () => {
   dictate.disabled = true;
   try {
     if (!(await window.lore.microphone())) {
-      say(`Lore needs the microphone: System Settings → Privacy & Security → Microphone. ${DICTATE_HINT}`, false, true);
+      tell(`Lore needs the microphone: System Settings → Privacy & Security → Microphone. ${DICTATE_HINT}`, true);
       return;
     }
     recorder = await record();
     dictationMode("listening");
     dictationLimit = window.setTimeout(() => dictate.click(), MAX_DICTATION_MS);
   } catch (error) {
-    say(`Lore couldn't start the microphone: ${/** @type {Error} */ (error).message}. ${DICTATE_HINT}`, false, true);
+    tell(`Lore couldn't start the microphone: ${/** @type {Error} */ (error).message}. ${DICTATE_HINT}`, true);
   } finally {
     if (!recorder) dictate.disabled = false;
   }
@@ -1291,7 +1367,7 @@ function attach(paths) {
   for (const path of paths) {
     if (attachments.includes(path)) continue;
     if (GUARDED.test(path)) {
-      say(`${path.split("/").pop()} looks like a credential or hidden file, so Lore won't read it. Rename or copy it first if you really mean to.`);
+      tell(`${path.split("/").pop()} looks like a credential or hidden file, so Lore won't read it. Rename or copy it first if you really mean to.`, true);
       continue;
     }
     attachments.push(path);
@@ -1332,6 +1408,11 @@ search.addEventListener("input", () => {
   }, 250);
 });
 $("#search-form").addEventListener("submit", (event) => event.preventDefault());
+welcomeRetry.addEventListener("click", () => {
+  welcomeRetry.hidden = true;
+  welcomeNote.textContent = "Setting Lore up on this Mac…";
+  void window.lore.retrySetup();
+});
 document.addEventListener("keydown", (event) => {
   if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") { event.preventDefault(); search.focus(); search.select(); }
   if (event.key === "Escape" && document.querySelector(".sheet")) { event.preventDefault(); closeSheet(); }
@@ -1357,7 +1438,7 @@ keyForm.addEventListener("submit", (event) => {
   void signIn(provider, "api_key", value);
 });
 
-Object.assign(window, { __lore: { show, preview: renderRequest, event: onEvent, signIn: () => { previewSignIn = true; auth = { credentials: [{ providerId: "anthropic", type: "oauth" }] }; enter(); } } });
+Object.assign(window, { __lore: { show, openTask, preview: renderRequest, event: onEvent, signIn: () => { previewSignIn = true; auth = { credentials: [{ providerId: "anthropic", type: "oauth" }] }; enter(); } } });
 
 function boot() {
   if (previewSignIn) return;
