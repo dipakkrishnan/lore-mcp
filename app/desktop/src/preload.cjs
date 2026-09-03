@@ -2,6 +2,7 @@ const { contextBridge, ipcRenderer, webUtils } = require("electron");
 
 contextBridge.exposeInMainWorld("lore", {
   snapshot: () => ipcRenderer.invoke("snapshot:read"),
+  retrySetup: () => ipcRenderer.invoke("setup:retry"),
   agentStatus: () => ipcRenderer.invoke("agent:status"),
   /** @param {{text: string, task: AgentTask}} input */
   prompt: (input) => ipcRenderer.invoke("agent:prompt", input),
@@ -20,6 +21,8 @@ contextBridge.exposeInMainWorld("lore", {
   search: (query) => ipcRenderer.invoke("search:query", query),
   /** @param {number} id */
   memory: (id) => ipcRenderer.invoke("memory:read", id),
+  /** @param {number} id @param {string} content */
+  editMemory: (id, content) => ipcRenderer.invoke("memory:edit", id, content),
   candidates: () => ipcRenderer.invoke("publication:candidates"),
   /** @param {{original: PublicationCandidate, candidate: PublicationCandidate, approve: boolean}} input */
   decide: (input) => ipcRenderer.invoke("publication:decide", input),

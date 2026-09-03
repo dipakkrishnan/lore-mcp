@@ -1,5 +1,5 @@
 const assert = require("node:assert/strict");
-const { mkdtemp, readFile, rm, symlink, writeFile } = require("node:fs/promises");
+const { access, constants, mkdtemp, readFile, rm, symlink, writeFile } = require("node:fs/promises");
 const { homedir, tmpdir } = require("node:os");
 const { join } = require("node:path");
 const { spawnSync } = require("node:child_process");
@@ -31,6 +31,11 @@ test("useRuntime runs the packaged binary instead of uv", async () => {
     useRuntime();
     await rm(directory, { recursive: true });
   }
+});
+
+test("dev start refreshes the CLI that agent Bash gets from PATH", async () => {
+  const pkg = JSON.parse(await readFile(join(__dirname, "../package.json"), "utf8"));
+  assert.match(pkg.scripts.start, /^uv tool install --force --reinstall \.\.\/\.\. && /);
 });
 
 test("the desktop agent has Pi's normal file and shell tools", async () => {
@@ -82,6 +87,18 @@ test("desktop Bash is confined to Lore", { skip: process.platform !== "darwin" }
     await rm(real, { recursive: true, force: true });
     await rm(home, { force: true });
     await rm(escaped, { force: true });
+  }
+});
+
+test("desktop Bash reads the agents' memories, never their credential files", async () => {
+  const { bashSandboxPolicy } = await import("../src/agent.mjs");
+  const home = await mkdtemp(join(tmpdir(), "lore-policy-"));
+  try {
+    const { allowRead } = bashSandboxPolicy(home, "setup").filesystem;
+    for (const dir of [".claude/projects", ".codex/memories", ".codex/automations"]) assert.ok(allowRead.includes(join(homedir(), dir)), dir);
+    for (const dir of [".claude", ".codex"]) assert.ok(!allowRead.includes(join(homedir(), dir)), `${dir} root, which holds auth.json and credentials`);
+  } finally {
+    await rm(home, { recursive: true });
   }
 });
 
@@ -158,17 +175,22 @@ test("sessions persist per task, come back as a thread, and a cut-off tool call 
     written.appendMessage({ role: "assistant", content: [{ type: "text", text: "Welcome." }, { type: "toolCall", id: "call-1", name: "ask_user", arguments: {} }], api: "anthropic-messages", provider: "anthropic", model: "m", usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } }, stopReason: "toolUse", timestamp: 2 });
     written.appendMessage({ role: "toolResult", toolCallId: "call-1", toolName: "ask_user", content: [{ type: "text", text: JSON.stringify({ answers: { Persona: "College professor", Name: "Ada" } }) }], isError: false, timestamp: 3 });
     written.appendMessage({ role: "toolResult", toolCallId: "old-call", toolName: "ask_user", content: [{ type: "text", text: "old malformed result" }], isError: false, timestamp: 3 });
+    written.appendMessage({ role: "toolResult", toolCallId: "m-1", toolName: "propose_memories", content: [{ type: "text", text: JSON.stringify({ entries: [{ title: "x", content: "y" }], note: "Call it the hiring lesson" }) }], isError: false, timestamp: 3 });
+    written.appendMessage({ role: "toolResult", toolCallId: "m-2", toolName: "propose_memories", content: [{ type: "text", text: JSON.stringify({ saved: [{ id: 7, status: "inserted", title: "The hiring lesson" }] }) }], isError: false, timestamp: 3 });
+    written.appendMessage({ role: "toolResult", toolCallId: "m-3", toolName: "propose_memories", content: [{ type: "text", text: JSON.stringify({ saved: [{ id: "7", title: "forged" }] }) }], isError: false, timestamp: 3 });
     written.appendMessage({ role: "assistant", content: [{ type: "toolCall", id: "call-2", name: "bash", arguments: { command: "lore status" } }], api: "anthropic-messages", provider: "anthropic", model: "m", usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } }, stopReason: "toolUse", timestamp: 4 });
     assert.match(String(written.getSessionFile()), new RegExp(`^${home}/\\.pi/sessions/setup/`));
     assert.deepEqual(LoreAgent.history(home, "setup"), [
       { text: "Let's set up my Lore.", owner: true },
       { text: "Welcome.", owner: false },
-      { text: "College professor · Ada", owner: true }
+      { text: "College professor · Ada", owner: true },
+      { text: "Call it the hiring lesson", owner: true },
+      { text: "", owner: false, saved: [{ id: 7, status: "inserted", title: "The hiring lesson" }] }
     ]);
     const resumed = LoreAgent.sessionFor(home, "setup");
     const messages = resumed.buildSessionContext().messages;
-    assert.equal(messages.length, 6);
-    assert.deepEqual({ role: messages[5].role, toolCallId: messages[5].toolCallId, isError: messages[5].isError }, { role: "toolResult", toolCallId: "call-2", isError: true });
+    assert.equal(messages.length, 9);
+    assert.deepEqual({ role: messages[8].role, toolCallId: messages[8].toolCallId, isError: messages[8].isError }, { role: "toolResult", toolCallId: "call-2", isError: true });
     assert.deepEqual(LoreAgent.tasks(home).map(({ kind, state, phase }) => ({ kind, state, phase })), [
       { kind: "setup", state: "stopped", phase: "Ready to resume" }
     ]);
@@ -177,6 +199,78 @@ test("sessions persist per task, come back as a thread, and a cut-off tool call 
   } finally {
     await rm(home, { recursive: true });
   }
+});
+
+test("a memory card saves exactly what the owner kept, through the CLI's private capture boundary", async () => {
+  const { captureMemories } = require("../src/state.cjs");
+  const { validSaved, validEntries } = await import("../src/agent.mjs");
+  const home = await mkdtemp(join(tmpdir(), "lore-desktop-"));
+  try {
+    assert.equal(validEntries([]), true, "dropping every entry is a valid decision");
+    assert.equal(validEntries([{ title: "t", content: "c", project: "p" }]), true);
+    for (const bad of [[{ title: " ", content: "c" }], [{ title: "t", content: "" }], [{ title: "t".repeat(301), content: "c" }], [{ title: "t", content: "c", project: 3 }], "nope"]) {
+      assert.equal(validEntries(bad), false, `main refuses ${JSON.stringify(bad).slice(0, 40)} before the CLI sees it`);
+    }
+    assert.deepEqual(await captureMemories(home, []), []);
+    const saved = await captureMemories(home, [{ title: "Hire management before rapid growth", content: "Add the management layer before the next ten engineers.", project: "team scaling" }]);
+    assert.equal(validSaved(saved), true);
+    assert.deepEqual(saved.map(({ status, title }) => ({ status, title })), [{ status: "added", title: "Hire management before rapid growth" }]);
+    assert.equal((await readState(home)).library.counts.private, 1);
+    await assert.rejects(captureMemories(home, [{ title: "", content: "x" }]));
+    assert.equal((await readState(home)).library.counts.private, 1);
+  } finally {
+    await rm(home, { recursive: true });
+  }
+});
+
+test("draft for sale continues the capture thread instead of starting the publish agent cold", async () => {
+  const { LoreAgent, latestTaskRecord } = await import("../src/agent.mjs");
+  const home = await mkdtemp(join(tmpdir(), "lore-desktop-"));
+  try {
+    const cold = LoreAgent.forkSession(home, "capture", "publish");
+    assert.equal(cold.buildSessionContext().messages.length, 0, "no capture thread yet means a fresh publish session");
+    assert.match(String(cold.getSessionFile()), /\/\.pi\/sessions\/publish\//);
+    const capture = LoreAgent.sessionFor(home, "capture");
+    capture.appendMessage({ role: "user", content: "/skill:lore-capture\n\nI learned to hire managers before scaling.", timestamp: 1 });
+    capture.appendCustomEntry("lore.task", { version: 1, kind: "capture", title: "Capture a memory", state: "done", phase: "Finished" });
+    capture.appendMessage({ role: "assistant", content: [{ type: "text", text: "Saved." }], api: "anthropic-messages", provider: "anthropic", model: "m", usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } }, stopReason: "stop", timestamp: 2 });
+    const forked = LoreAgent.forkSession(home, "capture", "publish");
+    assert.match(String(forked.getSessionFile()), /\/\.pi\/sessions\/publish\//);
+    assert.notEqual(forked.getSessionFile(), capture.getSessionFile());
+    assert.equal(forked.getHeader()?.parentSession, capture.getSessionFile());
+    assert.deepEqual(forked.buildSessionContext().messages.map((message) => message.role), ["user", "assistant"], "the publish agent starts with the capture conversation");
+    assert.equal(latestTaskRecord(forked, "publish"), null, "capture's records never count as publish state");
+    assert.deepEqual(LoreAgent.tasks(home), []);
+    assert.deepEqual(LoreAgent.history(home, "publish").map(({ text }) => text), ["I learned to hire managers before scaling.", "Saved."]);
+  } finally {
+    await rm(home, { recursive: true });
+  }
+});
+
+test("desktop prefers Opus 4.8 when Anthropic is available", async () => {
+  const { MODELS } = await import("../src/agent.mjs");
+  const { getBuiltinModel } = await import("@earendil-works/pi-ai/providers/all");
+  assert.equal(MODELS[0], "anthropic/claude-opus-4-8");
+  assert.equal(getBuiltinModel("anthropic", "claude-opus-4-8").id, "claude-opus-4-8");
+});
+
+test("API-key proof deletes rejected keys, not keys it could not check", async () => {
+  const { LoreAgent } = await import("../src/agent.mjs");
+  const replies = [
+    { stopReason: "error", errorMessage: "fetch failed" },
+    { stopReason: "error", errorMessage: '401 {"error":{"type":"authentication_error"}}' }
+  ];
+  const deleted = [];
+  const agent = new LoreAgent(
+    /** @type {LoreAgentOptions} */ ({ credentials: { list: async () => [], delete: async (provider) => deleted.push(provider) }, authPrompt: async () => "", authEvent: () => {} }),
+    /** @type {never} */ ({ login: async () => {}, getAvailable: async () => [{}], completeSimple: async () => replies.shift() }),
+    /** @type {never} */ (null),
+    /** @type {never} */ (null)
+  );
+  await assert.rejects(agent.login("anthropic", "api_key", "key"), /fetch failed/);
+  assert.deepEqual(deleted, []);
+  await assert.rejects(agent.login("anthropic", "api_key", "key"), /not accepted/);
+  assert.deepEqual(deleted, ["anthropic"]);
 });
 
 test("typed task records survive relaunch and only unfinished known tasks are listed", async () => {
@@ -330,12 +424,47 @@ test("safeStorage credentials survive an Electron restart", { skip: process.plat
   }
 });
 
+test("the bundled node is a shim that runs npm on Electron's embedded runtime", { skip: process.platform !== "darwin" }, async () => {
+  const packaging = join(__dirname, "../packaging");
+  const built = spawnSync(join(packaging, "node.sh"), { encoding: "utf8", timeout: 300_000 });
+  assert.equal(built.status, 0, built.stderr);
+  const bin = join(packaging, "out/node/bin");
+  const node = join(bin, "node");
+  await access(node, constants.X_OK);
+  assert.equal((await readFile(node)).subarray(0, 2).toString(), "#!", "bin/node must be a shim, not a standalone binary");
+  const env = { ...process.env, PATH: `${bin}:${process.env.PATH}` };
+  // defaultApp keeps yargs-based CLIs (wrangler) reading the script from argv[1].
+  const electron = spawnSync(node, ["-p", "process.versions.electron + ' ' + process.defaultApp"], { encoding: "utf8", env, timeout: 30_000 });
+  assert.equal(electron.status, 0, electron.stderr);
+  assert.equal(electron.stdout.trim(), `${require("electron/package.json").version} true`);
+  const npm = spawnSync(join(bin, "npm"), ["--version"], { encoding: "utf8", env, timeout: 60_000 });
+  assert.equal(npm.status, 0, npm.stderr);
+  assert.match(npm.stdout, /^\d+\.\d+\.\d+/);
+});
+
 test("memory reads validate the id before any CLI call, and say when it is unknown", async () => {
   const { readMemory } = require("../src/state.cjs");
   for (const bad of [0, -1, 1.5, "1", null]) await assert.rejects(readMemory("/nonexistent", bad), { message: /Invalid memory/ });
   const directory = await mkdtemp(join(tmpdir(), "lore-desktop-"));
   try {
     await assert.rejects(readMemory(directory, 999), { message: /memory not found: 999/ });
+  } finally {
+    await rm(directory, { recursive: true });
+  }
+});
+
+test("memory edit validates the id and content before any CLI call, and round-trips through the CLI", async () => {
+  const { editMemory } = require("../src/state.cjs");
+  for (const bad of [0, -1, 1.5, "1", null]) await assert.rejects(editMemory("/nonexistent", bad, "New content"), { message: /Invalid memory/ });
+  const directory = await mkdtemp(join(tmpdir(), "lore-desktop-"));
+  try {
+    await assert.rejects(editMemory(directory, 1, "   "), { message: /Content cannot be empty/ });
+    await assert.rejects(editMemory(directory, 999, "New content"), { message: /memory not found: 999/ });
+    const { lore } = require("../src/state.cjs");
+    const [{ id }] = JSON.parse(await lore(directory, ["capture", "apply", "-"], JSON.stringify([{ title: "Bullets", content: "First draft." }])));
+    for (const content of ["-solo", "--json", "---\n- one\n- two"]) {
+      assert.equal((await editMemory(directory, id, content)).content, content, "content that looks like an option must still be content");
+    }
   } finally {
     await rm(directory, { recursive: true });
   }

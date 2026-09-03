@@ -35,10 +35,13 @@ npm --prefix app/desktop run dogfood:new      # isolated first launch
 npm --prefix app/desktop run dogfood:current  # your real current Lore
 ```
 
-`dogfood:new` isolates the home directory, Lore library, app runtime, saved
-provider credentials, and agent history. It prints the sandbox path and the
-command to relaunch the same user for a persistence check. Delete that sandbox
-when you are done.
+`dogfood:new` isolates the Lore library, app runtime, saved provider
+credentials, and Lore task history via `LORE_HOME`/`LORE_DESKTOP_USER_DATA`.
+It keeps the real `$HOME` so Keychain-backed sign-in works and onboarding can
+read real Claude and Codex history, but skips schedule installation so a
+disposable profile cannot replace live automations. It prints the sandbox
+path and the command to relaunch the same user for a persistence check.
+Delete that sandbox when you are done.
 
 For the first-run pass: sign in, finish **Set up your Lore**, capture one
 synthetic memory by voice or attachment, inspect it in the library, draft and

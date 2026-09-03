@@ -51,6 +51,26 @@ class ParserTest(unittest.TestCase):
                 ["memory", "show", "7", "--json"],
                 {"command": "memory", "memory_command": "show", "id": 7, "json": True},
             ),
+            (
+                ["memory", "edit", "7", "New content", "--json"],
+                {
+                    "command": "memory",
+                    "memory_command": "edit",
+                    "id": 7,
+                    "content": "New content",
+                    "json": True,
+                },
+            ),
+            (
+                ["memory", "edit", "7", "--stdin"],
+                {
+                    "command": "memory",
+                    "memory_command": "edit",
+                    "id": 7,
+                    "content": None,
+                    "stdin": True,
+                },
+            ),
             (["profile", "-", "--no-schedule"], {"path": "-", "no_schedule": True}),
             (
                 ["capture", "apply", "-"],
@@ -446,6 +466,55 @@ class ShowMemoryTest(LoreTestCase):
         self.assertEqual(cli.main(["memory", "show", "999"]), 1)
 
 
+class EditMemoryTest(LoreTestCase):
+    def test_edit_updates_the_content_and_refuses_an_unknown_id(self) -> None:
+        memory_id = self.seed_memory("Kept lesson")
+        with captured() as output:
+            self.assertEqual(
+                cli.edit_memory(memory_id, "New content entirely", True), 0
+            )
+        payload = json.loads(output.getvalue())
+        self.assertEqual(payload["id"], memory_id)
+        self.assertEqual(payload["content"], "New content entirely")
+        with captured() as output:
+            self.assertEqual(cli.show_memory(memory_id, True), 0)
+        self.assertEqual(
+            json.loads(output.getvalue())["content"], "New content entirely"
+        )
+        with self.assertRaisesRegex(ValueError, "memory not found: 999"):
+            cli.edit_memory(999, "New content", True)
+        self.assertEqual(cli.main(["memory", "edit", "999", "New content"]), 1)
+
+    def test_edit_refuses_blank_content(self) -> None:
+        memory_id = self.seed_memory("Kept lesson")
+        with self.assertRaisesRegex(ValueError, "content cannot be empty"):
+            cli.edit_memory(memory_id, "   ", True)
+
+    def test_edit_reads_content_from_stdin_when_given_the_stdin_flag(self) -> None:
+        memory_id = self.seed_memory("Kept lesson")
+        with (
+            patch.object(sys, "stdin", StringIO("Content piped in from stdin")),
+            captured() as output,
+        ):
+            self.assertEqual(cli.edit_memory(memory_id, None, True, from_stdin=True), 0)
+        self.assertEqual(
+            json.loads(output.getvalue())["content"], "Content piped in from stdin"
+        )
+
+    def test_edit_accepts_literal_dash_as_content(self) -> None:
+        """A memory whose content is literally `-` must not trigger stdin reads."""
+        memory_id = self.seed_memory("Kept lesson")
+        with captured() as output:
+            self.assertEqual(cli.edit_memory(memory_id, "-", True), 0)
+        self.assertEqual(json.loads(output.getvalue())["content"], "-")
+
+    def test_edit_requires_content_or_stdin_flag(self) -> None:
+        memory_id = self.seed_memory("Kept lesson")
+        with self.assertRaisesRegex(ValueError, "content is required unless --stdin"):
+            cli.edit_memory(memory_id, None, True)
+        self.assertEqual(cli.main(["memory", "edit", str(memory_id)]), 1)
+
+
 class StatusTest(LoreTestCase):
     def test_status_counts_private_and_discarded_separately(self) -> None:
         self.seed_memory("Kept lesson")
@@ -648,7 +717,19 @@ class ProfileTest(LoreTestCase):
         with patch.object(automation, "install") as install, captured() as output:
             self.assertEqual(cli.profile(str(path), schedule=False), 0)
         install.assert_not_called()
-        self.assertIn("previously installed prompt", output.getvalue())
+        self.assertIn("Existing schedules were not changed", output.getvalue())
+
+    def test_dogfood_profile_does_not_touch_the_installed_schedule(self) -> None:
+        path = self.lore_home / "profile.json"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps({"role": "maintainer", "executor": "codex"}))
+        with (
+            patch.dict(os.environ, {"LORE_SKIP_SCHEDULE": "1"}),
+            patch.object(automation, "install") as install,
+            captured(),
+        ):
+            self.assertEqual(cli.profile(str(path)), 0)
+        install.assert_not_called()
 
     def test_a_profile_that_is_not_an_object_is_refused(self) -> None:
         path = self.lore_home / "profile.json"
