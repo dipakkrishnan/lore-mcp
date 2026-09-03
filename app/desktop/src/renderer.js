@@ -547,6 +547,7 @@ function renderSales() {
     const trailing = el("div", "v");
     const receipt = outLink("↗", `${explorer(sale.network)}/tx/${sale.tx}`, "link-btn glyph");
     receipt.title = `See this payment on Basescan · ${sale.tx}`;
+    receipt.setAttribute("aria-label", "See this payment on Basescan");
     trailing.append(el("span", "mono", price(sale.price_usd)), receipt);
     return row(sale.title, when(sale.sold_at), trailing);
   });
