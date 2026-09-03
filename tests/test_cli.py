@@ -235,10 +235,30 @@ class MainDispatchTest(LoreTestCase):
         self.assertIn("1 sale · $0.01", output.getvalue())
         self.assertIn("2026-09-02  $0.01  A", output.getvalue())
 
-    def test_node_deploy_forwards_the_wallet(self) -> None:
+    def test_node_deploy_forwards_the_wallet_and_the_network(self) -> None:
         with patch("lore.deploy.deploy", return_value=0) as deploy:
             self.assertEqual(cli.main(["node", "deploy", "--wallet", "0x1"]), 0)
-        self.assertEqual(deploy.call_args.args, ("0x1",))
+        self.assertEqual(deploy.call_args.args, ("0x1", None))
+        with patch("lore.deploy.deploy", return_value=0) as deploy:
+            self.assertEqual(cli.main(["node", "deploy", "--network", "real"]), 0)
+        self.assertEqual(deploy.call_args.args, (None, "real"))
+
+    def test_node_secret_reads_the_value_from_an_attended_stdin_only(self) -> None:
+        with (
+            patch("lore.deploy.secret", return_value=0) as secret,
+            desktop_stdin("key-id\n"),
+        ):
+            self.assertEqual(cli.main(["node", "secret", "CDP_API_KEY_ID"]), 0)
+        self.assertEqual(secret.call_args.args, ("CDP_API_KEY_ID", "key-id"))
+        with (
+            patch("lore.deploy.secret", return_value=0) as secret,
+            patch.object(sys, "stdin", StringIO("key-id\n")),
+            patch.object(cli, "_interactive", return_value=False),
+            patch("sys.stderr", new_callable=StringIO) as stderr,
+        ):
+            self.assertEqual(cli.main(["node", "secret", "CDP_API_KEY_ID"]), 1)
+        self.assertIn("attended terminal or the Lore desktop app", stderr.getvalue())
+        secret.assert_not_called()
 
     def test_no_command_falls_back_to_status_when_not_interactive(self) -> None:
         with (

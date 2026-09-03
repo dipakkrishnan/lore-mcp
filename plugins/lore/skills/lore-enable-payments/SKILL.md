@@ -270,7 +270,15 @@ When they do, verify the gates **from state** before driving anything:
 
 Any gate fails → say which, leave the node on the test network, stop.
 
-All gates hold → drive the **Mainnet cutover** section of
+> **Lore desktop:** all gates hold → frame and open the Coinbase Developer
+> Platform's API keys page through `open_url` (the runbook's decoy and
+> dialog notes belong in that one line), then call `store_secret` for
+> `CDP_API_KEY_ID` and again for `CDP_API_KEY_SECRET` — each shows the owner
+> a field whose value goes straight to Cloudflare's vault — then run
+> `lore node deploy --network real`. Say "real money" and "the test
+> network", never "mainnet". `lore node deploy --network test` goes back.
+
+All gates hold in a terminal → drive the **Mainnet cutover** section of
 `~/.lore/node/README.md` like any other section of this skill: one step at a
 time, announce each portal page before opening it, verify each step from
 state. The runbook carries the sharp edges — the API-keys page hides behind

@@ -73,6 +73,7 @@ class _Wrangler:
         self.d1_create_fails = d1_create_fails
         self.d1_id_in_output = d1_id_in_output
         self.commands: list[tuple[str, ...]] = []
+        self.secret_values: dict[str, str | None] = {}
 
     def __call__(self, args, **kwargs):  # type: ignore[no-untyped-def]
         self.commands.append(tuple(args))
@@ -90,9 +91,10 @@ class _Wrangler:
             code = 1 if self.login_fails else 0
         elif tail == ("secret", "list"):
             out = '[{"name":"LORE_WALLET"}]' if self.has_wallet_secret else "[]"
-        elif tail == ("secret", "put", "LORE_WALLET"):
+        elif tail[:2] == ("secret", "put"):
             code = 1 if self.secret_put_fails else 0
             err = "vault down" if self.secret_put_fails else ""
+            self.secret_values[tail[2]] = kwargs.get("input")
         elif tail == ("d1", "create", "lore-publications"):
             if self.d1_exists:
                 code, err = 1, "a database with that name already exists"
@@ -164,6 +166,44 @@ class UnattendedDeployTest(LoreTestCase):
         ):
             deploy_module.deploy(WALLET)
         self.assertEqual(wrangler.named("login"), [])
+
+
+class RealMoneyTest(LoreTestCase):
+    def _staged(self) -> _Wrangler:
+        target = deploy_module.materialize(0.1)
+        binary = target / "node_modules/.bin/wrangler"
+        binary.parent.mkdir(parents=True)
+        binary.write_text("#!/bin/sh\n")
+        return _Wrangler()
+
+    def test_a_credential_is_vaulted_from_the_value_given(self) -> None:
+        wrangler = self._staged()
+        with patch("lore.deploy.subprocess.run", side_effect=wrangler), captured():
+            self.assertEqual(deploy_module.secret("CDP_API_KEY_ID", "key-id"), 0)
+        self.assertEqual(wrangler.secret_values, {"CDP_API_KEY_ID": "key-id\n"})
+
+    def test_only_the_coinbase_credentials_and_a_real_value_are_accepted(self) -> None:
+        with self.assertRaisesRegex(ValueError, "keeps only"):
+            deploy_module.secret("LORE_WALLET", "0x1")
+        with self.assertRaisesRegex(ValueError, "no value"):
+            deploy_module.secret("CDP_API_KEY_SECRET", "")
+
+    def test_the_network_is_set_after_the_deploy_in_plain_words(self) -> None:
+        with Store() as store:
+            store.set_setting("price_usd", 0.01)
+        wrangler = _Wrangler()
+        with (
+            patch("lore.deploy.subprocess.run", side_effect=wrangler),
+            patch("lore.deploy.shutil.which", return_value="/usr/bin/npm"),
+            patch("lore.cli.push", return_value=0),
+            captured(),
+        ):
+            self.assertEqual(deploy_module.deploy(None, "real"), 0)
+        self.assertEqual(wrangler.secret_values, {"LORE_NETWORK": "eip155:8453\n"})
+        deployed, network = wrangler.order(
+            ("deploy",), ("secret", "put", "LORE_NETWORK")
+        )
+        self.assertLess(deployed, network)
 
 
 class LoginTest(LoreTestCase):

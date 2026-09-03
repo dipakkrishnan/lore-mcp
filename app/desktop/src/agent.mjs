@@ -416,7 +416,7 @@ export class LoreAgent {
       resourceLoader: this.resources,
       settingsManager: this.settings,
       sessionManager,
-      tools: ["read", "write", "edit", "bash", "ask_user", "propose_memories", "propose_blueprint", "cloudflare_login", "open_url", "finish_task"],
+      tools: ["read", "write", "edit", "bash", "ask_user", "propose_memories", "propose_blueprint", "cloudflare_login", "open_url", "store_secret", "finish_task"],
       customTools: [
         createBashTool(this.options.loreHome, {
           operations: createSandboxedBashOperations(this.options.loreHome, task, this.options.binDir),
@@ -436,6 +436,7 @@ export class LoreAgent {
         this.#blueprintTool(),
         this.#cloudflareTool(),
         this.#openTool(),
+        this.#secretTool(),
         this.#finishTool()
       ]
     });
@@ -568,6 +569,19 @@ export class LoreAgent {
       parameters: Type.Object({ title: Type.String(), url: Type.String(), note: Type.String() }),
       execute: async (_id, page) => {
         const text = await this.#attended(page.title, () => this.options.openUrl(page));
+        return { content: [{ type: "text", text }], details: {} };
+      }
+    });
+  }
+
+  #secretTool() {
+    return defineTool({
+      name: "store_secret",
+      label: "Store a Coinbase credential",
+      description: "Ask the owner for one Coinbase Developer Platform value and vault it on their node for real payments. The value never reaches you; returns whether it was stored.",
+      parameters: Type.Object({ name: Type.Union([Type.Literal("CDP_API_KEY_ID"), Type.Literal("CDP_API_KEY_SECRET")]) }),
+      execute: async (_id, { name }) => {
+        const text = await this.#attended("Enter a Coinbase API key", () => this.options.storeSecret(name));
         return { content: [{ type: "text", text }], details: {} };
       }
     });

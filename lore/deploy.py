@@ -55,6 +55,10 @@ class Sale(BaseModel):
 
 
 SALES = TypeAdapter(list[Sale])
+# Plain words for the two chains the Worker accepts as LORE_NETWORK.
+NETWORKS = {"real": "eip155:8453", "test": "eip155:84532"}
+# The Coinbase facilitator credentials real money needs; nothing else is vaulted here.
+SECRETS = ("CDP_API_KEY_ID", "CDP_API_KEY_SECRET")
 # The smallest price the six-decimal formatter can render without collapsing
 # to zero; `lore price` rounds to six decimals, so this matches its floor.
 MINIMUM_PRICE = 1e-6
@@ -233,9 +237,29 @@ def sales() -> list[Sale]:
     return SALES.validate_python(statements[0]["results"])
 
 
-def deploy(wallet: str | None) -> int:
-    """Materialize, authenticate, ensure D1, deploy, set the payout secret,
-    push the active publications, smoke-check."""
+def secret(name: str, value: str) -> int:
+    """Vault one Coinbase credential on the node."""
+    if name not in SECRETS:
+        raise ValueError(f"the node keeps only {' and '.join(SECRETS)}, not {name}")
+    if not value:
+        raise ValueError(f"no value given for {name}")
+    target = home() / "node"
+    wrangler = target / "node_modules/.bin/wrangler"
+    if not wrangler.exists():
+        raise ValueError("no deployed node on this machine; open your store first")
+    _run(
+        (str(wrangler), "secret", "put", name),
+        target,
+        input=value + "\n",
+        fail=f"storing {name} failed",
+    )
+    success(f"Stored {name} in Cloudflare's vault")
+    return 0
+
+
+def deploy(wallet: str | None, network: str | None = None) -> int:
+    """Materialize, authenticate, ensure D1, deploy, set the payout secret and
+    the network if asked, push the active publications, smoke-check."""
     if wallet and not WALLET.fullmatch(wallet):
         raise ValueError(
             "wallet must be a public EVM address: 0x plus 40 hex characters"
@@ -326,6 +350,16 @@ def deploy(wallet: str | None) -> int:
             target,
             input=wallet + "\n",
             fail="setting LORE_WALLET failed",
+        )
+    if network:
+        # Real money needs the Coinbase credentials vaulted first (`lore node
+        # secret`); without them the Worker refuses to start and the smoke
+        # check below says so.
+        _run(
+            (wrangler, "secret", "put", "LORE_NETWORK"),
+            target,
+            input=NETWORKS[network] + "\n",
+            fail="setting LORE_NETWORK failed",
         )
 
     # First push creates the publications table (CREATE TABLE IF NOT EXISTS),
