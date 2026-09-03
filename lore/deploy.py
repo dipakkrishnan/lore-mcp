@@ -318,7 +318,9 @@ def deploy(wallet: str | None, network: str | None = None) -> int:
             store.finish_job(job_id, outcome[0], summary=outcome[1])
 
 
-def _deploy(configured_price: float, wallet: str | None, network: str | None = None) -> int:
+def _deploy(
+    configured_price: float, wallet: str | None, network: str | None = None
+) -> int:
     """Materialize, authenticate, ensure D1, deploy, set the payout secret,
     push the active publications, smoke-check."""
     target = materialize(configured_price)
