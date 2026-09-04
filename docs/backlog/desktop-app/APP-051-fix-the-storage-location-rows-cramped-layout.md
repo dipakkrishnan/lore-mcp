@@ -10,7 +10,7 @@ blockers: []
 dependencies: []
 github_issue: null
 created: 2026-09-02
-updated: 2026-09-02
+updated: 2026-09-04
 ---
 
 ## Problem
@@ -50,3 +50,5 @@ Two independent fixes, likely both worth doing:
 
 Reported by the owner while dogfooding (2026-09-02), with a screenshot of a
 `dogfood:new` sandbox path squeezing the label column.
+
+Dogfood 2026-09-04: with a sandbox path under /var/folders the label column collapsed to one word per line. Cause is `.row .v { flex-shrink: 0 }` (`styles.css:260`) letting the value win; let the path wrap or truncate and give the lead a minimum width.
