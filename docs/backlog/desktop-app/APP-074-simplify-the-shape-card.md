@@ -4,7 +4,7 @@ title: Simplify the shape card
 priority: P3
 effort: S
 component: desktop-app
-status: ideation
+status: obsolete
 related: [APP-052, APP-022]
 blockers: []
 dependencies: []
@@ -34,4 +34,4 @@ behind "Adjust".
       most four visible controls.
 
 ## Notes
-
+Folded into APP-052 on 2026-09-04: same card, same complaint; one item is enough.

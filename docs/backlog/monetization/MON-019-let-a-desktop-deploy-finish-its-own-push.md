@@ -29,12 +29,11 @@ approved publication is waiting (dogfood 2026-09-04, sandbox deploy job 1).
 
 ## Proposed approach
 
-Run the deploy sequence's push under the deploy's own job instead of through
-the owner-action gate: deploy is already the owner's action and the push only
-carries publications the owner approved. Call `_push` from `_deploy` with
-the deploy's job id and keep `lore push` itself gated as it is. Do not put
-the desktop marker in the agent's shell; that marker is the approval boundary
-the agent must not be able to set.
+Inside `_deploy`, start a normal push job and call `_push` with it instead of
+going through the public `push()` and its owner-action gate. The deploy job
+keeps its own deployed/failed result; the push job records pushed/failed on
+its own row, as the Push button does. `lore push` from a pipe stays gated.
+No bypass flag, no marker in the agent's shell.
 
 ## Acceptance criteria
 
@@ -49,3 +48,4 @@ the agent must not be able to set.
 Regression from the owner-action gate (APP-006) meeting the deploy sequence's
 built-in push; the edge tests cover the Push button and not the agent's
 deploy path.
+Reviewed 2026-09-04: reusing the deploy's job id would have finished it as "pushed"; a separate push job keeps both rows truthful.

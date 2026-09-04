@@ -24,11 +24,12 @@ sandbox's two. Nothing warned.
 
 ## Proposed approach
 
-Point wrangler's config at the sandbox (`XDG_CONFIG_HOME` or
-`WRANGLER_HOME` under the dogfood root) so a sandbox starts signed out and
-the Cloudflare card asks for an account. Print the hazard in the script's
-banner. Longer term (XC-018) a per-profile Worker name removes the collision
-entirely.
+In the dogfood script, set `XDG_CONFIG_HOME` to a directory under the sandbox
+`LORE_HOME`. Wrangler resolves its login from `$XDG_CONFIG_HOME/.wrangler`
+(this Mac has no legacy `~/.wrangler`), and the agent's bash sandbox can
+already write under the Lore home, so a fresh sandbox starts signed out and
+the Cloudflare card asks for an account. Print which account a deploy will
+use in the banner.
 
 ## Acceptance criteria
 
@@ -40,3 +41,4 @@ entirely.
 
 Recovery for the incident: `lore push` from the real profile restores the
 active set.
+Reviewed 2026-09-04: the config directory must live inside LORE_HOME, or the sandboxed shell cannot write wrangler's login.

@@ -22,11 +22,9 @@ reading memories while it is running wrangler or waiting on them.
 
 ## Proposed approach
 
-Pick the live text by task and tool: bash under deploy is "Setting up your
-store…", a waiting card is no live line at all, search and read under
-publish are "Looking through your Lore…". The per-task defaults already
-exist in the renderer (`renderer.js:1342`); route tool events through the
-same table.
+Clear the live line in the shared `#attended` transition when a card opens,
+and pick the tool-start text by task: deploy says "Setting up your store…",
+read says "Reading…", the rest keeps "Looking through your Lore…". Two lines.
 
 ## Acceptance criteria
 

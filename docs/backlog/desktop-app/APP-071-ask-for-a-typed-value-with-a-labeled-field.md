@@ -24,11 +24,13 @@ forty-character line, and its shape is only checked a turn later by the skill
 
 ## Proposed approach
 
-Add a text kind to the ask tool: label, placeholder, optional pattern. The
-renderer shows one labeled input, validates the pattern before Continue
-(`0x` plus 40 hex for an address), and echoes a labeled, truncated summary
-("Payout address 0x0c27…8166") instead of the raw value. The secret card stays
-separate and keeps echoing nothing.
+No new question kind. A question with an empty options list already renders
+the existing text field alone; the system prompt tells the agent to ask for a
+value that way, with the label in the question text. Shorten long answers in
+the echo and in reconstructed history (`agent.mjs` history()) so a pasted
+address shows as "0x0c27…8166" in the thread now and after relaunch. Format
+validation stays where it is, in the CLI's wallet check; the agent re-asks on
+its error.
 
 ## Acceptance criteria
 
@@ -38,4 +40,4 @@ separate and keeps echoing nothing.
 - [ ] The thread shows the address labeled and shortened, matching Settings.
 
 ## Notes
-
+Reviewed 2026-09-04: a pattern schema is unwarranted; the CLI already refuses a bad address and the agent already handles that.

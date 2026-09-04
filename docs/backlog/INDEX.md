@@ -13,7 +13,6 @@ obsolete), then `priority` (P0 → P3).
 | [APP-041](./desktop-app/APP-041-desktop-onboarding-flow-for-a-new-user.md) | Guide a new desktop user through an onboarding flow | P2 | M | desktop-app | ideation | ONB-001, ONB-003, APP-030, APP-036 | — | — | [#176](https://github.com/dipakkrishnan/lore-mcp/issues/176) |
 | [APP-042](./desktop-app/APP-042-select-memories-to-combine-and-synthesize.md) | Let a desktop owner select memories to combine and synthesize | P2 | M | desktop-app | ideation | AUT-002, APP-014, APP-011 | — | — | [#173](https://github.com/dipakkrishnan/lore-mcp/issues/173) |
 | [APP-043](./desktop-app/APP-043-batch-captured-memories-by-date-in-the-memories-tab.md) | Batch captured memories by date in the Memories tab | P2 | M | desktop-app | ideation | — | — | — | [#171](https://github.com/dipakkrishnan/lore-mcp/issues/171) |
-| [APP-074](./desktop-app/APP-074-simplify-the-shape-card.md) | Simplify the shape card | P3 | S | desktop-app | ideation | APP-052, APP-022 | — | — | — |
 | [APP-046](./desktop-app/APP-046-render-capture-proposals-as-an-editable-memory-card.md) | Render capture proposals as an editable memory card | P0 | S | desktop-app | in-review | APP-003, APP-009, APP-016, APP-045 | — | — | — |
 | [APP-047](./desktop-app/APP-047-give-publication-drafts-one-home.md) | Give publication drafts one home and keep cards in their own thread | P0 | S | desktop-app | in-review | APP-020, APP-023, APP-032, APP-046 | — | — | — |
 | [MON-019](./monetization/MON-019-let-a-desktop-deploy-finish-its-own-push.md) | Let a desktop deploy finish its own push | P0 | S | monetization | in-review | APP-056, APP-055, APP-006, MON-013 | — | — | — |
@@ -143,3 +142,4 @@ obsolete), then `priority` (P0 → P3).
 | [XC-023](./cross-cutting/XC-023-detect-installed-cli-drift-from-dev-source.md) | Detect when the installed lore CLI has drifted from the checked-out source | P2 | S | cross-cutting | completed | MON-006 | — | — | — |
 | [MON-001](./monetization/MON-001-cloudflare-gateway-deployment-guide.md) | Write a deployment guide for the Cloudflare Tunnel / Monetization Gateway path | P2 | L | monetization | obsolete | — | — | — | — |
 | [MON-014](./monetization/MON-014-keep-long-running-paid-tool-calls-alive-through-the-bridge.md) | Keep long-running paid tool calls alive through the bridge | P2 | S | monetization | obsolete | MON-007, MCP-003 | — | — | — |
+| [APP-074](./desktop-app/APP-074-simplify-the-shape-card.md) | Simplify the shape card | P3 | S | desktop-app | obsolete | APP-052, APP-022 | — | — | — |

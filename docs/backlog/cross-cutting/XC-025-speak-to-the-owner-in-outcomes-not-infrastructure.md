@@ -25,18 +25,13 @@ does not hold, because the model writes a new variant every run.
 
 ## Proposed approach
 
-A voice rule in the desktop preamble of `lore-enable-payments` and
-`lore-onboard`, spanning `plugins/lore/skills` and the desktop app's
-vocabulary:
-
-- Say what the owner will see: "Opening your store now with play money, so
-  nothing real changes hands until you say so."
-- Never name the plumbing in prose. Cloudflare, Node, wrangler, Worker, Base,
-  Sepolia and network ids stay inside cards and Settings, where they are
-  labeled.
-- Do not narrate checks that passed; say what happens next.
-
-Add the rule to the skill contract test so a rewording cannot drop it.
+One place, not three. Extend the desktop system prompt's existing sentence
+("Never mention tools, commands, or files to the owner…") with the plumbing
+nouns: Cloudflare, Node, wrangler, Worker, Base, Sepolia, network ids, and the
+rule to say what the owner will see instead ("your store", "play money",
+"real money"). Delete the lines in the payments skill's desktop paragraph that
+push jargon into prose, such as naming Base Sepolia. No second policy in the
+skills and no contract test for it.
 
 ## Acceptance criteria
 
@@ -48,3 +43,4 @@ Add the rule to the skill contract test so a rewording cannot drop it.
 
 The owner's preference on record: plain labels, no "mainnet", tasteful
 inline notices like the Claude and OpenAI consoles.
+Reviewed 2026-09-04: a rule in two skills plus a test would drift; the system prompt already owns owner-facing voice.
