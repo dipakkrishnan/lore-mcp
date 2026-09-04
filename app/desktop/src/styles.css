@@ -271,6 +271,14 @@ a.link-btn.glyph { width: 22px; padding: 0; justify-content: center; color: var(
 .store-bar { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 16px 20px; }
 .store-bar .prices { display: flex; flex-direction: column; gap: 2px; text-align: right; font-family: var(--mono); font-size: 15px; }
 .store-bar .prices span { font-family: var(--sans); font-size: 12px; color: var(--muted); }
+.price-open { font: inherit; color: inherit; background: none; border: 0; padding: 2px 4px; margin: -2px -4px; border-radius: var(--radius-sm); cursor: pointer; }
+.price-open:hover { background: var(--hover); }
+.store-bar .price-edit { display: flex; align-items: center; justify-content: flex-end; gap: 8px; }
+.store-bar .price-edit .actions { display: flex; gap: 4px; }
+.price-field { display: inline-flex; align-items: center; height: 32px; padding: 0 8px; gap: 2px; border: 1px solid var(--line-strong); border-radius: var(--radius-sm); background: var(--surface); }
+.price-field .price-prefix { font-family: var(--mono); font-size: 15px; color: var(--muted); }
+.price-field input[type="text"] { width: 6ch; height: auto; padding: 0; border: 0; background: none; font-family: var(--mono); font-size: 15px; text-align: left; }
+.request .price-field { height: 36px; align-self: flex-start; }
 
 .error { padding: 18px 20px; display: flex; flex-direction: column; gap: 8px; }
 .error h2 { font-family: var(--serif); font-size: 18px; text-transform: none; letter-spacing: 0; color: var(--ink); }

@@ -3,7 +3,7 @@ const { join } = require("node:path");
 const { app, BrowserWindow, dialog, ipcMain, safeStorage, shell, systemPreferences } = require("electron");
 const { provision, skillsDir, whisper } = require("./runtime.cjs");
 const { transcribe } = require("./dictation.cjs");
-const { lore, loreStream, openable, readState, readSales, searchMemories, readMemory, renameMemory, editMemory, captureMemories, candidates, decide, useRuntime } = require("./state.cjs");
+const { lore, loreStream, openable, readState, readSales, searchMemories, readMemory, renameMemory, editMemory, captureMemories, setPrice, candidates, decide, useRuntime } = require("./state.cjs");
 
 if (process.env.LORE_DESKTOP_USER_DATA) app.setPath("userData", process.env.LORE_DESKTOP_USER_DATA);
 
@@ -106,6 +106,7 @@ function registerIpc(loreHome) {
   ipcMain.handle("store:push", async () => {
     await lore(loreHome, ["push"], "");
   });
+  ipcMain.handle("pricing:set", (_event, amount) => setPrice(loreHome, amount));
   ipcMain.handle("store:sales", () => readSales(loreHome));
   ipcMain.handle("files:pick", async () => {
     if (!window) return [];
@@ -196,6 +197,16 @@ async function start(loreHome) {
       await lore(loreHome, ["blueprint", "apply", "-"], JSON.stringify(edited));
       emit({ type: "changed" });
       return edited;
+    },
+    proposePrice: async (amount, reason) => {
+      // The agent proposes; this process saves only the number the owner
+      // confirmed on the card, and hands that number back so the agent works
+      // from what was actually set rather than what it suggested.
+      const confirmed = await request("price", { amount, reason });
+      if (typeof confirmed !== "number") return null;
+      await setPrice(loreHome, confirmed);
+      emit({ type: "changed" });
+      return confirmed;
     },
     cloudflareLogin: async () => {
       if (!(await request("cloudflare", {}))) return "The owner chose not to sign in to Cloudflare right now.";

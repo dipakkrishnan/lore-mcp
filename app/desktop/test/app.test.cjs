@@ -490,3 +490,32 @@ test("memory edit validates the id and content before any CLI call, and round-tr
     await rm(directory, { recursive: true });
   }
 });
+
+test("the price action refuses anything but a positive number, and round-trips through the CLI", async () => {
+  const { setPrice, readState } = require("../src/state.cjs");
+  // Rejected before any CLI call: "/nonexistent" would fail loudly otherwise.
+  for (const bad of [0, -1, NaN, Infinity, "0.01", null, undefined]) {
+    await assert.rejects(setPrice("/nonexistent", bad), { message: /A price has to be a number above zero/ }, String(bad));
+  }
+  const directory = await mkdtemp(join(tmpdir(), "lore-desktop-"));
+  try {
+    assert.equal((await readState(directory)).pricing.publication_usd, null);
+    await setPrice(directory, 0.25);
+    assert.equal((await readState(directory)).pricing.publication_usd, 0.25);
+    // Sub-cent prices are legal all the way down to the deploy floor.
+    await setPrice(directory, 0.000001);
+    assert.equal((await readState(directory)).pricing.publication_usd, 0.000001);
+  } finally {
+    await rm(directory, { recursive: true });
+  }
+});
+
+test("propose_price is a live tool, and the agent is told not to price by hand", async () => {
+  // A custom tool missing from `tools:` is defined but inactive, which is the
+  // silent way this wiring breaks.
+  const source = await readFile(join(__dirname, "../src/agent.mjs"), "utf8");
+  const active = source.match(/tools: \[([^\]]*)\]/)[1];
+  assert.match(active, /"propose_price"/, "propose_price must be in the active tool list");
+  assert.match(source, /this\.#priceTool\(\)/, "and registered as a custom tool");
+  assert.match(source, /call propose_price and never run a price command yourself/);
+});

@@ -145,9 +145,14 @@ later reads.
 
 ## 4. Price
 
-Run `lore price 0.01` (or the owner's chosen amount — their call, `0.01` is the
-recommendation). `lore price 0` is free and a supported place to stop; deploying
-the paid node requires a positive price.
+Set the owner's chosen amount — their call, `0.01` is the recommendation. Where
+a `propose_price` tool exists, propose the amount and let the owner confirm it;
+that tool saves what they chose and returns it, so work from the returned number
+rather than the one you suggested. Otherwise run `lore price 0.01`.
+
+Either way the owner names the number: never pick one for them and set it
+quietly. `lore price 0` is free and a supported place to stop; deploying the
+paid node requires a positive price.
 
 If they chose answers, draft two to four lines of **public proxy instructions** from
 their confirmed voice. The instructions should tell the agent to answer as their
