@@ -133,6 +133,11 @@ function toolResultJson(message) {
   }
 }
 
+/** An echo drops the agent's recommendation marker and keeps only the ends of long opaque tokens, an address or a key. @param {string} text */
+function brief(text) {
+  return text.replace(/\s*\(Recommended\)/g, "").replace(/\S{25,}/g, (token) => `${token.slice(0, 6)}…${token.slice(-4)}`);
+}
+
 /** @param {import("@earendil-works/pi-coding-agent").SessionManager} manager @param {AgentTask} kind @returns {TaskRecord | null} */
 export function latestTaskRecord(manager, kind) {
   for (const entry of [...manager.getEntries()].reverse()) {
@@ -217,11 +222,11 @@ export class LoreAgent {
       systemPrompt: [
         "You are Lore's desktop agent, talking with the owner inside the Lore app.",
         "Follow the skill named in the latest message that names one exactly, and skip its install steps because Lore is already provisioned.",
-        "Ask the owner everything through ask_user — decisions and open questions alike; offer the likely answers as options, and the owner can always type their own. Never end a turn with a question in prose.",
+        "Ask the owner everything through ask_user — decisions and open questions alike; offer the likely answers as options, and the owner can always type their own. When one option is your recommendation, end its label with (Recommended). To ask for something the owner types or pastes, such as an address, send the question with no options; they get a single field. Never end a turn with a question in prose.",
         "Keep every message light: a sentence or two, question text under fifteen words, option labels of a few words with one short description, and never restate what a card already shows.",
         "During capture, show proposed memories only through propose_memories, never in prose; that tool saves what the owner keeps and returns the saved memories, or returns the owner's correction for you to revise and propose again. After it saves, say one short sentence and call finish_task; never offer publication, the owner starts that from the saved card.",
         "During onboarding, gather evidence first, then call propose_blueprint once with one bounded proposal; that tool saves the owner-approved shape.",
-        "Never mention tools, commands, or files to the owner; speak about memories, their Lore, and their store.",
+        "Never mention tools, commands, files, or plumbing to the owner: no Cloudflare, Node, wrangler, Worker, Base, Sepolia, or network ids in prose. Speak about memories, their Lore, their store, play money and real money, and say what happens next rather than which checks passed.",
         "Call finish_task when the current task is complete."
       ].join(" ")
     });
@@ -275,7 +280,7 @@ export class LoreAgent {
         if (!result) continue;
         if (message.toolName === "ask_user") {
           const answers = result.answers && !Array.isArray(result.answers)
-            ? Object.values(result.answers).filter((value) => typeof value === "string" && value).join(" · ")
+            ? brief(Object.values(result.answers).filter((value) => typeof value === "string" && value).join(" · "))
             : "";
           if (answers) lines.push({ text: answers, owner: true });
         } else if (message.toolName === "propose_memories") {
@@ -458,7 +463,7 @@ export class LoreAgent {
     });
     session.subscribe((event) => {
       if (event.type === "tool_execution_start" && event.toolName !== "ask_user") {
-        this.options.emit({ type: "live", task, text: event.toolName === "read" ? "Reading…" : "Looking through your Lore…" });
+        this.options.emit({ type: "live", task, text: task === "deploy" ? "Setting up your store…" : event.toolName === "read" ? "Reading…" : "Looking through your Lore…" });
       }
       if (event.type === "message_update" && event.assistantMessageEvent.type === "text_delta") {
         const text = event.assistantMessageEvent.partial.content.map((block) => (block.type === "text" ? block.text : "")).join("");
@@ -584,7 +589,7 @@ export class LoreAgent {
     return defineTool({
       name: "open_url",
       label: "Open a page for the owner",
-      description: "Open one web page in the owner's browser for a step only they can do there: a wallet, the workers.dev subdomain, a faucet, Basescan, the Coinbase developer portal. Give the step a short title and one line on what to do on the page. Waits until the owner comes back and returns whether they finished, got stuck, or declined.",
+      description: "Open one web page in the owner's browser for a step only they can do there: a wallet, the workers.dev subdomain, a faucet, Basescan, the Coinbase developer portal. Give the step a short title and a note of up to three short numbered lines on what to do there. Waits until the owner comes back and returns whether they finished, got stuck, or declined.",
       parameters: Type.Object({ title: Type.String(), url: Type.String(), note: Type.String() }),
       execute: async (_id, page) => {
         const text = await this.#attended(page.title, () => this.options.openUrl(page));

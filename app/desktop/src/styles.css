@@ -128,9 +128,9 @@ nav .count { margin-left: auto; font-family: var(--mono); font-size: 12px; color
 .account img { width: 12px; height: 12px; }
 
 main:focus { outline: none; }
-main { flex: 1; min-width: 0; overflow: auto; padding: 28px 44px 26px; display: flex; flex-direction: column; gap: 30px; }
+main { flex: 1; min-width: 0; overflow: auto; padding: 0 44px 26px; display: flex; flex-direction: column; gap: 30px; }
 #content { display: flex; flex-direction: column; gap: 30px; }
-main header { display: flex; flex-direction: column; gap: 4px; position: sticky; top: 0; z-index: 1; background: var(--bg); }
+main header { display: flex; flex-direction: column; gap: 4px; position: sticky; top: 0; z-index: 1; padding-top: 28px; background: var(--bg); }
 .task-actions { display: flex; align-items: center; justify-content: space-between; }
 #add-memory { margin-left: auto; }
 .back { align-self: flex-start; color: var(--accent); font-size: 13px; margin-bottom: 4px; }
@@ -232,6 +232,7 @@ legend { font-weight: 500; font-size: 14px; margin-bottom: 6px; }
 .choice:has(input:checked) { border-color: var(--accent); background: var(--accent-soft); }
 .choice input { margin: 0; accent-color: var(--accent); }
 .choice small { color: var(--muted); }
+.choice .chip { justify-self: start; height: 18px; font-size: 11px; }
 .other-answer { height: 34px; font-size: 14px; }
 .blueprint-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 .blueprint-fields label { display: flex; flex-direction: column; gap: 4px; color: var(--muted); font-size: 12px; }
@@ -257,7 +258,8 @@ legend { font-weight: 500; font-size: 14px; margin-bottom: 6px; }
 a.link-btn { display: inline-flex; align-items: center; height: 22px; padding: 0 8px; border: 1px solid var(--line-strong); border-radius: 6px; background: var(--surface); color: var(--accent); font-size: 12px; }
 a.link-btn:hover { background: var(--hover); text-decoration: none; }
 a.link-btn.glyph { width: 22px; padding: 0; justify-content: center; color: var(--muted); }
-.row .v { display: flex; align-items: center; gap: 10px; flex-shrink: 0; font-size: 13px; color: var(--ink-soft); }
+.row .v { display: flex; align-items: center; gap: 10px; flex-shrink: 0; max-width: 60%; font-size: 13px; color: var(--ink-soft); }
+.row .v .mono { min-width: 0; overflow-wrap: anywhere; }
 .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--attention); flex-shrink: 0; }
 .dot.ok { background: var(--ok); }
 .dot.off { background: #c9c4b8; }
@@ -296,3 +298,4 @@ a.link-btn.glyph { width: 22px; padding: 0; justify-content: center; color: var(
 .md blockquote { margin: 0; border-left: 3px solid var(--line-strong); padding-left: 12px; color: var(--muted); }
 .md a { color: var(--accent); text-decoration: underline; }
 .md strong { color: var(--ink); }
+.composer.working .composer-actions { display: none; }

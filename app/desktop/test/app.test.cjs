@@ -182,7 +182,7 @@ test("sessions persist per task, come back as a thread, and a cut-off tool call 
     const written = LoreAgent.sessionFor(home, "setup");
     written.appendMessage({ role: "user", content: "/skill:lore-onboard\n\nLet's set up my Lore.", timestamp: 1 });
     written.appendMessage({ role: "assistant", content: [{ type: "text", text: "Welcome." }, { type: "toolCall", id: "call-1", name: "ask_user", arguments: {} }], api: "anthropic-messages", provider: "anthropic", model: "m", usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } }, stopReason: "toolUse", timestamp: 2 });
-    written.appendMessage({ role: "toolResult", toolCallId: "call-1", toolName: "ask_user", content: [{ type: "text", text: JSON.stringify({ answers: { Persona: "College professor", Name: "Ada" } }) }], isError: false, timestamp: 3 });
+    written.appendMessage({ role: "toolResult", toolCallId: "call-1", toolName: "ask_user", content: [{ type: "text", text: JSON.stringify({ answers: { Persona: "College professor (Recommended)", Payout: "0x0c270534cfcecc9224edb903ef5dd70410d08166" } }) }], isError: false, timestamp: 3 });
     written.appendMessage({ role: "toolResult", toolCallId: "old-call", toolName: "ask_user", content: [{ type: "text", text: "old malformed result" }], isError: false, timestamp: 3 });
     written.appendMessage({ role: "toolResult", toolCallId: "m-1", toolName: "propose_memories", content: [{ type: "text", text: JSON.stringify({ entries: [{ title: "x", content: "y" }], note: "Call it the hiring lesson" }) }], isError: false, timestamp: 3 });
     written.appendMessage({ role: "toolResult", toolCallId: "m-2", toolName: "propose_memories", content: [{ type: "text", text: JSON.stringify({ saved: [{ id: 7, status: "inserted", title: "The hiring lesson" }] }) }], isError: false, timestamp: 3 });
@@ -192,7 +192,7 @@ test("sessions persist per task, come back as a thread, and a cut-off tool call 
     assert.deepEqual(LoreAgent.history(home, "setup"), [
       { text: "Let's set up my Lore.", owner: true },
       { text: "Welcome.", owner: false },
-      { text: "College professor · Ada", owner: true },
+      { text: "College professor · 0x0c27…8166", owner: true },
       { text: "Call it the hiring lesson", owner: true },
       { text: "", owner: false, saved: [{ id: 7, status: "inserted", title: "The hiring lesson" }] }
     ]);
