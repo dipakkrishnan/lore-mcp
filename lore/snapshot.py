@@ -13,7 +13,7 @@ from pydantic import BaseModel, ConfigDict, TypeAdapter
 from . import automation, blueprint
 from .paths import claude_home, home
 from .sources import available_sources
-from .store import Store
+from .store import JOB_SUMMARIES, Store
 
 
 class ManifestEntry(BaseModel):
@@ -195,6 +195,9 @@ def build() -> dict[str, object]:
         answer_price = store.setting("answer_price_usd", 0.0)
         answer_enabled = store.setting("answer_enabled", False) is True
         node_url = store.setting("node_url", None)
+        # Reading concedes jobs whose liveness claim expired, so an interrupted
+        # run turns visibly incomplete on the next refresh without a scheduler.
+        jobs = store.recent_jobs(limit=20)
 
     live, live_ids = _cached_live_state(node_url if isinstance(node_url, str) else None)
     labels = _claude_project_labels()
@@ -250,5 +253,23 @@ def build() -> dict[str, object]:
         "node": {
             "url": node_url if isinstance(node_url, str) else None,
             "live": live,
+        },
+        # Owner-run history. The stored summary is a code; the prose is applied
+        # here, so wording can change without touching the database and the
+        # database never holds a sentence anyone could smuggle content into.
+        "jobs": {
+            "items": [
+                {
+                    "id": item.id,
+                    "kind": item.kind.value,
+                    "status": item.status.value,
+                    "summary": JOB_SUMMARIES[item.summary],
+                    "count": item.count,
+                    "cost_usd": item.cost_usd,
+                    "started_at": item.started_at,
+                    "finished_at": item.finished_at,
+                }
+                for item in jobs
+            ]
         },
     }

@@ -290,5 +290,56 @@ class DesktopSnapshotTest(LoreTestCase):
         self.assertEqual(state["node"]["live"]["state"], "unreachable")
 
 
+class SnapshotJobsTest(LoreTestCase):
+    """Owner-run history reaches the desktop app through the snapshot, so the
+    app never needs its own database access to show what ran."""
+
+    def test_recent_runs_are_exposed_with_prose_and_cost(self) -> None:
+        with Store() as store:
+            job_id = store.start_job(
+                "capture", owner_pid=os.getpid(), timeout_minutes=720
+            )
+            store.finish_job(job_id, "succeeded", summary="captured", cost_usd=0.25)
+        state = snapshot.build()
+        self.assertEqual(state["version"], 1, "an added section is not a new contract")
+        items = state["jobs"]["items"]  # type: ignore[index,call-overload]
+        self.assertEqual(len(items), 1)
+        self.assertEqual(items[0]["kind"], "capture")
+        self.assertEqual(items[0]["status"], "succeeded")
+        # The database stores a code; the reader gets the sentence.
+        self.assertEqual(items[0]["summary"], "Saved what you approved")
+        self.assertEqual(items[0]["cost_usd"], 0.25)
+
+    def test_reading_the_snapshot_concedes_a_run_that_never_finished(self) -> None:
+        # No scheduler watches for this. Every refresh and every relaunch reads
+        # the snapshot, so that read is what notices.
+        with Store() as store:
+            store.start_job("capture", owner_pid=4_000_000, timeout_minutes=720)
+        items = snapshot.build()["jobs"]["items"]  # type: ignore[index,call-overload]
+        self.assertEqual(items[0]["status"], "incomplete")
+        self.assertNotEqual(items[0]["status"], "succeeded")
+
+    def test_the_liveness_columns_never_reach_the_snapshot(self) -> None:
+        with Store() as store:
+            store.start_job("push", owner_pid=os.getpid(), timeout_minutes=60)
+        items = snapshot.build()["jobs"]["items"]  # type: ignore[index,call-overload]
+        self.assertEqual(
+            set(items[0]),
+            {
+                "id",
+                "kind",
+                "status",
+                "summary",
+                "count",
+                "cost_usd",
+                "started_at",
+                "finished_at",
+            },
+        )
+
+    def test_an_empty_history_is_an_empty_list_not_a_missing_section(self) -> None:
+        self.assertEqual(snapshot.build()["jobs"], {"items": []})
+
+
 if __name__ == "__main__":
     unittest.main()

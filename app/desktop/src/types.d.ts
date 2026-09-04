@@ -45,6 +45,20 @@ type Snapshot = {
       payout: string | null;
     };
   };
+  // Optional on purpose: an installed CLI older than this app has no `jobs` in
+  // its snapshot, and Today must render without it rather than throw.
+  jobs?: { items: JobItem[] };
+};
+
+type JobItem = {
+  id: number;
+  kind: "capture" | "synthesis" | "deploy" | "push";
+  status: "running" | "succeeded" | "failed" | "incomplete";
+  summary: string;
+  count: number | null;
+  cost_usd: number | null;
+  started_at: string;
+  finished_at: string | null;
 };
 
 /** One settled paid call, as the node's ledger records it. */
@@ -225,4 +239,11 @@ type LoreAgentOptions = {
   storeSecret(name: "CDP_API_KEY_ID" | "CDP_API_KEY_SECRET"): Promise<string>;
   authPrompt(prompt: import("@earendil-works/pi-ai").AuthPrompt): Promise<string>;
   authEvent(event: import("@earendil-works/pi-ai").AuthEvent): void;
+  // Durable owner-run history. Injected rather than imported so the agent stays
+  // free of the CLI bridge, and so tests can observe what a turn recorded.
+  // Optional: history is a record of the work, never a precondition for it.
+  job?: {
+    start(kind: string): Promise<number | null>;
+    finish(id: number, status: string, summary: string, costUsd: number | null): Promise<void>;
+  };
 };
