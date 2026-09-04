@@ -23,11 +23,11 @@ owner asked for a recommended option they can just click (dogfood 2026-09-04).
 
 ## Proposed approach
 
-In the question card (`renderer.js:841`), preselect the first option of every
-single-choice question and render a small "Recommended" chip on it. No tool
-schema change: the convention that the first option is the recommendation is
-already what the skills produce. If a question must not carry a default, the
-agent can say so in the option text.
+Preselect only an option whose label ends in "(Recommended)", and render that
+suffix as a chip instead of text. Add one clause to the desktop system prompt:
+mark your recommendation "(Recommended)" when you have one. No schema change
+and no automatic first-option default, because questions like "Do you already
+have a wallet?" have no recommendation.
 
 ## Acceptance criteria
 
@@ -36,4 +36,4 @@ agent can say so in the option text.
 - [ ] Multi-select questions are unchanged.
 
 ## Notes
-
+Reviewed 2026-09-04: the first option is not the recommendation in the wallet questions, so preselecting it would answer for the owner.

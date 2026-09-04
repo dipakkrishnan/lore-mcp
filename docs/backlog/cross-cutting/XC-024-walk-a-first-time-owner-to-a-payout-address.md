@@ -28,17 +28,12 @@ so even the owner could not tell which address Lore wanted (dogfood
 
 ## Proposed approach
 
-Spans `app/desktop` (tool schema, card) and
-`plugins/lore/skills/lore-enable-payments/SKILL.md` §3:
-
-- Let the open tool take a short ordered list of steps and a second-stage
-  heading; the card renders numbered steps.
-- Split the journey into two cards: get a wallet (ends at Done), then the
-  address (APP-071's text field with format validation).
-- Put the two traps on the card in one line each: "The app with prices and
-  Buy buttons is the exchange, not the wallet." and "Your wallet has one
-  address that starts with 0x; it is the same on Base and Ethereum, so any
-  Copy next to it is right. Never paste a recovery phrase."
+No new schema. Render the open card's `note` through the existing markdown
+renderer so the skill can send three numbered lines, and replace the fixed
+"Finish in your browser" heading with neutral text: "Come back here when you
+are done." The rest is prose in `lore-enable-payments` §3: two cards, get a
+wallet then the address (asked as a typed value per APP-071), with the two
+trap sentences on the wallet card.
 
 ## Acceptance criteria
 
@@ -48,4 +43,4 @@ Spans `app/desktop` (tool schema, card) and
 - [ ] Both traps are on the card, not only in prose.
 
 ## Notes
-
+Reviewed 2026-09-04: a steps array and a per-tool heading duplicated what markdown and one copy change already give.
