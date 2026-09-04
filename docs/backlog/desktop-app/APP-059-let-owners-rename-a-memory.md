@@ -1,5 +1,5 @@
 ---
-id: APP-054
+id: APP-059
 title: Let owners rename a memory
 priority: P2
 effort: S
@@ -10,7 +10,7 @@ blockers: []
 dependencies: []
 github_issue: https://github.com/dipakkrishnan/lore-mcp/issues/172
 created: 2026-09-02
-updated: 2026-09-02
+updated: 2026-09-03
 ---
 
 ## Problem
@@ -43,3 +43,10 @@ sheet that swaps the title into an editable input with Save/Cancel.
 Cataloged from #172 while unblocking PR #177's title-format check — the
 issue was never cataloged before implementation started, so this item was
 filed after the fact to give the PR a resolvable backlog id.
+
+Renumbered from `APP-054` to `APP-059` on 2026-09-03 by an audit pass: it was
+filed as `APP-054` from a branch cut before PR #192 landed
+`APP-054-close-the-edge-audits-pre-freeze-findings.md`, so two items shared the
+id and `INDEX.md` could not be regenerated. The edge-audit item merged first
+and keeps `APP-054`. Merged PR #177's title and the cataloging comment on #172
+still say `APP-054`; git history is left as it is.
