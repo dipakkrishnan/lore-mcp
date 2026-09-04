@@ -5,8 +5,8 @@ priority: P3
 effort: S
 component: desktop-app
 status: in-review
-related: [APP-058, APP-060, APP-061, APP-062, APP-063, APP-064, XC-003]
-blockers: [APP-058]
+related: [APP-066, APP-060, APP-061, APP-062, APP-063, APP-064, XC-003]
+blockers: [APP-066]
 dependencies: []
 github_issue: null
 created: 2026-09-03
@@ -53,7 +53,7 @@ no threshold should pretend to cover.
 ## Notes
 
 Filed after the audit that produced `APP-060`-`APP-064` (2026-09-03) — those
-were found by hand precisely because no tool would say. Blocked on `APP-058`:
+were found by hand precisely because no tool would say. Blocked on `APP-066`:
 measuring coverage is worth little until the renderer suite runs in CI, since
 until then the renderer's number reflects whether someone remembered to run
 `test:edge`, not what the tests cover.

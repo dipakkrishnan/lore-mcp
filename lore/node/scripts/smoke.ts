@@ -1,9 +1,14 @@
 // Manual, unpaid health check: run `npm run smoke` against a local `npm run dev`
 // server (or `npm run smoke -- <url>` against a deployed Worker) to verify the
 // tools are listed, discover serves the manifest free, and get challenges for
-// payment without serving content. It spends nothing and is not wired into CI —
-// run it after any Worker change and after each deploy, before spending faucet
-// funds on `npm run pay`.
+// payment without serving content. It spends nothing. Run it after any Worker
+// change and after each deploy, before spending faucet funds on `npm run pay`.
+//
+// CI's worker-smoke job also runs this, against a Worker it seeded with one
+// real `lore push --local` publication (see .github/workflows/tests.yml). It
+// sets SMOKE_EXPECT_TOPIC/SMOKE_EXPECT_TEASER so this checks that exact
+// publication came back out of discover(), not just that some row exists. A
+// manual run against a real deployed node leaves those unset and skips it.
 import assert from "node:assert/strict";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
@@ -49,6 +54,26 @@ try {
         ["id", "kind", "teaser", "updated_at"]
       );
     }
+  }
+
+  // CI seeds one publication with a real `lore push --local` and expects to
+  // find its exact topic/teaser/kind here — proof that what discover() reads
+  // is exactly what `lore push` wrote, not a hand-copied fixture that happens
+  // to agree with it today.
+  const expectedTopic = process.env.SMOKE_EXPECT_TOPIC;
+  const expectedTeaser = process.env.SMOKE_EXPECT_TEASER;
+  if (expectedTopic !== undefined && expectedTeaser !== undefined) {
+    const entries = payload.topics[expectedTopic];
+    assert.ok(
+      Array.isArray(entries),
+      `expected topic ${JSON.stringify(expectedTopic)} in discover() manifest`
+    );
+    assert.ok(
+      entries.some(
+        (entry) => isRecord(entry) && entry.teaser === expectedTeaser && entry.kind === "claim"
+      ),
+      `expected a claim-kind entry with teaser ${JSON.stringify(expectedTeaser)} under topic ${JSON.stringify(expectedTopic)}`
+    );
   }
 
   // A damaged id is rejected before x402 can ask for payment.

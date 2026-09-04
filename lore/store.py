@@ -2,14 +2,22 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import re
 import secrets
 import sqlite3
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from enum import Enum
 from pathlib import Path
 
-from pydantic import BaseModel, ConfigDict, Field, StrictInt, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    StrictInt,
+    field_validator,
+    model_validator,
+)
 
 from .paths import database
 
@@ -149,6 +157,127 @@ class AnswerSettings(BaseModel):
         return self
 
 
+class JobKind(str, Enum):
+    """An owner operation worth remembering after its live event ends."""
+
+    CAPTURE = "capture"
+    SYNTHESIS = "synthesis"
+    DEPLOY = "deploy"
+    PUSH = "push"
+
+    def __str__(self) -> str:
+        return self.value
+
+
+class JobStatus(str, Enum):
+    """How a run ended.
+
+    `incomplete` is not `failed`: it means the run started and never reported
+    finishing, so the outcome is *unknown*. Conceding that is the point — a run
+    whose record vanished must never read as quietly successful.
+    """
+
+    RUNNING = "running"
+    SUCCEEDED = "succeeded"
+    FAILED = "failed"
+    INCOMPLETE = "incomplete"
+
+    def __str__(self) -> str:
+        return self.value
+
+
+JOB_KINDS = tuple(kind.value for kind in JobKind)
+JOB_STATUSES = tuple(status.value for status in JobStatus)
+# Terminal statuses a caller may finish a job with; `running` is not one.
+JOB_FINAL_STATUSES = tuple(
+    status for status in JOB_STATUSES if status != JobStatus.RUNNING.value
+)
+
+# The closed vocabulary of job summaries. A job row stores the *key*; the prose
+# is applied at read time. This is the privacy boundary for APP-007: because
+# there is no code path from an exception message to a column value, a
+# credential, wallet address, absolute path, or shell command cannot leak into
+# owner history even by accident. Never pass `str(error)` here — every call
+# site passes a literal.
+JOB_SUMMARIES: dict[str, str] = {
+    "": "",
+    "captured": "Saved what you approved",
+    "stopped": "Stopped before finishing",
+    "closed": "Lore closed before this finished",
+    "model_error": "Lore's model did not answer",
+    "synthesized": "Synthesis finished",
+    "not_reported": "Synthesis never reported finishing",
+    "deployed": "Your store is live",
+    "pushed": "Your store was updated",
+    "edge_write_failed": "The store database could not be written",
+    "interrupted": "Interrupted",
+    "failed": "It did not finish",
+}
+
+# What a conceded (reaped) row says, by kind.
+INCOMPLETE_SUMMARY: dict[str, str] = {
+    JobKind.SYNTHESIS.value: "not_reported",
+    JobKind.CAPTURE.value: "closed",
+    JobKind.DEPLOY.value: "interrupted",
+    JobKind.PUSH.value: "interrupted",
+}
+
+# Owner history is a short tail, not an archive.
+JOB_RETENTION_DAYS = 30
+JOB_MAX_ROWS = 200
+
+
+class OwnerJob(BaseModel):
+    """One durable record of an owner operation.
+
+    `deadline_at` and `owner_pid` are deliberately absent: they are liveness
+    plumbing, and leaving them off the model is the structural reason they can
+    never reach the desktop snapshot.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    id: int
+    kind: JobKind
+    status: JobStatus
+    summary: str = ""
+    count: int | None = None
+    cost_usd: float | None = None
+    started_at: str
+    finished_at: str | None = None
+
+    @field_validator("summary")
+    @classmethod
+    def summary_is_a_known_code(cls, value: str) -> str:
+        """Reject prose on read, so even a hand-edited database cannot surface
+        arbitrary text through the snapshot."""
+        if value not in JOB_SUMMARIES:
+            raise ValueError(f"invalid job summary: {value}")
+        return value
+
+    @classmethod
+    def from_row(cls, row: sqlite3.Row) -> OwnerJob:
+        """Build an OwnerJob from an `owner_jobs` row."""
+        return cls.model_validate({key: row[key] for key in row.keys()})
+
+
+def _pid_alive(pid: int) -> bool:
+    """Whether the process that owes a job row its close is still running.
+
+    A PermissionError means the pid exists but belongs to someone else, which
+    is still alive for our purposes.
+    """
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    except OSError:
+        return True
+    return True
+
+
 class Store:
     """Small SQLite repository for memories and Lore settings."""
 
@@ -237,6 +366,33 @@ class Store:
             DROP TRIGGER IF EXISTS publications_ad;
             DROP TRIGGER IF EXISTS publications_au;
             DROP TABLE IF EXISTS publications_fts;
+            -- Local owner-operation history: what the owner ran, whether it
+            -- finished, and what it cost. Deliberately *not* the deployed
+            -- node's buyer-facing answer_jobs table, and not a transcript.
+            -- `summary` holds a JOB_SUMMARIES *code*, never prose and never
+            -- anything derived from an exception, so no command line, path,
+            -- credential, or memory body can reach this table.
+            CREATE TABLE IF NOT EXISTS owner_jobs (
+                id INTEGER PRIMARY KEY,
+                kind TEXT NOT NULL
+                    CHECK(kind IN ('capture','synthesis','deploy','push')),
+                status TEXT NOT NULL DEFAULT 'running'
+                    CHECK(status IN ('running','succeeded','failed','incomplete')),
+                summary TEXT NOT NULL DEFAULT '',
+                count INTEGER,
+                cost_usd REAL,
+                started_at TEXT NOT NULL,
+                finished_at TEXT,
+                -- Liveness claim, owner-internal: a wall-clock ceiling and/or
+                -- the pid that owes this row a close. Never leaves the database.
+                deadline_at TEXT,
+                owner_pid INTEGER,
+                CHECK((status='running') = (finished_at IS NULL))
+            );
+            CREATE INDEX IF NOT EXISTS owner_jobs_started
+                ON owner_jobs(started_at DESC);
+            CREATE INDEX IF NOT EXISTS owner_jobs_open
+                ON owner_jobs(kind, started_at DESC) WHERE finished_at IS NULL;
             """
         )
         # Roll-forward normalization, not back-compat: a database created before
@@ -663,3 +819,179 @@ class Store:
         if row is None:
             raise ValueError(f"publication not found: {public_id}")
         return Publication.from_row(row)
+
+    # --- Owner job history -------------------------------------------------
+    # The columns a job read may select. `deadline_at` and `owner_pid` are
+    # excluded on purpose: they are liveness plumbing, and never leave here.
+    _JOB_COLUMNS = "id,kind,status,summary,count,cost_usd,started_at,finished_at"
+
+    def start_job(
+        self,
+        kind: str,
+        *,
+        owner_pid: int | None = None,
+        timeout_minutes: int | None = None,
+    ) -> int:
+        """Open a running job row and return its id.
+
+        A row needs at least one liveness claim — a pid that owes it a close, a
+        wall-clock deadline, or both. Without one it could never be conceded,
+        and would read as "Running" forever.
+        """
+        if kind not in JOB_KINDS:
+            raise ValueError(f"invalid job kind: {kind}")
+        if owner_pid is None and timeout_minutes is None:
+            raise ValueError(
+                "a job needs a liveness claim: pass owner_pid, timeout_minutes, or both"
+            )
+        if timeout_minutes is not None and timeout_minutes <= 0:
+            raise ValueError("timeout_minutes must be positive")
+        now = datetime.now(timezone.utc)
+        deadline = (
+            (now + timedelta(minutes=timeout_minutes)).isoformat()
+            if timeout_minutes is not None
+            else None
+        )
+        cursor = self.db.execute(
+            "INSERT INTO owner_jobs(kind,status,summary,started_at,deadline_at,owner_pid) "
+            "VALUES (?,'running','',?,?,?)",
+            (kind, now.isoformat(), deadline, owner_pid),
+        )
+        self.db.commit()
+        self.prune_jobs()
+        return int(cursor.lastrowid or 0)
+
+    def finish_job(
+        self,
+        job_id: int,
+        status: str,
+        *,
+        summary: str = "",
+        count: int | None = None,
+        cost_usd: float | None = None,
+    ) -> bool:
+        """Close a job row. Returns whether a row was actually closed.
+
+        Terminal `succeeded`/`failed` rows are never overwritten, but an
+        `incomplete` one is: a row conceded early self-heals when its real
+        close finally lands.
+        """
+        if status not in JOB_FINAL_STATUSES:
+            raise ValueError(f"invalid job status: {status}")
+        if summary not in JOB_SUMMARIES:
+            raise ValueError(f"invalid job summary: {summary}")
+        cursor = self.db.execute(
+            "UPDATE owner_jobs SET status=?,summary=?,count=?,cost_usd=?,finished_at=? "
+            "WHERE id=? AND status IN ('running','incomplete')",
+            (
+                status,
+                summary,
+                count,
+                cost_usd,
+                datetime.now(timezone.utc).isoformat(),
+                job_id,
+            ),
+        )
+        self.db.commit()
+        return cursor.rowcount > 0
+
+    def close_open_job(
+        self,
+        kind: str,
+        status: str,
+        *,
+        summary: str = "",
+        count: int | None = None,
+        cost_usd: float | None = None,
+    ) -> bool:
+        """Close the newest open job of a kind; a silent no-op when none is open.
+
+        The no-op matters: it is what stops a hand-run `lore sync --source
+        automation` from inventing a scheduled-synthesis record.
+        """
+        if kind not in JOB_KINDS:
+            raise ValueError(f"invalid job kind: {kind}")
+        row = self.db.execute(
+            "SELECT id FROM owner_jobs WHERE kind=? AND finished_at IS NULL "
+            "ORDER BY started_at DESC,id DESC LIMIT 1",
+            (kind,),
+        ).fetchone()
+        if row is None:
+            return False
+        return self.finish_job(
+            row["id"], status, summary=summary, count=count, cost_usd=cost_usd
+        )
+
+    def reap_jobs(self, now: datetime | None = None) -> int:
+        """Concede open jobs whose liveness claim has expired.
+
+        One rule covers both orphan classes. A capture row carries the desktop
+        app's pid, so an hours-long turn survives for exactly as long as the
+        process that owes it a close is alive; when the app dies the pid dies
+        and the next read concedes the row. A scheduled synthesis row carries
+        no pid — nothing owns it once the runner execs away — so it relies on
+        its deadline instead.
+
+        Only ever moves running -> incomplete, and `finish_job` still accepts
+        an incomplete row, so a late real close corrects a premature concession.
+        The one unsound corner is pid reuse; the absurdly long capture deadline
+        bounds it, and a late close repairs it.
+        """
+        moment = now or datetime.now(timezone.utc)
+        stamp = moment.isoformat()
+        rows = self.db.execute(
+            "SELECT id,kind,deadline_at,owner_pid FROM owner_jobs "
+            "WHERE finished_at IS NULL"
+        ).fetchall()
+        expired = [
+            row
+            for row in rows
+            if (row["deadline_at"] is not None and row["deadline_at"] <= stamp)
+            or (row["owner_pid"] is not None and not _pid_alive(row["owner_pid"]))
+        ]
+        if not expired:
+            return 0
+        self.db.executemany(
+            "UPDATE owner_jobs SET status='incomplete',summary=?,finished_at=? "
+            "WHERE id=? AND finished_at IS NULL",
+            [
+                (INCOMPLETE_SUMMARY.get(row["kind"], "interrupted"), stamp, row["id"])
+                for row in expired
+            ],
+        )
+        self.db.commit()
+        return len(expired)
+
+    def recent_jobs(self, limit: int = 20) -> list[OwnerJob]:
+        """Return recent owner jobs, newest first, conceding stale ones first.
+
+        Reaping on the read path is the whole mechanism: every desktop snapshot
+        and every app restart passes through here, so no second scheduler is
+        needed to notice that something never finished.
+        """
+        if limit < 0:
+            raise ValueError("limit cannot be negative")
+        self.reap_jobs()
+        rows = self.db.execute(
+            f"SELECT {self._JOB_COLUMNS} FROM owner_jobs "
+            "ORDER BY started_at DESC,id DESC LIMIT ?",
+            (limit,),
+        ).fetchall()
+        return [OwnerJob.from_row(row) for row in rows]
+
+    def prune_jobs(self) -> int:
+        """Bound owner history by age and count. Open rows are never pruned."""
+        cutoff = (
+            datetime.now(timezone.utc) - timedelta(days=JOB_RETENTION_DAYS)
+        ).isoformat()
+        cursor = self.db.execute(
+            "DELETE FROM owner_jobs WHERE finished_at IS NOT NULL AND ("
+            "  started_at < ?"
+            "  OR id NOT IN ("
+            "    SELECT id FROM owner_jobs ORDER BY started_at DESC,id DESC LIMIT ?"
+            "  )"
+            ")",
+            (cutoff, JOB_MAX_ROWS),
+        )
+        self.db.commit()
+        return cursor.rowcount

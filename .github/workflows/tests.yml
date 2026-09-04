@@ -11,7 +11,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - uses: astral-sh/setup-uv@v5
+      - uses: astral-sh/setup-uv@v7
       - run: uv run --extra dev ruff check lore tests
       - run: uv run --extra dev ruff format --check lore tests
 
@@ -20,7 +20,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - uses: astral-sh/setup-uv@v5
+      - uses: astral-sh/setup-uv@v7
       - run: uv run python -m unittest discover -s tests -v
 
   python-types:
@@ -28,7 +28,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - uses: astral-sh/setup-uv@v5
+      - uses: astral-sh/setup-uv@v7
       - run: uv run --extra dev mypy lore
 
   bridge-check:
@@ -39,7 +39,7 @@ jobs:
         working-directory: bridge
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: lts/*
       - run: npm ci
@@ -54,10 +54,10 @@ jobs:
         working-directory: app/desktop
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: lts/*
-      - uses: astral-sh/setup-uv@v5
+      - uses: astral-sh/setup-uv@v7
       - run: npm ci
       - run: npm run check
       - run: npm test
@@ -71,7 +71,7 @@ jobs:
         working-directory: lore/node
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: lts/*
       - run: npm ci
@@ -85,7 +85,7 @@ jobs:
         working-directory: lore/node
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: lts/*
       - run: npm ci
@@ -103,7 +103,7 @@ jobs:
         working-directory: lore/node
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: lts/*
       - run: npm ci
@@ -119,25 +119,32 @@ jobs:
         working-directory: lore/node
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: lts/*
+      - uses: astral-sh/setup-uv@v5
       - run: npm ci
       - run: echo "LORE_WALLET=0x000000000000000000000000000000000000dEaD" > .dev.vars
-      - name: Seed an empty local publications table
-        # Mirrors the schema `lore push` maintains (lore/cli.py:_push_sql).
-        # discover() selects from this table; without it the Worker 500s.
+      - name: Seed local publications with a real `lore push --local`
+        # Runs the actual push path (lore/cli.py:push, :_push_sql) against the
+        # same local D1 database discover()/get() read, instead of a
+        # hand-copied schema that can silently drift from what `lore push`
+        # really writes (see XC-016).
+        env:
+          # `push` refuses a piped, unattended caller unless it looks like the
+          # desktop app driving it non-interactively (lore/cli.py:_owner_action)
+          # — CI is exactly that kind of unattended, non-TTY caller.
+          LORE_ATTENDED_SURFACE: desktop
         run: |
-          cat <<'SQL' > /tmp/seed-publications.sql
-          DROP TABLE IF EXISTS publications;
-          CREATE TABLE publications (
-            public_id TEXT PRIMARY KEY, title TEXT NOT NULL, content TEXT NOT NULL,
-            kind TEXT NOT NULL, topic TEXT NOT NULL DEFAULT '',
-            teaser TEXT NOT NULL DEFAULT '', updated_at TEXT NOT NULL DEFAULT ''
-          );
-          SQL
-          npx wrangler d1 execute lore-publications --local --file /tmp/seed-publications.sql -y
+          export LORE_HOME="$(mktemp -d)"
+          uv run --project .. python ../../.github/scripts/seed_worker_smoke.py
+          uv run --project .. lore push --local --worker-dir .
       - name: Smoke test against a locally served Worker
+        env:
+          # Must match the topic/teaser seeded above; smoke.ts checks discover()
+          # returns this exact publication, not just that some row exists.
+          SMOKE_EXPECT_TOPIC: ci-smoke
+          SMOKE_EXPECT_TEASER: "worker-smoke: seeded via a real lore push --local"
         run: |
           nohup npm run dev > wrangler-dev.log 2>&1 &
           echo $! > wrangler-dev.pid

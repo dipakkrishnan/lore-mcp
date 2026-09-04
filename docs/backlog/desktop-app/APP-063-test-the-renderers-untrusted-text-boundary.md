@@ -5,7 +5,7 @@ priority: P1
 effort: S
 component: desktop-app
 status: in-review
-related: [APP-058, APP-010, APP-008]
+related: [APP-066, APP-010, APP-008]
 blockers: []
 dependencies: []
 github_issue: null
@@ -50,7 +50,7 @@ Two tests, at the two layers that matter:
    handlers, `javascript:` and `data:` hrefs, embedded frames and objects,
    raw `<style>` — asserting what survives into the DOM. Reachable either by
    extracting `markdown()` into a module with an injected document, or from a
-   renderer persona under Electron (see `APP-058`).
+   renderer persona under Electron (see `APP-066`).
 
 Decide as part of this whether the ad-hoc scrub should become an allowlist
 sanitizer. The test comes first either way — it's what makes that decision

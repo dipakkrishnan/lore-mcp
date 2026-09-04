@@ -5,7 +5,7 @@ priority: P2
 effort: S
 component: desktop-app
 status: in-review
-related: [APP-038, APP-058, APP-008]
+related: [APP-038, APP-066, APP-008]
 blockers: []
 dependencies: []
 github_issue: null

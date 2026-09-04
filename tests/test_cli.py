@@ -14,6 +14,7 @@ import subprocess
 import sys
 import unittest
 from contextlib import contextmanager
+from datetime import datetime, timedelta, timezone
 from io import StringIO
 from pathlib import Path
 from typing import Iterator
@@ -23,7 +24,7 @@ from helpers import LoreTestCase, blueprint_input, captured
 
 from lore import automation, blueprint, cli
 from lore import deploy as deploy_module
-from lore.store import PublicationKind, Status, Store
+from lore.store import JobKind, JobStatus, PublicationKind, Status, Store
 
 
 @contextmanager
@@ -370,6 +371,114 @@ class SyncTest(LoreTestCase):
         with patch("lore.cli.scan", return_value={}) as scan:
             self.assertEqual(cli.sync(), 0)
         self.assertEqual(scan.call_args.args[1], {"codex", "automation"})
+
+
+class ScheduledSynthesisRecordTest(LoreTestCase):
+    """Both ends of the scheduled-synthesis record run through `sync`, because
+    they are the only two moments of that run Lore is present for."""
+
+    def synthesis_jobs(self) -> list:
+        with Store() as store:
+            return [j for j in store.recent_jobs() if j.kind is JobKind.SYNTHESIS]
+
+    def test_the_pre_run_hook_opens_a_row_no_process_owns(self) -> None:
+        # The scheduler runs this itself, so the start is observed. Nothing owns
+        # the row: the runner execs away into the agent.
+        with captured():
+            self.assertEqual(cli.sync(record_job=True), 0)
+        opened = self.synthesis_jobs()
+        self.assertEqual(len(opened), 1)
+        self.assertIs(opened[0].status, JobStatus.RUNNING)
+        with Store() as store:
+            row = store.db.execute(
+                "SELECT owner_pid,deadline_at FROM owner_jobs WHERE id=?",
+                (opened[0].id,),
+            ).fetchone()
+        self.assertIsNone(row["owner_pid"])
+        self.assertIsNotNone(row["deadline_at"])
+
+    def test_the_tail_sync_closes_the_run_it_belongs_to(self) -> None:
+        with captured():
+            cli.sync(record_job=True)
+            self.assertEqual(cli.sync({"automation"}), 0)
+        closed = self.synthesis_jobs()
+        self.assertEqual(len(closed), 1)
+        self.assertIs(closed[0].status, JobStatus.SUCCEEDED)
+        self.assertEqual(closed[0].summary, "synthesized")
+
+    def test_a_hand_run_tail_sync_never_invents_a_scheduled_run(self) -> None:
+        with captured():
+            self.assertEqual(cli.sync({"automation"}), 0)
+        self.assertEqual(self.synthesis_jobs(), [])
+
+    def test_a_run_that_never_reports_is_conceded_not_called_successful(self) -> None:
+        with captured():
+            cli.sync(record_job=True)
+        with Store() as store:
+            store.reap_jobs(datetime.now(timezone.utc) + timedelta(hours=2))
+        conceded = self.synthesis_jobs()[0]
+        self.assertIs(conceded.status, JobStatus.INCOMPLETE)
+        self.assertNotEqual(conceded.status, JobStatus.SUCCEEDED)
+        self.assertNotEqual(conceded.status, JobStatus.FAILED)
+
+
+class JobCommandTest(LoreTestCase):
+    def test_the_job_verb_runs_unattended(self) -> None:
+        # Its two callers that matter — the synthesis LaunchAgent's pre-run hook
+        # and the desktop app — have no terminal and set no attended marker.
+        with patch.object(cli, "_interactive", return_value=False), captured() as out:
+            self.assertEqual(
+                cli.main(["job", "start", "synthesis", "--timeout-minutes", "60"]), 0
+            )
+        job_id = json.loads(out.getvalue())["id"]
+        with captured():
+            self.assertEqual(
+                cli.main(
+                    [
+                        "job",
+                        "finish",
+                        str(job_id),
+                        "succeeded",
+                        "--summary",
+                        "synthesized",
+                    ]
+                ),
+                0,
+            )
+        with Store() as store:
+            self.assertIs(store.recent_jobs()[0].status, JobStatus.SUCCEEDED)
+
+    def test_the_summary_vocabulary_is_closed_at_the_process_boundary(self) -> None:
+        # argparse rejects free text before any Python runs, which is what stops
+        # a shell hook interpolating an error message into owner history.
+        with captured():
+            cli.main(["job", "start", "push", "--timeout-minutes", "60"])
+        with self.assertRaises(SystemExit) as exit_code:
+            cli.main(
+                ["job", "finish", "1", "failed", "--summary", "npx wrangler d1 execute"]
+            )
+        self.assertEqual(exit_code.exception.code, 2)
+        with Store() as store:
+            self.assertIs(store.recent_jobs()[0].status, JobStatus.RUNNING)
+
+    def test_reap_concedes_a_run_whose_owner_is_gone(self) -> None:
+        with captured():
+            cli.main(
+                [
+                    "job",
+                    "start",
+                    "capture",
+                    "--pid",
+                    "4000000",
+                    "--timeout-minutes",
+                    "720",
+                ]
+            )
+        with captured() as out:
+            self.assertEqual(cli.main(["job", "reap"]), 0)
+        self.assertEqual(json.loads(out.getvalue())["reaped"], 1)
+        with Store() as store:
+            self.assertIs(store.recent_jobs()[0].status, JobStatus.INCOMPLETE)
 
 
 class ReviewTest(LoreTestCase):
@@ -1554,6 +1663,41 @@ class PushTest(LoreTestCase):
         self.publish()
         with self.assertRaisesRegex(ValueError, "wrangler login"):
             self._push(returncode=1)
+
+    def test_a_push_is_recorded_in_owner_history(self) -> None:
+        self.publish()
+        self._push()
+        with Store() as store:
+            recorded = store.recent_jobs()[0]
+        self.assertIs(recorded.kind, JobKind.PUSH)
+        self.assertIs(recorded.status, JobStatus.SUCCEEDED)
+        self.assertEqual(recorded.summary, "pushed")
+        self.assertEqual(recorded.count, 1)
+
+    def test_a_failed_push_records_the_failure_without_the_command_that_caused_it(
+        self,
+    ) -> None:
+        # The cause names wrangler, a database, and a login command. The owner
+        # sees all of it in the error; owner history keeps only a code.
+        self.publish()
+        with self.assertRaises(ValueError):
+            self._push(returncode=1)
+        with Store() as store:
+            recorded = store.recent_jobs()[0]
+        self.assertIs(recorded.status, JobStatus.FAILED)
+        self.assertEqual(recorded.summary, "edge_write_failed")
+        stored = str(recorded.summary)
+        for leak in ("wrangler", "npx", "/", "lore-publications"):
+            with self.subTest(leak=leak):
+                self.assertNotIn(leak, stored)
+
+    def test_a_refused_push_is_not_recorded_as_a_run(self) -> None:
+        # A missing node source is a precondition the owner sees immediately,
+        # not a run that happened and failed.
+        with self.assertRaises(ValueError):
+            cli.push(str(self.lore_home / "absent"))
+        with Store() as store:
+            self.assertEqual(store.recent_jobs(), [])
 
 
 class ManualTest(unittest.TestCase):
