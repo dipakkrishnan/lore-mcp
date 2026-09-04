@@ -1134,9 +1134,12 @@ def push(worker_dir: str, local: bool = False) -> int:
             f"no node source at {worker}/ — run `lore node deploy` first, "
             "or pass --worker-dir (contributors: --worker-dir lore/node)"
         )
-    # Recorded past the preconditions, so a missing node source stays a message
-    # rather than a run. One seam covers every caller: the desktop button, a
-    # terminal, and the deploy sequence's own push.
+    return push_job(worker, local)
+
+
+def push_job(worker: Path, local: bool) -> int:
+    """One push, recorded as its own run. The deploy sequence carries one too:
+    the deploy is already the owner's action, so its push skips the gate."""
     with Store() as store:
         job_id = store.start_job(
             JobKind.PUSH.value, owner_pid=os.getpid(), timeout_minutes=60

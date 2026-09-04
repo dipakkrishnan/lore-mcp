@@ -14,14 +14,19 @@ case "${1:-}" in
     dogfood_root="${LORE_DOGFOOD_ROOT:-$(mktemp -d "${TMPDIR:-/tmp}/lore-dogfood-new.XXXXXX")}"
     mkdir -p "$dogfood_root/lore" "$dogfood_root/user-data"
     echo "Fresh-user sandbox: $dogfood_root"
+    echo "Cloudflare: signed out in this sandbox; opening the store asks for an account. Use a throwaway, never the one behind your live node."
     echo "Pass: sign in → set up → capture → inspect → publish → quit and relaunch."
     echo "To test persistence, quit Lore and rerun:"
     echo "LORE_DOGFOOD_ROOT='$dogfood_root' npm --prefix app/desktop run dogfood:new"
     # Keep real $HOME for Keychain and onboarding history reads, but never
     # replace the owner's live synthesis schedule from a disposable sandbox.
+    # Wrangler keeps its login under $XDG_CONFIG_HOME/.wrangler; inside the
+    # sandbox home the agent's shell can write it, and the Worker name is
+    # fixed, so a shared login would deploy over the owner's live node.
     LORE_HOME="$dogfood_root/lore" \
       LORE_DESKTOP_USER_DATA="$dogfood_root/user-data" \
       LORE_SKIP_SCHEDULE=1 \
+      XDG_CONFIG_HOME="$dogfood_root/lore/.config" \
       "$app"
     ;;
   current)

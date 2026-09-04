@@ -390,9 +390,9 @@ def _deploy(
     # First push creates the publications table (CREATE TABLE IF NOT EXISTS),
     # so discover works before the owner has published anything; an empty
     # active set is a valid state, and re-pushing is idempotent.
-    from .cli import push  # local import: cli imports this module at top level
+    from .cli import push_job  # local import: cli imports this module at top level
 
-    push(str(target))
+    push_job(target, False)
 
     if not url:
         # The deploy succeeded, so no workers.dev address in the output means

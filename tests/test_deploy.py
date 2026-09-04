@@ -12,6 +12,7 @@ import json
 import os
 import stat
 import subprocess
+import sys
 import unittest
 from unittest.mock import patch
 
@@ -195,7 +196,7 @@ class RealMoneyTest(LoreTestCase):
         with (
             patch("lore.deploy.subprocess.run", side_effect=wrangler),
             patch("lore.deploy.shutil.which", return_value="/usr/bin/npm"),
-            patch("lore.cli.push", return_value=0),
+            patch("lore.cli.push_job", return_value=0),
             captured(),
         ):
             self.assertEqual(deploy_module.deploy(None, "real"), 0)
@@ -204,6 +205,30 @@ class RealMoneyTest(LoreTestCase):
             ("deploy",), ("secret", "put", "LORE_NETWORK")
         )
         self.assertLess(deployed, network)
+
+    def test_a_deploy_from_the_agent_shell_pushes_without_the_owner_gate(
+        self,
+    ) -> None:
+        # The desktop agent's shell has no TTY and no attended marker. The
+        # deploy is the owner's action, so its push must not go back through
+        # the gate, and it is recorded as its own run beside the deploy.
+        with Store() as store:
+            store.set_setting("price_usd", 0.01)
+        wrangler = _Wrangler()
+        with (
+            patch("lore.deploy.subprocess.run", side_effect=wrangler),
+            patch("lore.deploy.shutil.which", return_value="/usr/bin/npm"),
+            patch("lore.cli._push", return_value=0) as pushed,
+            patch("lore.cli._owner_action", side_effect=AssertionError("gated")),
+            patch.dict(os.environ, {"LORE_UNATTENDED": "1"}),
+            patch.object(sys.stdin, "isatty", return_value=False),
+            captured(),
+        ):
+            self.assertEqual(deploy_module.deploy(WALLET), 0)
+        pushed.assert_called_once()
+        with Store() as store:
+            kinds = sorted(job.kind for job in store.recent_jobs())
+        self.assertEqual(kinds, ["deploy", "push"])
 
 
 class LoginTest(LoreTestCase):
@@ -311,9 +336,9 @@ class DeployTest(LoreTestCase):
         with (
             patch("lore.deploy.subprocess.run", side_effect=wrangler),
             patch("lore.deploy.shutil.which", return_value="/usr/bin/npm"),
-            # `push` is `lore.cli`'s, exercised in tests/test_cli.py; here it
-            # only needs to be observable and not touch the network.
-            patch("lore.cli.push") as push,
+            # `push_job` is `lore.cli`'s, exercised in tests/test_cli.py; here
+            # it only needs to be observable and not touch the network.
+            patch("lore.cli.push_job") as push,
             captured(),
         ):
             code = deploy_module.deploy(wallet)
@@ -504,7 +529,7 @@ class DeployTest(LoreTestCase):
         # owner has published anything; smoking first would test a broken node.
         code, wrangler = self._deploy()
         self.assertEqual(code, 0)
-        wrangler.push.assert_called_once_with(str(self.lore_home / "node"))
+        wrangler.push.assert_called_once_with(self.lore_home / "node", False)
         self.assertIn(
             ("npm", "run", "smoke", "--", "https://lore.example.workers.dev/mcp"),
             wrangler.commands,
