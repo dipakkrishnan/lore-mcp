@@ -37,6 +37,8 @@ const OWNER_DIRS = {
   deploy: [".wrangler", "Library/Preferences/.wrangler", "Library/Caches/.wrangler", ".npm"]
 };
 const CAPPED = "That reply took more steps than Lore allows at once, so it paused. Say continue to keep going.";
+/** Appended to an owner turn that starts from a memory: the agent needs the id, the owner never sees one. */
+const MEMORY_CONTEXT = "\n\nStart from the memory with id ";
 const KEY_REJECTED = /\b401\b|authentication_error|invalid[_ -](?:x-)?api[_ -]?key|incorrect api key/i;
 
 /** @param {import("@earendil-works/pi-coding-agent").ModelRuntime} models @param {string} text */
@@ -245,7 +247,7 @@ export class LoreAgent {
         "Keep every message light: a sentence or two, question text under fifteen words, option labels of a few words with one short description, and never restate what a card already shows.",
         "During capture, show proposed memories only through propose_memories, never in prose; that tool saves what the owner keeps and returns the saved memories, or returns the owner's correction for you to revise and propose again. After it saves, say one short sentence and call finish_task; never offer publication, the owner starts that from the saved card.",
         "During onboarding, gather evidence first, then call propose_blueprint once with one bounded proposal; that tool saves the owner-approved shape.",
-        "Never mention tools, commands, files, or plumbing to the owner: no Cloudflare, Node, wrangler, Worker, Base, Sepolia, or network ids in prose. Speak about memories, their Lore, their store, play money and real money, and say what happens next rather than which checks passed.",
+        "Never mention tools, commands, files, or plumbing to the owner: no Cloudflare, Node, wrangler, Worker, Base, Sepolia, network ids, or memory ids in prose; name a memory by its title. Speak about memories, their Lore, their store, play money and real money, and say what happens next rather than which checks passed.",
         "Call finish_task when the current task is complete."
       ].join(" ")
     });
@@ -290,7 +292,7 @@ export class LoreAgent {
     for (const message of messages) {
       if (message.role === "user") {
         const text = typeof message.content === "string" ? message.content : message.content.map((block) => (block.type === "text" ? block.text : "")).join("");
-        lines.push({ text: text.replace(/^\/skill:\S+\n\n/, ""), owner: true });
+        lines.push({ text: text.replace(/^\/skill:\S+\n\n/, "").split(MEMORY_CONTEXT)[0], owner: true });
       } else if (message.role === "assistant") {
         const text = message.content.map((block) => (block.type === "text" ? block.text : "")).join("").trim();
         if (text) lines.push({ text, owner: false });
@@ -375,8 +377,8 @@ export class LoreAgent {
     return this.#activeTask;
   }
 
-  /** @param {string} text @param {AgentTask} task @param {AgentTask} [from] Continue from the latest `from` thread instead of starting cold. */
-  async prompt(text, task, from) {
+  /** @param {string} text @param {AgentTask} task @param {AgentTask} [from] Continue from the latest `from` thread instead of starting cold. @param {number} [memory] A memory to start from, named by id to the agent only. */
+  async prompt(text, task, from, memory) {
     if (this.#busy) throw new Error("Lore is already working");
     if (!text.trim()) throw new Error("Nothing to capture");
     this.#busy = true;
@@ -405,7 +407,8 @@ export class LoreAgent {
       const existing = this.#sessions.get(task);
       const [session, resumed] = existing ? [existing, true] : await this.#newSession(task, from);
       this.#record(session, task, "working");
-      await session.prompt(resumed ? text : `/skill:${SKILLS[task]}\n\n${text}`);
+      const body = memory === undefined ? text : `${text}${MEMORY_CONTEXT}${memory}.`;
+      await session.prompt(resumed ? body : `/skill:${SKILLS[task]}\n\n${body}`);
       const closing = closingRecord(latestTaskRecord(session.sessionManager, task)?.state, task, this.#completed);
       if (closing) this.#record(session, task, closing[0], closing[1]);
       outcome = this.#completed ? ["succeeded", "captured"] : ["succeeded", "stopped"];

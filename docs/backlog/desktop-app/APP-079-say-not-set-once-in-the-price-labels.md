@@ -4,7 +4,7 @@ title: Say "Not set" once in the price labels
 priority: P2
 effort: XS
 component: desktop-app
-status: in-review
+status: completed
 related: [APP-019]
 blockers: []
 dependencies: []
@@ -29,11 +29,19 @@ header and the Settings row.
 
 ## Acceptance criteria
 
-- [ ] With no store, Settings → Prices shows "Not set" and nothing else.
-- [ ] With no store, the For Sale header shows "Not set" once, no unit words.
-- [ ] With a price, both screens are unchanged.
+- [x] With no store, Settings → Prices shows "Not set" and nothing else.
+- [x] With no store, the For Sale header shows "Not set" once, no unit words.
+- [x] With a price, both screens are unchanged.
 
 ## Notes
 
 Screenshots `28-dogfood-settings.png` and `56-dogfood-for-sale.png` from the
 2026-09-05 dogfood pass.
+
+Done 2026-09-05. One `offers()` helper now lists what buyers are charged
+(publication only when priced, answers only when enabled); Today's strip and
+the For Sale header read from it, and For Sale and Settings fall back to a
+single "Not set". Verified on the dogfood sandbox: For Sale shows "Not set",
+Settings → Prices shows "Not set", Today's strip is unchanged. PR #210
+(APP-019) rewrites the same For Sale lines into `priceRow`/`priceEditor`
+and must carry the same fallback when it rebases.

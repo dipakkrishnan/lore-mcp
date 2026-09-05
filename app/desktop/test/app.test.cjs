@@ -256,6 +256,22 @@ test("draft for sale continues the capture thread instead of starting the publis
   }
 });
 
+test("a memory the owner starts from is named to the agent by id and shown to the owner by title", async () => {
+  const { LoreAgent } = await import("../src/agent.mjs");
+  const home = await mkdtemp(join(tmpdir(), "lore-desktop-"));
+  try {
+    const session = LoreAgent.sessionFor(home, "publish");
+    session.appendMessage({ role: "user", content: '/skill:lore-publish\n\nHelp me publish something from my Lore, starting from "Tank cleanup crew".\n\nStart from the memory with id 38.', timestamp: 1 });
+    session.appendMessage({ role: "assistant", content: [{ type: "text", text: "Reading it now." }], api: "anthropic-messages", provider: "anthropic", model: "m", usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } }, stopReason: "stop", timestamp: 2 });
+    assert.deepEqual(LoreAgent.history(home, "publish"), [
+      { text: 'Help me publish something from my Lore, starting from "Tank cleanup crew".', owner: true },
+      { text: "Reading it now.", owner: false }
+    ]);
+  } finally {
+    await rm(home, { recursive: true });
+  }
+});
+
 test("desktop prefers Opus 4.8 when Anthropic is available", async () => {
   const { MODELS } = await import("../src/agent.mjs");
   const { getBuiltinModel } = await import("@earendil-works/pi-ai/providers/all");

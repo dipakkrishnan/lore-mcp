@@ -4,7 +4,7 @@ contextBridge.exposeInMainWorld("lore", {
   snapshot: () => ipcRenderer.invoke("snapshot:read"),
   retrySetup: () => ipcRenderer.invoke("setup:retry"),
   agentStatus: () => ipcRenderer.invoke("agent:status"),
-  /** @param {{text: string, task: AgentTask}} input */
+  /** @param {{text: string, task: AgentTask, from?: AgentTask, memory?: number}} input */
   prompt: (input) => ipcRenderer.invoke("agent:prompt", input),
   /** @param {AgentTask} task */
   history: (task) => ipcRenderer.invoke("agent:history", task),

@@ -4,6 +4,7 @@ const welcome = $("#welcome");
 const appShell = $("#app");
 const welcomeNote = $("#welcome-note");
 const welcomeRetry = /** @type {HTMLButtonElement} */ ($("#welcome-retry"));
+const redirectForm = /** @type {HTMLFormElement} */ ($("#redirect-form"));
 const keyForm = /** @type {HTMLFormElement} */ ($("#key-form"));
 const eyebrow = $("#eyebrow");
 const title = $("#title");
@@ -170,7 +171,7 @@ async function publishMemory(memory, from) {
   await openTask("publish");
   // A pending draft for this memory, or the publish agent mid-draft, is the thread itself: open it, never start a second turn.
   if (busy === "publish" || candidates.some((candidate) => candidate.provenance.includes(memory.id))) return;
-  await send(`Help me publish something from my Lore. Start from memory ${memory.id}: "${memory.title}".`, from);
+  await send(`Help me publish something from my Lore, starting from "${memory.title}".`, from, memory.id);
 }
 
 /** @param {number | string} id @param {string} title @param {string} detail */
@@ -338,6 +339,15 @@ function price(value) {
   return typeof value === "number" ? money.format(value) : "Not set";
 }
 
+/** What buyers are charged, one entry per thing on offer; nothing when no price is set. @param {Snapshot} s @returns {Array<[string, string]>} */
+function offers(s) {
+  /** @type {Array<[string, string]>} */
+  const list = [];
+  if (typeof s.pricing.publication_usd === "number") list.push([price(s.pricing.publication_usd), "a publication"]);
+  if (s.pricing.answer_enabled) list.push([price(s.pricing.answer_usd), "an answer"]);
+  return list;
+}
+
 /** @param {string} iso */
 function when(iso) {
   const date = new Date(iso);
@@ -492,8 +502,7 @@ function renderToday(s) {
     [String(s.library.counts.private), `${s.library.counts.private === 1 ? "memory" : "memories"}, only on this Mac`],
     [String(s.publications.counts.active), "for sale"],
     ["Store", nodeLabel(s.node.live.state).toLowerCase()],
-    typeof s.pricing.publication_usd === "number" ? [price(s.pricing.publication_usd), "a publication"] : null,
-    s.pricing.answer_enabled ? [price(s.pricing.answer_usd), "an answer"] : null
+    ...offers(s)
   ];
   for (const fact of facts) {
     if (!fact) continue;
@@ -535,7 +544,9 @@ function renderStore(s) {
   }
   lead.append(text);
   const prices = el("div", "prices");
-  for (const [value, label] of [[price(s.pricing.publication_usd), "a publication"], [s.pricing.answer_enabled ? price(s.pricing.answer_usd) : "Off", "an answer"]]) {
+  const priced = offers(s);
+  if (!priced.length) prices.append(el("div", "", "Not set"));
+  for (const [value, label] of priced) {
     const item = el("div");
     item.append(document.createTextNode(`${value} `), el("span", "", label));
     prices.append(item);
@@ -657,7 +668,7 @@ function renderSettings(s) {
       ...(live.payout
         ? [row("Payouts", "Where each payment lands. Lore never holds it.", value(el("span", "mono", `${live.payout.slice(0, 6)}…${live.payout.slice(-4)}`), /** @type {HTMLElement} */ (payoutLink(live))), false)]
         : []),
-      row("Prices", "What a buyer's agent pays per call.", value(el("span", "mono", `${price(s.pricing.publication_usd)} publication${s.pricing.answer_enabled ? ` · ${price(s.pricing.answer_usd)} answer` : ""}`), ...(s.node.url ? [button("Change price", "quiet", () => void startDeploy(CHANGE_PRICE))] : [])), false),
+      row("Prices", "What a buyer's agent pays per call.", value(el("span", "mono", typeof s.pricing.publication_usd === "number" ? `${price(s.pricing.publication_usd)} publication${s.pricing.answer_enabled ? ` · ${price(s.pricing.answer_usd)} answer` : ""}` : "Not set"), ...(s.node.url ? [button("Change price", "quiet", () => void startDeploy(CHANGE_PRICE))] : [])), false),
       ...(live.network === TEST_NETWORK
         ? [row("Payments", "Buyers on the test network pay with play money. Switch when you want real buyers paying real money.", value(button("Switch to real payments", "secondary", () => void startDeploy(REAL_MONEY))), false)]
         : live.network
@@ -1314,14 +1325,14 @@ async function act(action) {
   return done;
 }
 
-/** @param {string} text @param {AgentTask} [from] */
-async function send(text, from) {
+/** @param {string} text @param {AgentTask} [from] @param {number} [memory] A memory the agent starts from, named to it and never shown. */
+async function send(text, from, memory) {
   const files = attachments.length ? `\n\nFiles to read:\n${attachments.map((path) => `- ${path}`).join("\n")}` : "";
   attachments = [];
   renderAttachments();
   say(text, true);
   try {
-    await window.lore.prompt({ text: text + files, task, from });
+    await window.lore.prompt({ text: text + files, task, from, memory });
     await load();
   } catch (error) {
     say(reason(error, "Something went wrong."));
@@ -1349,7 +1360,19 @@ async function signIn(providerId, type, secret) {
     enter();
   } catch (error) {
     welcomeNote.textContent = reason(error, "Sign-in didn't complete.");
+  } finally {
+    offerRedirect(null);
   }
+}
+
+/** The sign-in prompt waiting for a pasted redirect URL, while the browser callback may still win. @type {string | null} */
+let redirectPrompt = null;
+
+/** @param {string | null} id */
+function offerRedirect(id) {
+  redirectPrompt = id;
+  redirectForm.hidden = id === null;
+  if (id !== null) /** @type {HTMLInputElement} */ ($("#redirect-url")).focus();
 }
 
 /** @param {string} providerId */
@@ -1398,7 +1421,11 @@ function onEvent(event) {
       if (!auth) { auth = { credentials: [] }; enter(); }
     }
   } else if (event.type === "dismiss") {
+    if (redirectPrompt === event.id) offerRedirect(null);
     if (request?.id === event.id) { clearRequest(); renderLog(); }
+  } else if (event.type === "auth-prompt" && !welcome.hidden) {
+    // Sign-in has no thread to hold a card, so the field lives under the note that promises it.
+    offerRedirect(event.id);
   } else if (event.type === "auth") {
     const detail = event.event;
     welcomeNote.textContent = event.message || (detail?.type === "device_code" ? `Open ${detail.verificationUri} and enter ${detail.userCode}.` : detail && "message" in detail ? detail.message : "Continue signing in.");
@@ -1606,6 +1633,17 @@ for (const node of document.querySelectorAll("[data-login]")) {
   });
 }
 $("#welcome-key").addEventListener("click", () => { keyForm.hidden = false; /** @type {HTMLInputElement} */ ($("#key-secret")).focus(); });
+redirectForm.addEventListener("submit", (event) => {
+  event.preventDefault();
+  const field = /** @type {HTMLInputElement} */ ($("#redirect-url"));
+  const value = field.value.trim();
+  const id = redirectPrompt;
+  if (!id || !value) return;
+  field.value = "";
+  offerRedirect(null);
+  welcomeNote.textContent = "Finishing sign-in…";
+  void window.lore.respond({ id, value });
+});
 keyForm.addEventListener("submit", (event) => {
   event.preventDefault();
   const secret = /** @type {HTMLInputElement} */ ($("#key-secret"));
