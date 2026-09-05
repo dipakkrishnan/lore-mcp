@@ -67,7 +67,7 @@ def _response(response: HTTPResponse) -> dict[str, Any]:
     return OBJECT.validate_json(text)
 
 
-def _remote_manifest(url: str) -> Manifest:
+def remote_manifest(url: str) -> Manifest:
     initialize = {
         "jsonrpc": "2.0",
         "id": 1,
@@ -104,7 +104,7 @@ def _live_state(node_url: str | None) -> tuple[dict[str, object], set[str] | Non
     if not node_url:
         return {"state": "not_configured", "network": None, "payout": None}, None
     try:
-        manifest = _remote_manifest(node_url)
+        manifest = remote_manifest(node_url)
     except (OSError, ValueError, KeyError, IndexError, TypeError):
         return {"state": "unreachable", "network": None, "payout": None}, None
     ids = {entry.id for entries in manifest.topics.values() for entry in entries}

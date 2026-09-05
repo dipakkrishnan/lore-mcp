@@ -19,6 +19,7 @@ from unittest.mock import patch
 from helpers import LoreTestCase, captured
 
 from lore import deploy as deploy_module
+from lore.snapshot import Manifest, ManifestEntry
 from lore.store import Store
 
 WALLET = "0x" + "1" * 40
@@ -56,7 +57,6 @@ class _Wrangler:
         logged_in: bool = True,
         login_fails: bool = False,
         has_wallet_secret: bool = True,
-        smoke_fails: bool = False,
         install_fails: bool = False,
         secret_put_fails: bool = False,
         d1_exists: bool = False,
@@ -67,7 +67,6 @@ class _Wrangler:
         self.logged_in = logged_in
         self.login_fails = login_fails
         self.has_wallet_secret = has_wallet_secret
-        self.smoke_fails = smoke_fails
         self.install_fails = install_fails
         self.secret_put_fails = secret_put_fails
         self.d1_exists = d1_exists
@@ -83,9 +82,6 @@ class _Wrangler:
         if args[0] == "npm" and tail[:1] == ("install",):
             code = 1 if self.install_fails else 0
             err = "npm ERR! network" if self.install_fails else ""
-        elif args[0] == "npm" and tail[:1] == ("run",):
-            code = 1 if self.smoke_fails else 0
-            err = "402 expected, got 500" if self.smoke_fails else ""
         elif tail == ("whoami",):
             out = "logged in as ada" if self.logged_in else "You are not authenticated."
         elif tail[:1] == ("login",):
@@ -122,6 +118,19 @@ class _Wrangler:
         ]
 
 
+LIVE = Manifest(manifest_version=1, topics={"pricing": [ManifestEntry(id="a1")]})
+
+
+class _NodeCase(LoreTestCase):
+    """Every deploy ends by asking the node for its manifest; no test reaches the network."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        probe = patch("lore.snapshot.remote_manifest", return_value=LIVE)
+        self.probe = probe.start()
+        self.addCleanup(probe.stop)
+
+
 class SalesTest(LoreTestCase):
     def test_reads_the_ledger_through_the_staged_node(self) -> None:
         target = deploy_module.materialize(0.1)
@@ -154,7 +163,7 @@ class SalesTest(LoreTestCase):
             deploy_module.sales()
 
 
-class UnattendedDeployTest(LoreTestCase):
+class UnattendedDeployTest(_NodeCase):
     def test_a_signed_out_agent_shell_stops_instead_of_starting_a_login(self) -> None:
         with Store() as store:
             store.set_setting("price_usd", 0.01)
@@ -169,7 +178,7 @@ class UnattendedDeployTest(LoreTestCase):
         self.assertEqual(wrangler.named("login"), [])
 
 
-class RealMoneyTest(LoreTestCase):
+class RealMoneyTest(_NodeCase):
     def _staged(self) -> _Wrangler:
         target = deploy_module.materialize(0.1)
         binary = target / "node_modules/.bin/wrangler"
@@ -326,9 +335,14 @@ class MaterializeTest(LoreTestCase):
         )
 
 
-class DeployTest(LoreTestCase):
+class DeployTest(_NodeCase):
     def _deploy(
-        self, wallet: str | None = WALLET, *, price_usd: float = 0.37, **script: object
+        self,
+        wallet: str | None = WALLET,
+        *,
+        price_usd: float = 0.37,
+        probe_fails: bool = False,
+        **script: object,
     ) -> tuple[int, _Wrangler]:
         with Store() as store:
             store.set_setting("price_usd", price_usd)
@@ -341,6 +355,16 @@ class DeployTest(LoreTestCase):
             patch("lore.cli.push_job") as push,
             captured(),
         ):
+            # The push creates the publications table, so the node is only
+            # asked for its manifest after it; probing first would test a
+            # broken node.
+            def probed(url: str) -> Manifest:
+                self.assertTrue(push.called, "the node was probed before the push")
+                if probe_fails:
+                    raise OSError("connection refused")
+                return LIVE
+
+            self.probe.side_effect = probed
             code = deploy_module.deploy(wallet)
         wrangler.push = push  # type: ignore[attr-defined]
         return code, wrangler
@@ -351,10 +375,7 @@ class DeployTest(LoreTestCase):
         self.assertIn(("npm", "install", "--no-fund", "--no-audit"), wrangler.commands)
         self.assertTrue(wrangler.named("deploy"))
         self.assertTrue(wrangler.named("secret", "put", "LORE_WALLET"))
-        self.assertIn(
-            ("npm", "run", "smoke", "--", "https://lore.example.workers.dev/mcp"),
-            wrangler.commands,
-        )
+        self.probe.assert_called_once_with("https://lore.example.workers.dev/mcp")
         # Everything runs inside the wrangler the install just put there, never
         # whatever version happens to be on the owner's PATH.
         for command in wrangler.commands:
@@ -406,7 +427,7 @@ class DeployTest(LoreTestCase):
             store.set_setting("node_url", "https://lore.example.workers.dev/mcp")
         code, wrangler = self._deploy(deploy_output="Deployed, no URL here")
         self.assertEqual(code, 0)
-        self.assertEqual(wrangler.named("run", "smoke"), [])
+        self.probe.assert_not_called()
         with Store() as store:
             self.assertEqual(
                 store.setting("node_url"), "https://lore.example.workers.dev/mcp"
@@ -447,9 +468,11 @@ class DeployTest(LoreTestCase):
                 store.setting("node_url"), "https://lore.example.workers.dev/mcp"
             )
 
-    def test_a_failed_smoke_check_says_where_to_look(self) -> None:
+    def test_a_node_that_does_not_answer_after_deploy_says_where_to_look(
+        self,
+    ) -> None:
         with self.assertRaisesRegex(OSError, "wrangler tail"):
-            self._deploy(smoke_fails=True)
+            self._deploy(probe_fails=True)
 
     def test_a_failed_install_reports_the_tool_output(self) -> None:
         with self.assertRaisesRegex(OSError, "npm install failed"):
@@ -524,16 +547,13 @@ class DeployTest(LoreTestCase):
         # Already resolved, so nothing is created a second time.
         self.assertEqual(wrangler.named("d1", "create", "lore-publications"), [])
 
-    def test_the_first_push_runs_before_the_smoke_check(self) -> None:
-        # The push creates the publications table, so discover works before the
-        # owner has published anything; smoking first would test a broken node.
+    def test_the_first_push_runs_before_the_node_is_probed(self) -> None:
+        # The order itself is asserted inside _deploy's probe; this pins that
+        # both halves happened exactly once.
         code, wrangler = self._deploy()
         self.assertEqual(code, 0)
         wrangler.push.assert_called_once_with(self.lore_home / "node", False)
-        self.assertIn(
-            ("npm", "run", "smoke", "--", "https://lore.example.workers.dev/mcp"),
-            wrangler.commands,
-        )
+        self.probe.assert_called_once()
 
     def test_a_malformed_wallet_never_reaches_the_network(self) -> None:
         for wallet in ("0xnothex", "0x" + "1" * 39, "1" * 40, "0x" + "1" * 40 + "1"):
@@ -576,7 +596,7 @@ class DeployTest(LoreTestCase):
                     deploy_module.deploy(WALLET)
 
 
-class RunTest(LoreTestCase):
+class RunTest(_NodeCase):
     def test_failure_detail_keeps_both_streams(self) -> None:
         # A tool that writes its diagnosis to stdout and its error to stderr is
         # normal; reporting only one of them is how a deploy failure gets opaque.
