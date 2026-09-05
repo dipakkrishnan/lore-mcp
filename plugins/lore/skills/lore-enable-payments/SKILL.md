@@ -128,15 +128,13 @@ the address" is not guidance. Generic shape, adapted to their app: open the app
 or extension → **Receive** → network **Base** (same address across EVM chains;
 what matters is receiving on Base) → **Copy**.
 
-**Needs one:** walk them through Coinbase Wallet — the self-custody app at
-`coinbase.com/wallet`. Announce the page, open it, and give the steps as three
-short numbered lines: **Create new wallet** (passkey setup is the safer
-default — no phrase to mishandle; classic setups show a **recovery phrase**:
-paper backup, confirm in app); skip all purchases, verification, and funding —
-an empty wallet is the goal; then come back. Put both traps on that same
-card, one line each: the app with prices and Buy buttons is the exchange, not
-the wallet; and the wallet has one address that starts with `0x`, the same on
-Base and Ethereum, so any **Copy** next to it is the right one.
+**Needs one:** open the self-custody app at `coinbase.com/wallet` with the title
+**Create an empty wallet** and this exact note:
+
+> Use a passkey, skip buying or funding anything, then come back with your
+> public address—it starts with `0x`. Never share your recovery phrase.
+>
+> Choose **Wallet**, not the Coinbase app with prices and Buy buttons.
 
 Either way, the address is its own step once the wallet exists: one question
 with no options and format `evm_address`, so the owner gets a single field
