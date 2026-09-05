@@ -1248,7 +1248,7 @@ async function pushNow() {
   const offer = pushOffer;
   if (await act(window.lore.push)) {
     const live = snapshot ? `${snapshot.publications.counts.active} ${snapshot.publications.counts.active === 1 ? "publication" : "publications"}` : "publications";
-    pushedNote = `Pushed · ${live} sent to your node`;
+    pushedNote = `Pushed · ${live} now on your store`;
   } else {
     pushOffer = offer;
   }
@@ -1265,15 +1265,8 @@ function unpushed(s) {
 function pushReceipt(s) {
   const box = el("div", "card pad lead");
   box.append(el("span", "dot ok"));
-  const text = el("span", "", `${pushedNote} `);
-  if (s.node.url) {
-    const link = el("a", "", "Open your store ↗");
-    link.href = s.node.url.replace(/\/mcp$/, "");
-    link.target = "_blank";
-    link.rel = "noreferrer";
-    text.append(link);
-  }
-  box.append(text);
+  box.append(el("span", "", pushedNote || ""));
+  if (s.node.url) box.append(outLink("See your store ↗", s.node.url.replace(/\/mcp$/, "")));
   return box;
 }
 

@@ -145,6 +145,7 @@ h2 { font-size: 12px; font-weight: 600; letter-spacing: 0.06em; text-transform: 
 .card { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; }
 .card.pad { padding: 18px 20px; }
 .card.lead { border-color: var(--accent); }
+.card.lead .link-btn { margin-left: auto; }
 .hint { font-size: 12px; color: var(--muted); }
 .status:empty { display: none; }
 .status { display: flex; flex-direction: column; gap: 8px; }
