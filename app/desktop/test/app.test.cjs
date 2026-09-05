@@ -279,6 +279,16 @@ test("desktop prefers Opus 4.8 when Anthropic is available", async () => {
   assert.equal(getBuiltinModel("anthropic", "claude-opus-4-8").id, "claude-opus-4-8");
 });
 
+test("Luna gives capture runs a short friendly name", async () => {
+  const { nameRun } = await import("../src/agent.mjs");
+  const models = {
+    getAvailable: async () => [{ provider: "openai", id: "gpt-5.6-luna" }],
+    completeSimple: async () => ({ content: [{ type: "text", text: "Pickleball for the Long Run\nextra" }], usage: { cost: { total: 0.0001 } } })
+  };
+  assert.deepEqual(await nameRun(/** @type {never} */ (models), "I want to reach 5.0 DUPR"), { title: "Pickleball for the Long Run", cost: 0.0001 });
+  assert.deepEqual(await nameRun(/** @type {never} */ ({ getAvailable: async () => [] }), "anything"), { title: "", cost: 0 });
+});
+
 test("API-key proof deletes rejected keys, not keys it could not check", async () => {
   const { LoreAgent } = await import("../src/agent.mjs");
   const replies = [
