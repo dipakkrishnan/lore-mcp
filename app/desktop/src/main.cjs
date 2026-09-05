@@ -236,9 +236,9 @@ async function start(loreHome) {
         const id = JSON.parse(out)?.id;
         return typeof id === "number" ? id : null;
       },
-      finish: async (id, status, summary, costUsd) => {
+      finish: async (id, status, summary, title, costUsd) => {
         const cost = costUsd === null ? [] : ["--cost-usd", String(costUsd)];
-        await lore(loreHome, ["job", "finish", String(id), status, "--summary", summary, ...cost]);
+        await lore(loreHome, ["job", "finish", String(id), status, "--summary", summary, "--title", title, ...cost]);
       }
     },
     authPrompt: async ({ signal, ...prompt }) => String(await request("auth-prompt", { prompt }, signal)),

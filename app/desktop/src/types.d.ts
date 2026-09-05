@@ -54,6 +54,7 @@ type JobItem = {
   id: number;
   kind: "capture" | "synthesis" | "deploy" | "push";
   status: "running" | "succeeded" | "failed" | "incomplete";
+  title: string;
   summary: string;
   count: number | null;
   cost_usd: number | null;
@@ -245,6 +246,6 @@ type LoreAgentOptions = {
   // Optional: history is a record of the work, never a precondition for it.
   job?: {
     start(kind: string): Promise<number | null>;
-    finish(id: number, status: string, summary: string, costUsd: number | null): Promise<void>;
+    finish(id: number, status: string, summary: string, title: string, costUsd: number | null): Promise<void>;
   };
 };

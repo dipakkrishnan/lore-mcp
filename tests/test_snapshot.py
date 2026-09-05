@@ -329,6 +329,7 @@ class SnapshotJobsTest(LoreTestCase):
                 "id",
                 "kind",
                 "status",
+                "title",
                 "summary",
                 "count",
                 "cost_usd",

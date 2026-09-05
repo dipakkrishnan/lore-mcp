@@ -263,6 +263,7 @@ def build() -> dict[str, object]:
                     "id": item.id,
                     "kind": item.kind.value,
                     "status": item.status.value,
+                    "title": item.title,
                     "summary": JOB_SUMMARIES[item.summary],
                     "count": item.count,
                     "cost_usd": item.cost_usd,
