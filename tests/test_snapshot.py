@@ -241,7 +241,7 @@ class DesktopSnapshotTest(LoreTestCase):
         self.assertEqual(state["node"]["live"]["state"], "not_configured")
         with Store() as store:
             store.set_setting("node_url", "https://offline.example/mcp")
-        with patch("lore.snapshot._remote_manifest", side_effect=OSError("offline")):
+        with patch("lore.snapshot.remote_manifest", side_effect=OSError("offline")):
             with captured() as output:
                 self.assertEqual(cli.main(["desktop-state"]), 0)
         state = json.loads(output.getvalue())
@@ -253,7 +253,7 @@ class DesktopSnapshotTest(LoreTestCase):
         with Store() as store:
             store.set_setting("node_url", "https://offline.example/mcp")
         with patch(
-            "lore.snapshot._remote_manifest", side_effect=OSError("offline")
+            "lore.snapshot.remote_manifest", side_effect=OSError("offline")
         ) as probe:
             snapshot.build()
             state = snapshot.build()
@@ -281,7 +281,7 @@ class DesktopSnapshotTest(LoreTestCase):
         with Store() as store:
             store.set_setting("node_url", "https://cold-start.example/mcp")
         with patch(
-            "lore.snapshot._remote_manifest",
+            "lore.snapshot.remote_manifest",
             side_effect=ValueError("event-stream response had no data line"),
         ):
             with captured() as output:

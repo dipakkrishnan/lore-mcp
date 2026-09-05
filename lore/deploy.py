@@ -403,12 +403,17 @@ def _deploy(
         )
         return 0
 
-    smoke = _run(("npm", "run", "smoke", "--", url), target)
-    if smoke.returncode:
+    # The same plain HTTPS probe the app trusts for its store status; the
+    # Node smoke script needs a local socket the desktop agent's shell denies.
+    from .snapshot import remote_manifest  # local import, as push_job above
+
+    try:
+        manifest = remote_manifest(url)
+    except (OSError, ValueError, KeyError, IndexError, TypeError) as error:
         raise OSError(
-            f"deployed, but the smoke check failed against {url}:\n"
-            f"{(smoke.stderr or smoke.stdout).strip()[-2000:]}\n"
+            f"deployed, but {url} did not answer discover: {error}\n"
             f"Stream the live error with `npx wrangler tail` in {target}"
-        )
-    success(f"Live and smoke-checked: {url}")
+        ) from error
+    count = sum(len(entries) for entries in manifest.topics.values())
+    success(f"Live: {url} · {count} publication{'s' if count != 1 else ''}")
     return 0
