@@ -83,6 +83,13 @@ const money = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD
 const shortDate = new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric" });
 const longDate = new Intl.DateTimeFormat("en-US", { weekday: "long", month: "long", day: "numeric" });
 const TASK_TITLES = { capture: "Capture a memory", setup: "Set up your Lore", publish: "Publish from your Lore", deploy: "Open your store" };
+/** Stands in for the composer while a card in another thread holds the turn; its button opens that thread. @type {AgentTask | null} */
+let waitingTask = null;
+const waiting = el("div", "card pad lead composer-wait");
+const waitingText = el("span");
+waiting.append(el("span", "dot"), waitingText, button("Open", "secondary", () => { if (waitingTask) void openTask(waitingTask); }));
+waiting.hidden = true;
+composer.insertAdjacentElement("afterend", waiting);
 const TASK_STATES = { needs_you: "Needs you", working: "Working", stopped: "Stopped", done: "Done" };
 
 /**
@@ -424,7 +431,7 @@ function needsYou(s) {
   else if (!s.setup.profile_configured) add("Set the rhythm", "Choose which model writes new memories, and how often.", button("Start", "secondary", startSetup));
   else {
     if (!s.node.url) add("Open your store", "A payout address, a price, and a node on the test network first. Free until you say otherwise.", button("Open", "secondary", () => void startDeploy()));
-    if (s.library.counts.private && !candidates.length) add("Publish something", "Lore drafts up to three things to sell; you approve each one.", button("Publish", "secondary", startPublish));
+    if (s.library.counts.private && !candidates.length && !taskItems.some((item) => item.kind === "publish")) add("Publish something", "Lore drafts up to three things to sell; you approve each one.", button("Publish", "secondary", startPublish));
   }
   // Approved work a buyer cannot see yet is actionable whatever rung setup is on.
   const waiting = unpushed(s);
@@ -808,12 +815,15 @@ function syncComposer() {
   const shown = shownRequest();
   const card = shown?.current ? shown : null;
   const locked = busy !== null && !card;
+  waitingTask = !shown && request?.task && request.task !== detailTask ? request.task : null;
+  waiting.hidden = !waitingTask;
+  if (waitingTask) waitingText.textContent = `Lore is waiting on you in ${TASK_TITLES[waitingTask]}.`;
   requestSlot.hidden = !shown;
-  composer.hidden = (shown !== null && !card) || ((detailTask === "setup" || detailTask === "deploy") && detailRecord?.state === "done");
+  composer.hidden = Boolean(waitingTask) || (shown !== null && !card) || ((detailTask === "setup" || detailTask === "deploy") && detailRecord?.state === "done");
   input.disabled = locked;
   submit.disabled = locked;
   composer.classList.toggle("working", locked);
-  input.placeholder = locked ? (request?.current ? "Lore is waiting on your capture…" : request?.task ? `Lore is waiting on you in ${TASK_TITLES[request.task]}` : "Lore is working…") : card ? "Or say what to change…" : detailTask ? "Reply to Lore…" : "What did you learn today?";
+  input.placeholder = locked ? (request?.current ? "Lore is waiting on your capture…" : "Lore is working…") : card ? "Or say what to change…" : detailTask ? "Reply to Lore…" : "What did you learn today?";
   inputLabel.textContent = card ? "Say what to change" : detailTask ? "Reply to Lore" : "What did you learn today?";
   submit.textContent = detailTask ? "Send" : "Capture";
 }
