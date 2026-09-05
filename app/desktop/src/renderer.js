@@ -68,6 +68,9 @@ let busy = null;
 let request = null;
 
 const RING = `<svg viewBox="0 0 26 26" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M13 4.5a8.5 8.5 0 1 1-6 2.5"></path><path d="M13 9a4 4 0 1 1-2.8 1.2"></path><circle cx="13" cy="13" r="1.2" fill="currentColor" stroke="none"></circle></svg>`;
+const RENAME_ICON = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7V4h16v3M9 20h6M12 4v16"></path></svg>`;
+const EDIT_ICON = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L8 18l-4 1 1-4z"></path></svg>`;
+const SALE_ICON = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 12l-8 8-9-9V3h8z"></path><circle cx="7.5" cy="7.5" r="1.5"></circle></svg>`;
 const PROVIDERS = {
   anthropic: ["Claude", "assets/claude.svg"],
   "openai-codex": ["ChatGPT", "assets/openai.svg"],
@@ -125,10 +128,11 @@ function mark(className = "mark") {
   return node;
 }
 
-/** @param {string} label @param {"primary" | "secondary" | "quiet"} kind @param {() => void} onClick */
-function button(label, kind, onClick) {
+/** @param {string} label @param {"primary" | "secondary" | "quiet"} kind @param {() => void} onClick @param {string} [icon] */
+function button(label, kind, onClick, icon) {
   const node = el("button", `btn ${kind} sm`, label);
   node.type = "button";
+  if (icon) node.insertAdjacentHTML("afterbegin", icon);
   node.addEventListener("click", onClick);
   return node;
 }
@@ -220,7 +224,7 @@ async function openMemory(id) {
   actions.style.display = "flex";
   actions.style.gap = "8px";
   function showActions() {
-    actions.replaceChildren(button("Rename", "quiet", startRename), button("Edit", "quiet", startEdit), button("Draft for sale", "quiet", () => void publishMemory(memory)));
+    actions.replaceChildren(button("Rename", "quiet", startRename, RENAME_ICON), button("Edit", "quiet", startEdit, EDIT_ICON), button("Draft for sale", "quiet", () => void publishMemory(memory), SALE_ICON));
   }
   /** @type {HTMLElement} */
   let body = renderMemoryBody(memory.content);

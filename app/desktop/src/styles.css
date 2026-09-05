@@ -81,6 +81,7 @@ textarea, input, [contenteditable] { -webkit-user-select: text; user-select: tex
 .btn.quiet { color: var(--accent); padding: 0 6px; height: 28px; }
 .btn.quiet:hover { text-decoration: underline; }
 .btn.sm { height: 30px; font-size: 13px; }
+.btn > svg { width: 15px; height: 15px; flex-shrink: 0; }
 .btn.provider { height: 48px; font-size: 15px; background: var(--surface); border-color: var(--line-strong); position: relative; }
 .btn.provider:hover { background: var(--hover); }
 .btn.provider img { position: absolute; left: 18px; top: 13px; }
@@ -199,8 +200,9 @@ h2 { font-size: 12px; font-weight: 600; letter-spacing: 0.06em; text-transform: 
 .log .line.live { color: var(--muted); }
 .log .line.stop .md { color: var(--attention-ink); }
 .log .line.stop .mark { background: var(--attention); }
-.log .line.owner p { color: var(--ink); }
-.log .line.owner .you { flex-shrink: 0; width: 18px; margin-top: 3px; font-size: 10px; font-weight: 600; letter-spacing: 0.04em; color: var(--muted); text-transform: uppercase; }
+.log .line.owner { justify-content: flex-end; align-items: center; padding-left: 64px; }
+.log .line.owner p { max-width: 78%; padding: 8px 12px; border-radius: 14px; background: var(--hover); color: var(--ink); }
+.log .line.owner .you { flex-shrink: 0; width: auto; margin: 0; font-size: 10px; font-weight: 600; letter-spacing: 0.04em; color: var(--muted); text-transform: uppercase; }
 .log .line.live .mark { animation: pulse 1.4s ease-in-out infinite; }
 @media (prefers-reduced-motion: reduce) { .log .line.live .mark { animation: none; } }
 .log .line p { -webkit-user-select: text; user-select: text; white-space: pre-wrap; }
