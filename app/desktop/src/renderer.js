@@ -1230,10 +1230,15 @@ function approvalForm(candidate) {
   meta.append(chip(candidate.topic));
   if (candidate.kind === "content") meta.append(chip("Verbatim"));
   const group = el("div", "group");
-  group.append(
-    button("Skip", "secondary", () => decide(candidate, false)),
-    button("Approve", "primary", () => decide(candidate, true, { ...candidate, title: title.value, teaser: teaser.value, content: paid.value }))
-  );
+  /** @param {boolean} approved */
+  const choose = async (approved) => {
+    skip.disabled = approve.disabled = true;
+    await decide(candidate, approved, approved ? { ...candidate, title: title.value, teaser: teaser.value, content: paid.value } : candidate);
+    if (memory.isConnected) skip.disabled = approve.disabled = false;
+  };
+  const skip = button("Skip", "secondary", () => void choose(false));
+  const approve = button("Approve", "primary", () => void choose(true));
+  group.append(skip, approve);
   meta.append(group);
   memory.append(meta);
   return memory;
