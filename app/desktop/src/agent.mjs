@@ -38,7 +38,6 @@ const OWNER_DIRS = {
 const CAPPED = "That reply took more steps than Lore allows at once, so it paused. Say continue to keep going.";
 /** Appended to an owner turn that starts from a memory: the agent needs the id, the owner never sees one. */
 const MEMORY_CONTEXT = "\n\nStart from the memory with id ";
-const MEMORY_CONTEXT_RE = /\n\nStart from the memory with id \d+\./;
 const KEY_REJECTED = /\b401\b|authentication_error|invalid[_ -](?:x-)?api[_ -]?key|incorrect api key/i;
 
 /** @param {string} loreHome @param {AgentTask} task @param {string} [binDir] */
@@ -274,7 +273,7 @@ export class LoreAgent {
     for (const message of messages) {
       if (message.role === "user") {
         const text = typeof message.content === "string" ? message.content : message.content.map((block) => (block.type === "text" ? block.text : "")).join("");
-        lines.push({ text: text.replace(/^\/skill:\S+\n\n/, "").replace(MEMORY_CONTEXT_RE, ""), owner: true });
+        lines.push({ text: text.replace(/^\/skill:\S+\n\n/, "").split(MEMORY_CONTEXT)[0], owner: true });
       } else if (message.role === "assistant") {
         const text = message.content.map((block) => (block.type === "text" ? block.text : "")).join("").trim();
         if (text) lines.push({ text, owner: false });

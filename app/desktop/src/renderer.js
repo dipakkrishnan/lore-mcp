@@ -341,10 +341,11 @@ function price(value) {
 
 /** What buyers are charged, one entry per thing on offer; nothing when no price is set. @param {Snapshot} s @returns {Array<[string, string]>} */
 function offers(s) {
-  return [
-    ...(typeof s.pricing.publication_usd === "number" ? [/** @type {[string, string]} */ ([price(s.pricing.publication_usd), "a publication"])] : []),
-    ...(s.pricing.answer_enabled ? [/** @type {[string, string]} */ ([price(s.pricing.answer_usd), "an answer"])] : [])
-  ];
+  /** @type {Array<[string, string]>} */
+  const list = [];
+  if (typeof s.pricing.publication_usd === "number") list.push([price(s.pricing.publication_usd), "a publication"]);
+  if (s.pricing.answer_enabled) list.push([price(s.pricing.answer_usd), "an answer"]);
+  return list;
 }
 
 /** @param {string} iso */
@@ -543,9 +544,11 @@ function renderStore(s) {
   }
   lead.append(text);
   const prices = el("div", "prices");
-  for (const [value, label] of offers(s).length ? offers(s) : [["Not set", ""]]) {
+  const priced = offers(s);
+  if (!priced.length) prices.append(el("div", "", "Not set"));
+  for (const [value, label] of priced) {
     const item = el("div");
-    item.append(document.createTextNode(label ? `${value} ` : value), ...(label ? [el("span", "", label)] : []));
+    item.append(document.createTextNode(`${value} `), el("span", "", label));
     prices.append(item);
   }
   bar.append(lead, prices);
