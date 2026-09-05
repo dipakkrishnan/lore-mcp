@@ -106,11 +106,21 @@ def remote_manifest(url: str) -> Manifest:
 
 def _live_state(node_url: str | None) -> tuple[dict[str, object], set[str] | None]:
     if not node_url:
-        return {"state": "not_configured", "network": None, "price_usd": None, "payout": None}, None
+        return {
+            "state": "not_configured",
+            "network": None,
+            "price_usd": None,
+            "payout": None,
+        }, None
     try:
         manifest = remote_manifest(node_url)
     except (OSError, ValueError, KeyError, IndexError, TypeError):
-        return {"state": "unreachable", "network": None, "price_usd": None, "payout": None}, None
+        return {
+            "state": "unreachable",
+            "network": None,
+            "price_usd": None,
+            "payout": None,
+        }, None
     ids = {entry.id for entries in manifest.topics.values() for entry in entries}
     live: dict[str, object] = {
         "state": "online",

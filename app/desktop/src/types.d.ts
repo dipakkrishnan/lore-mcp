@@ -209,7 +209,7 @@ type AgentRequest =
   | { type: "blueprint"; id: string; task: AgentTask | null; fields: BlueprintFields; evidence: string }
   | { type: "auth-prompt"; id: string; task: AgentTask | null; prompt: AuthPrompt }
   | { type: "cloudflare"; id: string; task: AgentTask | null }
-  | { type: "price"; id: string; task: AgentTask | null; amount: number; reason: string };
+  | { type: "price"; id: string; task: AgentTask | null; amount: number; reason: string }
   | { type: "open"; id: string; task: AgentTask | null; title: string; url: string; note: string };
 
 type AgentEvent =

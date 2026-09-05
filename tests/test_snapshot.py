@@ -308,7 +308,7 @@ class DesktopSnapshotTest(LoreTestCase):
                     "ids": [],
                 },
             )
-        with patch("lore.snapshot._remote_manifest", side_effect=OSError) as probe:
+        with patch("lore.snapshot.remote_manifest", side_effect=OSError) as probe:
             state = snapshot.build()
         self.assertEqual(probe.call_count, 0, "the fresh cache is still trusted")
         self.assertEqual(state["node"]["live"]["state"], "online")
