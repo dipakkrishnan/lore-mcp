@@ -141,6 +141,7 @@ obsolete), then `priority` (P0 → P3).
 | [XC-020](./cross-cutting/XC-020-link-the-store-to-its-payout-address-on-base.md) | Link the store to its payout address on Base | P2 | S | cross-cutting | completed | APP-001, MON-004, XC-019, MON-018 | — | — | — |
 | [XC-021](./cross-cutting/XC-021-remove-dead-desktop-paths.md) | Remove dead desktop paths | P2 | S | cross-cutting | completed | APP-001, APP-004, APP-020 | — | — | — |
 | [XC-023](./cross-cutting/XC-023-detect-installed-cli-drift-from-dev-source.md) | Detect when the installed lore CLI has drifted from the checked-out source | P2 | S | cross-cutting | completed | MON-006 | — | — | — |
+| [APP-077](./desktop-app/APP-077-make-owner-actions-and-turns-easier-to-scan.md) | Make owner actions and turns easier to scan | P2 | S | desktop-app | completed | APP-050, APP-075 | — | — | — |
 | [MON-001](./monetization/MON-001-cloudflare-gateway-deployment-guide.md) | Write a deployment guide for the Cloudflare Tunnel / Monetization Gateway path | P2 | L | monetization | obsolete | — | — | — | — |
 | [MON-014](./monetization/MON-014-keep-long-running-paid-tool-calls-alive-through-the-bridge.md) | Keep long-running paid tool calls alive through the bridge | P2 | S | monetization | obsolete | MON-007, MCP-003 | — | — | — |
 | [APP-074](./desktop-app/APP-074-simplify-the-shape-card.md) | Simplify the shape card | P3 | S | desktop-app | obsolete | APP-052, APP-022 | — | — | — |

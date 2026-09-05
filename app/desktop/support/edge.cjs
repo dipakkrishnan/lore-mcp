@@ -181,6 +181,7 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         check("Done closes the card and echoes the owner", !(await js(`Boolean(document.querySelector("#request form"))`)) && await js(`document.querySelector("#log").textContent.endsWith("Done")`));
         // Question cards: the agent's recommended option starts selected and wears a chip; no options means one text field;
         // the card lands below the sticky header; a card waiting in another thread names itself in the locked composer.
+        await js(`window.__lore.openTask("capture")`);
         await js(`window.__lore.preview({ type: "question", id: "preview-q", task: null, questions: [{ question: "What should a publication cost?", header: "Price", multiSelect: false, options: [{ label: "$0.05", description: "Higher", recommended: false }, { label: "$0.01", description: "Low first price", recommended: true }] }, { question: "Paste your payout address.", header: "Payout", multiSelect: false, options: [], format: "evm_address" }] })`);
         check("the model's recommended option starts selected and is chipped", await js(`document.querySelector("#request input:checked")?.value`) === "$0.01" && await js(`document.querySelector("#request .choice:has(input:checked)").textContent`) === "$0.01RecommendedLow first price");
         check("a question with no options is one text field", await js(`document.querySelectorAll("#request fieldset")[1].querySelectorAll("input").length`) === 1);
@@ -192,6 +193,9 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         await js(`document.querySelectorAll("#request .other-answer")[1].value = "0x0c270534cfcecc9224edb903ef5dd70410d08166"; document.querySelector("#request form").requestSubmit()`);
         await sleep(200);
         check("the echo labels and shortens the address", await js(`document.querySelector("#log").textContent.endsWith("$0.01 · Payout: 0x0c27…8166")`));
+        await js(`window.__lore.event({ type: "message", task: "capture", text: "Ready." })`);
+        check("owner turns are right-aligned bubbles while Lore stays open", await js(`(() => { const owner = document.querySelector("#log .line.owner"); const bubble = owner?.querySelector("p"); const lore = document.querySelector("#log .line:not(.owner) .md"); return Boolean(owner && bubble && lore) && getComputedStyle(owner).justifyContent === "flex-end" && getComputedStyle(bubble).backgroundColor !== "rgba(0, 0, 0, 0)" && getComputedStyle(lore).backgroundColor === "rgba(0, 0, 0, 0)"; })()`));
+        await shot("conversation-bubble");
         await js(`window.__lore.event({ type: "working", task: "deploy", active: true }); window.__lore.preview({ type: "open", id: "preview-wait", task: "deploy", title: "Get a wallet", url: "https://www.coinbase.com/wallet", note: "1. Create new wallet." })`);
         await sleep(200);
         check("a card waiting in another thread replaces the composer with a row that opens it", await js(`document.querySelector("#composer").hidden`) && await js(`document.querySelector(".composer-wait").textContent`) === "Lore is waiting on you in Open your store.Open");
@@ -231,6 +235,11 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         // Fix 1, technical: a failing CLI call on Memories surfaces as an attention notice instead of vanishing.
         await js(`window.__lore.show("memories")`);
         await waitFor(`document.querySelectorAll("#content .task-link").length >= 1`);
+        await js(`document.querySelector("#content .task-link").click()`);
+        await waitFor(`document.querySelector(".sheet")`);
+        check("memory actions pair distinct icons with their text labels", await js(`(() => { const buttons = [...document.querySelectorAll(".sheet .btn.quiet")]; const icons = buttons.map((button) => button.querySelector("svg[aria-hidden=true]")?.innerHTML); return buttons.length === 3 && new Set(icons).size === 3 && buttons.every((button) => ["Rename", "Edit", "Draft for sale"].includes(button.textContent)); })()`));
+        await shot("memory-actions");
+        await js(`document.querySelector(".sheet .icon-btn").click()`);
         chmodSync(join(process.env.LORE_HOME, "lore.db"), 0o000);
         await js(`document.querySelector("#content .task-link").click()`);
         const shown = await waitFor(`document.querySelector("#status .notice.attention")`);
