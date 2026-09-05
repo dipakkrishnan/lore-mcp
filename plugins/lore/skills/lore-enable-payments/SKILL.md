@@ -30,8 +30,8 @@ having at least one.
 > owner to a terminal) and `lore push` (they press **Push** in the app; never
 > run it). Every other browser step — the wallet, the workers.dev subdomain,
 > the faucet, Basescan — goes through `open_url` with a short step title and
-> one line on what to do there; it waits for the owner and tells you whether
-> they finished, got stuck, or declined. Never paste a link into prose. If
+> a note of up to three short numbered lines; it waits for the owner and tells
+> you whether they finished, got stuck, or declined. Never paste a link into prose. If
 > `lore node deploy` stops with "not signed in to Cloudflare", call
 > `cloudflare_login` and rerun it. Default the path to the **test network**
 > (Base Sepolia); mainnet is an explicit choice the owner makes with a publication
@@ -129,14 +129,21 @@ or extension → **Receive** → network **Base** (same address across EVM chain
 what matters is receiving on Base) → **Copy**.
 
 **Needs one:** walk them through Coinbase Wallet — the self-custody app at
-`coinbase.com/wallet`. Announce the page, open it, then one step at a time:
-**Create new wallet** (passkey setup is the safer default — no phrase to
-mishandle; classic setups show a **recovery phrase**: paper backup, confirm in
-app); skip all purchases, verification, and funding — an empty wallet is the
-goal; then **Receive → Base → Copy address**.
+`coinbase.com/wallet`. Announce the page, open it, and give the steps as three
+short numbered lines: **Create new wallet** (passkey setup is the safer
+default — no phrase to mishandle; classic setups show a **recovery phrase**:
+paper backup, confirm in app); skip all purchases, verification, and funding —
+an empty wallet is the goal; then come back. Put both traps on that same
+card, one line each: the app with prices and Buy buttons is the exchange, not
+the wallet; and the wallet has one address that starts with `0x`, the same on
+Base and Ethereum, so any **Copy** next to it is the right one.
 
-Either way, the owner pastes the address here (`0x` + 40 hex, public by
-design); validate the format before using it.
+Either way, the address is its own step once the wallet exists: one question
+with no options and format `evm_address`, so the owner gets a single field
+to paste into, and the line
+"never paste a recovery phrase — Lore only wants the public address".
+Validate the format (`0x` + 40 hex) before using it; a bad paste means ask
+again, not guess.
 
 Never ask for the recovery phrase, and never accept it if pasted — that phrase
 *is* the wallet. If it lands in the conversation anyway, the wallet is

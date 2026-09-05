@@ -25,6 +25,7 @@ const log = $("#log");
 const requestSlot = $("#request");
 const search = /** @type {HTMLInputElement} */ ($("#search"));
 const mainEl = $("#main");
+const header = /** @type {HTMLElement} */ (mainEl.querySelector("header"));
 const navButtons = /** @type {HTMLButtonElement[]} */ ([...document.querySelectorAll("nav button")]);
 
 /** @typedef {"today" | "memories" | "store" | "settings"} View */
@@ -309,6 +310,11 @@ function card(rows) {
   const node = el("div", "card rows");
   node.append(...rows);
   return node;
+}
+
+/** Label and shorten a public payout address; leave ordinary answers intact. @param {string} text */
+function brief(text) {
+  return /^0x[0-9a-fA-F]{40}$/.test(text) ? `Payout: ${text.slice(0, 6)}…${text.slice(-4)}` : text;
 }
 
 /** @param {string} text @param {string} [className] */
@@ -807,7 +813,7 @@ function syncComposer() {
   input.disabled = locked;
   submit.disabled = locked;
   composer.classList.toggle("working", locked);
-  input.placeholder = locked ? (request?.current ? "Lore is waiting on your capture…" : "Lore is working…") : card ? "Or say what to change…" : detailTask ? "Reply to Lore…" : "What did you learn today?";
+  input.placeholder = locked ? (request?.current ? "Lore is waiting on your capture…" : request?.task ? `Lore is waiting on you in ${TASK_TITLES[request.task]}` : "Lore is working…") : card ? "Or say what to change…" : detailTask ? "Reply to Lore…" : "What did you learn today?";
   inputLabel.textContent = card ? "Say what to change" : detailTask ? "Reply to Lore" : "What did you learn today?";
   submit.textContent = detailTask ? "Send" : "Capture";
 }
@@ -850,7 +856,10 @@ function renderRequest(event) {
         pick.type = question.multiSelect ? "checkbox" : "radio";
         pick.name = `question-${index}`;
         pick.value = option.label;
+        const recommended = !question.multiSelect && option.recommended;
+        pick.checked = recommended;
         label.append(pick, el("span", "", option.label));
+        if (recommended) label.append(chip("Recommended"));
         if (option.description) label.append(el("small", "", option.description));
         choices.append(label);
       }
@@ -858,6 +867,12 @@ function renderRequest(event) {
       const other = el("input", "other-answer");
       other.type = "text";
       other.placeholder = "Or type your answer";
+      if (question.format === "evm_address") {
+        other.required = true;
+        other.pattern = "0x[0-9a-fA-F]{40}";
+        other.placeholder = "0x…";
+        other.title = "Paste a public address: 0x plus 40 hexadecimal characters.";
+      }
       fieldset.append(other);
       box.append(fieldset);
     }
@@ -875,7 +890,7 @@ function renderRequest(event) {
         const other = /** @type {HTMLInputElement} */ (fieldset.querySelector(".other-answer"));
         if (fieldset.dataset.question) answers[fieldset.dataset.question] = other.value.trim() || picked.join(", ");
       }
-      respond(event.id, answers, Object.values(answers).filter(Boolean).join(" · "));
+      respond(event.id, answers, Object.values(answers).filter(Boolean).map(brief).join(" · "));
     });
   } else if (event.type === "memories") {
     const list = el("div", "card pad stack");
@@ -1000,7 +1015,9 @@ function renderRequest(event) {
     // Two stages on one card: open the page, then say how it went. Only the heading and the buttons change.
     const host = new URL(event.url).hostname;
     const heading = el("p", "q", event.title);
-    box.append(heading, el("p", "hint", event.note));
+    const note = markdown(event.note);
+    note.classList.add("hint");
+    box.append(heading, note);
     const actions = el("div", "actions");
     const decline = el("button", "btn secondary sm", "Not now");
     decline.type = "button";
@@ -1015,7 +1032,7 @@ function renderRequest(event) {
       if (opened) { void respond(event.id, "done", "Done"); return; }
       opened = true;
       window.open(event.url);
-      heading.textContent = "Finish in your browser, then come back here.";
+      heading.textContent = "Come back here when you are done.";
       decline.textContent = "I got stuck";
       go.textContent = "Done";
     });
@@ -1049,13 +1066,15 @@ function renderRequest(event) {
     });
   }
   request = { id: event.id, task: event.task, box, current };
+  liveText = "";
+  renderLog();
   requestSlot.replaceChildren(box);
   agentPanel.hidden = false;
   syncComposer();
   if (view !== "today") show("today");
   for (const area of box.querySelectorAll("textarea")) fit(/** @type {HTMLTextAreaElement} */ (area));
   if (event.type === "question" || event.type === "memories" || event.type === "blueprint") {
-    mainEl.scrollTop = Math.max(0, box.getBoundingClientRect().top - mainEl.getBoundingClientRect().top + mainEl.scrollTop - 16);
+    mainEl.scrollTop = Math.max(0, box.getBoundingClientRect().top - mainEl.getBoundingClientRect().top + mainEl.scrollTop - header.offsetHeight - 16);
   } else {
     mainEl.scrollTop = mainEl.scrollHeight;
     /** @type {HTMLElement | null} */ (box.querySelector("input[type=text], input[type=password], select"))?.focus({ preventScroll: true });

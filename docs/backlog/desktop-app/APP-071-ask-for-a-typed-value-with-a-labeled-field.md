@@ -25,12 +25,11 @@ forty-character line, and its shape is only checked a turn later by the skill
 ## Proposed approach
 
 No new question kind. A question with an empty options list already renders
-the existing text field alone; the system prompt tells the agent to ask for a
-value that way, with the label in the question text. Shorten long answers in
-the echo and in reconstructed history (`agent.mjs` history()) so a pasted
-address shows as "0x0c27…8166" in the thread now and after relaunch. Format
-validation stays where it is, in the CLI's wallet check; the agent re-asks on
-its error.
+the existing text field alone. A fixed `evm_address` format applies native
+required and pattern validation before submission; arbitrary model-supplied
+patterns are not allowed. Label and shorten a valid address in the echo and
+reconstructed history (`agent.mjs` history()) so it reads
+"Payout: 0x0c27…8166" now and after relaunch.
 
 ## Acceptance criteria
 
@@ -40,4 +39,6 @@ its error.
 - [ ] The thread shows the address labeled and shortened, matching Settings.
 
 ## Notes
-Reviewed 2026-09-04: a pattern schema is unwarranted; the CLI already refuses a bad address and the agent already handles that.
+Reviewed 2026-09-04: arbitrary pattern support is unwarranted, but the fixed
+address format is a trust-boundary check: recovery phrases and truncated
+addresses must not reach the agent.
