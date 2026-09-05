@@ -180,7 +180,7 @@ type AgentStatus = {
 type OwnerQuestion = {
   question: string;
   header: string;
-  options: Array<{ label: string; description: string; recommended: boolean }>;
+  options: Array<{ label: string; description: string; recommended?: boolean }>;
   format?: "evm_address";
   multiSelect: boolean;
 };
