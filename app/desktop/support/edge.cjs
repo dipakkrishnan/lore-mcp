@@ -194,7 +194,12 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         check("the echo labels and shortens the address", await js(`document.querySelector("#log").textContent.endsWith("$0.01 · Payout: 0x0c27…8166")`));
         await js(`window.__lore.event({ type: "working", task: "deploy", active: true }); window.__lore.preview({ type: "open", id: "preview-wait", task: "deploy", title: "Get a wallet", url: "https://www.coinbase.com/wallet", note: "1. Create new wallet." })`);
         await sleep(200);
-        check("a card waiting in another thread names itself in the locked composer", await js(`document.querySelector("#capture-input").placeholder`) === "Lore is waiting on you in Open your store" && await js(`getComputedStyle(document.querySelector(".composer-actions")).display`) === "none");
+        check("a card waiting in another thread replaces the composer with a row that opens it", await js(`document.querySelector("#composer").hidden`) && await js(`document.querySelector(".composer-wait").textContent`) === "Lore is waiting on you in Open your store.Open");
+        await js(`document.querySelector(".composer-wait button").click()`);
+        await sleep(300);
+        check("Open lands in the waiting thread with its card", await js(`document.querySelector("#title").textContent`) === "Open your store" && await js(`Boolean(document.querySelector("#request form"))`));
+        await js(`document.querySelector("#task-back").click()`);
+        await sleep(200);
         await js(`window.__lore.event({ type: "dismiss", id: "preview-wait" }); window.__lore.event({ type: "working", task: "deploy", active: false })`);
         await sleep(200);
         await js(`window.__lore.preview({ type: "open", id: "preview-open-2", task: null, title: "See the payment land", url: "https://sepolia.basescan.org/address/0x1", note: "Token Transfers shows it." })`);

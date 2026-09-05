@@ -299,4 +299,4 @@ a.link-btn.glyph { width: 22px; padding: 0; justify-content: center; color: var(
 .md blockquote { margin: 0; border-left: 3px solid var(--line-strong); padding-left: 12px; color: var(--muted); }
 .md a { color: var(--accent); text-decoration: underline; }
 .md strong { color: var(--ink); }
-.composer.working .composer-actions { display: none; }
+.composer-wait .btn { margin-left: auto; }
