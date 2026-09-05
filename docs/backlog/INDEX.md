@@ -48,8 +48,6 @@ obsolete), then `priority` (P0 → P3).
 | [APP-070](./desktop-app/APP-070-let-the-owner-type-while-lore-works.md) | Let the owner type while Lore works | P2 | M | desktop-app | in-review | APP-069, APP-054 | — | — | — |
 | [APP-072](./desktop-app/APP-072-show-phase-text-that-matches-the-running-task.md) | Show phase text that matches the running task | P2 | XS | desktop-app | in-review | APP-049 | — | — | — |
 | [ONB-004](./onboarding/ONB-004-onboard-an-owner-whose-evidence-scan-finds-nothing.md) | Onboard an owner whose evidence scan finds nothing | P2 | M | onboarding | in-review | APP-041, APP-048, APP-053 | — | — | — |
-| [APP-078](./desktop-app/APP-078-give-the-sign-in-screen-the-paste-field-it-promises.md) | Give the sign-in screen the paste field it promises | P2 | S | desktop-app | in-review | — | — | — | — |
-| [APP-079](./desktop-app/APP-079-say-not-set-once-in-the-price-labels.md) | Say "Not set" once in the price labels | P2 | XS | desktop-app | in-review | APP-019 | — | — | — |
 | [APP-080](./desktop-app/APP-080-list-setup-and-publish-under-recent-runs.md) | List setup and publish under Recent runs | P2 | M | desktop-app | in-review | APP-007 | — | — | — |
 | [APP-084](./desktop-app/APP-084-show-the-real-schedule-state-under-how-often-lore-reads-them.md) | Show the real schedule state under How often Lore reads them | P2 | S | desktop-app | in-review | APP-073 | — | — | — |
 | [APP-085](./desktop-app/APP-085-surface-a-readable-error-when-a-cli-read-fails-at-launch.md) | Surface a readable error when a CLI read fails at launch | P2 | S | desktop-app | in-review | — | — | — | — |
@@ -61,7 +59,6 @@ obsolete), then `priority` (P0 → P3).
 | [XC-022](./cross-cutting/XC-022-let-a-buyer-reach-a-seller-they-were-never-introduced-to.md) | Let a buyer reach a seller they were never introduced to | P3 | L | cross-cutting | in-review | MCP-001, MON-007, XC-006 | — | "Evidence of demand: several live nodes, and a buyer who wants one they were not handed" | — |
 | [APP-081](./desktop-app/APP-081-stop-calling-a-missing-store-setting-up.md) | Stop calling a missing store "Setting up" | P3 | XS | desktop-app | in-review | APP-049 | — | — | — |
 | [APP-082](./desktop-app/APP-082-hide-the-run-cost-from-subscription-owners.md) | Hide the run cost from subscription owners | P3 | XS | desktop-app | in-review | APP-007 | — | — | — |
-| [APP-083](./desktop-app/APP-083-keep-memory-ids-out-of-the-publish-thread.md) | Keep memory ids out of the publish thread | P3 | XS | desktop-app | in-review | APP-023 | — | — | — |
 | [APP-086](./desktop-app/APP-086-show-attached-file-names-in-the-capture-thread.md) | Show attached file names in the capture thread | P3 | XS | desktop-app | in-review | APP-003 | — | — | — |
 | [APP-010](./desktop-app/APP-010-constrain-native-read-to-owner-selected-files.md) | Constrain native read to owner-selected files | P1 | M | desktop-app | ready | APP-003, APP-005, APP-009 | — | — | — |
 | [APP-019](./desktop-app/APP-019-price-content-natively-in-the-desktop-app.md) | Set the global publication price in Desktop | P1 | M | desktop-app | ready | MON-009, MON-013, APP-006, APP-035, XC-020 | — | — | — |
@@ -133,6 +130,8 @@ obsolete), then `priority` (P0 → P3).
 | [XC-010](./cross-cutting/XC-010-require-a-backlog-id-in-every-pr-title.md) | Require a backlog id in every pull request title | P1 | S | cross-cutting | completed | XC-004, XC-007, XC-011, XC-014 | — | — | — |
 | [XC-012](./cross-cutting/XC-012-gate-pull-requests-on-a-lint-and-format-check.md) | Gate pull requests on a lint and format check | P1 | S | cross-cutting | completed | XC-003, XC-004 | — | — | — |
 | [XC-014](./cross-cutting/XC-014-require-ci-status-checks-to-block-merge.md) | Require the CI status checks to actually block merging to main | P1 | S | cross-cutting | completed | XC-004, XC-009, XC-010, XC-011, XC-012 | — | "Repository admin access to configure branch protection or a ruleset — the current backlog author has push but not admin" | — |
+| [APP-078](./desktop-app/APP-078-give-the-sign-in-screen-the-paste-field-it-promises.md) | Give the sign-in screen the paste field it promises | P2 | S | desktop-app | completed | — | — | — | — |
+| [APP-079](./desktop-app/APP-079-say-not-set-once-in-the-price-labels.md) | Say "Not set" once in the price labels | P2 | XS | desktop-app | completed | APP-019 | — | — | — |
 | [APP-012](./desktop-app/APP-012-give-sections-a-readable-vertical-rhythm.md) | Give sections a readable vertical rhythm | P2 | S | desktop-app | completed | APP-009, APP-011 | — | — | — |
 | [APP-025](./desktop-app/APP-025-sign-out-from-the-sidebar-account-chip.md) | Sign out from the sidebar account chip | P2 | XS | desktop-app | completed | APP-009, APP-013 | — | — | — |
 | [APP-031](./desktop-app/APP-031-make-the-store-links-visible.md) | Make the store's outbound links visible | P2 | XS | desktop-app | completed | APP-009, XC-020, APP-019 | — | — | — |
@@ -151,6 +150,7 @@ obsolete), then `priority` (P0 → P3).
 | [XC-021](./cross-cutting/XC-021-remove-dead-desktop-paths.md) | Remove dead desktop paths | P2 | S | cross-cutting | completed | APP-001, APP-004, APP-020 | — | — | — |
 | [XC-023](./cross-cutting/XC-023-detect-installed-cli-drift-from-dev-source.md) | Detect when the installed lore CLI has drifted from the checked-out source | P2 | S | cross-cutting | completed | MON-006 | — | — | — |
 | [APP-077](./desktop-app/APP-077-make-owner-actions-and-turns-easier-to-scan.md) | Make owner actions and turns easier to scan | P2 | S | desktop-app | completed | APP-050, APP-075 | — | — | — |
+| [APP-083](./desktop-app/APP-083-keep-memory-ids-out-of-the-publish-thread.md) | Keep memory ids out of the publish thread | P3 | XS | desktop-app | completed | APP-023 | — | — | — |
 | [MON-001](./monetization/MON-001-cloudflare-gateway-deployment-guide.md) | Write a deployment guide for the Cloudflare Tunnel / Monetization Gateway path | P2 | L | monetization | obsolete | — | — | — | — |
 | [MON-014](./monetization/MON-014-keep-long-running-paid-tool-calls-alive-through-the-bridge.md) | Keep long-running paid tool calls alive through the bridge | P2 | S | monetization | obsolete | MON-007, MCP-003 | — | — | — |
 | [APP-074](./desktop-app/APP-074-simplify-the-shape-card.md) | Simplify the shape card | P3 | S | desktop-app | obsolete | APP-052, APP-022 | — | — | — |
