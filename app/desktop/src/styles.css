@@ -131,9 +131,11 @@ nav .count { margin-left: auto; font-family: var(--mono); font-size: 12px; color
 main:focus { outline: none; }
 main { flex: 1; min-width: 0; overflow: auto; padding: 0 44px 26px; display: flex; flex-direction: column; gap: 30px; }
 #content { display: flex; flex-direction: column; gap: 30px; }
-main header { display: flex; flex-direction: column; gap: 4px; position: sticky; top: 0; z-index: 1; padding-top: 28px; background: var(--bg); }
+main header { display: grid; grid-template-columns: minmax(0, 1fr) auto; row-gap: 4px; column-gap: 16px; position: sticky; top: 0; z-index: 1; padding-top: 28px; background: var(--bg); }
+main header > :not(#add-memory) { grid-column: 1; }
 .task-actions { display: flex; align-items: center; justify-content: space-between; }
-#add-memory { margin-left: auto; }
+/* Beside the title, not above it: the button sits in its own column, centered on the eyebrow and title. */
+#add-memory { grid-column: 2; grid-row: 2 / -1; align-self: center; }
 .back { align-self: flex-start; color: var(--accent); font-size: 13px; margin-bottom: 4px; }
 .back:hover { text-decoration: underline; }
 .eyebrow { font-size: 12px; color: var(--muted); letter-spacing: 0.02em; }

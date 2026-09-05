@@ -1,5 +1,5 @@
 const assert = require("node:assert/strict");
-const { access, constants, mkdtemp, readFile, rm, symlink, writeFile } = require("node:fs/promises");
+const { access, constants, mkdtemp, readFile, realpath, rm, symlink, writeFile } = require("node:fs/promises");
 const { homedir, tmpdir } = require("node:os");
 const { join } = require("node:path");
 const { spawnSync } = require("node:child_process");
@@ -36,6 +36,10 @@ test("useRuntime runs the packaged binary instead of uv", async () => {
     useRuntime(bin);
     const state = await readState(directory);
     assert.equal(state.version, 1);
+    // The packaged CLI runs from the Lore home, never from wherever the app was launched.
+    await writeFile(bin, "#!/bin/sh\nprintf '{\"cwd\":\"%s\"}' \"$PWD\"\n", { mode: 0o755 });
+    const { lore } = require("../src/state.cjs");
+    assert.equal(JSON.parse(await lore(directory, [])).cwd, await realpath(directory));
   } finally {
     useRuntime();
     await rm(directory, { recursive: true });

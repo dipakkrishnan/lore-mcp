@@ -10,7 +10,7 @@ blockers: []
 dependencies: []
 github_issue: null
 created: 2026-09-04
-updated: 2026-09-04
+updated: 2026-09-05
 ---
 
 ## Problem
@@ -33,3 +33,8 @@ read says "Reading…", the rest keeps "Looking through your Lore…". Two lines
 
 ## Notes
 
+- 2026-09-05 dogfood, store open: after "Funded — now I'll run the actual
+  payment." the line under it read "Setting up your store…", the deploy
+  thread's default idle text (`renderer.js`, the per-task fallback in
+  `onEvent`), while the agent was running the test payment against a store
+  that was already live. The fallback is per thread, not per phase.

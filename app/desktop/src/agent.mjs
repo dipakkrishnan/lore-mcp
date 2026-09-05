@@ -617,7 +617,7 @@ export class LoreAgent {
     return defineTool({
       name: "open_url",
       label: "Open a page for the owner",
-      description: "Open one web page in the owner's browser for a step only they can do there: a wallet, the workers.dev subdomain, a faucet, Basescan, the Coinbase developer portal. Give the step a short title and a note of up to three short numbered lines on what to do there. Waits until the owner comes back and returns whether they finished, got stuck, or declined.",
+      description: "Open one web page in the owner's browser for a step only they can do there: a wallet, the workers.dev subdomain, a faucet, Basescan, the Coinbase developer portal. Give the step a short title and a note of up to four short lines on what to do there. Waits until the owner comes back and returns whether they finished, got stuck, or declined.",
       parameters: Type.Object({ title: Type.String(), url: Type.String(), note: Type.String() }),
       execute: async (_id, page) => {
         const text = await this.#attended(page.title, () => this.options.openUrl(page));
