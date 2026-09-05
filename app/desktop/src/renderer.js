@@ -856,7 +856,7 @@ function renderRequest(event) {
         pick.type = question.multiSelect ? "checkbox" : "radio";
         pick.name = `question-${index}`;
         pick.value = option.label;
-        const recommended = !question.multiSelect && option.recommended;
+        const recommended = !question.multiSelect && option.recommended === true;
         pick.checked = recommended;
         label.append(pick, el("span", "", option.label));
         if (recommended) label.append(chip("Recommended"));
