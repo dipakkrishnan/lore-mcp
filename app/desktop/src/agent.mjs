@@ -27,7 +27,8 @@ const TASK_STATES = new Set(["needs_you", "working", "stopped", "done"]);
 const PERSONAS = ["storyteller", "schoolteacher", "professor", "executive", "sage"];
 const AXES = ["chronological", "theme", "project", "knowledge"];
 const CLOSED = "Lore was closed before this finished.";
-export const MODELS = ["anthropic/claude-opus-4-8", "anthropic/claude-sonnet-5", "openai-codex/gpt-5.6-luna", "openai/gpt-5.6-luna"];
+const LUNA_MODELS = ["openai-codex/gpt-5.6-luna", "openai/gpt-5.6-luna"];
+export const MODELS = ["anthropic/claude-opus-4-8", "anthropic/claude-sonnet-5", ...LUNA_MODELS];
 const MAX_TURNS = 60;
 const SANDBOX_TMPDIR = "/tmp/claude";
 /** @type {Partial<Record<AgentTask, string[]>>} Home-relative directories outside Lore that a task's commands must write. */
@@ -37,6 +38,24 @@ const OWNER_DIRS = {
 };
 const CAPPED = "That reply took more steps than Lore allows at once, so it paused. Say continue to keep going.";
 const KEY_REJECTED = /\b401\b|authentication_error|invalid[_ -](?:x-)?api[_ -]?key|incorrect api key/i;
+
+/** @param {import("@earendil-works/pi-coding-agent").ModelRuntime} models @param {string} text */
+export async function nameRun(models, text) {
+  try {
+    const signal = AbortSignal.timeout(5000);
+    const { scopedModels } = await resolveModelScopeWithDiagnostics(LUNA_MODELS, models, { signal });
+    const model = scopedModels.at(0)?.model;
+    if (!model) return { title: "", cost: 0 };
+    const reply = await models.completeSimple(model, {
+      systemPrompt: "Give this conversation a warm, specific 2–6 word title. Return only the title.",
+      messages: [{ role: "user", content: text.slice(0, 2000), timestamp: Date.now() }]
+    }, { maxTokens: 24, reasoning: "minimal", signal });
+    const block = reply.content.find((item) => item.type === "text");
+    return { title: block?.type === "text" ? block.text.trim().split("\n")[0].slice(0, 80) : "", cost: reply.usage.cost.total };
+  } catch {
+    return { title: "", cost: 0 };
+  }
+}
 
 /** @param {string} loreHome @param {AgentTask} task @param {string} [binDir] */
 export function bashSandboxPolicy(loreHome, task, binDir) {
@@ -373,6 +392,7 @@ export class LoreAgent {
     // app dies mid-turn, the row is conceded instead of vanishing. Recording
     // must never be able to break a capture, so failures here are swallowed.
     const jobId = task === "capture" ? await this.options.job?.start("capture").catch(() => null) ?? null : null;
+    const naming = jobId === null ? Promise.resolve({ title: "", cost: 0 }) : nameRun(this.models, text);
     if (jobId !== null) this.options.emit({ type: "changed" });
     /** @type {[string, string]} */
     let outcome = ["failed", "failed"];
@@ -398,7 +418,11 @@ export class LoreAgent {
       this.#busy = false;
       this.#activeTask = null;
       // One close covering every way a turn ends: finished, thrown, or capped.
-      if (jobId !== null) await this.options.job?.finish(jobId, outcome[0], outcome[1], this.#costUsd || null).catch(() => {});
+      if (jobId !== null) {
+        const named = await naming;
+        this.#costUsd += named.cost;
+        await this.options.job?.finish(jobId, outcome[0], outcome[1], named.title, this.#costUsd || null).catch(() => {});
+      }
       this.options.emit({ type: "working", active: false, task });
     }
   }

@@ -356,7 +356,7 @@ function recentRuns(s) {
   return section("Recent runs", card(items.map((item) => {
     const detail = [item.summary, when(item.started_at), typeof item.cost_usd === "number" ? money.format(item.cost_usd) : ""].filter(Boolean);
     return row(
-      RUN_LABELS[item.kind] ?? item.kind,
+      item.title?.trim() || RUN_LABELS[item.kind] || item.kind,
       detail.join(" · "),
       chip(RUN_STATES[item.status] ?? item.status, item.status === "running" ? "ok" : item.status === "succeeded" ? "" : "attention")
     );

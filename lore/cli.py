@@ -163,6 +163,7 @@ def parser() -> argparse.ArgumentParser:
     # rejects free text at the process boundary, before any Python runs, so an
     # error message can never be interpolated into owner history from a shell.
     job_finish.add_argument("--summary", choices=tuple(JOB_SUMMARIES), default="")
+    job_finish.add_argument("--title", default="")
     job_finish.add_argument("--count", type=int)
     job_finish.add_argument("--cost-usd", type=float)
     job_commands.add_parser("reap", help="concede jobs whose liveness claim expired")
@@ -520,9 +521,10 @@ def job(args: argparse.Namespace) -> int:
     Deliberately not behind `_owner_action`: this writes nothing disclosable
     and reads no memory content, and its two most important callers — the
     synthesis LaunchAgent's pre-run hook and the desktop app — are both
-    structurally unattended. Its whole input surface is a closed vocabulary of
-    kinds, statuses, and summary codes plus two numbers, so an unattended
-    caller's worst case is a wrong row in the owner's own local history.
+    structurally unattended. Except for one bounded local display title, its
+    input is a closed vocabulary of kinds, statuses, and summary codes plus two
+    numbers, so an unattended caller's worst case is a wrong row in the
+    owner's own local history.
     """
     with Store() as store:
         if args.job_command == "start":
@@ -535,6 +537,7 @@ def job(args: argparse.Namespace) -> int:
             store.finish_job(
                 args.id,
                 args.status,
+                title=args.title,
                 summary=args.summary,
                 count=args.count,
                 cost_usd=args.cost_usd,

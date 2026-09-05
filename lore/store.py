@@ -240,6 +240,7 @@ class OwnerJob(BaseModel):
     id: int
     kind: JobKind
     status: JobStatus
+    title: str = Field(default="", max_length=80)
     summary: str = ""
     count: int | None = None
     cost_usd: float | None = None
@@ -378,6 +379,7 @@ class Store:
                     CHECK(kind IN ('capture','synthesis','deploy','push')),
                 status TEXT NOT NULL DEFAULT 'running'
                     CHECK(status IN ('running','succeeded','failed','incomplete')),
+                title TEXT NOT NULL DEFAULT '' CHECK(length(title) <= 80),
                 summary TEXT NOT NULL DEFAULT '',
                 count INTEGER,
                 cost_usd REAL,
@@ -414,6 +416,13 @@ class Store:
                 self.db.execute(
                     f"ALTER TABLE publications ADD COLUMN {column} TEXT NOT NULL DEFAULT ''"
                 )
+        job_columns = {
+            row["name"] for row in self.db.execute("PRAGMA table_info(owner_jobs)")
+        }
+        if "title" not in job_columns:
+            self.db.execute(
+                "ALTER TABLE owner_jobs ADD COLUMN title TEXT NOT NULL DEFAULT ''"
+            )
         # Mint public ids for rows that predate them, then enforce uniqueness.
         for row in self.db.execute(
             "SELECT id FROM publications WHERE public_id=''"
@@ -823,7 +832,7 @@ class Store:
     # --- Owner job history -------------------------------------------------
     # The columns a job read may select. `deadline_at` and `owner_pid` are
     # excluded on purpose: they are liveness plumbing, and never leave here.
-    _JOB_COLUMNS = "id,kind,status,summary,count,cost_usd,started_at,finished_at"
+    _JOB_COLUMNS = "id,kind,status,title,summary,count,cost_usd,started_at,finished_at"
 
     def start_job(
         self,
@@ -866,6 +875,7 @@ class Store:
         job_id: int,
         status: str,
         *,
+        title: str = "",
         summary: str = "",
         count: int | None = None,
         cost_usd: float | None = None,
@@ -880,11 +890,15 @@ class Store:
             raise ValueError(f"invalid job status: {status}")
         if summary not in JOB_SUMMARIES:
             raise ValueError(f"invalid job summary: {summary}")
+        title = title.strip()
+        if len(title) > 80:
+            raise ValueError("job title cannot exceed 80 characters")
         cursor = self.db.execute(
-            "UPDATE owner_jobs SET status=?,summary=?,count=?,cost_usd=?,finished_at=? "
+            "UPDATE owner_jobs SET status=?,title=?,summary=?,count=?,cost_usd=?,finished_at=? "
             "WHERE id=? AND status IN ('running','incomplete')",
             (
                 status,
+                title,
                 summary,
                 count,
                 cost_usd,
