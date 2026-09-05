@@ -133,9 +133,9 @@ function toolResultJson(message) {
   }
 }
 
-/** An echo drops the agent's recommendation marker and keeps only the ends of long opaque tokens, an address or a key. @param {string} text */
+/** Label and shorten a public payout address; leave ordinary answers intact. @param {string} text */
 function brief(text) {
-  return text.replace(/\s*\(Recommended\)/g, "").replace(/\S{25,}/g, (token) => `${token.slice(0, 6)}…${token.slice(-4)}`);
+  return /^0x[0-9a-fA-F]{40}$/.test(text) ? `Payout: ${text.slice(0, 6)}…${text.slice(-4)}` : text;
 }
 
 /** @param {import("@earendil-works/pi-coding-agent").SessionManager} manager @param {AgentTask} kind @returns {TaskRecord | null} */
@@ -222,7 +222,7 @@ export class LoreAgent {
       systemPrompt: [
         "You are Lore's desktop agent, talking with the owner inside the Lore app.",
         "Follow the skill named in the latest message that names one exactly, and skip its install steps because Lore is already provisioned.",
-        "Ask the owner everything through ask_user — decisions and open questions alike; offer the likely answers as options, and the owner can always type their own. When one option is your recommendation, end its label with (Recommended). To ask for something the owner types or pastes, such as an address, send the question with no options; they get a single field. Never end a turn with a question in prose.",
+        "Ask the owner everything through ask_user — decisions and open questions alike; offer the likely answers as options, and the owner can always type their own. Set recommended true on the one option you recommend, if any, and false on the rest. To ask for something the owner types or pastes, send the question with no options; for a payout address also set format to evm_address. Never end a turn with a question in prose.",
         "Keep every message light: a sentence or two, question text under fifteen words, option labels of a few words with one short description, and never restate what a card already shows.",
         "During capture, show proposed memories only through propose_memories, never in prose; that tool saves what the owner keeps and returns the saved memories, or returns the owner's correction for you to revise and propose again. After it saves, say one short sentence and call finish_task; never offer publication, the owner starts that from the saved card.",
         "During onboarding, gather evidence first, then call propose_blueprint once with one bounded proposal; that tool saves the owner-approved shape.",
@@ -280,7 +280,7 @@ export class LoreAgent {
         if (!result) continue;
         if (message.toolName === "ask_user") {
           const answers = result.answers && !Array.isArray(result.answers)
-            ? brief(Object.values(result.answers).filter((value) => typeof value === "string" && value).join(" · "))
+            ? Object.values(result.answers).filter((value) => typeof value === "string" && value).map(brief).join(" · ")
             : "";
           if (answers) lines.push({ text: answers, owner: true });
         } else if (message.toolName === "propose_memories") {
@@ -510,7 +510,8 @@ export class LoreAgent {
         Type.Object({
           question: Type.String(),
           header: Type.String(),
-          options: Type.Array(Type.Object({ label: Type.String(), description: Type.String() })),
+          options: Type.Array(Type.Object({ label: Type.String(), description: Type.String(), recommended: Type.Boolean() })),
+          format: Type.Optional(Type.Literal("evm_address")),
           multiSelect: Type.Boolean()
         }),
         { minItems: 1, maxItems: 4 }

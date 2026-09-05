@@ -139,7 +139,8 @@ the wallet; and the wallet has one address that starts with `0x`, the same on
 Base and Ethereum, so any **Copy** next to it is the right one.
 
 Either way, the address is its own step once the wallet exists: one question
-with no options, so the owner gets a single field to paste into, and the line
+with no options and format `evm_address`, so the owner gets a single field
+to paste into, and the line
 "never paste a recovery phrase — Lore only wants the public address".
 Validate the format (`0x` + 40 hex) before using it; a bad paste means ask
 again, not guess.

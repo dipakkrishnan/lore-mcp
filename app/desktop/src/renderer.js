@@ -77,7 +77,6 @@ const NETWORKS = { "eip155:8453": "Base", "eip155:84532": "Base Sepolia, test ne
 const TEST_NETWORK = "eip155:84532";
 const EXPLORERS = { "eip155:8453": "https://basescan.org", "eip155:84532": "https://sepolia.basescan.org" };
 const CHANGE_PRICE = "I want to change the price on my store. Set the new price and redeploy so buyers pay the new amount.";
-const RECOMMENDED = /\s*\(Recommended\)\s*$/;
 const REAL_MONEY = "I'm ready to switch my store to real money.";
 const PLAY_MONEY = "Put my store back on the test network.";
 const money = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" });
@@ -313,9 +312,9 @@ function card(rows) {
   return node;
 }
 
-/** An echo drops the agent's recommendation marker and keeps only the ends of long opaque tokens, an address or a key. @param {string} text */
+/** Label and shorten a public payout address; leave ordinary answers intact. @param {string} text */
 function brief(text) {
-  return text.replace(/\s*\(Recommended\)/g, "").replace(/\S{25,}/g, (token) => `${token.slice(0, 6)}…${token.slice(-4)}`);
+  return /^0x[0-9a-fA-F]{40}$/.test(text) ? `Payout: ${text.slice(0, 6)}…${text.slice(-4)}` : text;
 }
 
 /** @param {string} text @param {string} [className] */
@@ -857,10 +856,9 @@ function renderRequest(event) {
         pick.type = question.multiSelect ? "checkbox" : "radio";
         pick.name = `question-${index}`;
         pick.value = option.label;
-        // The agent marks its recommendation in the label; that one starts selected so Continue alone answers.
-        const recommended = !question.multiSelect && RECOMMENDED.test(option.label);
+        const recommended = !question.multiSelect && option.recommended;
         pick.checked = recommended;
-        label.append(pick, el("span", "", option.label.replace(RECOMMENDED, "")));
+        label.append(pick, el("span", "", option.label));
         if (recommended) label.append(chip("Recommended"));
         if (option.description) label.append(el("small", "", option.description));
         choices.append(label);
@@ -869,6 +867,12 @@ function renderRequest(event) {
       const other = el("input", "other-answer");
       other.type = "text";
       other.placeholder = "Or type your answer";
+      if (question.format === "evm_address") {
+        other.required = true;
+        other.pattern = "0x[0-9a-fA-F]{40}";
+        other.placeholder = "0x…";
+        other.title = "Paste a public address: 0x plus 40 hexadecimal characters.";
+      }
       fieldset.append(other);
       box.append(fieldset);
     }
@@ -886,7 +890,7 @@ function renderRequest(event) {
         const other = /** @type {HTMLInputElement} */ (fieldset.querySelector(".other-answer"));
         if (fieldset.dataset.question) answers[fieldset.dataset.question] = other.value.trim() || picked.join(", ");
       }
-      respond(event.id, answers, brief(Object.values(answers).filter(Boolean).join(" · ")));
+      respond(event.id, answers, Object.values(answers).filter(Boolean).map(brief).join(" · "));
     });
   } else if (event.type === "memories") {
     const list = el("div", "card pad stack");
