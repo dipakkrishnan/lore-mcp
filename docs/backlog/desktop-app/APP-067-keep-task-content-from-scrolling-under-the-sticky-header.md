@@ -10,7 +10,7 @@ blockers: []
 dependencies: []
 github_issue: null
 created: 2026-09-04
-updated: 2026-09-04
+updated: 2026-09-05
 ---
 
 ## Problem
@@ -41,3 +41,5 @@ height when scrolling a card into view.
 
 Seen on both the blueprint-review card and the interview card in the
 `dogfood:new` pass.
+
+- 2026-09-05 browser-driven dogfood: still reproduces on the packaged build. The sticky header is 108px with a background, and a one-line strip of scrolled thread text shows at its bottom edge under "Set up your Lore", "Capture a memory" and "Publish from your Lore" (screenshots `20-dogfood-setup-start.png`, `22-dogfood-setup-shape-accepted.png`, `31-dogfood-capture-proposal.png`).
