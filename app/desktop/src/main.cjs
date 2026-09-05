@@ -49,10 +49,10 @@ function registerIpc(loreHome) {
   ipcMain.handle("setup:retry", () => (agent ? undefined : boot(loreHome)));
   ipcMain.handle("agent:status", () => agent?.status() ?? { credentials: [] });
   ipcMain.handle("agent:prompt", (_event, input) => {
-    if (!input || typeof input.text !== "string" || input.text.length > 100_000 || !TASKS.has(input.task) || (input.from !== undefined && !TASKS.has(input.from))) {
+    if (!input || typeof input.text !== "string" || input.text.length > 100_000 || !TASKS.has(input.task) || (input.from !== undefined && !TASKS.has(input.from)) || (input.memory !== undefined && !Number.isInteger(input.memory))) {
       throw new Error("Invalid prompt");
     }
-    return ready().prompt(input.text, input.task, input.from);
+    return ready().prompt(input.text, input.task, input.from, input.memory);
   });
   ipcMain.handle("agent:history", (_event, task) => {
     if (!TASKS.has(task)) throw new Error("Invalid task");
