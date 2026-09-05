@@ -32,7 +32,6 @@ obsolete), then `priority` (P0 → P3).
 | [APP-073](./desktop-app/APP-073-keep-a-dogfood-sandbox-off-the-owners-live-node.md) | Keep a dogfood sandbox off the owner's live node | P1 | S | desktop-app | in-review | APP-038, MON-019, XC-018 | — | — | — |
 | [XC-024](./cross-cutting/XC-024-walk-a-first-time-owner-to-a-payout-address.md) | Walk a first-time owner to a payout address | P1 | S | cross-cutting | in-review | APP-056, APP-071, APP-036, XC-025 | — | — | — |
 | [XC-025](./cross-cutting/XC-025-speak-to-the-owner-in-outcomes-not-infrastructure.md) | Speak to the owner in outcomes, not infrastructure | P1 | S | cross-cutting | in-review | APP-055, XC-024, XC-015 | — | — | — |
-| [APP-076](./desktop-app/APP-076-submit-each-publication-decision-once.md) | Submit each publication decision once | P1 | XS | desktop-app | in-review | APP-047, APP-055 | — | — | — |
 | [APP-035](./desktop-app/APP-035-expose-optional-paid-answers-through-an-unforgeable-owner-gate.md) | Enable optional paid answers through a Desktop owner gate | P2 | M | desktop-app | in-review | APP-006, APP-008, APP-019, APP-030, XC-017, MCP-003, MON-017 | MON-017 | "Publication-only desktop dogfood shows paid answers are worth surfacing" | — |
 | [APP-039](./desktop-app/APP-039-agent-status-ipc-handler-missing-at-launch.md) | agent:status IPC handler is missing, logged as an error on every launch | P2 | S | desktop-app | in-review | APP-038 | — | — | — |
 | [APP-044](./desktop-app/APP-044-reuse-electrons-node-runtime-for-desktop-deploys.md) | Reuse Electron's Node runtime for desktop deploys | P2 | S | desktop-app | in-review | APP-005, APP-036 | — | — | — |
@@ -92,6 +91,7 @@ obsolete), then `priority` (P0 → P3).
 | [APP-029](./desktop-app/APP-029-one-live-input-at-a-time.md) | One live input at a time — the card or the composer, never both | P0 | S | desktop-app | completed | APP-016, APP-020, APP-028 | — | — | — |
 | [APP-032](./desktop-app/APP-032-approval-drafts-render-where-the-owner-is.md) | Approval drafts render where the owner is | P0 | S | desktop-app | completed | APP-020, APP-023, APP-006 | — | — | — |
 | [STO-001](./store-import/STO-001-private-by-default-and-publications-table.md) | Private-by-default memories and a separate publications table | P0 | M | store-import | completed | CLI-001, ONB-001, XC-001, XC-002 | — | — | [#6](https://github.com/dipakkrishnan/lore-mcp/issues/6) |
+| [APP-076](./desktop-app/APP-076-submit-each-publication-decision-once.md) | Submit each publication decision once | P1 | XS | desktop-app | completed | APP-047, APP-055 | — | — | — |
 | [APP-001](./desktop-app/APP-001-expose-one-desktop-state-snapshot.md) | Expose one machine-readable desktop state snapshot | P1 | M | desktop-app | completed | MON-013, MON-015, STO-001 | — | — | — |
 | [APP-002](./desktop-app/APP-002-build-the-minimal-read-only-electron-shell.md) | Build the minimal read-only Electron shell | P1 | M | desktop-app | completed | APP-001 | APP-001 | — | — |
 | [APP-003](./desktop-app/APP-003-embed-pi-behind-one-capture-input.md) | Embed Pi behind one desktop capture input | P1 | M | desktop-app | completed | APP-002, CAP-001 | APP-002 | — | — |

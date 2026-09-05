@@ -4,13 +4,13 @@ title: Submit each publication decision once
 priority: P1
 effort: XS
 component: desktop-app
-status: in-review
+status: completed
 related: [APP-047, APP-055]
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-09-04
-updated: 2026-09-04
+updated: 2026-09-05
 ---
 
 ## Problem
@@ -27,9 +27,13 @@ same card remains after the decision completes.
 
 ## Acceptance criteria
 
-- [ ] A rapid double click sends one publication decision.
-- [ ] A failed decision leaves the card actionable for another try.
+- [x] A rapid double click sends one publication decision.
+- [x] A failed decision leaves the card actionable for another try.
 
 ## Notes
 
 Observed in the existing-user Desktop log after acting on a publication card.
+Completed 2026-09-05: both controls disable before the IPC call; a card that
+remains after an error has both controls restored. The seller edge scenario
+rapidly clicks Approve twice and observes one successful decision with no
+attention notice.
