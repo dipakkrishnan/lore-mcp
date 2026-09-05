@@ -208,9 +208,9 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         check("Not now closes the card and echoes the owner", !(await js(`Boolean(document.querySelector("#request form"))`)) && await js(`document.querySelector("#log").textContent.endsWith("Not now")`));
 
         // Fix 1, seller: approve the last draft with no store. The confirmation must be visible on the Today root.
-        await js(`[...document.querySelectorAll("#content button")].find((b) => b.textContent === "Approve").click()`);
+        await js(`{ const b = [...document.querySelectorAll("#content button")].find((x) => x.textContent === "Approve"); b.click(); b.click(); }`);
         await waitFor(`document.querySelectorAll("#content .draft-title").length === 1`);
-        check("approved the edited draft", await js(`document.querySelectorAll("#content .draft-title").length`) === 1);
+        check("a double click submits one edited decision", await js(`document.querySelectorAll("#content .draft-title").length`) === 1 && !(await js(`document.querySelector("#status .notice.attention")`)));
         await js(`[...document.querySelectorAll("#content button")].find((b) => b.textContent === "Skip").click()`);
         await waitFor(`document.querySelector("#status .notice")`);
         const notice = await js(`document.querySelector("#status .notice")?.textContent ?? ""`);

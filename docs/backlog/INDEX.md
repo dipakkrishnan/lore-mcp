@@ -91,6 +91,7 @@ obsolete), then `priority` (P0 → P3).
 | [APP-029](./desktop-app/APP-029-one-live-input-at-a-time.md) | One live input at a time — the card or the composer, never both | P0 | S | desktop-app | completed | APP-016, APP-020, APP-028 | — | — | — |
 | [APP-032](./desktop-app/APP-032-approval-drafts-render-where-the-owner-is.md) | Approval drafts render where the owner is | P0 | S | desktop-app | completed | APP-020, APP-023, APP-006 | — | — | — |
 | [STO-001](./store-import/STO-001-private-by-default-and-publications-table.md) | Private-by-default memories and a separate publications table | P0 | M | store-import | completed | CLI-001, ONB-001, XC-001, XC-002 | — | — | [#6](https://github.com/dipakkrishnan/lore-mcp/issues/6) |
+| [APP-076](./desktop-app/APP-076-submit-each-publication-decision-once.md) | Submit each publication decision once | P1 | XS | desktop-app | completed | APP-047, APP-055 | — | — | — |
 | [APP-001](./desktop-app/APP-001-expose-one-desktop-state-snapshot.md) | Expose one machine-readable desktop state snapshot | P1 | M | desktop-app | completed | MON-013, MON-015, STO-001 | — | — | — |
 | [APP-002](./desktop-app/APP-002-build-the-minimal-read-only-electron-shell.md) | Build the minimal read-only Electron shell | P1 | M | desktop-app | completed | APP-001 | APP-001 | — | — |
 | [APP-003](./desktop-app/APP-003-embed-pi-behind-one-capture-input.md) | Embed Pi behind one desktop capture input | P1 | M | desktop-app | completed | APP-002, CAP-001 | APP-002 | — | — |
