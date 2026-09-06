@@ -117,6 +117,15 @@ nav button:hover { background: var(--hover); }
 nav button[aria-pressed="true"] { background: var(--accent-soft); color: var(--accent-ink); }
 nav button[aria-pressed="true"] svg { color: var(--accent); }
 nav .count { margin-left: auto; font-family: var(--mono); font-size: 12px; color: var(--faint); }
+nav button { position: relative; }
+nav .tip {
+  position: absolute; left: calc(100% + 12px); top: 50%; transform: translateY(-50%); z-index: 4; width: 236px; padding: 9px 12px;
+  border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--surface); box-shadow: 0 6px 20px rgba(29, 31, 28, 0.08);
+  font-size: 12px; font-weight: 400; line-height: 1.5; color: var(--ink-soft); text-align: left;
+  opacity: 0; visibility: hidden; pointer-events: none; transition: opacity 0.15s ease 0.45s, visibility 0s linear 0.45s;
+}
+nav button:hover .tip, nav button:focus-visible .tip { opacity: 1; visibility: visible; }
+@media (prefers-reduced-motion: reduce) { nav .tip { transition-duration: 0s; } }
 .account { margin-top: auto; position: relative; padding: 12px 8px 0; border-top: 1px solid var(--line); }
 .account-trigger { display: flex; align-items: center; gap: 10px; width: 100%; padding: 6px; border-radius: var(--radius-sm); text-align: left; }
 .account-trigger:hover { background: var(--hover); }
@@ -145,6 +154,7 @@ h2 { font-size: 12px; font-weight: 600; letter-spacing: 0.06em; text-transform: 
 .section { display: flex; flex-direction: column; gap: 8px; }
 .section-head { display: flex; align-items: baseline; justify-content: space-between; }
 .section-head a, .section-head button { font-size: 13px; color: var(--accent); }
+.section-aside { display: flex; align-items: center; gap: 12px; }
 .card { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; }
 .card.pad { padding: 18px 20px; }
 .card.lead { border-color: var(--accent); }

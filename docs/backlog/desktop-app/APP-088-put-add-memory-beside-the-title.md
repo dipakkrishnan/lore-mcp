@@ -34,3 +34,7 @@ eyebrow and title.
 Done 2026-09-05. The header is a two-column grid; every child but the button
 stays in the first column, so the task action row, eyebrow and title stack as
 they did.
+
+Re-checked 2026-09-05 evening after a screenshot from the earlier build:
+with the merged markup, the button's midpoint and the eyebrow-plus-title
+block's midpoint measure the same on the sandbox window.
