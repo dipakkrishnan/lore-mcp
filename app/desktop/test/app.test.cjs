@@ -523,17 +523,18 @@ test("memory edit validates the id and content before any CLI call, and round-tr
   }
 });
 
-test("scheduling from the saved rhythm reports the CLI's reason, never a command", async () => {
-  const { installSchedule } = require("../src/state.cjs");
+test("a CLI refusal explained over several lines reaches the owner as its Reason line", async () => {
+  const { lore } = require("../src/state.cjs");
   const home = await mkdtemp(join(tmpdir(), "lore-desktop-"));
+  const schedule = () => lore(home, ["profile", join(home, "automation", "profile.json")]);
   try {
-    // No profile yet: the CLI's one-line refusal comes through as it is.
-    await assert.rejects(installSchedule(home), { message: /No such file|profile\.json/ });
+    // No profile yet: a one-line refusal comes through as it is.
+    await assert.rejects(schedule(), { message: /No such file|profile\.json/ });
     // A rhythm saved without a model: the CLI keeps the profile and explains over
     // several lines; the owner hears the Reason line, not "Then run: env ...".
     await mkdir(join(home, "automation"), { recursive: true });
     await writeFile(join(home, "automation", "profile.json"), JSON.stringify({ executor: "", cadence: "daily", hour: 21 }));
-    await assert.rejects(installSchedule(home), (error) => /^'' is not a valid Agent$/.test(error.message));
+    await assert.rejects(schedule(), (error) => /^'' is not a valid Agent$/.test(error.message));
     assert.deepEqual((await readState(home)).setup.schedule, { installed: false, executor: null, cadence: null, hour: null });
   } finally {
     await rm(home, { recursive: true });

@@ -47,8 +47,9 @@ reads it the way Codex's automations page does, in words: "Every day at
 9 PM with Claude. Last ran Sep 5." with a Scheduled dot; a saved rhythm the
 scheduler does not hold reads "Set for every day at 9 PM with Claude, but
 nothing on this Mac is running it." with a **Schedule** button that runs
-`lore profile` on the saved profile through a typed handler and surfaces
-the CLI's Reason line on failure. The last-run sentence comes from the
+`lore profile` on the saved profile through a typed handler. The desktop's
+CLI wrapper now prefers a `Reason:` line when a refusal is explained over
+several lines, so the owner hears the cause rather than the retry command. The last-run sentence comes from the
 synthesis rows Today already shows.
 
 Known edge: launchd labels and the Codex automations file are per user,

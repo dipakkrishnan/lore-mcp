@@ -1,7 +1,7 @@
 const { execFile, spawn } = require("node:child_process");
 const { createInterface } = require("node:readline");
 const { promisify } = require("node:util");
-const { join, resolve } = require("node:path");
+const { resolve } = require("node:path");
 
 const run = promisify(execFile);
 const root = resolve(__dirname, "../../..");
@@ -30,10 +30,12 @@ async function lore(loreHome, args, decision) {
     return (await pending).stdout;
   } catch (error) {
     const stderr = String(/** @type {{stderr?: string}} */ (error).stderr ?? "").trim();
-    // The owner sees the last line; the log keeps all of it, so a failure that
-    // ends in a brace or a blank still says what happened somewhere.
+    // The log keeps all of it, so a failure that ends in a brace or a blank still says what happened somewhere.
     console.error(`lore ${args.join(" ")} failed:\n${stderr || /** @type {Error} */ (error).message}`);
-    throw new Error((stderr.split("\n").pop() ?? "").replace(/^lore: /, "") || "Lore could not finish that");
+    // A refusal the CLI explains over several lines carries its cause on a "Reason:" line; otherwise the owner sees the last line.
+    const lines = stderr.split("\n").map((line) => line.trim());
+    const said = lines.find((line) => line.startsWith("Reason: "))?.slice(8) ?? lines.at(-1) ?? "";
+    throw new Error(said.replace(/^lore: /, "") || "Lore could not finish that");
   }
 }
 
@@ -74,17 +76,6 @@ async function readState(loreHome) {
     throw new Error("Lore returned an unsupported desktop state");
   }
   return /** @type {Snapshot} */ (value);
-}
-
-/** Install the synthesis schedule from the saved rhythm. The CLI keeps the profile and explains a refusal over several lines; the owner hears the reason. @param {string} loreHome */
-async function installSchedule(loreHome) {
-  /** @type {string[]} */
-  const lines = [];
-  try {
-    await loreStream(loreHome, ["profile", join(loreHome, "automation", "profile.json")], (line) => lines.push(line));
-  } catch {
-    throw new Error(lines.find((line) => line.startsWith("Reason: "))?.slice(8) || lines.at(-1)?.replace(/^lore: /, "") || "Lore could not schedule it");
-  }
 }
 
 /** @param {string} loreHome @returns {Promise<Sale[]>} */
@@ -145,7 +136,6 @@ module.exports = {
   openable,
   readState,
   readSales,
-  installSchedule,
   searchMemories,
   readMemory,
   renameMemory,
