@@ -155,8 +155,10 @@ obsolete), then `priority` (P0 → P3).
 | [APP-087](./desktop-app/APP-087-keep-the-packaged-cli-clear-of-the-developers-checkout.md) | Keep the packaged CLI clear of the developer's checkout | P2 | S | desktop-app | completed | XC-023, APP-073, MON-019 | — | — | — |
 | [XC-026](./cross-cutting/XC-026-point-the-faucet-card-at-onchain-tools.md) | Point the faucet card at Onchain Tools → Faucet in four short lines | P2 | XS | cross-cutting | completed | XC-025, APP-056, MON-007 | — | — | — |
 | [APP-090](./desktop-app/APP-090-let-a-long-memory-draft-scroll-instead-of-clipping.md) | Let a long memory draft scroll instead of clipping at the field's cap | P2 | XS | desktop-app | completed | APP-055 | — | — | — |
+| [APP-091](./desktop-app/APP-091-say-a-lists-shared-state-once-and-offer-the-push-beside-it.md) | Say a For Sale list's shared state once, and offer the push beside it | P2 | XS | desktop-app | completed | APP-081, APP-072 | — | — | — |
 | [APP-083](./desktop-app/APP-083-keep-memory-ids-out-of-the-publish-thread.md) | Keep memory ids out of the publish thread | P3 | XS | desktop-app | completed | APP-023 | — | — | — |
 | [APP-088](./desktop-app/APP-088-put-add-memory-beside-the-title.md) | Put Add Memory beside the title, not above it | P3 | XS | desktop-app | completed | APP-067, APP-051 | — | — | — |
+| [APP-092](./desktop-app/APP-092-explain-memories-and-for-sale-on-hover.md) | Explain Memories and For Sale on hover | P3 | XS | desktop-app | completed | APP-091, APP-054 | — | — | — |
 | [MON-001](./monetization/MON-001-cloudflare-gateway-deployment-guide.md) | Write a deployment guide for the Cloudflare Tunnel / Monetization Gateway path | P2 | L | monetization | obsolete | — | — | — | — |
 | [MON-014](./monetization/MON-014-keep-long-running-paid-tool-calls-alive-through-the-bridge.md) | Keep long-running paid tool calls alive through the bridge | P2 | S | monetization | obsolete | MON-007, MCP-003 | — | — | — |
 | [APP-074](./desktop-app/APP-074-simplify-the-shape-card.md) | Simplify the shape card | P3 | S | desktop-app | obsolete | APP-052, APP-022 | — | — | — |

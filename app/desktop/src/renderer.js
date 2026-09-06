@@ -565,15 +565,17 @@ function renderStore(s) {
     const count = Array.isArray(sales) ? sales.filter((sale) => sale.item_id === item.public_id).length : 0;
     return count ? `${item.topic} · ${count} sold` : item.topic;
   };
+  // One chip per row only when rows differ; a list all in one state says it once in the heading.
+  const mixed = approved.some((item) => item.live !== approved[0].live);
   /** @param {PublicationItem} item */
-  const state = (item) => item.live === true ? chip("Live", "ok") : item.live === false ? chip("Not live yet") : chip("Approved");
+  const state = (item) => mixed ? [item.live === true ? chip("Live", "ok") : item.live === false ? chip("Not live yet") : chip("Approved")] : [];
   /** @param {PublicationItem} item */
   const controls = (item) => {
     const trailing = el("div", "v");
     const ask = button("Take down", "secondary", () => {
       trailing.replaceChildren(
         el("span", "hint", "Buyers lose it for good."),
-        button("Keep", "secondary", () => trailing.replaceChildren(state(item), ask)),
+        button("Keep", "secondary", () => trailing.replaceChildren(...state(item), ask)),
         button("Take down", "primary", async () => {
           if (!(await act(() => window.lore.revoke(item.id)))) return;
           pushOffer = live.state === "online" ? "It stays on sale until you push." : false;
@@ -581,16 +583,23 @@ function renderStore(s) {
         })
       );
     });
-    trailing.append(state(item), ask);
+    trailing.append(...state(item), ask);
     return trailing;
   };
+  const aside = el("div", "section-aside");
+  if (approved.length) aside.append(el("span", "hint", `${approved.length} ${approved.length === 1 ? "publication" : "publications"}${live.state !== "online" ? "" : waiting.length ? ` · ${waiting.length === approved.length ? "none" : waiting.length} on your store yet` : " · all on your store"}`));
+  if (waiting.length) {
+    const push = button(pushing ? "Pushing…" : "Push to your store", "quiet", pushNow);
+    push.disabled = pushing;
+    aside.append(push);
+  }
   /** @type {HTMLElement[]} */
   const parts = [bar];
   if (pushOffer) parts.push(seamCard());
   parts.push(section("For sale", approved.length
     ? card(approved.map((item) => row(item.title, sold(item), controls(item))))
     : el("div", "card pad empty", "Nothing for sale yet. Publish something from Today."),
-    el("span", "hint", approved.length ? `${approved.length} ${approved.length === 1 ? "publication" : "publications"}${live.state !== "online" ? "" : waiting.length ? ` · ${waiting.length} not on your store yet` : " · confirmed on your node"}` : "")));
+    aside));
   if (revoked.length) parts.push(section("Taken down", card(revoked.map((item) => row(item.title, item.topic, chip("Revoked"))))));
   parts.push(renderSales());
   return parts;
