@@ -4,13 +4,13 @@ title: Show the real schedule state under How often Lore reads them
 priority: P2
 effort: S
 component: desktop-app
-status: in-review
-related: [APP-073]
+status: completed
+related: [APP-073, APP-080, AUT-001]
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-09-05
-updated: 2026-09-05
+updated: 2026-09-06
 ---
 
 ## Problem
@@ -31,10 +31,27 @@ this row from it. When the profile is set but no schedule exists, say so
 
 ## Acceptance criteria
 
-- [ ] With a profile but no installed schedule, the row does not say "Set".
-- [ ] With an installed schedule, the row shows the cadence, not just "Set".
+- [x] With a profile but no installed schedule, the row does not say "Set".
+- [x] With an installed schedule, the row shows the cadence, not just "Set".
 
 ## Notes
 
 Screenshot `28-dogfood-settings.png`. Related: the dogfood launcher sets
 `LORE_SKIP_SCHEDULE=1` so the sandbox never installs one.
+
+Done 2026-09-06. `automation.schedule_state()` builds the task the profile
+describes (`task_for`, split out of `install`) and asks the scheduler
+whether it holds it (`windup.status`: launchd for Claude, the automations
+file for Codex); `desktop-state` carries it as `setup.schedule`. Settings
+reads it the way Codex's automations page does, in words: "Every day at
+9 PM with Claude. Last ran Sep 5." with a Scheduled dot; a saved rhythm the
+scheduler does not hold reads "Set for every day at 9 PM with Claude, but
+nothing on this Mac is running it." with a **Schedule** button that runs
+`lore profile` on the saved profile through a typed handler and surfaces
+the CLI's Reason line on failure. The last-run sentence comes from the
+synthesis rows Today already shows.
+
+Known edge: launchd labels and the Codex automations file are per user,
+not per Lore home, so a second home on the same Mac (the dogfood sandbox)
+sees the owner's real schedule as installed. Truthful about the scheduler;
+not about which home it serves.

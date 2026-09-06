@@ -1,5 +1,5 @@
 const assert = require("node:assert/strict");
-const { access, constants, mkdtemp, readFile, realpath, rm, symlink, writeFile } = require("node:fs/promises");
+const { access, constants, mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } = require("node:fs/promises");
 const { homedir, tmpdir } = require("node:os");
 const { join } = require("node:path");
 const { spawnSync } = require("node:child_process");
@@ -520,5 +520,22 @@ test("memory edit validates the id and content before any CLI call, and round-tr
     }
   } finally {
     await rm(directory, { recursive: true });
+  }
+});
+
+test("scheduling from the saved rhythm reports the CLI's reason, never a command", async () => {
+  const { installSchedule } = require("../src/state.cjs");
+  const home = await mkdtemp(join(tmpdir(), "lore-desktop-"));
+  try {
+    // No profile yet: the CLI's one-line refusal comes through as it is.
+    await assert.rejects(installSchedule(home), { message: /No such file|profile\.json/ });
+    // A rhythm saved without a model: the CLI keeps the profile and explains over
+    // several lines; the owner hears the Reason line, not "Then run: env ...".
+    await mkdir(join(home, "automation"), { recursive: true });
+    await writeFile(join(home, "automation", "profile.json"), JSON.stringify({ executor: "", cadence: "daily", hour: 21 }));
+    await assert.rejects(installSchedule(home), (error) => /^'' is not a valid Agent$/.test(error.message));
+    assert.deepEqual((await readState(home)).setup.schedule, { installed: false, executor: null, cadence: null, hour: null });
+  } finally {
+    await rm(home, { recursive: true });
   }
 });

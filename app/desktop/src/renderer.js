@@ -643,6 +643,35 @@ function provider(credential = auth?.credentials[0] ?? null) {
   return credential ? PROVIDERS[credential.providerId] ?? [credential.providerId, ""] : ["Your AI provider", ""];
 }
 
+const EXECUTORS = { claude: "Claude", codex: "Codex" };
+
+/** The rhythm as the owner would say it: "Every day at 9 PM". @param {NonNullable<Snapshot["setup"]["schedule"]>} schedule */
+function rhythm(schedule) {
+  const hour = schedule.hour ?? 21;
+  return `Every ${schedule.cadence === "weekly" ? "Monday" : "day"} at ${hour % 12 || 12} ${hour < 12 ? "AM" : "PM"}`;
+}
+
+/** What the last synthesis run did, from the same history Today shows. @param {Snapshot} s */
+function lastSynthesis(s) {
+  const run = s.jobs?.items.find((item) => item.kind === "synthesis");
+  if (!run) return "Hasn't run yet.";
+  const date = when(run.started_at);
+  return run.status === "running" ? "Running now." : run.status === "succeeded" ? `Last ran ${date}.` : run.status === "failed" ? `Last run failed, ${date}.` : `Last run, ${date}, never finished.`;
+}
+
+/** Settings → How often Lore reads them: the scheduler's answer, not the profile's. A saved rhythm that nothing runs says so and offers the fix. @param {Snapshot} s @param {(ok: boolean, label: string) => HTMLElement} status @param {(...parts: (string | HTMLElement)[]) => HTMLElement} value */
+function scheduleRow(s, status, value) {
+  const label = "How often Lore reads them";
+  const schedule = s.setup.schedule;
+  if (!s.setup.profile_configured || schedule === undefined) {
+    return row(label, "New memories are written from what your agents learned.", value(status(s.setup.profile_configured, s.setup.profile_configured ? "Set" : "Not set"), ...(s.setup.profile_configured ? [] : [button("Start", "secondary", startSetup)])), false);
+  }
+  if (!schedule?.executor) return row(label, "Your rhythm is saved, but no model was chosen to run it.", value(status(false, "Not scheduled"), button("Start", "secondary", startSetup)), false);
+  const who = `${rhythm(schedule)} with ${EXECUTORS[schedule.executor]}`;
+  if (schedule.installed) return row(label, `${who}. ${lastSynthesis(s)}`, value(status(true, "Scheduled")), false);
+  return row(label, `Set for ${who.charAt(0).toLowerCase()}${who.slice(1)}, but nothing on this Mac is running it.`, value(status(false, "Not scheduled"), button("Schedule", "secondary", () => void act(window.lore.schedule))), false);
+}
+
 /** @param {Snapshot} s */
 function renderSettings(s) {
   const value = (/** @type {(string | HTMLElement)[]} */ ...parts) => {
@@ -661,7 +690,7 @@ function renderSettings(s) {
   const sources = s.library.sources.map((source) =>
     row(source.label, source.enabled ? `${source.imported} ${source.imported === 1 ? "memory" : "memories"} imported` : "Not connected", value(status(source.enabled, source.enabled ? "Connected" : "Off")), false)
   );
-  sources.push(row("How often Lore reads them", "New memories are written from what your agents learned.", value(status(s.setup.profile_configured, s.setup.profile_configured ? "Set" : "Not set"), ...(s.setup.profile_configured ? [] : [button("Start", "secondary", startSetup)])), false));
+  sources.push(scheduleRow(s, status, value));
   const live = s.node.live;
   return [
     section("Account", card((auth?.credentials.length ? auth.credentials : [null]).map((credential) => {

@@ -1,7 +1,7 @@
 const { execFile, spawn } = require("node:child_process");
 const { createInterface } = require("node:readline");
 const { promisify } = require("node:util");
-const { resolve } = require("node:path");
+const { join, resolve } = require("node:path");
 
 const run = promisify(execFile);
 const root = resolve(__dirname, "../../..");
@@ -76,6 +76,17 @@ async function readState(loreHome) {
   return /** @type {Snapshot} */ (value);
 }
 
+/** Install the synthesis schedule from the saved rhythm. The CLI keeps the profile and explains a refusal over several lines; the owner hears the reason. @param {string} loreHome */
+async function installSchedule(loreHome) {
+  /** @type {string[]} */
+  const lines = [];
+  try {
+    await loreStream(loreHome, ["profile", join(loreHome, "automation", "profile.json")], (line) => lines.push(line));
+  } catch {
+    throw new Error(lines.find((line) => line.startsWith("Reason: "))?.slice(8) || lines.at(-1)?.replace(/^lore: /, "") || "Lore could not schedule it");
+  }
+}
+
 /** @param {string} loreHome @returns {Promise<Sale[]>} */
 async function readSales(loreHome) {
   return JSON.parse(await lore(loreHome, ["node", "sales", "--json"]));
@@ -134,6 +145,7 @@ module.exports = {
   openable,
   readState,
   readSales,
+  installSchedule,
   searchMemories,
   readMemory,
   renameMemory,

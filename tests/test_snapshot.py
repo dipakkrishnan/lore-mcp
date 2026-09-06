@@ -184,6 +184,13 @@ class DesktopSnapshotTest(LoreTestCase):
                 "sources_configured": True,
                 "blueprint_configured": True,
                 "profile_configured": True,
+                # An empty profile names no executor, so nothing can be scheduled.
+                "schedule": {
+                    "installed": False,
+                    "executor": None,
+                    "cadence": None,
+                    "hour": None,
+                },
             },
         )
         self.assertEqual(state["library"]["counts"], {"private": 6})
@@ -231,6 +238,28 @@ class DesktopSnapshotTest(LoreTestCase):
         self.assertEqual(state["node"]["live"]["state"], "online")
         self.assertEqual(state["node"]["live"]["network"], "eip155:8453")
         self.assertEqual(state["node"]["live"]["payout"], "0x" + "a" * 40)
+
+    def test_the_schedule_is_reported_from_the_scheduler_not_the_profile(
+        self,
+    ) -> None:
+        self.assertIsNone(snapshot.build()["setup"]["schedule"])
+        automation.save_profile(
+            {"executor": "claude", "cadence": "weekly", "hour": 21, "model": "opus"}
+        )
+        for installed in (False, True):
+            with patch("lore.automation.task_status", return_value=installed) as ask:
+                state = snapshot.build()["setup"]
+            self.assertTrue(state["profile_configured"])
+            self.assertEqual(
+                state["schedule"],
+                {
+                    "installed": installed,
+                    "executor": "claude",
+                    "cadence": "weekly",
+                    "hour": 21,
+                },
+            )
+            self.assertEqual(ask.call_args.args[0].agent, automation.Agent.CLAUDE)
 
     def test_missing_and_unreachable_nodes_are_data(self) -> None:
         response = Mock()

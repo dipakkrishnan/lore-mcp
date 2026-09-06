@@ -6,6 +6,9 @@ const { execFileSync } = require("node:child_process");
 const { dirname, join } = require("node:path");
 const scenario = process.argv.at(-1);
 const S = process.env.LORE_EDGE_OUT ?? process.env.LORE_HOME;
+// The scheduler is per user, not per Lore home: point the Codex automations
+// lookup at scratch so the owner's real schedule cannot answer for the seed.
+if (scenario === "jobs") process.env.CODEX_HOME = join(S, "codex");
 const src = join(__dirname, "../src");
 const runtime = require(join(src, "runtime.cjs"));
 const realProvision = runtime.provision;
@@ -80,6 +83,20 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         await js(`[...document.querySelectorAll("#content .section")].find((s) => s.textContent.includes("Recent runs"))?.scrollIntoView()`);
         await sleep(300);
         await shot("today-recent-runs-empty");
+
+        // APP-084: Settings reports what the scheduler holds, not that a profile file exists.
+        await js(`window.__lore.show("settings")`);
+        await sleep(500);
+        let rhythm = await js(`[...document.querySelectorAll("#content .row")].find((r) => r.textContent.includes("How often Lore reads them")).textContent`);
+        check("a saved rhythm nothing runs says so, and offers Schedule", /Set for every day at 9 PM with Codex, but nothing on this Mac is running it\./.test(rhythm) && /Not scheduled/.test(rhythm) && /Schedule$/.test(rhythm), rhythm);
+        await shot("settings-not-scheduled");
+        mkdirSync(join(process.env.CODEX_HOME, "automations", "lore-memory-synthesis"), { recursive: true });
+        writeFileSync(join(process.env.CODEX_HOME, "automations", "lore-memory-synthesis", "automation.toml"), "");
+        await js(`window.__lore.event({ type: "changed" })`);
+        await sleep(800);
+        rhythm = await js(`[...document.querySelectorAll("#content .row")].find((r) => r.textContent.includes("How often Lore reads them")).textContent`);
+        check("an installed schedule reads as its rhythm, in words", /Every day at 9 PM with Codex\. Hasn't run yet\./.test(rhythm) && /Scheduled/.test(rhythm) && !/Not scheduled/.test(rhythm), rhythm);
+        await shot("settings-scheduled");
       } else if (scenario === "store") {
         await waitFor(`document.body.dataset.state === "welcome" && !document.querySelector("#welcome").classList.contains("provisioning")`);
         await js(`window.__lore.signIn()`);
