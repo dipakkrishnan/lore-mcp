@@ -236,13 +236,20 @@ buyer's USDC balance on-chain, and — if unfunded — prints the address to fun
 and exits. Then:
 
 1. **Fund the buyer address it printed** (say which wallet this is: the buyer,
-   not the payout). Frame and open a faucet: prefer
-   `https://portal.cdp.coinbase.com/products/faucet` (free Coinbase login;
-   defaults to Base Sepolia + USDC). No login wanted?
-   `https://faucet.circle.com` works but **its network dropdown defaults to the
-   wrong chain** and its success screen doesn't name the network — have the
-   owner confirm it reads **Base Sepolia** before sending; a wasted send locks
-   that asset+network pair for 2 hours.
+   not the payout). Open `https://portal.cdp.coinbase.com/products/faucet`
+   (free Coinbase login). The portal lands on its own home after sign-in, so
+   the note must name the way there. Use exactly this shape, one step per line,
+   the address alone on its line so it can be copied:
+
+   > Sign in, then open **Onchain Tools → Faucet** in the left sidebar.
+   > Pick Base Sepolia and USDC, paste this address, and send.
+   > `0x…` (the buyer address)
+   > Play money on the test network, not real funds.
+
+   No login wanted? `https://faucet.circle.com` works but **its network
+   dropdown defaults to the wrong chain** and its success screen doesn't name
+   the network — have the owner confirm it reads **Base Sepolia** before
+   sending; a wasted send locks that asset+network pair for 2 hours.
 2. **Re-run the same command.** The preflight passes once funds arrive (the
    script's own error output covers the wrong-network diagnosis if they don't).
    It pays at most the node's price and prints the settlement receipt. If it

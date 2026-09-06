@@ -6,7 +6,7 @@ const { resolve } = require("node:path");
 const run = promisify(execFile);
 const root = resolve(__dirname, "../../..");
 
-/** @type {{file: string, args: string[], cwd?: string}} */
+/** The packaged CLI runs from the Lore home: the app inherits whatever directory launched it, and the CLI treats a checkout there as development. @type {{file: string, args: string[], cwd?: string}} */
 let runtime = { file: "uv", args: ["run", "lore"], cwd: root };
 
 /** @param {string} [file] */
@@ -19,7 +19,7 @@ async function lore(loreHome, args, decision) {
   const attended = decision === undefined ? {} : { LORE_ATTENDED_SURFACE: "desktop" };
   const env = { ...process.env, LORE_HOME: loreHome, NO_COLOR: "1", ...attended };
   const pending = run(runtime.file, [...runtime.args, ...args], {
-    cwd: runtime.cwd,
+    cwd: runtime.cwd ?? loreHome,
     env,
     maxBuffer: 8 * 1024 * 1024,
     timeout: 120_000,
@@ -48,7 +48,7 @@ function stream(file, args, env, onLine, cwd) {
 
 /** Run the CLI and hand back each output line as it arrives, for commands that wait on the owner. @param {string} loreHome @param {string[]} args @param {(line: string) => void} onLine */
 function loreStream(loreHome, args, onLine) {
-  return stream(runtime.file, [...runtime.args, ...args], { LORE_HOME: loreHome, NO_COLOR: "1" }, onLine, runtime.cwd);
+  return stream(runtime.file, [...runtime.args, ...args], { LORE_HOME: loreHome, NO_COLOR: "1" }, onLine, runtime.cwd ?? loreHome);
 }
 
 /** The hosts the payments skill sends an owner to; anything else stays closed. */
