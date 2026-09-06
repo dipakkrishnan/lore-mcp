@@ -5,7 +5,7 @@ priority: P2
 effort: XS
 component: desktop-app
 status: completed
-related: [APP-089, APP-081]
+related: [APP-081, APP-072]
 blockers: []
 dependencies: []
 github_issue: null
