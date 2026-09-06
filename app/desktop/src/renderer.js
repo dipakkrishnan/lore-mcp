@@ -72,6 +72,7 @@ const RING = `<svg viewBox="0 0 26 26" fill="none" stroke="currentColor" stroke-
 const RENAME_ICON = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7V4h16v3M9 20h6M12 4v16"></path></svg>`;
 const EDIT_ICON = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L8 18l-4 1 1-4z"></path></svg>`;
 const SALE_ICON = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 12l-8 8-9-9V3h8z"></path><circle cx="7.5" cy="7.5" r="1.5"></circle></svg>`;
+/** @type {Record<string, [name: string, icon: string]>} */
 const PROVIDERS = {
   anthropic: ["Claude", "assets/claude.svg"],
   "openai-codex": ["ChatGPT", "assets/openai.svg"],
@@ -632,10 +633,9 @@ async function loadSales() {
   render();
 }
 
-/** Who reads the owner's memories on their behalf: the signed-in provider, by its plain name. */
-function providerName() {
-  const provider = auth?.credentials[0];
-  return (provider && PROVIDERS[/** @type {keyof typeof PROVIDERS} */ (provider.providerId)]?.[0]) || "Your AI provider";
+/** A credential's plain name and icon; the signed-in one when none is given. @param {{providerId: string} | null} [credential] @returns {[string, string]} */
+function provider(credential = auth?.credentials[0] ?? null) {
+  return credential ? PROVIDERS[credential.providerId] ?? [credential.providerId, ""] : ["Your AI provider", ""];
 }
 
 /** @param {Snapshot} s */
@@ -660,7 +660,7 @@ function renderSettings(s) {
   const live = s.node.live;
   return [
     section("Account", card((auth?.credentials.length ? auth.credentials : [null]).map((credential) => {
-      const [name, icon] = credential ? PROVIDERS[/** @type {keyof typeof PROVIDERS} */ (credential.providerId)] ?? [credential.providerId, ""] : ["No one", ""];
+      const [name, icon] = credential ? provider(credential) : ["No one", ""];
       const trailing = value(name);
       if (icon) {
         const img = el("img");
@@ -676,7 +676,7 @@ function renderSettings(s) {
     section("Where memories come from", card(sources)),
     section("What Lore keeps", card([
       row("Lore's shape", "What it keeps, what it ignores, what it may sell. Set in a short conversation.", value(status(s.setup.blueprint_configured, s.setup.blueprint_configured ? "Set" : "Not set"), ...(s.setup.blueprint_configured ? [] : [button("Start", "secondary", startSetup)])), false),
-      row("Where it lives", `Your memories are kept on this Mac. ${providerName()} reads them when it works with you here. Buyers only ever get what you approve for sale.`, value(Object.assign(el("span", "mono", s.home), { style: "color: var(--muted)" })), false)
+      row("Where it lives", `Your memories are kept on this Mac. ${provider()[0]} reads them when it works with you here. Buyers only ever get what you approve for sale.`, value(Object.assign(el("span", "mono", s.home), { style: "color: var(--muted)" })), false)
     ])),
     section("Your store", card([
       row("Address", s.node.url ? storeAddress(s.node) : "Not opened yet.", value(status(live.state === "online", live.state === "online" ? `Live on ${networkLabel(live.network) || "your node"}` : nodeLabel(live.state))), false),
@@ -723,9 +723,9 @@ function render() {
 
 function renderAccount() {
   account.replaceChildren();
-  const provider = auth?.credentials[0];
-  if (!provider) return;
-  const [name, icon] = PROVIDERS[/** @type {keyof typeof PROVIDERS} */ (provider.providerId)] ?? [provider.providerId, ""];
+  const credential = auth?.credentials[0];
+  if (!credential) return;
+  const [name, icon] = provider(credential);
   const trigger = el("button", "account-trigger");
   trigger.type = "button";
   trigger.setAttribute("aria-haspopup", "menu");
@@ -759,7 +759,7 @@ function renderAccount() {
       node.addEventListener("click", () => { accountMenuOpen = false; onPick(); });
       return node;
     };
-    menu.append(item("Open Settings", () => show("settings")), item(`Sign out of ${name}`, () => void signOut(provider.providerId)));
+    menu.append(item("Open Settings", () => show("settings")), item(`Sign out of ${name}`, () => void signOut(credential.providerId)));
     account.append(menu);
     /** @type {HTMLElement | null} */ (menu.querySelector("button"))?.focus({ preventScroll: true });
   }
