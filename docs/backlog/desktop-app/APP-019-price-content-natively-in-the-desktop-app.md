@@ -10,7 +10,7 @@ blockers: []
 dependencies: []
 github_issue: null
 created: 2026-08-23
-updated: 2026-09-03
+updated: 2026-09-06
 ---
 
 ## Problem
@@ -82,3 +82,8 @@ over Electron's debug port against a scratch `LORE_HOME` (save, refusal of `0`,
 negatives and text, sub-cent display, all three surfaces agreeing, both redeploy
 wordings, the Today rung). The live-node walk needs a deployed Sepolia node and a
 real `lore node deploy`, and has not been done.
+
+Rebased onto main 2026-09-06 (after #231–#233); Python, Desktop and backlog
+checks pass. The live-node walk is still the one open box: it redeploys a
+real store, so it is the owner's call, not something a session should do to
+the maintainer's node unasked.
