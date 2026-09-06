@@ -172,7 +172,7 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         await js(`document.querySelector("#request form").requestSubmit()`);
         await sleep(200);
         check("Open goes through the window-open handler", await js(`window.__opened`) === "https://portal.cdp.coinbase.com/products/faucet");
-        check("stage two swaps the heading and the buttons", await js(`document.querySelector("#request .q").textContent`) === "Come back here when you are done." && await buttons() === "I got stuck|Done");
+        check("stage two keeps the task heading and swaps the buttons", await js(`document.querySelector("#request .q").textContent`) === "Fund the test buyer" && await buttons() === "I need help|Done");
         check("the card keeps its size between stages", await js(`document.querySelector("#request form").offsetHeight`) === before);
         await js(`document.querySelector("#request").scrollIntoView({ block: "center" }); true`);
         await shot("open-stage-two");
