@@ -41,6 +41,19 @@ SALES = [
 ]
 
 
+# What `wrangler d1 execute --json` prints when Cloudflare refuses a request:
+# an object, so the last line of the output is a lone brace.
+WRANGLER_REFUSAL = {
+    "error": {
+        "text": "A request to the Cloudflare API (/accounts/3227/d1/database/88f8/query) failed.",
+        "notes": [{"text": "Authentication error [code: 10000]"}],
+        "kind": "error",
+        "name": "APIError",
+        "code": 10000,
+    }
+}
+
+
 class _Wrangler:
     """A scriptable stand-in for npm and wrangler.
 
@@ -62,6 +75,7 @@ class _Wrangler:
         d1_exists: bool = False,
         d1_create_fails: bool = False,
         d1_id_in_output: bool = True,
+        d1_execute_refusals: int = 0,
     ) -> None:
         self.deploy_output = deploy_output
         self.logged_in = logged_in
@@ -72,6 +86,7 @@ class _Wrangler:
         self.d1_exists = d1_exists
         self.d1_create_fails = d1_create_fails
         self.d1_id_in_output = d1_id_in_output
+        self.d1_execute_refusals = d1_execute_refusals
         self.commands: list[tuple[str, ...]] = []
         self.secret_values: dict[str, str | None] = {}
 
@@ -104,7 +119,11 @@ class _Wrangler:
         elif tail == ("deploy",):
             out = self.deploy_output
         elif tail[:2] == ("d1", "execute"):
-            out = json.dumps([{"results": SALES, "success": True}])
+            if self.d1_execute_refusals:
+                self.d1_execute_refusals -= 1
+                code, out = 1, json.dumps(WRANGLER_REFUSAL, indent=2)
+            else:
+                out = json.dumps([{"results": SALES, "success": True}])
         return subprocess.CompletedProcess(args, code, stdout=out, stderr=err)
 
     def named(self, *tail: str) -> list[tuple[str, ...]]:
@@ -160,6 +179,56 @@ class SalesTest(LoreTestCase):
 
     def test_no_staged_node_is_a_plain_error(self) -> None:
         with self.assertRaisesRegex(ValueError, "open your store first"):
+            deploy_module.sales()
+
+    def _stage_node(self) -> None:
+        binary = deploy_module.materialize(0.1) / "node_modules/.bin/wrangler"
+        binary.parent.mkdir(parents=True)
+        binary.write_text("#!/bin/sh\n")
+
+    def test_a_refused_first_read_is_retried_once(self) -> None:
+        self._stage_node()
+        wrangler = _Wrangler(d1_execute_refusals=1)
+        with (
+            patch("lore.deploy.subprocess.run", side_effect=wrangler),
+            patch("lore.deploy.time.sleep") as pause,
+        ):
+            self.assertEqual(len(deploy_module.sales()), len(SALES))
+        self.assertEqual(len(wrangler.commands), 2)
+        self.assertEqual(pause.call_count, 1)
+
+    def test_a_refusal_is_reported_in_cloudflares_words_not_a_brace(self) -> None:
+        """The desktop shows the last line of stderr; a JSON blob's last line
+        is `}` (APP-085). The message is one line, in Cloudflare's words, and
+        names neither the account nor the database."""
+        self._stage_node()
+        wrangler = _Wrangler(d1_execute_refusals=2)
+        with (
+            patch("lore.deploy.subprocess.run", side_effect=wrangler),
+            patch("lore.deploy.time.sleep"),
+            self.assertRaises(OSError) as failure,
+        ):
+            deploy_module.sales()
+        message = str(failure.exception)
+        self.assertEqual(
+            message,
+            "reading sales failed: A request to the Cloudflare API failed. "
+            "Authentication error [code: 10000]",
+        )
+        self.assertEqual(len(wrangler.commands), 2)
+
+    def test_a_non_json_failure_still_reads_as_one_line(self) -> None:
+        self._stage_node()
+        refused = subprocess.CompletedProcess(
+            (), 1, stdout="", stderr="wrangler: network is\nunreachable\n"
+        )
+        with (
+            patch("lore.deploy.subprocess.run", return_value=refused),
+            patch("lore.deploy.time.sleep"),
+            self.assertRaisesRegex(
+                OSError, "reading sales failed: wrangler: network is unreachable$"
+            ),
+        ):
             deploy_module.sales()
 
 

@@ -168,6 +168,7 @@ h2 { font-size: 12px; font-weight: 600; letter-spacing: 0.06em; text-transform: 
 .notice .dismiss:hover { opacity: 1; background: rgba(29, 31, 28, 0.06); }
 .welcome.provisioning #welcome-retry { -webkit-app-region: no-drag; }
 .empty { color: var(--muted); font-size: 14px; }
+.empty.retry { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 
 /* Composer + agent */
 .capture-area { display: flex; flex-direction: column; gap: 12px; }

@@ -16,6 +16,7 @@ import re
 import shutil
 import subprocess
 import sys
+import time
 from importlib import resources
 from pathlib import Path
 from typing import Literal
@@ -219,22 +220,43 @@ def sales() -> list[Sale]:
     wrangler = target / "node_modules/.bin/wrangler"
     if not wrangler.exists():
         raise ValueError("no deployed node on this machine; open your store first")
-    result = _run(
-        (
-            str(wrangler),
-            "d1",
-            "execute",
-            D1_NAME,
-            "--remote",
-            "--json",
-            "--command",
-            SALES_QUERY,
-        ),
-        target,
-        fail="reading sales failed",
+    command = (
+        str(wrangler),
+        "d1",
+        "execute",
+        D1_NAME,
+        "--remote",
+        "--json",
+        "--command",
+        SALES_QUERY,
     )
+    # Same retry as a push: Cloudflare has refused the first request after
+    # wrangler refreshed its sign-in and accepted the next one moments later.
+    for attempt in range(2):
+        result = _run(command, target)
+        if result.returncode == 0 or attempt:
+            break
+        time.sleep(3)
+    if result.returncode:
+        raise OSError(f"reading sales failed: {_wrangler_error(result)}")
     statements = json.loads(result.stdout)
     return SALES.validate_python(statements[0]["results"])
+
+
+def _wrangler_error(result: subprocess.CompletedProcess[str]) -> str:
+    """One line saying what Cloudflare said. Under `--json`, wrangler reports
+    a failure as a JSON object, so its last line is a lone brace."""
+    try:
+        error = json.loads(result.stdout or "")["error"]
+        notes = (note.get("text", "") for note in error.get("notes", []))
+        detail = " ".join(part for part in (error.get("text", ""), *notes) if part)
+    except (ValueError, KeyError, TypeError, AttributeError):
+        detail = f"{result.stderr or ''}{result.stdout or ''}"
+    # The API path in wrangler's sentence names an account and a database id.
+    detail = re.sub(r"\s*\([^)]*\)", "", detail)
+    return (
+        " ".join(detail.split())[-2000:] or f"wrangler exited with {result.returncode}"
+    )
 
 
 def secret(name: str, value: str) -> int:
