@@ -134,7 +134,7 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         await waitFor(`document.querySelector("#content").textContent.includes("Taken down")`);
         // This scratch home has no node source, so the revoke's push fails: the owner hears that plainly, not as a command.
         const revokeNotice = await js(`document.querySelector("#status").textContent`);
-        check("a take-down whose push failed reads plainly", revokeNotice.includes("Your store still has it until you push.") && !/wrangler|--worker-dir|\/Users\/|\/var\//.test(revokeNotice), revokeNotice);
+        check("a take-down whose push failed reads plainly", revokeNotice.includes("If your store still has it, push to finish.") && !/wrangler|--worker-dir|\/Users\/|\/var\//.test(revokeNotice), revokeNotice);
         execFileSync("uv", ["run", "python", "-c", `import time\nfrom lore.store import Store\nwith Store() as s:\n s.set_setting('node_live', {'url': 'https://store.example/mcp', 'checked_at': time.time(), 'live': {'state': 'online', 'network': 'eip155:84532', 'payout': '0x' + 'a' * 40}, 'ids': ['${publicId}']})`], { cwd: join(__dirname, "../../.."), env: process.env });
         await js(`window.__lore.event({ type: "changed" })`);
         await sleep(800);

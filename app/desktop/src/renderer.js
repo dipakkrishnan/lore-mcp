@@ -579,7 +579,8 @@ function renderStore(s) {
       trailing.replaceChildren(
         el("span", "hint", "No one can buy it after this. Anyone who already did keeps their copy."),
         button("Keep", "secondary", () => trailing.replaceChildren(...state(item), ask)),
-        button("Take down", "primary", () => void act(() => window.lore.revoke(item.id)))
+        // The CLI's reason for a push that did not land names commands and paths; the list below shows whether the store still has it.
+        button("Take down", "primary", () => void act(() => window.lore.revoke(item.id), "Taken down here. If your store still has it, push to finish."))
       );
     });
     trailing.append(...state(item), ask);

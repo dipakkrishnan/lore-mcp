@@ -32,13 +32,13 @@ Derive both directions of drift from the snapshot the app already reads:
 approved items with `live === false` and revoked items with `live === true`.
 Drop the banner. Label a still-served revoked item "Still on your store",
 count it under Today's standing Push row and the For Sale push button, and
-say the failed push in plain words from the typed revoke handler.
+say a failed take-down in plain words through `act()`'s existing fallback.
 
 ## Acceptance criteria
 
 - [x] After a take-down whose push failed, relaunching still shows the item as still on the store and offers Push on For Sale and under Needs you.
 - [x] A take-down whose push succeeded shows no push offer.
-- [x] The failed-push notice names no command or path.
+- [x] A take-down that did not fully land is reported without a command or path.
 - [x] The take-down confirmation does not claim buyers lose copies they already have.
 - [x] The For Sale heading says "N not on your store yet", not "N on your store yet".
 
