@@ -52,9 +52,11 @@ cause is the same first-request-after-sign-in-refresh refusal that
 `lore push` already retries once (APP-089), since the read succeeded by hand
 minutes later and three consecutive reads of the live node succeed today.
 
-Fix: `sales()` retries once with the push's pause, then raises one line in
-Cloudflare's words with the account/database path stripped; `state.cjs`
-logs the complete stderr of any failed CLI call before throwing the last
-line; Sales shows the line with a Try again button instead of a dead card.
+Fix: `deploy._run` learned two things every wrangler call benefits from: a
+`retry` flag with the push's pause, and a failure detail that recognises
+wrangler's JSON refusal and reports Cloudflare's sentence on one line with
+the account/database path stripped. `sales()` passes `retry=True`;
+`state.cjs` logs the complete stderr of any failed CLI call before throwing
+the last line; Sales shows the line with a Try again button.
 Not a startup race: For Sale reads the ledger only when opened, after
 provisioning, so no read is delayed behind the binary check.

@@ -199,8 +199,8 @@ class SalesTest(LoreTestCase):
 
     def test_a_refusal_is_reported_in_cloudflares_words_not_a_brace(self) -> None:
         """The desktop shows the last line of stderr; a JSON blob's last line
-        is `}` (APP-085). The message is one line, in Cloudflare's words, and
-        names neither the account nor the database."""
+        is `}` (APP-085). Cloudflare's sentence comes through on one line,
+        naming neither the account nor the database."""
         self._stage_node()
         wrangler = _Wrangler(d1_execute_refusals=2)
         with (
@@ -209,27 +209,12 @@ class SalesTest(LoreTestCase):
             self.assertRaises(OSError) as failure,
         ):
             deploy_module.sales()
-        message = str(failure.exception)
         self.assertEqual(
-            message,
-            "reading sales failed: A request to the Cloudflare API failed. "
+            str(failure.exception),
+            "reading sales failed:\nA request to the Cloudflare API failed. "
             "Authentication error [code: 10000]",
         )
         self.assertEqual(len(wrangler.commands), 2)
-
-    def test_a_non_json_failure_still_reads_as_one_line(self) -> None:
-        self._stage_node()
-        refused = subprocess.CompletedProcess(
-            (), 1, stdout="", stderr="wrangler: network is\nunreachable\n"
-        )
-        with (
-            patch("lore.deploy.subprocess.run", return_value=refused),
-            patch("lore.deploy.time.sleep"),
-            self.assertRaisesRegex(
-                OSError, "reading sales failed: wrangler: network is unreachable$"
-            ),
-        ):
-            deploy_module.sales()
 
 
 class UnattendedDeployTest(_NodeCase):

@@ -137,14 +137,35 @@ def _run(
     fail: str | None = None,
     interactive: bool = False,
     input: str | None = None,
+    retry: bool = False,
 ) -> subprocess.CompletedProcess[str]:
-    result = subprocess.run(
-        args, cwd=cwd, input=input, capture_output=not interactive, text=True
-    )
+    """Run one tool. `retry` gives a refused request one more try after a
+    pause, the way a push does: Cloudflare has refused the first request after
+    wrangler refreshed its sign-in and accepted the next one moments later."""
+    attempts = 2 if retry else 1
+    for attempt in range(attempts):
+        result = subprocess.run(
+            args, cwd=cwd, input=input, capture_output=not interactive, text=True
+        )
+        if result.returncode == 0:
+            break
+        if attempt < attempts - 1:
+            time.sleep(3)
     if fail is not None and result.returncode:
-        detail = f"{result.stderr or ''}{result.stdout or ''}".strip()[-2000:]
-        raise OSError(f"{fail}:\n{detail}")
+        raise OSError(f"{fail}:\n{_detail(result)}")
     return result
+
+
+def _detail(result: subprocess.CompletedProcess[str]) -> str:
+    """The tail of both streams; or, when wrangler printed a refusal as JSON
+    (its `--json` mode does, so the last line is a lone brace), Cloudflare's
+    own sentence on one line without the account and database path."""
+    try:
+        error = json.loads(result.stdout or "")["error"]
+        parts = (error["text"], *(note["text"] for note in error.get("notes", [])))
+        return re.sub(r"\s*\([^)]*\)", "", " ".join(parts))
+    except (ValueError, KeyError, TypeError):
+        return f"{result.stderr or ''}{result.stdout or ''}".strip()[-2000:]
 
 
 def _ensure_d1(wrangler: str, target: Path) -> None:
@@ -220,43 +241,23 @@ def sales() -> list[Sale]:
     wrangler = target / "node_modules/.bin/wrangler"
     if not wrangler.exists():
         raise ValueError("no deployed node on this machine; open your store first")
-    command = (
-        str(wrangler),
-        "d1",
-        "execute",
-        D1_NAME,
-        "--remote",
-        "--json",
-        "--command",
-        SALES_QUERY,
+    result = _run(
+        (
+            str(wrangler),
+            "d1",
+            "execute",
+            D1_NAME,
+            "--remote",
+            "--json",
+            "--command",
+            SALES_QUERY,
+        ),
+        target,
+        fail="reading sales failed",
+        retry=True,
     )
-    # Same retry as a push: Cloudflare has refused the first request after
-    # wrangler refreshed its sign-in and accepted the next one moments later.
-    for attempt in range(2):
-        result = _run(command, target)
-        if result.returncode == 0 or attempt:
-            break
-        time.sleep(3)
-    if result.returncode:
-        raise OSError(f"reading sales failed: {_wrangler_error(result)}")
     statements = json.loads(result.stdout)
     return SALES.validate_python(statements[0]["results"])
-
-
-def _wrangler_error(result: subprocess.CompletedProcess[str]) -> str:
-    """One line saying what Cloudflare said. Under `--json`, wrangler reports
-    a failure as a JSON object, so its last line is a lone brace."""
-    try:
-        error = json.loads(result.stdout or "")["error"]
-        notes = (note.get("text", "") for note in error.get("notes", []))
-        detail = " ".join(part for part in (error.get("text", ""), *notes) if part)
-    except (ValueError, KeyError, TypeError, AttributeError):
-        detail = f"{result.stderr or ''}{result.stdout or ''}"
-    # The API path in wrangler's sentence names an account and a database id.
-    detail = re.sub(r"\s*\([^)]*\)", "", detail)
-    return (
-        " ".join(detail.split())[-2000:] or f"wrangler exited with {result.returncode}"
-    )
 
 
 def secret(name: str, value: str) -> int:
