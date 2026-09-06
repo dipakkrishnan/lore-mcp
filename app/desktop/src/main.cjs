@@ -101,7 +101,15 @@ function registerIpc(loreHome) {
   });
   ipcMain.handle("publication:revoke", async (_event, id) => {
     if (!Number.isInteger(id) || id < 1) throw new Error("Invalid publication");
-    await lore(loreHome, ["publication", "revoke", String(id)], "");
+    try {
+      await lore(loreHome, ["publication", "revoke", String(id)], "");
+    } catch (error) {
+      // The revoke itself landed; only the push behind it did not. The CLI's
+      // reason names commands and paths, and For Sale already shows the item
+      // as still on the store, so say just that.
+      if (/^revoked locally/.test(/** @type {Error} */ (error).message)) throw new Error("Taken down here. Your store still has it until you push.");
+      throw error;
+    }
   });
   ipcMain.handle("store:push", async () => {
     await lore(loreHome, ["push"], "");
