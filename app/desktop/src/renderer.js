@@ -1309,8 +1309,8 @@ async function decide(original, approve, candidate = original) {
   render();
 }
 
-/** @param {() => Promise<void>} action */
-async function act(action) {
+/** @param {() => Promise<void>} action @param {string} [failed] Said instead of the CLI's reason when that reason would be plumbing. */
+async function act(action, failed) {
   pushOffer = false;
   pushedNote = false;
   let done = true;
@@ -1318,7 +1318,7 @@ async function act(action) {
     await action();
   } catch (error) {
     done = false;
-    tell(reason(error, "Lore could not do that."), true);
+    tell(failed ?? reason(error, "Lore could not do that."), true);
   }
   await load();
   return done;

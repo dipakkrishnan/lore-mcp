@@ -131,6 +131,7 @@ obsolete), then `priority` (P0 → P3).
 | [XC-010](./cross-cutting/XC-010-require-a-backlog-id-in-every-pr-title.md) | Require a backlog id in every pull request title | P1 | S | cross-cutting | completed | XC-004, XC-007, XC-011, XC-014 | — | — | — |
 | [XC-012](./cross-cutting/XC-012-gate-pull-requests-on-a-lint-and-format-check.md) | Gate pull requests on a lint and format check | P1 | S | cross-cutting | completed | XC-003, XC-004 | — | — | — |
 | [XC-014](./cross-cutting/XC-014-require-ci-status-checks-to-block-merge.md) | Require the CI status checks to actually block merging to main | P1 | S | cross-cutting | completed | XC-004, XC-009, XC-010, XC-011, XC-012 | — | "Repository admin access to configure branch protection or a ruleset — the current backlog author has push but not admin" | — |
+| [APP-089](./desktop-app/APP-089-retry-a-store-push-that-cloudflare-refuses-once.md) | Retry a store push that Cloudflare refuses once, and say it plainly when it fails | P1 | S | desktop-app | completed | APP-072, MON-019 | — | — | — |
 | [APP-078](./desktop-app/APP-078-give-the-sign-in-screen-the-paste-field-it-promises.md) | Give the sign-in screen the paste field it promises | P2 | S | desktop-app | completed | — | — | — | — |
 | [APP-079](./desktop-app/APP-079-say-not-set-once-in-the-price-labels.md) | Say "Not set" once in the price labels | P2 | XS | desktop-app | completed | APP-019 | — | — | — |
 | [APP-012](./desktop-app/APP-012-give-sections-a-readable-vertical-rhythm.md) | Give sections a readable vertical rhythm | P2 | S | desktop-app | completed | APP-009, APP-011 | — | — | — |
@@ -153,6 +154,7 @@ obsolete), then `priority` (P0 → P3).
 | [APP-077](./desktop-app/APP-077-make-owner-actions-and-turns-easier-to-scan.md) | Make owner actions and turns easier to scan | P2 | S | desktop-app | completed | APP-050, APP-075 | — | — | — |
 | [APP-087](./desktop-app/APP-087-keep-the-packaged-cli-clear-of-the-developers-checkout.md) | Keep the packaged CLI clear of the developer's checkout | P2 | S | desktop-app | completed | XC-023, APP-073, MON-019 | — | — | — |
 | [XC-026](./cross-cutting/XC-026-point-the-faucet-card-at-onchain-tools.md) | Point the faucet card at Onchain Tools → Faucet in four short lines | P2 | XS | cross-cutting | completed | XC-025, APP-056, MON-007 | — | — | — |
+| [APP-090](./desktop-app/APP-090-let-a-long-memory-draft-scroll-instead-of-clipping.md) | Let a long memory draft scroll instead of clipping at the field's cap | P2 | XS | desktop-app | completed | APP-055 | — | — | — |
 | [APP-083](./desktop-app/APP-083-keep-memory-ids-out-of-the-publish-thread.md) | Keep memory ids out of the publish thread | P3 | XS | desktop-app | completed | APP-023 | — | — | — |
 | [APP-088](./desktop-app/APP-088-put-add-memory-beside-the-title.md) | Put Add Memory beside the title, not above it | P3 | XS | desktop-app | completed | APP-067, APP-051 | — | — | — |
 | [MON-001](./monetization/MON-001-cloudflare-gateway-deployment-guide.md) | Write a deployment guide for the Cloudflare Tunnel / Monetization Gateway path | P2 | L | monetization | obsolete | — | — | — | — |
