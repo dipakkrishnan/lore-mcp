@@ -294,8 +294,9 @@ a.link-btn.glyph { width: 22px; padding: 0; justify-content: center; color: var(
 .error h2 { font-family: var(--serif); font-size: 18px; text-transform: none; letter-spacing: 0; color: var(--ink); }
 
 /* Memory sheet */
-.sheet { position: fixed; inset: 0; z-index: 3; background: rgba(29, 31, 28, 0.28); display: flex; align-items: flex-start; justify-content: center; padding: 64px 24px; }
-.sheet-panel { width: min(720px, 100%); max-height: calc(100vh - 128px); overflow: auto; padding: 22px 24px; display: flex; flex-direction: column; gap: 14px; }
+dialog.sheet { width: min(720px, calc(100% - 48px)); max-height: calc(100vh - 128px); margin: 64px auto; padding: 22px 24px; overflow: auto; display: flex; flex-direction: column; gap: 14px; color: inherit; }
+dialog.sheet:not([open]) { display: none; }
+dialog.sheet::backdrop { background: rgba(29, 31, 28, 0.28); }
 .sheet-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
 .sheet-head .t { flex: 1; }
 .sheet-head .t b { white-space: normal; font-size: 22px; }

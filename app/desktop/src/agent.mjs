@@ -136,10 +136,10 @@ export function validSaved(value) {
 /** The entries an owner may keep from a memory card: the tool's own limits, and nothing blank. @param {unknown} value @returns {value is ProposedMemory[]} */
 export function validEntries(value) {
   return Array.isArray(value) && value.length <= 5 && value.every((item) => item && typeof item === "object"
-    && typeof item.title === "string" && item.title.trim() !== "" && item.title.length <= 300
+    && typeof item.title === "string" && item.title.trim() !== "" && item.title.length <= 200
     && typeof item.content === "string" && item.content.trim() !== "" && item.content.length <= 20_000
-    && (item.project === undefined || typeof item.project === "string")
-    && (item.source_path === undefined || typeof item.source_path === "string"));
+    && (item.project === undefined || (typeof item.project === "string" && item.project.length <= 200))
+    && (item.source_path === undefined || (typeof item.source_path === "string" && item.source_path.length <= 1_000)));
 }
 
 /** The parsed JSON of a finished tool result, or null for an error, a non-text result, or an old malformed one. @param {import("@earendil-works/pi-ai").ToolResultMessage} message @returns {Record<string, any> | null} */
@@ -557,11 +557,12 @@ export class LoreAgent {
   }
 
   #memoriesTool() {
+    // The CLI's own limits (lore/capture.py), so nothing the card accepts can fail to save.
     const entry = Type.Object({
-      title: Type.String({ minLength: 1, maxLength: 300 }),
+      title: Type.String({ minLength: 1, maxLength: 200 }),
       content: Type.String({ minLength: 1, maxLength: 20_000 }),
-      project: Type.Optional(Type.String({ maxLength: 300 })),
-      source_path: Type.Optional(Type.String({ maxLength: 2_000 }))
+      project: Type.Optional(Type.String({ maxLength: 200 })),
+      source_path: Type.Optional(Type.String({ maxLength: 1_000 }))
     });
     return defineTool({
       name: "propose_memories",
