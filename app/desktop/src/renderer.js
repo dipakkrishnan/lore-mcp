@@ -466,7 +466,7 @@ function renderToday(s) {
   if (detailTask) {
     /** @type {HTMLElement[]} */
     const detailParts = [];
-    if (detailTask === "publish" && candidates.length) detailParts.push(section("Approve what to sell", approvals(), el("span", "hint", "Only what you approve ever leaves this Mac.")));
+    if (detailTask === "publish" && candidates.length) detailParts.push(section("Approve what to sell", approvals(), el("span", "hint", "Buyers only ever get what you approve here.")));
     if (detailTask === "publish" && (pushOffer || pushing)) detailParts.push(seamCard());
     if (detailTask === "publish" && pushedNote) detailParts.push(pushReceipt(s));
     if ((detailTask === "setup" || detailTask === "deploy") && detailRecord?.state === "done") detailParts.push(nextRung(s));
@@ -474,7 +474,7 @@ function renderToday(s) {
   }
   /** @type {HTMLElement[]} */
   const parts = [];
-  if (candidates.length) parts.push(section("Approve what to sell", approvals(), el("span", "hint", "Only what you approve ever leaves this Mac.")));
+  if (candidates.length) parts.push(section("Approve what to sell", approvals(), el("span", "hint", "Buyers only ever get what you approve here.")));
   if (pushOffer || pushing) parts.push(seamCard());
   if (pushedNote) parts.push(pushReceipt(s));
   const attention = needsYou(s);
@@ -632,6 +632,12 @@ async function loadSales() {
   render();
 }
 
+/** Who reads the owner's memories on their behalf: the signed-in provider, by its plain name. */
+function providerName() {
+  const provider = auth?.credentials[0];
+  return (provider && PROVIDERS[/** @type {keyof typeof PROVIDERS} */ (provider.providerId)]?.[0]) || "Your AI provider";
+}
+
 /** @param {Snapshot} s */
 function renderSettings(s) {
   const value = (/** @type {(string | HTMLElement)[]} */ ...parts) => {
@@ -670,7 +676,7 @@ function renderSettings(s) {
     section("Where memories come from", card(sources)),
     section("What Lore keeps", card([
       row("Lore's shape", "What it keeps, what it ignores, what it may sell. Set in a short conversation.", value(status(s.setup.blueprint_configured, s.setup.blueprint_configured ? "Set" : "Not set"), ...(s.setup.blueprint_configured ? [] : [button("Start", "secondary", startSetup)])), false),
-      row("Where it lives", "Everything stays on this Mac. Only what you approve for sale ever leaves.", value(Object.assign(el("span", "mono", s.home), { style: "color: var(--muted)" })), false)
+      row("Where it lives", `Your memories are kept on this Mac. ${providerName()} reads them when it works with you here. Buyers only ever get what you approve for sale.`, value(Object.assign(el("span", "mono", s.home), { style: "color: var(--muted)" })), false)
     ])),
     section("Your store", card([
       row("Address", s.node.url ? storeAddress(s.node) : "Not opened yet.", value(status(live.state === "online", live.state === "online" ? `Live on ${networkLabel(live.network) || "your node"}` : nodeLabel(live.state))), false),
@@ -1142,7 +1148,7 @@ function nextRung(s) {
   const heading = deploy ? (storeOpen ? "Your store is open." : "Your store isn't open yet.") : "Your Lore is set up.";
   const detail = deploy
     ? storeOpen
-      ? "This thread is closed. Publications reach buyers after a push; everything else stays on this Mac."
+      ? "This thread is closed. Publications reach buyers after a push; everything else stays private."
       : "This thread is closed. Try again now, or any time from Today."
     : "This thread is closed. What comes next is a separate step — take it now, or any time from Today.";
   box.append(
