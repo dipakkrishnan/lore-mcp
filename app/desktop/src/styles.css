@@ -226,7 +226,7 @@ h2 { font-size: 12px; font-weight: 600; letter-spacing: 0.06em; text-transform: 
 .memory .meta .group { display: flex; gap: 8px; }
 .card.stack { display: flex; flex-direction: column; gap: 10px; }
 .draft-field { display: flex; flex-direction: column; gap: 4px; }
-.draft-field textarea { min-height: 36px; padding: 6px 12px; resize: none; line-height: 1.45; overflow: hidden; }
+.draft-field textarea { min-height: 36px; padding: 6px 12px; resize: none; line-height: 1.45; }
 .draft-field .draft-title { font-family: var(--serif); font-size: 18px; }
 fieldset { border: 0; padding: 0; margin: 0; align-self: stretch; display: flex; flex-direction: column; gap: 6px; }
 legend { font-weight: 500; font-size: 14px; margin-bottom: 6px; }
@@ -244,7 +244,7 @@ legend { font-weight: 500; font-size: 14px; margin-bottom: 6px; }
 .blueprint-fields label { display: flex; flex-direction: column; gap: 4px; color: var(--muted); font-size: 12px; }
 .blueprint-fields label:nth-child(4), .blueprint-fields label:nth-child(7) { grid-column: 1 / -1; }
 .blueprint-fields input, .blueprint-fields select, .blueprint-fields textarea { color: var(--ink); }
-.blueprint-fields textarea { min-height: 36px; padding: 6px 12px; border: 1px solid var(--line-strong); border-radius: var(--radius-sm); background: var(--surface); resize: none; line-height: 1.45; overflow: hidden; }
+.blueprint-fields textarea { min-height: 36px; padding: 6px 12px; border: 1px solid var(--line-strong); border-radius: var(--radius-sm); background: var(--surface); resize: none; line-height: 1.45; }
 
 /* Rows */
 .rows { display: flex; flex-direction: column; }

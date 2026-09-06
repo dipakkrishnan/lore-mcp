@@ -1648,6 +1648,36 @@ class PushTest(LoreTestCase):
         with Store() as store:
             self.assertFalse(store.setting("revocation_pending", True))
 
+    def test_a_failed_edge_write_is_retried_once_before_it_fails_the_push(
+        self,
+    ) -> None:
+        # The edge write is transactional, and Cloudflare has refused the first
+        # write after a sign-in refresh and accepted the next; the retry is
+        # what keeps that from reaching the owner. A second failure is real.
+        self.publish()
+        failed = subprocess.CompletedProcess(("wrangler",), 1)
+        passed = subprocess.CompletedProcess(("wrangler",), 0)
+        with (
+            patch("subprocess.run", side_effect=[failed, passed]) as run,
+            patch("time.sleep") as sleep,
+            captured() as out,
+        ):
+            self.assertEqual(cli.push(str(self.worker)), 0)
+        self.assertEqual(run.call_count, 2)
+        self.assertEqual(run.call_args_list[0], run.call_args_list[1])
+        sleep.assert_called_once()
+        self.assertIn("Pushed 1 active publication", out.getvalue())
+        with (
+            patch("subprocess.run", side_effect=[failed, failed]) as run,
+            patch("time.sleep"),
+            captured(),
+            self.assertRaisesRegex(ValueError, "could not write the edge database"),
+        ):
+            cli.push(str(self.worker))
+        self.assertEqual(run.call_count, 2)
+        with Store() as store:
+            self.assertEqual(store.recent_jobs()[0].summary, "edge_write_failed")
+
     def test_the_sql_file_is_cleaned_up_after_a_push(self) -> None:
         self.publish()
         _, run, _ = self._push()

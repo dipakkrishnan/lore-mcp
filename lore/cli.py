@@ -1159,6 +1159,7 @@ def _push(worker: Path, local: bool, job_id: int) -> int:
     """Write the active publication set to the node's edge database."""
     import subprocess
     import tempfile
+    import time
 
     with Store() as store:
         active = store.list_publications(active_only=True)
@@ -1168,20 +1169,26 @@ def _push(worker: Path, local: bool, job_id: int) -> int:
         handle.write(script)
         script_path = handle.name
     target = ["--local"] if local else ["--remote"]
-    result = subprocess.run(
-        [
-            "npx",
-            "wrangler",
-            "d1",
-            "execute",
-            "lore-publications",
-            *target,
-            "--file",
-            script_path,
-            "-y",
-        ],
-        cwd=worker,
-    )
+    command = [
+        "npx",
+        "wrangler",
+        "d1",
+        "execute",
+        "lore-publications",
+        *target,
+        "--file",
+        script_path,
+        "-y",
+    ]
+    # A remote write is transactional, so a failed one leaves the edge as it
+    # was and can be retried. Cloudflare has answered 401 to the first write
+    # after wrangler refreshed its sign-in and accepted the same write moments
+    # later, so one retry covers that without the owner seeing it.
+    for attempt in range(2):
+        result = subprocess.run(command, cwd=worker)
+        if result.returncode == 0 or attempt:
+            break
+        time.sleep(3)
     os.unlink(script_path)
     if result.returncode != 0:
         # The cause names commands and a database, which owner history must not
