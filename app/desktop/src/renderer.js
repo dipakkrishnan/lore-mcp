@@ -609,7 +609,11 @@ function renderStore(s) {
 }
 
 function renderSales() {
-  if (sales instanceof Error) return section("Sales", el("div", "card pad empty", sales.message));
+  if (sales instanceof Error) {
+    const box = el("div", "card pad empty retry");
+    box.append(el("span", "", sales.message), button("Try again", "secondary", () => void loadSales()));
+    return section("Sales", box);
+  }
   if (sales === null) return section("Sales", el("div", "card pad empty", "Checking your store…"));
   if (!sales.length) return section("Sales", el("div", "card pad empty", "No sales yet. When a buyer's agent pays for a publication, it shows here."));
   const total = sales.reduce((sum, sale) => sum + sale.price_usd, 0);
