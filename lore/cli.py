@@ -13,6 +13,7 @@ from pydantic import BaseModel, ConfigDict, Field, TypeAdapter
 from . import blueprint as blueprint_module
 from . import capture as capture_module
 from . import deploy as deploy_module
+from . import feedback as feedback_module
 from .paths import home
 from .sources import available_sources, scan
 from .store import (
@@ -28,6 +29,7 @@ from .store import (
 )
 from .ui import (
     ask,
+    ask_lines,
     confirm,
     heading,
     logo,
@@ -268,6 +270,17 @@ def parser() -> argparse.ArgumentParser:
         "file", help="path to a blueprint JSON file; use - for stdin"
     )
     blueprint_commands.add_parser("show", help="show the current lore map")
+
+    report = commands.add_parser(
+        "report-feedback", help="send feedback to the Lore maintainers"
+    )
+    report.add_argument("--title")
+    report.add_argument("--email")
+    report.add_argument("--description")
+    report.add_argument(
+        "--description-file", help="read the description from a file; - for stdin"
+    )
+    report.add_argument("--json", action="store_true")
     return root
 
 
@@ -361,6 +374,14 @@ def main(argv: list[str] | None = None) -> int:
             if args.blueprint_command == "apply":
                 return blueprint_apply(args.file)
             return blueprint_show()
+        if args.command == "report-feedback":
+            return report_feedback(
+                args.title,
+                args.email,
+                args.description,
+                args.description_file,
+                args.json,
+            )
     except (KeyboardInterrupt, EOFError):
         print("\nCancelled.")
         return 130
@@ -429,6 +450,10 @@ def manual() -> int:
   10. lore blueprint show
      See the shape of your lore captured by the gamified onboarding skill
      (run `lore blueprint apply <file>` from that skill to update it).
+
+  11. lore report-feedback [--title T --email E (--description D|--description-file F)]
+     Send feedback to the Lore maintainers as a GitHub issue. Run with no
+     flags to be prompted; the issue this creates is public.
 
 Use `lore <command> --help` for command-specific options.
 """
@@ -1249,3 +1274,54 @@ def blueprint_show() -> int:
         return 0
     print("No blueprint yet. Run the lore-onboard skill inside Claude or Codex.")
     return 0
+
+
+def report_feedback(
+    title: str | None,
+    email: str | None,
+    description: str | None,
+    description_file: str | None,
+    as_json: bool,
+) -> int:
+    """Send one piece of feedback to the Lore maintainers as a GitHub issue.
+
+    Interactive with no flags. Any of --title/--email/--description/
+    --description-file selects non-interactive mode, which then requires
+    --title and exactly one description source.
+    """
+    _owner_action("sending feedback")
+    non_interactive = any(
+        value is not None for value in (title, email, description, description_file)
+    )
+    if non_interactive:
+        if not title:
+            raise ValueError("non-interactive feedback needs --title")
+        if (description is None) == (description_file is None):
+            raise ValueError(
+                "non-interactive feedback needs exactly one of "
+                "--description or --description-file"
+            )
+        text = (
+            description
+            if description is not None
+            else _read_description_source(description_file)  # type: ignore[arg-type]
+        )
+    else:
+        heading("Report feedback")
+        muted("This becomes a public GitHub issue; anything you type is visible there.")
+        title = ask("Title")
+        email = ask("Email (optional)") or None
+        text = ask_lines("Description (end with Ctrl-D)")
+
+    receipt = feedback_module.report_feedback(
+        title=title, email=email, description=text, source="cli"
+    )
+    if as_json:
+        print(json.dumps({"url": receipt.issue_url, "number": receipt.issue_number}))
+    else:
+        success(f"Filed as {receipt.issue_url}")
+    return 0
+
+
+def _read_description_source(path: str) -> str:
+    return sys.stdin.read() if path == "-" else Path(path).read_text(encoding="utf-8")
