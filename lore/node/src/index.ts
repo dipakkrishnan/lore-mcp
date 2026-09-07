@@ -1,6 +1,7 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { McpAgent } from "agents/mcp";
 import { withX402 } from "agents/x402";
+import { tracing } from "cloudflare:workers";
 import { z } from "zod";
 import {
   ESTIMATE_SECONDS,
@@ -17,6 +18,7 @@ import { facilitator, network, networkLabel } from "./network.js";
 import { PRICE_USD } from "./price.js";
 import { ensureSalesSchema, recorded } from "./sales.js";
 import { storefront } from "./storefront.js";
+import { toolSpanAttributes } from "./telemetry.js";
 import { payTo } from "./wallet.js";
 
 const ANSWER_DISABLED = { error: "the answer tier is not enabled on this node" };
@@ -56,18 +58,21 @@ export class LorePaidMCP extends McpAgent<Env> {
         inputSchema: {}
       },
       async () =>
-        asText({
-          ...(await manifest(this.env)),
-          network: network(this.env),
-          payout: payTo(this.env),
-          price_usd: PRICE_USD,
-          ...(settings.enabled
-            ? {
-                answer_price_usd: settings.priceUsd,
-                answer_retention_disclosure: RETENTION_DISCLOSURE
-              }
-            : {}),
-          disclosure: "Choose any advertised ids; get buys one publication per call."
+        tracing.enterSpan("lore.discover", async (span) => {
+          span.setAttributes(toolSpanAttributes({ tool: "discover", outcome: "ok" }));
+          return asText({
+            ...(await manifest(this.env)),
+            network: network(this.env),
+            payout: payTo(this.env),
+            price_usd: PRICE_USD,
+            ...(settings.enabled
+              ? {
+                  answer_price_usd: settings.priceUsd,
+                  answer_retention_disclosure: RETENTION_DISCLOSURE
+                }
+              : {}),
+            disclosure: "Choose any advertised ids; get buys one publication per call."
+          });
         })
     );
 
@@ -83,23 +88,27 @@ export class LorePaidMCP extends McpAgent<Env> {
         })
       },
       {},
-      async ({ id }) => {
-        const row = await this.env.LORE_DB.prepare(
-          `SELECT public_id AS id, title, content, topic, kind, updated_at
-           FROM publications WHERE public_id = ?1`
-        )
-          .bind(id)
-          .first();
-        return asText(
-          row
-            ? {
-                publication: row,
-                disclosure: "Content is owner-approved; preserve attribution when synthesizing."
-              }
-            : { error: `publication not found: ${id}` },
-          !row
-        );
-      }
+      async ({ id }) =>
+        tracing.enterSpan("lore.get", async (span) => {
+          const row = await this.env.LORE_DB.prepare(
+            `SELECT public_id AS id, title, content, topic, kind, updated_at
+             FROM publications WHERE public_id = ?1`
+          )
+            .bind(id)
+            .first();
+          span.setAttributes(
+            toolSpanAttributes({ tool: "get", outcome: row ? "ok" : "not_found", paid: true, itemId: id })
+          );
+          return asText(
+            row
+              ? {
+                  publication: row,
+                  disclosure: "Content is owner-approved; preserve attribution when synthesizing."
+                }
+              : { error: `publication not found: ${id}` },
+            !row
+          );
+        })
     );
     recorded(this.env.LORE_DB, get, "publication", PRICE_USD, (payload) => {
       const { publication } = payload as { publication: { id: string; title: string } };
@@ -123,17 +132,19 @@ export class LorePaidMCP extends McpAgent<Env> {
         settings.priceUsd,
         question,
         {},
-        async (args) => {
-          const ticket = await createTicket(this.env, args.question, settings.priceUsd);
-          await this.schedule(0, "runAnswerTicket", { ticketId: ticket });
-          return asText({
-            ticket,
-            status: "running",
-            poll: "result",
-            estimate_seconds: ESTIMATE_SECONDS,
-            retention_disclosure: RETENTION_DISCLOSURE
-          });
-        }
+        async (args) =>
+          tracing.enterSpan("lore.answer", async (span) => {
+            const ticket = await createTicket(this.env, args.question, settings.priceUsd);
+            await this.schedule(0, "runAnswerTicket", { ticketId: ticket });
+            span.setAttributes(toolSpanAttributes({ tool: "answer", outcome: "ok", paid: true, itemId: ticket }));
+            return asText({
+              ticket,
+              status: "running",
+              poll: "result",
+              estimate_seconds: ESTIMATE_SECONDS,
+              retention_disclosure: RETENTION_DISCLOSURE
+            });
+          })
       );
       recorded<typeof question>(this.env.LORE_DB, answer, "answer", settings.priceUsd, (payload, args) => ({
         item: (payload as { ticket: string }).ticket,
@@ -143,7 +154,11 @@ export class LorePaidMCP extends McpAgent<Env> {
       this.server.registerTool(
         "answer",
         { description: answerDescription, inputSchema: question },
-        async () => asText(ANSWER_DISABLED, true)
+        async () =>
+          tracing.enterSpan("lore.answer", (span) => {
+            span.setAttributes(toolSpanAttributes({ tool: "answer", outcome: "disabled" }));
+            return asText(ANSWER_DISABLED, true);
+          })
       );
     }
 
@@ -160,10 +175,19 @@ export class LorePaidMCP extends McpAgent<Env> {
           })
         }
       },
-      async (args) => {
-        const outcome = await ticketResult(this.env, args.ticket);
-        return asText(outcome, "error" in outcome);
-      }
+      async (args) =>
+        tracing.enterSpan("lore.result", async (span) => {
+          const outcome = await ticketResult(this.env, args.ticket);
+          const found = !("error" in outcome);
+          span.setAttributes(
+            toolSpanAttributes({
+              tool: "result",
+              outcome: found ? "ok" : "not_found",
+              itemId: args.ticket
+            })
+          );
+          return asText(outcome, !found);
+        })
     );
   }
 }

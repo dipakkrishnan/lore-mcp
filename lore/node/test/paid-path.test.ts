@@ -11,8 +11,10 @@ import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/
 import { env, exports } from "cloudflare:workers";
 import { generatePrivateKey, privateKeyToAccount } from "viem/accounts";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { newTicketId } from "../src/answer-state";
 import { mockFacilitator } from "./facilitator";
 import { FIXTURE_PUBLICATION_ID } from "./setup";
+import { captureSpans } from "./tracing";
 
 type CallToolResult = Awaited<ReturnType<Client["callTool"]>>;
 type PaymentRequired = Parameters<x402Client["createPaymentPayload"]>[0];
@@ -87,6 +89,19 @@ describe("discover", () => {
       await client.close();
     }
   });
+
+  it("records a span carrying only the tool name and an ok outcome — never the catalog", async () => {
+    const spans = captureSpans();
+    mockFacilitator();
+    const client = await connect();
+    try {
+      await client.callTool({ name: "discover", arguments: {} });
+      const span = spans.find((s) => s.name === "lore.discover");
+      expect(span?.attributes).toEqual({ "lore.tool": "discover", "lore.outcome": "ok" });
+    } finally {
+      await client.close();
+    }
+  });
 });
 
 async function sales() {
@@ -119,6 +134,60 @@ describe("get (paid)", () => {
           tx: "0xfixturetransaction"
         }
       ]);
+    } finally {
+      await client.close();
+    }
+  });
+
+  it("records an ok outcome with a hashed id on the get span, and settled on the sale span — never the title, payer, or transaction hash", async () => {
+    const spans = captureSpans();
+    mockFacilitator();
+    const client = await connect();
+    try {
+      const token = await challengeAndBuildToken(client);
+      const paid = await client.callTool({
+        name: "get",
+        arguments: { id: FIXTURE_PUBLICATION_ID },
+        _meta: { "x402/payment": token }
+      });
+      expect(paid.isError).toBeUndefined();
+
+      const getSpan = spans.find((s) => s.name === "lore.get");
+      expect(getSpan?.attributes["lore.outcome"]).toBe("ok");
+      expect(getSpan?.attributes["lore.item_hash"]).toBeTypeOf("string");
+      expect(getSpan?.attributes["lore.item_hash"]).not.toBe(FIXTURE_PUBLICATION_ID);
+
+      const saleSpan = spans.find((s) => s.name === "lore.sale");
+      expect(saleSpan?.attributes).toEqual({ "lore.settled": true, "lore.outcome": "ok" });
+
+      const serialized = JSON.stringify(spans);
+      expect(serialized).not.toContain(FIXTURE_PUBLICATION_ID);
+      expect(serialized).not.toContain("Fixture Publication");
+      expect(serialized).not.toContain("secret owner-approved content");
+      expect(serialized).not.toContain("0xfixturepayer");
+      expect(serialized).not.toContain("0xfixturetransaction");
+    } finally {
+      await client.close();
+    }
+  });
+
+  it("records a not_found outcome and a hashed id when the id is well-formed but unknown", async () => {
+    const spans = captureSpans();
+    mockFacilitator();
+    const client = await connect();
+    try {
+      const unknownId = newTicketId();
+      const token = await challengeAndBuildToken(client, unknownId);
+      const result = await client.callTool({
+        name: "get",
+        arguments: { id: unknownId },
+        _meta: { "x402/payment": token }
+      });
+      expect(result.isError).toBe(true);
+      const span = spans.find((s) => s.name === "lore.get");
+      expect(span?.attributes["lore.outcome"]).toBe("not_found");
+      expect(span?.attributes["lore.item_hash"]).toBeTypeOf("string");
+      expect(JSON.stringify(spans)).not.toContain(unknownId);
     } finally {
       await client.close();
     }
@@ -205,7 +274,8 @@ describe("get (paid)", () => {
     }
   });
 
-  it("still returns the paid-for content when writing the sales row throws", async () => {
+  it("still returns the paid-for content when writing the sales row throws, and records settle_failed", async () => {
+    const spans = captureSpans();
     mockFacilitator();
     const client = await connect();
     const realPrepare = env.LORE_DB.prepare.bind(env.LORE_DB);
@@ -223,13 +293,16 @@ describe("get (paid)", () => {
       expect(paid.isError).toBeUndefined();
       const publication = textOf(paid).publication as { content: string };
       expect(publication.content).toContain("secret owner-approved content");
+      const saleSpan = spans.find((s) => s.name === "lore.sale");
+      expect(saleSpan?.attributes).toEqual({ "lore.settled": true, "lore.outcome": "settle_failed" });
     } finally {
       prepareSpy.mockRestore();
       await client.close();
     }
   });
 
-  it("fails closed when settlement fails after a successful verification", async () => {
+  it("fails closed when settlement fails after a successful verification, and records no sale span", async () => {
+    const spans = captureSpans();
     mockFacilitator({ settle: { kind: "http-error", status: 503 } });
     const client = await connect();
     try {
@@ -242,6 +315,7 @@ describe("get (paid)", () => {
       expect(result.isError).toBe(true);
       expect(JSON.stringify(result)).not.toContain("secret owner-approved content");
       expect(await sales()).toEqual([]);
+      expect(spans.find((s) => s.name === "lore.sale")).toBeUndefined();
     } finally {
       await client.close();
     }

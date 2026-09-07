@@ -3,6 +3,7 @@ import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/
 import { env, exports } from "cloudflare:workers";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { mockFacilitator } from "./facilitator";
+import { captureSpans } from "./tracing";
 
 async function connect(): Promise<Client> {
   const client = new Client({ name: "lore-answer-disabled-test", version: "0.1.0" });
@@ -24,6 +25,7 @@ afterEach(() => {
 
 describe("answer tier disabled (the default)", () => {
   it("blocks new answers without hiding prior results", async () => {
+    const spans = captureSpans();
     mockFacilitator();
     const client = await connect();
     try {
@@ -37,6 +39,7 @@ describe("answer tier disabled (the default)", () => {
       });
       expect(blocked.isError).toBe(true);
       expect(blocked._meta?.["x402/error"]).toBeUndefined();
+      expect(spans.find((s) => s.name === "lore.answer")?.attributes["lore.outcome"]).toBe("disabled");
 
       const now = new Date().toISOString();
       const ticket = "0000000000000000fcdb4b42";
@@ -48,6 +51,9 @@ describe("answer tier disabled (the default)", () => {
         .run();
       const result = await client.callTool({ name: "result", arguments: { ticket } });
       expect(textOf(result)).toMatchObject({ status: "complete", answer: "prior answer" });
+      const resultSpan = spans.find((s) => s.name === "lore.result");
+      expect(resultSpan?.attributes["lore.outcome"]).toBe("ok");
+      expect(JSON.stringify(spans)).not.toContain("prior answer");
     } finally {
       await client.close();
     }

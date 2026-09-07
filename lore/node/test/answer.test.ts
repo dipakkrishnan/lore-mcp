@@ -19,6 +19,7 @@ import {
 import { mockFacilitator } from "./facilitator";
 import { scriptModel } from "./model";
 import { FIXTURE_PUBLICATION_ID } from "./setup";
+import { captureSpans } from "./tracing";
 
 const PROXY = "Act as Ada's concise, evidence-first proxy with no hedging.";
 const ANSWER_PRICE = 0.25;
@@ -245,6 +246,40 @@ describe("answer (paid) and result", () => {
       expect(row?.input_tokens).toBe(2000);
       expect(row?.cost_usd).toBeGreaterThan(0);
       expect(row?.tool_calls).toBe(2);
+    } finally {
+      await client.close();
+    }
+  });
+
+  it("records the answer job's telemetry on a span, and never the buyer's question", async () => {
+    const spans = captureSpans();
+    const model = scriptModel([
+      { tool: "memory_view", input: { public_id: FIXTURE_PUBLICATION_ID } },
+      {
+        tool: "submit_answer",
+        input: { answer: "Grounded answer.", cited_publication_ids: [FIXTURE_PUBLICATION_ID] }
+      }
+    ]);
+    mockFacilitator({ otherwise: model.otherwise });
+    const client = await connect();
+    try {
+      const question = "What does the fixture teach, and where exactly do I live?";
+      const ticket = await buyAnswer(client, question);
+      await pollResult(client, ticket);
+
+      const jobSpan = spans.find((s) => s.name === "lore.answer.job");
+      expect(jobSpan?.attributes["lore.answer.model"]).toBe("claude-sonnet-5");
+      expect(jobSpan?.attributes["lore.answer.tool_calls"]).toBe(2);
+      expect(typeof jobSpan?.attributes["lore.answer.cost_usd"]).toBe("number");
+      expect(typeof jobSpan?.attributes["lore.answer.duration_ms"]).toBe("number");
+
+      const ticketSpan = spans.find((s) => s.name === "lore.answer");
+      expect(ticketSpan?.attributes["lore.outcome"]).toBe("ok");
+
+      const serialized = JSON.stringify(spans);
+      expect(serialized).not.toContain(question);
+      expect(serialized).not.toContain("where exactly do I live");
+      expect(serialized).not.toContain("Grounded answer");
     } finally {
       await client.close();
     }
