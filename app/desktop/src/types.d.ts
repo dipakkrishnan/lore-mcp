@@ -45,6 +45,10 @@ type Snapshot = {
     live: {
       state: "online" | "not_configured" | "unreachable";
       network: string | null;
+      // What the node itself advertises, which is the price baked in at its
+      // last deploy — not `pricing.publication_usd`, which is what the owner
+      // last saved. Null when unreachable, or when the node predates the field.
+      price_usd: number | null;
       payout: string | null;
     };
   };
@@ -168,6 +172,7 @@ interface Window {
     revoke(id: number): Promise<void>;
     push(): Promise<void>;
     schedule(): Promise<void>;
+    setPrice(amount: number): Promise<void>;
     sales(): Promise<Sale[]>;
     pickFiles(): Promise<string[]>;
     pathFor(file: File): string;
@@ -204,6 +209,7 @@ type AgentRequest =
   | { type: "blueprint"; id: string; task: AgentTask | null; fields: BlueprintFields; evidence: string }
   | { type: "auth-prompt"; id: string; task: AgentTask | null; prompt: AuthPrompt }
   | { type: "cloudflare"; id: string; task: AgentTask | null }
+  | { type: "price"; id: string; task: AgentTask | null; amount: number; reason: string }
   | { type: "open"; id: string; task: AgentTask | null; title: string; url: string; note: string };
 
 type AgentEvent =
@@ -240,6 +246,8 @@ type LoreAgentOptions = {
   askUser(questions: OwnerQuestion[]): Promise<Record<string, string>>;
   proposeMemories(entries: ProposedMemory[]): Promise<MemoryOutcome>;
   proposeBlueprint(fields: BlueprintFields, evidence: string): Promise<BlueprintFields>;
+  /** Resolves to the amount the owner confirmed, or null if they declined. */
+  proposePrice(amount: number, reason: string): Promise<number | null>;
   cloudflareLogin(): Promise<string>;
   openUrl(page: { title: string; url: string; note: string }): Promise<string>;
   storeSecret(name: "CDP_API_KEY_ID" | "CDP_API_KEY_SECRET"): Promise<string>;

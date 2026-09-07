@@ -60,6 +60,9 @@ let pushOffer = false;
 let pushing = false;
 /** @type {string | false} */
 let pushedNote = false;
+/** Whether the For Sale price row is open as an editor. */
+let editingPrice = false;
+let savingPrice = false;
 let accountMenuOpen = false;
 /** The node's ledger, read each time For Sale opens: rows, the reason it could not be read, or null while it loads. @type {Sale[] | Error | null} */
 let sales = null;
@@ -81,10 +84,12 @@ const PROVIDERS = {
 const NETWORKS = { "eip155:8453": "Base", "eip155:84532": "Base Sepolia, test network" };
 const TEST_NETWORK = "eip155:84532";
 const EXPLORERS = { "eip155:8453": "https://basescan.org", "eip155:84532": "https://sepolia.basescan.org" };
-const CHANGE_PRICE = "I want to change the price on my store. Set the new price and redeploy so buyers pay the new amount.";
 const REAL_MONEY = "I'm ready to switch my store to real money.";
 const PLAY_MONEY = "Put my store back on the test network.";
-const money = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" });
+const REDEPLOY_PRICE = "I changed my publication price. Redeploy my store so buyers pay the new amount.";
+// Six decimals, not the default two: a price can run below a cent, and rounding
+// $0.000001 up to $0.01 would misstate what a buyer pays. Six is the CLI's floor.
+const money = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 6 });
 const shortDate = new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric" });
 const longDate = new Intl.DateTimeFormat("en-US", { weekday: "long", month: "long", day: "numeric" });
 const TASK_TITLES = { capture: "Capture a memory", setup: "Set up your Lore", publish: "Publish from your Lore", deploy: "Open your store" };
@@ -447,10 +452,15 @@ function needsYou(s) {
   else if (!s.setup.blueprint_configured) add("Shape your Lore", "Review one proposal based on what your agents already know.", button("Start", "secondary", startSetup));
   else if (!s.setup.profile_configured) add("Set the rhythm", "Choose which model writes new memories, and how often.", button("Start", "secondary", startSetup));
   else {
+    // Before the store rung: something approved with no price cannot be sold,
+    // and this is the first moment the owner has a reason to name one.
+    if (s.publications.counts.active && s.pricing.publication_usd === null) add("Set a price", "What a buyer pays for one publication. You can change it later.", button("Set", "secondary", openPriceEditor));
     if (!s.node.url) add("Open your store", "A payout address, a price, and a node on the test network first. Free until you say otherwise.", button("Open", "secondary", () => void startDeploy()));
     if (s.library.counts.private && !candidates.length && !taskItems.some((item) => item.kind === "publish")) add("Publish something", "Lore drafts up to three things to sell; you approve each one.", button("Publish", "secondary", startPublish));
   }
-  // Approved work a buyer cannot see yet is actionable whatever rung setup is on.
+  // Approved work a buyer cannot see yet, or a price they are not yet paying, is actionable whatever rung setup is on.
+  const stale = stalePrice(s);
+  if (stale !== null) add("Redeploy your store", `Buyers still pay ${price(stale)}; you set ${price(s.pricing.publication_usd)}.`, button("Redeploy", "secondary", () => void startDeploy(REDEPLOY_PRICE)));
   const waiting = unpushed(s);
   if (waiting.length && !pushOffer && !pushing) add("Push to your store", `${pendingLabel(waiting)}.`, button("Push", "secondary", pushNow));
   return rows;
@@ -532,6 +542,82 @@ function renderMemories(s) {
   return [section("", body)];
 }
 
+/** The publication price as it reads when nobody is editing it. @param {Snapshot} s */
+function priceRow(s) {
+  // Wrapped, not bare: `.prices` is a stretch-aligned column, so a bare button
+  // would spread its hover background across the whole bar.
+  const item = el("div", "price-row");
+  const open = el("button", "price-open");
+  open.type = "button";
+  open.title = "Change what a buyer pays per publication";
+  if (typeof s.pricing.publication_usd === "number") open.append(document.createTextNode(`${price(s.pricing.publication_usd)} `), el("span", "", "a publication"));
+  else open.append("Not set");
+  open.addEventListener("click", () => { editingPrice = true; render(); });
+  item.append(open);
+  return item;
+}
+
+/** A dollar field with its prefix. @param {string} value @returns {[HTMLElement, HTMLInputElement]} */
+function priceField(value) {
+  const field = el("div", "price-field");
+  const input = el("input");
+  input.type = "text";
+  input.inputMode = "decimal";
+  input.setAttribute("aria-label", "Price per publication in US dollars");
+  input.value = value;
+  input.placeholder = "0.01";
+  field.append(el("span", "price-prefix", "$"), input);
+  return [field, input];
+}
+
+/** The amount typed, or null when the CLI would refuse it: zero is a conversation, not a text field. @param {string} raw */
+function parsePrice(raw) {
+  const amount = Number(raw.trim().replace(/^\$/, ""));
+  return raw.trim() && Number.isFinite(amount) && amount > 0 ? amount : null;
+}
+
+/** What the node charges when that differs from what the owner saved; only a redeploy changes it. Read from the probe, so it survives a relaunch and says nothing about a node it cannot reach. @param {Snapshot} s */
+function stalePrice(s) {
+  const live = s.node.live.price_usd;
+  return typeof live === "number" && typeof s.pricing.publication_usd === "number" && live !== s.pricing.publication_usd ? live : null;
+}
+
+/** @param {Snapshot} s */
+function priceEditor(s) {
+  const form = /** @type {HTMLFormElement} */ (el("form", "price-edit"));
+  const [field, input] = priceField(typeof s.pricing.publication_usd === "number" ? String(s.pricing.publication_usd) : "");
+  const actions = el("div", "actions");
+  const cancel = el("button", "btn quiet sm", "Cancel");
+  cancel.type = "button";
+  cancel.addEventListener("click", () => { editingPrice = false; render(); });
+  const save = el("button", "btn primary sm", savingPrice ? "Saving…" : "Save");
+  save.type = "submit";
+  cancel.disabled = savingPrice;
+  save.disabled = savingPrice;
+  actions.append(cancel, save);
+  form.append(field, el("span", "", "a publication"), actions);
+  form.addEventListener("submit", (submitEvent) => {
+    submitEvent.preventDefault();
+    void savePrice(input.value);
+  });
+  queueMicrotask(() => input.focus());
+  return form;
+}
+
+/** @param {string} raw */
+async function savePrice(raw) {
+  const amount = parsePrice(raw);
+  if (amount === null) {
+    tell("A price has to be a number above zero. Free is a real choice, but you make it when you open your store.", true);
+    return;
+  }
+  savingPrice = true;
+  render();
+  if (await act(() => window.lore.setPrice(amount))) editingPrice = false;
+  savingPrice = false;
+  render();
+}
+
 /** @param {Snapshot} s */
 function renderStore(s) {
   const live = s.node.live;
@@ -547,12 +633,17 @@ function renderStore(s) {
   }
   lead.append(text);
   const prices = el("div", "prices");
-  const priced = offers(s);
-  if (!priced.length) prices.append(el("div", "", "Not set"));
-  for (const [value, label] of priced) {
-    const item = el("div");
-    item.append(document.createTextNode(`${value} `), el("span", "", label));
-    prices.append(item);
+  prices.append(editingPrice ? priceEditor(s) : priceRow(s));
+  if (s.pricing.answer_enabled) {
+    const answers = el("div");
+    answers.append(document.createTextNode(`${price(s.pricing.answer_usd)} `), el("span", "", "an answer"));
+    prices.append(answers);
+  }
+  const stale = stalePrice(s);
+  if (stale !== null) {
+    const note = el("div", "stale-price");
+    note.append(el("span", "", `Buyers still pay ${price(stale)} until you redeploy.`), button("Redeploy", "quiet", () => void startDeploy(REDEPLOY_PRICE)));
+    prices.append(note);
   }
   bar.append(lead, prices);
   if (unpushed(s).length && !pushOffer) {
@@ -718,7 +809,9 @@ function renderSettings(s) {
       ...(live.payout
         ? [row("Payouts", "Where each payment lands. Lore never holds it.", cell(el("span", "mono", `${live.payout.slice(0, 6)}…${live.payout.slice(-4)}`), /** @type {HTMLElement} */ (payoutLink(live))), false)]
         : []),
-      row("Prices", "What a buyer's agent pays per call.", cell(el("span", "mono", typeof s.pricing.publication_usd === "number" ? `${price(s.pricing.publication_usd)} publication${s.pricing.answer_enabled ? ` · ${price(s.pricing.answer_usd)} answer` : ""}` : "Not set"), ...(s.node.url ? [button("Change price", "quiet", () => void startDeploy(CHANGE_PRICE))] : [])), false),
+      // One editor, on For Sale. Every other surface reads the same number and
+      // sends the owner there rather than growing a second field.
+      row("Prices", "What a buyer's agent pays per call.", cell(el("span", "mono", typeof s.pricing.publication_usd === "number" ? `${price(s.pricing.publication_usd)} publication${s.pricing.answer_enabled ? ` · ${price(s.pricing.answer_usd)} answer` : ""}` : "Not set"), button(typeof s.pricing.publication_usd === "number" ? "Change price" : "Set a price", "quiet", openPriceEditor)), false),
       ...(live.network === TEST_NETWORK
         ? [row("Payments", "Buyers on the test network pay with play money. Switch when you want real buyers paying real money.", cell(button("Switch to real payments", "secondary", () => void startDeploy(REAL_MONEY))), false)]
         : live.network
@@ -805,8 +898,19 @@ function show(next) {
   view = next;
   if (next !== "memories") { hits = null; search.value = ""; }
   if (next === "store") void loadSales();
+  // Leaving For Sale abandons a half-typed price rather than keeping the field
+  // open behind the owner's back.
+  if (next !== "store") editingPrice = false;
   render();
   mainEl.focus({ preventScroll: true });
+}
+
+/** Every "change the price" affordance lands on the one editor, on For Sale. */
+function openPriceEditor() {
+  editingPrice = true;
+  detailTask = null;
+  detailRecord = null;
+  show("store");
 }
 
 async function load() {
@@ -1109,6 +1213,27 @@ function renderRequest(event) {
       window.open(event.url);
       decline.textContent = "I need help";
       go.textContent = "Done";
+    });
+  } else if (event.type === "price") {
+    box.append(el("p", "q", "What should a buyer pay per publication?"), el("p", "hint", event.reason));
+    const [field, amount] = priceField(String(event.amount));
+    const actions = el("div", "actions");
+    const later = el("button", "btn secondary sm", "Not now");
+    later.type = "button";
+    later.addEventListener("click", () => respond(event.id, null, "Not now"));
+    const set = el("button", "btn primary sm", "Set price");
+    set.type = "submit";
+    actions.append(later, set);
+    box.append(field, actions);
+    box.addEventListener("submit", (submitEvent) => {
+      submitEvent.preventDefault();
+      // The agent only ever learns the number on this card, never its own.
+      const value = parsePrice(amount.value);
+      if (value === null) {
+        tell("A price has to be a number above zero.", true);
+        return;
+      }
+      respond(event.id, value, price(value));
     });
   } else {
     box.append(el("p", "q", event.prompt.message));
