@@ -306,6 +306,22 @@ test("every tool that puts a card in front of the owner runs one at a time", asy
   for (const name of owner) assert.match(source, new RegExp(`name: "${name}",\\s*executionMode: "sequential"`), `${name} must be sequential`);
 });
 
+test("a publish turn tells the agent where its drafts stand, and the owner never sees that line", async () => {
+  const { LoreAgent, draftsAside } = await import("../src/agent.mjs");
+  assert.match(draftsAside(0), /no drafts are waiting on the owner; anything you staged before was approved or skipped/);
+  assert.match(draftsAside(1), /1 draft is still waiting/);
+  assert.match(draftsAside(3), /3 drafts are still waiting/);
+  const home = await mkdtemp(join(tmpdir(), "lore-desktop-"));
+  try {
+    const session = LoreAgent.sessionFor(home, "publish");
+    session.appendMessage({ role: "user", content: `Help me publish something from my Lore.${draftsAside(0)}`, timestamp: 1 });
+    session.appendMessage({ role: "assistant", content: [{ type: "text", text: "Pick a topic." }], api: "anthropic-messages", provider: "anthropic", model: "m", usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } }, stopReason: "stop", timestamp: 2 });
+    assert.deepEqual(LoreAgent.history(home, "publish").map(({ text }) => text), ["Help me publish something from my Lore.", "Pick a topic."]);
+  } finally {
+    await rm(home, { recursive: true });
+  }
+});
+
 test("desktop prefers Opus 4.8 when Anthropic is available", async () => {
   const { MODELS } = await import("../src/agent.mjs");
   const { getBuiltinModel } = await import("@earendil-works/pi-ai/providers/all");

@@ -39,9 +39,15 @@ const OWNER_DIRS = {
   deploy: [".wrangler", "Library/Preferences/.wrangler", "Library/Caches/.wrangler", ".npm"]
 };
 const CAPPED = "That reply took more steps than Lore allows at once, so it paused. Say continue to keep going.";
-/** Appended to an owner turn that starts from a memory: the agent needs the id, the owner never sees or hears one. */
-const MEMORY_CONTEXT = "\n\n(For you only, not said by the owner: start from the memory with id ";
-const MEMORY_CONTEXT_END = ". Call it by its title, never by its number.)";
+/** Owner turns carry what the app knows and the owner never typed; thread history cuts each turn off here. */
+const ASIDE = "\n\n(For you only, not said by the owner: ";
+/** A memory to start from: the agent needs the id, the owner never sees or hears one. @param {number} id */
+const memoryAside = (id) => `${ASIDE}start from the memory with id ${id}. Call it by its title, never by its number.)`;
+/** Drafts are approved or skipped on cards the agent never sees, so every publish turn says where they stand. @param {number} waiting */
+export function draftsAside(waiting) {
+  const state = waiting === 0 ? "no drafts are waiting on the owner; anything you staged before was approved or skipped on its card" : `${waiting} draft${waiting === 1 ? " is" : "s are"} still waiting on the owner's card`;
+  return `${ASIDE}${state}.)`;
+}
 const KEY_REJECTED = /\b401\b|authentication_error|invalid[_ -](?:x-)?api[_ -]?key|incorrect api key/i;
 
 /** @param {import("@earendil-works/pi-coding-agent").ModelRuntime} models @param {string} text */
@@ -301,7 +307,7 @@ export class LoreAgent {
     for (const message of messages) {
       if (message.role === "user") {
         const text = typeof message.content === "string" ? message.content : message.content.map((block) => (block.type === "text" ? block.text : "")).join("");
-        lines.push({ text: text.replace(/^\/skill:\S+\n\n/, "").split(MEMORY_CONTEXT)[0], owner: true });
+        lines.push({ text: text.replace(/^\/skill:\S+\n\n/, "").split(ASIDE)[0], owner: true });
       } else if (message.role === "assistant") {
         const text = message.content.map((block) => (block.type === "text" ? block.text : "")).join("").trim();
         if (text) lines.push({ text, owner: false });
@@ -416,7 +422,8 @@ export class LoreAgent {
       const existing = this.#sessions.get(task);
       const [session, resumed] = existing ? [existing, true] : await this.#newSession(task, from);
       this.#record(session, task, "working");
-      const body = memory === undefined ? text : `${text}${MEMORY_CONTEXT}${memory}${MEMORY_CONTEXT_END}`;
+      let body = memory === undefined ? text : `${text}${memoryAside(memory)}`;
+      if (task === "publish" && this.options.drafts) body += draftsAside(await this.options.drafts());
       await session.prompt(resumed ? body : `/skill:${SKILLS[task]}\n\n${body}`);
       const closing = closingRecord(latestTaskRecord(session.sessionManager, task)?.state, task, this.#completed);
       if (closing) this.#record(session, task, closing[0], closing[1]);
