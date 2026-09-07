@@ -267,12 +267,33 @@ test("a memory the owner starts from is named to the agent by id and shown to th
   const home = await mkdtemp(join(tmpdir(), "lore-desktop-"));
   try {
     const session = LoreAgent.sessionFor(home, "publish");
-    session.appendMessage({ role: "user", content: '/skill:lore-publish\n\nHelp me publish something from my Lore, starting from "Tank cleanup crew".\n\nStart from the memory with id 38.', timestamp: 1 });
+    session.appendMessage({ role: "user", content: '/skill:lore-publish\n\nHelp me publish something from my Lore, starting from "Tank cleanup crew".\n\n(For you only, not said by the owner: start from the memory with id 38. Call it by its title, never by its number.)', timestamp: 1 });
     session.appendMessage({ role: "assistant", content: [{ type: "text", text: "Reading it now." }], api: "anthropic-messages", provider: "anthropic", model: "m", usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } }, stopReason: "stop", timestamp: 2 });
     assert.deepEqual(LoreAgent.history(home, "publish"), [
       { text: 'Help me publish something from my Lore, starting from "Tank cleanup crew".', owner: true },
       { text: "Reading it now.", owner: false }
     ]);
+  } finally {
+    await rm(home, { recursive: true });
+  }
+});
+
+test("a follow-up typed into a finished thread keeps what was said; only Start over begins cold", async () => {
+  const { LoreAgent, latestTaskRecord } = await import("../src/agent.mjs");
+  const home = await mkdtemp(join(tmpdir(), "lore-desktop-"));
+  try {
+    const finished = LoreAgent.sessionFor(home, "publish");
+    finished.appendMessage({ role: "user", content: "/skill:lore-publish\n\nHelp me publish something from my Lore.", timestamp: 1 });
+    finished.appendMessage({ role: "assistant", content: [{ type: "text", text: "Two drafts are ready to approve below." }], api: "anthropic-messages", provider: "anthropic", model: "m", usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } }, stopReason: "stop", timestamp: 2 });
+    finished.appendCustomEntry("lore.task", { version: 1, kind: "publish", title: "Publish from your Lore", state: "done", phase: "Finished" });
+    const followUp = LoreAgent.sessionFor(home, "publish");
+    assert.notEqual(followUp.getSessionFile(), finished.getSessionFile(), "a finished thread is never appended to");
+    assert.equal(followUp.getHeader()?.parentSession, finished.getSessionFile());
+    assert.deepEqual(followUp.buildSessionContext().messages.map((message) => message.role), ["user", "assistant"], "the agent keeps the conversation it just had");
+    assert.equal(latestTaskRecord(followUp, "publish")?.state, "done");
+    await new Promise((resolve) => setTimeout(resolve, 10)); // the newest file wins by mtime, so the fork must land in a later millisecond than its source
+    followUp.appendCustomEntry("lore.task", { version: 1, kind: "publish", title: "Publish from your Lore", state: "done", phase: "Started over" });
+    assert.equal(LoreAgent.sessionFor(home, "publish").buildSessionContext().messages.length, 0, "Start over begins cold");
   } finally {
     await rm(home, { recursive: true });
   }

@@ -37,8 +37,9 @@ const OWNER_DIRS = {
   deploy: [".wrangler", "Library/Preferences/.wrangler", "Library/Caches/.wrangler", ".npm"]
 };
 const CAPPED = "That reply took more steps than Lore allows at once, so it paused. Say continue to keep going.";
-/** Appended to an owner turn that starts from a memory: the agent needs the id, the owner never sees one. */
-const MEMORY_CONTEXT = "\n\nStart from the memory with id ";
+/** Appended to an owner turn that starts from a memory: the agent needs the id, the owner never sees or hears one. */
+const MEMORY_CONTEXT = "\n\n(For you only, not said by the owner: start from the memory with id ";
+const MEMORY_CONTEXT_END = ". Call it by its title, never by its number.)";
 const KEY_REJECTED = /\b401\b|authentication_error|invalid[_ -](?:x-)?api[_ -]?key|incorrect api key/i;
 
 /** @param {import("@earendil-works/pi-coding-agent").ModelRuntime} models @param {string} text */
@@ -249,6 +250,7 @@ export class LoreAgent {
         "During onboarding, gather evidence first, then call propose_blueprint once with one bounded proposal; that tool saves the owner-approved shape.",
         "To set what buyers pay per publication, call propose_price and never run a price command yourself; the owner confirms the exact amount on the card, and the tool returns what they saved or null if they declined. Work from that number, not from what you proposed.",
         "Never mention tools, commands, files, or plumbing to the owner: no Cloudflare, Node, wrangler, Worker, Base, Sepolia, network ids, or memory ids in prose; name a memory by its title. Speak about memories, their Lore, their store, play money and real money, and say what happens next rather than which checks passed.",
+        "A memory's id number is for tools only: never say one to the owner, even in passing; call every memory by its title.",
         "Call finish_task when the current task is complete."
       ].join(" ")
     });
@@ -261,9 +263,13 @@ export class LoreAgent {
     const dir = resolve(loreHome, ".pi", "sessions", task);
     const recent = SessionManager.continueRecent(loreHome, dir);
     const record = latestTaskRecord(recent, task);
+    const file = recent.getSessionFile();
+    // A finished thread is still the thread on screen, so a follow-up forks it and the agent keeps what was said. Only Start over begins cold.
     const manager = record?.state !== "done" && (record || (task === "setup" && recent.buildSessionContext().messages.length))
       ? recent
-      : SessionManager.create(loreHome, dir);
+      : record?.phase === "Finished" && file && existsSync(file)
+        ? SessionManager.forkFrom(file, loreHome, dir)
+        : SessionManager.create(loreHome, dir);
     return repairInterrupted(manager, task);
   }
 
@@ -408,7 +414,7 @@ export class LoreAgent {
       const existing = this.#sessions.get(task);
       const [session, resumed] = existing ? [existing, true] : await this.#newSession(task, from);
       this.#record(session, task, "working");
-      const body = memory === undefined ? text : `${text}${MEMORY_CONTEXT}${memory}.`;
+      const body = memory === undefined ? text : `${text}${MEMORY_CONTEXT}${memory}${MEMORY_CONTEXT_END}`;
       await session.prompt(resumed ? body : `/skill:${SKILLS[task]}\n\n${body}`);
       const closing = closingRecord(latestTaskRecord(session.sessionManager, task)?.state, task, this.#completed);
       if (closing) this.#record(session, task, closing[0], closing[1]);
