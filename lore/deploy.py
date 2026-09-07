@@ -334,7 +334,10 @@ def deploy(wallet: str | None, network: str | None = None) -> int:
     outcome = ("failed", "failed")
     try:
         result = _deploy(float(configured_price), wallet, network)
-        outcome = ("succeeded", f"deployed_{network}" if network in NETWORKS else "deployed")
+        outcome = (
+            "succeeded",
+            f"deployed_{network}" if network in NETWORKS else "deployed",
+        )
         return result
     finally:
         with Store() as store:
