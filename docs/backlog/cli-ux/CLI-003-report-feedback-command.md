@@ -4,7 +4,7 @@ title: Add `lore report-feedback` for interactive and scripted bug reports
 priority: P2
 effort: M
 component: cli-ux
-status: in-progress
+status: completed
 related: [XC-028, APP-097]
 blockers: [XC-028]
 dependencies: []
@@ -40,17 +40,23 @@ Add `lore report-feedback` to `lore/cli.py`:
 
 ## Acceptance criteria
 
-- [ ] `lore report-feedback` (no flags) walks an interactive prompt and files
+- [x] `lore report-feedback` (no flags) walks an interactive prompt and files
       a report.
-- [ ] `lore report-feedback --title T --email E --description-file F --json`
+- [x] `lore report-feedback --title T --email E --description-file F --json`
       files a report non-interactively and prints machine-readable output.
-- [ ] Piped/unattended invocation without the Desktop marker is refused.
-- [ ] `lore help` documents the command.
-- [ ] Parser and dispatch tables in `tests/test_cli.py` cover every new
+- [x] Piped/unattended invocation without the Desktop marker is refused.
+- [x] `lore help` documents the command.
+- [x] Parser and dispatch tables in `tests/test_cli.py` cover every new
       branch; `tests/gate.py`'s per-file coverage floor holds for
-      `lore/cli.py`.
+      `lore/cli.py` (98.4%/95.4%).
 
 ## Notes
 
 Blocked on `XC-028` landing `lore/feedback.py` first — this item only adds
 the argparse surface and prompting around it.
+
+Done 2026-09-07. Verified end-to-end (interactive and non-interactive) against
+a local stub relay, including the unattended-pipe refusal. Reports the
+correct `source` ("cli" from a real terminal, "desktop" when the Desktop app
+drives it via `LORE_ATTENDED_SURFACE=desktop`) — see `XC-028`'s notes for the
+bug this caught during `APP-097` integration.
