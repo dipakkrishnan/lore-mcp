@@ -180,6 +180,7 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         await js(`window.__lore.event({ type: "task", task: { version: 1, kind: "capture", title: "Capture", state: "stopped", phase: "Ready to resume", updatedAt: new Date().toISOString() } })`);
         await sleep(300);
         check("unfinished capture is listed", await js(`document.querySelector("#content").textContent.includes("Ready to resume")`));
+        check("a stopped task offers Resume beside Start over", /Resume\|Start over/.test(await js(`[...document.querySelectorAll("#content .row .btn")].map((b) => b.textContent).join("|")`)));
         await js(`const i = document.querySelector("#capture-input"); i.value = "Something I learned"; document.querySelector("#composer").requestSubmit();`);
         await sleep(800);
         const eyebrow = await js(`document.querySelector("#eyebrow").textContent`);

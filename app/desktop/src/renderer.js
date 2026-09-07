@@ -13,6 +13,7 @@ const content = $("#content");
 const account = $("#account");
 const taskBack = /** @type {HTMLButtonElement} */ ($("#task-back"));
 const taskRestart = /** @type {HTMLButtonElement} */ ($("#task-restart"));
+const taskResume = /** @type {HTMLButtonElement} */ ($("#task-resume"));
 const addMemoryBtn = /** @type {HTMLButtonElement} */ ($("#add-memory"));
 const captureArea = $("#capture");
 const composer = /** @type {HTMLFormElement} */ ($("#composer"));
@@ -85,6 +86,8 @@ const NETWORKS = { "eip155:8453": "Base", "eip155:84532": "Base Sepolia, test ne
 const TEST_NETWORK = "eip155:84532";
 const EXPLORERS = { "eip155:8453": "https://basescan.org", "eip155:84532": "https://sepolia.basescan.org" };
 const REAL_MONEY = "I'm ready to switch my store to real money.";
+const SETUP_INTENT = "Let's set up my Lore.";
+const STORE_INTENT = "Help me open my store.";
 const PLAY_MONEY = "Put my store back on the test network.";
 const REDEPLOY_PRICE = "I changed my publication price. Redeploy my store so buyers pay the new amount.";
 // Six decimals, not the default two: a price can run below a cent, and rounding
@@ -503,7 +506,7 @@ function renderToday(s) {
       open.append(text, chip(TASK_STATES[item.state], item.state === "working" ? "ok" : ""));
       open.addEventListener("click", () => void openTask(item.kind, item));
       row.append(open);
-      if (item.state === "stopped") row.append(button("Start over", "quiet", () => void startOver(item.kind)));
+      if (item.state === "stopped") row.append(button("Resume", "secondary", () => void resumeTask(item.kind)), button("Start over", "quiet", () => void startOver(item.kind)));
       return row;
     }))));
   }
@@ -834,6 +837,7 @@ function render() {
   title.textContent = heading;
   taskBack.hidden = !detail;
   taskRestart.hidden = !detail || detailRecord?.state !== "stopped";
+  taskResume.hidden = taskRestart.hidden;
   addMemoryBtn.hidden = Boolean(detail) || view !== "memories";
   captureArea.hidden = view !== "today";
   log.hidden = !detail;
@@ -1290,11 +1294,11 @@ async function respond(id, value, echo) {
 
 async function startSetup() {
   await openTask("setup");
-  await send("Let's set up my Lore.");
+  await send(SETUP_INTENT);
 }
 
 /** @param {string} [intent] */
-async function startDeploy(intent = "Help me open my store.") {
+async function startDeploy(intent = STORE_INTENT) {
   await openTask("deploy");
   await send(intent);
 }
@@ -1357,7 +1361,16 @@ async function startOver(kind) {
   clearRequest();
   show("today");
   renderLog();
-  input.focus({ preventScroll: true });
+  // Setup and the store are Lore's flows to begin; a capture or publish thread waits for the owner's first word.
+  const opening = kind === "setup" ? SETUP_INTENT : kind === "deploy" ? STORE_INTENT : null;
+  if (opening) await send(opening);
+  else input.focus({ preventScroll: true });
+}
+
+/** @param {AgentTask} kind */
+async function resumeTask(kind) {
+  await openTask(kind);
+  await send("Let's pick up where we left off.");
 }
 
 function closeTask() {
@@ -1768,6 +1781,7 @@ document.addEventListener("drop", (event) => {
 
 taskBack.addEventListener("click", closeTask);
 taskRestart.addEventListener("click", () => { if (detailTask) void startOver(detailTask); });
+taskResume.addEventListener("click", () => { if (detailTask) void resumeTask(detailTask); });
 addMemoryBtn.addEventListener("click", () => {
   if (detailTask) closeTask();
   show("today");
