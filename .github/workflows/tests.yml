@@ -12,8 +12,8 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: astral-sh/setup-uv@v7
-      - run: uv run --extra dev ruff check lore tests
-      - run: uv run --extra dev ruff format --check lore tests
+      - run: uv run --extra dev ruff check lore tests support
+      - run: uv run --extra dev ruff format --check lore tests support
 
   python-unit:
     name: Python unit tests
@@ -29,7 +29,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: astral-sh/setup-uv@v7
-      - run: uv run --extra dev mypy lore
+      - run: uv run --extra dev mypy lore support
 
   bridge-check:
     name: Bridge compiler checks
