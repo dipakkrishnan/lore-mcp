@@ -10,15 +10,17 @@ blockers: []
 dependencies: []
 github_issue: null
 created: 2026-09-03
-updated: 2026-09-03
+updated: 2026-09-07
 ---
 
 ## Problem
 
-`preload.cjs` exposes 24 members on `window.lore`, 22 of them
-`ipcRenderer.invoke` channels. `main.cjs` registers 22 `ipcMain.handle`
-channels. The renderer uses all 24. Today the three sides agree exactly — and
-nothing checks that they do.
+`preload.cjs` exposes 26 members on `window.lore`, 24 of them
+`ipcRenderer.invoke` channels. `main.cjs` registers 24 `ipcMain.handle`
+channels. Today the three sides agree exactly — and nothing checks that they
+do. The counts move with every feature (`schedule:install` and `pricing:set`
+were the two most recent), which is the point: each new channel is another
+place for the three sides to drift apart silently.
 
 `APP-039` is what that costs: `agent:status` was exposed in preload and called
 by the renderer with no handler in main, which logged an error on every single

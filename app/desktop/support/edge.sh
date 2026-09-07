@@ -26,14 +26,16 @@ with Store() as store:
  store.finish_job(gone, 'incomplete', summary='not_reported')
  # No pid: this seeding process is about to exit, and a row it owned would be
  # conceded on the very next read. The long deadline keeps it Running.
- store.start_job('deploy', timeout_minutes=720)")
+ store.start_job('deploy', timeout_minutes=720)
+from lore import automation
+automation.save_profile({'executor': 'codex', 'cadence': 'daily', 'hour': 21})")
 fi
 if [[ "$scenario" == "store" ]]; then
   (cd "$repo_root" && uv run python -c "import time
 from lore.store import Store
 with Store() as store:
  store.set_setting('node_url', 'https://store.example/mcp')
- store.set_setting('node_live', {'url': 'https://store.example/mcp', 'checked_at': time.time(), 'live': {'state': 'online', 'network': 'eip155:84532', 'payout': '0x' + 'a' * 40}, 'ids': []})")
+ store.set_setting('node_live', {'url': 'https://store.example/mcp', 'checked_at': time.time(), 'live': {'state': 'online', 'network': 'eip155:84532', 'price_usd': 0.02, 'payout': '0x' + 'a' * 40}, 'ids': []})")
   (cd "$desktop_dir" && node --input-type=module -e "import { resolve } from 'node:path'; import { SessionManager } from '@earendil-works/pi-coding-agent';
 const session = SessionManager.create(process.env.LORE_HOME, resolve(process.env.LORE_HOME, '.pi/sessions/deploy'));
 session.appendMessage({ role: 'user', content: 'OLD COMPLETED DEPLOY', timestamp: 1 });

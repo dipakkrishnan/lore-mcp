@@ -6,6 +6,9 @@ const { execFileSync } = require("node:child_process");
 const { dirname, join } = require("node:path");
 const scenario = process.argv.at(-1);
 const S = process.env.LORE_EDGE_OUT ?? process.env.LORE_HOME;
+// The scheduler is per user, not per Lore home: point the Codex automations
+// lookup at scratch so the owner's real schedule cannot answer for the seed.
+if (scenario === "jobs") process.env.CODEX_HOME = join(S, "codex");
 const src = join(__dirname, "../src");
 const runtime = require(join(src, "runtime.cjs"));
 const realProvision = runtime.provision;
@@ -80,6 +83,20 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         await js(`[...document.querySelectorAll("#content .section")].find((s) => s.textContent.includes("Recent runs"))?.scrollIntoView()`);
         await sleep(300);
         await shot("today-recent-runs-empty");
+
+        // APP-084: Settings reports what the scheduler holds, not that a profile file exists.
+        await js(`window.__lore.show("settings")`);
+        await sleep(500);
+        let rhythm = await js(`[...document.querySelectorAll("#content .row")].find((r) => r.textContent.includes("How often Lore reads them")).textContent`);
+        check("a saved rhythm nothing runs says so, and offers Schedule", /Set for every day at 9 PM with Codex, but nothing on this Mac is running it\./.test(rhythm) && /Not scheduled/.test(rhythm) && /Schedule$/.test(rhythm), rhythm);
+        await shot("settings-not-scheduled");
+        mkdirSync(join(process.env.CODEX_HOME, "automations", "lore-memory-synthesis"), { recursive: true });
+        writeFileSync(join(process.env.CODEX_HOME, "automations", "lore-memory-synthesis", "automation.toml"), "");
+        await js(`window.__lore.event({ type: "changed" })`);
+        await sleep(800);
+        rhythm = await js(`[...document.querySelectorAll("#content .row")].find((r) => r.textContent.includes("How often Lore reads them")).textContent`);
+        check("an installed schedule reads as its rhythm, in words", /Every day at 9 PM with Codex\. Hasn't run yet\./.test(rhythm) && /Scheduled/.test(rhythm) && !/Not scheduled/.test(rhythm), rhythm);
+        await shot("settings-scheduled");
       } else if (scenario === "store") {
         await waitFor(`document.body.dataset.state === "welcome" && !document.querySelector("#welcome").classList.contains("provisioning")`);
         await js(`window.__lore.signIn()`);
@@ -88,7 +105,7 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         await js(`window.__lore.show("settings")`);
         await sleep(600);
         const settings = await js(`document.querySelector("#content").textContent`);
-        check("Settings offers Change price once a store exists", settings.includes("Change price"));
+        check("Settings offers to set the price once a store exists", /Set a price|Change price/.test(settings));
         // Ledger: the payout address links to Basescan on the live network, on Settings and on the For Sale bar.
         check("Settings shows the payout address", settings.includes("0xaaaa…aaaa"));
         check("…linked to the address on Sepolia Basescan", await js(`[...document.querySelectorAll("#content a.link-btn")].some((a) => a.textContent === "Payouts ↗" && a.href === "https://sepolia.basescan.org/address/0x${"a".repeat(40)}")`));
@@ -96,6 +113,20 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         await js(`document.querySelector("#main").scrollTop = 1e6`);
         await sleep(200);
         await shot("settings-store");
+        // APP-019: one editor on For Sale; a saved price the node does not charge yet is standing state on For Sale and Today.
+        await js(`[...document.querySelectorAll("#content button")].find((b) => /^(Set a|Change) price$/.test(b.textContent)).click()`);
+        await waitFor(`document.querySelector("#content .price-edit input")`);
+        check("Settings' Change price lands on the For Sale editor", await js(`document.querySelector("#title").textContent === "For Sale" && document.activeElement === document.querySelector("#content .price-edit input")`));
+        await js(`{ const field = document.querySelector("#content .price-edit input"); field.value = "0"; field.form.requestSubmit(); }`);
+        await sleep(300);
+        check("zero is refused with the editor still open", await js(`document.querySelector("#status .notice.attention")?.textContent.includes("above zero") && Boolean(document.querySelector("#content .price-edit"))`));
+        await js(`{ const field = document.querySelector("#content .price-edit input"); field.value = "0.75"; field.form.requestSubmit(); }`);
+        await waitFor(`document.querySelector("#content").textContent.includes("Buyers still pay $0.02 until you redeploy.")`);
+        check("a saved price the node does not charge yet says so on For Sale", await js(`document.querySelector("#content .store-bar").textContent.includes("$0.75") && document.querySelector("#content .store-bar").textContent.includes("Buyers still pay $0.02 until you redeploy.")`));
+        await shot("store-stale-price");
+        await js(`window.__lore.show("today")`);
+        await sleep(400);
+        check("Today offers the redeploy as standing state", await js(`document.querySelector("#content").textContent.includes("Buyers still pay $0.02; you set $0.75.")`));
         // Fix 5: approved work the node does not hold yet gets a standing Push, on For Sale and under Needs you.
         await js(`window.__lore.show("today")`);
         await sleep(400);
@@ -118,12 +149,32 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         check("the For Sale bar links to payouts", await js(`[...document.querySelectorAll("#content .store-bar a.link-btn")].some((a) => a.textContent === "Payouts ↗")`));
         await shot("store-sales");
         check("For Sale bar offers Push while an approved item is not live", await js(`[...document.querySelectorAll("#content .store-bar button")].some((b) => b.textContent === "Push to your store")`));
-        check("the item reads Not live yet", await js(`document.querySelector("#content").textContent.includes("Not live yet")`));
-        check("the section hint agrees", await js(`document.querySelector("#content").textContent.includes("1 not on your store yet")`));
+        check("the heading says the one item is not live, once", await js(`document.querySelector("#content").textContent.includes("1 publication · not on your store yet") && !document.querySelector("#content").textContent.includes("Not live yet")`));
         await shot("store-unpushed");
         await js(`window.__lore.show("today")`);
         await sleep(400);
         check("Needs you carries the standing Push row", await js(`document.querySelector("#content").textContent.includes("1 approved, not on your store yet.")`));
+        // APP-093: a take-down the node has not absorbed yet is pending state read from the snapshot, not a banner.
+        // The fake wrangler makes the revoke's push "succeed", which drops the probe cache; re-seed it as a node that still lists the item.
+        await js(`window.__lore.show("store")`);
+        await waitFor(`document.querySelector("#content").textContent.includes("2 sales")`);
+        await js(`[...document.querySelectorAll("#content button")].find((b) => b.textContent === "Take down").click()`);
+        await sleep(200);
+        check("take-down confirmation does not promise buyers lose their copies", await js(`document.querySelector("#content").textContent.includes("Anyone who already did keeps their copy.")`));
+        await js(`[...document.querySelectorAll("#content button.primary")].find((b) => b.textContent === "Take down").click()`);
+        await waitFor(`document.querySelector("#content").textContent.includes("Taken down")`);
+        // This scratch home has no node source, so the revoke's push fails: the owner hears that plainly, not as a command.
+        const revokeNotice = await js(`document.querySelector("#status").textContent`);
+        check("a take-down whose push failed reads plainly", revokeNotice.includes("If your store still has it, push to finish.") && !/wrangler|--worker-dir|\/Users\/|\/var\//.test(revokeNotice), revokeNotice);
+        execFileSync("uv", ["run", "python", "-c", `import time\nfrom lore.store import Store\nwith Store() as s:\n s.set_setting('node_live', {'url': 'https://store.example/mcp', 'checked_at': time.time(), 'live': {'state': 'online', 'network': 'eip155:84532', 'payout': '0x' + 'a' * 40}, 'ids': ['${publicId}']})`], { cwd: join(__dirname, "../../.."), env: process.env });
+        await js(`window.__lore.event({ type: "changed" })`);
+        await sleep(800);
+        check("a taken-down item the node still serves says so", await js(`document.querySelector("#content").textContent.includes("Still on your store")`));
+        check("…and For Sale offers the push that removes it", await js(`[...document.querySelectorAll("#content .store-bar button")].some((b) => b.textContent === "Push to your store")`));
+        await shot("store-removal-pending");
+        await js(`window.__lore.show("today")`);
+        await sleep(400);
+        check("Needs you names the pending removal", await js(`document.querySelector("#content").textContent.includes("1 taken down, still on your store.")`));
         // Fix 9: a memory typed on Today joins the unfinished capture thread instead of an empty one.
         await js(`window.__lore.show("today")`);
         await js(`window.__lore.event({ type: "task", task: { version: 1, kind: "capture", title: "Capture", state: "stopped", phase: "Ready to resume", updatedAt: new Date().toISOString() } })`);
@@ -172,22 +223,49 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         await js(`document.querySelector("#request form").requestSubmit()`);
         await sleep(200);
         check("Open goes through the window-open handler", await js(`window.__opened`) === "https://portal.cdp.coinbase.com/products/faucet");
-        check("stage two swaps the heading and the buttons", await js(`document.querySelector("#request .q").textContent`) === "Finish in your browser, then come back here." && await buttons() === "I got stuck|Done");
+        check("stage two keeps the task heading and swaps the buttons", await js(`document.querySelector("#request .q").textContent`) === "Fund the test buyer" && await buttons() === "I need help|Done");
         check("the card keeps its size between stages", await js(`document.querySelector("#request form").offsetHeight`) === before);
         await js(`document.querySelector("#request").scrollIntoView({ block: "center" }); true`);
         await shot("open-stage-two");
         await js(`document.querySelector("#request form").requestSubmit()`);
         await sleep(200);
         check("Done closes the card and echoes the owner", !(await js(`Boolean(document.querySelector("#request form"))`)) && await js(`document.querySelector("#log").textContent.endsWith("Done")`));
+        // Question cards: the agent's recommended option starts selected and wears a chip; no options means one text field;
+        // the card lands below the sticky header; a card waiting in another thread names itself in the locked composer.
+        await js(`window.__lore.openTask("capture")`);
+        await js(`window.__lore.preview({ type: "question", id: "preview-q", task: null, questions: [{ question: "What should a publication cost?", header: "Price", multiSelect: false, options: [{ label: "$0.05", description: "Higher", recommended: false }, { label: "$0.01", description: "Low first price", recommended: true }] }, { question: "Paste your payout address.", header: "Payout", multiSelect: false, options: [], format: "evm_address" }] })`);
+        check("the model's recommended option starts selected and is chipped", await js(`document.querySelector("#request input:checked")?.value`) === "$0.01" && await js(`document.querySelector("#request .choice:has(input:checked)").textContent`) === "$0.01RecommendedLow first price");
+        check("a question with no options is one text field", await js(`document.querySelectorAll("#request fieldset")[1].querySelectorAll("input").length`) === 1);
+        check("the chip sits to the right of the label on the same row", await js(`(() => { const c = document.querySelector("#request .choice:has(input:checked)"); const [label, chip] = [c.querySelector("span:not(.chip)"), c.querySelector(".chip")].map((n) => n.getBoundingClientRect()); return chip.left > label.right && Math.abs(chip.top - label.top) < 12 && chip.right <= c.getBoundingClientRect().right; })()`));
+        check("the card lands below the sticky header", await js(`document.querySelector("#request form").getBoundingClientRect().top >= document.querySelector("#main header").getBoundingClientRect().bottom`));
+        await js(`document.querySelectorAll("#request .other-answer")[1].value = "abandon ability able about above absent absorb abstract absurd abuse access accident"; document.querySelector("#request form").requestSubmit()`);
+        await sleep(100);
+        check("a recovery phrase is refused before it reaches the agent", await js(`Boolean(document.querySelector("#request form"))`));
+        await js(`document.querySelectorAll("#request .other-answer")[1].value = "0x0c270534cfcecc9224edb903ef5dd70410d08166"; document.querySelector("#request form").requestSubmit()`);
+        await sleep(200);
+        check("the echo labels and shortens the address", await js(`document.querySelector("#log").textContent.endsWith("$0.01 · Payout: 0x0c27…8166")`));
+        await js(`window.__lore.event({ type: "message", task: "capture", text: "Ready." })`);
+        check("owner turns are right-aligned bubbles while Lore stays open", await js(`(() => { const owner = document.querySelector("#log .line.owner"); const bubble = owner?.querySelector("p"); const lore = document.querySelector("#log .line:not(.owner) .md"); return Boolean(owner && bubble && lore) && getComputedStyle(owner).justifyContent === "flex-end" && getComputedStyle(bubble).backgroundColor !== "rgba(0, 0, 0, 0)" && getComputedStyle(lore).backgroundColor === "rgba(0, 0, 0, 0)"; })()`));
+        await shot("conversation-bubble");
+        await js(`window.__lore.event({ type: "working", task: "deploy", active: true }); window.__lore.preview({ type: "open", id: "preview-wait", task: "deploy", title: "Get a wallet", url: "https://www.coinbase.com/wallet", note: "1. Create new wallet." })`);
+        await sleep(200);
+        check("a card waiting in another thread replaces the composer with a row that opens it", await js(`document.querySelector("#composer").hidden`) && await js(`document.querySelector(".composer-wait").textContent`) === "Lore is waiting on you in Open your store.Open");
+        await js(`document.querySelector(".composer-wait button").click()`);
+        await sleep(300);
+        check("Open lands in the waiting thread with its card", await js(`document.querySelector("#title").textContent`) === "Open your store" && await js(`Boolean(document.querySelector("#request form"))`));
+        await js(`document.querySelector("#task-back").click()`);
+        await sleep(200);
+        await js(`window.__lore.event({ type: "dismiss", id: "preview-wait" }); window.__lore.event({ type: "working", task: "deploy", active: false })`);
+        await sleep(200);
         await js(`window.__lore.preview({ type: "open", id: "preview-open-2", task: null, title: "See the payment land", url: "https://sepolia.basescan.org/address/0x1", note: "Token Transfers shows it." })`);
         await js(`document.querySelector("#request .actions button").click()`);
         await sleep(200);
         check("Not now closes the card and echoes the owner", !(await js(`Boolean(document.querySelector("#request form"))`)) && await js(`document.querySelector("#log").textContent.endsWith("Not now")`));
 
         // Fix 1, seller: approve the last draft with no store. The confirmation must be visible on the Today root.
-        await js(`[...document.querySelectorAll("#content button")].find((b) => b.textContent === "Approve").click()`);
+        await js(`{ const b = [...document.querySelectorAll("#content button")].find((x) => x.textContent === "Approve"); b.click(); b.click(); }`);
         await waitFor(`document.querySelectorAll("#content .draft-title").length === 1`);
-        check("approved the edited draft", await js(`document.querySelectorAll("#content .draft-title").length`) === 1);
+        check("a double click submits one edited decision", await js(`document.querySelectorAll("#content .draft-title").length`) === 1 && !(await js(`document.querySelector("#status .notice.attention")`)));
         await js(`[...document.querySelectorAll("#content button")].find((b) => b.textContent === "Skip").click()`);
         await waitFor(`document.querySelector("#status .notice")`);
         const notice = await js(`document.querySelector("#status .notice")?.textContent ?? ""`);
@@ -208,6 +286,23 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         // Fix 1, technical: a failing CLI call on Memories surfaces as an attention notice instead of vanishing.
         await js(`window.__lore.show("memories")`);
         await waitFor(`document.querySelectorAll("#content .task-link").length >= 1`);
+        // Focus first, as a real click or Enter would; a synthetic click() leaves focus where it was.
+        await js(`const link = document.querySelector("#content .task-link"); link.focus(); link.click();`);
+        await waitFor(`document.querySelector(".sheet")`);
+        check("memory actions pair distinct icons with their text labels", await js(`(() => { const buttons = [...document.querySelectorAll(".sheet .btn.quiet")]; const icons = buttons.map((button) => button.querySelector("svg[aria-hidden=true]")?.innerHTML); return buttons.length === 3 && new Set(icons).size === 3 && buttons.every((button) => ["Rename", "Edit", "Draft for sale"].includes(button.textContent)); })()`));
+        await shot("memory-actions");
+        // APP-096: a native modal holds focus, closes on Escape, and hands focus back to the row that opened it.
+        check("the sheet is an open native dialog with focus inside", await js(`document.querySelector("dialog.sheet")?.open === true && document.querySelector("dialog.sheet").contains(document.activeElement)`));
+        for (let i = 0; i < 6; i++) await key("keyDown", "Tab");
+        check("Tab stays inside the open sheet", await js(`document.querySelector("dialog.sheet").contains(document.activeElement)`), await js(`document.activeElement.outerHTML.slice(0, 80)`));
+        await key("keyDown", "Escape");
+        await sleep(200);
+        check("Escape closes the sheet", await js(`document.querySelector("dialog.sheet") === null`));
+        check("focus returns to the row that opened it", await js(`document.activeElement === document.querySelector("#content .task-link")`), await js(`document.activeElement.outerHTML.slice(0, 80)`));
+        await js(`document.querySelector("#content .task-link").click()`);
+        await waitFor(`document.querySelector("dialog.sheet")`);
+        await js(`document.querySelector(".sheet .icon-btn").click()`);
+        await sleep(100);
         chmodSync(join(process.env.LORE_HOME, "lore.db"), 0o000);
         await js(`document.querySelector("#content .task-link").click()`);
         const shown = await waitFor(`document.querySelector("#status .notice.attention")`);

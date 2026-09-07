@@ -184,6 +184,13 @@ class DesktopSnapshotTest(LoreTestCase):
                 "sources_configured": True,
                 "blueprint_configured": True,
                 "profile_configured": True,
+                # An empty profile names no executor, so nothing can be scheduled.
+                "schedule": {
+                    "installed": False,
+                    "executor": None,
+                    "cadence": None,
+                    "hour": None,
+                },
             },
         )
         self.assertEqual(state["library"]["counts"], {"private": 6})
@@ -230,7 +237,32 @@ class DesktopSnapshotTest(LoreTestCase):
         )
         self.assertEqual(state["node"]["live"]["state"], "online")
         self.assertEqual(state["node"]["live"]["network"], "eip155:8453")
+        # What the node charges, not what the owner last saved: the local
+        # setting above is 0.01, the deployed node still advertises 0.02.
+        self.assertEqual(state["node"]["live"]["price_usd"], 0.02)
         self.assertEqual(state["node"]["live"]["payout"], "0x" + "a" * 40)
+
+    def test_the_schedule_is_reported_from_the_scheduler_not_the_profile(
+        self,
+    ) -> None:
+        self.assertIsNone(snapshot.build()["setup"]["schedule"])
+        automation.save_profile(
+            {"executor": "claude", "cadence": "weekly", "hour": 21, "model": "opus"}
+        )
+        for installed in (False, True):
+            with patch("lore.automation.task_status", return_value=installed) as ask:
+                state = snapshot.build()["setup"]
+            self.assertTrue(state["profile_configured"])
+            self.assertEqual(
+                state["schedule"],
+                {
+                    "installed": installed,
+                    "executor": "claude",
+                    "cadence": "weekly",
+                    "hour": 21,
+                },
+            )
+            self.assertEqual(ask.call_args.args[0].agent, automation.Agent.CLAUDE)
 
     def test_missing_and_unreachable_nodes_are_data(self) -> None:
         response = Mock()
@@ -239,21 +271,54 @@ class DesktopSnapshotTest(LoreTestCase):
         self.assertEqual(snapshot._response(response), {"jsonrpc": "2.0"})
         state = snapshot.build()
         self.assertEqual(state["node"]["live"]["state"], "not_configured")
+        self.assertEqual(state["node"]["live"]["price_usd"], None)
         with Store() as store:
             store.set_setting("node_url", "https://offline.example/mcp")
-        with patch("lore.snapshot._remote_manifest", side_effect=OSError("offline")):
+        with patch("lore.snapshot.remote_manifest", side_effect=OSError("offline")):
             with captured() as output:
                 self.assertEqual(cli.main(["desktop-state"]), 0)
         state = json.loads(output.getvalue())
         self.assertEqual(state["node"]["live"]["state"], "unreachable")
         self.assertEqual(state["node"]["live"]["network"], None)
         self.assertEqual(state["node"]["live"]["payout"], None)
+        # A node we cannot reach tells us nothing about its price, and the app
+        # must never name an amount it did not read.
+        self.assertEqual(state["node"]["live"]["price_usd"], None)
+
+    def test_a_node_that_advertises_no_price_is_online_without_one(self) -> None:
+        """A node deployed before `discover` carried the price is still live;
+        the app just has nothing to say about what it charges."""
+        manifest = {"manifest_version": 1, "topics": {}, "network": "eip155:84532"}
+        with serving(manifest) as url:
+            with Store() as store:
+                store.set_setting("node_url", url)
+            state = snapshot.build()
+        self.assertEqual(state["node"]["live"]["state"], "online")
+        self.assertEqual(state["node"]["live"]["price_usd"], None)
+
+    def test_a_cache_written_before_the_price_existed_still_serves(self) -> None:
+        with Store() as store:
+            store.set_setting("node_url", "https://cached.example/mcp")
+            store.set_setting(
+                "node_live",
+                {
+                    "url": "https://cached.example/mcp",
+                    "checked_at": time.time(),
+                    "live": {"state": "online", "network": "eip155:8453"},
+                    "ids": [],
+                },
+            )
+        with patch("lore.snapshot.remote_manifest", side_effect=OSError) as probe:
+            state = snapshot.build()
+        self.assertEqual(probe.call_count, 0, "the fresh cache is still trusted")
+        self.assertEqual(state["node"]["live"]["state"], "online")
+        self.assertEqual(state["node"]["live"]["price_usd"], None)
 
     def test_the_node_probe_is_cached_briefly_and_forgotten_after_a_push(self) -> None:
         with Store() as store:
             store.set_setting("node_url", "https://offline.example/mcp")
         with patch(
-            "lore.snapshot._remote_manifest", side_effect=OSError("offline")
+            "lore.snapshot.remote_manifest", side_effect=OSError("offline")
         ) as probe:
             snapshot.build()
             state = snapshot.build()
@@ -281,7 +346,7 @@ class DesktopSnapshotTest(LoreTestCase):
         with Store() as store:
             store.set_setting("node_url", "https://cold-start.example/mcp")
         with patch(
-            "lore.snapshot._remote_manifest",
+            "lore.snapshot.remote_manifest",
             side_effect=ValueError("event-stream response had no data line"),
         ):
             with captured() as output:
@@ -329,6 +394,7 @@ class SnapshotJobsTest(LoreTestCase):
                 "id",
                 "kind",
                 "status",
+                "title",
                 "summary",
                 "count",
                 "cost_usd",

@@ -3,7 +3,7 @@ const { join } = require("node:path");
 const { app, BrowserWindow, dialog, ipcMain, safeStorage, shell, systemPreferences } = require("electron");
 const { provision, skillsDir, whisper } = require("./runtime.cjs");
 const { transcribe } = require("./dictation.cjs");
-const { lore, loreStream, openable, readState, readSales, searchMemories, readMemory, renameMemory, editMemory, captureMemories, candidates, decide, useRuntime } = require("./state.cjs");
+const { lore, loreStream, openable, readState, readSales, searchMemories, readMemory, renameMemory, editMemory, captureMemories, setPrice, candidates, decide, useRuntime } = require("./state.cjs");
 
 if (process.env.LORE_DESKTOP_USER_DATA) app.setPath("userData", process.env.LORE_DESKTOP_USER_DATA);
 
@@ -49,10 +49,10 @@ function registerIpc(loreHome) {
   ipcMain.handle("setup:retry", () => (agent ? undefined : boot(loreHome)));
   ipcMain.handle("agent:status", () => agent?.status() ?? { credentials: [] });
   ipcMain.handle("agent:prompt", (_event, input) => {
-    if (!input || typeof input.text !== "string" || input.text.length > 100_000 || !TASKS.has(input.task) || (input.from !== undefined && !TASKS.has(input.from))) {
+    if (!input || typeof input.text !== "string" || input.text.length > 100_000 || !TASKS.has(input.task) || (input.from !== undefined && !TASKS.has(input.from)) || (input.memory !== undefined && !Number.isInteger(input.memory))) {
       throw new Error("Invalid prompt");
     }
-    return ready().prompt(input.text, input.task, input.from);
+    return ready().prompt(input.text, input.task, input.from, input.memory);
   });
   ipcMain.handle("agent:history", (_event, task) => {
     if (!TASKS.has(task)) throw new Error("Invalid task");
@@ -107,6 +107,8 @@ function registerIpc(loreHome) {
     await lore(loreHome, ["push"], "");
   });
   ipcMain.handle("store:sales", () => readSales(loreHome));
+  ipcMain.handle("schedule:install", () => lore(loreHome, ["profile", join(loreHome, "automation", "profile.json")]));
+  ipcMain.handle("pricing:set", (_event, amount) => setPrice(loreHome, amount));
   ipcMain.handle("files:pick", async () => {
     if (!window) return [];
     const { filePaths } = await dialog.showOpenDialog(window, { properties: ["openFile", "multiSelections"] });
@@ -183,19 +185,37 @@ async function start(loreHome) {
       /** @type {Record<string, string>} */ (await request("question", { questions })),
     proposeMemories: async (entries) => {
       const task = agent?.activeTask ?? null;
-      const decision = /** @type {MemoryDecision} */ (await request("memories", { entries }));
-      if (!decision || !validEntries(decision.entries)) throw new Error("Invalid memory decision");
-      if (typeof decision.note === "string" && decision.note.trim()) return { entries: decision.entries, note: decision.note.trim() };
-      const saved = await captureMemories(loreHome, decision.entries);
-      emit({ type: "saved", task, memories: saved });
-      emit({ type: "changed" });
-      return { saved };
+      for (;;) {
+        const decision = /** @type {MemoryDecision} */ (await request("memories", { entries }));
+        if (!decision || !validEntries(decision.entries)) throw new Error("Invalid memory decision");
+        if (typeof decision.note === "string" && decision.note.trim()) return { entries: decision.entries, note: decision.note.trim() };
+        try {
+          const saved = await captureMemories(loreHome, decision.entries);
+          emit({ type: "saved", task, memories: saved });
+          emit({ type: "changed" });
+          return { saved };
+        } catch (error) {
+          // The card was cleared on Keep; put it back as edited, with the reason, rather than losing the owner's words.
+          emit({ type: "message", task, text: `Lore could not save that: ${/** @type {Error} */ (error).message}. Your edits are still here.` });
+          entries = decision.entries;
+        }
+      }
     },
     proposeBlueprint: async (fields, evidence) => {
       const edited = /** @type {BlueprintFields} */ (await request("blueprint", { fields, evidence }));
       await lore(loreHome, ["blueprint", "apply", "-"], JSON.stringify(edited));
       emit({ type: "changed" });
       return edited;
+    },
+    proposePrice: async (amount, reason) => {
+      // The agent proposes; this process saves only the number the owner
+      // confirmed on the card, and hands that number back so the agent works
+      // from what was actually set rather than what it suggested.
+      const confirmed = await request("price", { amount, reason });
+      if (typeof confirmed !== "number") return null;
+      await setPrice(loreHome, confirmed);
+      emit({ type: "changed" });
+      return confirmed;
     },
     cloudflareLogin: async () => {
       if (!(await request("cloudflare", {}))) return "The owner chose not to sign in to Cloudflare right now.";
@@ -236,9 +256,9 @@ async function start(loreHome) {
         const id = JSON.parse(out)?.id;
         return typeof id === "number" ? id : null;
       },
-      finish: async (id, status, summary, costUsd) => {
+      finish: async (id, status, summary, title, costUsd) => {
         const cost = costUsd === null ? [] : ["--cost-usd", String(costUsd)];
-        await lore(loreHome, ["job", "finish", String(id), status, "--summary", summary, ...cost]);
+        await lore(loreHome, ["job", "finish", String(id), status, "--summary", summary, "--title", title, ...cost]);
       }
     },
     authPrompt: async ({ signal, ...prompt }) => String(await request("auth-prompt", { prompt }, signal)),

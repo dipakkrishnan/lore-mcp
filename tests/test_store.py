@@ -707,11 +707,17 @@ class OwnerJobTest(LoreTestCase):
 
             self.assertTrue(
                 store.finish_job(
-                    job_id, "succeeded", summary="captured", count=2, cost_usd=0.125
+                    job_id,
+                    "succeeded",
+                    title="  Pickleball for the Long Run  ",
+                    summary="captured",
+                    count=2,
+                    cost_usd=0.125,
                 )
             )
             closed = store.recent_jobs()[0]
             self.assertIs(closed.status, JobStatus.SUCCEEDED)
+            self.assertEqual(closed.title, "Pickleball for the Long Run")
             self.assertEqual(closed.summary, "captured")
             self.assertEqual(closed.count, 2)
             self.assertEqual(closed.cost_usd, 0.125)
@@ -898,6 +904,7 @@ class OwnerJobTest(LoreTestCase):
                     "id",
                     "kind",
                     "status",
+                    "title",
                     "summary",
                     "count",
                     "cost_usd",
@@ -915,6 +922,12 @@ class OwnerJobTest(LoreTestCase):
         with Store() as store:
             job_id = store.start_job(JobKind.DEPLOY.value, timeout_minutes=60)
             self.assertTrue(store.finish_job(job_id, "succeeded", summary="deployed"))
+            store.db.execute("ALTER TABLE owner_jobs DROP COLUMN title")
+            store.db.commit()
+        with Store() as store:
+            job_id = store.start_job(JobKind.CAPTURE.value, timeout_minutes=60)
+            store.finish_job(job_id, "succeeded", title="A Useful Name")
+            self.assertEqual(store.recent_jobs()[0].title, "A Useful Name")
 
 
 if __name__ == "__main__":

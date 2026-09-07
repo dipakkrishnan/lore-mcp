@@ -22,6 +22,9 @@ type Snapshot = {
     sources_configured: boolean;
     blueprint_configured: boolean;
     profile_configured: boolean;
+    // What the saved rhythm asks for and whether the scheduler holds it; null
+    // with no profile. Optional: an installed CLI older than this app omits it.
+    schedule?: { installed: boolean; executor: "claude" | "codex" | null; cadence: "daily" | "weekly" | null; hour: number | null } | null;
   };
   library: {
     counts: { private: number };
@@ -42,6 +45,10 @@ type Snapshot = {
     live: {
       state: "online" | "not_configured" | "unreachable";
       network: string | null;
+      // What the node itself advertises, which is the price baked in at its
+      // last deploy — not `pricing.publication_usd`, which is what the owner
+      // last saved. Null when unreachable, or when the node predates the field.
+      price_usd: number | null;
       payout: string | null;
     };
   };
@@ -54,6 +61,7 @@ type JobItem = {
   id: number;
   kind: "capture" | "synthesis" | "deploy" | "push";
   status: "running" | "succeeded" | "failed" | "incomplete";
+  title: string;
   summary: string;
   count: number | null;
   cost_usd: number | null;
@@ -148,7 +156,7 @@ interface Window {
     snapshot(): Promise<Snapshot>;
     retrySetup(): Promise<void>;
     agentStatus(): Promise<AgentStatus>;
-    prompt(input: { text: string; task: AgentTask; from?: AgentTask }): Promise<void>;
+    prompt(input: { text: string; task: AgentTask; from?: AgentTask; memory?: number }): Promise<void>;
     history(task: AgentTask): Promise<Line[]>;
     tasks(): Promise<TaskRecord[]>;
     restart(task: AgentTask): Promise<void>;
@@ -163,6 +171,8 @@ interface Window {
     decide(input: { original: PublicationCandidate; candidate: PublicationCandidate; approve: boolean }): Promise<void>;
     revoke(id: number): Promise<void>;
     push(): Promise<void>;
+    schedule(): Promise<void>;
+    setPrice(amount: number): Promise<void>;
     sales(): Promise<Sale[]>;
     pickFiles(): Promise<string[]>;
     pathFor(file: File): string;
@@ -180,7 +190,8 @@ type AgentStatus = {
 type OwnerQuestion = {
   question: string;
   header: string;
-  options: Array<{ label: string; description: string }>;
+  options: Array<{ label: string; description: string; recommended?: boolean }>;
+  format?: "evm_address";
   multiSelect: boolean;
 };
 
@@ -198,6 +209,7 @@ type AgentRequest =
   | { type: "blueprint"; id: string; task: AgentTask | null; fields: BlueprintFields; evidence: string }
   | { type: "auth-prompt"; id: string; task: AgentTask | null; prompt: AuthPrompt }
   | { type: "cloudflare"; id: string; task: AgentTask | null }
+  | { type: "price"; id: string; task: AgentTask | null; amount: number; reason: string }
   | { type: "open"; id: string; task: AgentTask | null; title: string; url: string; note: string };
 
 type AgentEvent =
@@ -216,7 +228,7 @@ type AgentEvent =
 type LoreAgentInstance = {
   readonly activeTask: AgentTask | null;
   status(): Promise<AgentStatus>;
-  prompt(text: string, task: AgentTask, from?: AgentTask): Promise<void>;
+  prompt(text: string, task: AgentTask, from?: AgentTask, memory?: number): Promise<void>;
   history(task: AgentTask): Line[];
   tasks(): TaskRecord[];
   restart(task: AgentTask): void;
@@ -234,6 +246,8 @@ type LoreAgentOptions = {
   askUser(questions: OwnerQuestion[]): Promise<Record<string, string>>;
   proposeMemories(entries: ProposedMemory[]): Promise<MemoryOutcome>;
   proposeBlueprint(fields: BlueprintFields, evidence: string): Promise<BlueprintFields>;
+  /** Resolves to the amount the owner confirmed, or null if they declined. */
+  proposePrice(amount: number, reason: string): Promise<number | null>;
   cloudflareLogin(): Promise<string>;
   openUrl(page: { title: string; url: string; note: string }): Promise<string>;
   storeSecret(name: "CDP_API_KEY_ID" | "CDP_API_KEY_SECRET"): Promise<string>;
@@ -244,6 +258,6 @@ type LoreAgentOptions = {
   // Optional: history is a record of the work, never a precondition for it.
   job?: {
     start(kind: string): Promise<number | null>;
-    finish(id: number, status: string, summary: string, costUsd: number | null): Promise<void>;
+    finish(id: number, status: string, summary: string, title: string, costUsd: number | null): Promise<void>;
   };
 };

@@ -163,6 +163,7 @@ def parser() -> argparse.ArgumentParser:
     # rejects free text at the process boundary, before any Python runs, so an
     # error message can never be interpolated into owner history from a shell.
     job_finish.add_argument("--summary", choices=tuple(JOB_SUMMARIES), default="")
+    job_finish.add_argument("--title", default="")
     job_finish.add_argument("--count", type=int)
     job_finish.add_argument("--cost-usd", type=float)
     job_commands.add_parser("reap", help="concede jobs whose liveness claim expired")
@@ -520,9 +521,10 @@ def job(args: argparse.Namespace) -> int:
     Deliberately not behind `_owner_action`: this writes nothing disclosable
     and reads no memory content, and its two most important callers — the
     synthesis LaunchAgent's pre-run hook and the desktop app — are both
-    structurally unattended. Its whole input surface is a closed vocabulary of
-    kinds, statuses, and summary codes plus two numbers, so an unattended
-    caller's worst case is a wrong row in the owner's own local history.
+    structurally unattended. Except for one bounded local display title, its
+    input is a closed vocabulary of kinds, statuses, and summary codes plus two
+    numbers, so an unattended caller's worst case is a wrong row in the
+    owner's own local history.
     """
     with Store() as store:
         if args.job_command == "start":
@@ -535,6 +537,7 @@ def job(args: argparse.Namespace) -> int:
             store.finish_job(
                 args.id,
                 args.status,
+                title=args.title,
                 summary=args.summary,
                 count=args.count,
                 cost_usd=args.cost_usd,
@@ -1134,9 +1137,12 @@ def push(worker_dir: str, local: bool = False) -> int:
             f"no node source at {worker}/ — run `lore node deploy` first, "
             "or pass --worker-dir (contributors: --worker-dir lore/node)"
         )
-    # Recorded past the preconditions, so a missing node source stays a message
-    # rather than a run. One seam covers every caller: the desktop button, a
-    # terminal, and the deploy sequence's own push.
+    return push_job(worker, local)
+
+
+def push_job(worker: Path, local: bool) -> int:
+    """One push, recorded as its own run. The deploy sequence carries one too:
+    the deploy is already the owner's action, so its push skips the gate."""
     with Store() as store:
         job_id = store.start_job(
             JobKind.PUSH.value, owner_pid=os.getpid(), timeout_minutes=60
@@ -1153,6 +1159,7 @@ def _push(worker: Path, local: bool, job_id: int) -> int:
     """Write the active publication set to the node's edge database."""
     import subprocess
     import tempfile
+    import time
 
     with Store() as store:
         active = store.list_publications(active_only=True)
@@ -1162,20 +1169,26 @@ def _push(worker: Path, local: bool, job_id: int) -> int:
         handle.write(script)
         script_path = handle.name
     target = ["--local"] if local else ["--remote"]
-    result = subprocess.run(
-        [
-            "npx",
-            "wrangler",
-            "d1",
-            "execute",
-            "lore-publications",
-            *target,
-            "--file",
-            script_path,
-            "-y",
-        ],
-        cwd=worker,
-    )
+    command = [
+        "npx",
+        "wrangler",
+        "d1",
+        "execute",
+        "lore-publications",
+        *target,
+        "--file",
+        script_path,
+        "-y",
+    ]
+    # A remote write is transactional, so a failed one leaves the edge as it
+    # was and can be retried. Cloudflare has answered 401 to the first write
+    # after wrangler refreshed its sign-in and accepted the same write moments
+    # later, so one retry covers that without the owner seeing it.
+    for attempt in range(2):
+        result = subprocess.run(command, cwd=worker)
+        if result.returncode == 0 or attempt:
+            break
+        time.sleep(3)
     os.unlink(script_path)
     if result.returncode != 0:
         # The cause names commands and a database, which owner history must not

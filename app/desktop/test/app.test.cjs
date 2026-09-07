@@ -1,5 +1,5 @@
 const assert = require("node:assert/strict");
-const { access, constants, mkdtemp, readFile, rm, symlink, writeFile } = require("node:fs/promises");
+const { access, constants, mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } = require("node:fs/promises");
 const { homedir, tmpdir } = require("node:os");
 const { join } = require("node:path");
 const { spawnSync } = require("node:child_process");
@@ -36,6 +36,10 @@ test("useRuntime runs the packaged binary instead of uv", async () => {
     useRuntime(bin);
     const state = await readState(directory);
     assert.equal(state.version, 1);
+    // The packaged CLI runs from the Lore home, never from wherever the app was launched.
+    await writeFile(bin, "#!/bin/sh\nprintf '{\"cwd\":\"%s\"}' \"$PWD\"\n", { mode: 0o755 });
+    const { lore } = require("../src/state.cjs");
+    assert.equal(JSON.parse(await lore(directory, [])).cwd, await realpath(directory));
   } finally {
     useRuntime();
     await rm(directory, { recursive: true });
@@ -182,7 +186,7 @@ test("sessions persist per task, come back as a thread, and a cut-off tool call 
     const written = LoreAgent.sessionFor(home, "setup");
     written.appendMessage({ role: "user", content: "/skill:lore-onboard\n\nLet's set up my Lore.", timestamp: 1 });
     written.appendMessage({ role: "assistant", content: [{ type: "text", text: "Welcome." }, { type: "toolCall", id: "call-1", name: "ask_user", arguments: {} }], api: "anthropic-messages", provider: "anthropic", model: "m", usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } }, stopReason: "toolUse", timestamp: 2 });
-    written.appendMessage({ role: "toolResult", toolCallId: "call-1", toolName: "ask_user", content: [{ type: "text", text: JSON.stringify({ answers: { Persona: "College professor", Name: "Ada" } }) }], isError: false, timestamp: 3 });
+    written.appendMessage({ role: "toolResult", toolCallId: "call-1", toolName: "ask_user", content: [{ type: "text", text: JSON.stringify({ answers: { Persona: "College professor", Payout: "0x0c270534cfcecc9224edb903ef5dd70410d08166" } }) }], isError: false, timestamp: 3 });
     written.appendMessage({ role: "toolResult", toolCallId: "old-call", toolName: "ask_user", content: [{ type: "text", text: "old malformed result" }], isError: false, timestamp: 3 });
     written.appendMessage({ role: "toolResult", toolCallId: "m-1", toolName: "propose_memories", content: [{ type: "text", text: JSON.stringify({ entries: [{ title: "x", content: "y" }], note: "Call it the hiring lesson" }) }], isError: false, timestamp: 3 });
     written.appendMessage({ role: "toolResult", toolCallId: "m-2", toolName: "propose_memories", content: [{ type: "text", text: JSON.stringify({ saved: [{ id: 7, status: "inserted", title: "The hiring lesson" }] }) }], isError: false, timestamp: 3 });
@@ -192,7 +196,7 @@ test("sessions persist per task, come back as a thread, and a cut-off tool call 
     assert.deepEqual(LoreAgent.history(home, "setup"), [
       { text: "Let's set up my Lore.", owner: true },
       { text: "Welcome.", owner: false },
-      { text: "College professor · Ada", owner: true },
+      { text: "College professor · Payout: 0x0c27…8166", owner: true },
       { text: "Call it the hiring lesson", owner: true },
       { text: "", owner: false, saved: [{ id: 7, status: "inserted", title: "The hiring lesson" }] }
     ]);
@@ -217,9 +221,11 @@ test("a memory card saves exactly what the owner kept, through the CLI's private
   try {
     assert.equal(validEntries([]), true, "dropping every entry is a valid decision");
     assert.equal(validEntries([{ title: "t", content: "c", project: "p" }]), true);
-    for (const bad of [[{ title: " ", content: "c" }], [{ title: "t", content: "" }], [{ title: "t".repeat(301), content: "c" }], [{ title: "t", content: "c", project: 3 }], "nope"]) {
+    for (const bad of [[{ title: " ", content: "c" }], [{ title: "t", content: "" }], [{ title: "t".repeat(201), content: "c" }], [{ title: "t", content: "c", project: 3 }], [{ title: "t", content: "c", project: "p".repeat(201) }], "nope"]) {
       assert.equal(validEntries(bad), false, `main refuses ${JSON.stringify(bad).slice(0, 40)} before the CLI sees it`);
     }
+    // The card's ceiling is the CLI's ceiling: what validEntries lets through, the CLI saves.
+    assert.equal(validEntries([{ title: "t".repeat(200), content: "c" }]), true);
     assert.deepEqual(await captureMemories(home, []), []);
     const saved = await captureMemories(home, [{ title: "Hire management before rapid growth", content: "Add the management layer before the next ten engineers.", project: "team scaling" }]);
     assert.equal(validSaved(saved), true);
@@ -256,11 +262,37 @@ test("draft for sale continues the capture thread instead of starting the publis
   }
 });
 
+test("a memory the owner starts from is named to the agent by id and shown to the owner by title", async () => {
+  const { LoreAgent } = await import("../src/agent.mjs");
+  const home = await mkdtemp(join(tmpdir(), "lore-desktop-"));
+  try {
+    const session = LoreAgent.sessionFor(home, "publish");
+    session.appendMessage({ role: "user", content: '/skill:lore-publish\n\nHelp me publish something from my Lore, starting from "Tank cleanup crew".\n\nStart from the memory with id 38.', timestamp: 1 });
+    session.appendMessage({ role: "assistant", content: [{ type: "text", text: "Reading it now." }], api: "anthropic-messages", provider: "anthropic", model: "m", usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } }, stopReason: "stop", timestamp: 2 });
+    assert.deepEqual(LoreAgent.history(home, "publish"), [
+      { text: 'Help me publish something from my Lore, starting from "Tank cleanup crew".', owner: true },
+      { text: "Reading it now.", owner: false }
+    ]);
+  } finally {
+    await rm(home, { recursive: true });
+  }
+});
+
 test("desktop prefers Opus 4.8 when Anthropic is available", async () => {
   const { MODELS } = await import("../src/agent.mjs");
   const { getBuiltinModel } = await import("@earendil-works/pi-ai/providers/all");
   assert.equal(MODELS[0], "anthropic/claude-opus-4-8");
   assert.equal(getBuiltinModel("anthropic", "claude-opus-4-8").id, "claude-opus-4-8");
+});
+
+test("Luna gives capture runs a short friendly name", async () => {
+  const { nameRun } = await import("../src/agent.mjs");
+  const models = {
+    getAvailable: async () => [{ provider: "openai", id: "gpt-5.6-luna" }],
+    completeSimple: async () => ({ content: [{ type: "text", text: "Pickleball for the Long Run\nextra" }], usage: { cost: { total: 0.0001 } } })
+  };
+  assert.deepEqual(await nameRun(/** @type {never} */ (models), "I want to reach 5.0 DUPR"), { title: "Pickleball for the Long Run", cost: 0.0001 });
+  assert.deepEqual(await nameRun(/** @type {never} */ ({ getAvailable: async () => [] }), "anything"), { title: "", cost: 0 });
 });
 
 test("API-key proof deletes rejected keys, not keys it could not check", async () => {
@@ -489,4 +521,51 @@ test("memory edit validates the id and content before any CLI call, and round-tr
   } finally {
     await rm(directory, { recursive: true });
   }
+});
+
+test("a CLI refusal explained over several lines reaches the owner as its Reason line", async () => {
+  const { lore } = require("../src/state.cjs");
+  const home = await mkdtemp(join(tmpdir(), "lore-desktop-"));
+  const schedule = () => lore(home, ["profile", join(home, "automation", "profile.json")]);
+  try {
+    // No profile yet: a one-line refusal comes through as it is.
+    await assert.rejects(schedule(), { message: /No such file|profile\.json/ });
+    // A rhythm saved without a model: the CLI keeps the profile and explains over
+    // several lines; the owner hears the Reason line, not "Then run: env ...".
+    await mkdir(join(home, "automation"), { recursive: true });
+    await writeFile(join(home, "automation", "profile.json"), JSON.stringify({ executor: "", cadence: "daily", hour: 21 }));
+    await assert.rejects(schedule(), (error) => /^'' is not a valid Agent$/.test(error.message));
+    assert.deepEqual((await readState(home)).setup.schedule, { installed: false, executor: null, cadence: null, hour: null });
+  } finally {
+    await rm(home, { recursive: true });
+  }
+});
+
+test("the price action refuses anything but a positive number, and round-trips through the CLI", async () => {
+  const { setPrice, readState } = require("../src/state.cjs");
+  // Rejected before any CLI call: "/nonexistent" would fail loudly otherwise.
+  for (const bad of [0, -1, NaN, Infinity, "0.01", null, undefined]) {
+    await assert.rejects(setPrice("/nonexistent", bad), { message: /A price has to be a number above zero/ }, String(bad));
+  }
+  const directory = await mkdtemp(join(tmpdir(), "lore-desktop-"));
+  try {
+    assert.equal((await readState(directory)).pricing.publication_usd, null);
+    await setPrice(directory, 0.25);
+    assert.equal((await readState(directory)).pricing.publication_usd, 0.25);
+    // Sub-cent prices are legal all the way down to the deploy floor.
+    await setPrice(directory, 0.000001);
+    assert.equal((await readState(directory)).pricing.publication_usd, 0.000001);
+  } finally {
+    await rm(directory, { recursive: true });
+  }
+});
+
+test("propose_price is a live tool, and the agent is told not to price by hand", async () => {
+  // A custom tool missing from `tools:` is defined but inactive, which is the
+  // silent way this wiring breaks.
+  const source = await readFile(join(__dirname, "../src/agent.mjs"), "utf8");
+  const active = source.match(/tools: \[([^\]]*)\]/)[1];
+  assert.match(active, /"propose_price"/, "propose_price must be in the active tool list");
+  assert.match(source, /this\.#priceTool\(\)/, "and registered as a custom tool");
+  assert.match(source, /call propose_price and never run a price command yourself/);
 });

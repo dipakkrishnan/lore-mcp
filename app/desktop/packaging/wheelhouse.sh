@@ -15,7 +15,9 @@ if [ ! -x "$OUT/uv" ] || [ "$("$OUT/uv" --version | cut -d' ' -f2)" != "$UV_VERS
     tar -xz -C "$OUT" --strip-components 1 "uv-$ARCH/uv"
 fi
 
-rm -rf "$OUT/wheels"
+# setuptools reuses build/lib between builds, so a file deleted from the tree
+# would otherwise ride along in every wheel built on this machine.
+rm -rf "$OUT/wheels" "$ROOT/build"
 "$OUT/uv" build --wheel -o "$OUT/wheels" "$ROOT"
 "$OUT/uv" export --directory "$ROOT" --frozen --no-dev --no-hashes --no-emit-project -o "$OUT/requirements.txt"
 "$OUT/uv" run --python "$PYTHON_VERSION" --managed-python --no-project --with pip \

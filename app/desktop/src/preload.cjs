@@ -4,7 +4,7 @@ contextBridge.exposeInMainWorld("lore", {
   snapshot: () => ipcRenderer.invoke("snapshot:read"),
   retrySetup: () => ipcRenderer.invoke("setup:retry"),
   agentStatus: () => ipcRenderer.invoke("agent:status"),
-  /** @param {{text: string, task: AgentTask}} input */
+  /** @param {{text: string, task: AgentTask, from?: AgentTask, memory?: number}} input */
   prompt: (input) => ipcRenderer.invoke("agent:prompt", input),
   /** @param {AgentTask} task */
   history: (task) => ipcRenderer.invoke("agent:history", task),
@@ -31,6 +31,9 @@ contextBridge.exposeInMainWorld("lore", {
   /** @param {number} id */
   revoke: (id) => ipcRenderer.invoke("publication:revoke", id),
   push: () => ipcRenderer.invoke("store:push"),
+  schedule: () => ipcRenderer.invoke("schedule:install"),
+  /** @param {number} amount */
+  setPrice: (amount) => ipcRenderer.invoke("pricing:set", amount),
   sales: () => ipcRenderer.invoke("store:sales"),
   pickFiles: () => ipcRenderer.invoke("files:pick"),
   /** @param {File} file */

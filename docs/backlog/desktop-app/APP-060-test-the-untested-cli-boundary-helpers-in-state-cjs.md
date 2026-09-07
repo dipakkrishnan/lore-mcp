@@ -10,13 +10,13 @@ blockers: []
 dependencies: []
 github_issue: null
 created: 2026-09-03
-updated: 2026-09-03
+updated: 2026-09-07
 ---
 
 ## Problem
 
-`app/desktop/src/state.cjs` exports 14 functions; `test/app.test.cjs` reaches
-9 of them. Three of the misses carry real logic:
+`app/desktop/src/state.cjs` exports 15 functions; `test/app.test.cjs` reaches
+10 of them. Three of the misses carry real logic:
 
 - `searchMemories(loreHome, query)` trims the query, splits it on whitespace,
   **drops every term starting with `-`** so a query can't be read as CLI
