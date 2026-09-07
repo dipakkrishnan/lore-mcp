@@ -210,8 +210,9 @@ async function openMemory(id) {
   }
   closeSheet();
   // A native modal: focus stays inside, Escape closes it, and focus returns to what opened it.
-  const sheet = el("dialog", "card sheet");
+  const sheet = el("dialog", "sheet");
   sheet.setAttribute("aria-label", memory.title);
+  const panel = el("div", "card sheet-panel");
   const head = el("div", "sheet-head");
   const text = el("div", "t");
   const titleLabel = el("b", "", memory.title);
@@ -292,12 +293,10 @@ async function openMemory(id) {
   }
   showActions();
   head.append(text, actions, close);
-  sheet.append(head, body);
-  // A click on the backdrop lands on the dialog element itself, outside its box.
-  sheet.addEventListener("click", (event) => {
-    const box = sheet.getBoundingClientRect();
-    if (event.clientX < box.left || event.clientX > box.right || event.clientY < box.top || event.clientY > box.bottom) closeSheet();
-  });
+  panel.append(head, body);
+  sheet.append(panel);
+  // The panel fills the dialog, so a click that lands on the dialog itself came from the backdrop.
+  sheet.addEventListener("click", (event) => { if (event.target === sheet) closeSheet(); });
   sheet.addEventListener("close", () => sheet.remove());
   document.body.append(sheet);
   sheet.showModal();
