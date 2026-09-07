@@ -10,7 +10,6 @@ obsolete), then `priority` (P0 → P3).
 
 | ID | Title | Priority | Effort | Component | Status | Related | Blockers | Dependencies | Issue |
 |---|---|---|---|---|---|---|---|---|---|
-| [APP-100](./desktop-app/APP-100-let-the-owner-keep-typing-while-lore-works.md) | Let the owner keep typing while Lore works | P1 | M | desktop-app | ideation | APP-069, APP-053, APP-099 | — | — | — |
 | [APP-041](./desktop-app/APP-041-desktop-onboarding-flow-for-a-new-user.md) | Guide a new desktop user through an onboarding flow | P2 | M | desktop-app | ideation | ONB-001, ONB-003, APP-030, APP-036 | — | — | [#176](https://github.com/dipakkrishnan/lore-mcp/issues/176) |
 | [APP-042](./desktop-app/APP-042-select-memories-to-combine-and-synthesize.md) | Let a desktop owner select memories to combine and synthesize | P2 | M | desktop-app | ideation | AUT-002, APP-014, APP-011 | — | — | [#173](https://github.com/dipakkrishnan/lore-mcp/issues/173) |
 | [APP-043](./desktop-app/APP-043-batch-captured-memories-by-date-in-the-memories-tab.md) | Batch captured memories by date in the Memories tab | P2 | M | desktop-app | ideation | — | — | — | [#171](https://github.com/dipakkrishnan/lore-mcp/issues/171) |
@@ -19,6 +18,7 @@ obsolete), then `priority` (P0 → P3).
 | [APP-047](./desktop-app/APP-047-give-publication-drafts-one-home.md) | Give publication drafts one home and keep cards in their own thread | P0 | S | desktop-app | in-review | APP-020, APP-023, APP-032, APP-046 | — | — | — |
 | [MON-019](./monetization/MON-019-let-a-desktop-deploy-finish-its-own-push.md) | Let a desktop deploy finish its own push | P0 | S | monetization | in-review | APP-056, APP-055, APP-006, MON-013 | — | — | — |
 | [APP-099](./desktop-app/APP-099-show-owner-cards-one-at-a-time.md) | Show owner cards one at a time, never racing | P0 | XS | desktop-app | in-review | APP-057, APP-056, APP-052 | — | — | — |
+| [APP-100](./desktop-app/APP-100-let-the-owner-keep-typing-while-lore-works.md) | Let the owner keep typing while Lore works | P1 | M | desktop-app | in-review | APP-069, APP-053, APP-099 | — | — | — |
 | [APP-040](./desktop-app/APP-040-give-desktop-users-a-one-click-download-page.md) | Give desktop users a one-click download page | P1 | S | desktop-app | in-review | APP-005 | — | — | [#175](https://github.com/dipakkrishnan/lore-mcp/issues/175) |
 | [APP-054](./desktop-app/APP-054-close-the-edge-audits-pre-freeze-findings.md) | Close the edge audit's pre-freeze findings before the notarized build | P1 | S | desktop-app | in-review | APP-039, APP-046, APP-047, APP-034 | — | — | — |
 | [APP-055](./desktop-app/APP-055-close-the-edge-audits-launch-week-findings.md) | Close the edge audit's cheap launch-week findings | P1 | S | desktop-app | in-review | APP-054, MON-013, APP-048, APP-019, XC-020, APP-030 | — | — | — |
