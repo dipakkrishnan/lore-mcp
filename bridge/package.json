@@ -12,12 +12,12 @@
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "1.30.0",
-    "@x402/evm": "2.24.0",
+    "@x402/evm": "2.25.0",
     "agents": "0.22.0",
-    "viem": "2.56.1"
+    "viem": "2.56.3"
   },
   "devDependencies": {
-    "@types/node": "26.4.0",
+    "@types/node": "26.4.1",
     "tsx": "4.23.13",
     "typescript": "7.0.2"
   }
