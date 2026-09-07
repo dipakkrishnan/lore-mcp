@@ -18,6 +18,10 @@ if [[ "$scenario" == "jobs" ]]; then
   (cd "$repo_root" && uv run python -c "
 from lore.store import Store
 with Store() as store:
+ first = store.start_job('push', timeout_minutes=60)
+ store.finish_job(first, 'succeeded', summary='pushed', count=17)
+ grown = store.start_job('push', timeout_minutes=60)
+ store.finish_job(grown, 'succeeded', summary='pushed', count=19)
  done = store.start_job('capture', timeout_minutes=720)
  store.finish_job(done, 'succeeded', summary='captured', cost_usd=0.42)
  bad = store.start_job('push', timeout_minutes=60)
