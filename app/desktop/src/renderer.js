@@ -63,8 +63,6 @@ let pushedNote = false;
 /** Whether the For Sale price row is open as an editor. */
 let editingPrice = false;
 let savingPrice = false;
-/** After a save, what the live node still charges until a redeploy. @type {{live: number | null, saved: number} | false} */
-let staleNodePrice = false;
 let accountMenuOpen = false;
 /** The node's ledger, read each time For Sale opens: rows, the reason it could not be read, or null while it loads. @type {Sale[] | Error | null} */
 let sales = null;
@@ -460,7 +458,9 @@ function needsYou(s) {
     if (!s.node.url) add("Open your store", "A payout address, a price, and a node on the test network first. Free until you say otherwise.", button("Open", "secondary", () => void startDeploy()));
     if (s.library.counts.private && !candidates.length && !taskItems.some((item) => item.kind === "publish")) add("Publish something", "Lore drafts up to three things to sell; you approve each one.", button("Publish", "secondary", startPublish));
   }
-  // Approved work a buyer cannot see yet is actionable whatever rung setup is on.
+  // Approved work a buyer cannot see yet, or a price they are not yet paying, is actionable whatever rung setup is on.
+  const stale = stalePrice(s);
+  if (stale !== null) add("Redeploy your store", `Buyers still pay ${price(stale)}; you set ${price(s.pricing.publication_usd)}.`, button("Redeploy", "secondary", () => void startDeploy(REDEPLOY_PRICE)));
   const waiting = unpushed(s);
   if (waiting.length && !pushOffer && !pushing) add("Push to your store", `${pendingLabel(waiting)}.`, button("Push", "secondary", pushNow));
   return rows;
@@ -557,17 +557,35 @@ function priceRow(s) {
   return item;
 }
 
-/** @param {Snapshot} s */
-function priceEditor(s) {
-  const form = /** @type {HTMLFormElement} */ (el("form", "price-edit"));
+/** A dollar field with its prefix. @param {string} value @returns {[HTMLElement, HTMLInputElement]} */
+function priceField(value) {
   const field = el("div", "price-field");
   const input = el("input");
   input.type = "text";
   input.inputMode = "decimal";
   input.setAttribute("aria-label", "Price per publication in US dollars");
-  input.value = typeof s.pricing.publication_usd === "number" ? String(s.pricing.publication_usd) : "";
+  input.value = value;
   input.placeholder = "0.01";
   field.append(el("span", "price-prefix", "$"), input);
+  return [field, input];
+}
+
+/** The amount typed, or null when the CLI would refuse it: zero is a conversation, not a text field. @param {string} raw */
+function parsePrice(raw) {
+  const amount = Number(raw.trim().replace(/^\$/, ""));
+  return raw.trim() && Number.isFinite(amount) && amount > 0 ? amount : null;
+}
+
+/** What the node charges when that differs from what the owner saved; only a redeploy changes it. Read from the probe, so it survives a relaunch and says nothing about a node it cannot reach. @param {Snapshot} s */
+function stalePrice(s) {
+  const live = s.node.live.price_usd;
+  return typeof live === "number" && typeof s.pricing.publication_usd === "number" && live !== s.pricing.publication_usd ? live : null;
+}
+
+/** @param {Snapshot} s */
+function priceEditor(s) {
+  const form = /** @type {HTMLFormElement} */ (el("form", "price-edit"));
+  const [field, input] = priceField(typeof s.pricing.publication_usd === "number" ? String(s.pricing.publication_usd) : "");
   const actions = el("div", "actions");
   const cancel = el("button", "btn quiet sm", "Cancel");
   cancel.type = "button";
@@ -588,42 +606,16 @@ function priceEditor(s) {
 
 /** @param {string} raw */
 async function savePrice(raw) {
-  const amount = Number(raw.trim().replace(/^\$/, ""));
-  // Anything the CLI would reject is worth saying here, in the same words the
-  // CLI would use, without a round trip.
-  if (!raw.trim() || !Number.isFinite(amount) || amount <= 0) {
+  const amount = parsePrice(raw);
+  if (amount === null) {
     tell("A price has to be a number above zero. Free is a real choice, but you make it when you open your store.", true);
     return;
   }
-  const before = snapshot?.node.live.price_usd ?? null;
-  const hadNode = Boolean(snapshot?.node.url);
   savingPrice = true;
   render();
-  const saved = await act(() => window.lore.setPrice(amount));
+  if (await act(() => window.lore.setPrice(amount))) editingPrice = false;
   savingPrice = false;
-  if (saved) {
-    editingPrice = false;
-    // A saved setting is not what buyers pay; only a redeploy changes that.
-    if (hadNode && before !== amount) staleNodePrice = { live: before, saved: amount };
-  }
   render();
-}
-
-/** What the node still charges after a local price change. @param {Snapshot} s */
-function redeployCard(s) {
-  const offer = /** @type {{live: number | null, saved: number}} */ (staleNodePrice);
-  const box = el("div", "card lead request");
-  box.append(
-    el("p", "q", `Saved. Your store still charges ${offer.live === null ? "its old price" : price(offer.live)}.`),
-    el("p", "hint", `Buyers pay ${price(offer.saved)} once you redeploy${s.node.live.state === "unreachable" ? "; your node isn't answering right now" : ""}.`)
-  );
-  const actions = el("div", "actions");
-  actions.append(
-    button("Later", "secondary", () => { staleNodePrice = false; render(); }),
-    button("Redeploy", "primary", () => { staleNodePrice = false; void startDeploy(REDEPLOY_PRICE); })
-  );
-  box.append(actions);
-  return box;
 }
 
 /** @param {Snapshot} s */
@@ -646,6 +638,12 @@ function renderStore(s) {
     const answers = el("div");
     answers.append(document.createTextNode(`${price(s.pricing.answer_usd)} `), el("span", "", "an answer"));
     prices.append(answers);
+  }
+  const stale = stalePrice(s);
+  if (stale !== null) {
+    const note = el("div", "stale-price");
+    note.append(el("span", "", `Buyers still pay ${price(stale)} until you redeploy.`), button("Redeploy", "quiet", () => void startDeploy(REDEPLOY_PRICE)));
+    prices.append(note);
   }
   bar.append(lead, prices);
   if (unpushed(s).length && !pushOffer) {
@@ -690,8 +688,6 @@ function renderStore(s) {
   }
   /** @type {HTMLElement[]} */
   const parts = [bar];
-  // Price staleness is its own seam: a push carries publications, never a price.
-  if (staleNodePrice) parts.push(redeployCard(s));
   if (pushOffer) parts.push(seamCard());
   parts.push(section("For sale", approved.length
     ? card(approved.map((item) => row(item.title, sold(item), controls(item))))
@@ -1220,13 +1216,7 @@ function renderRequest(event) {
     });
   } else if (event.type === "price") {
     box.append(el("p", "q", "What should a buyer pay per publication?"), el("p", "hint", event.reason));
-    const field = el("div", "price-field");
-    const amount = el("input");
-    amount.type = "text";
-    amount.inputMode = "decimal";
-    amount.setAttribute("aria-label", "Price per publication in US dollars");
-    amount.value = String(event.amount);
-    field.append(el("span", "price-prefix", "$"), amount);
+    const [field, amount] = priceField(String(event.amount));
     const actions = el("div", "actions");
     const later = el("button", "btn secondary sm", "Not now");
     later.type = "button";
@@ -1238,8 +1228,8 @@ function renderRequest(event) {
     box.addEventListener("submit", (submitEvent) => {
       submitEvent.preventDefault();
       // The agent only ever learns the number on this card, never its own.
-      const value = Number(amount.value.trim().replace(/^\$/, ""));
-      if (!Number.isFinite(value) || value <= 0) {
+      const value = parsePrice(amount.value);
+      if (value === null) {
         tell("A price has to be a number above zero.", true);
         return;
       }

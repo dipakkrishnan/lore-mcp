@@ -105,7 +105,7 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         await js(`window.__lore.show("settings")`);
         await sleep(600);
         const settings = await js(`document.querySelector("#content").textContent`);
-        check("Settings offers Change price once a store exists", settings.includes("Change price"));
+        check("Settings offers to set the price once a store exists", /Set a price|Change price/.test(settings));
         // Ledger: the payout address links to Basescan on the live network, on Settings and on the For Sale bar.
         check("Settings shows the payout address", settings.includes("0xaaaa…aaaa"));
         check("…linked to the address on Sepolia Basescan", await js(`[...document.querySelectorAll("#content a.link-btn")].some((a) => a.textContent === "Payouts ↗" && a.href === "https://sepolia.basescan.org/address/0x${"a".repeat(40)}")`));
@@ -113,6 +113,20 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         await js(`document.querySelector("#main").scrollTop = 1e6`);
         await sleep(200);
         await shot("settings-store");
+        // APP-019: one editor on For Sale; a saved price the node does not charge yet is standing state on For Sale and Today.
+        await js(`[...document.querySelectorAll("#content button")].find((b) => /^(Set a|Change) price$/.test(b.textContent)).click()`);
+        await waitFor(`document.querySelector("#content .price-edit input")`);
+        check("Settings' Change price lands on the For Sale editor", await js(`document.querySelector("#title").textContent === "For Sale" && document.activeElement === document.querySelector("#content .price-edit input")`));
+        await js(`{ const field = document.querySelector("#content .price-edit input"); field.value = "0"; field.form.requestSubmit(); }`);
+        await sleep(300);
+        check("zero is refused with the editor still open", await js(`document.querySelector("#status .notice.attention")?.textContent.includes("above zero") && Boolean(document.querySelector("#content .price-edit"))`));
+        await js(`{ const field = document.querySelector("#content .price-edit input"); field.value = "0.75"; field.form.requestSubmit(); }`);
+        await waitFor(`document.querySelector("#content").textContent.includes("Buyers still pay $0.02 until you redeploy.")`);
+        check("a saved price the node does not charge yet says so on For Sale", await js(`document.querySelector("#content .store-bar").textContent.includes("$0.75") && document.querySelector("#content .store-bar").textContent.includes("Buyers still pay $0.02 until you redeploy.")`));
+        await shot("store-stale-price");
+        await js(`window.__lore.show("today")`);
+        await sleep(400);
+        check("Today offers the redeploy as standing state", await js(`document.querySelector("#content").textContent.includes("Buyers still pay $0.02; you set $0.75.")`));
         // Fix 5: approved work the node does not hold yet gets a standing Push, on For Sale and under Needs you.
         await js(`window.__lore.show("today")`);
         await sleep(400);

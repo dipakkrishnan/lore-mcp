@@ -299,6 +299,8 @@ a.link-btn.glyph { width: 22px; padding: 0; justify-content: center; color: var(
 .price-field .price-prefix { font-family: var(--mono); font-size: 15px; color: var(--muted); }
 .price-field input[type="text"] { width: 6ch; height: auto; padding: 0; border: 0; background: none; font-family: var(--mono); font-size: 15px; text-align: left; }
 .request .price-field { height: 36px; align-self: flex-start; }
+.store-bar .stale-price { display: flex; align-items: center; justify-content: flex-end; gap: 6px; }
+.store-bar .stale-price span { color: var(--attention-ink); }
 
 .error { padding: 18px 20px; display: flex; flex-direction: column; gap: 8px; }
 .error h2 { font-family: var(--serif); font-size: 18px; text-transform: none; letter-spacing: 0; color: var(--ink); }

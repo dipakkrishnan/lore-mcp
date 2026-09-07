@@ -87,3 +87,13 @@ Rebased onto main 2026-09-06 (after #231–#233); Python, Desktop and backlog
 checks pass. The live-node walk is still the one open box: it redeploys a
 real store, so it is the owner's call, not something a session should do to
 the maintainer's node unasked.
+
+Simplified 2026-09-06: the redeploy card and its `staleNodePrice` flag are
+gone. What the node charges versus what the owner saved is read from the
+snapshot (`stalePrice(s)`), so it survives a relaunch and says nothing
+about a node the probe cannot reach; For Sale shows "Buyers still pay $0.02
+until you redeploy." beside the price and Today carries a standing Redeploy
+row, the same shape as an unpushed publication (APP-091, APP-093). One
+`priceField` and one `parsePrice` serve the editor and the agent's card.
+`support/edge.sh store` now walks the editor: Settings lands on it, zero is
+refused inline, $0.75 saves, and both surfaces name the stale live price.
