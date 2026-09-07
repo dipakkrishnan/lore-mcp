@@ -321,6 +321,8 @@ test("Luna gives capture runs a short friendly name", async () => {
   };
   assert.deepEqual(await nameRun(/** @type {never} */ (models), "I want to reach 5.0 DUPR"), { title: "Pickleball for the Long Run", cost: 0.0001 });
   assert.deepEqual(await nameRun(/** @type {never} */ ({ getAvailable: async () => [] }), "anything"), { title: "", cost: 0 });
+  const claudeOnly = { ...models, getAvailable: async () => [{ provider: "anthropic", id: "claude-sonnet-5" }] };
+  assert.deepEqual(await nameRun(/** @type {never} */ (claudeOnly), "I want to reach 5.0 DUPR"), { title: "Pickleball for the Long Run", cost: 0.0001 }, "an owner signed in with Claude alone still gets a name");
 });
 
 test("API-key proof deletes rejected keys, not keys it could not check", async () => {

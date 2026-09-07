@@ -372,16 +372,28 @@ const RUN_STATES = { running: "Running", succeeded: "Done", failed: "Failed", in
  * @param {Snapshot} s */
 function recentRuns(s) {
   if (!s.jobs) return null;
-  const items = s.jobs.items.slice(0, 4);
+  const all = s.jobs.items;
+  const items = all.slice(0, 5);
   if (!items.length) return section("Recent runs", el("p", "hint", "Nothing has run yet."));
-  return section("Recent runs", card(items.map((item) => {
-    const detail = [item.summary, when(item.started_at), typeof item.cost_usd === "number" ? money.format(item.cost_usd) : ""].filter(Boolean);
+  return section("Recent runs", card(items.map((item, index) => {
+    const detail = [pushDetail(all, index) ?? item.summary, when(item.started_at), typeof item.cost_usd === "number" ? money.format(item.cost_usd) : ""].filter(Boolean);
     return row(
       item.title?.trim() || RUN_LABELS[item.kind] || item.kind,
       detail.join(" · "),
       chip(RUN_STATES[item.status] ?? item.status, item.status === "running" ? "ok" : item.status === "succeeded" ? "" : "attention")
     );
   })));
+}
+
+/** What a finished push changed, from its own count against the push before it. The stored summary is a closed vocabulary, so this is read-time only.
+ * @param {JobItem[]} items @param {number} index */
+function pushDetail(items, index) {
+  const item = items[index];
+  if (item.kind !== "push" || item.status !== "succeeded" || typeof item.count !== "number") return null;
+  const previous = items.slice(index + 1).find((other) => other.kind === "push" && other.status === "succeeded" && typeof other.count === "number");
+  const delta = previous?.count == null ? 0 : item.count - previous.count;
+  const change = delta > 0 ? `, ${delta} more than before` : delta < 0 ? `, ${-delta} fewer than before` : "";
+  return `${item.count} publication${item.count === 1 ? "" : "s"} on your store${change}`;
 }
 
 /** @param {Snapshot["node"]["live"]["state"]} state */
