@@ -30,10 +30,12 @@ async function lore(loreHome, args, decision) {
     return (await pending).stdout;
   } catch (error) {
     const stderr = String(/** @type {{stderr?: string}} */ (error).stderr ?? "").trim();
-    // The owner sees the last line; the log keeps all of it, so a failure that
-    // ends in a brace or a blank still says what happened somewhere.
+    // The log keeps all of it, so a failure that ends in a brace or a blank still says what happened somewhere.
     console.error(`lore ${args.join(" ")} failed:\n${stderr || /** @type {Error} */ (error).message}`);
-    throw new Error((stderr.split("\n").pop() ?? "").replace(/^lore: /, "") || "Lore could not finish that");
+    // A refusal the CLI explains over several lines carries its cause on a "Reason:" line; otherwise the owner sees the last line.
+    const lines = stderr.split("\n").map((line) => line.trim());
+    const said = lines.find((line) => line.startsWith("Reason: "))?.slice(8) ?? lines.at(-1) ?? "";
+    throw new Error(said.replace(/^lore: /, "") || "Lore could not finish that");
   }
 }
 

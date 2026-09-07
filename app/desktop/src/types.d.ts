@@ -22,6 +22,9 @@ type Snapshot = {
     sources_configured: boolean;
     blueprint_configured: boolean;
     profile_configured: boolean;
+    // What the saved rhythm asks for and whether the scheduler holds it; null
+    // with no profile. Optional: an installed CLI older than this app omits it.
+    schedule?: { installed: boolean; executor: "claude" | "codex" | null; cadence: "daily" | "weekly" | null; hour: number | null } | null;
   };
   library: {
     counts: { private: number };
@@ -164,6 +167,7 @@ interface Window {
     decide(input: { original: PublicationCandidate; candidate: PublicationCandidate; approve: boolean }): Promise<void>;
     revoke(id: number): Promise<void>;
     push(): Promise<void>;
+    schedule(): Promise<void>;
     sales(): Promise<Sale[]>;
     pickFiles(): Promise<string[]>;
     pathFor(file: File): string;

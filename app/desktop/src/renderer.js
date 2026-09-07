@@ -643,30 +643,60 @@ function provider(credential = auth?.credentials[0] ?? null) {
   return credential ? PROVIDERS[credential.providerId] ?? [credential.providerId, ""] : ["Your AI provider", ""];
 }
 
+const EXECUTORS = { claude: "Claude", codex: "Codex" };
+
+/** The rhythm as the owner would say it: "Every day at 9 PM". @param {NonNullable<Snapshot["setup"]["schedule"]>} schedule */
+function rhythm(schedule) {
+  const hour = schedule.hour ?? 21;
+  return `Every ${schedule.cadence === "weekly" ? "Monday" : "day"} at ${hour % 12 || 12} ${hour < 12 ? "AM" : "PM"}`;
+}
+
+/** What the last synthesis run did, from the same history Today shows. @param {Snapshot} s */
+function lastSynthesis(s) {
+  const run = s.jobs?.items.find((item) => item.kind === "synthesis");
+  if (!run) return "Hasn't run yet.";
+  const date = when(run.started_at);
+  return run.status === "running" ? "Running now." : run.status === "succeeded" ? `Last ran ${date}.` : run.status === "failed" ? `Last run failed, ${date}.` : `Last run, ${date}, never finished.`;
+}
+
+/** A Settings row's trailing cell. @param {(string | HTMLElement)[]} parts */
+function cell(...parts) {
+  const node = el("div", "v");
+  node.append(...parts);
+  return node;
+}
+
+/** A state dot with its label. @param {boolean} ok @param {string} label */
+function dot(ok, label) {
+  const node = el("span", "state");
+  node.append(el("span", `dot ${ok ? "ok" : ""}`), document.createTextNode(label));
+  return node;
+}
+
+/** Settings → How often Lore reads them: the scheduler's answer, not the profile's. A saved rhythm that nothing runs says so and offers the fix. @param {Snapshot} s */
+function scheduleRow(s) {
+  const label = "How often Lore reads them";
+  const schedule = s.setup.schedule;
+  if (!s.setup.profile_configured || schedule === undefined) {
+    return row(label, "New memories are written from what your agents learned.", cell(dot(s.setup.profile_configured, s.setup.profile_configured ? "Set" : "Not set"), ...(s.setup.profile_configured ? [] : [button("Start", "secondary", startSetup)])), false);
+  }
+  if (!schedule?.executor) return row(label, "Your rhythm is saved, but no model was chosen to run it.", cell(dot(false, "Not scheduled"), button("Start", "secondary", startSetup)), false);
+  const who = `${rhythm(schedule)} with ${EXECUTORS[schedule.executor]}`;
+  if (schedule.installed) return row(label, `${who}. ${lastSynthesis(s)}`, cell(dot(true, "Scheduled")), false);
+  return row(label, `Set for ${who.charAt(0).toLowerCase()}${who.slice(1)}, but nothing on this Mac is running it.`, cell(dot(false, "Not scheduled"), button("Schedule", "secondary", () => void act(window.lore.schedule))), false);
+}
+
 /** @param {Snapshot} s */
 function renderSettings(s) {
-  const value = (/** @type {(string | HTMLElement)[]} */ ...parts) => {
-    const node = el("div", "v");
-    node.append(...parts);
-    return node;
-  };
-  const status = (/** @type {boolean} */ ok, /** @type {string} */ label) => {
-    const node = el("span");
-    node.style.display = "inline-flex";
-    node.style.alignItems = "center";
-    node.style.gap = "8px";
-    node.append(el("span", `dot ${ok ? "ok" : ""}`), document.createTextNode(label));
-    return node;
-  };
   const sources = s.library.sources.map((source) =>
-    row(source.label, source.enabled ? `${source.imported} ${source.imported === 1 ? "memory" : "memories"} imported` : "Not connected", value(status(source.enabled, source.enabled ? "Connected" : "Off")), false)
+    row(source.label, source.enabled ? `${source.imported} ${source.imported === 1 ? "memory" : "memories"} imported` : "Not connected", cell(dot(source.enabled, source.enabled ? "Connected" : "Off")), false)
   );
-  sources.push(row("How often Lore reads them", "New memories are written from what your agents learned.", value(status(s.setup.profile_configured, s.setup.profile_configured ? "Set" : "Not set"), ...(s.setup.profile_configured ? [] : [button("Start", "secondary", startSetup)])), false));
+  sources.push(scheduleRow(s));
   const live = s.node.live;
   return [
     section("Account", card((auth?.credentials.length ? auth.credentials : [null]).map((credential) => {
       const [name, icon] = credential ? provider(credential) : ["No one", ""];
-      const trailing = value(name);
+      const trailing = cell(name);
       if (icon) {
         const img = el("img");
         img.src = icon;
@@ -680,19 +710,19 @@ function renderSettings(s) {
     }))),
     section("Where memories come from", card(sources)),
     section("What Lore keeps", card([
-      row("Lore's shape", "What it keeps, what it ignores, what it may sell. Set in a short conversation.", value(status(s.setup.blueprint_configured, s.setup.blueprint_configured ? "Set" : "Not set"), ...(s.setup.blueprint_configured ? [] : [button("Start", "secondary", startSetup)])), false),
-      row("Where it lives", `Your memories are kept on this Mac. ${provider()[0]} reads them when it works with you here. Buyers only ever get what you approve for sale.`, value(Object.assign(el("span", "mono", s.home), { style: "color: var(--muted)" })), false)
+      row("Lore's shape", "What it keeps, what it ignores, what it may sell. Set in a short conversation.", cell(dot(s.setup.blueprint_configured, s.setup.blueprint_configured ? "Set" : "Not set"), ...(s.setup.blueprint_configured ? [] : [button("Start", "secondary", startSetup)])), false),
+      row("Where it lives", `Your memories are kept on this Mac. ${provider()[0]} reads them when it works with you here. Buyers only ever get what you approve for sale.`, cell(Object.assign(el("span", "mono", s.home), { style: "color: var(--muted)" })), false)
     ])),
     section("Your store", card([
-      row("Address", s.node.url ? storeAddress(s.node) : "Not opened yet.", value(status(live.state === "online", live.state === "online" ? `Live on ${networkLabel(live.network) || "your node"}` : nodeLabel(live.state))), false),
+      row("Address", s.node.url ? storeAddress(s.node) : "Not opened yet.", cell(dot(live.state === "online", live.state === "online" ? `Live on ${networkLabel(live.network) || "your node"}` : nodeLabel(live.state))), false),
       ...(live.payout
-        ? [row("Payouts", "Where each payment lands. Lore never holds it.", value(el("span", "mono", `${live.payout.slice(0, 6)}…${live.payout.slice(-4)}`), /** @type {HTMLElement} */ (payoutLink(live))), false)]
+        ? [row("Payouts", "Where each payment lands. Lore never holds it.", cell(el("span", "mono", `${live.payout.slice(0, 6)}…${live.payout.slice(-4)}`), /** @type {HTMLElement} */ (payoutLink(live))), false)]
         : []),
-      row("Prices", "What a buyer's agent pays per call.", value(el("span", "mono", typeof s.pricing.publication_usd === "number" ? `${price(s.pricing.publication_usd)} publication${s.pricing.answer_enabled ? ` · ${price(s.pricing.answer_usd)} answer` : ""}` : "Not set"), ...(s.node.url ? [button("Change price", "quiet", () => void startDeploy(CHANGE_PRICE))] : [])), false),
+      row("Prices", "What a buyer's agent pays per call.", cell(el("span", "mono", typeof s.pricing.publication_usd === "number" ? `${price(s.pricing.publication_usd)} publication${s.pricing.answer_enabled ? ` · ${price(s.pricing.answer_usd)} answer` : ""}` : "Not set"), ...(s.node.url ? [button("Change price", "quiet", () => void startDeploy(CHANGE_PRICE))] : [])), false),
       ...(live.network === TEST_NETWORK
-        ? [row("Payments", "Buyers on the test network pay with play money. Switch when you want real buyers paying real money.", value(button("Switch to real payments", "secondary", () => void startDeploy(REAL_MONEY))), false)]
+        ? [row("Payments", "Buyers on the test network pay with play money. Switch when you want real buyers paying real money.", cell(button("Switch to real payments", "secondary", () => void startDeploy(REAL_MONEY))), false)]
         : live.network
-          ? [row("Payments", "Buyers pay real money. Switch back to the test network any time; nothing already paid changes.", value(button("Switch to play money", "secondary", () => void startDeploy(PLAY_MONEY))), false)]
+          ? [row("Payments", "Buyers pay real money. Switch back to the test network any time; nothing already paid changes.", cell(button("Switch to play money", "secondary", () => void startDeploy(PLAY_MONEY))), false)]
           : [])
     ]))
   ];

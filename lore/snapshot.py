@@ -233,6 +233,7 @@ def build() -> dict[str, object]:
             "sources_configured": configured is not missing,
             "blueprint_configured": blueprint.blueprint_path().is_file(),
             "profile_configured": automation.profile_path().is_file(),
+            "schedule": automation.schedule_state(),
         },
         "library": {
             "counts": {

@@ -26,7 +26,9 @@ with Store() as store:
  store.finish_job(gone, 'incomplete', summary='not_reported')
  # No pid: this seeding process is about to exit, and a row it owned would be
  # conceded on the very next read. The long deadline keeps it Running.
- store.start_job('deploy', timeout_minutes=720)")
+ store.start_job('deploy', timeout_minutes=720)
+from lore import automation
+automation.save_profile({'executor': 'codex', 'cadence': 'daily', 'hour': 21})")
 fi
 if [[ "$scenario" == "store" ]]; then
   (cd "$repo_root" && uv run python -c "import time
