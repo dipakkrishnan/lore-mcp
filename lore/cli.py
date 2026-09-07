@@ -1313,8 +1313,12 @@ def report_feedback(
         email = ask("Email (optional)") or None
         text = ask_lines("Description (end with Ctrl-D)")
 
+    # `_attended()` is exactly the Desktop app's signature (state.cjs pipes
+    # the description over stdin with LORE_ATTENDED_SURFACE=desktop set), so
+    # the report's metadata says which surface it actually came from.
+    source: feedback_module.Source = "desktop" if _attended() else "cli"
     receipt = feedback_module.report_feedback(
-        title=title, email=email, description=text, source="cli"
+        title=title, email=email, description=text, source=source
     )
     if as_json:
         print(json.dumps({"url": receipt.issue_url, "number": receipt.issue_number}))

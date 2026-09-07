@@ -312,6 +312,69 @@ function closeSheet() {
   /** @type {HTMLDialogElement | null} */ (document.querySelector("dialog.sheet"))?.close();
 }
 
+function openFeedbackDialog() {
+  closeSheet();
+  const sheet = el("dialog", "sheet narrow");
+  sheet.setAttribute("aria-label", "Report Feedback");
+  const panel = el("div", "card sheet-panel");
+  const head = el("div", "sheet-head");
+  head.append(el("b", "", "Report Feedback"));
+  const close = el("button", "icon-btn", "×");
+  close.type = "button";
+  close.setAttribute("aria-label", "Close");
+  close.addEventListener("click", closeSheet);
+  head.append(close);
+
+  const form = el("form", "feedback-form");
+  const titleField = /** @type {HTMLInputElement} */ (draftField(form, "Title", "", true));
+  const emailField = /** @type {HTMLInputElement} */ (draftField(form, "Email (optional)", "", true));
+  const descriptionField = draftField(form, "Description", "");
+  form.append(el("p", "hint", "This becomes a public GitHub issue; anything you write here, and your email if you give one, is visible there."));
+  const actions = el("div", "actions");
+  const cancel = el("button", "btn secondary sm", "Cancel");
+  cancel.type = "button";
+  cancel.addEventListener("click", closeSheet);
+  const send = el("button", "btn primary sm", "Send");
+  send.type = "submit";
+  send.disabled = true;
+  actions.append(cancel, send);
+  form.append(actions);
+
+  const canSend = () => Boolean(titleField.value.trim() && descriptionField.value.trim());
+  form.addEventListener("input", () => { send.disabled = !canSend(); });
+  form.addEventListener("submit", (event) => {
+    event.preventDefault();
+    if (canSend()) void submit();
+  });
+
+  async function submit() {
+    cancel.disabled = send.disabled = true;
+    send.textContent = "Sending…";
+    try {
+      const receipt = await window.lore.reportFeedback({
+        title: titleField.value,
+        email: emailField.value,
+        description: descriptionField.value
+      });
+      closeSheet();
+      tell(`Filed as ${receipt.url}`);
+    } catch (error) {
+      tell(reason(error, "Lore could not send that."), true);
+      cancel.disabled = false;
+      send.disabled = !canSend();
+      send.textContent = "Send";
+    }
+  }
+
+  panel.append(head, form);
+  sheet.append(panel);
+  sheet.addEventListener("click", (event) => { if (event.target === sheet) closeSheet(); });
+  sheet.addEventListener("close", () => sheet.remove());
+  document.body.append(sheet);
+  sheet.showModal();
+  titleField.focus();
+}
+
 /** @param {string} heading @param {HTMLElement} body @param {HTMLElement} [aside] */
 function section(heading, body, aside) {
   const node = el("section", "section");
@@ -1773,6 +1836,7 @@ addMemoryBtn.addEventListener("click", () => {
   show("today");
   input.focus();
 });
+$("#feedback-open").addEventListener("click", openFeedbackDialog);
 for (const nav of navButtons) nav.addEventListener("click", () => {
   const next = /** @type {View} */ (nav.dataset.view);
   if (next === "today" && detailTask) closeTask();

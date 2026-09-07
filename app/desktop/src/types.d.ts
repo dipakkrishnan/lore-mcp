@@ -81,6 +81,11 @@ type Sale = {
   sold_at: string;
 };
 
+type FeedbackReceipt = {
+  url: string;
+  number: number;
+};
+
 type SearchHit = {
   id: string;
   title: string;
@@ -174,6 +179,7 @@ interface Window {
     schedule(): Promise<void>;
     setPrice(amount: number): Promise<void>;
     sales(): Promise<Sale[]>;
+    reportFeedback(input: { title: string; email: string; description: string }): Promise<FeedbackReceipt>;
     pickFiles(): Promise<string[]>;
     pathFor(file: File): string;
     onAgentEvent(listener: (event: AgentEvent) => void): () => void;

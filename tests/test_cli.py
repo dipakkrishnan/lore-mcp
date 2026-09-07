@@ -1887,15 +1887,27 @@ class ReportFeedbackTest(LoreTestCase):
             self.assertEqual(cli.report_feedback(None, None, None, None, False), 0)
         self.assertIsNone(submit.call_args.kwargs["email"])
 
-    def test_the_desktop_app_can_drive_it_attended(self) -> None:
+    def test_the_desktop_app_can_drive_it_attended_and_is_labeled_desktop(self) -> None:
         with (
             desktop_stdin(""),
             patch.object(
                 cli.feedback_module, "report_feedback", return_value=self._receipt()
-            ),
+            ) as submit,
             captured(),
         ):
             self.assertEqual(cli.report_feedback("T", None, "D", None, True), 0)
+        self.assertEqual(submit.call_args.kwargs["source"], "desktop")
+
+    def test_a_real_terminal_is_labeled_cli(self) -> None:
+        with (
+            patch.object(cli, "_interactive", return_value=True),
+            patch.object(
+                cli.feedback_module, "report_feedback", return_value=self._receipt()
+            ) as submit,
+            captured(),
+        ):
+            self.assertEqual(cli.report_feedback("T", None, "D", None, True), 0)
+        self.assertEqual(submit.call_args.kwargs["source"], "cli")
 
     def test_a_relay_failure_propagates_as_the_cli_error_convention(self) -> None:
         with (
