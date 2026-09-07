@@ -554,6 +554,7 @@ export class LoreAgent {
     });
     return defineTool({
       name: "ask_user",
+      executionMode: "sequential",
       label: "Ask the owner",
       description: "Ask the owner structured questions. Offer the likely answers as options; the owner can always type something else.",
       parameters,
@@ -574,6 +575,7 @@ export class LoreAgent {
     });
     return defineTool({
       name: "propose_memories",
+      executionMode: "sequential",
       label: "Propose memories",
       description: "Show one to five exact memory drafts for the owner to edit, keep, or drop. Keeping saves them privately and returns the saved memories; a correction returns the owner's words for you to revise and propose again.",
       parameters: Type.Object({ entries: Type.Array(entry, { minItems: 1, maxItems: 5 }) }),
@@ -597,6 +599,7 @@ export class LoreAgent {
     };
     return defineTool({
       name: "propose_blueprint",
+      executionMode: "sequential",
       label: "Propose the owner's Lore shape",
       description: "Show and save one evidence-backed Lore blueprint for the owner to edit. Call once during desktop onboarding.",
       parameters: Type.Object({ evidence: Type.String({ minLength: 1, maxLength: 240 }), ...fields }),
@@ -612,6 +615,7 @@ export class LoreAgent {
   #priceTool() {
     return defineTool({
       name: "propose_price",
+      executionMode: "sequential",
       label: "Propose a price",
       description: "Show the owner one suggested price per publication for them to confirm or change. Returns the amount they saved, or null if they declined. The only way to set a price in the app.",
       parameters: Type.Object({
@@ -630,6 +634,7 @@ export class LoreAgent {
   #cloudflareTool() {
     return defineTool({
       name: "cloudflare_login",
+      executionMode: "sequential",
       label: "Sign in to Cloudflare",
       description: "Sign the owner in to Cloudflare through their browser. Call when wrangler says they are not authenticated; returns who is signed in, or that the owner declined for now.",
       parameters: Type.Object({}),
@@ -643,6 +648,7 @@ export class LoreAgent {
   #openTool() {
     return defineTool({
       name: "open_url",
+      executionMode: "sequential",
       label: "Open a page for the owner",
       description: "Open one web page in the owner's browser for a step only they can do there: a wallet, the workers.dev subdomain, a faucet, Basescan, the Coinbase developer portal. Give the step a short title and a note of up to four short lines on what to do there. Waits until the owner comes back and returns whether they finished, got stuck, or declined.",
       parameters: Type.Object({ title: Type.String(), url: Type.String(), note: Type.String() }),
@@ -656,6 +662,7 @@ export class LoreAgent {
   #secretTool() {
     return defineTool({
       name: "store_secret",
+      executionMode: "sequential",
       label: "Store a Coinbase credential",
       description: "Ask the owner for one Coinbase Developer Platform value and vault it on their node for real payments. The value never reaches you; returns whether it was stored.",
       parameters: Type.Object({ name: Type.Union([Type.Literal("CDP_API_KEY_ID"), Type.Literal("CDP_API_KEY_SECRET")]) }),
@@ -669,6 +676,7 @@ export class LoreAgent {
   #finishTool() {
     return defineTool({
       name: "finish_task",
+      executionMode: "sequential",
       label: "Finish the task",
       description: "Mark the current Lore task complete after its requested work succeeds.",
       parameters: Type.Object({}),

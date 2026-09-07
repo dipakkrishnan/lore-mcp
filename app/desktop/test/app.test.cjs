@@ -299,6 +299,13 @@ test("a follow-up typed into a finished thread keeps what was said; only Start o
   }
 });
 
+test("every tool that puts a card in front of the owner runs one at a time", async () => {
+  // Pi runs a turn's tool calls in parallel unless a tool in it is sequential; two owner cards at once would overwrite each other in the app's single card slot.
+  const source = await readFile(join(__dirname, "../src/agent.mjs"), "utf8");
+  const owner = ["ask_user", "propose_memories", "propose_blueprint", "propose_price", "cloudflare_login", "open_url", "store_secret", "finish_task"];
+  for (const name of owner) assert.match(source, new RegExp(`name: "${name}",\\s*executionMode: "sequential"`), `${name} must be sequential`);
+});
+
 test("desktop prefers Opus 4.8 when Anthropic is available", async () => {
   const { MODELS } = await import("../src/agent.mjs");
   const { getBuiltinModel } = await import("@earendil-works/pi-ai/providers/all");
