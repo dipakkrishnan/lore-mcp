@@ -10,7 +10,7 @@ blockers: []
 dependencies: []
 github_issue: null
 created: 2026-09-05
-updated: 2026-09-05
+updated: 2026-09-06
 ---
 
 ## Problem
@@ -35,5 +35,7 @@ in the app's own surface style rather than the system tooltip.
 
 Done 2026-09-05. Memories: "What your agents have learned, kept on this
 Mac. Nothing here leaves it unless you draft it for sale and approve it."
+(reworded by APP-094 on 2026-09-06: "Nothing here is for sale unless you
+draft it and approve it.")
 For Sale: "What you approved to sell. Buyers see it once you push it to
 your store; until then it waits here."
