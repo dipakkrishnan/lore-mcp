@@ -10,6 +10,7 @@ obsolete), then `priority` (P0 → P3).
 
 | ID | Title | Priority | Effort | Component | Status | Related | Blockers | Dependencies | Issue |
 |---|---|---|---|---|---|---|---|---|---|
+| [APP-100](./desktop-app/APP-100-let-the-owner-keep-typing-while-lore-works.md) | Let the owner keep typing while Lore works | P1 | M | desktop-app | ideation | APP-069, APP-053, APP-099 | — | — | — |
 | [APP-041](./desktop-app/APP-041-desktop-onboarding-flow-for-a-new-user.md) | Guide a new desktop user through an onboarding flow | P2 | M | desktop-app | ideation | ONB-001, ONB-003, APP-030, APP-036 | — | — | [#176](https://github.com/dipakkrishnan/lore-mcp/issues/176) |
 | [APP-042](./desktop-app/APP-042-select-memories-to-combine-and-synthesize.md) | Let a desktop owner select memories to combine and synthesize | P2 | M | desktop-app | ideation | AUT-002, APP-014, APP-011 | — | — | [#173](https://github.com/dipakkrishnan/lore-mcp/issues/173) |
 | [APP-043](./desktop-app/APP-043-batch-captured-memories-by-date-in-the-memories-tab.md) | Batch captured memories by date in the Memories tab | P2 | M | desktop-app | ideation | — | — | — | [#171](https://github.com/dipakkrishnan/lore-mcp/issues/171) |
@@ -17,6 +18,7 @@ obsolete), then `priority` (P0 → P3).
 | [APP-046](./desktop-app/APP-046-render-capture-proposals-as-an-editable-memory-card.md) | Render capture proposals as an editable memory card | P0 | S | desktop-app | in-review | APP-003, APP-009, APP-016, APP-045 | — | — | — |
 | [APP-047](./desktop-app/APP-047-give-publication-drafts-one-home.md) | Give publication drafts one home and keep cards in their own thread | P0 | S | desktop-app | in-review | APP-020, APP-023, APP-032, APP-046 | — | — | — |
 | [MON-019](./monetization/MON-019-let-a-desktop-deploy-finish-its-own-push.md) | Let a desktop deploy finish its own push | P0 | S | monetization | in-review | APP-056, APP-055, APP-006, MON-013 | — | — | — |
+| [APP-099](./desktop-app/APP-099-show-owner-cards-one-at-a-time.md) | Show owner cards one at a time, never racing | P0 | XS | desktop-app | in-review | APP-057, APP-056, APP-052 | — | — | — |
 | [APP-040](./desktop-app/APP-040-give-desktop-users-a-one-click-download-page.md) | Give desktop users a one-click download page | P1 | S | desktop-app | in-review | APP-005 | — | — | [#175](https://github.com/dipakkrishnan/lore-mcp/issues/175) |
 | [APP-054](./desktop-app/APP-054-close-the-edge-audits-pre-freeze-findings.md) | Close the edge audit's pre-freeze findings before the notarized build | P1 | S | desktop-app | in-review | APP-039, APP-046, APP-047, APP-034 | — | — | — |
 | [APP-055](./desktop-app/APP-055-close-the-edge-audits-launch-week-findings.md) | Close the edge audit's cheap launch-week findings | P1 | S | desktop-app | in-review | APP-054, MON-013, APP-048, APP-019, XC-020, APP-030 | — | — | — |
@@ -35,6 +37,9 @@ obsolete), then `priority` (P0 → P3).
 | [XC-025](./cross-cutting/XC-025-speak-to-the-owner-in-outcomes-not-infrastructure.md) | Speak to the owner in outcomes, not infrastructure | P1 | S | cross-cutting | in-review | APP-055, XC-024, XC-015 | — | — | — |
 | [APP-063](./desktop-app/APP-063-test-the-renderers-untrusted-text-boundary.md) | Test the renderer's untrusted-text boundary and its CSP | P1 | S | desktop-app | in-review | APP-066, APP-010, APP-008 | — | — | — |
 | [APP-066](./desktop-app/APP-066-run-the-desktop-renderer-tests-in-ci.md) | Run the desktop renderer's persona tests in CI | P1 | S | desktop-app | in-review | APP-054, APP-055, APP-056, APP-057, APP-007, XC-004, XC-014 | — | — | — |
+| [APP-098](./desktop-app/APP-098-read-the-real-money-gates-from-the-ledger-in-desktop.md) | Read the real-money gates from the sales ledger in Desktop | P1 | XS | desktop-app | in-review | APP-057, MON-018, XC-025 | — | — | — |
+| [APP-101](./desktop-app/APP-101-resume-a-stopped-thread-and-make-start-over-begin-the-flow.md) | Resume a stopped thread with one press, and make Start over begin the flow again | P1 | XS | desktop-app | in-review | APP-053, APP-030, APP-097 | — | — | — |
+| [APP-103](./desktop-app/APP-103-tell-the-agent-what-happened-to-its-drafts.md) | Tell the agent what happened to the drafts it staged | P1 | XS | desktop-app | in-review | APP-047, APP-097, APP-083 | — | — | — |
 | [APP-035](./desktop-app/APP-035-expose-optional-paid-answers-through-an-unforgeable-owner-gate.md) | Enable optional paid answers through a Desktop owner gate | P2 | M | desktop-app | in-review | APP-006, APP-008, APP-019, APP-030, XC-017, MCP-003, MON-017 | MON-017 | "Publication-only desktop dogfood shows paid answers are worth surfacing" | — |
 | [APP-039](./desktop-app/APP-039-agent-status-ipc-handler-missing-at-launch.md) | agent:status IPC handler is missing, logged as an error on every launch | P2 | S | desktop-app | in-review | APP-038 | — | — | — |
 | [APP-044](./desktop-app/APP-044-reuse-electrons-node-runtime-for-desktop-deploys.md) | Reuse Electron's Node runtime for desktop deploys | P2 | S | desktop-app | in-review | APP-005, APP-036 | — | — | — |
@@ -56,6 +61,7 @@ obsolete), then `priority` (P0 → P3).
 | [APP-061](./desktop-app/APP-061-unit-test-the-credential-store-without-electron.md) | Unit-test the credential store without Electron | P2 | S | desktop-app | in-review | APP-038, APP-066, APP-008 | — | — | — |
 | [APP-062](./desktop-app/APP-062-give-the-owner-gate-callbacks-a-testable-seam.md) | Give main.cjs's owner-gate callbacks a testable seam | P2 | S | desktop-app | in-review | APP-056, APP-057, APP-006, APP-066 | — | — | — |
 | [APP-064](./desktop-app/APP-064-assert-the-preload-to-main-ipc-contract.md) | Assert the preload-to-main IPC contract in a test | P2 | XS | desktop-app | in-review | APP-039, APP-002, APP-066 | — | — | — |
+| [APP-102](./desktop-app/APP-102-say-what-each-run-did-not-just-that-it-ran.md) | Say what each run did, not just that it ran | P2 | XS | desktop-app | in-review | APP-007, APP-084, MON-013 | — | — | — |
 | [APP-052](./desktop-app/APP-052-reveal-the-blueprint-form-progressively.md) | Reveal the blueprint-review form progressively instead of all at once | P3 | M | desktop-app | in-review | APP-022, APP-028 | — | — | — |
 | [MON-005](./monetization/MON-005-mainnet-cutover-for-the-x402-adapter.md) | Cut the x402 edge adapter over to mainnet | P3 | M | monetization | in-review | MON-002, MON-003, MON-004 | MON-002, MON-003, MON-004 | "CDP account and API credentials", "Decision to launch the edge adapter at all" | [#25](https://github.com/dipakkrishnan/lore-mcp/issues/25) |
 | [ONB-001](./onboarding/ONB-001-capture-and-inject-context-via-agent-session-hooks.md) | Capture and inject context via agent session hooks | P3 | L | onboarding | in-review | STO-001, XC-001, XC-002 | XC-002 | — | [#6](https://github.com/dipakkrishnan/lore-mcp/issues/6) |
@@ -141,9 +147,9 @@ obsolete), then `priority` (P0 → P3).
 | [APP-094](./desktop-app/APP-094-say-where-memories-go-in-plain-words.md) | Say where memories go in plain words | P1 | XS | desktop-app | completed | APP-092, APP-051, XC-025 | — | — | — |
 | [APP-095](./desktop-app/APP-095-keep-a-memory-card-within-what-lore-can-save.md) | Keep a memory card within what Lore can save, and keep the draft when a save fails | P1 | XS | desktop-app | completed | APP-046, APP-009, APP-090 | — | — | — |
 | [APP-096](./desktop-app/APP-096-make-the-memory-sheet-a-native-modal.md) | Make the memory sheet a native modal | P1 | XS | desktop-app | completed | APP-075, APP-054 | — | — | — |
-| [APP-097](./desktop-app/APP-097-report-feedback-dialog.md) | Add a Report Feedback button and dialog above the sign-in block | P2 | M | desktop-app | completed | XC-028, CLI-003 | XC-028 | — | — |
-| [CLI-003](./cli-ux/CLI-003-report-feedback-command.md) | Add `lore report-feedback` for interactive and scripted bug reports | P2 | M | cli-ux | completed | XC-028, APP-097 | XC-028 | — | — |
-| [XC-028](./cross-cutting/XC-028-report-feedback-as-a-github-issue.md) | Send owner-submitted feedback to GitHub as a shared core and relay | P2 | L | cross-cutting | completed | APP-097, CLI-003 | — | — | — |
+| [APP-097](./desktop-app/APP-097-keep-a-finished-threads-context-when-the-owner-follows-up.md) | Keep a finished thread's context when the owner follows up | P1 | XS | desktop-app | completed | APP-023, APP-047, APP-083 | — | — | — |
+| [CLI-003](./cli-ux/CLI-003-report-feedback-command.md) | Add `lore report-feedback` for interactive and scripted bug reports | P2 | M | cli-ux | completed | XC-028, APP-104 | XC-028 | — | — |
+| [XC-028](./cross-cutting/XC-028-report-feedback-as-a-github-issue.md) | Send owner-submitted feedback to GitHub as a shared core and relay | P2 | L | cross-cutting | completed | APP-104, CLI-003 | — | — | — |
 | [APP-085](./desktop-app/APP-085-surface-a-readable-error-when-a-cli-read-fails-at-launch.md) | Surface a readable error when a CLI read fails at launch | P2 | S | desktop-app | completed | APP-089, MON-018 | — | — | — |
 | [APP-084](./desktop-app/APP-084-show-the-real-schedule-state-under-how-often-lore-reads-them.md) | Show the real schedule state under How often Lore reads them | P2 | S | desktop-app | completed | APP-073, APP-080, AUT-001 | — | — | — |
 | [APP-078](./desktop-app/APP-078-give-the-sign-in-screen-the-paste-field-it-promises.md) | Give the sign-in screen the paste field it promises | P2 | S | desktop-app | completed | — | — | — | — |
@@ -170,6 +176,7 @@ obsolete), then `priority` (P0 → P3).
 | [XC-026](./cross-cutting/XC-026-point-the-faucet-card-at-onchain-tools.md) | Point the faucet card at Onchain Tools → Faucet in four short lines | P2 | XS | cross-cutting | completed | XC-025, APP-056, MON-007 | — | — | — |
 | [APP-090](./desktop-app/APP-090-let-a-long-memory-draft-scroll-instead-of-clipping.md) | Let a long memory draft scroll instead of clipping at the field's cap | P2 | XS | desktop-app | completed | APP-055 | — | — | — |
 | [APP-091](./desktop-app/APP-091-say-a-lists-shared-state-once-and-offer-the-push-beside-it.md) | Say a For Sale list's shared state once, and offer the push beside it | P2 | XS | desktop-app | completed | APP-081, APP-072 | — | — | — |
+| [APP-104](./desktop-app/APP-104-report-feedback-dialog.md) | Add a Report Feedback button and dialog above the sign-in block | P2 | M | desktop-app | completed | XC-028, CLI-003 | XC-028 | — | — |
 | [APP-083](./desktop-app/APP-083-keep-memory-ids-out-of-the-publish-thread.md) | Keep memory ids out of the publish thread | P3 | XS | desktop-app | completed | APP-023 | — | — | — |
 | [APP-088](./desktop-app/APP-088-put-add-memory-beside-the-title.md) | Put Add Memory beside the title, not above it | P3 | XS | desktop-app | completed | APP-067, APP-051 | — | — | — |
 | [APP-092](./desktop-app/APP-092-explain-memories-and-for-sale-on-hover.md) | Explain Memories and For Sale on hover | P3 | XS | desktop-app | completed | APP-091, APP-054 | — | — | — |

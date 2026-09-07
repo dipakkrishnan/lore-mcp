@@ -5,7 +5,7 @@ priority: P2
 effort: M
 component: cli-ux
 status: completed
-related: [XC-028, APP-097]
+related: [XC-028, APP-104]
 blockers: [XC-028]
 dependencies: []
 github_issue: null
@@ -59,4 +59,4 @@ Done 2026-09-07. Verified end-to-end (interactive and non-interactive) against
 a local stub relay, including the unattended-pipe refusal. Reports the
 correct `source` ("cli" from a real terminal, "desktop" when the Desktop app
 drives it via `LORE_ATTENDED_SURFACE=desktop`) — see `XC-028`'s notes for the
-bug this caught during `APP-097` integration.
+bug this caught during `APP-104` integration.

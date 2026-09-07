@@ -5,7 +5,7 @@ priority: P2
 effort: L
 component: cross-cutting
 status: completed
-related: [APP-097, CLI-003]
+related: [APP-104, CLI-003]
 blockers: []
 dependencies: []
 github_issue: null
@@ -27,7 +27,7 @@ the issue on their behalf. Both surfaces should share one core rather than
 duplicating validation and delivery logic.
 
 This item covers the shared core (`lore/feedback.py`) and the relay
-(`feedback-relay/`); the two UI surfaces are `APP-097` and `CLI-003`.
+(`feedback-relay/`); the two UI surfaces are `APP-104` and `CLI-003`.
 
 ## Proposed approach
 
