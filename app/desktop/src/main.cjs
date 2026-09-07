@@ -183,13 +183,21 @@ async function start(loreHome) {
       /** @type {Record<string, string>} */ (await request("question", { questions })),
     proposeMemories: async (entries) => {
       const task = agent?.activeTask ?? null;
-      const decision = /** @type {MemoryDecision} */ (await request("memories", { entries }));
-      if (!decision || !validEntries(decision.entries)) throw new Error("Invalid memory decision");
-      if (typeof decision.note === "string" && decision.note.trim()) return { entries: decision.entries, note: decision.note.trim() };
-      const saved = await captureMemories(loreHome, decision.entries);
-      emit({ type: "saved", task, memories: saved });
-      emit({ type: "changed" });
-      return { saved };
+      for (;;) {
+        const decision = /** @type {MemoryDecision} */ (await request("memories", { entries }));
+        if (!decision || !validEntries(decision.entries)) throw new Error("Invalid memory decision");
+        if (typeof decision.note === "string" && decision.note.trim()) return { entries: decision.entries, note: decision.note.trim() };
+        try {
+          const saved = await captureMemories(loreHome, decision.entries);
+          emit({ type: "saved", task, memories: saved });
+          emit({ type: "changed" });
+          return { saved };
+        } catch (error) {
+          // The card was cleared on Keep; put it back as edited, with the reason, rather than losing the owner's words.
+          emit({ type: "message", task, text: `Lore could not save that: ${/** @type {Error} */ (error).message}. Your edits are still here.` });
+          entries = decision.entries;
+        }
+      }
     },
     proposeBlueprint: async (fields, evidence) => {
       const edited = /** @type {BlueprintFields} */ (await request("blueprint", { fields, evidence }));

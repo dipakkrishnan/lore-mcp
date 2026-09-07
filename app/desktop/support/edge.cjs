@@ -235,11 +235,23 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         // Fix 1, technical: a failing CLI call on Memories surfaces as an attention notice instead of vanishing.
         await js(`window.__lore.show("memories")`);
         await waitFor(`document.querySelectorAll("#content .task-link").length >= 1`);
-        await js(`document.querySelector("#content .task-link").click()`);
+        // Focus first, as a real click or Enter would; a synthetic click() leaves focus where it was.
+        await js(`const link = document.querySelector("#content .task-link"); link.focus(); link.click();`);
         await waitFor(`document.querySelector(".sheet")`);
         check("memory actions pair distinct icons with their text labels", await js(`(() => { const buttons = [...document.querySelectorAll(".sheet .btn.quiet")]; const icons = buttons.map((button) => button.querySelector("svg[aria-hidden=true]")?.innerHTML); return buttons.length === 3 && new Set(icons).size === 3 && buttons.every((button) => ["Rename", "Edit", "Draft for sale"].includes(button.textContent)); })()`));
         await shot("memory-actions");
+        // APP-096: a native modal holds focus, closes on Escape, and hands focus back to the row that opened it.
+        check("the sheet is an open native dialog with focus inside", await js(`document.querySelector("dialog.sheet")?.open === true && document.querySelector("dialog.sheet").contains(document.activeElement)`));
+        for (let i = 0; i < 6; i++) await key("keyDown", "Tab");
+        check("Tab stays inside the open sheet", await js(`document.querySelector("dialog.sheet").contains(document.activeElement)`), await js(`document.activeElement.outerHTML.slice(0, 80)`));
+        await key("keyDown", "Escape");
+        await sleep(200);
+        check("Escape closes the sheet", await js(`document.querySelector("dialog.sheet") === null`));
+        check("focus returns to the row that opened it", await js(`document.activeElement === document.querySelector("#content .task-link")`), await js(`document.activeElement.outerHTML.slice(0, 80)`));
+        await js(`document.querySelector("#content .task-link").click()`);
+        await waitFor(`document.querySelector("dialog.sheet")`);
         await js(`document.querySelector(".sheet .icon-btn").click()`);
+        await sleep(100);
         chmodSync(join(process.env.LORE_HOME, "lore.db"), 0o000);
         await js(`document.querySelector("#content .task-link").click()`);
         const shown = await waitFor(`document.querySelector("#status .notice.attention")`);

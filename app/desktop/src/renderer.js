@@ -209,9 +209,8 @@ async function openMemory(id) {
     return;
   }
   closeSheet();
-  const sheet = el("div", "sheet");
-  sheet.setAttribute("role", "dialog");
-  sheet.setAttribute("aria-modal", "true");
+  // A native modal: focus stays inside, Escape closes it, and focus returns to what opened it.
+  const sheet = el("dialog", "sheet");
   sheet.setAttribute("aria-label", memory.title);
   const panel = el("div", "card sheet-panel");
   const head = el("div", "sheet-head");
@@ -296,13 +295,16 @@ async function openMemory(id) {
   head.append(text, actions, close);
   panel.append(head, body);
   sheet.append(panel);
+  // The panel fills the dialog, so a click that lands on the dialog itself came from the backdrop.
   sheet.addEventListener("click", (event) => { if (event.target === sheet) closeSheet(); });
+  sheet.addEventListener("close", () => sheet.remove());
   document.body.append(sheet);
+  sheet.showModal();
   close.focus();
 }
 
 function closeSheet() {
-  document.querySelector(".sheet")?.remove();
+  /** @type {HTMLDialogElement | null} */ (document.querySelector("dialog.sheet"))?.close();
 }
 
 /** @param {string} heading @param {HTMLElement} body @param {HTMLElement} [aside] */
@@ -943,7 +945,7 @@ function renderRequest(event) {
       const node = el("div", "memory");
       const title = draftField(node, "Title", entry.title, true);
       const content = draftField(node, "What to remember", entry.content);
-      title.maxLength = 300;
+      title.maxLength = 200;
       content.maxLength = 20_000;
       const meta = el("div", "meta");
       if (entry.project) meta.append(chip(entry.project));
@@ -1633,7 +1635,6 @@ welcomeRetry.addEventListener("click", () => {
 });
 document.addEventListener("keydown", (event) => {
   if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") { event.preventDefault(); search.focus(); search.select(); }
-  if (event.key === "Escape" && document.querySelector(".sheet")) { event.preventDefault(); closeSheet(); }
   if (event.key === "Escape" && accountMenuOpen) { accountMenuOpen = false; renderAccount(); }
 });
 document.addEventListener("click", (event) => {
