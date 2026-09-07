@@ -452,7 +452,7 @@ function needsYou(s) {
   }
   // Approved work a buyer cannot see yet is actionable whatever rung setup is on.
   const waiting = unpushed(s);
-  if (waiting.length && !pushOffer && !pushing) add("Push to your store", `${waiting.length} approved, not on your store yet.`, button("Push", "secondary", pushNow));
+  if (waiting.length && !pushOffer && !pushing) add("Push to your store", `${pendingLabel(waiting)}.`, button("Push", "secondary", pushNow));
   return rows;
 }
 
@@ -577,20 +577,19 @@ function renderStore(s) {
     const trailing = el("div", "v");
     const ask = button("Take down", "secondary", () => {
       trailing.replaceChildren(
-        el("span", "hint", "Buyers lose it for good."),
+        el("span", "hint", "No one can buy it after this. Anyone who already did keeps their copy."),
         button("Keep", "secondary", () => trailing.replaceChildren(...state(item), ask)),
-        button("Take down", "primary", async () => {
-          if (!(await act(() => window.lore.revoke(item.id)))) return;
-          pushOffer = live.state === "online" ? "It stays on sale until you push." : false;
-          render();
-        })
+        // The CLI's reason for a push that did not land names commands and paths; the list below shows whether the store still has it.
+        button("Take down", "primary", () => void act(() => window.lore.revoke(item.id), "Taken down here. If your store still has it, push to finish."))
       );
     });
     trailing.append(...state(item), ask);
     return trailing;
   };
   const aside = el("div", "section-aside");
-  if (approved.length) aside.append(el("span", "hint", `${approved.length} ${approved.length === 1 ? "publication" : "publications"}${live.state !== "online" ? "" : waiting.length ? ` · ${waiting.length === approved.length ? "none" : waiting.length} on your store yet` : " · all on your store"}`));
+  const adds = waiting.filter((item) => item.state === "approved").length;
+  const onStore = adds === 0 ? "all on your store" : adds < approved.length ? `${adds} not on your store yet` : approved.length === 1 ? "not on your store yet" : "none on your store yet";
+  if (approved.length) aside.append(el("span", "hint", `${approved.length} ${approved.length === 1 ? "publication" : "publications"}${live.state === "online" ? ` · ${onStore}` : ""}`));
   if (waiting.length) {
     const push = button(pushing ? "Pushing…" : "Push to your store", "quiet", pushNow);
     push.disabled = pushing;
@@ -603,7 +602,7 @@ function renderStore(s) {
     ? card(approved.map((item) => row(item.title, sold(item), controls(item))))
     : el("div", "card pad empty", "Nothing for sale yet. Publish something from Today."),
     aside));
-  if (revoked.length) parts.push(section("Taken down", card(revoked.map((item) => row(item.title, item.topic, chip("Revoked"))))));
+  if (revoked.length) parts.push(section("Taken down", card(revoked.map((item) => row(item.title, item.topic, item.live === true ? chip("Still on your store", "attention") : chip("Taken down"))))));
   parts.push(renderSales());
   return parts;
 }
@@ -1306,9 +1305,16 @@ async function pushNow() {
   render();
 }
 
-/** Approved publications a buyer cannot see yet. @param {Snapshot} s */
+/** What the next push changes: approved publications the node does not hold yet, and taken-down ones it still does. Read from the snapshot, so it survives a relaunch. @param {Snapshot} s */
 function unpushed(s) {
-  return s.node.url ? s.publications.items.filter((item) => item.state === "approved" && item.live === false) : [];
+  return s.node.url ? s.publications.items.filter((item) => item.live === (item.state === "revoked")) : [];
+}
+
+/** @param {PublicationItem[]} waiting */
+function pendingLabel(waiting) {
+  const adds = waiting.filter((item) => item.state === "approved").length;
+  const removals = waiting.length - adds;
+  return [adds ? `${adds} approved, not on your store yet` : "", removals ? `${removals} taken down, still on your store` : ""].filter(Boolean).join(" · ");
 }
 
 /** @param {Snapshot} s */

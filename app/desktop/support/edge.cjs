@@ -118,12 +118,32 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         check("the For Sale bar links to payouts", await js(`[...document.querySelectorAll("#content .store-bar a.link-btn")].some((a) => a.textContent === "Payouts ↗")`));
         await shot("store-sales");
         check("For Sale bar offers Push while an approved item is not live", await js(`[...document.querySelectorAll("#content .store-bar button")].some((b) => b.textContent === "Push to your store")`));
-        check("the item reads Not live yet", await js(`document.querySelector("#content").textContent.includes("Not live yet")`));
-        check("the section hint agrees", await js(`document.querySelector("#content").textContent.includes("1 not on your store yet")`));
+        check("the heading says the one item is not live, once", await js(`document.querySelector("#content").textContent.includes("1 publication · not on your store yet") && !document.querySelector("#content").textContent.includes("Not live yet")`));
         await shot("store-unpushed");
         await js(`window.__lore.show("today")`);
         await sleep(400);
         check("Needs you carries the standing Push row", await js(`document.querySelector("#content").textContent.includes("1 approved, not on your store yet.")`));
+        // APP-093: a take-down the node has not absorbed yet is pending state read from the snapshot, not a banner.
+        // The fake wrangler makes the revoke's push "succeed", which drops the probe cache; re-seed it as a node that still lists the item.
+        await js(`window.__lore.show("store")`);
+        await waitFor(`document.querySelector("#content").textContent.includes("2 sales")`);
+        await js(`[...document.querySelectorAll("#content button")].find((b) => b.textContent === "Take down").click()`);
+        await sleep(200);
+        check("take-down confirmation does not promise buyers lose their copies", await js(`document.querySelector("#content").textContent.includes("Anyone who already did keeps their copy.")`));
+        await js(`[...document.querySelectorAll("#content button.primary")].find((b) => b.textContent === "Take down").click()`);
+        await waitFor(`document.querySelector("#content").textContent.includes("Taken down")`);
+        // This scratch home has no node source, so the revoke's push fails: the owner hears that plainly, not as a command.
+        const revokeNotice = await js(`document.querySelector("#status").textContent`);
+        check("a take-down whose push failed reads plainly", revokeNotice.includes("If your store still has it, push to finish.") && !/wrangler|--worker-dir|\/Users\/|\/var\//.test(revokeNotice), revokeNotice);
+        execFileSync("uv", ["run", "python", "-c", `import time\nfrom lore.store import Store\nwith Store() as s:\n s.set_setting('node_live', {'url': 'https://store.example/mcp', 'checked_at': time.time(), 'live': {'state': 'online', 'network': 'eip155:84532', 'payout': '0x' + 'a' * 40}, 'ids': ['${publicId}']})`], { cwd: join(__dirname, "../../.."), env: process.env });
+        await js(`window.__lore.event({ type: "changed" })`);
+        await sleep(800);
+        check("a taken-down item the node still serves says so", await js(`document.querySelector("#content").textContent.includes("Still on your store")`));
+        check("…and For Sale offers the push that removes it", await js(`[...document.querySelectorAll("#content .store-bar button")].some((b) => b.textContent === "Push to your store")`));
+        await shot("store-removal-pending");
+        await js(`window.__lore.show("today")`);
+        await sleep(400);
+        check("Needs you names the pending removal", await js(`document.querySelector("#content").textContent.includes("1 taken down, still on your store.")`));
         // Fix 9: a memory typed on Today joins the unfinished capture thread instead of an empty one.
         await js(`window.__lore.show("today")`);
         await js(`window.__lore.event({ type: "task", task: { version: 1, kind: "capture", title: "Capture", state: "stopped", phase: "Ready to resume", updatedAt: new Date().toISOString() } })`);
