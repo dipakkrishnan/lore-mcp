@@ -1,7 +1,7 @@
 {
   "name": "lore-desktop",
   "private": true,
-  "version": "0.0.0",
+  "version": "0.1.0",
   "main": "src/main.cjs",
   "scripts": {
     "start": "uv tool install --force --reinstall ../.. && packaging/whisper.sh && electron .",
