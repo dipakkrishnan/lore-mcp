@@ -11,6 +11,8 @@ const ignored = [
   // License and notice files always ship (distribution compliance), whatever their extension.
   /^\/node_modules\/.*\/(?!(licen[cs]e|copying|notice)[.-])[^/]*\.(md|markdown|d\.ts|d\.mts|d\.cts|map|flow|tsbuildinfo)$/i,
   /^\/node_modules\/.*\/(__tests__|\.github)($|\/)/,
+  // Every .bin entry is a symlink to a file the rules above drop; signing walks the bundle and stops at the first dangling link.
+  /^\/node_modules\/(.*\/)?\.bin($|\/)/,
   /^\/node_modules\/.*\/(CHANGELOG|AUTHORS|CONTRIBUTING|\.npmignore|\.eslintrc[^/]*|\.prettierrc[^/]*|tsconfig[^/]*\.json)$/i,
   // The app ships darwin-arm64 only; these foreign-platform native payloads sit
   // behind per-platform loaders (try/catch or win32-only paths) and never load.
