@@ -134,10 +134,12 @@ From that, draft every profile field *before* asking anything. A wrong guess is 
 
 ## 3. Confirm in one pass
 
-Ask one question per field, with your draft first and labeled as a proposal
-("Looks right", plus 2-3 genuinely different readings). Put the evidence in the
-description — "from 14 sessions across lore-mcp and deep-review" — so the user
-corrects a claim, not rates a guess.
+Ask one question per field, with your draft first, labeled with the actual value
+you drafted — e.g. "Software engineer building multi-repository systems
+(recommended)" — never a bare confirmation phrase like "Looks right" standing in
+for the real answer. Add 2-3 genuinely different readings alongside it. Put the
+evidence in the description — "from 14 sessions across lore-mcp and deep-review"
+— so the user corrects a claim, not rates a guess.
 
 Before the `valuable_context` question, state the stakes plainly, once:
 
