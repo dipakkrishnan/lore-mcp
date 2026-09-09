@@ -57,6 +57,6 @@ one tester's unfamiliar hardware. What makes the record valuable is the notes:
 the tester's own words about where they hesitated, what they expected, and what
 they had to guess.
 
-Failures get filed as backlog items rather than fixed during the session, so the
-run stays a clean picture of the build as it stood. Put the item's path in the
-Reference URLs column of the row that found it.
+Failures get filed as backlog items or issues rather than fixed during the
+session, so the run stays a clean picture of the build as it stood. Put the
+item's path or issue URL in the Reference URLs column of the row that found it.

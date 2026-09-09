@@ -502,8 +502,18 @@ node --version                              # required by the deploy step
 | `node` is missing | Install Node.js; the deploy step shells out to `npm` |
 | You already have a store on the test network | You can still run S3-01 through S3-12 against a resumed or redeployed task; mark S3-13 and S3-14 by what actually happens |
 
-Running this against a fresh sandbox (`dogfood:new`) is also valid and safer, but
-it means completing the setup rails first.
+**Before you reach for a fresh sandbox here, read this.** A `dogfood:new`
+sandbox isolates your library and sign-in, but not the deployed
+Worker/D1 identity — the Worker name in `wrangler.jsonc` is fixed, so a
+sandbox deploy targets the *same* Worker and database as your real profile.
+The first run of this scenario used a fresh sandbox specifically because it
+looked safer, and it silently wiped the live publications catalog of a real,
+in-production node as a result — see
+[#257](https://github.com/dipakkrishnan/lore-mcp/issues/257), still open at
+the time of writing. Until that is fixed, **prefer running this scenario
+against your real profile** (`dogfood:current`) if you have one already
+deployed, accepting that saves and approvals hit your real library. A fresh
+sandbox is still fine for a brand-new profile with nothing live yet to lose.
 
 ### Walkthrough
 
@@ -792,7 +802,11 @@ npm --prefix app/desktop run package
 
 **A.2 Open a store on the test network.** Start `Open your store` from Today and
 follow it. That is Scenario 3, so if you are here from S2's preflight, consider
-running S3 first and getting both.
+running S3 first and getting both. **Read Scenario 3's preflight note before
+picking a fresh sandbox for this** — until
+[#257](https://github.com/dipakkrishnan/lore-mcp/issues/257) is fixed, a
+sandbox deploy can silently overwrite a real profile's live store on the same
+machine.
 
 **A.3 Put the store back on the test network.** In Settings, use
 `Switch to play money`, then confirm with the `initialize` call in Appendix B
