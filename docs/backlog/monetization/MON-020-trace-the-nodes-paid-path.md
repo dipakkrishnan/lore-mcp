@@ -10,7 +10,7 @@ blockers: []
 dependencies: []
 github_issue: null
 created: 2026-09-07
-updated: 2026-09-07
+updated: 2026-09-08
 ---
 
 ## Problem
@@ -53,7 +53,8 @@ call sites were wired.
       `wrangler deploy --dry-run` for both environments.
 - [x] `get` records `not_found` with a hashed id on a miss and `ok` with a
       hashed id on a hit — never the publication title or content.
-- [x] Settlement records `settled`/`settle_failed` on a `lore.sale` span —
+- [x] Settled payments record `settled: true` with `ok` or `ledger_failed`
+      on a `lore.sale` span —
       never the payer address or transaction hash the settlement receipt
       actually carries.
 - [x] The answer job's span carries the same `AnswerTelemetry` numbers
@@ -80,3 +81,13 @@ handler at all (`agents/x402`'s middleware returns the 402 challenge itself).
 Both states are visible only through Workers' automatic request tracing.
 `docs/telemetry.md` documents this rather than claiming coverage the custom
 spans don't have.
+
+
+**2026-09-08 (review fixes):** Removed the unused outcome codes described
+above; the vocabulary now names only emitted outcomes. `ledger_failed`
+means a settled payment was not recorded, not that payment failed. Shared
+`withSpan` isolates tracing and attribute-validation failures from the
+operation without replaying it. Failure-injection tests cover paid content,
+answer completion, and preservation of business errors. Tool/model names
+and metric values are validated; rejected values are never logged. Automatic
+Cloudflare spans and logs are outside the custom-attribute allowlist.

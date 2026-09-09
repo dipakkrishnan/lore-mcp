@@ -10,7 +10,7 @@ blockers: []
 dependencies: []
 github_issue: null
 created: 2026-09-07
-updated: 2026-09-07
+updated: 2026-09-08
 ---
 
 ## Problem
@@ -37,19 +37,17 @@ dependency neither runtime needs. State the nine privacy rules once
 disclosures, and so on) so every other telemetry item cites them instead of
 restating them.
 
-Rewrite `PRIVACY.md` for the actual shipped stance: opt-out (on by default)
-for the desktop milestone funnel, disclosed plainly, with an off switch; a
-deployed node's own observability stays in the owner's own Cloudflare
-account and is not "Lore telemetry" in the sense the rest of the document
-discusses.
+Keep `PRIVACY.md` accurate for this release: desktop telemetry is not
+implemented, and deployed-node observability stays in the owner's Cloudflare
+account. The proposed opt-out desktop funnel belongs in `docs/telemetry.md`
+until its collector, disclosure, and controls ship together.
 
 ## Acceptance criteria
 
 - [x] `docs/telemetry.md` exists with the metric tree, the event/span
       catalog, the privacy rules, and which plane reaches which sink.
-- [x] `PRIVACY.md` states the desktop funnel is on by default with a
-      disclosure and an off switch, and separately describes a deployed
-      node's own owner-controlled observability.
+- [x] `PRIVACY.md` distinguishes shipped node observability from the
+      proposed desktop funnel and its unimplemented controls.
 - [ ] `APP-058` is updated to point at `docs/telemetry.md` and to block on
       the items that implement its collector and its off switch.
 

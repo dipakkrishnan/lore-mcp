@@ -15,23 +15,11 @@
  * anything anywhere itself; it only shapes what a span may carry.
  */
 import { createHash } from "node:crypto";
+import { tracing } from "cloudflare:workers";
+import type { AnswerTelemetry } from "./answer-state.js";
 
-/** The closed outcome vocabulary, shared across every span kind. Not every
- * value applies to every span (mirrors JOB_SUMMARIES, whose dict is shared
- * across job kinds the same way). `unpaid` documents the 402-challenge state,
- * which is handled entirely inside the x402 middleware before any of these
- * functions run — it is visible only through the platform's own request
- * tracing, never emitted here. */
-export const OUTCOMES = [
-  "ok",
-  "not_found",
-  "invalid_id",
-  "unpaid",
-  "disabled",
-  "settle_failed",
-  "model_error",
-  "deadline"
-] as const;
+/** Only outcomes emitted by our handlers; payment challenges live in middleware. */
+export const OUTCOMES = ["ok", "not_found", "disabled", "ledger_failed"] as const;
 export type Outcome = (typeof OUTCOMES)[number];
 
 const OUTCOME_SET: ReadonlySet<string> = new Set(OUTCOMES);
@@ -42,7 +30,7 @@ export function isKnownOutcome(value: string): value is Outcome {
 
 export function assertKnownOutcome(value: string): asserts value is Outcome {
   if (!isKnownOutcome(value)) {
-    throw new Error(`lore/telemetry: outcome not in the closed vocabulary: ${value}`);
+    throw new Error("lore/telemetry: unknown outcome");
   }
 }
 
@@ -71,10 +59,15 @@ export function isKnownAttribute(key: string): key is SpanAttributeKey {
 }
 
 function assertAllowedAttributes<T extends SpanAttributes>(attrs: T): T {
-  for (const key of Object.keys(attrs)) {
-    if (!isKnownAttribute(key)) {
-      throw new Error(`lore/telemetry: attribute not in the allowlist: ${key}`);
-    }
+  for (const [key, value] of Object.entries(attrs)) {
+    if (!isKnownAttribute(key)) throw new Error("lore/telemetry: unknown attribute");
+    const allowed = key === "lore.tool" ? typeof value === "string" && ["discover", "get", "answer", "result"].includes(value)
+      : key === "lore.outcome" ? typeof value === "string" && isKnownOutcome(value)
+      : key === "lore.answer.model" ? typeof value === "string" && ["claude-sonnet-5", "gpt-5.6-luna"].includes(value)
+      : key === "lore.item_hash" ? typeof value === "string" && /^[0-9a-f]{16}$/.test(value)
+      : key === "lore.paid" || key === "lore.settled" ? typeof value === "boolean"
+      : typeof value === "number" && Number.isFinite(value) && value >= 0;
+    if (!allowed) throw new Error("lore/telemetry: invalid attribute value");
   }
   return attrs;
 }
@@ -120,14 +113,7 @@ export function settlementSpanAttributes(options: { settled: boolean; outcome: O
  * numbers are already persisted to D1 (`answer_jobs`), so this is a second
  * read of existing data, not new collection — and it never touches the
  * buyer's question, which is a separate field this function never accepts. */
-export function answerSpanAttributes(telemetry: {
-  model: string;
-  inputTokens: number;
-  outputTokens: number;
-  costUsd: number;
-  toolCalls: number;
-  durationMs: number;
-}): SpanAttributes {
+export function answerSpanAttributes(telemetry: AnswerTelemetry): SpanAttributes {
   return assertAllowedAttributes({
     "lore.answer.model": telemetry.model,
     "lore.answer.input_tokens": telemetry.inputTokens,
@@ -136,4 +122,26 @@ export function answerSpanAttributes(telemetry: {
     "lore.answer.tool_calls": telemetry.toolCalls,
     "lore.answer.duration_ms": telemetry.durationMs
   });
+}
+
+export type SetAttributes = (attributes: () => SpanAttributes) => void;
+
+/** Run the operation exactly once, even if tracing fails before or after it.
+ * Attribute construction is also best-effort; rejected values are never logged.
+ * Returning the original work preserves business errors instead of retrying it. */
+export async function withSpan<T>(name: string, operation: (setAttributes: SetAttributes) => T | Promise<T>): Promise<T> {
+  let work: Promise<T> | undefined;
+  const run = (span?: Span) => work ??= Promise.resolve().then(() => operation((attributes) => {
+    try {
+      span?.setAttributes(attributes());
+    } catch {
+      // Drop invalid or unavailable telemetry without affecting the operation.
+    }
+  }));
+  try {
+    await tracing.enterSpan(name, run);
+  } catch {
+    // The operation's own failure is rethrown by returning work below.
+  }
+  return run();
 }

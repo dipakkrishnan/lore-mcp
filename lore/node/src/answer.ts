@@ -2,8 +2,7 @@ import { Agent, type StreamFn } from "@earendil-works/pi-agent-core";
 import type { Provider } from "@earendil-works/pi-ai";
 import { anthropicProvider } from "@earendil-works/pi-ai/providers/anthropic";
 import { openaiProvider } from "@earendil-works/pi-ai/providers/openai";
-import { tracing } from "cloudflare:workers";
-import { answerSpanAttributes } from "./telemetry.js";
+import { answerSpanAttributes, withSpan, type SetAttributes } from "./telemetry.js";
 import {
   type AnswerOutcome,
   type AnswerTelemetry,
@@ -60,14 +59,14 @@ export async function runAnswer(
   if (!job) return;
   // Never the buyer's question, and never the answer text — only the
   // telemetry the job already computes and persists to D1 (answer_jobs).
-  await tracing.enterSpan("lore.answer.job", (span) => runAnswerJob(env, ticketId, job.question, span, onToolCall));
+  await withSpan("lore.answer.job", (setAttributes) => runAnswerJob(env, ticketId, job.question, setAttributes, onToolCall));
 }
 
 async function runAnswerJob(
   env: AnswerEnv,
   ticketId: string,
   question: string,
-  span: Span,
+  setAttributes: SetAttributes,
   onToolCall?: (name: string) => void
 ): Promise<void> {
   const started = Date.now();
@@ -168,6 +167,6 @@ async function runAnswerJob(
 
   telemetry.model ||= requestedModel;
   telemetry.durationMs = Date.now() - started;
-  span.setAttributes(answerSpanAttributes(telemetry));
+  setAttributes(() => answerSpanAttributes(telemetry));
   await finishJob(env, ticketId, outcome, telemetry);
 }

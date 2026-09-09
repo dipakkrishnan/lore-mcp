@@ -1,15 +1,20 @@
 // The allowlist is the whole privacy contract for XC-030/MON-020: every
 // attribute a span can carry is enumerated here, and these tests are what
 // enforces it — not review discipline. See docs/telemetry.md.
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   OUTCOMES,
   answerSpanAttributes,
   hashId,
   isKnownAttribute,
   settlementSpanAttributes,
-  toolSpanAttributes
+  toolSpanAttributes,
+  withSpan
 } from "../src/telemetry";
+
+import { captureSpans } from "./tracing";
+
+afterEach(() => vi.restoreAllMocks());
 
 // One example of each category of thing that must never reach a span:
 // buyer content, a publication's private text, money/identity linkage, and a
@@ -103,5 +108,42 @@ describe("the leak table — nothing sensitive ever reaches a span attribute", (
     expect(Object.keys(attrs)).not.toContain("lore.tx");
     expect(serialize(attrs)).not.toContain(SECRETS.walletAddress);
     expect(serialize(attrs)).not.toContain(SECRETS.transactionHash);
+  });
+});
+
+describe("telemetry failures preserve the operation", () => {
+  it.each([undefined, "start", "attributes", "end"] as const)("does not retry a failed operation with tracing failure %s", async (failure) => {
+    captureSpans(failure);
+    const error = new Error("business failure");
+    const operation = vi.fn(() => { throw error; });
+    await expect(withSpan("lore.get", operation)).rejects.toBe(error);
+    expect(operation).toHaveBeenCalledTimes(1);
+  });
+
+  it("drops invalid attributes without logging sensitive values or losing the result", async () => {
+    const spans = captureSpans();
+    const log = vi.spyOn(console, "error");
+    await expect(withSpan("lore.get", (set) => {
+      set(() => toolSpanAttributes({ tool: SECRETS.buyerQuestion, outcome: "ok" }));
+      return "paid result";
+    })).resolves.toBe("paid result");
+    expect(spans[0].attributes).toEqual({});
+    expect(log).not.toHaveBeenCalled();
+  });
+});
+
+describe("attribute values", () => {
+  const telemetry = { model: "claude-sonnet-5", inputTokens: 1, outputTokens: 1, costUsd: 0, toolCalls: 0, durationMs: 0 };
+  it.each(Object.entries(SECRETS))("rejects %s in every un-hashed input field", (_name, secret) => {
+    expect(() => toolSpanAttributes({ tool: secret, outcome: "ok" })).toThrow();
+    expect(() => toolSpanAttributes({ tool: "get", outcome: secret as never })).toThrow();
+    expect(() => toolSpanAttributes({ tool: "get", outcome: "ok", paid: secret as never })).toThrow();
+    expect(() => settlementSpanAttributes({ settled: secret as never, outcome: "ok" })).toThrow();
+    for (const key of Object.keys(telemetry)) {
+      expect(() => answerSpanAttributes({ ...telemetry, [key]: secret })).toThrow();
+    }
+  });
+  it.each([NaN, Infinity, -1])("rejects invalid metric %s", (value) => {
+    expect(() => answerSpanAttributes({ ...telemetry, costUsd: value })).toThrow();
   });
 });

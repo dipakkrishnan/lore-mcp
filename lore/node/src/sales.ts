@@ -9,8 +9,7 @@
  */
 import type { RegisteredTool, ToolCallback } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { ShapeOutput, ZodRawShapeCompat } from "@modelcontextprotocol/sdk/server/zod-compat.js";
-import { tracing } from "cloudflare:workers";
-import { settlementSpanAttributes } from "./telemetry.js";
+import { settlementSpanAttributes, withSpan } from "./telemetry.js";
 
 interface Receipt {
   success: boolean;
@@ -67,7 +66,7 @@ export function recorded<Args extends ZodRawShapeCompat>(
       // result they already paid for. The span never carries the receipt's
       // payer address or transaction hash — only whether the ledger write
       // itself succeeded.
-      await tracing.enterSpan("lore.sale", async (span) => {
+      await withSpan("lore.sale", async (setAttributes) => {
         try {
           const { item, title } = sold(JSON.parse(block.text), args);
           await db
@@ -86,10 +85,10 @@ export function recorded<Args extends ZodRawShapeCompat>(
               new Date().toISOString()
             )
             .run();
-          span.setAttributes(settlementSpanAttributes({ settled: true, outcome: "ok" }));
-        } catch (err) {
-          console.error("recorded(): failed to write sales row for a settled payment", err);
-          span.setAttributes(settlementSpanAttributes({ settled: true, outcome: "settle_failed" }));
+          setAttributes(() => settlementSpanAttributes({ settled: true, outcome: "ok" }));
+        } catch {
+          console.error("recorded(): failed to write sales row for a settled payment");
+          setAttributes(() => settlementSpanAttributes({ settled: true, outcome: "ledger_failed" }));
         }
       });
     }

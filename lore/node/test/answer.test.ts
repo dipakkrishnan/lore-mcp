@@ -191,7 +191,8 @@ describe("answer (paid) and result", () => {
     expect(model.requests).toHaveLength(1);
   });
 
-  it("sells a ticket, runs the owner's proxy, and validates citations", async () => {
+  it.each([undefined, "start", "attributes", "end"] as const)("completes a paid answer with tracing failure %s", async (failure) => {
+    if (failure) captureSpans(failure);
     const bogus = newTicketId();
     const model = scriptModel([
       { tool: "memory_view", input: { public_id: FIXTURE_PUBLICATION_ID } },

@@ -1,7 +1,6 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { McpAgent } from "agents/mcp";
 import { withX402 } from "agents/x402";
-import { tracing } from "cloudflare:workers";
 import { z } from "zod";
 import {
   ESTIMATE_SECONDS,
@@ -18,7 +17,7 @@ import { facilitator, network, networkLabel } from "./network.js";
 import { PRICE_USD } from "./price.js";
 import { ensureSalesSchema, recorded } from "./sales.js";
 import { storefront } from "./storefront.js";
-import { toolSpanAttributes } from "./telemetry.js";
+import { toolSpanAttributes, withSpan } from "./telemetry.js";
 import { payTo } from "./wallet.js";
 
 const ANSWER_DISABLED = { error: "the answer tier is not enabled on this node" };
@@ -58,8 +57,8 @@ export class LorePaidMCP extends McpAgent<Env> {
         inputSchema: {}
       },
       async () =>
-        tracing.enterSpan("lore.discover", async (span) => {
-          span.setAttributes(toolSpanAttributes({ tool: "discover", outcome: "ok" }));
+        withSpan("lore.discover", async (setAttributes) => {
+          setAttributes(() => toolSpanAttributes({ tool: "discover", outcome: "ok" }));
           return asText({
             ...(await manifest(this.env)),
             network: network(this.env),
@@ -89,14 +88,14 @@ export class LorePaidMCP extends McpAgent<Env> {
       },
       {},
       async ({ id }) =>
-        tracing.enterSpan("lore.get", async (span) => {
+        withSpan("lore.get", async (setAttributes) => {
           const row = await this.env.LORE_DB.prepare(
             `SELECT public_id AS id, title, content, topic, kind, updated_at
              FROM publications WHERE public_id = ?1`
           )
             .bind(id)
             .first();
-          span.setAttributes(
+          setAttributes(() =>
             toolSpanAttributes({ tool: "get", outcome: row ? "ok" : "not_found", paid: true, itemId: id })
           );
           return asText(
@@ -133,10 +132,10 @@ export class LorePaidMCP extends McpAgent<Env> {
         question,
         {},
         async (args) =>
-          tracing.enterSpan("lore.answer", async (span) => {
+          withSpan("lore.answer", async (setAttributes) => {
             const ticket = await createTicket(this.env, args.question, settings.priceUsd);
             await this.schedule(0, "runAnswerTicket", { ticketId: ticket });
-            span.setAttributes(toolSpanAttributes({ tool: "answer", outcome: "ok", paid: true, itemId: ticket }));
+            setAttributes(() => toolSpanAttributes({ tool: "answer", outcome: "ok", paid: true, itemId: ticket }));
             return asText({
               ticket,
               status: "running",
@@ -155,8 +154,8 @@ export class LorePaidMCP extends McpAgent<Env> {
         "answer",
         { description: answerDescription, inputSchema: question },
         async () =>
-          tracing.enterSpan("lore.answer", (span) => {
-            span.setAttributes(toolSpanAttributes({ tool: "answer", outcome: "disabled" }));
+          withSpan("lore.answer", (setAttributes) => {
+            setAttributes(() => toolSpanAttributes({ tool: "answer", outcome: "disabled" }));
             return asText(ANSWER_DISABLED, true);
           })
       );
@@ -176,10 +175,10 @@ export class LorePaidMCP extends McpAgent<Env> {
         }
       },
       async (args) =>
-        tracing.enterSpan("lore.result", async (span) => {
+        withSpan("lore.result", async (setAttributes) => {
           const outcome = await ticketResult(this.env, args.ticket);
           const found = !("error" in outcome);
-          span.setAttributes(
+          setAttributes(() =>
             toolSpanAttributes({
               tool: "result",
               outcome: found ? "ok" : "not_found",

@@ -110,7 +110,8 @@ async function sales() {
 }
 
 describe("get (paid)", () => {
-  it("returns publication content once the facilitator verifies and settles, and records the sale", async () => {
+  it.each([undefined, "start", "attributes", "end"] as const)("returns paid content and records one sale with tracing failure %s", async (failure) => {
+    if (failure) captureSpans(failure);
     mockFacilitator();
     const client = await connect();
     try {
@@ -274,7 +275,7 @@ describe("get (paid)", () => {
     }
   });
 
-  it("still returns the paid-for content when writing the sales row throws, and records settle_failed", async () => {
+  it("still returns the paid-for content when writing the sales row throws, and records ledger_failed", async () => {
     const spans = captureSpans();
     mockFacilitator();
     const client = await connect();
@@ -294,7 +295,7 @@ describe("get (paid)", () => {
       const publication = textOf(paid).publication as { content: string };
       expect(publication.content).toContain("secret owner-approved content");
       const saleSpan = spans.find((s) => s.name === "lore.sale");
-      expect(saleSpan?.attributes).toEqual({ "lore.settled": true, "lore.outcome": "settle_failed" });
+      expect(saleSpan?.attributes).toEqual({ "lore.settled": true, "lore.outcome": "ledger_failed" });
     } finally {
       prepareSpy.mockRestore();
       await client.close();

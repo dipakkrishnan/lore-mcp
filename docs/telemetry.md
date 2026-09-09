@@ -18,11 +18,9 @@ Three planes, three different trust boundaries:
 | **Desktop (funnel)** | The Electron app's activation milestones | A maintainer-run collector Worker, `collector/` (not yet built — `XC-029`) | **Opt-out, on by default**, disclosed in Settings and at first launch, with an off switch (`CLI-004`). |
 | **QA node (maintainer)** | The standing `lore-qa` deployment, `MON-008` | The same maintainer collector, over OTLP | N/A — maintainer-owned infrastructure and synthetic fixture data only. |
 
-`PRIVACY.md` is rewritten alongside this document to describe the desktop
-funnel honestly: on by default, a small allowlisted set of milestone events,
-no content, and an off switch. A deployed node's own observability is not
-"Lore telemetry" in the sense PRIVACY.md discusses — it is the owner's own
-Cloudflare account, exactly like any other Worker they operate.
+`PRIVACY.md` describes only shipped behavior. The desktop funnel below is a
+proposal, not enabled telemetry: its collector, disclosure, and off switch
+must ship together before any desktop event is sent.
 
 ## Top-down: the metric tree
 
@@ -79,16 +77,13 @@ convention — it generalizes the `JOB_SUMMARIES` precedent in `lore/store.py`
 (a closed vocabulary of codes, never prose, never anything derived from an
 exception) into span attributes:
 
-- `OUTCOMES` — the closed outcome vocabulary shared across every span kind:
-  `ok`, `not_found`, `invalid_id`, `unpaid`, `disabled`, `settle_failed`,
-  `model_error`, `deadline`. Not every value applies to every span, the same
-  way `JOB_SUMMARIES`'s dict is shared across job kinds. `invalid_id` and
-  `unpaid` are documented but not emitted by these functions: a malformed id
-  is rejected by the tool's own zod schema before any handler runs, and an
-  unpaid call never reaches the handler at all — `agents/x402`'s middleware
-  returns the 402 challenge itself. Both states are visible only through
-  Workers' automatic request tracing, confirmed empirically against a real
-  `wrangler dev` instance while building this.
+- `OUTCOMES` contains only emitted codes: `ok`, `not_found`, `disabled`,
+  and `ledger_failed`. The last means payment settled but recording the sale
+  failed. Actual settlement failures and unpaid challenges happen in x402
+  middleware outside the sale span; invalid ids are rejected by zod before
+  handlers run. Answer-job spans carry usage metrics only, not a model-error
+  or deadline classification; `result` reports whether a ticket was found,
+  not whether its answer succeeded.
 - `SPAN_ATTRIBUTES` — the complete set of attribute keys any span may carry.
   Adding a key here is a privacy decision, not a refactor.
 - `hashId()` — SHA-256, truncated to 16 hex characters. A publication or
@@ -97,12 +92,14 @@ exception) into span attributes:
   it is.
 - `assertAllowedAttributes` / `assertKnownOutcome` — thrown, not silently
   dropped, the same defense-in-depth `OwnerJob`'s Pydantic validator gives the
-  local job history: an attribute or outcome outside the allowlist is a bug
-  to fix, not data to forward.
+  local job history: invalid keys and values are rejected, including tool and model names,
+  booleans, and non-finite or negative metrics. `withSpan` drops rejected
+  attributes without logging their contents or failing the operation.
 - The hard deny list, enforced by `lore/node/test/telemetry.test.ts`'s leak
   table: a buyer's question, a wallet address, a transaction hash, a
   publication's title or teaser, and a node URL never reach a span attribute,
-  regardless of what a call site passes in.
+  through the attribute builders. Automatic platform spans and logs are outside
+  this allowlist and must not be described as covered by these tests.
 
 ## Privacy rules
 
@@ -141,7 +138,7 @@ suite), using the local Workers Observability query API
 - Searching every recorded span's attributes for the fixture's secret content
   and its raw publication id found neither.
 - A damaged id and an unpaid `get` challenge produced **no** `lore.get` span
-  at all, confirming `invalid_id` and `unpaid` really are handled upstream of
+  at all, confirming invalid ids and unpaid calls are handled upstream of
   every function in `telemetry.ts`, as documented above.
 
 ## Backlog
