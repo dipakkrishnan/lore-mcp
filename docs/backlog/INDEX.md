@@ -72,6 +72,7 @@ obsolete), then `priority` (P0 → P3).
 | [APP-082](./desktop-app/APP-082-hide-the-run-cost-from-subscription-owners.md) | Hide the run cost from subscription owners | P3 | XS | desktop-app | in-review | APP-007 | — | — | — |
 | [APP-086](./desktop-app/APP-086-show-attached-file-names-in-the-capture-thread.md) | Show attached file names in the capture thread | P3 | XS | desktop-app | in-review | APP-003 | — | — | — |
 | [APP-065](./desktop-app/APP-065-measure-desktop-test-coverage.md) | Measure the desktop app's test coverage | P3 | S | desktop-app | in-review | APP-066, APP-060, APP-061, APP-062, APP-063, APP-064, XC-003 | APP-066 | — | — |
+| [APP-104](./desktop-app/APP-104-drop-the-or-from-a-free-text-question-with-no-options.md) | Drop the "Or" from a free-text question with no options | P3 | XS | desktop-app | in-review | — | — | — | [#254](https://github.com/dipakkrishnan/lore-mcp/issues/254) |
 | [APP-010](./desktop-app/APP-010-constrain-native-read-to-owner-selected-files.md) | Constrain native read to owner-selected files | P1 | M | desktop-app | ready | APP-003, APP-005, APP-009 | — | — | — |
 | [APP-024](./desktop-app/APP-024-start-recording-from-the-dictation-button.md) | Start recording from the dictation button | P1 | M | desktop-app | ready | APP-003, APP-005, APP-009, APP-010, APP-020 | — | — | — |
 | [APP-036](./desktop-app/APP-036-guide-cloudflare-and-wallet-setup-inside-desktop.md) | Guide Cloudflare and wallet setup inside Desktop | P1 | M | desktop-app | ready | APP-004, APP-005, APP-006, APP-030, MON-006, XC-005 | — | — | — |
