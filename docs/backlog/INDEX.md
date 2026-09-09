@@ -73,6 +73,7 @@ obsolete), then `priority` (P0 → P3).
 | [APP-082](./desktop-app/APP-082-hide-the-run-cost-from-subscription-owners.md) | Hide the run cost from subscription owners | P3 | XS | desktop-app | in-review | APP-007 | — | — | — |
 | [APP-086](./desktop-app/APP-086-show-attached-file-names-in-the-capture-thread.md) | Show attached file names in the capture thread | P3 | XS | desktop-app | in-review | APP-003 | — | — | — |
 | [APP-065](./desktop-app/APP-065-measure-desktop-test-coverage.md) | Measure the desktop app's test coverage | P3 | S | desktop-app | in-review | APP-066, APP-060, APP-061, APP-062, APP-063, APP-064, XC-003 | APP-066 | — | — |
+| [APP-104](./desktop-app/APP-104-drop-the-or-from-a-free-text-question-with-no-options.md) | Drop the "Or" from a free-text question with no options | P3 | XS | desktop-app | in-review | — | — | — | [#254](https://github.com/dipakkrishnan/lore-mcp/issues/254) |
 | [APP-010](./desktop-app/APP-010-constrain-native-read-to-owner-selected-files.md) | Constrain native read to owner-selected files | P1 | M | desktop-app | ready | APP-003, APP-005, APP-009 | — | — | — |
 | [APP-024](./desktop-app/APP-024-start-recording-from-the-dictation-button.md) | Start recording from the dictation button | P1 | M | desktop-app | ready | APP-003, APP-005, APP-009, APP-010, APP-020 | — | — | — |
 | [APP-036](./desktop-app/APP-036-guide-cloudflare-and-wallet-setup-inside-desktop.md) | Guide Cloudflare and wallet setup inside Desktop | P1 | M | desktop-app | ready | APP-004, APP-005, APP-006, APP-030, MON-006, XC-005 | — | — | — |
@@ -179,6 +180,7 @@ obsolete), then `priority` (P0 → P3).
 | [XC-026](./cross-cutting/XC-026-point-the-faucet-card-at-onchain-tools.md) | Point the faucet card at Onchain Tools → Faucet in four short lines | P2 | XS | cross-cutting | completed | XC-025, APP-056, MON-007 | — | — | — |
 | [APP-090](./desktop-app/APP-090-let-a-long-memory-draft-scroll-instead-of-clipping.md) | Let a long memory draft scroll instead of clipping at the field's cap | P2 | XS | desktop-app | completed | APP-055 | — | — | — |
 | [APP-091](./desktop-app/APP-091-say-a-lists-shared-state-once-and-offer-the-push-beside-it.md) | Say a For Sale list's shared state once, and offer the push beside it | P2 | XS | desktop-app | completed | APP-081, APP-072 | — | — | — |
+| [ONB-005](./onboarding/ONB-005-recommended-option-label-can-be-a-literal-placeholder-phrase.md) | Recommended option label can be a literal placeholder phrase like "Looks right" | P2 | S | onboarding | completed | APP-068 | — | — | [#240](https://github.com/dipakkrishnan/lore-mcp/issues/240) |
 | [APP-083](./desktop-app/APP-083-keep-memory-ids-out-of-the-publish-thread.md) | Keep memory ids out of the publish thread | P3 | XS | desktop-app | completed | APP-023 | — | — | — |
 | [APP-088](./desktop-app/APP-088-put-add-memory-beside-the-title.md) | Put Add Memory beside the title, not above it | P3 | XS | desktop-app | completed | APP-067, APP-051 | — | — | — |
 | [APP-092](./desktop-app/APP-092-explain-memories-and-for-sale-on-hover.md) | Explain Memories and For Sale on hover | P3 | XS | desktop-app | completed | APP-091, APP-054 | — | — | — |
