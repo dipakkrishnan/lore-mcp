@@ -6,7 +6,7 @@ import type { AnswerTelemetry } from "./answer-state.js";
 const metric = z.number().finite().nonnegative();
 const attributes = z.strictObject({
   "lore.tool": z.enum(["discover", "get", "answer", "result"]),
-  "lore.outcome": z.enum(["ok", "not_found", "disabled", "ledger_failed"]),
+  "lore.outcome": z.enum(["ok", "not_found", "disabled", "unready", "ledger_failed"]),
   "lore.paid": z.boolean(),
   "lore.item_hash": z.string().regex(/^[0-9a-f]{16}$/),
   "lore.settled": z.boolean(),

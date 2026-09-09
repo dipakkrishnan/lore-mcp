@@ -38,17 +38,35 @@ function systemPrompt(proxy: string): string {
   );
 }
 
-function modelConfig(env: AnswerEnv): { id: string; provider: Provider; apiKey: string } {
+/** Which secret each supported model needs. The one place that mapping lives. */
+const BINDINGS: Record<string, "ANTHROPIC_API_KEY" | "OPENAI_API_KEY"> = {
+  "claude-sonnet-5": "ANTHROPIC_API_KEY",
+  "gpt-5.6-luna": "OPENAI_API_KEY"
+};
+
+export type Readiness = { ready: true } | { ready: false; reason: string };
+
+/** Whether this node could run an answer at all, without constructing a provider.
+ *
+ * `init()` calls this before registering a paid tool, so a node missing its
+ * model secret never advertises a price or takes a payment it cannot honour.
+ * It names only the missing binding or the unsupported model id — never a value.
+ */
+export function providerReadiness(env: AnswerEnv): Readiness {
   const id = env.LORE_ANSWER_MODEL || DEFAULT_MODEL;
-  if (id === "claude-sonnet-5") {
-    if (!env.ANTHROPIC_API_KEY) throw new Error("the node has no ANTHROPIC_API_KEY secret");
-    return { id, provider: anthropicProvider(), apiKey: env.ANTHROPIC_API_KEY };
-  }
-  if (id === "gpt-5.6-luna") {
-    if (!env.OPENAI_API_KEY) throw new Error("the node has no OPENAI_API_KEY secret");
-    return { id, provider: openaiProvider(), apiKey: env.OPENAI_API_KEY };
-  }
-  throw new Error(`unsupported answer model: ${id}`);
+  const binding = BINDINGS[id];
+  if (!binding) return { ready: false, reason: `unsupported answer model: ${id}` };
+  if (!env[binding]) return { ready: false, reason: `the node has no ${binding} secret` };
+  return { ready: true };
+}
+
+function modelConfig(env: AnswerEnv): { id: string; provider: Provider; apiKey: string } {
+  const readiness = providerReadiness(env);
+  if (!readiness.ready) throw new Error(readiness.reason);
+  const id = env.LORE_ANSWER_MODEL || DEFAULT_MODEL;
+  return id === "gpt-5.6-luna"
+    ? { id, provider: openaiProvider(), apiKey: env.OPENAI_API_KEY as string }
+    : { id, provider: anthropicProvider(), apiKey: env.ANTHROPIC_API_KEY as string };
 }
 
 export async function runAnswer(

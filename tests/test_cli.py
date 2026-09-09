@@ -179,6 +179,8 @@ class MainDispatchTest(LoreTestCase):
             (["price"], "price", (None,)),
             (["answer", "on", "p.txt", "2"], "answer_enable", ("p.txt", 2.0)),
             (["answer", "off"], "answer_disable", ()),
+            (["answer", "try", "q"], "answer_try", ("q", False)),
+            (["answer", "try", "q", "--json"], "answer_try", ("q", True)),
             (["blueprint", "apply", "f.json"], "blueprint_apply", ("f.json",)),
             (["blueprint", "show"], "blueprint_show", ()),
             (["blueprint"], "blueprint_show", ()),
@@ -865,6 +867,123 @@ class AnswerCommandTest(LoreTestCase):
             self.assertEqual(cli.answer_disable(), 0)
         self.assertIn("disabled", output.getvalue())
         self.assertIn("lore push", output.getvalue())
+
+
+class AnswerTryTest(LoreTestCase):
+    """`lore answer try` — the owner's free trial question against their own
+    deployed node. Every real network call is stubbed at `lore.snapshot`."""
+
+    def test_needs_a_deployed_node(self) -> None:
+        with self.assertRaisesRegex(ValueError, "no deployed node"):
+            cli.answer_try("what would you say?", False)
+
+    def test_needs_a_trial_credential(self) -> None:
+        with Store() as store:
+            store.set_setting("node_url", "https://node.example/mcp")
+        with self.assertRaisesRegex(ValueError, "no trial credential"):
+            cli.answer_try("what would you say?", False)
+
+    def test_a_complete_answer_prints_the_text_and_its_citations(self) -> None:
+        with Store() as store:
+            store.set_setting("node_url", "https://node.example/mcp")
+            store.set_setting("owner_token", "tok")
+        with (
+            patch("lore.snapshot.remote_owner_answer", return_value="ticket123") as ask,
+            patch(
+                "lore.snapshot.remote_result",
+                return_value={
+                    "status": "complete",
+                    "answer": "This is the answer.",
+                    "cited_publication_ids": ["0000000000000000fcdb4b42"],
+                },
+            ) as poll,
+            captured() as output,
+        ):
+            self.assertEqual(cli.answer_try("what would you say?", False), 0)
+        ask.assert_called_once_with(
+            "https://node.example/mcp", "tok", "what would you say?"
+        )
+        poll.assert_called_once_with("https://node.example/mcp", "ticket123")
+        self.assertIn("This is the answer.", output.getvalue())
+        self.assertIn("0000000000000000fcdb4b42", output.getvalue())
+
+    def test_json_output_is_the_raw_outcome_untranslated(self) -> None:
+        with Store() as store:
+            store.set_setting("node_url", "https://node.example/mcp")
+            store.set_setting("owner_token", "tok")
+        with (
+            patch("lore.snapshot.remote_owner_answer", return_value="ticket123"),
+            patch(
+                "lore.snapshot.remote_result",
+                return_value={"status": "refused", "reason": "no coverage"},
+            ),
+            captured() as output,
+        ):
+            self.assertEqual(cli.answer_try("what would you say?", True), 0)
+        self.assertEqual(
+            json.loads(output.getvalue()),
+            {"status": "refused", "reason": "no coverage"},
+        )
+
+    def test_a_refused_or_failed_ticket_says_why_in_prose(self) -> None:
+        with Store() as store:
+            store.set_setting("node_url", "https://node.example/mcp")
+            store.set_setting("owner_token", "tok")
+        with (
+            patch("lore.snapshot.remote_owner_answer", return_value="ticket123"),
+            patch(
+                "lore.snapshot.remote_result",
+                return_value={
+                    "status": "failed",
+                    "reason": "the node's model is unready",
+                },
+            ),
+            captured() as output,
+        ):
+            self.assertEqual(cli.answer_try("what would you say?", False), 0)
+        self.assertIn("Failed", output.getvalue())
+        self.assertIn("unready", output.getvalue())
+
+    def test_polls_a_running_ticket_until_it_finishes(self) -> None:
+        with Store() as store:
+            store.set_setting("node_url", "https://node.example/mcp")
+            store.set_setting("owner_token", "tok")
+        results = iter(
+            [
+                {"status": "running"},
+                {"status": "running"},
+                {"status": "complete", "answer": "done", "cited_publication_ids": []},
+            ]
+        )
+        with (
+            patch("lore.snapshot.remote_owner_answer", return_value="ticket123"),
+            patch("lore.snapshot.remote_result", side_effect=lambda *a: next(results)),
+            patch.object(cli.time, "sleep") as sleep,
+            captured() as output,
+        ):
+            self.assertEqual(cli.answer_try("what would you say?", False), 0)
+        self.assertEqual(sleep.call_count, 2)
+        self.assertIn("done", output.getvalue())
+
+    def test_gives_up_after_the_deadline_without_crashing(self) -> None:
+        with Store() as store:
+            store.set_setting("node_url", "https://node.example/mcp")
+            store.set_setting("owner_token", "tok")
+        # First call sets the deadline; each further call advances the clock
+        # by more than the poll interval so the loop exits after one poll.
+        clock = iter([0.0, 200.0, 500.0])
+        with (
+            patch("lore.snapshot.remote_owner_answer", return_value="ticket123"),
+            patch(
+                "lore.snapshot.remote_result", return_value={"status": "running"}
+            ) as poll,
+            patch.object(cli.time, "sleep"),
+            patch.object(cli.time, "monotonic", side_effect=lambda: next(clock)),
+            captured() as output,
+        ):
+            self.assertEqual(cli.answer_try("what would you say?", False), 0)
+        self.assertEqual(poll.call_count, 1)
+        self.assertIn("Still running", output.getvalue())
 
 
 class ProfileTest(LoreTestCase):

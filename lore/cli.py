@@ -5,6 +5,7 @@ import json
 import math
 import os
 import sys
+import time
 from pathlib import Path
 from typing import Annotated
 
@@ -186,6 +187,12 @@ def parser() -> argparse.ArgumentParser:
     answer_on.add_argument("file", help="text file holding the public proxy charter")
     answer_on.add_argument("price", type=float, help="USD per answer; must be positive")
     answer_commands.add_parser("off", help="disable the answer tier")
+    answer_try = answer_commands.add_parser(
+        "try",
+        help="ask the deployed node one free trial question as the owner; spends no crypto",
+    )
+    answer_try.add_argument("question")
+    answer_try.add_argument("--json", action="store_true")
     serve = commands.add_parser("serve", help="run the Lore MCP server")
     serve.add_argument("--transport", choices=["stdio", "http"], default="stdio")
     serve.add_argument("--host", default="127.0.0.1")
@@ -316,6 +323,8 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "answer":
             if args.answer_command == "on":
                 return answer_enable(args.file, args.price)
+            if args.answer_command == "try":
+                return answer_try(args.question, args.json)
             return answer_disable()
         if args.command == "serve":
             from .mcp import main as serve
@@ -415,6 +424,11 @@ def manual() -> int:
 
   6b. lore answer on <proxy-file> <price> | off
      Enable the paid answer tier or switch it off. Ships on the next `lore push`.
+
+  6c. lore answer try "<question>"
+     Ask your deployed node one free trial question, as yourself. Spends no
+     crypto but does spend provider tokens on the node's own key. Needs a
+     deployed node (`lore node deploy` mints the trial credential).
 
   7. lore status
      Check imports, the private library, active publications, and price.
@@ -814,6 +828,53 @@ def answer_enable(path: str, price: float) -> int:
         )
     success(f"Answer tier enabled at ${price:.2f} per answer")
     muted("Ship it with `lore push`.")
+    return 0
+
+
+def answer_try(question: str, as_json: bool) -> int:
+    """Ask the deployed node one free trial question, as the owner.
+
+    Uses the owner-only `/owner/answer` route (`lore/node/src/owner-auth.ts`):
+    no crypto payment, no `sales` row, but the node still spends its own
+    provider tokens to answer, so this is a real trial, not a mock.
+    """
+    from .snapshot import remote_owner_answer, remote_result
+
+    with Store() as store:
+        node_url = store.setting("node_url", None)
+        token = store.setting("owner_token", None)
+    if not isinstance(node_url, str) or not node_url:
+        raise ValueError("no deployed node; run `lore node deploy` first")
+    if not isinstance(token, str) or not token:
+        raise ValueError(
+            "no trial credential on this machine; rerun `lore node deploy` to mint one"
+        )
+    ticket = remote_owner_answer(node_url, token, question)
+    # The node's own deadline is 180s plus a 60s grace period before it marks
+    # a stalled ticket failed; wait a little past that rather than give up early.
+    deadline = time.monotonic() + 250
+    outcome: dict[str, object] = {"status": "running"}
+    while time.monotonic() < deadline:
+        outcome = remote_result(node_url, ticket)
+        if outcome.get("status") != "running":
+            break
+        time.sleep(2)
+    if as_json:
+        print(json.dumps(outcome, separators=(",", ":"), allow_nan=False))
+        return 0
+    status = outcome.get("status")
+    if status == "complete":
+        heading("Answer")
+        print(str(outcome.get("answer", "")))
+        cited = outcome.get("cited_publication_ids")
+        if isinstance(cited, list) and cited:
+            muted("Cited: " + ", ".join(str(item) for item in cited))
+    elif status == "refused":
+        muted(f"Refused: {outcome.get('reason', 'no coverage')}")
+    elif status == "failed":
+        muted(f"Failed: {outcome.get('reason', 'agent error')}")
+    else:
+        muted("Still running; check back with `lore answer try` again in a moment.")
     return 0
 
 

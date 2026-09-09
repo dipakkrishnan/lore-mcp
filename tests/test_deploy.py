@@ -263,7 +263,9 @@ class RealMoneyTest(_NodeCase):
             captured(),
         ):
             self.assertEqual(deploy_module.deploy(None, "real"), 0)
-        self.assertEqual(wrangler.secret_values, {"LORE_NETWORK": "eip155:8453\n"})
+        # LORE_OWNER_TOKEN is minted on every deploy regardless of network;
+        # its own coverage lives in OwnerTokenTest below.
+        self.assertEqual(wrangler.secret_values["LORE_NETWORK"], "eip155:8453\n")
         deployed, network = wrangler.order(
             ("deploy",), ("secret", "put", "LORE_NETWORK")
         )
@@ -444,6 +446,28 @@ class DeployTest(_NodeCase):
             "export const PRICE_USD = 0.37;",
             (self.lore_home / "node/src/price.ts").read_text(),
         )
+
+    def test_every_deploy_mints_and_vaults_a_fresh_owner_token(self) -> None:
+        _, wrangler = self._deploy()
+        self.assertTrue(wrangler.named("secret", "put", "LORE_OWNER_TOKEN"))
+        vaulted = wrangler.secret_values["LORE_OWNER_TOKEN"].strip()
+        with Store() as store:
+            self.assertEqual(store.setting("owner_token"), vaulted)
+        # Rotated, not reused: a second deploy must not leave the same
+        # credential vaulted, or a stale copy would keep answering.
+        wrangler_two = _Wrangler()
+        with (
+            patch("lore.deploy.subprocess.run", side_effect=wrangler_two),
+            patch("lore.deploy.shutil.which", return_value="/usr/bin/npm"),
+            patch("lore.cli.push_job"),
+            captured(),
+        ):
+            self.probe.side_effect = lambda url: LIVE
+            self.assertEqual(deploy_module.deploy(WALLET), 0)
+        rotated = wrangler_two.secret_values["LORE_OWNER_TOKEN"].strip()
+        self.assertNotEqual(vaulted, rotated)
+        with Store() as store:
+            self.assertEqual(store.setting("owner_token"), rotated)
 
     def test_a_logged_out_owner_is_walked_through_the_browser_login(self) -> None:
         # Some wrangler versions exit 0 while logged out and only say so in text.

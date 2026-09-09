@@ -66,6 +66,7 @@ export interface AnswerJob {
   cost_usd: number;
   tool_calls: number;
   duration_ms: number;
+  origin: "buyer" | "owner";
   created_at: string;
   updated_at: string;
 }
@@ -151,16 +152,29 @@ export async function ensureAnswerSchema(db: D1Database): Promise<void> {
       .prepare("DELETE FROM answer_checkpoints WHERE expires_at <= ?1")
       .bind(new Date().toISOString())
   ]);
+  // CREATE IF NOT EXISTS never alters an existing table; a node deployed
+  // before `origin` existed needs it added in place (mirrors lore/store.py).
+  const { results: columns } = await db
+    .prepare("PRAGMA table_info(answer_jobs)")
+    .all<{ name: string }>();
+  if (!columns.some(({ name }) => name === "origin")) {
+    await db.exec("ALTER TABLE answer_jobs ADD COLUMN origin TEXT NOT NULL DEFAULT 'buyer'");
+  }
 }
 
-export async function createTicket(env: Env, question: string, priceUsd: number): Promise<string> {
+export async function createTicket(
+  env: Env,
+  question: string,
+  priceUsd: number,
+  origin: "buyer" | "owner" = "buyer"
+): Promise<string> {
   const ticketId = newTicketId();
   const now = new Date().toISOString();
   await env.LORE_DB.prepare(
-    `INSERT INTO answer_jobs(ticket_id,question,price_usd,status,created_at,updated_at)
-     VALUES (?1,?2,?3,'running',?4,?4)`
+    `INSERT INTO answer_jobs(ticket_id,question,price_usd,status,origin,created_at,updated_at)
+     VALUES (?1,?2,?3,'running',?4,?5,?5)`
   )
-    .bind(ticketId, question, priceUsd, now)
+    .bind(ticketId, question, priceUsd, origin, now)
     .run();
   return ticketId;
 }
