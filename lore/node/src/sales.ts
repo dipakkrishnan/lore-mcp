@@ -9,7 +9,8 @@
  */
 import type { RegisteredTool, ToolCallback } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { ShapeOutput, ZodRawShapeCompat } from "@modelcontextprotocol/sdk/server/zod-compat.js";
-import { settlementSpanAttributes, withSpan } from "./telemetry.js";
+import { settlementSpanAttributes } from "./telemetry.js";
+import { withSpan } from "./tracing.js";
 
 interface Receipt {
   success: boolean;

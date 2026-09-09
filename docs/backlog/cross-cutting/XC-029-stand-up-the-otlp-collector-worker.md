@@ -27,8 +27,7 @@ well-behaved client.
 A small Worker, `collector/`, sibling to `bridge/` and `site/` at the repo
 root, maintainer-owned and never shipped to an owner's node. It accepts
 OTLP/HTTP+JSON on one endpoint, re-validates every record against the same
-`SPAN_ATTRIBUTES`/`OUTCOMES` allowlist `lore/node/src/telemetry.ts`
-maintains for the node plane (shared as a small published module or a
+attribute schema `lore/node/src/telemetry.ts` maintains for the node plane (shared as a small published module or a
 duplicated, tested constant — decide which when implementing), drops
 anything unrecognized rather than widening the schema to fit it, and writes
 accepted records to Workers Analytics Engine (`index1` = installation id;

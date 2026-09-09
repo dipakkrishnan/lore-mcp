@@ -17,7 +17,8 @@ import { facilitator, network, networkLabel } from "./network.js";
 import { PRICE_USD } from "./price.js";
 import { ensureSalesSchema, recorded } from "./sales.js";
 import { storefront } from "./storefront.js";
-import { toolSpanAttributes, withSpan } from "./telemetry.js";
+import { toolSpanAttributes } from "./telemetry.js";
+import { withSpan } from "./tracing.js";
 import { payTo } from "./wallet.js";
 
 const ANSWER_DISABLED = { error: "the answer tier is not enabled on this node" };

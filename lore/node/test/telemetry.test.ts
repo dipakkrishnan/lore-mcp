@@ -1,17 +1,14 @@
-// The allowlist is the whole privacy contract for XC-030/MON-020: every
-// attribute a span can carry is enumerated here, and these tests are what
-// enforces it — not review discipline. See docs/telemetry.md.
+// The schema in src/telemetry.ts is the whole privacy contract for
+// XC-030/MON-020; these tests prove nothing outside it reaches a span and
+// that a tracing failure never costs a buyer their result. See docs/telemetry.md.
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
-  OUTCOMES,
   answerSpanAttributes,
-  hashId,
-  isKnownAttribute,
   settlementSpanAttributes,
-  toolSpanAttributes,
-  withSpan
+  toolSpanAttributes
 } from "../src/telemetry";
 
+import { withSpan } from "../src/tracing";
 import { captureSpans } from "./tracing";
 
 afterEach(() => vi.restoreAllMocks());
@@ -35,37 +32,23 @@ function serialize(attrs: Record<string, unknown>): string {
   return JSON.stringify(attrs);
 }
 
-describe("the attribute allowlist", () => {
-  it("every key toolSpanAttributes produces is in the allowlist", () => {
-    for (const outcome of OUTCOMES) {
-      const attrs = toolSpanAttributes({ tool: "get", outcome, paid: true, itemId: "abc123" });
-      for (const key of Object.keys(attrs)) expect(isKnownAttribute(key)).toBe(true);
-    }
+it("builds the expected attributes for each kind of span", () => {
+  expect(toolSpanAttributes({ tool: "get", outcome: "not_found", paid: true })).toEqual({
+    "lore.tool": "get", "lore.outcome": "not_found", "lore.paid": true
   });
-
-  it("every key settlementSpanAttributes produces is in the allowlist", () => {
-    for (const outcome of OUTCOMES) {
-      const attrs = settlementSpanAttributes({ settled: outcome === "ok", outcome });
-      for (const key of Object.keys(attrs)) expect(isKnownAttribute(key)).toBe(true);
-    }
+  expect(settlementSpanAttributes({ settled: true, outcome: "ledger_failed" })).toEqual({
+    "lore.settled": true, "lore.outcome": "ledger_failed"
   });
-
-  it("every key answerSpanAttributes produces is in the allowlist", () => {
-    const attrs = answerSpanAttributes({
-      model: "claude-sonnet-5",
-      inputTokens: 2000,
-      outputTokens: 400,
-      costUsd: 0.008,
-      toolCalls: 2,
-      durationMs: 5100
-    });
-    for (const key of Object.keys(attrs)) expect(isKnownAttribute(key)).toBe(true);
-  });
-
-  it("rejects an outcome outside the closed vocabulary rather than silently forwarding it", () => {
-    expect(() => toolSpanAttributes({ tool: "get", outcome: "made-up-outcome" as never })).toThrow();
+  expect(answerSpanAttributes({ model: "gpt-5.6-luna", inputTokens: 20, outputTokens: 5, costUsd: 0.01, toolCalls: 1, durationMs: 10 })).toEqual({
+    "lore.answer.model": "gpt-5.6-luna", "lore.answer.input_tokens": 20,
+    "lore.answer.output_tokens": 5, "lore.answer.cost_usd": 0.01,
+    "lore.answer.tool_calls": 1, "lore.answer.duration_ms": 10
   });
 });
+
+function hashId(itemId: string) {
+  return toolSpanAttributes({ tool: "get", outcome: "ok", itemId })["lore.item_hash"];
+}
 
 describe("hashId", () => {
   it("is stable for the same input", () => {
@@ -124,7 +107,7 @@ describe("telemetry failures preserve the operation", () => {
     const spans = captureSpans();
     const log = vi.spyOn(console, "error");
     await expect(withSpan("lore.get", (set) => {
-      set(() => toolSpanAttributes({ tool: SECRETS.buyerQuestion, outcome: "ok" }));
+      set(() => toolSpanAttributes({ tool: SECRETS.buyerQuestion as never, outcome: "ok" }));
       return "paid result";
     })).resolves.toBe("paid result");
     expect(spans[0].attributes).toEqual({});
@@ -135,7 +118,7 @@ describe("telemetry failures preserve the operation", () => {
 describe("attribute values", () => {
   const telemetry = { model: "claude-sonnet-5", inputTokens: 1, outputTokens: 1, costUsd: 0, toolCalls: 0, durationMs: 0 };
   it.each(Object.entries(SECRETS))("rejects %s in every un-hashed input field", (_name, secret) => {
-    expect(() => toolSpanAttributes({ tool: secret, outcome: "ok" })).toThrow();
+    expect(() => toolSpanAttributes({ tool: secret as never, outcome: "ok" })).toThrow();
     expect(() => toolSpanAttributes({ tool: "get", outcome: secret as never })).toThrow();
     expect(() => toolSpanAttributes({ tool: "get", outcome: "ok", paid: secret as never })).toThrow();
     expect(() => settlementSpanAttributes({ settled: secret as never, outcome: "ok" })).toThrow();

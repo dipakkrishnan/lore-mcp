@@ -91,3 +91,10 @@ operation without replaying it. Failure-injection tests cover paid content,
 answer completion, and preservation of business errors. Tool/model names
 and metric values are validated; rejected values are never logged. Automatic
 Cloudflare spans and logs are outside the custom-attribute allowlist.
+
+**2026-09-08 (cleanup):** The hand-written key arrays, Sets, unions, and
+nested validator in `telemetry.ts` collapsed into one strict zod schema with
+`SpanAttributes` inferred from it; the three builders parse through it. The
+Cloudflare tracing wrapper moved to its own `tracing.ts`. Re-verified against
+`wrangler dev`: `lore.discover` spans carry exactly the documented attributes
+(read them with `json(attributes)`; the explorer can flush up to half a minute late).

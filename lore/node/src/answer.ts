@@ -2,7 +2,8 @@ import { Agent, type StreamFn } from "@earendil-works/pi-agent-core";
 import type { Provider } from "@earendil-works/pi-ai";
 import { anthropicProvider } from "@earendil-works/pi-ai/providers/anthropic";
 import { openaiProvider } from "@earendil-works/pi-ai/providers/openai";
-import { answerSpanAttributes, withSpan, type SetAttributes } from "./telemetry.js";
+import { answerSpanAttributes } from "./telemetry.js";
+import { withSpan, type SetAttributes } from "./tracing.js";
 import {
   type AnswerOutcome,
   type AnswerTelemetry,

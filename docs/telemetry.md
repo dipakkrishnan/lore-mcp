@@ -77,24 +77,32 @@ convention — it generalizes the `JOB_SUMMARIES` precedent in `lore/store.py`
 (a closed vocabulary of codes, never prose, never anything derived from an
 exception) into span attributes:
 
-- `OUTCOMES` contains only emitted codes: `ok`, `not_found`, `disabled`,
+- One strict zod schema is the complete allowlist: every key a span may
+  carry, and for each key the closed vocabulary (`lore.tool`, `lore.outcome`,
+  `lore.answer.model`), boolean, finite non-negative metric, or 16-hex-char
+  hash it accepts. `SpanAttributes` is inferred from it, so there is no
+  second copy to drift. Adding a key or a value is a privacy decision, not a
+  refactor.
+- `lore.outcome` names only emitted codes: `ok`, `not_found`, `disabled`,
   and `ledger_failed`. The last means payment settled but recording the sale
   failed. Actual settlement failures and unpaid challenges happen in x402
   middleware outside the sale span; invalid ids are rejected by zod before
   handlers run. Answer-job spans carry usage metrics only, not a model-error
   or deadline classification; `result` reports whether a ticket was found,
   not whether its answer succeeded.
-- `SPAN_ATTRIBUTES` — the complete set of attribute keys any span may carry.
-  Adding a key here is a privacy decision, not a refactor.
-- `hashId()` — SHA-256, truncated to 16 hex characters. A publication or
-  ticket id becomes `lore.item_hash`, never the id itself, so repeated
-  activity on the same item can be correlated without disclosing which item
-  it is.
-- `assertAllowedAttributes` / `assertKnownOutcome` — thrown, not silently
-  dropped, the same defense-in-depth `OwnerJob`'s Pydantic validator gives the
-  local job history: invalid keys and values are rejected, including tool and model names,
-  booleans, and non-finite or negative metrics. `withSpan` drops rejected
-  attributes without logging their contents or failing the operation.
+- `lore.item_hash` is SHA-256 of a publication or ticket id, truncated to 16
+  hex characters — never the id itself, so repeated activity on the same
+  item can be correlated without disclosing which item it is.
+- The three builders (`toolSpanAttributes`, `settlementSpanAttributes`,
+  `answerSpanAttributes`) are the only way to produce attributes, and each
+  parses its output through the schema: an unknown key, an out-of-vocabulary
+  tool, outcome, or model name, or a non-finite or negative metric throws,
+  the same defense-in-depth `OwnerJob`'s Pydantic validator gives the local
+  job history.
+- `lore/node/src/tracing.ts`'s `withSpan` is the only place that touches
+  Cloudflare's tracing API. It runs the operation exactly once even if the
+  span cannot be started, attributed, or ended, and drops rejected
+  attributes without logging their contents.
 - The hard deny list, enforced by `lore/node/test/telemetry.test.ts`'s leak
   table: a buyer's question, a wallet address, a transaction hash, a
   publication's title or teaser, and a node URL never reach a span attribute,
@@ -140,6 +148,25 @@ suite), using the local Workers Observability query API
 - A damaged id and an unpaid `get` challenge produced **no** `lore.get` span
   at all, confirming invalid ids and unpaid calls are handled upstream of
   every function in `telemetry.ts`, as documented above.
+
+To repeat it: seed the fixtures and start the Worker, run the smoke test,
+then query. Two details cost an hour the first time: the explorer can take up to
+half a minute to flush a request's spans, and `attributes` is a blob that
+reads as `{}` unless wrapped in `json()`.
+
+```sh
+cd lore/node
+npx wrangler d1 execute lore-publications --local --persist-to /tmp/lore-qa --file scripts/qa-fixtures.sql
+npx wrangler dev --port 8787 --persist-to /tmp/lore-qa &
+npm run smoke -- http://127.0.0.1:8787/mcp && sleep 30
+curl -s http://127.0.0.1:8787/cdn-cgi/local/explorer/api/local/observability/query \
+  -H 'Content-Type: application/json' \
+  -d '{"sql":"SELECT name, json(attributes) attrs, outcome FROM spans WHERE name LIKE '"'"'lore.%'"'"'"}'
+```
+
+On a deployed node the same spans appear in the owner's Cloudflare dashboard
+under Workers & Pages → the Worker → Observability → Traces, filterable by
+the `lore.*` attributes. Nothing is exported anywhere else.
 
 ## Backlog
 
