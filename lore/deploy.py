@@ -59,8 +59,14 @@ class Sale(BaseModel):
 SALES = TypeAdapter(list[Sale])
 # Plain words for the two chains the Worker accepts as LORE_NETWORK.
 NETWORKS = {"real": "eip155:8453", "test": "eip155:84532"}
-# The Coinbase facilitator credentials real money needs; nothing else is vaulted here.
-SECRETS = ("CDP_API_KEY_ID", "CDP_API_KEY_SECRET")
+# The Coinbase facilitator credentials real money needs, plus the two answer-
+# model providers `lore/node/src/answer.ts` knows how to call.
+SECRETS = (
+    "CDP_API_KEY_ID",
+    "CDP_API_KEY_SECRET",
+    "ANTHROPIC_API_KEY",
+    "OPENAI_API_KEY",
+)
 # The smallest price the six-decimal formatter can render without collapsing
 # to zero; `lore price` rounds to six decimals, so this matches its floor.
 MINIMUM_PRICE = 1e-6

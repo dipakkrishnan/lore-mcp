@@ -986,6 +986,130 @@ class AnswerTryTest(LoreTestCase):
         self.assertIn("Still running", output.getvalue())
 
 
+class AnswerApplyTest(LoreTestCase):
+    """`lore answer apply -` — the one Desktop-facing path to enable or
+    disable the answer tier, and the boundary APP-035 exists to prove: the
+    `LORE_ATTENDED_SURFACE` marker alone is forgeable by the agent's own Bash
+    tool, so an approval token only Electron main can read is what actually
+    gates this."""
+
+    DECISION = {
+        "proxy_preamble": "Act as Ada's concise, evidence-first proxy.",
+        "answer_price_usd": 0.5,
+        "answer_enabled": True,
+    }
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.user_data = Path(self.tmp.name) / "user-data"
+        self.user_data.mkdir()
+        self.token = "the-real-token"
+        (self.user_data / "approval.token").write_text(self.token, encoding="utf-8")
+        self.env = {"LORE_DESKTOP_USER_DATA": str(self.user_data)}
+
+    def apply(self, decision: dict[str, object], token: str | None) -> int:
+        env = dict(self.env)
+        if token is not None:
+            env["LORE_APPROVAL_TOKEN"] = token
+        with (
+            patch.dict(os.environ, env),
+            desktop_stdin(json.dumps(decision)),
+        ):
+            return cli.answer_decide()
+
+    def test_the_approved_desktop_path_applies_the_decision(self) -> None:
+        with captured() as output:
+            self.assertEqual(self.apply(self.DECISION, self.token), 0)
+        with Store() as store:
+            settings = store.answer_settings()
+        self.assertEqual(settings.proxy_preamble, self.DECISION["proxy_preamble"])
+        self.assertEqual(settings.answer_price_usd, 0.5)
+        self.assertTrue(settings.answer_enabled)
+        self.assertEqual(
+            json.loads(output.getvalue()),
+            {
+                "proxy_preamble": self.DECISION["proxy_preamble"],
+                "answer_price_usd": 0.5,
+                "answer_enabled": True,
+            },
+        )
+
+    def test_disabling_goes_through_the_same_gate(self) -> None:
+        self.apply(self.DECISION, self.token)
+        off = {"proxy_preamble": "", "answer_price_usd": 0, "answer_enabled": False}
+        with captured():
+            self.assertEqual(self.apply(off, self.token), 0)
+        with Store() as store:
+            self.assertFalse(store.answer_settings().answer_enabled)
+
+    def test_a_forged_agent_originated_attempt_is_refused(self) -> None:
+        # Exactly what the agent's Bash tool can do on its own: set the
+        # attended marker, pipe non-interactive stdin, and supply *some*
+        # value for the token — anything except the one it cannot read.
+        for forged_token in (None, "", "a-guess", self.token[:-1] + "!"):
+            with self.subTest(forged_token=forged_token):
+                with self.assertRaisesRegex(ValueError, "approval token"):
+                    self.apply(self.DECISION, forged_token)
+        with Store() as store:
+            self.assertFalse(store.answer_settings().answer_enabled)
+
+    def test_no_token_file_at_all_is_refused_not_a_crash(self) -> None:
+        (self.user_data / "approval.token").unlink()
+        with self.assertRaisesRegex(ValueError, "approval token"):
+            self.apply(self.DECISION, self.token)
+
+    def test_the_attended_marker_alone_is_still_not_enough(self) -> None:
+        # `_desktop_decision`'s own check passes (marker set, stdin piped);
+        # only the token requirement added on top should stop it.
+        with self.assertRaisesRegex(ValueError, "approval token"):
+            self.apply(self.DECISION, None)
+
+    def test_stdin_without_the_desktop_marker_is_refused_first(self) -> None:
+        with (
+            patch.dict(os.environ, {**self.env, "LORE_APPROVAL_TOKEN": self.token}),
+            patch.object(sys, "stdin", StringIO(json.dumps(self.DECISION))),
+        ):
+            os.environ.pop("LORE_ATTENDED_SURFACE", None)
+            with self.assertRaisesRegex(ValueError, "only from the Lore desktop app"):
+                cli.answer_decide()
+
+    def test_invalid_json_is_a_plain_value_error(self) -> None:
+        with (
+            patch.dict(os.environ, {**self.env, "LORE_APPROVAL_TOKEN": self.token}),
+            desktop_stdin("not json"),
+        ):
+            with self.assertRaisesRegex(ValueError, "invalid answer-settings JSON"):
+                cli.answer_decide()
+
+    def test_enabling_still_needs_a_charter_and_a_positive_price(self) -> None:
+        bad = {"proxy_preamble": "", "answer_price_usd": 0, "answer_enabled": True}
+        with self.assertRaises(ValueError):
+            self.apply(bad, self.token)
+
+
+class ApprovalTokenPathTest(unittest.TestCase):
+    def test_the_desktop_override_wins_over_the_platform_default(self) -> None:
+        with patch.dict(os.environ, {"LORE_DESKTOP_USER_DATA": "/scratch/user-data"}):
+            self.assertEqual(
+                cli._approval_token_path(), Path("/scratch/user-data/approval.token")
+            )
+
+    def test_darwin_falls_back_to_the_named_apps_application_support(self) -> None:
+        with (
+            patch.dict(os.environ, {}, clear=False),
+            patch.object(sys, "platform", "darwin"),
+        ):
+            os.environ.pop("LORE_DESKTOP_USER_DATA", None)
+            self.assertEqual(
+                cli._approval_token_path(),
+                Path.home()
+                / "Library"
+                / "Application Support"
+                / "Lore"
+                / "approval.token",
+            )
+
+
 class ProfileTest(LoreTestCase):
     def test_a_profile_is_saved_and_scheduled(self) -> None:
         path = self.lore_home / "profile.json"

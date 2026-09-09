@@ -572,13 +572,13 @@ function priceRow(s) {
   return item;
 }
 
-/** A dollar field with its prefix. @param {string} value @returns {[HTMLElement, HTMLInputElement]} */
-function priceField(value) {
+/** A dollar field with its prefix. @param {string} value @param {string} [label] @returns {[HTMLElement, HTMLInputElement]} */
+function priceField(value, label = "Price per publication in US dollars") {
   const field = el("div", "price-field");
   const input = el("input");
   input.type = "text";
   input.inputMode = "decimal";
-  input.setAttribute("aria-label", "Price per publication in US dollars");
+  input.setAttribute("aria-label", label);
   input.value = value;
   input.placeholder = "0.01";
   field.append(el("span", "price-prefix", "$"), input);
@@ -800,6 +800,7 @@ function renderSettings(s) {
   sources.push(scheduleRow(s));
   const live = s.node.live;
   return [
+    ...(pushOffer ? [seamCard()] : []),
     section("Account", card((auth?.credentials.length ? auth.credentials : [null]).map((credential) => {
       const [name, icon] = credential ? provider(credential) : ["No one", ""];
       const trailing = cell(name);
@@ -827,6 +828,11 @@ function renderSettings(s) {
       // One editor, on For Sale. Every other surface reads the same number and
       // sends the owner there rather than growing a second field.
       row("Prices", "What a buyer's agent pays per call.", cell(el("span", "mono", typeof s.pricing.publication_usd === "number" ? `${price(s.pricing.publication_usd)} publication${s.pricing.answer_enabled ? ` · ${price(s.pricing.answer_usd)} answer` : ""}` : "Not set"), button(typeof s.pricing.publication_usd === "number" ? "Change price" : "Set a price", "quiet", openPriceEditor)), false),
+      // No "enable" affordance here: drafting a charter is a conversation,
+      // started from Open your store. Turning off is safe enough to do alone.
+      ...(s.pricing.answer_enabled
+        ? [row("Paid answers", "Your proxy answers on your behalf, citing your publications.", cell(el("span", "mono", price(s.pricing.answer_usd)), button("Turn off", "quiet", () => void disableAnswers())), false)]
+        : []),
       ...(live.network === TEST_NETWORK
         ? [row("Payments", "Buyers on the test network pay with play money. Switch when you want real buyers paying real money.", cell(button("Switch to real payments", "secondary", () => void startDeploy(REAL_MONEY))), false)]
         : live.network
@@ -1251,6 +1257,30 @@ function renderRequest(event) {
       }
       respond(event.id, value, price(value));
     });
+  } else if (event.type === "answers") {
+    box.append(el("p", "q", "Enable paid answers with this charter and price?"), el("p", "hint", event.reason));
+    const charter = el("div", "card pad");
+    charter.append(el("p", "", event.charter));
+    box.append(charter);
+    const [field, amount] = priceField(String(event.price), "Price per answer in US dollars");
+    const actions = el("div", "actions");
+    const later = el("button", "btn secondary sm", "Not now");
+    later.type = "button";
+    later.addEventListener("click", () => respond(event.id, null, "Not now"));
+    const enable = el("button", "btn primary sm", "Enable");
+    enable.type = "submit";
+    actions.append(later, enable);
+    box.append(field, actions);
+    box.addEventListener("submit", (submitEvent) => {
+      submitEvent.preventDefault();
+      // Like the price card: the agent only learns the number confirmed here.
+      const value = parsePrice(amount.value);
+      if (value === null) {
+        tell("A price has to be a number above zero.", true);
+        return;
+      }
+      respond(event.id, value, `Enable answers at ${price(value)}`);
+    });
   } else {
     box.append(el("p", "q", event.prompt.message));
     /** @type {HTMLInputElement | HTMLSelectElement} */
@@ -1513,6 +1543,13 @@ async function decide(original, approve, candidate = original) {
   approvedThisPass = false;
   pushOffer = snapshot?.node.url ? "Approved publications reach buyers only after a push. Leaving it is fine; the next push carries it." : false;
   if (!pushOffer) tell("Approved. It goes on sale the moment you open a store.");
+  render();
+}
+
+async function disableAnswers() {
+  if (!(await act(window.lore.disableAnswers))) return;
+  pushOffer = snapshot?.node.url ? "Paid answers are off here; buyers stop seeing them once you push." : false;
+  if (!pushOffer) tell("Turned off.");
   render();
 }
 

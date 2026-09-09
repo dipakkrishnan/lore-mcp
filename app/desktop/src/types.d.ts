@@ -173,6 +173,7 @@ interface Window {
     push(): Promise<void>;
     schedule(): Promise<void>;
     setPrice(amount: number): Promise<void>;
+    disableAnswers(): Promise<void>;
     sales(): Promise<Sale[]>;
     pickFiles(): Promise<string[]>;
     pathFor(file: File): string;
@@ -210,6 +211,7 @@ type AgentRequest =
   | { type: "auth-prompt"; id: string; task: AgentTask | null; prompt: AuthPrompt }
   | { type: "cloudflare"; id: string; task: AgentTask | null }
   | { type: "price"; id: string; task: AgentTask | null; amount: number; reason: string }
+  | { type: "answers"; id: string; task: AgentTask | null; charter: string; price: number; reason: string }
   | { type: "open"; id: string; task: AgentTask | null; title: string; url: string; note: string };
 
 type AgentEvent =
@@ -241,6 +243,10 @@ type LoreAgentOptions = {
   loreHome: string;
   skillsDir: string;
   binDir?: string;
+  /** Electron's `app.getPath("userData")` — the Bash sandbox denies read and
+   * write here (see `bashSandboxPolicy`), because it holds the answer-settings
+   * approval token and provider credentials. */
+  userDataDir?: string;
   credentials: import("@earendil-works/pi-ai").CredentialStore;
   emit(event: AgentEvent): void;
   askUser(questions: OwnerQuestion[]): Promise<Record<string, string>>;
@@ -248,9 +254,13 @@ type LoreAgentOptions = {
   proposeBlueprint(fields: BlueprintFields, evidence: string): Promise<BlueprintFields>;
   /** Resolves to the amount the owner confirmed, or null if they declined. */
   proposePrice(amount: number, reason: string): Promise<number | null>;
+  /** Resolves to the per-answer price the owner confirmed, or null if they declined. The only way to enable paid answers. */
+  proposeAnswers(charter: string, price: number, reason: string): Promise<number | null>;
+  /** One free trial question against the owner's own deployed node (MON-022) — never a payment, never a `sales` row. Resolves to a plain sentence describing what happened. */
+  tryAnswer(question: string): Promise<string>;
   cloudflareLogin(): Promise<string>;
   openUrl(page: { title: string; url: string; note: string }): Promise<string>;
-  storeSecret(name: "CDP_API_KEY_ID" | "CDP_API_KEY_SECRET"): Promise<string>;
+  storeSecret(name: "CDP_API_KEY_ID" | "CDP_API_KEY_SECRET" | "ANTHROPIC_API_KEY" | "OPENAI_API_KEY"): Promise<string>;
   /** How many staged drafts still wait on the owner's cards. */
   drafts?(): Promise<number>;
   authPrompt(prompt: import("@earendil-works/pi-ai").AuthPrompt): Promise<string>;

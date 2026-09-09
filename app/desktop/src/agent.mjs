@@ -68,8 +68,8 @@ export async function nameRun(models, text) {
   }
 }
 
-/** @param {string} loreHome @param {AgentTask} task @param {string} [binDir] */
-export function bashSandboxPolicy(loreHome, task, binDir) {
+/** @param {string} loreHome @param {AgentTask} task @param {string} [binDir] @param {string} [userDataDir] */
+export function bashSandboxPolicy(loreHome, task, binDir, userDataDir) {
   const home = homedir();
   const lore = realpathSync(loreHome);
   const owned = (OWNER_DIRS[task] ?? []).map((dir) => resolve(home, dir));
@@ -78,31 +78,36 @@ export function bashSandboxPolicy(loreHome, task, binDir) {
   const runtime = binDir
     ? [resolve(binDir, ".."), ...(process.resourcesPath ? [resolve(process.resourcesPath, "..")] : [])]
     : [resolve(home, ".local/bin/lore"), resolve(home, ".local/share/lore/lore-mcp"), resolve(home, ".local/share/uv/python"), resolve(home, ".local/share/uv/tools/lore-mcp")];
+  // Electron's userData holds the answer-settings approval token (main.cjs)
+  // and provider credentials: named explicitly, not left to `denyRead: [home]`
+  // alone, because `LORE_DESKTOP_USER_DATA` (dogfood.sh, edge.sh) can point it
+  // outside $HOME entirely, where that blanket deny never reaches it.
+  const userData = userDataDir ? [resolve(userDataDir)] : [];
   return {
     network: { allowedDomains: task === "deploy" ? ["*"] : [], deniedDomains: [] },
     filesystem: {
-      denyRead: [home],
+      denyRead: [home, ...userData],
       allowRead: [lore, ...runtime, resolve(home, ".claude/projects"), resolve(home, ".codex/memories"), ...owned, ...(task === "deploy" ? [resolve(home, ".npmrc")] : [])],
       allowWrite: [lore, ...owned],
-      denyWrite: []
+      denyWrite: [...userData]
     }
   };
 }
 
-/** @param {string} loreHome @param {string} [binDir] */
-export async function initializeBashSandbox(loreHome, binDir) {
+/** @param {string} loreHome @param {string} [binDir] @param {string} [userDataDir] */
+export async function initializeBashSandbox(loreHome, binDir, userDataDir) {
   mkdirSync(loreHome, { recursive: true, mode: 0o700 });
   mkdirSync(SANDBOX_TMPDIR, { recursive: true });
-  await SandboxManager.initialize(bashSandboxPolicy(loreHome, "capture", binDir), undefined, true);
+  await SandboxManager.initialize(bashSandboxPolicy(loreHome, "capture", binDir, userDataDir), undefined, true);
 }
 
-/** @param {string} loreHome @param {AgentTask} task @param {string} [binDir] @returns {import("@earendil-works/pi-coding-agent").BashOperations} */
-export function createSandboxedBashOperations(loreHome, task, binDir) {
+/** @param {string} loreHome @param {AgentTask} task @param {string} [binDir] @param {string} [userDataDir] @returns {import("@earendil-works/pi-coding-agent").BashOperations} */
+export function createSandboxedBashOperations(loreHome, task, binDir, userDataDir) {
   const local = createLocalBashOperations();
   return {
     exec: async (command, cwd, options) => {
       const id = randomUUID();
-      const policy = bashSandboxPolicy(loreHome, task, binDir);
+      const policy = bashSandboxPolicy(loreHome, task, binDir, userDataDir);
       // The mux proxy's live network filter reads the session-level config set by
       // initialize()/updateConfig(), never the customConfig passed to wrapWithSandbox
       // below — so without this, every task is filtered against whichever task's
@@ -236,7 +241,7 @@ export class LoreAgent {
 
   /** @param {LoreAgentOptions} options */
   static async create(options) {
-    await initializeBashSandbox(options.loreHome, options.binDir);
+    await initializeBashSandbox(options.loreHome, options.binDir, options.userDataDir);
     const models = await ModelRuntime.create({ credentials: options.credentials });
     const settings = SettingsManager.inMemory();
     const resources = new DefaultResourceLoader({
@@ -257,6 +262,7 @@ export class LoreAgent {
         "During capture, show proposed memories only through propose_memories, never in prose; that tool saves what the owner keeps and returns the saved memories, or returns the owner's correction for you to revise and propose again. After it saves, say one short sentence and call finish_task; never offer publication, the owner starts that from the saved card.",
         "During onboarding, gather evidence first, then call propose_blueprint once with one bounded proposal; that tool saves the owner-approved shape.",
         "To set what buyers pay per publication, call propose_price and never run a price command yourself; the owner confirms the exact amount on the card, and the tool returns what they saved or null if they declined. Work from that number, not from what you proposed.",
+        "To enable paid answers, call propose_answers with the exact charter and price and never run an answer command yourself; the owner sees the exact charter on the card and confirms or changes the price, and the tool returns what they saved or null if they declined.",
         "Never mention tools, commands, files, or plumbing to the owner: no Cloudflare, Node, wrangler, Worker, Base, Sepolia, network ids, or memory ids in prose; name a memory by its title. Speak about memories, their Lore, their store, play money and real money, and say what happens next rather than which checks passed.",
         "A memory's id number is for tools only: never say one to the owner, even in passing; call every memory by its title.",
         "Call finish_task when the current task is complete."
@@ -480,10 +486,10 @@ export class LoreAgent {
       resourceLoader: this.resources,
       settingsManager: this.settings,
       sessionManager,
-      tools: ["read", "write", "edit", "bash", "ask_user", "propose_memories", "propose_blueprint", "propose_price", "cloudflare_login", "open_url", "store_secret", "finish_task"],
+      tools: ["read", "write", "edit", "bash", "ask_user", "propose_memories", "propose_blueprint", "propose_price", "propose_answers", "try_answer", "cloudflare_login", "open_url", "store_secret", "finish_task"],
       customTools: [
         createBashTool(this.options.loreHome, {
-          operations: createSandboxedBashOperations(this.options.loreHome, task, this.options.binDir),
+          operations: createSandboxedBashOperations(this.options.loreHome, task, this.options.binDir, this.options.userDataDir),
           spawnHook: (context) => ({
             ...context,
             env: {
@@ -499,6 +505,8 @@ export class LoreAgent {
         this.#memoriesTool(),
         this.#blueprintTool(),
         this.#priceTool(),
+        this.#answersTool(),
+        this.#tryAnswerTool(),
         this.#cloudflareTool(),
         this.#openTool(),
         this.#secretTool(),
@@ -640,6 +648,38 @@ export class LoreAgent {
     });
   }
 
+  #answersTool() {
+    return defineTool({
+      name: "propose_answers",
+      executionMode: "sequential",
+      label: "Propose paid answers",
+      description: "Show the owner their exact public proxy charter and a suggested per-answer price, and enable the paid answer tier if they approve. Returns the price they saved, or null if they declined. The only way to enable answers in the app.",
+      parameters: Type.Object({
+        charter: Type.String({ minLength: 1, maxLength: 2000 }),
+        price: Type.Number({ exclusiveMinimum: 0 }),
+        reason: Type.String({ minLength: 1, maxLength: 240 })
+      }),
+      execute: async (_id, { charter, price, reason }) => {
+        const saved = await this.#attended("Enable paid answers", () => this.options.proposeAnswers(charter, price, reason));
+        return { content: [{ type: "text", text: JSON.stringify({ price_usd: saved }) }], details: {} };
+      }
+    });
+  }
+
+  #tryAnswerTool() {
+    return defineTool({
+      name: "try_answer",
+      executionMode: "sequential",
+      label: "Try a question",
+      description: "Ask the owner's own deployed node one free trial question, as the owner, so they can judge the charter's voice before enabling. Spends no crypto but does spend the node's own provider tokens; needs a deployed node with a working provider key. Can take a couple of minutes. Returns the answer, an honest refusal, or a failure reason.",
+      parameters: Type.Object({ question: Type.String({ minLength: 1, maxLength: 4000 }) }),
+      execute: async (_id, { question }) => {
+        const text = await this.options.tryAnswer(question);
+        return { content: [{ type: "text", text }], details: {} };
+      }
+    });
+  }
+
   #cloudflareTool() {
     return defineTool({
       name: "cloudflare_login",
@@ -672,9 +712,16 @@ export class LoreAgent {
     return defineTool({
       name: "store_secret",
       executionMode: "sequential",
-      label: "Store a Coinbase credential",
-      description: "Ask the owner for one Coinbase Developer Platform value and vault it on their node for real payments. The value never reaches you; returns whether it was stored.",
-      parameters: Type.Object({ name: Type.Union([Type.Literal("CDP_API_KEY_ID"), Type.Literal("CDP_API_KEY_SECRET")]) }),
+      label: "Store a credential",
+      description: "Ask the owner for one Coinbase Developer Platform value, or an Anthropic or OpenAI API key for paid answers, and vault it on their node. The value never reaches you; returns whether it was stored.",
+      parameters: Type.Object({
+        name: Type.Union([
+          Type.Literal("CDP_API_KEY_ID"),
+          Type.Literal("CDP_API_KEY_SECRET"),
+          Type.Literal("ANTHROPIC_API_KEY"),
+          Type.Literal("OPENAI_API_KEY")
+        ])
+      }),
       execute: async (_id, { name }) => {
         const text = await this.#attended("Enter a Coinbase API key", () => this.options.storeSecret(name));
         return { content: [{ type: "text", text }], details: {} };

@@ -34,6 +34,7 @@ contextBridge.exposeInMainWorld("lore", {
   schedule: () => ipcRenderer.invoke("schedule:install"),
   /** @param {number} amount */
   setPrice: (amount) => ipcRenderer.invoke("pricing:set", amount),
+  disableAnswers: () => ipcRenderer.invoke("answers:disable"),
   sales: () => ipcRenderer.invoke("store:sales"),
   pickFiles: () => ipcRenderer.invoke("files:pick"),
   /** @param {File} file */

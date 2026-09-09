@@ -14,15 +14,15 @@ function useRuntime(file) {
   runtime = file ? { file, args: [] } : { file: "uv", args: ["run", "lore"], cwd: root };
 }
 
-/** @param {string} loreHome @param {string[]} args @param {string} [decision] */
-async function lore(loreHome, args, decision) {
+/** @param {string} loreHome @param {string[]} args @param {string} [decision] @param {Record<string, string>} [extraEnv] @param {number} [timeoutMs] */
+async function lore(loreHome, args, decision, extraEnv, timeoutMs = 120_000) {
   const attended = decision === undefined ? {} : { LORE_ATTENDED_SURFACE: "desktop" };
-  const env = { ...process.env, LORE_HOME: loreHome, NO_COLOR: "1", ...attended };
+  const env = { ...process.env, LORE_HOME: loreHome, NO_COLOR: "1", ...attended, ...extraEnv };
   const pending = run(runtime.file, [...runtime.args, ...args], {
     cwd: runtime.cwd ?? loreHome,
     env,
     maxBuffer: 8 * 1024 * 1024,
-    timeout: 120_000,
+    timeout: timeoutMs,
     windowsHide: true
   });
   pending.child.stdin?.end(decision);
@@ -131,6 +131,47 @@ async function setPrice(loreHome, amount) {
   await lore(loreHome, ["price", String(amount)], "");
 }
 
+/** Enable, change, or disable the answer tier — the one path into `lore
+ * answer apply`, gated by the token only Electron main can read (see
+ * `main.cjs`'s `APPROVAL_TOKEN` and `bashSandboxPolicy` in `agent.mjs`). Only
+ * structural checks here; `AnswerSettings`'s own validation is authoritative,
+ * so a disable (empty charter, zero price) is not rejected client-side.
+ * @param {string} loreHome @param {{ proxy_preamble: string, answer_price_usd: number, answer_enabled: boolean }} decision @param {string} token */
+async function setAnswerSettings(loreHome, decision, token) {
+  const { proxy_preamble, answer_price_usd, answer_enabled } = decision;
+  if (typeof proxy_preamble !== "string" || proxy_preamble.length > 4000) throw new Error("Invalid proxy charter");
+  if (typeof answer_price_usd !== "number" || !Number.isFinite(answer_price_usd)) throw new Error("Invalid answer price");
+  if (typeof answer_enabled !== "boolean") throw new Error("Invalid answer-settings decision");
+  await lore(
+    loreHome,
+    ["answer", "apply"],
+    JSON.stringify({ proxy_preamble, answer_price_usd, answer_enabled }),
+    { LORE_APPROVAL_TOKEN: token }
+  );
+}
+
+/** Turn one `lore answer try --json` outcome into a sentence the agent can
+ * relay in prose, the way every other owner-action tool returns plain text
+ * rather than JSON for the agent to parse. @param {{ status: string, answer?: string, reason?: string }} outcome */
+function describeAnswerOutcome(outcome) {
+  if (outcome.status === "complete") return `Answer: ${outcome.answer}`;
+  if (outcome.status === "refused") return `Refused: ${outcome.reason || "no coverage"}`;
+  if (outcome.status === "failed") return `Failed: ${outcome.reason || "agent error"}`;
+  return "Still running; try again in a moment.";
+}
+
+/** One free trial question against the owner's own deployed node (MON-022) —
+ * no crypto payment, no `sales` row. Not gated by the approval token: it
+ * spends nothing the owner didn't already agree to by deploying with a
+ * provider key, and it changes no settings.
+ * @param {string} loreHome @param {string} question @returns {Promise<string>} */
+async function tryAnswer(loreHome, question) {
+  // 5 minutes: the CLI's own poll runs up to ~250s past the node's 180s
+  // deadline before it gives up; the default 120s would cut it off first.
+  const outcome = JSON.parse(await lore(loreHome, ["answer", "try", question, "--json"], undefined, undefined, 300_000));
+  return describeAnswerOutcome(outcome);
+}
+
 /** @param {string} loreHome @returns {Promise<PublicationCandidate[]>} */
 async function candidates(loreHome) {
   return JSON.parse(await lore(loreHome, ["publication", "candidates"]));
@@ -154,6 +195,9 @@ module.exports = {
   editMemory,
   captureMemories,
   setPrice,
+  setAnswerSettings,
+  describeAnswerOutcome,
+  tryAnswer,
   candidates,
   decide,
   useRuntime

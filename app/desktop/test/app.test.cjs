@@ -489,6 +489,126 @@ test("only Electron main can pipe a decision, and only for a card that is drafte
   }
 });
 
+// APP-035: LORE_ATTENDED_SURFACE=desktop on a non-interactive pipe is
+// something the agent's own Bash tool can set on a command it runs itself —
+// it is not proof the owner approved anything. The real boundary is a random
+// token Electron main writes under `userData` at launch (main.cjs's
+// APPROVAL_TOKEN / writeApprovalToken) to a path the Bash sandbox denies both
+// read and write on (agent.mjs's bashSandboxPolicy). These two tests prove
+// both directions: the approved Desktop path, and a forged agent-originated
+// attempt using every tool actually available to Bash.
+test("the approved desktop path applies an answer-settings decision", async () => {
+  const { setAnswerSettings } = require("../src/state.cjs");
+  const directory = await mkdtemp(join(tmpdir(), "lore-desktop-"));
+  const userData = await mkdtemp(join(tmpdir(), "lore-userdata-"));
+  const token = "b".repeat(64);
+  const decision = { proxy_preamble: "Act as Ada's concise, evidence-first proxy.", answer_price_usd: 0.5, answer_enabled: true };
+  const savedEnv = process.env.LORE_DESKTOP_USER_DATA;
+  try {
+    await writeFile(join(userData, "approval.token"), token, { mode: 0o600 });
+    process.env.LORE_DESKTOP_USER_DATA = userData;
+    await setAnswerSettings(directory, decision, token);
+    const state = await readState(directory);
+    assert.equal(state.pricing.answer_enabled, true);
+    assert.equal(state.pricing.answer_usd, 0.5);
+    // Wrong token, same everything else: refused, nothing changes.
+    await assert.rejects(
+      setAnswerSettings(directory, { ...decision, answer_price_usd: 9 }, "wrong-token"),
+      { message: /approval token/ }
+    );
+    assert.equal((await readState(directory)).pricing.answer_usd, 0.5);
+  } finally {
+    if (savedEnv === undefined) delete process.env.LORE_DESKTOP_USER_DATA;
+    else process.env.LORE_DESKTOP_USER_DATA = savedEnv;
+    await rm(directory, { recursive: true });
+    await rm(userData, { recursive: true });
+  }
+});
+
+test("a forged agent-originated attempt cannot enable or disable answers", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "lore-desktop-"));
+  const userData = await mkdtemp(join(tmpdir(), "lore-userdata-"));
+  const token = "c".repeat(64);
+  const decision = { proxy_preamble: "Act as Ada's proxy.", answer_price_usd: 0.5, answer_enabled: true };
+  try {
+    await writeFile(join(userData, "approval.token"), token, { mode: 0o600 });
+    // Exactly what the agent's Bash tool can do on its own: run the real CLI
+    // directly (not through state.cjs), set the attended marker itself, pipe
+    // non-interactive stdin, and — the one thing it cannot do — read the
+    // token file the sandbox denies it, so it either omits the header or
+    // guesses. Both attempts are exercised.
+    for (const env of [
+      { LORE_HOME: directory, LORE_DESKTOP_USER_DATA: userData, LORE_ATTENDED_SURFACE: "desktop", NO_COLOR: "1" },
+      { LORE_HOME: directory, LORE_DESKTOP_USER_DATA: userData, LORE_ATTENDED_SURFACE: "desktop", LORE_APPROVAL_TOKEN: "a-guess", NO_COLOR: "1" }
+    ]) {
+      const forged = spawnSync("uv", ["run", "lore", "answer", "apply"], {
+        cwd: join(__dirname, "../../.."),
+        env: { ...process.env, ...env },
+        input: JSON.stringify(decision),
+        encoding: "utf8"
+      });
+      assert.equal(forged.status, 1);
+      assert.match(forged.stderr, /approval token/);
+    }
+    const state = await readState(directory);
+    assert.equal(state.pricing.answer_enabled, false);
+  } finally {
+    await rm(directory, { recursive: true });
+    await rm(userData, { recursive: true });
+  }
+});
+
+test("the userData directory holding the approval token is denied to Bash in both directions", async () => {
+  const { bashSandboxPolicy } = require("../src/agent.mjs");
+  const home = await mkdtemp(join(tmpdir(), "lore-desktop-"));
+  const userDataDir = join(tmpdir(), "lore-userdata-example");
+  try {
+    const { denyRead, denyWrite } = bashSandboxPolicy(home, "deploy", undefined, userDataDir).filesystem;
+    assert.ok(denyRead.includes(userDataDir), "denyRead must name userData explicitly, not rely on $HOME alone");
+    assert.ok(denyWrite.includes(userDataDir));
+    // No userDataDir given (an older caller, or a test that never sets it up) must not throw or silently allow everything.
+    assert.doesNotThrow(() => bashSandboxPolicy(home, "deploy"));
+  } finally {
+    await rm(home, { recursive: true });
+  }
+});
+
+test("propose_answers is a live tool, and the agent is told not to enable answers by hand", async () => {
+  const source = await readFile(join(__dirname, "../src/agent.mjs"), "utf8");
+  const active = source.match(/tools: \[([^\]]*)\]/)[1];
+  assert.match(active, /"propose_answers"/, "propose_answers must be in the active tool list");
+  assert.match(source, /this\.#answersTool\(\)/, "and registered as a custom tool");
+  assert.match(source, /call propose_answers.*never run an answer command yourself/);
+  assert.match(active, /"try_answer"/, "try_answer must be in the active tool list");
+  assert.match(source, /this\.#tryAnswerTool\(\)/, "and registered as a custom tool");
+});
+
+test("describeAnswerOutcome translates every terminal status to the sentence the agent relays", () => {
+  const { describeAnswerOutcome } = require("../src/state.cjs");
+  assert.equal(describeAnswerOutcome({ status: "complete", answer: "Ship the smallest thing first." }), "Answer: Ship the smallest thing first.");
+  assert.equal(describeAnswerOutcome({ status: "refused", reason: "no coverage" }), "Refused: no coverage");
+  assert.equal(describeAnswerOutcome({ status: "refused" }), "Refused: no coverage");
+  assert.equal(describeAnswerOutcome({ status: "failed", reason: "agent error" }), "Failed: agent error");
+  assert.equal(describeAnswerOutcome({ status: "running" }), "Still running; try again in a moment.");
+});
+
+test("tryAnswer calls the CLI's answer try --json and hands the outcome to describeAnswerOutcome", async () => {
+  const { tryAnswer, useRuntime } = require("../src/state.cjs");
+  const directory = await mkdtemp(join(tmpdir(), "lore-desktop-"));
+  const bin = join(directory, "lore");
+  try {
+    // Echoes argv so the test can see exactly what tryAnswer sent, then
+    // answers as if the ticket had already completed.
+    await writeFile(bin, '#!/bin/sh\necho "$@" > "$(dirname "$0")/argv.txt"\nprintf \'{"status":"complete","answer":"Ship the smallest thing first."}\'\n', { mode: 0o755 });
+    useRuntime(bin);
+    assert.equal(await tryAnswer(directory, "what would you say?"), "Answer: Ship the smallest thing first.");
+    assert.equal((await readFile(join(directory, "argv.txt"), "utf8")).trim(), "answer try what would you say? --json");
+  } finally {
+    useRuntime();
+    await rm(directory, { recursive: true });
+  }
+});
+
 test("safeStorage credentials survive an Electron restart", { skip: process.platform !== "darwin" }, async () => {
   const directory = await mkdtemp(join(tmpdir(), "lore-credentials-"));
   const electron = require("electron");

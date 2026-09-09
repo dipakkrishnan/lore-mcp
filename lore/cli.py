@@ -4,6 +4,7 @@ import argparse
 import json
 import math
 import os
+import secrets
 import sys
 import time
 from pathlib import Path
@@ -187,6 +188,10 @@ def parser() -> argparse.ArgumentParser:
     answer_on.add_argument("file", help="text file holding the public proxy charter")
     answer_on.add_argument("price", type=float, help="USD per answer; must be positive")
     answer_commands.add_parser("off", help="disable the answer tier")
+    answer_commands.add_parser(
+        "apply",
+        help="apply one answer-settings decision from the Lore desktop app (stdin)",
+    )
     answer_try = answer_commands.add_parser(
         "try",
         help="ask the deployed node one free trial question as the owner; spends no crypto",
@@ -325,6 +330,8 @@ def main(argv: list[str] | None = None) -> int:
                 return answer_enable(args.file, args.price)
             if args.answer_command == "try":
                 return answer_try(args.question, args.json)
+            if args.answer_command == "apply":
+                return answer_decide()
             return answer_disable()
         if args.command == "serve":
             from .mcp import main as serve
@@ -878,6 +885,35 @@ def answer_try(question: str, as_json: bool) -> int:
     return 0
 
 
+def answer_decide() -> int:
+    """Apply one answer-settings decision from the Lore desktop app (stdin only).
+
+    The single Desktop-facing entry point for both enabling and disabling —
+    see `_require_approval_token` for why `LORE_ATTENDED_SURFACE` alone can't
+    gate this. Validation is `AnswerSettings`'s own, unchanged from `lore
+    answer on`.
+    """
+    text = _desktop_decision("an answer-settings decision")
+    _require_approval_token()
+    try:
+        payload = json.loads(text)
+    except json.JSONDecodeError as error:
+        raise ValueError(f"invalid answer-settings JSON: {error}") from error
+    if not isinstance(payload, dict):
+        raise ValueError("answer-settings payload must be a JSON object")
+    settings = AnswerSettings.model_validate(
+        {
+            "proxy_preamble": payload.get("proxy_preamble", ""),
+            "answer_price_usd": payload.get("answer_price_usd", 0.0),
+            "answer_enabled": payload.get("answer_enabled", False),
+        }
+    )
+    with Store() as store:
+        store.set_answer_settings(settings)
+    print(json.dumps(settings.model_dump(), separators=(",", ":"), allow_nan=False))
+    return 0
+
+
 def answer_disable() -> int:
     with Store() as store:
         store.set_setting("answer_enabled", False)
@@ -941,6 +977,50 @@ def _owner_action(what: str) -> None:
         raise ValueError(
             f"{what} needs an attended terminal or the Lore desktop app; "
             "piped and background use is disabled"
+        )
+
+
+def _approval_token_path() -> Path:
+    """Where Electron main keeps its answer-settings approval token.
+
+    Resolved independently of anything the caller supplies — never from argv,
+    an env-supplied path, or a file inside `LORE_HOME` — because an agent that
+    could name its own token file could plant one and pass the check. This
+    mirrors how `main.cjs` resolves Electron's `userData` directory: the same
+    `LORE_DESKTOP_USER_DATA` override the desktop test harnesses set, else the
+    platform default for an app named "Lore".
+    """
+    override = os.environ.get("LORE_DESKTOP_USER_DATA")
+    if override:
+        return Path(override) / "approval.token"
+    if sys.platform == "darwin":
+        return (
+            Path.home() / "Library" / "Application Support" / "Lore" / "approval.token"
+        )
+    if sys.platform == "win32":
+        appdata = os.environ.get("APPDATA") or str(Path.home() / "AppData" / "Roaming")
+        return Path(appdata) / "Lore" / "approval.token"
+    config = os.environ.get("XDG_CONFIG_HOME") or str(Path.home() / ".config")
+    return Path(config) / "Lore" / "approval.token"
+
+
+def _require_approval_token() -> None:
+    """Refuse unless `LORE_APPROVAL_TOKEN` matches the token Electron main
+    minted at launch and wrote to a path the Bash sandbox denies both read and
+    write on (`bashSandboxPolicy` in `app/desktop/src/agent.mjs`). Being able
+    to set `LORE_ATTENDED_SURFACE=desktop` on a non-interactive pipe — which
+    the agent's own Bash tool can do — is not proof of owner approval; reading
+    the real token's value from a path Bash cannot reach is.
+    """
+    provided = os.environ.get("LORE_APPROVAL_TOKEN", "")
+    try:
+        expected = _approval_token_path().read_text(encoding="utf-8").strip()
+    except OSError:
+        expected = ""
+    if not expected or not provided or not secrets.compare_digest(provided, expected):
+        raise ValueError(
+            "answer-settings changes need the desktop app's approval token; "
+            "the attended-surface marker alone is not enough"
         )
 
 
