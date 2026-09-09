@@ -1,15 +1,27 @@
+import { QUOTA_NAME } from "./quota.js";
+
 /**
- * Two limiters: FEEDBACK_RATE_LIMIT keyed per client IP, GLOBAL_RATE_LIMIT on
- * a constant key so an IP-rotating caller cannot still flood the issue
- * tracker or burn the token's GitHub quota. KV is a poor counter here
- * (eventually consistent across colos, a write per request); a Durable
- * Object is correct but adds a class and a migration for one integer;
- * Turnstile needs a browser, which the CLI has none of. The Rate Limiting
- * binding is free with no extra infrastructure.
+ * Three layers, in the order they cost the least to check:
  *
- * Returns true (allow) when a binding is absent — the binding is not
- * reliably emulated everywhere `wrangler dev` runs, and this keeps the guard
- * a pure, independently testable module rather than dead code inside fetch.
+ * 1. `FEEDBACK_RATE_LIMIT` — a Rate Limiting binding keyed per client IP.
+ *    Blunts one caller's burst.
+ * 2. `GLOBAL_RATE_LIMIT` — the same kind of binding on a constant key. Its
+ *    counters are per Cloudflare location, so this is a **per-location
+ *    pre-filter, not an aggregate bound**: a caller spread across locations
+ *    gets one bucket per location. It stays because it absorbs most abuse
+ *    without a Durable Object round trip, and for no other reason. See
+ *    https://developers.cloudflare.com/workers/runtime-apis/bindings/rate-limit/
+ * 3. `FEEDBACK_QUOTA` — one Durable Object holding shared authoritative
+ *    counters. This is the layer that actually bounds how many issues the
+ *    relay's GitHub token can be made to create; see src/quota.ts.
+ *
+ * The Durable Object is asked last and only if the cheap layers passed, so a
+ * request that was going to be refused anyway never spends quota.
+ *
+ * Returns true (allow) when a layer's binding is absent, so this stays a
+ * pure function that can be tested against fakes rather than dead code
+ * inside fetch. Every layer is declared in wrangler.jsonc, so in a real
+ * deployment none of them is absent.
  */
 export async function allow(env: Env, request: Request): Promise<boolean> {
   const checks: Promise<{ success: boolean }>[] = [];
@@ -23,7 +35,13 @@ export async function allow(env: Env, request: Request): Promise<boolean> {
   if (env.GLOBAL_RATE_LIMIT) {
     checks.push(env.GLOBAL_RATE_LIMIT.limit({ key: "global" }));
   }
-  if (!checks.length) return true;
-  const results = await Promise.all(checks);
-  return results.every((result) => result.success);
+  if (checks.length) {
+    const results = await Promise.all(checks);
+    if (!results.every((result) => result.success)) return false;
+  }
+  if (env.FEEDBACK_QUOTA) {
+    const quota = env.FEEDBACK_QUOTA.get(env.FEEDBACK_QUOTA.idFromName(QUOTA_NAME));
+    return await quota.take();
+  }
+  return true;
 }

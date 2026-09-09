@@ -31,9 +31,13 @@ CONTRACT_PATH = (
 
 @contextmanager
 def stub_relay(
-    status: int, body: object
+    status: int, body: object, raw_bodies: list[bytes] | None = None
 ) -> Iterator[tuple[str, list[dict[str, object]]]]:
-    """Serve exactly one canned response and capture the request bodies received."""
+    """Serve exactly one canned response and capture the request bodies received.
+
+    Pass `raw_bodies` to also collect the undecoded bytes, for the tests that
+    care how the payload was encoded rather than what it says.
+    """
     received: list[dict[str, object]] = []
     headers: list[dict[str, str]] = []
 
@@ -42,6 +46,8 @@ def stub_relay(
             size = int(self.headers.get("Content-Length", "0"))
             raw = self.rfile.read(size)
             headers.append(dict(self.headers.items()))
+            if raw_bodies is not None:
+                raw_bodies.append(raw)
             received.append(json.loads(raw) if raw else {})
             payload = body if isinstance(body, bytes) else json.dumps(body).encode()
             self.send_response(status)
@@ -70,6 +76,11 @@ class ContractTest(unittest.TestCase):
         self.assertEqual(limits["title"]["max"], feedback.MAX_TITLE)
         self.assertEqual(limits["email"]["max"], feedback.MAX_EMAIL)
         self.assertEqual(limits["description"]["max"], feedback.MAX_DESCRIPTION)
+        self.assertEqual(limits["body_bytes"], feedback.MAX_BODY_BYTES)
+        # The relay counts the same unit pydantic does. Without this, an
+        # emoji-heavy description valid here is a 400 there, because
+        # JavaScript's String#length counts UTF-16 code units.
+        self.assertEqual(contract["length_unit"], "code_points")
         self.assertEqual(contract["report_version"], feedback.REPORT_VERSION)
         self.assertEqual(sorted(contract["sources"]), ["cli", "desktop"])
         self.assertEqual(
@@ -226,8 +237,25 @@ class MetadataTest(LoreTestCase):
 
 
 class RelayUrlTest(LoreTestCase):
-    def test_default_is_the_pinned_constant(self) -> None:
-        self.assertEqual(feedback.relay_url(), feedback.RELAY_URL)
+    def test_no_pinned_relay_refuses_and_says_so(self) -> None:
+        """Until a maintainer deploys the relay and pins its address, a build
+        must refuse rather than POST somewhere nobody configured."""
+        self.assertIsNone(feedback.RELAY_URL)
+        with self.assertRaises(ValueError) as caught:
+            feedback.relay_url()
+        self.assertIn("not wired up", str(caught.exception))
+        self.assertFalse(feedback.available())
+
+    def test_a_pinned_relay_is_used_and_reported_available(self) -> None:
+        with patch.object(feedback, "RELAY_URL", "https://feedback.example/report"):
+            self.assertEqual(feedback.relay_url(), "https://feedback.example/report")
+            self.assertTrue(feedback.available())
+
+    def test_a_malformed_override_is_not_available(self) -> None:
+        with patch.dict(
+            "os.environ", {feedback.RELAY_ENV: "http://example.com/report"}
+        ):
+            self.assertFalse(feedback.available())
 
     def test_https_override_is_accepted(self) -> None:
         with patch.dict(
@@ -264,14 +292,39 @@ class SpoolTest(LoreTestCase):
         self.assertNotIn("receipt", saved)
         self.assertNotIn("error", saved)
 
-    def test_updating_with_a_receipt_rewrites_the_same_file(self) -> None:
+    def test_updating_with_a_receipt_rewrites_the_named_file(self) -> None:
         report = self._report()
         first = feedback.spool(report)
         receipt = feedback.Receipt(ok=True, issue_url="https://x/1", issue_number=1)
-        second = feedback.spool(report, receipt=receipt)
+        second = feedback.spool(report, path=first, receipt=receipt)
         self.assertEqual(first, second)
         saved = json.loads(second.read_text(encoding="utf-8"))
         self.assertEqual(saved["receipt"]["issue_number"], 1)
+
+    def test_two_reports_in_the_same_second_keep_both_copies(self) -> None:
+        """submitted_at has one-second precision and install_id is fixed for
+        an installation, so the name has to break the tie itself — PRIVACY.md
+        promises a copy of everything sent."""
+        first_report = self._report()
+        second_report = feedback.build(
+            title="second", email=None, description="also mine", source="cli"
+        ).model_copy(update={"metadata": first_report.metadata})
+        first = feedback.spool(first_report)
+        second = feedback.spool(second_report)
+        self.assertNotEqual(first, second)
+        self.assertEqual(
+            json.loads(first.read_text(encoding="utf-8"))["report"]["title"], "t"
+        )
+        self.assertEqual(
+            json.loads(second.read_text(encoding="utf-8"))["report"]["title"], "second"
+        )
+
+    def test_running_out_of_same_second_names_raises(self) -> None:
+        report = self._report()
+        feedback.spool(report)
+        with patch.object(feedback, "SPOOL_ATTEMPTS", 1):
+            with self.assertRaises(OSError):
+                feedback.allocate_spool_path(report)
 
     def test_updating_with_an_error_records_it(self) -> None:
         report = self._report()
@@ -282,9 +335,7 @@ class SpoolTest(LoreTestCase):
     def test_pruning_keeps_only_the_newest_files(self) -> None:
         directory = feedback.spool_dir()
         for index in range(feedback.SPOOL_KEEP + 3):
-            (directory / f"2020-01-01T00-00-{index:02d}Z-aaaaaaaa.json").write_text(
-                "{}"
-            )
+            (directory / f"2020-01-01T00-00-{index:02d}Z-000.json").write_text("{}")
         with patch.object(feedback, "SPOOL_KEEP", 5):
             feedback._prune_spool()
         remaining = sorted(directory.glob("*.json"))
@@ -311,6 +362,48 @@ class SubmitTest(LoreTestCase):
         self.assertTrue(receipt.ok)
         self.assertEqual(receipt.issue_number, 1)
         self.assertEqual(received[0]["title"], "t")
+
+    def test_non_ascii_text_crosses_as_utf8_rather_than_escapes(self) -> None:
+        """json.dumps defaults to ensure_ascii=True, which turns every CJK
+        character into a six-byte \\uXXXX escape. The relay caps the body in
+        bytes, so the escaping alone could make a valid report a 413."""
+        description = "同步静默跳过 Codex 会话 🤖🚀"
+        raw_bodies: list[bytes] = []
+        with stub_relay(
+            201,
+            {"ok": True, "issue_url": "https://x/1", "issue_number": 1},
+            raw_bodies,
+        ) as (url, received):
+            feedback.submit(
+                feedback.build(
+                    title="标题",
+                    email=None,
+                    description=description,
+                    source="cli",
+                ),
+                url=url,
+            )
+        self.assertEqual(received[0]["description"], description)
+        self.assertNotIn(b"\\u", raw_bodies[0])
+        self.assertIn(description.encode("utf-8"), raw_bodies[0])
+
+    def test_a_maximal_non_ascii_report_stays_under_the_relays_body_cap(self) -> None:
+        """Every field at its limit, in the widest characters UTF-8 has: the
+        relay must not be able to 413 something this module accepted."""
+        report = feedback.build(
+            title="🚀" * feedback.MAX_TITLE,
+            email="a" * 60 + "@" + "b" * 60 + ".example",
+            description="🚀" * feedback.MAX_DESCRIPTION,
+            source="desktop",
+        )
+        raw_bodies: list[bytes] = []
+        with stub_relay(
+            201,
+            {"ok": True, "issue_url": "https://x/1", "issue_number": 1},
+            raw_bodies,
+        ) as (url, _received):
+            feedback.submit(report, url=url)
+        self.assertLess(len(raw_bodies[0]), feedback.MAX_BODY_BYTES)
 
     def test_extra_fields_on_the_receipt_are_ignored(self) -> None:
         with stub_relay(

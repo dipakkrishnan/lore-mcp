@@ -15,7 +15,31 @@ const realProvision = runtime.provision;
 let failSetup = scenario === "provision";
 // main.cjs binds provision at require time, so the stub itself must flip.
 runtime.provision = async (emit) => { if (failSetup) throw new Error("uv exploded"); return realProvision(emit); };
-require(join(src, "main.cjs"));
+
+// APP-104: a relay that answers slowly, so the dialog can be poked while a
+// report is genuinely in flight. Every report reaches this and nothing else —
+// `lore()` spreads process.env into the CLI it spawns, so LORE_FEEDBACK_URL
+// reaches both `desktop-state` (which is what un-hides the button) and
+// `report-feedback`. main.cjs is required only once the port is known.
+const relayReports = [];
+if (scenario === "feedback") {
+  const relay = require("node:http").createServer((request, response) => {
+    let body = "";
+    request.on("data", (chunk) => { body += chunk; });
+    request.on("end", () => setTimeout(() => {
+      relayReports.push(JSON.parse(body));
+      const filed = JSON.stringify({ ok: true, issue_url: `https://github.com/dipakkrishnan/lore-mcp/issues/${relayReports.length}`, issue_number: relayReports.length });
+      response.writeHead(201, { "Content-Type": "application/json" });
+      response.end(filed);
+    }, 1500));
+  });
+  relay.listen(0, "127.0.0.1", () => {
+    process.env.LORE_FEEDBACK_URL = `http://127.0.0.1:${relay.address().port}/report`;
+    require(join(src, "main.cjs"));
+  });
+} else {
+  require(join(src, "main.cjs"));
+}
 
 const sleep = (ms) => new Promise((done) => setTimeout(done, ms));
 const results = [];
@@ -316,6 +340,60 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         // Cross-view: notices stay while the owner moves around, then the same tell() lands in the log inside a thread.
         await js(`window.__lore.show("today")`);
         check("notice persists across views", await js(`document.querySelectorAll("#status .notice").length`) === 1);
+      } else if (scenario === "feedback") {
+        // APP-104: one Send is one public GitHub issue, and a report still in
+        // flight never closes a sheet the owner opened after it.
+        await waitFor(`document.body.dataset.state === "welcome" && !document.querySelector("#welcome").classList.contains("provisioning")`);
+        await js(`window.__lore.signIn()`);
+        check("the button appears once a relay is configured", await waitFor(`!document.querySelector("#feedback-open").hidden`));
+
+        const fill = (description) => js(`(() => {
+          const form = document.querySelector("dialog.sheet .feedback-form");
+          const [title] = form.querySelectorAll("input");
+          title.value = "Edge feedback";
+          form.querySelector("textarea").value = ${JSON.stringify(description)};
+          form.dispatchEvent(new Event("input", { bubbles: true }));
+          return !form.querySelector(".btn.primary").disabled;
+        })()`);
+        const send = () => js(`document.querySelector("dialog.sheet .feedback-form").requestSubmit()`);
+
+        await js(`document.querySelector("#feedback-open").click()`);
+        check("the dialog opens", await waitFor(`document.querySelector("dialog.sheet .feedback-form")`));
+        check("Send enables once both required fields are filled", await fill("Something to report"));
+        await send();
+        await sleep(300);
+        // The reproduction: editing a field mid-request used to re-enable Send,
+        // so a second submit filed a second issue from one owner action.
+        const midFlight = await js(`(() => {
+          const form = document.querySelector("dialog.sheet .feedback-form");
+          form.querySelector("textarea").value = "Changed my mind";
+          form.dispatchEvent(new Event("input", { bubbles: true }));
+          const button = form.querySelector(".btn.primary");
+          return { disabled: button.disabled, label: button.textContent };
+        })()`);
+        check("editing a field mid-request leaves Send disabled", midFlight.disabled === true, JSON.stringify(midFlight));
+        await send();
+        check("the report lands", await waitFor(`document.querySelector("#status .notice")?.textContent.includes("Filed as")`));
+        await sleep(1800);
+        check("one owner action filed exactly one issue", relayReports.length === 1, `relay saw ${relayReports.length}`);
+        await shot("feedback-filed");
+
+        // The second reproduction: the success path used to call closeSheet(),
+        // which closes whichever sheet is open — including one opened, and
+        // edited, while the report was still out.
+        await js(`document.querySelector("#feedback-open").click()`);
+        await waitFor(`document.querySelector("dialog.sheet .feedback-form")`);
+        await fill("A second report");
+        await send();
+        await sleep(300);
+        await js(`window.__lore.show("memories")`);
+        await waitFor(`document.querySelectorAll("#content .task-link").length >= 1`);
+        await js(`document.querySelector("#content .task-link").click()`);
+        check("another sheet opens while the report is in flight", await waitFor(`document.querySelector("dialog.sheet .btn.quiet")`));
+        await sleep(2500);
+        check("the in-flight report did not close the sheet opened after it", await js(`(() => { const open = [...document.querySelectorAll("dialog.sheet")]; return open.length === 1 && open[0].open === true && !open[0].classList.contains("narrow"); })()`));
+        check("the second report filed once", relayReports.length === 2, `relay saw ${relayReports.length}`);
+        await shot("feedback-other-sheet-survives");
       }
     } catch (error) {
       results.push(`ERROR ${error.stack}`);

@@ -453,7 +453,8 @@ def manual() -> int:
 
   11. lore report-feedback [--title T --email E (--description D|--description-file F)]
      Send feedback to the Lore maintainers as a GitHub issue. Run with no
-     flags to be prompted; the issue this creates is public.
+     flags to be prompted; the issue this creates is public. Needs a build
+     with the feedback relay's address pinned in, and refuses without one.
 
 Use `lore <command> --help` for command-specific options.
 """
@@ -1290,6 +1291,11 @@ def report_feedback(
     --title and exactly one description source.
     """
     _owner_action("sending feedback")
+    # Before prompting, not after: an owner who types a whole report should
+    # never then be told there is nowhere to send it. Calling relay_url()
+    # rather than available() keeps the real reason (unset vs. malformed
+    # override) in the message they see.
+    feedback_module.relay_url()
     non_interactive = any(
         value is not None for value in (title, email, description, description_file)
     )

@@ -9,13 +9,28 @@
 
 export const REPORT_VERSION = 1;
 
+/**
+ * Field lengths are counted in **code points**, not JavaScript's default
+ * UTF-16 code units: pydantic counts code points, and a description of
+ * 15,000 emoji is 15,000 code points but 30,000 code units, so counting
+ * units would 400 a report the client had already accepted.
+ * contracts/feedback_report.json records the unit; both sides assert it.
+ *
+ * bodyBytes is deliberately above the largest body those field caps can
+ * produce — 20,000 four-byte code points plus title, email, metadata and
+ * JSON framing is roughly 82 KB — so nothing a client accepts can come back
+ * a 413. It bounds what an arbitrary caller can make this Worker read, not
+ * what an owner is allowed to write.
+ */
 export const LIMITS = {
   title: { min: 1, max: 200 },
   email: { min: 3, max: 254 },
   description: { min: 1, max: 20_000 },
   metadataField: { min: 1, max: 200 },
-  bodyBytes: 65_536
+  bodyBytes: 131_072
 };
+
+export const LENGTH_UNIT = "code_points";
 
 export const SOURCES = ["cli", "desktop"] as const;
 export type Source = (typeof SOURCES)[number];
@@ -73,7 +88,10 @@ function requireString(
   if (typeof value !== "string") {
     throw new ReportError(400, `${field} must be a string`);
   }
-  if (value.length < limits.min || value.length > limits.max) {
+  // Spread, not .length: code points, so this agrees with pydantic on
+  // anything outside the BMP. See LIMITS.
+  const length = [...value].length;
+  if (length < limits.min || length > limits.max) {
     throw new ReportError(
       400,
       `${field} must be between ${limits.min} and ${limits.max} characters`

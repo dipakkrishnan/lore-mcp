@@ -1773,12 +1773,35 @@ class PushTest(LoreTestCase):
 
 
 class ReportFeedbackTest(LoreTestCase):
+    def setUp(self) -> None:
+        super().setUp()
+        # Every case below is about the command itself, not the release gate,
+        # so pin a relay to keep the gate out of the way. The gate has its
+        # own case: test_refuses_when_no_relay_has_been_pinned.
+        pinned = patch.object(feedback, "RELAY_URL", "https://feedback.example/report")
+        pinned.start()
+        self.addCleanup(pinned.stop)
+
     def _receipt(self) -> feedback.Receipt:
         return feedback.Receipt(
             ok=True,
             issue_url="https://github.com/dipakkrishnan/lore-mcp/issues/1",
             issue_number=1,
         )
+
+    def test_refuses_when_no_relay_has_been_pinned(self) -> None:
+        """A build with no relay address must say so before prompting, not
+        after the owner has typed a whole report."""
+        with (
+            patch.object(cli, "_interactive", return_value=True),
+            patch.object(feedback, "RELAY_URL", None),
+            patch.dict(os.environ, {}, clear=False) as environment,
+        ):
+            environment.pop(feedback.RELAY_ENV, None)
+            with patch.object(cli.feedback_module, "report_feedback") as submit:
+                with self.assertRaisesRegex(ValueError, "not wired up"):
+                    cli.report_feedback(None, None, None, None, False)
+            submit.assert_not_called()
 
     def test_refuses_unattended_use(self) -> None:
         with patch.object(cli, "_interactive", return_value=False):

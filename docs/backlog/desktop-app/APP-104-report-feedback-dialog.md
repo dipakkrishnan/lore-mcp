@@ -10,7 +10,7 @@ blockers: [XC-028]
 dependencies: []
 github_issue: null
 created: 2026-09-07
-updated: 2026-09-07
+updated: 2026-09-09
 ---
 
 ## Problem
@@ -55,6 +55,34 @@ block.
 
 Blocked on `XC-028` (the core and relay) and depends on `CLI-003` shipping
 the `--json` output shape this dialog parses.
+
+Second review round (2026-09-09) found two reproduced defects in the dialog,
+both fixed here:
+
+- The `input` listener re-enabled Send whenever both fields were non-empty,
+  including while a request was in flight, so editing the description and
+  clicking Send again filed a second public issue from one owner action. The
+  in-flight state now lives in the single `canSend()` predicate both the
+  input and submit handlers already share, so there is no second place to
+  forget it.
+- `closeSheet()` closes `document.querySelector("dialog.sheet")` — whichever
+  sheet is open. A delayed success therefore closed a sheet the owner had
+  opened after sending, discarding its edits, and the failure path wrote to
+  nodes Escape or the backdrop had already detached. The dialog now closes
+  itself through its captured reference, and the failure path checks
+  `isConnected` first, as `approvalForm()` does. Dismissal stays allowed
+  while sending: a report that lands after the owner walks away still
+  reaches them as a notice with the issue URL.
+
+Both are guarded by a new `feedback` scenario in
+`app/desktop/support/edge.cjs`, driving the real renderer against a
+deliberately slow stub relay. It is the one edge scenario wired into CI
+(`desktop-check`), because renderer.js has no other automated coverage —
+`app/desktop/test/app.test.cjs` only reaches the `state.cjs` seam.
+
+The Report Feedback button is now hidden unless the installed CLI reports a
+configured feedback relay (`desktop-state`'s new `feedback.available`), so a
+release with no relay deployed shows no Send it cannot honor.
 
 Done 2026-09-07. Verified visually with a real Electron screenshot
 (`app/desktop/support/screenshot.cjs`): the button sits where the owner's

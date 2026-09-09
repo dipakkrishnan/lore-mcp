@@ -5,7 +5,9 @@ only publications the owner explicitly approves.
 
 The one exception is feedback the owner explicitly asks to send: `lore
 report-feedback` and the Desktop app's Report Feedback dialog. Nothing is sent
-unless the owner runs that command or submits that form. It goes to a
+unless the owner runs that command or submits that form, and a build with no
+feedback address configured cannot send at all — the command refuses and the
+Desktop app shows no button. When it is configured, a report goes to a
 maintainer-operated Cloudflare Worker (`feedback-relay/`), whose only action is
 filing the report as a GitHub issue on `dipakkrishnan/lore-mcp` — **that issue
 is public**, and so is any email address given with the report. Each submission

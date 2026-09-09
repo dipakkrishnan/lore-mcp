@@ -2,6 +2,10 @@ import { createIssue } from "./issue.js";
 import { allow } from "./limit.js";
 import { LIMITS, ReportError, parseReport } from "./report.js";
 
+// Re-exported from the entry module because that is where the runtime looks
+// for a Durable Object class named in wrangler.jsonc.
+export { FeedbackQuota } from "./quota.js";
+
 function json(body: unknown, status = 200, headers: HeadersInit = {}): Response {
   return new Response(JSON.stringify(body), {
     status,

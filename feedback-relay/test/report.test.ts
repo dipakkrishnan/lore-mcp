@@ -5,6 +5,7 @@
 import { describe, expect, it } from "vitest";
 import contract from "../../contracts/feedback_report.json";
 import {
+  LENGTH_UNIT,
   LIMITS,
   METADATA_FIELDS,
   REPORT_VERSION,
@@ -45,6 +46,9 @@ describe("contract agreement", () => {
     expect(contract.limits.email.max).toBe(LIMITS.email.max);
     expect(contract.limits.description.max).toBe(LIMITS.description.max);
     expect(contract.limits.body_bytes).toBe(LIMITS.bodyBytes);
+    // The unit both sides count in. Python counts code points; if this
+    // said anything else, an emoji-heavy report valid there would 400 here.
+    expect(contract.length_unit).toBe(LENGTH_UNIT);
     expect([...contract.sources].sort()).toEqual([...SOURCES].sort());
     expect([...contract.metadata_fields].sort()).toEqual([...METADATA_FIELDS].sort());
   });
@@ -110,6 +114,27 @@ describe("parseReport", () => {
   it("rejects an oversize description", () => {
     expect(() =>
       parseReport(validReport({ description: "x".repeat(LIMITS.description.max + 1) }))
+    ).toThrow(ReportError);
+  });
+
+  it("counts code points, not UTF-16 units, so emoji at the max are accepted", () => {
+    // "🚀" is one code point and two UTF-16 code units. Counting units would
+    // reject this at half the documented limit, while lore/feedback.py — and
+    // therefore the client that already sent it — considers it valid.
+    const description = "🚀".repeat(LIMITS.description.max);
+    expect(description.length).toBe(LIMITS.description.max * 2);
+    expect(parseReport(validReport({ description })).description).toBe(description);
+    expect(parseReport(validReport({ title: "🚀".repeat(LIMITS.title.max) })).title).toBe(
+      "🚀".repeat(LIMITS.title.max)
+    );
+  });
+
+  it("still rejects one code point past the max, in any alphabet", () => {
+    expect(() =>
+      parseReport(validReport({ description: "🚀".repeat(LIMITS.description.max + 1) }))
+    ).toThrow(ReportError);
+    expect(() =>
+      parseReport(validReport({ description: "字".repeat(LIMITS.description.max + 1) }))
     ).toThrow(ReportError);
   });
 

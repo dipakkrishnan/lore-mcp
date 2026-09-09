@@ -15,6 +15,7 @@ const taskBack = /** @type {HTMLButtonElement} */ ($("#task-back"));
 const taskRestart = /** @type {HTMLButtonElement} */ ($("#task-restart"));
 const taskResume = /** @type {HTMLButtonElement} */ ($("#task-resume"));
 const addMemoryBtn = /** @type {HTMLButtonElement} */ ($("#add-memory"));
+const feedbackBtn = /** @type {HTMLButtonElement} */ ($("#feedback-open"));
 const captureArea = $("#capture");
 const composer = /** @type {HTMLFormElement} */ ($("#composer"));
 const input = /** @type {HTMLTextAreaElement} */ ($("#capture-input"));
@@ -325,7 +326,9 @@ function openFeedbackDialog() {
   const close = el("button", "icon-btn", "×");
   close.type = "button";
   close.setAttribute("aria-label", "Close");
-  close.addEventListener("click", closeSheet);
+  // This dialog, not whichever one is open: a report can still be in flight
+  // when the owner opens something else, and closeSheet() would close that.
+  close.addEventListener("click", () => sheet.close());
   head.append(close);
 
   const form = el("form", "feedback-form");
@@ -336,14 +339,19 @@ function openFeedbackDialog() {
   const actions = el("div", "actions");
   const cancel = el("button", "btn secondary sm", "Cancel");
   cancel.type = "button";
-  cancel.addEventListener("click", closeSheet);
+  cancel.addEventListener("click", () => sheet.close());
   const send = el("button", "btn primary sm", "Send");
   send.type = "submit";
   send.disabled = true;
   actions.append(cancel, send);
   form.append(actions);
 
-  const canSend = () => Boolean(titleField.value.trim() && descriptionField.value.trim());
+  // One report per Send, however the owner gets there. Without `sending` in
+  // this predicate, the input listener re-enables Send the moment both
+  // fields are non-empty again — including mid-request — and a second click
+  // files a second public issue from one owner action.
+  let sending = false;
+  const canSend = () => !sending && Boolean(titleField.value.trim() && descriptionField.value.trim());
   form.addEventListener("input", () => { send.disabled = !canSend(); });
   form.addEventListener("submit", (event) => {
     event.preventDefault();
@@ -351,6 +359,7 @@ function openFeedbackDialog() {
   });
 
   async function submit() {
+    sending = true;
     cancel.disabled = send.disabled = true;
     send.textContent = "Sending…";
     try {
@@ -359,19 +368,25 @@ function openFeedbackDialog() {
         email: emailField.value,
         description: descriptionField.value
       });
-      closeSheet();
+      sheet.close();
       tell(`Filed as ${receipt.url}`);
     } catch (error) {
       tell(reason(error, "Lore could not send that."), true);
-      cancel.disabled = false;
-      send.disabled = !canSend();
-      send.textContent = "Send";
+      sending = false;
+      // Escape or the backdrop can dismiss this dialog while the request is
+      // out, and the close handler below detaches it. Restoring the buttons
+      // is then pointless, so check first, as approvalForm() does.
+      if (sheet.isConnected) {
+        cancel.disabled = false;
+        send.disabled = !canSend();
+        send.textContent = "Send";
+      }
     }
   }
 
   panel.append(head, form);
   sheet.append(panel);
-  sheet.addEventListener("click", (event) => { if (event.target === sheet) closeSheet(); });
+  sheet.addEventListener("click", (event) => { if (event.target === sheet) sheet.close(); });
   sheet.addEventListener("close", () => sheet.remove());
   document.body.append(sheet);
   sheet.showModal();
@@ -921,6 +936,9 @@ function render() {
   if (!snapshot) return;
   $("[data-count=memories]").textContent = String(snapshot.library.counts.private);
   $("[data-count=store]").textContent = String(snapshot.publications.counts.active);
+  // Hidden until a build has a feedback relay to send to, so a release
+  // never offers a Send it cannot honor. Starts hidden in index.html.
+  feedbackBtn.hidden = !snapshot.feedback?.available;
   const parts = renderers[view](snapshot);
   detailSlot.replaceChildren(...(detail ? parts : []));
   content.replaceChildren(...(detail ? [] : parts));
@@ -1862,7 +1880,7 @@ addMemoryBtn.addEventListener("click", () => {
   show("today");
   input.focus();
 });
-$("#feedback-open").addEventListener("click", openFeedbackDialog);
+feedbackBtn.addEventListener("click", openFeedbackDialog);
 for (const nav of navButtons) nav.addEventListener("click", () => {
   const next = /** @type {View} */ (nav.dataset.view);
   if (next === "today" && detailTask) closeTask();

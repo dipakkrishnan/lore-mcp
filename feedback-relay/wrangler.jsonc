@@ -11,9 +11,30 @@
     // Overridable so tests point at a stubbed GitHub instead of the real API.
     "LORE_GITHUB_API": "https://api.github.com"
   },
-  // Both keyed in src/limit.ts: FEEDBACK_RATE_LIMIT per client IP,
-  // GLOBAL_RATE_LIMIT on a constant key so an IP-rotating caller cannot
-  // still flood the issue tracker or burn the token's GitHub quota.
+  // The authoritative aggregate cap. A Rate Limiting binding cannot be one:
+  // its counters are per Cloudflare location, so a constant key still gives
+  // a distributed caller one bucket per location. This Durable Object is the
+  // shared state that actually bounds issue creation — same
+  // new_sqlite_classes pattern as lore/node/wrangler.jsonc's LorePaidMCP.
+  // Needs no account-side resource; the migration is all it takes.
+  "durable_objects": {
+    "bindings": [
+      {
+        "class_name": "FeedbackQuota",
+        "name": "FEEDBACK_QUOTA"
+      }
+    ]
+  },
+  "migrations": [
+    {
+      "new_sqlite_classes": ["FeedbackQuota"],
+      "tag": "v1"
+    }
+  ],
+  // Both keyed in src/limit.ts, both ahead of FEEDBACK_QUOTA as cheap
+  // pre-filters: FEEDBACK_RATE_LIMIT per client IP, GLOBAL_RATE_LIMIT on a
+  // constant key. Neither is an aggregate bound (see above); they exist to
+  // absorb ordinary abuse without a Durable Object round trip.
   // `period` accepts only 10 or 60 seconds.
   "ratelimits": [
     {

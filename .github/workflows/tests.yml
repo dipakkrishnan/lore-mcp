@@ -61,6 +61,14 @@ jobs:
       - run: npm ci
       - run: npm run check
       - run: npm test
+      # APP-104: renderer.js has no unit coverage — it is only reachable
+      # through real Electron (support/edge.cjs). This one scenario runs here
+      # because it guards two reviewed regressions with no other net: a
+      # second Send filing a second public issue, and an in-flight report
+      # closing a sheet the owner opened after it. The rest of `test:edge`
+      # stays a local, attended check.
+      - run: support/edge.sh feedback
+        timeout-minutes: 5
       - run: npm run package
 
   node-lint:

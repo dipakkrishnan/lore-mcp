@@ -10,7 +10,7 @@ blockers: [XC-028]
 dependencies: []
 github_issue: null
 created: 2026-09-07
-updated: 2026-09-07
+updated: 2026-09-09
 ---
 
 ## Problem
@@ -60,3 +60,10 @@ a local stub relay, including the unattended-pipe refusal. Reports the
 correct `source` ("cli" from a real terminal, "desktop" when the Desktop app
 drives it via `LORE_ATTENDED_SURFACE=desktop`) — see `XC-028`'s notes for the
 bug this caught during `APP-104` integration.
+
+Amended 2026-09-09 for `XC-028`'s release gate: the command now checks for a
+configured relay immediately after `_owner_action`, before it prompts. An
+owner should never type a whole report and only then be told there is
+nowhere to send it. It calls `relay_url()` rather than `available()` so the
+message names the real reason — no relay pinned, or a malformed
+`LORE_FEEDBACK_URL` override. Turning it on is `XC-029`.

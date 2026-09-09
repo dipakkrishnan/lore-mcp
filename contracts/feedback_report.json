@@ -5,8 +5,9 @@
     "email": { "min": 3, "max": 254 },
     "description": { "min": 1, "max": 20000 },
     "metadata_field": { "min": 1, "max": 200 },
-    "body_bytes": 65536
+    "body_bytes": 131072
   },
+  "length_unit": "code_points",
   "sources": ["cli", "desktop"],
   "metadata_fields": [
     "submitted_at",

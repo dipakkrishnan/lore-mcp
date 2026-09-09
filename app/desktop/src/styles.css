@@ -129,6 +129,11 @@ nav button:hover .tip, nav button:focus-visible .tip { opacity: 1; visibility: v
 .feedback-open { margin-top: auto; display: flex; align-items: center; gap: 10px; width: 100%; padding: 8px 10px; border-radius: var(--radius-sm); font-size: 13px; font-weight: 500; color: var(--muted); text-align: left; }
 .feedback-open:hover { background: var(--hover); color: var(--ink); }
 .feedback-open svg { width: 16px; height: 16px; flex-shrink: 0; }
+/* display:flex above beats the UA [hidden] rule, so say it again; the
+   button carries margin-top:auto, so the account block below has to take
+   over pushing itself to the bottom when there is no relay to send to. */
+.feedback-open[hidden] { display: none; }
+.feedback-open[hidden] + .account { margin-top: auto; }
 .account { position: relative; padding: 12px 8px 0; border-top: 1px solid var(--line); }
 .account-trigger { display: flex; align-items: center; gap: 10px; width: 100%; padding: 6px; border-radius: var(--radius-sm); text-align: left; }
 .account-trigger:hover { background: var(--hover); }

@@ -37,11 +37,15 @@ from .ui import CONTROL_CHARACTERS
 
 Source = Literal["cli", "desktop"]
 
-# Pinned at ship time; every installed copy of Lore POSTs here forever, so
-# this only ever changes by shipping a new version, never by editing the
-# relay's own address. LORE_FEEDBACK_URL exists for tests and for smoking a
-# freshly deployed relay before pinning it here.
-RELAY_URL = "https://feedback.lore.dev/report"
+# None until a maintainer has actually deployed the relay and pinned its
+# address here. That pinning is the one switch that turns this feature on:
+# with no address, `lore report-feedback` refuses before it prompts and the
+# Desktop app hides its button, so no release can ship a Send that 502s
+# against an endpoint nobody configured. Once pinned, every installed copy
+# POSTs here forever, so it only ever changes by shipping a new version —
+# never by editing the relay's own address. LORE_FEEDBACK_URL exists for
+# tests and for smoking a freshly deployed relay before pinning it here.
+RELAY_URL: str | None = None
 RELAY_ENV = "LORE_FEEDBACK_URL"
 
 REPORT_VERSION: Literal[1] = 1
@@ -50,12 +54,24 @@ USER_AGENT = f"Lore/{__version__}"
 INSTALL_ID_SETTING = "install_id"
 # Bounds the local spool so an offline retry loop cannot fill a disk.
 SPOOL_KEEP = 50
+# How many same-second filenames to try before giving up. Reached only if a
+# thousand reports share one second, which is not a real submission pattern.
+SPOOL_ATTEMPTS = 1000
 
 # Match lore/capture.py's title/content caps: a feedback report is the same
 # shape of owner-authored text as a memory, so it gets the same limits.
+# These count code points, which is why the relay counts code points too
+# rather than JavaScript's default UTF-16 code units — see
+# contracts/feedback_report.json's length_unit.
 MAX_TITLE = 200
 MAX_DESCRIPTION = 20_000
 MAX_EMAIL = 254
+# The relay's own cap on a request body, shared through the contract. Not
+# enforced here: it is deliberately above the largest body these field caps
+# can produce (20,000 four-byte code points plus title, email, metadata and
+# JSON framing), so nothing this module accepts can come back a 413.
+# tests/test_feedback.py proves that headroom rather than trusting it.
+MAX_BODY_BYTES = 131_072
 TIMESTAMP = "%Y-%m-%dT%H:%M:%SZ"
 
 _INSTALL_ID_RE = re.compile(r"^[0-9a-f]{32}$")
@@ -214,12 +230,31 @@ def build(*, title: str, email: str | None, description: str, source: Source) ->
 
 def relay_url() -> str:
     """The relay endpoint. The override exists for tests and for smoking a
-    freshly deployed relay; it is not a user-facing setting."""
+    freshly deployed relay; it is not a user-facing setting.
+
+    Raises when no relay has been pinned yet (see RELAY_URL) rather than
+    guessing an address, so both surfaces can refuse early and identically.
+    """
     url = os.environ.get(RELAY_ENV) or RELAY_URL
+    if not url:
+        raise ValueError(
+            "sending feedback is not wired up in this build yet; "
+            "see feedback-relay/README.md"
+        )
     local = url.startswith("http://127.0.0.1:") or url.startswith("http://localhost:")
     if not (url.startswith("https://") or local):
         raise ValueError(f"the feedback service address must be https: {url}")
     return url
+
+
+def available() -> bool:
+    """Whether this build can send feedback at all. Drives the CLI's early
+    refusal and the Desktop app's decision to show its button."""
+    try:
+        relay_url()
+    except ValueError:
+        return False
+    return True
 
 
 def spool_dir() -> Path:
@@ -228,22 +263,47 @@ def spool_dir() -> Path:
     return path
 
 
-def spool_path(report: Report) -> Path:
+def allocate_spool_path(report: Report) -> Path:
+    """Claim a fresh file for one submission, creating it empty.
+
+    `submitted_at` has one-second precision and `install_id` is fixed for an
+    installation, so a name built from those alone collides between two
+    reports sent in the same second — and PRIVACY.md promises every sent
+    report is kept. The timestamp stays leading because `_prune_spool()`
+    sorts names lexicographically to find the oldest; the counter breaks
+    same-second ties, and O_EXCL makes "fresh" a guarantee rather than a
+    probability even with two processes spooling at once.
+    """
     stamp = report.metadata.submitted_at.replace(":", "")
-    return spool_dir() / f"{stamp}-{report.metadata.install_id[:8]}.json"
+    directory = spool_dir()
+    for index in range(SPOOL_ATTEMPTS):
+        path = directory / f"{stamp}-{index:03d}.json"
+        try:
+            os.close(os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600))
+        except FileExistsError:
+            continue
+        return path
+    raise OSError(f"could not claim a file for this report in {directory}")
 
 
 def spool(
-    report: Report, *, receipt: Receipt | None = None, error: str | None = None
+    report: Report,
+    *,
+    path: Path | None = None,
+    receipt: Receipt | None = None,
+    error: str | None = None,
 ) -> Path:
-    """Write, or update, the local copy of a report. Deterministic filename,
-    so the pre-send write and the post-send update are the same file.
+    """Write, or update, the local copy of a report.
+
+    Pass no `path` for the pre-send write, which claims one; pass the path it
+    returned to update that same file afterwards with a receipt or an error.
 
     There is no confirmation step before a report leaves the machine, so this
     is the owner's only copy of what they typed if the relay is unreachable —
     written before the network call, not after it succeeds.
     """
-    path = spool_path(report)
+    if path is None:
+        path = allocate_spool_path(report)
     payload: dict[str, object] = {"report": report.model_dump(mode="json")}
     if receipt is not None:
         payload["receipt"] = receipt.model_dump(mode="json")
@@ -304,7 +364,17 @@ def submit(report: Report, *, url: str | None = None) -> Receipt:
     """
     request = urllib.request.Request(
         url or relay_url(),
-        data=json.dumps(report.model_dump(mode="json"), allow_nan=False).encode(),
+        # ensure_ascii=False so non-ASCII text crosses as UTF-8 (lore/mcp.py's
+        # convention for owner text crossing to a buyer) rather than as \uXXXX
+        # escapes, which inflate a valid CJK description sixfold and would
+        # push it past the relay's body cap; compact separators are the wire
+        # convention from lore/mcp.py's JSON-RPC frames.
+        data=json.dumps(
+            report.model_dump(mode="json"),
+            ensure_ascii=False,
+            separators=(",", ":"),
+            allow_nan=False,
+        ).encode("utf-8"),
         headers={
             "Accept": "application/json",
             "Content-Type": "application/json",
@@ -343,10 +413,10 @@ def report_feedback(
     try:
         receipt = submit(report)
     except OSError as error:
-        spool(report, error=str(error))
+        spool(report, path=path, error=str(error))
         raise OSError(f"{error}. Your report is saved at {path}") from error
     except ValueError as error:
-        spool(report, error=str(error))
+        spool(report, path=path, error=str(error))
         raise
-    spool(report, receipt=receipt)
+    spool(report, path=path, receipt=receipt)
     return receipt
