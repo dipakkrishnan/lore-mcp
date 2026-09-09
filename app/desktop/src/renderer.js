@@ -477,6 +477,8 @@ function needsYou(s) {
   // Approved work a buyer cannot see yet, or a price they are not yet paying, is actionable whatever rung setup is on.
   const stale = stalePrice(s);
   if (stale !== null) add("Redeploy your store", `Buyers still pay ${price(stale)}; you set ${price(s.pricing.publication_usd)}.`, button("Redeploy", "secondary", () => void startDeploy(REDEPLOY_PRICE)));
+  const staleAnswerNote = staleAnswers(s);
+  if (staleAnswerNote) add("Redeploy your store", staleAnswerNote, button("Redeploy", "secondary", () => void startDeploy(REDEPLOY_ANSWERS)));
   const waiting = unpushed(s);
   if (waiting.length && !pushOffer && !pushing) add("Push to your store", `${pendingLabel(waiting)}.`, button("Push", "secondary", pushNow));
   return rows;
