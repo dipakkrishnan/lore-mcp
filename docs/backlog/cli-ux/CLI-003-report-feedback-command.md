@@ -5,7 +5,7 @@ priority: P2
 effort: M
 component: cli-ux
 status: completed
-related: [XC-028, APP-104]
+related: [XC-028, APP-105]
 blockers: [XC-028]
 dependencies: []
 github_issue: null
@@ -66,4 +66,4 @@ configured relay immediately after `_owner_action`, before it prompts. An
 owner should never type a whole report and only then be told there is
 nowhere to send it. It calls `relay_url()` rather than `available()` so the
 message names the real reason — no relay pinned, or a malformed
-`LORE_FEEDBACK_URL` override. Turning it on is `XC-029`.
+`LORE_FEEDBACK_URL` override. Turning it on is `XC-031`.

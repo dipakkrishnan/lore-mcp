@@ -1142,7 +1142,7 @@ function renderRequest(event) {
       fieldset.append(choices);
       const other = el("input", "other-answer");
       other.type = "text";
-      other.placeholder = "Or type your answer";
+      other.placeholder = question.options.length ? "Or type your answer" : "Type your answer";
       if (question.format === "evm_address") {
         other.required = true;
         other.pattern = "0x[0-9a-fA-F]{40}";

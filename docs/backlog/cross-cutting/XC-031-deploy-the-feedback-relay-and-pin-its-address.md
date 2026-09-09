@@ -1,11 +1,11 @@
 ---
-id: XC-029
+id: XC-031
 title: Deploy the feedback relay, pin its address, and verify one real submission
 priority: P2
 effort: S
 component: cross-cutting
 status: ready
-related: [XC-028, APP-104, CLI-003]
+related: [XC-028, APP-105, CLI-003]
 blockers: []
 dependencies: [XC-028]
 github_issue: null

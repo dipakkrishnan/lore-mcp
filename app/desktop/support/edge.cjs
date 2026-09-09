@@ -16,7 +16,7 @@ let failSetup = scenario === "provision";
 // main.cjs binds provision at require time, so the stub itself must flip.
 runtime.provision = async (emit) => { if (failSetup) throw new Error("uv exploded"); return realProvision(emit); };
 
-// APP-104: a relay that answers slowly, so the dialog can be poked while a
+// APP-105: a relay that answers slowly, so the dialog can be poked while a
 // report is genuinely in flight. Every report reaches this and nothing else —
 // `lore()` spreads process.env into the CLI it spawns, so LORE_FEEDBACK_URL
 // reaches both `desktop-state` (which is what un-hides the button) and
@@ -341,7 +341,7 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         await js(`window.__lore.show("today")`);
         check("notice persists across views", await js(`document.querySelectorAll("#status .notice").length`) === 1);
       } else if (scenario === "feedback") {
-        // APP-104: one Send is one public GitHub issue, and a report still in
+        // APP-105: one Send is one public GitHub issue, and a report still in
         // flight never closes a sheet the owner opened after it.
         await waitFor(`document.body.dataset.state === "welcome" && !document.querySelector("#welcome").classList.contains("provisioning")`);
         await js(`window.__lore.signIn()`);
