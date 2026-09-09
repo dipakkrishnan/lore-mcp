@@ -34,6 +34,12 @@ class Manifest(BaseModel):
     # must say nothing about the live price rather than guess.
     price_usd: float | None = None
     payout: str | None = None
+    # What the live node currently charges for answers, only ever present when
+    # it is actually selling them (`selling` in index.ts's `init()`). None
+    # here means "not selling right now" — a saved-but-unpushed enable, a
+    # disabled tier, or a node too old to advertise it, all look the same to
+    # the app: nothing claims the live node changed until a push proves it.
+    answer_price_usd: float | None = None
 
 
 OBJECT = TypeAdapter(dict[str, Any])
@@ -161,6 +167,7 @@ def _live_state(node_url: str | None) -> tuple[dict[str, object], set[str] | Non
             "state": "not_configured",
             "network": None,
             "price_usd": None,
+            "answer_price_usd": None,
             "payout": None,
         }, None
     try:
@@ -170,6 +177,7 @@ def _live_state(node_url: str | None) -> tuple[dict[str, object], set[str] | Non
             "state": "unreachable",
             "network": None,
             "price_usd": None,
+            "answer_price_usd": None,
             "payout": None,
         }, None
     ids = {entry.id for entries in manifest.topics.values() for entry in entries}
@@ -177,6 +185,7 @@ def _live_state(node_url: str | None) -> tuple[dict[str, object], set[str] | Non
         "state": "online",
         "network": manifest.network,
         "price_usd": manifest.price_usd,
+        "answer_price_usd": manifest.answer_price_usd,
         "payout": manifest.payout,
     }
     return live, ids
@@ -203,9 +212,10 @@ def _cached_live_state(
     ):
         ids = cached.get("ids")
         live = dict(cached["live"])
-        # A cache written before this field existed is still fresh enough to
+        # A cache written before these fields existed is still fresh enough to
         # trust for liveness; it just has nothing to say about the price.
         live.setdefault("price_usd", None)
+        live.setdefault("answer_price_usd", None)
         return live, set(ids) if isinstance(ids, list) else None
     live, ids = _live_state(node_url)
     with Store() as store:

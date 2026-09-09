@@ -1,9 +1,10 @@
 # Answer tier
 
-Status: implemented (2026-08-18); deployed buyer-value validation remains in
-`EVAL-002`. Backlog anchor: `MCP-003`. Companion items: `MON-015` (D1
-checkpoint recovery), `MON-017` (provider readiness before payment), and
-`APP-035` (optional seller-side Desktop controls).
+Status: implemented (2026-08-18), including the Desktop seller controls
+(2026-09-09); deployed buyer-value validation remains in `EVAL-002`. Backlog
+anchor: `MCP-003`. Companion items: `MON-015` (D1 checkpoint recovery),
+`MON-017` (provider readiness before payment, closed), `MON-022` (the
+owner's free trial route), and `APP-035` (the Desktop owner gate, closed).
 
 The catalog surface (`discover` free, `get` paid) sells the owner's raw
 publications. The answer tier sells access to the owner's **AI proxy**: a buyer
@@ -178,7 +179,10 @@ the guarded terminal update removes the checkpoint without another payment.
 `./lore-test.sh "<question>"` runs that same Pi path against the owner's approved
 local publications in temporary workerd/D1 state. It bypasses payment so the
 owner can judge proxy fidelity before testing the local MCP boundary and then a
-deployed Base Sepolia purchase.
+deployed Base Sepolia purchase. It needs a git checkout and a local provider
+key in the shell, so it is a maintainer/terminal tool; `MON-022` below is the
+same judgment available from a packaged Desktop build against the owner's
+real deployed node.
 
 **Future tools, deliberately not now:** web search (ground the buyer's
 context, e.g. "given today's X, what would you do") raises answer quality but
@@ -230,3 +234,34 @@ Promotion and first-class seller UX wait on `EVAL-002`: a real Base Sepolia
 buyer must judge proxy fidelity, grounding, citation validity, refusal honesty,
 and observed margin against a deployed QA node. `MON-017` separately prevents a
 known-missing model provider from becoming a paid failure.
+
+## 10. Desktop: the owner's own gate and trial
+
+`APP-035` and `MON-022` add the seller side of this tier to Desktop, so
+enabling, trying, and disabling it never need a terminal:
+
+- **The owner's free trial (`MON-022`).** `POST /owner/answer` is a plain,
+  bearer-token-gated route on the Worker's `fetch` handler — entirely outside
+  the MCP `LorePaidMCP` Durable Object and outside x402. It runs the exact
+  same `createTicket`/`runAnswer` path as a real purchase, at `price_usd = 0`,
+  tagged `origin: 'owner'` on the `answer_jobs` row, and writes no `sales`
+  row. `LORE_OWNER_TOKEN` is a Worker secret Desktop mints and rotates on
+  every `lore node deploy`; no token configured means the route 404s rather
+  than 401s, so a node deployed before this shipped advertises nothing extra.
+  `lore answer try "<question>"` (CLI) and Desktop's `try_answer` agent tool
+  both drive it, polling the same free `result` tool a buyer would.
+- **The Desktop enable/disable gate (`APP-035`).** `LORE_ATTENDED_SURFACE` on
+  a non-interactive pipe is not proof of owner approval — the desktop agent's
+  own Bash tool can set that marker on a command it runs itself. `lore answer
+  apply` (the one Desktop-facing path for both enabling and disabling)
+  additionally requires `LORE_APPROVAL_TOKEN` to match a random token
+  Electron main mints at launch and writes under Electron's `userData`, a
+  path the Bash sandbox denies both read and write on. Enabling shows the
+  owner the exact charter and price on a card before anything is saved
+  (`propose_answers`); disabling is a plain, reversible Settings button.
+  `lore publication decide` does not yet have the same second check —
+  `APP-105` tracks closing that gap with the same mechanism.
+- The memory boundary in section 2 is unchanged by either: both reach only
+  approved publications, never private memory, and neither is a new
+  disclosure decision — the trial route answers only the questions the owner
+  themselves asks.

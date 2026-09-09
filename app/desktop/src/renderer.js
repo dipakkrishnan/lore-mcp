@@ -90,6 +90,7 @@ const SETUP_INTENT = "Let's set up my Lore.";
 const STORE_INTENT = "Help me open my store.";
 const PLAY_MONEY = "Put my store back on the test network.";
 const REDEPLOY_PRICE = "I changed my publication price. Redeploy my store so buyers pay the new amount.";
+const REDEPLOY_ANSWERS = "I changed my paid-answer settings. Redeploy my store so they take effect.";
 // Six decimals, not the default two: a price can run below a cent, and rounding
 // $0.000001 up to $0.01 would misstate what a buyer pays. Six is the CLI's floor.
 const money = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 6 });
@@ -597,6 +598,22 @@ function stalePrice(s) {
   return typeof live === "number" && typeof s.pricing.publication_usd === "number" && live !== s.pricing.publication_usd ? live : null;
 }
 
+/** Same idea as stalePrice, but answers also have an on/off dimension a
+ * price alone doesn't: a saved-but-unpushed enable, disable, or price
+ * change all read the same way here — the live node hasn't caught up yet.
+ * Returns a ready sentence, or null when live matches what was saved.
+ * @param {Snapshot} s */
+function staleAnswers(s) {
+  const live = s.node.live.answer_price_usd;
+  const enabled = s.pricing.answer_enabled;
+  if (enabled ? live === s.pricing.answer_usd : live === null) return null;
+  return enabled
+    ? typeof live === "number"
+      ? `Buyers still pay ${price(live)} for an answer until you redeploy.`
+      : "Answers aren't live yet; redeploy to turn them on."
+    : `Buyers can still ask questions at ${price(live)} until you redeploy.`;
+}
+
 /** @param {Snapshot} s */
 function priceEditor(s) {
   const form = /** @type {HTMLFormElement} */ (el("form", "price-edit"));
@@ -658,6 +675,12 @@ function renderStore(s) {
   if (stale !== null) {
     const note = el("div", "stale-price");
     note.append(el("span", "", `Buyers still pay ${price(stale)} until you redeploy.`), button("Redeploy", "quiet", () => void startDeploy(REDEPLOY_PRICE)));
+    prices.append(note);
+  }
+  const staleAnswerNote = staleAnswers(s);
+  if (staleAnswerNote) {
+    const note = el("div", "stale-price");
+    note.append(el("span", "", staleAnswerNote), button("Redeploy", "quiet", () => void startDeploy(REDEPLOY_ANSWERS)));
     prices.append(note);
   }
   bar.append(lead, prices);

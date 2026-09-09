@@ -280,6 +280,9 @@ class DesktopSnapshotTest(LoreTestCase):
         # What the node charges, not what the owner last saved: the local
         # setting above is 0.01, the deployed node still advertises 0.02.
         self.assertEqual(state["node"]["live"]["price_usd"], 0.02)
+        # Same for answers — locally 0.1, still 0.11 live until the next push;
+        # the app must be able to tell the two apart (APP-035).
+        self.assertEqual(state["node"]["live"]["answer_price_usd"], 0.11)
         self.assertEqual(state["node"]["live"]["payout"], "0x" + "a" * 40)
 
     def test_the_schedule_is_reported_from_the_scheduler_not_the_profile(
@@ -312,6 +315,7 @@ class DesktopSnapshotTest(LoreTestCase):
         state = snapshot.build()
         self.assertEqual(state["node"]["live"]["state"], "not_configured")
         self.assertEqual(state["node"]["live"]["price_usd"], None)
+        self.assertEqual(state["node"]["live"]["answer_price_usd"], None)
         with Store() as store:
             store.set_setting("node_url", "https://offline.example/mcp")
         with patch("lore.snapshot.remote_manifest", side_effect=OSError("offline")):
@@ -324,6 +328,7 @@ class DesktopSnapshotTest(LoreTestCase):
         # A node we cannot reach tells us nothing about its price, and the app
         # must never name an amount it did not read.
         self.assertEqual(state["node"]["live"]["price_usd"], None)
+        self.assertEqual(state["node"]["live"]["answer_price_usd"], None)
 
     def test_a_node_that_advertises_no_price_is_online_without_one(self) -> None:
         """A node deployed before `discover` carried the price is still live;
@@ -335,6 +340,7 @@ class DesktopSnapshotTest(LoreTestCase):
             state = snapshot.build()
         self.assertEqual(state["node"]["live"]["state"], "online")
         self.assertEqual(state["node"]["live"]["price_usd"], None)
+        self.assertEqual(state["node"]["live"]["answer_price_usd"], None)
 
     def test_a_cache_written_before_the_price_existed_still_serves(self) -> None:
         with Store() as store:
@@ -353,6 +359,7 @@ class DesktopSnapshotTest(LoreTestCase):
         self.assertEqual(probe.call_count, 0, "the fresh cache is still trusted")
         self.assertEqual(state["node"]["live"]["state"], "online")
         self.assertEqual(state["node"]["live"]["price_usd"], None)
+        self.assertEqual(state["node"]["live"]["answer_price_usd"], None)
 
     def test_the_node_probe_is_cached_briefly_and_forgotten_after_a_push(self) -> None:
         with Store() as store:

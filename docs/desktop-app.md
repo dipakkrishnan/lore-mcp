@@ -57,11 +57,18 @@ Load-bearing rules, in priority order:
 3. **The agent cannot approve.** Approval cards are app-invoked UI routed to
    existing Lore validation. Allowing a Bash command is not approval of a
    publication, payment, or deployment. The CLI treats the app as a second
-   attended surface: `lore publication decide` reads one
-   decision from stdin only when Electron main sets
-   `LORE_ATTENDED_SURFACE=desktop` on a non-TTY pipe, and the Bash policy
-   hard-denies every `lore publication` and `lore answer` mutation, so the
-   marker never helps the model.
+   attended surface: `lore publication decide` and `lore answer apply` both
+   read one decision from stdin only when Electron main sets
+   `LORE_ATTENDED_SURFACE=desktop` on a non-TTY pipe. That marker alone is
+   forgeable — the Bash sandbox is a filesystem and network policy, not a
+   command-name denylist, so the agent's own Bash tool can set the same
+   marker on a piped command it runs itself. `lore answer apply` (APP-035)
+   closes that for the answer tier with a second, unforgeable check: a random
+   token Electron main mints at launch and writes under Electron's
+   `userData`, a path the Bash sandbox denies both read and write on
+   (`bashSandboxPolicy` in `agent.mjs`) — the value the CLI expects, not
+   something Bash can read or guess. `lore publication decide` does not yet
+   have an equivalent second check; it relies on the marker alone.
 4. **Skills stay the source of truth.** `SKILL.md` loads verbatim as Pi's
    instructions; the app renders questions and progress. No parallel
    onboarding state machine — the setup checklist derives from the snapshot.

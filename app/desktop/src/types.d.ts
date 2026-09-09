@@ -49,6 +49,10 @@ type Snapshot = {
       // last deploy — not `pricing.publication_usd`, which is what the owner
       // last saved. Null when unreachable, or when the node predates the field.
       price_usd: number | null;
+      // Same idea, for answers: null whenever the live node isn't actually
+      // selling them right now (unreachable, disabled, or not yet pushed) —
+      // never inferred from `pricing.answer_enabled`, which is what was saved.
+      answer_price_usd: number | null;
       payout: string | null;
     };
   };
