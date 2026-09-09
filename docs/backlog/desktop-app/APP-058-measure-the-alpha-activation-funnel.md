@@ -5,12 +5,12 @@ priority: P1
 effort: S
 component: desktop-app
 status: in-review
-related: [APP-001, APP-041]
-blockers: []
+related: [APP-001, APP-041, XC-030, XC-029, CLI-004]
+blockers: [XC-029, CLI-004]
 dependencies: []
 github_issue: null
 created: 2026-09-03
-updated: 2026-09-03
+updated: 2026-09-07
 ---
 
 ## Problem
@@ -21,13 +21,18 @@ no coarse product signal for setup, capture, publishing, or opening a store.
 
 ## Proposed approach
 
-Send a small allowlisted set of milestone events to the simplest hosted sink
-available: app opened, sign-in completed, setup completed, memory saved,
+Send a small allowlisted set of milestone events to the collector `XC-029`
+stands up: app opened, sign-in completed, setup completed, memory saved,
 publication approved, store opened, and sale viewed. Include only a random
 installation id, app version, and timestamp. Never send memory or publication
 content, prompts, source paths, URLs, wallet or transaction identifiers, or
 credentials. Delivery is best-effort, never blocks the product, is disclosed in
-the app, and can be disabled in Settings.
+the app, and can be disabled in Settings — via `CLI-004`'s `telemetry_enabled`
+setting, since the desktop app has no preferences store of its own.
+`docs/telemetry.md` (`XC-030`) is the shared metric tree and privacy
+vocabulary this event list draws from; this is on **by default** (an
+opt-out stance, not opt-in), disclosed plainly in `PRIVACY.md` and at first
+launch.
 
 ## Acceptance criteria
 
@@ -46,3 +51,12 @@ the app, and can be disabled in Settings.
 This is deliberately crude alpha instrumentation. Add richer funnels or
 experimentation only after real usage creates a concrete question the milestone
 events cannot answer.
+
+**2026-09-07:** Split the surrounding design and infrastructure into their
+own items so this one stays scoped to the desktop emitter itself: `XC-030`
+(the metric tree, privacy vocabulary, and the opt-out stance for
+`PRIVACY.md`), `MON-020` (the node-plane spans, implemented — no dependency
+for this item, but the sibling piece of the same telemetry pass), `XC-029`
+(the collector this item's events actually need a home in), and `CLI-004`
+(the `telemetry_enabled` setting this item's off switch reads). Blocked on
+the latter two existing before this item can send anything by default.
