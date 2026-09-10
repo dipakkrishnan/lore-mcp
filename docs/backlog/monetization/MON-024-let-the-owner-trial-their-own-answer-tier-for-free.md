@@ -1,5 +1,5 @@
 ---
-id: MON-022
+id: MON-024
 title: Let the owner trial their own answer tier for free
 priority: P2
 effort: M

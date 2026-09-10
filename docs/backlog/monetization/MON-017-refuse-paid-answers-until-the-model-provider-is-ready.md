@@ -5,7 +5,7 @@ priority: P1
 effort: S
 component: monetization
 status: completed
-related: [MCP-003, APP-035, EVAL-002, MON-022]
+related: [MCP-003, APP-035, EVAL-002, MON-024]
 blockers: []
 dependencies: []
 github_issue: null
@@ -54,5 +54,5 @@ Implemented as part of `APP-035`: `lore/node/src/answer.ts` exports
 node still registers `answer` unpaid, distinguishing "not available: <reason>"
 from the plain "not enabled" case via a new `unready` telemetry outcome.
 Covered by `lore/node/test/answer-unready.test.ts` (missing key, unsupported
-model, and that `result` still resolves an existing ticket). `MON-022` reuses
+model, and that `result` still resolves an existing ticket). `MON-024` reuses
 `providerReadiness` for the owner's free trial route.

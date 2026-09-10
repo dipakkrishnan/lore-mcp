@@ -5,7 +5,7 @@ priority: P2
 effort: M
 component: desktop-app
 status: completed
-related: [APP-006, APP-008, APP-019, APP-030, APP-105, XC-017, MCP-003, MON-017, MON-022]
+related: [APP-006, APP-008, APP-019, APP-030, APP-105, XC-017, MCP-003, MON-017, MON-024]
 blockers: [MON-017]
 dependencies: ["Publication-only desktop dogfood shows paid answers are worth surfacing"]
 github_issue: null
@@ -62,7 +62,7 @@ was not an authorization boundary. Do not restore that implementation unchanged.
 its configured model provider is unavailable. User validation may justify this
 seller control; it does not justify widening Desktop into a buyer client.
 
-**Implemented 2026-09-09**, alongside `MON-017` and `MON-022`:
+**Implemented 2026-09-09**, alongside `MON-017` and `MON-024`:
 
 - The unforgeable gate: `lore answer apply` (new CLI command, `cli.py`)
   requires `LORE_APPROVAL_TOKEN` to match a random token Electron main mints
@@ -74,7 +74,7 @@ seller control; it does not justify widening Desktop into a buyer client.
   the owner the exact charter and price on a card in the deploy thread;
   `store_secret` gained `ANTHROPIC_API_KEY`/`OPENAI_API_KEY` for the model
   provider key. A new `try_answer` tool runs one free trial question
-  (`MON-022`) before the owner commits.
+  (`MON-024`) before the owner commits.
 - Disable: a plain, reversible button in Settings, going through the same
   `lore answer apply` gate.
 - "Does not claim the live node changed before push succeeds": the Settings
@@ -97,4 +97,4 @@ seller control; it does not justify widening Desktop into a buyer client.
   `npm run test:edge` (all four personas), `tsc --noEmit`, `ruff`, `mypy`,
   and the Worker suite (`lore/node`, 83 tests) all pass. Not verified in this
   pass: a live run against a real deployed Cloudflare node (needs a real
-  account); see `MON-022`'s own note on that gap.
+  account); see `MON-024`'s own note on that gap.
