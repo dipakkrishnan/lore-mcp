@@ -465,7 +465,8 @@ class RemoteResultTest(LoreTestCase):
             "cited_publication_ids": ["0000000000000000fcdb4b42"],
         }
         with serving(outcome) as url:
-            self.assertEqual(snapshot.remote_result(url, "ticket123"), outcome)
+            session = snapshot._mcp_session(url)
+            self.assertEqual(snapshot.remote_result(url, session, "ticket123"), outcome)
 
 
 class RemoteOwnerAnswerTest(LoreTestCase):

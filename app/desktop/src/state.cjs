@@ -168,7 +168,9 @@ function describeAnswerOutcome(outcome) {
 async function tryAnswer(loreHome, question) {
   // 5 minutes: the CLI's own poll runs up to ~250s past the node's 180s
   // deadline before it gives up; the default 120s would cut it off first.
-  const outcome = JSON.parse(await lore(loreHome, ["answer", "try", question, "--json"], undefined, undefined, 300_000));
+  // `--` before `question`: a question starting with `-` (e.g. "-x") would
+  // otherwise be parsed as an option and crash the CLI's argparse.
+  const outcome = JSON.parse(await lore(loreHome, ["answer", "try", "--json", "--", question], undefined, undefined, 300_000));
   return describeAnswerOutcome(outcome);
 }
 

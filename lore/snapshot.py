@@ -120,9 +120,13 @@ def remote_manifest(url: str) -> Manifest:
     return Manifest.model_validate(manifest)
 
 
-def remote_result(url: str, ticket: str) -> dict[str, Any]:
-    """Poll the free `result` tool for one answer ticket — buyer or owner trial alike."""
-    session = _mcp_session(url)
+def remote_result(url: str, session: str, ticket: str) -> dict[str, Any]:
+    """Poll the free `result` tool for one answer ticket — buyer or owner trial alike.
+
+    Takes an already-established MCP session rather than minting its own, so a
+    caller polling this repeatedly (the owner-trial wait) reuses one session
+    instead of paying a 3-request handshake on every poll.
+    """
     outcome = _call_tool(url, session, "result", {"ticket": ticket})
     return cast(dict[str, Any], outcome)
 

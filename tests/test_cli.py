@@ -263,6 +263,64 @@ class MainDispatchTest(LoreTestCase):
         self.assertIn("attended terminal or the Lore desktop app", stderr.getvalue())
         secret.assert_not_called()
 
+    def test_provider_secrets_need_the_real_approval_token_not_just_the_marker(self) -> None:
+        # ANTHROPIC_API_KEY/OPENAI_API_KEY route real buyer questions; the
+        # forgeable LORE_ATTENDED_SURFACE marker alone must not be enough to
+        # vault one, the same boundary APP-035 draws for answer-settings.
+        user_data = Path(self.tmp.name) / "user-data"
+        user_data.mkdir()
+        token_path = user_data / "approval.token"
+        token_path.write_text("the-real-token", encoding="utf-8")
+        for name in ("ANTHROPIC_API_KEY", "OPENAI_API_KEY"):
+            with self.subTest(name=name):
+                with (
+                    patch("lore.deploy.secret", return_value=0) as secret,
+                    patch.dict(
+                        os.environ,
+                        {
+                            "LORE_ATTENDED_SURFACE": "desktop",
+                            "LORE_DESKTOP_USER_DATA": str(user_data),
+                            "LORE_APPROVAL_TOKEN": "a-guess",
+                        },
+                    ),
+                    patch.object(sys, "stdin", StringIO("sk-fake\n")),
+                    self.assertRaisesRegex(ValueError, "approval token"),
+                ):
+                    cli.main(["node", "secret", name])
+                secret.assert_not_called()
+
+    def test_provider_secrets_succeed_with_the_real_approval_token(self) -> None:
+        user_data = Path(self.tmp.name) / "user-data"
+        user_data.mkdir()
+        token_path = user_data / "approval.token"
+        token_path.write_text("the-real-token", encoding="utf-8")
+        with (
+            patch("lore.deploy.secret", return_value=0) as secret,
+            patch.dict(
+                os.environ,
+                {
+                    "LORE_ATTENDED_SURFACE": "desktop",
+                    "LORE_DESKTOP_USER_DATA": str(user_data),
+                    "LORE_APPROVAL_TOKEN": "the-real-token",
+                },
+            ),
+            patch.object(sys, "stdin", StringIO("sk-fake\n")),
+        ):
+            self.assertEqual(cli.main(["node", "secret", "ANTHROPIC_API_KEY"]), 0)
+        secret.assert_called_once_with("ANTHROPIC_API_KEY", "sk-fake")
+
+    def test_facilitator_secrets_are_unaffected_by_the_approval_token_gate(self) -> None:
+        # CDP_API_KEY_ID/CDP_API_KEY_SECRET are a deliberate scope line: only
+        # the two answer-model provider keys this PR adds are gated by the
+        # unforgeable approval token; the facilitator credentials keep the
+        # pre-existing attended-surface gate.
+        with (
+            patch("lore.deploy.secret", return_value=0) as secret,
+            desktop_stdin("key-id\n"),
+        ):
+            self.assertEqual(cli.main(["node", "secret", "CDP_API_KEY_ID"]), 0)
+        secret.assert_called_once_with("CDP_API_KEY_ID", "key-id")
+
     def test_no_command_falls_back_to_status_when_not_interactive(self) -> None:
         with (
             patch.object(sys.stdin, "isatty", return_value=False),
@@ -862,8 +920,13 @@ class AnswerCommandTest(LoreTestCase):
             with self.assertRaisesRegex(ValueError, "empty"):
                 cli.answer_enable(self.proxy_file("   \n"), 0.5)
 
-    def test_disabling_needs_nothing_and_reminds_about_push(self) -> None:
-        with captured() as output:
+    def test_disabling_needs_an_attended_terminal(self) -> None:
+        with patch.object(cli, "_interactive", return_value=False):
+            with self.assertRaisesRegex(ValueError, "attended interactive terminal"):
+                cli.answer_disable()
+
+    def test_disabling_from_an_attended_terminal_reminds_about_push(self) -> None:
+        with patch.object(cli, "_interactive", return_value=True), captured() as output:
             self.assertEqual(cli.answer_disable(), 0)
         self.assertIn("disabled", output.getvalue())
         self.assertIn("lore push", output.getvalue())
@@ -889,6 +952,7 @@ class AnswerTryTest(LoreTestCase):
             store.set_setting("owner_token", "tok")
         with (
             patch("lore.snapshot.remote_owner_answer", return_value="ticket123") as ask,
+            patch("lore.snapshot._mcp_session", return_value="session123"),
             patch(
                 "lore.snapshot.remote_result",
                 return_value={
@@ -903,7 +967,9 @@ class AnswerTryTest(LoreTestCase):
         ask.assert_called_once_with(
             "https://node.example/mcp", "tok", "what would you say?"
         )
-        poll.assert_called_once_with("https://node.example/mcp", "ticket123")
+        poll.assert_called_once_with(
+            "https://node.example/mcp", "session123", "ticket123"
+        )
         self.assertIn("This is the answer.", output.getvalue())
         self.assertIn("0000000000000000fcdb4b42", output.getvalue())
 
@@ -913,6 +979,7 @@ class AnswerTryTest(LoreTestCase):
             store.set_setting("owner_token", "tok")
         with (
             patch("lore.snapshot.remote_owner_answer", return_value="ticket123"),
+            patch("lore.snapshot._mcp_session", return_value="session123"),
             patch(
                 "lore.snapshot.remote_result",
                 return_value={"status": "refused", "reason": "no coverage"},
@@ -931,6 +998,7 @@ class AnswerTryTest(LoreTestCase):
             store.set_setting("owner_token", "tok")
         with (
             patch("lore.snapshot.remote_owner_answer", return_value="ticket123"),
+            patch("lore.snapshot._mcp_session", return_value="session123"),
             patch(
                 "lore.snapshot.remote_result",
                 return_value={
@@ -957,6 +1025,7 @@ class AnswerTryTest(LoreTestCase):
         )
         with (
             patch("lore.snapshot.remote_owner_answer", return_value="ticket123"),
+            patch("lore.snapshot._mcp_session", return_value="session123"),
             patch("lore.snapshot.remote_result", side_effect=lambda *a: next(results)),
             patch.object(cli.time, "sleep") as sleep,
             captured() as output,
@@ -974,6 +1043,7 @@ class AnswerTryTest(LoreTestCase):
         clock = iter([0.0, 200.0, 500.0])
         with (
             patch("lore.snapshot.remote_owner_answer", return_value="ticket123"),
+            patch("lore.snapshot._mcp_session", return_value="session123"),
             patch(
                 "lore.snapshot.remote_result", return_value={"status": "running"}
             ) as poll,
@@ -984,6 +1054,36 @@ class AnswerTryTest(LoreTestCase):
             self.assertEqual(cli.answer_try("what would you say?", False), 0)
         self.assertEqual(poll.call_count, 1)
         self.assertIn("Still running", output.getvalue())
+
+    def test_a_transient_network_blip_does_not_abort_the_whole_wait(self) -> None:
+        with Store() as store:
+            store.set_setting("node_url", "https://node.example/mcp")
+            store.set_setting("owner_token", "tok")
+        import urllib.error
+
+        results = iter(
+            [
+                urllib.error.URLError("connection reset"),
+                {"status": "complete", "answer": "done", "cited_publication_ids": []},
+            ]
+        )
+
+        def _poll(*_a: object) -> dict[str, object]:
+            item = next(results)
+            if isinstance(item, Exception):
+                raise item
+            return item
+
+        with (
+            patch("lore.snapshot.remote_owner_answer", return_value="ticket123"),
+            patch("lore.snapshot._mcp_session", return_value="session123"),
+            patch("lore.snapshot.remote_result", side_effect=_poll),
+            patch.object(cli.time, "sleep") as sleep,
+            captured() as output,
+        ):
+            self.assertEqual(cli.answer_try("what would you say?", False), 0)
+        self.assertEqual(sleep.call_count, 1)
+        self.assertIn("done", output.getvalue())
 
 
 class AnswerApplyTest(LoreTestCase):

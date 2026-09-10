@@ -674,7 +674,7 @@ export class LoreAgent {
       description: "Ask the owner's own deployed node one free trial question, as the owner, so they can judge the charter's voice before enabling. Spends no crypto but does spend the node's own provider tokens; needs a deployed node with a working provider key. Can take a couple of minutes. Returns the answer, an honest refusal, or a failure reason.",
       parameters: Type.Object({ question: Type.String({ minLength: 1, maxLength: 4000 }) }),
       execute: async (_id, { question }) => {
-        const text = await this.options.tryAnswer(question);
+        const text = await this.#attended("Try a question", () => this.options.tryAnswer(question));
         return { content: [{ type: "text", text }], details: {} };
       }
     });

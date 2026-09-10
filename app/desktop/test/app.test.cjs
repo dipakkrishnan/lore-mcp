@@ -602,7 +602,22 @@ test("tryAnswer calls the CLI's answer try --json and hands the outcome to descr
     await writeFile(bin, '#!/bin/sh\necho "$@" > "$(dirname "$0")/argv.txt"\nprintf \'{"status":"complete","answer":"Ship the smallest thing first."}\'\n', { mode: 0o755 });
     useRuntime(bin);
     assert.equal(await tryAnswer(directory, "what would you say?"), "Answer: Ship the smallest thing first.");
-    assert.equal((await readFile(join(directory, "argv.txt"), "utf8")).trim(), "answer try what would you say? --json");
+    assert.equal((await readFile(join(directory, "argv.txt"), "utf8")).trim(), "answer try --json -- what would you say?");
+  } finally {
+    useRuntime();
+    await rm(directory, { recursive: true });
+  }
+});
+
+test("tryAnswer survives a dash-prefixed question instead of the CLI parsing it as an option", async () => {
+  const { tryAnswer, useRuntime } = require("../src/state.cjs");
+  const directory = await mkdtemp(join(tmpdir(), "lore-desktop-"));
+  const bin = join(directory, "lore");
+  try {
+    await writeFile(bin, '#!/bin/sh\necho "$@" > "$(dirname "$0")/argv.txt"\nprintf \'{"status":"complete","answer":"ok"}\'\n', { mode: 0o755 });
+    useRuntime(bin);
+    assert.equal(await tryAnswer(directory, "-x should I quit?"), "Answer: ok");
+    assert.equal((await readFile(join(directory, "argv.txt"), "utf8")).trim(), "answer try --json -- -x should I quit?");
   } finally {
     useRuntime();
     await rm(directory, { recursive: true });

@@ -7,6 +7,7 @@ import os
 import secrets
 import sys
 import time
+import urllib.error
 from pathlib import Path
 from typing import Annotated
 
@@ -352,6 +353,9 @@ def main(argv: list[str] | None = None) -> int:
                 return deploy_module.deploy(args.wallet, args.network)
             if args.node_command == "secret":
                 _owner_action("storing a node secret")
+                provider_key = args.name in ("ANTHROPIC_API_KEY", "OPENAI_API_KEY")
+                if provider_key and not _interactive():
+                    _require_approval_token()
                 return deploy_module.secret(args.name, sys.stdin.read().strip())
             if args.node_command == "login":
                 return deploy_module.login()
@@ -845,7 +849,7 @@ def answer_try(question: str, as_json: bool) -> int:
     no crypto payment, no `sales` row, but the node still spends its own
     provider tokens to answer, so this is a real trial, not a mock.
     """
-    from .snapshot import remote_owner_answer, remote_result
+    from .snapshot import _mcp_session, remote_owner_answer, remote_result
 
     with Store() as store:
         node_url = store.setting("node_url", None)
@@ -857,12 +861,19 @@ def answer_try(question: str, as_json: bool) -> int:
             "no trial credential on this machine; rerun `lore node deploy` to mint one"
         )
     ticket = remote_owner_answer(node_url, token, question)
+    session = _mcp_session(node_url)
     # The node's own deadline is 180s plus a 60s grace period before it marks
     # a stalled ticket failed; wait a little past that rather than give up early.
     deadline = time.monotonic() + 250
     outcome: dict[str, object] = {"status": "running"}
     while time.monotonic() < deadline:
-        outcome = remote_result(node_url, ticket)
+        try:
+            outcome = remote_result(node_url, session, ticket)
+        except urllib.error.URLError:
+            # A transient blip shouldn't cost the whole wait; the node may
+            # still be legitimately working with budget left on the clock.
+            time.sleep(2)
+            continue
         if outcome.get("status") != "running":
             break
         time.sleep(2)
@@ -915,6 +926,11 @@ def answer_decide() -> int:
 
 
 def answer_disable() -> int:
+    if not _interactive():
+        raise ValueError(
+            "disabling the answer tier needs an attended interactive terminal; "
+            "piped and background use is disabled"
+        )
     with Store() as store:
         store.set_setting("answer_enabled", False)
     success("Answer tier disabled")
