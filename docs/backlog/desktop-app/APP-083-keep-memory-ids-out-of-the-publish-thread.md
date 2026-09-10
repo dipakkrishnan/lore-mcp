@@ -10,7 +10,7 @@ blockers: []
 dependencies: []
 github_issue: null
 created: 2026-09-05
-updated: 2026-09-05
+updated: 2026-09-07
 ---
 
 ## Problem
@@ -43,3 +43,8 @@ from "<title>"` live and after relaunch. The desktop system prompt also
 lists memory ids with the plumbing the agent never names in prose.
 Verified on the dogfood sandbox with a real publish turn: the agent's first
 reply says "Let me read the memory", no id.
+
+Reopened 2026-09-07: the hidden line read like the owner's own words, and
+Opus echoed "memory 44" again on the live library. The line now says it is
+for the agent only and to call the memory by its title, never by number, and
+the system prompt repeats that rule as its own sentence.

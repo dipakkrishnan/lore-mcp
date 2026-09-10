@@ -280,14 +280,21 @@ When they do, verify the gates **from state** before driving anything:
 1. At least one active publication pushed to the node (a real buyer must
    never pay real USDC against an empty catalog) — `lore publication list`
    and the node's own `discover` manifest.
-2. A full test-network payment settled end to end, including one from a
-   wallet that is not the owner's own machine.
+2. A full test-network payment settled end to end — `lore node sales --json`
+   lists every settled sale with its network and payer, so one row on
+   `eip155:84532` proves the rail. Whether any came from a wallet that is not
+   the owner's own machine is one question to the owner; nothing local can tell.
 3. The owner's **explicit** confirmation that they are switching to real
    money — this step, uniquely, is never inferred from context.
 
 Any gate fails → say which, leave the node on the test network, stop.
 
-> **Lore desktop:** all gates hold → frame and open the Coinbase Developer
+> **Lore desktop:** read the gates from `lore publication list` and
+> `lore node sales --json` only, quietly, then say where they stand in one
+> sentence in the owner's words. Never run `npm run pay`, query the chain, or
+> call an explorer from the app: its sandbox cannot bind sockets or reach
+> them, and the ledger already holds every settlement. No settled test sale →
+> say so, offer the test-network path, stop. All gates hold → frame and open the Coinbase Developer
 > Platform's API keys page through `open_url` (the runbook's decoy and
 > dialog notes belong in that one line), then call `store_secret` for
 > `CDP_API_KEY_ID` and again for `CDP_API_KEY_SECRET` — each shows the owner

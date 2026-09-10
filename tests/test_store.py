@@ -873,6 +873,8 @@ class OwnerJobTest(LoreTestCase):
                 "synthesized",
                 "not_reported",
                 "deployed",
+                "deployed_test",
+                "deployed_real",
                 "pushed",
                 "edge_write_failed",
                 "interrupted",
