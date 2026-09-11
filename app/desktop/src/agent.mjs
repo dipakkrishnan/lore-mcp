@@ -723,7 +723,11 @@ export class LoreAgent {
         ])
       }),
       execute: async (_id, { name }) => {
-        const text = await this.#attended("Enter a Coinbase API key", () => this.options.storeSecret(name));
+        const phase =
+          name === "ANTHROPIC_API_KEY" ? "Enter an Anthropic API key" :
+          name === "OPENAI_API_KEY" ? "Enter an OpenAI API key" :
+          "Enter a Coinbase API key";
+        const text = await this.#attended(phase, () => this.options.storeSecret(name));
         return { content: [{ type: "text", text }], details: {} };
       }
     });

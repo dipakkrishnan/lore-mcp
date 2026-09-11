@@ -291,7 +291,11 @@ async function start(loreHome) {
       const prompt = { type: "secret", message: `Paste the ${info.label} from ${info.from}. The agent never sees it. Lore passes it to Cloudflare's vault and does not save it on this Mac.`, placeholder: info.label };
       const value = String(await request("auth-prompt", { prompt })).trim();
       if (!value) return "The owner did not provide it.";
-      await lore(loreHome, ["node", "secret", name], value);
+      // Provider keys are gated the same way answer-settings decisions are: the CLI
+      // requires LORE_APPROVAL_TOKEN for these two names when not run interactively
+      // (see cli.py's `node secret` branch). Without it here, this call always fails.
+      const providerKey = name === "ANTHROPIC_API_KEY" || name === "OPENAI_API_KEY";
+      await lore(loreHome, ["node", "secret", name], value, providerKey ? { LORE_APPROVAL_TOKEN: APPROVAL_TOKEN } : undefined);
       return `Stored the ${info.label}.`;
     },
     // Free — the node's own MON-022 owner route, never x402. Not #attended():

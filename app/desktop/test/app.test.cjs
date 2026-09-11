@@ -558,6 +558,37 @@ test("a forged agent-originated attempt cannot enable or disable answers", async
   }
 });
 
+// Round 3: storeSecret's own call to lore() omitted the approval token
+// entirely for the two provider keys, so every attempt to vault one through
+// the desktop app failed unconditionally. These exercise the exact call
+// shape storeSecret now makes (main.cjs), not just the CLI's own gating.
+test("storing a provider API key passes the desktop's approval token through", async () => {
+  const { lore } = require("../src/state.cjs");
+  const directory = await mkdtemp(join(tmpdir(), "lore-desktop-"));
+  const userData = await mkdtemp(join(tmpdir(), "lore-userdata-"));
+  const token = "d".repeat(64);
+  try {
+    await writeFile(join(userData, "approval.token"), token, { mode: 0o600 });
+    process.env.LORE_DESKTOP_USER_DATA = userData;
+    // No node deployed in this fixture, so a call that clears the approval
+    // gate fails on the next check (no wrangler binary) instead — proof it
+    // got past the gate that was rejecting every call before this fix.
+    await assert.rejects(
+      lore(directory, ["node", "secret", "ANTHROPIC_API_KEY"], "sk-ant-fake", { LORE_APPROVAL_TOKEN: token }),
+      { message: /no deployed node/ }
+    );
+    // The pre-fix call shape: no fourth argument, so no token reaches the CLI.
+    await assert.rejects(
+      lore(directory, ["node", "secret", "ANTHROPIC_API_KEY"], "sk-ant-fake"),
+      { message: /approval token/ }
+    );
+  } finally {
+    delete process.env.LORE_DESKTOP_USER_DATA;
+    await rm(directory, { recursive: true });
+    await rm(userData, { recursive: true });
+  }
+});
+
 test("the userData directory holding the approval token is denied to Bash in both directions", async () => {
   const { bashSandboxPolicy } = require("../src/agent.mjs");
   const home = await mkdtemp(join(tmpdir(), "lore-desktop-"));
