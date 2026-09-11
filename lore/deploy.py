@@ -13,7 +13,6 @@ import json
 import math
 import os
 import re
-import secrets
 import shutil
 import subprocess
 import sys
@@ -419,20 +418,6 @@ def _deploy(
             input=NETWORKS[network] + "\n",
             fail="setting LORE_NETWORK failed",
         )
-
-    # Minted fresh on every deploy, never typed by the owner: the credential
-    # `lore answer try` uses to reach the node's free, unpaid `/owner/answer`
-    # route (lore/node/src/owner-auth.ts). Rotating it here means a stale
-    # copy stops working the moment the node it belonged to is redeployed.
-    owner_token = secrets.token_hex(32)
-    _run(
-        (wrangler, "secret", "put", "LORE_OWNER_TOKEN"),
-        target,
-        input=owner_token + "\n",
-        fail="setting LORE_OWNER_TOKEN failed",
-    )
-    with Store() as store:
-        store.set_setting("owner_token", owner_token)
 
     # First push creates the publications table (CREATE TABLE IF NOT EXISTS),
     # so discover works before the owner has published anything; an empty

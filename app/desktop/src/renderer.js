@@ -606,6 +606,11 @@ function stalePrice(s) {
  * Returns a ready sentence, or null when live matches what was saved.
  * @param {Snapshot} s */
 function staleAnswers(s) {
+  // Only a node we actually reached can disagree with what was saved. An
+  // unreachable one reports null for every price, which would otherwise read
+  // as "not live yet; redeploy" right beside "Store offline" — `stalePrice`
+  // stays quiet in that case and so must this.
+  if (s.node.live.state !== "online") return null;
   const live = s.node.live.answer_price_usd;
   const enabled = s.pricing.answer_enabled;
   if (enabled ? live === s.pricing.answer_usd : live === null) return null;

@@ -14,7 +14,6 @@ import {
 } from "./answer-state.js";
 import { providerReadiness, runAnswer } from "./answer.js";
 import { facilitator, network, networkLabel } from "./network.js";
-import { ownerAuthorized } from "./owner-auth.js";
 import { PRICE_USD } from "./price.js";
 import { ensureSalesSchema, recorded } from "./sales.js";
 import { storefront } from "./storefront.js";
@@ -209,38 +208,6 @@ export class LorePaidMCP extends McpAgent<Env> {
 
 const mcp = LorePaidMCP.serve("/mcp", { binding: "LorePaidMCP" });
 
-function json(payload: unknown, status = 200): Response {
-  return new Response(JSON.stringify(payload), { status, headers: { "content-type": "application/json" } });
-}
-
-/** The owner's own free trial of their answer proxy — see `owner-auth.ts`.
- * Entirely outside x402 and outside the MCP `LorePaidMCP` Durable Object: no
- * payment, no `sales` row, and invisible (404) on any node that has not
- * vaulted `LORE_OWNER_TOKEN`. Runs `runAnswer` directly rather than through
- * the Durable Object RPC surface — that object's `onStart` assumes every
- * invocation is a real MCP transport request and throws otherwise, and
- * `runAnswer` itself needs nothing but `env`. `ctx.waitUntil` keeps the
- * response snappy while the run continues; `runAnswer` never throws (see its
- * own try/catch), so this never produces an unhandled rejection.
- */
-async function ownerAnswer(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
-  if (!ownerAuthorized(request, env)) return new Response("Not Found", { status: 404 });
-  const body = await request.json().catch(() => null);
-  const question = typeof (body as { question?: unknown } | null)?.question === "string"
-    ? (body as { question: string }).question.trim()
-    : "";
-  if (!question || question.length > 4000) {
-    return json({ error: "question must be 1 to 4000 characters" }, 400);
-  }
-  const readiness = providerReadiness(env);
-  if (!readiness.ready) {
-    return json({ error: `the answer tier is not available on this node: ${readiness.reason}` }, 422);
-  }
-  const ticket = await createTicket(env, question, 0, "owner");
-  ctx.waitUntil(runAnswer(env, ticket));
-  return json({ ticket, status: "running", poll: "result", estimate_seconds: ESTIMATE_SECONDS });
-}
-
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
@@ -248,9 +215,6 @@ export default {
       return new Response(storefront(await manifest(env), PRICE_USD, networkLabel(env), url.origin), {
         headers: { "content-type": "text/html; charset=utf-8", "cache-control": "public, max-age=60" }
       });
-    }
-    if (request.method === "POST" && url.pathname === "/owner/answer") {
-      return ownerAnswer(request, env, ctx);
     }
     return mcp.fetch(request, env, ctx);
   }

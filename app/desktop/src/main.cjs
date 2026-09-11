@@ -1,17 +1,10 @@
-const { randomBytes, randomUUID } = require("node:crypto");
-const { chmodSync, mkdirSync, writeFileSync } = require("node:fs");
+const { randomUUID } = require("node:crypto");
 const { join } = require("node:path");
 const { app, BrowserWindow, dialog, ipcMain, safeStorage, shell, systemPreferences } = require("electron");
 const { provision, skillsDir, whisper } = require("./runtime.cjs");
 const { transcribe } = require("./dictation.cjs");
-const { lore, loreStream, openable, readState, readSales, searchMemories, readMemory, renameMemory, editMemory, captureMemories, setPrice, setAnswerSettings, tryAnswer, candidates, decide, useRuntime } = require("./state.cjs");
+const { lore, loreStream, openable, readState, readSales, searchMemories, readMemory, renameMemory, editMemory, captureMemories, setPrice, setAnswerSettings, disableAnswers, candidates, decide, useRuntime } = require("./state.cjs");
 
-// Named before any app.getPath() call, dev or packaged alike: `userData`
-// (credentials, and the answer-settings approval token below) must resolve
-// to the same directory regardless of which one launched the process, or the
-// CLI's own independent resolution of the token path (see cli.py's
-// `_approval_token_path`) would look in the wrong place.
-app.setName("Lore");
 if (process.env.LORE_DESKTOP_USER_DATA) app.setPath("userData", process.env.LORE_DESKTOP_USER_DATA);
 
 const TASKS = new Set(["capture", "setup", "publish", "deploy"]);
@@ -22,20 +15,6 @@ const SECRET_LABELS = {
   ANTHROPIC_API_KEY: { label: "Anthropic API key", from: "Anthropic" },
   OPENAI_API_KEY: { label: "OpenAI API key", from: "OpenAI" }
 };
-
-// Minted once per launch, never persisted anywhere Bash can reach: `lore
-// answer apply` (cli.py) refuses without a value that matches the file this
-// writes below. LORE_ATTENDED_SURFACE alone is not proof of approval — the
-// agent's own Bash tool can set that marker on a command it runs itself.
-const APPROVAL_TOKEN = randomBytes(32).toString("hex");
-
-function writeApprovalToken() {
-  const dir = app.getPath("userData");
-  mkdirSync(dir, { recursive: true });
-  const file = join(dir, "approval.token");
-  writeFileSync(file, APPROVAL_TOKEN, { mode: 0o600 });
-  chmodSync(file, 0o600); // belt-and-suspenders: writeFileSync's mode is subject to umask
-}
 
 /** @type {LoreAgentInstance | undefined} */
 let agent;
@@ -138,10 +117,10 @@ function registerIpc(loreHome) {
   ipcMain.handle("pricing:set", (_event, amount) => setPrice(loreHome, amount));
   // Enabling always goes through propose_answers in a deploy conversation —
   // drafting a charter is inherently a conversation. Disabling is a safe,
-  // reversible flip the owner can make on their own, straight from Settings.
-  ipcMain.handle("answers:disable", () =>
-    setAnswerSettings(loreHome, { proxy_preamble: "", answer_price_usd: 0, answer_enabled: false }, APPROVAL_TOKEN)
-  );
+  // reversible flip the owner can make on their own, straight from Settings:
+  // `answer off` leaves the approved charter and price alone, so turning it
+  // back on is the same card again, not a rewrite from nothing.
+  ipcMain.handle("answers:disable", () => disableAnswers(loreHome));
   ipcMain.handle("files:pick", async () => {
     if (!window) return [];
     const { filePaths } = await dialog.showOpenDialog(window, { properties: ["openFile", "multiSelections"] });
@@ -178,7 +157,6 @@ function createWindow() {
 }
 
 app.whenReady().then(async () => {
-  writeApprovalToken();
   const loreHome = process.env.LORE_HOME || join(app.getPath("home"), ".lore");
   registerIpc(loreHome);
   createWindow();
@@ -213,7 +191,6 @@ async function start(loreHome) {
     loreHome,
     skillsDir,
     binDir: runtime?.binDir,
-    userDataDir: app.getPath("userData"),
     credentials,
     emit,
     askUser: async (questions) =>
@@ -259,7 +236,7 @@ async function start(loreHome) {
       // a rewrite is a conversation with the agent, not a text field.
       const confirmed = await request("answers", { charter, price, reason });
       if (typeof confirmed !== "number") return null;
-      await setAnswerSettings(loreHome, { proxy_preamble: charter, answer_price_usd: confirmed, answer_enabled: true }, APPROVAL_TOKEN);
+      await setAnswerSettings(loreHome, { proxy_preamble: charter, answer_price_usd: confirmed, answer_enabled: true });
       emit({ type: "changed" });
       return confirmed;
     },
@@ -291,16 +268,9 @@ async function start(loreHome) {
       const prompt = { type: "secret", message: `Paste the ${info.label} from ${info.from}. The agent never sees it. Lore passes it to Cloudflare's vault and does not save it on this Mac.`, placeholder: info.label };
       const value = String(await request("auth-prompt", { prompt })).trim();
       if (!value) return "The owner did not provide it.";
-      // Provider keys are gated the same way answer-settings decisions are: the CLI
-      // requires LORE_APPROVAL_TOKEN for these two names when not run interactively
-      // (see cli.py's `node secret` branch). Without it here, this call always fails.
-      const providerKey = name === "ANTHROPIC_API_KEY" || name === "OPENAI_API_KEY";
-      await lore(loreHome, ["node", "secret", name], value, providerKey ? { LORE_APPROVAL_TOKEN: APPROVAL_TOKEN } : undefined);
+      await lore(loreHome, ["node", "secret", name], value);
       return `Stored the ${info.label}.`;
     },
-    // Free — the node's own MON-022 owner route, never x402. Not #attended():
-    // nothing here waits on the owner, only on the node.
-    tryAnswer: (question) => tryAnswer(loreHome, question),
     job: {
       // This process is the one that owes the row a close, so it claims the row
       // with its own pid. The long ceiling only bounds pid reuse; it is not a

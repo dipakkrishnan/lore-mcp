@@ -4,10 +4,7 @@ import argparse
 import json
 import math
 import os
-import secrets
 import sys
-import time
-import urllib.error
 from pathlib import Path
 from typing import Annotated
 
@@ -193,12 +190,6 @@ def parser() -> argparse.ArgumentParser:
         "apply",
         help="apply one answer-settings decision from the Lore desktop app (stdin)",
     )
-    answer_try = answer_commands.add_parser(
-        "try",
-        help="ask the deployed node one free trial question as the owner; spends no crypto",
-    )
-    answer_try.add_argument("question")
-    answer_try.add_argument("--json", action="store_true")
     serve = commands.add_parser("serve", help="run the Lore MCP server")
     serve.add_argument("--transport", choices=["stdio", "http"], default="stdio")
     serve.add_argument("--host", default="127.0.0.1")
@@ -327,13 +318,14 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "price":
             return price(args.amount)
         if args.command == "answer":
+            # Explicit, not a trailing else: a future subcommand added without
+            # its own branch must not silently fall through to disabling.
             if args.answer_command == "on":
                 return answer_enable(args.file, args.price)
-            if args.answer_command == "try":
-                return answer_try(args.question, args.json)
             if args.answer_command == "apply":
                 return answer_decide()
-            return answer_disable()
+            if args.answer_command == "off":
+                return answer_disable()
         if args.command == "serve":
             from .mcp import main as serve
 
@@ -353,9 +345,6 @@ def main(argv: list[str] | None = None) -> int:
                 return deploy_module.deploy(args.wallet, args.network)
             if args.node_command == "secret":
                 _owner_action("storing a node secret")
-                provider_key = args.name in ("ANTHROPIC_API_KEY", "OPENAI_API_KEY")
-                if provider_key and not _interactive():
-                    _require_approval_token()
                 return deploy_module.secret(args.name, sys.stdin.read().strip())
             if args.node_command == "login":
                 return deploy_module.login()
@@ -435,11 +424,6 @@ def manual() -> int:
 
   6b. lore answer on <proxy-file> <price> | off
      Enable the paid answer tier or switch it off. Ships on the next `lore push`.
-
-  6c. lore answer try "<question>"
-     Ask your deployed node one free trial question, as yourself. Spends no
-     crypto but does spend provider tokens on the node's own key. Needs a
-     deployed node (`lore node deploy` mints the trial credential).
 
   7. lore status
      Check imports, the private library, active publications, and price.
@@ -842,70 +826,17 @@ def answer_enable(path: str, price: float) -> int:
     return 0
 
 
-def answer_try(question: str, as_json: bool) -> int:
-    """Ask the deployed node one free trial question, as the owner.
-
-    Uses the owner-only `/owner/answer` route (`lore/node/src/owner-auth.ts`):
-    no crypto payment, no `sales` row, but the node still spends its own
-    provider tokens to answer, so this is a real trial, not a mock.
-    """
-    from .snapshot import _mcp_session, remote_owner_answer, remote_result
-
-    with Store() as store:
-        node_url = store.setting("node_url", None)
-        token = store.setting("owner_token", None)
-    if not isinstance(node_url, str) or not node_url:
-        raise ValueError("no deployed node; run `lore node deploy` first")
-    if not isinstance(token, str) or not token:
-        raise ValueError(
-            "no trial credential on this machine; rerun `lore node deploy` to mint one"
-        )
-    ticket = remote_owner_answer(node_url, token, question)
-    session = _mcp_session(node_url)
-    # The node's own deadline is 180s plus a 60s grace period before it marks
-    # a stalled ticket failed; wait a little past that rather than give up early.
-    deadline = time.monotonic() + 250
-    outcome: dict[str, object] = {"status": "running"}
-    while time.monotonic() < deadline:
-        try:
-            outcome = remote_result(node_url, session, ticket)
-        except urllib.error.URLError:
-            # A transient blip shouldn't cost the whole wait; the node may
-            # still be legitimately working with budget left on the clock.
-            time.sleep(2)
-            continue
-        if outcome.get("status") != "running":
-            break
-        time.sleep(2)
-    if as_json:
-        print(json.dumps(outcome, separators=(",", ":"), allow_nan=False))
-        return 0
-    status = outcome.get("status")
-    if status == "complete":
-        heading("Answer")
-        print(str(outcome.get("answer", "")))
-        cited = outcome.get("cited_publication_ids")
-        if isinstance(cited, list) and cited:
-            muted("Cited: " + ", ".join(str(item) for item in cited))
-    elif status == "refused":
-        muted(f"Refused: {outcome.get('reason', 'no coverage')}")
-    elif status == "failed":
-        muted(f"Failed: {outcome.get('reason', 'agent error')}")
-    else:
-        muted("Still running; check back with `lore answer try` again in a moment.")
-    return 0
-
-
 def answer_decide() -> int:
     """Apply one answer-settings decision from the Lore desktop app (stdin only).
 
-    The single Desktop-facing entry point for both enabling and disabling —
-    see `_require_approval_token` for why `LORE_ATTENDED_SURFACE` alone can't
-    gate this. Validation is `AnswerSettings`'s own, unchanged from `lore
-    answer on`.
+    How Desktop enables the tier: the owner approved the exact charter and
+    price on a card, and Electron main pipes what they confirmed. Gated by the
+    same attended-surface marker `lore publication decide` uses — a guardrail
+    against a naive path, not a boundary against an adversarial agent, which
+    the shared `lore.db` rules out for every setting alike (`docs/desktop-app.md`).
+    Validation is `AnswerSettings`'s own, unchanged from `lore answer on`.
     """
     text = _desktop_decision("an answer-settings decision")
-    _require_approval_token()
     try:
         payload = json.loads(text)
     except json.JSONDecodeError as error:
@@ -926,11 +857,14 @@ def answer_decide() -> int:
 
 
 def answer_disable() -> int:
-    if not _interactive():
-        raise ValueError(
-            "disabling the answer tier needs an attended interactive terminal; "
-            "piped and background use is disabled"
-        )
+    """Switch the tier off without touching the approved charter or price.
+
+    One setting key, not a whole `AnswerSettings` write: turning off has to be
+    reversible, and re-approving a charter the owner already approved is not
+    that. Desktop's Turn off button comes through here too, so the gate is
+    `_owner_action`'s — an attended terminal or the app, never a bare pipe.
+    """
+    _owner_action("disabling the answer tier")
     with Store() as store:
         store.set_setting("answer_enabled", False)
     success("Answer tier disabled")
@@ -993,50 +927,6 @@ def _owner_action(what: str) -> None:
         raise ValueError(
             f"{what} needs an attended terminal or the Lore desktop app; "
             "piped and background use is disabled"
-        )
-
-
-def _approval_token_path() -> Path:
-    """Where Electron main keeps its answer-settings approval token.
-
-    Resolved independently of anything the caller supplies — never from argv,
-    an env-supplied path, or a file inside `LORE_HOME` — because an agent that
-    could name its own token file could plant one and pass the check. This
-    mirrors how `main.cjs` resolves Electron's `userData` directory: the same
-    `LORE_DESKTOP_USER_DATA` override the desktop test harnesses set, else the
-    platform default for an app named "Lore".
-    """
-    override = os.environ.get("LORE_DESKTOP_USER_DATA")
-    if override:
-        return Path(override) / "approval.token"
-    if sys.platform == "darwin":
-        return (
-            Path.home() / "Library" / "Application Support" / "Lore" / "approval.token"
-        )
-    if sys.platform == "win32":
-        appdata = os.environ.get("APPDATA") or str(Path.home() / "AppData" / "Roaming")
-        return Path(appdata) / "Lore" / "approval.token"
-    config = os.environ.get("XDG_CONFIG_HOME") or str(Path.home() / ".config")
-    return Path(config) / "Lore" / "approval.token"
-
-
-def _require_approval_token() -> None:
-    """Refuse unless `LORE_APPROVAL_TOKEN` matches the token Electron main
-    minted at launch and wrote to a path the Bash sandbox denies both read and
-    write on (`bashSandboxPolicy` in `app/desktop/src/agent.mjs`). Being able
-    to set `LORE_ATTENDED_SURFACE=desktop` on a non-interactive pipe — which
-    the agent's own Bash tool can do — is not proof of owner approval; reading
-    the real token's value from a path Bash cannot reach is.
-    """
-    provided = os.environ.get("LORE_APPROVAL_TOKEN", "")
-    try:
-        expected = _approval_token_path().read_text(encoding="utf-8").strip()
-    except OSError:
-        expected = ""
-    if not expected or not provided or not secrets.compare_digest(provided, expected):
-        raise ValueError(
-            "answer-settings changes need the desktop app's approval token; "
-            "the attended-surface marker alone is not enough"
         )
 
 

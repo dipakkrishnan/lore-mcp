@@ -1,10 +1,11 @@
 # Answer tier
 
-Status: implemented (2026-08-18), including the Desktop seller controls
-(2026-09-09); deployed buyer-value validation remains in `EVAL-002`. Backlog
-anchor: `MCP-003`. Companion items: `MON-015` (D1 checkpoint recovery),
-`MON-017` (provider readiness before payment, closed), `MON-022` (the
-owner's free trial route), and `APP-035` (the Desktop owner gate, closed).
+Status: implemented (2026-08-18), including the Desktop enable/disable
+controls (2026-09-11); deployed buyer-value validation remains in `EVAL-002`.
+Backlog anchor: `MCP-003`. Companion items: `MON-015` (D1 checkpoint
+recovery), `MON-017` (provider readiness before payment, closed), `APP-035`
+(the Desktop controls, closed), and `MON-024` (an owner trial route, pulled
+back for redesign — see section 10).
 
 The catalog surface (`discover` free, `get` paid) sells the owner's raw
 publications. The answer tier sells access to the owner's **AI proxy**: a buyer
@@ -58,8 +59,8 @@ Two consequences:
    `lore-onboard` is private by design (`BP-001`). The answer agent needs an
    owner-approved public charter — identity, voice, judgment, disclaimers, and
    representation boundaries — distinct from the blueprint, explicitly
-   approved in an attended terminal today, and shipped to the edge by
-   `lore push`. `APP-035` owns a future seller-side Desktop gate.
+   approved on a card in Desktop or in an attended terminal, and shipped to
+   the edge by `lore push` (`APP-035`, section 10).
 2. If private-memory-informed answers are ever wanted, that is a new
    per-topic disclosure decision the owner opts into explicitly — never a
    side effect of an infra choice.
@@ -235,33 +236,46 @@ buyer must judge proxy fidelity, grounding, citation validity, refusal honesty,
 and observed margin against a deployed QA node. `MON-017` separately prevents a
 known-missing model provider from becoming a paid failure.
 
-## 10. Desktop: the owner's own gate and trial
+## 10. Desktop: enabling and disabling the tier
 
-`APP-035` and `MON-022` add the seller side of this tier to Desktop, so
-enabling, trying, and disabling it never need a terminal:
+`APP-035` adds the seller side of this tier to Desktop, so the one step that
+still needed a terminal — the owner saying yes to a charter and a price — no
+longer does:
 
-- **The owner's free trial (`MON-022`).** `POST /owner/answer` is a plain,
-  bearer-token-gated route on the Worker's `fetch` handler — entirely outside
-  the MCP `LorePaidMCP` Durable Object and outside x402. It runs the exact
-  same `createTicket`/`runAnswer` path as a real purchase, at `price_usd = 0`,
-  tagged `origin: 'owner'` on the `answer_jobs` row, and writes no `sales`
-  row. `LORE_OWNER_TOKEN` is a Worker secret Desktop mints and rotates on
-  every `lore node deploy`; no token configured means the route 404s rather
-  than 401s, so a node deployed before this shipped advertises nothing extra.
-  `lore answer try "<question>"` (CLI) and Desktop's `try_answer` agent tool
-  both drive it, polling the same free `result` tool a buyer would.
-- **The Desktop enable/disable gate (`APP-035`).** `LORE_ATTENDED_SURFACE` on
-  a non-interactive pipe is not proof of owner approval — the desktop agent's
-  own Bash tool can set that marker on a command it runs itself. `lore answer
-  apply` (the one Desktop-facing path for both enabling and disabling)
-  additionally requires `LORE_APPROVAL_TOKEN` to match a random token
-  Electron main mints at launch and writes under Electron's `userData`, a
-  path the Bash sandbox denies both read and write on. Enabling shows the
-  owner the exact charter and price on a card before anything is saved
-  (`propose_answers`); disabling is a plain, reversible Settings button.
-  `lore publication decide` does not yet have the same second check —
-  `APP-105` tracks closing that gap with the same mechanism.
-- The memory boundary in section 2 is unchanged by either: both reach only
-  approved publications, never private memory, and neither is a new
-  disclosure decision — the trial route answers only the questions the owner
-  themselves asks.
+- **Enabling.** The payments skill drafts the charter as before; the
+  `propose_answers` tool puts the exact text and a suggested per-answer price
+  on a card, and only what the owner confirms is saved. Same shape as
+  `propose_price`: the agent proposes, the owner decides, the tool returns the
+  number that was actually saved. `lore push` ships it, as it always has.
+- **Disabling.** A plain Settings button, going through `lore answer off`,
+  which writes one setting key and leaves the approved charter and price
+  alone — turning it back on is the same card again, not a charter rewritten
+  from nothing.
+- **The gate.** Both paths use the attended-surface marker `lore publication
+  decide` already uses. It keeps the naive path honest; it is not a hard
+  boundary, and Desktop's docs say so plainly (`docs/desktop-app.md` rule 3):
+  the Bash sandbox grants write access to the whole Lore home, `lore.db`
+  included, so no per-command check in front of the store can be stronger than
+  the store itself. Every owner setting — the publication price, the
+  publication set, the answer tier — sits behind the same guardrail, and
+  raising it is one design change for all of them rather than one command at a
+  time.
+- **Provider keys.** `ANTHROPIC_API_KEY`/`OPENAI_API_KEY` join `SECRETS` in
+  `lore/deploy.py`, so `store_secret` can vault one from a masked card the
+  same way the Coinbase credentials already are; the value never reaches the
+  agent. Selecting OpenAI still needs `LORE_ANSWER_MODEL` set in a terminal.
+- **What is live vs. what is saved.** Desktop reads `answer_price_usd` back
+  from `discover` and compares it to the saved setting, the same way it
+  already does for the publication price, so a saved-but-unpushed change says
+  so instead of claiming the node already changed.
+
+A first-party way for the owner to *try* an answer before enabling — the
+`MON-024` trial route — is not part of this. Its first implementation had
+three structural problems (a cold D1 with no `answer_jobs` table, Cloudflare's
+~30s `waitUntil` cap against a 180s agent deadline, and no way to preview a
+charter that has not been pushed yet), so it was pulled back for redesign. A
+test-network self-purchase covers the loop until it returns.
+
+The memory boundary in section 2 is unchanged by any of this: the answer agent
+reaches only approved publications, and nothing here is a new disclosure
+decision.

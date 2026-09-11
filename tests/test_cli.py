@@ -179,8 +179,6 @@ class MainDispatchTest(LoreTestCase):
             (["price"], "price", (None,)),
             (["answer", "on", "p.txt", "2"], "answer_enable", ("p.txt", 2.0)),
             (["answer", "off"], "answer_disable", ()),
-            (["answer", "try", "q"], "answer_try", ("q", False)),
-            (["answer", "try", "q", "--json"], "answer_try", ("q", True)),
             (["blueprint", "apply", "f.json"], "blueprint_apply", ("f.json",)),
             (["blueprint", "show"], "blueprint_show", ()),
             (["blueprint"], "blueprint_show", ()),
@@ -263,63 +261,20 @@ class MainDispatchTest(LoreTestCase):
         self.assertIn("attended terminal or the Lore desktop app", stderr.getvalue())
         secret.assert_not_called()
 
-    def test_provider_secrets_need_the_real_approval_token_not_just_the_marker(self) -> None:
-        # ANTHROPIC_API_KEY/OPENAI_API_KEY route real buyer questions; the
-        # forgeable LORE_ATTENDED_SURFACE marker alone must not be enough to
-        # vault one, the same boundary APP-035 draws for answer-settings.
-        user_data = Path(self.tmp.name) / "user-data"
-        user_data.mkdir()
-        token_path = user_data / "approval.token"
-        token_path.write_text("the-real-token", encoding="utf-8")
-        for name in ("ANTHROPIC_API_KEY", "OPENAI_API_KEY"):
+    def test_the_answer_model_keys_vault_the_same_way_the_facilitator_ones_do(
+        self,
+    ) -> None:
+        # APP-035 added the two answer-model providers to `SECRETS`. They ride
+        # the gate the Coinbase credentials already use — one path for all four,
+        # rather than a second, stronger-looking one for two of them.
+        for name in deploy_module.SECRETS:
             with self.subTest(name=name):
                 with (
                     patch("lore.deploy.secret", return_value=0) as secret,
-                    patch.dict(
-                        os.environ,
-                        {
-                            "LORE_ATTENDED_SURFACE": "desktop",
-                            "LORE_DESKTOP_USER_DATA": str(user_data),
-                            "LORE_APPROVAL_TOKEN": "a-guess",
-                        },
-                    ),
-                    patch.object(sys, "stdin", StringIO("sk-fake\n")),
-                    self.assertRaisesRegex(ValueError, "approval token"),
+                    desktop_stdin("a-key\n"),
                 ):
-                    cli.main(["node", "secret", name])
-                secret.assert_not_called()
-
-    def test_provider_secrets_succeed_with_the_real_approval_token(self) -> None:
-        user_data = Path(self.tmp.name) / "user-data"
-        user_data.mkdir()
-        token_path = user_data / "approval.token"
-        token_path.write_text("the-real-token", encoding="utf-8")
-        with (
-            patch("lore.deploy.secret", return_value=0) as secret,
-            patch.dict(
-                os.environ,
-                {
-                    "LORE_ATTENDED_SURFACE": "desktop",
-                    "LORE_DESKTOP_USER_DATA": str(user_data),
-                    "LORE_APPROVAL_TOKEN": "the-real-token",
-                },
-            ),
-            patch.object(sys, "stdin", StringIO("sk-fake\n")),
-        ):
-            self.assertEqual(cli.main(["node", "secret", "ANTHROPIC_API_KEY"]), 0)
-        secret.assert_called_once_with("ANTHROPIC_API_KEY", "sk-fake")
-
-    def test_facilitator_secrets_are_unaffected_by_the_approval_token_gate(self) -> None:
-        # CDP_API_KEY_ID/CDP_API_KEY_SECRET are a deliberate scope line: only
-        # the two answer-model provider keys this PR adds are gated by the
-        # unforgeable approval token; the facilitator credentials keep the
-        # pre-existing attended-surface gate.
-        with (
-            patch("lore.deploy.secret", return_value=0) as secret,
-            desktop_stdin("key-id\n"),
-        ):
-            self.assertEqual(cli.main(["node", "secret", "CDP_API_KEY_ID"]), 0)
-        secret.assert_called_once_with("CDP_API_KEY_ID", "key-id")
+                    self.assertEqual(cli.main(["node", "secret", name]), 0)
+                secret.assert_called_once_with(name, "a-key")
 
     def test_no_command_falls_back_to_status_when_not_interactive(self) -> None:
         with (
@@ -920,9 +875,9 @@ class AnswerCommandTest(LoreTestCase):
             with self.assertRaisesRegex(ValueError, "empty"):
                 cli.answer_enable(self.proxy_file("   \n"), 0.5)
 
-    def test_disabling_needs_an_attended_terminal(self) -> None:
+    def test_disabling_needs_a_terminal_or_the_app_never_a_bare_pipe(self) -> None:
         with patch.object(cli, "_interactive", return_value=False):
-            with self.assertRaisesRegex(ValueError, "attended interactive terminal"):
+            with self.assertRaisesRegex(ValueError, "attended terminal or the Lore"):
                 cli.answer_disable()
 
     def test_disabling_from_an_attended_terminal_reminds_about_push(self) -> None:
@@ -931,167 +886,34 @@ class AnswerCommandTest(LoreTestCase):
         self.assertIn("disabled", output.getvalue())
         self.assertIn("lore push", output.getvalue())
 
-
-class AnswerTryTest(LoreTestCase):
-    """`lore answer try` — the owner's free trial question against their own
-    deployed node. Every real network call is stubbed at `lore.snapshot`."""
-
-    def test_needs_a_deployed_node(self) -> None:
-        with self.assertRaisesRegex(ValueError, "no deployed node"):
-            cli.answer_try("what would you say?", False)
-
-    def test_needs_a_trial_credential(self) -> None:
-        with Store() as store:
-            store.set_setting("node_url", "https://node.example/mcp")
-        with self.assertRaisesRegex(ValueError, "no trial credential"):
-            cli.answer_try("what would you say?", False)
-
-    def test_a_complete_answer_prints_the_text_and_its_citations(self) -> None:
-        with Store() as store:
-            store.set_setting("node_url", "https://node.example/mcp")
-            store.set_setting("owner_token", "tok")
+    def test_disabling_keeps_the_approved_charter_and_price(self) -> None:
+        # Turning off writes one setting key. Wiping the charter would make
+        # "reversible" false: turning it back on would mean approving a
+        # charter the owner already approved, from nothing.
         with (
-            patch("lore.snapshot.remote_owner_answer", return_value="ticket123") as ask,
-            patch("lore.snapshot._mcp_session", return_value="session123"),
-            patch(
-                "lore.snapshot.remote_result",
-                return_value={
-                    "status": "complete",
-                    "answer": "This is the answer.",
-                    "cited_publication_ids": ["0000000000000000fcdb4b42"],
-                },
-            ) as poll,
-            captured() as output,
+            patch.object(cli, "_interactive", return_value=True),
+            patch.object(cli, "confirm", return_value=True),
+            captured(),
         ):
-            self.assertEqual(cli.answer_try("what would you say?", False), 0)
-        ask.assert_called_once_with(
-            "https://node.example/mcp", "tok", "what would you say?"
-        )
-        poll.assert_called_once_with(
-            "https://node.example/mcp", "session123", "ticket123"
-        )
-        self.assertIn("This is the answer.", output.getvalue())
-        self.assertIn("0000000000000000fcdb4b42", output.getvalue())
-
-    def test_json_output_is_the_raw_outcome_untranslated(self) -> None:
+            cli.answer_enable(self.proxy_file(), 0.5)
+            self.assertEqual(cli.answer_disable(), 0)
         with Store() as store:
-            store.set_setting("node_url", "https://node.example/mcp")
-            store.set_setting("owner_token", "tok")
-        with (
-            patch("lore.snapshot.remote_owner_answer", return_value="ticket123"),
-            patch("lore.snapshot._mcp_session", return_value="session123"),
-            patch(
-                "lore.snapshot.remote_result",
-                return_value={"status": "refused", "reason": "no coverage"},
-            ),
-            captured() as output,
-        ):
-            self.assertEqual(cli.answer_try("what would you say?", True), 0)
+            settings = store.answer_settings()
+        self.assertFalse(settings.answer_enabled)
         self.assertEqual(
-            json.loads(output.getvalue()),
-            {"status": "refused", "reason": "no coverage"},
+            settings.proxy_preamble, "Act as Ada's concise, evidence-first proxy."
         )
-
-    def test_a_refused_or_failed_ticket_says_why_in_prose(self) -> None:
-        with Store() as store:
-            store.set_setting("node_url", "https://node.example/mcp")
-            store.set_setting("owner_token", "tok")
-        with (
-            patch("lore.snapshot.remote_owner_answer", return_value="ticket123"),
-            patch("lore.snapshot._mcp_session", return_value="session123"),
-            patch(
-                "lore.snapshot.remote_result",
-                return_value={
-                    "status": "failed",
-                    "reason": "the node's model is unready",
-                },
-            ),
-            captured() as output,
-        ):
-            self.assertEqual(cli.answer_try("what would you say?", False), 0)
-        self.assertIn("Failed", output.getvalue())
-        self.assertIn("unready", output.getvalue())
-
-    def test_polls_a_running_ticket_until_it_finishes(self) -> None:
-        with Store() as store:
-            store.set_setting("node_url", "https://node.example/mcp")
-            store.set_setting("owner_token", "tok")
-        results = iter(
-            [
-                {"status": "running"},
-                {"status": "running"},
-                {"status": "complete", "answer": "done", "cited_publication_ids": []},
-            ]
-        )
-        with (
-            patch("lore.snapshot.remote_owner_answer", return_value="ticket123"),
-            patch("lore.snapshot._mcp_session", return_value="session123"),
-            patch("lore.snapshot.remote_result", side_effect=lambda *a: next(results)),
-            patch.object(cli.time, "sleep") as sleep,
-            captured() as output,
-        ):
-            self.assertEqual(cli.answer_try("what would you say?", False), 0)
-        self.assertEqual(sleep.call_count, 2)
-        self.assertIn("done", output.getvalue())
-
-    def test_gives_up_after_the_deadline_without_crashing(self) -> None:
-        with Store() as store:
-            store.set_setting("node_url", "https://node.example/mcp")
-            store.set_setting("owner_token", "tok")
-        # First call sets the deadline; each further call advances the clock
-        # by more than the poll interval so the loop exits after one poll.
-        clock = iter([0.0, 200.0, 500.0])
-        with (
-            patch("lore.snapshot.remote_owner_answer", return_value="ticket123"),
-            patch("lore.snapshot._mcp_session", return_value="session123"),
-            patch(
-                "lore.snapshot.remote_result", return_value={"status": "running"}
-            ) as poll,
-            patch.object(cli.time, "sleep"),
-            patch.object(cli.time, "monotonic", side_effect=lambda: next(clock)),
-            captured() as output,
-        ):
-            self.assertEqual(cli.answer_try("what would you say?", False), 0)
-        self.assertEqual(poll.call_count, 1)
-        self.assertIn("Still running", output.getvalue())
-
-    def test_a_transient_network_blip_does_not_abort_the_whole_wait(self) -> None:
-        with Store() as store:
-            store.set_setting("node_url", "https://node.example/mcp")
-            store.set_setting("owner_token", "tok")
-        import urllib.error
-
-        results = iter(
-            [
-                urllib.error.URLError("connection reset"),
-                {"status": "complete", "answer": "done", "cited_publication_ids": []},
-            ]
-        )
-
-        def _poll(*_a: object) -> dict[str, object]:
-            item = next(results)
-            if isinstance(item, Exception):
-                raise item
-            return item
-
-        with (
-            patch("lore.snapshot.remote_owner_answer", return_value="ticket123"),
-            patch("lore.snapshot._mcp_session", return_value="session123"),
-            patch("lore.snapshot.remote_result", side_effect=_poll),
-            patch.object(cli.time, "sleep") as sleep,
-            captured() as output,
-        ):
-            self.assertEqual(cli.answer_try("what would you say?", False), 0)
-        self.assertEqual(sleep.call_count, 1)
-        self.assertIn("done", output.getvalue())
+        self.assertEqual(settings.answer_price_usd, 0.5)
 
 
 class AnswerApplyTest(LoreTestCase):
-    """`lore answer apply -` — the one Desktop-facing path to enable or
-    disable the answer tier, and the boundary APP-035 exists to prove: the
-    `LORE_ATTENDED_SURFACE` marker alone is forgeable by the agent's own Bash
-    tool, so an approval token only Electron main can read is what actually
-    gates this."""
+    """`lore answer apply` — how Desktop enables the tier.
+
+    Gated by the attended-surface marker `lore publication decide` already
+    uses. That is a guardrail against a naive path, not a boundary against an
+    adversarial agent: Bash keeps write access to the whole Lore home, and so
+    to `lore.db`, for capture and sessions. See `docs/desktop-app.md` rule 3.
+    """
 
     DECISION = {
         "proxy_preamble": "Act as Ada's concise, evidence-first proxy.",
@@ -1099,115 +921,36 @@ class AnswerApplyTest(LoreTestCase):
         "answer_enabled": True,
     }
 
-    def setUp(self) -> None:
-        super().setUp()
-        self.user_data = Path(self.tmp.name) / "user-data"
-        self.user_data.mkdir()
-        self.token = "the-real-token"
-        (self.user_data / "approval.token").write_text(self.token, encoding="utf-8")
-        self.env = {"LORE_DESKTOP_USER_DATA": str(self.user_data)}
-
-    def apply(self, decision: dict[str, object], token: str | None) -> int:
-        env = dict(self.env)
-        if token is not None:
-            env["LORE_APPROVAL_TOKEN"] = token
-        with (
-            patch.dict(os.environ, env),
-            desktop_stdin(json.dumps(decision)),
-        ):
-            return cli.answer_decide()
-
-    def test_the_approved_desktop_path_applies_the_decision(self) -> None:
-        with captured() as output:
-            self.assertEqual(self.apply(self.DECISION, self.token), 0)
+    def test_a_decision_from_the_app_is_applied(self) -> None:
+        with desktop_stdin(json.dumps(self.DECISION)), captured() as output:
+            self.assertEqual(cli.answer_decide(), 0)
         with Store() as store:
             settings = store.answer_settings()
-        self.assertEqual(settings.proxy_preamble, self.DECISION["proxy_preamble"])
-        self.assertEqual(settings.answer_price_usd, 0.5)
         self.assertTrue(settings.answer_enabled)
-        self.assertEqual(
-            json.loads(output.getvalue()),
-            {
-                "proxy_preamble": self.DECISION["proxy_preamble"],
-                "answer_price_usd": 0.5,
-                "answer_enabled": True,
-            },
-        )
+        self.assertEqual(settings.answer_price_usd, 0.5)
+        self.assertEqual(json.loads(output.getvalue())["answer_price_usd"], 0.5)
 
-    def test_disabling_goes_through_the_same_gate(self) -> None:
-        self.apply(self.DECISION, self.token)
-        off = {"proxy_preamble": "", "answer_price_usd": 0, "answer_enabled": False}
-        with captured():
-            self.assertEqual(self.apply(off, self.token), 0)
-        with Store() as store:
-            self.assertFalse(store.answer_settings().answer_enabled)
-
-    def test_a_forged_agent_originated_attempt_is_refused(self) -> None:
-        # Exactly what the agent's Bash tool can do on its own: set the
-        # attended marker, pipe non-interactive stdin, and supply *some*
-        # value for the token — anything except the one it cannot read.
-        for forged_token in (None, "", "a-guess", self.token[:-1] + "!"):
-            with self.subTest(forged_token=forged_token):
-                with self.assertRaisesRegex(ValueError, "approval token"):
-                    self.apply(self.DECISION, forged_token)
-        with Store() as store:
-            self.assertFalse(store.answer_settings().answer_enabled)
-
-    def test_no_token_file_at_all_is_refused_not_a_crash(self) -> None:
-        (self.user_data / "approval.token").unlink()
-        with self.assertRaisesRegex(ValueError, "approval token"):
-            self.apply(self.DECISION, self.token)
-
-    def test_the_attended_marker_alone_is_still_not_enough(self) -> None:
-        # `_desktop_decision`'s own check passes (marker set, stdin piped);
-        # only the token requirement added on top should stop it.
-        with self.assertRaisesRegex(ValueError, "approval token"):
-            self.apply(self.DECISION, None)
-
-    def test_stdin_without_the_desktop_marker_is_refused_first(self) -> None:
+    def test_a_bare_pipe_without_the_marker_is_refused(self) -> None:
         with (
-            patch.dict(os.environ, {**self.env, "LORE_APPROVAL_TOKEN": self.token}),
+            patch.dict(os.environ),
             patch.object(sys, "stdin", StringIO(json.dumps(self.DECISION))),
         ):
             os.environ.pop("LORE_ATTENDED_SURFACE", None)
             with self.assertRaisesRegex(ValueError, "only from the Lore desktop app"):
                 cli.answer_decide()
+        with Store() as store:
+            self.assertFalse(store.answer_settings().answer_enabled)
 
     def test_invalid_json_is_a_plain_value_error(self) -> None:
-        with (
-            patch.dict(os.environ, {**self.env, "LORE_APPROVAL_TOKEN": self.token}),
-            desktop_stdin("not json"),
-        ):
+        with desktop_stdin("not json"):
             with self.assertRaisesRegex(ValueError, "invalid answer-settings JSON"):
                 cli.answer_decide()
 
     def test_enabling_still_needs_a_charter_and_a_positive_price(self) -> None:
         bad = {"proxy_preamble": "", "answer_price_usd": 0, "answer_enabled": True}
-        with self.assertRaises(ValueError):
-            self.apply(bad, self.token)
-
-
-class ApprovalTokenPathTest(unittest.TestCase):
-    def test_the_desktop_override_wins_over_the_platform_default(self) -> None:
-        with patch.dict(os.environ, {"LORE_DESKTOP_USER_DATA": "/scratch/user-data"}):
-            self.assertEqual(
-                cli._approval_token_path(), Path("/scratch/user-data/approval.token")
-            )
-
-    def test_darwin_falls_back_to_the_named_apps_application_support(self) -> None:
-        with (
-            patch.dict(os.environ, {}, clear=False),
-            patch.object(sys, "platform", "darwin"),
-        ):
-            os.environ.pop("LORE_DESKTOP_USER_DATA", None)
-            self.assertEqual(
-                cli._approval_token_path(),
-                Path.home()
-                / "Library"
-                / "Application Support"
-                / "Lore"
-                / "approval.token",
-            )
+        with desktop_stdin(json.dumps(bad)):
+            with self.assertRaises(ValueError):
+                cli.answer_decide()
 
 
 class ProfileTest(LoreTestCase):

@@ -67,46 +67,6 @@ def serving(manifest: dict[str, object]) -> Iterator[str]:
         thread.join(timeout=5)
 
 
-@contextmanager
-def serving_owner_route(
-    status: int, payload: dict[str, object], requests: list[dict[str, object]]
-) -> Iterator[str]:
-    """A plain (non-MCP) POST endpoint, standing in for `/owner/answer` —
-    see `lore/node/src/index.ts`'s `ownerAnswer` and `owner-auth.ts`.
-    `requests` collects each call's path, headers, and decoded body so a
-    test can assert what `remote_owner_answer` actually sent."""
-
-    class Handler(BaseHTTPRequestHandler):
-        def do_POST(self) -> None:
-            size = int(self.headers.get("Content-Length", "0"))
-            body = json.loads(self.rfile.read(size)) if size else {}
-            requests.append(
-                {
-                    "path": self.path,
-                    "authorization": self.headers.get("Authorization", ""),
-                    "body": body,
-                }
-            )
-            response = json.dumps(payload).encode()
-            self.send_response(status)
-            self.send_header("Content-Type", "application/json")
-            self.send_header("Content-Length", str(len(response)))
-            self.end_headers()
-            self.wfile.write(response)
-
-        def log_message(self, *_: object) -> None:
-            pass
-
-    server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
-    thread = threading.Thread(target=server.serve_forever, daemon=True)
-    thread.start()
-    try:
-        yield f"http://127.0.0.1:{server.server_address[1]}/mcp"
-    finally:
-        server.shutdown()
-        thread.join(timeout=5)
-
-
 class DesktopSnapshotTest(LoreTestCase):
     def seed(self) -> dict[str, str]:
         memory_ids = {
@@ -452,57 +412,6 @@ class SnapshotJobsTest(LoreTestCase):
 
     def test_an_empty_history_is_an_empty_list_not_a_missing_section(self) -> None:
         self.assertEqual(snapshot.build()["jobs"], {"items": []})
-
-
-class RemoteResultTest(LoreTestCase):
-    """`remote_result` — the free `result` MCP tool, shared by buyers and the
-    owner's own trial question (`lore answer try`)."""
-
-    def test_polls_the_result_tool_and_returns_its_outcome(self) -> None:
-        outcome = {
-            "status": "complete",
-            "answer": "hi",
-            "cited_publication_ids": ["0000000000000000fcdb4b42"],
-        }
-        with serving(outcome) as url:
-            session = snapshot._mcp_session(url)
-            self.assertEqual(snapshot.remote_result(url, session, "ticket123"), outcome)
-
-
-class RemoteOwnerAnswerTest(LoreTestCase):
-    """`remote_owner_answer` — the owner's own free trial question, over the
-    plain authenticated `/owner/answer` route rather than an MCP tool call."""
-
-    def test_sends_the_bearer_token_and_question_and_returns_the_ticket(self) -> None:
-        requests: list[dict[str, object]] = []
-        with serving_owner_route(
-            200, {"ticket": "abc123", "status": "running"}, requests
-        ) as url:
-            ticket = snapshot.remote_owner_answer(url, "sekret", "what would you say?")
-        self.assertEqual(ticket, "abc123")
-        self.assertEqual(len(requests), 1)
-        self.assertEqual(requests[0]["path"], "/owner/answer")
-        self.assertEqual(requests[0]["authorization"], "Bearer sekret")
-        self.assertEqual(requests[0]["body"], {"question": "what would you say?"})
-
-    def test_a_tool_level_error_in_a_200_is_raised_as_a_value_error(self) -> None:
-        with serving_owner_route(
-            200,
-            {"error": "the answer tier is not available on this node: no key"},
-            [],
-        ) as url:
-            with self.assertRaisesRegex(ValueError, "not available"):
-                snapshot.remote_owner_answer(url, "sekret", "what would you say?")
-
-    def test_a_200_with_no_ticket_is_a_value_error(self) -> None:
-        with serving_owner_route(200, {"status": "running"}, []) as url:
-            with self.assertRaisesRegex(ValueError, "no ticket"):
-                snapshot.remote_owner_answer(url, "sekret", "what would you say?")
-
-    def test_a_non_2xx_response_surfaces_the_bodys_detail(self) -> None:
-        with serving_owner_route(404, {"error": "not found"}, []) as url:
-            with self.assertRaisesRegex(ValueError, "not found"):
-                snapshot.remote_owner_answer(url, "wrong", "what would you say?")
 
 
 if __name__ == "__main__":

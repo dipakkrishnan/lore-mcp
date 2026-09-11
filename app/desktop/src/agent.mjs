@@ -68,8 +68,8 @@ export async function nameRun(models, text) {
   }
 }
 
-/** @param {string} loreHome @param {AgentTask} task @param {string} [binDir] @param {string} [userDataDir] */
-export function bashSandboxPolicy(loreHome, task, binDir, userDataDir) {
+/** @param {string} loreHome @param {AgentTask} task @param {string} [binDir] */
+export function bashSandboxPolicy(loreHome, task, binDir) {
   const home = homedir();
   const lore = realpathSync(loreHome);
   const owned = (OWNER_DIRS[task] ?? []).map((dir) => resolve(home, dir));
@@ -78,36 +78,31 @@ export function bashSandboxPolicy(loreHome, task, binDir, userDataDir) {
   const runtime = binDir
     ? [resolve(binDir, ".."), ...(process.resourcesPath ? [resolve(process.resourcesPath, "..")] : [])]
     : [resolve(home, ".local/bin/lore"), resolve(home, ".local/share/lore/lore-mcp"), resolve(home, ".local/share/uv/python"), resolve(home, ".local/share/uv/tools/lore-mcp")];
-  // Electron's userData holds the answer-settings approval token (main.cjs)
-  // and provider credentials: named explicitly, not left to `denyRead: [home]`
-  // alone, because `LORE_DESKTOP_USER_DATA` (dogfood.sh, edge.sh) can point it
-  // outside $HOME entirely, where that blanket deny never reaches it.
-  const userData = userDataDir ? [resolve(userDataDir)] : [];
   return {
     network: { allowedDomains: task === "deploy" ? ["*"] : [], deniedDomains: [] },
     filesystem: {
-      denyRead: [home, ...userData],
+      denyRead: [home],
       allowRead: [lore, ...runtime, resolve(home, ".claude/projects"), resolve(home, ".codex/memories"), ...owned, ...(task === "deploy" ? [resolve(home, ".npmrc")] : [])],
       allowWrite: [lore, ...owned],
-      denyWrite: [...userData]
+      denyWrite: []
     }
   };
 }
 
-/** @param {string} loreHome @param {string} [binDir] @param {string} [userDataDir] */
-export async function initializeBashSandbox(loreHome, binDir, userDataDir) {
+/** @param {string} loreHome @param {string} [binDir] */
+export async function initializeBashSandbox(loreHome, binDir) {
   mkdirSync(loreHome, { recursive: true, mode: 0o700 });
   mkdirSync(SANDBOX_TMPDIR, { recursive: true });
-  await SandboxManager.initialize(bashSandboxPolicy(loreHome, "capture", binDir, userDataDir), undefined, true);
+  await SandboxManager.initialize(bashSandboxPolicy(loreHome, "capture", binDir), undefined, true);
 }
 
-/** @param {string} loreHome @param {AgentTask} task @param {string} [binDir] @param {string} [userDataDir] @returns {import("@earendil-works/pi-coding-agent").BashOperations} */
-export function createSandboxedBashOperations(loreHome, task, binDir, userDataDir) {
+/** @param {string} loreHome @param {AgentTask} task @param {string} [binDir] @returns {import("@earendil-works/pi-coding-agent").BashOperations} */
+export function createSandboxedBashOperations(loreHome, task, binDir) {
   const local = createLocalBashOperations();
   return {
     exec: async (command, cwd, options) => {
       const id = randomUUID();
-      const policy = bashSandboxPolicy(loreHome, task, binDir, userDataDir);
+      const policy = bashSandboxPolicy(loreHome, task, binDir);
       // The mux proxy's live network filter reads the session-level config set by
       // initialize()/updateConfig(), never the customConfig passed to wrapWithSandbox
       // below — so without this, every task is filtered against whichever task's
@@ -241,7 +236,7 @@ export class LoreAgent {
 
   /** @param {LoreAgentOptions} options */
   static async create(options) {
-    await initializeBashSandbox(options.loreHome, options.binDir, options.userDataDir);
+    await initializeBashSandbox(options.loreHome, options.binDir);
     const models = await ModelRuntime.create({ credentials: options.credentials });
     const settings = SettingsManager.inMemory();
     const resources = new DefaultResourceLoader({
@@ -486,10 +481,10 @@ export class LoreAgent {
       resourceLoader: this.resources,
       settingsManager: this.settings,
       sessionManager,
-      tools: ["read", "write", "edit", "bash", "ask_user", "propose_memories", "propose_blueprint", "propose_price", "propose_answers", "try_answer", "cloudflare_login", "open_url", "store_secret", "finish_task"],
+      tools: ["read", "write", "edit", "bash", "ask_user", "propose_memories", "propose_blueprint", "propose_price", "propose_answers", "cloudflare_login", "open_url", "store_secret", "finish_task"],
       customTools: [
         createBashTool(this.options.loreHome, {
-          operations: createSandboxedBashOperations(this.options.loreHome, task, this.options.binDir, this.options.userDataDir),
+          operations: createSandboxedBashOperations(this.options.loreHome, task, this.options.binDir),
           spawnHook: (context) => ({
             ...context,
             env: {
@@ -506,7 +501,6 @@ export class LoreAgent {
         this.#blueprintTool(),
         this.#priceTool(),
         this.#answersTool(),
-        this.#tryAnswerTool(),
         this.#cloudflareTool(),
         this.#openTool(),
         this.#secretTool(),
@@ -662,20 +656,6 @@ export class LoreAgent {
       execute: async (_id, { charter, price, reason }) => {
         const saved = await this.#attended("Enable paid answers", () => this.options.proposeAnswers(charter, price, reason));
         return { content: [{ type: "text", text: JSON.stringify({ price_usd: saved }) }], details: {} };
-      }
-    });
-  }
-
-  #tryAnswerTool() {
-    return defineTool({
-      name: "try_answer",
-      executionMode: "sequential",
-      label: "Try a question",
-      description: "Ask the owner's own deployed node one free trial question, as the owner, so they can judge the charter's voice before enabling. Spends no crypto but does spend the node's own provider tokens; needs a deployed node with a working provider key. Can take a couple of minutes. Returns the answer, an honest refusal, or a failure reason.",
-      parameters: Type.Object({ question: Type.String({ minLength: 1, maxLength: 4000 }) }),
-      execute: async (_id, { question }) => {
-        const text = await this.#attended("Try a question", () => this.options.tryAnswer(question));
-        return { content: [{ type: "text", text }], details: {} };
       }
     });
   }

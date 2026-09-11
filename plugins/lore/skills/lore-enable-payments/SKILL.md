@@ -37,8 +37,7 @@ having at least one.
 > (Base Sepolia); mainnet is an explicit choice the owner makes with a publication
 > live. If they choose paid answers: get the provider key onto the node with
 > `store_secret` (`ANTHROPIC_API_KEY` or `OPENAI_API_KEY`) — the same masked-paste
-> flow as a Coinbase key, and the value never reaches you; offer `try_answer` so
-> the owner can hear the charter's voice before spending anything; then call
+> flow as a Coinbase key, and the value never reaches you; then call
 > `propose_answers` with the exact charter and price to enable — never run an
 > answer command yourself, and never work around its owner-approval gate. Do not
 > read or write `~/.lore/automation/onboarding.json`.
@@ -217,14 +216,16 @@ Cloudflare's vault, never through you. For OpenAI, the node also needs
 `LORE_ANSWER_MODEL` set to `gpt-5.6-luna`, which still needs a real terminal
 (`npx wrangler secret put LORE_ANSWER_MODEL` from `~/.lore/node`) — there is no
 desktop tool for it yet, so tell the owner plainly this one step needs their
-terminal. Once the key is in, offer `try_answer` with a real question so the
-owner hears the charter's voice before anything is public; a refusal or an
-odd answer is useful signal, not a failure. When they are ready, call
-`propose_answers` with the exact charter, a per-answer price that clears
-expected model cost, and a one-line reason — the tool shows the owner that
-exact card, saves only what they confirm, and returns the price to work from.
-Then run `lore push` yourself; disabling later is a plain button in Settings,
-no conversation needed.
+terminal. Once the key is in, call `propose_answers` with the exact charter, a
+per-answer price that clears expected model cost, and a one-line reason — the
+tool shows the owner that exact card, saves only what they confirm, and returns
+the price to work from. Then run `lore push` yourself. Turning it off later is
+a plain button in Settings and keeps the approved charter, so turning it back
+on is the same card again, not a rewrite.
+
+There is no first-party way to try an answer before enabling yet. Say so if the
+owner asks: the honest options are to enable it on the test network and buy one
+answer from their own node, or to read the charter and decide from the text.
 
 **In a terminal:** the owner enters the provider key through
 `npx wrangler secret put ANTHROPIC_API_KEY` or

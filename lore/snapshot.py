@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 import time
-import urllib.error
 import urllib.request
 from http.client import HTTPResponse
 from itertools import islice
@@ -118,51 +117,6 @@ def remote_manifest(url: str) -> Manifest:
     session = _mcp_session(url)
     manifest = _call_tool(url, session, "discover", {})
     return Manifest.model_validate(manifest)
-
-
-def remote_result(url: str, session: str, ticket: str) -> dict[str, Any]:
-    """Poll the free `result` tool for one answer ticket — buyer or owner trial alike.
-
-    Takes an already-established MCP session rather than minting its own, so a
-    caller polling this repeatedly (the owner-trial wait) reuses one session
-    instead of paying a 3-request handshake on every poll.
-    """
-    outcome = _call_tool(url, session, "result", {"ticket": ticket})
-    return cast(dict[str, Any], outcome)
-
-
-def remote_owner_answer(url: str, token: str, question: str) -> str:
-    """POST one free trial question to `/owner/answer`; returns its ticket id.
-
-    A plain authenticated HTTP route, not an MCP tool call — see
-    `lore/node/src/owner-auth.ts`. `url` is the stored `.../mcp` node URL;
-    the owner route sits beside it on the same Worker.
-    """
-    base = url[: -len("/mcp")] if url.endswith("/mcp") else url
-    request = urllib.request.Request(
-        base + "/owner/answer",
-        data=json.dumps({"question": question}).encode(),
-        headers={
-            "Content-Type": "application/json",
-            "Authorization": f"Bearer {token}",
-            "User-Agent": "Lore/0.1",
-        },
-        method="POST",
-    )
-    try:
-        with urllib.request.urlopen(request, timeout=10) as response:
-            payload = OBJECT.validate_json(response.read().decode())
-    except urllib.error.HTTPError as error:
-        detail = error.read().decode(errors="replace").strip()
-        raise ValueError(
-            detail or f"node refused the trial question: {error}"
-        ) from error
-    if "error" in payload:
-        raise ValueError(str(payload["error"]))
-    ticket = payload.get("ticket")
-    if not isinstance(ticket, str):
-        raise ValueError("node returned no ticket for the trial question")
-    return ticket
 
 
 def _live_state(node_url: str | None) -> tuple[dict[str, object], set[str] | None]:

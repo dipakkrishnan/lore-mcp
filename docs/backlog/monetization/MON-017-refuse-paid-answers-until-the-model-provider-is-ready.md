@@ -54,5 +54,5 @@ Implemented as part of `APP-035`: `lore/node/src/answer.ts` exports
 node still registers `answer` unpaid, distinguishing "not available: <reason>"
 from the plain "not enabled" case via a new `unready` telemetry outcome.
 Covered by `lore/node/test/answer-unready.test.ts` (missing key, unsupported
-model, and that `result` still resolves an existing ticket). `MON-024` reuses
-`providerReadiness` for the owner's free trial route.
+model, and that `result` still resolves an existing ticket). `MON-024`'s owner
+trial route should reuse `providerReadiness` when it is redesigned.
