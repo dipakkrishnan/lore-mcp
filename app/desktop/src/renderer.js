@@ -392,7 +392,13 @@ function recentRuns(s) {
     const text = el("div", "t");
     text.append(el("b", "", label), el("span", "", detail.join(" · ")));
     open.append(text, status);
-    open.addEventListener("click", () => void openTask(task));
+    // A job whose owning session never reached a terminal state (e.g. it was
+    // conceded by reap_jobs, or the app restarted) has no entry in taskItems.
+    // Without this, openTask falls back to null and the header fabricates
+    // "Working · Starting" for a row the owner just saw chipped Failed/Unfinished.
+    /** @type {TaskRecord} */
+    const fallback = { version: 1, kind: task, title: label, state: item.status === "running" ? "working" : "stopped", phase: RUN_STATES[item.status] ?? item.status, updatedAt: item.finished_at ?? item.started_at };
+    open.addEventListener("click", () => void openTask(task, undefined, fallback));
     node.append(open);
     return node;
   })));
@@ -1364,11 +1370,11 @@ async function startPublish() {
   await send("Help me publish something from my Lore.");
 }
 
-/** @param {AgentTask} kind @param {TaskRecord} [record] */
-async function openTask(kind, record) {
+/** @param {AgentTask} kind @param {TaskRecord} [record] @param {TaskRecord} [fallback] Used only when neither `record` nor a live entry in `taskItems` exists, so the header reflects the caller's best-known status instead of fabricating "Working". */
+async function openTask(kind, record, fallback) {
   task = kind;
   detailTask = kind;
-  detailRecord = record ?? taskItems.find((item) => item.kind === kind) ?? null;
+  detailRecord = record ?? taskItems.find((item) => item.kind === kind) ?? fallback ?? null;
   // Read regardless of whether a live TaskRecord exists: a Recent-runs row can open
   // a thread that already finished (and so dropped out of taskItems), and history()
   // reads the session file directly, returning [] when there is truly nothing there.
