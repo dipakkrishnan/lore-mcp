@@ -367,6 +367,8 @@ function when(iso) {
 
 const RUN_LABELS = { capture: "Capture", synthesis: "Synthesis", deploy: "Store deploy", push: "Store update" };
 const RUN_STATES = { running: "Running", succeeded: "Done", failed: "Failed", incomplete: "Unfinished" };
+/** Job kinds with an agent thread behind them, keyed to the task that thread belongs to. Synthesis and push are plain CLI runs with no owner-facing conversation, so a Recent-runs row for either stays non-interactive. @type {Partial<Record<JobItem["kind"], AgentTask>>} */
+const JOB_TASK = { capture: "capture", deploy: "deploy" };
 
 /** Recent owner runs, newest first. Absent when the installed CLI predates them.
  * @param {Snapshot} s */
@@ -377,11 +379,22 @@ function recentRuns(s) {
   if (!items.length) return section("Recent runs", el("p", "hint", "Nothing has run yet."));
   return section("Recent runs", card(items.map((item, index) => {
     const detail = [pushDetail(all, index) ?? item.summary, when(item.started_at), typeof item.cost_usd === "number" ? money.format(item.cost_usd) : ""].filter(Boolean);
-    return row(
-      item.title?.trim() || RUN_LABELS[item.kind] || item.kind,
-      detail.join(" · "),
-      chip(RUN_STATES[item.status] ?? item.status, item.status === "running" ? "ok" : item.status === "succeeded" ? "" : "attention")
-    );
+    const label = item.title?.trim() || RUN_LABELS[item.kind] || item.kind;
+    const status = chip(RUN_STATES[item.status] ?? item.status, item.status === "running" ? "ok" : item.status === "succeeded" ? "" : "attention");
+    // A plain success has nothing more to show than this row already does; anything
+    // else showing real cost or a confusing state should be openable, when there is
+    // a thread behind it to open.
+    const task = item.status === "succeeded" ? undefined : JOB_TASK[item.kind];
+    if (!task) return row(label, detail.join(" · "), status);
+    const node = el("div", "row");
+    const open = el("button", "task-link");
+    open.type = "button";
+    const text = el("div", "t");
+    text.append(el("b", "", label), el("span", "", detail.join(" · ")));
+    open.append(text, status);
+    open.addEventListener("click", () => void openTask(task));
+    node.append(open);
+    return node;
   })));
 }
 
@@ -1356,7 +1369,10 @@ async function openTask(kind, record) {
   task = kind;
   detailTask = kind;
   detailRecord = record ?? taskItems.find((item) => item.kind === kind) ?? null;
-  lines.splice(0, lines.length, ...(detailRecord ? await window.lore.history(kind).catch(() => []) : []));
+  // Read regardless of whether a live TaskRecord exists: a Recent-runs row can open
+  // a thread that already finished (and so dropped out of taskItems), and history()
+  // reads the session file directly, returning [] when there is truly nothing there.
+  lines.splice(0, lines.length, ...(await window.lore.history(kind).catch(() => [])));
   liveText = "";
   show("today");
   renderLog();

@@ -422,6 +422,32 @@ test("an early-ended turn stays resumable until the owner starts over", async ()
   }
 });
 
+test("a capture that saves closes as done even when the agent never calls finish_task, and its job row does not contradict itself", async () => {
+  // Issue #247: a capture whose propose_memories save succeeded still showed as
+  // Unfinished/Stopped, and its Recent-runs row paired a Done chip with a summary
+  // that said "Stopped before finishing" — because closing relied solely on the
+  // model remembering to call finish_task. savedCompletion is the safety net
+  // (#memoriesTool marks the turn complete the moment the owner's keep lands),
+  // and jobOutcome is what stops the two trackers from disagreeing about the
+  // same event: an uncompleted turn must never report "succeeded".
+  const { closingRecord, jobOutcome, savedCompletion } = await import("../src/agent.mjs");
+  assert.equal(savedCompletion({ saved: [{ id: 7, status: "added", title: "The hiring lesson" }] }), true);
+  assert.equal(savedCompletion({ saved: [] }), false, "dropping every entry is not a completion");
+  assert.equal(savedCompletion({ entries: [{ title: "t", content: "c" }], note: "call it something else" }), false, "a correction round is not a completion");
+  assert.equal(savedCompletion(null), false);
+  assert.equal(savedCompletion("nope"), false);
+  assert.equal(savedCompletion([{ saved: [] }]), false, "an array is never a real outcome");
+  // A capture that saved (savedCompletion true) closes the same way finish_task does.
+  assert.deepEqual(closingRecord("working", "capture", true), ["done", "Finished"]);
+  // Without a save or finish_task, it stays resumable, exactly as before.
+  assert.deepEqual(closingRecord("working", "capture", false), ["stopped", "Ready to resume"]);
+  // The job row: done only when the save is known to have finished; otherwise the
+  // outcome is unknown ("incomplete", Recent runs' "Unfinished"), never a quiet
+  // "succeeded" paired with a summary that says the opposite.
+  assert.deepEqual(jobOutcome(true), ["succeeded", "captured"]);
+  assert.deepEqual(jobOutcome(false), ["incomplete", "stopped"]);
+});
+
 test("deploy is a task kind with its own session, title, and records", async () => {
   const { LoreAgent, latestTaskRecord } = await import("../src/agent.mjs");
   const home = await mkdtemp(join(tmpdir(), "lore-desktop-"));
