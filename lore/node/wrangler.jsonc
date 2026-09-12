@@ -9,6 +9,16 @@
     // deployment leaves this default in place.
     "LORE_FACILITATOR_URL": "https://x402.org/facilitator"
   },
+  // Cloudflare's own request traces and logs (XC-028/MON-020) — stored in
+  // and readable only from the owner's own Cloudflare account. No
+  // `destinations` here: an owner who wants OTLP export configures a
+  // destination in their own dashboard and adds it themselves. Full
+  // sampling suits alpha volume; an owner whose node gets busy should lower
+  // `head_sampling_rate` — they pay for their own observability.
+  "observability": {
+    "traces": { "enabled": true, "head_sampling_rate": 1 },
+    "logs": { "enabled": true }
+  },
   "durable_objects": {
     "bindings": [
       {
@@ -42,6 +52,14 @@
       "name": "lore-qa",
       "vars": {
         "LORE_FACILITATOR_URL": "https://x402.org/facilitator"
+      },
+      // Same traces/logs as the default env above; MON-021 tracks pointing
+      // this at an OTLP `destinations` entry once one exists in the
+      // maintainers' Cloudflare dashboard (a destination cannot be created
+      // from this file — same blocker shape as MON-016).
+      "observability": {
+        "traces": { "enabled": true, "head_sampling_rate": 1 },
+        "logs": { "enabled": true }
       },
       "durable_objects": {
         "bindings": [
