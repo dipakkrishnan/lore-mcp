@@ -214,6 +214,33 @@ test("sessions persist per task, come back as a thread, and a cut-off tool call 
   }
 });
 
+test("a declined attended tool's plain-text result survives a resume, not just JSON-shaped ones", async () => {
+  // Regression for a card response vanishing across a quit/relaunch (issue #256):
+  // cloudflare_login, open_url, and store_secret answer in a plain English
+  // sentence, not JSON, so history()'s JSON.parse-based reader dropped their
+  // result on every replay, not just one lost to a quit-timing race.
+  const { LoreAgent } = await import("../src/agent.mjs");
+  const home = await mkdtemp(join(tmpdir(), "lore-desktop-"));
+  try {
+    const written = LoreAgent.sessionFor(home, "deploy");
+    written.appendMessage({ role: "user", content: "/skill:lore-enable-payments\n\nHelp me open my store.", timestamp: 1 });
+    written.appendMessage({ role: "assistant", content: [{ type: "text", text: "Please sign in to the free hosting account in the browser." }, { type: "toolCall", id: "call-1", name: "cloudflare_login", arguments: {} }], api: "anthropic-messages", provider: "anthropic", model: "m", usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } }, stopReason: "toolUse", timestamp: 2 });
+    written.appendMessage({ role: "toolResult", toolCallId: "call-1", toolName: "cloudflare_login", content: [{ type: "text", text: "The owner chose not to sign in to Cloudflare right now." }], isError: false, timestamp: 3 });
+    written.appendMessage({ role: "toolResult", toolCallId: "call-err", toolName: "cloudflare_login", content: [{ type: "text", text: "wrangler crashed" }], isError: true, timestamp: 3 });
+    written.appendMessage({ role: "toolResult", toolCallId: "call-2", toolName: "propose_price", content: [{ type: "text", text: JSON.stringify({ price_usd: 0.01 }) }], isError: false, timestamp: 4 });
+    written.appendMessage({ role: "toolResult", toolCallId: "call-3", toolName: "propose_price", content: [{ type: "text", text: JSON.stringify({ price_usd: null }) }], isError: false, timestamp: 4 });
+    assert.deepEqual(LoreAgent.history(home, "deploy"), [
+      { text: "Help me open my store.", owner: true },
+      { text: "Please sign in to the free hosting account in the browser.", owner: false },
+      { text: "The owner chose not to sign in to Cloudflare right now.", owner: false },
+      { text: "Price set: $0.01", owner: false },
+      { text: "The owner declined to set a price.", owner: false }
+    ]);
+  } finally {
+    await rm(home, { recursive: true });
+  }
+});
+
 test("a memory card saves exactly what the owner kept, through the CLI's private capture boundary", async () => {
   const { captureMemories } = require("../src/state.cjs");
   const { validSaved, validEntries } = await import("../src/agent.mjs");

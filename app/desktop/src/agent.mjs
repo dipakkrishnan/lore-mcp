@@ -49,6 +49,8 @@ export function draftsAside(waiting) {
   return `${ASIDE}${state}.)`;
 }
 const KEY_REJECTED = /\b401\b|authentication_error|invalid[_ -](?:x-)?api[_ -]?key|incorrect api key/i;
+/** Attended tools whose result is a plain-English sentence, not JSON — history() must not run these through toolResultJson. */
+const PLAIN_TEXT_TOOLS = new Set(["cloudflare_login", "open_url", "store_secret"]);
 
 /** @param {import("@earendil-works/pi-coding-agent").ModelRuntime} models @param {string} text */
 export async function nameRun(models, text) {
@@ -312,6 +314,14 @@ export class LoreAgent {
         const text = message.content.map((block) => (block.type === "text" ? block.text : "")).join("").trim();
         if (text) lines.push({ text, owner: false });
       } else if (message.role === "toolResult") {
+        if (PLAIN_TEXT_TOOLS.has(message.toolName)) {
+          // These tools answer in plain English, not JSON, so their result never
+          // survives toolResultJson's JSON.parse and was silently dropped from
+          // every replayed thread, not just one lost to a quit-timing race.
+          const first = message.content[0];
+          if (!message.isError && first?.type === "text" && first.text) lines.push({ text: first.text, owner: false });
+          continue;
+        }
         const result = toolResultJson(message);
         if (!result) continue;
         if (message.toolName === "ask_user") {
@@ -324,6 +334,8 @@ export class LoreAgent {
           else if (validSaved(result.saved)) lines.push({ text: "", owner: false, saved: result.saved });
         } else if (message.toolName === "propose_blueprint" && validBlueprint(result)) {
           lines.push({ text: `${result.name} · ${result.persona} · ${result.topic_outline.join(", ")}`, owner: true });
+        } else if (message.toolName === "propose_price") {
+          lines.push({ text: typeof result.price_usd === "number" ? `Price set: $${result.price_usd.toFixed(2)}` : "The owner declined to set a price.", owner: false });
         }
       }
     }
