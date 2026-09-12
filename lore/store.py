@@ -208,6 +208,8 @@ JOB_SUMMARIES: dict[str, str] = {
     "synthesized": "Synthesis finished",
     "not_reported": "Synthesis never reported finishing",
     "deployed": "Your store is live",
+    "deployed_test": "Your store is live on the test network",
+    "deployed_real": "Your store is live with real money",
     "pushed": "Your store was updated",
     "edge_write_failed": "The store database could not be written",
     "interrupted": "Interrupted",

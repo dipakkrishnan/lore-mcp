@@ -9,6 +9,8 @@
  */
 import type { RegisteredTool, ToolCallback } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { ShapeOutput, ZodRawShapeCompat } from "@modelcontextprotocol/sdk/server/zod-compat.js";
+import { settlementSpanAttributes } from "./telemetry.js";
+import { withSpan } from "./tracing.js";
 
 interface Receipt {
   success: boolean;
@@ -62,19 +64,34 @@ export function recorded<Args extends ZodRawShapeCompat>(
     if (receipt?.success && block.type === "text") {
       // Payment has already settled by this point (agents/x402's job, not
       // ours) — a bookkeeping failure here must never cost the buyer the
-      // result they already paid for.
-      try {
-        const { item, title } = sold(JSON.parse(block.text), args);
-        await db
-          .prepare(
-            `INSERT INTO sales(kind,item_id,title,price_usd,network,payer,tx,sold_at)
-             VALUES (?1,?2,?3,?4,?5,?6,?7,?8)`
-          )
-          .bind(kind, item, title, priceUsd, receipt.network, receipt.payer ?? "", receipt.transaction, new Date().toISOString())
-          .run();
-      } catch (err) {
-        console.error("recorded(): failed to write sales row for a settled payment", err);
-      }
+      // result they already paid for. The span never carries the receipt's
+      // payer address or transaction hash — only whether the ledger write
+      // itself succeeded.
+      await withSpan("lore.sale", async (setAttributes) => {
+        try {
+          const { item, title } = sold(JSON.parse(block.text), args);
+          await db
+            .prepare(
+              `INSERT INTO sales(kind,item_id,title,price_usd,network,payer,tx,sold_at)
+               VALUES (?1,?2,?3,?4,?5,?6,?7,?8)`
+            )
+            .bind(
+              kind,
+              item,
+              title,
+              priceUsd,
+              receipt.network,
+              receipt.payer ?? "",
+              receipt.transaction,
+              new Date().toISOString()
+            )
+            .run();
+          setAttributes(() => settlementSpanAttributes({ settled: true, outcome: "ok" }));
+        } catch {
+          console.error("recorded(): failed to write sales row for a settled payment");
+          setAttributes(() => settlementSpanAttributes({ settled: true, outcome: "ledger_failed" }));
+        }
+      });
     }
     return result;
   };

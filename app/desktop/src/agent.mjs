@@ -29,6 +29,8 @@ const AXES = ["chronological", "theme", "project", "knowledge"];
 const CLOSED = "Lore was closed before this finished.";
 const LUNA_MODELS = ["openai-codex/gpt-5.6-luna", "openai/gpt-5.6-luna"];
 export const MODELS = ["anthropic/claude-opus-4-8", "anthropic/claude-sonnet-5", ...LUNA_MODELS];
+/** Luna names runs when the owner has it; otherwise whichever signed-in model is cheapest, so a run is never left nameless. */
+const NAMING_MODELS = [...LUNA_MODELS, "anthropic/claude-sonnet-5", "anthropic/claude-opus-4-8"];
 const MAX_TURNS = 60;
 const SANDBOX_TMPDIR = "/tmp/claude";
 /** @type {Partial<Record<AgentTask, string[]>>} Home-relative directories outside Lore that a task's commands must write. */
@@ -37,15 +39,22 @@ const OWNER_DIRS = {
   deploy: [".wrangler", "Library/Preferences/.wrangler", "Library/Caches/.wrangler", ".npm"]
 };
 const CAPPED = "That reply took more steps than Lore allows at once, so it paused. Say continue to keep going.";
-/** Appended to an owner turn that starts from a memory: the agent needs the id, the owner never sees one. */
-const MEMORY_CONTEXT = "\n\nStart from the memory with id ";
+/** Owner turns carry what the app knows and the owner never typed; thread history cuts each turn off here. */
+const ASIDE = "\n\n(For you only, not said by the owner: ";
+/** A memory to start from: the agent needs the id, the owner never sees or hears one. @param {number} id */
+const memoryAside = (id) => `${ASIDE}start from the memory with id ${id}. Call it by its title, never by its number.)`;
+/** Drafts are approved or skipped on cards the agent never sees, so every publish turn says where they stand. @param {number} waiting */
+export function draftsAside(waiting) {
+  const state = waiting === 0 ? "no drafts are waiting on the owner; anything you staged before was approved or skipped on its card" : `${waiting} draft${waiting === 1 ? " is" : "s are"} still waiting on the owner's card`;
+  return `${ASIDE}${state}.)`;
+}
 const KEY_REJECTED = /\b401\b|authentication_error|invalid[_ -](?:x-)?api[_ -]?key|incorrect api key/i;
 
 /** @param {import("@earendil-works/pi-coding-agent").ModelRuntime} models @param {string} text */
 export async function nameRun(models, text) {
   try {
     const signal = AbortSignal.timeout(5000);
-    const { scopedModels } = await resolveModelScopeWithDiagnostics(LUNA_MODELS, models, { signal });
+    const { scopedModels } = await resolveModelScopeWithDiagnostics(NAMING_MODELS, models, { signal });
     const model = scopedModels.at(0)?.model;
     if (!model) return { title: "", cost: 0 };
     const reply = await models.completeSimple(model, {
@@ -249,6 +258,7 @@ export class LoreAgent {
         "During onboarding, gather evidence first, then call propose_blueprint once with one bounded proposal; that tool saves the owner-approved shape.",
         "To set what buyers pay per publication, call propose_price and never run a price command yourself; the owner confirms the exact amount on the card, and the tool returns what they saved or null if they declined. Work from that number, not from what you proposed.",
         "Never mention tools, commands, files, or plumbing to the owner: no Cloudflare, Node, wrangler, Worker, Base, Sepolia, network ids, or memory ids in prose; name a memory by its title. Speak about memories, their Lore, their store, play money and real money, and say what happens next rather than which checks passed.",
+        "A memory's id number is for tools only: never say one to the owner, even in passing; call every memory by its title.",
         "Call finish_task when the current task is complete."
       ].join(" ")
     });
@@ -261,9 +271,13 @@ export class LoreAgent {
     const dir = resolve(loreHome, ".pi", "sessions", task);
     const recent = SessionManager.continueRecent(loreHome, dir);
     const record = latestTaskRecord(recent, task);
+    const file = recent.getSessionFile();
+    // A finished thread is still the thread on screen, so a follow-up forks it and the agent keeps what was said. Only Start over begins cold.
     const manager = record?.state !== "done" && (record || (task === "setup" && recent.buildSessionContext().messages.length))
       ? recent
-      : SessionManager.create(loreHome, dir);
+      : record?.phase === "Finished" && file && existsSync(file)
+        ? SessionManager.forkFrom(file, loreHome, dir)
+        : SessionManager.create(loreHome, dir);
     return repairInterrupted(manager, task);
   }
 
@@ -293,7 +307,7 @@ export class LoreAgent {
     for (const message of messages) {
       if (message.role === "user") {
         const text = typeof message.content === "string" ? message.content : message.content.map((block) => (block.type === "text" ? block.text : "")).join("");
-        lines.push({ text: text.replace(/^\/skill:\S+\n\n/, "").split(MEMORY_CONTEXT)[0], owner: true });
+        lines.push({ text: text.replace(/^\/skill:\S+\n\n/, "").split(ASIDE)[0], owner: true });
       } else if (message.role === "assistant") {
         const text = message.content.map((block) => (block.type === "text" ? block.text : "")).join("").trim();
         if (text) lines.push({ text, owner: false });
@@ -408,7 +422,8 @@ export class LoreAgent {
       const existing = this.#sessions.get(task);
       const [session, resumed] = existing ? [existing, true] : await this.#newSession(task, from);
       this.#record(session, task, "working");
-      const body = memory === undefined ? text : `${text}${MEMORY_CONTEXT}${memory}.`;
+      let body = memory === undefined ? text : `${text}${memoryAside(memory)}`;
+      if (task === "publish" && this.options.drafts) body += draftsAside(await this.options.drafts());
       await session.prompt(resumed ? body : `/skill:${SKILLS[task]}\n\n${body}`);
       const closing = closingRecord(latestTaskRecord(session.sessionManager, task)?.state, task, this.#completed);
       if (closing) this.#record(session, task, closing[0], closing[1]);
@@ -548,6 +563,7 @@ export class LoreAgent {
     });
     return defineTool({
       name: "ask_user",
+      executionMode: "sequential",
       label: "Ask the owner",
       description: "Ask the owner structured questions. Offer the likely answers as options; the owner can always type something else.",
       parameters,
@@ -568,6 +584,7 @@ export class LoreAgent {
     });
     return defineTool({
       name: "propose_memories",
+      executionMode: "sequential",
       label: "Propose memories",
       description: "Show one to five exact memory drafts for the owner to edit, keep, or drop. Keeping saves them privately and returns the saved memories; a correction returns the owner's words for you to revise and propose again.",
       parameters: Type.Object({ entries: Type.Array(entry, { minItems: 1, maxItems: 5 }) }),
@@ -591,6 +608,7 @@ export class LoreAgent {
     };
     return defineTool({
       name: "propose_blueprint",
+      executionMode: "sequential",
       label: "Propose the owner's Lore shape",
       description: "Show and save one evidence-backed Lore blueprint for the owner to edit. Call once during desktop onboarding.",
       parameters: Type.Object({ evidence: Type.String({ minLength: 1, maxLength: 240 }), ...fields }),
@@ -606,6 +624,7 @@ export class LoreAgent {
   #priceTool() {
     return defineTool({
       name: "propose_price",
+      executionMode: "sequential",
       label: "Propose a price",
       description: "Show the owner one suggested price per publication for them to confirm or change. Returns the amount they saved, or null if they declined. The only way to set a price in the app.",
       parameters: Type.Object({
@@ -624,6 +643,7 @@ export class LoreAgent {
   #cloudflareTool() {
     return defineTool({
       name: "cloudflare_login",
+      executionMode: "sequential",
       label: "Sign in to Cloudflare",
       description: "Sign the owner in to Cloudflare through their browser. Call when wrangler says they are not authenticated; returns who is signed in, or that the owner declined for now.",
       parameters: Type.Object({}),
@@ -637,6 +657,7 @@ export class LoreAgent {
   #openTool() {
     return defineTool({
       name: "open_url",
+      executionMode: "sequential",
       label: "Open a page for the owner",
       description: "Open one web page in the owner's browser for a step only they can do there: a wallet, the workers.dev subdomain, a faucet, Basescan, the Coinbase developer portal. Give the step a short title and a note of up to four short lines on what to do there. Waits until the owner comes back and returns whether they finished, got stuck, or declined.",
       parameters: Type.Object({ title: Type.String(), url: Type.String(), note: Type.String() }),
@@ -650,6 +671,7 @@ export class LoreAgent {
   #secretTool() {
     return defineTool({
       name: "store_secret",
+      executionMode: "sequential",
       label: "Store a Coinbase credential",
       description: "Ask the owner for one Coinbase Developer Platform value and vault it on their node for real payments. The value never reaches you; returns whether it was stored.",
       parameters: Type.Object({ name: Type.Union([Type.Literal("CDP_API_KEY_ID"), Type.Literal("CDP_API_KEY_SECRET")]) }),
@@ -663,6 +685,7 @@ export class LoreAgent {
   #finishTool() {
     return defineTool({
       name: "finish_task",
+      executionMode: "sequential",
       label: "Finish the task",
       description: "Mark the current Lore task complete after its requested work succeeds.",
       parameters: Type.Object({}),
