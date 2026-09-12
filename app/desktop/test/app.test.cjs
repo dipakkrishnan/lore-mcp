@@ -548,6 +548,16 @@ test("propose_answers is a live tool, and the agent is told not to enable answer
   assert.match(source, /call propose_answers.*never run an answer command yourself/);
 });
 
+test("push_store is a live tool, and the payments skill routes the desktop push through it", async () => {
+  const source = await readFile(join(__dirname, "../src/agent.mjs"), "utf8");
+  const active = source.match(/tools: \[([^\]]*)\]/)[1];
+  assert.match(active, /"push_store"/, "push_store must be in the active tool list");
+  assert.match(source, /this\.#pushTool\(\)/, "and registered as a custom tool");
+  const skill = await readFile(join(__dirname, "../../../plugins/lore/skills/lore-enable-payments/SKILL.md"), "utf8");
+  assert.match(skill, /`push_store`/, "the skill names the tool");
+  assert.doesNotMatch(skill, /press \*\*Push\*\*/, "and no longer sends the owner to a button");
+});
+
 test("safeStorage credentials survive an Electron restart", { skip: process.platform !== "darwin" }, async () => {
   const directory = await mkdtemp(join(tmpdir(), "lore-credentials-"));
   const electron = require("electron");

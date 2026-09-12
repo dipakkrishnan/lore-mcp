@@ -24,11 +24,13 @@ having at least one.
 > tool is unavailable.
 
 > **Lore desktop:** this skill runs as the app's "Open your store" task. Ask every
-> decision through `ask_user`. You run every command yourself except two the app
+> decision through `ask_user`. You run every command yourself except one the app
 > keeps for the owner: Cloudflare sign-in (call `cloudflare_login`; it opens
 > Cloudflare in their browser and returns who is signed in — never send the
-> owner to a terminal) and `lore push` (they press **Push** in the app; never
-> run it). Every other browser step — the wallet, the workers.dev subdomain,
+> owner to a terminal). Push with the `push_store` tool, never `lore push` from
+> your shell: it ships only what the owner already approved, so there is no
+> card and nothing for them to press — never ask whether they pushed. Every
+> other browser step — the wallet, the workers.dev subdomain,
 > the faucet, Basescan — goes through `open_url` with a short step title and
 > a note of up to three short numbered lines; it waits for the owner and tells
 > you whether they finished, got stuck, or declined. Never paste a link into prose. If
@@ -38,7 +40,8 @@ having at least one.
 > live. If they choose paid answers: get the provider key onto the node with
 > `store_secret` (`ANTHROPIC_API_KEY` or `OPENAI_API_KEY`) — the same masked-paste
 > flow as a Coinbase key, and the value never reaches you; then call
-> `propose_answers` with the exact charter and price to enable — never run an
+> `propose_answers` with the exact charter and price to enable, then `push_store`
+> to make it live — never run an
 > answer command yourself, and never work around its owner-approval gate. Do not
 > read or write `~/.lore/automation/onboarding.json`.
 
@@ -206,7 +209,8 @@ If a step fails it prints what to do next; `npx wrangler tail` streams live erro
 Rerunning is always safe — it is also the redeploy path.
 
 Deployed earlier? `lore status` shows the URL as `Node (last deploy):` — ask the
-owner only if status cannot answer. After any publication change: `lore push`.
+owner only if status cannot answer. After any publication change: `lore push`
+(in Lore desktop, the `push_store` tool).
 
 If they chose answers, select Anthropic or OpenAI after the base node exists.
 
@@ -217,7 +221,8 @@ answers with the provider whose key it holds. Once the key is in, call
 `propose_answers` with the exact charter, a
 per-answer price that clears expected model cost, and a one-line reason — the
 tool shows the owner that exact card, saves only what they confirm, and returns
-the price to work from. Then run `lore push` yourself. Turning it off later is
+the price to work from. Then call `push_store` so the node picks it up; the
+owner has nothing to press and nothing to confirm. Turning it off later is
 a plain button in Settings and keeps the approved charter, so turning it back
 on is the same card again, not a rewrite.
 

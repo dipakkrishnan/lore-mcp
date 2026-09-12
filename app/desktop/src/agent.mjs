@@ -481,7 +481,7 @@ export class LoreAgent {
       resourceLoader: this.resources,
       settingsManager: this.settings,
       sessionManager,
-      tools: ["read", "write", "edit", "bash", "ask_user", "propose_memories", "propose_blueprint", "propose_price", "propose_answers", "cloudflare_login", "open_url", "store_secret", "finish_task"],
+      tools: ["read", "write", "edit", "bash", "ask_user", "propose_memories", "propose_blueprint", "propose_price", "propose_answers", "push_store", "cloudflare_login", "open_url", "store_secret", "finish_task"],
       customTools: [
         createBashTool(this.options.loreHome, {
           operations: createSandboxedBashOperations(this.options.loreHome, task, this.options.binDir),
@@ -501,6 +501,7 @@ export class LoreAgent {
         this.#blueprintTool(),
         this.#priceTool(),
         this.#answersTool(),
+        this.#pushTool(),
         this.#cloudflareTool(),
         this.#openTool(),
         this.#secretTool(),
@@ -656,6 +657,20 @@ export class LoreAgent {
       execute: async (_id, { charter, price, reason }) => {
         const saved = await this.#attended("Enable paid answers", () => this.options.proposeAnswers(charter, price, reason));
         return { content: [{ type: "text", text: JSON.stringify({ price_usd: saved }) }], details: {} };
+      }
+    });
+  }
+
+  #pushTool() {
+    return defineTool({
+      name: "push_store",
+      executionMode: "sequential",
+      label: "Push to your store",
+      description: "Ship what the owner already approved — the active publications, the price, and the paid-answer settings — to their deployed node so buyers see it. Call after any of those change. Approves nothing new; there is no card and nothing for the owner to press.",
+      parameters: Type.Object({}),
+      execute: async () => {
+        const text = await this.options.pushStore();
+        return { content: [{ type: "text", text }], details: {} };
       }
     });
   }

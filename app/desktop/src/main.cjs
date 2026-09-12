@@ -240,6 +240,17 @@ async function start(loreHome) {
       emit({ type: "changed" });
       return confirmed;
     },
+    // Delivery, not a decision: a push ships only what the owner already
+    // confirmed on cards, so the agent runs it itself rather than parking on
+    // a "have you pressed Push?" question. Same attended path as the button.
+    pushStore: async () => {
+      await lore(loreHome, ["push"], "");
+      emit({ type: "changed" });
+      const state = await readState(loreHome);
+      const live = state.publications.counts.active;
+      const answers = state.pricing.answer_enabled ? `paid answers on at $${state.pricing.answer_usd}` : "paid answers off";
+      return `Pushed: ${live} ${live === 1 ? "publication" : "publications"} live, ${answers}.`;
+    },
     cloudflareLogin: async () => {
       if (!(await request("cloudflare", {}))) return "The owner chose not to sign in to Cloudflare right now.";
       let last = "";

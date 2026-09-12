@@ -40,8 +40,9 @@ No bypass flag, no marker in the agent's shell.
 - [ ] A store deploy from the desktop agent's shell completes, and the deploy
       job records succeeded.
 - [ ] `lore push` from a pipe without the marker still refuses.
-- [ ] The payments skill no longer tells the owner to press Push after a
-      deploy.
+- [x] The payments skill no longer tells the owner to press Push after a
+      deploy. (2026-09-11: the desktop agent pushes through the `push_store`
+      tool, the same attended path as the button; PR #265.)
 
 ## Notes
 

@@ -256,6 +256,8 @@ type LoreAgentOptions = {
   proposePrice(amount: number, reason: string): Promise<number | null>;
   /** Resolves to the per-answer price the owner confirmed, or null if they declined. The only way to enable paid answers. */
   proposeAnswers(charter: string, price: number, reason: string): Promise<number | null>;
+  /** Ships approved state to the deployed node. Delivery, not a decision: no card. Resolves to a one-line summary of what is live. */
+  pushStore(): Promise<string>;
   cloudflareLogin(): Promise<string>;
   openUrl(page: { title: string; url: string; note: string }): Promise<string>;
   storeSecret(name: "CDP_API_KEY_ID" | "CDP_API_KEY_SECRET" | "ANTHROPIC_API_KEY" | "OPENAI_API_KEY"): Promise<string>;
