@@ -71,7 +71,7 @@ textarea, input, [contenteditable] { -webkit-user-select: text; user-select: tex
 /* Buttons */
 .btn {
   display: inline-flex; align-items: center; justify-content: center; gap: 8px; height: 34px; padding: 0 14px;
-  border-radius: var(--radius-sm); font-weight: 500; font-size: 14px; border: 1px solid transparent; white-space: nowrap;
+  border-radius: var(--radius-sm); font-family: var(--sans); font-weight: 500; font-size: 14px; border: 1px solid transparent; white-space: nowrap;
 }
 .btn.primary { background: var(--accent); color: var(--surface); }
 .btn.primary:hover { background: var(--accent-ink); }
@@ -304,8 +304,12 @@ a.link-btn.glyph { width: 22px; padding: 0; justify-content: center; color: var(
 .store-bar .price-edit { display: flex; align-items: center; justify-content: flex-end; gap: 8px; }
 .store-bar .price-edit .actions { display: flex; gap: 4px; }
 .price-field { display: inline-flex; align-items: center; height: 32px; padding: 0 8px; gap: 2px; border: 1px solid var(--line-strong); border-radius: var(--radius-sm); background: var(--surface); }
+/* The ring belongs on the whole field, not the inner input — an input ring with
+   its offset paints over the "$" prefix sitting 2px away inside the same box. */
+.price-field:focus-within { outline: 2px solid var(--accent); outline-offset: 2px; }
 .price-field .price-prefix { font-family: var(--mono); font-size: 15px; color: var(--muted); }
 .price-field input[type="text"] { width: 6ch; height: auto; padding: 0; border: 0; background: none; font-family: var(--mono); font-size: 15px; text-align: left; }
+.price-field input[type="text"]:focus-visible { outline: none; }
 .request .price-field { height: 36px; align-self: flex-start; }
 .store-bar .stale-price { display: flex; align-items: center; justify-content: flex-end; gap: 6px; }
 .store-bar .stale-price span { color: var(--attention-ink); }
