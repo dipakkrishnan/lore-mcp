@@ -134,10 +134,12 @@ From that, draft every profile field *before* asking anything. A wrong guess is 
 
 ## 3. Confirm in one pass
 
-Ask one question per field, with your draft first and labeled as a proposal
-("Looks right", plus 2-3 genuinely different readings). Put the evidence in the
-description — "from 14 sessions across lore-mcp and deep-review" — so the user
-corrects a claim, not rates a guess.
+Ask one question per field, with your draft first, labeled with the actual value
+you drafted — e.g. "Software engineer building multi-repository systems
+(recommended)" — never a bare confirmation phrase like "Looks right" standing in
+for the real answer. Add 2-3 genuinely different readings alongside it. Put the
+evidence in the description — "from 14 sessions across lore-mcp and deep-review"
+— so the user corrects a claim, not rates a guess.
 
 Before the `valuable_context` question, state the stakes plainly, once:
 
@@ -151,6 +153,12 @@ exchange — that keeps the whole pass to about five questions. Codex and Claude
 remain independent input sources; the executor only chooses which agent synthesizes all
 enabled sources. Free-text only on "Other". On other hosts, write the checkpoint after
 each answer; Lore desktop persists the conversation itself.
+
+Base each executor option's description on the `which claude codex` result from step 2,
+not a guess: if `codex` wasn't found, say so plainly — "Codex CLI isn't installed on
+this machine, so Claude is the runnable choice for scheduled synthesis" — rather than a
+future-tense placeholder like "when it becomes available". Both options should describe
+real, current, checkable state, not one present-tense and one hypothetical.
 
 ## 4. Save and schedule
 
