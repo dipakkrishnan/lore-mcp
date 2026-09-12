@@ -575,7 +575,7 @@ function privateMemories(s) {
 /** @param {Snapshot} s */
 function renderMemories(s) {
   const items = privateMemories(s).map((item) => memoryRow(item.id, item.title, [item.project_label, when(item.updated_at)].filter(Boolean).join(" · ")));
-  const body = items.length ? card(items) : emptyState("Nothing kept yet. Say what you learned and Lore will keep it.", button("Capture something", "quiet", () => startCapture()));
+  const body = items.length ? card(items) : emptyState("Nothing kept yet. Say what you learned and Lore will keep it.", button("Add your first memory", "quiet", () => startCapture()));
   return [section("", body)];
 }
 
@@ -1851,7 +1851,7 @@ async function fillPalette(query) {
     ? ranked.map((hit) => paletteRow(highlight("b", hit.title, terms), snippet(hit.content, terms), "open", () => void openMemory(Number(hit.id))))
     : (snapshot ? privateMemories(snapshot) : []).slice(0, 8).map((item) => paletteRow(el("b", "", item.title), el("span", "", [item.project_label, when(item.updated_at)].filter(Boolean).join(" · ")), "open", () => void openMemory(item.id)));
   if (query) {
-    const capture = paletteRow(el("b", "", `Capture “${query}”`), el("span", "", "Lands on Today with this in the composer"), "capture", () => startCapture(query));
+    const capture = paletteRow(el("b", "", `Capture “${query}”`), el("span", "", "Start a new memory with these words"), "capture", () => startCapture(query));
     capture.node.classList.add("capture");
     paletteRows[found.length ? "push" : "unshift"](capture);
   }

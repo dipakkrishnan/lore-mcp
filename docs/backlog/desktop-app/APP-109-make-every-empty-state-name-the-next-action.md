@@ -54,7 +54,9 @@ Filed 2026-09-12 from an operated comparison of Obsidian 1.13's empty tab
 against the rendered Lore views (`app/desktop/support/screenshot.cjs` on a
 fresh `LORE_HOME`).
 
-Completed 2026-09-12. Memories, For Sale's bar without a store, and For Sale
+Completed 2026-09-12. The Memories action reads "Add your first memory", not
+"Capture something": the header beside it already says "+ Add Memory", and one
+action should not wear two names on the same screen. Memories, For Sale's bar without a store, and For Sale
 with nothing published each carry one action; Sales and Today's runs are left
 as they were. The actions use the same quiet accent buttons as row actions, and
 the store-bar link is an inline button in the sentence. ⌘K is not mentioned in

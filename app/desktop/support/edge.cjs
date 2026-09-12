@@ -198,11 +198,11 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         await js(`window.__lore.show("memories")`);
         await sleep(400);
         const memories = await js(`document.querySelector("#content .empty")?.textContent ?? ""`);
-        check("empty Memories says what to do and offers to do it", memories.startsWith("Nothing kept yet. Say what you learned and Lore will keep it.") && await js(`document.querySelector("#content .empty button")?.textContent`) === "Capture something", memories);
+        check("empty Memories says what to do and offers to do it", memories.startsWith("Nothing kept yet. Say what you learned and Lore will keep it.") && await js(`document.querySelector("#content .empty button")?.textContent`) === "Add your first memory", memories);
         await shot("memories-empty");
         await js(`document.querySelector("#content .empty button").click()`);
         await sleep(300);
-        check("Capture something lands on Today with the composer focused", await js(`document.querySelector("#title").textContent !== "Memories" && document.activeElement === document.querySelector("#capture-input")`));
+        check("Add your first memory lands on Today with the composer focused", await js(`document.querySelector("#title").textContent !== "Memories" && document.activeElement === document.querySelector("#capture-input")`));
         await js(`window.__lore.show("store")`);
         await sleep(600);
         check("no store: the bar offers to open one", await js(`[...document.querySelectorAll("#content .store-bar button")].some((b) => b.textContent === "Open a store")`));
