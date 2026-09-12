@@ -4,13 +4,13 @@ title: Guide a new desktop user through an onboarding flow
 priority: P2
 effort: M
 component: desktop-app
-status: ideation
+status: in-review
 related: [ONB-001, ONB-003, APP-030, APP-036]
 blockers: []
 dependencies: []
 github_issue: https://github.com/dipakkrishnan/lore-mcp/issues/176
 created: 2026-09-01
-updated: 2026-09-01
+updated: 2026-09-12
 ---
 
 ## Problem

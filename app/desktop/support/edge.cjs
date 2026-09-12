@@ -190,6 +190,30 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         await js(`window.__lore.openTask("deploy")`);
         const deployLog = await js(`document.querySelector("#log").textContent`);
         check("a completed deploy opens with fresh history", !deployLog.includes("OLD COMPLETED DEPLOY"), deployLog);
+      } else if (scenario === "fresh") {
+        // APP-109: an empty Lore names the next action and carries the control that takes it.
+        await waitFor(`document.body.dataset.state === "welcome" && !document.querySelector("#welcome").classList.contains("provisioning")`);
+        await js(`window.__lore.signIn()`);
+        await waitFor(`document.querySelector("#content .strip")`);
+        await js(`window.__lore.show("memories")`);
+        await sleep(400);
+        const memories = await js(`document.querySelector("#content .empty")?.textContent ?? ""`);
+        check("empty Memories says what to do and offers to do it", memories.startsWith("Nothing kept yet. Say what you learned and Lore will keep it.") && await js(`document.querySelector("#content .empty button")?.textContent`) === "Capture something", memories);
+        await shot("memories-empty");
+        await js(`document.querySelector("#content .empty button").click()`);
+        await sleep(300);
+        check("Capture something lands on Today with the composer focused", await js(`document.querySelector("#title").textContent !== "Memories" && document.activeElement === document.querySelector("#capture-input")`));
+        await js(`window.__lore.show("store")`);
+        await sleep(600);
+        check("no store: the bar offers to open one", await js(`[...document.querySelectorAll("#content .store-bar button")].some((b) => b.textContent === "Open a store")`));
+        const forSale = await js(`[...document.querySelectorAll("#content .empty")].map((n) => n.textContent).join("|")`);
+        check("nothing for sale: one sentence and a way to draft", /Nothing for sale yet\./.test(forSale) && await js(`[...document.querySelectorAll("#content .empty button")].some((b) => b.textContent === "Draft one from a memory")`), forSale);
+        check("no sales: left alone, no action", await js(`[...document.querySelectorAll("#content .empty")].find((n) => n.textContent.includes("No sales yet")).querySelector("button") === null`));
+        check("every empty-state action is a real button, reachable by keyboard", await js(`[...document.querySelectorAll("#content .empty button, #content .store-bar button")].every((b) => b.tabIndex >= 0)`));
+        await shot("store-empty");
+        await js(`[...document.querySelectorAll("#content .empty button")].find((b) => b.textContent === "Draft one from a memory").click()`);
+        await sleep(300);
+        check("Draft one from a memory opens Memories", await js(`document.querySelector("#title").textContent`) === "Memories");
       } else {
         await js(`window.__lore.signIn()`);
         await waitFor(`document.querySelector("#content").textContent.includes("Approve what to sell")`);
@@ -301,6 +325,61 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         await sleep(200);
         check("Escape closes the sheet", await js(`document.querySelector("dialog.sheet") === null`));
         check("focus returns to the row that opened it", await js(`document.activeElement === document.querySelector("#content .task-link")`), await js(`document.activeElement.outerHTML.slice(0, 80)`));
+
+        // APP-110: a row previews on hover and on focus. The card is read-only, stays in the window, and opens the sheet on click.
+        const at = await js(`(() => { const r = document.querySelector("#content .task-link").getBoundingClientRect(); return [Math.round(r.left + 24), Math.round(r.top + r.height / 2)]; })()`);
+        window.webContents.sendInputEvent({ type: "mouseMove", x: at[0], y: at[1] });
+        check("a preview card appears after a short hover", await waitFor(`document.querySelector(".peek")`));
+        const peekText = await js(`document.querySelector(".peek")?.textContent ?? ""`);
+        const rowTitle = await js(`document.querySelector("#content .task-link b").textContent`);
+        check("the card shows title, date, and content, and offers no actions", peekText.startsWith(rowTitle) && /Sep \d+/.test(peekText) && /first ten buyers|management layer/.test(peekText) && await js(`document.querySelectorAll(".peek button").length`) === 0, peekText);
+        check("the card stays inside the window", await js(`(() => { const r = document.querySelector(".peek").getBoundingClientRect(); return r.left >= 0 && r.top >= 0 && r.right <= innerWidth && r.bottom <= innerHeight; })()`));
+        await shot("memory-peek");
+        await key("keyDown", "Escape");
+        await sleep(100);
+        check("Escape hides the preview", await js(`document.querySelector(".peek") === null`));
+        window.webContents.sendInputEvent({ type: "mouseMove", x: 10, y: 10 });
+        await sleep(200);
+        // Focus is still on the row from the sheet's return, so leave it and come back as Tab would.
+        await js(`document.querySelector("#main").focus(); document.querySelector("#content .task-link").focus();`);
+        check("keyboard focus shows the same card", await waitFor(`document.querySelector(".peek")`));
+        await js(`document.querySelector(".peek").click()`);
+        await waitFor(`document.querySelector("dialog.sheet")`);
+        check("clicking the card opens the sheet and drops the card", await js(`document.querySelector("dialog.sheet")?.open === true && document.querySelector(".peek") === null`));
+        await key("keyDown", "Escape");
+        await sleep(200);
+
+        // APP-107: ⌘K is a switcher. Typing finds a memory; typing what Lore does not have offers to capture it.
+        await js(`document.querySelector("#search").focus()`);
+        await js(`document.dispatchEvent(new KeyboardEvent("keydown", { key: "k", metaKey: true, bubbles: true }))`);
+        check("⌘K opens the palette with the field focused", await js(`document.querySelector("#palette")?.open === true && document.activeElement === document.querySelector("#palette-input")`));
+        check("nothing typed lists recent memories", await waitFor(`document.querySelectorAll("#palette .palette-row").length === 2`));
+        await js(`{ const f = document.querySelector("#palette-input"); f.value = "management"; f.dispatchEvent(new Event("input")); }`);
+        check("typing ranks the title match first and marks the match", await waitFor(`document.querySelector("#palette .palette-row")?.textContent.includes("Hire management") && document.querySelector("#palette .palette-row mark")?.textContent.toLowerCase() === "management"`));
+        check("the capture row follows the matches", await js(`document.querySelector("#palette .palette-row:last-child").textContent.includes("Capture “management”")`));
+        const keys = await js(`document.querySelector("#palette .palette-keys").textContent`);
+        check("the footer names the three keys", /↑↓/.test(keys) && /↵ open/.test(keys) && /esc/.test(keys), keys);
+        await shot("palette-match");
+        await key("keyDown", "Return");
+        await waitFor(`document.querySelector("dialog.sheet")`);
+        check("Enter opens the selected memory's sheet and closes the palette", await js(`document.querySelector("dialog.sheet")?.getAttribute("aria-label") === "Hire management before rapid growth" && !document.querySelector("#palette").open`));
+        await key("keyDown", "Escape");
+        await sleep(200);
+        await js(`document.querySelector("#search").focus(); document.querySelector("#search").click();`);
+        check("the sidebar field opens the same palette", await js(`document.querySelector("#palette").open === true`));
+        await key("keyDown", "Escape");
+        await sleep(200);
+        check("esc closes the palette and returns focus to where it was", await js(`!document.querySelector("#palette").open && document.activeElement === document.querySelector("#search")`), await js(`document.activeElement.outerHTML.slice(0, 60)`));
+        await js(`document.dispatchEvent(new KeyboardEvent("keydown", { key: "k", metaKey: true, bubbles: true }))`);
+        await js(`{ const f = document.querySelector("#palette-input"); f.value = "Something Lore has never heard"; f.dispatchEvent(new Event("input")); }`);
+        check("no match puts the capture row first, selected", await waitFor(`document.querySelectorAll("#palette .palette-row").length === 1 && document.querySelector("#palette .palette-row.capture[aria-selected=true]")`));
+        check("…and the footer says Enter captures", await js(`document.querySelector("#palette-enter").textContent`) === "capture");
+        await shot("palette-capture");
+        await key("keyDown", "Return");
+        await sleep(300);
+        check("Enter lands on Today with the text in the composer, focused", await js(`document.querySelector("#title").textContent !== "Memories" && document.querySelector("#capture-input").value === "Something Lore has never heard" && document.activeElement === document.querySelector("#capture-input")`));
+        await js(`document.querySelector("#capture-input").value = ""; window.__lore.show("memories")`);
+        await waitFor(`document.querySelectorAll("#content .task-link").length >= 1`);
         await js(`document.querySelector("#content .task-link").click()`);
         await waitFor(`document.querySelector("dialog.sheet")`);
         await js(`document.querySelector(".sheet .icon-btn").click()`);
