@@ -30,8 +30,8 @@ having at least one.
 > owner to a terminal) and `lore push` (they press **Push** in the app; never
 > run it). Every other browser step — the wallet, the workers.dev subdomain,
 > the faucet, Basescan — goes through `open_url` with a short step title and
-> one line on what to do there; it waits for the owner and tells you whether
-> they finished, got stuck, or declined. Never paste a link into prose. If
+> a note of up to three short numbered lines; it waits for the owner and tells
+> you whether they finished, got stuck, or declined. Never paste a link into prose. If
 > `lore node deploy` stops with "not signed in to Cloudflare", call
 > `cloudflare_login` and rerun it. Default the path to the **test network**
 > (Base Sepolia); mainnet is an explicit choice the owner makes with a publication
@@ -128,15 +128,20 @@ the address" is not guidance. Generic shape, adapted to their app: open the app
 or extension → **Receive** → network **Base** (same address across EVM chains;
 what matters is receiving on Base) → **Copy**.
 
-**Needs one:** walk them through Coinbase Wallet — the self-custody app at
-`coinbase.com/wallet`. Announce the page, open it, then one step at a time:
-**Create new wallet** (passkey setup is the safer default — no phrase to
-mishandle; classic setups show a **recovery phrase**: paper backup, confirm in
-app); skip all purchases, verification, and funding — an empty wallet is the
-goal; then **Receive → Base → Copy address**.
+**Needs one:** open the self-custody app at `coinbase.com/wallet` with the title
+**Create an empty wallet** and this exact note:
 
-Either way, the owner pastes the address here (`0x` + 40 hex, public by
-design); validate the format before using it.
+> Use a passkey, skip buying or funding anything, then come back with your
+> public address—it starts with `0x`. Never share your recovery phrase.
+>
+> Choose **Wallet**, not the Coinbase app with prices and Buy buttons.
+
+Either way, the address is its own step once the wallet exists: one question
+with no options and format `evm_address`, so the owner gets a single field
+to paste into, and the line
+"never paste a recovery phrase — Lore only wants the public address".
+Validate the format (`0x` + 40 hex) before using it; a bad paste means ask
+again, not guess.
 
 Never ask for the recovery phrase, and never accept it if pasted — that phrase
 *is* the wallet. If it lands in the conversation anyway, the wallet is
@@ -145,9 +150,14 @@ later reads.
 
 ## 4. Price
 
-Run `lore price 0.01` (or the owner's chosen amount — their call, `0.01` is the
-recommendation). `lore price 0` is free and a supported place to stop; deploying
-the paid node requires a positive price.
+Set the owner's chosen amount — their call, `0.01` is the recommendation. Where
+a `propose_price` tool exists, propose the amount and let the owner confirm it;
+that tool saves what they chose and returns it, so work from the returned number
+rather than the one you suggested. Otherwise run `lore price 0.01`.
+
+Either way the owner names the number: never pick one for them and set it
+quietly. `lore price 0` is free and a supported place to stop; deploying the
+paid node requires a positive price.
 
 If they chose answers, draft two to four lines of **public proxy instructions** from
 their confirmed voice. The instructions should tell the agent to answer as their
@@ -231,13 +241,20 @@ buyer's USDC balance on-chain, and — if unfunded — prints the address to fun
 and exits. Then:
 
 1. **Fund the buyer address it printed** (say which wallet this is: the buyer,
-   not the payout). Frame and open a faucet: prefer
-   `https://portal.cdp.coinbase.com/products/faucet` (free Coinbase login;
-   defaults to Base Sepolia + USDC). No login wanted?
-   `https://faucet.circle.com` works but **its network dropdown defaults to the
-   wrong chain** and its success screen doesn't name the network — have the
-   owner confirm it reads **Base Sepolia** before sending; a wasted send locks
-   that asset+network pair for 2 hours.
+   not the payout). Open `https://portal.cdp.coinbase.com/products/faucet`
+   (free Coinbase login). The portal lands on its own home after sign-in, so
+   the note must name the way there. Use exactly this shape, one step per line,
+   the address alone on its line so it can be copied:
+
+   > Sign in, then open **Onchain Tools → Faucet** in the left sidebar.
+   > Pick Base Sepolia and USDC, paste this address, and send.
+   > `0x…` (the buyer address)
+   > Play money on the test network, not real funds.
+
+   No login wanted? `https://faucet.circle.com` works but **its network
+   dropdown defaults to the wrong chain** and its success screen doesn't name
+   the network — have the owner confirm it reads **Base Sepolia** before
+   sending; a wasted send locks that asset+network pair for 2 hours.
 2. **Re-run the same command.** The preflight passes once funds arrive (the
    script's own error output covers the wrong-network diagnosis if they don't).
    It pays at most the node's price and prints the settlement receipt. If it
@@ -263,14 +280,21 @@ When they do, verify the gates **from state** before driving anything:
 1. At least one active publication pushed to the node (a real buyer must
    never pay real USDC against an empty catalog) — `lore publication list`
    and the node's own `discover` manifest.
-2. A full test-network payment settled end to end, including one from a
-   wallet that is not the owner's own machine.
+2. A full test-network payment settled end to end — `lore node sales --json`
+   lists every settled sale with its network and payer, so one row on
+   `eip155:84532` proves the rail. Whether any came from a wallet that is not
+   the owner's own machine is one question to the owner; nothing local can tell.
 3. The owner's **explicit** confirmation that they are switching to real
    money — this step, uniquely, is never inferred from context.
 
 Any gate fails → say which, leave the node on the test network, stop.
 
-> **Lore desktop:** all gates hold → frame and open the Coinbase Developer
+> **Lore desktop:** read the gates from `lore publication list` and
+> `lore node sales --json` only, quietly, then say where they stand in one
+> sentence in the owner's words. Never run `npm run pay`, query the chain, or
+> call an explorer from the app: its sandbox cannot bind sockets or reach
+> them, and the ledger already holds every settlement. No settled test sale →
+> say so, offer the test-network path, stop. All gates hold → frame and open the Coinbase Developer
 > Platform's API keys page through `open_url` (the runbook's decoy and
 > dialog notes belong in that one line), then call `store_secret` for
 > `CDP_API_KEY_ID` and again for `CDP_API_KEY_SECRET` — each shows the owner

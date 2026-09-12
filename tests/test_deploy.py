@@ -12,12 +12,14 @@ import json
 import os
 import stat
 import subprocess
+import sys
 import unittest
 from unittest.mock import patch
 
 from helpers import LoreTestCase, captured
 
 from lore import deploy as deploy_module
+from lore.snapshot import Manifest, ManifestEntry
 from lore.store import Store
 
 WALLET = "0x" + "1" * 40
@@ -39,6 +41,19 @@ SALES = [
 ]
 
 
+# What `wrangler d1 execute --json` prints when Cloudflare refuses a request:
+# an object, so the last line of the output is a lone brace.
+WRANGLER_REFUSAL = {
+    "error": {
+        "text": "A request to the Cloudflare API (/accounts/3227/d1/database/88f8/query) failed.",
+        "notes": [{"text": "Authentication error [code: 10000]"}],
+        "kind": "error",
+        "name": "APIError",
+        "code": 10000,
+    }
+}
+
+
 class _Wrangler:
     """A scriptable stand-in for npm and wrangler.
 
@@ -55,23 +70,23 @@ class _Wrangler:
         logged_in: bool = True,
         login_fails: bool = False,
         has_wallet_secret: bool = True,
-        smoke_fails: bool = False,
         install_fails: bool = False,
         secret_put_fails: bool = False,
         d1_exists: bool = False,
         d1_create_fails: bool = False,
         d1_id_in_output: bool = True,
+        d1_execute_refusals: int = 0,
     ) -> None:
         self.deploy_output = deploy_output
         self.logged_in = logged_in
         self.login_fails = login_fails
         self.has_wallet_secret = has_wallet_secret
-        self.smoke_fails = smoke_fails
         self.install_fails = install_fails
         self.secret_put_fails = secret_put_fails
         self.d1_exists = d1_exists
         self.d1_create_fails = d1_create_fails
         self.d1_id_in_output = d1_id_in_output
+        self.d1_execute_refusals = d1_execute_refusals
         self.commands: list[tuple[str, ...]] = []
         self.secret_values: dict[str, str | None] = {}
 
@@ -82,9 +97,6 @@ class _Wrangler:
         if args[0] == "npm" and tail[:1] == ("install",):
             code = 1 if self.install_fails else 0
             err = "npm ERR! network" if self.install_fails else ""
-        elif args[0] == "npm" and tail[:1] == ("run",):
-            code = 1 if self.smoke_fails else 0
-            err = "402 expected, got 500" if self.smoke_fails else ""
         elif tail == ("whoami",):
             out = "logged in as ada" if self.logged_in else "You are not authenticated."
         elif tail[:1] == ("login",):
@@ -107,7 +119,11 @@ class _Wrangler:
         elif tail == ("deploy",):
             out = self.deploy_output
         elif tail[:2] == ("d1", "execute"):
-            out = json.dumps([{"results": SALES, "success": True}])
+            if self.d1_execute_refusals:
+                self.d1_execute_refusals -= 1
+                code, out = 1, json.dumps(WRANGLER_REFUSAL, indent=2)
+            else:
+                out = json.dumps([{"results": SALES, "success": True}])
         return subprocess.CompletedProcess(args, code, stdout=out, stderr=err)
 
     def named(self, *tail: str) -> list[tuple[str, ...]]:
@@ -119,6 +135,19 @@ class _Wrangler:
             next(i for i, c in enumerate(self.commands) if c[1:] == tail)
             for tail in tails
         ]
+
+
+LIVE = Manifest(manifest_version=1, topics={"pricing": [ManifestEntry(id="a1")]})
+
+
+class _NodeCase(LoreTestCase):
+    """Every deploy ends by asking the node for its manifest; no test reaches the network."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        probe = patch("lore.snapshot.remote_manifest", return_value=LIVE)
+        self.probe = probe.start()
+        self.addCleanup(probe.stop)
 
 
 class SalesTest(LoreTestCase):
@@ -152,8 +181,43 @@ class SalesTest(LoreTestCase):
         with self.assertRaisesRegex(ValueError, "open your store first"):
             deploy_module.sales()
 
+    def _stage_node(self) -> None:
+        binary = deploy_module.materialize(0.1) / "node_modules/.bin/wrangler"
+        binary.parent.mkdir(parents=True)
+        binary.write_text("#!/bin/sh\n")
 
-class UnattendedDeployTest(LoreTestCase):
+    def test_a_refused_first_read_is_retried_once(self) -> None:
+        self._stage_node()
+        wrangler = _Wrangler(d1_execute_refusals=1)
+        with (
+            patch("lore.deploy.subprocess.run", side_effect=wrangler),
+            patch("lore.deploy.time.sleep") as pause,
+        ):
+            self.assertEqual(len(deploy_module.sales()), len(SALES))
+        self.assertEqual(len(wrangler.commands), 2)
+        self.assertEqual(pause.call_count, 1)
+
+    def test_a_refusal_is_reported_in_cloudflares_words_not_a_brace(self) -> None:
+        """The desktop shows the last line of stderr; a JSON blob's last line
+        is `}` (APP-085). Cloudflare's sentence comes through on one line,
+        naming neither the account nor the database."""
+        self._stage_node()
+        wrangler = _Wrangler(d1_execute_refusals=2)
+        with (
+            patch("lore.deploy.subprocess.run", side_effect=wrangler),
+            patch("lore.deploy.time.sleep"),
+            self.assertRaises(OSError) as failure,
+        ):
+            deploy_module.sales()
+        self.assertEqual(
+            str(failure.exception),
+            "reading sales failed:\nA request to the Cloudflare API failed. "
+            "Authentication error [code: 10000]",
+        )
+        self.assertEqual(len(wrangler.commands), 2)
+
+
+class UnattendedDeployTest(_NodeCase):
     def test_a_signed_out_agent_shell_stops_instead_of_starting_a_login(self) -> None:
         with Store() as store:
             store.set_setting("price_usd", 0.01)
@@ -168,7 +232,7 @@ class UnattendedDeployTest(LoreTestCase):
         self.assertEqual(wrangler.named("login"), [])
 
 
-class RealMoneyTest(LoreTestCase):
+class RealMoneyTest(_NodeCase):
     def _staged(self) -> _Wrangler:
         target = deploy_module.materialize(0.1)
         binary = target / "node_modules/.bin/wrangler"
@@ -195,7 +259,7 @@ class RealMoneyTest(LoreTestCase):
         with (
             patch("lore.deploy.subprocess.run", side_effect=wrangler),
             patch("lore.deploy.shutil.which", return_value="/usr/bin/npm"),
-            patch("lore.cli.push", return_value=0),
+            patch("lore.cli.push_job", return_value=0),
             captured(),
         ):
             self.assertEqual(deploy_module.deploy(None, "real"), 0)
@@ -204,6 +268,30 @@ class RealMoneyTest(LoreTestCase):
             ("deploy",), ("secret", "put", "LORE_NETWORK")
         )
         self.assertLess(deployed, network)
+
+    def test_a_deploy_from_the_agent_shell_pushes_without_the_owner_gate(
+        self,
+    ) -> None:
+        # The desktop agent's shell has no TTY and no attended marker. The
+        # deploy is the owner's action, so its push must not go back through
+        # the gate, and it is recorded as its own run beside the deploy.
+        with Store() as store:
+            store.set_setting("price_usd", 0.01)
+        wrangler = _Wrangler()
+        with (
+            patch("lore.deploy.subprocess.run", side_effect=wrangler),
+            patch("lore.deploy.shutil.which", return_value="/usr/bin/npm"),
+            patch("lore.cli._push", return_value=0) as pushed,
+            patch("lore.cli._owner_action", side_effect=AssertionError("gated")),
+            patch.dict(os.environ, {"LORE_UNATTENDED": "1"}),
+            patch.object(sys.stdin, "isatty", return_value=False),
+            captured(),
+        ):
+            self.assertEqual(deploy_module.deploy(WALLET), 0)
+        pushed.assert_called_once()
+        with Store() as store:
+            kinds = sorted(job.kind for job in store.recent_jobs())
+        self.assertEqual(kinds, ["deploy", "push"])
 
 
 class LoginTest(LoreTestCase):
@@ -301,9 +389,14 @@ class MaterializeTest(LoreTestCase):
         )
 
 
-class DeployTest(LoreTestCase):
+class DeployTest(_NodeCase):
     def _deploy(
-        self, wallet: str | None = WALLET, *, price_usd: float = 0.37, **script: object
+        self,
+        wallet: str | None = WALLET,
+        *,
+        price_usd: float = 0.37,
+        probe_fails: bool = False,
+        **script: object,
     ) -> tuple[int, _Wrangler]:
         with Store() as store:
             store.set_setting("price_usd", price_usd)
@@ -311,11 +404,21 @@ class DeployTest(LoreTestCase):
         with (
             patch("lore.deploy.subprocess.run", side_effect=wrangler),
             patch("lore.deploy.shutil.which", return_value="/usr/bin/npm"),
-            # `push` is `lore.cli`'s, exercised in tests/test_cli.py; here it
-            # only needs to be observable and not touch the network.
-            patch("lore.cli.push") as push,
+            # `push_job` is `lore.cli`'s, exercised in tests/test_cli.py; here
+            # it only needs to be observable and not touch the network.
+            patch("lore.cli.push_job") as push,
             captured(),
         ):
+            # The push creates the publications table, so the node is only
+            # asked for its manifest after it; probing first would test a
+            # broken node.
+            def probed(url: str) -> Manifest:
+                self.assertTrue(push.called, "the node was probed before the push")
+                if probe_fails:
+                    raise OSError("connection refused")
+                return LIVE
+
+            self.probe.side_effect = probed
             code = deploy_module.deploy(wallet)
         wrangler.push = push  # type: ignore[attr-defined]
         return code, wrangler
@@ -326,10 +429,7 @@ class DeployTest(LoreTestCase):
         self.assertIn(("npm", "install", "--no-fund", "--no-audit"), wrangler.commands)
         self.assertTrue(wrangler.named("deploy"))
         self.assertTrue(wrangler.named("secret", "put", "LORE_WALLET"))
-        self.assertIn(
-            ("npm", "run", "smoke", "--", "https://lore.example.workers.dev/mcp"),
-            wrangler.commands,
-        )
+        self.probe.assert_called_once_with("https://lore.example.workers.dev/mcp")
         # Everything runs inside the wrangler the install just put there, never
         # whatever version happens to be on the owner's PATH.
         for command in wrangler.commands:
@@ -381,7 +481,7 @@ class DeployTest(LoreTestCase):
             store.set_setting("node_url", "https://lore.example.workers.dev/mcp")
         code, wrangler = self._deploy(deploy_output="Deployed, no URL here")
         self.assertEqual(code, 0)
-        self.assertEqual(wrangler.named("run", "smoke"), [])
+        self.probe.assert_not_called()
         with Store() as store:
             self.assertEqual(
                 store.setting("node_url"), "https://lore.example.workers.dev/mcp"
@@ -422,9 +522,11 @@ class DeployTest(LoreTestCase):
                 store.setting("node_url"), "https://lore.example.workers.dev/mcp"
             )
 
-    def test_a_failed_smoke_check_says_where_to_look(self) -> None:
+    def test_a_node_that_does_not_answer_after_deploy_says_where_to_look(
+        self,
+    ) -> None:
         with self.assertRaisesRegex(OSError, "wrangler tail"):
-            self._deploy(smoke_fails=True)
+            self._deploy(probe_fails=True)
 
     def test_a_failed_install_reports_the_tool_output(self) -> None:
         with self.assertRaisesRegex(OSError, "npm install failed"):
@@ -499,16 +601,13 @@ class DeployTest(LoreTestCase):
         # Already resolved, so nothing is created a second time.
         self.assertEqual(wrangler.named("d1", "create", "lore-publications"), [])
 
-    def test_the_first_push_runs_before_the_smoke_check(self) -> None:
-        # The push creates the publications table, so discover works before the
-        # owner has published anything; smoking first would test a broken node.
+    def test_the_first_push_runs_before_the_node_is_probed(self) -> None:
+        # The order itself is asserted inside _deploy's probe; this pins that
+        # both halves happened exactly once.
         code, wrangler = self._deploy()
         self.assertEqual(code, 0)
-        wrangler.push.assert_called_once_with(str(self.lore_home / "node"))
-        self.assertIn(
-            ("npm", "run", "smoke", "--", "https://lore.example.workers.dev/mcp"),
-            wrangler.commands,
-        )
+        wrangler.push.assert_called_once_with(self.lore_home / "node", False)
+        self.probe.assert_called_once()
 
     def test_a_malformed_wallet_never_reaches_the_network(self) -> None:
         for wallet in ("0xnothex", "0x" + "1" * 39, "1" * 40, "0x" + "1" * 40 + "1"):
@@ -551,7 +650,7 @@ class DeployTest(LoreTestCase):
                     deploy_module.deploy(WALLET)
 
 
-class RunTest(LoreTestCase):
+class RunTest(_NodeCase):
     def test_failure_detail_keeps_both_streams(self) -> None:
         # A tool that writes its diagnosis to stdout and its error to stderr is
         # normal; reporting only one of them is how a deploy failure gets opaque.

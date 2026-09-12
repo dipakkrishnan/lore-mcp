@@ -13,7 +13,7 @@ from pydantic import BaseModel, ConfigDict, TypeAdapter
 from . import automation, blueprint
 from .paths import claude_home, home
 from .sources import available_sources
-from .store import Store
+from .store import JOB_SUMMARIES, Store
 
 
 class ManifestEntry(BaseModel):
@@ -28,6 +28,10 @@ class Manifest(BaseModel):
     manifest_version: Literal[1]
     topics: dict[str, list[ManifestEntry]]
     network: str | None = None
+    # What the node actually charges, baked in at deploy time. Optional: a node
+    # deployed before `discover` advertised it answers without one, and the app
+    # must say nothing about the live price rather than guess.
+    price_usd: float | None = None
     payout: str | None = None
 
 
@@ -67,7 +71,7 @@ def _response(response: HTTPResponse) -> dict[str, Any]:
     return OBJECT.validate_json(text)
 
 
-def _remote_manifest(url: str) -> Manifest:
+def remote_manifest(url: str) -> Manifest:
     initialize = {
         "jsonrpc": "2.0",
         "id": 1,
@@ -102,15 +106,26 @@ def _remote_manifest(url: str) -> Manifest:
 
 def _live_state(node_url: str | None) -> tuple[dict[str, object], set[str] | None]:
     if not node_url:
-        return {"state": "not_configured", "network": None, "payout": None}, None
+        return {
+            "state": "not_configured",
+            "network": None,
+            "price_usd": None,
+            "payout": None,
+        }, None
     try:
-        manifest = _remote_manifest(node_url)
+        manifest = remote_manifest(node_url)
     except (OSError, ValueError, KeyError, IndexError, TypeError):
-        return {"state": "unreachable", "network": None, "payout": None}, None
+        return {
+            "state": "unreachable",
+            "network": None,
+            "price_usd": None,
+            "payout": None,
+        }, None
     ids = {entry.id for entries in manifest.topics.values() for entry in entries}
     live: dict[str, object] = {
         "state": "online",
         "network": manifest.network,
+        "price_usd": manifest.price_usd,
         "payout": manifest.payout,
     }
     return live, ids
@@ -136,7 +151,11 @@ def _cached_live_state(
         and now - float(cached.get("checked_at", 0)) < LIVE_CACHE_SECONDS
     ):
         ids = cached.get("ids")
-        return cached["live"], set(ids) if isinstance(ids, list) else None
+        live = dict(cached["live"])
+        # A cache written before this field existed is still fresh enough to
+        # trust for liveness; it just has nothing to say about the price.
+        live.setdefault("price_usd", None)
+        return live, set(ids) if isinstance(ids, list) else None
     live, ids = _live_state(node_url)
     with Store() as store:
         store.set_setting(
@@ -195,6 +214,9 @@ def build() -> dict[str, object]:
         answer_price = store.setting("answer_price_usd", 0.0)
         answer_enabled = store.setting("answer_enabled", False) is True
         node_url = store.setting("node_url", None)
+        # Reading concedes jobs whose liveness claim expired, so an interrupted
+        # run turns visibly incomplete on the next refresh without a scheduler.
+        jobs = store.recent_jobs(limit=20)
 
     live, live_ids = _cached_live_state(node_url if isinstance(node_url, str) else None)
     labels = _claude_project_labels()
@@ -230,6 +252,7 @@ def build() -> dict[str, object]:
             "sources_configured": configured is not missing,
             "blueprint_configured": blueprint.blueprint_path().is_file(),
             "profile_configured": automation.profile_path().is_file(),
+            "schedule": automation.schedule_state(),
         },
         "library": {
             "counts": {
@@ -250,5 +273,24 @@ def build() -> dict[str, object]:
         "node": {
             "url": node_url if isinstance(node_url, str) else None,
             "live": live,
+        },
+        # Owner-run history. The stored summary is a code; the prose is applied
+        # here, so wording can change without touching the database and the
+        # database never holds a sentence anyone could smuggle content into.
+        "jobs": {
+            "items": [
+                {
+                    "id": item.id,
+                    "kind": item.kind.value,
+                    "status": item.status.value,
+                    "title": item.title,
+                    "summary": JOB_SUMMARIES[item.summary],
+                    "count": item.count,
+                    "cost_usd": item.cost_usd,
+                    "started_at": item.started_at,
+                    "finished_at": item.finished_at,
+                }
+                for item in jobs
+            ]
         },
     }

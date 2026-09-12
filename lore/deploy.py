@@ -16,6 +16,7 @@ import re
 import shutil
 import subprocess
 import sys
+import time
 from importlib import resources
 from pathlib import Path
 from typing import Literal
@@ -23,7 +24,7 @@ from typing import Literal
 from pydantic import BaseModel, TypeAdapter
 
 from .paths import home
-from .store import Store
+from .store import JobKind, Store
 from .ui import muted, success
 
 # What must never reach ~/.lore/node from a dev checkout. The wheel itself
@@ -136,14 +137,35 @@ def _run(
     fail: str | None = None,
     interactive: bool = False,
     input: str | None = None,
+    retry: bool = False,
 ) -> subprocess.CompletedProcess[str]:
-    result = subprocess.run(
-        args, cwd=cwd, input=input, capture_output=not interactive, text=True
-    )
+    """Run one tool. `retry` gives a refused request one more try after a
+    pause, the way a push does: Cloudflare has refused the first request after
+    wrangler refreshed its sign-in and accepted the next one moments later."""
+    attempts = 2 if retry else 1
+    for attempt in range(attempts):
+        result = subprocess.run(
+            args, cwd=cwd, input=input, capture_output=not interactive, text=True
+        )
+        if result.returncode == 0:
+            break
+        if attempt < attempts - 1:
+            time.sleep(3)
     if fail is not None and result.returncode:
-        detail = f"{result.stderr or ''}{result.stdout or ''}".strip()[-2000:]
-        raise OSError(f"{fail}:\n{detail}")
+        raise OSError(f"{fail}:\n{_detail(result)}")
     return result
+
+
+def _detail(result: subprocess.CompletedProcess[str]) -> str:
+    """The tail of both streams; or, when wrangler printed a refusal as JSON
+    (its `--json` mode does, so the last line is a lone brace), Cloudflare's
+    own sentence on one line without the account and database path."""
+    try:
+        error = json.loads(result.stdout or "")["error"]
+        parts = (error["text"], *(note["text"] for note in error.get("notes", [])))
+        return re.sub(r"\s*\([^)]*\)", "", " ".join(parts))
+    except (ValueError, KeyError, TypeError):
+        return f"{result.stderr or ''}{result.stdout or ''}".strip()[-2000:]
 
 
 def _ensure_d1(wrangler: str, target: Path) -> None:
@@ -232,6 +254,7 @@ def sales() -> list[Sale]:
         ),
         target,
         fail="reading sales failed",
+        retry=True,
     )
     statements = json.loads(result.stdout)
     return SALES.validate_python(statements[0]["results"])
@@ -258,8 +281,7 @@ def secret(name: str, value: str) -> int:
 
 
 def deploy(wallet: str | None, network: str | None = None) -> int:
-    """Materialize, authenticate, ensure D1, deploy, set the payout secret and
-    the network if asked, push the active publications, smoke-check."""
+    """Check the preconditions, then run and record one deploy."""
     if wallet and not WALLET.fullmatch(wallet):
         raise ValueError(
             "wallet must be a public EVM address: 0x plus 40 hex characters"
@@ -298,7 +320,36 @@ def deploy(wallet: str | None, network: str | None = None) -> int:
             "set it with `lore price <USD>` and rerun"
         )
 
-    target = materialize(float(configured_price))
+    # Recorded from here, past the argument and price guards: a refused
+    # precondition is validation the owner sees immediately, not a run. This is
+    # the one seam both deploy paths cross — the desktop app reaches it through
+    # the agent's shell, a terminal reaches it through the CLI.
+    with Store() as store:
+        job_id = store.start_job(
+            JobKind.DEPLOY.value, owner_pid=os.getpid(), timeout_minutes=60
+        )
+    # Only ever a literal from the summary vocabulary. Deploy failures carry raw
+    # subprocess output naming accounts, paths, and commands; none of it may
+    # reach owner history, so the cause stays in the raised error alone.
+    outcome = ("failed", "failed")
+    try:
+        result = _deploy(float(configured_price), wallet, network)
+        outcome = (
+            "succeeded",
+            f"deployed_{network}" if network in NETWORKS else "deployed",
+        )
+        return result
+    finally:
+        with Store() as store:
+            store.finish_job(job_id, outcome[0], summary=outcome[1])
+
+
+def _deploy(
+    configured_price: float, wallet: str | None, network: str | None = None
+) -> int:
+    """Materialize, authenticate, ensure D1, deploy, set the payout secret,
+    push the active publications, smoke-check."""
+    target = materialize(configured_price)
     muted(f"Node source staged at {target}")
     muted("Installing dependencies (the first run can take a minute)...")
     _run(
@@ -365,9 +416,9 @@ def deploy(wallet: str | None, network: str | None = None) -> int:
     # First push creates the publications table (CREATE TABLE IF NOT EXISTS),
     # so discover works before the owner has published anything; an empty
     # active set is a valid state, and re-pushing is idempotent.
-    from .cli import push  # local import: cli imports this module at top level
+    from .cli import push_job  # local import: cli imports this module at top level
 
-    push(str(target))
+    push_job(target, False)
 
     if not url:
         # The deploy succeeded, so no workers.dev address in the output means
@@ -378,12 +429,17 @@ def deploy(wallet: str | None, network: str | None = None) -> int:
         )
         return 0
 
-    smoke = _run(("npm", "run", "smoke", "--", url), target)
-    if smoke.returncode:
+    # The same plain HTTPS probe the app trusts for its store status; the
+    # Node smoke script needs a local socket the desktop agent's shell denies.
+    from .snapshot import remote_manifest  # local import, as push_job above
+
+    try:
+        manifest = remote_manifest(url)
+    except (OSError, ValueError, KeyError, IndexError, TypeError) as error:
         raise OSError(
-            f"deployed, but the smoke check failed against {url}:\n"
-            f"{(smoke.stderr or smoke.stdout).strip()[-2000:]}\n"
+            f"deployed, but {url} did not answer discover: {error}\n"
             f"Stream the live error with `npx wrangler tail` in {target}"
-        )
-    success(f"Live and smoke-checked: {url}")
+        ) from error
+    count = sum(len(entries) for entries in manifest.topics.values())
+    success(f"Live: {url} · {count} publication{'s' if count != 1 else ''}")
     return 0

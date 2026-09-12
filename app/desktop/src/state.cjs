@@ -6,7 +6,7 @@ const { resolve } = require("node:path");
 const run = promisify(execFile);
 const root = resolve(__dirname, "../../..");
 
-/** @type {{file: string, args: string[], cwd?: string}} */
+/** The packaged CLI runs from the Lore home: the app inherits whatever directory launched it, and the CLI treats a checkout there as development. @type {{file: string, args: string[], cwd?: string}} */
 let runtime = { file: "uv", args: ["run", "lore"], cwd: root };
 
 /** @param {string} [file] */
@@ -19,7 +19,7 @@ async function lore(loreHome, args, decision) {
   const attended = decision === undefined ? {} : { LORE_ATTENDED_SURFACE: "desktop" };
   const env = { ...process.env, LORE_HOME: loreHome, NO_COLOR: "1", ...attended };
   const pending = run(runtime.file, [...runtime.args, ...args], {
-    cwd: runtime.cwd,
+    cwd: runtime.cwd ?? loreHome,
     env,
     maxBuffer: 8 * 1024 * 1024,
     timeout: 120_000,
@@ -30,7 +30,12 @@ async function lore(loreHome, args, decision) {
     return (await pending).stdout;
   } catch (error) {
     const stderr = String(/** @type {{stderr?: string}} */ (error).stderr ?? "").trim();
-    throw new Error((stderr.split("\n").pop() ?? "").replace(/^lore: /, "") || "Lore could not finish that");
+    // The log keeps all of it, so a failure that ends in a brace or a blank still says what happened somewhere.
+    console.error(`lore ${args.join(" ")} failed:\n${stderr || /** @type {Error} */ (error).message}`);
+    // A refusal the CLI explains over several lines carries its cause on a "Reason:" line; otherwise the owner sees the last line.
+    const lines = stderr.split("\n").map((line) => line.trim());
+    const said = lines.find((line) => line.startsWith("Reason: "))?.slice(8) ?? lines.at(-1) ?? "";
+    throw new Error(said.replace(/^lore: /, "") || "Lore could not finish that");
   }
 }
 
@@ -48,7 +53,7 @@ function stream(file, args, env, onLine, cwd) {
 
 /** Run the CLI and hand back each output line as it arrives, for commands that wait on the owner. @param {string} loreHome @param {string[]} args @param {(line: string) => void} onLine */
 function loreStream(loreHome, args, onLine) {
-  return stream(runtime.file, [...runtime.args, ...args], { LORE_HOME: loreHome, NO_COLOR: "1" }, onLine, runtime.cwd);
+  return stream(runtime.file, [...runtime.args, ...args], { LORE_HOME: loreHome, NO_COLOR: "1" }, onLine, runtime.cwd ?? loreHome);
 }
 
 /** The hosts the payments skill sends an owner to; anything else stays closed. */
@@ -114,6 +119,18 @@ async function captureMemories(loreHome, entries) {
   return JSON.parse(await lore(loreHome, ["capture", "apply", "-"], JSON.stringify(entries)));
 }
 
+/** The one global publication price, saved through Lore's own validation.
+ * Zero is a legal CLI value ("free"), but a store the owner is pricing needs a
+ * positive one — choosing not to sell stays a conversation, not a text field.
+ * @param {string} loreHome @param {unknown} amount */
+async function setPrice(loreHome, amount) {
+  if (typeof amount !== "number" || !Number.isFinite(amount) || amount <= 0) {
+    throw new Error("A price has to be a number above zero");
+  }
+  // Attended, like revoke: the owner typed this amount on a card in the app.
+  await lore(loreHome, ["price", String(amount)], "");
+}
+
 /** @param {string} loreHome @returns {Promise<PublicationCandidate[]>} */
 async function candidates(loreHome) {
   return JSON.parse(await lore(loreHome, ["publication", "candidates"]));
@@ -136,6 +153,7 @@ module.exports = {
   renameMemory,
   editMemory,
   captureMemories,
+  setPrice,
   candidates,
   decide,
   useRuntime

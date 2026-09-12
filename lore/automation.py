@@ -13,6 +13,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 from windup import Task
 from windup import install as install_task
 from windup import remove as remove_task
+from windup import status as task_status
 
 from .paths import claude_home, codex_home, home
 from .store import STATUSES
@@ -214,8 +215,8 @@ Do not modify either agent's native memory or session history.
 """
 
 
-def install(profile: dict[str, object]) -> Path:
-    """Install the selected executor's recurring synthesis task."""
+def task_for(profile: dict[str, object]) -> Task:
+    """The scheduled task a profile describes, exactly as `install` installs it."""
     name = str(profile.get("executor", "") or "")
     if not name:
         raise ValueError("profile has no executor; set one, or save with --no-schedule")
@@ -247,7 +248,12 @@ def install(profile: dict[str, object]) -> Path:
         cadence=str(profile.get("cadence", "daily")),
         hour=hour,
         model=str(profile.get("model", "")),
-        before=("env", f"LORE_HOME={home()}", *lore, "sync"),
+        # The scheduler runs this itself, before handing off to the agent, so it
+        # is the one moment a scheduled synthesis run is *observed* starting.
+        # `--record-job` opens the row here. It must stay a single exec'able
+        # argv: the scheduler joins these words with shlex, so a `&&` or `;`
+        # would be quoted into a literal argument and break the run.
+        before=("env", f"LORE_HOME={home()}", *lore, "sync", "--record-job"),
         add_dirs=(claude_home(), codex_home()) if executor == Agent.CLAUDE else (),
         allowed_tools=allowed_tools,
         environment=(
@@ -259,11 +265,40 @@ def install(profile: dict[str, object]) -> Path:
             else ()
         ),
     )
-    other = Agent.CLAUDE if executor == Agent.CODEX else Agent.CODEX
+    return task
+
+
+def install(profile: dict[str, object]) -> Path:
+    """Install the selected executor's recurring synthesis task."""
+    task = task_for(profile)
+    other = Agent.CLAUDE if task.agent == Agent.CODEX else Agent.CODEX
     # Keep the current schedule alive unless its replacement installs successfully.
     installed = install_task(task, codex_home=codex_home())
     remove_task(replace(task, agent=other), codex_home=codex_home())
     return installed
+
+
+def schedule_state() -> dict[str, object] | None:
+    """What the saved profile asks for, and whether the scheduler holds it.
+
+    A saved profile is not a running schedule: the install can fail, a sandbox
+    can skip it, and launchd can lose it. This asks the scheduler itself, so
+    the desktop reports execution rather than configuration (APP-084).
+    """
+    path = profile_path()
+    if not path.is_file():
+        return None
+    try:
+        profile = json.loads(path.read_text(encoding="utf-8"))
+        task = task_for(profile)
+    except (OSError, ValueError):
+        return {"installed": False, "executor": None, "cadence": None, "hour": None}
+    return {
+        "installed": task_status(task, codex_home=codex_home()),
+        "executor": task.agent,
+        "cadence": task.cadence,
+        "hour": task.hour,
+    }
 
 
 # The local scheduler reports failures as prose — sometimes its own wording, sometimes

@@ -22,7 +22,10 @@ the approval prompt on the owner's behalf.
 > then stop after one sentence saying the drafts are ready to approve below.
 > The app shows each card, takes Approve or Skip from the owner, and asks the
 > push question itself. Skip sections 4 and 5: never send the owner to a
-> terminal and never ask the closing question yourself.
+> terminal and never ask the closing question yourself. The owner decides
+> each card where you cannot see it, so every turn ends with a line saying
+> whether your drafts are still waiting; say a draft is waiting only when
+> that line does, and otherwise offer a fresh topic.
 >
 > ```sh
 > lore publication draft - <<'LORE_PUBLISH'

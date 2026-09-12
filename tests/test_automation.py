@@ -238,6 +238,7 @@ class InstallTest(LoreTestCase):
                 "-m",
                 "lore",
                 "sync",
+                "--record-job",
             ),
         )
         self.assertEqual(
@@ -248,6 +249,22 @@ class InstallTest(LoreTestCase):
         self.assertEqual(environment["LORE_HOME"], os.environ["LORE_HOME"])
         # The scheduled task runs without a login shell; `lore` must still resolve.
         self.assertIn(str(Path(sys.executable).parent), environment["PATH"])
+
+    def test_the_pre_run_hook_stays_one_execable_command(self) -> None:
+        """The scheduler joins `before` with shlex into a single command line,
+        so a shell operator would be quoted into a literal argument and the
+        scheduled run would break. Opening the job row must not reach for one.
+        """
+        profile = automation.save_profile(automation_profile(executor="claude"))
+        with (
+            patch("lore.automation.remove_task"),
+            patch("lore.automation.install_task", return_value=Path("task")) as install,
+        ):
+            automation.install(profile)
+        before = install.call_args.args[0].before
+        self.assertEqual(before[-2:], ("sync", "--record-job"))
+        for operator in ("&&", ";", "|", "||", "&"):
+            self.assertNotIn(operator, before)
 
     def test_the_defaults_apply_when_the_profile_is_nearly_empty(self) -> None:
         profile = automation.save_profile({"executor": "codex"})

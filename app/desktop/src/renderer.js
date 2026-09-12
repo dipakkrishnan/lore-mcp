@@ -4,6 +4,7 @@ const welcome = $("#welcome");
 const appShell = $("#app");
 const welcomeNote = $("#welcome-note");
 const welcomeRetry = /** @type {HTMLButtonElement} */ ($("#welcome-retry"));
+const redirectForm = /** @type {HTMLFormElement} */ ($("#redirect-form"));
 const keyForm = /** @type {HTMLFormElement} */ ($("#key-form"));
 const eyebrow = $("#eyebrow");
 const title = $("#title");
@@ -12,6 +13,8 @@ const content = $("#content");
 const account = $("#account");
 const taskBack = /** @type {HTMLButtonElement} */ ($("#task-back"));
 const taskRestart = /** @type {HTMLButtonElement} */ ($("#task-restart"));
+const taskResume = /** @type {HTMLButtonElement} */ ($("#task-resume"));
+const addMemoryBtn = /** @type {HTMLButtonElement} */ ($("#add-memory"));
 const captureArea = $("#capture");
 const composer = /** @type {HTMLFormElement} */ ($("#composer"));
 const input = /** @type {HTMLTextAreaElement} */ ($("#capture-input"));
@@ -24,6 +27,7 @@ const log = $("#log");
 const requestSlot = $("#request");
 const search = /** @type {HTMLInputElement} */ ($("#search"));
 const mainEl = $("#main");
+const header = /** @type {HTMLElement} */ (mainEl.querySelector("header"));
 const navButtons = /** @type {HTMLButtonElement[]} */ ([...document.querySelectorAll("nav button")]);
 
 /** @typedef {"today" | "memories" | "store" | "settings"} View */
@@ -57,6 +61,9 @@ let pushOffer = false;
 let pushing = false;
 /** @type {string | false} */
 let pushedNote = false;
+/** Whether the For Sale price row is open as an editor. */
+let editingPrice = false;
+let savingPrice = false;
 let accountMenuOpen = false;
 /** The node's ledger, read each time For Sale opens: rows, the reason it could not be read, or null while it loads. @type {Sale[] | Error | null} */
 let sales = null;
@@ -66,6 +73,10 @@ let busy = null;
 let request = null;
 
 const RING = `<svg viewBox="0 0 26 26" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M13 4.5a8.5 8.5 0 1 1-6 2.5"></path><path d="M13 9a4 4 0 1 1-2.8 1.2"></path><circle cx="13" cy="13" r="1.2" fill="currentColor" stroke="none"></circle></svg>`;
+const RENAME_ICON = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7V4h16v3M9 20h6M12 4v16"></path></svg>`;
+const EDIT_ICON = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L8 18l-4 1 1-4z"></path></svg>`;
+const SALE_ICON = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 12l-8 8-9-9V3h8z"></path><circle cx="7.5" cy="7.5" r="1.5"></circle></svg>`;
+/** @type {Record<string, [name: string, icon: string]>} */
 const PROVIDERS = {
   anthropic: ["Claude", "assets/claude.svg"],
   "openai-codex": ["ChatGPT", "assets/openai.svg"],
@@ -74,13 +85,24 @@ const PROVIDERS = {
 const NETWORKS = { "eip155:8453": "Base", "eip155:84532": "Base Sepolia, test network" };
 const TEST_NETWORK = "eip155:84532";
 const EXPLORERS = { "eip155:8453": "https://basescan.org", "eip155:84532": "https://sepolia.basescan.org" };
-const CHANGE_PRICE = "I want to change the price on my store. Set the new price and redeploy so buyers pay the new amount.";
 const REAL_MONEY = "I'm ready to switch my store to real money.";
+const SETUP_INTENT = "Let's set up my Lore.";
+const STORE_INTENT = "Help me open my store.";
 const PLAY_MONEY = "Put my store back on the test network.";
-const money = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" });
+const REDEPLOY_PRICE = "I changed my publication price. Redeploy my store so buyers pay the new amount.";
+// Six decimals, not the default two: a price can run below a cent, and rounding
+// $0.000001 up to $0.01 would misstate what a buyer pays. Six is the CLI's floor.
+const money = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 6 });
 const shortDate = new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric" });
 const longDate = new Intl.DateTimeFormat("en-US", { weekday: "long", month: "long", day: "numeric" });
 const TASK_TITLES = { capture: "Capture a memory", setup: "Set up your Lore", publish: "Publish from your Lore", deploy: "Open your store" };
+/** Stands in for the composer while a card in another thread holds the turn; its button opens that thread. @type {AgentTask | null} */
+let waitingTask = null;
+const waiting = el("div", "card pad lead composer-wait");
+const waitingText = el("span");
+waiting.append(el("span", "dot"), waitingText, button("Open", "secondary", () => { if (waitingTask) void openTask(waitingTask); }));
+waiting.hidden = true;
+composer.insertAdjacentElement("afterend", waiting);
 const TASK_STATES = { needs_you: "Needs you", working: "Working", stopped: "Stopped", done: "Done" };
 
 /**
@@ -116,10 +138,11 @@ function mark(className = "mark") {
   return node;
 }
 
-/** @param {string} label @param {"primary" | "secondary" | "quiet"} kind @param {() => void} onClick */
-function button(label, kind, onClick) {
+/** @param {string} label @param {"primary" | "secondary" | "quiet"} kind @param {() => void} onClick @param {string} [icon] */
+function button(label, kind, onClick, icon) {
   const node = el("button", `btn ${kind} sm`, label);
   node.type = "button";
+  if (icon) node.insertAdjacentHTML("afterbegin", icon);
   node.addEventListener("click", onClick);
   return node;
 }
@@ -157,7 +180,7 @@ async function publishMemory(memory, from) {
   await openTask("publish");
   // A pending draft for this memory, or the publish agent mid-draft, is the thread itself: open it, never start a second turn.
   if (busy === "publish" || candidates.some((candidate) => candidate.provenance.includes(memory.id))) return;
-  await send(`Help me publish something from my Lore. Start from memory ${memory.id}: "${memory.title}".`, from);
+  await send(`Help me publish something from my Lore, starting from "${memory.title}".`, from, memory.id);
 }
 
 /** @param {number | string} id @param {string} title @param {string} detail */
@@ -194,9 +217,8 @@ async function openMemory(id) {
     return;
   }
   closeSheet();
-  const sheet = el("div", "sheet");
-  sheet.setAttribute("role", "dialog");
-  sheet.setAttribute("aria-modal", "true");
+  // A native modal: focus stays inside, Escape closes it, and focus returns to what opened it.
+  const sheet = el("dialog", "sheet");
   sheet.setAttribute("aria-label", memory.title);
   const panel = el("div", "card sheet-panel");
   const head = el("div", "sheet-head");
@@ -211,7 +233,7 @@ async function openMemory(id) {
   actions.style.display = "flex";
   actions.style.gap = "8px";
   function showActions() {
-    actions.replaceChildren(button("Rename", "quiet", startRename), button("Edit", "quiet", startEdit), button("Draft for sale", "quiet", () => void publishMemory(memory)));
+    actions.replaceChildren(button("Rename", "quiet", startRename, RENAME_ICON), button("Edit", "quiet", startEdit, EDIT_ICON), button("Draft for sale", "quiet", () => void publishMemory(memory), SALE_ICON));
   }
   /** @type {HTMLElement} */
   let body = renderMemoryBody(memory.content);
@@ -281,22 +303,28 @@ async function openMemory(id) {
   head.append(text, actions, close);
   panel.append(head, body);
   sheet.append(panel);
+  // The panel fills the dialog, so a click that lands on the dialog itself came from the backdrop.
   sheet.addEventListener("click", (event) => { if (event.target === sheet) closeSheet(); });
+  sheet.addEventListener("close", () => sheet.remove());
   document.body.append(sheet);
+  sheet.showModal();
   close.focus();
 }
 
 function closeSheet() {
-  document.querySelector(".sheet")?.remove();
+  /** @type {HTMLDialogElement | null} */ (document.querySelector("dialog.sheet"))?.close();
 }
 
 /** @param {string} heading @param {HTMLElement} body @param {HTMLElement} [aside] */
 function section(heading, body, aside) {
   const node = el("section", "section");
-  const head = el("div", "section-head");
-  head.append(el("h2", "", heading));
-  if (aside) head.append(aside);
-  node.append(head, body);
+  if (heading || aside) {
+    const head = el("div", "section-head");
+    if (heading) head.append(el("h2", "", heading));
+    if (aside) head.append(aside);
+    node.append(head);
+  }
+  node.append(body);
   return node;
 }
 
@@ -305,6 +333,11 @@ function card(rows) {
   const node = el("div", "card rows");
   node.append(...rows);
   return node;
+}
+
+/** Label and shorten a public payout address; leave ordinary answers intact. @param {string} text */
+function brief(text) {
+  return /^0x[0-9a-fA-F]{40}$/.test(text) ? `Payout: ${text.slice(0, 6)}…${text.slice(-4)}` : text;
 }
 
 /** @param {string} text @param {string} [className] */
@@ -317,10 +350,50 @@ function price(value) {
   return typeof value === "number" ? money.format(value) : "Not set";
 }
 
+/** What buyers are charged, one entry per thing on offer; nothing when no price is set. @param {Snapshot} s @returns {Array<[string, string]>} */
+function offers(s) {
+  /** @type {Array<[string, string]>} */
+  const list = [];
+  if (typeof s.pricing.publication_usd === "number") list.push([price(s.pricing.publication_usd), "a publication"]);
+  if (s.pricing.answer_enabled) list.push([price(s.pricing.answer_usd), "an answer"]);
+  return list;
+}
+
 /** @param {string} iso */
 function when(iso) {
   const date = new Date(iso);
   return Number.isNaN(date.getTime()) ? "" : shortDate.format(date);
+}
+
+const RUN_LABELS = { capture: "Capture", synthesis: "Synthesis", deploy: "Store deploy", push: "Store update" };
+const RUN_STATES = { running: "Running", succeeded: "Done", failed: "Failed", incomplete: "Unfinished" };
+
+/** Recent owner runs, newest first. Absent when the installed CLI predates them.
+ * @param {Snapshot} s */
+function recentRuns(s) {
+  if (!s.jobs) return null;
+  const all = s.jobs.items;
+  const items = all.slice(0, 5);
+  if (!items.length) return section("Recent runs", el("p", "hint", "Nothing has run yet."));
+  return section("Recent runs", card(items.map((item, index) => {
+    const detail = [pushDetail(all, index) ?? item.summary, when(item.started_at), typeof item.cost_usd === "number" ? money.format(item.cost_usd) : ""].filter(Boolean);
+    return row(
+      item.title?.trim() || RUN_LABELS[item.kind] || item.kind,
+      detail.join(" · "),
+      chip(RUN_STATES[item.status] ?? item.status, item.status === "running" ? "ok" : item.status === "succeeded" ? "" : "attention")
+    );
+  })));
+}
+
+/** What a finished push changed, from its own count against the push before it. The stored summary is a closed vocabulary, so this is read-time only.
+ * @param {JobItem[]} items @param {number} index */
+function pushDetail(items, index) {
+  const item = items[index];
+  if (item.kind !== "push" || item.status !== "succeeded" || typeof item.count !== "number") return null;
+  const previous = items.slice(index + 1).find((other) => other.kind === "push" && other.status === "succeeded" && typeof other.count === "number");
+  const delta = previous?.count == null ? 0 : item.count - previous.count;
+  const change = delta > 0 ? `, ${delta} more than before` : delta < 0 ? `, ${-delta} fewer than before` : "";
+  return `${item.count} publication${item.count === 1 ? "" : "s"} on your store${change}`;
 }
 
 /** @param {Snapshot["node"]["live"]["state"]} state */
@@ -394,12 +467,17 @@ function needsYou(s) {
   else if (!s.setup.blueprint_configured) add("Shape your Lore", "Review one proposal based on what your agents already know.", button("Start", "secondary", startSetup));
   else if (!s.setup.profile_configured) add("Set the rhythm", "Choose which model writes new memories, and how often.", button("Start", "secondary", startSetup));
   else {
+    // Before the store rung: something approved with no price cannot be sold,
+    // and this is the first moment the owner has a reason to name one.
+    if (s.publications.counts.active && s.pricing.publication_usd === null) add("Set a price", "What a buyer pays for one publication. You can change it later.", button("Set", "secondary", openPriceEditor));
     if (!s.node.url) add("Open your store", "A payout address, a price, and a node on the test network first. Free until you say otherwise.", button("Open", "secondary", () => void startDeploy()));
-    if (s.library.counts.private && !candidates.length) add("Publish something", "Lore drafts up to three things to sell; you approve each one.", button("Publish", "secondary", startPublish));
+    if (s.library.counts.private && !candidates.length && !taskItems.some((item) => item.kind === "publish")) add("Publish something", "Lore drafts up to three things to sell; you approve each one.", button("Publish", "secondary", startPublish));
   }
-  // Approved work a buyer cannot see yet is actionable whatever rung setup is on.
+  // Approved work a buyer cannot see yet, or a price they are not yet paying, is actionable whatever rung setup is on.
+  const stale = stalePrice(s);
+  if (stale !== null) add("Redeploy your store", `Buyers still pay ${price(stale)}; you set ${price(s.pricing.publication_usd)}.`, button("Redeploy", "secondary", () => void startDeploy(REDEPLOY_PRICE)));
   const waiting = unpushed(s);
-  if (waiting.length && !pushOffer && !pushing) add("Push to your store", `${waiting.length} approved, not on your store yet.`, button("Push", "secondary", pushNow));
+  if (waiting.length && !pushOffer && !pushing) add("Push to your store", `${pendingLabel(waiting)}.`, button("Push", "secondary", pushNow));
   return rows;
 }
 
@@ -416,7 +494,7 @@ function renderToday(s) {
   if (detailTask) {
     /** @type {HTMLElement[]} */
     const detailParts = [];
-    if (detailTask === "publish" && candidates.length) detailParts.push(section("Approve what to sell", approvals(), el("span", "hint", "Only what you approve ever leaves this Mac.")));
+    if (detailTask === "publish" && candidates.length) detailParts.push(section("Approve what to sell", approvals(), el("span", "hint", "Buyers only ever get what you approve here.")));
     if (detailTask === "publish" && (pushOffer || pushing)) detailParts.push(seamCard());
     if (detailTask === "publish" && pushedNote) detailParts.push(pushReceipt(s));
     if ((detailTask === "setup" || detailTask === "deploy") && detailRecord?.state === "done") detailParts.push(nextRung(s));
@@ -424,7 +502,7 @@ function renderToday(s) {
   }
   /** @type {HTMLElement[]} */
   const parts = [];
-  if (candidates.length) parts.push(section("Approve what to sell", approvals(), el("span", "hint", "Only what you approve ever leaves this Mac.")));
+  if (candidates.length) parts.push(section("Approve what to sell", approvals(), el("span", "hint", "Buyers only ever get what you approve here.")));
   if (pushOffer || pushing) parts.push(seamCard());
   if (pushedNote) parts.push(pushReceipt(s));
   const attention = needsYou(s);
@@ -440,18 +518,19 @@ function renderToday(s) {
       open.append(text, chip(TASK_STATES[item.state], item.state === "working" ? "ok" : ""));
       open.addEventListener("click", () => void openTask(item.kind, item));
       row.append(open);
-      if (item.state === "stopped") row.append(button("Start over", "quiet", () => void startOver(item.kind)));
+      if (item.state === "stopped") row.append(button("Resume", "secondary", () => void resumeTask(item.kind)), button("Start over", "quiet", () => void startOver(item.kind)));
       return row;
     }))));
   }
+  const runs = recentRuns(s);
+  if (runs) parts.push(runs);
   const strip = el("div", "strip");
   /** @type {Array<[string, string] | null>} */
   const facts = [
     [String(s.library.counts.private), `${s.library.counts.private === 1 ? "memory" : "memories"}, only on this Mac`],
     [String(s.publications.counts.active), "for sale"],
     ["Store", nodeLabel(s.node.live.state).toLowerCase()],
-    typeof s.pricing.publication_usd === "number" ? [price(s.pricing.publication_usd), "a publication"] : null,
-    s.pricing.answer_enabled ? [price(s.pricing.answer_usd), "an answer"] : null
+    ...offers(s)
   ];
   for (const fact of facts) {
     if (!fact) continue;
@@ -465,13 +544,93 @@ function renderToday(s) {
 }
 
 /** @param {Snapshot} s */
+function memoriesCountLabel(s) {
+  return hits ? `${hits.length} ${hits.length === 1 ? "match" : "matches"}` : `${s.library.items.filter((item) => item.status === "private").length} private`;
+}
+
+/** @param {Snapshot} s */
 function renderMemories(s) {
   const items = hits
     ? hits.map((hit) => memoryRow(hit.id, hit.title, [hit.project, when(hit.updated_at)].filter(Boolean).join(" · ")))
     : s.library.items.filter((item) => item.status === "private").map((item) => memoryRow(item.id, item.title, [item.project_label, when(item.updated_at)].filter(Boolean).join(" · ")));
-  const heading = hits ? `${hits.length} ${hits.length === 1 ? "match" : "matches"}` : `${items.length} private`;
   const body = items.length ? card(items) : el("div", "card pad empty", hits ? "Nothing matches that." : "Nothing kept yet.");
-  return [section(heading, body)];
+  return [section("", body)];
+}
+
+/** The publication price as it reads when nobody is editing it. @param {Snapshot} s */
+function priceRow(s) {
+  // Wrapped, not bare: `.prices` is a stretch-aligned column, so a bare button
+  // would spread its hover background across the whole bar.
+  const item = el("div", "price-row");
+  const open = el("button", "price-open");
+  open.type = "button";
+  open.title = "Change what a buyer pays per publication";
+  if (typeof s.pricing.publication_usd === "number") open.append(document.createTextNode(`${price(s.pricing.publication_usd)} `), el("span", "", "a publication"));
+  else open.append("Not set");
+  open.addEventListener("click", () => { editingPrice = true; render(); });
+  item.append(open);
+  return item;
+}
+
+/** A dollar field with its prefix. @param {string} value @returns {[HTMLElement, HTMLInputElement]} */
+function priceField(value) {
+  const field = el("div", "price-field");
+  const input = el("input");
+  input.type = "text";
+  input.inputMode = "decimal";
+  input.setAttribute("aria-label", "Price per publication in US dollars");
+  input.value = value;
+  input.placeholder = "0.01";
+  field.append(el("span", "price-prefix", "$"), input);
+  return [field, input];
+}
+
+/** The amount typed, or null when the CLI would refuse it: zero is a conversation, not a text field. @param {string} raw */
+function parsePrice(raw) {
+  const amount = Number(raw.trim().replace(/^\$/, ""));
+  return raw.trim() && Number.isFinite(amount) && amount > 0 ? amount : null;
+}
+
+/** What the node charges when that differs from what the owner saved; only a redeploy changes it. Read from the probe, so it survives a relaunch and says nothing about a node it cannot reach. @param {Snapshot} s */
+function stalePrice(s) {
+  const live = s.node.live.price_usd;
+  return typeof live === "number" && typeof s.pricing.publication_usd === "number" && live !== s.pricing.publication_usd ? live : null;
+}
+
+/** @param {Snapshot} s */
+function priceEditor(s) {
+  const form = /** @type {HTMLFormElement} */ (el("form", "price-edit"));
+  const [field, input] = priceField(typeof s.pricing.publication_usd === "number" ? String(s.pricing.publication_usd) : "");
+  const actions = el("div", "actions");
+  const cancel = el("button", "btn quiet sm", "Cancel");
+  cancel.type = "button";
+  cancel.addEventListener("click", () => { editingPrice = false; render(); });
+  const save = el("button", "btn primary sm", savingPrice ? "Saving…" : "Save");
+  save.type = "submit";
+  cancel.disabled = savingPrice;
+  save.disabled = savingPrice;
+  actions.append(cancel, save);
+  form.append(field, el("span", "", "a publication"), actions);
+  form.addEventListener("submit", (submitEvent) => {
+    submitEvent.preventDefault();
+    void savePrice(input.value);
+  });
+  queueMicrotask(() => input.focus());
+  return form;
+}
+
+/** @param {string} raw */
+async function savePrice(raw) {
+  const amount = parsePrice(raw);
+  if (amount === null) {
+    tell("A price has to be a number above zero. Free is a real choice, but you make it when you open your store.", true);
+    return;
+  }
+  savingPrice = true;
+  render();
+  if (await act(() => window.lore.setPrice(amount))) editingPrice = false;
+  savingPrice = false;
+  render();
 }
 
 /** @param {Snapshot} s */
@@ -489,10 +648,17 @@ function renderStore(s) {
   }
   lead.append(text);
   const prices = el("div", "prices");
-  for (const [value, label] of [[price(s.pricing.publication_usd), "a publication"], [s.pricing.answer_enabled ? price(s.pricing.answer_usd) : "Off", "an answer"]]) {
-    const item = el("div");
-    item.append(document.createTextNode(`${value} `), el("span", "", label));
-    prices.append(item);
+  prices.append(editingPrice ? priceEditor(s) : priceRow(s));
+  if (s.pricing.answer_enabled) {
+    const answers = el("div");
+    answers.append(document.createTextNode(`${price(s.pricing.answer_usd)} `), el("span", "", "an answer"));
+    prices.append(answers);
+  }
+  const stale = stalePrice(s);
+  if (stale !== null) {
+    const note = el("div", "stale-price");
+    note.append(el("span", "", `Buyers still pay ${price(stale)} until you redeploy.`), button("Redeploy", "quiet", () => void startDeploy(REDEPLOY_PRICE)));
+    prices.append(note);
   }
   bar.append(lead, prices);
   if (unpushed(s).length && !pushOffer) {
@@ -508,39 +674,51 @@ function renderStore(s) {
     const count = Array.isArray(sales) ? sales.filter((sale) => sale.item_id === item.public_id).length : 0;
     return count ? `${item.topic} · ${count} sold` : item.topic;
   };
+  // One chip per row only when rows differ; a list all in one state says it once in the heading.
+  const mixed = approved.some((item) => item.live !== approved[0].live);
   /** @param {PublicationItem} item */
-  const state = (item) => item.live === true ? chip("Live", "ok") : item.live === false ? chip("Not live yet") : chip("Approved");
+  const state = (item) => mixed ? [item.live === true ? chip("Live", "ok") : item.live === false ? chip("Not live yet") : chip("Approved")] : [];
   /** @param {PublicationItem} item */
   const controls = (item) => {
     const trailing = el("div", "v");
     const ask = button("Take down", "secondary", () => {
       trailing.replaceChildren(
-        el("span", "hint", "Buyers lose it for good."),
-        button("Keep", "secondary", () => trailing.replaceChildren(state(item), ask)),
-        button("Take down", "primary", async () => {
-          if (!(await act(() => window.lore.revoke(item.id)))) return;
-          pushOffer = live.state === "online" ? "It stays on sale until you push." : false;
-          render();
-        })
+        el("span", "hint", "No one can buy it after this. Anyone who already did keeps their copy."),
+        button("Keep", "secondary", () => trailing.replaceChildren(...state(item), ask)),
+        // The CLI's reason for a push that did not land names commands and paths; the list below shows whether the store still has it.
+        button("Take down", "primary", () => void act(() => window.lore.revoke(item.id), "Taken down here. If your store still has it, push to finish."))
       );
     });
-    trailing.append(state(item), ask);
+    trailing.append(...state(item), ask);
     return trailing;
   };
+  const aside = el("div", "section-aside");
+  const adds = waiting.filter((item) => item.state === "approved").length;
+  const onStore = adds === 0 ? "all on your store" : adds < approved.length ? `${adds} not on your store yet` : approved.length === 1 ? "not on your store yet" : "none on your store yet";
+  if (approved.length) aside.append(el("span", "hint", `${approved.length} ${approved.length === 1 ? "publication" : "publications"}${live.state === "online" ? ` · ${onStore}` : ""}`));
+  if (waiting.length) {
+    const push = button(pushing ? "Pushing…" : "Push to your store", "quiet", pushNow);
+    push.disabled = pushing;
+    aside.append(push);
+  }
   /** @type {HTMLElement[]} */
   const parts = [bar];
   if (pushOffer) parts.push(seamCard());
   parts.push(section("For sale", approved.length
     ? card(approved.map((item) => row(item.title, sold(item), controls(item))))
     : el("div", "card pad empty", "Nothing for sale yet. Publish something from Today."),
-    el("span", "hint", approved.length ? `${approved.length} ${approved.length === 1 ? "publication" : "publications"}${live.state !== "online" ? "" : waiting.length ? ` · ${waiting.length} not on your store yet` : " · confirmed on your node"}` : "")));
-  if (revoked.length) parts.push(section("Taken down", card(revoked.map((item) => row(item.title, item.topic, chip("Revoked"))))));
+    aside));
+  if (revoked.length) parts.push(section("Taken down", card(revoked.map((item) => row(item.title, item.topic, item.live === true ? chip("Still on your store", "attention") : chip("Taken down"))))));
   parts.push(renderSales());
   return parts;
 }
 
 function renderSales() {
-  if (sales instanceof Error) return section("Sales", el("div", "card pad empty", sales.message));
+  if (sales instanceof Error) {
+    const box = el("div", "card pad empty retry");
+    box.append(el("span", "", sales.message), button("Try again", "secondary", () => void loadSales()));
+    return section("Sales", box);
+  }
   if (sales === null) return section("Sales", el("div", "card pad empty", "Checking your store…"));
   if (!sales.length) return section("Sales", el("div", "card pad empty", "No sales yet. When a buyer's agent pays for a publication, it shows here."));
   const total = sales.reduce((sum, sale) => sum + sale.price_usd, 0);
@@ -566,30 +744,65 @@ async function loadSales() {
   render();
 }
 
+/** A credential's plain name and icon; the signed-in one when none is given. @param {{providerId: string} | null} [credential] @returns {[string, string]} */
+function provider(credential = auth?.credentials[0] ?? null) {
+  return credential ? PROVIDERS[credential.providerId] ?? [credential.providerId, ""] : ["Your AI provider", ""];
+}
+
+const EXECUTORS = { claude: "Claude", codex: "Codex" };
+
+/** The rhythm as the owner would say it: "Every day at 9 PM". @param {NonNullable<Snapshot["setup"]["schedule"]>} schedule */
+function rhythm(schedule) {
+  const hour = schedule.hour ?? 21;
+  return `Every ${schedule.cadence === "weekly" ? "Monday" : "day"} at ${hour % 12 || 12} ${hour < 12 ? "AM" : "PM"}`;
+}
+
+/** What the last synthesis run did, from the same history Today shows. @param {Snapshot} s */
+function lastSynthesis(s) {
+  const run = s.jobs?.items.find((item) => item.kind === "synthesis");
+  if (!run) return "Hasn't run yet.";
+  const date = when(run.started_at);
+  return run.status === "running" ? "Running now." : run.status === "succeeded" ? `Last ran ${date}.` : run.status === "failed" ? `Last run failed, ${date}.` : `Last run, ${date}, never finished.`;
+}
+
+/** A Settings row's trailing cell. @param {(string | HTMLElement)[]} parts */
+function cell(...parts) {
+  const node = el("div", "v");
+  node.append(...parts);
+  return node;
+}
+
+/** A state dot with its label. @param {boolean} ok @param {string} label */
+function dot(ok, label) {
+  const node = el("span", "state");
+  node.append(el("span", `dot ${ok ? "ok" : ""}`), document.createTextNode(label));
+  return node;
+}
+
+/** Settings → How often Lore reads them: the scheduler's answer, not the profile's. A saved rhythm that nothing runs says so and offers the fix. @param {Snapshot} s */
+function scheduleRow(s) {
+  const label = "How often Lore reads them";
+  const schedule = s.setup.schedule;
+  if (!s.setup.profile_configured || schedule === undefined) {
+    return row(label, "New memories are written from what your agents learned.", cell(dot(s.setup.profile_configured, s.setup.profile_configured ? "Set" : "Not set"), ...(s.setup.profile_configured ? [] : [button("Start", "secondary", startSetup)])), false);
+  }
+  if (!schedule?.executor) return row(label, "Your rhythm is saved, but no model was chosen to run it.", cell(dot(false, "Not scheduled"), button("Start", "secondary", startSetup)), false);
+  const who = `${rhythm(schedule)} with ${EXECUTORS[schedule.executor]}`;
+  if (schedule.installed) return row(label, `${who}. ${lastSynthesis(s)}`, cell(dot(true, "Scheduled")), false);
+  return row(label, `Set for ${who.charAt(0).toLowerCase()}${who.slice(1)}, but nothing on this Mac is running it.`, cell(dot(false, "Not scheduled"), button("Schedule", "secondary", () => void act(window.lore.schedule))), false);
+}
+
 /** @param {Snapshot} s */
 function renderSettings(s) {
-  const value = (/** @type {(string | HTMLElement)[]} */ ...parts) => {
-    const node = el("div", "v");
-    node.append(...parts);
-    return node;
-  };
-  const status = (/** @type {boolean} */ ok, /** @type {string} */ label) => {
-    const node = el("span");
-    node.style.display = "inline-flex";
-    node.style.alignItems = "center";
-    node.style.gap = "8px";
-    node.append(el("span", `dot ${ok ? "ok" : ""}`), document.createTextNode(label));
-    return node;
-  };
   const sources = s.library.sources.map((source) =>
-    row(source.label, source.enabled ? `${source.imported} ${source.imported === 1 ? "memory" : "memories"} imported` : "Not connected", value(status(source.enabled, source.enabled ? "Connected" : "Off")), false)
+    row(source.label, source.enabled ? `${source.imported} ${source.imported === 1 ? "memory" : "memories"} imported` : "Not connected", cell(dot(source.enabled, source.enabled ? "Connected" : "Off")), false)
   );
-  sources.push(row("How often Lore reads them", "New memories are written from what your agents learned.", value(status(s.setup.profile_configured, s.setup.profile_configured ? "Set" : "Not set"), ...(s.setup.profile_configured ? [] : [button("Start", "secondary", startSetup)])), false));
+  sources.push(scheduleRow(s));
   const live = s.node.live;
   return [
     section("Account", card((auth?.credentials.length ? auth.credentials : [null]).map((credential) => {
-      const [name, icon] = credential ? PROVIDERS[/** @type {keyof typeof PROVIDERS} */ (credential.providerId)] ?? [credential.providerId, ""] : ["No one", ""];
-      const trailing = value(name);
+      const [name, icon] = credential ? provider(credential) : ["No one", ""];
+      const trailing = cell(name);
       if (icon) {
         const img = el("img");
         img.src = icon;
@@ -603,19 +816,21 @@ function renderSettings(s) {
     }))),
     section("Where memories come from", card(sources)),
     section("What Lore keeps", card([
-      row("Lore's shape", "What it keeps, what it ignores, what it may sell. Set in a short conversation.", value(status(s.setup.blueprint_configured, s.setup.blueprint_configured ? "Set" : "Not set"), ...(s.setup.blueprint_configured ? [] : [button("Start", "secondary", startSetup)])), false),
-      row("Where it lives", "Everything stays on this Mac. Only what you approve for sale ever leaves.", value(Object.assign(el("span", "mono", s.home), { style: "color: var(--muted)" })), false)
+      row("Lore's shape", "What it keeps, what it ignores, what it may sell. Set in a short conversation.", cell(dot(s.setup.blueprint_configured, s.setup.blueprint_configured ? "Set" : "Not set"), ...(s.setup.blueprint_configured ? [] : [button("Start", "secondary", startSetup)])), false),
+      row("Where it lives", `Your memories are kept on this Mac. ${provider()[0]} reads them when it works with you here. Buyers only ever get what you approve for sale.`, cell(Object.assign(el("span", "mono", s.home), { style: "color: var(--muted)" })), false)
     ])),
     section("Your store", card([
-      row("Address", s.node.url ? storeAddress(s.node) : "Not opened yet.", value(status(live.state === "online", live.state === "online" ? `Live on ${networkLabel(live.network) || "your node"}` : nodeLabel(live.state))), false),
+      row("Address", s.node.url ? storeAddress(s.node) : "Not opened yet.", cell(dot(live.state === "online", live.state === "online" ? `Live on ${networkLabel(live.network) || "your node"}` : nodeLabel(live.state))), false),
       ...(live.payout
-        ? [row("Payouts", "Where each payment lands. Lore never holds it.", value(el("span", "mono", `${live.payout.slice(0, 6)}…${live.payout.slice(-4)}`), /** @type {HTMLElement} */ (payoutLink(live))), false)]
+        ? [row("Payouts", "Where each payment lands. Lore never holds it.", cell(el("span", "mono", `${live.payout.slice(0, 6)}…${live.payout.slice(-4)}`), /** @type {HTMLElement} */ (payoutLink(live))), false)]
         : []),
-      row("Prices", "What a buyer's agent pays per call.", value(el("span", "mono", `${price(s.pricing.publication_usd)} publication${s.pricing.answer_enabled ? ` · ${price(s.pricing.answer_usd)} answer` : ""}`), ...(s.node.url ? [button("Change price", "quiet", () => void startDeploy(CHANGE_PRICE))] : [])), false),
+      // One editor, on For Sale. Every other surface reads the same number and
+      // sends the owner there rather than growing a second field.
+      row("Prices", "What a buyer's agent pays per call.", cell(el("span", "mono", typeof s.pricing.publication_usd === "number" ? `${price(s.pricing.publication_usd)} publication${s.pricing.answer_enabled ? ` · ${price(s.pricing.answer_usd)} answer` : ""}` : "Not set"), button(typeof s.pricing.publication_usd === "number" ? "Change price" : "Set a price", "quiet", openPriceEditor)), false),
       ...(live.network === TEST_NETWORK
-        ? [row("Payments", "Buyers on the test network pay with play money. Switch when you want real buyers paying real money.", value(button("Switch to real payments", "secondary", () => void startDeploy(REAL_MONEY))), false)]
+        ? [row("Payments", "Buyers on the test network pay with play money. Switch when you want real buyers paying real money.", cell(button("Switch to real payments", "secondary", () => void startDeploy(REAL_MONEY))), false)]
         : live.network
-          ? [row("Payments", "Buyers pay real money. Switch back to the test network any time; nothing already paid changes.", value(button("Switch to play money", "secondary", () => void startDeploy(PLAY_MONEY))), false)]
+          ? [row("Payments", "Buyers pay real money. Switch back to the test network any time; nothing already paid changes.", cell(button("Switch to play money", "secondary", () => void startDeploy(PLAY_MONEY))), false)]
           : [])
     ]))
   ];
@@ -629,10 +844,13 @@ function render() {
   const pendingDrafts = detail === "publish" && candidates.length;
   eyebrow.textContent = detail
     ? pendingDrafts ? `Needs you · ${draftsPhase()}` : `${TASK_STATES[detailRecord?.state ?? "working"]} · ${detailRecord?.phase ?? "Starting"}`
-    : view === "today" ? longDate.format(new Date()) : "";
+    : view === "today" ? longDate.format(new Date())
+    : view === "memories" && snapshot ? memoriesCountLabel(snapshot) : "";
   title.textContent = heading;
   taskBack.hidden = !detail;
   taskRestart.hidden = !detail || detailRecord?.state !== "stopped";
+  taskResume.hidden = taskRestart.hidden;
+  addMemoryBtn.hidden = Boolean(detail) || view !== "memories";
   captureArea.hidden = view !== "today";
   log.hidden = !detail;
   syncComposer();
@@ -649,9 +867,9 @@ function render() {
 
 function renderAccount() {
   account.replaceChildren();
-  const provider = auth?.credentials[0];
-  if (!provider) return;
-  const [name, icon] = PROVIDERS[/** @type {keyof typeof PROVIDERS} */ (provider.providerId)] ?? [provider.providerId, ""];
+  const credential = auth?.credentials[0];
+  if (!credential) return;
+  const [name, icon] = provider(credential);
   const trigger = el("button", "account-trigger");
   trigger.type = "button";
   trigger.setAttribute("aria-haspopup", "menu");
@@ -685,7 +903,7 @@ function renderAccount() {
       node.addEventListener("click", () => { accountMenuOpen = false; onPick(); });
       return node;
     };
-    menu.append(item("Open Settings", () => show("settings")), item(`Sign out of ${name}`, () => void signOut(provider.providerId)));
+    menu.append(item("Open Settings", () => show("settings")), item(`Sign out of ${name}`, () => void signOut(credential.providerId)));
     account.append(menu);
     /** @type {HTMLElement | null} */ (menu.querySelector("button"))?.focus({ preventScroll: true });
   }
@@ -696,8 +914,19 @@ function show(next) {
   view = next;
   if (next !== "memories") { hits = null; search.value = ""; }
   if (next === "store") void loadSales();
+  // Leaving For Sale abandons a half-typed price rather than keeping the field
+  // open behind the owner's back.
+  if (next !== "store") editingPrice = false;
   render();
   mainEl.focus({ preventScroll: true });
+}
+
+/** Every "change the price" affordance lands on the one editor, on For Sale. */
+function openPriceEditor() {
+  editingPrice = true;
+  detailTask = null;
+  detailRecord = null;
+  show("store");
 }
 
 async function load() {
@@ -771,8 +1000,11 @@ function syncComposer() {
   const shown = shownRequest();
   const card = shown?.current ? shown : null;
   const locked = busy !== null && !card;
+  waitingTask = !shown && request?.task && request.task !== detailTask ? request.task : null;
+  waiting.hidden = !waitingTask;
+  if (waitingTask) waitingText.textContent = `Lore is waiting on you in ${TASK_TITLES[waitingTask]}.`;
   requestSlot.hidden = !shown;
-  composer.hidden = (shown !== null && !card) || ((detailTask === "setup" || detailTask === "deploy") && detailRecord?.state === "done");
+  composer.hidden = Boolean(waitingTask) || (shown !== null && !card) || ((detailTask === "setup" || detailTask === "deploy") && detailRecord?.state === "done");
   input.disabled = locked;
   submit.disabled = locked;
   composer.classList.toggle("working", locked);
@@ -819,14 +1051,23 @@ function renderRequest(event) {
         pick.type = question.multiSelect ? "checkbox" : "radio";
         pick.name = `question-${index}`;
         pick.value = option.label;
+        const recommended = !question.multiSelect && option.recommended === true;
+        pick.checked = recommended;
         label.append(pick, el("span", "", option.label));
+        if (recommended) label.append(chip("Recommended"));
         if (option.description) label.append(el("small", "", option.description));
         choices.append(label);
       }
       fieldset.append(choices);
       const other = el("input", "other-answer");
       other.type = "text";
-      other.placeholder = "Or type your answer";
+      other.placeholder = question.options.length ? "Or type your answer" : "Type your answer";
+      if (question.format === "evm_address") {
+        other.required = true;
+        other.pattern = "0x[0-9a-fA-F]{40}";
+        other.placeholder = "0x…";
+        other.title = "Paste a public address: 0x plus 40 hexadecimal characters.";
+      }
       fieldset.append(other);
       box.append(fieldset);
     }
@@ -844,7 +1085,7 @@ function renderRequest(event) {
         const other = /** @type {HTMLInputElement} */ (fieldset.querySelector(".other-answer"));
         if (fieldset.dataset.question) answers[fieldset.dataset.question] = other.value.trim() || picked.join(", ");
       }
-      respond(event.id, answers, Object.values(answers).filter(Boolean).join(" · "));
+      respond(event.id, answers, Object.values(answers).filter(Boolean).map(brief).join(" · "));
     });
   } else if (event.type === "memories") {
     const list = el("div", "card pad stack");
@@ -857,7 +1098,7 @@ function renderRequest(event) {
       const node = el("div", "memory");
       const title = draftField(node, "Title", entry.title, true);
       const content = draftField(node, "What to remember", entry.content);
-      title.maxLength = 300;
+      title.maxLength = 200;
       content.maxLength = 20_000;
       const meta = el("div", "meta");
       if (entry.project) meta.append(chip(entry.project));
@@ -966,10 +1207,12 @@ function renderRequest(event) {
       respond(event.id, true, "Open Cloudflare");
     });
   } else if (event.type === "open") {
-    // Two stages on one card: open the page, then say how it went. Only the heading and the buttons change.
+    // Two stages on one card: open the page, then say how it went.
     const host = new URL(event.url).hostname;
     const heading = el("p", "q", event.title);
-    box.append(heading, el("p", "hint", event.note));
+    const note = markdown(event.note);
+    note.classList.add("hint");
+    box.append(heading, note);
     const actions = el("div", "actions");
     const decline = el("button", "btn secondary sm", "Not now");
     decline.type = "button";
@@ -978,15 +1221,35 @@ function renderRequest(event) {
     actions.append(decline, go);
     box.append(actions);
     let opened = false;
-    decline.addEventListener("click", () => respond(event.id, opened ? "stuck" : false, opened ? "I got stuck" : "Not now"));
+    decline.addEventListener("click", () => respond(event.id, opened ? "stuck" : false, opened ? "I need help" : "Not now"));
     box.addEventListener("submit", (submitEvent) => {
       submitEvent.preventDefault();
       if (opened) { void respond(event.id, "done", "Done"); return; }
       opened = true;
       window.open(event.url);
-      heading.textContent = "Finish in your browser, then come back here.";
-      decline.textContent = "I got stuck";
+      decline.textContent = "I need help";
       go.textContent = "Done";
+    });
+  } else if (event.type === "price") {
+    box.append(el("p", "q", "What should a buyer pay per publication?"), el("p", "hint", event.reason));
+    const [field, amount] = priceField(String(event.amount));
+    const actions = el("div", "actions");
+    const later = el("button", "btn secondary sm", "Not now");
+    later.type = "button";
+    later.addEventListener("click", () => respond(event.id, null, "Not now"));
+    const set = el("button", "btn primary sm", "Set price");
+    set.type = "submit";
+    actions.append(later, set);
+    box.append(field, actions);
+    box.addEventListener("submit", (submitEvent) => {
+      submitEvent.preventDefault();
+      // The agent only ever learns the number on this card, never its own.
+      const value = parsePrice(amount.value);
+      if (value === null) {
+        tell("A price has to be a number above zero.", true);
+        return;
+      }
+      respond(event.id, value, price(value));
     });
   } else {
     box.append(el("p", "q", event.prompt.message));
@@ -1018,13 +1281,15 @@ function renderRequest(event) {
     });
   }
   request = { id: event.id, task: event.task, box, current };
+  liveText = "";
+  renderLog();
   requestSlot.replaceChildren(box);
   agentPanel.hidden = false;
   syncComposer();
   if (view !== "today") show("today");
   for (const area of box.querySelectorAll("textarea")) fit(/** @type {HTMLTextAreaElement} */ (area));
   if (event.type === "question" || event.type === "memories" || event.type === "blueprint") {
-    mainEl.scrollTop = Math.max(0, box.getBoundingClientRect().top - mainEl.getBoundingClientRect().top + mainEl.scrollTop - 16);
+    mainEl.scrollTop = Math.max(0, box.getBoundingClientRect().top - mainEl.getBoundingClientRect().top + mainEl.scrollTop - header.offsetHeight - 16);
   } else {
     mainEl.scrollTop = mainEl.scrollHeight;
     /** @type {HTMLElement | null} */ (box.querySelector("input[type=text], input[type=password], select"))?.focus({ preventScroll: true });
@@ -1041,11 +1306,11 @@ async function respond(id, value, echo) {
 
 async function startSetup() {
   await openTask("setup");
-  await send("Let's set up my Lore.");
+  await send(SETUP_INTENT);
 }
 
 /** @param {string} [intent] */
-async function startDeploy(intent = "Help me open my store.") {
+async function startDeploy(intent = STORE_INTENT) {
   await openTask("deploy");
   await send(intent);
 }
@@ -1059,7 +1324,7 @@ function nextRung(s) {
   const heading = deploy ? (storeOpen ? "Your store is open." : "Your store isn't open yet.") : "Your Lore is set up.";
   const detail = deploy
     ? storeOpen
-      ? "This thread is closed. Publications reach buyers after a push; everything else stays on this Mac."
+      ? "This thread is closed. Publications reach buyers after a push; everything else stays private."
       : "This thread is closed. Try again now, or any time from Today."
     : "This thread is closed. What comes next is a separate step — take it now, or any time from Today.";
   box.append(
@@ -1108,7 +1373,16 @@ async function startOver(kind) {
   clearRequest();
   show("today");
   renderLog();
-  input.focus({ preventScroll: true });
+  // Setup and the store are Lore's flows to begin; a capture or publish thread waits for the owner's first word.
+  const opening = kind === "setup" ? SETUP_INTENT : kind === "deploy" ? STORE_INTENT : null;
+  if (opening) await send(opening);
+  else input.focus({ preventScroll: true });
+}
+
+/** @param {AgentTask} kind */
+async function resumeTask(kind) {
+  await openTask(kind);
+  await send("Let's pick up where we left off.");
 }
 
 function closeTask() {
@@ -1170,10 +1444,15 @@ function approvalForm(candidate) {
   meta.append(chip(candidate.topic));
   if (candidate.kind === "content") meta.append(chip("Verbatim"));
   const group = el("div", "group");
-  group.append(
-    button("Skip", "secondary", () => decide(candidate, false)),
-    button("Approve", "primary", () => decide(candidate, true, { ...candidate, title: title.value, teaser: teaser.value, content: paid.value }))
-  );
+  /** @param {boolean} approved */
+  const choose = async (approved) => {
+    skip.disabled = approve.disabled = true;
+    await decide(candidate, approved, approved ? { ...candidate, title: title.value, teaser: teaser.value, content: paid.value } : candidate);
+    if (memory.isConnected) skip.disabled = approve.disabled = false;
+  };
+  const skip = button("Skip", "secondary", () => void choose(false));
+  const approve = button("Approve", "primary", () => void choose(true));
+  group.append(skip, approve);
   meta.append(group);
   memory.append(meta);
   return memory;
@@ -1198,7 +1477,7 @@ async function pushNow() {
   const offer = pushOffer;
   if (await act(window.lore.push)) {
     const live = snapshot ? `${snapshot.publications.counts.active} ${snapshot.publications.counts.active === 1 ? "publication" : "publications"}` : "publications";
-    pushedNote = `Pushed · ${live} sent to your node`;
+    pushedNote = `Pushed · ${live} now on your store`;
   } else {
     pushOffer = offer;
   }
@@ -1206,24 +1485,24 @@ async function pushNow() {
   render();
 }
 
-/** Approved publications a buyer cannot see yet. @param {Snapshot} s */
+/** What the next push changes: approved publications the node does not hold yet, and taken-down ones it still does. Read from the snapshot, so it survives a relaunch. @param {Snapshot} s */
 function unpushed(s) {
-  return s.node.url ? s.publications.items.filter((item) => item.state === "approved" && item.live === false) : [];
+  return s.node.url ? s.publications.items.filter((item) => item.live === (item.state === "revoked")) : [];
+}
+
+/** @param {PublicationItem[]} waiting */
+function pendingLabel(waiting) {
+  const adds = waiting.filter((item) => item.state === "approved").length;
+  const removals = waiting.length - adds;
+  return [adds ? `${adds} approved, not on your store yet` : "", removals ? `${removals} taken down, still on your store` : ""].filter(Boolean).join(" · ");
 }
 
 /** @param {Snapshot} s */
 function pushReceipt(s) {
   const box = el("div", "card pad lead");
   box.append(el("span", "dot ok"));
-  const text = el("span", "", `${pushedNote} `);
-  if (s.node.url) {
-    const link = el("a", "", "Open your store ↗");
-    link.href = s.node.url.replace(/\/mcp$/, "");
-    link.target = "_blank";
-    link.rel = "noreferrer";
-    text.append(link);
-  }
-  box.append(text);
+  box.append(el("span", "", pushedNote || ""));
+  if (s.node.url) box.append(outLink("See your store ↗", s.node.url.replace(/\/mcp$/, "")));
   return box;
 }
 
@@ -1237,8 +1516,8 @@ async function decide(original, approve, candidate = original) {
   render();
 }
 
-/** @param {() => Promise<void>} action */
-async function act(action) {
+/** @param {() => Promise<void>} action @param {string} [failed] Said instead of the CLI's reason when that reason would be plumbing. */
+async function act(action, failed) {
   pushOffer = false;
   pushedNote = false;
   let done = true;
@@ -1246,20 +1525,20 @@ async function act(action) {
     await action();
   } catch (error) {
     done = false;
-    tell(reason(error, "Lore could not do that."), true);
+    tell(failed ?? reason(error, "Lore could not do that."), true);
   }
   await load();
   return done;
 }
 
-/** @param {string} text @param {AgentTask} [from] */
-async function send(text, from) {
+/** @param {string} text @param {AgentTask} [from] @param {number} [memory] A memory the agent starts from, named to it and never shown. */
+async function send(text, from, memory) {
   const files = attachments.length ? `\n\nFiles to read:\n${attachments.map((path) => `- ${path}`).join("\n")}` : "";
   attachments = [];
   renderAttachments();
   say(text, true);
   try {
-    await window.lore.prompt({ text: text + files, task, from });
+    await window.lore.prompt({ text: text + files, task, from, memory });
     await load();
   } catch (error) {
     say(reason(error, "Something went wrong."));
@@ -1287,7 +1566,19 @@ async function signIn(providerId, type, secret) {
     enter();
   } catch (error) {
     welcomeNote.textContent = reason(error, "Sign-in didn't complete.");
+  } finally {
+    offerRedirect(null);
   }
+}
+
+/** The sign-in prompt waiting for a pasted redirect URL, while the browser callback may still win. @type {string | null} */
+let redirectPrompt = null;
+
+/** @param {string | null} id */
+function offerRedirect(id) {
+  redirectPrompt = id;
+  redirectForm.hidden = id === null;
+  if (id !== null) /** @type {HTMLInputElement} */ ($("#redirect-url")).focus();
 }
 
 /** @param {string} providerId */
@@ -1336,7 +1627,11 @@ function onEvent(event) {
       if (!auth) { auth = { credentials: [] }; enter(); }
     }
   } else if (event.type === "dismiss") {
+    if (redirectPrompt === event.id) offerRedirect(null);
     if (request?.id === event.id) { clearRequest(); renderLog(); }
+  } else if (event.type === "auth-prompt" && !welcome.hidden) {
+    // Sign-in has no thread to hold a card, so the field lives under the note that promises it.
+    offerRedirect(event.id);
   } else if (event.type === "auth") {
     const detail = event.event;
     welcomeNote.textContent = event.message || (detail?.type === "device_code" ? `Open ${detail.verificationUri} and enter ${detail.userCode}.` : detail && "message" in detail ? detail.message : "Continue signing in.");
@@ -1498,6 +1793,12 @@ document.addEventListener("drop", (event) => {
 
 taskBack.addEventListener("click", closeTask);
 taskRestart.addEventListener("click", () => { if (detailTask) void startOver(detailTask); });
+taskResume.addEventListener("click", () => { if (detailTask) void resumeTask(detailTask); });
+addMemoryBtn.addEventListener("click", () => {
+  if (detailTask) closeTask();
+  show("today");
+  input.focus();
+});
 for (const nav of navButtons) nav.addEventListener("click", () => {
   const next = /** @type {View} */ (nav.dataset.view);
   if (next === "today" && detailTask) closeTask();
@@ -1525,7 +1826,6 @@ welcomeRetry.addEventListener("click", () => {
 });
 document.addEventListener("keydown", (event) => {
   if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") { event.preventDefault(); search.focus(); search.select(); }
-  if (event.key === "Escape" && document.querySelector(".sheet")) { event.preventDefault(); closeSheet(); }
   if (event.key === "Escape" && accountMenuOpen) { accountMenuOpen = false; renderAccount(); }
 });
 document.addEventListener("click", (event) => {
@@ -1539,6 +1839,17 @@ for (const node of document.querySelectorAll("[data-login]")) {
   });
 }
 $("#welcome-key").addEventListener("click", () => { keyForm.hidden = false; /** @type {HTMLInputElement} */ ($("#key-secret")).focus(); });
+redirectForm.addEventListener("submit", (event) => {
+  event.preventDefault();
+  const field = /** @type {HTMLInputElement} */ ($("#redirect-url"));
+  const value = field.value.trim();
+  const id = redirectPrompt;
+  if (!id || !value) return;
+  field.value = "";
+  offerRedirect(null);
+  welcomeNote.textContent = "Finishing sign-in…";
+  void window.lore.respond({ id, value });
+});
 keyForm.addEventListener("submit", (event) => {
   event.preventDefault();
   const secret = /** @type {HTMLInputElement} */ ($("#key-secret"));
