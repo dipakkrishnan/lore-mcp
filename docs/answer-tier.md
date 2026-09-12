@@ -1,9 +1,11 @@
 # Answer tier
 
-Status: implemented (2026-08-18); deployed buyer-value validation remains in
-`EVAL-002`. Backlog anchor: `MCP-003`. Companion items: `MON-015` (D1
-checkpoint recovery), `MON-017` (provider readiness before payment), and
-`APP-035` (optional seller-side Desktop controls).
+Status: implemented (2026-08-18), including the Desktop enable/disable
+controls (2026-09-11); deployed buyer-value validation remains in `EVAL-002`.
+Backlog anchor: `MCP-003`. Companion items: `MON-015` (D1 checkpoint
+recovery), `MON-017` (provider readiness before payment, closed), `APP-035`
+(the Desktop controls, closed), and `MON-024` (an owner trial route, pulled
+back for redesign — see section 10).
 
 The catalog surface (`discover` free, `get` paid) sells the owner's raw
 publications. The answer tier sells access to the owner's **AI proxy**: a buyer
@@ -57,8 +59,8 @@ Two consequences:
    `lore-onboard` is private by design (`BP-001`). The answer agent needs an
    owner-approved public charter — identity, voice, judgment, disclaimers, and
    representation boundaries — distinct from the blueprint, explicitly
-   approved in an attended terminal today, and shipped to the edge by
-   `lore push`. `APP-035` owns a future seller-side Desktop gate.
+   approved on a card in Desktop or in an attended terminal, and shipped to
+   the edge by `lore push` (`APP-035`, section 10).
 2. If private-memory-informed answers are ever wanted, that is a new
    per-topic disclosure decision the owner opts into explicitly — never a
    side effect of an infra choice.
@@ -178,7 +180,10 @@ the guarded terminal update removes the checkpoint without another payment.
 `./lore-test.sh "<question>"` runs that same Pi path against the owner's approved
 local publications in temporary workerd/D1 state. It bypasses payment so the
 owner can judge proxy fidelity before testing the local MCP boundary and then a
-deployed Base Sepolia purchase.
+deployed Base Sepolia purchase. It needs a git checkout and a local provider
+key in the shell, so it is a maintainer/terminal tool; `MON-022` below is the
+same judgment available from a packaged Desktop build against the owner's
+real deployed node.
 
 **Future tools, deliberately not now:** web search (ground the buyer's
 context, e.g. "given today's X, what would you do") raises answer quality but
@@ -230,3 +235,48 @@ Promotion and first-class seller UX wait on `EVAL-002`: a real Base Sepolia
 buyer must judge proxy fidelity, grounding, citation validity, refusal honesty,
 and observed margin against a deployed QA node. `MON-017` separately prevents a
 known-missing model provider from becoming a paid failure.
+
+## 10. Desktop: enabling and disabling the tier
+
+`APP-035` adds the seller side of this tier to Desktop, so the one step that
+still needed a terminal — the owner saying yes to a charter and a price — no
+longer does:
+
+- **Enabling.** The payments skill drafts the charter as before; the
+  `propose_answers` tool puts the exact text and a suggested per-answer price
+  on a card, and only what the owner confirms is saved. Same shape as
+  `propose_price`: the agent proposes, the owner decides, the tool returns the
+  number that was actually saved. `lore push` ships it, as it always has.
+- **Disabling.** A plain Settings button, going through `lore answer off`,
+  which writes one setting key and leaves the approved charter and price
+  alone — turning it back on is the same card again, not a charter rewritten
+  from nothing.
+- **The gate.** Both paths use the attended-surface marker `lore publication
+  decide` already uses. It keeps the naive path honest; it is not a hard
+  boundary, and Desktop's docs say so plainly (`docs/desktop-app.md` rule 3):
+  the Bash sandbox grants write access to the whole Lore home, `lore.db`
+  included, so no per-command check in front of the store can be stronger than
+  the store itself. Every owner setting — the publication price, the
+  publication set, the answer tier — sits behind the same guardrail, and
+  raising it is one design change for all of them rather than one command at a
+  time.
+- **Provider keys.** `ANTHROPIC_API_KEY`/`OPENAI_API_KEY` join `SECRETS` in
+  `lore/deploy.py`, so `store_secret` can vault one from a masked card the
+  same way the Coinbase credentials already are; the value never reaches the
+  agent. Either key alone is enough: the node answers with the provider whose
+  key it holds, and `LORE_ANSWER_MODEL` is only an override for a specific model.
+- **What is live vs. what is saved.** Desktop reads `answer_price_usd` back
+  from `discover` and compares it to the saved setting, the same way it
+  already does for the publication price, so a saved-but-unpushed change says
+  so instead of claiming the node already changed.
+
+A first-party way for the owner to *try* an answer before enabling — the
+`MON-024` trial route — is not part of this. Its first implementation had
+three structural problems (a cold D1 with no `answer_jobs` table, Cloudflare's
+~30s `waitUntil` cap against a 180s agent deadline, and no way to preview a
+charter that has not been pushed yet), so it was pulled back for redesign. A
+test-network self-purchase covers the loop until it returns.
+
+The memory boundary in section 2 is unchanged by any of this: the answer agent
+reaches only approved publications, and nothing here is a new disclosure
+decision.

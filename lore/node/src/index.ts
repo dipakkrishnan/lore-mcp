@@ -12,7 +12,7 @@ import {
   ticketResult,
   validPublicId
 } from "./answer-state.js";
-import { runAnswer } from "./answer.js";
+import { providerReadiness, runAnswer } from "./answer.js";
 import { facilitator, network, networkLabel } from "./network.js";
 import { PRICE_USD } from "./price.js";
 import { ensureSalesSchema, recorded } from "./sales.js";
@@ -48,6 +48,12 @@ export class LorePaidMCP extends McpAgent<Env> {
     await ensureAnswerSchema(this.env.LORE_DB);
     await ensureSalesSchema(this.env.LORE_DB);
     const settings = await readAnswerSettings(this.env.LORE_DB);
+    // Owner-approved settings are only half of it: a node whose model secret is
+    // missing would take the payment and discover that inside the scheduled job,
+    // after settlement and with no refund path. Resolve it here instead, so an
+    // unready node neither advertises a price nor registers a paid tool.
+    const readiness = providerReadiness(this.env);
+    const selling = settings.enabled && readiness.ready;
     this.server.registerTool(
       "discover",
       {
@@ -65,7 +71,7 @@ export class LorePaidMCP extends McpAgent<Env> {
             network: network(this.env),
             payout: payTo(this.env),
             price_usd: PRICE_USD,
-            ...(settings.enabled
+            ...(selling
               ? {
                   answer_price_usd: settings.priceUsd,
                   answer_retention_disclosure: RETENTION_DISCLOSURE
@@ -125,7 +131,7 @@ export class LorePaidMCP extends McpAgent<Env> {
       "visible to the owner. Unsupported questions are refused after payment; " +
       "there are no automated refunds.";
 
-    if (settings.enabled) {
+    if (selling) {
       const answer = this.server.paidTool(
         "answer",
         answerDescription,
@@ -151,13 +157,21 @@ export class LorePaidMCP extends McpAgent<Env> {
         title: args.question
       }));
     } else {
+      // Enabled but unready is a different fact from switched off, and the buyer's
+      // agent should be able to tell them apart without paying to find out.
+      const unavailable =
+        settings.enabled && !readiness.ready
+          ? { error: `the answer tier is not available on this node: ${readiness.reason}` }
+          : ANSWER_DISABLED;
       this.server.registerTool(
         "answer",
         { description: answerDescription, inputSchema: question },
         async () =>
           withSpan("lore.answer", (setAttributes) => {
-            setAttributes(() => toolSpanAttributes({ tool: "answer", outcome: "disabled" }));
-            return asText(ANSWER_DISABLED, true);
+            setAttributes(() =>
+              toolSpanAttributes({ tool: "answer", outcome: settings.enabled ? "unready" : "disabled" })
+            );
+            return asText(unavailable, true);
           })
       );
     }

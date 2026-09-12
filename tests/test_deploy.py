@@ -263,7 +263,7 @@ class RealMoneyTest(_NodeCase):
             captured(),
         ):
             self.assertEqual(deploy_module.deploy(None, "real"), 0)
-        self.assertEqual(wrangler.secret_values, {"LORE_NETWORK": "eip155:8453\n"})
+        self.assertEqual(wrangler.secret_values["LORE_NETWORK"], "eip155:8453\n")
         deployed, network = wrangler.order(
             ("deploy",), ("secret", "put", "LORE_NETWORK")
         )

@@ -56,8 +56,9 @@ lore answer on <proxy-file> 0.50
 lore push                                   # ship proxy charter, price, and the switch
 ```
 
-The default model is `claude-sonnet-5`. Set `LORE_ANSWER_MODEL` to
-`gpt-5.6-luna` and add `OPENAI_API_KEY` to use OpenAI instead. Turn the tier off
+The node answers with the provider whose key it holds: `ANTHROPIC_API_KEY`
+runs `claude-sonnet-5`, `OPENAI_API_KEY` alone runs `gpt-5.6-luna`, and
+`LORE_ANSWER_MODEL` overrides the choice when both are present. Turn the tier off
 with `lore answer off` and a push. Completed turns are checkpointed in the
 existing D1 database so a fresh Worker invocation can resume the same ticket.
 Pi's packaged SQLite session adapter uses Node's `node:sqlite` and cannot run in

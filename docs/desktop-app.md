@@ -54,14 +54,28 @@ Load-bearing rules, in priority order:
    blocked. The native Pi session persists the desktop conversation and
    completed tool results; the app has no separate onboarding checkpoint
    write. Prompt instructions are not the security boundary.
-3. **The agent cannot approve.** Approval cards are app-invoked UI routed to
-   existing Lore validation. Allowing a Bash command is not approval of a
-   publication, payment, or deployment. The CLI treats the app as a second
-   attended surface: `lore publication decide` reads one
-   decision from stdin only when Electron main sets
-   `LORE_ATTENDED_SURFACE=desktop` on a non-TTY pipe, and the Bash policy
-   hard-denies every `lore publication` and `lore answer` mutation, so the
-   marker never helps the model.
+3. **Owner decisions are made on cards, not by the model.** Approval cards are
+   app-invoked UI routed to existing Lore validation, and the agent has no tool
+   that approves one: `propose_price`, `propose_answers`, and the publication
+   cards all hand the decision to the owner and act only on what comes back.
+   The CLI treats the app as a second attended surface — `lore publication
+   decide` and `lore answer apply` read one decision from stdin only when
+   Electron main sets `LORE_ATTENDED_SURFACE=desktop` on a non-TTY pipe.
+
+   That marker is a guardrail, not a boundary, and the difference matters. The
+   Bash sandbox is a filesystem and network policy, not a command-name
+   denylist, so the agent's own shell can set the same marker on a command it
+   runs itself. More fundamentally, the sandbox grants write access to the
+   whole Lore home — capture, sessions, and the blueprint all need it — and
+   `lore.db` lives there, so any setting is reachable with `sqlite3` no matter
+   what the CLI in front of it checks. That is equally true of the publication
+   price, the publication set, and the answer tier; none of them is defended
+   by a cryptographic gate, and a per-command token cannot create one while
+   the store itself is writable. Treat the marker as what it is: it keeps the
+   naive path honest and keeps owner-facing state changes visible on a card.
+   A real boundary would mean settings writes leaving the shared store
+   entirely — one design change for every owner decision at once, not one
+   command at a time.
 4. **Skills stay the source of truth.** `SKILL.md` loads verbatim as Pi's
    instructions; the app renders questions and progress. No parallel
    onboarding state machine — the setup checklist derives from the snapshot.

@@ -90,6 +90,7 @@ const SETUP_INTENT = "Let's set up my Lore.";
 const STORE_INTENT = "Help me open my store.";
 const PLAY_MONEY = "Put my store back on the test network.";
 const REDEPLOY_PRICE = "I changed my publication price. Redeploy my store so buyers pay the new amount.";
+const REDEPLOY_ANSWERS = "I changed my paid-answer settings. Redeploy my store so they take effect.";
 // Six decimals, not the default two: a price can run below a cent, and rounding
 // $0.000001 up to $0.01 would misstate what a buyer pays. Six is the CLI's floor.
 const money = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 6 });
@@ -476,6 +477,8 @@ function needsYou(s) {
   // Approved work a buyer cannot see yet, or a price they are not yet paying, is actionable whatever rung setup is on.
   const stale = stalePrice(s);
   if (stale !== null) add("Redeploy your store", `Buyers still pay ${price(stale)}; you set ${price(s.pricing.publication_usd)}.`, button("Redeploy", "secondary", () => void startDeploy(REDEPLOY_PRICE)));
+  const staleAnswerNote = staleAnswers(s);
+  if (staleAnswerNote) add("Redeploy your store", staleAnswerNote, button("Redeploy", "secondary", () => void startDeploy(REDEPLOY_ANSWERS)));
   const waiting = unpushed(s);
   if (waiting.length && !pushOffer && !pushing) add("Push to your store", `${pendingLabel(waiting)}.`, button("Push", "secondary", pushNow));
   return rows;
@@ -572,13 +575,13 @@ function priceRow(s) {
   return item;
 }
 
-/** A dollar field with its prefix. @param {string} value @returns {[HTMLElement, HTMLInputElement]} */
-function priceField(value) {
+/** A dollar field with its prefix. @param {string} value @param {string} [label] @returns {[HTMLElement, HTMLInputElement]} */
+function priceField(value, label = "Price per publication in US dollars") {
   const field = el("div", "price-field");
   const input = el("input");
   input.type = "text";
   input.inputMode = "decimal";
-  input.setAttribute("aria-label", "Price per publication in US dollars");
+  input.setAttribute("aria-label", label);
   input.value = value;
   input.placeholder = "0.01";
   field.append(el("span", "price-prefix", "$"), input);
@@ -595,6 +598,27 @@ function parsePrice(raw) {
 function stalePrice(s) {
   const live = s.node.live.price_usd;
   return typeof live === "number" && typeof s.pricing.publication_usd === "number" && live !== s.pricing.publication_usd ? live : null;
+}
+
+/** Same idea as stalePrice, but answers also have an on/off dimension a
+ * price alone doesn't: a saved-but-unpushed enable, disable, or price
+ * change all read the same way here — the live node hasn't caught up yet.
+ * Returns a ready sentence, or null when live matches what was saved.
+ * @param {Snapshot} s */
+function staleAnswers(s) {
+  // Only a node we actually reached can disagree with what was saved. An
+  // unreachable one reports null for every price, which would otherwise read
+  // as "not live yet; redeploy" right beside "Store offline" — `stalePrice`
+  // stays quiet in that case and so must this.
+  if (s.node.live.state !== "online") return null;
+  const live = s.node.live.answer_price_usd;
+  const enabled = s.pricing.answer_enabled;
+  if (enabled ? live === s.pricing.answer_usd : live === null) return null;
+  return enabled
+    ? typeof live === "number"
+      ? `Buyers still pay ${price(live)} for an answer until you redeploy.`
+      : "Answers aren't live yet; redeploy to turn them on."
+    : `Buyers can still ask questions at ${price(live)} until you redeploy.`;
 }
 
 /** @param {Snapshot} s */
@@ -658,6 +682,12 @@ function renderStore(s) {
   if (stale !== null) {
     const note = el("div", "stale-price");
     note.append(el("span", "", `Buyers still pay ${price(stale)} until you redeploy.`), button("Redeploy", "quiet", () => void startDeploy(REDEPLOY_PRICE)));
+    prices.append(note);
+  }
+  const staleAnswerNote = staleAnswers(s);
+  if (staleAnswerNote) {
+    const note = el("div", "stale-price");
+    note.append(el("span", "", staleAnswerNote), button("Redeploy", "quiet", () => void startDeploy(REDEPLOY_ANSWERS)));
     prices.append(note);
   }
   bar.append(lead, prices);
@@ -800,6 +830,7 @@ function renderSettings(s) {
   sources.push(scheduleRow(s));
   const live = s.node.live;
   return [
+    ...(pushOffer ? [seamCard()] : []),
     section("Account", card((auth?.credentials.length ? auth.credentials : [null]).map((credential) => {
       const [name, icon] = credential ? provider(credential) : ["No one", ""];
       const trailing = cell(name);
@@ -827,6 +858,11 @@ function renderSettings(s) {
       // One editor, on For Sale. Every other surface reads the same number and
       // sends the owner there rather than growing a second field.
       row("Prices", "What a buyer's agent pays per call.", cell(el("span", "mono", typeof s.pricing.publication_usd === "number" ? `${price(s.pricing.publication_usd)} publication${s.pricing.answer_enabled ? ` · ${price(s.pricing.answer_usd)} answer` : ""}` : "Not set"), button(typeof s.pricing.publication_usd === "number" ? "Change price" : "Set a price", "quiet", openPriceEditor)), false),
+      // No "enable" affordance here: drafting a charter is a conversation,
+      // started from Open your store. Turning off is safe enough to do alone.
+      ...(s.pricing.answer_enabled
+        ? [row("Paid answers", "Your proxy answers on your behalf, citing your publications.", cell(el("span", "mono", price(s.pricing.answer_usd)), button("Turn off", "quiet", () => void disableAnswers())), false)]
+        : []),
       ...(live.network === TEST_NETWORK
         ? [row("Payments", "Buyers on the test network pay with play money. Switch when you want real buyers paying real money.", cell(button("Switch to real payments", "secondary", () => void startDeploy(REAL_MONEY))), false)]
         : live.network
@@ -1251,6 +1287,30 @@ function renderRequest(event) {
       }
       respond(event.id, value, price(value));
     });
+  } else if (event.type === "answers") {
+    box.append(el("p", "q", "Enable paid answers with this charter and price?"), el("p", "hint", event.reason));
+    const charter = el("div", "card pad");
+    charter.append(el("p", "", event.charter));
+    box.append(charter);
+    const [field, amount] = priceField(String(event.price), "Price per answer in US dollars");
+    const actions = el("div", "actions");
+    const later = el("button", "btn secondary sm", "Not now");
+    later.type = "button";
+    later.addEventListener("click", () => respond(event.id, null, "Not now"));
+    const enable = el("button", "btn primary sm", "Enable");
+    enable.type = "submit";
+    actions.append(later, enable);
+    box.append(field, actions);
+    box.addEventListener("submit", (submitEvent) => {
+      submitEvent.preventDefault();
+      // Like the price card: the agent only learns the number confirmed here.
+      const value = parsePrice(amount.value);
+      if (value === null) {
+        tell("A price has to be a number above zero.", true);
+        return;
+      }
+      respond(event.id, value, `Enable answers at ${price(value)}`);
+    });
   } else {
     box.append(el("p", "q", event.prompt.message));
     /** @type {HTMLInputElement | HTMLSelectElement} */
@@ -1513,6 +1573,13 @@ async function decide(original, approve, candidate = original) {
   approvedThisPass = false;
   pushOffer = snapshot?.node.url ? "Approved publications reach buyers only after a push. Leaving it is fine; the next push carries it." : false;
   if (!pushOffer) tell("Approved. It goes on sale the moment you open a store.");
+  render();
+}
+
+async function disableAnswers() {
+  if (!(await act(window.lore.disableAnswers))) return;
+  pushOffer = snapshot?.node.url ? "Paid answers are off here; buyers stop seeing them once you push." : false;
+  if (!pushOffer) tell("Turned off.");
   render();
 }
 

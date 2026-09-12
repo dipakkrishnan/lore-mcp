@@ -257,6 +257,7 @@ export class LoreAgent {
         "During capture, show proposed memories only through propose_memories, never in prose; that tool saves what the owner keeps and returns the saved memories, or returns the owner's correction for you to revise and propose again. After it saves, say one short sentence and call finish_task; never offer publication, the owner starts that from the saved card.",
         "During onboarding, gather evidence first, then call propose_blueprint once with one bounded proposal; that tool saves the owner-approved shape.",
         "To set what buyers pay per publication, call propose_price and never run a price command yourself; the owner confirms the exact amount on the card, and the tool returns what they saved or null if they declined. Work from that number, not from what you proposed.",
+        "To enable paid answers, call propose_answers with the exact charter and price and never run an answer command yourself; the owner sees the exact charter on the card and confirms or changes the price, and the tool returns what they saved or null if they declined.",
         "Never mention tools, commands, files, or plumbing to the owner: no Cloudflare, Node, wrangler, Worker, Base, Sepolia, network ids, or memory ids in prose; name a memory by its title. Speak about memories, their Lore, their store, play money and real money, and say what happens next rather than which checks passed.",
         "A memory's id number is for tools only: never say one to the owner, even in passing; call every memory by its title.",
         "Call finish_task when the current task is complete."
@@ -480,7 +481,7 @@ export class LoreAgent {
       resourceLoader: this.resources,
       settingsManager: this.settings,
       sessionManager,
-      tools: ["read", "write", "edit", "bash", "ask_user", "propose_memories", "propose_blueprint", "propose_price", "cloudflare_login", "open_url", "store_secret", "finish_task"],
+      tools: ["read", "write", "edit", "bash", "ask_user", "propose_memories", "propose_blueprint", "propose_price", "propose_answers", "push_store", "cloudflare_login", "open_url", "store_secret", "finish_task"],
       customTools: [
         createBashTool(this.options.loreHome, {
           operations: createSandboxedBashOperations(this.options.loreHome, task, this.options.binDir),
@@ -499,6 +500,8 @@ export class LoreAgent {
         this.#memoriesTool(),
         this.#blueprintTool(),
         this.#priceTool(),
+        this.#answersTool(),
+        this.#pushTool(),
         this.#cloudflareTool(),
         this.#openTool(),
         this.#secretTool(),
@@ -640,6 +643,38 @@ export class LoreAgent {
     });
   }
 
+  #answersTool() {
+    return defineTool({
+      name: "propose_answers",
+      executionMode: "sequential",
+      label: "Propose paid answers",
+      description: "Show the owner their exact public proxy charter and a suggested per-answer price, and enable the paid answer tier if they approve. Returns the price they saved, or null if they declined. The only way to enable answers in the app.",
+      parameters: Type.Object({
+        charter: Type.String({ minLength: 1, maxLength: 2000 }),
+        price: Type.Number({ exclusiveMinimum: 0 }),
+        reason: Type.String({ minLength: 1, maxLength: 240 })
+      }),
+      execute: async (_id, { charter, price, reason }) => {
+        const saved = await this.#attended("Enable paid answers", () => this.options.proposeAnswers(charter, price, reason));
+        return { content: [{ type: "text", text: JSON.stringify({ price_usd: saved }) }], details: {} };
+      }
+    });
+  }
+
+  #pushTool() {
+    return defineTool({
+      name: "push_store",
+      executionMode: "sequential",
+      label: "Push to your store",
+      description: "Ship what the owner already approved — the active publications, the price, and the paid-answer settings — to their deployed node so buyers see it. Call after any of those change. Approves nothing new; there is no card and nothing for the owner to press.",
+      parameters: Type.Object({}),
+      execute: async () => {
+        const text = await this.options.pushStore();
+        return { content: [{ type: "text", text }], details: {} };
+      }
+    });
+  }
+
   #cloudflareTool() {
     return defineTool({
       name: "cloudflare_login",
@@ -672,11 +707,22 @@ export class LoreAgent {
     return defineTool({
       name: "store_secret",
       executionMode: "sequential",
-      label: "Store a Coinbase credential",
-      description: "Ask the owner for one Coinbase Developer Platform value and vault it on their node for real payments. The value never reaches you; returns whether it was stored.",
-      parameters: Type.Object({ name: Type.Union([Type.Literal("CDP_API_KEY_ID"), Type.Literal("CDP_API_KEY_SECRET")]) }),
+      label: "Store a credential",
+      description: "Ask the owner for one Coinbase Developer Platform value, or an Anthropic or OpenAI API key for paid answers, and vault it on their node. The value never reaches you; returns whether it was stored.",
+      parameters: Type.Object({
+        name: Type.Union([
+          Type.Literal("CDP_API_KEY_ID"),
+          Type.Literal("CDP_API_KEY_SECRET"),
+          Type.Literal("ANTHROPIC_API_KEY"),
+          Type.Literal("OPENAI_API_KEY")
+        ])
+      }),
       execute: async (_id, { name }) => {
-        const text = await this.#attended("Enter a Coinbase API key", () => this.options.storeSecret(name));
+        const phase =
+          name === "ANTHROPIC_API_KEY" ? "Enter an Anthropic API key" :
+          name === "OPENAI_API_KEY" ? "Enter an OpenAI API key" :
+          "Enter a Coinbase API key";
+        const text = await this.#attended(phase, () => this.options.storeSecret(name));
         return { content: [{ type: "text", text }], details: {} };
       }
     });

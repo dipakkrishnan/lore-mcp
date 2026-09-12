@@ -186,6 +186,10 @@ def parser() -> argparse.ArgumentParser:
     answer_on.add_argument("file", help="text file holding the public proxy charter")
     answer_on.add_argument("price", type=float, help="USD per answer; must be positive")
     answer_commands.add_parser("off", help="disable the answer tier")
+    answer_commands.add_parser(
+        "apply",
+        help="apply one answer-settings decision from the Lore desktop app (stdin)",
+    )
     serve = commands.add_parser("serve", help="run the Lore MCP server")
     serve.add_argument("--transport", choices=["stdio", "http"], default="stdio")
     serve.add_argument("--host", default="127.0.0.1")
@@ -314,9 +318,14 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "price":
             return price(args.amount)
         if args.command == "answer":
+            # Explicit, not a trailing else: a future subcommand added without
+            # its own branch must not silently fall through to disabling.
             if args.answer_command == "on":
                 return answer_enable(args.file, args.price)
-            return answer_disable()
+            if args.answer_command == "apply":
+                return answer_decide()
+            if args.answer_command == "off":
+                return answer_disable()
         if args.command == "serve":
             from .mcp import main as serve
 
@@ -817,7 +826,45 @@ def answer_enable(path: str, price: float) -> int:
     return 0
 
 
+def answer_decide() -> int:
+    """Apply one answer-settings decision from the Lore desktop app (stdin only).
+
+    How Desktop enables the tier: the owner approved the exact charter and
+    price on a card, and Electron main pipes what they confirmed. Gated by the
+    same attended-surface marker `lore publication decide` uses — a guardrail
+    against a naive path, not a boundary against an adversarial agent, which
+    the shared `lore.db` rules out for every setting alike (`docs/desktop-app.md`).
+    Validation is `AnswerSettings`'s own, unchanged from `lore answer on`.
+    """
+    text = _desktop_decision("an answer-settings decision")
+    try:
+        payload = json.loads(text)
+    except json.JSONDecodeError as error:
+        raise ValueError(f"invalid answer-settings JSON: {error}") from error
+    if not isinstance(payload, dict):
+        raise ValueError("answer-settings payload must be a JSON object")
+    settings = AnswerSettings.model_validate(
+        {
+            "proxy_preamble": payload.get("proxy_preamble", ""),
+            "answer_price_usd": payload.get("answer_price_usd", 0.0),
+            "answer_enabled": payload.get("answer_enabled", False),
+        }
+    )
+    with Store() as store:
+        store.set_answer_settings(settings)
+    print(json.dumps(settings.model_dump(), separators=(",", ":"), allow_nan=False))
+    return 0
+
+
 def answer_disable() -> int:
+    """Switch the tier off without touching the approved charter or price.
+
+    One setting key, not a whole `AnswerSettings` write: turning off has to be
+    reversible, and re-approving a charter the owner already approved is not
+    that. Desktop's Turn off button comes through here too, so the gate is
+    `_owner_action`'s — an attended terminal or the app, never a bare pipe.
+    """
+    _owner_action("disabling the answer tier")
     with Store() as store:
         store.set_setting("answer_enabled", False)
     success("Answer tier disabled")

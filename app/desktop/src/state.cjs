@@ -131,6 +131,26 @@ async function setPrice(loreHome, amount) {
   await lore(loreHome, ["price", String(amount)], "");
 }
 
+/** Enable the answer tier from the charter-and-price card the owner approved.
+ * Attended, like `decide`: the marker says this came from the app, and the
+ * CLI's `AnswerSettings` does the real validation. Only structural checks
+ * here, so nothing duplicates a rule that already lives in Python.
+ * @param {string} loreHome @param {{ proxy_preamble: string, answer_price_usd: number, answer_enabled: boolean }} decision */
+async function setAnswerSettings(loreHome, decision) {
+  const { proxy_preamble, answer_price_usd, answer_enabled } = decision;
+  if (typeof proxy_preamble !== "string" || proxy_preamble.length > 4000) throw new Error("Invalid proxy charter");
+  if (typeof answer_price_usd !== "number" || !Number.isFinite(answer_price_usd)) throw new Error("Invalid answer price");
+  if (typeof answer_enabled !== "boolean") throw new Error("Invalid answer-settings decision");
+  await lore(loreHome, ["answer", "apply"], JSON.stringify({ proxy_preamble, answer_price_usd, answer_enabled }));
+}
+
+/** Switch the tier off, keeping the approved charter and price as they are —
+ * `answer off` writes one setting key, so turning it back on is the same card
+ * again rather than a charter written from nothing. @param {string} loreHome */
+async function disableAnswers(loreHome) {
+  await lore(loreHome, ["answer", "off"], "");
+}
+
 /** @param {string} loreHome @returns {Promise<PublicationCandidate[]>} */
 async function candidates(loreHome) {
   return JSON.parse(await lore(loreHome, ["publication", "candidates"]));
@@ -154,6 +174,8 @@ module.exports = {
   editMemory,
   captureMemories,
   setPrice,
+  setAnswerSettings,
+  disableAnswers,
   candidates,
   decide,
   useRuntime

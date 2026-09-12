@@ -57,11 +57,19 @@ attended surface, not a TTY emulation. `lore publication decide`
 reads one decision from stdin only when Electron main sets
 `LORE_ATTENDED_SURFACE=desktop` and stdin is not a TTY; every other pipe is
 refused; `revoke`, `reapprove`, and `push` require a terminal or that same
-marker, and the Bash policy hard-denies every `lore publication` and
-`lore answer` mutation regardless of the marker, so the model can never reach
-them. Drafts go through `lore publication draft -` (validated, staged in
+marker. Drafts go through `lore publication draft -` (validated, staged in
 `$LORE_HOME/publish-candidates.json`) and a decision must equal a staged card
 byte for byte. Pricing and deploy remain terminal workflows: they belong to the
-`lore-enable-payments` flow, which has no app surface yet; the policy already
-denies them to the model. The in-app push seam covers a node that exists;
-"open a store" routes to that same future item.
+`lore-enable-payments` flow, which has no app surface yet. The in-app push seam
+covers a node that exists; "open a store" routes to that same future item.
+
+Two corrections since, both dated 2026-09-11 (`APP-035`):
+
+- This entry twice claimed the Bash policy "hard-denies" `lore publication` and
+  `lore answer` mutations regardless of the marker. It never did — the sandbox
+  is a filesystem and network policy, not a command-name denylist, and the
+  shell can write `lore.db` directly. Those two claims are struck above; see
+  `docs/desktop-app.md` rule 3 for what the marker actually buys, and `APP-106`
+  for the design item that would make a claim like it true.
+- Pricing (`APP-019`) and the deploy conversation (`APP-030`, `APP-035`) do
+  have app surfaces now, so "no app surface yet" reads as history, not state.

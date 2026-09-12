@@ -261,6 +261,21 @@ class MainDispatchTest(LoreTestCase):
         self.assertIn("attended terminal or the Lore desktop app", stderr.getvalue())
         secret.assert_not_called()
 
+    def test_the_answer_model_keys_vault_the_same_way_the_facilitator_ones_do(
+        self,
+    ) -> None:
+        # APP-035 added the two answer-model providers to `SECRETS`. They ride
+        # the gate the Coinbase credentials already use — one path for all four,
+        # rather than a second, stronger-looking one for two of them.
+        for name in deploy_module.SECRETS:
+            with self.subTest(name=name):
+                with (
+                    patch("lore.deploy.secret", return_value=0) as secret,
+                    desktop_stdin("a-key\n"),
+                ):
+                    self.assertEqual(cli.main(["node", "secret", name]), 0)
+                secret.assert_called_once_with(name, "a-key")
+
     def test_no_command_falls_back_to_status_when_not_interactive(self) -> None:
         with (
             patch.object(sys.stdin, "isatty", return_value=False),
@@ -860,11 +875,82 @@ class AnswerCommandTest(LoreTestCase):
             with self.assertRaisesRegex(ValueError, "empty"):
                 cli.answer_enable(self.proxy_file("   \n"), 0.5)
 
-    def test_disabling_needs_nothing_and_reminds_about_push(self) -> None:
-        with captured() as output:
+    def test_disabling_needs_a_terminal_or_the_app_never_a_bare_pipe(self) -> None:
+        with patch.object(cli, "_interactive", return_value=False):
+            with self.assertRaisesRegex(ValueError, "attended terminal or the Lore"):
+                cli.answer_disable()
+
+    def test_disabling_from_an_attended_terminal_reminds_about_push(self) -> None:
+        with patch.object(cli, "_interactive", return_value=True), captured() as output:
             self.assertEqual(cli.answer_disable(), 0)
         self.assertIn("disabled", output.getvalue())
         self.assertIn("lore push", output.getvalue())
+
+    def test_disabling_keeps_the_approved_charter_and_price(self) -> None:
+        # Turning off writes one setting key. Wiping the charter would make
+        # "reversible" false: turning it back on would mean approving a
+        # charter the owner already approved, from nothing.
+        with (
+            patch.object(cli, "_interactive", return_value=True),
+            patch.object(cli, "confirm", return_value=True),
+            captured(),
+        ):
+            cli.answer_enable(self.proxy_file(), 0.5)
+            self.assertEqual(cli.answer_disable(), 0)
+        with Store() as store:
+            settings = store.answer_settings()
+        self.assertFalse(settings.answer_enabled)
+        self.assertEqual(
+            settings.proxy_preamble, "Act as Ada's concise, evidence-first proxy."
+        )
+        self.assertEqual(settings.answer_price_usd, 0.5)
+
+
+class AnswerApplyTest(LoreTestCase):
+    """`lore answer apply` — how Desktop enables the tier.
+
+    Gated by the attended-surface marker `lore publication decide` already
+    uses. That is a guardrail against a naive path, not a boundary against an
+    adversarial agent: Bash keeps write access to the whole Lore home, and so
+    to `lore.db`, for capture and sessions. See `docs/desktop-app.md` rule 3.
+    """
+
+    DECISION = {
+        "proxy_preamble": "Act as Ada's concise, evidence-first proxy.",
+        "answer_price_usd": 0.5,
+        "answer_enabled": True,
+    }
+
+    def test_a_decision_from_the_app_is_applied(self) -> None:
+        with desktop_stdin(json.dumps(self.DECISION)), captured() as output:
+            self.assertEqual(cli.answer_decide(), 0)
+        with Store() as store:
+            settings = store.answer_settings()
+        self.assertTrue(settings.answer_enabled)
+        self.assertEqual(settings.answer_price_usd, 0.5)
+        self.assertEqual(json.loads(output.getvalue())["answer_price_usd"], 0.5)
+
+    def test_a_bare_pipe_without_the_marker_is_refused(self) -> None:
+        with (
+            patch.dict(os.environ),
+            patch.object(sys, "stdin", StringIO(json.dumps(self.DECISION))),
+        ):
+            os.environ.pop("LORE_ATTENDED_SURFACE", None)
+            with self.assertRaisesRegex(ValueError, "only from the Lore desktop app"):
+                cli.answer_decide()
+        with Store() as store:
+            self.assertFalse(store.answer_settings().answer_enabled)
+
+    def test_invalid_json_is_a_plain_value_error(self) -> None:
+        with desktop_stdin("not json"):
+            with self.assertRaisesRegex(ValueError, "invalid answer-settings JSON"):
+                cli.answer_decide()
+
+    def test_enabling_still_needs_a_charter_and_a_positive_price(self) -> None:
+        bad = {"proxy_preamble": "", "answer_price_usd": 0, "answer_enabled": True}
+        with desktop_stdin(json.dumps(bad)):
+            with self.assertRaises(ValueError):
+                cli.answer_decide()
 
 
 class ProfileTest(LoreTestCase):

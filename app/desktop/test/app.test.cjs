@@ -489,6 +489,75 @@ test("only Electron main can pipe a decision, and only for a card that is drafte
   }
 });
 
+// APP-035: answers reach the store through the same attended-surface marker
+// `lore publication decide` uses — a guardrail against a naive path, not a
+// boundary against an adversarial agent. Bash keeps write access to the whole
+// Lore home (and so to `lore.db`) for capture and sessions, which is true of
+// every setting alike; see docs/desktop-app.md rule 3.
+test("the desktop path enables answers, and a bare pipe without the marker cannot", async () => {
+  const { setAnswerSettings } = require("../src/state.cjs");
+  const directory = await mkdtemp(join(tmpdir(), "lore-desktop-"));
+  const decision = { proxy_preamble: "Act as Ada's concise, evidence-first proxy.", answer_price_usd: 0.5, answer_enabled: true };
+  try {
+    await setAnswerSettings(directory, decision);
+    const state = await readState(directory);
+    assert.equal(state.pricing.answer_enabled, true);
+    assert.equal(state.pricing.answer_usd, 0.5);
+    // The same command from a plain pipe, the way a script or a cron job
+    // would reach it, without the marker Electron main sets.
+    const piped = spawnSync("uv", ["run", "lore", "answer", "apply"], {
+      cwd: join(__dirname, "../../.."),
+      env: { ...process.env, LORE_HOME: directory, NO_COLOR: "1", LORE_ATTENDED_SURFACE: "" },
+      input: JSON.stringify({ ...decision, answer_price_usd: 9 }),
+      encoding: "utf8"
+    });
+    assert.equal(piped.status, 1);
+    assert.match(piped.stderr, /only from the Lore desktop app/);
+    assert.equal((await readState(directory)).pricing.answer_usd, 0.5, "the refused call changed nothing");
+  } finally {
+    await rm(directory, { recursive: true });
+  }
+});
+
+test("turning answers off keeps the approved charter and price", async () => {
+  const { setAnswerSettings, disableAnswers, lore } = require("../src/state.cjs");
+  const directory = await mkdtemp(join(tmpdir(), "lore-desktop-"));
+  const charter = "Act as Ada's concise, evidence-first proxy.";
+  try {
+    await setAnswerSettings(directory, { proxy_preamble: charter, answer_price_usd: 0.5, answer_enabled: true });
+    await disableAnswers(directory);
+    const state = await readState(directory);
+    assert.equal(state.pricing.answer_enabled, false);
+    // Turning off is one flag, not a wipe: re-approving a charter the owner
+    // already approved is not "reversible". The snapshot hides the price
+    // while disabled, so read the store's own view of what survived.
+    const status = await lore(directory, ["status"]);
+    assert.match(status, /disabled/);
+    await setAnswerSettings(directory, { proxy_preamble: charter, answer_price_usd: 0.5, answer_enabled: true });
+    assert.equal((await readState(directory)).pricing.answer_usd, 0.5);
+  } finally {
+    await rm(directory, { recursive: true });
+  }
+});
+
+test("propose_answers is a live tool, and the agent is told not to enable answers by hand", async () => {
+  const source = await readFile(join(__dirname, "../src/agent.mjs"), "utf8");
+  const active = source.match(/tools: \[([^\]]*)\]/)[1];
+  assert.match(active, /"propose_answers"/, "propose_answers must be in the active tool list");
+  assert.match(source, /this\.#answersTool\(\)/, "and registered as a custom tool");
+  assert.match(source, /call propose_answers.*never run an answer command yourself/);
+});
+
+test("push_store is a live tool, and the payments skill routes the desktop push through it", async () => {
+  const source = await readFile(join(__dirname, "../src/agent.mjs"), "utf8");
+  const active = source.match(/tools: \[([^\]]*)\]/)[1];
+  assert.match(active, /"push_store"/, "push_store must be in the active tool list");
+  assert.match(source, /this\.#pushTool\(\)/, "and registered as a custom tool");
+  const skill = await readFile(join(__dirname, "../../../plugins/lore/skills/lore-enable-payments/SKILL.md"), "utf8");
+  assert.match(skill, /`push_store`/, "the skill names the tool");
+  assert.doesNotMatch(skill, /press \*\*Push\*\*/, "and no longer sends the owner to a button");
+});
+
 test("safeStorage credentials survive an Electron restart", { skip: process.platform !== "darwin" }, async () => {
   const directory = await mkdtemp(join(tmpdir(), "lore-credentials-"));
   const electron = require("electron");

@@ -3,12 +3,18 @@ const { join } = require("node:path");
 const { app, BrowserWindow, dialog, ipcMain, safeStorage, shell, systemPreferences } = require("electron");
 const { provision, skillsDir, whisper } = require("./runtime.cjs");
 const { transcribe } = require("./dictation.cjs");
-const { lore, loreStream, openable, readState, readSales, searchMemories, readMemory, renameMemory, editMemory, captureMemories, setPrice, candidates, decide, useRuntime } = require("./state.cjs");
+const { lore, loreStream, openable, readState, readSales, searchMemories, readMemory, renameMemory, editMemory, captureMemories, setPrice, setAnswerSettings, disableAnswers, candidates, decide, useRuntime } = require("./state.cjs");
 
 if (process.env.LORE_DESKTOP_USER_DATA) app.setPath("userData", process.env.LORE_DESKTOP_USER_DATA);
 
 const TASKS = new Set(["capture", "setup", "publish", "deploy"]);
 const LOGINS = new Set(["anthropic:oauth", "anthropic:api_key", "openai-codex:oauth", "openai:api_key"]);
+const SECRET_LABELS = {
+  CDP_API_KEY_ID: { label: "API key ID", from: "Coinbase" },
+  CDP_API_KEY_SECRET: { label: "API key secret", from: "Coinbase" },
+  ANTHROPIC_API_KEY: { label: "Anthropic API key", from: "Anthropic" },
+  OPENAI_API_KEY: { label: "OpenAI API key", from: "OpenAI" }
+};
 
 /** @type {LoreAgentInstance | undefined} */
 let agent;
@@ -109,6 +115,12 @@ function registerIpc(loreHome) {
   ipcMain.handle("store:sales", () => readSales(loreHome));
   ipcMain.handle("schedule:install", () => lore(loreHome, ["profile", join(loreHome, "automation", "profile.json")]));
   ipcMain.handle("pricing:set", (_event, amount) => setPrice(loreHome, amount));
+  // Enabling always goes through propose_answers in a deploy conversation —
+  // drafting a charter is inherently a conversation. Disabling is a safe,
+  // reversible flip the owner can make on their own, straight from Settings:
+  // `answer off` leaves the approved charter and price alone, so turning it
+  // back on is the same card again, not a rewrite from nothing.
+  ipcMain.handle("answers:disable", () => disableAnswers(loreHome));
   ipcMain.handle("files:pick", async () => {
     if (!window) return [];
     const { filePaths } = await dialog.showOpenDialog(window, { properties: ["openFile", "multiSelections"] });
@@ -217,6 +229,28 @@ async function start(loreHome) {
       emit({ type: "changed" });
       return confirmed;
     },
+    proposeAnswers: async (charter, price, reason) => {
+      // Same shape as proposePrice: the owner sees the exact charter the
+      // agent drafted and confirms or changes only the price; declining
+      // saves nothing. The charter itself is never editable inline here —
+      // a rewrite is a conversation with the agent, not a text field.
+      const confirmed = await request("answers", { charter, price, reason });
+      if (typeof confirmed !== "number") return null;
+      await setAnswerSettings(loreHome, { proxy_preamble: charter, answer_price_usd: confirmed, answer_enabled: true });
+      emit({ type: "changed" });
+      return confirmed;
+    },
+    // Delivery, not a decision: a push ships only what the owner already
+    // confirmed on cards, so the agent runs it itself rather than parking on
+    // a "have you pressed Push?" question. Same attended path as the button.
+    pushStore: async () => {
+      await lore(loreHome, ["push"], "");
+      emit({ type: "changed" });
+      const state = await readState(loreHome);
+      const live = state.publications.counts.active;
+      const answers = state.pricing.answer_enabled ? `paid answers on at $${state.pricing.answer_usd}` : "paid answers off";
+      return `Pushed: ${live} ${live === 1 ? "publication" : "publications"} live, ${answers}.`;
+    },
     cloudflareLogin: async () => {
       if (!(await request("cloudflare", {}))) return "The owner chose not to sign in to Cloudflare right now.";
       let last = "";
@@ -241,12 +275,12 @@ async function start(loreHome) {
     },
     drafts: async () => (await candidates(loreHome)).length,
     storeSecret: async (name) => {
-      const label = name === "CDP_API_KEY_ID" ? "API key ID" : "API key secret";
-      const prompt = { type: "secret", message: `Paste the ${label} from Coinbase. The agent never sees it. Lore passes it to Cloudflare's vault and does not save it on this Mac.`, placeholder: label };
+      const info = SECRET_LABELS[name];
+      const prompt = { type: "secret", message: `Paste the ${info.label} from ${info.from}. The agent never sees it. Lore passes it to Cloudflare's vault and does not save it on this Mac.`, placeholder: info.label };
       const value = String(await request("auth-prompt", { prompt })).trim();
       if (!value) return "The owner did not provide it.";
       await lore(loreHome, ["node", "secret", name], value);
-      return `Stored the ${label}.`;
+      return `Stored the ${info.label}.`;
     },
     job: {
       // This process is the one that owes the row a close, so it claims the row

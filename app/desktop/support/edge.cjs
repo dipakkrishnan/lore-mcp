@@ -111,9 +111,20 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         check("Settings shows the payout address", settings.includes("0xaaaa…aaaa"));
         check("…linked to the address on Sepolia Basescan", await js(`[...document.querySelectorAll("#content a.link-btn")].some((a) => a.textContent === "Payouts ↗" && a.href === "https://sepolia.basescan.org/address/0x${"a".repeat(40)}")`));
         check("Settings offers the switch to real payments while on the test network", settings.includes("Switch to real payments"));
+        // APP-035: enabled answers show their price and a way to turn off, right on Settings.
+        check("Settings shows the enabled answer price and a Turn off button", settings.includes("$0.30") && /Turn off/.test(settings));
         await js(`document.querySelector("#main").scrollTop = 1e6`);
         await sleep(200);
         await shot("settings-store");
+        // MON-022/APP-035: the live node still sells answers at the old price until a redeploy.
+        await js(`window.__lore.show("store")`);
+        await sleep(400);
+        check("a saved answer price the node does not charge yet says so on For Sale", await js(`document.querySelector("#content .store-bar").textContent.includes("Buyers still pay $0.40 for an answer until you redeploy.")`));
+        await js(`window.__lore.show("today")`);
+        await sleep(400);
+        check("Today offers the same redeploy for the stale answer price", await js(`document.querySelector("#content").textContent.includes("Buyers still pay $0.40 for an answer until you redeploy.")`));
+        await js(`window.__lore.show("settings")`);
+        await sleep(400);
         // APP-019: one editor on For Sale; a saved price the node does not charge yet is standing state on For Sale and Today.
         await js(`[...document.querySelectorAll("#content button")].find((b) => /^(Set a|Change) price$/.test(b.textContent)).click()`);
         await waitFor(`document.querySelector("#content .price-edit input")`);
