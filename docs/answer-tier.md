@@ -263,7 +263,8 @@ longer does:
 - **Provider keys.** `ANTHROPIC_API_KEY`/`OPENAI_API_KEY` join `SECRETS` in
   `lore/deploy.py`, so `store_secret` can vault one from a masked card the
   same way the Coinbase credentials already are; the value never reaches the
-  agent. Selecting OpenAI still needs `LORE_ANSWER_MODEL` set in a terminal.
+  agent. Either key alone is enough: the node answers with the provider whose
+  key it holds, and `LORE_ANSWER_MODEL` is only an override for a specific model.
 - **What is live vs. what is saved.** Desktop reads `answer_price_usd` back
   from `discover` and compares it to the saved setting, the same way it
   already does for the publication price, so a saved-but-unpushed change says

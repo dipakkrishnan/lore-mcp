@@ -46,6 +46,16 @@ const BINDINGS: Record<string, "ANTHROPIC_API_KEY" | "OPENAI_API_KEY"> = {
 
 export type Readiness = { ready: true } | { ready: false; reason: string };
 
+/** The model this node answers with: the explicit override if set, else the
+ * model whose key the node actually holds. Storing one provider key is the
+ * whole setup; `LORE_ANSWER_MODEL` exists to pick a specific model, not to
+ * name the provider a second time. */
+function answerModel(env: AnswerEnv): string {
+  if (env.LORE_ANSWER_MODEL) return env.LORE_ANSWER_MODEL;
+  if (!env.ANTHROPIC_API_KEY && env.OPENAI_API_KEY) return "gpt-5.6-luna";
+  return DEFAULT_MODEL;
+}
+
 /** Whether this node could run an answer at all, without constructing a provider.
  *
  * `init()` calls this before registering a paid tool, so a node missing its
@@ -53,7 +63,7 @@ export type Readiness = { ready: true } | { ready: false; reason: string };
  * It names only the missing binding or the unsupported model id — never a value.
  */
 export function providerReadiness(env: AnswerEnv): Readiness {
-  const id = env.LORE_ANSWER_MODEL || DEFAULT_MODEL;
+  const id = answerModel(env);
   const binding = BINDINGS[id];
   if (!binding) return { ready: false, reason: `unsupported answer model: ${id}` };
   if (!env[binding]) return { ready: false, reason: `the node has no ${binding} secret` };
@@ -63,7 +73,7 @@ export function providerReadiness(env: AnswerEnv): Readiness {
 function modelConfig(env: AnswerEnv): { id: string; provider: Provider; apiKey: string } {
   const readiness = providerReadiness(env);
   if (!readiness.ready) throw new Error(readiness.reason);
-  const id = env.LORE_ANSWER_MODEL || DEFAULT_MODEL;
+  const id = answerModel(env);
   return id === "gpt-5.6-luna"
     ? { id, provider: openaiProvider(), apiKey: env.OPENAI_API_KEY as string }
     : { id, provider: anthropicProvider(), apiKey: env.ANTHROPIC_API_KEY as string };
@@ -89,7 +99,7 @@ async function runAnswerJob(
   onToolCall?: (name: string) => void
 ): Promise<void> {
   const started = Date.now();
-  let requestedModel = env.LORE_ANSWER_MODEL || DEFAULT_MODEL;
+  let requestedModel = answerModel(env);
   let outcome: AnswerOutcome | undefined;
   const telemetry: AnswerTelemetry = {
     model: requestedModel,

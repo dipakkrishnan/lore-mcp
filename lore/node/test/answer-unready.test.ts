@@ -14,7 +14,7 @@ import { captureSpans } from "./tracing";
 const PROXY = "Act as Ada's concise, evidence-first proxy with no hedging.";
 const ANSWER_PRICE = 0.25;
 
-type Mutable = { ANTHROPIC_API_KEY?: string; LORE_ANSWER_MODEL?: string };
+type Mutable = { ANTHROPIC_API_KEY?: string; OPENAI_API_KEY?: string; LORE_ANSWER_MODEL?: string };
 const mutable = env as unknown as Mutable;
 const realKey = mutable.ANTHROPIC_API_KEY;
 
@@ -41,6 +41,7 @@ beforeAll(async () => {
 
 afterAll(() => {
   mutable.ANTHROPIC_API_KEY = realKey;
+  delete mutable.OPENAI_API_KEY;
   delete mutable.LORE_ANSWER_MODEL;
 });
 
@@ -139,6 +140,23 @@ describe("answer tier enabled but the model provider is not ready", () => {
     } finally {
       await client.close();
       delete mutable.LORE_ANSWER_MODEL;
+    }
+  });
+
+  it("is ready on an OpenAI key alone, with no model secret", async () => {
+    // Storing one provider key is the whole setup: the node infers the model
+    // from the key it holds rather than demanding LORE_ANSWER_MODEL as well.
+    delete mutable.ANTHROPIC_API_KEY;
+    mutable.OPENAI_API_KEY = "test-openai-key";
+    delete mutable.LORE_ANSWER_MODEL;
+    const client = await connect("lore-answer-openai-only-test");
+    try {
+      const catalog = textOf(await client.callTool({ name: "discover", arguments: {} }));
+      expect(catalog).toHaveProperty("answer_price_usd", ANSWER_PRICE);
+    } finally {
+      await client.close();
+      delete mutable.OPENAI_API_KEY;
+      mutable.ANTHROPIC_API_KEY = realKey;
     }
   });
 });

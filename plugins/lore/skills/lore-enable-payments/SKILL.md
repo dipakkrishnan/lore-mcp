@@ -212,11 +212,9 @@ If they chose answers, select Anthropic or OpenAI after the base node exists.
 
 **In Lore desktop:** call `store_secret` with `ANTHROPIC_API_KEY` or
 `OPENAI_API_KEY` — the owner pastes it on a masked card and it goes straight to
-Cloudflare's vault, never through you. For OpenAI, the node also needs
-`LORE_ANSWER_MODEL` set to `gpt-5.6-luna`, which still needs a real terminal
-(`npx wrangler secret put LORE_ANSWER_MODEL` from `~/.lore/node`) — there is no
-desktop tool for it yet, so tell the owner plainly this one step needs their
-terminal. Once the key is in, call `propose_answers` with the exact charter, a
+Cloudflare's vault, never through you. One key is the whole setup: the node
+answers with the provider whose key it holds. Once the key is in, call
+`propose_answers` with the exact charter, a
 per-answer price that clears expected model cost, and a one-line reason — the
 tool shows the owner that exact card, saves only what they confirm, and returns
 the price to work from. Then run `lore push` yourself. Turning it off later is
@@ -230,9 +228,9 @@ answer from their own node, or to read the charter and decide from the text.
 **In a terminal:** the owner enters the provider key through
 `npx wrangler secret put ANTHROPIC_API_KEY` or
 `npx wrangler secret put OPENAI_API_KEY` in their own terminal; never ask them to
-paste it into conversation. For OpenAI, they also run
-`npx wrangler secret put LORE_ANSWER_MODEL` and enter `gpt-5.6-luna`. Verify the
-secret names with `npx wrangler secret list`.
+paste it into conversation. Either key alone is enough; the node answers with
+the provider whose key it holds. Verify the secret names with
+`npx wrangler secret list`.
 
 Then show the exact draft and price again and have the owner run this in a real
 terminal:
