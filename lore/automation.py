@@ -234,7 +234,11 @@ def task_for(profile: dict[str, object]) -> Task:
         # installed, not a hardcoded Monday. Python's date.weekday() is
         # Monday=0..Sunday=6; windup's Task.weekday is Sunday=0..Saturday=6.
         weekday = (date.today().weekday() + 1) % 7
-    elif isinstance(weekday, bool) or not isinstance(weekday, int) or not 0 <= weekday <= 6:
+    elif (
+        isinstance(weekday, bool)
+        or not isinstance(weekday, int)
+        or not 0 <= weekday <= 6
+    ):
         raise ValueError(
             "profile weekday must be an integer from 0 (Sunday) through 6 (Saturday)"
         )

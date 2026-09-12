@@ -4,9 +4,9 @@ title: The weekly synthesis day is silently Monday, whatever the owner was told
 priority: P1
 effort: S
 component: automation-synthesis
-status: completed
+status: in-progress
 related: [AUT-001, AUT-002, APP-030]
-blockers: []
+blockers: ["dipakkrishnan/windup#1 — the pinned windup commit (372af8a) and the branch adding Task.weekday (PR #1, tip 7f2caa8) are two divergent, unmerged lines off windup's initial commit; reconciling them is a human call, see Notes"]
 dependencies: []
 github_issue: null
 created: 2026-08-24
@@ -50,7 +50,34 @@ chose; the schema fix makes that unnecessary for the next owner.
 
 **Prioritization pass 2026-08-26:** No blockers, small effort, concrete AC with a named user complaint behind it. Promoted `in-review` → `ready`.
 
-**Completed 2026-09-12.** Scope turned out smaller than described: `windup`'s
+**Round 1 review (2026-09-12) found the "windup already has `weekday`" claim below
+was verified against the wrong artifact** — this workspace's local sibling
+`~/code_projects/windup` checkout, not the dependency this repo's CI actually
+installs (`windup @ git+https://github.com/dipakkrishnan/windup.git@372af8a`
+in `pyproject.toml`). Re-verified against the real pin: **`372af8a` does not
+have `weekday`.** `windup`'s repo has two divergent branches off its initial
+commit (`0b8d501`) that never merged into each other:
+
+- `0b8d501 → 025e1e8 → 372af8a` ("Harden local task scheduling" / "Clarify
+  task execution boundaries") — what's currently pinned. Adds `Task.add_dirs`,
+  which `lore/automation.py`'s `task_for()` already depends on for the Claude
+  executor path (`add_dirs=(claude_home(), codex_home())`).
+- `0b8d501 → 33f61b2 → 7f2caa8` ("Add weekday, minute, and interval
+  scheduling" / "Add a monthly cadence") — open as
+  [dipakkrishnan/windup#1](https://github.com/dipakkrishnan/windup/pull/1),
+  unmerged. Has `Task.weekday`, not `Task.add_dirs`.
+
+Bumping the pin to `7f2caa8` would fix this item's `TypeError` but reintroduce
+the exact failure mode `add_dirs` was added to fix (`_install_claude` would
+break for the Claude executor). Neither branch is a superset of the other, so
+this PR cannot pick one pin without a regression — the two windup branches
+need a human merge-order decision in `windup` itself (out of scope for a
+`lore-mcp` change: this worker doesn't have standing to merge or push to
+`windup`). Holding at `in-progress` pending that; this item's own code
+(`lore/automation.py`, the onboarding skill, tests) is unaffected and ready to
+merge the moment windup#1 (or an equivalent) lands and the pin can move.
+
+**2026-09-12, pre-review pass.** Scope turned out smaller than described: `windup`'s
 `Task` dataclass (`windup/src/windup/tasks.py`) already carries a `weekday`
 field and `_rrule()` already derives `BYDAY` from it — that side was already
 fixed, presumably as a byproduct of the monthly-cadence work. The actual bug
