@@ -67,7 +67,7 @@ session, including every owner answer and completed tool result.
 cat > "${LORE_HOME:-$HOME/.lore}/automation/onboarding.json" <<'LORE_CHECKPOINT'
 {"phase1_done": false, "role": "", "domains": "", "valuable_context": "",
  "preferences": "", "boundaries": "", "executor": "", "model": "",
- "cadence": "daily", "hour": 21}
+ "cadence": "daily", "hour": 21, "weekday": null}
 LORE_CHECKPOINT
 ```
 
@@ -149,10 +149,15 @@ Before the `valuable_context` question, state the stakes plainly, once:
 
 Then `boundaries` (default: secrets and third-party private data). Combine the one
 synthesis executor, its optional model, cadence, and hour into one final scheduling
-exchange — that keeps the whole pass to about five questions. Codex and Claude memories
-remain independent input sources; the executor only chooses which agent synthesizes all
-enabled sources. Free-text only on "Other". On other hosts, write the checkpoint after
-each answer; Lore desktop persists the conversation itself.
+exchange — that keeps the whole pass to about five questions. If the user picks
+`weekly`, that same exchange must also ask which day; never let a day the user
+states out loud silently install as Monday because `weekday` was left unset. State
+the day back in the confirmation exactly as the profile will save it — e.g. "Codex,
+weekly on Sundays at 9 PM" — not a bare "weekly at 9 PM" that omits the day the user
+just chose. Codex and Claude memories remain independent input sources; the executor
+only chooses which agent synthesizes all enabled sources. Free-text only on "Other".
+On other hosts, write the checkpoint after each answer; Lore desktop persists the
+conversation itself.
 
 Base each executor option's description on the `which claude codex` result from step 2,
 not a guess: if `codex` wasn't found, say so plainly — "Codex CLI isn't installed on
@@ -168,6 +173,20 @@ lore profile - <<'LORE_PROFILE'
  "boundaries": "...", "executor": "claude", "model": "", "cadence": "daily", "hour": 21}
 LORE_PROFILE
 ```
+
+For a `weekly` cadence, include `"weekday"` too (`0`=Sunday .. `6`=Saturday, matching
+the day the user picked in step 3):
+
+```sh
+lore profile - <<'LORE_PROFILE'
+{"role": "...", "domains": "...", "valuable_context": "...", "preferences": "...",
+ "boundaries": "...", "executor": "codex", "model": "", "cadence": "weekly", "hour": 21,
+ "weekday": 0}
+LORE_PROFILE
+```
+
+Leaving `weekday` unset on a weekly profile installs on whatever day this command
+happens to run, not Monday — always pass the day the user confirmed.
 
 Validates the profile, writes `profile.json` plus the executor prompt (0600), and installs
 one recurring local task. Codex uses its local automation definition. Claude uses a
