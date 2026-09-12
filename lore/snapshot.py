@@ -213,6 +213,7 @@ def build() -> dict[str, object]:
         publication_price = store.setting("price_usd", None)
         answer_price = store.setting("answer_price_usd", 0.0)
         answer_enabled = store.setting("answer_enabled", False) is True
+        telemetry_enabled = store.setting("telemetry_enabled", True) is not False
         node_url = store.setting("node_url", None)
         # Reading concedes jobs whose liveness claim expired, so an interrupted
         # run turns visibly incomplete on the next refresh without a scheduler.
@@ -253,6 +254,7 @@ def build() -> dict[str, object]:
             "blueprint_configured": blueprint.blueprint_path().is_file(),
             "profile_configured": automation.profile_path().is_file(),
             "schedule": automation.schedule_state(),
+            "telemetry_enabled": telemetry_enabled,
         },
         "library": {
             "counts": {

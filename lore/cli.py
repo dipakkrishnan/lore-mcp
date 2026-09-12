@@ -186,6 +186,15 @@ def parser() -> argparse.ArgumentParser:
     answer_on.add_argument("file", help="text file holding the public proxy charter")
     answer_on.add_argument("price", type=float, help="USD per answer; must be positive")
     answer_commands.add_parser("off", help="disable the answer tier")
+    telemetry = commands.add_parser(
+        "telemetry", help="enable, disable, or show milestone telemetry"
+    )
+    telemetry_commands = telemetry.add_subparsers(
+        dest="telemetry_command", required=True
+    )
+    telemetry_commands.add_parser("on", help="re-enable milestone telemetry")
+    telemetry_commands.add_parser("off", help="disable milestone telemetry")
+    telemetry_commands.add_parser("status", help="print whether telemetry is enabled")
     serve = commands.add_parser("serve", help="run the Lore MCP server")
     serve.add_argument("--transport", choices=["stdio", "http"], default="stdio")
     serve.add_argument("--host", default="127.0.0.1")
@@ -317,6 +326,12 @@ def main(argv: list[str] | None = None) -> int:
             if args.answer_command == "on":
                 return answer_enable(args.file, args.price)
             return answer_disable()
+        if args.command == "telemetry":
+            if args.telemetry_command == "on":
+                return telemetry_set(True)
+            if args.telemetry_command == "off":
+                return telemetry_set(False)
+            return telemetry_status()
         if args.command == "serve":
             from .mcp import main as serve
 
@@ -429,6 +444,10 @@ def manual() -> int:
   10. lore blueprint show
      See the shape of your lore captured by the gamified onboarding skill
      (run `lore blueprint apply <file>` from that skill to update it).
+
+  11. lore telemetry on | off | status
+     Enable, disable, or check whether milestone telemetry is sent. On by
+     default.
 
 Use `lore <command> --help` for command-specific options.
 """
@@ -822,6 +841,20 @@ def answer_disable() -> int:
         store.set_setting("answer_enabled", False)
     success("Answer tier disabled")
     muted("The deployed node picks up the change on the next `lore push`.")
+    return 0
+
+
+def telemetry_set(enabled: bool) -> int:
+    with Store() as store:
+        store.set_setting("telemetry_enabled", enabled)
+    success(f"Telemetry {'enabled' if enabled else 'disabled'}")
+    return 0
+
+
+def telemetry_status() -> int:
+    with Store() as store:
+        enabled = store.setting("telemetry_enabled", True)
+    print("on" if enabled else "off")
     return 0
 
 
