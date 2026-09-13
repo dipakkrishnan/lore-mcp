@@ -1,0 +1,51 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "lore-feedback-relay",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-06-11",
+  // No nodejs_compat: nothing here needs Node built-ins, and the smaller the
+  // relay's surface the better — it is the one Worker that holds a token
+  // capable of writing to the project's issue tracker.
+  "observability": { "enabled": true },
+  "vars": {
+    // Overridable so tests point at a stubbed GitHub instead of the real API.
+    "LORE_GITHUB_API": "https://api.github.com"
+  },
+  // The authoritative aggregate cap. A Rate Limiting binding cannot be one:
+  // its counters are per Cloudflare location, so a constant key still gives
+  // a distributed caller one bucket per location. This Durable Object is the
+  // shared state that actually bounds issue creation — same
+  // new_sqlite_classes pattern as lore/node/wrangler.jsonc's LorePaidMCP.
+  // Needs no account-side resource; the migration is all it takes.
+  "durable_objects": {
+    "bindings": [
+      {
+        "class_name": "FeedbackQuota",
+        "name": "FEEDBACK_QUOTA"
+      }
+    ]
+  },
+  "migrations": [
+    {
+      "new_sqlite_classes": ["FeedbackQuota"],
+      "tag": "v1"
+    }
+  ],
+  // Both keyed in src/limit.ts, both ahead of FEEDBACK_QUOTA as cheap
+  // pre-filters: FEEDBACK_RATE_LIMIT per client IP, GLOBAL_RATE_LIMIT on a
+  // constant key. Neither is an aggregate bound (see above); they exist to
+  // absorb ordinary abuse without a Durable Object round trip.
+  // `period` accepts only 10 or 60 seconds.
+  "ratelimits": [
+    {
+      "name": "FEEDBACK_RATE_LIMIT",
+      "namespace_id": "1001",
+      "simple": { "limit": 5, "period": 60 }
+    },
+    {
+      "name": "GLOBAL_RATE_LIMIT",
+      "namespace_id": "1002",
+      "simple": { "limit": 60, "period": 60 }
+    }
+  ]
+}

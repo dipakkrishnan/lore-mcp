@@ -1,5 +1,6 @@
 const assert = require("node:assert/strict");
 const { access, constants, mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } = require("node:fs/promises");
+const { createServer } = require("node:http");
 const { homedir, tmpdir } = require("node:os");
 const { join } = require("node:path");
 const { spawnSync } = require("node:child_process");
@@ -591,6 +592,92 @@ test("memory edit validates the id and content before any CLI call, and round-tr
       assert.equal((await editMemory(directory, id, content)).content, content, "content that looks like an option must still be content");
     }
   } finally {
+    await rm(directory, { recursive: true });
+  }
+});
+
+test("report feedback validates before any CLI call, and round-trips adversarial content through the CLI to a stubbed relay, labeled desktop", async () => {
+  const { reportFeedback } = require("../src/state.cjs");
+  await assert.rejects(reportFeedback("/nonexistent", { title: "", email: "", description: "d" }), {
+    message: /Title cannot be empty/
+  });
+  await assert.rejects(reportFeedback("/nonexistent", { title: "t", email: "", description: "   " }), {
+    message: /Description cannot be empty/
+  });
+
+  const received = [];
+  const server = createServer((request, response) => {
+    let body = "";
+    request.on("data", (chunk) => { body += chunk; });
+    request.on("end", () => {
+      received.push(JSON.parse(body));
+      const payload = JSON.stringify({
+        ok: true,
+        issue_url: "https://github.com/dipakkrishnan/lore-mcp/issues/1",
+        issue_number: 1
+      });
+      response.writeHead(201, { "Content-Type": "application/json" });
+      response.end(payload);
+    });
+  });
+  await new Promise((resolveListening) => server.listen(0, "127.0.0.1", resolveListening));
+  const directory = await mkdtemp(join(tmpdir(), "lore-desktop-"));
+  const previousUrl = process.env.LORE_FEEDBACK_URL;
+  try {
+    process.env.LORE_FEEDBACK_URL = `http://127.0.0.1:${server.address().port}/report`;
+    // A title/description that look like CLI flags must still arrive as
+    // literal text — this is exactly the case --title=VALUE (not
+    // --title VALUE) and stdin (not argv) exist to protect against.
+    const receipt = await reportFeedback(directory, {
+      title: "--json",
+      email: "weird--flag@x.com",
+      description: "--not-a-flag\nmulti line"
+    });
+    assert.deepEqual(receipt, {
+      url: "https://github.com/dipakkrishnan/lore-mcp/issues/1",
+      number: 1
+    });
+    assert.equal(received.length, 1);
+    assert.equal(received[0].title, "--json");
+    assert.equal(received[0].email, "weird--flag@x.com");
+    assert.equal(received[0].description, "--not-a-flag\nmulti line");
+    assert.equal(received[0].metadata.source, "desktop");
+  } finally {
+    if (previousUrl === undefined) delete process.env.LORE_FEEDBACK_URL;
+    else process.env.LORE_FEEDBACK_URL = previousUrl;
+    await new Promise((resolveClose) => server.close(resolveClose));
+    await rm(directory, { recursive: true });
+  }
+});
+
+test("report feedback omits --email entirely when none is given", async () => {
+  const { reportFeedback } = require("../src/state.cjs");
+  const received = [];
+  const server = createServer((request, response) => {
+    let body = "";
+    request.on("data", (chunk) => { body += chunk; });
+    request.on("end", () => {
+      received.push(JSON.parse(body));
+      const payload = JSON.stringify({
+        ok: true,
+        issue_url: "https://github.com/dipakkrishnan/lore-mcp/issues/2",
+        issue_number: 2
+      });
+      response.writeHead(201, { "Content-Type": "application/json" });
+      response.end(payload);
+    });
+  });
+  await new Promise((resolveListening) => server.listen(0, "127.0.0.1", resolveListening));
+  const directory = await mkdtemp(join(tmpdir(), "lore-desktop-"));
+  const previousUrl = process.env.LORE_FEEDBACK_URL;
+  try {
+    process.env.LORE_FEEDBACK_URL = `http://127.0.0.1:${server.address().port}/report`;
+    await reportFeedback(directory, { title: "No email", email: "  ", description: "details" });
+    assert.equal(received[0].email, null);
+  } finally {
+    if (previousUrl === undefined) delete process.env.LORE_FEEDBACK_URL;
+    else process.env.LORE_FEEDBACK_URL = previousUrl;
+    await new Promise((resolveClose) => server.close(resolveClose));
     await rm(directory, { recursive: true });
   }
 });
