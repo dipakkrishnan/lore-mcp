@@ -1,5 +1,5 @@
 ---
-id: APP-106
+id: APP-112
 title: Reconcile a completed capture's run status
 priority: P2
 effort: S
@@ -10,7 +10,7 @@ blockers: []
 dependencies: []
 github_issue: https://github.com/dipakkrishnan/lore-mcp/issues/247
 created: 2026-09-11
-updated: 2026-09-11
+updated: 2026-09-13
 ---
 
 ## Problem
