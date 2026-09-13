@@ -142,6 +142,12 @@ export function validSaved(value) {
   return Array.isArray(value) && value.every((item) => item && typeof item === "object" && Number.isInteger(item.id) && item.id > 0 && typeof item.title === "string");
 }
 
+/** Whether a propose_memories result is a real save the owner can already see in Memories — not a correction round, and not "drop all". A capture turn that reaches this point saved something even if the agent never calls finish_task, so this is the safety net for closingRecord's `completed` flag. @param {unknown} outcome @returns {outcome is {saved: SavedMemory[]}} */
+export function savedCompletion(outcome) {
+  return Boolean(outcome) && typeof outcome === "object" && !Array.isArray(outcome)
+    && validSaved(/** @type {{saved?: unknown}} */ (outcome).saved) && /** @type {{saved: SavedMemory[]}} */ (outcome).saved.length > 0;
+}
+
 /** The entries an owner may keep from a memory card: the tool's own limits, and nothing blank. @param {unknown} value @returns {value is ProposedMemory[]} */
 export function validEntries(value) {
   return Array.isArray(value) && value.length <= 5 && value.every((item) => item && typeof item === "object"
@@ -193,6 +199,11 @@ function appendTaskRecord(manager, kind, state, phase = TASKS[kind].phase) {
 export function closingRecord(state, task, completed) {
   if (state !== "working") return null;
   return completed || task === "publish" ? ["done", "Finished"] : ["stopped", "Ready to resume"];
+}
+
+/** What a turn's owner-history job row should say when it ends. A turn that neither threw nor was confirmed complete did not "succeed" — the outcome is unknown, same as a row conceded by reap_jobs — so it must never report the status Recent runs renders as "Done" alongside a summary that says it stopped before finishing. @param {boolean} completed @returns {[string, string]} */
+export function jobOutcome(completed) {
+  return completed ? ["succeeded", "captured"] : ["incomplete", "stopped"];
 }
 
 /** @param {import("@earendil-works/pi-coding-agent").SessionManager} manager @param {AgentTask} task */
@@ -427,7 +438,7 @@ export class LoreAgent {
       await session.prompt(resumed ? body : `/skill:${SKILLS[task]}\n\n${body}`);
       const closing = closingRecord(latestTaskRecord(session.sessionManager, task)?.state, task, this.#completed);
       if (closing) this.#record(session, task, closing[0], closing[1]);
-      outcome = this.#completed ? ["succeeded", "captured"] : ["succeeded", "stopped"];
+      outcome = jobOutcome(this.#completed);
     } catch (error) {
       const session = this.#sessions.get(task);
       if (session && latestTaskRecord(session.sessionManager, task)?.state !== "stopped") this.#record(session, task, "stopped", "Needs another try");
@@ -590,6 +601,10 @@ export class LoreAgent {
       parameters: Type.Object({ entries: Type.Array(entry, { minItems: 1, maxItems: 5 }) }),
       execute: async (_id, { entries }) => {
         const outcome = await this.#attended("Review the capture", () => this.options.proposeMemories(entries));
+        // Safety net for the model forgetting to call finish_task (see agent.mjs's
+        // system prompt): a save the owner can already see in Memories is what
+        // "done" means for a capture, whether or not the agent says so next.
+        if (this.#activeTask === "capture" && savedCompletion(outcome)) this.#completed = true;
         return { content: [{ type: "text", text: JSON.stringify(outcome) }], details: {} };
       }
     });
