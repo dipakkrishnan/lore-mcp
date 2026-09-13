@@ -26,6 +26,10 @@ type Snapshot = {
     // with no profile. Optional: an installed CLI older than this app omits it.
     schedule?: { installed: boolean; executor: "claude" | "codex" | null; cadence: "daily" | "weekly" | null; hour: number | null } | null;
   };
+  // Whether this build has a feedback relay pinned in. Optional: an
+  // installed CLI older than this app omits it, and no relay is the safe
+  // reading of its absence.
+  feedback?: { available: boolean };
   library: {
     counts: { private: number };
     sources: Array<{ name: string; label: string; enabled: boolean; imported: number }>;
@@ -79,6 +83,11 @@ type Sale = {
   payer: string;
   tx: string;
   sold_at: string;
+};
+
+type FeedbackReceipt = {
+  url: string;
+  number: number;
 };
 
 type SearchHit = {
@@ -174,6 +183,7 @@ interface Window {
     schedule(): Promise<void>;
     setPrice(amount: number): Promise<void>;
     sales(): Promise<Sale[]>;
+    reportFeedback(input: { title: string; email: string; description: string }): Promise<FeedbackReceipt>;
     pickFiles(): Promise<string[]>;
     pathFor(file: File): string;
     onAgentEvent(listener: (event: AgentEvent) => void): () => void;

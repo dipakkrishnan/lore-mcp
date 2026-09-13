@@ -1,0 +1,23 @@
+{
+  "report_version": 1,
+  "limits": {
+    "title": { "min": 1, "max": 200 },
+    "email": { "min": 3, "max": 254 },
+    "description": { "min": 1, "max": 20000 },
+    "metadata_field": { "min": 1, "max": 200 },
+    "body_bytes": 131072
+  },
+  "length_unit": "code_points",
+  "sources": ["cli", "desktop"],
+  "metadata_fields": [
+    "submitted_at",
+    "source",
+    "lore_version",
+    "platform",
+    "arch",
+    "python_version",
+    "install_id"
+  ],
+  "install_id_pattern": "^[0-9a-f]{32}$",
+  "submitted_at_pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}Z$"
+}

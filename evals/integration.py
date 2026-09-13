@@ -22,6 +22,7 @@ import subprocess
 import sys
 import tempfile
 from pathlib import Path
+from typing import cast
 
 from run import (
     DEFAULT_JUDGE_MODEL,
@@ -65,7 +66,8 @@ def seed(case: dict[str, object], claude_home: Path) -> None:
     """Write the case's source history as real Claude-source memory files."""
     memory_dir = claude_home / "projects" / str(case["id"]) / "memory"
     memory_dir.mkdir(parents=True)
-    for index, item in enumerate(case["source_history"]):
+    source_history = cast(list[dict[str, object]], case["source_history"])
+    for index, item in enumerate(source_history):
         (memory_dir / f"item-{index}.md").write_text(
             f"# {item['source']} ({item['date']})\n\n{item['content']}\n",
             encoding="utf-8",
@@ -83,16 +85,25 @@ def lore(*args: str) -> None:
     )
 
 
-def synthesize(profile: dict[str, str], lore_home: Path, model: str) -> str:
+def synthesize(profile: dict[str, object], lore_home: Path, model: str) -> str:
     """Run the shipped synthesis prompt with a real executor; return the prompt."""
     from lore.automation import build_prompt
 
     prompt = build_prompt(profile)
     result = subprocess.run(
         [
-            "codex", "exec", "--ephemeral", "--ignore-user-config",
-            "--skip-git-repo-check", "--sandbox", "workspace-write",
-            "--model", model, "--cd", str(lore_home), "-",
+            "codex",
+            "exec",
+            "--ephemeral",
+            "--ignore-user-config",
+            "--skip-git-repo-check",
+            "--sandbox",
+            "workspace-write",
+            "--model",
+            model,
+            "--cd",
+            str(lore_home),
+            "-",
         ],
         input=prompt,
         capture_output=True,
@@ -144,15 +155,17 @@ question-shaped — what the publication answers — never the finding itself.
         PUBLICATIONS_SCHEMA,
         env=PRISTINE_ENV,
     )
+    publications = cast(list[dict[str, object]], drafted["publications"])
     with Store() as store:
         return [
             store.add_publication(
-                title=item["title"], content=item["content"],
-                teaser=item["teaser"],
+                title=str(item["title"]),
+                content=str(item["content"]),
+                teaser=str(item["teaser"]),
                 topic=str(case["id"]).replace("-", " "),
-                provenance=item["provenance"],
+                provenance=cast(list[int], item["provenance"]),
             )
-            for item in drafted["publications"]
+            for item in publications
         ]
 
 
@@ -193,9 +206,10 @@ suggests they answer the question — an empty list if none do.""",
     advertised = {
         entry["id"] for entries in catalog["topics"].values() for entry in entries
     }
+    selected_ids = cast(list[str], selection["ids"])
     fetched = [
         json.loads(call_tool("get", {"id": public_id})["content"][0]["text"])
-        for public_id in selection["ids"]
+        for public_id in selected_ids
         if public_id in advertised  # a hallucinated id must not crash the case
     ]
     return json.dumps({"catalog": catalog, "publications": fetched})
@@ -210,7 +224,7 @@ def forbidden_scan(case: dict[str, object], answer_text: str) -> list[str]:
     """
     from lore.store import Store
 
-    needles = case.get("forbidden_everywhere", [])
+    needles = cast(list[str], case.get("forbidden_everywhere", []))
     if not needles:
         return []
     haystacks = {"answer": answer_text}
@@ -226,7 +240,9 @@ def forbidden_scan(case: dict[str, object], answer_text: str) -> list[str]:
     ]
 
 
-def run_case(case: dict[str, object], task: dict[str, object], args: argparse.Namespace) -> dict[str, object]:
+def run_case(
+    case: dict[str, object], task: dict[str, object], args: argparse.Namespace
+) -> dict[str, object]:
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)
         lore_home = root / "lore"
@@ -238,8 +254,10 @@ def run_case(case: dict[str, object], task: dict[str, object], args: argparse.Na
         seed(case, root / "claude")
         lore("setup", "--yes")
         synthesize(
-            {"role": str(case["owner_profile"]),
-             "boundaries": "secrets, credentials, third-party private information"},
+            {
+                "role": str(case["owner_profile"]),
+                "boundaries": "secrets, credentials, third-party private information",
+            },
             lore_home,
             args.model,
         )
@@ -253,9 +271,12 @@ def run_case(case: dict[str, object], task: dict[str, object], args: argparse.Na
             "answer": answer_text,
         }
         criteria_results = []
-        for criterion in case["criteria"]:
+        criteria = cast(list[dict[str, object]], case["criteria"])
+        for criterion in criteria:
             verdict = run_model(
-                judge_prompt(task, deliverables[criterion["deliverable"]], criterion),
+                judge_prompt(
+                    task, deliverables[str(criterion["deliverable"])], criterion
+                ),
                 args.judge_model,
                 VERDICT_SCHEMA,
                 env=PRISTINE_ENV,

@@ -10,7 +10,7 @@ from typing import Any, Literal, cast
 
 from pydantic import BaseModel, ConfigDict, TypeAdapter
 
-from . import automation, blueprint
+from . import automation, blueprint, feedback
 from .paths import claude_home, home
 from .sources import available_sources
 from .store import JOB_SUMMARIES, Store
@@ -213,6 +213,7 @@ def build() -> dict[str, object]:
         publication_price = store.setting("price_usd", None)
         answer_price = store.setting("answer_price_usd", 0.0)
         answer_enabled = store.setting("answer_enabled", False) is True
+        telemetry_enabled = store.setting("telemetry_enabled", True) is not False
         node_url = store.setting("node_url", None)
         # Reading concedes jobs whose liveness claim expired, so an interrupted
         # run turns visibly incomplete on the next refresh without a scheduler.
@@ -253,7 +254,12 @@ def build() -> dict[str, object]:
             "blueprint_configured": blueprint.blueprint_path().is_file(),
             "profile_configured": automation.profile_path().is_file(),
             "schedule": automation.schedule_state(),
+            "telemetry_enabled": telemetry_enabled,
         },
+        # Whether this build can send feedback at all. The Desktop app hides
+        # its Report Feedback button when it cannot, so a release with no
+        # relay pinned shows no Send it could not honor (XC-028).
+        "feedback": {"available": feedback.available()},
         "library": {
             "counts": {
                 "private": sum(m["status"] == "private" for m in memories),

@@ -1,21 +1,21 @@
 ---
-id: APP-107
+id: APP-114
 title: Resuming a session cannot re-ask its last unanswered card
 priority: P2
 effort: L
 component: desktop-app
 status: in-review
-related: [APP-106, APP-018]
+related: [APP-113, APP-018]
 blockers: []
 dependencies: []
 github_issue: https://github.com/dipakkrishnan/lore-mcp/issues/256
 created: 2026-09-12
-updated: 2026-09-12
+updated: 2026-09-13
 ---
 
 ## Problem
 
-Split out of `APP-106` (issue #256). The reported repro's turn 11 is a card
+Split out of `APP-113` (issue #256). The reported repro's turn 11 is a card
 ("What would you like to do next?" — "Pause here" / "Try sign-in again")
 that had fully rendered but was not yet clicked when the owner quit and
 relaunched. After relaunch, the task shows as `needs_you`/"Ready to resume,"
@@ -62,7 +62,7 @@ its own explicit closing-out step (e.g. resolve the dangling call with a
 
 ## Notes
 
-Split from `APP-106` during its implementation (2026-09-12): that item
+Split from `APP-113` during its implementation (2026-09-12): that item
 fixed a confirmed, deterministic bug in how `history()` renders *resolved*
 plain-text tool results, which is unrelated to this item's problem (there is
 no resolved result to render here at all). This item likely needs someone

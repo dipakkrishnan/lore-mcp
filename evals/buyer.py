@@ -28,6 +28,7 @@ import json
 import os
 import tempfile
 from pathlib import Path
+from typing import cast
 
 from run import DEFAULT_JUDGE_MODEL, VERDICT_SCHEMA, judge_prompt, run_model
 
@@ -63,8 +64,9 @@ def seed(case: dict[str, object], lore_home: Path) -> dict[str, str]:
     """
     from lore.store import Store
 
+    owner_publications = cast(list[dict[str, object]], case["owner_publications"])
     with Store() as store:
-        for item in case["owner_publications"]:
+        for item in owner_publications:
             title = str(item["title"])
             store.put(
                 source="eval",
@@ -93,7 +95,9 @@ def discover() -> dict[str, object]:
     """Call the real MCP `discover` tool and parse its payload."""
     from lore.mcp import call_tool
 
-    return json.loads(call_tool("discover", {})["content"][0]["text"])
+    return cast(
+        dict[str, object], json.loads(call_tool("discover", {})["content"][0]["text"])
+    )
 
 
 def buyer_select(
@@ -123,12 +127,12 @@ none look relevant. Respond with JSON only, no other text, matching
         SELECTION_SCHEMA,
         env=PRISTINE_ENV,
     )
-    advertised = {
-        entry["id"] for entries in catalog["topics"].values() for entry in entries
-    }
+    topics = cast(dict[str, list[dict[str, object]]], catalog["topics"])
+    advertised = {entry["id"] for entries in topics.values() for entry in entries}
     # A hallucinated id must not crash the case -- same guard integration.py
     # uses in its own answer().
-    return [public_id for public_id in selection["ids"] if public_id in advertised]
+    ids = cast(list[str], selection["ids"])
+    return [public_id for public_id in ids if public_id in advertised]
 
 
 def fetch(ids: list[str]) -> str:
@@ -159,9 +163,12 @@ def run_case(
 
         deliverables = {"fetched": fetched_text}
         criteria_results = []
-        for criterion in case["criteria"]:
+        criteria = cast(list[dict[str, object]], case["criteria"])
+        for criterion in criteria:
             verdict = run_model(
-                judge_prompt(task, deliverables[criterion["deliverable"]], criterion),
+                judge_prompt(
+                    task, deliverables[str(criterion["deliverable"])], criterion
+                ),
                 args.judge_model,
                 VERDICT_SCHEMA,
                 env=PRISTINE_ENV,
@@ -193,7 +200,7 @@ def run_case(
                 f" (expected {expected})",
                 flush=True,
             )
-        matched = sum(result["as_expected"] for result in criteria_results)
+        matched = sum(bool(result["as_expected"]) for result in criteria_results)
         return {
             "id": case["id"],
             "catalog_publication_count": catalog["publication_count"],

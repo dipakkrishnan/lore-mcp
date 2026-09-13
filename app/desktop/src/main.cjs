@@ -3,7 +3,7 @@ const { join } = require("node:path");
 const { app, BrowserWindow, dialog, ipcMain, safeStorage, shell, systemPreferences } = require("electron");
 const { provision, skillsDir, whisper } = require("./runtime.cjs");
 const { transcribe } = require("./dictation.cjs");
-const { lore, loreStream, openable, readState, readSales, searchMemories, readMemory, renameMemory, editMemory, captureMemories, setPrice, candidates, decide, useRuntime } = require("./state.cjs");
+const { lore, loreStream, openable, readState, readSales, searchMemories, readMemory, renameMemory, editMemory, captureMemories, setPrice, candidates, decide, reportFeedback, useRuntime } = require("./state.cjs");
 
 if (process.env.LORE_DESKTOP_USER_DATA) app.setPath("userData", process.env.LORE_DESKTOP_USER_DATA);
 
@@ -109,6 +109,12 @@ function registerIpc(loreHome) {
   ipcMain.handle("store:sales", () => readSales(loreHome));
   ipcMain.handle("schedule:install", () => lore(loreHome, ["profile", join(loreHome, "automation", "profile.json")]));
   ipcMain.handle("pricing:set", (_event, amount) => setPrice(loreHome, amount));
+  ipcMain.handle("feedback:report", (_event, input) => {
+    if (!input || typeof input.title !== "string" || typeof input.email !== "string" || typeof input.description !== "string") {
+      throw new Error("Invalid feedback report");
+    }
+    return reportFeedback(loreHome, input);
+  });
   ipcMain.handle("files:pick", async () => {
     if (!window) return [];
     const { filePaths } = await dialog.showOpenDialog(window, { properties: ["openFile", "multiSelections"] });

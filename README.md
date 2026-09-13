@@ -35,6 +35,7 @@ lore price 0.50               # advertise a fixed per-publication price
 lore status
 lore node deploy --wallet 0x… # deploy at the configured price; rerun after price changes
 lore blueprint show            # see the shape of your lore, once captured
+lore report-feedback           # send feedback to the Lore maintainers as a GitHub issue
 ```
 
 ### Agent plugins
@@ -228,7 +229,12 @@ Enforced in code today:
 - revocation takes effect locally at once and is pushed to the edge, with a
   persistent `lore status` reminder if the push fails;
 - the free surface advertises only owner-approved teasers, topics, and
-  day-truncated freshness.
+  day-truncated freshness;
+- `lore report-feedback` and the Desktop app's Report Feedback dialog are the
+  one thing that leaves the machine unprompted by a running skill — only when
+  the owner explicitly runs the command or submits the form. It goes to a
+  maintainer-operated relay (`feedback-relay/`) that files it as a **public**
+  GitHub issue; see `PRIVACY.md` for exactly what metadata rides along.
 
 Drafting skills ask agents to handle third-party and confidential information,
 but this is guidance rather than a code-level validator.

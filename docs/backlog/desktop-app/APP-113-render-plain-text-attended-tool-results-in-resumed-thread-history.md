@@ -1,16 +1,16 @@
 ---
-id: APP-106
+id: APP-113
 title: Render plain-text attended-tool results in resumed thread history
 priority: P2
 effort: S
 component: desktop-app
 status: completed
-related: [APP-018, APP-107]
+related: [APP-018, APP-114]
 blockers: []
 dependencies: []
 github_issue: https://github.com/dipakkrishnan/lore-mcp/issues/256
 created: 2026-09-12
-updated: 2026-09-12
+updated: 2026-09-13
 ---
 
 ## Problem
@@ -74,7 +74,7 @@ to render for a call the owner never answered, so this is about how (or
 whether) the app resumes a session whose last message is a dangling,
 unresolved `toolCall` at all — likely inside how `session.prompt()` from
 `@earendil-works/pi-coding-agent` handles resuming across that boundary, not
-a gap in `history()`. Split out as `APP-107` rather than guessed at here;
+a gap in `history()`. Split out as `APP-114` rather than guessed at here;
 implementing a fix for it without being able to drive the real Electron app
 end-to-end (no Cloudflare/model credentials in this environment) risked
 either missing the actual mechanism or destabilizing a shipped resume path.
