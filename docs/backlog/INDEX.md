@@ -80,6 +80,7 @@ obsolete), then `priority` (P0 → P3).
 | [APP-065](./desktop-app/APP-065-measure-desktop-test-coverage.md) | Measure the desktop app's test coverage | P3 | S | desktop-app | in-review | APP-066, APP-060, APP-061, APP-062, APP-063, APP-064, XC-003 | APP-066 | — | — |
 | [APP-104](./desktop-app/APP-104-drop-the-or-from-a-free-text-question-with-no-options.md) | Drop the "Or" from a free-text question with no options | P3 | XS | desktop-app | in-review | — | — | — | [#254](https://github.com/dipakkrishnan/lore-mcp/issues/254) |
 | [APP-111](./desktop-app/APP-111-show-a-memorys-metadata-as-properties-on-the-sheet.md) | Show a memory's metadata as properties on the sheet | P3 | S | desktop-app | in-review | APP-096, APP-037, APP-075, APP-043, APP-108 | — | — | — |
+| [APP-110](./desktop-app/APP-110-preview-a-memory-on-hover-without-leaving-the-list.md) | Preview a memory on hover without leaving the list | P3 | S | desktop-app | in-review | APP-092, APP-096, APP-108, APP-023 | — | — | — |
 | [APP-010](./desktop-app/APP-010-constrain-native-read-to-owner-selected-files.md) | Constrain native read to owner-selected files | P1 | M | desktop-app | ready | APP-003, APP-005, APP-009 | — | — | — |
 | [APP-024](./desktop-app/APP-024-start-recording-from-the-dictation-button.md) | Start recording from the dictation button | P1 | M | desktop-app | ready | APP-003, APP-005, APP-009, APP-010, APP-020 | — | — | — |
 | [APP-036](./desktop-app/APP-036-guide-cloudflare-and-wallet-setup-inside-desktop.md) | Guide Cloudflare and wallet setup inside Desktop | P1 | M | desktop-app | ready | APP-004, APP-005, APP-006, APP-030, MON-006, XC-005 | — | — | — |
@@ -197,7 +198,6 @@ obsolete), then `priority` (P0 → P3).
 | [APP-088](./desktop-app/APP-088-put-add-memory-beside-the-title.md) | Put Add Memory beside the title, not above it | P3 | XS | desktop-app | completed | APP-067, APP-051 | — | — | — |
 | [APP-092](./desktop-app/APP-092-explain-memories-and-for-sale-on-hover.md) | Explain Memories and For Sale on hover | P3 | XS | desktop-app | completed | APP-091, APP-054 | — | — | — |
 | [APP-109](./desktop-app/APP-109-make-every-empty-state-name-the-next-action.md) | Make every empty state name the next action and link to it | P3 | XS | desktop-app | completed | APP-092, APP-094, APP-081, APP-107 | — | — | — |
-| [APP-110](./desktop-app/APP-110-preview-a-memory-on-hover-without-leaving-the-list.md) | Preview a memory on hover without leaving the list | P3 | S | desktop-app | completed | APP-092, APP-096, APP-108, APP-023 | — | — | — |
 | [MON-001](./monetization/MON-001-cloudflare-gateway-deployment-guide.md) | Write a deployment guide for the Cloudflare Tunnel / Monetization Gateway path | P2 | L | monetization | obsolete | — | — | — | — |
 | [MON-014](./monetization/MON-014-keep-long-running-paid-tool-calls-alive-through-the-bridge.md) | Keep long-running paid tool calls alive through the bridge | P2 | S | monetization | obsolete | MON-007, MCP-003 | — | — | — |
 | [APP-074](./desktop-app/APP-074-simplify-the-shape-card.md) | Simplify the shape card | P3 | S | desktop-app | obsolete | APP-052, APP-022 | — | — | — |

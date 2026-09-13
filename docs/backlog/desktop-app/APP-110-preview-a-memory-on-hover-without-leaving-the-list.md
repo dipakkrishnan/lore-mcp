@@ -4,13 +4,13 @@ title: Preview a memory on hover without leaving the list
 priority: P3
 effort: S
 component: desktop-app
-status: completed
+status: in-review
 related: [APP-092, APP-096, APP-108, APP-023]
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-09-12
-updated: 2026-09-12
+updated: 2026-09-13
 ---
 
 ## Problem
@@ -42,7 +42,9 @@ A hover card, same mechanism and surface style as the tab notes from
 
 ## Acceptance criteria
 
-- [x] Hovering or focusing a memory row on Memories, For Sale, or Related shows a preview card after a short delay, and leaving or pressing esc hides it.
+- [x] Hovering or focusing a memory row on Memories shows a preview card after a short delay, and leaving or pressing esc hides it.
+- [ ] Hovering or focusing a row on For Sale shows the same preview card. Blocked on a `publication show --json` CLI command; the snapshot only carries title and topic today.
+- [ ] Hovering or focusing a row on Related shows the same preview card. Waits on `APP-108`, which the Related section itself depends on.
 - [x] The card shows title, captured date, and clipped content, and offers no actions.
 - [x] Clicking the card opens that memory's sheet.
 - [x] The card stays inside the window at every row position.

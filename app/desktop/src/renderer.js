@@ -1915,6 +1915,7 @@ let paletteTimer = 0;
 function openPalette() {
   if (palette.open) { paletteInput.select(); return; }
   closeSheet();
+  hidePeek();
   paletteInput.value = "";
   void fillPalette("");
   palette.showModal();
