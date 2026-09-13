@@ -12,6 +12,7 @@ import os
 import stat
 import sys
 import unittest
+from datetime import date
 from pathlib import Path
 from unittest.mock import patch
 
@@ -185,8 +186,35 @@ class InstallTest(LoreTestCase):
                 with self.assertRaisesRegex(ValueError, "profile hour"):
                     automation.install({"executor": "codex", "hour": hour})
 
+    def test_install_rejects_an_invalid_weekday_from_a_saved_profile(self) -> None:
+        for weekday in ("0", True, -1, 7):
+            with self.subTest(weekday=weekday):
+                with self.assertRaisesRegex(ValueError, "profile weekday"):
+                    automation.install(
+                        {"executor": "codex", "cadence": "weekly", "weekday": weekday}
+                    )
+
+    def test_a_weekly_sunday_profile_installs_on_sunday_end_to_end(self) -> None:
+        profile = automation.save_profile(automation_profile(weekday=0))
+        with patch("lore.automation.remove_task"):
+            definition = automation.install(profile).read_text()
+        self.assertIn('rrule = "FREQ=WEEKLY;BYDAY=SU;BYHOUR=9;BYMINUTE=0"', definition)
+
+    def test_a_weekly_profile_without_a_weekday_defaults_to_the_install_day(
+        self,
+    ) -> None:
+        # 2024-01-03 is a Wednesday; a profile that never named a day should
+        # install on whatever day it's saved, not silently fall back to Monday.
+        with patch("lore.automation.date") as mock_date:
+            mock_date.today.return_value = date(2024, 1, 3)
+            task = automation.task_for(automation_profile())
+        self.assertEqual(task.weekday, 3)  # windup: 0=Sunday..6=Saturday
+
     def test_a_codex_schedule_hands_off_with_no_claude_specific_grants(self) -> None:
-        profile = automation.save_profile(automation_profile())
+        # weekday is pinned explicitly here so this test's rrule assertion does
+        # not depend on what day it happens to run; the default-day behavior has
+        # its own tests below.
+        profile = automation.save_profile(automation_profile(weekday=1))
         with patch("lore.automation.remove_task") as remove:
             definition = automation.install(profile).read_text()
         # Installing one executor retires the other, so a cadence change can

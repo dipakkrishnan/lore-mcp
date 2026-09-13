@@ -5,6 +5,7 @@ import os
 import shlex
 import sys
 from dataclasses import replace
+from datetime import date
 from enum import Enum
 from pathlib import Path
 from typing import Annotated, Literal
@@ -51,6 +52,9 @@ class AutomationProfile(BaseModel):
     model: str | None = None
     cadence: Literal["daily", "weekly"] | None = None
     hour: Annotated[int, Field(strict=True, ge=0, le=23)] | None = None
+    # 0=Sunday..6=Saturday, matching windup's iCalendar day numbering. Unset means
+    # "the day this profile is installed", not a hardcoded day.
+    weekday: Annotated[int, Field(strict=True, ge=0, le=6)] | None = None
 
     @field_validator(
         "role",
@@ -224,6 +228,20 @@ def task_for(profile: dict[str, object]) -> Task:
     hour = profile.get("hour", 21)
     if isinstance(hour, bool) or not isinstance(hour, int) or not 0 <= hour <= 23:
         raise ValueError("profile hour must be an integer from 0 through 23")
+    weekday = profile.get("weekday")
+    if weekday is None:
+        # No day was chosen for this profile: default to the day the schedule is
+        # installed, not a hardcoded Monday. Python's date.weekday() is
+        # Monday=0..Sunday=6; windup's Task.weekday is Sunday=0..Saturday=6.
+        weekday = (date.today().weekday() + 1) % 7
+    elif (
+        isinstance(weekday, bool)
+        or not isinstance(weekday, int)
+        or not 0 <= weekday <= 6
+    ):
+        raise ValueError(
+            "profile weekday must be an integer from 0 (Sunday) through 6 (Saturday)"
+        )
     lore = (sys.executable, "-m", "lore")
     search_path = os.pathsep.join(
         (
@@ -247,6 +265,7 @@ def task_for(profile: dict[str, object]) -> Task:
         cwd=home(),
         cadence=str(profile.get("cadence", "daily")),
         hour=hour,
+        weekday=weekday,
         model=str(profile.get("model", "")),
         # The scheduler runs this itself, before handing off to the agent, so it
         # is the one moment a scheduled synthesis run is *observed* starting.

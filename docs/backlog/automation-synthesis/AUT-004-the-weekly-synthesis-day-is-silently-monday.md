@@ -4,13 +4,13 @@ title: The weekly synthesis day is silently Monday, whatever the owner was told
 priority: P1
 effort: S
 component: automation-synthesis
-status: ready
+status: in-progress
 related: [AUT-001, AUT-002, APP-030]
-blockers: []
+blockers: ["dipakkrishnan/windup#1 — the pinned windup commit (372af8a) and the branch adding Task.weekday (PR #1, tip 7f2caa8) are two divergent, unmerged lines off windup's initial commit; reconciling them is a human call, see Notes"]
 dependencies: []
 github_issue: null
 created: 2026-08-24
-updated: 2026-08-26
+updated: 2026-09-12
 ---
 
 ## Problem
@@ -34,13 +34,13 @@ profile without a weekday keeps current behavior.
 
 ## Acceptance criteria
 
-- [ ] The profile stores an explicit weekday for weekly cadence; `lore
+- [x] The profile stores an explicit weekday for weekly cadence; `lore
       profile` validates it.
-- [ ] `_rrule()` and the launchd path derive the day from the profile;
+- [x] `_rrule()` and the launchd path derive the day from the profile;
       no hardcoded Monday.
-- [ ] The onboarding scheduling exchange offers the day, and the
+- [x] The onboarding scheduling exchange offers the day, and the
       confirmation echoes exactly what was installed.
-- [ ] Tests cover a weekly Sunday profile end to end.
+- [x] Tests cover a weekly Sunday profile end to end.
 
 ## Notes
 
@@ -49,3 +49,66 @@ Dipak's installed automation was hand-corrected to `BYDAY=SU` on
 chose; the schema fix makes that unnecessary for the next owner.
 
 **Prioritization pass 2026-08-26:** No blockers, small effort, concrete AC with a named user complaint behind it. Promoted `in-review` → `ready`.
+
+**Round 1 review (2026-09-12) found the "windup already has `weekday`" claim below
+was verified against the wrong artifact** — this workspace's local sibling
+`~/code_projects/windup` checkout, not the dependency this repo's CI actually
+installs (`windup @ git+https://github.com/dipakkrishnan/windup.git@372af8a`
+in `pyproject.toml`). Re-verified against the real pin: **`372af8a` does not
+have `weekday`.** `windup`'s repo has two divergent branches off its initial
+commit (`0b8d501`) that never merged into each other:
+
+- `0b8d501 → 025e1e8 → 372af8a` ("Harden local task scheduling" / "Clarify
+  task execution boundaries") — what's currently pinned. Adds `Task.add_dirs`,
+  which `lore/automation.py`'s `task_for()` already depends on for the Claude
+  executor path (`add_dirs=(claude_home(), codex_home())`).
+- `0b8d501 → 33f61b2 → 7f2caa8` ("Add weekday, minute, and interval
+  scheduling" / "Add a monthly cadence") — open as
+  [dipakkrishnan/windup#1](https://github.com/dipakkrishnan/windup/pull/1),
+  unmerged. Has `Task.weekday`, not `Task.add_dirs`.
+
+Bumping the pin to `7f2caa8` would fix this item's `TypeError` but reintroduce
+the exact failure mode `add_dirs` was added to fix (`_install_claude` would
+break for the Claude executor). Neither branch is a superset of the other, so
+this PR cannot pick one pin without a regression — the two windup branches
+need a human merge-order decision in `windup` itself (out of scope for a
+`lore-mcp` change: this worker doesn't have standing to merge or push to
+`windup`). Holding at `in-progress` pending that; this item's own code
+(`lore/automation.py`, the onboarding skill, tests) is unaffected and ready to
+merge the moment windup#1 (or an equivalent) lands and the pin can move.
+
+**2026-09-12, pre-review pass.** Scope turned out smaller than described: `windup`'s
+`Task` dataclass (`windup/src/windup/tasks.py`) already carries a `weekday`
+field and `_rrule()` already derives `BYDAY` from it — that side was already
+fixed, presumably as a byproduct of the monthly-cadence work. The actual bug
+was entirely in `lore/automation.py`: `AutomationProfile` had no `weekday`
+field at all, and `task_for()` never passed one to `Task(...)`, so every
+schedule silently used the dataclass's `weekday=1` default regardless of what
+an owner picked. Fixed by adding `weekday` (0=Sunday..6=Saturday, matching
+windup's convention) to the profile schema, with the same manual
+range-validation `task_for()` already does for `hour` (persisted JSON bypasses
+pydantic, so a corrupt on-disk value must not silently become a bad schedule).
+When unset, `task_for()` defaults to the install day via
+`(date.today().weekday() + 1) % 7`, converting Python's Monday=0 convention to
+windup's Sunday=0. Updated `lore-onboard/SKILL.md`'s scheduling exchange to
+ask for the day on a `weekly` cadence and echo it back exactly, and added
+`weekday` to its `lore profile` example. Tests added: an explicit-Sunday
+end-to-end case, an invalid-weekday rejection case mirroring the existing
+invalid-hour one, and a default-to-install-day case with `date.today()`
+mocked to a known Wednesday. The pre-existing
+`test_a_codex_schedule_hands_off_with_no_claude_specific_grants` now pins
+`weekday=1` explicitly so its `BYDAY=MO` assertion no longer depends on
+whatever day it happens to run.
+
+Did not touch `lore/snapshot.py`'s `schedule_state()` — the desktop app's
+"what did we actually install" surface (APP-084) has its own exact-dict-shape
+test in `tests/test_snapshot.py`, and adding a `weekday` key there is outside
+this item's stated acceptance criteria.
+
+**Note on verification:** this session's sandbox hard-blocks `uv run`/`python3`
+execution (confirmed via both a direct attempt and a fresh subagent), so
+`ruff check`, `ruff format --check`, `python -m unittest`, and `mypy` could
+not actually be run here. The change was hand-traced against windup's
+`_rrule()`/`Task.__post_init__` and against the existing test patterns instead
+of executed. Flagging this plainly rather than claiming a green run — the
+reviewer pass on the PR should run the real CI commands.
