@@ -4,13 +4,13 @@ title: Batch captured memories by date in the Memories tab
 priority: P2
 effort: M
 component: desktop-app
-status: ideation
+status: in-review
 related: []
 blockers: []
 dependencies: []
 github_issue: https://github.com/dipakkrishnan/lore-mcp/issues/171
 created: 2026-09-01
-updated: 2026-09-01
+updated: 2026-09-12
 ---
 
 ## Problem

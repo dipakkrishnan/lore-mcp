@@ -4,13 +4,13 @@ title: Drive the owner's browser steps for them
 priority: P3
 effort: L
 component: cross-cutting
-status: ideation
+status: in-review
 related: [APP-056, XC-026, XC-024, APP-008]
 blockers: []
 dependencies: ["A browser-use surface the desktop can drive with the owner watching (Claude in Chrome, Playwright over the owner's browser, or similar)"]
 github_issue: null
 created: 2026-09-05
-updated: 2026-09-05
+updated: 2026-09-12
 ---
 
 ## Problem

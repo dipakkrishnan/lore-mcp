@@ -26,7 +26,11 @@ const agentPanel = $("#agent");
 const detailSlot = $("#detail");
 const log = $("#log");
 const requestSlot = $("#request");
-const search = /** @type {HTMLInputElement} */ ($("#search"));
+const search = /** @type {HTMLButtonElement} */ ($("#search"));
+const palette = /** @type {HTMLDialogElement} */ ($("#palette"));
+const paletteInput = /** @type {HTMLInputElement} */ ($("#palette-input"));
+const paletteList = $("#palette-list");
+const paletteEnter = $("#palette-enter");
 const mainEl = $("#main");
 const header = /** @type {HTMLElement} */ (mainEl.querySelector("header"));
 const navButtons = /** @type {HTMLButtonElement[]} */ ([...document.querySelectorAll("nav button")]);
@@ -48,8 +52,6 @@ let detailTask = null;
 let detailRecord = null;
 /** @type {string[]} */
 let attachments = [];
-/** @type {SearchHit[] | null} */
-let hits = null;
 let liveText = "";
 let previewSignIn = false;
 /** @type {Line[]} */
@@ -193,7 +195,23 @@ function memoryRow(id, title, detail) {
   text.append(el("b", "", title), el("span", "", detail));
   open.append(text, chip("Private"));
   open.addEventListener("click", () => openMemory(Number(id)));
+  peekable(open, Number(id));
   node.append(open, button("Draft for sale", "quiet", () => void publishMemory({ id: Number(id), title })));
+  return node;
+}
+
+/** An empty section that names its next step and carries the control that takes it. @param {string} text @param {HTMLElement} action */
+function emptyState(text, action) {
+  const node = el("div", "card pad empty act");
+  node.append(el("span", "", text), action);
+  return node;
+}
+
+/** A button that reads as a link inside a sentence. @param {string} label @param {() => void} onClick */
+function inline(label, onClick) {
+  const node = el("button", "inline", label);
+  node.type = "button";
+  node.addEventListener("click", onClick);
   return node;
 }
 
@@ -209,6 +227,7 @@ function renderMemoryBody(content) {
 
 /** @param {number} id */
 async function openMemory(id) {
+  hidePeek();
   /** @type {Memory} */
   let memory;
   try {
@@ -623,15 +642,18 @@ function renderToday(s) {
 
 /** @param {Snapshot} s */
 function memoriesCountLabel(s) {
-  return hits ? `${hits.length} ${hits.length === 1 ? "match" : "matches"}` : `${s.library.items.filter((item) => item.status === "private").length} private`;
+  return `${privateMemories(s).length} private`;
+}
+
+/** @param {Snapshot} s */
+function privateMemories(s) {
+  return s.library.items.filter((item) => item.status === "private");
 }
 
 /** @param {Snapshot} s */
 function renderMemories(s) {
-  const items = hits
-    ? hits.map((hit) => memoryRow(hit.id, hit.title, [hit.project, when(hit.updated_at)].filter(Boolean).join(" · ")))
-    : s.library.items.filter((item) => item.status === "private").map((item) => memoryRow(item.id, item.title, [item.project_label, when(item.updated_at)].filter(Boolean).join(" · ")));
-  const body = items.length ? card(items) : el("div", "card pad empty", hits ? "Nothing matches that." : "Nothing kept yet.");
+  const items = privateMemories(s).map((item) => memoryRow(item.id, item.title, [item.project_label, when(item.updated_at)].filter(Boolean).join(" · ")));
+  const body = items.length ? card(items) : emptyState("Nothing kept yet. Say what you learned and Lore will keep it.", button("Add your first memory", "quiet", () => startCapture()));
   return [section("", body)];
 }
 
@@ -722,7 +744,9 @@ function renderStore(s) {
   if (s.node.url) {
     text.append(storeAddress(s.node));
   } else {
-    text.append(el("span", "", "Open one from Today when you're ready to sell."));
+    const open = el("span");
+    open.append(inline("Open a store", () => void startDeploy()), " when you're ready to sell.");
+    text.append(open);
   }
   lead.append(text);
   const prices = el("div", "prices");
@@ -784,7 +808,7 @@ function renderStore(s) {
   if (pushOffer) parts.push(seamCard());
   parts.push(section("For sale", approved.length
     ? card(approved.map((item) => row(item.title, sold(item), controls(item))))
-    : el("div", "card pad empty", "Nothing for sale yet. Publish something from Today."),
+    : emptyState("Nothing for sale yet.", button("Draft one from a memory", "quiet", () => show("memories"))),
     aside));
   if (revoked.length) parts.push(section("Taken down", card(revoked.map((item) => row(item.title, item.topic, item.live === true ? chip("Still on your store", "attention") : chip("Taken down"))))));
   parts.push(renderSales());
@@ -792,11 +816,7 @@ function renderStore(s) {
 }
 
 function renderSales() {
-  if (sales instanceof Error) {
-    const box = el("div", "card pad empty retry");
-    box.append(el("span", "", sales.message), button("Try again", "secondary", () => void loadSales()));
-    return section("Sales", box);
-  }
+  if (sales instanceof Error) return section("Sales", emptyState(sales.message, button("Try again", "secondary", () => void loadSales())));
   if (sales === null) return section("Sales", el("div", "card pad empty", "Checking your store…"));
   if (!sales.length) return section("Sales", el("div", "card pad empty", "No sales yet. When a buyer's agent pays for a publication, it shows here."));
   const total = sales.reduce((sum, sale) => sum + sale.price_usd, 0);
@@ -917,6 +937,7 @@ function renderSettings(s) {
 const renderers = { today: renderToday, memories: renderMemories, store: renderStore, settings: renderSettings };
 
 function render() {
+  hidePeek();
   const detail = view === "today" ? detailTask : null;
   const heading = detail ? detailRecord?.title ?? TASK_TITLES[detail] : { today: greeting(), memories: "Memories", store: "For Sale", settings: "Settings" }[view];
   const pendingDrafts = detail === "publish" && candidates.length;
@@ -993,7 +1014,6 @@ function renderAccount() {
 /** @param {View} next */
 function show(next) {
   view = next;
-  if (next !== "memories") { hits = null; search.value = ""; }
   if (next === "store") void loadSales();
   // Leaving For Sale abandons a half-typed price rather than keeping the field
   // open behind the owner's back.
@@ -1015,6 +1035,7 @@ async function load() {
   try {
     [snapshot, candidates, taskItems] = await Promise.all([window.lore.snapshot(), window.lore.candidates().catch(() => []), window.lore.tasks().catch(() => [])]);
     if (detailTask) detailRecord = taskItems.find((item) => item.kind === detailTask) ?? detailRecord;
+    peeked.clear();
     render();
   } catch {
     const error = el("section", "card error");
@@ -1875,40 +1896,189 @@ document.addEventListener("drop", (event) => {
 taskBack.addEventListener("click", closeTask);
 taskRestart.addEventListener("click", () => { if (detailTask) void startOver(detailTask); });
 taskResume.addEventListener("click", () => { if (detailTask) void resumeTask(detailTask); });
-addMemoryBtn.addEventListener("click", () => {
+/** Land on Today with the composer ready, carrying anything the owner already typed. @param {string} [text] */
+function startCapture(text = "") {
   if (detailTask) closeTask();
   show("today");
+  if (text) { input.value = text; fit(input); }
+  if (composer.hidden || input.disabled) { if (text) tell("Finish what Lore is asking first. What you typed is waiting in the composer."); return; }
   input.focus();
+}
+addMemoryBtn.addEventListener("click", () => startCapture());
+
+/* Find or capture: one gesture for both, so the owner never has to know whether a memory exists before reaching for it. */
+/** @type {Array<{node: HTMLElement, verb: string, run: () => void}>} */
+let paletteRows = [];
+let paletteSeq = 0;
+let paletteTimer = 0;
+
+function openPalette() {
+  if (palette.open) { paletteInput.select(); return; }
+  closeSheet();
+  paletteInput.value = "";
+  void fillPalette("");
+  palette.showModal();
+}
+
+/** Recent memories with nothing typed; otherwise title matches, then content matches, then a row that captures what was typed: first when nothing matched, last otherwise. @param {string} query */
+async function fillPalette(query) {
+  const seq = ++paletteSeq;
+  const found = query ? await window.lore.search(query).catch(() => []) : [];
+  if (seq !== paletteSeq) return;
+  const terms = query.split(/\s+/).filter(Boolean);
+  const lower = query.toLowerCase();
+  const ranked = [...found.filter((hit) => hit.title.toLowerCase().includes(lower)), ...found.filter((hit) => !hit.title.toLowerCase().includes(lower))];
+  paletteRows = query
+    ? ranked.map((hit) => paletteRow(highlight("b", hit.title, terms), snippet(hit.content, terms), "open", () => void openMemory(Number(hit.id))))
+    : (snapshot ? privateMemories(snapshot) : []).slice(0, 8).map((item) => paletteRow(el("b", "", item.title), el("span", "", [item.project_label, when(item.updated_at)].filter(Boolean).join(" · ")), "open", () => void openMemory(item.id)));
+  if (query) {
+    const capture = paletteRow(el("b", "", `Capture “${query}”`), el("span", "", "Start a new memory with these words"), "capture", () => startCapture(query));
+    capture.node.classList.add("capture");
+    paletteRows[found.length ? "push" : "unshift"](capture);
+  }
+  paletteRows.forEach((row, index) => { row.node.id = `palette-row-${index}`; });
+  paletteList.replaceChildren(...paletteRows.map((row) => row.node));
+  selectPaletteRow(0);
+}
+
+/** @param {HTMLElement} label @param {HTMLElement} detail @param {string} verb @param {() => void} run */
+function paletteRow(label, detail, verb, run) {
+  const node = el("button", "palette-row");
+  node.type = "button";
+  node.setAttribute("role", "option");
+  node.append(label, detail);
+  node.addEventListener("click", () => { palette.close(); run(); });
+  node.addEventListener("mousemove", () => selectPaletteRow(paletteRows.findIndex((row) => row.node === node)));
+  return { node, verb, run };
+}
+
+/** The typed terms marked inside a piece of text. @param {"b" | "span"} tag @param {string} text @param {string[]} terms */
+function highlight(tag, text, terms) {
+  const node = el(tag);
+  if (!terms.length) { node.textContent = text; return node; }
+  const pattern = new RegExp(`(${terms.map((term) => term.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|")})`, "gi");
+  for (const [index, piece] of text.split(pattern).entries()) if (piece) node.append(index % 2 ? el("mark", "", piece) : piece);
+  return node;
+}
+
+/** The first stretch of content around a match, so the row says why it matched. @param {string} content @param {string[]} terms */
+function snippet(content, terms) {
+  const text = content.replace(FRONTMATTER, "").replace(/\s+/g, " ").trim();
+  const at = Math.min(...terms.map((term) => text.toLowerCase().indexOf(term.toLowerCase())).filter((index) => index >= 0), text.length);
+  const start = Math.max(0, at - 40);
+  return highlight("span", (start ? "…" : "") + text.slice(start, start + 140), terms);
+}
+
+/** @param {number} index */
+function selectPaletteRow(index) {
+  if (!paletteRows.length) { paletteInput.removeAttribute("aria-activedescendant"); return; }
+  const at = (index + paletteRows.length) % paletteRows.length;
+  paletteRows.forEach((row, i) => row.node.setAttribute("aria-selected", String(i === at)));
+  paletteRows[at].node.scrollIntoView({ block: "nearest" });
+  paletteInput.setAttribute("aria-activedescendant", paletteRows[at].node.id);
+  paletteEnter.textContent = paletteRows[at].verb;
+}
+
+paletteInput.addEventListener("input", () => {
+  window.clearTimeout(paletteTimer);
+  paletteTimer = window.setTimeout(() => void fillPalette(paletteInput.value.trim()), 120);
 });
+palette.addEventListener("keydown", (event) => {
+  const index = paletteRows.findIndex((row) => row.node.getAttribute("aria-selected") === "true");
+  if (event.key === "ArrowDown") { event.preventDefault(); selectPaletteRow(index + 1); }
+  else if (event.key === "ArrowUp") { event.preventDefault(); selectPaletteRow(index - 1); }
+  else if (event.key === "Enter") { event.preventDefault(); const row = paletteRows[index]; if (row) { palette.close(); row.run(); } }
+});
+/** @type {HTMLFormElement} */ (palette.querySelector("form")).addEventListener("submit", (event) => event.preventDefault());
+// The panel fills the dialog, so a click that lands on the dialog itself came from the backdrop.
+palette.addEventListener("click", (event) => { if (event.target === palette) palette.close(); });
+search.addEventListener("click", openPalette);
+
+/* A memory's first lines on hover or focus, so a list can be read without opening each sheet. */
+/** Content read once per memory until the next snapshot. @type {Map<number, Promise<Memory>>} */
+const peeked = new Map();
+let peekTimer = 0;
+/** @type {HTMLElement | null} */
+let peek = null;
+
+/** @param {number} id */
+function readPeek(id) {
+  let pending = peeked.get(id);
+  if (!pending) {
+    pending = window.lore.memory(id);
+    peeked.set(id, pending);
+    pending.catch(() => peeked.delete(id));
+  }
+  return pending;
+}
+
+function hidePeek() {
+  window.clearTimeout(peekTimer);
+  peek?.remove();
+  peek = null;
+}
+
+/** @param {HTMLElement} anchor @param {number} id */
+function peekable(anchor, id) {
+  let over = false;
+  const arm = () => {
+    over = true;
+    window.clearTimeout(peekTimer);
+    peekTimer = window.setTimeout(async () => {
+      /** @type {Memory} */
+      let memory;
+      try { memory = await readPeek(id); } catch { return; }
+      if (over && anchor.isConnected && !document.querySelector("dialog[open]")) showPeek(anchor, memory);
+    }, 450);
+  };
+  const disarm = () => {
+    over = false;
+    window.clearTimeout(peekTimer);
+    peekTimer = window.setTimeout(hidePeek, 150);
+  };
+  anchor.addEventListener("mouseenter", arm);
+  anchor.addEventListener("focus", arm);
+  anchor.addEventListener("mouseleave", disarm);
+  anchor.addEventListener("blur", disarm);
+}
+
+/** Read-only on purpose: nothing is one accidental hover from a change. @param {HTMLElement} anchor @param {Memory} memory */
+function showPeek(anchor, memory) {
+  hidePeek();
+  peek = el("div", "card peek");
+  peek.setAttribute("role", "tooltip");
+  const text = memory.content.replace(FRONTMATTER, "").replace(/\s+/g, " ").trim();
+  peek.append(el("b", "", memory.title), el("span", "", [memory.project, when(memory.updated_at)].filter(Boolean).join(" · ")), el("p", "", text.slice(0, 400)));
+  peek.addEventListener("mouseenter", () => window.clearTimeout(peekTimer));
+  peek.addEventListener("mouseleave", hidePeek);
+  peek.addEventListener("click", () => void openMemory(memory.id));
+  document.body.append(peek);
+  // Beside the row when there is room, below it otherwise, and never past the window edge.
+  const a = anchor.getBoundingClientRect();
+  const gap = 8;
+  const margin = 12;
+  const beside = a.right + gap + peek.offsetWidth <= window.innerWidth - margin;
+  let top = beside ? a.top : a.bottom + gap;
+  if (top + peek.offsetHeight > window.innerHeight - margin) top = beside ? window.innerHeight - margin - peek.offsetHeight : a.top - gap - peek.offsetHeight;
+  peek.style.left = `${beside ? a.right + gap : Math.min(a.left, window.innerWidth - margin - peek.offsetWidth)}px`;
+  peek.style.top = `${Math.max(margin, top)}px`;
+}
+mainEl.addEventListener("scroll", hidePeek, { passive: true });
 feedbackBtn.addEventListener("click", openFeedbackDialog);
 for (const nav of navButtons) nav.addEventListener("click", () => {
   const next = /** @type {View} */ (nav.dataset.view);
   if (next === "today" && detailTask) closeTask();
   else show(next);
 });
-let searchTimer = 0;
-let searchSeq = 0;
-search.addEventListener("input", () => {
-  window.clearTimeout(searchTimer);
-  const query = search.value.trim();
-  const seq = ++searchSeq;
-  searchTimer = window.setTimeout(async () => {
-    const found = query ? await window.lore.search(query) : null;
-    if (seq !== searchSeq) return;
-    hits = found;
-    view = "memories";
-    render();
-  }, 250);
-});
-$("#search-form").addEventListener("submit", (event) => event.preventDefault());
 welcomeRetry.addEventListener("click", () => {
   welcomeRetry.hidden = true;
   welcomeNote.textContent = "Setting Lore up on this Mac…";
   void window.lore.retrySetup();
 });
 document.addEventListener("keydown", (event) => {
-  if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") { event.preventDefault(); search.focus(); search.select(); }
+  if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") { event.preventDefault(); openPalette(); }
   if (event.key === "Escape" && accountMenuOpen) { accountMenuOpen = false; renderAccount(); }
+  if (event.key === "Escape") hidePeek();
 });
 document.addEventListener("click", (event) => {
   if (accountMenuOpen && !account.contains(/** @type {Node} */ (event.target))) { accountMenuOpen = false; renderAccount(); }
