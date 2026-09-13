@@ -201,6 +201,7 @@ obsolete), then `priority` (P0 → P3).
 | [APP-088](./desktop-app/APP-088-put-add-memory-beside-the-title.md) | Put Add Memory beside the title, not above it | P3 | XS | desktop-app | completed | APP-067, APP-051 | — | — | — |
 | [APP-092](./desktop-app/APP-092-explain-memories-and-for-sale-on-hover.md) | Explain Memories and For Sale on hover | P3 | XS | desktop-app | completed | APP-091, APP-054 | — | — | — |
 | [APP-109](./desktop-app/APP-109-make-every-empty-state-name-the-next-action.md) | Make every empty state name the next action and link to it | P3 | XS | desktop-app | completed | APP-092, APP-094, APP-081, APP-107 | — | — | — |
+| [APP-115](./desktop-app/APP-115-give-lore-a-mark-that-says-what-it-is.md) | Give Lore a mark that says what it is | P3 | S | desktop-app | completed | APP-107, APP-110 | — | — | — |
 | [MON-001](./monetization/MON-001-cloudflare-gateway-deployment-guide.md) | Write a deployment guide for the Cloudflare Tunnel / Monetization Gateway path | P2 | L | monetization | obsolete | — | — | — | — |
 | [MON-014](./monetization/MON-014-keep-long-running-paid-tool-calls-alive-through-the-bridge.md) | Keep long-running paid tool calls alive through the bridge | P2 | S | monetization | obsolete | MON-007, MCP-003 | — | — | — |
 | [APP-074](./desktop-app/APP-074-simplify-the-shape-card.md) | Simplify the shape card | P3 | S | desktop-app | obsolete | APP-052, APP-022 | — | — | — |
