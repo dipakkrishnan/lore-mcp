@@ -4,13 +4,13 @@ title: Let a desktop owner select memories to combine and synthesize
 priority: P2
 effort: M
 component: desktop-app
-status: ideation
+status: in-review
 related: [AUT-002, APP-014, APP-011]
 blockers: []
 dependencies: []
 github_issue: https://github.com/dipakkrishnan/lore-mcp/issues/173
 created: 2026-09-01
-updated: 2026-09-01
+updated: 2026-09-12
 ---
 
 ## Problem
