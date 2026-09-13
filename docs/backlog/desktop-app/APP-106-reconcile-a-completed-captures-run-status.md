@@ -1,5 +1,5 @@
 ---
-id: APP-105
+id: APP-106
 title: Reconcile a completed capture's run status
 priority: P2
 effort: S
