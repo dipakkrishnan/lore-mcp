@@ -101,6 +101,9 @@ class ParserTest(unittest.TestCase):
                 },
             ),
             (["answer", "off"], {"answer_command": "off"}),
+            (["telemetry", "on"], {"command": "telemetry", "telemetry_command": "on"}),
+            (["telemetry", "off"], {"telemetry_command": "off"}),
+            (["telemetry", "status"], {"telemetry_command": "status"}),
             (["serve", "--transport", "http"], {"transport": "http", "port": 8765}),
             (
                 ["node", "deploy", "--wallet", "0xabc"],
@@ -174,6 +177,7 @@ class ParserTest(unittest.TestCase):
             ["sync", "--source", "notion"],
             ["node"],  # `node` alone does nothing; a subcommand is required
             ["answer"],
+            ["telemetry"],
         ):
             with self.subTest(argv=argv):
                 with captured(), patch.object(sys, "stderr", StringIO()):
@@ -207,6 +211,9 @@ class MainDispatchTest(LoreTestCase):
             (["price"], "price", (None,)),
             (["answer", "on", "p.txt", "2"], "answer_enable", ("p.txt", 2.0)),
             (["answer", "off"], "answer_disable", ()),
+            (["telemetry", "on"], "telemetry_set", (True,)),
+            (["telemetry", "off"], "telemetry_set", (False,)),
+            (["telemetry", "status"], "telemetry_status", ()),
             (["blueprint", "apply", "f.json"], "blueprint_apply", ("f.json",)),
             (["blueprint", "show"], "blueprint_show", ()),
             (["blueprint"], "blueprint_show", ()),
@@ -907,6 +914,32 @@ class AnswerCommandTest(LoreTestCase):
             self.assertEqual(cli.answer_disable(), 0)
         self.assertIn("disabled", output.getvalue())
         self.assertIn("lore push", output.getvalue())
+
+
+class TelemetryCommandTest(LoreTestCase):
+    def test_status_defaults_to_on_for_a_fresh_install(self) -> None:
+        with captured() as output:
+            self.assertEqual(cli.telemetry_status(), 0)
+        self.assertEqual(output.getvalue().strip(), "on")
+
+    def test_off_then_on_round_trips_through_the_setting(self) -> None:
+        with captured() as output:
+            self.assertEqual(cli.telemetry_set(False), 0)
+        self.assertIn("disabled", output.getvalue())
+        with Store() as store:
+            self.assertFalse(store.setting("telemetry_enabled", True))
+        with captured() as output:
+            self.assertEqual(cli.telemetry_status(), 0)
+        self.assertEqual(output.getvalue().strip(), "off")
+
+        with captured() as output:
+            self.assertEqual(cli.telemetry_set(True), 0)
+        self.assertIn("enabled", output.getvalue())
+        with Store() as store:
+            self.assertTrue(store.setting("telemetry_enabled", False))
+        with captured() as output:
+            self.assertEqual(cli.telemetry_status(), 0)
+        self.assertEqual(output.getvalue().strip(), "on")
 
 
 class ProfileTest(LoreTestCase):

@@ -191,6 +191,7 @@ class DesktopSnapshotTest(LoreTestCase):
                     "cadence": None,
                     "hour": None,
                 },
+                "telemetry_enabled": True,
             },
         )
         self.assertEqual(state["library"]["counts"], {"private": 6})
@@ -263,6 +264,12 @@ class DesktopSnapshotTest(LoreTestCase):
                 },
             )
             self.assertEqual(ask.call_args.args[0].agent, automation.Agent.CLAUDE)
+
+    def test_telemetry_enabled_defaults_true_and_reflects_the_setting(self) -> None:
+        self.assertTrue(snapshot.build()["setup"]["telemetry_enabled"])
+        with Store() as store:
+            store.set_setting("telemetry_enabled", False)
+        self.assertFalse(snapshot.build()["setup"]["telemetry_enabled"])
 
     def test_missing_and_unreachable_nodes_are_data(self) -> None:
         response = Mock()

@@ -176,7 +176,7 @@ the `lore.*` attributes. Nothing is exported anywhere else.
 | `MON-020` | Trace the node's paid path in the owner's own Cloudflare account | completed by this change |
 | `MON-021` | Export QA node traces over OTLP and assert node health after each deploy | ready |
 | `XC-029` | Stand up the OTLP collector Worker and its Analytics Engine sink | ready |
-| `CLI-004` | Add `lore telemetry on/off/status` and the `telemetry_enabled` setting | ready |
+| `CLI-004` | Add `lore telemetry on/off/status` and the `telemetry_enabled` setting | completed by this change |
 | `APP-058` | Measure the alpha activation funnel | in-review, blocked on `XC-029` and `CLI-004` |
 
 Respect the standing anti-dashboard constraint already in the backlog
