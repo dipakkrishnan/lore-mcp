@@ -22,7 +22,7 @@ from unittest.mock import patch
 
 from helpers import LoreTestCase, blueprint_input, captured
 
-from lore import automation, blueprint, cli
+from lore import automation, blueprint, cli, feedback
 from lore import deploy as deploy_module
 from lore.store import JobKind, JobStatus, PublicationKind, Status, Store
 
@@ -132,6 +132,34 @@ class ParserTest(unittest.TestCase):
                 {"publication_command": "reapprove", "id": 7},
             ),
             (["push", "--local"], {"command": "push", "local": True}),
+            (
+                ["report-feedback"],
+                {
+                    "command": "report-feedback",
+                    "title": None,
+                    "email": None,
+                    "description": None,
+                    "description_file": None,
+                    "json": False,
+                },
+            ),
+            (
+                [
+                    "report-feedback",
+                    "--title",
+                    "T",
+                    "--email",
+                    "e@x.com",
+                    "--description",
+                    "D",
+                    "--json",
+                ],
+                {"title": "T", "email": "e@x.com", "description": "D", "json": True},
+            ),
+            (
+                ["report-feedback", "--title", "T", "--description-file", "-"],
+                {"title": "T", "description_file": "-"},
+            ),
         ):
             with self.subTest(argv=argv):
                 args = vars(root.parse_args(argv))
@@ -190,6 +218,20 @@ class MainDispatchTest(LoreTestCase):
             (["publication", "decide"], "publication_decide", ()),
             (["publication", "revoke", "7"], "publication_revoke", (7,)),
             (["publication", "reapprove", "7"], "publication_reapprove", (7,)),
+            (
+                [
+                    "report-feedback",
+                    "--title",
+                    "T",
+                    "--email",
+                    "e@x.com",
+                    "--description",
+                    "D",
+                    "--json",
+                ],
+                "report_feedback",
+                ("T", "e@x.com", "D", None, True),
+            ),
         ):
             with self.subTest(argv=argv):
                 with patch.object(cli, target, return_value=0) as handler:
@@ -1730,12 +1772,191 @@ class PushTest(LoreTestCase):
             self.assertEqual(store.recent_jobs(), [])
 
 
+class ReportFeedbackTest(LoreTestCase):
+    def setUp(self) -> None:
+        super().setUp()
+        # Every case below is about the command itself, not the release gate,
+        # so pin a relay to keep the gate out of the way. The gate has its
+        # own case: test_refuses_when_no_relay_has_been_pinned.
+        pinned = patch.object(feedback, "RELAY_URL", "https://feedback.example/report")
+        pinned.start()
+        self.addCleanup(pinned.stop)
+
+    def _receipt(self) -> feedback.Receipt:
+        return feedback.Receipt(
+            ok=True,
+            issue_url="https://github.com/dipakkrishnan/lore-mcp/issues/1",
+            issue_number=1,
+        )
+
+    def test_refuses_when_no_relay_has_been_pinned(self) -> None:
+        """A build with no relay address must say so before prompting, not
+        after the owner has typed a whole report."""
+        with (
+            patch.object(cli, "_interactive", return_value=True),
+            patch.object(feedback, "RELAY_URL", None),
+            patch.dict(os.environ, {}, clear=False) as environment,
+        ):
+            environment.pop(feedback.RELAY_ENV, None)
+            with patch.object(cli.feedback_module, "report_feedback") as submit:
+                with self.assertRaisesRegex(ValueError, "not wired up"):
+                    cli.report_feedback(None, None, None, None, False)
+            submit.assert_not_called()
+
+    def test_refuses_unattended_use(self) -> None:
+        with patch.object(cli, "_interactive", return_value=False):
+            with self.assertRaisesRegex(
+                ValueError, "attended terminal or the Lore desktop app"
+            ):
+                cli.report_feedback("T", None, "D", None, False)
+
+    def test_non_interactive_needs_a_title(self) -> None:
+        with patch.object(cli, "_interactive", return_value=True):
+            with self.assertRaisesRegex(ValueError, "needs --title"):
+                cli.report_feedback(None, "a@b.com", "D", None, False)
+
+    def test_non_interactive_needs_exactly_one_description_source(self) -> None:
+        with patch.object(cli, "_interactive", return_value=True):
+            with self.assertRaisesRegex(ValueError, "exactly one of"):
+                cli.report_feedback("T", None, "D", "file.txt", False)
+            with self.assertRaisesRegex(ValueError, "exactly one of"):
+                cli.report_feedback("T", None, None, None, False)
+
+    def test_non_interactive_json_output(self) -> None:
+        with (
+            patch.object(cli, "_interactive", return_value=True),
+            patch.object(
+                cli.feedback_module, "report_feedback", return_value=self._receipt()
+            ) as submit,
+            captured() as out,
+        ):
+            self.assertEqual(cli.report_feedback("T", "a@b.com", "D", None, True), 0)
+        self.assertEqual(submit.call_args.kwargs["title"], "T")
+        self.assertEqual(submit.call_args.kwargs["email"], "a@b.com")
+        self.assertEqual(submit.call_args.kwargs["description"], "D")
+        self.assertEqual(submit.call_args.kwargs["source"], "cli")
+        self.assertEqual(
+            json.loads(out.getvalue()),
+            {"url": "https://github.com/dipakkrishnan/lore-mcp/issues/1", "number": 1},
+        )
+
+    def test_non_interactive_text_output(self) -> None:
+        with (
+            patch.object(cli, "_interactive", return_value=True),
+            patch.object(
+                cli.feedback_module, "report_feedback", return_value=self._receipt()
+            ),
+            captured() as out,
+        ):
+            self.assertEqual(cli.report_feedback("T", None, "D", None, False), 0)
+        self.assertIn(
+            "Filed as https://github.com/dipakkrishnan/lore-mcp/issues/1",
+            out.getvalue(),
+        )
+
+    def test_description_file_dash_reads_stdin(self) -> None:
+        with (
+            patch.object(cli, "_interactive", return_value=True),
+            patch.object(sys, "stdin", StringIO("from a file\n")),
+            patch.object(
+                cli.feedback_module, "report_feedback", return_value=self._receipt()
+            ) as submit,
+            captured(),
+        ):
+            self.assertEqual(cli.report_feedback("T", None, None, "-", False), 0)
+        self.assertEqual(submit.call_args.kwargs["description"], "from a file\n")
+
+    def test_description_file_reads_a_real_path(self) -> None:
+        path = self.lore_home / "description.txt"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("from disk", encoding="utf-8")
+        with (
+            patch.object(cli, "_interactive", return_value=True),
+            patch.object(
+                cli.feedback_module, "report_feedback", return_value=self._receipt()
+            ) as submit,
+            captured(),
+        ):
+            self.assertEqual(cli.report_feedback("T", None, None, str(path), False), 0)
+        self.assertEqual(submit.call_args.kwargs["description"], "from disk")
+
+    def test_interactive_prompts_for_every_field_and_submits(self) -> None:
+        answers = iter(["A Title", "someone@example.com"])
+        with (
+            patch.object(cli, "_interactive", return_value=True),
+            patch.object(cli, "ask", side_effect=lambda *a, **k: next(answers)),
+            patch.object(cli, "ask_lines", return_value="A description"),
+            patch.object(
+                cli.feedback_module, "report_feedback", return_value=self._receipt()
+            ) as submit,
+            captured(),
+        ):
+            self.assertEqual(cli.report_feedback(None, None, None, None, False), 0)
+        self.assertEqual(submit.call_args.kwargs["title"], "A Title")
+        self.assertEqual(submit.call_args.kwargs["email"], "someone@example.com")
+        self.assertEqual(submit.call_args.kwargs["description"], "A description")
+
+    def test_interactive_with_no_email_sends_none(self) -> None:
+        answers = iter(["A Title", ""])
+        with (
+            patch.object(cli, "_interactive", return_value=True),
+            patch.object(cli, "ask", side_effect=lambda *a, **k: next(answers)),
+            patch.object(cli, "ask_lines", return_value="A description"),
+            patch.object(
+                cli.feedback_module, "report_feedback", return_value=self._receipt()
+            ) as submit,
+            captured(),
+        ):
+            self.assertEqual(cli.report_feedback(None, None, None, None, False), 0)
+        self.assertIsNone(submit.call_args.kwargs["email"])
+
+    def test_the_desktop_app_can_drive_it_attended_and_is_labeled_desktop(self) -> None:
+        with (
+            desktop_stdin(""),
+            patch.object(
+                cli.feedback_module, "report_feedback", return_value=self._receipt()
+            ) as submit,
+            captured(),
+        ):
+            self.assertEqual(cli.report_feedback("T", None, "D", None, True), 0)
+        self.assertEqual(submit.call_args.kwargs["source"], "desktop")
+
+    def test_a_real_terminal_is_labeled_cli(self) -> None:
+        with (
+            patch.object(cli, "_interactive", return_value=True),
+            patch.object(
+                cli.feedback_module, "report_feedback", return_value=self._receipt()
+            ) as submit,
+            captured(),
+        ):
+            self.assertEqual(cli.report_feedback("T", None, "D", None, True), 0)
+        self.assertEqual(submit.call_args.kwargs["source"], "cli")
+
+    def test_a_relay_failure_propagates_as_the_cli_error_convention(self) -> None:
+        with (
+            patch.object(cli, "_interactive", return_value=True),
+            patch.object(
+                cli.feedback_module,
+                "report_feedback",
+                side_effect=OSError("could not reach the feedback service"),
+            ),
+        ):
+            with self.assertRaises(OSError):
+                cli.report_feedback("T", None, "D", None, False)
+
+
 class ManualTest(unittest.TestCase):
     def test_help_is_a_workflow_manual(self) -> None:
         with captured() as output:
             self.assertEqual(cli.manual(), 0)
         text = output.getvalue()
-        for command in ("lore setup", "lore review", "lore price", "lore node deploy"):
+        for command in (
+            "lore setup",
+            "lore review",
+            "lore price",
+            "lore node deploy",
+            "lore report-feedback",
+        ):
             with self.subTest(command=command):
                 self.assertIn(command, text)
         # The manual is where an owner learns that reviewing is not publishing.

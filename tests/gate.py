@@ -10,16 +10,17 @@ just `fail_under = 90`? Because coverage.py checks one *global* combined number,
 so a file at 96% statements and 70% branches hides behind it, and a well-covered
 module can carry a bare one. This checks the two metrics separately, per file.
 
-The Worker in `lore/node/` is gated on three things instead — it has no coverage
-measurement, and pretending otherwise would be worse than saying so:
+Each Worker (`lore/node/`, the owner's deployable node; `feedback-relay/`, the
+maintainer-operated feedback relay) is gated on three things instead — neither
+has coverage measurement, and pretending otherwise would be worse than saying so:
 
   * `tsc --noEmit`              — the source still type-checks
   * `wrangler deploy --dry-run` — it still bundles, which is what a deploy does
   * `npm test`                 — the Workerd component and unit tests
 
-The Worker checks need `npm install` to have been run in `lore/node/`. Without
-that they are reported as SKIPPED and the gate still passes, so a Python-only
-contributor is not blocked by a Node toolchain. Pass
+The Worker checks need `npm install` to have been run in each directory.
+Without that, that Worker is reported as SKIPPED and the gate still passes,
+so a Python-only contributor is not blocked by a Node toolchain. Pass
 `--require-node` (what CI should do) to turn a skip into a failure.
 """
 
@@ -35,7 +36,7 @@ from pathlib import Path
 
 FLOOR = 90.0
 ROOT = Path(__file__).resolve().parent.parent
-NODE = ROOT / "lore/node"
+WORKERS = (ROOT / "lore/node", ROOT / "feedback-relay")
 
 
 def _percent(covered: int, total: int) -> float:
@@ -93,40 +94,54 @@ def python_gate(pytest_args: list[str]) -> int:
     return 0
 
 
-def node_gate(*, required: bool) -> int:
-    """Type-check, bundle, and unit-test the Worker that `lore node deploy` ships."""
-    _heading("Worker (lore/node)")
+def one_worker_gate(worker: Path, *, required: bool) -> int:
+    """Type-check, bundle, and unit-test one Worker directory."""
+    _heading(f"Worker ({worker.relative_to(ROOT)})")
     missing = (
-        [str(NODE.relative_to(ROOT))] if not (NODE / "node_modules").is_dir() else []
+        [str(worker.relative_to(ROOT))]
+        if not (worker / "node_modules").is_dir()
+        else []
     )
     if not shutil.which("npm"):
         missing.append("npm (not on PATH)")
     if missing:
         print(f"SKIPPED — dependencies not installed: {', '.join(missing)}")
-        print(f"  install with: npm --prefix {NODE.relative_to(ROOT)} install")
+        print(f"  install with: npm --prefix {worker.relative_to(ROOT)} install")
         if required:
             print("gate: --require-node was passed, so a skip is a failure.")
             return 1
         return 0
 
     steps = (
-        ("type check", ["npm", "--prefix", str(NODE), "run", "check"], ROOT),
+        ("type check", ["npm", "--prefix", str(worker), "run", "check"], ROOT),
         # A bundle failure is a deploy failure; catching it here costs seconds,
-        # and catching it inside `lore node deploy` costs an owner their evening.
+        # and catching it inside a real deploy costs the owner or maintainer
+        # their evening.
         (
             "bundle",
             ["npx", "wrangler", "deploy", "--dry-run", "--outdir", tempfile.mkdtemp()],
-            NODE,
+            worker,
         ),
-        ("unit tests", ["npm", "test"], NODE),
+        ("unit tests", ["npm", "test"], worker),
     )
     for label, command, cwd in steps:
         print(f"\n$ {' '.join(command)}")
         result = subprocess.run(command, cwd=cwd)
         if result.returncode:
-            print(f"\ngate: the Worker {label} failed.")
+            print(f"\ngate: the {worker.relative_to(ROOT)} Worker {label} failed.")
             return result.returncode
-    print("\nWorker type-checks, bundles, and passes its unit tests.")
+    print(
+        f"\n{worker.relative_to(ROOT)} type-checks, bundles, and passes its unit tests."
+    )
+    return 0
+
+
+def node_gate(*, required: bool) -> int:
+    """Run one_worker_gate over every Worker directory; fail on the first failure."""
+    for worker in WORKERS:
+        code = one_worker_gate(worker, required=required)
+        if code:
+            return code
     return 0
 
 
@@ -135,7 +150,7 @@ def main(argv: list[str]) -> int:
     parser.add_argument(
         "--require-node",
         action="store_true",
-        help="fail instead of skipping when the Worker's dependencies are absent",
+        help="fail instead of skipping when a Worker's dependencies are absent",
     )
     # Anything this parser does not claim goes straight to pytest, so
     # `tests/gate.py -q tests/test_cli.py` works the way it reads.

@@ -71,7 +71,7 @@ textarea, input, [contenteditable] { -webkit-user-select: text; user-select: tex
 /* Buttons */
 .btn {
   display: inline-flex; align-items: center; justify-content: center; gap: 8px; height: 34px; padding: 0 14px;
-  border-radius: var(--radius-sm); font-weight: 500; font-size: 14px; border: 1px solid transparent; white-space: nowrap;
+  border-radius: var(--radius-sm); font-family: var(--sans); font-weight: 500; font-size: 14px; border: 1px solid transparent; white-space: nowrap;
 }
 .btn.primary { background: var(--accent); color: var(--surface); }
 .btn.primary:hover { background: var(--accent-ink); }
@@ -126,7 +126,15 @@ nav .tip {
 }
 nav button:hover .tip, nav button:focus-visible .tip { opacity: 1; visibility: visible; }
 @media (prefers-reduced-motion: reduce) { nav .tip { transition-duration: 0s; } }
-.account { margin-top: auto; position: relative; padding: 12px 8px 0; border-top: 1px solid var(--line); }
+.feedback-open { margin-top: auto; display: flex; align-items: center; gap: 10px; width: 100%; padding: 8px 10px; border-radius: var(--radius-sm); font-size: 13px; font-weight: 500; color: var(--muted); text-align: left; }
+.feedback-open:hover { background: var(--hover); color: var(--ink); }
+.feedback-open svg { width: 16px; height: 16px; flex-shrink: 0; }
+/* display:flex above beats the UA [hidden] rule, so say it again; the
+   button carries margin-top:auto, so the account block below has to take
+   over pushing itself to the bottom when there is no relay to send to. */
+.feedback-open[hidden] { display: none; }
+.feedback-open[hidden] + .account { margin-top: auto; }
+.account { position: relative; padding: 12px 8px 0; border-top: 1px solid var(--line); }
 .account-trigger { display: flex; align-items: center; gap: 10px; width: 100%; padding: 6px; border-radius: var(--radius-sm); text-align: left; }
 .account-trigger:hover { background: var(--hover); }
 .account-menu { -webkit-app-region: no-drag; position: absolute; bottom: calc(100% + 6px); left: 8px; right: 8px; background: var(--surface); border: 1px solid var(--line-strong); border-radius: var(--radius-sm); box-shadow: 0 8px 24px rgba(29, 31, 28, 0.14); padding: 4px; display: flex; flex-direction: column; z-index: 2; }
@@ -296,8 +304,12 @@ a.link-btn.glyph { width: 22px; padding: 0; justify-content: center; color: var(
 .store-bar .price-edit { display: flex; align-items: center; justify-content: flex-end; gap: 8px; }
 .store-bar .price-edit .actions { display: flex; gap: 4px; }
 .price-field { display: inline-flex; align-items: center; height: 32px; padding: 0 8px; gap: 2px; border: 1px solid var(--line-strong); border-radius: var(--radius-sm); background: var(--surface); }
+/* The ring belongs on the whole field, not the inner input — an input ring with
+   its offset paints over the "$" prefix sitting 2px away inside the same box. */
+.price-field:focus-within { outline: 2px solid var(--accent); outline-offset: 2px; }
 .price-field .price-prefix { font-family: var(--mono); font-size: 15px; color: var(--muted); }
 .price-field input[type="text"] { width: 6ch; height: auto; padding: 0; border: 0; background: none; font-family: var(--mono); font-size: 15px; text-align: left; }
+.price-field input[type="text"]:focus-visible { outline: none; }
 .request .price-field { height: 36px; align-self: flex-start; }
 .store-bar .stale-price { display: flex; align-items: center; justify-content: flex-end; gap: 6px; }
 .store-bar .stale-price span { color: var(--attention-ink); }
@@ -307,6 +319,7 @@ a.link-btn.glyph { width: 22px; padding: 0; justify-content: center; color: var(
 
 /* Memory sheet */
 dialog.sheet { width: min(720px, calc(100% - 48px)); max-height: calc(100vh - 128px); margin: 64px auto; padding: 0; border: 0; background: none; color: inherit; }
+dialog.sheet.narrow { width: min(420px, calc(100% - 48px)); }
 dialog.sheet::backdrop { background: rgba(29, 31, 28, 0.28); }
 .sheet-panel { max-height: calc(100vh - 128px); overflow: auto; padding: 22px 24px; display: flex; flex-direction: column; gap: 14px; }
 .sheet-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
@@ -315,6 +328,8 @@ dialog.sheet::backdrop { background: rgba(29, 31, 28, 0.28); }
 .sheet .body { font-size: 15px; gap: 10px; }
 .sheet .lede { font-family: var(--serif); font-size: 17px; color: var(--ink); }
 .sheet .body-edit { width: 100%; min-height: 320px; height: auto; padding: 10px 12px; font-family: var(--mono); font-size: 13px; line-height: 1.5; resize: vertical; }
+.feedback-form { display: flex; flex-direction: column; gap: 14px; }
+.feedback-form .actions { display: flex; justify-content: flex-end; gap: 8px; }
 
 /* Rendered markdown */
 .md { display: flex; flex-direction: column; gap: 8px; line-height: 1.55; color: var(--ink-soft); -webkit-user-select: text; user-select: text; }

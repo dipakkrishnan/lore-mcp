@@ -40,6 +40,13 @@ def ask(prompt: str, default: str = "") -> str:
     return answer or default
 
 
+def ask_lines(prompt: str) -> str:
+    """Read a multi-line answer, ending at EOF (Ctrl-D), not a blank line —
+    a real answer can have blank lines between paragraphs."""
+    print(f"{paint('36', '?')} {prompt}:")
+    return sys.stdin.read().strip()
+
+
 def confirm(prompt: str, default: bool = True) -> bool:
     hint = "Y/n" if default else "y/N"
     answer = ask(prompt, hint).lower()

@@ -154,6 +154,12 @@ remain independent input sources; the executor only chooses which agent synthesi
 enabled sources. Free-text only on "Other". On other hosts, write the checkpoint after
 each answer; Lore desktop persists the conversation itself.
 
+Base each executor option's description on the `which claude codex` result from step 2,
+not a guess: if `codex` wasn't found, say so plainly — "Codex CLI isn't installed on
+this machine, so Claude is the runnable choice for scheduled synthesis" — rather than a
+future-tense placeholder like "when it becomes available". Both options should describe
+real, current, checkable state, not one present-tense and one hypothetical.
+
 ## 4. Save and schedule
 
 ```sh
