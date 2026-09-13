@@ -10,7 +10,7 @@ from typing import Any, Literal, cast
 
 from pydantic import BaseModel, ConfigDict, TypeAdapter
 
-from . import automation, blueprint
+from . import automation, blueprint, feedback
 from .paths import claude_home, home
 from .sources import available_sources
 from .store import JOB_SUMMARIES, Store
@@ -256,6 +256,10 @@ def build() -> dict[str, object]:
             "schedule": automation.schedule_state(),
             "telemetry_enabled": telemetry_enabled,
         },
+        # Whether this build can send feedback at all. The Desktop app hides
+        # its Report Feedback button when it cannot, so a release with no
+        # relay pinned shows no Send it could not honor (XC-028).
+        "feedback": {"available": feedback.available()},
         "library": {
             "counts": {
                 "private": sum(m["status"] == "private" for m in memories),

@@ -5,6 +5,7 @@ import json
 import subprocess
 import tempfile
 from pathlib import Path
+from typing import cast
 
 DEFAULT_MODEL = "gpt-5.6-sol"
 # Judge defaults to a different lab than the candidate so verdicts aren't
@@ -72,7 +73,9 @@ def run_model(
         )
         if result.returncode:
             raise RuntimeError(result.stderr.strip() or result.stdout.strip())
-        return json.loads(output_path.read_text(encoding="utf-8"))
+        return cast(
+            dict[str, object], json.loads(output_path.read_text(encoding="utf-8"))
+        )
 
 
 def _run_claude(
@@ -91,7 +94,7 @@ def _run_claude(
     text = json.loads(result.stdout)["result"].strip()
     if text.startswith("```"):
         text = text.strip("`").removeprefix("json").strip()
-    return json.loads(text)
+    return cast(dict[str, object], json.loads(text))
 
 
 def candidate_prompt(task: dict[str, object], case: dict[str, object]) -> str:
@@ -111,7 +114,9 @@ Return JSON with exactly two strings: `memory` and `answer`.
 """
 
 
-def judge_prompt(task: dict[str, object], output: str, criterion: dict[str, str]) -> str:
+def judge_prompt(
+    task: dict[str, object], output: str, criterion: dict[str, object]
+) -> str:
     return f"""You are evaluating an AI agent's work against one quality criterion.
 
 ## Task
@@ -153,7 +158,9 @@ def main() -> int:
         criteria_results = []
         for criterion in case["criteria"]:
             verdict = run_model(
-                judge_prompt(task, str(deliverables[criterion["deliverable"]]), criterion),
+                judge_prompt(
+                    task, str(deliverables[criterion["deliverable"]]), criterion
+                ),
                 args.judge_model,
                 VERDICT_SCHEMA,
             )

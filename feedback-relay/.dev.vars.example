@@ -1,0 +1,4 @@
+# Fine-grained GitHub PAT, scoped to dipakkrishnan/lore-mcp only, with
+# exactly one permission: Issues -> Read and write. Never a classic token,
+# never repo-wide write.
+LORE_FEEDBACK_GITHUB_TOKEN=github_pat_...
