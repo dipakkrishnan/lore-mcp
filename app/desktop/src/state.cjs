@@ -141,6 +141,25 @@ async function decide(loreHome, original, candidate, approve) {
   await lore(loreHome, ["publication", "decide"], JSON.stringify({ original, candidate, approve }));
 }
 
+/** Send one feedback report through `lore report-feedback`. The description
+ * goes over stdin (`editMemory` does the same, for the same reason: owner
+ * text that starts with a dash must never be read as an option). Title and
+ * email go as `--flag=value`, not `--flag value` — argparse otherwise
+ * refuses a value that looks like an unrecognized option, e.g. a title of
+ * literally `--json`, which the owner is free to type.
+ * @param {string} loreHome @param {{title: string, email: string, description: string}} input
+ * @returns {Promise<{url: string, number: number}>} */
+async function reportFeedback(loreHome, input) {
+  const title = input.title.trim();
+  if (!title) throw new Error("Title cannot be empty");
+  const description = input.description.trim();
+  if (!description) throw new Error("Description cannot be empty");
+  const email = input.email.trim();
+  const args = ["report-feedback", `--title=${title}`, "--description-file", "-", "--json"];
+  if (email) args.push(`--email=${email}`);
+  return JSON.parse(await lore(loreHome, args, description));
+}
+
 module.exports = {
   lore,
   loreStream,
@@ -156,5 +175,6 @@ module.exports = {
   setPrice,
   candidates,
   decide,
+  reportFeedback,
   useRuntime
 };
