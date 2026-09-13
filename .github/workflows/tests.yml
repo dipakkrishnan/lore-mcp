@@ -12,8 +12,8 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: astral-sh/setup-uv@v7
-      - run: uv run --extra dev ruff check lore tests support
-      - run: uv run --extra dev ruff format --check lore tests support
+      - run: uv run --extra dev ruff check lore tests support evals .github/scripts docs/backlog/agents
+      - run: uv run --extra dev ruff format --check lore tests support evals .github/scripts docs/backlog/agents
 
   python-unit:
     name: Python unit tests
@@ -29,7 +29,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: astral-sh/setup-uv@v7
-      - run: uv run --extra dev mypy lore support
+      - run: uv run --extra dev mypy lore support evals .github/scripts docs/backlog/agents
 
   bridge-check:
     name: Bridge compiler checks
@@ -61,6 +61,14 @@ jobs:
       - run: npm ci
       - run: npm run check
       - run: npm test
+      # APP-104: renderer.js has no unit coverage — it is only reachable
+      # through real Electron (support/edge.cjs). This one scenario runs here
+      # because it guards two reviewed regressions with no other net: a
+      # second Send filing a second public issue, and an in-flight report
+      # closing a sheet the owner opened after it. The rest of `test:edge`
+      # stays a local, attended check.
+      - run: support/edge.sh feedback
+        timeout-minutes: 5
       - run: npm run package
 
   node-lint:
@@ -109,6 +117,54 @@ jobs:
       - run: npm ci
       - run: echo "LORE_WALLET=0x000000000000000000000000000000000000dEaD" > .dev.vars
       - name: Run the mocked-facilitator test suite (MON-010)
+        run: npm test
+
+  feedback-relay-lint:
+    name: Feedback relay lint
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: feedback-relay
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: lts/*
+      - run: npm ci
+      - run: npm run lint
+
+  feedback-relay-compiler:
+    name: Feedback relay compiler checks
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: feedback-relay
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: lts/*
+      - run: npm ci
+      # Placeholder: never a real GitHub token. Lets `wrangler types` resolve
+      # the secret binding the same way CI seeds LORE_WALLET for lore/node.
+      - run: echo "LORE_FEEDBACK_GITHUB_TOKEN=not-a-real-token" > .dev.vars
+      - run: npm run types
+      - run: npm run check
+
+  feedback-relay-component:
+    name: Feedback relay component tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: feedback-relay
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: lts/*
+      - run: npm ci
+      - run: echo "LORE_FEEDBACK_GITHUB_TOKEN=not-a-real-token" > .dev.vars
+      - name: Run the stubbed-GitHub test suite (XC-028)
         run: npm test
 
   worker-smoke:

@@ -15,6 +15,7 @@ const taskBack = /** @type {HTMLButtonElement} */ ($("#task-back"));
 const taskRestart = /** @type {HTMLButtonElement} */ ($("#task-restart"));
 const taskResume = /** @type {HTMLButtonElement} */ ($("#task-resume"));
 const addMemoryBtn = /** @type {HTMLButtonElement} */ ($("#add-memory"));
+const feedbackBtn = /** @type {HTMLButtonElement} */ ($("#feedback-open"));
 const captureArea = $("#capture");
 const composer = /** @type {HTMLFormElement} */ ($("#composer"));
 const input = /** @type {HTMLTextAreaElement} */ ($("#capture-input"));
@@ -332,6 +333,83 @@ async function openMemory(id) {
 
 function closeSheet() {
   /** @type {HTMLDialogElement | null} */ (document.querySelector("dialog.sheet"))?.close();
+}
+
+function openFeedbackDialog() {
+  closeSheet();
+  const sheet = el("dialog", "sheet narrow");
+  sheet.setAttribute("aria-label", "Report Feedback");
+  const panel = el("div", "card sheet-panel");
+  const head = el("div", "sheet-head");
+  head.append(el("b", "", "Report Feedback"));
+  const close = el("button", "icon-btn", "×");
+  close.type = "button";
+  close.setAttribute("aria-label", "Close");
+  // This dialog, not whichever one is open: a report can still be in flight
+  // when the owner opens something else, and closeSheet() would close that.
+  close.addEventListener("click", () => sheet.close());
+  head.append(close);
+
+  const form = el("form", "feedback-form");
+  const titleField = /** @type {HTMLInputElement} */ (draftField(form, "Title", "", true));
+  const emailField = /** @type {HTMLInputElement} */ (draftField(form, "Email (optional)", "", true));
+  const descriptionField = draftField(form, "Description", "");
+  form.append(el("p", "hint", "This becomes a public GitHub issue; anything you write here, and your email if you give one, is visible there."));
+  const actions = el("div", "actions");
+  const cancel = el("button", "btn secondary sm", "Cancel");
+  cancel.type = "button";
+  cancel.addEventListener("click", () => sheet.close());
+  const send = el("button", "btn primary sm", "Send");
+  send.type = "submit";
+  send.disabled = true;
+  actions.append(cancel, send);
+  form.append(actions);
+
+  // One report per Send, however the owner gets there. Without `sending` in
+  // this predicate, the input listener re-enables Send the moment both
+  // fields are non-empty again — including mid-request — and a second click
+  // files a second public issue from one owner action.
+  let sending = false;
+  const canSend = () => !sending && Boolean(titleField.value.trim() && descriptionField.value.trim());
+  form.addEventListener("input", () => { send.disabled = !canSend(); });
+  form.addEventListener("submit", (event) => {
+    event.preventDefault();
+    if (canSend()) void submit();
+  });
+
+  async function submit() {
+    sending = true;
+    cancel.disabled = send.disabled = true;
+    send.textContent = "Sending…";
+    try {
+      const receipt = await window.lore.reportFeedback({
+        title: titleField.value,
+        email: emailField.value,
+        description: descriptionField.value
+      });
+      sheet.close();
+      tell(`Filed as ${receipt.url}`);
+    } catch (error) {
+      tell(reason(error, "Lore could not send that."), true);
+      sending = false;
+      // Escape or the backdrop can dismiss this dialog while the request is
+      // out, and the close handler below detaches it. Restoring the buttons
+      // is then pointless, so check first, as approvalForm() does.
+      if (sheet.isConnected) {
+        cancel.disabled = false;
+        send.disabled = !canSend();
+        send.textContent = "Send";
+      }
+    }
+  }
+
+  panel.append(head, form);
+  sheet.append(panel);
+  sheet.addEventListener("click", (event) => { if (event.target === sheet) sheet.close(); });
+  sheet.addEventListener("close", () => sheet.remove());
+  document.body.append(sheet);
+  sheet.showModal();
+  titleField.focus();
 }
 
 /** @param {string} heading @param {HTMLElement} body @param {HTMLElement} [aside] */
@@ -879,6 +957,9 @@ function render() {
   if (!snapshot) return;
   $("[data-count=memories]").textContent = String(snapshot.library.counts.private);
   $("[data-count=store]").textContent = String(snapshot.publications.counts.active);
+  // Hidden until a build has a feedback relay to send to, so a release
+  // never offers a Send it cannot honor. Starts hidden in index.html.
+  feedbackBtn.hidden = !snapshot.feedback?.available;
   const parts = renderers[view](snapshot);
   detailSlot.replaceChildren(...(detail ? parts : []));
   content.replaceChildren(...(detail ? [] : parts));
@@ -1983,6 +2064,7 @@ function showPeek(anchor, memory) {
   peek.style.top = `${Math.max(margin, top)}px`;
 }
 mainEl.addEventListener("scroll", hidePeek, { passive: true });
+feedbackBtn.addEventListener("click", openFeedbackDialog);
 for (const nav of navButtons) nav.addEventListener("click", () => {
   const next = /** @type {View} */ (nav.dataset.view);
   if (next === "today" && detailTask) closeTask();
