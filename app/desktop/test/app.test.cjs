@@ -143,11 +143,25 @@ test("desktop write and edit are confined to Lore, like Bash already is", async 
     await assert.rejects(edit.access(escaped), /Refusing to write outside Lore's home/);
     await assert.rejects(edit.readFile(escaped), /Refusing to write outside Lore's home/);
     await assert.rejects(edit.writeFile(escaped, "x"), /Refusing to write outside Lore's home/);
+
+    // Refused: a symlink *at the leaf itself* inside Lore's home, pointing outside it.
+    // The ancestor walk alone never resolves this — dirname(leaf) already exists, so
+    // realpathOfTarget must also realpath the leaf when the leaf itself already exists.
+    const secret = `${real}-secret`;
+    await writeFile(secret, "top secret");
+    const leafSymlink = join(home, "pwn.md");
+    await symlink(secret, leafSymlink);
+    await assert.rejects(write.writeFile(leafSymlink, "pwned"), /Refusing to write outside Lore's home/);
+    await assert.rejects(edit.access(leafSymlink), /Refusing to write outside Lore's home/);
+    await assert.rejects(edit.readFile(leafSymlink), /Refusing to write outside Lore's home/);
+    await assert.rejects(edit.writeFile(leafSymlink, "pwned"), /Refusing to write outside Lore's home/);
+    assert.equal(await readFile(secret, "utf8"), "top secret");
   } finally {
     await rm(real, { recursive: true, force: true });
     await rm(home, { force: true });
     await rm(escaped, { recursive: true, force: true });
     await rm(`${real}-escaped-dir`, { recursive: true, force: true });
+    await rm(`${real}-secret`, { force: true });
   }
 });
 

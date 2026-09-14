@@ -127,13 +127,16 @@ export function createSandboxedBashOperations(loreHome, task, binDir) {
 }
 
 /**
- * Resolves the nearest existing ancestor of `absolutePath` to its real path, then
- * rejoins the not-yet-created suffix — so a target that doesn't exist yet (a new
+ * Resolves `absolutePath` to its real, symlink-free path. If the path itself
+ * already exists (including as a symlink at the leaf), it is realpath-resolved
+ * directly — otherwise the nearest existing ancestor is resolved and the
+ * not-yet-created suffix rejoined, so a target that doesn't exist yet (a new
  * file the write tool is about to create) still gets checked against a symlink-
  * resolved path, the same way `bashSandboxPolicy` resolves `loreHome` itself.
  * @param {string} absolutePath
  */
 function realpathOfTarget(absolutePath) {
+  if (existsSync(absolutePath)) return realpathSync(absolutePath);
   const suffix = [];
   let dir = dirname(absolutePath);
   while (!existsSync(dir)) {
