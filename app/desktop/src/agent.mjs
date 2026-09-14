@@ -1,11 +1,14 @@
 import { randomUUID } from "node:crypto";
-import { existsSync, mkdirSync, realpathSync } from "node:fs";
+import { constants, existsSync, mkdirSync, realpathSync } from "node:fs";
+import { access, mkdir, readFile, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
-import { resolve } from "node:path";
+import { basename, dirname, resolve, sep } from "node:path";
 import {
   createAgentSession,
   createBashTool,
+  createEditTool,
   createLocalBashOperations,
+  createWriteTool,
   DefaultResourceLoader,
   defineTool,
   ModelRuntime,
@@ -119,6 +122,66 @@ export function createSandboxedBashOperations(loreHome, task, binDir) {
       } finally {
         SandboxManager.cleanupAfterCommand();
       }
+    }
+  };
+}
+
+/**
+ * Resolves the nearest existing ancestor of `absolutePath` to its real path, then
+ * rejoins the not-yet-created suffix — so a target that doesn't exist yet (a new
+ * file the write tool is about to create) still gets checked against a symlink-
+ * resolved path, the same way `bashSandboxPolicy` resolves `loreHome` itself.
+ * @param {string} absolutePath
+ */
+function realpathOfTarget(absolutePath) {
+  const suffix = [];
+  let dir = dirname(absolutePath);
+  while (!existsSync(dir)) {
+    suffix.unshift(basename(dir));
+    const parent = dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
+  }
+  return resolve(realpathSync(dir), ...suffix, basename(absolutePath));
+}
+
+/** @param {string} absolutePath @param {string[]} allowedRoots */
+function assertWithinAllowedPaths(absolutePath, allowedRoots) {
+  const real = realpathOfTarget(absolutePath);
+  const allowed = allowedRoots.some((root) => real === root || real.startsWith(root + sep));
+  if (!allowed) throw new Error(`Refusing to write outside Lore's home: ${absolutePath}`);
+}
+
+/** Confines the write tool to `bashSandboxPolicy`'s `allowWrite` roots. @param {string} loreHome @param {AgentTask} task @param {string} [binDir] @returns {import("@earendil-works/pi-coding-agent").WriteOperations} */
+export function createSandboxedWriteOperations(loreHome, task, binDir) {
+  return {
+    writeFile: async (absolutePath, content) => {
+      assertWithinAllowedPaths(absolutePath, bashSandboxPolicy(loreHome, task, binDir).filesystem.allowWrite);
+      await writeFile(absolutePath, content, "utf-8");
+    },
+    mkdir: async (dir) => {
+      assertWithinAllowedPaths(dir, bashSandboxPolicy(loreHome, task, binDir).filesystem.allowWrite);
+      await mkdir(dir, { recursive: true });
+    }
+  };
+}
+
+/** Confines the edit tool to `bashSandboxPolicy`'s `allowWrite` roots. @param {string} loreHome @param {AgentTask} task @param {string} [binDir] @returns {import("@earendil-works/pi-coding-agent").EditOperations} */
+export function createSandboxedEditOperations(loreHome, task, binDir) {
+  /** @param {string} absolutePath */
+  const guard = (absolutePath) => assertWithinAllowedPaths(absolutePath, bashSandboxPolicy(loreHome, task, binDir).filesystem.allowWrite);
+  return {
+    access: async (absolutePath) => {
+      guard(absolutePath);
+      await access(absolutePath, constants.R_OK | constants.W_OK);
+    },
+    readFile: async (absolutePath) => {
+      guard(absolutePath);
+      return readFile(absolutePath);
+    },
+    writeFile: async (absolutePath, content) => {
+      guard(absolutePath);
+      await writeFile(absolutePath, content, "utf-8");
     }
   };
 }
@@ -518,6 +581,8 @@ export class LoreAgent {
             }
           })
         }),
+        createWriteTool(this.options.loreHome, { operations: createSandboxedWriteOperations(this.options.loreHome, task, this.options.binDir) }),
+        createEditTool(this.options.loreHome, { operations: createSandboxedEditOperations(this.options.loreHome, task, this.options.binDir) }),
         this.#askTool(),
         this.#memoriesTool(),
         this.#blueprintTool(),

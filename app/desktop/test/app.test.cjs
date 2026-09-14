@@ -2,7 +2,7 @@ const assert = require("node:assert/strict");
 const { access, constants, mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } = require("node:fs/promises");
 const { createServer } = require("node:http");
 const { homedir, tmpdir } = require("node:os");
-const { join } = require("node:path");
+const { dirname, join } = require("node:path");
 const { spawnSync } = require("node:child_process");
 const { test } = require("node:test");
 const { readState } = require("../src/state.cjs");
@@ -113,6 +113,41 @@ test("desktop Bash reads the agents' memories, never their credential files", as
     for (const dir of [".claude", ".codex"]) assert.ok(!allowRead.includes(join(homedir(), dir)), `${dir} root, which holds auth.json and credentials`);
   } finally {
     await rm(home, { recursive: true });
+  }
+});
+
+test("desktop write and edit are confined to Lore, like Bash already is", async () => {
+  const { createSandboxedEditOperations, createSandboxedWriteOperations } = await import("../src/agent.mjs");
+  const real = await mkdtemp(join(tmpdir(), "lore-fs-sandbox-"));
+  const home = `${real}-link`;
+  await symlink(real, home);
+  const escaped = `${real}-escaped`;
+  try {
+    const write = createSandboxedWriteOperations(home, "capture");
+    // Allowed: a new file, including a not-yet-created parent directory, inside Lore's home.
+    const nested = join(home, "notes", "inside.md");
+    await write.mkdir(dirname(nested));
+    await write.writeFile(nested, "inside");
+    assert.equal(await readFile(nested, "utf8"), "inside");
+    // Refused: a target outside Lore's home, resolved through the symlink the same way
+    // bashSandboxPolicy resolves loreHome itself, so a realpath escape can't slip past it.
+    await assert.rejects(write.writeFile(escaped, "escaped"), /Refusing to write outside Lore's home/);
+    await assert.rejects(readFile(escaped, "utf8"), { code: "ENOENT" });
+    await assert.rejects(write.mkdir(`${real}-escaped-dir`), /Refusing to write outside Lore's home/);
+
+    const edit = createSandboxedEditOperations(home, "capture");
+    await edit.access(nested);
+    assert.equal((await edit.readFile(nested)).toString("utf8"), "inside");
+    await edit.writeFile(nested, "edited");
+    assert.equal(await readFile(nested, "utf8"), "edited");
+    await assert.rejects(edit.access(escaped), /Refusing to write outside Lore's home/);
+    await assert.rejects(edit.readFile(escaped), /Refusing to write outside Lore's home/);
+    await assert.rejects(edit.writeFile(escaped, "x"), /Refusing to write outside Lore's home/);
+  } finally {
+    await rm(real, { recursive: true, force: true });
+    await rm(home, { force: true });
+    await rm(escaped, { recursive: true, force: true });
+    await rm(`${real}-escaped-dir`, { recursive: true, force: true });
   }
 });
 

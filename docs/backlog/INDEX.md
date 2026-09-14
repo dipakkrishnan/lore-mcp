@@ -86,7 +86,6 @@ obsolete), then `priority` (P0 → P3).
 | [APP-010](./desktop-app/APP-010-constrain-native-read-to-owner-selected-files.md) | Constrain native read to owner-selected files | P1 | M | desktop-app | ready | APP-003, APP-005, APP-009 | — | — | — |
 | [APP-024](./desktop-app/APP-024-start-recording-from-the-dictation-button.md) | Start recording from the dictation button | P1 | M | desktop-app | ready | APP-003, APP-005, APP-009, APP-010, APP-020 | — | — | — |
 | [APP-036](./desktop-app/APP-036-guide-cloudflare-and-wallet-setup-inside-desktop.md) | Guide Cloudflare and wallet setup inside Desktop | P1 | M | desktop-app | ready | APP-004, APP-005, APP-006, APP-030, MON-006, XC-005 | — | — | — |
-| [APP-048](./desktop-app/APP-048-confine-the-desktop-agents-write-and-edit-tools.md) | Confine the desktop agent's write and edit tools to the Lore home | P1 | S | desktop-app | ready | APP-008, APP-035, APP-047 | — | — | — |
 | [AUT-004](./automation-synthesis/AUT-004-the-weekly-synthesis-day-is-silently-monday.md) | The weekly synthesis day is silently Monday, whatever the owner was told | P1 | S | automation-synthesis | ready | AUT-001, AUT-002, APP-030 | — | — | — |
 | [CLI-002](./cli-ux/CLI-002-smoke-test-the-owner-cli-lifecycle-as-a-real-subprocess.md) | Smoke-test the owner CLI lifecycle as a real subprocess, not mocked handlers | P1 | M | cli-ux | ready | XC-004, XC-013, XC-016 | — | — | — |
 | [EVAL-001](./evals/EVAL-001-evaluate-the-real-pipeline-not-a-roleplay.md) | Evaluate the real Lore pipeline instead of a roleplay prompt | P1 | S | evals | ready | — | — | — | — |
@@ -123,6 +122,7 @@ obsolete), then `priority` (P0 → P3).
 | [APP-029](./desktop-app/APP-029-one-live-input-at-a-time.md) | One live input at a time — the card or the composer, never both | P0 | S | desktop-app | completed | APP-016, APP-020, APP-028 | — | — | — |
 | [APP-032](./desktop-app/APP-032-approval-drafts-render-where-the-owner-is.md) | Approval drafts render where the owner is | P0 | S | desktop-app | completed | APP-020, APP-023, APP-006 | — | — | — |
 | [STO-001](./store-import/STO-001-private-by-default-and-publications-table.md) | Private-by-default memories and a separate publications table | P0 | M | store-import | completed | CLI-001, ONB-001, XC-001, XC-002 | — | — | [#6](https://github.com/dipakkrishnan/lore-mcp/issues/6) |
+| [APP-048](./desktop-app/APP-048-confine-the-desktop-agents-write-and-edit-tools.md) | Confine the desktop agent's write and edit tools to the Lore home | P1 | S | desktop-app | completed | APP-008, APP-035, APP-047 | — | — | — |
 | [APP-076](./desktop-app/APP-076-submit-each-publication-decision-once.md) | Submit each publication decision once | P1 | XS | desktop-app | completed | APP-047, APP-055 | — | — | — |
 | [APP-001](./desktop-app/APP-001-expose-one-desktop-state-snapshot.md) | Expose one machine-readable desktop state snapshot | P1 | M | desktop-app | completed | MON-013, MON-015, STO-001 | — | — | — |
 | [APP-002](./desktop-app/APP-002-build-the-minimal-read-only-electron-shell.md) | Build the minimal read-only Electron shell | P1 | M | desktop-app | completed | APP-001 | APP-001 | — | — |
