@@ -37,13 +37,14 @@ from lore import automation
 automation.save_profile({'executor': 'codex', 'cadence': 'daily', 'hour': 21})")
 fi
 if [[ "$scenario" == "listing" ]]; then
-  # APP-119: a live store and a setup name, the two things the marketplace row needs.
+  # APP-119: a live store, a setup name, and one publication: what the marketplace row and the Today rung need.
   (cd "$repo_root" && uv run python -c "import json, time
 from lore import blueprint
 from lore.store import Store
 with Store() as store:
  store.set_setting('node_url', 'https://store.example/mcp')
  store.set_setting('node_live', {'url': 'https://store.example/mcp', 'checked_at': time.time(), 'live': {'state': 'online', 'network': 'eip155:8453', 'price_usd': 0.01, 'payout': '0x' + 'a' * 40}, 'ids': []})
+ store.add_publication(title='Hire management before rapid growth', content='Add the management layer before the next ten engineers join, not after.', teaser='When to add managers in a fast-growing team.', topic='team scaling', provenance=[1])
 blueprint.blueprint_path().parent.mkdir(parents=True, exist_ok=True)
 blueprint.blueprint_path().write_text(json.dumps({'name': 'Edge Seller'}))")
 fi

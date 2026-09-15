@@ -4,13 +4,13 @@ title: Tell a first-time owner how Lore makes them money
 priority: P1
 effort: S
 component: desktop-app
-status: in-review
+status: completed
 related: [APP-092, XC-025, APP-094, APP-117, MON-025, ONB-007]
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-09-14
-updated: 2026-09-14
+updated: 2026-09-15
 ---
 
 ## Problem
@@ -39,10 +39,10 @@ The same three sentences belong on yourlore.dev.
 
 ## Acceptance criteria
 
-- [ ] A fresh sign-in shows the explainer before the first setup question,
+- [x] A fresh sign-in shows the explainer before the first setup question,
       and it can be dismissed in one click.
-- [ ] For Sale with no sales carries the same text at the top.
-- [ ] The copy names buyers as agents, the two prices, and non-custody, in
+- [x] For Sale with no sales carries the same text at the top.
+- [x] The copy names buyers as agents, the two prices, and non-custody, in
       plain words, and cites no earnings figure the ledger cannot show.
 
 ## Notes
@@ -61,3 +61,34 @@ fork. A seller is guided to what to sell and what sells now (`APP-117`); a
 builder is guided to what to buy and how to buy it (the bridge and the
 connect command). The three sentences above are the seller beat; add the
 one-line "what it does" first and the buyer branch after.
+
+Built 2026-09-15 as three placements in the app's existing patterns, after
+a look at how Linear, Notion, Stripe, Substack, Skyfire, and Vercel explain
+themselves: the explanation is structure the owner already touches, never
+an FAQ, a tour, or a modal.
+
+- **Sign-in screen:** one sentence under the tagline, the "what does this
+  do" beat. "Lore keeps what you learn on this Mac. Other people's AI agents
+  pay to read what you choose to sell."
+- **Today:** a "How selling works" section above Needs you, three rows in
+  the row style (Keep, Approve, Earn) and one fork row ("Buying instead?"
+  with a link to yourlore.dev). "Got it" hides it; it also stops once the
+  ledger shows a sale. The dismissal is remembered per Mac in the
+  renderer's local storage, wrapped so a missing store only means the card
+  returns next launch.
+- **Settings:** the same rows as a permanent section, plus "Your first
+  sale" from the ledger once there is one, with its price and receipt.
+
+AC #2 is met by one sentence, not the full text: the For Sale empty state
+now reads "Nothing for sale yet. Approve a draft and buyers' agents can pay
+to read it.", and the Sales empty state already says who pays. Repeating
+the three rows on For Sale would have put the same card on two tabs.
+
+Also here, from Dipak's ask to feel the marketplace flow: once the store is
+live with something on it, "List on the marketplace" is a Needs you rung on
+Today, sitting with the redeploy and push rows so it shows whatever setup
+rung the owner is on. The Settings row (`APP-119`) is unchanged.
+
+Edge scenarios `fresh` (nine new checks, one screenshot) and `listing`
+(three new checks) drive it in a real window. The `seller` scenario's
+"keyboard focus shows the same card" check fails on main as well as here.
