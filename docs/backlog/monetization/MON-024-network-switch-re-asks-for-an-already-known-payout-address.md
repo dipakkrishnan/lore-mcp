@@ -4,13 +4,13 @@ title: Network switch re-asks for an already-known payout address
 priority: P2
 effort: S
 component: monetization
-status: in-review
+status: completed
 related: [MON-022, MON-023]
 blockers: []
 dependencies: []
 github_issue: https://github.com/dipakkrishnan/lore-mcp/issues/248
 created: 2026-09-11
-updated: 2026-09-11
+updated: 2026-09-14
 ---
 
 ## Problem
@@ -53,12 +53,22 @@ needs `--wallet` for the first deploy, or if `wrangler secret list` shows
 
 ## Acceptance criteria
 
-- [ ] Switching an already-deployed node's network (either direction) does not
+- [x] Switching an already-deployed node's network (either direction) does not
       re-prompt for the payout address when `LORE_WALLET` is already set
-- [ ] The skill text makes the first-deploy-vs-network-switch distinction
+- [x] The skill text makes the first-deploy-vs-network-switch distinction
       explicit rather than relying on the agent inferring it from the
       `--network` flag's absence of a `--wallet` example
 
 ## Notes
 
 Cataloged from GitHub issue #248.
+
+Added an explicit paragraph to `SKILL.md` section 7, right after the gate
+list and before the "Lore desktop:" callout, stating that neither
+`--network real` nor `--network test` needs `--wallet` on a node that
+already has a deploy, that `LORE_WALLET` is already stored from the first
+deploy, and that `--wallet` should only be passed again if
+`wrangler secret list` shows it unexpectedly missing. This is a skill-text
+fix only — no code in `lore/deploy.py` changed, since its wallet-optional
+logic was already correct; the gap was purely in what the agent was told to
+do when narrating the network-switch commands.

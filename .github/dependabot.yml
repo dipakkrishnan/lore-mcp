@@ -16,6 +16,15 @@ updates:
       major:
         update-types:
           - major
+    # Both blocked on upstream peer-dependency caps as of 2026-09-14 (see PR #245):
+    # typescript-eslint@8.70.0 (latest) still requires typescript <6.1.0, and
+    # @cloudflare/vitest-pool-workers@0.22.0 still requires vitest ^4.1.0. Remove
+    # each ignore once the corresponding upstream package publishes support.
+    ignore:
+      - dependency-name: "typescript"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "vitest"
+        update-types: ["version-update:semver-major"]
     commit-message:
       prefix: chore
 
