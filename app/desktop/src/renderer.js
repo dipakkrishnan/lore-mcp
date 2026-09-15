@@ -59,6 +59,10 @@ const lines = [];
 /** @type {PublicationCandidate[]} */
 let candidates = [];
 let approvedThisPass = false;
+/** Where the store stands on the public marketplace, as last read from the relay; null until Settings asks. @type {Listing | null} */
+let listing = null;
+/** The node the cached listing describes, so a redeploy to a new address asks again. */
+let listingFor = "";
 /** @type {string | false} */
 let pushOffer = false;
 let pushing = false;
@@ -909,6 +913,45 @@ function scheduleRow(s) {
   return row(label, `Set for ${who.charAt(0).toLowerCase()}${who.slice(1)}, but nothing on this Mac is running it.`, cell(dot(false, "Not scheduled"), button("Schedule", "secondary", () => void act(window.lore.schedule))), false);
 }
 
+/** Read the listing state once per store address; Settings re-renders when it lands. @param {Snapshot} s */
+function loadListing(s) {
+  if (!s.node.url || !s.marketplace?.available || listingFor === s.node.url) return;
+  listingFor = s.node.url;
+  listing = null;
+  window.lore.listingStatus().then((state) => {
+    if (listingFor !== s.node.url) return;
+    listing = state;
+    if (view === "settings") render();
+  }, () => {
+    listingFor = "";
+  });
+}
+
+/** List or delist, then show what the relay said. @param {"list" | "delist"} action */
+async function changeListing(action) {
+  await act(async () => {
+    listing = await window.lore.listStore(action);
+    render();
+  });
+}
+
+/** Settings → Your store → Marketplace: one row, three states, read from the marketplace repo and never from local memory. @param {Snapshot} s */
+function marketplaceRow(s) {
+  if (!s.node.url || !s.marketplace?.available) return [];
+  loadListing(s);
+  const label = "Marketplace";
+  const shares = "It shows only what your store already shows: your name, topics, and prices.";
+  if (!listing) return [row(label, "Checking the public list of Lore sellers…", cell(dot(false, "Checking")), false)];
+  if (listing.state === "listed") {
+    return [row(label, `Anyone can find your store in the public list of Lore sellers. ${shares}`, cell(dot(true, "Listed"), button("Delist", "quiet", () => void changeListing("delist"))), false)];
+  }
+  if (listing.state === "pending") {
+    const what = listing.action === "delist" ? "Your removal is waiting for review." : "Your listing is waiting for review. It appears in the public list once approved.";
+    return [row(label, what, cell(dot(false, "Pending review"), ...(listing.pull_url ? [outLink("View ↗", listing.pull_url)] : [])), false)];
+  }
+  return [row(label, `Let buyers find your store in the public list of Lore sellers. ${shares}`, cell(button("List on the marketplace", "secondary", () => void changeListing("list"))), false)];
+}
+
 /** @param {Snapshot} s */
 function renderSettings(s) {
   const sources = s.library.sources.map((source) =>
@@ -948,7 +991,8 @@ function renderSettings(s) {
         ? [row("Payments", "Buyers on the test network pay with play money. Switch when you want real buyers paying real money.", cell(button("Switch to real payments", "secondary", () => void startDeploy(REAL_MONEY))), false)]
         : live.network
           ? [row("Payments", "Buyers pay real money. Switch back to the test network any time; nothing already paid changes.", cell(button("Switch to play money", "secondary", () => void startDeploy(PLAY_MONEY))), false)]
-          : [])
+          : []),
+      ...marketplaceRow(s)
     ]))
   ];
 }

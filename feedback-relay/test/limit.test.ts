@@ -18,6 +18,8 @@ function fakeEnv(overrides: Partial<Env> = {}): Env {
     // so this fake satisfies Env's generated type without a cast.
     LORE_GITHUB_API: "https://api.github.com",
     LORE_FEEDBACK_GITHUB_TOKEN: "test-token",
+    LORE_MARKETPLACE_GITHUB_TOKEN: "registry-token",
+    LORE_LISTING_KEY: "test-listing-key",
     // Absent under `wrangler dev` and in most tests — see src/limit.ts.
     FEEDBACK_RATE_LIMIT: undefined as unknown as RateLimit,
     GLOBAL_RATE_LIMIT: undefined as unknown as RateLimit,

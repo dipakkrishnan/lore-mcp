@@ -10,7 +10,7 @@ blockers: []
 dependencies: [XC-028]
 github_issue: null
 created: 2026-09-09
-updated: 2026-09-09
+updated: 2026-09-15
 ---
 
 ## Problem
@@ -74,3 +74,10 @@ Until every box above is checked, no release should carry a Send button. The
 code enforces that on its own — an unpinned `RELAY_URL` refuses — so this
 item is the way to turn the feature on, not a warning label on a feature
 that is already reachable.
+
+2026-09-15: the same deploy now turns on marketplace listing (`APP-119`).
+Two more secrets in the runbook: `LORE_MARKETPLACE_GITHUB_TOKEN`, a second
+fine-grained PAT scoped to dipakkrishnan/lore-marketplace with Contents and
+Pull requests read/write, and `LORE_LISTING_KEY`, a long random string.
+Pinning `RELAY_URL` un-hides both the feedback button and the Settings
+"List on the marketplace" row.

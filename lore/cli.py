@@ -14,6 +14,7 @@ from . import blueprint as blueprint_module
 from . import capture as capture_module
 from . import deploy as deploy_module
 from . import feedback as feedback_module
+from . import marketplace as marketplace_module
 from .paths import home
 from .sources import available_sources, scan
 from .store import (
@@ -290,6 +291,22 @@ def parser() -> argparse.ArgumentParser:
         "--description-file", help="read the description from a file; - for stdin"
     )
     report.add_argument("--json", action="store_true")
+
+    marketplace = commands.add_parser(
+        "marketplace", help="list this store on the public Lore marketplace"
+    )
+    marketplace_commands = marketplace.add_subparsers(dest="marketplace_command")
+    listing = marketplace_commands.add_parser(
+        "list", help="ask to be listed; a maintainer approves it"
+    )
+    listing.add_argument("--name", help="the name buyers see; defaults to yours")
+    listing.add_argument("--json", action="store_true")
+    delisting = marketplace_commands.add_parser("delist", help="ask to be removed")
+    delisting.add_argument("--json", action="store_true")
+    listing_status = marketplace_commands.add_parser(
+        "status", help="whether this store is listed, pending, or neither"
+    )
+    listing_status.add_argument("--json", action="store_true")
     return root
 
 
@@ -389,6 +406,8 @@ def main(argv: list[str] | None = None) -> int:
             if args.blueprint_command == "apply":
                 return blueprint_apply(args.file)
             return blueprint_show()
+        if args.command == "marketplace":
+            return marketplace(args)
         if args.command == "report-feedback":
             return report_feedback(
                 args.title,
@@ -474,6 +493,11 @@ def manual() -> int:
      Send feedback to the Lore maintainers as a GitHub issue. Run with no
      flags to be prompted; the issue this creates is public. Needs a build
      with the feedback relay's address pinned in, and refuses without one.
+
+  13. lore marketplace list [--name N] | delist | status
+     Ask to be listed on the public Lore marketplace, or removed from it.
+     Only what your store already shows buyers is shared. A maintainer
+     approves each change; `status` says whether you are pending or listed.
 
 Use `lore <command> --help` for command-specific options.
 """
@@ -1363,6 +1387,31 @@ def report_feedback(
         print(json.dumps({"url": receipt.issue_url, "number": receipt.issue_number}))
     else:
         success(f"Filed as {receipt.issue_url}")
+    return 0
+
+
+def marketplace(args: argparse.Namespace) -> int:
+    """List, delist, or check this store on the public marketplace."""
+    command = args.marketplace_command or "status"
+    if command == "status":
+        receipt = marketplace_module.status()
+    else:
+        _owner_action("changing your marketplace listing")
+        action: marketplace_module.Action = "delist" if command == "delist" else "list"
+        receipt = marketplace_module.act(action, name=getattr(args, "name", None))
+    if args.json:
+        print(
+            json.dumps(
+                receipt.model_dump(mode="json", exclude={"secret"}, exclude_none=True)
+            )
+        )
+        return 0
+    if receipt.state == "listed":
+        success("Listed on the marketplace.")
+    elif receipt.state == "pending":
+        success(f"Sent for review: {receipt.pull_url}")
+    else:
+        print("Not listed.")
     return 0
 
 

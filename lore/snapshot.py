@@ -10,7 +10,7 @@ from typing import Any, Literal, cast
 
 from pydantic import BaseModel, ConfigDict, TypeAdapter
 
-from . import automation, blueprint, feedback
+from . import automation, blueprint, feedback, marketplace
 from .paths import claude_home, home
 from .sources import available_sources
 from .store import JOB_SUMMARIES, Store
@@ -260,6 +260,10 @@ def build() -> dict[str, object]:
         # its Report Feedback button when it cannot, so a release with no
         # relay pinned shows no Send it could not honor (XC-028).
         "feedback": {"available": feedback.available()},
+        # Same switch, second feature: the Settings card that lists a store on
+        # the marketplace only shows when the relay that opens the pull
+        # request is pinned in (APP-119).
+        "marketplace": {"available": marketplace.available()},
         "library": {
             "counts": {
                 "private": sum(m["status"] == "private" for m in memories),

@@ -160,6 +160,22 @@ async function reportFeedback(loreHome, input) {
   return JSON.parse(await lore(loreHome, args, description));
 }
 
+/** Ask to list or delist this store on the public marketplace, through
+ * `lore marketplace`. The CLI builds the request from local state and the
+ * relay builds the entry from the node's own discover, so nothing here can
+ * put more in the public list than the store already shows.
+ * @param {string} loreHome @param {"list" | "delist"} action
+ * @returns {Promise<Listing>} */
+async function listStore(loreHome, action) {
+  if (action !== "list" && action !== "delist") throw new Error("Invalid listing action");
+  return JSON.parse(await lore(loreHome, ["marketplace", action, "--json"], ""));
+}
+
+/** Whether this store is listed, pending, or neither, read from the marketplace repo through the relay. @param {string} loreHome @returns {Promise<Listing>} */
+async function listingStatus(loreHome) {
+  return JSON.parse(await lore(loreHome, ["marketplace", "status", "--json"]));
+}
+
 module.exports = {
   lore,
   loreStream,
@@ -176,5 +192,7 @@ module.exports = {
   candidates,
   decide,
   reportFeedback,
+  listStore,
+  listingStatus,
   useRuntime
 };
