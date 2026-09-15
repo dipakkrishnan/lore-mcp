@@ -10,7 +10,7 @@ blockers: []
 dependencies: ["A decision on the terms-of-service disclosure wording for LinkedIn and X"]
 github_issue: null
 created: 2026-09-14
-updated: 2026-09-14
+updated: 2026-09-15
 ---
 
 ## Problem
@@ -62,3 +62,32 @@ the least user effort (handle only) but bills Lore about $0.005 per post.
 Instinct holds credentials on a cloud computer, which is the wrong posture;
 Town avoids the problem by integrating only OAuth platforms. Detection risk is
 lowest on the owner's real device and home IP, in a visible window.
+
+2026-09-15, framing after reading the Codex harness. Lore's desktop agent is
+Pi (pi-coding-agent 0.84.4: bash, read, write, edit, find, grep, ls) and has
+no browser tool; Codex's browser exists only in the closed ChatGPT desktop
+app and its Chrome extension, and the docs say "Browser isn't available in
+Codex CLI or the Codex IDE extension", so nothing can be borrowed from
+app-server. What the open-source Codex repo does carry is the policy shape
+(`codex-rs/config/src/browser_use.rs`): a per-origin table with allow/deny
+for access, downloads, uploads, and full CDP, an approval lifetime of turn
+or thread, and a history-access flag; the browser itself is an MCP tool the
+desktop host provides, with those policies passed as tool-call metadata.
+
+So this item is not "add a browser". It is: give Pi the same host-provided
+tool Codex's desktop app gives its model, with Codex's origin policy. Electron
+main is the host; the child window on a persistent partition is the isolated
+profile; `webContents.capturePage`, `webContents.debugger` (CDP in process,
+accessibility tree via `Accessibility.getFullAXTree`), and `sendInputEvent`
+are the observe/act primitives, so no Playwright dependency. Copy the policy
+fields verbatim: access per origin (linkedin.com, x.com, substack.com),
+downloads and uploads denied, full CDP off, approval per thread. A fixed
+selector table does the read; the model-driven loop handles only what the
+table cannot predict (a verification prompt, a layout change). OpenAI's
+computer-use guide (Sep 2026) recommends the same observe/act loop with an
+isolated browser, a site allow list, and step and cost limits.
+
+Kernel (hosted browsers, Managed Auth) was trialled 2026-09-14 and stopped
+before a password was typed: any hosted login passes the credential through
+Kernel once, and credential saving defaults on. Kept as the option for
+unattended scheduled pulls, not for the first version.
