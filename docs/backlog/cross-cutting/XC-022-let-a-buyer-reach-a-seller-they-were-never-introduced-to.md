@@ -5,12 +5,12 @@ priority: P3
 effort: L
 component: cross-cutting
 status: in-review
-related: [MCP-001, MON-007, XC-006]
+related: [MCP-001, MON-007, XC-006, XC-033, XC-034, APP-119]
 blockers: []
-dependencies: ["Evidence of demand: several live nodes, and a buyer who wants one they were not handed"]
+dependencies: []
 github_issue: null
 created: 2026-08-06
-updated: 2026-08-26
+updated: 2026-09-15
 ---
 
 ## Problem
@@ -80,3 +80,18 @@ items had accumulated that id (this one filed 2026-08-06, `XC-016`
 test" filed 2026-08-04 and merged first via #86). The seed-worker-smoke-test
 item keeps `XC-016` as the first to actually claim it; this item and the
 CLI-drift item (now `XC-023`) are renumbered.
+
+**2026-09-15 (decided):** the registry shape wins, as a public git repo,
+not a hosted index. That answers this item's own objection: a repo is
+forkable, auditable, and nobody's server, so the seller keeps custody and
+the list keeps no secrets. One file, one entry per seller, holding only what
+the node's `discover` already serves (name, `/mcp` URL, store URL, network,
+topics, count, prices). An entry in `main` is the listing; an open pull
+request is the pending state; the app reads which it is from the raw file.
+Demand argument: personal agents (Grok Bot with Bring Your Own MCP and
+PayBox x402 payments, Muse, Instinct) can read a raw JSON URL today and
+need one place to find sellers. Split into `XC-033` (the repo, schema, and
+validator; repo created the same day at dipakkrishnan/lore-marketplace),
+`APP-119` ("List on marketplace" from the app, which opens the PR through the
+relay), and `XC-034` (the bridge reads the registry and fans `discover` out).
+Self-advertisement and the MCP directory remain later trust and reach layers.
