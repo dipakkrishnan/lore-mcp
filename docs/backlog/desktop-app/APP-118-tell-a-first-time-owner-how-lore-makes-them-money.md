@@ -5,7 +5,7 @@ priority: P1
 effort: S
 component: desktop-app
 status: in-review
-related: [APP-092, XC-025, APP-094, APP-117, MON-025]
+related: [APP-092, XC-025, APP-094, APP-117, MON-025, ONB-007]
 blockers: []
 dependencies: []
 github_issue: null
@@ -52,3 +52,12 @@ that people can make a solid amount of money" so sellers keep adding supply.
 Declined as copy: the buyer thesis has kill criteria and the owner's
 preference on record is no hype. The retention lever is the mechanism shown
 honestly plus the examples in `APP-117`.
+
+2026-09-14, later: Zane on the order. "It's first 'what does this do'. And
+then once I know what it is, naturally I'm going to only want to lean in
+more if I'm either building and want to buy people's context, or want to
+sell my own." So the explainer is two beats, not one: what Lore does, then a
+fork. A seller is guided to what to sell and what sells now (`APP-117`); a
+builder is guided to what to buy and how to buy it (the bridge and the
+connect command). The three sentences above are the seller beat; add the
+one-line "what it does" first and the buyer branch after.
