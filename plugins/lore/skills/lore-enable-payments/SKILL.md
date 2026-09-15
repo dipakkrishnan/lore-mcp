@@ -289,6 +289,15 @@ When they do, verify the gates **from state** before driving anything:
 
 Any gate fails → say which, leave the node on the test network, stop.
 
+Neither direction of this switch needs the payout address. `lore node deploy
+--network real` and `lore node deploy --network test` both redeploy a node
+that already has a deploy — the same node `lore status` already shows a URL
+for — and `LORE_WALLET` is already stored on it as a Worker secret from the
+first deploy (step 5's `--wallet` is a first-deploy argument, not a
+network-switch one). Only pass `--wallet` again if `npx wrangler secret list`
+shows `LORE_WALLET` is unexpectedly missing. Do not ask the owner for their
+payout address on a network switch.
+
 > **Lore desktop:** read the gates from `lore publication list` and
 > `lore node sales --json` only, quietly, then say where they stand in one
 > sentence in the owner's words. Never run `npm run pay`, query the chain, or
