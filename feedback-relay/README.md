@@ -14,6 +14,8 @@ maintainer, from a full repo checkout.
 
 ## Contract
 
+Two routes, one limiter, two tokens that never leave this Worker.
+
 `POST /report` with the JSON shape `lore/feedback.py`'s `Report` model
 produces (`report_version`, `title`, `email`, `description`, `metadata`).
 Success is `201 { ok: true, issue_url, issue_number }`; every failure is
@@ -24,6 +26,23 @@ No CORS headers, deliberately: both callers POST from Python via `urllib`,
 never from a browser, so the absence of `Access-Control-Allow-Origin` means no
 web page can drive this endpoint from a visitor's browser.
 
+### Marketplace listings (APP-119)
+
+`GET /listing?node=<https://…/mcp>` answers `{ ok, state }` where `state` is
+`none`, `pending` (with `action`, `pull_url`, `pull_number`), or `listed`,
+read from `dipakkrishnan/lore-marketplace`: an entry in `main` is listed, an
+open pull request whose body carries `node: <url>` is pending.
+
+`POST /listing` with `{ listing_version: 1, action: "list", node, name }`
+reads the node's own `discover` (the same three MCP calls `lore/snapshot.py`
+makes), builds the entry from that and only that, and opens a pull request on
+the registry repo. Success is `201 { ok, state: "pending", action, pull_url,
+pull_number, secret }`; `200` when the node is already pending or already
+listed unchanged. `action: "delist"` needs the `secret` a listing returned
+(an HMAC of the node under `LORE_LISTING_KEY`, so nothing is stored) and
+opens a removal. Field limits are in `contracts/marketplace_listing.json`;
+`lore/marketplace.py` is the client for both the CLI and the Desktop app.
+
 ## Deploy
 
 Until this is done, the feature is off: `lore/feedback.py`'s `RELAY_URL` is
@@ -33,8 +52,10 @@ single switch that turns it on, and step 6 is what proves the switch works.
 
 ```sh
 npm ci
-npx wrangler secret put LORE_FEEDBACK_GITHUB_TOKEN   # 1. paste at the prompt
-npx wrangler deploy                                  # 2.
+npx wrangler secret put LORE_FEEDBACK_GITHUB_TOKEN     # 1. paste at the prompt
+npx wrangler secret put LORE_MARKETPLACE_GITHUB_TOKEN  # 1b. a second fine-grained PAT: dipakkrishnan/lore-marketplace only, Contents and Pull requests read/write
+npx wrangler secret put LORE_LISTING_KEY               # 1c. any long random string; rotating it invalidates every listing secret
+npx wrangler deploy                                    # 2.
 ```
 
 3. Create the `feedback` label on the repo (see below).

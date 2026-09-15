@@ -22,7 +22,26 @@ runtime.provision = async (emit) => { if (failSetup) throw new Error("uv explode
 // reaches both `desktop-state` (which is what un-hides the button) and
 // `report-feedback`. main.cjs is required only once the port is known.
 const relayReports = [];
-if (scenario === "feedback") {
+// APP-119: a marketplace relay that says "not listed" until one listing
+// arrives, then "pending" with a pull request to look at.
+const listings = [];
+if (scenario === "listing") {
+  const relay = require("node:http").createServer((request, response) => {
+    let body = "";
+    request.on("data", (chunk) => { body += chunk; });
+    request.on("end", () => {
+      if (request.method === "POST") listings.push(JSON.parse(body));
+      const pending = { ok: true, state: "pending", action: "list", pull_url: "https://github.com/dipakkrishnan/lore-marketplace/pull/7", pull_number: 7 };
+      const payload = request.method === "POST" ? { ...pending, secret: "ab".repeat(32) } : listings.length ? pending : { ok: true, state: "none" };
+      response.writeHead(request.method === "POST" ? 201 : 200, { "Content-Type": "application/json" });
+      response.end(JSON.stringify(payload));
+    });
+  });
+  relay.listen(0, "127.0.0.1", () => {
+    process.env.LORE_LISTING_URL = `http://127.0.0.1:${relay.address().port}/listing`;
+    require(join(src, "main.cjs"));
+  });
+} else if (scenario === "feedback") {
   const relay = require("node:http").createServer((request, response) => {
     let body = "";
     request.on("data", (chunk) => { body += chunk; });
@@ -238,6 +257,31 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         await js(`[...document.querySelectorAll("#content .empty button")].find((b) => b.textContent === "Draft one from a memory").click()`);
         await sleep(300);
         check("Draft one from a memory opens Memories", await js(`document.querySelector("#title").textContent`) === "Memories");
+      } else if (scenario === "listing") {
+        // APP-119: one click lists the store; the row reads its state from the relay, never from local memory.
+        await waitFor(`document.body.dataset.state === "welcome" && !document.querySelector("#welcome").classList.contains("provisioning")`);
+        await js(`window.__lore.signIn()`);
+        await waitFor(`document.querySelector("#content").textContent.includes("Approve what to sell") || document.querySelector("#content").textContent.length > 0`);
+        await js(`window.__lore.show("settings")`);
+        const offered = await waitFor(`[...document.querySelectorAll("#content button")].some((b) => b.textContent === "List on the marketplace")`);
+        check("Settings offers to list the store once a relay is configured", offered);
+        const before = await js(`document.querySelector("#content").textContent`);
+        check("the row says what is shared before anything is sent", before.includes("only what your store already shows"));
+        check("no PR, GitHub, or merge in the owner's words", !/\bPR\b|GitHub|merge/.test(before));
+        await js(`document.querySelector("#main").scrollTop = 1e6`);
+        await sleep(200);
+        await shot("settings-list-offer");
+        await js(`[...document.querySelectorAll("#content button")].find((b) => b.textContent === "List on the marketplace").click()`);
+        check("the click sends the name from setup and nothing else", await waitFor(`${listings.length > 0}`) || (await sleep(1500), listings.length > 0));
+        check("…as one list request", listings.length === 1 && listings[0].action === "list" && listings[0].name === "Edge Seller" && Object.keys(listings[0]).sort().join() === "action,listing_version,name,node");
+        check("the row flips to Pending review", await waitFor(`document.querySelector("#content").textContent.includes("Pending review")`));
+        check("…with a link to look at the request", await js(`[...document.querySelectorAll("#content a.link-btn")].some((a) => a.textContent === "View ↗" && a.href === "https://github.com/dipakkrishnan/lore-marketplace/pull/7")`));
+        await shot("settings-list-pending");
+        // Leaving and returning reads the relay again, not a remembered click.
+        await js(`window.__lore.show("today")`);
+        await js(`window.__lore.show("settings")`);
+        await sleep(400);
+        check("Pending review survives a view change", await js(`document.querySelector("#content").textContent.includes("Pending review")`));
       } else if (scenario === "feedback") {
         // APP-105: one Send is one public GitHub issue, and a report still in
         // flight never closes a sheet the owner opened after it.

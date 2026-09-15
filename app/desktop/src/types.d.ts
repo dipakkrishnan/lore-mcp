@@ -30,6 +30,9 @@ type Snapshot = {
   // installed CLI older than this app omits it, and no relay is the safe
   // reading of its absence.
   feedback?: { available: boolean };
+  // Whether this build can list the store on the public marketplace; same
+  // relay, so absent means no (APP-119).
+  marketplace?: { available: boolean };
   library: {
     counts: { private: number };
     sources: Array<{ name: string; label: string; enabled: boolean; imported: number }>;
@@ -184,6 +187,8 @@ interface Window {
     setPrice(amount: number): Promise<void>;
     sales(): Promise<Sale[]>;
     reportFeedback(input: { title: string; email: string; description: string }): Promise<FeedbackReceipt>;
+    listStore(action: "list" | "delist"): Promise<Listing>;
+    listingStatus(): Promise<Listing>;
     pickFiles(): Promise<string[]>;
     pathFor(file: File): string;
     onAgentEvent(listener: (event: AgentEvent) => void): () => void;
@@ -273,3 +278,12 @@ type LoreAgentOptions = {
     finish(id: number, status: string, summary: string, title: string, costUsd: number | null): Promise<void>;
   };
 };
+
+/** Where a store stands on the public marketplace, as the relay reports it. */
+interface Listing {
+  ok: boolean;
+  state: "none" | "pending" | "listed";
+  action?: "list" | "delist";
+  pull_url?: string;
+  pull_number?: number;
+}
