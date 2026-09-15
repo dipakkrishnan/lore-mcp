@@ -147,7 +147,10 @@ jobs:
       - run: npm ci
       # Placeholder: never a real GitHub token. Lets `wrangler types` resolve
       # the secret binding the same way CI seeds LORE_WALLET for lore/node.
-      - run: echo "LORE_FEEDBACK_GITHUB_TOKEN=not-a-real-token" > .dev.vars
+      - run: |
+          echo "LORE_FEEDBACK_GITHUB_TOKEN=not-a-real-token" > .dev.vars
+          echo "LORE_MARKETPLACE_GITHUB_TOKEN=not-a-real-token" >> .dev.vars
+          echo "LORE_LISTING_KEY=not-a-real-key" >> .dev.vars
       - run: npm run types
       - run: npm run check
 

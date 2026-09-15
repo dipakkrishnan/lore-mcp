@@ -1,0 +1,13 @@
+{
+  "listing_version": 1,
+  "registry": "dipakkrishnan/lore-marketplace",
+  "limits": {
+    "name": { "min": 1, "max": 80 },
+    "body_bytes": 16384
+  },
+  "length_unit": "code_points",
+  "actions": ["list", "delist"],
+  "states": ["none", "pending", "listed"],
+  "node_pattern": "^https://[^/\\s]+/mcp$",
+  "secret_pattern": "^[0-9a-f]{64}$"
+}
