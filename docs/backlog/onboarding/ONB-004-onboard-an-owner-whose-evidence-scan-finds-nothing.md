@@ -5,12 +5,12 @@ priority: P2
 effort: M
 component: onboarding
 status: in-review
-related: [APP-041, APP-048, APP-053]
+related: [APP-041, APP-048, APP-053, CAP-003, APP-118]
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-09-04
-updated: 2026-09-04
+updated: 2026-09-14
 ---
 
 ## Problem
@@ -39,3 +39,10 @@ and proposes a shape from the answers, with the memory count honest at zero.
 
 From the 2026-09-04 dogfood plan audit; the Sep 2 triage listed it under
 "an alpha can carry them".
+
+2026-09-14: observed. Zane, a v0.1.2 trial user with no agent history,
+reached the empty library and could not tell what to make first. His asks
+are filed as `CAP-003` (seed from public posts), `APP-117` (examples),
+`XC-032` (why a buyer pays), `MON-025` (store before wallet), and
+`APP-118` (explainer). This item still owns what setup itself says when
+the scan finds nothing.
