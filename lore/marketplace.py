@@ -162,6 +162,12 @@ def build(action: Action, *, name: str | None = None) -> Listing:
         name = name or default_name()
         if not name:
             raise ValueError("a display name is needed; pass --name")
+        # A node already listed can only be renamed with the secret it was
+        # given on first listing, so send it along if this Mac has one.
+        with Store() as store:
+            saved = store.setting(SECRET_SETTING, None)
+        if isinstance(saved, str):
+            secret = saved
     try:
         return Listing(action=action, node=node, name=name, secret=secret)
     except ValidationError as error:

@@ -85,9 +85,11 @@ export function parseListing(value: unknown): Listing {
     if (length > LIMITS.name.max) fail(400, `the display name is over ${String(LIMITS.name.max)} characters`);
   }
   let secret: string | null = null;
-  if (action === "delist") {
-    if (typeof body.secret !== "string" || !SECRET_RE.test(body.secret)) fail(400, "delisting needs the listing secret");
+  if (typeof body.secret === "string") {
+    if (!SECRET_RE.test(body.secret)) fail(400, "the listing secret is not the right shape");
     secret = body.secret;
+  } else if (action === "delist") {
+    fail(400, "delisting needs the listing secret");
   }
   return { action, node: body.node, name, secret };
 }
@@ -288,6 +290,10 @@ export async function apply(env: Env, listing: Listing): Promise<Outcome> {
     const pull = await openPull(env, listing, registry, sha, `Delist ${removed.name}`);
     return { ok: true, created: true, state: "pending", action: "delist", pull_url: pull.html_url, pull_number: pull.number };
   }
+  // A node already on the registry can only be re-listed (renamed) by
+  // whoever holds its listing secret — the same proof `delist` requires.
+  // A first listing needs none, because the node's URL is not yet public.
+  if (index >= 0 && !sameSecret(secret, listing.secret ?? "")) fail(403, "that is not this store's listing secret");
   const entry = entryFor(listing.name ?? "", listing.node, await discover(listing.node));
   if (index >= 0) {
     const current = registry.sellers[index];

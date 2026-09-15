@@ -83,3 +83,18 @@ pass --name" until they run it; the row has no name field of its own. And
 the relay reports "listed" without a pull request when `main` already holds
 an identical entry, and opens an "Update" when the catalog moved on,
 keeping the original listing date.
+
+Round 1 review (2026-09-15) flagged that AC #1's "matches the node's
+`discover` (name, ...)" doesn't hold literally: `discover`'s manifest has no
+`name` field, so the display name has always been client-supplied (see the
+choice above), not read from the node. Combined with `list` requiring no
+secret at all, this meant anyone who learned an already-listed node's URL —
+public in `marketplace.json` on `main` — could rename that listing by
+POSTing a `list` with a different `name`, with nothing to reveal to the
+maintainer that the submitter wasn't the real owner. Fixed by requiring the
+listing secret for any `list` against a node that's already on the
+registry, the same proof `delist` requires; a first-ever listing still needs
+none, since the node's URL isn't public until then. `lore marketplace list`
+and the Desktop card now send the saved secret automatically when one
+exists. Network/topics/count/prices still come only from `discover`, so
+AC #4 holds without qualification.

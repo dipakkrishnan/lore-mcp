@@ -142,6 +142,15 @@ class BuildTest(LoreTestCase):
         self.assertEqual(listing.secret, SECRET)
         self.assertIsNone(listing.name)
 
+    def test_a_list_sends_the_saved_secret_so_a_rename_is_authorized(self) -> None:
+        self._node()
+        self.assertIsNone(marketplace.build("list", name="Ada").secret)
+        with Store() as store:
+            store.set_setting("listing_secret", SECRET)
+        listing = marketplace.build("list", name="Ada")
+        self.assertEqual(listing.secret, SECRET)
+        self.assertEqual(listing.name, "Ada")
+
 
 class SubmitTest(LoreTestCase):
     def setUp(self) -> None:
