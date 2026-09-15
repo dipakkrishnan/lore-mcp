@@ -11,7 +11,9 @@ export default defineProject({
         // (see test/github.ts, modelled on lore/node/test/facilitator.ts).
         bindings: {
           LORE_GITHUB_API: "https://github.test",
-          LORE_FEEDBACK_GITHUB_TOKEN: "test-token"
+          LORE_FEEDBACK_GITHUB_TOKEN: "test-token",
+          LORE_MARKETPLACE_GITHUB_TOKEN: "registry-token",
+          LORE_LISTING_KEY: "test-listing-key-0123456789abcdef"
         }
       }
     })

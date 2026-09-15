@@ -37,6 +37,9 @@ contextBridge.exposeInMainWorld("lore", {
   sales: () => ipcRenderer.invoke("store:sales"),
   /** @param {{title: string, email: string, description: string}} input */
   reportFeedback: (input) => ipcRenderer.invoke("feedback:report", input),
+  /** @param {"list" | "delist"} action */
+  listStore: (action) => ipcRenderer.invoke("listing:act", action),
+  listingStatus: () => ipcRenderer.invoke("listing:status"),
   pickFiles: () => ipcRenderer.invoke("files:pick"),
   /** @param {File} file */
   pathFor: (file) => webUtils.getPathForFile(file),

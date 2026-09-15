@@ -5,6 +5,8 @@ interface __BaseEnv_Env {
 	GLOBAL_RATE_LIMIT: RateLimit;
 	LORE_GITHUB_API: "https://api.github.com";
 	LORE_FEEDBACK_GITHUB_TOKEN: string;
+	LORE_MARKETPLACE_GITHUB_TOKEN: string;
+	LORE_LISTING_KEY: string;
 	FEEDBACK_QUOTA: DurableObjectNamespace<import("./src/index").FeedbackQuota>;
 }
 declare namespace Cloudflare {

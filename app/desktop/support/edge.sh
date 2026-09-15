@@ -1,6 +1,6 @@
 #!/bin/bash
 # Seed a scratch Lore home with two memories and two drafts, then drive the renderer as one persona.
-# Scenarios: seller | provision | store | jobs | fresh | feedback
+# Scenarios: seller | provision | store | jobs | fresh | feedback | listing
 set -euo pipefail
 scenario="${1:-seller}"
 desktop_dir="$(cd "$(dirname "$0")/.." && pwd)"
@@ -35,6 +35,17 @@ with Store() as store:
  store.start_job('deploy', timeout_minutes=720)
 from lore import automation
 automation.save_profile({'executor': 'codex', 'cadence': 'daily', 'hour': 21})")
+fi
+if [[ "$scenario" == "listing" ]]; then
+  # APP-119: a live store and a setup name, the two things the marketplace row needs.
+  (cd "$repo_root" && uv run python -c "import json, time
+from lore import blueprint
+from lore.store import Store
+with Store() as store:
+ store.set_setting('node_url', 'https://store.example/mcp')
+ store.set_setting('node_live', {'url': 'https://store.example/mcp', 'checked_at': time.time(), 'live': {'state': 'online', 'network': 'eip155:8453', 'price_usd': 0.01, 'payout': '0x' + 'a' * 40}, 'ids': []})
+blueprint.blueprint_path().parent.mkdir(parents=True, exist_ok=True)
+blueprint.blueprint_path().write_text(json.dumps({'name': 'Edge Seller'}))")
 fi
 if [[ "$scenario" == "store" ]]; then
   (cd "$repo_root" && uv run python -c "import time

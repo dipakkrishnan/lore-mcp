@@ -804,3 +804,50 @@ test("propose_price is a live tool, and the agent is told not to price by hand",
   assert.match(source, /this\.#priceTool\(\)/, "and registered as a custom tool");
   assert.match(source, /call propose_price and never run a price command yourself/);
 });
+
+test("listing a store goes through the CLI to a stubbed relay and never sends the entry itself", async () => {
+  const { listStore, listingStatus } = require("../src/state.cjs");
+  await assert.rejects(listStore("/nonexistent", "publish"), { message: /Invalid listing action/ });
+
+  const received = [];
+  const server = createServer((request, response) => {
+    let body = "";
+    request.on("data", (chunk) => { body += chunk; });
+    request.on("end", () => {
+      received.push({ method: request.method, url: request.url, body: body ? JSON.parse(body) : null });
+      const payload = request.method === "GET"
+        ? JSON.stringify({ ok: true, state: "listed" })
+        : JSON.stringify({ ok: true, state: "pending", action: "list", pull_url: "https://github.com/dipakkrishnan/lore-marketplace/pull/3", pull_number: 3, secret: "ab".repeat(32) });
+      response.writeHead(request.method === "GET" ? 200 : 201, { "Content-Type": "application/json" });
+      response.end(payload);
+    });
+  });
+  await new Promise((resolveListening) => server.listen(0, "127.0.0.1", resolveListening));
+  const directory = await mkdtemp(join(tmpdir(), "lore-desktop-"));
+  const previousUrl = process.env.LORE_LISTING_URL;
+  try {
+    process.env.LORE_LISTING_URL = `http://127.0.0.1:${server.address().port}/listing`;
+    // A store and a name, the two things the CLI needs; the relay reads everything else from the node.
+    spawnSync("uv", ["run", "python", "-c", `
+from lore.store import Store
+from lore import blueprint
+import json
+with Store() as store: store.set_setting("node_url", "https://lore.example.workers.dev/mcp")
+blueprint.blueprint_path().parent.mkdir(parents=True, exist_ok=True)
+blueprint.blueprint_path().write_text(json.dumps({"name": "Ada"}))
+`], { cwd: join(__dirname, "../../.."), env: { ...process.env, LORE_HOME: directory }, stdio: "inherit" });
+    const pending = await listStore(directory, "list");
+    assert.deepEqual(pending, { ok: true, state: "pending", action: "list", pull_url: "https://github.com/dipakkrishnan/lore-marketplace/pull/3", pull_number: 3 });
+    assert.equal(received[0].method, "POST");
+    assert.deepEqual(received[0].body, { listing_version: 1, action: "list", node: "https://lore.example.workers.dev/mcp", name: "Ada" });
+    const state = await listingStatus(directory);
+    assert.deepEqual(state, { ok: true, state: "listed" });
+    assert.equal(received[1].method, "GET");
+    assert.ok(received[1].url.startsWith("/listing?node="));
+  } finally {
+    if (previousUrl === undefined) delete process.env.LORE_LISTING_URL;
+    else process.env.LORE_LISTING_URL = previousUrl;
+    await new Promise((resolveClose) => server.close(resolveClose));
+    await rm(directory, { recursive: true });
+  }
+});
