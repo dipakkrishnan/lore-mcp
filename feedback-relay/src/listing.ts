@@ -279,7 +279,11 @@ export async function apply(env: Env, listing: Listing): Promise<Outcome> {
   const pending = await pendingFor(env, listing.node);
   if (pending) {
     const outcome: Outcome = { ok: true, created: false, state: "pending", action: actionOf(pending), pull_url: pending.html_url, pull_number: pending.number };
-    if (listing.action === "list") outcome.secret = secret;
+    // The node URL is public the moment a PR exists for it (it's in the PR
+    // body on the public registry repo), so "asks about a pending node"
+    // is not proof of ownership. Only hand the secret back to whoever
+    // already holds it, same proof `delist` and re-listing require.
+    if (listing.action === "list" && sameSecret(secret, listing.secret ?? "")) outcome.secret = secret;
     return outcome;
   }
   const { registry, sha } = await readFile(env);
