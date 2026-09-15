@@ -236,8 +236,28 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
       } else if (scenario === "fresh") {
         // APP-109: an empty Lore names the next action and carries the control that takes it.
         await waitFor(`document.body.dataset.state === "welcome" && !document.querySelector("#welcome").classList.contains("provisioning")`);
+        // APP-118: "what does this do" before sign-in, then how the money works, three steps, once.
+        const sub = await js(`document.querySelector("#welcome .welcome-sub")?.textContent ?? ""`);
+        check("the sign-in screen says what Lore does in one sentence", /AI agents pay to read what you choose to sell/.test(sub), sub);
         await js(`window.__lore.signIn()`);
         await waitFor(`document.querySelector("#content .strip")`);
+        const today = await js(`document.querySelector("#content").textContent`);
+        check("Today opens with how selling works, above Needs you", today.indexOf("How selling works") >= 0 && today.indexOf("How selling works") < today.indexOf("Needs you"));
+        check("…as Keep, Approve, Earn and the buyer fork", /Keep.*Approve.*Earn.*Buying instead\?/s.test(today));
+        check("…naming buyers as agents, both prices, and non-custody", /Buyers' AI agents pay cents to read a publication, dollars for an answer/.test(today) && /Lore holds nothing/.test(today));
+        check("…with no earnings figure", !/\$\d/.test(today.slice(today.indexOf("How selling works"), today.indexOf("Needs you"))));
+        check("…and no hype", !/solid|guarantee|passive income/i.test(today));
+        await shot("today-how-selling-works");
+        await js(`[...document.querySelectorAll("#content .section-head button")].find((b) => b.textContent === "Got it").click()`);
+        await sleep(300);
+        check("Got it takes the card away in one click", !(await js(`document.querySelector("#content").textContent`)).includes("How selling works"));
+        await js(`window.__lore.show("settings")`);
+        await sleep(400);
+        const settings = await js(`document.querySelector("#content").textContent`);
+        check("Settings keeps how selling works after the card is gone", /How selling works.*Keep.*Approve.*Earn/s.test(settings));
+        await js(`window.__lore.show("today")`);
+        await sleep(400);
+        check("…and Today does not bring it back", !(await js(`document.querySelector("#content").textContent`)).includes("How selling works"));
         await js(`window.__lore.show("memories")`);
         await sleep(400);
         const memories = await js(`document.querySelector("#content .empty")?.textContent ?? ""`);
@@ -250,7 +270,7 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         await sleep(600);
         check("no store: the bar offers to open one", await js(`[...document.querySelectorAll("#content .store-bar button")].some((b) => b.textContent === "Open a store")`));
         const forSale = await js(`[...document.querySelectorAll("#content .empty")].map((n) => n.textContent).join("|")`);
-        check("nothing for sale: one sentence and a way to draft", /Nothing for sale yet\./.test(forSale) && await js(`[...document.querySelectorAll("#content .empty button")].some((b) => b.textContent === "Draft one from a memory")`), forSale);
+        check("nothing for sale: one sentence and a way to draft", /Nothing for sale yet\. Approve a draft and buyers' agents can pay to read it\./.test(forSale) && await js(`[...document.querySelectorAll("#content .empty button")].some((b) => b.textContent === "Draft one from a memory")`), forSale);
         check("no sales: left alone, no action", await js(`[...document.querySelectorAll("#content .empty")].find((n) => n.textContent.includes("No sales yet")).querySelector("button") === null`));
         check("every empty-state action is a real button, reachable by keyboard", await js(`[...document.querySelectorAll("#content .empty button, #content .store-bar button")].every((b) => b.tabIndex >= 0)`));
         await shot("store-empty");
@@ -262,6 +282,11 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         await waitFor(`document.body.dataset.state === "welcome" && !document.querySelector("#welcome").classList.contains("provisioning")`);
         await js(`window.__lore.signIn()`);
         await waitFor(`document.querySelector("#content").textContent.includes("Approve what to sell") || document.querySelector("#content").textContent.length > 0`);
+        // APP-118: with something on a live store, listing is a Needs you rung, not a Settings row to find.
+        const rung = await waitFor(`[...document.querySelectorAll("#content .row .t b")].some((b) => b.textContent === "List on the marketplace")`);
+        check("Today offers the listing as the next rung once the store has something on it", rung);
+        check("…in the owner's words", /Shares only your name, topics, and prices/.test(await js(`document.querySelector("#content").textContent`)));
+        await shot("today-list-rung");
         await js(`window.__lore.show("settings")`);
         const offered = await waitFor(`[...document.querySelectorAll("#content button")].some((b) => b.textContent === "List on the marketplace")`);
         check("Settings offers to list the store once a relay is configured", offered);
@@ -282,6 +307,9 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         await js(`window.__lore.show("settings")`);
         await sleep(400);
         check("Pending review survives a view change", await js(`document.querySelector("#content").textContent.includes("Pending review")`));
+        await js(`window.__lore.show("today")`);
+        await sleep(400);
+        check("the rung is gone from Today once the listing is pending", !(await js(`[...document.querySelectorAll("#content .row .t b")].some((b) => b.textContent === "List on the marketplace")`)));
       } else if (scenario === "feedback") {
         // APP-105: one Send is one public GitHub issue, and a report still in
         // flight never closes a sheet the owner opened after it.

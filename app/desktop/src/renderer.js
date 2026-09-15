@@ -74,6 +74,17 @@ let savingPrice = false;
 let accountMenuOpen = false;
 /** The node's ledger, read each time For Sale opens: rows, the reason it could not be read, or null while it loads. @type {Sale[] | Error | null} */
 let sales = null;
+const HOW_SELLING_WORKS = "how-selling-works";
+/** Per-Mac conveniences only. Storage can be missing or throw, and nothing here depends on it. @param {string} key @param {string} [value] */
+function remembered(key, value) {
+  try {
+    if (value !== undefined) localStorage.setItem(key, value);
+    return localStorage.getItem(key);
+  } catch {
+    return null;
+  }
+}
+let explainerDismissed = remembered(HOW_SELLING_WORKS) !== null;
 /** The task whose turn is open, while one is. @type {AgentTask | null} */
 let busy = null;
 /** The card awaiting the owner. A memory card also carries `current`, its entries as edited, so the composer can send a spoken or typed correction with them. @type {{id: string, task: AgentTask | null, box: HTMLElement, current?: () => ProposedMemory[]} | null} */
@@ -569,6 +580,36 @@ function greeting() {
   return hour < 12 ? "Good morning." : hour < 18 ? "Good afternoon." : "Good evening.";
 }
 
+/** The mechanism as three steps and one fork (APP-118): who buys, what they pay, what the owner keeps. No figures; the ledger shows those. */
+function sellingSteps() {
+  return [
+    row("Keep", "Lore writes memories from what you and your agents learn. Private, on this Mac.", undefined, false),
+    row("Approve", "You choose what to sell. Nothing leaves without your yes.", undefined, false),
+    row("Earn", "Buyers' AI agents pay cents to read a publication, dollars for an answer, straight to your wallet. Lore holds nothing.", undefined, false),
+    row("Buying instead?", "Your own agent can pay other people's stores the same way.", cell(outLink("How to connect it ↗", "https://yourlore.dev")), false)
+  ];
+}
+
+/** On Today until the owner says they have it or a buyer has paid; Settings keeps it after that. @param {Snapshot} s */
+function howSellingWorks(s) {
+  if (explainerDismissed || (Array.isArray(sales) && sales.length)) return null;
+  const done = button("Got it", "quiet", () => {
+    explainerDismissed = true;
+    remembered(HOW_SELLING_WORKS, new Date().toISOString());
+    render();
+  });
+  return section("How selling works", card(sellingSteps()), done);
+}
+
+/** The first real sale as the worked example, once the ledger has one. */
+function firstSaleRow() {
+  if (!Array.isArray(sales) || !sales.length) return [];
+  const sale = sales[sales.length - 1];
+  const trailing = el("div", "v");
+  trailing.append(el("span", "mono", price(sale.price_usd)), outLink("Receipt ↗", `${explorer(sale.network)}/tx/${sale.tx}`));
+  return [row("Your first sale", `${sale.title} · ${when(sale.sold_at)}`, trailing, false)];
+}
+
 /** @param {Snapshot} s */
 function needsYou(s) {
   /** @type {HTMLElement[]} */
@@ -598,6 +639,11 @@ function needsYou(s) {
   if (stale !== null) add("Redeploy your store", `Buyers still pay ${price(stale)}; you set ${price(s.pricing.publication_usd)}.`, button("Redeploy", "secondary", () => void startDeploy(REDEPLOY_PRICE)));
   const waiting = unpushed(s);
   if (waiting.length && !pushOffer && !pushing) add("Push to your store", `${pendingLabel(waiting)}.`, button("Push", "secondary", pushNow));
+  // A live store with something on it can be found by buyers; that is the rung after pushing, whatever setup still wants.
+  if (s.node.live.state === "online" && s.marketplace?.available && s.publications.counts.active) {
+    loadListing(s);
+    if (listing?.state === "none") add("List on the marketplace", "Let buyers' agents find your store. Shares only your name, topics, and prices.", button("List", "secondary", () => void changeListing("list")));
+  }
   return rows;
 }
 
@@ -625,6 +671,8 @@ function renderToday(s) {
   if (candidates.length) parts.push(section("Approve what to sell", approvals(), el("span", "hint", "Buyers only ever get what you approve here.")));
   if (pushOffer || pushing) parts.push(seamCard());
   if (pushedNote) parts.push(pushReceipt(s));
+  const how = howSellingWorks(s);
+  if (how) parts.push(how);
   const attention = needsYou(s);
   if (attention.length) parts.push(section("Needs you", card(attention)));
   const shown = displayTasks();
@@ -831,7 +879,7 @@ function renderStore(s) {
   if (pushOffer) parts.push(seamCard());
   parts.push(section("For sale", approved.length
     ? card(approved.map((item) => row(item.title, sold(item), controls(item))))
-    : emptyState("Nothing for sale yet.", button("Draft one from a memory", "quiet", () => show("memories"))),
+    : emptyState("Nothing for sale yet. Approve a draft and buyers' agents can pay to read it.", button("Draft one from a memory", "quiet", () => show("memories"))),
     aside));
   if (revoked.length) parts.push(section("Taken down", card(revoked.map((item) => row(item.title, item.topic, item.live === true ? chip("Still on your store", "attention") : chip("Taken down"))))));
   parts.push(renderSales());
@@ -913,7 +961,7 @@ function scheduleRow(s) {
   return row(label, `Set for ${who.charAt(0).toLowerCase()}${who.slice(1)}, but nothing on this Mac is running it.`, cell(dot(false, "Not scheduled"), button("Schedule", "secondary", () => void act(window.lore.schedule))), false);
 }
 
-/** Read the listing state once per store address; Settings re-renders when it lands. @param {Snapshot} s */
+/** Read the listing state once per store address; Settings and Today re-render when it lands. @param {Snapshot} s */
 function loadListing(s) {
   if (!s.node.url || !s.marketplace?.available || listingFor === s.node.url) return;
   listingFor = s.node.url;
@@ -921,7 +969,7 @@ function loadListing(s) {
   window.lore.listingStatus().then((state) => {
     if (listingFor !== s.node.url) return;
     listing = state;
-    if (view === "settings") render();
+    if (view === "settings" || view === "today") render();
   }, () => {
     listingFor = "";
   });
@@ -993,7 +1041,8 @@ function renderSettings(s) {
           ? [row("Payments", "Buyers pay real money. Switch back to the test network any time; nothing already paid changes.", cell(button("Switch to play money", "secondary", () => void startDeploy(PLAY_MONEY))), false)]
           : []),
       ...marketplaceRow(s)
-    ]))
+    ])),
+    section("How selling works", card([...sellingSteps(), ...firstSaleRow()]))
   ];
 }
 
