@@ -5,7 +5,7 @@ priority: P1
 effort: M
 component: capture
 status: in-review
-related: [ONB-004, STO-002, CAP-001, APP-116]
+related: [ONB-004, STO-002, CAP-001, APP-116, ONB-007]
 blockers: []
 dependencies: []
 github_issue: null
@@ -67,3 +67,8 @@ not want Lore to front that cost. LinkedIn's `r_member_social` is closed to
 new applicants and the DMA portability API is EU-only, so LinkedIn is
 archive or browser only. The buyer thesis's "not in the model" test is why
 imports seed rather than sell.
+
+2026-09-14, later: connectors are opt-in, agreed by Dipak and Zane. `ONB-007`
+may find the owner's Substack or X handle from a public search and raise it
+as a card ("do you want to connect your Substack"); this item never connects
+a source the owner did not say yes to.
