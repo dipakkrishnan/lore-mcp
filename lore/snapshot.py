@@ -10,9 +10,8 @@ from typing import Any, Literal, cast
 
 from pydantic import BaseModel, ConfigDict, TypeAdapter
 
-from . import automation, blueprint, feedback, marketplace
+from . import automation, blueprint, feedback, marketplace, sources
 from .paths import claude_home, home
-from .sources import available_sources
 from .store import JOB_SUMMARIES, Store
 
 
@@ -207,7 +206,7 @@ def build() -> dict[str, object]:
     missing = object()
     with Store() as store:
         configured = store.setting("sources", missing)
-        source_counts = store.source_counts()
+        source_entries = sources.entries(store)
         memories = store.memory_inventory()
         publications = store.publication_inventory()
         publication_price = store.setting("price_usd", None)
@@ -236,16 +235,6 @@ def build() -> dict[str, object]:
         "revoked": sum(p["state"] == "revoked" for p in publications),
     }
 
-    sources = [
-        {
-            "name": source.name,
-            "label": source.label,
-            "enabled": isinstance(configured, list) and source.name in configured,
-            "imported": source_counts.get(source.name, 0),
-        }
-        for source in available_sources()
-        if source.origin != "automation"
-    ]
     return {
         "version": 1,
         "home": str(home()),
@@ -268,7 +257,7 @@ def build() -> dict[str, object]:
             "counts": {
                 "private": sum(m["status"] == "private" for m in memories),
             },
-            "sources": sources,
+            "sources": source_entries,
             "items": memories,
         },
         "publications": {

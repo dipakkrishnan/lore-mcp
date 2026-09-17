@@ -4,7 +4,7 @@ title: Generalise sources into owner-connected readers
 priority: P1
 effort: M
 component: store-import
-status: in-review
+status: completed
 related: [CAP-003, CAP-004, CAP-005, CAP-006, CAP-007, APP-120, ONB-004]
 blockers: []
 dependencies: []
@@ -45,17 +45,42 @@ read` so the Desktop app and the CLI share one path.
 
 ## Acceptance criteria
 
-- [ ] An owner can add a folder source pointing at any directory and `lore
+- [x] An owner can add a folder source pointing at any directory and `lore
       sources read` imports its markdown as private memories with the same
       dedupe as agent history.
-- [ ] The snapshot reports connected, kept count, last read, and a named
+- [x] The snapshot reports connected, kept count, last read, and a named
       failure per source; a source whose root exists but whose read fails is
       not reported as connected.
-- [ ] Removing a source asks whether to keep or delete the memories it kept,
+- [x] Removing a source asks whether to keep or delete the memories it kept,
       and either choice leaves the store consistent.
-- [ ] Existing Claude Code and Codex sources behave exactly as before.
+- [x] Existing Claude Code and Codex sources behave exactly as before.
 
 ## Notes
+
+Shipped 2026-09-17 as the Python half of the sources contract the Desktop app
+(`APP-120`) builds against. What landed:
+
+- `Source` gained `kind`, `locator` (the string a reader interprets; `root` is
+  now a property over it), `owned`, and `since`. Reading is a `Reader`
+  strategy per kind with `probe()` and `items()`; only `FolderReader` exists,
+  so `READERS` has one entry and `CAP-004` through `CAP-007` add the rest.
+- Owner folders live in the `owner_sources` setting, last-read outcomes in
+  `source_reads`. `scan()` is still the only write path, so dedupe by
+  fingerprint and `source_key` is untouched.
+- State vocabulary: `connected`, `nothing_found`, `needs_permission`,
+  `unreachable`, `off`. `enabled && root.exists()` is deliberately *not*
+  connected. `pathlib.glob` swallows a denied directory, so `probe()` asks
+  `iterdir()` once to tell "no permission" from "nothing there".
+- `lore sources list|preview|add|read|remove`, each with `--json`, exit 2 for
+  a bad argument. `remove --delete` keeps any memory a publication cites,
+  through the new `Store.delete_source_memories`.
+- Two judgement calls worth knowing. Owner folders drop items shorter than a
+  sentence (40 characters) and skip `.obsidian/`, `.trash/`, and `templates/`;
+  built-ins keep every non-empty file exactly as before, so agent history is
+  byte-identical. And a bare `lore sync` now refreshes connected folders too —
+  otherwise the scheduled run and the app's Sync would never see them.
+- Not built here: feed, export, and script readers; the Electron side of the
+  contract; any per-source project label beyond `personal`.
 
 Filed 2026-09-17 from the connector research. The macOS permission and
 signed-in-window readers (`CAP-007`, `APP-116`) run in Electron main and hand

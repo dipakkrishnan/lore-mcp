@@ -24,6 +24,7 @@ from helpers import LoreTestCase, blueprint_input, captured
 
 from lore import automation, blueprint, cli, feedback
 from lore import deploy as deploy_module
+from lore import sources as sources_module
 from lore.store import JobKind, JobStatus, PublicationKind, Status, Store
 
 
@@ -89,6 +90,29 @@ class ParserTest(unittest.TestCase):
                 {"command": "capture", "capture_command": "apply", "file": "-"},
             ),
             (["status"], {"command": "status"}),
+            (
+                ["sources", "add", "--folder", "/notes", "--since", "2026-01-01"],
+                {
+                    "command": "sources",
+                    "sources_command": "add",
+                    "folder": "/notes",
+                    "label": None,
+                    "since": "2026-01-01",
+                },
+            ),
+            (
+                ["sources", "preview", "--folder", "/notes", "--json"],
+                {"sources_command": "preview", "folder": "/notes", "json": True},
+            ),
+            (["sources", "list"], {"sources_command": "list"}),
+            (
+                ["sources", "read", "codex"],
+                {"sources_command": "read", "name": ["codex"]},
+            ),
+            (
+                ["sources", "remove", "folder-1", "--delete"],
+                {"sources_command": "remove", "name": "folder-1", "delete": True},
+            ),
             (["help"], {"command": "help"}),
             (["price", "1.5"], {"amount": 1.5}),
             (
@@ -175,6 +199,9 @@ class ParserTest(unittest.TestCase):
             ["review", "--all", "external"],
             ["serve", "--transport", "grpc"],
             ["sync", "--source", "notion"],
+            ["sources", "add"],  # a folder is required
+            ["sources", "remove", "folder-1"],  # keep or delete must be chosen
+            ["sources", "remove", "folder-1", "--keep", "--delete"],
             ["node"],  # `node` alone does nothing; a subcommand is required
             ["answer"],
             ["telemetry"],
@@ -401,6 +428,89 @@ class SetupTest(LoreTestCase):
         self.assertNotIn("Synthesis", output.getvalue())
 
 
+class SourcesCommandTest(LoreTestCase):
+    def folder(self, count: int = 3) -> Path:
+        root = Path(self.tmp.name) / "notes"
+        root.mkdir()
+        for index in range(count):
+            (root / f"note-{index}.md").write_text(
+                f"# Note {index}\n\nA lesson long enough to be worth keeping."
+            )
+        return root
+
+    def json_command(self, *argv: str) -> object:
+        with captured() as output:
+            self.assertEqual(cli.main([*argv, "--json"]), 0)
+        return json.loads(output.getvalue())
+
+    def test_a_folder_can_be_previewed_added_read_listed_and_removed(self) -> None:
+        root = self.folder()
+        preview = self.json_command("sources", "preview", "--folder", str(root))
+        self.assertEqual(preview["count"], 3)
+        self.assertEqual(preview["skipped"], 0)
+        self.assertEqual(preview["state"], "connected")
+
+        added = self.json_command(
+            "sources", "add", "--folder", str(root), "--label", "Notes"
+        )
+        self.assertEqual(added["label"], "Notes")
+        self.assertEqual(added["imported"], 3)
+        self.assertEqual(added["state"], "connected")
+
+        listed = self.json_command("sources", "list")
+        self.assertEqual([entry["name"] for entry in listed][2:], [added["name"]])
+
+        read = self.json_command("sources", "read", str(added["name"]))
+        self.assertEqual(
+            read,
+            [
+                {
+                    "name": added["name"],
+                    "added": 0,
+                    "updated": 0,
+                    "unchanged": 3,
+                    "errors": 0,
+                    "state": "connected",
+                }
+            ],
+        )
+
+        removed = self.json_command("sources", "remove", str(added["name"]), "--delete")
+        self.assertEqual(
+            removed,
+            {
+                "name": added["name"],
+                "removed": True,
+                "memories": {"deleted": 3, "kept": 0},
+            },
+        )
+        with Store() as store:
+            self.assertEqual(store.counts()["private"], 0)
+
+    def test_the_text_output_names_every_state(self) -> None:
+        root = self.folder(1)
+        with captured() as output:
+            self.assertEqual(cli.main(["sources", "add", "--folder", str(root)]), 0)
+            self.assertEqual(cli.main(["sources", "list"]), 0)
+        text = output.getvalue()
+        self.assertIn("connected", text)
+        self.assertIn("off", text)
+        self.assertIn("1 imported", text)
+
+    def test_a_bad_source_argument_exits_two_with_one_line(self) -> None:
+        for argv in (
+            ["sources", "add", "--folder", str(Path(self.tmp.name) / "gone")],
+            ["sources", "remove", "codex", "--keep"],
+            ["sources", "remove", "folder-0", "--keep"],
+            ["sources", "read", "nope"],
+        ):
+            with self.subTest(argv=argv):
+                with captured(), patch("sys.stderr", new_callable=StringIO) as stderr:
+                    self.assertEqual(cli.main(argv), 2)
+                self.assertEqual(len(stderr.getvalue().splitlines()), 1)
+                self.assertTrue(stderr.getvalue().startswith("lore: "))
+
+
 class SyncTest(LoreTestCase):
     def test_sync_reports_per_source_counts(self) -> None:
         (self.codex_home / "memories").mkdir(parents=True)
@@ -420,6 +530,16 @@ class SyncTest(LoreTestCase):
         with patch("lore.cli.scan", return_value={}) as scan:
             self.assertEqual(cli.sync(), 0)
         self.assertEqual(scan.call_args.args[1], {"codex", "automation"})
+
+    def test_sync_also_refreshes_the_folders_the_owner_connected(self) -> None:
+        root = Path(self.tmp.name) / "notes"
+        root.mkdir()
+        (root / "note.md").write_text("# Note\n\nA lesson long enough to be kept.")
+        with Store() as store:
+            name = sources_module.add(store, str(root))["name"]
+        with captured() as output:
+            self.assertEqual(cli.sync(), 0)
+        self.assertIn(f"{name}", output.getvalue())
 
 
 class ScheduledSynthesisRecordTest(LoreTestCase):
