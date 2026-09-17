@@ -1146,13 +1146,13 @@ function renderSettings(s) {
   const sources = s.library.sources.map((source) => source.state
     ? sourceRow(source)
     : row(source.label, source.enabled ? `${source.imported} ${source.imported === 1 ? "memory" : "memories"} imported` : "Not connected", cell(dot(source.enabled, source.enabled ? "Connected" : "Off")), false));
-  sources.push(scheduleRow(s));
   // An installed CLI that cannot say where a source stands cannot add one either.
   if (s.library.sources.every((source) => source.state)) {
     const add = el("div", "row");
     add.append(button("+ Add a source", "quiet", openCatalog));
     sources.push(add);
   }
+  sources.push(scheduleRow(s));
   const live = s.node.live;
   return [
     section("Account", card((auth?.credentials.length ? auth.credentials : [null]).map((credential) => {
