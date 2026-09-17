@@ -242,6 +242,23 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         await waitFor(`document.body.dataset.state === "welcome" && !document.querySelector("#welcome").classList.contains("provisioning")`);
         await js(`window.__lore.signIn()`);
         await waitFor(`document.querySelector("#content .strip")`);
+        // APP-123: Today is where a first-run owner hears that Lore can read what they already wrote.
+        const offer = () => js(`[...document.querySelectorAll("#content .row")].find((r) => r.textContent.includes("Lore can read what you already wrote"))?.textContent ?? ""`);
+        const offered = await offer();
+        check("a fresh owner is offered their first source on Today", /A folder of notes, to start\. Nothing is kept until you say so\./.test(offered) && /Connect a source/.test(offered) && /Not now/.test(offered), offered);
+        await shot("today-connect-a-source");
+        await js(`[...document.querySelectorAll("#content button")].find((b) => b.textContent === "Connect a source").click()`);
+        check("Connect a source opens the same catalog Settings opens", await waitFor(`document.querySelector("dialog.sheet")?.textContent.includes("Obsidian, Bear, Logseq, or any folder of Markdown files.")`));
+        check("…and nothing was read to offer it", await js(`window.lore.snapshot().then((s) => s.library.sources.every((source) => !source.owned) && s.library.counts.private === 0)`));
+        await js(`document.querySelector("dialog.sheet .icon-btn").click()`);
+        await sleep(200);
+        await js(`[...document.querySelectorAll("#content button")].find((b) => b.textContent === "Not now").click()`);
+        await sleep(300);
+        check("Not now hides it", await offer() === "");
+        await js(`location.reload()`);
+        await sleep(1500);
+        if (!await waitFor(`document.querySelector("#content .strip")`, 8)) { await js(`window.__lore.signIn()`); await waitFor(`document.querySelector("#content .strip")`); }
+        check("…and the next launch of Lore does not ask again", await offer() === "", await js(`document.querySelector("#content").textContent.slice(0, 120)`));
         await js(`window.__lore.show("memories")`);
         await sleep(400);
         const memories = await js(`document.querySelector("#content .empty")?.textContent ?? ""`);
@@ -267,10 +284,19 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         await js(`[...document.querySelectorAll("#content .section")].find((s) => s.textContent.includes("Where memories come from")).scrollIntoView(); document.querySelector("#main").scrollTop -= 150`);
         await sleep(300);
         await shot("settings-sources-fresh");
+        // APP-123: an owner with a library behind them is past being told what Lore can read.
+        const kept = JSON.stringify([1, 2, 3, 4, 5].map((n) => ({ title: `Something learned ${n}`, content: "A memory long enough for Lore to keep it.", project: "work" })));
+        execFileSync("uv", ["run", "lore", "capture", "apply", "-"], { cwd: join(__dirname, "../../.."), env: process.env, input: kept });
+        await js(`localStorage.removeItem("connect-a-source"); window.__lore.show("today"); window.__lore.event({ type: "changed" })`);
+        await sleep(800);
+        check("an owner with a library of their own is never offered a first source", await offer() === "", await js(`document.querySelector("#content").textContent.slice(0, 160)`));
       } else if (scenario === "sources") {
         // APP-120: Settings is where a source is named, added, and disconnected.
         await waitFor(`document.body.dataset.state === "welcome" && !document.querySelector("#welcome").classList.contains("provisioning")`);
         await js(`window.__lore.signIn()`);
+        // APP-123: an owner who already has a source is never offered one, and never had to say Not now.
+        await waitFor(`document.querySelector("#content .strip")`);
+        check("Today does not offer a first source to an owner who has one", await js(`!document.querySelector("#content").textContent.includes("Lore can read what you already wrote") && localStorage.getItem("connect-a-source") === null`), await js(`document.querySelector("#content").textContent.slice(0, 160)`));
         await js(`window.__lore.show("settings")`);
         const rows = () => js(`[...document.querySelectorAll("#content .row.source")].map((r) => r.textContent).join("|")`);
         check("a connected folder says how much it kept, and when", await waitFor(`[...document.querySelectorAll("#content .row.source")].some((r) => /notes/i.test(r.textContent) && /\\d+ kept · /.test(r.textContent))`), await rows());

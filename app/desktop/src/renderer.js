@@ -603,6 +603,18 @@ function greeting() {
   return hour < 12 ? "Good morning." : hour < 18 ? "Good afternoon." : "Good evening.";
 }
 
+const CONNECT_A_SOURCE = "connect-a-source";
+
+/** Per-Mac conveniences only. Storage can be missing or throw, and nothing here depends on it. @param {string} key @param {string} [value] */
+function remembered(key, value) {
+  try {
+    if (value !== undefined) localStorage.setItem(key, value);
+    return localStorage.getItem(key);
+  } catch {
+    return null;
+  }
+}
+
 /** @param {Snapshot} s */
 function needsYou(s) {
   /** @type {HTMLElement[]} */
@@ -626,6 +638,16 @@ function needsYou(s) {
     if (s.publications.counts.active && s.pricing.publication_usd === null) add("Set a price", "What a buyer pays for one publication. You can change it later.", button("Set", "secondary", openPriceEditor));
     if (!s.node.url) add("Open your store", "A payout address, a price, and a node on the test network first. Free until you say otherwise.", button("Open", "secondary", () => void startDeploy()));
     if (s.library.counts.private && !candidates.length && !taskItems.some((item) => item.kind === "publish")) add("Publish something", "Lore drafts up to three things to sell; you approve each one.", button("Publish", "secondary", startPublish));
+  }
+  // APP-123: the offer only, never the act — nothing is looked at until the owner picks a folder in the catalog.
+  if (!s.library.sources.some((source) => source.owned) && s.library.counts.private < 5 && !remembered(CONNECT_A_SOURCE)) {
+    add("Lore can read what you already wrote", "A folder of notes, to start. Nothing is kept until you say so.", cell(
+      button("Connect a source", "secondary", openCatalog),
+      button("Not now", "quiet", () => {
+        remembered(CONNECT_A_SOURCE, new Date().toISOString());
+        render();
+      })
+    ));
   }
   // Approved work a buyer cannot see yet, or a price they are not yet paying, is actionable whatever rung setup is on.
   const stale = stalePrice(s);
