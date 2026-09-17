@@ -548,11 +548,54 @@ class DeployTest(_NodeCase):
         self.assertLess(create, deployed)
 
     def test_an_already_created_database_has_its_id_recovered(self) -> None:
-        # On a rerun `d1 create` fails with "already exists"; that is the normal
-        # path, not an error, and the id comes from `d1 list` instead.
+        # On a genuine rerun (this installation deployed before — a re-
+        # materialize just reset the local config) `d1 create` fails with
+        # "already exists"; that is the normal path, not an error, and the id
+        # comes from `d1 list` instead.
+        with Store() as store:
+            store.set_setting("node_url", "https://lore.example.workers.dev/mcp")
         code, wrangler = self._deploy(d1_exists=True)
         self.assertEqual(code, 0)
         self.assertTrue(wrangler.named("d1", "list", "--json"))
+        self.assertIn(DATABASE_ID, (self.lore_home / "node/wrangler.jsonc").read_text())
+
+    def test_a_fresh_installation_refuses_to_adopt_someone_elses_database(
+        self,
+    ) -> None:
+        # Issue #257: a dogfood sandbox signed into the owner's real Cloudflare
+        # account found the real node's already-existing database and silently
+        # adopted it, then the deploy's own push wiped its publications with
+        # the sandbox's empty local set. A fresh installation (no `node_url`
+        # recorded here) must refuse rather than repeat that — before ever
+        # touching the Worker itself.
+        with Store() as store:
+            store.set_setting("price_usd", 0.37)
+        wrangler = _Wrangler(d1_exists=True)
+        with (
+            patch("lore.deploy.subprocess.run", side_effect=wrangler),
+            patch("lore.deploy.shutil.which", return_value="/usr/bin/npm"),
+            patch("lore.cli.push_job") as push,
+            captured(),
+            self.assertRaisesRegex(OSError, "never deployed a node before"),
+        ):
+            deploy_module.deploy(WALLET)
+        push.assert_not_called()
+        self.assertFalse(wrangler.named("deploy"))
+        with Store() as store:
+            self.assertIsNone(store.setting("node_url", None))
+        # Refused before the config was ever rewritten with someone else's id.
+        self.assertIn(
+            "REPLACE_WITH_YOUR_D1_ID",
+            (self.lore_home / "node/wrangler.jsonc").read_text(),
+        )
+
+    def test_an_explicit_override_still_adopts_an_existing_database(self) -> None:
+        # A deliberate cross-machine reconnect (a real second machine picking
+        # up an already-deployed node) needs an escape hatch from the refusal
+        # above; it is opt-in, never automatic.
+        with patch.dict(os.environ, {"LORE_ADOPT_EXISTING_D1": "1"}):
+            code, wrangler = self._deploy(d1_exists=True)
+        self.assertEqual(code, 0)
         self.assertIn(DATABASE_ID, (self.lore_home / "node/wrangler.jsonc").read_text())
 
     def test_a_create_that_prints_no_id_falls_back_to_listing(self) -> None:

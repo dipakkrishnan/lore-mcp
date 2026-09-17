@@ -173,7 +173,17 @@ def _ensure_d1(wrangler: str, target: Path) -> None:
 
     Wrangler validates D1 bindings at deploy time, so the placeholder must
     become a real id first. Idempotent: if the database already exists (a
-    re-materialize reset the config, say), its id is recovered via `d1 list`.
+    re-materialize reset this config, say) *and* this installation has
+    deployed a node before, its id is recovered via `d1 list`.
+
+    A fresh installation (no `node_url` recorded locally) that still finds an
+    existing `lore-publications` database is a different situation: the
+    signed-in Cloudflare account already has someone else's live node. A
+    dogfood sandbox signed into the owner's own real account is exactly this
+    case (#257) — adopting that database here would point this deploy's
+    Worker at it, and the push that follows replaces its publications
+    wholesale with this installation's (empty) local set. Refuse instead of
+    silently adopting it.
     """
     config = target / "wrangler.jsonc"
     text = config.read_text()
@@ -182,7 +192,8 @@ def _ensure_d1(wrangler: str, target: Path) -> None:
     muted("Creating the publications database (one-time)...")
     created = _run((wrangler, "d1", "create", D1_NAME), target)
     output = f"{created.stdout or ''}{created.stderr or ''}"
-    if created.returncode and "already exists" not in output.lower():
+    already_existed = bool(created.returncode) and "already exists" in output.lower()
+    if created.returncode and not already_existed:
         raise OSError(f"creating the D1 database failed:\n{output.strip()[-2000:]}")
     # `d1 create` prints a config snippet; the id format survives wrangler's
     # TOML-vs-JSON output changes, so match the value rather than the syntax.
@@ -202,6 +213,21 @@ def _ensure_d1(wrangler: str, target: Path) -> None:
             f"could not determine the {D1_NAME} database id; run "
             f"`npx wrangler d1 list` in {target} and paste it into wrangler.jsonc"
         )
+    if already_existed and not os.environ.get("LORE_ADOPT_EXISTING_D1"):
+        with Store() as store:
+            known_node = store.setting("node_url", None)
+        if not known_node:
+            raise OSError(
+                f"a {D1_NAME} database already exists on this Cloudflare account, "
+                f"but this installation ({home()}) has never deployed a node before "
+                "— adopting it would point this deploy at a database it does not "
+                "own, and the push that follows would replace its publications "
+                "with this installation's own (likely empty) local set. If this "
+                "account really is yours and you are recovering lost local state, "
+                f"confirm the id with `npx wrangler d1 list` in {target} and paste "
+                "it into wrangler.jsonc yourself, or rerun with "
+                "LORE_ADOPT_EXISTING_D1=1 set."
+            )
     config.write_text(text.replace(D1_PLACEHOLDER, database_id))
 
 
