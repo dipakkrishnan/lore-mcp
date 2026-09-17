@@ -366,7 +366,6 @@ function sheet(label, icon, ...body) {
   node.addEventListener("close", () => node.remove());
   document.body.append(node);
   node.showModal();
-  close.focus();
   return node;
 }
 
@@ -1036,7 +1035,7 @@ function sourceRow(source) {
   const node = row(source.label, state?.line || readsLine(source), trailing, false);
   const open = el("button", "task-link");
   open.type = "button";
-  open.append(folderGlyph(), ...[...node.children]);
+  open.append(folderGlyph(), ...node.children);
   open.addEventListener("click", () => openSource(source));
   node.classList.add("source");
   node.replaceChildren(open);

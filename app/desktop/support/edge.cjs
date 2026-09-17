@@ -264,7 +264,7 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         // APP-120: where memories come from is a section in Settings, not a tab.
         await js(`window.__lore.show("settings")`);
         await waitFor(`document.querySelector("#content").textContent.includes("Where memories come from")`);
-        await js(`[...document.querySelectorAll("#content .section")].find((s) => s.textContent.includes("Where memories come from")).scrollIntoView()`);
+        await js(`[...document.querySelectorAll("#content .section")].find((s) => s.textContent.includes("Where memories come from")).scrollIntoView(); document.querySelector("#main").scrollTop -= 150`);
         await sleep(300);
         await shot("settings-sources-fresh");
       } else if (scenario === "sources") {
@@ -279,8 +279,9 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         const denied = await js(`[...document.querySelectorAll("#content .row.source")].find((r) => r.textContent.includes("Needs permission"))?.textContent ?? ""`);
         check("a folder Lore may not read is named, with one action", /macOS hasn't let Lore read this yet\./.test(denied) && /Open System Settings/.test(denied), denied);
         check("a row that reads fine offers no button", await js(`[...document.querySelectorAll("#content .row.source")].filter((r) => /\\d+ kept/.test(r.textContent)).every((r) => r.querySelectorAll(".btn").length === 0)`));
-        await js(`document.querySelector("#main").scrollTop = 1e6`);
-        await sleep(200);
+        // The header is sticky, so scrolling the section flush to the top hides its first row.
+        await js(`[...document.querySelectorAll("#content .section")].find((s) => s.textContent.includes("Where memories come from")).scrollIntoView(); document.querySelector("#main").scrollTop -= 150`);
+        await sleep(300);
         await shot("settings-sources");
 
         await js(`[...document.querySelectorAll("#content button")].find((b) => b.textContent === "+ Add a source").click()`);
@@ -294,11 +295,17 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
 
         await js(`[...document.querySelectorAll("#content .row.source")].find((r) => r.textContent.includes("more")).querySelector(".task-link").click()`);
         check("the row opens a sheet that says what it reads and from where", await waitFor(`document.querySelector("dialog.sheet")?.textContent.includes("Reads the notes in one folder you pick.")`) && await js(`Boolean(document.querySelector("dialog.sheet .mono"))`));
+        check("a source that reads can be read again from its sheet", await js(`[...document.querySelectorAll("dialog.sheet button")].some((b) => b.textContent === "Read again")`));
         await js(`[...document.querySelectorAll("dialog.sheet button")].find((b) => b.textContent === "Disconnect").click()`);
         await sleep(200);
         const asked = await js(`document.querySelector("dialog.sheet .actions")?.textContent ?? ""`);
         check("Disconnect asks inline what happens to what it kept", /Keep the \d+ memor(y|ies) it already kept\?/.test(asked) && /Keep/.test(asked) && /Delete them too/.test(asked) && /Cancel/.test(asked), asked);
         await shot("sources-disconnect");
+        await js(`[...document.querySelectorAll("dialog.sheet button")].find((b) => b.textContent === "Keep").click()`);
+        check("Keep disconnects the source", await waitFor(`![...document.querySelectorAll("#content .row.source")].some((r) => r.textContent.includes("more"))`), await rows());
+        await js(`window.__lore.show("memories")`);
+        const kept = await waitFor(`/First/.test(document.querySelector("#content").textContent) && /Second/.test(document.querySelector("#content").textContent)`);
+        check("Keep leaves what it kept in Memories", kept, await js(`document.querySelector("nav").textContent`));
       } else if (scenario === "listing") {
         // APP-119: one click lists the store; the row reads its state from the relay, never from local memory.
         await waitFor(`document.body.dataset.state === "welcome" && !document.querySelector("#welcome").classList.contains("provisioning")`);

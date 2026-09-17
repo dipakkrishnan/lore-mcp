@@ -336,7 +336,8 @@ dialog.sheet::backdrop { background: rgba(29, 31, 28, 0.28); }
 .sheet .lede { font-family: var(--serif); font-size: 17px; color: var(--ink); }
 .sheet .body-edit { width: 100%; min-height: 320px; height: auto; padding: 10px 12px; font-family: var(--mono); font-size: 13px; line-height: 1.5; resize: vertical; }
 .sheet-panel .actions { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 8px; padding-top: 4px; }
-.sheet-panel .actions .hint { margin-right: auto; }
+/* The disconnect question keeps its own line so the three answers stay together. */
+.sheet-panel .actions .hint { flex-basis: 100%; }
 .sheet-panel .mono { overflow-wrap: anywhere; }
 .feedback-form { display: flex; flex-direction: column; gap: 14px; }
 .feedback-form .actions { display: flex; justify-content: flex-end; gap: 8px; }

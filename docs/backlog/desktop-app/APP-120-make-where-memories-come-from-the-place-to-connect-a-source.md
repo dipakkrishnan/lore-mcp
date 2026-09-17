@@ -4,7 +4,7 @@ title: Make "Where memories come from" the place to connect a source
 priority: P1
 effort: M
 component: desktop-app
-status: in-progress
+status: completed
 related: [STO-003, CAP-004, CAP-005, CAP-006, CAP-007, APP-116, APP-109, ONB-007, APP-122]
 blockers: []
 dependencies: ["STO-003 for per-source state in the snapshot"]
@@ -56,15 +56,37 @@ later if the catalog passes about eight.
 
 ## Acceptance criteria
 
-- [ ] A fresh owner can add an Obsidian vault from Settings, see the
+- [x] A fresh owner can add an Obsidian vault from Settings, see the
       preview, keep a subset, and find them in Memories, without a terminal.
-- [ ] A source whose last read failed shows a named state and an action,
+- [x] A source whose last read failed shows a named state and an action,
       never a green dot.
-- [ ] Disconnecting offers keep or delete, and Memories reflects the choice.
-- [ ] The edge harness has a `sources` scenario covering add, preview,
+- [x] Disconnecting offers keep or delete, and Memories reflects the choice.
+- [x] The edge harness has a `sources` scenario covering add, preview,
       failure, and disconnect.
 
 ## Notes
+
+Shipped 2026-09-17 against `STO-003`. Settings only: the rows, the catalog
+sheet, the folder-pick connect flow with its preview, and the detail sheet
+with Read again and an inline Disconnect confirm. The Today Needs-You card
+for the first connect is deliberately left out and waits for `ONB-007`.
+
+Cut to one catalog entry and one connect shape (folder pick), because only
+the folder reader exists: the other five shapes land with `CAP-004`–`CAP-007`
+and `APP-116`. Rows carry a neutral outline glyph rather than a logo, which
+is `APP-122`'s. The preview keeps a whole folder from a date rather than a
+per-item checklist; `--since` on the source is what the CLI persists, and a
+checklist would need a second write path.
+
+Copy deviations from the plan above: the named states are "Needs permission",
+"Can't find it", and "Nothing to read" — no "Sign in again" or "Paused" until
+a source kind can be in them. In the preview sheet an empty folder reads
+"Nothing to read in that folder yet." rather than the row's "Connected,
+nothing to read yet.", since nothing is connected at that point.
+
+An unreachable folder's "Pick it again" runs the same connect flow, so a
+folder that moved is added at its new path and the stale row is disconnected
+by hand. Re-pointing a source in place would need a CLI verb.
 
 Filed 2026-09-17 from the connector research (Town, ChatGPT, Claude,
 Granola, Notion, Dust, Perplexity, Plaid, Raycast). Keep the word
