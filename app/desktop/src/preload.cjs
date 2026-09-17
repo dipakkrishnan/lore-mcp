@@ -44,7 +44,7 @@ contextBridge.exposeInMainWorld("lore", {
   pickFolder: () => ipcRenderer.invoke("folders:pick"),
   /** @param {{kind: SourceKind, locator: string}} input */
   previewSource: (input) => ipcRenderer.invoke("sources:preview", input),
-  /** @param {{kind: SourceKind, locator: string, since: string | null}} input */
+  /** @param {{kind: SourceKind, locator: string, label?: string, since: string | null}} input */
   addSource: (input) => ipcRenderer.invoke("sources:add", input),
   /** @param {string} name */
   readSource: (name) => ipcRenderer.invoke("sources:read", name),

@@ -1273,17 +1273,18 @@ function openFeed() {
   const range = el("p", "hint", "");
   const choices = sinceChoices();
   const connectButton = button("Connect", "primary", () => void act(async () => {
-    await window.lore.addSource({ kind: "feed", locator: reached, since: chosenSince(choices) });
+    await window.lore.addSource({ kind: "feed", locator: reached, label: title, since: chosenSince(choices) });
     closeSheet();
   }));
   const actions = el("div", "actions");
   actions.append(connectButton);
   /** The address that previewed connected, and so the only one Connect may send. */
   let reached = "";
+  let title = "";
   rest();
 
   function rest() {
-    reached = "";
+    reached = title = "";
     note.textContent = "";
     range.hidden = choices.hidden = true;
     connectButton.disabled = true;
@@ -1310,6 +1311,7 @@ function openFeed() {
     note.textContent = found.state === "connected" ? entry.found(found) : found.state === "nothing_found" ? entry.empty : entry.missing;
     if (found.state !== "connected") return;
     reached = typed;
+    title = found.label;
     if (found.from && found.to) { range.textContent = `Dated ${day(found.from)} to ${day(found.to)}.`; range.hidden = false; }
     choices.hidden = false;
     connectButton.disabled = false;

@@ -863,6 +863,7 @@ test("each kind's locator reaches the CLI as its own flag, as one argument", asy
       assert.deepEqual(await previewSource(directory, { kind, locator }), ["sources", "preview", flag, "--json"]);
     }
     assert.deepEqual(await addSource(directory, { kind: "feed", locator: "ada.bsky.social", since: "2025-09-17" }), ["sources", "add", "--feed=ada.bsky.social", "--since", "2025-09-17", "--json"]);
+    assert.deepEqual(await addSource(directory, { kind: "feed", locator: "ada.bsky.social", label: " Ada's Notes ", since: null }), ["sources", "add", "--feed=ada.bsky.social", "--label=Ada's Notes", "--json"]);
   } finally {
     useRuntime();
     await rm(directory, { recursive: true });

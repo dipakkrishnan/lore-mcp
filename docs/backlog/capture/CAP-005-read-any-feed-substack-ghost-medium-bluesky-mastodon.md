@@ -109,3 +109,5 @@ pass one, so a feed's row is named from its locator (`yourname.substack.com`)
 even though the preview it just showed knew the publication title. The edge
 scenario passes `--label` when it seeds, which is why its row reads "Notes on
 Systems" and not an address.
+
+2026-09-17, later: the app now passes the publication title the preview found as `--label`, so a connected feed row carries its name rather than its address.

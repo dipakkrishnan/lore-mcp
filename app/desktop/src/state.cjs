@@ -208,12 +208,14 @@ async function previewSource(loreHome, input) {
   return JSON.parse(await lore(loreHome, ["sources", "preview", where(input?.kind, input?.locator), "--json"]));
 }
 
-/** Add the source the owner chose, read it once, and hand back the new row. @param {string} loreHome @param {{kind?: unknown, locator?: unknown, since?: unknown}} input @returns {Promise<SourceEntry>} */
+/** Add the source the owner chose, read it once, and hand back the new row. @param {string} loreHome @param {{kind?: unknown, locator?: unknown, label?: unknown, since?: unknown}} input @returns {Promise<SourceEntry>} */
 async function addSource(loreHome, input) {
   const since = input?.since;
   if (since !== undefined && since !== null && (typeof since !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(since))) throw new Error("Invalid date");
+  const label = typeof input?.label === "string" ? input.label.trim().slice(0, 80) : "";
+  const named = label ? [`--label=${label}`] : [];
   const window = since ? ["--since", String(since)] : [];
-  return JSON.parse(await lore(loreHome, ["sources", "add", where(input?.kind, input?.locator), ...window, "--json"]));
+  return JSON.parse(await lore(loreHome, ["sources", "add", where(input?.kind, input?.locator), ...named, ...window, "--json"]));
 }
 
 /** @param {string} loreHome @param {unknown} name @returns {Promise<SourceRead[]>} */

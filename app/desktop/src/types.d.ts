@@ -219,7 +219,7 @@ interface Window {
     pickFiles(): Promise<string[]>;
     pickFolder(): Promise<string | null>;
     previewSource(input: { kind: SourceKind; locator: string }): Promise<SourcePreview>;
-    addSource(input: { kind: SourceKind; locator: string; since: string | null }): Promise<SourceEntry>;
+    addSource(input: { kind: SourceKind; locator: string; label?: string; since: string | null }): Promise<SourceEntry>;
     readSource(name: string): Promise<SourceRead[]>;
     removeSource(name: string, keep: boolean): Promise<SourceRemoval>;
     appIcon(path: string): Promise<string | null>;
