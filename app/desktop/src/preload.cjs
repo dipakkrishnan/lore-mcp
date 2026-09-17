@@ -42,9 +42,9 @@ contextBridge.exposeInMainWorld("lore", {
   listingStatus: () => ipcRenderer.invoke("listing:status"),
   pickFiles: () => ipcRenderer.invoke("files:pick"),
   pickFolder: () => ipcRenderer.invoke("folders:pick"),
-  /** @param {string} folder */
-  previewSource: (folder) => ipcRenderer.invoke("sources:preview", folder),
-  /** @param {{folder: string, since: string | null}} input */
+  /** @param {{kind: SourceKind, locator: string}} input */
+  previewSource: (input) => ipcRenderer.invoke("sources:preview", input),
+  /** @param {{kind: SourceKind, locator: string, since: string | null}} input */
   addSource: (input) => ipcRenderer.invoke("sources:add", input),
   /** @param {string} name */
   readSource: (name) => ipcRenderer.invoke("sources:read", name),

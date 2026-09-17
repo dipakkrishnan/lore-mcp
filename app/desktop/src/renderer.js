@@ -1008,13 +1008,14 @@ function marketplaceRow(s) {
   return [row(label, `Let buyers find your store in the public list of Lore sellers. ${shares}`, cell(button("List on the marketplace", "secondary", () => void changeListing("list"))), false)];
 }
 
-/** Every state but connected is named to the owner: one sentence, at most one action.
- * @type {Record<Exclude<SourceState, "connected">, {status: string, line: string, act: () => HTMLElement | null}>} */
+/** Every state but connected is named to the owner: one sentence, at most one action. Both are the
+ * kind's, because a folder Lore cannot find and a blog it cannot reach are different problems.
+ * @type {Record<Exclude<SourceState, "connected">, {status: string, line: (source: Partial<SourceEntry>) => string, act: (source: Partial<SourceEntry>) => HTMLElement | null}>} */
 const SOURCE_STATES = {
-  needs_permission: { status: "Needs permission", line: "macOS hasn't let Lore read this yet.", act: () => button("Open System Settings", "secondary", () => void window.lore.openPrivacySettings()) },
-  unreachable: { status: "Can't find it", line: "Lore can't find this folder.", act: () => button("Pick it again", "secondary", () => void connectFolder()) },
-  nothing_found: { status: "Nothing to read", line: "Connected, nothing to read yet.", act: () => null },
-  off: { status: "Off", line: "", act: () => null }
+  needs_permission: { status: "Needs permission", line: () => "macOS hasn't let Lore read this yet.", act: () => button("Open System Settings", "secondary", () => void window.lore.openPrivacySettings()) },
+  unreachable: { status: "Can't find it", line: (source) => kindOf(source).missing, act: (source) => button(kindOf(source).again, "secondary", () => void retry(source)) },
+  nothing_found: { status: "Nothing to read", line: () => "Connected, nothing to read yet.", act: () => null },
+  off: { status: "Off", line: () => "", act: () => null }
 };
 
 /** The named state a row is in, or null when it is the healthy one. @param {SourceEntry} source */
@@ -1051,7 +1052,9 @@ function image(src) {
 
 /** The initial, on the same colour every time that label is drawn. @param {string} label */
 function tile(label) {
-  const node = el("span", "tile", [...label].find((character) => /\S/.test(character))?.toUpperCase() ?? "?");
+  // A catalog entry is named "A newsletter or blog": the initial belongs to the noun, not the article.
+  const noun = label.replace(/^(a|an|the)\s+/i, "");
+  const node = el("span", "tile", [...noun].find((character) => /\S/.test(character))?.toUpperCase() ?? "?");
   const sum = [...label].reduce((total, character) => total + character.charCodeAt(0), 0);
   node.style.background = `var(${TILE_COLOURS[sum % TILE_COLOURS.length]})`;
   return node;
@@ -1059,7 +1062,17 @@ function tile(label) {
 
 /** What Lore reads here, verb first. @param {SourceEntry} source */
 function readsLine(source) {
-  return source.owned ? "Reads the notes in one folder you pick." : `Reads what ${source.label} already remembers.`;
+  return source.owned ? kindOf(source).reads : `Reads what ${source.label} already remembers.`;
+}
+
+/** @param {number} count @param {string} noun */
+function plural(count, noun) {
+  return `${count} ${count === 1 ? noun : `${noun}s`}`;
+}
+
+/** What a preview left behind, as the tail of the sentence that says what it found. @param {number} count @param {string} why */
+function passedOver(count, why) {
+  return count ? `, ${count} ${why} ${count === 1 ? "was" : "were"} skipped` : "";
 }
 
 /** The healthy state, said as what it did rather than as a colour: "142 kept · 12 minutes ago". @param {SourceEntry} source */
@@ -1087,14 +1100,14 @@ function sourceRow(source) {
   const state = named(source);
   const trailing = state ? cell(dot(false, state.status)) : cell(keptLine(source));
   trailing.append(el("span", "chev", "›"));
-  const node = row(source.label, state?.line || readsLine(source), trailing, false);
+  const node = row(source.label, state?.line(source) || readsLine(source), trailing, false);
   const open = el("button", "task-link");
   open.type = "button";
   open.append(logo(source), ...node.children);
   open.addEventListener("click", () => openSource(source));
   node.classList.add("source");
   node.replaceChildren(open);
-  const action = state?.act();
+  const action = state?.act(source);
   if (action) node.append(action);
   return node;
 }
@@ -1105,11 +1118,11 @@ function openSource(source) {
   /** @type {HTMLElement[]} */
   const body = [el("p", "", readsLine(source))];
   if (source.owned && source.locator) body.push(el("p", "hint mono", source.locator));
-  if (state?.line) body.push(el("p", "", state.line));
+  if (state?.line(source)) body.push(el("p", "", state.line(source)));
   body.push(el("p", "hint", keptLine(source)));
   const actions = el("div", "actions");
   const resting = [
-    state?.act() ?? null,
+    state?.act(source) ?? null,
     source.state === "connected" ? button("Read again", "secondary", () => void act(async () => { await window.lore.readSource(source.name); closeSheet(); })) : null,
     source.owned ? button("Disconnect", "quiet", ask) : null
   ].filter((control) => control !== null);
@@ -1134,47 +1147,184 @@ function openSource(source) {
   sheet(source.label, logo(source), ...body);
 }
 
-/** The one entry the catalog offers today; CAP-007 owns what joins it. */
-const FOLDER_SOURCE = { label: "A folder of notes" };
+/** What an owner can connect, in the order the catalog offers it: what it is called, what it covers,
+ * what Lore takes from it, how one that has stopped working is named and retried, and how what was
+ * found in it is counted. Every source surface — the catalog, both connect flows, every row and
+ * every sheet — takes its words from here. CAP-007 owns what joins it.
+ * @type {Record<string, {kind: SourceKind, label: string, what: string, reads: string, missing: string,
+ *   again: string, another?: string, empty: string, found: (found: SourcePreview) => string}>} */
+const KINDS = {
+  folder: {
+    kind: "folder",
+    label: "A folder of notes",
+    what: "Obsidian, Bear, Logseq, or any folder of Markdown files.",
+    reads: "Reads the notes in one folder you pick.",
+    missing: "Lore can't find this folder.",
+    again: "Pick it again",
+    another: "Pick another folder",
+    empty: "Nothing to read in that folder yet.",
+    found: (found) => `Found ${plural(found.count, "note")}${passedOver(found.skipped, "shorter than a sentence")}.`
+  },
+  feed: {
+    kind: "feed",
+    label: "A newsletter or blog",
+    what: "Substack, Ghost, Medium, or any site with a feed. Bluesky and Mastodon by handle.",
+    reads: "Reads your own posts, not your feed.",
+    missing: "Lore couldn't reach that. Check the address and try again.",
+    again: "Try again",
+    empty: "That feed has nothing to read yet.",
+    found: (found) => `Found ${plural(found.count, "post")} on ${found.label}.`
+  },
+  export: {
+    kind: "export",
+    label: "A ChatGPT or Claude export",
+    what: "The zip they email you when you ask for your data.",
+    reads: "Reads the conversations in one export.",
+    missing: "That file isn't a ChatGPT or Claude export.",
+    again: "Pick the file again",
+    empty: "That export has no conversations.",
+    found: (found) => `Found ${plural(found.count, "conversation")} in your ${found.label} export${passedOver(found.skipped, "too short")}.`
+  }
+};
+
+/** The catalog entry behind one source; anything the owner added is one of the three kinds. @param {{kind?: SourceKind}} source */
+function kindOf(source) {
+  return KINDS[source.kind ?? "folder"] ?? KINDS.folder;
+}
 
 /** The catalog: everything an owner can connect, one row each. @returns {HTMLElement} */
 function openCatalog() {
-  const entry = row(FOLDER_SOURCE.label, "Obsidian, Bear, Logseq, or any folder of Markdown files.", button("Connect", "secondary", () => void connectFolder()), false);
-  entry.prepend(logo(FOLDER_SOURCE));
-  return sheet("Add a source", null, card([entry]));
+  return sheet("Add a source", null, card(Object.values(KINDS).map((entry) => {
+    const node = row(entry.label, entry.what, button("Connect", "secondary", () => connect(entry)), false);
+    node.prepend(logo(entry));
+    return node;
+  })));
 }
 
-/** Pick a folder, then show what Lore would keep from it before it keeps anything. */
-async function connectFolder() {
-  const folder = await window.lore.pickFolder();
-  if (!folder) return;
+/** Start a kind's connect flow: a feed is typed, everything else is picked in the native panel. @param {typeof KINDS.folder} entry */
+function connect(entry) {
+  if (entry.kind === "feed") openFeed();
+  else void pickSource(entry);
+}
+
+/** An unreachable source, tried again: a typed address is re-read where it stands, a picked one is picked again. @param {Partial<SourceEntry>} source */
+async function retry(source) {
+  const entry = kindOf(source);
+  const { name, locator } = source;
+  if (entry.kind !== "feed" || !name || !locator) { connect(entry); return; }
+  await act(async () => {
+    const found = await window.lore.previewSource({ kind: "feed", locator });
+    closeSheet();
+    if (found.state === "connected") await window.lore.readSource(name);
+    else tell(entry.missing, true);
+  });
+}
+
+/** Pick a folder or a file, then show what Lore would keep from it before it keeps anything. @param {typeof KINDS.folder} entry */
+async function pickSource(entry) {
+  const locator = entry.kind === "folder" ? await window.lore.pickFolder() : (await window.lore.pickFiles())[0] ?? null;
+  if (!locator) return;
   /** @type {SourcePreview} */
   let found;
   try {
-    found = await window.lore.previewSource(folder);
+    found = await window.lore.previewSource({ kind: entry.kind, locator });
   } catch (error) {
     closeSheet();
-    tell(reason(error, "Lore could not read that folder."), true);
+    tell(reason(error, entry.missing), true);
     return;
   }
-  openPreview(folder, found);
+  openPreview(entry, locator, found);
 }
 
-/** What the folder holds, the boundary of what Lore would keep, and how far back to go. @param {string} folder @param {SourcePreview} found */
-function openPreview(folder, found) {
+/** What the source holds, the boundary of what Lore would keep, and how far back to go. @param {typeof KINDS.folder} entry @param {string} locator @param {SourcePreview} found */
+function openPreview(entry, locator, found) {
   const actions = el("div", "actions");
   if (found.state !== "connected") {
     const state = SOURCE_STATES[found.state];
-    const action = found.state === "nothing_found" ? button("Pick another folder", "secondary", () => void connectFolder()) : state.act();
+    const action = found.state === "nothing_found" ? button(entry.another ?? entry.again, "secondary", () => connect(entry)) : state.act(entry);
     if (action) actions.append(action);
     // Nothing was read, so the sheet ends in the state's name rather than a count.
-    sheet("A folder of notes", logo(FOLDER_SOURCE), el("p", "", found.state === "nothing_found" ? "Nothing to read in that folder yet." : state.line), actions);
+    sheet(entry.label, logo(entry), el("p", "", found.state === "nothing_found" ? entry.empty : state.line(entry)), actions);
     return;
   }
-  const skipped = found.skipped ? `, ${found.skipped} shorter than a sentence were skipped` : "";
+  const choices = sinceChoices();
   /** @type {HTMLElement[]} */
-  const body = [el("p", "", `Found ${found.count} ${found.count === 1 ? "note" : "notes"}${skipped}.`)];
+  const body = [el("p", "", entry.found(found))];
   if (found.from && found.to) body.push(el("p", "hint", `Dated ${day(found.from)} to ${day(found.to)}.`));
+  body.push(choices);
+  actions.append(button("Connect", "primary", () => void act(async () => {
+    await window.lore.addSource({ kind: entry.kind, locator, since: chosenSince(choices) });
+    closeSheet();
+  })));
+  body.push(actions);
+  sheet(entry.label, logo(entry), ...body);
+}
+
+/** Type an address, see what Lore found there, then connect it. The address resolves on blur or
+ * Enter and never on a keystroke: every resolution is a real fetch from someone else's site. */
+function openFeed() {
+  const entry = KINDS.feed;
+  const wrapper = el("label", "draft-field");
+  const field = el("input");
+  field.type = "text";
+  field.placeholder = "yourname.substack.com";
+  wrapper.append(el("span", "hint", "The address of your newsletter or blog"), field);
+  const note = el("p", "", "");
+  const range = el("p", "hint", "");
+  const choices = sinceChoices();
+  const connectButton = button("Connect", "primary", () => void act(async () => {
+    await window.lore.addSource({ kind: "feed", locator: reached, since: chosenSince(choices) });
+    closeSheet();
+  }));
+  const actions = el("div", "actions");
+  actions.append(connectButton);
+  /** The address that previewed connected, and so the only one Connect may send. */
+  let reached = "";
+  rest();
+
+  function rest() {
+    reached = "";
+    note.textContent = "";
+    range.hidden = choices.hidden = true;
+    connectButton.disabled = true;
+  }
+
+  async function resolve() {
+    const typed = field.value.trim();
+    if (!typed || typed === reached) return;
+    rest();
+    note.className = "hint";
+    note.textContent = "Checking…";
+    /** @type {SourcePreview | null} */
+    let found = null;
+    try {
+      found = await window.lore.previewSource({ kind: "feed", locator: typed });
+    } catch (error) {
+      note.className = "";
+      note.textContent = reason(error, entry.missing);
+      return;
+    }
+    // The owner typed on while that was in flight, so it answers an address they have left behind.
+    if (field.value.trim() !== typed) return;
+    note.className = "";
+    note.textContent = found.state === "connected" ? entry.found(found) : found.state === "nothing_found" ? entry.empty : entry.missing;
+    if (found.state !== "connected") return;
+    reached = typed;
+    if (found.from && found.to) { range.textContent = `Dated ${day(found.from)} to ${day(found.to)}.`; range.hidden = false; }
+    choices.hidden = false;
+    connectButton.disabled = false;
+  }
+
+  field.addEventListener("input", () => { if (field.value.trim() !== reached) rest(); });
+  field.addEventListener("blur", () => void resolve());
+  field.addEventListener("keydown", (event) => { if (event.key === "Enter") { event.preventDefault(); void resolve(); } });
+  const node = sheet(entry.label, logo(entry), el("p", "hint", entry.what), wrapper, note, range, choices, actions);
+  field.focus();
+  return node;
+}
+
+/** How far back to read, the same two choices wherever a source is connected. */
+function sinceChoices() {
   const year = new Date();
   year.setFullYear(year.getFullYear() - 1);
   const recent = year.toISOString().slice(0, 10);
@@ -1189,14 +1339,12 @@ function openPreview(folder, found) {
     choice.append(radio, el("span", "", label));
     choices.append(choice);
   }
-  body.push(choices);
-  actions.append(button("Connect", "primary", () => void act(async () => {
-    const chosen = /** @type {HTMLInputElement | null} */ (choices.querySelector("input:checked"));
-    await window.lore.addSource({ folder, since: chosen?.value || null });
-    closeSheet();
-  })));
-  body.push(actions);
-  sheet("A folder of notes", logo(FOLDER_SOURCE), ...body);
+  return choices;
+}
+
+/** @param {HTMLElement} choices */
+function chosenSince(choices) {
+  return /** @type {HTMLInputElement | null} */ (choices.querySelector("input:checked"))?.value || null;
 }
 
 /** @param {Snapshot} s */

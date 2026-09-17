@@ -816,14 +816,26 @@ test("propose_price is a live tool, and the agent is told not to price by hand",
   assert.match(source, /call propose_price and never run a price command yourself/);
 });
 
-test("source actions validate the folder, the window, and the name before any CLI call", async () => {
+test("source actions validate the locator per kind, the window, and the name before any CLI call", async () => {
   const { previewSource, addSource, readSource, removeSource } = require("../src/state.cjs");
-  for (const bad of ["", "notes", "~/notes", null, 7]) {
-    await assert.rejects(previewSource("/nonexistent", bad), { message: /Pick a folder to read/ });
-    await assert.rejects(addSource("/nonexistent", bad, null), { message: /Pick a folder to read/ });
+  for (const bad of [undefined, "", "notes", "script", 7]) {
+    await assert.rejects(previewSource("/nonexistent", { kind: bad, locator: "/notes" }), { message: /Unknown source/ });
+    await assert.rejects(addSource("/nonexistent", { kind: bad, locator: "/notes", since: null }), { message: /Unknown source/ });
+  }
+  // A folder and an export are picked in the native panel, so only an absolute path can be one.
+  for (const kind of ["folder", "export"]) {
+    const say = kind === "folder" ? /Pick a folder to read/ : /Pick an export file to read/;
+    for (const bad of ["", "notes", "~/notes", "--json", null, 7]) {
+      await assert.rejects(previewSource("/nonexistent", { kind, locator: bad }), { message: say });
+      await assert.rejects(addSource("/nonexistent", { kind, locator: bad, since: null }), { message: say });
+    }
+  }
+  // A feed is the one locator the owner types: an address, a handle, or a bare host.
+  for (const bad of ["", "notes", "a b.com", "ftp://notes.example.com", "@", "--json", "-feed.com", null, 7]) {
+    await assert.rejects(previewSource("/nonexistent", { kind: "feed", locator: bad }), { message: /Type the address of a newsletter or blog/ });
   }
   for (const bad of ["last year", "2026-9-1", "--json"]) {
-    await assert.rejects(addSource("/nonexistent", "/notes", bad), { message: /Invalid date/ });
+    await assert.rejects(addSource("/nonexistent", { kind: "folder", locator: "/notes", since: bad }), { message: /Invalid date/ });
   }
   for (const bad of ["", "../claude", "claude notes", "--json", null]) {
     await assert.rejects(readSource("/nonexistent", bad), { message: /Unknown source/ });
@@ -831,6 +843,30 @@ test("source actions validate the folder, the window, and the name before any CL
   }
   // Keep or delete is the owner's answer, never a default this side invents.
   for (const bad of [undefined, null, "keep"]) await assert.rejects(removeSource("/nonexistent", "claude", bad), { message: /Invalid removal/ });
+});
+
+test("each kind's locator reaches the CLI as its own flag, as one argument", async () => {
+  const { previewSource, addSource, useRuntime } = require("../src/state.cjs");
+  const directory = await mkdtemp(join(tmpdir(), "lore-desktop-"));
+  const stub = join(directory, "lore");
+  await writeFile(stub, "#!/usr/bin/env node\nconsole.log(JSON.stringify(process.argv.slice(2)));\n", { mode: 0o755 });
+  try {
+    useRuntime(stub);
+    for (const [kind, locator, flag] of [
+      ["folder", "/notes", "--folder=/notes"],
+      ["export", "/exports/chatgpt.zip", "--export=/exports/chatgpt.zip"],
+      ["feed", "  yourname.substack.com  ", "--feed=yourname.substack.com"],
+      ["feed", "https://notes.example.com/feed", "--feed=https://notes.example.com/feed"],
+      ["feed", "@ada@mastodon.social", "--feed=@ada@mastodon.social"],
+      ["feed", "@ada.bsky.social", "--feed=@ada.bsky.social"]
+    ]) {
+      assert.deepEqual(await previewSource(directory, { kind, locator }), ["sources", "preview", flag, "--json"]);
+    }
+    assert.deepEqual(await addSource(directory, { kind: "feed", locator: "ada.bsky.social", since: "2025-09-17" }), ["sources", "add", "--feed=ada.bsky.social", "--since", "2025-09-17", "--json"]);
+  } finally {
+    useRuntime();
+    await rm(directory, { recursive: true });
+  }
 });
 
 test("listing a store goes through the CLI to a stubbed relay and never sends the entry itself", async () => {

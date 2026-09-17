@@ -172,10 +172,29 @@ async function listStore(loreHome, action) {
   return JSON.parse(await lore(loreHome, ["marketplace", action, "--json"], ""));
 }
 
-/** A folder the owner picked in the native panel; nothing else reaches the CLI. @param {unknown} folder */
-function folderPath(folder) {
-  if (typeof folder !== "string" || !folder.startsWith("/")) throw new Error("Pick a folder to read");
-  return folder;
+/** One entry per source kind: the CLI flag its locator travels as, what a usable locator looks like,
+ * and what to say when it isn't one. A feed is the only kind the owner types rather than picks, so it
+ * is the only one that is not an absolute path.
+ * @type {Record<string, {flag: string, ok: (locator: string) => boolean, say: string}>} */
+const KINDS = {
+  folder: { flag: "--folder", ok: (locator) => locator.startsWith("/"), say: "Pick a folder to read" },
+  export: { flag: "--export", ok: (locator) => locator.startsWith("/"), say: "Pick an export file to read" },
+  feed: {
+    flag: "--feed",
+    ok: (locator) => /^https?:\/\/\S+$/i.test(locator) || /^@[^\s@/]+(@[^\s@/]+)?$/.test(locator) || /^[^\s@/:-][^\s@/:]*\.[a-z]{2,}$/i.test(locator),
+    say: "Type the address of a newsletter or blog"
+  }
+};
+
+/** Where one source lives, as the single argument the CLI takes for it. Written `--flag=value` so a
+ * locator that starts with a dash stays a value and never becomes another option.
+ * @param {unknown} kind @param {unknown} locator */
+function where(kind, locator) {
+  const rule = typeof kind === "string" ? KINDS[kind] : undefined;
+  if (!rule) throw new Error("Unknown source");
+  const typed = typeof locator === "string" ? locator.trim() : "";
+  if (!typed || !rule.ok(typed)) throw new Error(rule.say);
+  return `${rule.flag}=${typed}`;
 }
 
 /** @param {unknown} name */
@@ -184,16 +203,17 @@ function sourceName(name) {
   return name;
 }
 
-/** What Lore would keep from a folder. Reads nothing into the library. @param {string} loreHome @param {unknown} folder @returns {Promise<SourcePreview>} */
-async function previewSource(loreHome, folder) {
-  return JSON.parse(await lore(loreHome, ["sources", "preview", "--folder", folderPath(folder), "--json"]));
+/** What Lore would keep from one source. Reads nothing into the library. @param {string} loreHome @param {{kind?: unknown, locator?: unknown}} input @returns {Promise<SourcePreview>} */
+async function previewSource(loreHome, input) {
+  return JSON.parse(await lore(loreHome, ["sources", "preview", where(input?.kind, input?.locator), "--json"]));
 }
 
-/** Add the folder the owner picked, read it once, and hand back the new row. @param {string} loreHome @param {unknown} folder @param {unknown} since @returns {Promise<SourceEntry>} */
-async function addSource(loreHome, folder, since) {
+/** Add the source the owner chose, read it once, and hand back the new row. @param {string} loreHome @param {{kind?: unknown, locator?: unknown, since?: unknown}} input @returns {Promise<SourceEntry>} */
+async function addSource(loreHome, input) {
+  const since = input?.since;
   if (since !== undefined && since !== null && (typeof since !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(since))) throw new Error("Invalid date");
   const window = since ? ["--since", String(since)] : [];
-  return JSON.parse(await lore(loreHome, ["sources", "add", "--folder", folderPath(folder), ...window, "--json"]));
+  return JSON.parse(await lore(loreHome, ["sources", "add", where(input?.kind, input?.locator), ...window, "--json"]));
 }
 
 /** @param {string} loreHome @param {unknown} name @returns {Promise<SourceRead[]>} */

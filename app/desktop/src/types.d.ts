@@ -96,6 +96,8 @@ type FeedbackReceipt = {
 /** Where a source stands, as its last read left it. `connected` is the only healthy one. */
 type SourceState = "connected" | "nothing_found" | "needs_permission" | "unreachable" | "off";
 
+type SourceKind = "folder" | "feed" | "export" | "script";
+
 /** One place memories come from. Everything past `imported` is STO-003's; an
  * installed CLI older than this app omits it, and the row renders the old way. */
 type SourceEntry = {
@@ -103,15 +105,16 @@ type SourceEntry = {
   label: string;
   enabled: boolean;
   imported: number;
-  kind?: "folder" | "script";
+  kind?: SourceKind;
   locator?: string;
   owned?: boolean;
   state?: SourceState;
   last_read_at?: string | null;
 };
 
-/** What a folder would give Lore, counted without keeping anything. */
-type SourcePreview = { count: number; from: string | null; to: string | null; skipped: number; state: SourceState };
+/** What a source would give Lore, counted without keeping anything. `label` is what the CLI found
+ * there: the folder's name, the publication's title, or which product wrote the export. */
+type SourcePreview = { label: string; count: number; from: string | null; to: string | null; skipped: number; state: SourceState };
 
 type SourceRead = { name: string; added: number; updated: number; unchanged: number; errors: number; state: SourceState };
 
@@ -215,8 +218,8 @@ interface Window {
     listingStatus(): Promise<Listing>;
     pickFiles(): Promise<string[]>;
     pickFolder(): Promise<string | null>;
-    previewSource(folder: string): Promise<SourcePreview>;
-    addSource(input: { folder: string; since: string | null }): Promise<SourceEntry>;
+    previewSource(input: { kind: SourceKind; locator: string }): Promise<SourcePreview>;
+    addSource(input: { kind: SourceKind; locator: string; since: string | null }): Promise<SourceEntry>;
     readSource(name: string): Promise<SourceRead[]>;
     removeSource(name: string, keep: boolean): Promise<SourceRemoval>;
     appIcon(path: string): Promise<string | null>;

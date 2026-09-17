@@ -117,8 +117,8 @@ function registerIpc(loreHome) {
   });
   ipcMain.handle("listing:act", (_event, action) => listStore(loreHome, action));
   ipcMain.handle("listing:status", () => listingStatus(loreHome));
-  ipcMain.handle("sources:preview", (_event, folder) => previewSource(loreHome, folder));
-  ipcMain.handle("sources:add", (_event, input) => addSource(loreHome, input?.folder, input?.since));
+  ipcMain.handle("sources:preview", (_event, input) => previewSource(loreHome, input));
+  ipcMain.handle("sources:add", (_event, input) => addSource(loreHome, input));
   ipcMain.handle("sources:read", (_event, name) => readSource(loreHome, name));
   ipcMain.handle("sources:remove", (_event, name, keep) => removeSource(loreHome, name, keep));
   ipcMain.handle("icons:app", (_event, path) => appIcon(path));

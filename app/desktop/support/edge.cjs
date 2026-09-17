@@ -1,7 +1,7 @@
 // Walks the renderer through the edge audit's two personas against a seeded scratch home.
 // Usage: support/edge.sh seller|provision   (seeds LORE_HOME, then runs this under Electron)
 const { app, dialog } = require("electron");
-const { chmodSync, mkdirSync, writeFileSync } = require("node:fs");
+const { chmodSync, mkdirSync, readFileSync, writeFileSync } = require("node:fs");
 const { execFileSync } = require("node:child_process");
 const { dirname, join } = require("node:path");
 const scenario = process.argv.at(-1);
@@ -16,9 +16,15 @@ let failSetup = scenario === "provision";
 // main.cjs binds provision at require time, so the stub itself must flip.
 runtime.provision = async (emit) => { if (failSetup) throw new Error("uv exploded"); return realProvision(emit); };
 
-// APP-120: the native folder panel cannot be driven, so it answers with the
-// folder the seed left for the owner to add.
-if (scenario === "sources") dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [join(S, "more")] });
+// APP-120: the native panel cannot be driven, so it answers with what the seed
+// left for the owner to add — the folder when it asks for one, the ChatGPT
+// export when it asks for a file.
+if (scenario === "sources") {
+  dialog.showOpenDialog = async (_window, options) => ({
+    canceled: false,
+    filePaths: [options.properties?.includes("openDirectory") ? join(S, "more") : join(S, "chatgpt-export.zip")]
+  });
+}
 
 // APP-105: a relay that answers slowly, so the dialog can be poked while a
 // report is genuinely in flight. Every report reaches this and nothing else —
@@ -307,6 +313,14 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         // APP-122: every mark is already on disk. The CSP is `img-src 'self' data:`, so an http src would not even load.
         check("a folder keeps the outline glyph, and no mark on the page is fetched", await js(`Boolean([...document.querySelectorAll("#content .row.source")].find((r) => r.textContent.startsWith("notes"))?.querySelector(".glyph svg")) && [...document.querySelectorAll("#content img")].every((i) => !/^http/i.test(i.getAttribute("src") ?? ""))`), await js(`[...document.querySelectorAll("#content img")].map((i) => i.getAttribute("src")).join(",")`));
         check("a row that reads fine offers no button", await js(`[...document.querySelectorAll("#content .row.source")].filter((r) => /\\d+ kept/.test(r.textContent)).every((r) => r.querySelectorAll(".btn").length === 0)`));
+        // CAP-005 / CAP-006: a blog and an export sit in the same list as a folder,
+        // each saying what it reads in its own words.
+        const named = (line) => js(`(() => { const r = [...document.querySelectorAll("#content .row.source")].find((n) => n.textContent.includes(${JSON.stringify(line)})); return r ? [r.querySelector("b").textContent, r.textContent].join(" § ") : ""; })()`);
+        const blog = await named("Reads your own posts");
+        check("a blog reads the owner's own posts, not their feed", /^Notes on Systems § /.test(blog) && /Reads your own posts, not your feed\./.test(blog) && /\d+ kept/.test(blog), blog);
+        const exported = await named("Reads the conversations");
+        check("an export is named by the product that wrote it, and says it reads conversations", /^Claude § /.test(exported) && /Reads the conversations in one export\./.test(exported) && /\d+ kept/.test(exported), exported);
+        check("neither borrows the folder outline: each gets the house tile", await js(`["Reads your own posts", "Reads the conversations"].every((line) => Boolean([...document.querySelectorAll("#content .row.source")].find((r) => r.textContent.includes(line))?.querySelector(".glyph .tile")))`));
         // The header is sticky, so scrolling the section flush to the top hides its first row.
         await js(`[...document.querySelectorAll("#content .section")].find((s) => s.textContent.includes("Where memories come from")).scrollIntoView(); document.querySelector("#main").scrollTop -= 150`);
         await sleep(300);
@@ -314,6 +328,12 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
 
         await js(`[...document.querySelectorAll("#content button")].find((b) => b.textContent === "+ Add a source").click()`);
         check("the catalog names what a folder of notes is", await waitFor(`document.querySelector("dialog.sheet")?.textContent.includes("Obsidian, Bear, Logseq, or any folder of Markdown files.")`));
+        const catalog = await js(`[...document.querySelectorAll("dialog.sheet .row")].map((r) => r.textContent).join("|")`);
+        check("the catalog offers three sources", catalog.split("|").length === 3, catalog);
+        check("…a blog said by the names a seller knows it by", /A newsletter or blog/.test(catalog) && /Substack, Ghost, Medium, or any site with a feed\. Bluesky and Mastodon by handle\./.test(catalog), catalog);
+        check("…and an export said as the thing that arrives in the inbox", /A ChatGPT or Claude export/.test(catalog) && /The zip they email you when you ask for your data\./.test(catalog), catalog);
+        check("no jargon anywhere in the catalog", !/connector|sync|integration|\bRSS\b|\bURL\b/i.test(catalog), catalog);
+        await shot("sources-catalog");
         await js(`[...document.querySelectorAll("dialog.sheet button")].find((b) => b.textContent === "Connect").click()`);
         check("the preview counts what it found and what it skipped", await waitFor(`/Found \\d+ notes\\./.test(document.querySelector("dialog.sheet")?.textContent ?? "")`), await js(`document.querySelector("dialog.sheet")?.textContent ?? ""`));
         check("the last 12 months is the pre-selected choice", await js(`document.querySelector("dialog.sheet input:checked")?.nextElementSibling.textContent`) === "Last 12 months");
@@ -334,6 +354,38 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         await js(`window.__lore.show("memories")`);
         const kept = await waitFor(`/First/.test(document.querySelector("#content").textContent) && /Second/.test(document.querySelector("#content").textContent)`);
         check("Keep leaves what it kept in Memories", kept, await js(`document.querySelector("nav").textContent`));
+
+        // CAP-006: the export flow is the folder flow with a file panel in front of it.
+        await js(`window.__lore.show("settings")`);
+        await waitFor(`[...document.querySelectorAll("#content button")].some((b) => b.textContent === "+ Add a source")`);
+        const offer = (label) => js(`[...document.querySelectorAll("dialog.sheet .row")].find((r) => r.textContent.includes(${JSON.stringify(label)})).querySelector("button").click()`);
+        await js(`[...document.querySelectorAll("#content button")].find((b) => b.textContent === "+ Add a source").click()`);
+        await waitFor(`document.querySelector("dialog.sheet")?.textContent.includes("A ChatGPT or Claude export")`);
+        await offer("A ChatGPT or Claude export");
+        check("an export previews as conversations, and names which product wrote it", await waitFor(`/Found \\d+ conversations in your ChatGPT export/.test(document.querySelector("dialog.sheet")?.textContent ?? "")`), await js(`document.querySelector("dialog.sheet")?.textContent ?? ""`));
+        check("…with the same window to choose as a folder gets", await js(`document.querySelector("dialog.sheet input:checked")?.nextElementSibling.textContent`) === "Last 12 months");
+        await shot("sources-export-preview");
+        await js(`[...document.querySelectorAll("dialog.sheet .btn.primary")].find((b) => b.textContent === "Connect").click()`);
+        check("Connect adds the export as a second row of its kind", await waitFor(`[...document.querySelectorAll("#content .row.source")].filter((r) => r.textContent.includes("Reads the conversations")).length === 2`), await rows());
+
+        // CAP-005: the one locator the owner types rather than picks.
+        await js(`[...document.querySelectorAll("#content button")].find((b) => b.textContent === "+ Add a source").click()`);
+        await waitFor(`document.querySelector("dialog.sheet")?.textContent.includes("A newsletter or blog")`);
+        await offer("A newsletter or blog");
+        const field = `document.querySelector("dialog.sheet input[type=text]")`;
+        check("the address is asked for in plain words, and Connect waits for an answer", await waitFor(`${field} && document.activeElement === ${field}`) && await js(`${field}.placeholder === "yourname.substack.com" && ${field}.closest("dialog").querySelector(".btn.primary").disabled`));
+        // A sheet the renderer has just replaced is closed but still in the document
+        // until its close event runs, so every read here names the open one.
+        const feedSheet = `document.querySelector("dialog.sheet[open]")`;
+        const checking = await js(`(() => { const f = ${field}; f.value = "http://127.0.0.1:9/nothing"; f.dispatchEvent(new Event("input")); f.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter" })); return ${feedSheet}.textContent; })()`);
+        check("while Lore looks, the sheet says so quietly", /Checking…/.test(checking), checking);
+        check("an address Lore can't reach is one sentence, and Connect stays out of reach", await waitFor(`${feedSheet}?.textContent.includes("Lore couldn't reach that. Check the address and try again.")`) && await js(`${feedSheet}.querySelector(".btn.primary").disabled`), await js(`${feedSheet}?.textContent ?? ""`));
+        await shot("sources-feed-unreachable");
+        const blogAddress = `http://127.0.0.1:${readFileSync(join(S, "feed", "port"), "utf8").trim()}/rss.xml`;
+        await js(`(() => { const f = ${field}; f.value = ${JSON.stringify(blogAddress)}; f.dispatchEvent(new Event("input")); f.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter" })); })()`);
+        check("an address it can read names the publication, counts the posts, and dates them", await waitFor(`/Found \\d+ posts? on Notes on Systems\\./.test(${feedSheet}?.textContent ?? "") && /Dated .+ to /.test(${feedSheet}.textContent)`), await js(`${feedSheet}?.textContent ?? ""`));
+        check("…and only then is Connect offered, with how far back to go", await js(`!${feedSheet}.querySelector(".btn.primary").disabled && !${feedSheet}.querySelector(".choices").hidden`));
+        await shot("sources-feed");
       } else if (scenario === "listing") {
         // APP-119: one click lists the store; the row reads its state from the relay, never from local memory.
         await waitFor(`document.body.dataset.state === "welcome" && !document.querySelector("#welcome").classList.contains("provisioning")`);

@@ -85,3 +85,23 @@ no-op. The same export saved twice under different names (`conversations.zip`
 and `conversations (1).zip`) is two sources and imports twice, because dedupe
 is per-source by `source_key`. Cross-source dedupe by conversation id is a
 separate change and would touch every reader.
+
+App side, 2026-09-17, on branch `app-catalog-feed-export`. "A ChatGPT or Claude
+export" is the third catalog entry, said as "The zip they email you when you ask
+for your data." Connect opens the native file panel (`files:pick`, which is
+multi-select; the first path is taken) and then the same preview sheet a folder
+gets — "Found 210 conversations in your ChatGPT export, 34 too short were
+skipped.", the date range, the Last 12 months / Everything choice, Connect. The
+product's name comes from the preview's `label`, so the sheet never guesses at
+it. `unreachable` reads "That file isn't a ChatGPT or Claude export." and
+`nothing_found` "That export has no conversations."; a connected row reads
+"Reads the conversations in one export." and an unreachable one offers "Pick the
+file again".
+
+Still not said anywhere in the app: where to click in each product to ask for
+the export (ChatGPT: Settings, Data controls, Export; Claude: Settings, Privacy,
+Export data), which the note above asked the connect sheet to carry. It needs
+room for two product-specific paths that a one-line catalog row does not have,
+and it is exactly the kind of copy that goes stale when either product moves a
+menu. Worth its own item the first time a trial seller asks where the zip comes
+from.

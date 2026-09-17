@@ -89,3 +89,23 @@ second copy. `FeedReader` returns the post URL unchanged.
 Not built here: Medium backfill (the export zip, `CAP-006`), a feed refresh
 schedule (reads happen on `lore sources read`/`sync`), and any HTML beyond
 paragraphs and line breaks — images, embeds and links become their text.
+
+App side, 2026-09-17, on branch `app-catalog-feed-export`. "A newsletter or
+blog" is the second entry in Settings → Where memories come from → Add a
+source, said as "Substack, Ghost, Medium, or any site with a feed. Bluesky and
+Mastodon by handle." Connect opens one address field (placeholder
+`yourname.substack.com`) that resolves on blur or Enter through `sources
+preview --feed`, says "Checking…" while it looks, and then shows the
+publication title, the post count and the date range under the field. Only a
+`connected` preview un-greys Connect, which sends the same Last 12 months /
+Everything window a folder gets. `unreachable` reads "Lore couldn't reach that.
+Check the address and try again." and `nothing_found` "That feed has nothing to
+read yet." A connected row reads "Reads your own posts, not your feed."; an
+unreachable one offers "Try again", which re-previews the address where it
+stands and re-reads it, rather than making the owner retype it.
+
+One gap worth its own item: `sources add` takes `--label`, but the app does not
+pass one, so a feed's row is named from its locator (`yourname.substack.com`)
+even though the preview it just showed knew the publication title. The edge
+scenario passes `--label` when it seeds, which is why its row reads "Notes on
+Systems" and not an address.

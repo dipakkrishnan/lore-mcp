@@ -50,6 +50,30 @@ if [[ "$scenario" == "sources" ]]; then
   printf -- 'A second note in that folder, also long enough to be kept.\n' > "$root/more/second.md"
   (cd "$repo_root" && uv run lore sources add --folder "$root/notes" --json >/dev/null)
   (cd "$repo_root" && uv run lore sources add --folder "$root/locked" --json >/dev/null)
+  # CAP-005: a blog, served from this machine so the scenario never leaves it.
+  # The feed reader speaks http(s) only, so a real origin is the only way in; it
+  # stays up for the whole run because every `sources read` fetches it again.
+  mkdir -p "$root/feed"
+  cp "$repo_root/tests/fixtures/feeds/rss.xml" "$root/feed/rss.xml"
+  python3 -c "
+import functools, http.server
+handler = functools.partial(http.server.SimpleHTTPRequestHandler, directory='$root/feed')
+server = http.server.ThreadingHTTPServer(('127.0.0.1', 0), handler)
+open('$root/feed/port', 'w').write(str(server.server_address[1]))
+server.serve_forever()" 2>/dev/null &
+  feed_server=$!
+  trap 'kill "$feed_server" 2>/dev/null || true' EXIT
+  while [[ ! -s "$root/feed/port" ]]; do sleep 0.1; done
+  (cd "$repo_root" && uv run lore sources add "--feed=http://127.0.0.1:$(cat "$root/feed/port")/rss.xml" --label "Notes on Systems" --json >/dev/null)
+  # CAP-006: the zip each product emails, built from the fixtures. The Claude one
+  # is the row already there; the ChatGPT one is what the stubbed file panel
+  # hands the owner's own connect flow.
+  python3 -c "
+import zipfile
+for product in ('chatgpt', 'claude'):
+    with zipfile.ZipFile('$root/' + product + '-export.zip', 'w') as archive:
+        archive.write('$repo_root/tests/fixtures/exports/' + product + '/conversations.json', 'conversations.json')"
+  (cd "$repo_root" && uv run lore sources add "--export=$root/claude-export.zip" --json >/dev/null)
   # A folder this process cannot open raises the same PermissionError macOS
   # raises when it has not granted the read, which is the state under test.
   chmod 000 "$root/locked"
