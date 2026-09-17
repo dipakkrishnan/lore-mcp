@@ -3,15 +3,21 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+import urllib.request
 import zipfile
 from abc import ABC, abstractmethod
 from dataclasses import asdict, dataclass, fields
 from datetime import date, datetime, timezone
+from email.utils import parsedate_to_datetime
 from enum import Enum
 from functools import cached_property
+from html.parser import HTMLParser
 from pathlib import Path
 from typing import Iterator
+from urllib.parse import quote, urljoin, urlsplit
+from xml.etree.ElementTree import Element, ParseError, fromstring
 
+from . import __version__
 from .paths import claude_home, codex_home, home
 from .store import Store
 
@@ -105,6 +111,15 @@ class Reader(ABC):
 
     @abstractmethod
     def items(self) -> Iterator[Item]: ...
+
+    @property
+    def label(self) -> str:
+        return self.source.label
+
+    def key(self, item: Item) -> str:
+        # What a re-read recognises an item by. A path is only stable once
+        # resolved; a reader whose items are already absolute says so.
+        return str(Path(item.source_path).resolve())
 
     def keeps(self, item: Item) -> bool:
         source = self.source
@@ -297,6 +312,275 @@ class ExportReader(Reader):
             return None
 
 
+class FeedReader(Reader):
+    kind = "feed"
+    agent = f"Lore/{__version__} (+https://yourlore.dev)"
+    timeout = 20
+    # A feed is a recent window, not an archive: five pages of Bluesky or
+    # Mastodon is the whole of what this importer promises.
+    pages = 5
+    limit = 40
+    guesses = ("/feed", "/rss/", "/atom.xml", "/feed.json")
+    # What a paid post arrives as: the free opening, then the prompt Substack
+    # cuts it off with. A fully paid post is under the sentence floor anyway.
+    paywall = re.compile(
+        r"\nread more$"
+        r"|this (?:post|episode) is for (?:paid|pledging|founding)"
+        r"|subscribe to (?:read|listen|watch|keep reading)"
+        r"|paid subscribers only",
+        re.IGNORECASE,
+    )
+
+    def __init__(self, source: Source) -> None:
+        super().__init__(source)
+        self.title = ""
+        self.reached = False
+        # Reposts, replies, and paid posts truncated to a subscribe prompt:
+        # yielded so a preview can count them, then held back by `keeps`.
+        self.dropped: set[str] = set()
+
+    @classmethod
+    def locate(cls, locator: str) -> tuple[str, str]:
+        handle = cls._handle(locator)
+        if handle:
+            return f"@{handle}", f"@{handle}"
+        typed = locator.strip()
+        url = typed if "://" in typed else f"https://{typed}"
+        return url, urlsplit(url).netloc
+
+    @property
+    def label(self) -> str:
+        return self.title or self.source.label
+
+    @cached_property
+    def posts(self) -> list[Item]:
+        # One read, however many fetches resolving it took: `probe` and `items`
+        # are two questions about the same answer.
+        try:
+            found = self._read()
+        except (OSError, ValueError, ParseError, LookupError, TypeError):
+            return []
+        self.reached = True
+        return found
+
+    def probe(self) -> State:
+        if self.posts:
+            return State.CONNECTED
+        return State.NOTHING_FOUND if self.reached else State.UNREACHABLE
+
+    def items(self) -> Iterator[Item]:
+        return iter(self.posts)
+
+    def keeps(self, item: Item) -> bool:
+        return item.source_path not in self.dropped and super().keeps(item)
+
+    def key(self, item: Item) -> str:
+        return item.source_path
+
+    def fetch(self, url: str) -> bytes:
+        request = urllib.request.Request(url, headers={"User-Agent": self.agent})
+        with urllib.request.urlopen(request, timeout=self.timeout) as response:
+            return bytes(response.read())
+
+    @classmethod
+    def _handle(cls, locator: str) -> str:
+        typed = locator.strip()
+        name = typed.lstrip("@")
+        if "://" in typed or "/" in name:
+            return ""
+        return name if typed.startswith("@") or name.endswith(".bsky.social") else ""
+
+    def _read(self) -> list[Item]:
+        handle = self._handle(self.source.locator)
+        if "@" in handle:
+            return self._mastodon(handle)
+        if handle:
+            return self._bluesky(handle)
+        return self._site(self.source.locator)
+
+    def _site(self, url: str) -> list[Item]:
+        body = self.fetch(url)
+        posts = self._feed(body)
+        if posts is not None:
+            return posts
+        for candidate in _advertised(body, url) + [
+            urljoin(url, guess) for guess in self.guesses
+        ]:
+            try:
+                posts = self._feed(self.fetch(candidate))
+            except OSError:
+                continue
+            if posts is not None:
+                return posts
+        raise OSError(f"no feed at {url}")
+
+    def _feed(self, body: bytes) -> list[Item] | None:
+        try:
+            root = fromstring(body)
+        except ParseError:
+            return self._json_feed(body)
+        if _name(root) not in ("rss", "feed"):
+            return None
+        channel = next((e for e in root if _name(e) == "channel"), root)
+        self.title = _field(channel, "title")
+        return [self._item(e) for e in channel if _name(e) in ("item", "entry")]
+
+    def _json_feed(self, body: bytes) -> list[Item] | None:
+        try:
+            payload = json.loads(body)
+        except ValueError:
+            return None
+        if not isinstance(payload, dict) or not isinstance(payload.get("items"), list):
+            return None
+        self.title = str(payload.get("title", ""))
+        return [
+            self._post(
+                str(post.get("title", "")),
+                _text(str(post.get("content_html", "")))
+                or str(post.get("content_text", "")),
+                str(post.get("url") or post.get("id", "")),
+                str(post.get("date_published", "")),
+            )
+            for post in payload["items"]
+        ]
+
+    def _item(self, entry: Element) -> Item:
+        # `content:encoded` is the whole post where a feed carries both.
+        body = next(
+            (
+                value
+                for field in ("encoded", "content", "description", "summary")
+                if (value := _field(entry, field))
+            ),
+            "",
+        )
+        return self._post(
+            _field(entry, "title"),
+            _text(body),
+            _field(entry, "link") or _field(entry, "id"),
+            _field(entry, "pubDate", "published", "updated", "date"),
+        )
+
+    def _bluesky(self, handle: str) -> list[Item]:
+        url = (
+            "https://public.api.bsky.app/xrpc/app.bsky.feed.getAuthorFeed"
+            f"?actor={quote(handle)}&filter=posts_no_replies&limit={self.limit}"
+        )
+        posts: list[Item] = []
+        cursor = ""
+        for _ in range(self.pages):
+            page = json.loads(self.fetch(url + cursor))
+            for entry in page.get("feed", []):
+                post = entry["post"]
+                record, author = post.get("record", {}), post.get("author", {})
+                if not entry.get("reason"):
+                    # A repost is someone else's post under the owner's feed,
+                    # so it is no more their label than it is their memory.
+                    self.title = self.title or str(author.get("displayName", ""))
+                posts.append(
+                    self._post(
+                        "",
+                        str(record.get("text", "")),
+                        f"https://bsky.app/profile/{author.get('handle', handle)}"
+                        f"/post/{str(post['uri']).rsplit('/', 1)[-1]}",
+                        str(record.get("createdAt", "")),
+                        drop=bool(entry.get("reason") or record.get("reply")),
+                    )
+                )
+            if not page.get("cursor"):
+                break
+            cursor = f"&cursor={quote(str(page['cursor']))}"
+        return posts
+
+    def _mastodon(self, address: str) -> list[Item]:
+        user, _, instance = address.partition("@")
+        account = json.loads(
+            self.fetch(f"https://{instance}/api/v1/accounts/lookup?acct={quote(user)}")
+        )
+        self.title = str(account.get("display_name", ""))
+        url = (
+            f"https://{instance}/api/v1/accounts/{account['id']}/statuses"
+            f"?exclude_replies=true&exclude_reblogs=true&limit={self.limit}"
+        )
+        posts: list[Item] = []
+        page = url
+        for _ in range(self.pages):
+            statuses = json.loads(self.fetch(page))
+            for status in statuses:
+                posts.append(
+                    self._post(
+                        "",
+                        _text(str(status.get("content", ""))),
+                        str(status.get("url") or status.get("uri", "")),
+                        str(status.get("created_at", "")),
+                        drop=bool(status.get("reblog") or status.get("in_reply_to_id")),
+                    )
+                )
+            if len(statuses) < self.limit:
+                break
+            page = f"{url}&max_id={statuses[-1]['id']}"
+        return posts
+
+    def _post(
+        self, title: str, text: str, link: str, when: str, drop: bool = False
+    ) -> Item:
+        if drop or self.paywall.search(text):
+            self.dropped.add(link)
+        return Item(title or _headline(text), text, link, _date(when))
+
+
+class _Html(HTMLParser):
+    # The two things a feed importer wants out of HTML: a post's text with its
+    # paragraphs intact, and the feeds a site page advertises.
+    blocks = {
+        "p",
+        "div",
+        "li",
+        "h1",
+        "h2",
+        "h3",
+        "h4",
+        "h5",
+        "h6",
+        "blockquote",
+        "pre",
+        "tr",
+    }
+    feeds = {"application/rss+xml", "application/atom+xml", "application/feed+json"}
+    silent = ("script", "style")
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.parts: list[str] = []
+        self.links: list[str] = []
+        self.quiet = 0
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        values = {key: value or "" for key, value in attrs}
+        if (
+            tag == "link"
+            and "alternate" in values.get("rel", "").split()
+            and values.get("type") in self.feeds
+        ):
+            self.links.append(values.get("href", ""))
+        elif tag in self.silent:
+            self.quiet += 1
+        elif tag == "br":
+            self.parts.append("\n")
+        elif tag in self.blocks:
+            self.parts.append("\n\n")
+
+    def handle_endtag(self, tag: str) -> None:
+        if tag in self.silent:
+            self.quiet = max(self.quiet - 1, 0)
+        elif tag in self.blocks:
+            self.parts.append("\n\n")
+
+    def handle_data(self, data: str) -> None:
+        if not self.quiet:
+            self.parts.append(data)
+
+
 class Registry:
     """The owner's connected sources and the outcome of each source's last read."""
 
@@ -401,12 +685,12 @@ def preview(locator: str, kind: str = "folder") -> dict[str, object]:
             skipped += 1
     dates = sorted(item.dated for item in kept if item.dated)
     return {
+        "label": reader.label,
         "count": len(kept),
         "from": dates[0] if dates else None,
         "to": dates[-1] if dates else None,
         "skipped": skipped,
         "state": state.value,
-        "label": source.label,
     }
 
 
@@ -521,7 +805,7 @@ def _import(store: Store, source: Source) -> dict[str, int]:
             source=source.name,
             origin=source.origin,
             source_path=item.source_path,
-            source_key=f"{source.name}:{path.resolve()}",
+            source_key=f"{source.name}:{reader.key(item)}",
             fingerprint=hashlib.sha256(item.content.encode()).hexdigest(),
             title=item.title,
             content=item.content,
@@ -541,6 +825,51 @@ def _title(path: Path, content: str) -> str:
         if match
         else path.stem.replace("_", " ").replace("-", " ").title()
     )
+
+
+def _headline(text: str) -> str:
+    line = text.strip().split("\n", 1)[0]
+    return line if len(line) <= 80 else line[:79].rstrip() + "…"
+
+
+def _name(element: Element) -> str:
+    return element.tag.rpartition("}")[2]
+
+
+def _field(element: Element, *names: str) -> str:
+    for child in element:
+        if _name(child) in names:
+            value = "".join(child.itertext()).strip() or child.get("href", "").strip()
+            if value:
+                return value
+    return ""
+
+
+def _date(value: str) -> str | None:
+    iso = re.match(r"\s*(\d{4}-\d{2}-\d{2})", value)
+    if iso:
+        return iso.group(1)
+    try:
+        return parsedate_to_datetime(value).date().isoformat()
+    except (TypeError, ValueError):
+        return None
+
+
+def _parsed(markup: str) -> _Html:
+    parser = _Html()
+    parser.feed(markup)
+    parser.close()
+    return parser
+
+
+def _text(markup: str) -> str:
+    joined = re.sub(r"[^\S\n]+", " ", "".join(_parsed(markup).parts))
+    return re.sub(r"\n{3,}", "\n\n", re.sub(r" ?\n ?", "\n", joined)).strip()
+
+
+def _advertised(body: bytes, url: str) -> list[str]:
+    links = _parsed(body.decode("utf-8", "replace")).links
+    return [urljoin(url, link) for link in links if link]
 
 
 def _project(source: Source, path: Path) -> str:
