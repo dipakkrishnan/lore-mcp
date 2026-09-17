@@ -4,7 +4,7 @@ title: Read an Obsidian vault or any folder of notes
 priority: P1
 effort: S
 component: capture
-status: in-review
+status: in-progress
 related: [STO-003, CAP-001, CAP-003, APP-120]
 blockers: []
 dependencies: ["STO-003 for the source kind and state; a folder can be dropped through lore-capture today"]
@@ -34,11 +34,11 @@ enters the library; the correction flow remains the content gate.
 
 ## Acceptance criteria
 
-- [ ] Picking a vault shows a preview with the note count and date range,
+- [x] Picking a vault shows a preview with the note count and date range,
       then imports the chosen notes as private memories, each linking to
       its file.
-- [ ] A second read imports only new or changed notes.
-- [ ] Notes shorter than a sentence are skipped and the count says so.
+- [x] A second read imports only new or changed notes.
+- [x] Notes shorter than a sentence are skipped and the count says so.
 - [ ] A vault under Documents, Desktop, or Downloads triggers the macOS
       folder prompt once with Lore's own purpose string, not Electron's.
 
@@ -48,3 +48,11 @@ Needs `NSDocumentsFolderUsageDescription`, `NSDesktopFolderUsageDescription`,
 and `NSDownloadsFolderUsageDescription` in `forge.config.js` (`APP-121`);
 without them macOS still prompts but with boilerplate copy. Obsidian Bases
 is a view layer; the vault stays plain markdown.
+
+2026-09-17: the folder reader landed as the first kind in `STO-003` (#297)
+and the pick, preview, and Connect flow in `APP-120` (#298): frontmatter
+`date`/`created` then mtime, `.obsidian/`, `.trash/`, and `templates/`
+skipped, items under a sentence counted and skipped, `--since` kept on the
+source so later reads honour it. The last criterion, Lore's own words on the
+Documents, Desktop, and Downloads prompts, is the purpose strings in
+`APP-121` (#299) and is confirmed by the next signed build.
