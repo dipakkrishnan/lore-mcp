@@ -88,12 +88,12 @@ def parser() -> argparse.ArgumentParser:
     source_list = source_commands.add_parser("list", help="show every source")
     source_list.add_argument("--json", action="store_true")
     source_preview = source_commands.add_parser(
-        "preview", help="what a folder would import, without importing it"
+        "preview", help="what a source would import, without importing it"
     )
-    source_preview.add_argument("--folder", required=True)
+    _locator_flags(source_preview)
     source_preview.add_argument("--json", action="store_true")
-    source_add = source_commands.add_parser("add", help="read a folder you choose")
-    source_add.add_argument("--folder", required=True)
+    source_add = source_commands.add_parser("add", help="read a source you choose")
+    _locator_flags(source_add)
     source_add.add_argument("--label", help="the name you want to see")
     source_add.add_argument(
         "--since", help="keep only items dated on or after YYYY-MM-DD"
@@ -630,7 +630,7 @@ def source_command(args: argparse.Namespace) -> int:
     with Store() as store:
         try:
             if command == "preview":
-                found = sources_module.preview(args.folder)
+                found = sources_module.preview(*_locator(args))
                 payload, lines = (
                     found,
                     [
@@ -639,7 +639,8 @@ def source_command(args: argparse.Namespace) -> int:
                     ],
                 )
             elif command == "add":
-                added = sources_module.add(store, args.folder, args.label, args.since)
+                locator, kind = _locator(args)
+                added = sources_module.add(store, locator, args.label, args.since, kind)
                 payload, lines = added, [_source_line(added)]
             elif command == "read":
                 reads = sources_module.read(store, args.name)
@@ -668,6 +669,16 @@ def source_command(args: argparse.Namespace) -> int:
     for line in lines:
         print(line)
     return 0
+
+
+def _locator_flags(parser: argparse.ArgumentParser) -> None:
+    # One flag per reader kind; the flag's name is the kind.
+    where = parser.add_mutually_exclusive_group(required=True)
+    where.add_argument("--folder", help="a folder of notes")
+
+
+def _locator(args: argparse.Namespace) -> tuple[str, str]:
+    return next((v, k) for k in ("folder",) if (v := getattr(args, k, None)))
 
 
 def _source_line(entry: dict[str, object]) -> str:

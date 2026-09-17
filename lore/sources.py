@@ -59,14 +59,22 @@ class Source:
 
     @classmethod
     def owner(
-        cls, locator: str, label: str | None = None, since: str | None = None
+        cls,
+        locator: str,
+        label: str | None = None,
+        since: str | None = None,
+        kind: str = "folder",
     ) -> Source:
-        # Two spellings of one folder are one source, so the identity is the
-        # resolved path rather than what the owner typed.
-        root = Path(locator).expanduser().resolve()
-        digest = hashlib.sha256(str(root).encode()).hexdigest()[:8]
+        reader = next(r for r in Reader.__subclasses__() if r.kind == kind)
+        locator, default = reader.locate(locator)
+        digest = hashlib.sha256(locator.encode()).hexdigest()[:8]
         return cls(
-            f"folder-{digest}", label or root.name, str(root), owned=True, since=since
+            f"{kind}-{digest}",
+            label or default,
+            locator,
+            kind=kind,
+            owned=True,
+            since=since,
         )
 
     @classmethod
@@ -84,6 +92,11 @@ class Reader(ABC):
     def __init__(self, source: Source) -> None:
         self.source = source
         self.errors = 0
+
+    @classmethod
+    @abstractmethod
+    def locate(cls, locator: str) -> tuple[str, str]:
+        """Normalise what the owner typed into the source's identity and a default label."""
 
     @abstractmethod
     def probe(self) -> State: ...
@@ -105,6 +118,13 @@ class FolderReader(Reader):
     # Vault plumbing and blank templates, which read as memories but are not.
     skipped = {".obsidian", ".trash", "templates"}
     frontmatter = re.compile(r"\A---\n(.*?)\n---", re.DOTALL)
+
+    @classmethod
+    def locate(cls, locator: str) -> tuple[str, str]:
+        # Two spellings of one folder are one source, so the identity is the
+        # resolved path rather than what the owner typed.
+        root = Path(locator).expanduser().resolve()
+        return str(root), root.name
 
     @cached_property
     def files(self) -> list[Path]:
@@ -249,9 +269,9 @@ def entries(store: Store) -> list[dict[str, object]]:
     ]
 
 
-def preview(locator: str) -> dict[str, object]:
-    """Report what a folder would import, writing nothing."""
-    reader = Source.owner(locator).reader()
+def preview(locator: str, kind: str = "folder") -> dict[str, object]:
+    """Report what a source would import, writing nothing."""
+    reader = Source.owner(locator, kind=kind).reader()
     state = reader.probe()
     kept: list[Item] = []
     skipped = 0
@@ -275,10 +295,11 @@ def add(
     locator: str,
     label: str | None = None,
     since: str | None = None,
+    kind: str = "folder",
 ) -> dict[str, object]:
-    source = Source.owner(locator, label, _day(since))
-    if not source.root.is_dir():
-        raise SourceError(f"not a folder: {locator}")
+    source = Source.owner(locator, label, _day(since), kind)
+    if source.reader().probe() is State.UNREACHABLE:
+        raise SourceError(f"can't reach {locator}")
     registry = Registry(store)
     records = registry.records
     if source.name not in {record["name"] for record in records}:
