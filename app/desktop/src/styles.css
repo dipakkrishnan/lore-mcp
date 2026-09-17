@@ -288,6 +288,11 @@ a.link-btn:hover { background: var(--hover); text-decoration: none; }
 a.link-btn.glyph { width: 22px; padding: 0; justify-content: center; color: var(--muted); }
 .row .v { display: flex; align-items: center; gap: 10px; flex-shrink: 0; max-width: 60%; font-size: 13px; color: var(--ink-soft); }
 .row .v .mono { min-width: 0; overflow-wrap: anywhere; }
+.row.source .t { flex: 1; }
+.row .glyph { display: inline-flex; flex-shrink: 0; color: var(--faint); }
+.row .glyph svg, .sheet-head .glyph svg { width: 17px; height: 17px; }
+.sheet-head .glyph { display: inline-flex; color: var(--faint); }
+.row .chev { color: var(--faint); font-size: 15px; }
 .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--attention); flex-shrink: 0; }
 .dot.ok { background: var(--ok); }
 .dot.off { background: #c9c4b8; }
@@ -330,6 +335,9 @@ dialog.sheet::backdrop { background: rgba(29, 31, 28, 0.28); }
 .sheet .body { font-size: 15px; gap: 10px; }
 .sheet .lede { font-family: var(--serif); font-size: 17px; color: var(--ink); }
 .sheet .body-edit { width: 100%; min-height: 320px; height: auto; padding: 10px 12px; font-family: var(--mono); font-size: 13px; line-height: 1.5; resize: vertical; }
+.sheet-panel .actions { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 8px; padding-top: 4px; }
+.sheet-panel .actions .hint { margin-right: auto; }
+.sheet-panel .mono { overflow-wrap: anywhere; }
 .feedback-form { display: flex; flex-direction: column; gap: 14px; }
 .feedback-form .actions { display: flex; justify-content: flex-end; gap: 8px; }
 

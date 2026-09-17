@@ -35,7 +35,7 @@ type Snapshot = {
   marketplace?: { available: boolean };
   library: {
     counts: { private: number };
-    sources: Array<{ name: string; label: string; enabled: boolean; imported: number }>;
+    sources: SourceEntry[];
     items: MemoryItem[];
   };
   publications: {
@@ -92,6 +92,30 @@ type FeedbackReceipt = {
   url: string;
   number: number;
 };
+
+/** Where a source stands, as its last read left it. `connected` is the only healthy one. */
+type SourceState = "connected" | "nothing_found" | "needs_permission" | "unreachable" | "off";
+
+/** One place memories come from. Everything past `imported` is STO-003's; an
+ * installed CLI older than this app omits it, and the row renders the old way. */
+type SourceEntry = {
+  name: string;
+  label: string;
+  enabled: boolean;
+  imported: number;
+  kind?: "folder";
+  locator?: string;
+  owned?: boolean;
+  state?: SourceState;
+  last_read_at?: string | null;
+};
+
+/** What a folder would give Lore, counted without keeping anything. */
+type SourcePreview = { count: number; from: string | null; to: string | null; skipped: number; state: SourceState };
+
+type SourceRead = { name: string; added: number; updated: number; unchanged: number; errors: number; state: SourceState };
+
+type SourceRemoval = { name: string; removed: boolean; memories: { kept: number; deleted?: number } };
 
 type SearchHit = {
   id: string;
@@ -190,6 +214,12 @@ interface Window {
     listStore(action: "list" | "delist"): Promise<Listing>;
     listingStatus(): Promise<Listing>;
     pickFiles(): Promise<string[]>;
+    pickFolder(): Promise<string | null>;
+    previewSource(folder: string): Promise<SourcePreview>;
+    addSource(input: { folder: string; since: string | null }): Promise<SourceEntry>;
+    readSource(name: string): Promise<SourceRead[]>;
+    removeSource(name: string, keep: boolean): Promise<SourceRemoval>;
+    openPrivacySettings(): Promise<void>;
     pathFor(file: File): string;
     onAgentEvent(listener: (event: AgentEvent) => void): () => void;
     microphone(): Promise<boolean>;

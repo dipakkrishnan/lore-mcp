@@ -171,6 +171,41 @@ async function listStore(loreHome, action) {
   return JSON.parse(await lore(loreHome, ["marketplace", action, "--json"], ""));
 }
 
+/** A folder the owner picked in the native panel; nothing else reaches the CLI. @param {unknown} folder */
+function folderPath(folder) {
+  if (typeof folder !== "string" || !folder.startsWith("/")) throw new Error("Pick a folder to read");
+  return folder;
+}
+
+/** @param {unknown} name */
+function sourceName(name) {
+  if (typeof name !== "string" || !/^[a-z0-9][a-z0-9-]*$/.test(name)) throw new Error("Unknown source");
+  return name;
+}
+
+/** What Lore would keep from a folder. Reads nothing into the library. @param {string} loreHome @param {unknown} folder @returns {Promise<SourcePreview>} */
+async function previewSource(loreHome, folder) {
+  return JSON.parse(await lore(loreHome, ["sources", "preview", "--folder", folderPath(folder), "--json"]));
+}
+
+/** Add the folder the owner picked, read it once, and hand back the new row. @param {string} loreHome @param {unknown} folder @param {unknown} since @returns {Promise<SourceEntry>} */
+async function addSource(loreHome, folder, since) {
+  if (since !== undefined && since !== null && (typeof since !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(since))) throw new Error("Invalid date");
+  const window = since ? ["--since", String(since)] : [];
+  return JSON.parse(await lore(loreHome, ["sources", "add", "--folder", folderPath(folder), ...window, "--json"]));
+}
+
+/** @param {string} loreHome @param {unknown} name @returns {Promise<SourceRead[]>} */
+async function readSource(loreHome, name) {
+  return JSON.parse(await lore(loreHome, ["sources", "read", sourceName(name), "--json"]));
+}
+
+/** @param {string} loreHome @param {unknown} name @param {unknown} keep Whether the memories it already kept stay. @returns {Promise<SourceRemoval>} */
+async function removeSource(loreHome, name, keep) {
+  if (typeof keep !== "boolean") throw new Error("Invalid removal");
+  return JSON.parse(await lore(loreHome, ["sources", "remove", sourceName(name), keep ? "--keep" : "--delete", "--json"]));
+}
+
 /** Whether this store is listed, pending, or neither, read from the marketplace repo through the relay. @param {string} loreHome @returns {Promise<Listing>} */
 async function listingStatus(loreHome) {
   return JSON.parse(await lore(loreHome, ["marketplace", "status", "--json"]));
@@ -192,6 +227,10 @@ module.exports = {
   candidates,
   decide,
   reportFeedback,
+  previewSource,
+  addSource,
+  readSource,
+  removeSource,
   listStore,
   listingStatus,
   useRuntime

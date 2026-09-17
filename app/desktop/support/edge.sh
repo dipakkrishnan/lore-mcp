@@ -1,6 +1,6 @@
 #!/bin/bash
 # Seed a scratch Lore home with two memories and two drafts, then drive the renderer as one persona.
-# Scenarios: seller | provision | store | jobs | fresh | feedback | listing
+# Scenarios: seller | provision | store | jobs | fresh | feedback | listing | sources
 set -euo pipefail
 scenario="${1:-seller}"
 desktop_dir="$(cd "$(dirname "$0")/.." && pwd)"
@@ -35,6 +35,25 @@ with Store() as store:
  store.start_job('deploy', timeout_minutes=720)
 from lore import automation
 automation.save_profile({'executor': 'codex', 'cadence': 'daily', 'hour': 21})")
+fi
+if [[ "$scenario" == "sources" ]]; then
+  # APP-120: one folder Lore reads, one it cannot, and one the owner adds from
+  # the app. Seeded through STO-003's `lore sources` CLI, so this scenario only
+  # runs once that has landed.
+  mkdir -p "$root/notes" "$root/locked" "$root/more"
+  for note in pricing hiring launch; do
+    printf -- '---\ndate: 2026-08-14\n---\nA note about %s that is long enough for Lore to keep it.\n' "$note" > "$root/notes/$note.md"
+  done
+  printf 'too short\n' > "$root/notes/scrap.md"
+  printf -- 'A locked note that is long enough for Lore to keep it.\n' > "$root/locked/one.md"
+  printf -- 'A note in the folder the owner adds from the app, long enough to keep.\n' > "$root/more/first.md"
+  printf -- 'A second note in that folder, also long enough to be kept.\n' > "$root/more/second.md"
+  (cd "$repo_root" && uv run lore sources add --folder "$root/notes" --json >/dev/null)
+  (cd "$repo_root" && uv run lore sources add --folder "$root/locked" --json >/dev/null)
+  # A folder this process cannot open raises the same PermissionError macOS
+  # raises when it has not granted the read, which is the state under test.
+  chmod 000 "$root/locked"
+  (cd "$repo_root" && uv run lore sources read --json >/dev/null)
 fi
 if [[ "$scenario" == "listing" ]]; then
   # APP-119: a live store and a setup name, the two things the marketplace row needs.

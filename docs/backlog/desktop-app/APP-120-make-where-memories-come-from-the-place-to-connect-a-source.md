@@ -4,7 +4,7 @@ title: Make "Where memories come from" the place to connect a source
 priority: P1
 effort: M
 component: desktop-app
-status: in-review
+status: in-progress
 related: [STO-003, CAP-004, CAP-005, CAP-006, CAP-007, APP-116, APP-109, ONB-007, APP-122]
 blockers: []
 dependencies: ["STO-003 for per-source state in the snapshot"]

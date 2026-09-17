@@ -83,6 +83,8 @@ const RING = `<svg viewBox="0 0 26 26" fill="none"><rect x="4.5" y="5" width="17
 const RENAME_ICON = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7V4h16v3M9 20h6M12 4v16"></path></svg>`;
 const EDIT_ICON = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L8 18l-4 1 1-4z"></path></svg>`;
 const SALE_ICON = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 12l-8 8-9-9V3h8z"></path><circle cx="7.5" cy="7.5" r="1.5"></circle></svg>`;
+// One outline per source kind, never a brand logo: logos are APP-122's, and nothing here fetches anything.
+const FOLDER_ICON = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" aria-hidden="true"><path d="M3.5 7.2c0-.9.8-1.7 1.7-1.7h3.3l2 2.5h7.3c.9 0 1.7.7 1.7 1.7v7.6c0 .9-.8 1.7-1.7 1.7H5.2c-.9 0-1.7-.8-1.7-1.7z"></path></svg>`;
 /** @type {Record<string, [name: string, icon: string]>} */
 const PROVIDERS = {
   anthropic: ["Claude", "assets/claude.svg"],
@@ -102,6 +104,9 @@ const REDEPLOY_PRICE = "I changed my publication price. Redeploy my store so buy
 const money = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 6 });
 const shortDate = new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric" });
 const longDate = new Intl.DateTimeFormat("en-US", { weekday: "long", month: "long", day: "numeric" });
+// A plain YYYY-MM-DD from the CLI is the day it says, not this Mac's midnight.
+const dayDate = new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" });
+const relative = new Intl.RelativeTimeFormat("en-US", { numeric: "auto" });
 const TASK_TITLES = { capture: "Capture a memory", setup: "Set up your Lore", publish: "Publish from your Lore", deploy: "Open your store" };
 /** Stands in for the composer while a card in another thread holds the turn; its button opens that thread. @type {AgentTask | null} */
 let waitingTask = null;
@@ -337,6 +342,32 @@ async function openMemory(id) {
 
 function closeSheet() {
   /** @type {HTMLDialogElement | null} */ (document.querySelector("dialog.sheet"))?.close();
+}
+
+/** A small native modal, like the memory sheet: focus stays inside, Escape and the backdrop close it.
+ * @param {string} label @param {HTMLElement | null} icon @param {HTMLElement[]} body */
+function sheet(label, icon, ...body) {
+  closeSheet();
+  const node = el("dialog", "sheet narrow");
+  node.setAttribute("aria-label", label);
+  const panel = el("div", "card sheet-panel");
+  const head = el("div", "sheet-head");
+  const heading = el("div", "lead");
+  if (icon) heading.append(icon);
+  heading.append(el("b", "", label));
+  const close = el("button", "icon-btn", "×");
+  close.type = "button";
+  close.setAttribute("aria-label", "Close");
+  close.addEventListener("click", () => node.close());
+  head.append(heading, close);
+  panel.append(head, ...body);
+  node.append(panel);
+  node.addEventListener("click", (event) => { if (event.target === node) node.close(); });
+  node.addEventListener("close", () => node.remove());
+  document.body.append(node);
+  node.showModal();
+  close.focus();
+  return node;
 }
 
 function openFeedbackDialog() {
@@ -952,12 +983,177 @@ function marketplaceRow(s) {
   return [row(label, `Let buyers find your store in the public list of Lore sellers. ${shares}`, cell(button("List on the marketplace", "secondary", () => void changeListing("list"))), false)];
 }
 
+/** Every state but connected is named to the owner: one sentence, at most one action.
+ * @type {Record<Exclude<SourceState, "connected">, {status: string, line: string, act: () => HTMLElement | null}>} */
+const SOURCE_STATES = {
+  needs_permission: { status: "Needs permission", line: "macOS hasn't let Lore read this yet.", act: () => button("Open System Settings", "secondary", () => void window.lore.openPrivacySettings()) },
+  unreachable: { status: "Can't find it", line: "Lore can't find this folder.", act: () => button("Pick it again", "secondary", () => void connectFolder()) },
+  nothing_found: { status: "Nothing to read", line: "Connected, nothing to read yet.", act: () => null },
+  off: { status: "Off", line: "", act: () => null }
+};
+
+/** The named state a row is in, or null when it is the healthy one. @param {SourceEntry} source */
+function named(source) {
+  return source.state && source.state !== "connected" ? SOURCE_STATES[source.state] : null;
+}
+
+function folderGlyph() {
+  const node = el("span", "glyph");
+  node.innerHTML = FOLDER_ICON;
+  return node;
+}
+
+/** What Lore reads here, verb first. @param {SourceEntry} source */
+function readsLine(source) {
+  return source.owned ? "Reads the notes in one folder you pick." : `Reads what ${source.label} already remembers.`;
+}
+
+/** The healthy state, said as what it did rather than as a colour: "142 kept · 12 minutes ago". @param {SourceEntry} source */
+function keptLine(source) {
+  const kept = `${source.imported} kept`;
+  return source.last_read_at ? `${kept} · ${since(source.last_read_at)}` : `${kept} · not read yet`;
+}
+
+/** @param {string} iso */
+function since(iso) {
+  const seconds = (Date.now() - new Date(iso).getTime()) / 1000;
+  if (!Number.isFinite(seconds)) return "";
+  if (seconds < 3600) return relative.format(-Math.max(1, Math.round(seconds / 60)), "minute");
+  if (seconds < 86_400) return relative.format(-Math.round(seconds / 3600), "hour");
+  return relative.format(-Math.round(seconds / 86_400), "day");
+}
+
+/** @param {string} iso A day the CLI dated, e.g. "2024-03-02". */
+function day(iso) {
+  return dayDate.format(new Date(`${iso}T00:00:00Z`));
+}
+
+/** One source: the kind's glyph, what Lore reads, where it stands, and the way into its sheet. @param {SourceEntry} source */
+function sourceRow(source) {
+  const state = named(source);
+  const trailing = state ? cell(dot(false, state.status)) : cell(keptLine(source));
+  trailing.append(el("span", "chev", "›"));
+  const node = row(source.label, state?.line || readsLine(source), trailing, false);
+  const open = el("button", "task-link");
+  open.type = "button";
+  open.append(folderGlyph(), ...[...node.children]);
+  open.addEventListener("click", () => openSource(source));
+  node.classList.add("source");
+  node.replaceChildren(open);
+  const action = state?.act();
+  if (action) node.append(action);
+  return node;
+}
+
+/** The sheet behind a row: what this source reads, where from, where it stands, and the two things that can be done to it. @param {SourceEntry} source */
+function openSource(source) {
+  const state = named(source);
+  /** @type {HTMLElement[]} */
+  const body = [el("p", "", readsLine(source))];
+  if (source.owned && source.locator) body.push(el("p", "hint mono", source.locator));
+  if (state?.line) body.push(el("p", "", state.line));
+  body.push(el("p", "hint", keptLine(source)));
+  const actions = el("div", "actions");
+  const resting = [
+    state?.act() ?? null,
+    source.state === "connected" ? button("Read again", "secondary", () => void act(async () => { await window.lore.readSource(source.name); closeSheet(); })) : null,
+    source.owned ? button("Disconnect", "quiet", ask) : null
+  ].filter((control) => control !== null);
+  function ask() {
+    actions.replaceChildren(
+      el("span", "hint", `Keep the ${source.imported} ${source.imported === 1 ? "memory" : "memories"} it already kept?`),
+      button("Keep", "secondary", () => void remove(true)),
+      button("Delete them too", "secondary", () => void remove(false)),
+      button("Cancel", "quiet", () => actions.replaceChildren(...resting))
+    );
+  }
+  /** @param {boolean} keep */
+  async function remove(keep) {
+    await act(async () => {
+      const { memories } = await window.lore.removeSource(source.name, keep);
+      closeSheet();
+      tell(memories.deleted ? `Disconnected. ${memories.deleted} memories deleted, ${memories.kept} kept.` : `Disconnected. ${memories.kept} memories kept.`);
+    });
+  }
+  actions.replaceChildren(...resting);
+  body.push(actions);
+  sheet(source.label, folderGlyph(), ...body);
+}
+
+/** The catalog: everything an owner can connect, one row each. @returns {HTMLElement} */
+function openCatalog() {
+  return sheet("Add a source", null, card([
+    row("A folder of notes", "Obsidian, Bear, Logseq, or any folder of Markdown files.", button("Connect", "secondary", () => void connectFolder()), false)
+  ]));
+}
+
+/** Pick a folder, then show what Lore would keep from it before it keeps anything. */
+async function connectFolder() {
+  const folder = await window.lore.pickFolder();
+  if (!folder) return;
+  /** @type {SourcePreview} */
+  let found;
+  try {
+    found = await window.lore.previewSource(folder);
+  } catch (error) {
+    closeSheet();
+    tell(reason(error, "Lore could not read that folder."), true);
+    return;
+  }
+  openPreview(folder, found);
+}
+
+/** What the folder holds, the boundary of what Lore would keep, and how far back to go. @param {string} folder @param {SourcePreview} found */
+function openPreview(folder, found) {
+  const actions = el("div", "actions");
+  if (found.state !== "connected") {
+    const state = SOURCE_STATES[found.state];
+    const action = found.state === "nothing_found" ? button("Pick another folder", "secondary", () => void connectFolder()) : state.act();
+    if (action) actions.append(action);
+    // Nothing was read, so the sheet ends in the state's name rather than a count.
+    sheet("A folder of notes", folderGlyph(), el("p", "", found.state === "nothing_found" ? "Nothing to read in that folder yet." : state.line), actions);
+    return;
+  }
+  const skipped = found.skipped ? `, ${found.skipped} shorter than a sentence were skipped` : "";
+  /** @type {HTMLElement[]} */
+  const body = [el("p", "", `Found ${found.count} ${found.count === 1 ? "note" : "notes"}${skipped}.`)];
+  if (found.from && found.to) body.push(el("p", "hint", `Dated ${day(found.from)} to ${day(found.to)}.`));
+  const year = new Date();
+  year.setFullYear(year.getFullYear() - 1);
+  const recent = year.toISOString().slice(0, 10);
+  const choices = el("div", "choices");
+  for (const [value, label] of [[recent, "Last 12 months"], ["", "Everything"]]) {
+    const choice = el("label", "choice");
+    const radio = el("input");
+    radio.type = "radio";
+    radio.name = "since";
+    radio.value = value;
+    radio.checked = value === recent;
+    choice.append(radio, el("span", "", label));
+    choices.append(choice);
+  }
+  body.push(choices);
+  actions.append(button("Connect", "primary", () => void act(async () => {
+    const chosen = /** @type {HTMLInputElement | null} */ (choices.querySelector("input:checked"));
+    await window.lore.addSource({ folder, since: chosen?.value || null });
+    closeSheet();
+  })));
+  body.push(actions);
+  sheet("A folder of notes", folderGlyph(), ...body);
+}
+
 /** @param {Snapshot} s */
 function renderSettings(s) {
-  const sources = s.library.sources.map((source) =>
-    row(source.label, source.enabled ? `${source.imported} ${source.imported === 1 ? "memory" : "memories"} imported` : "Not connected", cell(dot(source.enabled, source.enabled ? "Connected" : "Off")), false)
-  );
+  const sources = s.library.sources.map((source) => source.state
+    ? sourceRow(source)
+    : row(source.label, source.enabled ? `${source.imported} ${source.imported === 1 ? "memory" : "memories"} imported` : "Not connected", cell(dot(source.enabled, source.enabled ? "Connected" : "Off")), false));
   sources.push(scheduleRow(s));
+  // An installed CLI that cannot say where a source stands cannot add one either.
+  if (s.library.sources.every((source) => source.state)) {
+    const add = el("div", "row");
+    add.append(button("+ Add a source", "quiet", openCatalog));
+    sources.push(add);
+  }
   const live = s.node.live;
   return [
     section("Account", card((auth?.credentials.length ? auth.credentials : [null]).map((credential) => {

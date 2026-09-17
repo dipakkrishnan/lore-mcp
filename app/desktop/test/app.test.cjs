@@ -805,6 +805,23 @@ test("propose_price is a live tool, and the agent is told not to price by hand",
   assert.match(source, /call propose_price and never run a price command yourself/);
 });
 
+test("source actions validate the folder, the window, and the name before any CLI call", async () => {
+  const { previewSource, addSource, readSource, removeSource } = require("../src/state.cjs");
+  for (const bad of ["", "notes", "~/notes", null, 7]) {
+    await assert.rejects(previewSource("/nonexistent", bad), { message: /Pick a folder to read/ });
+    await assert.rejects(addSource("/nonexistent", bad, null), { message: /Pick a folder to read/ });
+  }
+  for (const bad of ["last year", "2026-9-1", "--json"]) {
+    await assert.rejects(addSource("/nonexistent", "/notes", bad), { message: /Invalid date/ });
+  }
+  for (const bad of ["", "../claude", "claude notes", "--json", null]) {
+    await assert.rejects(readSource("/nonexistent", bad), { message: /Unknown source/ });
+    await assert.rejects(removeSource("/nonexistent", bad, true), { message: /Unknown source/ });
+  }
+  // Keep or delete is the owner's answer, never a default this side invents.
+  for (const bad of [undefined, null, "keep"]) await assert.rejects(removeSource("/nonexistent", "claude", bad), { message: /Invalid removal/ });
+});
+
 test("listing a store goes through the CLI to a stubbed relay and never sends the entry itself", async () => {
   const { listStore, listingStatus } = require("../src/state.cjs");
   await assert.rejects(listStore("/nonexistent", "publish"), { message: /Invalid listing action/ });

@@ -3,7 +3,7 @@ const { join } = require("node:path");
 const { app, BrowserWindow, dialog, ipcMain, safeStorage, shell, systemPreferences } = require("electron");
 const { provision, skillsDir, whisper } = require("./runtime.cjs");
 const { transcribe } = require("./dictation.cjs");
-const { lore, loreStream, openable, readState, readSales, searchMemories, readMemory, renameMemory, editMemory, captureMemories, setPrice, candidates, decide, reportFeedback, listStore, listingStatus, useRuntime } = require("./state.cjs");
+const { lore, loreStream, openable, readState, readSales, searchMemories, readMemory, renameMemory, editMemory, captureMemories, setPrice, candidates, decide, reportFeedback, previewSource, addSource, readSource, removeSource, listStore, listingStatus, useRuntime } = require("./state.cjs");
 
 if (process.env.LORE_DESKTOP_USER_DATA) app.setPath("userData", process.env.LORE_DESKTOP_USER_DATA);
 
@@ -117,6 +117,18 @@ function registerIpc(loreHome) {
   });
   ipcMain.handle("listing:act", (_event, action) => listStore(loreHome, action));
   ipcMain.handle("listing:status", () => listingStatus(loreHome));
+  ipcMain.handle("sources:preview", (_event, folder) => previewSource(loreHome, folder));
+  ipcMain.handle("sources:add", (_event, input) => addSource(loreHome, input?.folder, input?.since));
+  ipcMain.handle("sources:read", (_event, name) => readSource(loreHome, name));
+  ipcMain.handle("sources:remove", (_event, name, keep) => removeSource(loreHome, name, keep));
+  // The only page this app opens outside https: macOS's own Files and Folders
+  // pane, where the owner grants the read a source needs permission for.
+  ipcMain.handle("settings:privacy", () => shell.openExternal("x-apple.systempreferences:com.apple.preference.security?Privacy_FilesAndFolders"));
+  ipcMain.handle("folders:pick", async () => {
+    if (!window) return null;
+    const { filePaths } = await dialog.showOpenDialog(window, { properties: ["openDirectory"] });
+    return filePaths[0] ?? null;
+  });
   ipcMain.handle("files:pick", async () => {
     if (!window) return [];
     const { filePaths } = await dialog.showOpenDialog(window, { properties: ["openFile", "multiSelections"] });

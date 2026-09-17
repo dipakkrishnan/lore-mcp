@@ -1,6 +1,6 @@
 // Walks the renderer through the edge audit's two personas against a seeded scratch home.
 // Usage: support/edge.sh seller|provision   (seeds LORE_HOME, then runs this under Electron)
-const { app } = require("electron");
+const { app, dialog } = require("electron");
 const { chmodSync, mkdirSync, writeFileSync } = require("node:fs");
 const { execFileSync } = require("node:child_process");
 const { dirname, join } = require("node:path");
@@ -15,6 +15,10 @@ const realProvision = runtime.provision;
 let failSetup = scenario === "provision";
 // main.cjs binds provision at require time, so the stub itself must flip.
 runtime.provision = async (emit) => { if (failSetup) throw new Error("uv exploded"); return realProvision(emit); };
+
+// APP-120: the native folder panel cannot be driven, so it answers with the
+// folder the seed left for the owner to add.
+if (scenario === "sources") dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [join(S, "more")] });
 
 // APP-105: a relay that answers slowly, so the dialog can be poked while a
 // report is genuinely in flight. Every report reaches this and nothing else —
@@ -257,6 +261,44 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         await js(`[...document.querySelectorAll("#content .empty button")].find((b) => b.textContent === "Draft one from a memory").click()`);
         await sleep(300);
         check("Draft one from a memory opens Memories", await js(`document.querySelector("#title").textContent`) === "Memories");
+        // APP-120: where memories come from is a section in Settings, not a tab.
+        await js(`window.__lore.show("settings")`);
+        await waitFor(`document.querySelector("#content").textContent.includes("Where memories come from")`);
+        await js(`[...document.querySelectorAll("#content .section")].find((s) => s.textContent.includes("Where memories come from")).scrollIntoView()`);
+        await sleep(300);
+        await shot("settings-sources-fresh");
+      } else if (scenario === "sources") {
+        // APP-120: Settings is where a source is named, added, and disconnected.
+        await waitFor(`document.body.dataset.state === "welcome" && !document.querySelector("#welcome").classList.contains("provisioning")`);
+        await js(`window.__lore.signIn()`);
+        await js(`window.__lore.show("settings")`);
+        const rows = () => js(`[...document.querySelectorAll("#content .row.source")].map((r) => r.textContent).join("|")`);
+        check("a connected folder says how much it kept, and when", await waitFor(`[...document.querySelectorAll("#content .row.source")].some((r) => /notes/i.test(r.textContent) && /\\d+ kept · /.test(r.textContent))`), await rows());
+        const healthy = await js(`[...document.querySelectorAll("#content .row.source")].find((r) => /\\d+ kept/.test(r.textContent))?.textContent ?? ""`);
+        check("the healthy state carries no colour word", !/Connected|Healthy|Green|OK/.test(healthy), healthy);
+        const denied = await js(`[...document.querySelectorAll("#content .row.source")].find((r) => r.textContent.includes("Needs permission"))?.textContent ?? ""`);
+        check("a folder Lore may not read is named, with one action", /macOS hasn't let Lore read this yet\./.test(denied) && /Open System Settings/.test(denied), denied);
+        check("a row that reads fine offers no button", await js(`[...document.querySelectorAll("#content .row.source")].filter((r) => /\\d+ kept/.test(r.textContent)).every((r) => r.querySelectorAll(".btn").length === 0)`));
+        await js(`document.querySelector("#main").scrollTop = 1e6`);
+        await sleep(200);
+        await shot("settings-sources");
+
+        await js(`[...document.querySelectorAll("#content button")].find((b) => b.textContent === "+ Add a source").click()`);
+        check("the catalog names what a folder of notes is", await waitFor(`document.querySelector("dialog.sheet")?.textContent.includes("Obsidian, Bear, Logseq, or any folder of Markdown files.")`));
+        await js(`[...document.querySelectorAll("dialog.sheet button")].find((b) => b.textContent === "Connect").click()`);
+        check("the preview counts what it found and what it skipped", await waitFor(`/Found \\d+ notes\\./.test(document.querySelector("dialog.sheet")?.textContent ?? "")`), await js(`document.querySelector("dialog.sheet")?.textContent ?? ""`));
+        check("the last 12 months is the pre-selected choice", await js(`document.querySelector("dialog.sheet input:checked")?.nextElementSibling.textContent`) === "Last 12 months");
+        await shot("sources-preview");
+        await js(`[...document.querySelectorAll("dialog.sheet .btn.primary")].find((b) => b.textContent === "Connect").click()`);
+        check("Connect adds the row", await waitFor(`[...document.querySelectorAll("#content .row.source")].some((r) => r.textContent.includes("more"))`), await rows());
+
+        await js(`[...document.querySelectorAll("#content .row.source")].find((r) => r.textContent.includes("more")).querySelector(".task-link").click()`);
+        check("the row opens a sheet that says what it reads and from where", await waitFor(`document.querySelector("dialog.sheet")?.textContent.includes("Reads the notes in one folder you pick.")`) && await js(`Boolean(document.querySelector("dialog.sheet .mono"))`));
+        await js(`[...document.querySelectorAll("dialog.sheet button")].find((b) => b.textContent === "Disconnect").click()`);
+        await sleep(200);
+        const asked = await js(`document.querySelector("dialog.sheet .actions")?.textContent ?? ""`);
+        check("Disconnect asks inline what happens to what it kept", /Keep the \d+ memor(y|ies) it already kept\?/.test(asked) && /Keep/.test(asked) && /Delete them too/.test(asked) && /Cancel/.test(asked), asked);
+        await shot("sources-disconnect");
       } else if (scenario === "listing") {
         // APP-119: one click lists the store; the row reads its state from the relay, never from local memory.
         await waitFor(`document.body.dataset.state === "welcome" && !document.querySelector("#welcome").classList.contains("provisioning")`);
