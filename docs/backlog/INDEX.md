@@ -216,6 +216,7 @@ obsolete), then `priority` (P0 → P3).
 | [XC-028](./cross-cutting/XC-028-report-feedback-as-a-github-issue.md) | Send owner-submitted feedback to GitHub as a shared core and relay | P2 | L | cross-cutting | completed | APP-105, CLI-003 | — | — | — |
 | [APP-105](./desktop-app/APP-105-report-feedback-dialog.md) | Add a Report Feedback button and dialog above the sign-in block | P2 | M | desktop-app | completed | XC-028, CLI-003 | XC-028 | — | — |
 | [APP-113](./desktop-app/APP-113-render-plain-text-attended-tool-results-in-resumed-thread-history.md) | Render plain-text attended-tool results in resumed thread history | P2 | S | desktop-app | completed | APP-018, APP-114 | — | — | [#256](https://github.com/dipakkrishnan/lore-mcp/issues/256) |
+| [APP-123](./desktop-app/APP-123-offer-the-first-source-from-today.md) | Offer the first source from Today, not only from Settings | P2 | XS | desktop-app | completed | APP-120, APP-109, APP-020, APP-118, ONB-007, APP-122 | — | — | — |
 | [APP-083](./desktop-app/APP-083-keep-memory-ids-out-of-the-publish-thread.md) | Keep memory ids out of the publish thread | P3 | XS | desktop-app | completed | APP-023 | — | — | — |
 | [APP-088](./desktop-app/APP-088-put-add-memory-beside-the-title.md) | Put Add Memory beside the title, not above it | P3 | XS | desktop-app | completed | APP-067, APP-051 | — | — | — |
 | [APP-092](./desktop-app/APP-092-explain-memories-and-for-sale-on-hover.md) | Explain Memories and For Sale on hover | P3 | XS | desktop-app | completed | APP-091, APP-054 | — | — | — |
