@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import re
+import zipfile
 from abc import ABC, abstractmethod
 from dataclasses import asdict, dataclass, fields
 from datetime import date, datetime, timezone
@@ -179,6 +181,122 @@ class FolderReader(Reader):
         return date.fromtimestamp(path.stat().st_mtime).isoformat()
 
 
+class ExportReader(Reader):
+    kind = "export"
+    member = "conversations.json"
+    # The assistant's turn is what the owner's words were answering, not a
+    # memory of its own, so it is kept only as trimmed context.
+    reply = 600
+    products = {"mapping": "ChatGPT", "chat_messages": "Claude"}
+
+    @classmethod
+    def locate(cls, locator: str) -> tuple[str, str]:
+        path = Path(locator).expanduser().resolve()
+        return str(path), cls._product(cls._read(path))
+
+    @classmethod
+    def _read(cls, path: Path) -> list[dict] | None:
+        """None when the path is not an export at all, as against an empty one."""
+        try:
+            if zipfile.is_zipfile(path):
+                with zipfile.ZipFile(path) as archive:
+                    name = next(
+                        (n for n in archive.namelist() if n.endswith(cls.member)), ""
+                    )
+                    with archive.open(name) as member:
+                        loaded = json.load(member)
+            else:
+                loaded = json.loads(path.read_bytes())
+        except (OSError, ValueError, KeyError, zipfile.BadZipFile):
+            return None
+        if not isinstance(loaded, list):
+            return None
+        return [entry for entry in loaded if isinstance(entry, dict)]
+
+    @classmethod
+    def _product(cls, conversations: list[dict] | None) -> str:
+        first = conversations[0] if conversations else {}
+        return next(
+            (name for key, name in cls.products.items() if key in first), "Export"
+        )
+
+    @cached_property
+    def conversations(self) -> list[dict] | None:
+        return self._read(self.source.root)
+
+    def probe(self) -> State:
+        if self.conversations is None:
+            return State.UNREACHABLE
+        return State.CONNECTED if self.conversations else State.NOTHING_FOUND
+
+    def items(self) -> Iterator[Item]:
+        for index, conversation in enumerate(self.conversations or []):
+            turns = list(self._turns(conversation))
+            held = conversation.get("uuid") or conversation.get("id") or index
+            yield Item(
+                self._name(conversation, turns),
+                self._content(turns),
+                f"{self.source.locator}#{held}",
+                self._day(conversation, turns),
+            )
+
+    def _turns(self, conversation: dict) -> Iterator[tuple[str, str, object]]:
+        if "mapping" in conversation:
+            yield from self._kept(conversation)
+            return
+        for message in conversation.get("chat_messages") or []:
+            said = "human" if message.get("sender") == "human" else "assistant"
+            text = str(message.get("text") or "").strip()
+            yield said, text, message.get("created_at")
+
+    def _kept(self, conversation: dict) -> Iterator[tuple[str, str, object]]:
+        """Walk `current_node` back to the root and keep only that path: a
+        regenerated answer hangs off the same tree but was never said."""
+        mapping = conversation.get("mapping") or {}
+        walked: list[str] = []
+        node = str(conversation.get("current_node") or "")
+        while node in mapping and node not in walked:
+            walked.append(node)
+            node = str(mapping[node].get("parent") or "")
+        for node in reversed(walked):
+            message = mapping[node].get("message") or {}
+            role = (message.get("author") or {}).get("role")
+            parts = (message.get("content") or {}).get("parts") or []
+            text = "\n".join(part for part in parts if isinstance(part, str)).strip()
+            if role in ("user", "assistant") and text:
+                said = "human" if role == "user" else "assistant"
+                yield said, text, message.get("create_time")
+
+    def _content(self, turns: list[tuple[str, str, object]]) -> str:
+        blocks: list[str] = []
+        for index, (role, text, _) in enumerate(turns):
+            if role != "human" or len(text) < self.sentence:
+                continue
+            blocks.append(text)
+            answer = turns[index + 1] if index + 1 < len(turns) else None
+            if answer and answer[0] == "assistant":
+                blocks.append(f"Reply: {answer[1][: self.reply]}")
+        return "\n\n".join(blocks)
+
+    def _name(self, conversation: dict, turns: list[tuple[str, str, object]]) -> str:
+        titled = conversation.get("title") or conversation.get("name") or ""
+        spoken = next((text for role, text, _ in turns if role == "human"), "")
+        return str(titled).strip() or spoken.split("\n")[0][:60]
+
+    def _day(
+        self, conversation: dict, turns: list[tuple[str, str, object]]
+    ) -> str | None:
+        stamped = next((at for _, _, at in turns if at), None)
+        started = conversation.get("create_time") or conversation.get("created_at")
+        when = stamped or started
+        try:
+            if isinstance(when, (int, float)):
+                return datetime.fromtimestamp(when, timezone.utc).date().isoformat()
+            return date.fromisoformat(str(when)[:10]).isoformat() if when else None
+        except (ValueError, OSError, OverflowError):
+            return None
+
+
 class Registry:
     """The owner's connected sources and the outcome of each source's last read."""
 
@@ -271,7 +389,8 @@ def entries(store: Store) -> list[dict[str, object]]:
 
 def preview(locator: str, kind: str = "folder") -> dict[str, object]:
     """Report what a source would import, writing nothing."""
-    reader = Source.owner(locator, kind=kind).reader()
+    source = Source.owner(locator, kind=kind)
+    reader = source.reader()
     state = reader.probe()
     kept: list[Item] = []
     skipped = 0
@@ -287,6 +406,7 @@ def preview(locator: str, kind: str = "folder") -> dict[str, object]:
         "to": dates[-1] if dates else None,
         "skipped": skipped,
         "state": state.value,
+        "label": source.label,
     }
 
 

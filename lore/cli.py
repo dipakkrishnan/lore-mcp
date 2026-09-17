@@ -675,10 +675,11 @@ def _locator_flags(parser: argparse.ArgumentParser) -> None:
     # One flag per reader kind; the flag's name is the kind.
     where = parser.add_mutually_exclusive_group(required=True)
     where.add_argument("--folder", help="a folder of notes")
+    where.add_argument("--export", help="a ChatGPT or Claude export")
 
 
 def _locator(args: argparse.Namespace) -> tuple[str, str]:
-    return next((v, k) for k in ("folder",) if (v := getattr(args, k, None)))
+    return next((v, k) for k in ("folder", "export") if (v := getattr(args, k, None)))
 
 
 def _source_line(entry: dict[str, object]) -> str:
