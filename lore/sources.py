@@ -15,7 +15,9 @@ from html.parser import HTMLParser
 from pathlib import Path
 from typing import Iterator
 from urllib.parse import quote, urljoin, urlsplit
-from xml.etree.ElementTree import Element, ParseError, fromstring
+from xml.etree.ElementTree import Element, ParseError
+
+from defusedxml.ElementTree import fromstring
 
 from . import __version__
 from .paths import claude_home, codex_home, home
