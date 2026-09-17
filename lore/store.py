@@ -615,6 +615,24 @@ class Store:
             )
         }
 
+    def delete_source_memories(self, source: str) -> dict[str, int]:
+        """Delete one source's memories, returning what went and what stayed.
+
+        A memory a publication derives from is kept whatever the owner chose:
+        deleting it would leave an approved publication citing nothing.
+        """
+        cursor = self.db.execute(
+            """DELETE FROM memories WHERE source=? AND id NOT IN (
+                   SELECT j.value FROM publications p, json_each(p.provenance) j
+               )""",
+            (source,),
+        )
+        kept = self.db.execute(
+            "SELECT count(*) kept FROM memories WHERE source=?", (source,)
+        ).fetchone()["kept"]
+        self.db.commit()
+        return {"deleted": cursor.rowcount, "kept": kept}
+
     def memory_inventory(self) -> list[dict[str, object]]:
         rows = self.db.execute(
             "SELECT id,title,project,status,updated_at "

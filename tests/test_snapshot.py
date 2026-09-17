@@ -15,7 +15,7 @@ from unittest.mock import Mock, patch
 
 from helpers import LoreTestCase, captured
 
-from lore import automation, blueprint, cli, snapshot
+from lore import automation, blueprint, cli, snapshot, sources
 from lore.paths import home
 from lore.store import AnswerSettings, Store
 
@@ -270,6 +270,47 @@ class DesktopSnapshotTest(LoreTestCase):
         with Store() as store:
             store.set_setting("telemetry_enabled", False)
         self.assertFalse(snapshot.build()["setup"]["telemetry_enabled"])
+
+    def test_every_source_carries_its_state_and_last_read(self) -> None:
+        vault = Path(self.tmp.name) / "vault"
+        vault.mkdir()
+        (vault / "note.md").write_text("# Note\n\nA lesson long enough to keep here.")
+        (self.codex_home / "memories").mkdir(parents=True)
+        with Store() as store:
+            store.set_setting("sources", ["codex"])
+            added = sources.add(store, str(vault))
+        entries = snapshot.build()["library"]["sources"]
+        self.assertEqual(
+            [set(entry) for entry in entries],
+            [
+                {
+                    "name",
+                    "label",
+                    "kind",
+                    "locator",
+                    "owned",
+                    "enabled",
+                    "imported",
+                    "state",
+                    "last_read_at",
+                }
+            ]
+            * 3,
+        )
+        by_name = {entry["name"]: entry for entry in entries}
+        # Synthesis is Lore's own output, never a source the owner connects.
+        self.assertNotIn("automation", by_name)
+        # An enabled built-in with nothing in it is not connected.
+        self.assertEqual(by_name["codex"]["state"], "nothing_found")
+        self.assertIsNone(by_name["codex"]["last_read_at"])
+        self.assertEqual(by_name["claude"]["state"], "off")
+        self.assertIsNone(by_name["claude"]["last_read_at"])
+        owner = by_name[added["name"]]
+        self.assertEqual(owner["state"], "connected")
+        self.assertEqual(owner["locator"], str(vault.resolve()))
+        self.assertEqual(owner["imported"], 1)
+        self.assertTrue(owner["owned"])
+        self.assertTrue(str(owner["last_read_at"]).startswith("20"))
 
     def test_missing_and_unreachable_nodes_are_data(self) -> None:
         response = Mock()

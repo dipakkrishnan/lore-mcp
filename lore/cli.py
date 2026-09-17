@@ -15,6 +15,7 @@ from . import capture as capture_module
 from . import deploy as deploy_module
 from . import feedback as feedback_module
 from . import marketplace as marketplace_module
+from . import sources as sources_module
 from .paths import home
 from .sources import available_sources, scan
 from .store import (
@@ -79,6 +80,38 @@ def parser() -> argparse.ArgumentParser:
         action="store_true",
         help="open a synthesis job row for the scheduled run about to start",
     )
+
+    connect = commands.add_parser(
+        "sources", help="connect and read the places your memories live"
+    )
+    source_commands = connect.add_subparsers(dest="sources_command")
+    source_list = source_commands.add_parser("list", help="show every source")
+    source_list.add_argument("--json", action="store_true")
+    source_preview = source_commands.add_parser(
+        "preview", help="what a folder would import, without importing it"
+    )
+    source_preview.add_argument("--folder", required=True)
+    source_preview.add_argument("--json", action="store_true")
+    source_add = source_commands.add_parser("add", help="read a folder you choose")
+    source_add.add_argument("--folder", required=True)
+    source_add.add_argument("--label", help="the name you want to see")
+    source_add.add_argument(
+        "--since", help="keep only items dated on or after YYYY-MM-DD"
+    )
+    source_add.add_argument("--json", action="store_true")
+    source_read = source_commands.add_parser("read", help="import from sources now")
+    source_read.add_argument("name", nargs="*")
+    source_read.add_argument("--json", action="store_true")
+    source_remove = source_commands.add_parser("remove", help="stop reading a source")
+    source_remove.add_argument("name")
+    memories = source_remove.add_mutually_exclusive_group(required=True)
+    memories.add_argument(
+        "--keep", action="store_true", help="keep what it already imported"
+    )
+    memories.add_argument(
+        "--delete", action="store_true", help="delete what it imported"
+    )
+    source_remove.add_argument("--json", action="store_true")
 
     review = commands.add_parser("review", help="keep or discard memories")
     review.add_argument("query", nargs="*", help="words to narrow the review queue")
@@ -325,6 +358,8 @@ def main(argv: list[str] | None = None) -> int:
                 set(args.source) if args.source else None,
                 record_job=args.record_job,
             )
+        if args.command == "sources":
+            return source_command(args)
         if args.command == "job":
             return job(args)
         if args.command == "review":
@@ -454,6 +489,11 @@ def manual() -> int:
   2. lore sync
      Import memories created or changed since setup.
 
+  2b. lore sources list | preview --folder P | add --folder P | read | remove N
+     See what Lore reads, and connect a folder of your own notes. `preview`
+     says what would be imported without importing it; `remove` asks whether
+     to keep or delete what that source brought in.
+
   3. lore capture apply <file|->
      Validate and privately save memories approved in an attended agent session.
 
@@ -518,16 +558,14 @@ def setup(yes: bool = False) -> int:
     enabled: list[str] = []
     heading("Detected agents")
     for source in native:
-        count = len(source.files())
+        reader = source.reader()
+        found = reader.probe() is not sources_module.State.UNREACHABLE
+        count = sum(1 for _ in reader.items())
         state = (
-            f"{count} memory file{'s' if count != 1 else ''}"
-            if source.root.exists()
-            else "not found"
+            f"{count} memory file{'s' if count != 1 else ''}" if found else "not found"
         )
         print(f"  {source.label:<14} {state}")
-        if source.root.exists() and (
-            yes or confirm(f"Import {source.label} memories?")
-        ):
+        if found and (yes or confirm(f"Import {source.label} memories?")):
             enabled.append(source.name)
     with Store() as store:
         store.set_setting("sources", enabled)
@@ -565,7 +603,8 @@ def sync(names: set[str] | None = None, *, record_job: bool = False) -> int:
             store.start_job(JobKind.SYNTHESIS.value, timeout_minutes=60)
         if names is None:
             configured = _configured_sources(store.setting("sources", []))
-            names = configured | {"automation"}
+            owner = {source.name for source in sources_module.owner_sources(store)}
+            names = configured | owner | {"automation"}
         report = scan(store, names)
         if names == {"automation"} and not record_job:
             imported = sum(item["added"] + item["updated"] for item in report.values())
@@ -582,6 +621,61 @@ def sync(names: set[str] | None = None, *, record_job: bool = False) -> int:
             f"{name:<20} {item['added']} added, {item['updated']} updated, {item['unchanged']} unchanged"
         )
     return 0
+
+
+def source_command(args: argparse.Namespace) -> int:
+    """Connect, inspect, and read the places Lore imports memories from."""
+    command = args.sources_command or "list"
+    payload: object
+    with Store() as store:
+        try:
+            if command == "preview":
+                found = sources_module.preview(args.folder)
+                payload, lines = (
+                    found,
+                    [
+                        f"{found['count']} to import · {found['skipped']} too short "
+                        f"· {found['state']}"
+                    ],
+                )
+            elif command == "add":
+                added = sources_module.add(store, args.folder, args.label, args.since)
+                payload, lines = added, [_source_line(added)]
+            elif command == "read":
+                reads = sources_module.read(store, args.name)
+                payload, lines = (
+                    reads,
+                    [
+                        f"  {str(read['name']):<20} {read['added']} added, "
+                        f"{read['updated']} updated, {read['unchanged']} unchanged "
+                        f"· {read['state']}"
+                        for read in reads
+                    ],
+                )
+            elif command == "remove":
+                removed = sources_module.remove(store, args.name, delete=args.delete)
+                kind = "deleted" if args.delete else "kept"
+                payload, lines = removed, [f"Removed {args.name}; memories {kind}."]
+            else:
+                listed = sources_module.entries(store)
+                payload, lines = listed, [_source_line(entry) for entry in listed]
+        except sources_module.SourceError as error:
+            print(f"lore: {error}", file=sys.stderr)
+            return 2
+    if args.json:
+        print(json.dumps(payload, separators=(",", ":"), allow_nan=False))
+        return 0
+    for line in lines:
+        print(line)
+    return 0
+
+
+def _source_line(entry: dict[str, object]) -> str:
+    marker = "●" if entry["enabled"] else "○"
+    return (
+        f"  {marker} {str(entry['label']):<14} {entry['state']} "
+        f"· {entry['imported']} imported"
+    )
 
 
 def job(args: argparse.Namespace) -> int:
@@ -780,6 +874,7 @@ def status() -> int:
         counts = store.counts()
         sources = store.source_counts()
         configured = _configured_sources(store.setting("sources", []))
+        connected = sources_module.all_sources(store)
         database_path = store.path
         publication_price = store.setting("price_usd", None)
         answer_settings = store.answer_settings()
@@ -798,10 +893,10 @@ def status() -> int:
             "that changed since you approved it. Re-approve or revoke."
         )
     heading("Sources")
-    for source in available_sources():
+    for source in connected:
         if source.origin == "automation":
             continue
-        enabled = source.name in configured
+        enabled = source.owned or source.name in configured
         marker = "●" if enabled else "○"
         print(f"  {marker} {source.label:<14} {sources.get(source.name, 0)} imported")
     print(f"\nDatabase: {database_path}")
