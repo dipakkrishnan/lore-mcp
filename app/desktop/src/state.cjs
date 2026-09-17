@@ -1,4 +1,5 @@
 const { execFile, spawn } = require("node:child_process");
+const { statSync } = require("node:fs");
 const { createInterface } = require("node:readline");
 const { promisify } = require("node:util");
 const { resolve } = require("node:path");
@@ -211,7 +212,34 @@ async function listingStatus(loreHome) {
   return JSON.parse(await lore(loreHome, ["marketplace", "status", "--json"]));
 }
 
+/** @type {Map<string, Promise<string | null>>} An icon per bundle and mtime, for this process's life. */
+const icons = new Map();
+
+/** The icon macOS already has for an installed app. Apple's own marks may not be bundled, so the
+ * one on disk is the only one Lore may show. `app.getFileIcon` at size "large" kills the process
+ * (SIGTRAP) and must never be called here. @param {unknown} path @returns {Promise<string | null>} */
+function appIcon(path) {
+  try {
+    if (typeof path !== "string" || !path.endsWith(".app") || !/^\/(System\/)?Applications\//.test(path)) return Promise.resolve(null);
+    const key = `${path}:${statSync(path).mtimeMs}`;
+    if (!icons.has(key)) icons.set(key, thumbnail(path));
+    return /** @type {Promise<string | null>} */ (icons.get(key));
+  } catch {
+    return Promise.resolve(null);
+  }
+}
+
+/** @param {string} path */
+async function thumbnail(path) {
+  try {
+    return (await require("electron").nativeImage.createThumbnailFromPath(path, { width: 512, height: 512 })).toDataURL();
+  } catch {
+    return null;
+  }
+}
+
 module.exports = {
+  appIcon,
   lore,
   loreStream,
   stream,

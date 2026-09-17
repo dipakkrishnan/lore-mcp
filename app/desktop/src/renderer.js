@@ -83,8 +83,12 @@ const RING = `<svg viewBox="0 0 26 26" fill="none"><rect x="4.5" y="5" width="17
 const RENAME_ICON = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7V4h16v3M9 20h6M12 4v16"></path></svg>`;
 const EDIT_ICON = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L8 18l-4 1 1-4z"></path></svg>`;
 const SALE_ICON = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 12l-8 8-9-9V3h8z"></path><circle cx="7.5" cy="7.5" r="1.5"></circle></svg>`;
-// One outline per source kind, never a brand logo: logos are APP-122's, and nothing here fetches anything.
+// The outline a plain folder or file gets, when no service names itself.
 const FOLDER_ICON = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" aria-hidden="true"><path d="M3.5 7.2c0-.9.8-1.7 1.7-1.7h3.3l2 2.5h7.3c.9 0 1.7.7 1.7 1.7v7.6c0 .9-.8 1.7-1.7 1.7H5.2c-.9 0-1.7-.8-1.7-1.7z"></path></svg>`;
+// Only the services whose brand pages let their mark be bundled. Everything else is a house tile.
+/** @type {Record<string, string>} */
+const LOGOS = { "claude code": "claude", codex: "openai", github: "github", obsidian: "obsidian", x: "x" };
+const TILE_COLOURS = ["--accent", "--attention", "--ok", "--accent-ink"];
 /** @type {Record<string, [name: string, icon: string]>} */
 const PROVIDERS = {
   anthropic: ["Claude", "assets/claude.svg"],
@@ -996,9 +1000,38 @@ function named(source) {
   return source.state && source.state !== "connected" ? SOURCE_STATES[source.state] : null;
 }
 
-function folderGlyph() {
+/** The mark for one source, row or sheet or catalog entry: a bundled brand SVG, the icon macOS
+ * already has for an app on this Mac, a house tile, or the kind's outline. Every one of them is
+ * already on disk — the renderer's CSP is `img-src 'self' data:` with `connect-src 'none'`, and a
+ * favicon lookup would tell a third party which services the owner is browsing.
+ * @param {{kind?: string, label: string, locator?: string}} source */
+function logo(source) {
   const node = el("span", "glyph");
-  node.innerHTML = FOLDER_ICON;
+  const file = LOGOS[source.label.toLowerCase()];
+  if (file) node.append(image(`assets/${file}.svg`));
+  else if (source.kind === "script" && source.locator?.endsWith(".app")) {
+    node.append(tile(source.label));
+    void window.lore.appIcon(source.locator).then((url) => { if (url) node.replaceChildren(image(url)); });
+  } else if (source.kind && source.kind !== "folder") node.append(tile(source.label));
+  else node.innerHTML = FOLDER_ICON;
+  return node;
+}
+
+/** @param {string} src */
+function image(src) {
+  const node = el("img");
+  node.src = src;
+  node.alt = "";
+  node.width = 20;
+  node.height = 20;
+  return node;
+}
+
+/** The initial, on the same colour every time that label is drawn. @param {string} label */
+function tile(label) {
+  const node = el("span", "tile", [...label].find((character) => /\S/.test(character))?.toUpperCase() ?? "?");
+  const sum = [...label].reduce((total, character) => total + character.charCodeAt(0), 0);
+  node.style.background = `var(${TILE_COLOURS[sum % TILE_COLOURS.length]})`;
   return node;
 }
 
@@ -1035,7 +1068,7 @@ function sourceRow(source) {
   const node = row(source.label, state?.line || readsLine(source), trailing, false);
   const open = el("button", "task-link");
   open.type = "button";
-  open.append(folderGlyph(), ...node.children);
+  open.append(logo(source), ...node.children);
   open.addEventListener("click", () => openSource(source));
   node.classList.add("source");
   node.replaceChildren(open);
@@ -1076,14 +1109,17 @@ function openSource(source) {
   }
   actions.replaceChildren(...resting);
   body.push(actions);
-  sheet(source.label, folderGlyph(), ...body);
+  sheet(source.label, logo(source), ...body);
 }
+
+/** The one entry the catalog offers today; CAP-007 owns what joins it. */
+const FOLDER_SOURCE = { label: "A folder of notes" };
 
 /** The catalog: everything an owner can connect, one row each. @returns {HTMLElement} */
 function openCatalog() {
-  return sheet("Add a source", null, card([
-    row("A folder of notes", "Obsidian, Bear, Logseq, or any folder of Markdown files.", button("Connect", "secondary", () => void connectFolder()), false)
-  ]));
+  const entry = row(FOLDER_SOURCE.label, "Obsidian, Bear, Logseq, or any folder of Markdown files.", button("Connect", "secondary", () => void connectFolder()), false);
+  entry.prepend(logo(FOLDER_SOURCE));
+  return sheet("Add a source", null, card([entry]));
 }
 
 /** Pick a folder, then show what Lore would keep from it before it keeps anything. */
@@ -1110,7 +1146,7 @@ function openPreview(folder, found) {
     const action = found.state === "nothing_found" ? button("Pick another folder", "secondary", () => void connectFolder()) : state.act();
     if (action) actions.append(action);
     // Nothing was read, so the sheet ends in the state's name rather than a count.
-    sheet("A folder of notes", folderGlyph(), el("p", "", found.state === "nothing_found" ? "Nothing to read in that folder yet." : state.line), actions);
+    sheet("A folder of notes", logo(FOLDER_SOURCE), el("p", "", found.state === "nothing_found" ? "Nothing to read in that folder yet." : state.line), actions);
     return;
   }
   const skipped = found.skipped ? `, ${found.skipped} shorter than a sentence were skipped` : "";
@@ -1138,7 +1174,7 @@ function openPreview(folder, found) {
     closeSheet();
   })));
   body.push(actions);
-  sheet("A folder of notes", folderGlyph(), ...body);
+  sheet("A folder of notes", logo(FOLDER_SOURCE), ...body);
 }
 
 /** @param {Snapshot} s */

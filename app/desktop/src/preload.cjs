@@ -50,6 +50,8 @@ contextBridge.exposeInMainWorld("lore", {
   readSource: (name) => ipcRenderer.invoke("sources:read", name),
   /** @param {string} name @param {boolean} keep */
   removeSource: (name, keep) => ipcRenderer.invoke("sources:remove", name, keep),
+  /** @param {string} path */
+  appIcon: (path) => ipcRenderer.invoke("icons:app", path),
   openPrivacySettings: () => ipcRenderer.invoke("settings:privacy"),
   /** @param {File} file */
   pathFor: (file) => webUtils.getPathForFile(file),

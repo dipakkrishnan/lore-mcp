@@ -3,7 +3,7 @@ const { join } = require("node:path");
 const { app, BrowserWindow, dialog, ipcMain, safeStorage, shell, systemPreferences } = require("electron");
 const { provision, skillsDir, whisper } = require("./runtime.cjs");
 const { transcribe } = require("./dictation.cjs");
-const { lore, loreStream, openable, readState, readSales, searchMemories, readMemory, renameMemory, editMemory, captureMemories, setPrice, candidates, decide, reportFeedback, previewSource, addSource, readSource, removeSource, listStore, listingStatus, useRuntime } = require("./state.cjs");
+const { appIcon, lore, loreStream, openable, readState, readSales, searchMemories, readMemory, renameMemory, editMemory, captureMemories, setPrice, candidates, decide, reportFeedback, previewSource, addSource, readSource, removeSource, listStore, listingStatus, useRuntime } = require("./state.cjs");
 
 if (process.env.LORE_DESKTOP_USER_DATA) app.setPath("userData", process.env.LORE_DESKTOP_USER_DATA);
 
@@ -121,6 +121,7 @@ function registerIpc(loreHome) {
   ipcMain.handle("sources:add", (_event, input) => addSource(loreHome, input?.folder, input?.since));
   ipcMain.handle("sources:read", (_event, name) => readSource(loreHome, name));
   ipcMain.handle("sources:remove", (_event, name, keep) => removeSource(loreHome, name, keep));
+  ipcMain.handle("icons:app", (_event, path) => appIcon(path));
   // The only page this app opens outside https: macOS's own Files and Folders
   // pane, where the owner grants the read a source needs permission for.
   ipcMain.handle("settings:privacy", () => shell.openExternal("x-apple.systempreferences:com.apple.preference.security?Privacy_FilesAndFolders"));

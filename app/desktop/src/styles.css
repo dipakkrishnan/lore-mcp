@@ -291,6 +291,8 @@ a.link-btn.glyph { width: 22px; padding: 0; justify-content: center; color: var(
 .row.source .t { flex: 1; }
 .row .glyph { display: inline-flex; flex-shrink: 0; color: var(--faint); }
 .row .glyph svg, .sheet-head .glyph svg { width: 17px; height: 17px; }
+.row .glyph img, .sheet-head .glyph img { width: 20px; height: 20px; }
+.glyph .tile { width: 20px; height: 20px; border-radius: 6px; display: inline-flex; align-items: center; justify-content: center; color: var(--surface); font: 600 11px/1 var(--sans); }
 .sheet-head .glyph { display: inline-flex; color: var(--faint); }
 .row .chev { color: var(--faint); font-size: 15px; }
 .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--attention); flex-shrink: 0; }

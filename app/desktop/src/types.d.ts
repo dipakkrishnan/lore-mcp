@@ -103,7 +103,7 @@ type SourceEntry = {
   label: string;
   enabled: boolean;
   imported: number;
-  kind?: "folder";
+  kind?: "folder" | "script";
   locator?: string;
   owned?: boolean;
   state?: SourceState;
@@ -219,6 +219,7 @@ interface Window {
     addSource(input: { folder: string; since: string | null }): Promise<SourceEntry>;
     readSource(name: string): Promise<SourceRead[]>;
     removeSource(name: string, keep: boolean): Promise<SourceRemoval>;
+    appIcon(path: string): Promise<string | null>;
     openPrivacySettings(): Promise<void>;
     pathFor(file: File): string;
     onAgentEvent(listener: (event: AgentEvent) => void): () => void;

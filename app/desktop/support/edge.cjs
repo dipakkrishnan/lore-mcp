@@ -278,6 +278,8 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         check("the healthy state carries no colour word", !/Connected|Healthy|Green|OK/.test(healthy), healthy);
         const denied = await js(`[...document.querySelectorAll("#content .row.source")].find((r) => r.textContent.includes("Needs permission"))?.textContent ?? ""`);
         check("a folder Lore may not read is named, with one action", /macOS hasn't let Lore read this yet\./.test(denied) && /Open System Settings/.test(denied), denied);
+        // APP-122: every mark is already on disk. The CSP is `img-src 'self' data:`, so an http src would not even load.
+        check("a folder keeps the outline glyph, and no mark on the page is fetched", await js(`Boolean([...document.querySelectorAll("#content .row.source")].find((r) => r.textContent.startsWith("notes"))?.querySelector(".glyph svg")) && [...document.querySelectorAll("#content img")].every((i) => !/^http/i.test(i.getAttribute("src") ?? ""))`), await js(`[...document.querySelectorAll("#content img")].map((i) => i.getAttribute("src")).join(",")`));
         check("a row that reads fine offers no button", await js(`[...document.querySelectorAll("#content .row.source")].filter((r) => /\\d+ kept/.test(r.textContent)).every((r) => r.querySelectorAll(".btn").length === 0)`));
         // The header is sticky, so scrolling the section flush to the top hides its first row.
         await js(`[...document.querySelectorAll("#content .section")].find((s) => s.textContent.includes("Where memories come from")).scrollIntoView(); document.querySelector("#main").scrollTop -= 150`);

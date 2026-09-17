@@ -19,6 +19,17 @@ test("reads only the fixed APP-001 snapshot", async () => {
   }
 });
 
+test("an app's icon is read once per bundle, and anything that is not an installed app is null", { skip: process.platform !== "darwin" }, async () => {
+  const { appIcon } = require("../src/state.cjs");
+  const notes = "/System/Applications/Notes.app";
+  // One thumbnail per bundle and mtime, not one per render: the same call gives back the same read.
+  assert.equal(appIcon(notes), appIcon(notes));
+  assert.equal(await appIcon("/Applications/No Such App.app"), null);
+  assert.equal(await appIcon("/etc/passwd"), null);
+  assert.equal(await appIcon("/Users/someone/Downloads/Evil.app"), null);
+  assert.equal(await appIcon(null), null);
+});
+
 test("the agent may open only the pages the payments skill sends an owner to", () => {
   const { openable } = require("../src/state.cjs");
   assert.ok(openable("https://portal.cdp.coinbase.com/products/faucet"));
