@@ -371,6 +371,8 @@ class OwnerFolderTest(LoreTestCase):
                     }
                 ],
             )
+            ordered = sources_module.Registry(store).read([name, "codex"])
+            self.assertEqual([item["name"] for item in ordered], [name, "codex"])
             # A short codex memory is still a memory: the sentence floor is for
             # folders the owner points at, not for agent-written files.
             self.assertEqual(store.search("codex lesson")[0].title, "C")
