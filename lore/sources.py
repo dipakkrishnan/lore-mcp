@@ -13,7 +13,7 @@ from enum import Enum
 from functools import cached_property
 from html.parser import HTMLParser
 from pathlib import Path
-from typing import Iterator, Literal
+from typing import ClassVar, Iterator, Literal
 from urllib.parse import quote, urljoin, urlsplit
 from xml.etree.ElementTree import Element, ParseError
 
@@ -30,7 +30,7 @@ from pydantic import (
 from pydantic.dataclasses import dataclass
 
 from . import __version__
-from .paths import claude_home, codex_home, home
+from .paths import claude_home, codex_home, home, obsidian_home
 from .store import Store
 
 
@@ -67,6 +67,7 @@ class Source:
     kind: Literal["folder", "export", "feed"] = "folder"
     owned: bool = False
     since: str | None = None
+    connector: str | None = None
 
     def reader(self) -> Reader:
         readers: dict[str, type[Reader]] = {
@@ -84,7 +85,12 @@ class Source:
         label: str | None = None,
         since: str | None = None,
         kind: str = "folder",
+        connector: str | None = None,
     ) -> Source:
+        if connector is not None and Connector.named(connector).kind != kind:
+            raise SourceError(
+                f"{connector} reads a {Connector.named(connector).kind}, not a {kind}"
+            )
         try:
             source = cls(
                 "",
@@ -95,13 +101,17 @@ class Source:
                 ),
                 owned=True,
                 since=_day(since),
+                connector=connector,
             )
         except ValidationError as error:
             raise SourceError(str(error)) from None
         locator, default = source.reader().locate(locator)
         digest = hashlib.sha256(locator.encode()).hexdigest()[:8]
         return replace(
-            source, name=f"{kind}-{digest}", label=label or default, locator=locator
+            source,
+            name=f"{connector or kind}-{digest}",
+            label=label or default,
+            locator=locator,
         )
 
 
@@ -205,6 +215,57 @@ class FolderReader(Reader):
                 if match:
                     return match.group(1)
         return date.fromtimestamp(path.stat().st_mtime).isoformat()
+
+
+class Choice(BaseModel):
+    label: str
+    locator: str
+    open: bool = False
+
+
+class Connector(ABC):
+    """An app the owner recognises, over the reader that does the work."""
+
+    id: ClassVar[str]
+    kind: ClassVar[Literal["folder", "export", "feed"]]
+
+    @classmethod
+    def named(cls, app: str) -> Connector:
+        for connector in (Obsidian(),):
+            if connector.id == app:
+                return connector
+        raise SourceError(f"unknown app: {app}")
+
+    @abstractmethod
+    def choices(self) -> list[Choice]:
+        """What the owner picks among, found without asking them."""
+
+
+class Vault(BaseModel):
+    path: str
+    open: bool = False
+
+
+class Obsidian(Connector):
+    """A vault is a plain folder; Obsidian keeps every vault's path in one file."""
+
+    id = "obsidian"
+    kind = "folder"
+
+    class Vaults(BaseModel):
+        vaults: dict[str, Vault] = {}
+
+    def choices(self) -> list[Choice]:
+        try:
+            known = self.Vaults.model_validate_json(
+                (obsidian_home() / "obsidian.json").read_bytes()
+            )
+        except (OSError, ValidationError):
+            return []
+        vaults = sorted(known.vaults.values(), key=lambda v: (not v.open, v.path))
+        return [
+            Choice(label=Path(v.path).name, locator=v.path, open=v.open) for v in vaults
+        ]
 
 
 class Role(Enum):
@@ -715,6 +776,7 @@ class Registry:
                     "kind": source.kind,
                     "locator": source.locator,
                     "owned": source.owned,
+                    "connector": source.connector,
                     "enabled": enabled,
                     "imported": counts.get(source.name, 0),
                     "state": state.value,
@@ -729,8 +791,9 @@ class Registry:
         label: str | None = None,
         since: str | None = None,
         kind: str = "folder",
+        connector: str | None = None,
     ) -> dict[str, object]:
-        source = Source.owner(locator, label, since, kind)
+        source = Source.owner(locator, label, since, kind, connector)
         reader = source.reader()
         if reader.probe() is State.UNREACHABLE:
             raise SourceError(f"can't reach {locator}")

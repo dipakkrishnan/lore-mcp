@@ -41,6 +41,16 @@ contextBridge.exposeInMainWorld("lore", {
   listStore: (action) => ipcRenderer.invoke("listing:act", action),
   listingStatus: () => ipcRenderer.invoke("listing:status"),
   pickFiles: () => ipcRenderer.invoke("files:pick"),
+  pickFolder: () => ipcRenderer.invoke("folders:pick"),
+  /** @param {string} app */
+  sourceChoices: (app) => ipcRenderer.invoke("sources:choices", app),
+  /** @param {{connector: string, locator: string}} input */
+  addSource: (input) => ipcRenderer.invoke("sources:add", input),
+  /** @param {string} name */
+  readSource: (name) => ipcRenderer.invoke("sources:read", name),
+  /** @param {string} name @param {boolean} keep */
+  removeSource: (name, keep) => ipcRenderer.invoke("sources:remove", name, keep),
+  openPrivacySettings: () => ipcRenderer.invoke("settings:privacy"),
   /** @param {File} file */
   pathFor: (file) => webUtils.getPathForFile(file),
   microphone: () => ipcRenderer.invoke("dictation:permission"),
