@@ -41,7 +41,7 @@ class ExportTest(LoreTestCase):
 
     def add(self, locator: str, **kwargs: str) -> dict[str, object]:
         with Store() as store:
-            return sources_module.add(store, locator, kind="export", **kwargs)
+            return sources_module.Registry(store).add(locator, kind="export", **kwargs)
 
     def test_a_chatgpt_export_imports_only_the_path_the_owner_settled_on(self) -> None:
         found = self.preview(self.unpacked("chatgpt"))
@@ -108,7 +108,7 @@ class ExportTest(LoreTestCase):
         self.assertEqual(self.add(self.unpacked("chatgpt")), first)
         with Store() as store:
             self.assertEqual(store.counts()["private"], 2)
-            read = sources_module.read(store, [str(first["name"])])
+            read = sources_module.Registry(store).read([str(first["name"])])
         self.assertEqual(read[0]["added"], 0)
         self.assertEqual(read[0]["unchanged"], 2)
 
@@ -156,6 +156,35 @@ class ExportTest(LoreTestCase):
             memory = store.search("no usable timestamp")[0]
         self.assertEqual(memory.title, said[:60])
         self.assertEqual(memory.source_path, f"{entry['locator']}#0")
+
+    def test_cycles_and_malformed_nested_records_are_bounded(self) -> None:
+        said = "The selected branch should import this owner message exactly once."
+        cyclic = self.written(
+            "cycle.json",
+            [
+                {
+                    "mapping": {
+                        "node": {
+                            "parent": "node",
+                            "message": {
+                                "author": {"role": "user"},
+                                "content": {"parts": [said]},
+                            },
+                        }
+                    },
+                    "current_node": "node",
+                }
+            ],
+        )
+        self.assertEqual(self.preview(cyclic)["count"], 1)
+        malformed = self.written(
+            "malformed.json", [{"mapping": {"node": 42}, "current_node": "node"}]
+        )
+        self.assertEqual(self.preview(malformed)["state"], "unreachable")
+        archive_path = Path(self.tmp.name) / "misnamed.zip"
+        with zipfile.ZipFile(archive_path, "w") as archive:
+            archive.writestr("not-conversations.json", "[]")
+        self.assertEqual(self.preview(str(archive_path))["state"], "unreachable")
 
     def test_the_cli_previews_adds_and_removes_an_export(self) -> None:
         def command(*argv: str) -> object:
