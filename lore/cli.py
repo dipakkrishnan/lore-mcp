@@ -100,6 +100,19 @@ def parser() -> argparse.ArgumentParser:
         "--since", help="keep only items dated on or after YYYY-MM-DD"
     )
     source_add.add_argument("--json", action="store_true")
+    source_catalog = source_commands.add_parser(
+        "catalog", help="the apps Lore can connect"
+    )
+    source_catalog.add_argument("--json", action="store_true")
+    source_connect = source_commands.add_parser(
+        "connect", help="connect an app from the catalog"
+    )
+    source_connect.add_argument("connector", help="the app, like obsidian")
+    source_connect.add_argument("locator", help="the vault, file, or address to read")
+    source_connect.add_argument(
+        "--replace", metavar="NAME", help="the connection this one takes over from"
+    )
+    source_connect.add_argument("--json", action="store_true")
     source_choices = source_commands.add_parser(
         "choices", help="what an app on this Mac offers to connect"
     )
@@ -648,6 +661,17 @@ def source_command(args: argparse.Namespace) -> int:
                 locator, kind = _locator(args)
                 added = Registry(store).add(
                     locator, args.label, args.since, kind, args.connector
+                )
+                payload, lines = added, [_source_line(added)]
+            elif command == "catalog":
+                apps = [app.model_dump() for app in sources_module.Connector.catalog()]
+                payload, lines = (
+                    apps,
+                    [f"  {app['id']:<14} {app['what']}" for app in apps],
+                )
+            elif command == "connect":
+                added = Registry(store).connect(
+                    args.connector, args.locator, replacing=args.replace
                 )
                 payload, lines = added, [_source_line(added)]
             elif command == "choices":

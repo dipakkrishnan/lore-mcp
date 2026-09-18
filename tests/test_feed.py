@@ -75,8 +75,8 @@ class FeedLocatorTest(unittest.TestCase):
     def test_one_handle_typed_two_ways_is_one_source(self) -> None:
         bare = Source.owner("writer.bsky.social", kind="feed")
         at = Source.owner("@writer.bsky.social", kind="feed")
-        self.assertEqual(bare.name, at.name)
-        self.assertTrue(bare.name.startswith("feed-"))
+        self.assertEqual(bare.reader().name(), at.reader().name())
+        self.assertTrue(bare.reader().name().startswith("feed-"))
         self.assertEqual(bare.kind, "feed")
 
 
@@ -238,6 +238,22 @@ class FeedReadTest(unittest.TestCase):
 
 
 class FeedImportTest(LoreTestCase):
+    def test_guid_and_anonymous_rss_items_do_not_overwrite_each_other(self) -> None:
+        body = """<rss><channel><title>Notes</title>
+          <item><guid>first</guid><description>First full lesson from an RSS item without a link.</description></item>
+          <item><guid>second</guid><description>Second full lesson from an RSS item without a link.</description></item>
+          <item><description>Third full lesson from an RSS item without an identity.</description></item>
+          <item><description>Fourth full lesson from an RSS item without an identity.</description></item>
+        </channel></rss>""".encode()
+        with patch.object(FeedReader, "fetch", return_value=body), Store() as store:
+            registry = sources_module.Registry(store)
+            entry = registry.add("https://notes.example.com/rss", kind="feed")
+            self.assertEqual(entry["imported"], 4)
+            paths = [memory.source_path for memory in store.search("full lesson")]
+            self.assertEqual(len(set(paths)), 4)
+            report = registry.read([str(entry["name"])])[0]
+            self.assertEqual((report["added"], report["unchanged"]), (0, 4))
+
     def test_a_feed_is_added_read_and_re_read_from_anywhere(self) -> None:
         with serving({"": "rss.xml"}), Store() as store:
             entry = sources_module.Registry(store).add(

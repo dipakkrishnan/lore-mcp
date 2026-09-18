@@ -290,6 +290,7 @@ class DesktopSnapshotTest(LoreTestCase):
                     "locator",
                     "owned",
                     "connector",
+                    "refresh",
                     "enabled",
                     "imported",
                     "state",

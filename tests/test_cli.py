@@ -105,6 +105,26 @@ class ParserTest(unittest.TestCase):
                 {"sources_command": "add", "folder": "/v", "connector": "obsidian"},
             ),
             (
+                [
+                    "sources",
+                    "connect",
+                    "substack",
+                    "https://a.example",
+                    "--replace",
+                    "x",
+                ],
+                {
+                    "sources_command": "connect",
+                    "connector": "substack",
+                    "locator": "https://a.example",
+                    "replace": "x",
+                },
+            ),
+            (
+                ["sources", "catalog", "--json"],
+                {"sources_command": "catalog", "json": True},
+            ),
+            (
                 ["sources", "choices", "obsidian", "--json"],
                 {"sources_command": "choices", "connector": "obsidian", "json": True},
             ),

@@ -70,12 +70,12 @@ class Source:
     connector: str | None = None
 
     def reader(self) -> Reader:
-        readers: dict[str, type[Reader]] = {
-            "folder": FolderReader,
-            "export": ExportReader,
-            "feed": FeedReader,
-        }
-        reader = readers[self.kind]
+        if self.connector:
+            return Connector.named(self.connector).reader(self)
+        # Every subclass is concrete; mypy cannot see that through __subclasses__.
+        reader: type[Reader] = next(  # type: ignore[type-abstract]
+            r for r in Reader.__subclasses__() if r.kind == self.kind
+        )
         return reader(self)
 
     @classmethod
@@ -87,10 +87,9 @@ class Source:
         kind: str = "folder",
         connector: str | None = None,
     ) -> Source:
-        if connector is not None and Connector.named(connector).kind != kind:
-            raise SourceError(
-                f"{connector} reads a {Connector.named(connector).kind}, not a {kind}"
-            )
+        app = Connector.named(connector) if connector is not None else None
+        if app is not None and app.reader.kind != kind:
+            raise SourceError(f"{connector} reads a {app.reader.kind}, not a {kind}")
         try:
             source = cls(
                 "",
@@ -106,16 +105,13 @@ class Source:
         except ValidationError as error:
             raise SourceError(str(error)) from None
         locator, default = source.reader().locate(locator)
-        digest = hashlib.sha256(locator.encode()).hexdigest()[:8]
-        return replace(
-            source,
-            name=f"{connector or kind}-{digest}",
-            label=label or default,
-            locator=locator,
-        )
+        return replace(source, label=label or default, locator=locator)
 
 
 class Reader(ABC):
+    kind: ClassVar[Literal["folder", "export", "feed"]]
+    # A place that keeps changing is read again on schedule; a file is read once.
+    refresh: ClassVar[bool] = True
     # An owner's folder is arbitrary notes, not agent-written memory files: a
     # line shorter than a sentence is a heading or a stub, never a lesson.
     sentence = 40
@@ -124,6 +120,7 @@ class Reader(ABC):
         self.source = source
         self.label = source.label
         self.errors = 0
+        self.failure: State | None = None
 
     @classmethod
     @abstractmethod
@@ -138,6 +135,11 @@ class Reader(ABC):
     def items(self) -> Iterator[Item]:
         """Yield source items, counting unreadable records in errors."""
 
+    def name(self) -> str:
+        """Every spelling of one place is one source, so the name digests the locator."""
+        digest = hashlib.sha256(self.source.locator.encode()).hexdigest()[:8]
+        return f"{self.source.connector or self.kind}-{digest}"
+
     def keeps(self, item: Item) -> bool:
         source = self.source
         if item.excluded:
@@ -150,6 +152,7 @@ class Reader(ABC):
 
 
 class FolderReader(Reader):
+    kind = "folder"
     # Vault plumbing and blank templates, which read as memories but are not.
     skipped = {".obsidian", ".trash", "templates"}
     frontmatter = re.compile(r"\A---\n(.*?)\n---", re.DOTALL)
@@ -187,15 +190,22 @@ class FolderReader(Reader):
         for path in self.files:
             try:
                 content = path.read_text(encoding="utf-8").strip()
+                item = Item(
+                    _title(path, content),
+                    content,
+                    str(path),
+                    self._dated(path, content),
+                )
+            except PermissionError:
+                self.errors += 1
+                self.failure = State.NEEDS_PERMISSION
+                continue
             except (OSError, UnicodeError):
                 self.errors += 1
+                if self.failure is None:
+                    self.failure = State.UNREACHABLE
                 continue
-            yield Item(
-                _title(path, content),
-                content,
-                str(path),
-                self._dated(path, content),
-            )
+            yield item
 
     def _included(self, path: Path) -> bool:
         if not self.source.owned:
@@ -223,22 +233,58 @@ class Choice(BaseModel):
     open: bool = False
 
 
-class Connector(ABC):
-    """An app the owner recognises, over the reader that does the work."""
+class App(BaseModel):
+    """An app as the catalog offers it: enough for any surface to draw the row and the sheet."""
+
+    id: str
+    name: str
+    what: str
+    unit: str
+    item: str
+    kind: Literal["folder", "export", "feed"]
+    refresh: bool
+    placeholder: str = ""
+
+
+class Connector:
+    """An app the owner recognises, over the reader that does the work. Defining
+    a subclass is the whole registration: it appears in the catalog, the CLI,
+    and the desktop with no further wiring."""
 
     id: ClassVar[str]
-    kind: ClassVar[Literal["folder", "export", "feed"]]
+    name: ClassVar[str]
+    what: ClassVar[str]
+    unit: ClassVar[str]
+    item: ClassVar[str]
+    reader: ClassVar[type[Reader]]
+    placeholder: ClassVar[str] = ""
 
     @classmethod
     def named(cls, app: str) -> Connector:
-        for connector in (Obsidian(),):
+        for connector in cls.__subclasses__():
             if connector.id == app:
-                return connector
+                return connector()
         raise SourceError(f"unknown app: {app}")
 
-    @abstractmethod
+    @classmethod
+    def catalog(cls) -> list[App]:
+        return [connector().app() for connector in cls.__subclasses__()]
+
+    def app(self) -> App:
+        return App(
+            id=self.id,
+            name=self.name,
+            what=self.what,
+            unit=self.unit,
+            item=self.item,
+            kind=self.reader.kind,
+            refresh=self.reader.refresh,
+            placeholder=self.placeholder,
+        )
+
     def choices(self) -> list[Choice]:
         """What the owner picks among, found without asking them."""
+        return []
 
 
 class Vault(BaseModel):
@@ -250,7 +296,11 @@ class Obsidian(Connector):
     """A vault is a plain folder; Obsidian keeps every vault's path in one file."""
 
     id = "obsidian"
-    kind = "folder"
+    name = "Obsidian"
+    what = "Your vaults and notes"
+    unit = "vault"
+    item = "note"
+    reader = FolderReader
 
     class Vaults(BaseModel):
         vaults: dict[str, Vault] = {}
@@ -366,10 +416,17 @@ class Conversation(BaseModel):
 
 
 class ExportReader(Reader):
+    kind = "export"
+    refresh = False
+    products = {"chatgpt": "ChatGPT", "claude": "Claude"}
+    # One product's exports only, when an app rather than a file was connected.
+    product: ClassVar[str] = ""
+
     @classmethod
     def locate(cls, locator: str) -> tuple[str, str]:
+        # Which product it came from is only known once read, so no label yet.
         path = Path(locator).expanduser().resolve()
-        return str(path), "Export"
+        return str(path), ""
 
     @cached_property
     def conversations(self) -> list[Conversation] | None:
@@ -399,18 +456,59 @@ class ExportReader(Reader):
         except (OSError, ValueError, KeyError, zipfile.BadZipFile):
             return None
 
+    @cached_property
+    def provider(self) -> str | None:
+        if not self.conversations:
+            return None
+        return "chatgpt" if self.conversations[0].mapping is not None else "claude"
+
     def probe(self) -> State:
+        self.label = self.products.get(self.provider or "", "Export")
         if self.conversations is None:
             return State.UNREACHABLE
-        if self.conversations:
-            first = self.conversations[0]
-            self.label = "ChatGPT" if first.mapping is not None else "Claude"
-            return State.CONNECTED
-        return State.NOTHING_FOUND
+        if self.product and self.provider and self.provider != self.product:
+            raise SourceError(
+                f"this is a {self.label} export, not {self.products[self.product]}"
+            )
+        return State.CONNECTED if self.conversations else State.NOTHING_FOUND
+
+    def name(self) -> str:
+        # A newer download of the same history is the same source, whatever it
+        # was saved as, so the name is the product rather than the file.
+        if self.source.connector:
+            return f"{self.source.connector}-export"
+        return f"{self.kind}-{self.provider or 'empty'}"
 
     def items(self) -> Iterator[Item]:
         for index, conversation in enumerate(self.conversations or []):
-            yield conversation.item(self.source.locator, index, self.sentence)
+            item = conversation.item(self.source.locator, index, self.sentence)
+            yield replace(item, key=conversation.id or None)
+
+
+class ChatGPTExport(ExportReader):
+    product = "chatgpt"
+
+
+class ClaudeExport(ExportReader):
+    product = "claude"
+
+
+class ChatGPT(Connector):
+    id = "chatgpt"
+    name = "ChatGPT"
+    what = "Your conversations, from an export file"
+    unit = "export"
+    item = "conversation"
+    reader = ChatGPTExport
+
+
+class Claude(Connector):
+    id = "claude"
+    name = "Claude"
+    what = "Your conversations, from an export file"
+    unit = "export"
+    item = "conversation"
+    reader = ClaudeExport
 
 
 class FeedPost(BaseModel):
@@ -464,6 +562,7 @@ class MastodonAccount(BaseModel):
 
 
 class FeedReader(Reader):
+    kind = "feed"
     agent = f"Lore/{__version__} (+https://yourlore.dev)"
     timeout = 20
     # A feed is a recent window, not an archive: five pages of Bluesky or
@@ -563,8 +662,8 @@ class FeedReader(Reader):
         channel = next((e for e in root if e.tag.rpartition("}")[2] == "channel"), root)
         self.label = _field(channel, "title") or self.label
         return [
-            self._item(e)
-            for e in channel
+            self._item(e, index)
+            for index, e in enumerate(channel)
             if e.tag.rpartition("}")[2] in ("item", "entry")
         ]
 
@@ -584,7 +683,7 @@ class FeedReader(Reader):
             for post in payload.items
         ]
 
-    def _item(self, entry: Element) -> Item:
+    def _item(self, entry: Element, index: int) -> Item:
         # `content:encoded` is the whole post where a feed carries both.
         body = next(
             (
@@ -594,12 +693,17 @@ class FeedReader(Reader):
             ),
             "",
         )
-        return self._post(
+        link = _field(entry, "link")
+        identity = link or _field(entry, "id", "guid") or f"entry-{index}"
+        post = self._post(
             _field(entry, "title"),
             _Html(body).text(),
-            _field(entry, "link") or _field(entry, "id"),
+            link or f"{self.source.locator}#{identity}",
             _field(entry, "pubDate", "published", "updated", "date"),
         )
+        # ponytail: anonymous entries use their position; prefer a publisher ID
+        # if one appears, since reordering those entries changes their keys.
+        return replace(post, key=identity)
 
     def _bluesky(self, handle: str) -> list[Item]:
         url = (
@@ -670,6 +774,16 @@ class FeedReader(Reader):
             excluded=drop or bool(self.paywall.search(text)),
             key=link,
         )
+
+
+class Substack(Connector):
+    id = "substack"
+    name = "Substack"
+    what = "Your published posts"
+    unit = "newsletter"
+    item = "post"
+    reader = FeedReader
+    placeholder = "https://you.substack.com"
 
 
 class _Html(HTMLParser):
@@ -777,6 +891,7 @@ class Registry:
                     "locator": source.locator,
                     "owned": source.owned,
                     "connector": source.connector,
+                    "refresh": source.reader().refresh,
                     "enabled": enabled,
                     "imported": counts.get(source.name, 0),
                     "state": state.value,
@@ -792,22 +907,41 @@ class Registry:
         since: str | None = None,
         kind: str = "folder",
         connector: str | None = None,
+        *,
+        replacing: str | None = None,
     ) -> dict[str, object]:
+        """Read a new source, and only then retire the one it replaces."""
         source = Source.owner(locator, label, since, kind, connector)
         reader = source.reader()
         if reader.probe() is State.UNREACHABLE:
             raise SourceError(f"can't reach {locator}")
-        if isinstance(reader, ExportReader) and label is None:
-            source = replace(source, label=reader.label)
-        if source.name not in {record.name for record in self.owned}:
-            self.owned.append(source)
-            self.sources.append(source)
-            self.store.set_setting(
-                "owner_sources",
-                self.source_records.dump_python(self.owned, mode="json"),
-            )
-            self.scan({source.name})
+        source = replace(source, name=reader.name(), label=source.label or reader.label)
+        current = next((r for r in self.owned if r.name == source.name), None)
+        if current is not None and current.locator == source.locator:
+            return next(e for e in self.entries() if e["name"] == source.name)
+        if replacing is not None and replacing != source.name:
+            old = next((r for r in self.owned if r.name == replacing), None)
+            if old is None or old.connector != source.connector:
+                raise SourceError(
+                    f"{replacing} is not a {connector or kind} to replace"
+                )
+            self.remove(replacing, delete=False)
+        self.owned = [r for r in self.owned if r.name != source.name] + [source]
+        self.sources = [r for r in self.sources if r.name != source.name] + [source]
+        self.store.set_setting(
+            "owner_sources", self.source_records.dump_python(self.owned, mode="json")
+        )
+        self._import(source, reader)
+        self._save_reads()
         return next(entry for entry in self.entries() if entry["name"] == source.name)
+
+    def connect(
+        self, app: str, locator: str, *, replacing: str | None = None
+    ) -> dict[str, object]:
+        connector = Connector.named(app)
+        return self.add(
+            locator, kind=connector.reader.kind, connector=app, replacing=replacing
+        )
 
     def read(self, names: list[str] | None = None) -> list[dict[str, object]]:
         known = {s.name: s for s in self.sources if s.origin != "automation"}
@@ -842,9 +976,7 @@ class Registry:
         self.store.set_setting(
             "owner_sources", self.source_records.dump_python(self.owned, mode="json")
         )
-        self.store.set_setting(
-            "source_reads", self.read_records.dump_python(self.reads, mode="json")
-        )
+        self._save_reads()
         memories = (
             self.store.delete_source_memories(name)
             if delete
@@ -854,39 +986,44 @@ class Registry:
 
     def scan(self, names: set[str] | None = None) -> dict[str, dict[str, int]]:
         """Import changed items privately, preserving stable keys and review status."""
-        report: dict[str, dict[str, int]] = {}
-        for source in self.sources:
-            if names is not None and source.name not in names:
+        report = {
+            source.name: self._import(source, source.reader())
+            for source in self.sources
+            if names is None or source.name in names
+        }
+        self._save_reads()
+        return report
+
+    def _import(self, source: Source, reader: Reader) -> dict[str, int]:
+        stats = {"found": 0, "added": 0, "updated": 0, "unchanged": 0, "errors": 0}
+        state = reader.probe()
+        for item in reader.items():
+            stats["found"] += 1
+            if not reader.keeps(item):
                 continue
-            stats = {"found": 0, "added": 0, "updated": 0, "unchanged": 0, "errors": 0}
-            reader = source.reader()
-            state = reader.probe()
-            for item in reader.items():
-                stats["found"] += 1
-                if not reader.keeps(item):
-                    continue
-                path = Path(item.source_path)
-                result = self.store.put(
-                    source=source.name,
-                    origin=source.origin,
-                    source_path=item.source_path,
-                    source_key=f"{source.name}:{item.key or path.resolve()}",
-                    fingerprint=hashlib.sha256(item.content.encode()).hexdigest(),
-                    title=item.title,
-                    content=item.content,
-                    project=_project(source, path),
-                )
-                stats[result] += 1
-            stats["found"] += reader.errors
-            stats["errors"] = reader.errors
-            self.reads[source.name] = LastRead(
-                at=datetime.now(timezone.utc).isoformat(), state=state
+            path = Path(item.source_path)
+            result = self.store.put(
+                source=source.name,
+                origin=source.origin,
+                source_path=item.source_path,
+                source_key=f"{source.name}:{item.key or path.resolve()}",
+                fingerprint=hashlib.sha256(item.content.encode()).hexdigest(),
+                title=item.title,
+                content=item.content,
+                project=_project(source, path),
             )
-            report[source.name] = stats
+            stats[result] += 1
+        stats["found"] += reader.errors
+        stats["errors"] = reader.errors
+        self.reads[source.name] = LastRead(
+            at=datetime.now(timezone.utc).isoformat(), state=reader.failure or state
+        )
+        return stats
+
+    def _save_reads(self) -> None:
         self.store.set_setting(
             "source_reads", self.read_records.dump_python(self.reads, mode="json")
         )
-        return report
 
 
 def available_sources() -> list[Source]:
@@ -920,7 +1057,7 @@ def preview(locator: str, kind: str = "folder") -> dict[str, object]:
         "from": dates[0] if dates else None,
         "to": dates[-1] if dates else None,
         "skipped": skipped,
-        "state": state.value,
+        "state": (reader.failure or state).value,
     }
 
 
