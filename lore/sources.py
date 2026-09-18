@@ -256,18 +256,19 @@ class Registry:
             unknown = set(names) - known.keys()
             if unknown:
                 raise SourceError(f"unknown source: {sorted(unknown)[0]}")
-            chosen = set(names)
+            chosen = names
         else:
-            chosen = {
+            chosen = [
                 s.name for s in known.values() if s.owned or s.name in self.enabled
-            }
+            ]
+        report = self.scan(set(chosen))
         return [
             {
                 "name": name,
-                **{key: value for key, value in stats.items() if key != "found"},
+                **{key: value for key, value in report[name].items() if key != "found"},
                 "state": self.reads[name].state.value,
             }
-            for name, stats in self.scan(chosen).items()
+            for name in chosen
         ]
 
     def remove(self, name: str, *, delete: bool) -> dict[str, object]:
