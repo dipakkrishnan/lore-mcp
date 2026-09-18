@@ -489,10 +489,10 @@ def manual() -> int:
   2. lore sync
      Import memories created or changed since setup.
 
-  2b. lore sources list | preview --folder P | add --folder P | read | remove N
-     See what Lore reads, and connect a folder of your own notes. `preview`
-     says what would be imported without importing it; `remove` asks whether
-     to keep or delete what that source brought in.
+  2b. lore sources list | preview --folder P | add --feed URL | read | remove N
+     See what Lore reads, and connect a folder of your own notes or a feed you
+     write to. `preview` says what would be imported without importing it;
+     `remove` asks whether to keep or delete what that source brought in.
 
   3. lore capture apply <file|->
      Validate and privately save memories approved in an attended agent session.
@@ -676,10 +676,11 @@ def _locator_flags(parser: argparse.ArgumentParser) -> None:
     where = parser.add_mutually_exclusive_group(required=True)
     where.add_argument("--folder", help="a folder of notes")
     where.add_argument("--export", help="a ChatGPT or Claude export")
+    where.add_argument("--feed", help="a blog, newsletter, Bluesky or Mastodon handle")
 
 
 def _locator(args: argparse.Namespace) -> tuple[str, str]:
-    for kind in ("folder", "export"):
+    for kind in ("folder", "export", "feed"):
         if locator := getattr(args, kind, None):
             return locator, kind
     raise sources_module.SourceError("a source locator is required")
