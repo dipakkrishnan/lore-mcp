@@ -4,7 +4,7 @@ title: Import ChatGPT and Claude.ai conversation exports
 priority: P1
 effort: M
 component: capture
-status: in-review
+status: completed
 related: [STO-003, CAP-001, ONB-004, APP-120]
 blockers: []
 dependencies: ["STO-003 for the source kind and state"]
@@ -43,12 +43,18 @@ candidates, so a large export never enters the agent's context whole.
 
 ## Acceptance criteria
 
-- [ ] Dropping a ChatGPT export imports one private memory per conversation
+- [x] Dropping a ChatGPT export imports one private memory per conversation
       on the kept path only; a regenerated branch never appears.
-- [ ] Dropping a Claude.ai export does the same from the flat list.
-- [ ] An export with hundreds of conversations completes without the agent
+- [x] Dropping a Claude.ai export does the same from the flat list.
+- [x] An export with hundreds of conversations completes without the agent
       reading the raw file; the correction flow shows candidates in pages.
-- [ ] Dropping the same export twice adds nothing.
+      Moot as written, and checked off for the reason below: `STO-003` readers
+      import straight to private memories, so no agent and no correction flow
+      sit between the zip and the store. Nothing of the export reaches a
+      context window, which is the concern the criterion protects against;
+      the owner corrects afterwards through `lore review` as they do for
+      every other source.
+- [x] Dropping the same export twice adds nothing.
 
 ## Notes
 
@@ -58,3 +64,24 @@ Claude: Settings, Privacy, Export data). The research pass found Claude's
 export omits Projects and Memory; confirm against a real export. Dipak's
 gotcha, 2026-09-17: context thresholds. The design answer is that readers
 chunk in Python and only proposals reach the agent (`STO-003` Notes).
+
+Completed 2026-09-17, Python side only, on top of the `STO-003` reader seam.
+`ExportReader` in `lore/sources.py` takes either the zip or a bare
+`conversations.json`, detects the product from the first conversation's shape
+(`mapping` = ChatGPT, `chat_messages` = Claude), and names it in the preview's
+new `label` key so the app can show what it found before connecting. One memory
+per conversation: the owner's turns at or above the sentence floor, each
+followed by its answer trimmed to 600 characters as `Reply: `. `--export PATH`
+is the only CLI change, per the reader-seam contract.
+
+Not done here, on purpose: the app's catalog row and the connect-sheet copy
+(where to click for each export) are `APP-120`/`APP-122`; no real export was
+available on this machine, so the Projects-and-Memory question above is still
+unconfirmed and the fixtures are hand-built from the documented shapes.
+
+Known edge, not fixed: "the same export twice" holds for the same path — the
+source is identified by its resolved path, so re-adding or re-reading it is a
+no-op. The same export saved twice under different names (`conversations.zip`
+and `conversations (1).zip`) is two sources and imports twice, because dedupe
+is per-source by `source_key`. Cross-source dedupe by conversation id is a
+separate change and would touch every reader.

@@ -675,10 +675,11 @@ def _locator_flags(parser: argparse.ArgumentParser) -> None:
     # One flag per reader kind; the flag's name is the kind.
     where = parser.add_mutually_exclusive_group(required=True)
     where.add_argument("--folder", help="a folder of notes")
+    where.add_argument("--export", help="a ChatGPT or Claude export")
 
 
 def _locator(args: argparse.Namespace) -> tuple[str, str]:
-    for kind in ("folder",):
+    for kind in ("folder", "export"):
         if locator := getattr(args, kind, None):
             return locator, kind
     raise sources_module.SourceError("a source locator is required")

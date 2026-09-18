@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import re
+import zipfile
 from abc import ABC, abstractmethod
 from dataclasses import replace
 from datetime import date, datetime, timezone
@@ -10,7 +12,15 @@ from functools import cached_property
 from pathlib import Path
 from typing import Iterator, Literal
 
-from pydantic import BaseModel, TypeAdapter, ValidationError
+from pydantic import (
+    AliasChoices,
+    AliasPath,
+    BaseModel,
+    Field,
+    TypeAdapter,
+    ValidationError,
+    field_validator,
+)
 from pydantic.dataclasses import dataclass
 
 from .paths import claude_home, codex_home, home
@@ -45,12 +55,15 @@ class Source:
     locator: str
     pattern: str = "**/*.md"
     origin: Literal["native", "automation"] = "native"
-    kind: Literal["folder"] = "folder"
+    kind: Literal["folder", "export"] = "folder"
     owned: bool = False
     since: str | None = None
 
     def reader(self) -> Reader:
-        readers: dict[str, type[Reader]] = {"folder": FolderReader}
+        readers: dict[str, type[Reader]] = {
+            "folder": FolderReader,
+            "export": ExportReader,
+        }
         reader = readers[self.kind]
         return reader(self)
 
@@ -67,7 +80,7 @@ class Source:
                 "",
                 label or "",
                 locator,
-                kind=TypeAdapter(Literal["folder"]).validate_python(kind),
+                kind=TypeAdapter(Literal["folder", "export"]).validate_python(kind),
                 owned=True,
                 since=_day(since),
             )
@@ -87,6 +100,7 @@ class Reader(ABC):
 
     def __init__(self, source: Source) -> None:
         self.source = source
+        self.label = source.label
         self.errors = 0
 
     @classmethod
@@ -176,6 +190,151 @@ class FolderReader(Reader):
         return date.fromtimestamp(path.stat().st_mtime).isoformat()
 
 
+class Role(Enum):
+    OWNER = "owner"
+    ASSISTANT = "assistant"
+    OTHER = "other"
+
+
+class Turn(BaseModel):
+    role: Role = Field(
+        default=Role.OTHER,
+        validation_alias=AliasChoices("sender", AliasPath("author", "role")),
+    )
+    text: str = Field(
+        default="", validation_alias=AliasChoices("text", AliasPath("content", "parts"))
+    )
+    at: str | float | None = Field(
+        default=None, validation_alias=AliasChoices("created_at", "create_time")
+    )
+
+    @field_validator("role", mode="before")
+    @classmethod
+    def parse_role(cls, value: object) -> Role:
+        if value in ("human", "user"):
+            return Role.OWNER
+        return Role.ASSISTANT if value == "assistant" else Role.OTHER
+
+    @field_validator("text", mode="before")
+    @classmethod
+    def parse_text(cls, value: object) -> str:
+        if isinstance(value, list):
+            return "\n".join(part for part in value if isinstance(part, str)).strip()
+        return value.strip() if isinstance(value, str) else ""
+
+
+class Node(BaseModel):
+    parent: str | None = None
+    message: Turn | None = None
+
+
+class Conversation(BaseModel):
+    id: str = Field(default="", validation_alias=AliasChoices("uuid", "id"))
+    title: str = Field(default="", validation_alias=AliasChoices("title", "name"))
+    at: str | float | None = Field(
+        default=None, validation_alias=AliasChoices("create_time", "created_at")
+    )
+    mapping: dict[str, Node] | None = None
+    current_node: str | None = None
+    chat_messages: list[Turn] = Field(default_factory=list)
+
+    def turns(self) -> list[Turn]:
+        if self.mapping is None:
+            return self.chat_messages
+        # Only the selected branch was read; regenerated siblings are excluded.
+        turns: list[Turn] = []
+        visited: set[str] = set()
+        node = self.current_node
+        while node in self.mapping and node not in visited:
+            visited.add(node)
+            current = self.mapping[node]
+            if (
+                current.message
+                and current.message.role is not Role.OTHER
+                and current.message.text
+            ):
+                turns.append(current.message)
+            node = current.parent
+        return list(reversed(turns))
+
+    def item(self, locator: str, index: int, sentence: int) -> Item:
+        turns = self.turns()
+        blocks: list[str] = []
+        for position, turn in enumerate(turns):
+            if turn.role is not Role.OWNER or len(turn.text) < sentence:
+                continue
+            blocks.append(turn.text)
+            answer = turns[position + 1] if position + 1 < len(turns) else None
+            if answer and answer.role is Role.ASSISTANT:
+                blocks.append(f"Reply: {answer.text[:600]}")
+        spoken = next((turn.text for turn in turns if turn.role is Role.OWNER), "")
+        when = next((turn.at for turn in turns if turn.at), self.at)
+        try:
+            dated = (
+                datetime.fromtimestamp(when, timezone.utc).date().isoformat()
+                if isinstance(when, (int, float))
+                else date.fromisoformat(when[:10]).isoformat()
+                if when
+                else None
+            )
+        except (ValueError, OSError, OverflowError):
+            dated = None
+        return Item(
+            self.title.strip() or spoken.split("\n")[0][:60],
+            "\n\n".join(blocks),
+            f"{locator}#{self.id or index}",
+            dated,
+        )
+
+
+class ExportReader(Reader):
+    @classmethod
+    def locate(cls, locator: str) -> tuple[str, str]:
+        path = Path(locator).expanduser().resolve()
+        return str(path), "Export"
+
+    @cached_property
+    def conversations(self) -> list[Conversation] | None:
+        path = Path(self.source.locator)
+        try:
+            if zipfile.is_zipfile(path):
+                with zipfile.ZipFile(path) as archive:
+                    name = next(
+                        (
+                            name
+                            for name in archive.namelist()
+                            if Path(name).name == "conversations.json"
+                        ),
+                        "",
+                    )
+                    with archive.open(name) as member:
+                        loaded = json.load(member)
+            else:
+                loaded = json.loads(path.read_bytes())
+            if not isinstance(loaded, list):
+                return None
+            return [
+                Conversation.model_validate(entry)
+                for entry in loaded
+                if isinstance(entry, dict)
+            ]
+        except (OSError, ValueError, KeyError, zipfile.BadZipFile):
+            return None
+
+    def probe(self) -> State:
+        if self.conversations is None:
+            return State.UNREACHABLE
+        if self.conversations:
+            first = self.conversations[0]
+            self.label = "ChatGPT" if first.mapping is not None else "Claude"
+            return State.CONNECTED
+        return State.NOTHING_FOUND
+
+    def items(self) -> Iterator[Item]:
+        for index, conversation in enumerate(self.conversations or []):
+            yield conversation.item(self.source.locator, index, self.sentence)
+
+
 class LastRead(BaseModel):
     at: str
     state: State
@@ -238,8 +397,10 @@ class Registry:
         kind: str = "folder",
     ) -> dict[str, object]:
         source = Source.owner(locator, label, since, kind)
-        if source.reader().probe() is State.UNREACHABLE:
+        reader = source.reader()
+        if reader.probe() is State.UNREACHABLE:
             raise SourceError(f"can't reach {locator}")
+        source = replace(source, label=label or reader.label)
         if source.name not in {record.name for record in self.owned}:
             self.owned.append(source)
             self.sources.append(source)
@@ -356,6 +517,7 @@ def preview(locator: str, kind: str = "folder") -> dict[str, object]:
             skipped += 1
     dates = sorted(item.dated for item in kept if item.dated)
     return {
+        "label": reader.label,
         "count": len(kept),
         "from": dates[0] if dates else None,
         "to": dates[-1] if dates else None,

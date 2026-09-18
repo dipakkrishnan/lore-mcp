@@ -1,0 +1,42 @@
+[
+  {
+    "uuid": "claude-roast",
+    "name": "Sunday roast timings",
+    "created_at": "2026-01-14T09:12:00.000000Z",
+    "updated_at": "2026-01-14T09:40:00.000000Z",
+    "chat_messages": [
+      {
+        "uuid": "m1",
+        "sender": "human",
+        "text": "I always pull the roast out too early and the middle is raw. What temperature should I actually be aiming for?",
+        "created_at": "2026-01-14T09:12:00.000000Z"
+      },
+      {
+        "uuid": "m2",
+        "sender": "assistant",
+        "text": "Pull it at 52C for rare and rest it for twenty minutes; carryover does the last few degrees.",
+        "created_at": "2026-01-14T09:13:00.000000Z"
+      },
+      {
+        "uuid": "m3",
+        "sender": "human",
+        "text": "ok thanks",
+        "created_at": "2026-01-14T09:14:00.000000Z"
+      }
+    ]
+  },
+  {
+    "uuid": "claude-short",
+    "name": "Short one",
+    "created_at": "2026-03-01T18:00:00.000000Z",
+    "updated_at": "2026-03-01T18:01:00.000000Z",
+    "chat_messages": [
+      {
+        "uuid": "m1",
+        "sender": "human",
+        "text": "hello?",
+        "created_at": "2026-03-01T18:00:00.000000Z"
+      }
+    ]
+  }
+]
