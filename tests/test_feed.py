@@ -228,6 +228,14 @@ class FeedReadTest(unittest.TestCase):
         self.assertEqual(found["count"], 0)
         self.assertEqual(found["label"], "gone.example.com")
 
+    def test_a_feed_with_a_dtd_entity_bomb_is_unreachable_not_a_hang(self) -> None:
+        # `fromstring` is `defusedxml`'s, not the stdlib's: a feed carrying
+        # its own DTD entity expansion (the "billion laughs" shape) must be
+        # refused during parse, not expanded in memory. This exercises the
+        # refusal end to end, not just that parsing raises.
+        with serving({"": "entity-bomb.xml"}):
+            self.assertEqual(preview("bomb.example.com")["state"], "unreachable")
+
 
 class FeedImportTest(LoreTestCase):
     def test_a_feed_is_added_read_and_re_read_from_anywhere(self) -> None:
