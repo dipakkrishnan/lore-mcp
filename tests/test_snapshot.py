@@ -278,7 +278,7 @@ class DesktopSnapshotTest(LoreTestCase):
         (self.codex_home / "memories").mkdir(parents=True)
         with Store() as store:
             store.set_setting("sources", ["codex"])
-            added = sources.add(store, str(vault))
+            added = sources.Registry(store).add(str(vault))
         entries = snapshot.build()["library"]["sources"]
         self.assertEqual(
             [set(entry) for entry in entries],

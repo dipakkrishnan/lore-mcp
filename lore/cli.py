@@ -17,7 +17,7 @@ from . import feedback as feedback_module
 from . import marketplace as marketplace_module
 from . import sources as sources_module
 from .paths import home
-from .sources import available_sources, scan
+from .sources import Registry, available_sources
 from .store import (
     JOB_FINAL_STATUSES,
     JOB_KINDS,
@@ -569,7 +569,7 @@ def setup(yes: bool = False) -> int:
             enabled.append(source.name)
     with Store() as store:
         store.set_setting("sources", enabled)
-        report = scan(store, set(enabled))
+        report = Registry(store).scan(set(enabled))
     total = sum(item["added"] + item["updated"] for item in report.values())
     heading("Ready")
     success(f"Imported {total} candidate memories")
@@ -603,9 +603,9 @@ def sync(names: set[str] | None = None, *, record_job: bool = False) -> int:
             store.start_job(JobKind.SYNTHESIS.value, timeout_minutes=60)
         if names is None:
             configured = _configured_sources(store.setting("sources", []))
-            owner = {source.name for source in sources_module.owner_sources(store)}
+            owner = {source.name for source in Registry(store).owned}
             names = configured | owner | {"automation"}
-        report = scan(store, names)
+        report = Registry(store).scan(names)
         if names == {"automation"} and not record_job:
             imported = sum(item["added"] + item["updated"] for item in report.values())
             # A no-op when nothing is open, so a hand-run `lore sync --source
@@ -640,10 +640,10 @@ def source_command(args: argparse.Namespace) -> int:
                 )
             elif command == "add":
                 locator, kind = _locator(args)
-                added = sources_module.add(store, locator, args.label, args.since, kind)
+                added = Registry(store).add(locator, args.label, args.since, kind)
                 payload, lines = added, [_source_line(added)]
             elif command == "read":
-                reads = sources_module.read(store, args.name)
+                reads = Registry(store).read(args.name)
                 payload, lines = (
                     reads,
                     [
@@ -654,11 +654,11 @@ def source_command(args: argparse.Namespace) -> int:
                     ],
                 )
             elif command == "remove":
-                removed = sources_module.remove(store, args.name, delete=args.delete)
+                removed = Registry(store).remove(args.name, delete=args.delete)
                 kind = "deleted" if args.delete else "kept"
                 payload, lines = removed, [f"Removed {args.name}; memories {kind}."]
             else:
-                listed = sources_module.entries(store)
+                listed = Registry(store).entries()
                 payload, lines = listed, [_source_line(entry) for entry in listed]
         except sources_module.SourceError as error:
             print(f"lore: {error}", file=sys.stderr)
@@ -680,9 +680,10 @@ def _locator_flags(parser: argparse.ArgumentParser) -> None:
 
 
 def _locator(args: argparse.Namespace) -> tuple[str, str]:
-    return next(
-        (v, k) for k in ("folder", "export", "feed") if (v := getattr(args, k, None))
-    )
+    for kind in ("folder", "export", "feed"):
+        if locator := getattr(args, kind, None):
+            return locator, kind
+    raise sources_module.SourceError("a source locator is required")
 
 
 def _source_line(entry: dict[str, object]) -> str:
@@ -889,7 +890,7 @@ def status() -> int:
         counts = store.counts()
         sources = store.source_counts()
         configured = _configured_sources(store.setting("sources", []))
-        connected = sources_module.all_sources(store)
+        connected = Registry(store).sources
         database_path = store.path
         publication_price = store.setting("price_usd", None)
         answer_settings = store.answer_settings()

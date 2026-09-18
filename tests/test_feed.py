@@ -132,6 +132,27 @@ class FeedReadTest(unittest.TestCase):
         self.assertIsNone(posts[1].dated)
         self.assertEqual(found["to"], "2026-07-04")
 
+    def test_malformed_social_data_is_unreachable_and_skip_is_per_item(self) -> None:
+        with patch.object(FeedReader, "fetch", return_value=b'{"feed":[{"post":42}]}'):
+            self.assertEqual(preview("@writer.bsky.social")["state"], "unreachable")
+        payload = {
+            "items": [
+                {
+                    "url": "https://example.com/post",
+                    "content_text": "This post is for paid subscribers only. Subscribe to read.",
+                },
+                {
+                    "url": "https://example.com/post",
+                    "content_text": "A public version with a complete lesson that the owner wrote.",
+                },
+            ]
+        }
+        with patch.object(
+            FeedReader, "fetch", return_value=json.dumps(payload).encode()
+        ):
+            found = preview("https://example.com/feed.json")
+        self.assertEqual((found["count"], found["skipped"]), (1, 1))
+
     def test_a_paid_substack_post_is_skipped_and_counted(self) -> None:
         # Both truncations Substack serves: the free opening cut off with
         # "Read more", and the older subscribers-only prompt.
@@ -211,8 +232,8 @@ class FeedReadTest(unittest.TestCase):
 class FeedImportTest(LoreTestCase):
     def test_a_feed_is_added_read_and_re_read_from_anywhere(self) -> None:
         with serving({"": "rss.xml"}), Store() as store:
-            entry = sources_module.add(
-                store, "https://notes.example.com/feed", kind="feed"
+            entry = sources_module.Registry(store).add(
+                "https://notes.example.com/feed", kind="feed"
             )
             self.assertEqual(entry["kind"], "feed")
             self.assertEqual(entry["label"], "notes.example.com")
@@ -225,21 +246,21 @@ class FeedImportTest(LoreTestCase):
             # run from cannot turn a re-read into a second copy.
             self.addCleanup(os.chdir, os.getcwd())
             os.chdir(self.tmp.name)
-            self.assertEqual(sources_module.read(store)[0]["unchanged"], 1)
+            self.assertEqual(sources_module.Registry(store).read()[0]["unchanged"], 1)
             self.assertEqual(store.counts()["private"], 1)
 
     def test_a_feed_that_cannot_be_reached_is_not_added(self) -> None:
         with serving({}), Store() as store:
             with self.assertRaises(sources_module.SourceError):
-                sources_module.add(store, "gone.example.com", kind="feed")
+                sources_module.Registry(store).add("gone.example.com", kind="feed")
             self.assertEqual(
-                [e for e in sources_module.entries(store) if e["owned"]], []
+                [e for e in sources_module.Registry(store).entries() if e["owned"]], []
             )
 
     def test_a_label_the_owner_gave_wins_over_the_publication_title(self) -> None:
         with serving({"": "rss.xml"}), Store() as store:
-            entry = sources_module.add(
-                store, "notes.example.com", "My blog", kind="feed"
+            entry = sources_module.Registry(store).add(
+                "notes.example.com", "My blog", kind="feed"
             )
             self.assertEqual(entry["label"], "My blog")
 
