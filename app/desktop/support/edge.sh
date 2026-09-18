@@ -1,6 +1,6 @@
 #!/bin/bash
 # Seed a scratch Lore home with two memories and two drafts, then drive the renderer as one persona.
-# Scenarios: seller | provision | store | jobs | fresh | feedback | listing | obsidian
+# Scenarios: seller | provision | store | jobs | fresh | feedback | listing | obsidian | connectors
 set -euo pipefail
 scenario="${1:-seller}"
 desktop_dir="$(cd "$(dirname "$0")/.." && pwd)"
@@ -64,6 +64,17 @@ if [[ "$scenario" == "obsidian" ]]; then
   printf '# One\n\nA first lesson long enough to be worth keeping.\n' > "$root/Edge Vault/one.md"
   printf '# Two\n\nA second lesson long enough to be worth keeping.\n' > "$root/Edge Vault/two.md"
   printf '{"vaults":{"e1":{"path":"%s","ts":1,"open":true}}}' "$root/Edge Vault" > "$root/obsidian/obsidian.json"
+  export OBSIDIAN_HOME="$root/obsidian"
+fi
+if [[ "$scenario" == "connectors" ]]; then
+  # One app of each shape the catalog knows: a vault to choose (and a stale one to fail on), a
+  # newsletter to address, an export to import.
+  mkdir -p "$root/obsidian" "$root/Edge Vault"
+  printf '# One\n\nA first lesson long enough to be worth keeping.\n' > "$root/Edge Vault/one.md"
+  printf '# Two\n\nA second lesson long enough to be worth keeping.\n' > "$root/Edge Vault/two.md"
+  printf '{"vaults":{"e1":{"path":"%s","ts":2,"open":true},"s1":{"path":"%s","ts":1}}}' "$root/Edge Vault" "$root/Stale Vault" > "$root/obsidian/obsidian.json"
+  cp "$repo_root/tests/fixtures/exports/chatgpt/conversations.json" "$root/chatgpt.json"
+  cp "$repo_root/tests/fixtures/feeds/substack.xml" "$root/substack.xml"
   export OBSIDIAN_HOME="$root/obsidian"
 fi
 echo "Screenshots land in $root"

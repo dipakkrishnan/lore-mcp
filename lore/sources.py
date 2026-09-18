@@ -913,9 +913,10 @@ class Registry:
         """Read a new source, and only then retire the one it replaces."""
         source = Source.owner(locator, label, since, kind, connector)
         reader = source.reader()
-        if reader.probe() is State.UNREACHABLE:
-            raise SourceError(f"can't reach {locator}")
+        state = reader.probe()
         source = replace(source, name=reader.name(), label=source.label or reader.label)
+        if state is State.UNREACHABLE:
+            raise SourceError(f"can't reach {source.label or locator}")
         current = next((r for r in self.owned if r.name == source.name), None)
         if current is not None and current.locator == source.locator:
             return next(e for e in self.entries() if e["name"] == source.name)

@@ -3,7 +3,7 @@ const { join } = require("node:path");
 const { app, BrowserWindow, dialog, ipcMain, safeStorage, shell, systemPreferences } = require("electron");
 const { provision, skillsDir, whisper } = require("./runtime.cjs");
 const { transcribe } = require("./dictation.cjs");
-const { lore, loreStream, openable, readState, readSales, searchMemories, readMemory, renameMemory, editMemory, captureMemories, setPrice, candidates, decide, reportFeedback, listStore, listingStatus, sourceChoices, addSource, readSource, removeSource, useRuntime } = require("./state.cjs");
+const { lore, loreStream, openable, readState, readSales, searchMemories, readMemory, renameMemory, editMemory, captureMemories, setPrice, candidates, decide, reportFeedback, listStore, listingStatus, sourceCatalog, sourceChoices, connectSource, readSource, removeSource, useRuntime } = require("./state.cjs");
 
 if (process.env.LORE_DESKTOP_USER_DATA) app.setPath("userData", process.env.LORE_DESKTOP_USER_DATA);
 
@@ -117,8 +117,9 @@ function registerIpc(loreHome) {
   });
   ipcMain.handle("listing:act", (_event, action) => listStore(loreHome, action));
   ipcMain.handle("listing:status", () => listingStatus(loreHome));
+  ipcMain.handle("sources:catalog", () => sourceCatalog(loreHome));
   ipcMain.handle("sources:choices", (_event, app) => sourceChoices(loreHome, app));
-  ipcMain.handle("sources:add", (_event, input) => addSource(loreHome, input));
+  ipcMain.handle("sources:connect", (_event, input) => connectSource(loreHome, input));
   ipcMain.handle("sources:read", (_event, name) => readSource(loreHome, name));
   ipcMain.handle("sources:remove", (_event, name, keep) => removeSource(loreHome, name, keep === true));
   // The Files and Folders pane, where the owner grants the read a folder needs.

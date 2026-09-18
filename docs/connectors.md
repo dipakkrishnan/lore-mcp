@@ -1,48 +1,68 @@
 # Connectors
 
-A connector is an app or service the owner recognizes. A reader is how Lore
-obtains its content. Keep that distinction out of the owner's way.
+A connector is an app the owner recognises: Obsidian, ChatGPT, Claude,
+Substack. A reader is how Lore gets the content out of it. The owner only ever
+meets the connector; the reader is Lore's business.
 
-The Python connector catalog owns identity, setup requirements, validation,
-and reader selection. Desktop reads that catalog; it must not maintain a
-second list mapping app names to reader kinds or CLI flags. The saved `Source`
-is the connection. `Registry` owns import, refresh, replacement, and removal.
-Do not add a second connection store.
+Everything about an app lives in one `Connector` subclass in `lore/sources.py`.
+Defining the subclass is the whole registration: it appears in
+`lore sources catalog`, the desktop reads that catalog to draw its rows and
+sheets, and `lore sources connect <app> <locator>` wires it into the source
+lifecycle that `Registry` already owns. Neither the CLI nor the desktop keeps a
+second table of apps.
+
+```python
+class Substack(Connector):
+    id = "substack"
+    name = "Substack"
+    what = "Your published posts"        # the row, in the owner's words
+    unit = "newsletter"                  # what they pick: "Choose a newsletter."
+    item = "post"                        # what was kept: "12 posts kept."
+    reader = FeedReader
+    placeholder = "https://you.substack.com"
+```
+
+`choices()` is the one optional hook: what the app can offer without asking
+(Obsidian reads `obsidian.json` for its vaults). The rule is to ask only for
+what cannot be discovered.
+
+## What a reader promises
+
+A `Reader` declares its `kind` (`folder`, `export`, `feed`) and whether it is
+read again on schedule (`refresh`; an export is read once). `locate` turns what
+the owner typed into the locator Lore saves plus a default label; `probe` says
+whether the place is connected, empty, unreachable, or needs permission;
+`items` yields what it found, counting what it could not read. `name` is the
+source's identity: every spelling of one place is one source, and an export is
+named by its product rather than its file, so a newer download replaces the
+old one instead of importing it twice. A reader that fails partway records the
+failure, and that failure, not the probe, is the state the owner sees.
+
+## What the desktop does with the catalog
+
+Settings → Where memories come from lists every app in the catalog under the
+agents. An app with nothing connected is offered with `what` and one button;
+a connected one shows its label, its state and what it kept, with Manage. The
+sheet's setup control follows `kind`: a folder offers the app's choices and a
+folder picker, an export a file picker, a feed an address field. Every app
+ships a mark at `assets/<id>.svg`, with its provenance in the file; the initial
+is only the fallback for a mark that fails to load.
+
+Changing what a connected app reads goes through `--replace`: the CLI reads the
+new place first and retires the old one only if that succeeds, so a stale
+choice leaves the working connection and its memories alone. Disconnecting
+always asks whether to keep what was imported.
 
 ## Adding an integration
 
-1. Implement a connector with a stable ID, plain-language description, setup
-   metadata, and a reader. Reuse a reader when its content format already fits.
-2. Register the connector once in Python. Add a bundled brand asset if needed;
-   never infer branding from an editable connection label.
-3. Validate the selected locator at the connector boundary. A URL connector
-   must not inherit a filesystem-path check.
-4. Cover connect, read, failure, retry, and disconnect using temporary data.
-   A new reader must work through the existing Registry without adding
-   connector-specific branches to it.
+1. If the content is a folder, a feed, or a conversation export, write only the
+   `Connector` subclass and bundle its mark. Otherwise write a `Reader` for the
+   new kind first; a reader that only takes one product's files, as the export
+   readers do, is a two-line subclass.
+2. A new kind also needs a locator flag in `lore sources add`, and a setup
+   control in `openConnect` in the desktop; a new way of authorising access
+   (OAuth, macOS Automation) needs a real access adapter, not catalog metadata.
+3. Add the app to the `connectors` edge scenario and to the catalog test.
 
-The shared Desktop flow supports discovered folders, URLs, and one-time files.
-Obsidian and Substack exercise different setup shapes. Conversation exports
-are imports, not live accounts. A new authorization mechanism, such as OAuth
-or macOS Automation, still needs a real access adapter and an appropriate
-setup control; metadata alone cannot implement authorization.
-
-## Invariants
-
-- Connecting is opt-in. Imports stay private; connecting never publishes.
-- An empty accessible source is connected. Failed reads are named failures,
-  not "No notes yet." Permission recovery always leaves a way to retry.
-- Replacement establishes the new connection before retiring the old one.
-  A failed replacement preserves the working selection and its memories.
-- Item identity survives a new export filename. Missing feed links must not
-  collapse unrelated posts into one memory.
-- Scheduled refresh uses the existing synthesis pre-run sync. One-time imports
-  are excluded. The UI says when automatic reading is off.
-- Disconnect explicitly offers keep or delete. Publication provenance remains
-  intact under either choice.
-
-Python contract tests exercise a newly registered connector and reader through
-the existing API. The Electron `connectors` scenario exercises the shared
-folder, URL, and file flows and their recovery paths. These are regression
-gates for extending the catalog, not a promise that every future service has
-the same authentication or data model.
+`support/edge.sh connectors` drives all three shapes end to end, including a
+refused change and a once-only import, and runs in CI.
