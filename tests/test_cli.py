@@ -527,16 +527,16 @@ class SyncTest(LoreTestCase):
         # source they did not configure, they opted into their own library.
         with Store() as store:
             store.set_setting("sources", ["codex"])
-        with patch("lore.cli.scan", return_value={}) as scan:
+        with patch("lore.cli.Registry.scan", return_value={}) as scan:
             self.assertEqual(cli.sync(), 0)
-        self.assertEqual(scan.call_args.args[1], {"codex", "automation"})
+        self.assertEqual(scan.call_args.args[0], {"codex", "automation"})
 
     def test_sync_also_refreshes_the_folders_the_owner_connected(self) -> None:
         root = Path(self.tmp.name) / "notes"
         root.mkdir()
         (root / "note.md").write_text("# Note\n\nA lesson long enough to be kept.")
         with Store() as store:
-            name = sources_module.add(store, str(root))["name"]
+            name = sources_module.Registry(store).add(str(root))["name"]
         with captured() as output:
             self.assertEqual(cli.sync(), 0)
         self.assertIn(f"{name}", output.getvalue())
