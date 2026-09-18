@@ -18,7 +18,6 @@ from urllib.parse import quote, urljoin, urlsplit
 from xml.etree.ElementTree import Element, ParseError
 
 from defusedxml.ElementTree import fromstring
-
 from pydantic import (
     AliasChoices,
     AliasPath,
