@@ -206,7 +206,7 @@ def build() -> dict[str, object]:
     missing = object()
     with Store() as store:
         configured = store.setting("sources", missing)
-        source_entries = sources.entries(store)
+        source_entries = sources.Registry(store).entries()
         memories = store.memory_inventory()
         publications = store.publication_inventory()
         publication_price = store.setting("price_usd", None)
