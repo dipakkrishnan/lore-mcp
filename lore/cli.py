@@ -1397,7 +1397,7 @@ def _push(worker: Path, local: bool, job_id: int) -> int:
     # after wrangler refreshed its sign-in and accepted the same write moments
     # later, so one retry covers that without the owner seeing it.
     for attempt in range(2):
-        result = subprocess.run(command, cwd=worker)
+        result = subprocess.run(command, cwd=worker, capture_output=True, text=True)
         if result.returncode == 0 or attempt:
             break
         time.sleep(3)
@@ -1407,8 +1407,14 @@ def _push(worker: Path, local: bool, job_id: int) -> int:
         # carry — it goes to the terminal, while the row keeps only the code.
         with Store() as store:
             store.finish_job(job_id, "failed", summary="edge_write_failed")
+        # MON-012: a fixed guess ("check login and that the database exists")
+        # has previously misattributed an unrelated Node crash (a corrupted
+        # NODE_OPTIONS) to a wrangler/D1 problem, burying the real cause. The
+        # subprocess's own detail goes first so the actual failure is never
+        # hidden behind the guess.
         raise ValueError(
-            "wrangler could not write the edge database — check `npx wrangler login` "
+            f"wrangler could not write the edge database:\n{deploy_module._detail(result)}\n"
+            "If that's a login or database problem, check `npx wrangler login` "
             "and that `lore-publications` exists (npx wrangler d1 create lore-publications)"
         )
     if not local:

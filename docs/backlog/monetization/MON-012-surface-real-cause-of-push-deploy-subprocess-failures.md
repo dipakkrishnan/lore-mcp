@@ -4,13 +4,13 @@ title: Surface the real cause when a push/deploy npm or wrangler subprocess fail
 priority: P3
 effort: S
 component: monetization
-status: ready
+status: completed
 related: [MON-006]
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-08-10
-updated: 2026-08-26
+updated: 2026-09-17
 ---
 
 ## Problem
@@ -34,9 +34,9 @@ silently reframed as a wrangler/login/D1 problem.
 
 ## Acceptance criteria
 
-- [ ] A subprocess failure unrelated to login/D1 (e.g. a broken Node
+- [x] A subprocess failure unrelated to login/D1 (e.g. a broken Node
       environment) is not misattributed to login/D1 in the printed message
-- [ ] The underlying error is visible without needing `--verbose` or manual
+- [x] The underlying error is visible without needing `--verbose` or manual
       log digging
 
 ## Notes
@@ -48,3 +48,17 @@ was `env -u NODE_OPTIONS lore push`, unrelated to anything the message
 suggested checking.
 
 **Prioritization pass 2026-08-26:** No blockers, small effort, concrete shape and a real reproduction already on record. Promoted `in-review` → `ready`.
+
+**Implemented 2026-09-17:** `lore/cli.py:_push` now captures the `wrangler d1
+execute` subprocess's stdout/stderr (`capture_output=True, text=True`) and
+threads it through `deploy_module._detail` — the same tail-of-stream /
+JSON-refusal parser `lore/deploy.py`'s `_run` already used for the analogous
+`deploy` path — into the raised `ValueError`, ahead of the fixed
+login/D1 guess. The guess is now explicitly conditional ("If that's a login or
+database problem...") rather than stated as the diagnosis. Covered by
+`tests/test_cli.py::PushTest::test_a_failed_push_surfaces_the_subprocess_error_over_the_fixed_guess`,
+which asserts a `MODULE_NOT_FOUND`-style stderr string surfaces in the raised
+message. Confirmed the pre-existing
+`test_a_failed_push_records_the_failure_without_the_command_that_caused_it`
+still passes unchanged — the detail goes to the terminal exception only, never
+into the persisted job-history summary.

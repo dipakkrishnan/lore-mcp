@@ -1898,6 +1898,25 @@ class PushTest(LoreTestCase):
         with self.assertRaisesRegex(ValueError, "wrangler login"):
             self._push(returncode=1)
 
+    def test_a_failed_push_surfaces_the_subprocess_error_over_the_fixed_guess(
+        self,
+    ) -> None:
+        # MON-012: a push failure unrelated to login/D1 (e.g. a broken Node
+        # environment) was previously misattributed to wrangler login/D1 by a
+        # fixed guess message that never looked at the subprocess's own
+        # output. The real cause must be visible without --verbose.
+        self.publish()
+        failed = subprocess.CompletedProcess(
+            ("wrangler",), 1, stdout="", stderr="node:internal MODULE_NOT_FOUND"
+        )
+        with (
+            patch("subprocess.run", return_value=failed),
+            patch("time.sleep"),
+            captured(),
+            self.assertRaisesRegex(ValueError, "MODULE_NOT_FOUND"),
+        ):
+            cli.push(str(self.worker))
+
     def test_a_push_is_recorded_in_owner_history(self) -> None:
         self.publish()
         self._push()
