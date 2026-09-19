@@ -367,6 +367,27 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         await js(`document.querySelector("dialog.sheet[open] .icon-btn").click()`);
         await sleep(200);
         await shot("settings-connected");
+      } else if (scenario === "faq") {
+        // APP-118: one page that says what Lore does and how the money works, in plain words.
+        await waitFor(`document.body.dataset.state === "welcome" && !document.querySelector("#welcome").classList.contains("provisioning")`);
+        await js(`window.__lore.signIn()`);
+        await waitFor(`document.querySelector("#content .strip")`);
+        await js(`window.__lore.show("faq")`);
+        await waitFor(`document.querySelector("#title").textContent === "FAQ"`);
+        const faq = await js(`document.querySelector("#content").textContent`);
+        const questions = await js(`[...document.querySelectorAll("#content .row b")].map((b) => b.textContent)`);
+        check("FAQ is a tab, and its first question is what Lore does", questions[0] === "What is Lore?" && questions.length >= 9, questions.join(" | "));
+        check("it says who buys: agents, not people browsing", /AI agents, while they work/.test(faq) && /Not people browsing/.test(faq));
+        check("it says what a buyer pays and what the owner keeps", /Your price\./.test(faq) && /a publication/.test(faq) && /All of it\./.test(faq) && /never holds your money/.test(faq));
+        check("it names the rail in plain words and where the wallet question comes", /USDC, a coin pegged to the dollar/.test(faq) && /play money first/.test(faq) && /payout address/.test(faq));
+        check("it says what leaves the Mac, and that it is opt-in", /Only a publication you approved/.test(faq) && /stay here/.test(faq));
+        check("it promises no earnings: the only dollar figure is a price", (faq.match(/\\$\\d/g) ?? []).length <= 1 && !/\\bearn|income|revenue|passive/i.test(faq), faq.match(/\\$\\d[^ ]*/g)?.join(",") ?? "");
+        check("no jargon", !/\\bMCP\\b|x402|\\bnode\\b|worker|deploy|mainnet|testnet|endpoint|\\bAPI\\b|crypto|blockchain/i.test(faq), faq.match(/\\bMCP\\b|x402|\\bnode\\b|worker|deploy|mainnet|testnet|endpoint|\\bAPI\\b|crypto|blockchain/i)?.[0] ?? "");
+        check("the buyer fork is one row that opens the guide in the browser", await js(`[...document.querySelectorAll("#content .row")].filter((r) => r.textContent.includes("How do I buy?")).length === 1 && document.querySelector("#content a[href*='buying-from-a-node']") !== null`));
+        check("nothing about selling was added to Today or Settings", await js(`window.__lore.show("today"); document.querySelector("#content").textContent`).then((t) => !/Who buys|How you make money/.test(t)) && await js(`window.__lore.show("settings"); document.querySelector("#content").textContent`).then((t) => !/Who buys|How you make money/.test(t)));
+        await js(`window.__lore.show("faq")`);
+        await sleep(200);
+        await shot("faq");
       } else if (scenario === "listing") {
         // APP-119: one click lists the store; the row reads its state from the relay, never from local memory.
         await waitFor(`document.body.dataset.state === "welcome" && !document.querySelector("#welcome").classList.contains("provisioning")`);
