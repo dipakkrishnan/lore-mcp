@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0" xmlns:content="http://purl.org/rss/1.0/modules/content/">
+  <channel>
+    <title>Notes on Systems</title>
+    <link>https://notes.example.com/</link>
+    <description>A blog with full text in content:encoded.</description>
+    <item>
+      <title>What I learned shipping a queue</title>
+      <link>https://notes.example.com/queue</link>
+      <pubDate>Wed, 02 Sep 2026 09:00:00 GMT</pubDate>
+      <description>A summary that should lose to the full text.</description>
+      <content:encoded><![CDATA[<script>track("open")</script><p>Back pressure is a product decision &amp; not only an engineering one.</p><p>The queue<br>is the contract.</p>]]></content:encoded>
+    </item>
+    <item>
+      <title>Short</title>
+      <link>https://notes.example.com/short</link>
+      <pubDate>Thu, 03 Sep 2026 09:00:00 GMT</pubDate>
+      <content:encoded><![CDATA[<p>Too short.</p>]]></content:encoded>
+    </item>
+  </channel>
+</rss>
