@@ -1,85 +1,873 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import re
-from dataclasses import dataclass
+import urllib.request
+import zipfile
+from abc import ABC, abstractmethod
+from dataclasses import replace
+from datetime import date, datetime, timezone
+from email.utils import parsedate_to_datetime
+from enum import Enum
+from functools import cached_property
+from html.parser import HTMLParser
 from pathlib import Path
+from typing import Iterator, Literal
+from urllib.parse import quote, urljoin, urlsplit
+from xml.etree.ElementTree import Element, ParseError
 
+from defusedxml.ElementTree import fromstring
+from pydantic import (
+    AliasChoices,
+    AliasPath,
+    BaseModel,
+    Field,
+    TypeAdapter,
+    ValidationError,
+    field_validator,
+)
+from pydantic.dataclasses import dataclass
+
+from . import __version__
 from .paths import claude_home, codex_home, home
 from .store import Store
+
+
+class State(Enum):
+    # The only green: a locator that merely resolves has not been read.
+    CONNECTED = "connected"
+    NOTHING_FOUND = "nothing_found"
+    NEEDS_PERMISSION = "needs_permission"
+    UNREACHABLE = "unreachable"
+    OFF = "off"
+
+
+class SourceError(ValueError):
+    pass
+
+
+@dataclass(frozen=True)
+class Item:
+    title: str
+    content: str
+    source_path: str
+    dated: str | None
+    excluded: bool = False
+    key: str | None = None
 
 
 @dataclass(frozen=True)
 class Source:
     name: str
     label: str
-    root: Path
-    pattern: str
-    origin: str = "native"
+    locator: str
+    pattern: str = "**/*.md"
+    origin: Literal["native", "automation"] = "native"
+    kind: Literal["folder", "export", "feed"] = "folder"
+    owned: bool = False
+    since: str | None = None
 
+    def reader(self) -> Reader:
+        readers: dict[str, type[Reader]] = {
+            "folder": FolderReader,
+            "export": ExportReader,
+            "feed": FeedReader,
+        }
+        reader = readers[self.kind]
+        return reader(self)
+
+    @classmethod
+    def owner(
+        cls,
+        locator: str,
+        label: str | None = None,
+        since: str | None = None,
+        kind: str = "folder",
+    ) -> Source:
+        try:
+            source = cls(
+                "",
+                label or "",
+                locator,
+                kind=TypeAdapter(Literal["folder", "export", "feed"]).validate_python(
+                    kind
+                ),
+                owned=True,
+                since=_day(since),
+            )
+        except ValidationError as error:
+            raise SourceError(str(error)) from None
+        locator, default = source.reader().locate(locator)
+        digest = hashlib.sha256(locator.encode()).hexdigest()[:8]
+        return replace(
+            source, name=f"{kind}-{digest}", label=label or default, locator=locator
+        )
+
+
+class Reader(ABC):
+    # An owner's folder is arbitrary notes, not agent-written memory files: a
+    # line shorter than a sentence is a heading or a stub, never a lesson.
+    sentence = 40
+
+    def __init__(self, source: Source) -> None:
+        self.source = source
+        self.label = source.label
+        self.errors = 0
+
+    @classmethod
+    @abstractmethod
+    def locate(cls, locator: str) -> tuple[str, str]:
+        """Normalise what the owner typed into the source's identity and a default label."""
+
+    @abstractmethod
+    def probe(self) -> State:
+        """Read the source and distinguish empty, inaccessible, and connected."""
+
+    @abstractmethod
+    def items(self) -> Iterator[Item]:
+        """Yield source items, counting unreadable records in errors."""
+
+    def keeps(self, item: Item) -> bool:
+        source = self.source
+        if item.excluded:
+            return False
+        if not source.owned:
+            return bool(item.content)
+        return len(item.content) >= self.sentence and (
+            source.since is None or item.dated is None or item.dated >= source.since
+        )
+
+
+class FolderReader(Reader):
+    # Vault plumbing and blank templates, which read as memories but are not.
+    skipped = {".obsidian", ".trash", "templates"}
+    frontmatter = re.compile(r"\A---\n(.*?)\n---", re.DOTALL)
+
+    @classmethod
+    def locate(cls, locator: str) -> tuple[str, str]:
+        # Two spellings of one folder are one source, so the identity is the
+        # resolved path rather than what the owner typed.
+        root = Path(locator).expanduser().resolve()
+        return str(root), root.name
+
+    @cached_property
     def files(self) -> list[Path]:
-        """List importable files from this source in stable order."""
-        if not self.root.exists():
-            return []
         return sorted(
             path
-            for path in self.root.glob(self.pattern)
-            if not (self.origin == "automation" and path.name == "INDEX.md")
-            and path.is_file()
-            and not path.is_symlink()
+            for path in Path(self.source.locator).glob(self.source.pattern)
+            if path.is_file() and not path.is_symlink() and self._included(path)
         )
+
+    def probe(self) -> State:
+        root = Path(self.source.locator)
+        if not root.is_dir():
+            return State.UNREACHABLE
+        try:
+            # `glob` swallows a denied directory and returns nothing, so the
+            # only way to tell "no permission" from "nothing there" is to ask.
+            next(root.iterdir(), None)
+        except PermissionError:
+            return State.NEEDS_PERMISSION
+        except OSError:
+            return State.UNREACHABLE
+        return State.CONNECTED if self.files else State.NOTHING_FOUND
+
+    def items(self) -> Iterator[Item]:
+        for path in self.files:
+            try:
+                content = path.read_text(encoding="utf-8").strip()
+            except (OSError, UnicodeError):
+                self.errors += 1
+                continue
+            yield Item(
+                _title(path, content),
+                content,
+                str(path),
+                self._dated(path, content),
+            )
+
+    def _included(self, path: Path) -> bool:
+        if not self.source.owned:
+            return not (self.source.origin == "automation" and path.name == "INDEX.md")
+        parts = path.relative_to(Path(self.source.locator)).parts[:-1]
+        return not any(part.lower() in self.skipped for part in parts)
+
+    def _dated(self, path: Path, content: str) -> str | None:
+        front = self.frontmatter.match(content)
+        if front:
+            for field in ("date", "created"):
+                match = re.search(
+                    rf"^{field}:\s*['\"]?(\d{{4}}-\d{{2}}-\d{{2}})",
+                    front.group(1),
+                    re.MULTILINE,
+                )
+                if match:
+                    return match.group(1)
+        return date.fromtimestamp(path.stat().st_mtime).isoformat()
+
+
+class Role(Enum):
+    OWNER = "owner"
+    ASSISTANT = "assistant"
+    OTHER = "other"
+
+
+class Turn(BaseModel):
+    role: Role = Field(
+        default=Role.OTHER,
+        validation_alias=AliasChoices("sender", AliasPath("author", "role")),
+    )
+    text: str = Field(
+        default="", validation_alias=AliasChoices("text", AliasPath("content", "parts"))
+    )
+    at: str | float | None = Field(
+        default=None, validation_alias=AliasChoices("created_at", "create_time")
+    )
+
+    @field_validator("role", mode="before")
+    @classmethod
+    def parse_role(cls, value: object) -> Role:
+        if value in ("human", "user"):
+            return Role.OWNER
+        return Role.ASSISTANT if value == "assistant" else Role.OTHER
+
+    @field_validator("text", mode="before")
+    @classmethod
+    def parse_text(cls, value: object) -> str:
+        if isinstance(value, list):
+            return "\n".join(part for part in value if isinstance(part, str)).strip()
+        return value.strip() if isinstance(value, str) else ""
+
+
+class Node(BaseModel):
+    parent: str | None = None
+    message: Turn | None = None
+
+
+class Conversation(BaseModel):
+    id: str = Field(default="", validation_alias=AliasChoices("uuid", "id"))
+    title: str = Field(default="", validation_alias=AliasChoices("title", "name"))
+    at: str | float | None = Field(
+        default=None, validation_alias=AliasChoices("create_time", "created_at")
+    )
+    mapping: dict[str, Node] | None = None
+    current_node: str | None = None
+    chat_messages: list[Turn] = Field(default_factory=list)
+
+    def turns(self) -> list[Turn]:
+        if self.mapping is None:
+            return self.chat_messages
+        # Only the selected branch was read; regenerated siblings are excluded.
+        turns: list[Turn] = []
+        visited: set[str] = set()
+        node = self.current_node
+        while node in self.mapping and node not in visited:
+            visited.add(node)
+            current = self.mapping[node]
+            if (
+                current.message
+                and current.message.role is not Role.OTHER
+                and current.message.text
+            ):
+                turns.append(current.message)
+            node = current.parent
+        return list(reversed(turns))
+
+    def item(self, locator: str, index: int, sentence: int) -> Item:
+        turns = self.turns()
+        blocks: list[str] = []
+        for position, turn in enumerate(turns):
+            if turn.role is not Role.OWNER or len(turn.text) < sentence:
+                continue
+            blocks.append(turn.text)
+            answer = turns[position + 1] if position + 1 < len(turns) else None
+            if answer and answer.role is Role.ASSISTANT:
+                blocks.append(f"Reply: {answer.text[:600]}")
+        spoken = next((turn.text for turn in turns if turn.role is Role.OWNER), "")
+        when = next((turn.at for turn in turns if turn.at), self.at)
+        try:
+            dated = (
+                datetime.fromtimestamp(when, timezone.utc).date().isoformat()
+                if isinstance(when, (int, float))
+                else date.fromisoformat(when[:10]).isoformat()
+                if when
+                else None
+            )
+        except (ValueError, OSError, OverflowError):
+            dated = None
+        return Item(
+            self.title.strip() or spoken.split("\n")[0][:60],
+            "\n\n".join(blocks),
+            f"{locator}#{self.id or index}",
+            dated,
+        )
+
+
+class ExportReader(Reader):
+    @classmethod
+    def locate(cls, locator: str) -> tuple[str, str]:
+        path = Path(locator).expanduser().resolve()
+        return str(path), "Export"
+
+    @cached_property
+    def conversations(self) -> list[Conversation] | None:
+        path = Path(self.source.locator)
+        try:
+            if zipfile.is_zipfile(path):
+                with zipfile.ZipFile(path) as archive:
+                    name = next(
+                        (
+                            name
+                            for name in archive.namelist()
+                            if Path(name).name == "conversations.json"
+                        ),
+                        "",
+                    )
+                    with archive.open(name) as member:
+                        loaded = json.load(member)
+            else:
+                loaded = json.loads(path.read_bytes())
+            if not isinstance(loaded, list):
+                return None
+            return [
+                Conversation.model_validate(entry)
+                for entry in loaded
+                if isinstance(entry, dict)
+            ]
+        except (OSError, ValueError, KeyError, zipfile.BadZipFile):
+            return None
+
+    def probe(self) -> State:
+        if self.conversations is None:
+            return State.UNREACHABLE
+        if self.conversations:
+            first = self.conversations[0]
+            self.label = "ChatGPT" if first.mapping is not None else "Claude"
+            return State.CONNECTED
+        return State.NOTHING_FOUND
+
+    def items(self) -> Iterator[Item]:
+        for index, conversation in enumerate(self.conversations or []):
+            yield conversation.item(self.source.locator, index, self.sentence)
+
+
+class FeedPost(BaseModel):
+    """The text, URL, and date shared by JSON Feed and Mastodon posts."""
+
+    id: str = ""
+    title: str = ""
+    html: str = Field(
+        default="", validation_alias=AliasChoices("content_html", "content")
+    )
+    text: str = Field(default="", validation_alias="content_text")
+    url: str = Field(default="", validation_alias=AliasChoices("url", "uri"))
+    at: str = Field(
+        default="", validation_alias=AliasChoices("date_published", "created_at")
+    )
+    reblog: dict[str, object] | None = None
+    in_reply_to_id: str | None = None
+
+
+class JsonFeed(BaseModel):
+    title: str = ""
+    items: list[FeedPost]
+
+
+class BlueskyPost(BaseModel):
+    uri: str = Field(validation_alias=AliasPath("post", "uri"))
+    text: str = Field(default="", validation_alias=AliasPath("post", "record", "text"))
+    at: str = Field(
+        default="", validation_alias=AliasPath("post", "record", "createdAt")
+    )
+    handle: str = Field(
+        default="", validation_alias=AliasPath("post", "author", "handle")
+    )
+    author: str = Field(
+        default="", validation_alias=AliasPath("post", "author", "displayName")
+    )
+    reply: dict[str, object] | None = Field(
+        default=None, validation_alias=AliasPath("post", "record", "reply")
+    )
+    reason: dict[str, object] | None = None
+
+
+class BlueskyPage(BaseModel):
+    feed: list[BlueskyPost]
+    cursor: str | None = None
+
+
+class MastodonAccount(BaseModel):
+    id: str
+    display_name: str = ""
+
+
+class FeedReader(Reader):
+    agent = f"Lore/{__version__} (+https://yourlore.dev)"
+    timeout = 20
+    # A feed is a recent window, not an archive: five pages of Bluesky or
+    # Mastodon is the whole of what this importer promises.
+    pages = 5
+    limit = 40
+    guesses = ("/feed", "/rss/", "/atom.xml", "/feed.json")
+    # What a paid post arrives as: the free opening, then the prompt Substack
+    # cuts it off with. A fully paid post is under the sentence floor anyway.
+    paywall = re.compile(
+        r"\nread more$"
+        r"|this (?:post|episode) is for (?:paid|pledging|founding)"
+        r"|subscribe to (?:read|listen|watch|keep reading)"
+        r"|paid subscribers only",
+        re.IGNORECASE,
+    )
+
+    def __init__(self, source: Source) -> None:
+        super().__init__(source)
+        self.reached = False
+
+    @classmethod
+    def locate(cls, locator: str) -> tuple[str, str]:
+        handle = cls._handle(locator)
+        if handle:
+            return f"@{handle}", f"@{handle}"
+        typed = locator.strip()
+        url = typed if "://" in typed else f"https://{typed}"
+        return url, urlsplit(url).netloc
+
+    @cached_property
+    def posts(self) -> list[Item]:
+        # One read, however many fetches resolving it took: `probe` and `items`
+        # are two questions about the same answer.
+        try:
+            found = self._read()
+        except (OSError, ValueError, ParseError, LookupError, TypeError):
+            return []
+        self.reached = True
+        return found
+
+    def probe(self) -> State:
+        if self.posts:
+            return State.CONNECTED
+        return State.NOTHING_FOUND if self.reached else State.UNREACHABLE
+
+    def items(self) -> Iterator[Item]:
+        for post in self.posts:
+            yield post
+
+    def fetch(self, url: str) -> bytes:
+        request = urllib.request.Request(url, headers={"User-Agent": self.agent})
+        with urllib.request.urlopen(request, timeout=self.timeout) as response:
+            return bytes(response.read())
+
+    @classmethod
+    def _handle(cls, locator: str) -> str:
+        typed = locator.strip()
+        name = typed.lstrip("@")
+        if "://" in typed or "/" in name:
+            return ""
+        return name if typed.startswith("@") or name.endswith(".bsky.social") else ""
+
+    def _read(self) -> list[Item]:
+        handle = self._handle(self.source.locator)
+        if "@" in handle:
+            return self._mastodon(handle)
+        if handle:
+            return self._bluesky(handle)
+        return self._site(self.source.locator)
+
+    def _site(self, url: str) -> list[Item]:
+        body = self.fetch(url)
+        posts = self._feed(body)
+        if posts is not None:
+            return posts
+        for candidate in [
+            urljoin(url, link)
+            for link in _Html(body.decode("utf-8", "replace")).links
+            if link
+        ] + [urljoin(url, guess) for guess in self.guesses]:
+            try:
+                posts = self._feed(self.fetch(candidate))
+            except OSError:
+                continue
+            if posts is not None:
+                return posts
+        raise OSError(f"no feed at {url}")
+
+    def _feed(self, body: bytes) -> list[Item] | None:
+        try:
+            root = fromstring(body)
+        except ParseError:
+            return self._json_feed(body)
+        if root.tag.rpartition("}")[2] not in ("rss", "feed"):
+            return None
+        channel = next((e for e in root if e.tag.rpartition("}")[2] == "channel"), root)
+        self.label = _field(channel, "title") or self.label
+        return [
+            self._item(e)
+            for e in channel
+            if e.tag.rpartition("}")[2] in ("item", "entry")
+        ]
+
+    def _json_feed(self, body: bytes) -> list[Item] | None:
+        try:
+            payload = JsonFeed.model_validate_json(body)
+        except ValueError:
+            return None
+        self.label = payload.title or self.label
+        return [
+            self._post(
+                post.title,
+                _Html(post.html).text() or post.text,
+                post.url or post.id,
+                post.at,
+            )
+            for post in payload.items
+        ]
+
+    def _item(self, entry: Element) -> Item:
+        # `content:encoded` is the whole post where a feed carries both.
+        body = next(
+            (
+                value
+                for field in ("encoded", "content", "description", "summary")
+                if (value := _field(entry, field))
+            ),
+            "",
+        )
+        return self._post(
+            _field(entry, "title"),
+            _Html(body).text(),
+            _field(entry, "link") or _field(entry, "id"),
+            _field(entry, "pubDate", "published", "updated", "date"),
+        )
+
+    def _bluesky(self, handle: str) -> list[Item]:
+        url = (
+            "https://public.api.bsky.app/xrpc/app.bsky.feed.getAuthorFeed"
+            f"?actor={quote(handle)}&filter=posts_no_replies&limit={self.limit}"
+        )
+        posts: list[Item] = []
+        cursor = ""
+        for _ in range(self.pages):
+            page = BlueskyPage.model_validate_json(self.fetch(url + cursor))
+            for post in page.feed:
+                if not post.reason and post.author:
+                    self.label = post.author
+                posts.append(
+                    self._post(
+                        "",
+                        post.text,
+                        f"https://bsky.app/profile/{post.handle or handle}/post/{post.uri.rsplit('/', 1)[-1]}",
+                        post.at,
+                        drop=bool(post.reason or post.reply),
+                    )
+                )
+            if not page.cursor:
+                break
+            cursor = f"&cursor={quote(page.cursor)}"
+        return posts
+
+    def _mastodon(self, address: str) -> list[Item]:
+        user, _, instance = address.partition("@")
+        account = MastodonAccount.model_validate_json(
+            self.fetch(f"https://{instance}/api/v1/accounts/lookup?acct={quote(user)}")
+        )
+        self.label = account.display_name or self.label
+        url = (
+            f"https://{instance}/api/v1/accounts/{account.id}/statuses"
+            f"?exclude_replies=true&exclude_reblogs=true&limit={self.limit}"
+        )
+        posts: list[Item] = []
+        page = url
+        for _ in range(self.pages):
+            statuses = TypeAdapter(list[FeedPost]).validate_json(self.fetch(page))
+            for post in statuses:
+                posts.append(
+                    self._post(
+                        "",
+                        _Html(post.html).text(),
+                        post.url or post.id,
+                        post.at,
+                        drop=bool(post.reblog or post.in_reply_to_id),
+                    )
+                )
+            if len(statuses) < self.limit:
+                break
+            page = f"{url}&max_id={quote(statuses[-1].id)}"
+        return posts
+
+    def _post(
+        self, title: str, text: str, link: str, when: str, drop: bool = False
+    ) -> Item:
+        headline = text.strip().split("\n", 1)[0]
+        if len(headline) > 80:
+            headline = headline[:79].rstrip() + "…"
+        return Item(
+            title or headline,
+            text,
+            link,
+            _date(when),
+            excluded=drop or bool(self.paywall.search(text)),
+            key=link,
+        )
+
+
+class _Html(HTMLParser):
+    # The two things a feed importer wants out of HTML: a post's text with its
+    # paragraphs intact, and the feeds a site page advertises.
+    blocks = {
+        "p",
+        "div",
+        "li",
+        "h1",
+        "h2",
+        "h3",
+        "h4",
+        "h5",
+        "h6",
+        "blockquote",
+        "pre",
+        "tr",
+    }
+    feeds = {"application/rss+xml", "application/atom+xml", "application/feed+json"}
+    silent = ("script", "style")
+
+    def __init__(self, markup: str) -> None:
+        super().__init__()
+        self.parts: list[str] = []
+        self.links: list[str] = []
+        self.quiet = 0
+        self.feed(markup)
+        self.close()
+
+    def text(self) -> str:
+        joined = re.sub(r"[^\S\n]+", " ", "".join(self.parts))
+        return re.sub(r"\n{3,}", "\n\n", re.sub(r" ?\n ?", "\n", joined)).strip()
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        values = {key: value or "" for key, value in attrs}
+        if (
+            tag == "link"
+            and "alternate" in values.get("rel", "").split()
+            and values.get("type") in self.feeds
+        ):
+            self.links.append(values.get("href", ""))
+        elif tag in self.silent:
+            self.quiet += 1
+        elif tag == "br":
+            self.parts.append("\n")
+        elif tag in self.blocks:
+            self.parts.append("\n\n")
+
+    def handle_endtag(self, tag: str) -> None:
+        if tag in self.silent:
+            self.quiet = max(self.quiet - 1, 0)
+        elif tag in self.blocks:
+            self.parts.append("\n\n")
+
+    def handle_data(self, data: str) -> None:
+        if not self.quiet:
+            self.parts.append(data)
+
+
+class LastRead(BaseModel):
+    at: str
+    state: State
+
+
+class Registry:
+    """Source configuration and imports, sharing one store and one read snapshot."""
+
+    source_records = TypeAdapter(list[Source])
+    read_records = TypeAdapter(dict[str, LastRead])
+
+    def __init__(self, store: Store) -> None:
+        self.store = store
+        try:
+            self.owned = self.source_records.validate_python(
+                store.setting("owner_sources", [])
+            )
+            self.reads = self.read_records.validate_python(
+                store.setting("source_reads", {})
+            )
+        except ValidationError as error:
+            raise SourceError(f"invalid saved sources: {error}") from None
+        configured = store.setting("sources", [])
+        self.enabled = set(configured) if isinstance(configured, list) else set()
+        self.sources = available_sources() + self.owned
+
+    def entries(self) -> list[dict[str, object]]:
+        counts = self.store.source_counts()
+        entries: list[dict[str, object]] = []
+        for source in self.sources:
+            if source.origin == "automation":
+                continue
+            enabled = source.owned or source.name in self.enabled
+            last = self.reads.get(source.name)
+            state = (
+                (last.state if last else source.reader().probe())
+                if enabled
+                else State.OFF
+            )
+            entries.append(
+                {
+                    "name": source.name,
+                    "label": source.label,
+                    "kind": source.kind,
+                    "locator": source.locator,
+                    "owned": source.owned,
+                    "enabled": enabled,
+                    "imported": counts.get(source.name, 0),
+                    "state": state.value,
+                    "last_read_at": last.at if last else None,
+                }
+            )
+        return entries
+
+    def add(
+        self,
+        locator: str,
+        label: str | None = None,
+        since: str | None = None,
+        kind: str = "folder",
+    ) -> dict[str, object]:
+        source = Source.owner(locator, label, since, kind)
+        reader = source.reader()
+        if reader.probe() is State.UNREACHABLE:
+            raise SourceError(f"can't reach {locator}")
+        if isinstance(reader, ExportReader) and label is None:
+            source = replace(source, label=reader.label)
+        if source.name not in {record.name for record in self.owned}:
+            self.owned.append(source)
+            self.sources.append(source)
+            self.store.set_setting(
+                "owner_sources",
+                self.source_records.dump_python(self.owned, mode="json"),
+            )
+            self.scan({source.name})
+        return next(entry for entry in self.entries() if entry["name"] == source.name)
+
+    def read(self, names: list[str] | None = None) -> list[dict[str, object]]:
+        known = {s.name: s for s in self.sources if s.origin != "automation"}
+        if names:
+            unknown = set(names) - known.keys()
+            if unknown:
+                raise SourceError(f"unknown source: {sorted(unknown)[0]}")
+            chosen = names
+        else:
+            chosen = [
+                s.name for s in known.values() if s.owned or s.name in self.enabled
+            ]
+        report = self.scan(set(chosen))
+        return [
+            {
+                "name": name,
+                **{key: value for key, value in report[name].items() if key != "found"},
+                "state": self.reads[name].state.value,
+            }
+            for name in chosen
+        ]
+
+    def remove(self, name: str, *, delete: bool) -> dict[str, object]:
+        if name in {source.name for source in available_sources()}:
+            raise SourceError(f"{name} is built in and cannot be removed")
+        remaining = [source for source in self.owned if source.name != name]
+        if len(remaining) == len(self.owned):
+            raise SourceError(f"unknown source: {name}")
+        self.owned = remaining
+        self.sources = [source for source in self.sources if source.name != name]
+        self.reads.pop(name, None)
+        self.store.set_setting(
+            "owner_sources", self.source_records.dump_python(self.owned, mode="json")
+        )
+        self.store.set_setting(
+            "source_reads", self.read_records.dump_python(self.reads, mode="json")
+        )
+        memories = (
+            self.store.delete_source_memories(name)
+            if delete
+            else {"kept": self.store.source_counts().get(name, 0)}
+        )
+        return {"name": name, "removed": True, "memories": memories}
+
+    def scan(self, names: set[str] | None = None) -> dict[str, dict[str, int]]:
+        """Import changed items privately, preserving stable keys and review status."""
+        report: dict[str, dict[str, int]] = {}
+        for source in self.sources:
+            if names is not None and source.name not in names:
+                continue
+            stats = {"found": 0, "added": 0, "updated": 0, "unchanged": 0, "errors": 0}
+            reader = source.reader()
+            state = reader.probe()
+            for item in reader.items():
+                stats["found"] += 1
+                if not reader.keeps(item):
+                    continue
+                path = Path(item.source_path)
+                result = self.store.put(
+                    source=source.name,
+                    origin=source.origin,
+                    source_path=item.source_path,
+                    source_key=f"{source.name}:{item.key or path.resolve()}",
+                    fingerprint=hashlib.sha256(item.content.encode()).hexdigest(),
+                    title=item.title,
+                    content=item.content,
+                    project=_project(source, path),
+                )
+                stats[result] += 1
+            stats["found"] += reader.errors
+            stats["errors"] = reader.errors
+            self.reads[source.name] = LastRead(
+                at=datetime.now(timezone.utc).isoformat(), state=state
+            )
+            report[source.name] = stats
+        self.store.set_setting(
+            "source_reads", self.read_records.dump_python(self.reads, mode="json")
+        )
+        return report
 
 
 def available_sources() -> list[Source]:
     """Return native and synthesized memory sources for the current user."""
     return [
-        Source("codex", "Codex", codex_home() / "memories", "MEMORY.md"),
+        Source("codex", "Codex", str(codex_home() / "memories"), "MEMORY.md"),
         Source(
-            "claude",
-            "Claude Code",
-            claude_home() / "projects",
-            "*/memory/*.md",
+            "claude", "Claude Code", str(claude_home() / "projects"), "*/memory/*.md"
         ),
         Source(
-            "automation",
-            "Synthesis",
-            home() / "memories",
-            "**/*.md",
-            "automation",
+            "automation", "Synthesis", str(home() / "memories"), origin="automation"
         ),
     ]
 
 
-def scan(store: Store, names: set[str] | None = None) -> dict[str, dict[str, int]]:
-    """Import changed files from selected sources and return per-source counts."""
-    report: dict[str, dict[str, int]] = {}
-    for source in available_sources():
-        if names is not None and source.name not in names:
-            continue
-        stats = {"found": 0, "added": 0, "updated": 0, "unchanged": 0, "errors": 0}
-        for path in source.files():
-            stats["found"] += 1
-            try:
-                content = path.read_text(encoding="utf-8").strip()
-            except (OSError, UnicodeError):
-                stats["errors"] += 1
-                continue
-            if not content:
-                continue
-            fingerprint = hashlib.sha256(content.encode()).hexdigest()
-            result = store.put(
-                source=source.name,
-                origin=source.origin,
-                source_path=str(path),
-                source_key=f"{source.name}:{path.resolve()}",
-                fingerprint=fingerprint,
-                title=_title(path, content),
-                content=content,
-                project=_project(source, path),
-            )
-            stats[result] += 1
-        report[source.name] = stats
-    return report
+def preview(locator: str, kind: str = "folder") -> dict[str, object]:
+    """Report what a source would import, writing nothing."""
+    reader = Source.owner(locator, kind=kind).reader()
+    state = reader.probe()
+    kept: list[Item] = []
+    skipped = 0
+    for item in reader.items():
+        if reader.keeps(item):
+            kept.append(item)
+        else:
+            skipped += 1
+    dates = sorted(item.dated for item in kept if item.dated)
+    return {
+        "label": reader.label,
+        "count": len(kept),
+        "from": dates[0] if dates else None,
+        "to": dates[-1] if dates else None,
+        "skipped": skipped,
+        "state": state.value,
+    }
+
+
+def _day(value: str | None) -> str | None:
+    if value is None:
+        return None
+    try:
+        return date.fromisoformat(value).isoformat()
+    except ValueError:
+        raise SourceError(f"not a date: {value}") from None
 
 
 def _title(path: Path, content: str) -> str:
@@ -95,6 +883,25 @@ def _project(source: Source, path: Path) -> str:
     if source.name == "claude":
         return path.parents[1].name
     if source.name == "codex":
-        relative = path.relative_to(source.root)
+        relative = path.relative_to(Path(source.locator))
         return relative.parts[0] if len(relative.parts) > 1 else ""
     return "personal"
+
+
+def _field(element: Element, *names: str) -> str:
+    for child in element:
+        if child.tag.rpartition("}")[2] in names:
+            value = "".join(child.itertext()).strip() or child.get("href", "").strip()
+            if value:
+                return value
+    return ""
+
+
+def _date(value: str) -> str | None:
+    iso = re.match(r"\s*(\d{4}-\d{2}-\d{2})", value)
+    if iso:
+        return iso.group(1)
+    try:
+        return parsedate_to_datetime(value).date().isoformat()
+    except (TypeError, ValueError):
+        return None

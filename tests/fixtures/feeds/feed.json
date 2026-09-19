@@ -1,0 +1,19 @@
+{
+  "version": "https://jsonfeed.org/version/1.1",
+  "title": "Micro posts",
+  "items": [
+    {
+      "id": "1",
+      "url": "https://micro.example.com/1",
+      "title": "A note on latency",
+      "content_html": "<p>Latency is a feature when it buys a better answer.</p>",
+      "date_published": "2026-07-04T12:00:00+00:00"
+    },
+    {
+      "id": "2",
+      "url": "https://micro.example.com/2",
+      "content_text": "Plain text items carry no markup and still count as a memory.",
+      "date_published": "whenever I got round to it"
+    }
+  ]
+}

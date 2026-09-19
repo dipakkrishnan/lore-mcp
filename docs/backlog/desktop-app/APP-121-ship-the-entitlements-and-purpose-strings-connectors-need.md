@@ -4,7 +4,7 @@ title: Ship the entitlements and purpose strings connectors need
 priority: P1
 effort: S
 component: desktop-app
-status: in-review
+status: in-progress
 related: [CAP-004, CAP-007, APP-005, APP-120]
 blockers: []
 dependencies: []
@@ -51,3 +51,12 @@ Notion.app (Electron, hardened, not sandboxed) is the reference
 configuration. Lore is not sandboxed, so Full Disk Access paths remain
 open later, but nothing here asks for it. Ad-hoc-signed dev builds show up
 in TCC as "Electron" and re-prompt on every rebuild.
+
+2026-09-17: config landed on branch app-121-entitlements:
+`app/desktop/packaging/entitlements.plist` (the signer's defaults that the
+app uses, jit and audio-input, plus apple-events; bluetooth, camera, print,
+usb, and location were only there because the default plist lists them and
+nothing in Lore asks for them) wired through `osxSign.optionsForFile`, and
+the four purpose strings in `extendInfo`. The README carries the two
+post-build checks. The first three criteria need the next signed build,
+which is Dipak's step, so the item stays in progress until he runs it.
