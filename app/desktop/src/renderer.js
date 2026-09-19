@@ -952,11 +952,153 @@ function marketplaceRow(s) {
   return [row(label, `Let buyers find your store in the public list of Lore sellers. ${shares}`, cell(button("List on the marketplace", "secondary", () => void changeListing("list"))), false)];
 }
 
+/** The apps an owner can connect: the mark, what Lore reads there, and the word for what they
+ * pick. One row here and one Connector in lore/sources.py is a whole integration. */
+const CONNECTORS = {
+  obsidian: { name: "Obsidian", logo: "assets/obsidian.svg", what: "Your vaults and notes", unit: "vault" }
+};
+
+/** How a connection stands, said the same way on its row and its sheet. Connected with nothing in
+ * it is still connected. @type {Record<SourceState, {ok: boolean, label: string, line: (source: SourceEntry) => string}>} */
+const CONNECTION_STATES = {
+  connected: { ok: true, label: "Connected", line: (source) => (source.imported ? `${plural(source.imported, "note")} kept.` : "No notes yet.") },
+  nothing_found: { ok: true, label: "Connected", line: () => "No notes yet." },
+  needs_permission: { ok: false, label: "Needs access", line: () => "Lore can't read this folder yet." },
+  unreachable: { ok: false, label: "Not found", line: () => "The folder is gone or moved." },
+  off: { ok: false, label: "Off", line: () => "Not reading." }
+};
+
+/** @param {number} count @param {string} noun */
+function plural(count, noun) {
+  return `${count} ${count === 1 ? noun : noun.replace(/y$/, "ie") + "s"}`;
+}
+
+/** @param {keyof typeof CONNECTORS} app */
+function logo(app) {
+  const node = el("img", "logo");
+  node.src = CONNECTORS[app].logo;
+  node.alt = "";
+  return node;
+}
+
+/** Settings → Where memories come from: the agents, then every app, connected or on offer. @param {Snapshot} s */
+function sourceRows(s) {
+  const rows = s.library.sources.filter((source) => !source.connector).map((source) =>
+    row(source.label, source.enabled ? `${plural(source.imported, "memory")} imported` : "Not connected", cell(dot(source.enabled, source.enabled ? "Connected" : "Off")), false)
+  );
+  for (const app of /** @type {(keyof typeof CONNECTORS)[]} */ (Object.keys(CONNECTORS))) {
+    const connected = s.library.sources.find((source) => source.connector === app);
+    const state = CONNECTION_STATES[connected?.state ?? "off"];
+    const node = connected
+      ? row(CONNECTORS[app].name, `${connected.label} · ${state.line(connected)}`, cell(dot(state.ok, state.label), button("Manage", "quiet", () => openConnection(app, connected))), false)
+      : row(CONNECTORS[app].name, CONNECTORS[app].what, cell(button("Connect", "secondary", () => void openConnect(app))), false);
+    node.prepend(logo(app));
+    rows.push(node);
+  }
+  return rows;
+}
+
+/** A narrow modal: a title, the app's mark, and whatever follows. @param {string} title @param {HTMLElement} mark @param {HTMLElement[]} body */
+function sheet(title, mark, ...body) {
+  closeSheet();
+  const node = el("dialog", "sheet narrow");
+  node.setAttribute("aria-label", title);
+  const panel = el("div", "card sheet-panel");
+  const head = el("div", "sheet-head");
+  const text = el("div", "t");
+  text.append(el("b", "", title));
+  const close = el("button", "icon-btn", "×");
+  close.type = "button";
+  close.setAttribute("aria-label", "Close");
+  close.addEventListener("click", () => node.close());
+  head.append(mark, text, close);
+  panel.append(head, ...body);
+  node.append(panel);
+  node.addEventListener("click", (event) => { if (event.target === node) node.close(); });
+  node.addEventListener("close", () => node.remove());
+  document.body.append(node);
+  node.showModal();
+}
+
+/** Connect an app: pick among what it offers, or any folder, and Lore reads it. Changing what a
+ * connected app reads swaps the place and keeps the memories. @param {keyof typeof CONNECTORS} app @param {SourceEntry} [current] */
+async function openConnect(app, current) {
+  const { name, unit } = CONNECTORS[app];
+  /** @type {SourceChoice[]} */
+  let choices = [];
+  try {
+    choices = await window.lore.sourceChoices(app);
+  } catch (error) {
+    tell(reason(error, "Lore could not look for that."), true);
+    return;
+  }
+  /** @type {string | null} */
+  let locator = null;
+  const list = el("div", "choices");
+  const connect = button(`Connect ${name}`, "primary", () => void act(async () => {
+    if (!locator) return;
+    if (current) await window.lore.removeSource(current.name, true);
+    const added = await window.lore.addSource({ connector: app, locator });
+    closeSheet();
+    tell(`${name} is connected. ${CONNECTION_STATES[added.state ?? "off"].line(added)}`);
+  }));
+  connect.disabled = true;
+  /** @param {SourceChoice} choice @param {boolean} checked */
+  function option(choice, checked) {
+    const label = el("label", "choice");
+    const radio = el("input");
+    radio.type = "radio";
+    radio.name = "choice";
+    radio.checked = checked;
+    radio.addEventListener("change", () => { locator = choice.locator; connect.disabled = false; });
+    label.append(radio, el("b", "", choice.label), el("span", "hint mono", choice.locator));
+    list.append(label);
+    if (checked) radio.dispatchEvent(new Event("change"));
+  }
+  for (const choice of choices) option(choice, false);
+  const other = button("Choose a folder…", "quiet", () => void window.lore.pickFolder().then((path) => {
+    if (path) option({ label: path.split("/").at(-1) ?? path, locator: path, open: false }, true);
+  }));
+  const actions = el("div", "actions");
+  actions.append(other, connect);
+  sheet(name, logo(app), el("p", "", choices.length ? `Choose a ${unit}.` : `No ${unit}s found on this Mac.`), list, el("p", "hint", "Read only. Stays on this Mac."), actions);
+}
+
+/** What a connected app reads, where it stands, and the three things that can be done to it. @param {keyof typeof CONNECTORS} app @param {SourceEntry} source */
+function openConnection(app, source) {
+  const { name, unit } = CONNECTORS[app];
+  const state = CONNECTION_STATES[source.state ?? "off"];
+  const actions = el("div", "actions");
+  const resting = [
+    source.state === "needs_permission"
+      ? button("Open System Settings", "secondary", () => void window.lore.openPrivacySettings())
+      : button("Read again", "secondary", () => void act(async () => { await window.lore.readSource(source.name); closeSheet(); })),
+    button(`Change ${unit}`, "quiet", () => void openConnect(app, source)),
+    button("Disconnect", "quiet", ask)
+  ];
+  function ask() {
+    actions.replaceChildren(
+      el("span", "hint", `Keep the ${plural(source.imported, "memory")} it already kept?`),
+      button("Keep", "secondary", () => void remove(true)),
+      button("Delete them too", "secondary", () => void remove(false)),
+      button("Cancel", "quiet", () => actions.replaceChildren(...resting))
+    );
+  }
+  /** @param {boolean} keep */
+  async function remove(keep) {
+    await act(async () => {
+      const { memories } = await window.lore.removeSource(source.name, keep);
+      closeSheet();
+      tell(memories.deleted ? `Disconnected. ${plural(memories.deleted, "memory")} deleted.` : `Disconnected. ${plural(memories.kept, "memory")} kept.`);
+    });
+  }
+  actions.replaceChildren(...resting);
+  sheet(name, logo(app), el("p", "", `${source.label} · ${state.line(source)}`), el("p", "hint mono", source.locator ?? ""), actions);
+}
+
 /** @param {Snapshot} s */
 function renderSettings(s) {
-  const sources = s.library.sources.map((source) =>
-    row(source.label, source.enabled ? `${source.imported} ${source.imported === 1 ? "memory" : "memories"} imported` : "Not connected", cell(dot(source.enabled, source.enabled ? "Connected" : "Off")), false)
-  );
+  const sources = sourceRows(s);
   sources.push(scheduleRow(s));
   const live = s.node.live;
   return [

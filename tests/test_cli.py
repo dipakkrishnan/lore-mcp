@@ -101,6 +101,14 @@ class ParserTest(unittest.TestCase):
                 },
             ),
             (
+                ["sources", "add", "--folder", "/v", "--connector", "obsidian"],
+                {"sources_command": "add", "folder": "/v", "connector": "obsidian"},
+            ),
+            (
+                ["sources", "choices", "obsidian", "--json"],
+                {"sources_command": "choices", "connector": "obsidian", "json": True},
+            ),
+            (
                 ["sources", "preview", "--folder", "/notes", "--json"],
                 {"sources_command": "preview", "folder": "/notes", "json": True},
             ),
@@ -200,6 +208,7 @@ class ParserTest(unittest.TestCase):
             ["serve", "--transport", "grpc"],
             ["sync", "--source", "notion"],
             ["sources", "add"],  # a folder is required
+            ["sources", "choices"],  # an app is required
             ["sources", "remove", "folder-1"],  # keep or delete must be chosen
             ["sources", "remove", "folder-1", "--keep", "--delete"],
             ["node"],  # `node` alone does nothing; a subcommand is required

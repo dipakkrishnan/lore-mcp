@@ -18,3 +18,8 @@ def codex_home() -> Path:
 
 def claude_home() -> Path:
     return Path(os.environ.get("CLAUDE_HOME", "~/.claude")).expanduser()
+
+
+def obsidian_home() -> Path:
+    default = "~/Library/Application Support/obsidian"
+    return Path(os.environ.get("OBSIDIAN_HOME", default)).expanduser()

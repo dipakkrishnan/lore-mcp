@@ -95,10 +95,16 @@ def parser() -> argparse.ArgumentParser:
     source_add = source_commands.add_parser("add", help="read a source you choose")
     _locator_flags(source_add)
     source_add.add_argument("--label", help="the name you want to see")
+    source_add.add_argument("--connector", help="the app it belongs to, like obsidian")
     source_add.add_argument(
         "--since", help="keep only items dated on or after YYYY-MM-DD"
     )
     source_add.add_argument("--json", action="store_true")
+    source_choices = source_commands.add_parser(
+        "choices", help="what an app on this Mac offers to connect"
+    )
+    source_choices.add_argument("connector", help="the app, like obsidian")
+    source_choices.add_argument("--json", action="store_true")
     source_read = source_commands.add_parser("read", help="import from sources now")
     source_read.add_argument("name", nargs="*")
     source_read.add_argument("--json", action="store_true")
@@ -640,8 +646,20 @@ def source_command(args: argparse.Namespace) -> int:
                 )
             elif command == "add":
                 locator, kind = _locator(args)
-                added = Registry(store).add(locator, args.label, args.since, kind)
+                added = Registry(store).add(
+                    locator, args.label, args.since, kind, args.connector
+                )
                 payload, lines = added, [_source_line(added)]
+            elif command == "choices":
+                connector = sources_module.Connector.named(args.connector)
+                choices = [choice.model_dump() for choice in connector.choices()]
+                payload, lines = (
+                    choices,
+                    [
+                        f"  {choice['label']:<20} {choice['locator']}"
+                        for choice in choices
+                    ],
+                )
             elif command == "read":
                 reads = Registry(store).read(args.name)
                 payload, lines = (

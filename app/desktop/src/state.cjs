@@ -176,6 +176,44 @@ async function listingStatus(loreHome) {
   return JSON.parse(await lore(loreHome, ["marketplace", "status", "--json"]));
 }
 
+/** The apps an owner can connect, and the CLI flag each one's locator travels as. @type {Record<string, string>} */
+const CONNECTORS = { obsidian: "--folder" };
+
+/** @param {unknown} app */
+function connector(app) {
+  if (typeof app !== "string" || !(app in CONNECTORS)) throw new Error("Unknown app");
+  return app;
+}
+
+/** @param {unknown} name */
+function sourceName(name) {
+  if (typeof name !== "string" || !/^[a-z0-9][a-z0-9-]*$/.test(name)) throw new Error("Unknown source");
+  return name;
+}
+
+/** What an app offers to connect, found by the CLI without asking the owner. @param {string} loreHome @param {unknown} app @returns {Promise<SourceChoice[]>} */
+async function sourceChoices(loreHome, app) {
+  return JSON.parse(await lore(loreHome, ["sources", "choices", connector(app), "--json"]));
+}
+
+/** Connect one place an app keeps, read it once, and hand back its row. Written `--flag=value` so a
+ * path that starts with a dash stays a value. @param {string} loreHome @param {{connector?: unknown, locator?: unknown}} input @returns {Promise<SourceEntry>} */
+async function addSource(loreHome, input) {
+  const app = connector(input?.connector);
+  if (typeof input.locator !== "string" || !input.locator.startsWith("/")) throw new Error("Pick a folder to read");
+  return JSON.parse(await lore(loreHome, ["sources", "add", `${CONNECTORS[app]}=${input.locator}`, `--connector=${app}`, "--json"]));
+}
+
+/** @param {string} loreHome @param {unknown} name @returns {Promise<SourceRead[]>} */
+async function readSource(loreHome, name) {
+  return JSON.parse(await lore(loreHome, ["sources", "read", sourceName(name), "--json"]));
+}
+
+/** @param {string} loreHome @param {unknown} name @param {boolean} keep @returns {Promise<SourceRemoval>} */
+async function removeSource(loreHome, name, keep) {
+  return JSON.parse(await lore(loreHome, ["sources", "remove", sourceName(name), keep ? "--keep" : "--delete", "--json"]));
+}
+
 module.exports = {
   lore,
   loreStream,
@@ -194,5 +232,9 @@ module.exports = {
   reportFeedback,
   listStore,
   listingStatus,
+  sourceChoices,
+  addSource,
+  readSource,
+  removeSource,
   useRuntime
 };

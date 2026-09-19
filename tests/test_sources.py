@@ -6,6 +6,7 @@ transcripts, intermediate scratch files, and Lore's own synthesis index stay out
 
 from __future__ import annotations
 
+import json
 import os
 import unittest
 from datetime import datetime
@@ -14,7 +15,7 @@ from pathlib import Path
 from helpers import LoreTestCase
 
 from lore import sources as sources_module
-from lore.sources import Registry, Source, State, available_sources
+from lore.sources import Connector, Obsidian, Registry, Source, State, available_sources
 from lore.store import Status, Store
 
 
@@ -382,3 +383,70 @@ class OwnerFolderTest(LoreTestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ConnectorTest(LoreTestCase):
+    """An app the owner names, found and read without them learning what a source is."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.obsidian_home = Path(self.tmp.name) / "obsidian"
+        os.environ["OBSIDIAN_HOME"] = str(self.obsidian_home)
+        self.addCleanup(os.environ.pop, "OBSIDIAN_HOME", None)
+
+    def registry(self, text: str) -> None:
+        self.obsidian_home.mkdir(exist_ok=True)
+        (self.obsidian_home / "obsidian.json").write_text(text)
+
+    def test_obsidian_offers_every_vault_it_knows_the_open_one_first(self) -> None:
+        self.registry(
+            json.dumps(
+                {
+                    "vaults": {
+                        "a1": {"path": "/notes/Work", "ts": 1},
+                        "b2": {"path": "/notes/Personal", "ts": 2, "open": True},
+                    }
+                }
+            )
+        )
+        choices = Connector.named("obsidian").choices()
+        self.assertEqual([choice.label for choice in choices], ["Personal", "Work"])
+        self.assertEqual(choices[0].locator, "/notes/Personal")
+        self.assertIs(choices[0].open, True)
+        self.assertIs(choices[1].open, False)
+
+    def test_no_obsidian_on_this_mac_means_no_choices_not_an_error(self) -> None:
+        self.assertEqual(Obsidian().choices(), [])
+        self.registry("{not json")
+        self.assertEqual(Obsidian().choices(), [])
+        self.registry(json.dumps({"vaults": {"a1": {"ts": 1}}}))
+        self.assertEqual(Obsidian().choices(), [])
+
+    def test_a_connected_vault_keeps_the_app_it_came_from(self) -> None:
+        root = Path(self.tmp.name) / "Personal"
+        root.mkdir()
+        (root / "note.md").write_text(
+            "# Note\n\nA lesson long enough to be worth keeping."
+        )
+        with Store() as store:
+            entry = Registry(store).add(str(root), connector="obsidian")
+            self.assertEqual(entry["connector"], "obsidian")
+            self.assertEqual(entry["kind"], "folder")
+            self.assertEqual(entry["label"], "Personal")
+            self.assertEqual(str(entry["name"])[:9], "obsidian-")
+            self.assertEqual(entry["imported"], 1)
+            saved = next(
+                e for e in Registry(store).entries() if e["name"] == entry["name"]
+            )
+            self.assertEqual(saved["connector"], "obsidian")
+            self.assertIsNone(
+                next(e for e in Registry(store).entries() if e["name"] == "codex")[
+                    "connector"
+                ]
+            )
+
+    def test_an_unknown_app_or_the_wrong_kind_for_it_is_refused(self) -> None:
+        with self.assertRaises(sources_module.SourceError):
+            Source.owner("/notes", connector="notion")
+        with self.assertRaises(sources_module.SourceError):
+            Source.owner("https://a.example", kind="feed", connector="obsidian")
