@@ -143,7 +143,7 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         await shot("today-recent-runs-empty");
 
         // APP-084: Settings reports what the scheduler holds, not that a profile file exists.
-        await js(`window.__lore.show("settings")`);
+        await js(`window.__lore.show("connectors")`);
         await sleep(500);
         let rhythm = await js(`[...document.querySelectorAll("#content .row")].find((r) => r.textContent.includes("How often Lore reads them")).textContent`);
         check("a saved rhythm nothing runs says so, and offers Schedule", /Set for every day at 9 PM with Codex, but nothing on this Mac is running it\./.test(rhythm) && /Not scheduled/.test(rhythm) && /Schedule$/.test(rhythm), rhythm);
@@ -276,14 +276,14 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         await waitFor(`document.body.dataset.state === "welcome" && !document.querySelector("#welcome").classList.contains("provisioning")`);
         await js(`window.__lore.signIn()`);
         await waitFor(`document.querySelector("#content .strip")`);
-        await js(`window.__lore.show("settings")`);
+        await js(`window.__lore.show("connectors")`);
         const rowText = `[...document.querySelectorAll("#content .row")].find((r) => r.textContent.includes("Obsidian"))?.textContent ?? ""`;
         const rowButton = `[...document.querySelectorAll("#content .row")].find((r) => r.textContent.includes("Obsidian")).querySelector("button").click()`;
         await waitFor(rowText);
         await sleep(300);
         const offered = await js(rowText);
         check("Obsidian is offered by name, with what Lore reads and one Connect", /Your vaults and notes/.test(offered) && /Connect/.test(offered) && !/folder|source|markdown/i.test(offered), offered);
-        check("the row carries the app's own mark", await js(`document.querySelector("#content .row img.logo")?.getAttribute("src")`) === "assets/obsidian.svg");
+        check("the row carries the app's own mark", await js(`[...document.querySelectorAll("#content .row")].find((r) => r.textContent.includes("Obsidian"))?.querySelector("img.logo")?.getAttribute("src")`) === "assets/obsidian.svg");
         await shot("settings-obsidian-offered");
         await js(rowButton);
         check("Connect lists the vault by name; nothing to type or browse", await waitFor(`document.querySelector("dialog.sheet[open] .choice")?.textContent.includes("Edge Vault")`));
@@ -311,7 +311,7 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         await waitFor(`document.body.dataset.state === "welcome" && !document.querySelector("#welcome").classList.contains("provisioning")`);
         await js(`window.__lore.signIn()`);
         await waitFor(`document.querySelector("#content .strip")`);
-        await js(`window.__lore.show("settings")`);
+        await js(`window.__lore.show("connectors")`);
         // Only the rows under "Where memories come from": Account also says Claude.
         const sourceRows = `[...[...document.querySelectorAll("#content section")].find((s) => s.textContent.includes("Where memories come from")).querySelectorAll(".row")]`;
         const rowOf = (name) => `${sourceRows}.find((r) => r.querySelector("b").textContent === ${JSON.stringify(name)})`;

@@ -35,7 +35,7 @@ const mainEl = $("#main");
 const header = /** @type {HTMLElement} */ (mainEl.querySelector("header"));
 const navButtons = /** @type {HTMLButtonElement[]} */ ([...document.querySelectorAll("nav button")]);
 
-/** @typedef {"today" | "memories" | "store" | "settings"} View */
+/** @typedef {"today" | "memories" | "store" | "connectors" | "settings"} View */
 /** @type {Snapshot | null} */
 let snapshot = null;
 /** The apps Lore can connect, read once from the CLI's catalog. @type {SourceApp[]} */
@@ -969,25 +969,35 @@ function plural(count, noun) {
   return `${count} ${count === 1 ? noun : noun.replace(/y$/, "ie") + "s"}`;
 }
 
-/** The app's own mark when one is bundled, its initial when not. @param {SourceApp} app */
-function logo(app) {
-  const mark = el("img", "logo");
-  mark.src = `assets/${app.id}.svg`;
-  mark.alt = "";
-  mark.addEventListener("error", () => mark.replaceWith(el("span", "logo initial", app.name[0])), { once: true });
-  return mark;
+/** A bundled brand mark by asset name, the initial when none loads. @param {string} asset @param {string} name */
+function brand(asset, name) {
+  const node = el("img", "logo");
+  node.src = `assets/${asset}.svg`;
+  node.alt = "";
+  node.addEventListener("error", () => node.replaceWith(el("span", "logo initial", name[0])), { once: true });
+  return node;
 }
+
+/** The app's own mark. @param {SourceApp} app */
+function logo(app) {
+  return brand(app.id, app.name);
+}
+
+/** The agents' marks: their makers' marks, as sign-in draws them. @type {Record<string, string>} */
+const AGENT_MARKS = { codex: "openai", claude: "claude" };
 
 /** What connecting an app is called: an export is brought in once, everything else stays connected. @param {SourceApp} app */
 function verb(app) {
   return app.kind === "export" ? "Import" : "Connect";
 }
 
-/** Settings → Where memories come from: the agents, then every app in the catalog, connected or on offer. @param {Snapshot} s */
+/** Connectors: the agents, then every app in the catalog, connected or on offer. @param {Snapshot} s */
 function sourceRows(s) {
-  const rows = s.library.sources.filter((source) => !source.connector).map((source) =>
-    row(source.label, source.enabled ? `${plural(source.imported, "memory")} imported` : "Not connected", cell(dot(source.enabled, source.enabled ? "Connected" : "Off")), false)
-  );
+  const rows = s.library.sources.filter((source) => !source.connector).map((source) => {
+    const node = row(source.label, source.enabled ? `${plural(source.imported, "memory")} imported` : "Not connected", cell(dot(source.enabled, source.enabled ? "Connected" : "Off")), false);
+    node.prepend(brand(AGENT_MARKS[source.name] ?? source.name, source.label));
+    return node;
+  });
   for (const app of apps) {
     const connected = s.library.sources.filter((source) => source.connector === app.id);
     for (const source of connected) {
@@ -1123,10 +1133,14 @@ function openConnection(app, source) {
   sheet(name, logo(app), el("p", "", `${source.label} · ${state.line(app, source)}`), el("p", "hint mono", source.locator ?? ""), el("p", "hint", standing), actions);
 }
 
+/** Connectors: where memories come from, and how often Lore reads them. First class: the way
+ * context gets into Lore, not a preference. @param {Snapshot} s */
+function renderConnectors(s) {
+  return [section("Where memories come from", card([...sourceRows(s), scheduleRow(s)]))];
+}
+
 /** @param {Snapshot} s */
 function renderSettings(s) {
-  const sources = sourceRows(s);
-  sources.push(scheduleRow(s));
   const live = s.node.live;
   return [
     section("Account", card((auth?.credentials.length ? auth.credentials : [null]).map((credential) => {
@@ -1143,7 +1157,6 @@ function renderSettings(s) {
       if (credential) trailing.append(button("Sign out", "quiet", () => signOut(credential.providerId)));
       return row(`Signed in with ${name}`, credential?.type === "api_key" ? "An API key on this Mac reads and writes your memories with you." : "Your subscription reads and writes your memories with you.", trailing, false);
     }))),
-    section("Where memories come from", card(sources)),
     section("What Lore keeps", card([
       row("Lore's shape", "What it keeps, what it ignores, what it may sell. Set in a short conversation.", cell(dot(s.setup.blueprint_configured, s.setup.blueprint_configured ? "Set" : "Not set"), ...(s.setup.blueprint_configured ? [] : [button("Start", "secondary", startSetup)])), false),
       row("Where it lives", `Your memories are kept on this Mac. ${provider()[0]} reads them when it works with you here. Buyers only ever get what you approve for sale.`, cell(Object.assign(el("span", "mono", s.home), { style: "color: var(--muted)" })), false)
@@ -1166,12 +1179,12 @@ function renderSettings(s) {
   ];
 }
 
-const renderers = { today: renderToday, memories: renderMemories, store: renderStore, settings: renderSettings };
+const renderers = { today: renderToday, memories: renderMemories, store: renderStore, connectors: renderConnectors, settings: renderSettings };
 
 function render() {
   hidePeek();
   const detail = view === "today" ? detailTask : null;
-  const heading = detail ? detailRecord?.title ?? TASK_TITLES[detail] : { today: greeting(), memories: "Memories", store: "For Sale", settings: "Settings" }[view];
+  const heading = detail ? detailRecord?.title ?? TASK_TITLES[detail] : { today: greeting(), memories: "Memories", store: "For Sale", connectors: "Connectors", settings: "Settings" }[view];
   const pendingDrafts = detail === "publish" && candidates.length;
   eyebrow.textContent = detail
     ? pendingDrafts ? `Needs you · ${draftsPhase()}` : `${TASK_STATES[detailRecord?.state ?? "working"]} · ${detailRecord?.phase ?? "Starting"}`
@@ -1189,6 +1202,7 @@ function render() {
   if (!snapshot) return;
   $("[data-count=memories]").textContent = String(snapshot.library.counts.private);
   $("[data-count=store]").textContent = String(snapshot.publications.counts.active);
+  $("[data-count=connectors]").textContent = String(snapshot.library.sources.filter((source) => source.enabled).length);
   // Hidden until a build has a feedback relay to send to, so a release
   // never offers a Send it cannot honor. Starts hidden in index.html.
   feedbackBtn.hidden = !snapshot.feedback?.available;
