@@ -257,6 +257,41 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         await js(`[...document.querySelectorAll("#content .empty button")].find((b) => b.textContent === "Draft one from a memory").click()`);
         await sleep(300);
         check("Draft one from a memory opens Memories", await js(`document.querySelector("#title").textContent`) === "Memories");
+      } else if (scenario === "obsidian") {
+        // APP-124: an app by name, one Connect, the vault offered rather than asked for.
+        await waitFor(`document.body.dataset.state === "welcome" && !document.querySelector("#welcome").classList.contains("provisioning")`);
+        await js(`window.__lore.signIn()`);
+        await waitFor(`document.querySelector("#content .strip")`);
+        await js(`window.__lore.show("settings")`);
+        const rowText = `[...document.querySelectorAll("#content .row")].find((r) => r.textContent.includes("Obsidian"))?.textContent ?? ""`;
+        const rowButton = `[...document.querySelectorAll("#content .row")].find((r) => r.textContent.includes("Obsidian")).querySelector("button").click()`;
+        await waitFor(rowText);
+        await sleep(300);
+        const offered = await js(rowText);
+        check("Obsidian is offered by name, with what Lore reads and one Connect", /Your vaults and notes/.test(offered) && /Connect/.test(offered) && !/folder|source|markdown/i.test(offered), offered);
+        check("the row carries the app's own mark", await js(`document.querySelector("#content .row img.logo")?.getAttribute("src")`) === "assets/obsidian.svg");
+        await shot("settings-obsidian-offered");
+        await js(rowButton);
+        check("Connect lists the vault by name; nothing to type or browse", await waitFor(`document.querySelector("dialog.sheet[open] .choice")?.textContent.includes("Edge Vault")`));
+        check("Connect waits for a choice", await js(`document.querySelector("dialog.sheet[open] .btn.primary").disabled`));
+        await shot("obsidian-choose");
+        await js(`document.querySelector("dialog.sheet[open] .choice input").click()`);
+        await js(`document.querySelector("dialog.sheet[open] .btn.primary").click()`);
+        check("the row turns Connected and says what was kept", await waitFor(`/Connected/.test(${rowText}) && /2 notes kept/.test(${rowText})`));
+        check("the sheet closed on its own", await js(`document.querySelector("dialog.sheet[open]") === null`));
+        await shot("settings-obsidian-connected");
+        // A note written after connecting: Read again picks it up, no path asked for.
+        writeFileSync(join(S, "Edge Vault", "three.md"), "# Three\n\nA third lesson long enough to be worth keeping.\n");
+        await js(rowButton);
+        await waitFor(`document.querySelector("dialog.sheet[open]")`);
+        await shot("obsidian-manage");
+        await js(`[...document.querySelectorAll("dialog.sheet[open] button")].find((b) => b.textContent === "Read again").click()`);
+        check("a note written after connecting is picked up", await waitFor(`/3 notes kept/.test(${rowText})`));
+        await js(rowButton);
+        await waitFor(`document.querySelector("dialog.sheet[open]")`);
+        await js(`[...document.querySelectorAll("dialog.sheet[open] button")].find((b) => b.textContent === "Disconnect").click()`);
+        await js(`[...document.querySelectorAll("dialog.sheet[open] button")].find((b) => b.textContent === "Keep").click()`);
+        check("disconnecting offers Obsidian again and keeps the memories", await waitFor(`/Your vaults and notes/.test(${rowText})`) && await js(`document.querySelector("#status").textContent.includes("3 memories kept")`));
       } else if (scenario === "listing") {
         // APP-119: one click lists the store; the row reads its state from the relay, never from local memory.
         await waitFor(`document.body.dataset.state === "welcome" && !document.querySelector("#welcome").classList.contains("provisioning")`);

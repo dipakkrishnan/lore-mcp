@@ -1,6 +1,6 @@
 #!/bin/bash
 # Seed a scratch Lore home with two memories and two drafts, then drive the renderer as one persona.
-# Scenarios: seller | provision | store | jobs | fresh | feedback | listing
+# Scenarios: seller | provision | store | jobs | fresh | feedback | listing | obsidian
 set -euo pipefail
 scenario="${1:-seller}"
 desktop_dir="$(cd "$(dirname "$0")/.." && pwd)"
@@ -57,6 +57,14 @@ with Store() as store:
 const session = SessionManager.create(process.env.LORE_HOME, resolve(process.env.LORE_HOME, '.pi/sessions/deploy'));
 session.appendMessage({ role: 'user', content: 'OLD COMPLETED DEPLOY', timestamp: 1 });
 session.appendCustomEntry('lore.task', { version: 1, kind: 'deploy', title: 'Open your store', state: 'done', phase: 'Finished' });")
+fi
+if [[ "$scenario" == "obsidian" ]]; then
+  # APP-124: a vault Obsidian knows about, so Connect has something to offer without a path.
+  mkdir -p "$root/obsidian" "$root/Edge Vault"
+  printf '# One\n\nA first lesson long enough to be worth keeping.\n' > "$root/Edge Vault/one.md"
+  printf '# Two\n\nA second lesson long enough to be worth keeping.\n' > "$root/Edge Vault/two.md"
+  printf '{"vaults":{"e1":{"path":"%s","ts":1,"open":true}}}' "$root/Edge Vault" > "$root/obsidian/obsidian.json"
+  export OBSIDIAN_HOME="$root/obsidian"
 fi
 echo "Screenshots land in $root"
 "$desktop_dir/node_modules/.bin/electron" "$desktop_dir/support/edge.cjs" "$scenario" 2>/dev/null | grep -E "^(PASS|FAIL|ERROR)"

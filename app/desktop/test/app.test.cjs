@@ -805,6 +805,35 @@ test("propose_price is a live tool, and the agent is told not to price by hand",
   assert.match(source, /call propose_price and never run a price command yourself/);
 });
 
+test("connecting an app validates before any CLI call, then round-trips through the CLI with the app kept on its row", async () => {
+  const { sourceChoices, addSource, readSource, removeSource, readState } = require("../src/state.cjs");
+  await assert.rejects(sourceChoices("/nonexistent", "notion"), { message: /Unknown app/ });
+  await assert.rejects(addSource("/nonexistent", { connector: "obsidian", locator: "relative" }), { message: /Pick a folder/ });
+  await assert.rejects(readSource("/nonexistent", "../etc"), { message: /Unknown source/ });
+  const directory = await mkdtemp(join(tmpdir(), "lore-desktop-"));
+  const obsidian = join(directory, "obsidian");
+  const vault = join(directory, "Personal");
+  await mkdir(obsidian);
+  await mkdir(vault);
+  await writeFile(join(obsidian, "obsidian.json"), JSON.stringify({ vaults: { a1: { path: vault, ts: 1, open: true } } }));
+  await writeFile(join(vault, "note.md"), "# Note\n\nA lesson long enough to be worth keeping.");
+  process.env.OBSIDIAN_HOME = obsidian;
+  try {
+    assert.deepEqual(await sourceChoices(directory, "obsidian"), [{ label: "Personal", locator: vault, open: true }]);
+    const added = await addSource(directory, { connector: "obsidian", locator: vault });
+    assert.equal(added.connector, "obsidian");
+    assert.equal(added.state, "connected");
+    assert.equal(added.imported, 1);
+    assert.equal((await readState(directory)).library.sources.find((source) => source.connector === "obsidian")?.label, "Personal");
+    await writeFile(join(vault, "second.md"), "# Second\n\nAnother lesson long enough to be worth keeping.");
+    assert.equal((await readSource(directory, added.name))[0].added, 1);
+    assert.deepEqual((await removeSource(directory, added.name, true)).memories, { kept: 2 });
+  } finally {
+    delete process.env.OBSIDIAN_HOME;
+    await rm(directory, { recursive: true });
+  }
+});
+
 test("listing a store goes through the CLI to a stubbed relay and never sends the entry itself", async () => {
   const { listStore, listingStatus } = require("../src/state.cjs");
   await assert.rejects(listStore("/nonexistent", "publish"), { message: /Invalid listing action/ });

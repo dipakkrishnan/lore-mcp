@@ -35,7 +35,7 @@ type Snapshot = {
   marketplace?: { available: boolean };
   library: {
     counts: { private: number };
-    sources: Array<{ name: string; label: string; enabled: boolean; imported: number }>;
+    sources: SourceEntry[];
     items: MemoryItem[];
   };
   publications: {
@@ -87,6 +87,31 @@ type Sale = {
   tx: string;
   sold_at: string;
 };
+
+/** Where a source stands, as its last read left it. */
+type SourceState = "connected" | "nothing_found" | "needs_permission" | "unreachable" | "off";
+
+/** One place memories come from. Everything past `imported` is STO-003's; an
+ * installed CLI older than this app omits it, and the row renders the old way. */
+type SourceEntry = {
+  name: string;
+  label: string;
+  enabled: boolean;
+  imported: number;
+  kind?: "folder" | "export" | "feed";
+  locator?: string;
+  owned?: boolean;
+  connector?: string | null;
+  state?: SourceState;
+  last_read_at?: string | null;
+};
+
+/** One place an app offers to connect, found without asking the owner. */
+type SourceChoice = { label: string; locator: string; open: boolean };
+
+type SourceRead = { name: string; added: number; updated: number; unchanged: number; errors: number; state: SourceState };
+
+type SourceRemoval = { name: string; removed: boolean; memories: { kept: number; deleted?: number } };
 
 type FeedbackReceipt = {
   url: string;
@@ -190,6 +215,12 @@ interface Window {
     listStore(action: "list" | "delist"): Promise<Listing>;
     listingStatus(): Promise<Listing>;
     pickFiles(): Promise<string[]>;
+    pickFolder(): Promise<string | null>;
+    sourceChoices(app: string): Promise<SourceChoice[]>;
+    addSource(input: { connector: string; locator: string }): Promise<SourceEntry>;
+    readSource(name: string): Promise<SourceRead[]>;
+    removeSource(name: string, keep: boolean): Promise<SourceRemoval>;
+    openPrivacySettings(): Promise<void>;
     pathFor(file: File): string;
     onAgentEvent(listener: (event: AgentEvent) => void): () => void;
     microphone(): Promise<boolean>;
