@@ -4,13 +4,13 @@ title: Tell a first-time owner how Lore makes them money
 priority: P1
 effort: S
 component: desktop-app
-status: in-review
+status: ready
 related: [APP-092, XC-025, APP-094, APP-117, MON-025, ONB-007]
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-09-14
-updated: 2026-09-14
+updated: 2026-09-18
 ---
 
 ## Problem
@@ -26,24 +26,29 @@ idk if I'd get it."
 
 ## Proposed approach
 
-Three sentences in the app's own voice, shown twice: once after first
-sign-in, before setup starts, and again as the top of the For Sale empty
-state until the first sale. Who buys (people's AI agents, while working on
-a task, not people browsing), what they pay (cents to read a publication,
-dollars for an answer), and what the owner keeps (all of it, paid straight
-to their own wallet, nothing held by Lore). Tasteful inline notice, the
-Claude and OpenAI console register, no hype and no projected earnings. A
-"How selling works" link in Settings opens the same text with one worked
-example: a real sale from the ledger, the cent it paid, and the receipt.
-The same three sentences belong on yourlore.dev.
+An explicit FAQ tab in the sidebar, for now. One page of questions and
+answers in the app's own voice, seller-first, in the order Zane gave: what
+Lore does; who buys (people's AI agents, while working on a task, not
+people browsing); how a sale happens and what it pays (cents to read a
+publication, dollars for an answer); what the owner keeps (all of it, paid
+straight to their own wallet, nothing held by Lore); what never leaves the
+Mac. Plain words, the Claude and OpenAI console register, no hype and no
+projected earnings. The buyer fork is one question near the end that
+points a builder at the buyer docs. The same answers belong on
+yourlore.dev.
+
+Not the woven version: #294 spread the explanation over the sign-in
+subline, a Today section, a Settings section and the marketplace rung, and
+was closed on 2026-09-18. One place is easier to read once and easier to
+edit as the buyer story changes.
 
 ## Acceptance criteria
 
-- [ ] A fresh sign-in shows the explainer before the first setup question,
-      and it can be dismissed in one click.
-- [ ] For Sale with no sales carries the same text at the top.
-- [ ] The copy names buyers as agents, the two prices, and non-custody, in
-      plain words, and cites no earnings figure the ledger cannot show.
+- [ ] A FAQ entry in the sidebar opens a page of questions and answers; no
+      explainer copy is added to sign-in, Today or Settings.
+- [ ] The answers name buyers as agents, the two prices, and non-custody,
+      in plain words, and cite no earnings figure the ledger cannot show.
+- [ ] The edge harness renders the tab and checks the jargon list against it.
 
 ## Notes
 
