@@ -806,9 +806,10 @@ test("propose_price is a live tool, and the agent is told not to price by hand",
 });
 
 test("connecting an app validates before any CLI call, then round-trips through the CLI with the app kept on its row", async () => {
-  const { sourceChoices, addSource, readSource, removeSource, readState } = require("../src/state.cjs");
-  await assert.rejects(sourceChoices("/nonexistent", "notion"), { message: /Unknown app/ });
-  await assert.rejects(addSource("/nonexistent", { connector: "obsidian", locator: "relative" }), { message: /Pick a folder/ });
+  const { sourceCatalog, sourceChoices, connectSource, readSource, removeSource, readState } = require("../src/state.cjs");
+  await assert.rejects(sourceChoices("/nonexistent", "../etc"), { message: /Unknown app/ });
+  await assert.rejects(connectSource("/nonexistent", { connector: "obsidian", locator: " " }), { message: /Choose what to connect/ });
+  await assert.rejects(connectSource("/nonexistent", { connector: "obsidian", locator: "/v", replace: "../etc" }), { message: /Unknown source/ });
   await assert.rejects(readSource("/nonexistent", "../etc"), { message: /Unknown source/ });
   const directory = await mkdtemp(join(tmpdir(), "lore-desktop-"));
   const obsidian = join(directory, "obsidian");
@@ -819,15 +820,25 @@ test("connecting an app validates before any CLI call, then round-trips through 
   await writeFile(join(vault, "note.md"), "# Note\n\nA lesson long enough to be worth keeping.");
   process.env.OBSIDIAN_HOME = obsidian;
   try {
+    assert.deepEqual((await sourceCatalog(directory)).map((app) => [app.id, app.kind]), [["obsidian", "folder"], ["chatgpt", "export"], ["claude", "export"], ["substack", "feed"]]);
     assert.deepEqual(await sourceChoices(directory, "obsidian"), [{ label: "Personal", locator: vault, open: true }]);
-    const added = await addSource(directory, { connector: "obsidian", locator: vault });
+    await assert.rejects(connectSource(directory, { connector: "notion", locator: vault }), { message: /unknown app/ });
+    const added = await connectSource(directory, { connector: "obsidian", locator: vault });
     assert.equal(added.connector, "obsidian");
     assert.equal(added.state, "connected");
     assert.equal(added.imported, 1);
     assert.equal((await readState(directory)).library.sources.find((source) => source.connector === "obsidian")?.label, "Personal");
     await writeFile(join(vault, "second.md"), "# Second\n\nAnother lesson long enough to be worth keeping.");
     assert.equal((await readSource(directory, added.name))[0].added, 1);
-    assert.deepEqual((await removeSource(directory, added.name, true)).memories, { kept: 2 });
+    // A change to a vault that is not there leaves the working one connected; a real one takes over.
+    await assert.rejects(connectSource(directory, { connector: "obsidian", locator: join(directory, "gone"), replace: added.name }), { message: /can't reach/ });
+    assert.equal((await readState(directory)).library.sources.filter((source) => source.connector === "obsidian").length, 1);
+    const other = join(directory, "Work");
+    await mkdir(other);
+    await writeFile(join(other, "plan.md"), "# Plan\n\nA work lesson long enough to be worth keeping.");
+    const changed = await connectSource(directory, { connector: "obsidian", locator: other, replace: added.name });
+    assert.deepEqual((await readState(directory)).library.sources.filter((source) => source.connector === "obsidian").map((source) => source.name), [changed.name]);
+    assert.deepEqual((await removeSource(directory, changed.name, true)).memories, { kept: 1 });
   } finally {
     delete process.env.OBSIDIAN_HOME;
     await rm(directory, { recursive: true });

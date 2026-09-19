@@ -38,6 +38,8 @@ const navButtons = /** @type {HTMLButtonElement[]} */ ([...document.querySelecto
 /** @typedef {"today" | "memories" | "store" | "settings"} View */
 /** @type {Snapshot | null} */
 let snapshot = null;
+/** The apps Lore can connect, read once from the CLI's catalog. @type {SourceApp[]} */
+let apps = [];
 /** @type {AgentStatus | null} */
 let auth = null;
 /** @type {View} */
@@ -336,7 +338,7 @@ async function openMemory(id) {
 }
 
 function closeSheet() {
-  /** @type {HTMLDialogElement | null} */ (document.querySelector("dialog.sheet"))?.close();
+  /** @type {HTMLDialogElement | null} */ (document.querySelector("dialog.sheet[open]"))?.close();
 }
 
 function openFeedbackDialog() {
@@ -952,19 +954,13 @@ function marketplaceRow(s) {
   return [row(label, `Let buyers find your store in the public list of Lore sellers. ${shares}`, cell(button("List on the marketplace", "secondary", () => void changeListing("list"))), false)];
 }
 
-/** The apps an owner can connect: the mark, what Lore reads there, and the word for what they
- * pick. One row here and one Connector in lore/sources.py is a whole integration. */
-const CONNECTORS = {
-  obsidian: { name: "Obsidian", logo: "assets/obsidian.svg", what: "Your vaults and notes", unit: "vault" }
-};
-
-/** How a connection stands, said the same way on its row and its sheet. Connected with nothing in
- * it is still connected. @type {Record<SourceState, {ok: boolean, label: string, line: (source: SourceEntry) => string}>} */
+/** How a connection stands, said the same way on its row and its sheet, in the app's own nouns.
+ * Connected with nothing in it is still connected. @type {Record<SourceState, {ok: boolean, label: string, line: (app: SourceApp, source: SourceEntry) => string}>} */
 const CONNECTION_STATES = {
-  connected: { ok: true, label: "Connected", line: (source) => (source.imported ? `${plural(source.imported, "note")} kept.` : "No notes yet.") },
-  nothing_found: { ok: true, label: "Connected", line: () => "No notes yet." },
-  needs_permission: { ok: false, label: "Needs access", line: () => "Lore can't read this folder yet." },
-  unreachable: { ok: false, label: "Not found", line: () => "The folder is gone or moved." },
+  connected: { ok: true, label: "Connected", line: (app, source) => (source.imported ? `${plural(source.imported, app.item)} kept.` : `No ${app.item}s yet.`) },
+  nothing_found: { ok: true, label: "Connected", line: (app) => `No ${app.item}s yet.` },
+  needs_permission: { ok: false, label: "Needs access", line: (app) => `Lore can't read this ${app.unit} yet.` },
+  unreachable: { ok: false, label: "Not found", line: (app) => `The ${app.unit} is gone or moved.` },
   off: { ok: false, label: "Off", line: () => "Not reading." }
 };
 
@@ -973,27 +969,39 @@ function plural(count, noun) {
   return `${count} ${count === 1 ? noun : noun.replace(/y$/, "ie") + "s"}`;
 }
 
-/** @param {keyof typeof CONNECTORS} app */
+/** The app's own mark when one is bundled, its initial when not. @param {SourceApp} app */
 function logo(app) {
-  const node = el("img", "logo");
-  node.src = CONNECTORS[app].logo;
-  node.alt = "";
-  return node;
+  const mark = el("img", "logo");
+  mark.src = `assets/${app.id}.svg`;
+  mark.alt = "";
+  mark.addEventListener("error", () => mark.replaceWith(el("span", "logo initial", app.name[0])), { once: true });
+  return mark;
 }
 
-/** Settings → Where memories come from: the agents, then every app, connected or on offer. @param {Snapshot} s */
+/** What connecting an app is called: an export is brought in once, everything else stays connected. @param {SourceApp} app */
+function verb(app) {
+  return app.kind === "export" ? "Import" : "Connect";
+}
+
+/** Settings → Where memories come from: the agents, then every app in the catalog, connected or on offer. @param {Snapshot} s */
 function sourceRows(s) {
   const rows = s.library.sources.filter((source) => !source.connector).map((source) =>
     row(source.label, source.enabled ? `${plural(source.imported, "memory")} imported` : "Not connected", cell(dot(source.enabled, source.enabled ? "Connected" : "Off")), false)
   );
-  for (const app of /** @type {(keyof typeof CONNECTORS)[]} */ (Object.keys(CONNECTORS))) {
-    const connected = s.library.sources.find((source) => source.connector === app);
-    const state = CONNECTION_STATES[connected?.state ?? "off"];
-    const node = connected
-      ? row(CONNECTORS[app].name, `${connected.label} · ${state.line(connected)}`, cell(dot(state.ok, state.label), button("Manage", "quiet", () => openConnection(app, connected))), false)
-      : row(CONNECTORS[app].name, CONNECTORS[app].what, cell(button("Connect", "secondary", () => void openConnect(app))), false);
-    node.prepend(logo(app));
-    rows.push(node);
+  for (const app of apps) {
+    const connected = s.library.sources.filter((source) => source.connector === app.id);
+    for (const source of connected) {
+      const state = CONNECTION_STATES[source.state ?? "off"];
+      const node = row(app.name, source.label === app.name ? state.line(app, source) : `${source.label} · ${state.line(app, source)}`, cell(dot(state.ok, state.label), button("Manage", "quiet", () => openConnection(app, source))), false);
+      node.prepend(logo(app));
+      rows.push(node);
+    }
+    // A vault is one place and an export is one history, each changed from its sheet; newsletters add up.
+    if (!connected.length || app.kind === "feed") {
+      const node = row(app.name, app.what, cell(button(connected.length ? `${verb(app)} another` : verb(app), "secondary", () => void openConnect(app))), false);
+      node.prepend(logo(app));
+      rows.push(node);
+    }
   }
   return rows;
 }
@@ -1020,28 +1028,25 @@ function sheet(title, mark, ...body) {
   node.showModal();
 }
 
-/** Connect an app: pick among what it offers, or any folder, and Lore reads it. Changing what a
- * connected app reads swaps the place and keeps the memories. @param {keyof typeof CONNECTORS} app @param {SourceEntry} [current] */
+/** Connect an app: pick among what it offers, choose a folder or file, or give an address, and Lore
+ * reads it. Changing what a connected app reads swaps the place only once the new one has been read,
+ * and keeps the memories. @param {SourceApp} app @param {SourceEntry} [current] */
 async function openConnect(app, current) {
-  const { name, unit } = CONNECTORS[app];
-  /** @type {SourceChoice[]} */
-  let choices = [];
-  try {
-    choices = await window.lore.sourceChoices(app);
-  } catch (error) {
-    tell(reason(error, "Lore could not look for that."), true);
-    return;
-  }
-  /** @type {string | null} */
-  let locator = null;
+  const { name, unit, kind } = app;
+  let locator = "";
   const list = el("div", "choices");
-  const connect = button(`Connect ${name}`, "primary", () => void act(async () => {
+  const lead = el("p", "", `Choose a ${unit}.`);
+  const actions = el("div", "actions");
+  const connect = button(kind === "export" ? "Import" : `Connect ${name}`, "primary", async () => {
     if (!locator) return;
-    if (current) await window.lore.removeSource(current.name, true);
-    const added = await window.lore.addSource({ connector: app, locator });
-    closeSheet();
-    tell(`${name} is connected. ${CONNECTION_STATES[added.state ?? "off"].line(added)}`);
-  }));
+    connect.disabled = true;
+    const done = await act(async () => {
+      const added = await window.lore.connectSource({ connector: app.id, locator, ...(current ? { replace: current.name } : {}) });
+      closeSheet();
+      tell(`${name} is connected. ${CONNECTION_STATES[added.state ?? "off"].line(app, added)}`);
+    });
+    connect.disabled = done;
+  });
   connect.disabled = true;
   /** @param {SourceChoice} choice @param {boolean} checked */
   function option(choice, checked) {
@@ -1055,24 +1060,45 @@ async function openConnect(app, current) {
     list.append(label);
     if (checked) radio.dispatchEvent(new Event("change"));
   }
-  for (const choice of choices) option(choice, false);
-  const other = button("Choose a folder…", "quiet", () => void window.lore.pickFolder().then((path) => {
-    if (path) option({ label: path.split("/").at(-1) ?? path, locator: path, open: false }, true);
-  }));
-  const actions = el("div", "actions");
-  actions.append(other, connect);
-  sheet(name, logo(app), el("p", "", choices.length ? `Choose a ${unit}.` : `No ${unit}s found on this Mac.`), list, el("p", "hint", "Read only. Stays on this Mac."), actions);
+  if (kind === "feed") {
+    lead.textContent = `Where is your ${unit}?`;
+    const field = el("input");
+    field.type = "url";
+    field.placeholder = app.placeholder;
+    field.setAttribute("aria-label", `${name} address`);
+    field.addEventListener("input", () => { locator = field.value.trim(); connect.disabled = !locator; });
+    list.append(field);
+  } else {
+    /** @type {SourceChoice[]} */
+    let choices = [];
+    try {
+      choices = await window.lore.sourceChoices(app.id);
+    } catch (error) {
+      tell(reason(error, "Lore could not look for that."), true);
+      return;
+    }
+    for (const choice of choices) option(choice, false);
+    if (!choices.length) lead.textContent = kind === "folder" ? `No ${unit}s found on this Mac.` : `Choose the ${unit} you downloaded.`;
+    const pick = kind === "folder" ? () => window.lore.pickFolder() : () => window.lore.pickFiles().then((paths) => paths[0] ?? null);
+    actions.append(button(kind === "folder" ? "Choose a folder…" : "Choose a file…", "quiet", () => void pick().then((path) => {
+      if (path) option({ label: path.split("/").at(-1) ?? path, locator: path, open: false }, true);
+    })));
+  }
+  actions.append(connect);
+  sheet(name, logo(app), lead, list, el("p", "hint", "Read only. Stays on this Mac."), actions);
 }
 
-/** What a connected app reads, where it stands, and the three things that can be done to it. @param {keyof typeof CONNECTORS} app @param {SourceEntry} source */
+/** What a connected app reads, where it stands, and what can be done to it. @param {SourceApp} app @param {SourceEntry} source */
 function openConnection(app, source) {
-  const { name, unit } = CONNECTORS[app];
+  const { name, unit } = app;
   const state = CONNECTION_STATES[source.state ?? "off"];
   const actions = el("div", "actions");
   const resting = [
-    source.state === "needs_permission"
-      ? button("Open System Settings", "secondary", () => void window.lore.openPrivacySettings())
-      : button("Read again", "secondary", () => void act(async () => { await window.lore.readSource(source.name); closeSheet(); })),
+    ...(source.state === "needs_permission"
+      ? [button("Open System Settings", "secondary", () => void window.lore.openPrivacySettings())]
+      : source.refresh === false
+        ? []
+        : [button("Read again", "secondary", () => void act(async () => { await window.lore.readSource(source.name); closeSheet(); }))]),
     button(`Change ${unit}`, "quiet", () => void openConnect(app, source)),
     button("Disconnect", "quiet", ask)
   ];
@@ -1093,7 +1119,8 @@ function openConnection(app, source) {
     });
   }
   actions.replaceChildren(...resting);
-  sheet(name, logo(app), el("p", "", `${source.label} · ${state.line(source)}`), el("p", "hint mono", source.locator ?? ""), actions);
+  const standing = source.refresh === false ? `Read once. Change ${unit} to bring in a newer one.` : `Read again on its own when Lore next runs.`;
+  sheet(name, logo(app), el("p", "", `${source.label} · ${state.line(app, source)}`), el("p", "hint mono", source.locator ?? ""), el("p", "hint", standing), actions);
 }
 
 /** @param {Snapshot} s */
@@ -1238,7 +1265,7 @@ function openPriceEditor() {
 async function load() {
   if (!snapshot) content.replaceChildren(el("p", "hint", "Loading…"));
   try {
-    [snapshot, candidates, taskItems] = await Promise.all([window.lore.snapshot(), window.lore.candidates().catch(() => []), window.lore.tasks().catch(() => [])]);
+    [snapshot, candidates, taskItems, apps] = await Promise.all([window.lore.snapshot(), window.lore.candidates().catch(() => []), window.lore.tasks().catch(() => []), apps.length ? apps : window.lore.sourceCatalog().catch(() => [])]);
     if (detailTask) detailRecord = taskItems.find((item) => item.kind === detailTask) ?? detailRecord;
     peeked.clear();
     render();

@@ -8,6 +8,7 @@ regenerated branch is an answer that was never given.
 from __future__ import annotations
 
 import json
+import shutil
 import unittest
 import zipfile
 from pathlib import Path
@@ -96,6 +97,58 @@ class ExportTest(LoreTestCase):
                     self.preview(self.unpacked(product)),
                 )
         self.assertEqual(self.add(self.zipped("claude"))["imported"], 1)
+
+    def test_conversation_identity_survives_filename_and_archive_changes(self) -> None:
+        for product in ("chatgpt", "claude"):
+            with self.subTest(product=product):
+                copy = Path(self.tmp.name) / f"renamed-{product}.json"
+                shutil.copyfile(self.unpacked(product), copy)
+                readers = [
+                    sources_module.Source.owner(locator, kind="export").reader()
+                    for locator in (
+                        self.unpacked(product),
+                        str(copy),
+                        self.zipped(product),
+                    )
+                ]
+                self.assertEqual([reader.provider for reader in readers], [product] * 3)
+                self.assertEqual(
+                    [[item.key for item in reader.items()] for reader in readers],
+                    [[item.key for item in readers[0].items()]] * 3,
+                )
+                self.assertNotEqual(
+                    next(readers[0].items()).source_path,
+                    next(readers[1].items()).source_path,
+                )
+
+    def test_a_renamed_download_of_the_same_history_adds_nothing(self) -> None:
+        first = self.add(self.unpacked("chatgpt"))
+        copy = Path(self.tmp.name) / "renamed.json"
+        shutil.copyfile(self.unpacked("chatgpt"), copy)
+        again = self.add(str(copy))
+        self.assertEqual(again["name"], first["name"])
+        self.assertEqual(again["locator"], str(copy.resolve()))
+        with Store() as store:
+            self.assertEqual(store.counts()["private"], 2)
+            self.assertEqual(len(sources_module.Registry(store).owned), 1)
+
+    def test_an_app_takes_only_its_own_export_and_is_named_for_the_app(self) -> None:
+        with Store() as store:
+            registry = sources_module.Registry(store)
+            with self.assertRaisesRegex(
+                sources_module.SourceError, "Claude export, not ChatGPT"
+            ):
+                registry.connect("chatgpt", self.unpacked("claude"))
+            entry = registry.connect("chatgpt", self.unpacked("chatgpt"))
+            self.assertEqual(
+                (entry["name"], entry["label"], entry["refresh"]),
+                ("chatgpt-export", "ChatGPT", False),
+            )
+            self.assertEqual(
+                registry.connect("claude", self.zipped("claude"))["name"],
+                "claude-export",
+            )
+            self.assertEqual(store.counts()["private"], 3)
 
     def test_since_keeps_only_the_conversations_after_that_day(self) -> None:
         entry = self.add(self.unpacked("chatgpt"), since="2026-01-01")

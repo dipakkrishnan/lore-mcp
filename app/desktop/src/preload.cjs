@@ -42,10 +42,11 @@ contextBridge.exposeInMainWorld("lore", {
   listingStatus: () => ipcRenderer.invoke("listing:status"),
   pickFiles: () => ipcRenderer.invoke("files:pick"),
   pickFolder: () => ipcRenderer.invoke("folders:pick"),
+  sourceCatalog: () => ipcRenderer.invoke("sources:catalog"),
   /** @param {string} app */
   sourceChoices: (app) => ipcRenderer.invoke("sources:choices", app),
-  /** @param {{connector: string, locator: string}} input */
-  addSource: (input) => ipcRenderer.invoke("sources:add", input),
+  /** @param {{connector: string, locator: string, replace?: string}} input */
+  connectSource: (input) => ipcRenderer.invoke("sources:connect", input),
   /** @param {string} name */
   readSource: (name) => ipcRenderer.invoke("sources:read", name),
   /** @param {string} name @param {boolean} keep */

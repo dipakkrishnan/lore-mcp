@@ -176,12 +176,9 @@ async function listingStatus(loreHome) {
   return JSON.parse(await lore(loreHome, ["marketplace", "status", "--json"]));
 }
 
-/** The apps an owner can connect, and the CLI flag each one's locator travels as. @type {Record<string, string>} */
-const CONNECTORS = { obsidian: "--folder" };
-
-/** @param {unknown} app */
+/** An app id as the catalog spells it; the CLI is the one that knows the catalog. @param {unknown} app */
 function connector(app) {
-  if (typeof app !== "string" || !(app in CONNECTORS)) throw new Error("Unknown app");
+  if (typeof app !== "string" || !/^[a-z0-9][a-z0-9-]*$/.test(app)) throw new Error("Unknown app");
   return app;
 }
 
@@ -196,12 +193,19 @@ async function sourceChoices(loreHome, app) {
   return JSON.parse(await lore(loreHome, ["sources", "choices", connector(app), "--json"]));
 }
 
-/** Connect one place an app keeps, read it once, and hand back its row. Written `--flag=value` so a
- * path that starts with a dash stays a value. @param {string} loreHome @param {{connector?: unknown, locator?: unknown}} input @returns {Promise<SourceEntry>} */
-async function addSource(loreHome, input) {
+/** The apps Lore can connect, as the CLI's catalog describes them. @param {string} loreHome @returns {Promise<SourceApp[]>} */
+async function sourceCatalog(loreHome) {
+  return JSON.parse(await lore(loreHome, ["sources", "catalog", "--json"]));
+}
+
+/** Connect one place an app keeps, read it once, and hand back its row. With `replace`, the CLI reads
+ * the new place before it retires the old one. The locator follows `--` so a path that starts with a
+ * dash stays a value. @param {string} loreHome @param {{connector?: unknown, locator?: unknown, replace?: unknown}} input @returns {Promise<SourceEntry>} */
+async function connectSource(loreHome, input) {
   const app = connector(input?.connector);
-  if (typeof input.locator !== "string" || !input.locator.startsWith("/")) throw new Error("Pick a folder to read");
-  return JSON.parse(await lore(loreHome, ["sources", "add", `${CONNECTORS[app]}=${input.locator}`, `--connector=${app}`, "--json"]));
+  if (typeof input.locator !== "string" || !input.locator.trim()) throw new Error("Choose what to connect");
+  const replacing = input.replace === undefined ? [] : [`--replace=${sourceName(input.replace)}`];
+  return JSON.parse(await lore(loreHome, ["sources", "connect", app, ...replacing, "--json", "--", input.locator]));
 }
 
 /** @param {string} loreHome @param {unknown} name @returns {Promise<SourceRead[]>} */
@@ -232,8 +236,9 @@ module.exports = {
   reportFeedback,
   listStore,
   listingStatus,
+  sourceCatalog,
   sourceChoices,
-  addSource,
+  connectSource,
   readSource,
   removeSource,
   useRuntime
