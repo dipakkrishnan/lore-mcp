@@ -4,13 +4,13 @@ title: Tell a first-time owner how Lore makes them money
 priority: P1
 effort: S
 component: desktop-app
-status: ready
+status: completed
 related: [APP-092, XC-025, APP-094, APP-117, MON-025, ONB-007]
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-09-14
-updated: 2026-09-18
+updated: 2026-09-19
 ---
 
 ## Problem
@@ -44,13 +44,24 @@ edit as the buyer story changes.
 
 ## Acceptance criteria
 
-- [ ] A FAQ entry in the sidebar opens a page of questions and answers; no
+- [x] A FAQ entry in the sidebar opens a page of questions and answers; no
       explainer copy is added to sign-in, Today or Settings.
-- [ ] The answers name buyers as agents, the two prices, and non-custody,
+- [x] The answers name buyers as agents, the two prices, and non-custody,
       in plain words, and cite no earnings figure the ledger cannot show.
-- [ ] The edge harness renders the tab and checks the jargon list against it.
+- [x] The edge harness renders the tab and checks the jargon list against it.
 
 ## Notes
+
+Built 2026-09-19 as a FAQ tab between Connectors and Settings: eleven
+questions in four sections (What Lore does; How you make money; What stays
+private; If you build agents), rendered with the same row cards as the rest
+of the app. The price answer reads the owner's own price from the snapshot
+once one is set. The `faq` edge scenario checks Zane's three asks by text
+(who buys, what a buyer pays and the owner keeps, how the money arrives),
+that the only dollar figure is a price, a jargon list, and that Today and
+Settings gained no selling copy. The examples of what sells stay `APP-117`;
+the FAQ's "What sells?" answer is the shape, not a list. yourlore.dev still
+needs the same answers.
 
 Zane also suggested making it "seem (like even if over exaggerated a little)
 that people can make a solid amount of money" so sellers keep adding supply.

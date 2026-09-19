@@ -35,7 +35,7 @@ const mainEl = $("#main");
 const header = /** @type {HTMLElement} */ (mainEl.querySelector("header"));
 const navButtons = /** @type {HTMLButtonElement[]} */ ([...document.querySelectorAll("nav button")]);
 
-/** @typedef {"today" | "memories" | "store" | "connectors" | "settings"} View */
+/** @typedef {"today" | "memories" | "store" | "connectors" | "faq" | "settings"} View */
 /** @type {Snapshot | null} */
 let snapshot = null;
 /** The apps Lore can connect, read once from the CLI's catalog. @type {SourceApp[]} */
@@ -1139,6 +1139,37 @@ function renderConnectors(s) {
   return [section("Where memories come from", card([...sourceRows(s), scheduleRow(s)]))];
 }
 
+/** FAQ: what Lore does, then how the money works, in the order a first-time owner asks. Every
+ * answer states the mechanism as it is; no earnings figure the ledger cannot show. @param {Snapshot} s */
+function renderFaq(s) {
+  const prices = typeof s.pricing.publication_usd === "number" ? `Yours is ${price(s.pricing.publication_usd)} a publication, set on For Sale.` : "A cent a publication until you set your own on For Sale.";
+  /** @param {string} question @param {string | HTMLElement} answer */
+  const qa = (question, answer) => row(question, answer, undefined, true);
+  const buyerGuide = el("span");
+  buyerGuide.append("Point your agent at a store's address: the catalog is free to read, each publication is paid. ", /** @type {HTMLElement} */ (outLink("Read the buyer guide ↗", "https://github.com/dipakkrishnan/lore-mcp#buying-from-a-node")));
+  return [
+    section("What Lore does", card([
+      qa("What is Lore?", "A home for what you have learned, kept on this Mac. Your agents and the apps you connect fill it in. You choose what, if anything, goes up for sale."),
+      qa("What is a memory, and what is a publication?", "A memory is one thing you learned, private by default. A publication is a memory you drafted for sale and approved. Nothing is for sale until you approve it.")
+    ])),
+    section("How you make money", card([
+      qa("Who buys?", "Other people's AI agents, while they work on a task. Not people browsing a shop. An agent finds your store, reads your teasers for free, and pays to read a whole publication, or to ask you a question if you turn answers on."),
+      qa("What does a buyer pay?", `Your price. ${prices} Answers have their own price, set the same way.`),
+      qa("What do I keep?", "All of it. Each payment lands in your own wallet address the moment it is made. Lore never holds your money and cannot move it."),
+      qa("How does the money arrive?", "In USDC, a coin pegged to the dollar, on the Base network. Your store opens with play money first, so nothing is at stake while you learn it. When you switch to real payments in Settings, that is when Lore asks for your payout address."),
+      qa("What sells?", "Something specific that happened to you, with the lesson attached: dated, firsthand, and not something an agent could guess. What you tried, what broke, what you would do again."),
+      qa("How do buyers find me?", "Push what you approved to your store, then list the store on the marketplace from Settings. Agents look there first.")
+    ])),
+    section("What stays private", card([
+      qa("What leaves this Mac?", "Only a publication you approved, and only when you push it to your store. Your memories, your connections, and your sign-in stay here."),
+      qa("Can I take something off sale?", "Yes, from For Sale, any time. What a buyer already paid for stays with that buyer.")
+    ])),
+    section("If you build agents", card([
+      qa("How do I buy?", buyerGuide)
+    ]))
+  ];
+}
+
 /** @param {Snapshot} s */
 function renderSettings(s) {
   const live = s.node.live;
@@ -1179,12 +1210,12 @@ function renderSettings(s) {
   ];
 }
 
-const renderers = { today: renderToday, memories: renderMemories, store: renderStore, connectors: renderConnectors, settings: renderSettings };
+const renderers = { today: renderToday, memories: renderMemories, store: renderStore, connectors: renderConnectors, faq: renderFaq, settings: renderSettings };
 
 function render() {
   hidePeek();
   const detail = view === "today" ? detailTask : null;
-  const heading = detail ? detailRecord?.title ?? TASK_TITLES[detail] : { today: greeting(), memories: "Memories", store: "For Sale", connectors: "Connectors", settings: "Settings" }[view];
+  const heading = detail ? detailRecord?.title ?? TASK_TITLES[detail] : { today: greeting(), memories: "Memories", store: "For Sale", connectors: "Connectors", faq: "FAQ", settings: "Settings" }[view];
   const pendingDrafts = detail === "publish" && candidates.length;
   eyebrow.textContent = detail
     ? pendingDrafts ? `Needs you · ${draftsPhase()}` : `${TASK_STATES[detailRecord?.state ?? "working"]} · ${detailRecord?.phase ?? "Starting"}`
