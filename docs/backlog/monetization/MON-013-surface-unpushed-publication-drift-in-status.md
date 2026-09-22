@@ -4,13 +4,13 @@ title: Surface unpushed publication drift between the local library and the depl
 priority: P1
 effort: S
 component: monetization
-status: ready
+status: in-review
 related: [MON-004, MON-006]
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-08-10
-updated: 2026-08-26
+updated: 2026-09-22
 ---
 
 ## Problem
@@ -37,10 +37,10 @@ flow itself, so the gap never opens rather than needing to be surfaced.
 
 ## Acceptance criteria
 
-- [ ] After approving a publication without running `lore push`, some
+- [x] After approving a publication without running `lore push`, some
       owner-visible signal (most likely `lore status`) shows the deployed
       node is behind the local active set
-- [ ] The signal disappears once `lore push` runs and the sets match
+- [x] The signal disappears once `lore push` runs and the sets match
 
 ## Notes
 
@@ -61,3 +61,29 @@ If that turns out too aggressive in practice (e.g. an owner approving many
 publications in a row triggers a push per approval), the status-diff shape
 is the fallback — note that in `## Notes` if implementation goes that way
 instead. Promoted `in-review` → `ready`.
+
+**Implementation, 2026-09-22:** mirrored `MON-004`'s shape rather than
+falling back to a status diff. `publication_apply` (the CLI's interactive
+approve/edit/reject loop over drafted candidates) and `publication_decide`
+(the desktop app's one-decision-per-call path) both push the active set to
+the deployed node as part of approving, via a shared `_push_after_approval`
+helper; a failed push sets a `publish_pending` setting and raises with a
+retry instruction, exactly like `revocation_pending`. `lore status` prints a
+reminder while it's outstanding, and a successful remote `lore push` clears
+it (`_push` now clears `publish_pending` next to `revocation_pending`).
+
+The "push per approval in a row" risk this note flagged turned out to be
+real only in `publication_apply`'s loop, which can approve several
+candidates within one process invocation — nothing in `MON-004` has an
+analog for that, since revoking is always one id per invocation. Rather than
+falling back to a diff, that one path batches: it pushes once after the
+loop ends (covering quit-early too), not once per approved card, so
+approving N candidates in one sitting costs one edge write. `publication_decide`
+needed no such batching — the desktop app already calls it once per card, the
+same granularity `publication_revoke` has, so it pushes per call like MON-004
+does. New tests: `test_approving_several_candidates_in_one_sitting_pushes_once_not_per_card`,
+`test_the_desktop_app_pushes_each_approved_card_immediately`,
+`test_a_failed_approval_push_is_recorded_never_silently_dropped` (and its
+desktop-path counterpart), plus a `publish_pending` counterpart to each
+existing `revocation_pending` status/push test. Moving `ready` → `in-review`
+per this repo's backlog convention.
