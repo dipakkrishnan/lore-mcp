@@ -184,7 +184,7 @@ class ParserTest(unittest.TestCase):
             ),
             (
                 ["publication", "reapprove", "7"],
-                {"publication_command": "reapprove", "id": 7},
+                {"publication_command": "reapprove", "id": [7]},
             ),
             (["push", "--local"], {"command": "push", "local": True}),
             (
@@ -280,7 +280,12 @@ class MainDispatchTest(LoreTestCase):
             (["publication", "candidates"], "publication_candidates", ()),
             (["publication", "decide"], "publication_decide", ()),
             (["publication", "revoke", "7"], "publication_revoke", (7,)),
-            (["publication", "reapprove", "7"], "publication_reapprove", (7,)),
+            (["publication", "reapprove", "7"], "publication_reapprove", ([7],)),
+            (
+                ["publication", "reapprove", "7", "8"],
+                "publication_reapprove",
+                ([7, 8],),
+            ),
             (
                 [
                     "report-feedback",
@@ -1597,13 +1602,15 @@ class PublicationCommandTest(LoreTestCase):
         self.enterContext(patch.object(cli, "_interactive", return_value=True))
         self.memory_id = self.seed_memory("Pricing lesson")
 
-    def publish(self, title: str = "Pricing claim") -> int:
+    def publish(
+        self, title: str = "Pricing claim", provenance: list[int] | None = None
+    ) -> int:
         with Store() as store:
             return store.add_publication(
                 title=title,
                 content="a bounded claim",
                 topic="pricing",
-                provenance=[self.memory_id],
+                provenance=provenance or [self.memory_id],
             )
 
     def test_list_shows_state_and_ids_or_points_at_the_skill(self) -> None:
@@ -1630,12 +1637,71 @@ class PublicationCommandTest(LoreTestCase):
             with self.subTest(expected=expected):
                 self.assertIn(expected, text)
 
+    def test_list_shows_what_changed_and_a_diff_behind_a_flag(self) -> None:
+        self.publish()
+        with Store() as store:
+            store.put(
+                source="test",
+                origin="native",
+                source_path="Pricing lesson",
+                source_key="Pricing lesson",
+                fingerprint="changed",
+                title="Pricing lesson",
+                content="a changed body",
+            )
+        with captured() as out:
+            cli.publication_list()
+        text = out.getvalue()
+        self.assertIn('"Pricing lesson" was rewritten by', text)
+        self.assertIn("-Pricing lesson about deployment", text)
+        self.assertIn("+a changed body", text)
+
+    def test_list_groups_publications_flagged_by_the_same_change(self) -> None:
+        first = self.publish("First claim")
+        second = self.publish("Second claim")
+        with Store() as store:
+            store.put(
+                source="test",
+                origin="native",
+                source_path="Pricing lesson",
+                source_key="Pricing lesson",
+                fingerprint="changed",
+                title="Pricing lesson",
+                content="a changed body",
+            )
+        with captured() as out:
+            cli.publication_list()
+        text = out.getvalue()
+        self.assertIn(f"lore publication reapprove {first} {second}", text)
+
+    def test_list_degrades_to_name_and_date_without_a_snapshot(self) -> None:
+        pid = self.publish()
+        with Store() as store:
+            store.db.execute(
+                "DELETE FROM publication_sources WHERE publication_id=?", (pid,)
+            )
+            store.db.commit()
+            store.put(
+                source="test",
+                origin="native",
+                source_path="Pricing lesson",
+                source_key="Pricing lesson",
+                fingerprint="changed",
+                title="Pricing lesson",
+                content="a changed body",
+            )
+        with captured() as out:
+            cli.publication_list()
+        text = out.getvalue()
+        self.assertIn('"Pricing lesson" was rewritten by', text)
+        self.assertIn("no snapshot from before this feature shipped", text)
+
     def test_owner_actions_refuse_pipes_that_are_not_the_desktop_app(self) -> None:
         pid = self.publish()
         with patch.object(cli, "_interactive", return_value=False):
             for action in (
                 lambda: cli.publication_revoke(pid),
-                lambda: cli.publication_reapprove(pid),
+                lambda: cli.publication_reapprove([pid]),
                 lambda: cli.push(str(cli.home() / "node")),
             ):
                 with self.assertRaisesRegex(
@@ -1697,17 +1763,52 @@ class PublicationCommandTest(LoreTestCase):
             )
             self.assertEqual([p.id for p in store.stale_publications()], [pid])
         with captured() as out:
-            self.assertEqual(cli.publication_reapprove(pid), 0)
+            self.assertEqual(cli.publication_reapprove([pid]), 0)
         self.assertIn(f"Re-approved publication {pid}", out.getvalue())
         with Store() as store:
             self.assertEqual(store.stale_publications(), [])
             self.assertEqual(store.list_publications()[0].content, "a bounded claim")
 
+    def test_reapprove_accepts_multiple_ids_as_one_decision(self) -> None:
+        other_memory = self.seed_memory("Other lesson")
+        first = self.publish()
+        second = self.publish(title="Other claim", provenance=[other_memory])
+        with Store() as store:
+            store.put(
+                source="test",
+                origin="native",
+                source_path="Pricing lesson",
+                source_key="Pricing lesson",
+                fingerprint="changed",
+                title="Pricing lesson",
+                content="a changed body",
+            )
+            store.put(
+                source="test",
+                origin="native",
+                source_path="Other lesson",
+                source_key="Other lesson",
+                fingerprint="changed-too",
+                title="Other lesson",
+                content="a different changed body",
+            )
+            self.assertEqual(
+                {p.id for p in store.stale_publications()}, {first, second}
+            )
+        with captured() as out:
+            self.assertEqual(cli.publication_reapprove([first, second]), 0)
+        self.assertIn(f"Re-approved publications {first}, {second}", out.getvalue())
+        with Store() as store:
+            self.assertEqual(store.stale_publications(), [])
+
     def test_acting_on_an_unknown_id_is_a_clean_error(self) -> None:
-        for command in (cli.publication_revoke, cli.publication_reapprove):
+        for command, arg in (
+            (cli.publication_revoke, 404),
+            (cli.publication_reapprove, [404]),
+        ):
             with self.subTest(command=command.__name__):
                 with self.assertRaisesRegex(ValueError, "publication not found"):
-                    command(404)
+                    command(arg)
 
 
 class PushTest(LoreTestCase):

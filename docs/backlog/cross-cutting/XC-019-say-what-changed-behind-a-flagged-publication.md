@@ -4,13 +4,13 @@ title: Say what changed behind a flagged publication
 priority: P1
 effort: M
 component: cross-cutting
-status: ready
-related: [MON-004, APP-006, APP-011, STO-001]
+status: in-progress
+related: [MON-004, APP-006, APP-011, STO-001, XC-035]
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-08-22
-updated: 2026-08-26
+updated: 2026-09-22
 ---
 
 ## Problem
@@ -44,13 +44,20 @@ flag only when the diff is non-empty.
 
 ## Acceptance criteria
 
-- [ ] A flagged publication row on Store and the Today summary name the
-      changed memory, its author, and the change date.
-- [ ] After this lands, re-approving a publication and then changing its
-      source memory shows a diff of the source text between approval and now,
-      in the CLI and in the app.
+Scoped 2026-09-22 to the Python core and CLI surface only; the desktop
+Store/Today equivalents are split off to [[XC-035]] (see Notes).
+
+- [ ] `lore publication list` names the changed memory, its author, and the
+      change date for a flagged publication.
+- [ ] At approval time, the source memories' fingerprint/content is recorded
+      (snapshot table or column) so a later flag can compute a diff.
+- [ ] Re-approving a publication and then changing its source memory shows a
+      diff of the source text between approval and now, in the CLI.
 - [ ] Publications flagged by the same memory change are presented together
-      with one Re-approve / Take down decision.
+      in `lore publication list`, and can be re-approved as one group via
+      `lore publication reapprove <id> [id...]`. Take-down stays per-publication
+      (revoke pushes to the edge immediately; batching that is a bigger,
+      separate risk this item doesn't take on).
 - [ ] Copy no longer implies the owner edited the memory when an agent did.
 - [ ] Existing flags with no snapshot degrade to the first layer (name, author,
       date) rather than an empty diff.
@@ -75,3 +82,16 @@ packaged app on 2026-08-22. Live evidence: `publications` 3 and 4 have
 memory 30's `updated_at`.
 
 **Prioritization pass 2026-08-26:** No blockers; the "flag on any change vs. only a non-empty diff" question in the approach doesn't block the AC, which are self-contained. Promoted `in-review` → `ready`.
+
+**Implementation attempt 2026-09-22:** a scoping pass before writing code found
+the "self-contained" call above didn't hold once the desktop side was
+inspected: PR #121 removed both the flag UI *and* the data plumbing feeding
+it (`publication_inventory()` doesn't select `source_changed_at`,
+`snapshot.py`/`types.d.ts` carry nothing for it, no `reapprove` IPC exists),
+and the new diff/grouping requirement has no precedent in `renderer.js`'s
+hand-rolled DOM code to build on — a near-M lift on its own, not the "wire it
+back up" job the original scope implied. Split the desktop Store/Today diff
++ grouping surface into [[XC-035]] (blocked on this item's snapshot layer)
+and narrowed this item's AC to the Python core + CLI surface, which the
+migration/query patterns in `store.py`/`cli.py` make genuinely mechanical.
+Proceeding to implement this item as narrowed.
