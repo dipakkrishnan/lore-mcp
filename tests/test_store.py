@@ -520,6 +520,35 @@ class PublicationTest(LoreTestCase):
         self.assertEqual(detail[0]["title"], "Pricing lesson")
         self.assertIsNone(detail[0]["diff"])
 
+    def test_flag_detail_without_a_snapshot_does_not_attribute_untouched_provenance(
+        self,
+    ) -> None:
+        # Same setup as the "Live evidence" in the backlog item: a
+        # multi-provenance publication with no snapshot rows for any of
+        # them (approved before publication_sources existed). Only one of
+        # the two provenance memories is actually edited — the other must
+        # not show up as "changed" just because neither has a snapshot.
+        other = self.seed_memory("Deployment lesson")
+        derived = self.publish(provenance=[self.memory_id, other])
+        with Store() as store:
+            store.db.execute(
+                "DELETE FROM publication_sources WHERE publication_id=?", (derived,)
+            )
+            store.db.commit()
+            store.put(
+                source="test",
+                origin="native",
+                source_path="Pricing lesson",
+                source_key="Pricing lesson",
+                fingerprint="changed",
+                title="Pricing lesson",
+                content="a changed body",
+            )
+            publication = next(p for p in store.stale_publications() if p.id == derived)
+            detail = store.flag_detail(publication)
+        self.assertEqual([entry["title"] for entry in detail], ["Pricing lesson"])
+        self.assertIsNone(detail[0]["diff"])
+
     def test_flag_detail_is_empty_for_an_unflagged_publication(self) -> None:
         pid = self.publish()
         with Store() as store:

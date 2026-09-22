@@ -855,9 +855,15 @@ class Store:
         diff between the approval-time snapshot and the memory's current
         text where a snapshot was recorded. A publication approved before
         this feature shipped (or whose provenance memory has no snapshot for
-        some other reason) has nothing to diff against, so every provenance
-        memory is reported with `diff: None` instead — degrading to name,
-        author, and date rather than showing an empty or wrong diff.
+        some other reason) has nothing to diff against, so a memory in that
+        state is reported with `diff: None` instead — degrading to name,
+        author, and date rather than showing an empty or wrong diff. Without
+        a snapshot, "changed" can't be told from "untouched" by fingerprint,
+        so it's inferred from `updated_at`: `_flag_publications_of` sets a
+        publication's `source_changed_at` from the same timestamp it writes
+        to the triggering memory's `updated_at`, so a snapshot-less memory
+        whose `updated_at` predates the flag was not the cause and is left
+        out rather than reported as changed.
         """
         if not publication.source_changed_at or not publication.provenance:
             return []
@@ -889,6 +895,11 @@ class Store:
                 and snapshot["fingerprint"] == memory["fingerprint"]
             ):
                 continue  # unchanged; a different provenance memory triggered the flag
+            if (
+                snapshot is None
+                and memory["updated_at"] < publication.source_changed_at
+            ):
+                continue  # no snapshot to compare, but this one predates the flag
             diff = None
             if snapshot is not None:
                 diff = list(
