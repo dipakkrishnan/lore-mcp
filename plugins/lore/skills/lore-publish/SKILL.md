@@ -33,6 +33,18 @@ the approval prompt on the owner's behalf.
 > LORE_PUBLISH
 > ```
 
+## How to drive — read this first
+
+- **One step at a time.** Confirm the topic, then draft, then wait for
+  approval — don't skip ahead to the next stage.
+- **Announce, then open.** Before reading the private library, say in one
+  sentence what you're searching for and why.
+- **Verify from state, never by asking.** `lore search` and `lore blueprint
+  show` are the evidence; don't ask the owner to restate what's already
+  recorded.
+- **Defer at decision points.** Which topic, which candidates, and whether to
+  approve are the owner's calls — only they can approve a publication.
+
 ## 1. Understand the intent
 
 The owner says something like "publish what I learned about pricing agent

@@ -55,6 +55,16 @@ SECRET_LEAKS = (
     (re.compile(r"0x[0-9a-fA-F]{64}"), "contains something shaped like a private key"),
 )
 
+# The shared "how to drive" contract every owner skill must state, pinned as the
+# exact bolded lead-in `lore-enable-payments` already uses. A skill that never says
+# these can silently ship as a manual instead of a script.
+DRIVE_RULES = {
+    "one step at a time": "One step at a time.",
+    "announce before opening": "Announce, then open.",
+    "verify from state": "Verify from state, never by asking.",
+    "decisions defer to the owner": "Defer at decision points.",
+}
+
 
 def _skill_files() -> list[Path]:
     return sorted(OWNER_SKILLS.glob("*/SKILL.md")) + sorted(
@@ -191,6 +201,22 @@ class SkillContractTest(unittest.TestCase):
                 self.assertIn("Claude Code, use `AskUserQuestion`", text)
                 self.assertIn("In Codex, ask directly in chat", text)
                 self.assertIn("Never block because a named question", text)
+
+    def test_every_owner_skill_states_the_drive_contract(self) -> None:
+        """A skill that never says how to drive can silently ship as a manual.
+
+        The pattern was earned twice the hard way (see `lore-enable-payments`'s "How
+        to drive" section) but only enforced there. A future skill, or a future edit
+        to an existing one, could otherwise ship as a manual instead of a script with
+        nothing going red.
+        """
+        for skill in _owner_skills():
+            text = (skill / "SKILL.md").read_text(encoding="utf-8")
+            for rule, phrase in DRIVE_RULES.items():
+                with self.subTest(skill=skill.name, rule=rule):
+                    self.assertIn(
+                        phrase, text, f"{skill.name} is missing the '{rule}' drive rule"
+                    )
 
     def test_every_owner_skill_reaches_both_places_an_agent_looks(self) -> None:
         """Discovery is all-or-nothing: an unlinked or uncopied skill simply never runs."""
