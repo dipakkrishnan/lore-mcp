@@ -549,6 +549,48 @@ class PublicationTest(LoreTestCase):
         self.assertEqual([entry["title"] for entry in detail], ["Pricing lesson"])
         self.assertIsNone(detail[0]["diff"])
 
+    def test_flag_detail_without_a_snapshot_keeps_an_earlier_changed_memory_after_a_later_one_also_flags(
+        self,
+    ) -> None:
+        # Round 2 regression: the round-1 degrade path compared a
+        # snapshot-less memory's updated_at against the publication's single
+        # source_changed_at column, but _flag_publications_of overwrites that
+        # column on every trigger. A second, unrelated provenance memory
+        # changing later must not erase the first memory's evidence of having
+        # changed — both are genuinely stale and must both be reported.
+        other = self.seed_memory("Deployment lesson")
+        derived = self.publish(provenance=[self.memory_id, other])
+        with Store() as store:
+            store.db.execute(
+                "DELETE FROM publication_sources WHERE publication_id=?", (derived,)
+            )
+            store.db.commit()
+            store.put(
+                source="test",
+                origin="native",
+                source_path="Pricing lesson",
+                source_key="Pricing lesson",
+                fingerprint="changed",
+                title="Pricing lesson",
+                content="a changed body",
+            )
+            store.put(
+                source="test",
+                origin="native",
+                source_path="Deployment lesson",
+                source_key="Deployment lesson",
+                fingerprint="changed-too",
+                title="Deployment lesson",
+                content="a second changed body",
+            )
+            publication = next(p for p in store.stale_publications() if p.id == derived)
+            detail = store.flag_detail(publication)
+        self.assertEqual(
+            {entry["title"] for entry in detail},
+            {"Pricing lesson", "Deployment lesson"},
+        )
+        self.assertTrue(all(entry["diff"] is None for entry in detail))
+
     def test_flag_detail_is_empty_for_an_unflagged_publication(self) -> None:
         pid = self.publish()
         with Store() as store:
