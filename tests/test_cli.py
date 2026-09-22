@@ -940,6 +940,18 @@ class StatusTest(LoreTestCase):
         self.assertIn("NOT reached the deployed node", text)
         self.assertIn("lore push", text)
 
+    def test_status_keeps_reminding_while_an_approval_has_not_reached_the_node(
+        self,
+    ) -> None:
+        with Store() as store:
+            store.set_setting("publish_pending", True)
+        with captured() as output:
+            cli.status()
+        text = output.getvalue()
+        self.assertIn("NOT reached the deployed node", text)
+        self.assertIn("does not serve the new set yet", text)
+        self.assertIn("lore push", text)
+
     def test_status_nudges_when_a_publication_outlived_its_source(self) -> None:
         memory_id = self.seed_memory("Project lesson")
         with Store() as store:
@@ -1432,6 +1444,47 @@ class PublicationApplyTest(LoreTestCase):
         with Store() as store:
             self.assertIs(store.list_publications()[0].kind, PublicationKind.CONTENT)
 
+    def test_approving_without_a_deployed_node_stays_local(self) -> None:
+        with self._attended(), patch.object(cli, "ask", return_value="a"), captured():
+            with patch.object(cli, "push") as push:
+                self.assertEqual(cli.publication_apply(self.candidates()), 0)
+        push.assert_not_called()
+        with Store() as store:
+            self.assertFalse(store.setting("publish_pending", False))
+
+    def test_approving_several_candidates_in_one_sitting_pushes_once_not_per_card(
+        self,
+    ) -> None:
+        # MON-013: batched so the interactive loop in `publication_apply`
+        # doesn't cost one edge write per approved card.
+        path = self.candidates({"title": "First claim"}, {"title": "Second claim"})
+        with Store() as store:
+            store.set_setting("node_url", "https://node.example/mcp")
+        with (
+            self._attended(),
+            patch.object(cli, "ask", side_effect=["a", "a"]),
+            patch.object(cli, "push", return_value=0) as push,
+            captured(),
+        ):
+            self.assertEqual(cli.publication_apply(path), 0)
+        push.assert_called_once_with(str(cli.home() / "node"))
+
+    def test_a_failed_approval_push_is_recorded_never_silently_dropped(self) -> None:
+        with Store() as store:
+            store.set_setting("node_url", "https://node.example/mcp")
+        with (
+            self._attended(),
+            patch.object(cli, "ask", return_value="a"),
+            patch.object(cli, "push", side_effect=ValueError("wrangler down")),
+            captured(),
+            self.assertRaises(ValueError) as raised,
+        ):
+            cli.publication_apply(self.candidates())
+        self.assertIn("lore push", str(raised.exception))
+        with Store() as store:
+            self.assertEqual(len(store.list_publications(active_only=True)), 1)
+            self.assertTrue(store.setting("publish_pending", False))
+
     def drafted(self, *overrides: dict) -> list[dict]:
         """Stage candidates the way the desktop agent does: a JSON array on stdin."""
         with open(self.candidates(*overrides), encoding="utf-8") as batch:
@@ -1472,6 +1525,46 @@ class PublicationApplyTest(LoreTestCase):
         with Store() as store:
             self.assertEqual([p.title for p in store.list_publications()], ["First"])
         self.assertFalse(self.staged_path.exists())
+
+    def test_the_desktop_app_pushes_each_approved_card_immediately(self) -> None:
+        # MON-013, mirroring MON-004's granularity: the desktop app calls
+        # `publication_decide` once per card, so each call is already one
+        # discrete owner action — push per call, not batched.
+        first, second = self.drafted({"title": "First"}, {"title": "Second"})
+        with Store() as store:
+            store.set_setting("node_url", "https://node.example/mcp")
+        with (
+            desktop_stdin(json.dumps({"candidate": first, "approve": True})),
+            patch.object(cli, "push", return_value=0) as push,
+            captured(),
+        ):
+            self.assertEqual(cli.publication_decide(), 0)
+        push.assert_called_once_with(str(cli.home() / "node"))
+        with (
+            desktop_stdin(json.dumps({"candidate": second, "approve": True})),
+            patch.object(cli, "push", return_value=0) as push,
+            captured(),
+        ):
+            self.assertEqual(cli.publication_decide(), 0)
+        push.assert_called_once_with(str(cli.home() / "node"))
+
+    def test_a_failed_desktop_approval_push_is_recorded_never_silently_dropped(
+        self,
+    ) -> None:
+        (first,) = self.drafted()
+        with Store() as store:
+            store.set_setting("node_url", "https://node.example/mcp")
+        with (
+            desktop_stdin(json.dumps({"candidate": first, "approve": True})),
+            patch.object(cli, "push", side_effect=ValueError("wrangler down")),
+            captured(),
+            self.assertRaises(ValueError) as raised,
+        ):
+            cli.publication_decide()
+        self.assertIn("lore push", str(raised.exception))
+        with Store() as store:
+            self.assertEqual(len(store.list_publications(active_only=True)), 1)
+            self.assertTrue(store.setting("publish_pending", False))
 
     def test_the_owner_can_edit_prose_but_not_a_drafts_identity(self) -> None:
         (original,) = self.drafted()
@@ -1871,6 +1964,20 @@ class PushTest(LoreTestCase):
         self._push()
         with Store() as store:
             self.assertFalse(store.setting("revocation_pending", True))
+
+    def test_a_remote_push_clears_a_pending_publish_but_a_local_one_does_not(
+        self,
+    ) -> None:
+        # MON-013's mirror of the revocation case above: a remote push is a
+        # full replace, so it discharges a pending approval too.
+        with Store() as store:
+            store.set_setting("publish_pending", True)
+        self._push(local=True)
+        with Store() as store:
+            self.assertTrue(store.setting("publish_pending", False))
+        self._push()
+        with Store() as store:
+            self.assertFalse(store.setting("publish_pending", True))
 
     def test_a_failed_edge_write_is_retried_once_before_it_fails_the_push(
         self,
