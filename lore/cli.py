@@ -1286,14 +1286,19 @@ def publication_decide() -> int:
                 topic=approved.topic,
                 provenance=approved.provenance,
             )
-        # Each call here is already one discrete owner decision (the desktop
-        # app invokes this once per card), the same granularity MON-004 gave
-        # `publication_revoke` — so push per call, not batched like the CLI's
-        # multi-candidate loop in `publication_apply`.
-        _push_after_approval()
     del staged[_index]
     _stage(staged)
     print(json.dumps({"approved": decision.approve, "remaining": len(staged)}))
+    if decision.approve:
+        # Each call here is already one discrete owner decision (the desktop
+        # app invokes this once per card), the same granularity MON-004 gave
+        # `publication_revoke` — so push per call, not batched like the CLI's
+        # multi-candidate loop in `publication_apply`. Staged-queue bookkeeping
+        # and the caller's response above are unconditional on push success —
+        # same ordering `publication_apply` uses — so a failed push can't leave
+        # the card stuck in staged.json where a retry would re-approve it and
+        # duplicate the publication (round 1 review finding).
+        _push_after_approval()
     return 0
 
 

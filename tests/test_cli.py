@@ -1565,6 +1565,12 @@ class PublicationApplyTest(LoreTestCase):
         with Store() as store:
             self.assertEqual(len(store.list_publications(active_only=True)), 1)
             self.assertTrue(store.setting("publish_pending", False))
+        # A failed push must not leave the card stuck in staged.json — retrying
+        # the same call would otherwise re-approve it and duplicate the
+        # publication (round 1 review finding).
+        with captured() as out:
+            cli.publication_candidates()
+        self.assertEqual(json.loads(out.getvalue()), [])
 
     def test_the_owner_can_edit_prose_but_not_a_drafts_identity(self) -> None:
         (original,) = self.drafted()
