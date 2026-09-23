@@ -69,6 +69,10 @@ jobs:
       # stays a local, attended check.
       - run: support/edge.sh feedback
         timeout-minutes: 5
+      - run: support/edge.sh connectors
+        timeout-minutes: 5
+      - run: support/edge.sh faq
+        timeout-minutes: 5
       - run: npm run package
 
   node-lint:

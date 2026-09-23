@@ -84,3 +84,12 @@ export APPLE_API_KEY=… APPLE_API_KEY_ID=… APPLE_API_ISSUER=…
 
 Confirm the bundle id (`com.lore.desktop` in `forge.config.js`) before the
 first signed build; it is baked into notarization and cannot change casually.
+
+The signed app carries `packaging/entitlements.plist` (the signer's defaults
+plus Apple Events, which reading Notes needs) and four purpose strings from
+`extendInfo`. After every signed build, confirm both survived:
+
+```sh
+codesign -d --entitlements - out/Lore-darwin-arm64/Lore.app | grep apple-events
+plutil -p out/Lore-darwin-arm64/Lore.app/Contents/Info.plist | grep UsageDescription
+```

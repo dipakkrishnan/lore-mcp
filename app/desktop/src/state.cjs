@@ -176,6 +176,48 @@ async function listingStatus(loreHome) {
   return JSON.parse(await lore(loreHome, ["marketplace", "status", "--json"]));
 }
 
+/** An app id as the catalog spells it; the CLI is the one that knows the catalog. @param {unknown} app */
+function connector(app) {
+  if (typeof app !== "string" || !/^[a-z0-9][a-z0-9-]*$/.test(app)) throw new Error("Unknown app");
+  return app;
+}
+
+/** @param {unknown} name */
+function sourceName(name) {
+  if (typeof name !== "string" || !/^[a-z0-9][a-z0-9-]*$/.test(name)) throw new Error("Unknown source");
+  return name;
+}
+
+/** What an app offers to connect, found by the CLI without asking the owner. @param {string} loreHome @param {unknown} app @returns {Promise<SourceChoice[]>} */
+async function sourceChoices(loreHome, app) {
+  return JSON.parse(await lore(loreHome, ["sources", "choices", connector(app), "--json"]));
+}
+
+/** The apps Lore can connect, as the CLI's catalog describes them. @param {string} loreHome @returns {Promise<SourceApp[]>} */
+async function sourceCatalog(loreHome) {
+  return JSON.parse(await lore(loreHome, ["sources", "catalog", "--json"]));
+}
+
+/** Connect one place an app keeps, read it once, and hand back its row. With `replace`, the CLI reads
+ * the new place before it retires the old one. The locator follows `--` so a path that starts with a
+ * dash stays a value. @param {string} loreHome @param {{connector?: unknown, locator?: unknown, replace?: unknown}} input @returns {Promise<SourceEntry>} */
+async function connectSource(loreHome, input) {
+  const app = connector(input?.connector);
+  if (typeof input.locator !== "string" || !input.locator.trim()) throw new Error("Choose what to connect");
+  const replacing = input.replace === undefined ? [] : [`--replace=${sourceName(input.replace)}`];
+  return JSON.parse(await lore(loreHome, ["sources", "connect", app, ...replacing, "--json", "--", input.locator]));
+}
+
+/** @param {string} loreHome @param {unknown} name @returns {Promise<SourceRead[]>} */
+async function readSource(loreHome, name) {
+  return JSON.parse(await lore(loreHome, ["sources", "read", sourceName(name), "--json"]));
+}
+
+/** @param {string} loreHome @param {unknown} name @param {boolean} keep @returns {Promise<SourceRemoval>} */
+async function removeSource(loreHome, name, keep) {
+  return JSON.parse(await lore(loreHome, ["sources", "remove", sourceName(name), keep ? "--keep" : "--delete", "--json"]));
+}
+
 module.exports = {
   lore,
   loreStream,
@@ -194,5 +236,10 @@ module.exports = {
   reportFeedback,
   listStore,
   listingStatus,
+  sourceCatalog,
+  sourceChoices,
+  connectSource,
+  readSource,
+  removeSource,
   useRuntime
 };

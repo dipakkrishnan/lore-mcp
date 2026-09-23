@@ -26,6 +26,7 @@ const agentPanel = $("#agent");
 const detailSlot = $("#detail");
 const log = $("#log");
 const requestSlot = $("#request");
+const blueprintSlot = $("#blueprint");
 const search = /** @type {HTMLButtonElement} */ ($("#search"));
 const palette = /** @type {HTMLDialogElement} */ ($("#palette"));
 const paletteInput = /** @type {HTMLInputElement} */ ($("#palette-input"));
@@ -35,9 +36,11 @@ const mainEl = $("#main");
 const header = /** @type {HTMLElement} */ (mainEl.querySelector("header"));
 const navButtons = /** @type {HTMLButtonElement[]} */ ([...document.querySelectorAll("nav button")]);
 
-/** @typedef {"today" | "memories" | "store" | "settings"} View */
+/** @typedef {"today" | "memories" | "store" | "connectors" | "faq" | "settings"} View */
 /** @type {Snapshot | null} */
 let snapshot = null;
+/** The apps Lore can connect, read once from the CLI's catalog. @type {SourceApp[]} */
+let apps = [];
 /** @type {AgentStatus | null} */
 let auth = null;
 /** @type {View} */
@@ -78,6 +81,26 @@ let sales = null;
 let busy = null;
 /** The card awaiting the owner. A memory card also carries `current`, its entries as edited, so the composer can send a spoken or typed correction with them. @type {{id: string, task: AgentTask | null, box: HTMLElement, current?: () => ProposedMemory[]} | null} */
 let request = null;
+/**
+ * The one blueprint panel node for the current setup thread: a read-only
+ * ghost while propose_blueprint's fields are still streaming in, then the
+ * same node reparented into #request as the confirm form once it settles
+ * (APP-022 — one component, two modes). Null when no scan is in progress.
+ * @type {HTMLFormElement | null}
+ */
+let blueprintGhost = null;
+/** The ghost panel's fields as they arrive, merged in as each propose_blueprint delta parses further. @type {Partial<BlueprintFields> & { evidence?: string }} */
+let blueprintDraft = {};
+/** The ghost panel's per-field value nodes, built once and patched in place thereafter — a field's settle transition plays exactly once, whichever DOM node first carries a value. @type {Record<string, HTMLElement> | null} */
+let blueprintFieldValues = null;
+
+/** Drop the ghost panel and its draft — a new setup thread starts clean. */
+function resetBlueprintGhost() {
+  blueprintGhost = null;
+  blueprintDraft = {};
+  blueprintFieldValues = null;
+  blueprintSlot.replaceChildren();
+}
 
 const RING = `<svg viewBox="0 0 26 26" fill="none"><rect x="4.5" y="5" width="17" height="16" rx="3.2" fill="currentColor"></rect><path d="M3 11.2L4.5 10.6C8 9.2 10.5 12.2 13 10.9S18.5 9.6 21.5 11.2L23 12" stroke="var(--accent)" stroke-width="1.7"></path><path d="M3 16.9L4.5 16.3C8 15 10.5 17.8 13 16.6S18.5 15 21.5 16.8L23 17.7" stroke="var(--accent)" stroke-width="1.7"></path></svg>`;
 const RENAME_ICON = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7V4h16v3M9 20h6M12 4v16"></path></svg>`;
@@ -336,7 +359,7 @@ async function openMemory(id) {
 }
 
 function closeSheet() {
-  /** @type {HTMLDialogElement | null} */ (document.querySelector("dialog.sheet"))?.close();
+  /** @type {HTMLDialogElement | null} */ (document.querySelector("dialog.sheet[open]"))?.close();
 }
 
 function openFeedbackDialog() {
@@ -952,12 +975,224 @@ function marketplaceRow(s) {
   return [row(label, `Let buyers find your store in the public list of Lore sellers. ${shares}`, cell(button("List on the marketplace", "secondary", () => void changeListing("list"))), false)];
 }
 
+/** How a connection stands, said the same way on its row and its sheet, in the app's own nouns.
+ * Connected with nothing in it is still connected. @type {Record<SourceState, {ok: boolean, label: string, line: (app: SourceApp, source: SourceEntry) => string}>} */
+const CONNECTION_STATES = {
+  connected: { ok: true, label: "Connected", line: (app, source) => (source.imported ? `${plural(source.imported, app.item)} kept.` : `No ${app.item}s yet.`) },
+  nothing_found: { ok: true, label: "Connected", line: (app) => `No ${app.item}s yet.` },
+  needs_permission: { ok: false, label: "Needs access", line: (app) => `Lore can't read this ${app.unit} yet.` },
+  unreachable: { ok: false, label: "Not found", line: (app) => `The ${app.unit} is gone or moved.` },
+  off: { ok: false, label: "Off", line: () => "Not reading." }
+};
+
+/** @param {number} count @param {string} noun */
+function plural(count, noun) {
+  return `${count} ${count === 1 ? noun : noun.replace(/y$/, "ie") + "s"}`;
+}
+
+/** A bundled brand mark by asset name, the initial when none loads. @param {string} asset @param {string} name */
+function brand(asset, name) {
+  const node = el("img", "logo");
+  node.src = `assets/${asset}.svg`;
+  node.alt = "";
+  node.addEventListener("error", () => node.replaceWith(el("span", "logo initial", name[0])), { once: true });
+  return node;
+}
+
+/** The app's own mark. @param {SourceApp} app */
+function logo(app) {
+  return brand(app.id, app.name);
+}
+
+/** The agents' marks: their makers' marks, as sign-in draws them. @type {Record<string, string>} */
+const AGENT_MARKS = { codex: "openai", claude: "claude" };
+
+/** What connecting an app is called: an export is brought in once, everything else stays connected. @param {SourceApp} app */
+function verb(app) {
+  return app.kind === "export" ? "Import" : "Connect";
+}
+
+/** Connectors: the agents, then every app in the catalog, connected or on offer. @param {Snapshot} s */
+function sourceRows(s) {
+  const rows = s.library.sources.filter((source) => !source.connector).map((source) => {
+    const node = row(source.label, source.enabled ? `${plural(source.imported, "memory")} imported` : "Not connected", cell(dot(source.enabled, source.enabled ? "Connected" : "Off")), false);
+    node.prepend(brand(AGENT_MARKS[source.name] ?? source.name, source.label));
+    return node;
+  });
+  for (const app of apps) {
+    const connected = s.library.sources.filter((source) => source.connector === app.id);
+    for (const source of connected) {
+      const state = CONNECTION_STATES[source.state ?? "off"];
+      const node = row(app.name, source.label === app.name ? state.line(app, source) : `${source.label} · ${state.line(app, source)}`, cell(dot(state.ok, state.label), button("Manage", "quiet", () => openConnection(app, source))), false);
+      node.prepend(logo(app));
+      rows.push(node);
+    }
+    // A vault is one place and an export is one history, each changed from its sheet; newsletters add up.
+    if (!connected.length || app.kind === "feed") {
+      const node = row(app.name, app.what, cell(button(connected.length ? `${verb(app)} another` : verb(app), "secondary", () => void openConnect(app))), false);
+      node.prepend(logo(app));
+      rows.push(node);
+    }
+  }
+  return rows;
+}
+
+/** A narrow modal: a title, the app's mark, and whatever follows. @param {string} title @param {HTMLElement} mark @param {HTMLElement[]} body */
+function sheet(title, mark, ...body) {
+  closeSheet();
+  const node = el("dialog", "sheet narrow");
+  node.setAttribute("aria-label", title);
+  const panel = el("div", "card sheet-panel");
+  const head = el("div", "sheet-head");
+  const text = el("div", "t");
+  text.append(el("b", "", title));
+  const close = el("button", "icon-btn", "×");
+  close.type = "button";
+  close.setAttribute("aria-label", "Close");
+  close.addEventListener("click", () => node.close());
+  head.append(mark, text, close);
+  panel.append(head, ...body);
+  node.append(panel);
+  node.addEventListener("click", (event) => { if (event.target === node) node.close(); });
+  node.addEventListener("close", () => node.remove());
+  document.body.append(node);
+  node.showModal();
+}
+
+/** Connect an app: pick among what it offers, choose a folder or file, or give an address, and Lore
+ * reads it. Changing what a connected app reads swaps the place only once the new one has been read,
+ * and keeps the memories. @param {SourceApp} app @param {SourceEntry} [current] */
+async function openConnect(app, current) {
+  const { name, unit, kind } = app;
+  let locator = "";
+  const list = el("div", "choices");
+  const lead = el("p", "", `Choose a ${unit}.`);
+  const actions = el("div", "actions");
+  const connect = button(kind === "export" ? "Import" : `Connect ${name}`, "primary", async () => {
+    if (!locator) return;
+    connect.disabled = true;
+    const done = await act(async () => {
+      const added = await window.lore.connectSource({ connector: app.id, locator, ...(current ? { replace: current.name } : {}) });
+      closeSheet();
+      tell(`${name} is connected. ${CONNECTION_STATES[added.state ?? "off"].line(app, added)}`);
+    });
+    connect.disabled = done;
+  });
+  connect.disabled = true;
+  /** @param {SourceChoice} choice @param {boolean} checked */
+  function option(choice, checked) {
+    const label = el("label", "choice");
+    const radio = el("input");
+    radio.type = "radio";
+    radio.name = "choice";
+    radio.checked = checked;
+    radio.addEventListener("change", () => { locator = choice.locator; connect.disabled = false; });
+    label.append(radio, el("b", "", choice.label), el("span", "hint mono", choice.locator));
+    list.append(label);
+    if (checked) radio.dispatchEvent(new Event("change"));
+  }
+  if (kind === "feed") {
+    lead.textContent = `Where is your ${unit}?`;
+    const field = el("input");
+    field.type = "url";
+    field.placeholder = app.placeholder;
+    field.setAttribute("aria-label", `${name} address`);
+    field.addEventListener("input", () => { locator = field.value.trim(); connect.disabled = !locator; });
+    list.append(field);
+  } else {
+    /** @type {SourceChoice[]} */
+    let choices = [];
+    try {
+      choices = await window.lore.sourceChoices(app.id);
+    } catch (error) {
+      tell(reason(error, "Lore could not look for that."), true);
+      return;
+    }
+    for (const choice of choices) option(choice, false);
+    if (!choices.length) lead.textContent = kind === "folder" ? `No ${unit}s found on this Mac.` : `Choose the ${unit} you downloaded.`;
+    const pick = kind === "folder" ? () => window.lore.pickFolder() : () => window.lore.pickFiles().then((paths) => paths[0] ?? null);
+    actions.append(button(kind === "folder" ? "Choose a folder…" : "Choose a file…", "quiet", () => void pick().then((path) => {
+      if (path) option({ label: path.split("/").at(-1) ?? path, locator: path, open: false }, true);
+    })));
+  }
+  actions.append(connect);
+  sheet(name, logo(app), lead, list, el("p", "hint", "Read only. Stays on this Mac."), actions);
+}
+
+/** What a connected app reads, where it stands, and what can be done to it. @param {SourceApp} app @param {SourceEntry} source */
+function openConnection(app, source) {
+  const { name, unit } = app;
+  const state = CONNECTION_STATES[source.state ?? "off"];
+  const actions = el("div", "actions");
+  const resting = [
+    ...(source.state === "needs_permission"
+      ? [button("Open System Settings", "secondary", () => void window.lore.openPrivacySettings())]
+      : source.refresh === false
+        ? []
+        : [button("Read again", "secondary", () => void act(async () => { await window.lore.readSource(source.name); closeSheet(); }))]),
+    button(`Change ${unit}`, "quiet", () => void openConnect(app, source)),
+    button("Disconnect", "quiet", ask)
+  ];
+  function ask() {
+    actions.replaceChildren(
+      el("span", "hint", `Keep the ${plural(source.imported, "memory")} it already kept?`),
+      button("Keep", "secondary", () => void remove(true)),
+      button("Delete them too", "secondary", () => void remove(false)),
+      button("Cancel", "quiet", () => actions.replaceChildren(...resting))
+    );
+  }
+  /** @param {boolean} keep */
+  async function remove(keep) {
+    await act(async () => {
+      const { memories } = await window.lore.removeSource(source.name, keep);
+      closeSheet();
+      tell(memories.deleted ? `Disconnected. ${plural(memories.deleted, "memory")} deleted.` : `Disconnected. ${plural(memories.kept, "memory")} kept.`);
+    });
+  }
+  actions.replaceChildren(...resting);
+  const standing = source.refresh === false ? `Read once. Change ${unit} to bring in a newer one.` : `Read again on its own when Lore next runs.`;
+  sheet(name, logo(app), el("p", "", `${source.label} · ${state.line(app, source)}`), el("p", "hint mono", source.locator ?? ""), el("p", "hint", standing), actions);
+}
+
+/** Connectors: where memories come from, and how often Lore reads them. First class: the way
+ * context gets into Lore, not a preference. @param {Snapshot} s */
+function renderConnectors(s) {
+  return [section("Where memories come from", card([...sourceRows(s), scheduleRow(s)]))];
+}
+
+/** FAQ: what Lore does, then how the money works, in the order a first-time owner asks. Every
+ * answer states the mechanism as it is; no earnings figure the ledger cannot show. @param {Snapshot} s */
+function renderFaq(s) {
+  const prices = typeof s.pricing.publication_usd === "number" ? `Yours is ${price(s.pricing.publication_usd)} a publication, set on For Sale.` : "A cent a publication until you set your own on For Sale.";
+  /** @param {string} question @param {string | HTMLElement} answer */
+  const qa = (question, answer) => row(question, answer, undefined, true);
+  const buyerGuide = el("span");
+  buyerGuide.append("Point your agent at a store's address: the catalog is free to read, each publication is paid. ", /** @type {HTMLElement} */ (outLink("Read the buyer guide ↗", "https://github.com/dipakkrishnan/lore-mcp#buying-from-a-node")));
+  return [
+    section("What Lore does", card([
+      qa("What is Lore?", "A home for what you have learned, kept on this Mac. Your agents and the apps you connect fill it in. You choose what, if anything, goes up for sale."),
+      qa("What is a memory, and what is a publication?", "A memory is one thing you learned, private by default. A publication is a memory you drafted for sale and approved. Nothing is for sale until you approve it.")
+    ])),
+    section("How you make money", card([
+      qa("Who buys?", "Other people's AI agents, while they work on a task. Not people browsing a shop. An agent finds your store, reads your teasers for free, and pays to read a whole publication, or to ask you a question if you turn answers on."),
+      qa("What does a buyer pay?", `Your price. ${prices} Answers have their own price, set the same way.`),
+      qa("What do I keep?", "All of it. Each payment lands in your own wallet address the moment it is made. Lore never holds your money and cannot move it."),
+      qa("How does the money arrive?", "In USDC, a coin pegged to the dollar, on the Base network. Your store opens with play money first, so nothing is at stake while you learn it. When you switch to real payments in Settings, that is when Lore asks for your payout address."),
+      qa("What sells?", "Something specific that happened to you, with the lesson attached: dated, firsthand, and not something an agent could guess. What you tried, what broke, what you would do again."),
+      qa("How do buyers find me?", "Push what you approved to your store, then list the store on the marketplace from Settings. Agents look there first.")
+    ])),
+    section("What stays private", card([
+      qa("What leaves this Mac?", "Only a publication you approved, and only when you push it to your store. Your memories, your connections, and your sign-in stay here."),
+      qa("Can I take something off sale?", "Yes, from For Sale, any time. What a buyer already paid for stays with that buyer.")
+    ])),
+    section("If you build agents", card([
+      qa("How do I buy?", buyerGuide)
+    ]))
+  ];
+}
+
 /** @param {Snapshot} s */
 function renderSettings(s) {
-  const sources = s.library.sources.map((source) =>
-    row(source.label, source.enabled ? `${source.imported} ${source.imported === 1 ? "memory" : "memories"} imported` : "Not connected", cell(dot(source.enabled, source.enabled ? "Connected" : "Off")), false)
-  );
-  sources.push(scheduleRow(s));
   const live = s.node.live;
   return [
     section("Account", card((auth?.credentials.length ? auth.credentials : [null]).map((credential) => {
@@ -974,7 +1209,6 @@ function renderSettings(s) {
       if (credential) trailing.append(button("Sign out", "quiet", () => signOut(credential.providerId)));
       return row(`Signed in with ${name}`, credential?.type === "api_key" ? "An API key on this Mac reads and writes your memories with you." : "Your subscription reads and writes your memories with you.", trailing, false);
     }))),
-    section("Where memories come from", card(sources)),
     section("What Lore keeps", card([
       row("Lore's shape", "What it keeps, what it ignores, what it may sell. Set in a short conversation.", cell(dot(s.setup.blueprint_configured, s.setup.blueprint_configured ? "Set" : "Not set"), ...(s.setup.blueprint_configured ? [] : [button("Start", "secondary", startSetup)])), false),
       row("Where it lives", `Your memories are kept on this Mac. ${provider()[0]} reads them when it works with you here. Buyers only ever get what you approve for sale.`, cell(Object.assign(el("span", "mono", s.home), { style: "color: var(--muted)" })), false)
@@ -997,12 +1231,12 @@ function renderSettings(s) {
   ];
 }
 
-const renderers = { today: renderToday, memories: renderMemories, store: renderStore, settings: renderSettings };
+const renderers = { today: renderToday, memories: renderMemories, store: renderStore, connectors: renderConnectors, faq: renderFaq, settings: renderSettings };
 
 function render() {
   hidePeek();
   const detail = view === "today" ? detailTask : null;
-  const heading = detail ? detailRecord?.title ?? TASK_TITLES[detail] : { today: greeting(), memories: "Memories", store: "For Sale", settings: "Settings" }[view];
+  const heading = detail ? detailRecord?.title ?? TASK_TITLES[detail] : { today: greeting(), memories: "Memories", store: "For Sale", connectors: "Connectors", faq: "FAQ", settings: "Settings" }[view];
   const pendingDrafts = detail === "publish" && candidates.length;
   eyebrow.textContent = detail
     ? pendingDrafts ? `Needs you · ${draftsPhase()}` : `${TASK_STATES[detailRecord?.state ?? "working"]} · ${detailRecord?.phase ?? "Starting"}`
@@ -1020,6 +1254,7 @@ function render() {
   if (!snapshot) return;
   $("[data-count=memories]").textContent = String(snapshot.library.counts.private);
   $("[data-count=store]").textContent = String(snapshot.publications.counts.active);
+  $("[data-count=connectors]").textContent = String(snapshot.library.sources.filter((source) => source.enabled).length);
   // Hidden until a build has a feedback relay to send to, so a release
   // never offers a Send it cannot honor. Starts hidden in index.html.
   feedbackBtn.hidden = !snapshot.feedback?.available;
@@ -1096,7 +1331,7 @@ function openPriceEditor() {
 async function load() {
   if (!snapshot) content.replaceChildren(el("p", "hint", "Loading…"));
   try {
-    [snapshot, candidates, taskItems] = await Promise.all([window.lore.snapshot(), window.lore.candidates().catch(() => []), window.lore.tasks().catch(() => [])]);
+    [snapshot, candidates, taskItems, apps] = await Promise.all([window.lore.snapshot(), window.lore.candidates().catch(() => []), window.lore.tasks().catch(() => []), apps.length ? apps : window.lore.sourceCatalog().catch(() => [])]);
     if (detailTask) detailRecord = taskItems.find((item) => item.kind === detailTask) ?? detailRecord;
     peeked.clear();
     render();
@@ -1181,6 +1416,7 @@ function syncComposer() {
 function clearRequest() {
   request = null;
   requestSlot.replaceChildren();
+  resetBlueprintGhost();
   syncComposer();
 }
 
@@ -1195,13 +1431,124 @@ function renderLog() {
     line.append(mark("mark mark-sm"), markdown(liveText));
     log.append(line);
   }
-  agentPanel.hidden = !lines.length && !liveText && !shownRequest() && !detailSlot.childElementCount;
+  agentPanel.hidden = !lines.length && !liveText && !shownRequest() && !detailSlot.childElementCount && !blueprintGhost;
   if (log.lastElementChild) mainEl.scrollTop = mainEl.scrollHeight;
+}
+
+/** Ghost-mode field order: key, label, and how to read that field's display text out of a (possibly partial) fields object. */
+const BLUEPRINT_GHOST_ROWS = /** @type {const} */ ([
+  ["name", "Name", (/** @type {Partial<BlueprintFields>} */ f) => f.name ?? ""],
+  ["persona", "Told as", (/** @type {Partial<BlueprintFields>} */ f) => f.persona ?? ""],
+  ["organizing_axis", "Organized by", (/** @type {Partial<BlueprintFields>} */ f) => f.organizing_axis ?? ""],
+  ["topic_outline", "Topics", (/** @type {Partial<BlueprintFields>} */ f) => (f.topic_outline ?? []).join(", ")],
+  ["focus_topics", "In depth", (/** @type {Partial<BlueprintFields>} */ f) => (f.focus_topics ?? []).join(", ")],
+  ["general_areas", "Lightly", (/** @type {Partial<BlueprintFields>} */ f) => (f.general_areas ?? []).join(", ")],
+  ["storytelling", "Voice", (/** @type {Partial<BlueprintFields>} */ f) => f.storytelling ?? ""]
+]);
+
+/**
+ * The blueprint panel: a read-only ghost while fields are still streaming in
+ * from propose_blueprint, or the editable confirm form once it settles.
+ * Reuses `blueprintGhost` as the same node across both modes (APP-022) —
+ * nothing is thrown away and rebuilt when the mode switches, only its
+ * contents change. In "live" mode the field rows are built once and then only
+ * patched in place, so a field's settle transition plays exactly once no
+ * matter how many more deltas stream in afterward, for it or any other field.
+ * @param {Partial<BlueprintFields> & { evidence?: string }} fields
+ * @param {"live" | "confirm"} mode
+ */
+function blueprintPanel(fields, mode) {
+  const reused = Boolean(blueprintGhost);
+  const box = /** @type {HTMLFormElement} */ (blueprintGhost ?? el("form", "card lead request blueprint-panel"));
+  blueprintGhost = box;
+  box.classList.toggle("ghost", mode === "live");
+  /** @type {Record<string, HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>} */
+  const controls = {};
+  if (mode === "live") {
+    if (!reused) {
+      box.replaceChildren(el("p", "q", "Shaping your Lore…"), el("p", "hint"));
+      const inputs = el("div", "blueprint-fields");
+      blueprintFieldValues = {};
+      for (const [key, label] of BLUEPRINT_GHOST_ROWS) {
+        const field = el("label", "pending");
+        const value = el("span", "value", "…");
+        field.append(el("span", "", label), value);
+        inputs.append(field);
+        blueprintFieldValues[key] = value;
+      }
+      box.append(inputs);
+    }
+    const hint = /** @type {HTMLElement} */ (box.querySelector(".hint"));
+    hint.textContent = fields.evidence ?? "";
+    hint.hidden = !fields.evidence;
+    for (const [key, , read] of BLUEPRINT_GHOST_ROWS) {
+      const text = read(fields);
+      const valueEl = blueprintFieldValues?.[key];
+      if (!text || !valueEl) continue;
+      valueEl.textContent = text;
+      const field = valueEl.parentElement;
+      if (field?.classList.contains("pending")) field.classList.replace("pending", "settled");
+    }
+    return { box, controls };
+  }
+  box.replaceChildren();
+  box.append(el("p", "q", "Use this shape for your Lore?"));
+  if (fields.evidence) box.append(el("p", "hint", fields.evidence));
+  const inputs = el("div", "blueprint-fields");
+  const add = (/** @type {string} */ key, /** @type {string} */ label, /** @type {string} */ value, grow = true) => {
+    const field = el("label");
+    field.append(el("span", "", label));
+    /** @type {HTMLInputElement | HTMLTextAreaElement} */
+    let inputField;
+    if (grow) {
+      inputField = el("textarea");
+      inputField.rows = 1;
+      inputField.addEventListener("input", () => fit(/** @type {HTMLTextAreaElement} */ (inputField)));
+    } else {
+      inputField = el("input");
+      inputField.type = "text";
+      enterMovesOn(inputField, inputs);
+    }
+    inputField.value = value;
+    field.append(inputField);
+    controls[key] = inputField;
+    inputs.append(field);
+  };
+  add("name", "Name", fields.name ?? "", false);
+  for (const [key, label] of [["persona", "Told as"], ["organizing_axis", "Organized by"]]) {
+    const field = el("label");
+    field.append(el("span", "", label));
+    const select = el("select");
+    const choices = key === "persona" ? ["storyteller", "schoolteacher", "professor", "executive", "sage"] : ["", "chronological", "theme", "project", "knowledge"];
+    for (const choice of choices) {
+      const option = el("option", "", choice || "persona default");
+      option.value = choice;
+      option.selected = choice === (/** @type {Record<string, unknown>} */ (fields)[key] ?? "");
+      select.append(option);
+    }
+    field.append(select);
+    controls[key] = select;
+    inputs.append(field);
+  }
+  add("topic_outline", "Topics", (fields.topic_outline ?? []).join(", "));
+  add("focus_topics", "In depth", (fields.focus_topics ?? []).join(", "));
+  add("general_areas", "Lightly", (fields.general_areas ?? []).join(", "));
+  add("storytelling", "Voice", fields.storytelling ?? "");
+  box.append(inputs);
+  const actions = el("div", "actions");
+  const use = el("button", "btn primary sm", "Use this shape");
+  use.type = "submit";
+  actions.append(use);
+  box.append(actions);
+  return { box, controls };
 }
 
 /** @param {AgentRequest} event */
 function renderRequest(event) {
-  const box = /** @type {HTMLFormElement} */ (el("form", "card lead request"));
+  // The blueprint panel is built by the shared blueprintPanel() below, in confirm
+  // mode, reusing the live ghost node if the evidence scan already built one.
+  const blueprint = event.type === "blueprint" ? blueprintPanel({ ...event.fields, evidence: event.evidence }, "confirm") : null;
+  const box = /** @type {HTMLFormElement} */ (blueprint?.box ?? el("form", "card lead request"));
   /** A memory card's entries as edited. @type {(() => ProposedMemory[]) | undefined} */
   let current;
   if (event.type === "question") {
@@ -1290,55 +1637,7 @@ function renderRequest(event) {
       respond(event.id, { entries: edited() }, drafts.length === 1 ? "Keep it" : "Keep these");
     });
   } else if (event.type === "blueprint") {
-    box.append(el("p", "q", "Use this shape for your Lore?"), el("p", "hint", event.evidence));
-    const inputs = el("div", "blueprint-fields");
-    /** @type {Record<string, HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>} */
-    const controls = {};
-    const add = (/** @type {string} */ key, /** @type {string} */ label, /** @type {string} */ value, grow = true) => {
-      const field = el("label");
-      field.append(el("span", "", label));
-      /** @type {HTMLInputElement | HTMLTextAreaElement} */
-      let inputField;
-      if (grow) {
-        inputField = el("textarea");
-        inputField.rows = 1;
-        inputField.addEventListener("input", () => fit(/** @type {HTMLTextAreaElement} */ (inputField)));
-      } else {
-        inputField = el("input");
-        inputField.type = "text";
-        enterMovesOn(inputField, inputs);
-      }
-      inputField.value = value;
-      field.append(inputField);
-      controls[key] = inputField;
-      inputs.append(field);
-    };
-    add("name", "Name", event.fields.name, false);
-    for (const [key, label] of [["persona", "Told as"], ["organizing_axis", "Organized by"]]) {
-      const field = el("label");
-      field.append(el("span", "", label));
-      const select = el("select");
-      const choices = key === "persona" ? ["storyteller", "schoolteacher", "professor", "executive", "sage"] : ["", "chronological", "theme", "project", "knowledge"];
-      for (const choice of choices) {
-        const option = el("option", "", choice || "persona default");
-        option.value = choice;
-        option.selected = choice === (/** @type {Record<string, unknown>} */ (event.fields)[key] ?? "");
-        select.append(option);
-      }
-      field.append(select);
-      controls[key] = select;
-      inputs.append(field);
-    }
-    add("topic_outline", "Topics", event.fields.topic_outline.join(", "));
-    add("focus_topics", "In depth", event.fields.focus_topics.join(", "));
-    add("general_areas", "Lightly", event.fields.general_areas.join(", "));
-    add("storytelling", "Voice", event.fields.storytelling);
-    box.append(inputs);
-    const actions = el("div", "actions");
-    const use = el("button", "btn primary sm", "Use this shape");
-    use.type = "submit";
-    actions.append(use);
-    box.append(actions);
+    const { controls } = /** @type {NonNullable<typeof blueprint>} */ (blueprint);
     box.addEventListener("submit", (submitEvent) => {
       submitEvent.preventDefault();
       const list = (/** @type {string} */ key) => controls[key].value.split(",").map((item) => item.trim()).filter(Boolean);
@@ -1526,6 +1825,7 @@ async function openTask(kind, record, fallback) {
   // reads the session file directly, returning [] when there is truly nothing there.
   lines.splice(0, lines.length, ...(await window.lore.history(kind).catch(() => [])));
   liveText = "";
+  resetBlueprintGhost();
   show("today");
   renderLog();
 }
@@ -1559,6 +1859,7 @@ function closeTask() {
   task = "capture";
   lines.splice(0);
   liveText = "";
+  resetBlueprintGhost();
   renderLog();
   render();
 }
@@ -1772,6 +2073,13 @@ function onEvent(event) {
     renderLog();
   }
   else if (event.type === "live") { if (event.task === task) live(event.text); }
+  else if (event.type === "blueprint-progress") {
+    if (event.task !== task) return;
+    blueprintDraft = { ...blueprintDraft, ...event.fields };
+    const { box } = blueprintPanel(blueprintDraft, "live");
+    blueprintSlot.replaceChildren(box);
+    renderLog();
+  }
   else if (event.type === "changed") void load();
   else if (event.type === "message") { if (event.task === task) say(event.text); }
   else if (event.type === "saved") { if (event.task === task) { lines.push({ text: "", owner: false, saved: event.memories }); renderLog(); } }

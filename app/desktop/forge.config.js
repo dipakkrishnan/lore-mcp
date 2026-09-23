@@ -27,7 +27,11 @@ module.exports = {
     appCategoryType: "public.app-category.productivity",
     icon: join(out, "icon"),
     extendInfo: {
-      NSMicrophoneUsageDescription: "Lore listens while you dictate a memory; the words are transcribed on this Mac."
+      NSMicrophoneUsageDescription: "Lore listens while you dictate a memory; the words are transcribed on this Mac.",
+      NSAppleEventsUsageDescription: "Lore reads your own notes from apps on this Mac; nothing leaves it.",
+      NSDocumentsFolderUsageDescription: "Lore reads the folder of notes you picked; nothing leaves this Mac.",
+      NSDesktopFolderUsageDescription: "Lore reads the folder of notes you picked; nothing leaves this Mac.",
+      NSDownloadsFolderUsageDescription: "Lore reads the folder or export you picked; nothing leaves this Mac."
     },
     ignore: (path) => ignored.some((pattern) => pattern.test(path)),
     extraResource: [
@@ -39,7 +43,9 @@ module.exports = {
       join(out, "runtime.json"),
       join(__dirname, "../../plugins/lore/skills")
     ],
-    ...(process.env.LORE_SIGN_IDENTITY ? { osxSign: { identity: process.env.LORE_SIGN_IDENTITY } } : {}),
+    ...(process.env.LORE_SIGN_IDENTITY
+      ? { osxSign: { identity: process.env.LORE_SIGN_IDENTITY, optionsForFile: () => ({ entitlements: join(__dirname, "packaging/entitlements.plist") }) } }
+      : {}),
     ...(process.env.APPLE_API_KEY
       ? {
           osxNotarize: {

@@ -1,0 +1,144 @@
+[
+  {
+    "title": "Negotiating a raise",
+    "create_time": 1762171200.0,
+    "update_time": 1762171800.0,
+    "id": "conv-raise",
+    "current_node": "a1",
+    "mapping": {
+      "root": {"id": "root", "parent": null, "children": ["s0"], "message": null},
+      "s0": {
+        "id": "s0",
+        "parent": "root",
+        "children": ["u1"],
+        "message": {
+          "id": "s0",
+          "author": {"role": "system", "name": null, "metadata": {}},
+          "create_time": null,
+          "content": {"content_type": "text", "parts": [""]}
+        }
+      },
+      "u1": {
+        "id": "u1",
+        "parent": "s0",
+        "children": ["a1", "a1-regenerated"],
+        "message": {
+          "id": "u1",
+          "author": {"role": "user", "name": null, "metadata": {}},
+          "create_time": 1762171200.0,
+          "content": {
+            "content_type": "text",
+            "parts": ["I have been at this job for three years and I want to ask for a raise. How should I open the conversation with my manager?"]
+          }
+        }
+      },
+      "a1": {
+        "id": "a1",
+        "parent": "u1",
+        "children": ["u2"],
+        "message": {
+          "id": "a1",
+          "author": {"role": "assistant", "name": null, "metadata": {}},
+          "create_time": 1762171230.0,
+          "content": {
+            "content_type": "text",
+            "parts": ["Open with the outcome you want, then the evidence. Name a number first, and anchor it to what the role is paid elsewhere."]
+          }
+        }
+      },
+      "a1-regenerated": {
+        "id": "a1-regenerated",
+        "parent": "u1",
+        "children": [],
+        "message": {
+          "id": "a1-regenerated",
+          "author": {"role": "assistant", "name": null, "metadata": {}},
+          "create_time": 1762171260.0,
+          "content": {
+            "content_type": "text",
+            "parts": ["A regenerated answer the owner threw away and never acted on."]
+          }
+        }
+      },
+      "u2": {
+        "id": "u2",
+        "parent": "a1",
+        "children": ["a2"],
+        "message": {
+          "id": "u2",
+          "author": {"role": "user", "name": null, "metadata": {}},
+          "create_time": 1762171290.0,
+          "content": {"content_type": "text", "parts": ["thanks!"]}
+        }
+      },
+      "a2": {
+        "id": "a2",
+        "parent": "u2",
+        "children": [],
+        "message": {
+          "id": "a2",
+          "author": {"role": "assistant", "name": null, "metadata": {}},
+          "create_time": 1762171320.0,
+          "content": {"content_type": "text", "parts": ["Any time."]}
+        }
+      }
+    }
+  },
+  {
+    "title": "Choosing a contractor",
+    "create_time": 1770724800.0,
+    "id": "conv-contractor",
+    "current_node": "c-a1",
+    "mapping": {
+      "c-root": {"id": "c-root", "parent": null, "children": ["c-u1"], "message": null},
+      "c-u1": {
+        "id": "c-u1",
+        "parent": "c-root",
+        "children": ["c-a1"],
+        "message": {
+          "id": "c-u1",
+          "author": {"role": "user", "name": null, "metadata": {}},
+          "create_time": 1770724800.0,
+          "content": {
+            "content_type": "text",
+            "parts": ["Two contractors quoted wildly different prices for the same kitchen. How do I tell which one is serious?"]
+          }
+        }
+      },
+      "c-a1": {
+        "id": "c-a1",
+        "parent": "c-u1",
+        "children": [],
+        "message": {
+          "id": "c-a1",
+          "author": {"role": "assistant", "name": null, "metadata": {}},
+          "create_time": 1770724830.0,
+          "content": {
+            "content_type": "text",
+            "parts": ["Get three written quotes and compare the line items rather than the totals. Get three written quotes and compare the line items rather than the totals. Get three written quotes and compare the line items rather than the totals. Get three written quotes and compare the line items rather than the totals. Get three written quotes and compare the line items rather than the totals. Get three written quotes and compare the line items rather than the totals. Get three written quotes and compare the line items rather than the totals. Get three written quotes and compare the line items rather than the totals. Get three written quotes and compare the line items rather than the totals."]
+          }
+        }
+      }
+    }
+  },
+  {
+    "title": "Quick question",
+    "create_time": 1772625600.0,
+    "id": "conv-quick",
+    "current_node": "q-u1",
+    "mapping": {
+      "q-root": {"id": "q-root", "parent": null, "children": ["q-u1"], "message": null},
+      "q-u1": {
+        "id": "q-u1",
+        "parent": "q-root",
+        "children": [],
+        "message": {
+          "id": "q-u1",
+          "author": {"role": "user", "name": null, "metadata": {}},
+          "create_time": 1772625600.0,
+          "content": {"content_type": "text", "parts": ["what time is it"]}
+        }
+      }
+    }
+  }
+]
