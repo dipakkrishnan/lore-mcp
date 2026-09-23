@@ -33,6 +33,7 @@ from .ui import (
     ask,
     ask_lines,
     confirm,
+    flag_diff,
     heading,
     logo,
     memory_card,
@@ -307,9 +308,16 @@ def parser() -> argparse.ArgumentParser:
     )
     publication_revoke.add_argument("id", type=int)
     publication_reapprove = publication_commands.add_parser(
-        "reapprove", help="keep a publication whose source memory changed"
+        "reapprove",
+        help="keep one or more publications whose source memory changed",
     )
-    publication_reapprove.add_argument("id", type=int)
+    publication_reapprove.add_argument(
+        "id",
+        type=int,
+        nargs="+",
+        help="publication id(s); pass every id flagged by the same change "
+        "to re-approve them as one group",
+    )
 
     push = commands.add_parser(
         "push", help="replace the deployed node's publications with the active set"
@@ -1303,15 +1311,46 @@ def publication_decide() -> int:
 
 
 def publication_list() -> int:
-    """Show every publication and its disclosure state."""
+    """Show every publication and its disclosure state.
+
+    A flagged publication also shows what changed (XC-019): which memory,
+    who wrote it, when, and a diff where a snapshot is available. Where more
+    than one publication was flagged by the same memory change, each one
+    names the others so they can be re-approved together as one group.
+    """
     with Store() as store:
         publications = store.list_publications()
+        labels = {source.name: source.label for source in Registry(store).sources}
+        details = {
+            publication.id: store.flag_detail(publication)
+            for publication in publications
+            if publication.source_changed_at
+        }
     if not publications:
         print("No publications. Draft some with the lore-publish skill.")
         return 0
     for publication in publications:
         publication_card(publication)
         print(f"  id {publication.id}")
+        detail = details.get(publication.id)
+        if not detail:
+            continue
+        group_key = frozenset(entry["memory_id"] for entry in detail)
+        group = [
+            other.id
+            for other in publications
+            if other.id != publication.id
+            and group_key
+            == frozenset(entry["memory_id"] for entry in details.get(other.id, []))
+        ]
+        if group:
+            ids = " ".join(str(i) for i in sorted({publication.id, *group}))
+            muted(
+                f"    same change also flags publication(s) {', '.join(map(str, sorted(group)))} "
+                f"— re-approve together: lore publication reapprove {ids}"
+            )
+        for entry in detail:
+            flag_diff(entry, labels)
     return 0
 
 
@@ -1507,12 +1546,19 @@ def _push(worker: Path, local: bool, job_id: int) -> int:
     return 0
 
 
-def publication_reapprove(publication_id: int) -> int:
-    """Keep a publication as-is after its source memory changed."""
+def publication_reapprove(publication_ids: list[int]) -> int:
+    """Keep one or more publications as-is after their source memory changed.
+
+    Accepts more than one id so every publication flagged by the same memory
+    change can be re-approved in a single decision, per XC-019.
+    """
     _owner_action("re-approving a publication")
     with Store() as store:
-        store.clear_publication_flag(publication_id)
-    success(f"Re-approved publication {publication_id} as published")
+        for publication_id in publication_ids:
+            store.clear_publication_flag(publication_id)
+    ids = ", ".join(str(i) for i in publication_ids)
+    noun = "publication" if len(publication_ids) == 1 else "publications"
+    success(f"Re-approved {noun} {ids} as published")
     return 0
 
 

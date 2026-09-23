@@ -78,6 +78,43 @@ def memory_card(
         print(textwrap.fill(paragraph, width=78) if paragraph else "")
 
 
+def changed_memory_note(detail: dict[str, object], labels: dict[str, str]) -> str:
+    """Describe what changed behind a flag: which memory, who wrote it, when.
+
+    `origin` distinguishes an agent's own rewrite (`automation`, Lore's
+    synthesis) from an owner-side import or capture, so the copy never
+    implies the owner edited a memory an agent rewrote.
+    """
+    if detail["origin"] == "automation":
+        actor = "Lore's synthesis"
+    else:
+        actor = labels.get(str(detail["source"]), str(detail["source"]))
+    when = str(detail["updated_at"])[:10]
+    title = str(detail["title"]).translate(CONTROL_CHARACTERS)
+    return f'"{title}" was rewritten by {actor} on {when}'
+
+
+def flag_diff(detail: dict[str, object], labels: dict[str, str]) -> None:
+    """Print what changed behind a flag, with a diff where one is available."""
+    print(paint("33", f"    ! {changed_memory_note(detail, labels)}"))
+    diff = detail.get("diff")
+    if not isinstance(diff, list):
+        muted(
+            "      no snapshot from before this feature shipped — "
+            "re-approve to start tracking diffs"
+        )
+        return
+    for line in diff:
+        if line.startswith(("---", "+++")):
+            continue
+        if line.startswith("+"):
+            print(paint("32", f"      {line}"))
+        elif line.startswith("-"):
+            print(paint("31", f"      {line}"))
+        else:
+            print(paint("2", f"      {line}"))
+
+
 def publication_card(
     publication: Publication, current: int | None = None, total: int | None = None
 ) -> None:

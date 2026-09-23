@@ -10,6 +10,7 @@ obsolete), then `priority` (P0 → P3).
 
 | ID | Title | Priority | Effort | Component | Status | Related | Blockers | Dependencies | Issue |
 |---|---|---|---|---|---|---|---|---|---|
+| [XC-035](./cross-cutting/XC-035-show-a-diff-for-flagged-publications-in-desktop.md) | Show a diff for flagged publications in Desktop | P1 | M | cross-cutting | ideation | XC-019, MON-004, APP-006, APP-011 | XC-019 | — | — |
 | [APP-046](./desktop-app/APP-046-render-capture-proposals-as-an-editable-memory-card.md) | Render capture proposals as an editable memory card | P0 | S | desktop-app | in-review | APP-003, APP-009, APP-016, APP-045 | — | — | — |
 | [APP-047](./desktop-app/APP-047-give-publication-drafts-one-home.md) | Give publication drafts one home and keep cards in their own thread | P0 | S | desktop-app | in-review | APP-020, APP-023, APP-032, APP-046 | — | — | — |
 | [MON-019](./monetization/MON-019-let-a-desktop-deploy-finish-its-own-push.md) | Let a desktop deploy finish its own push | P0 | S | monetization | in-review | APP-056, APP-055, APP-006, MON-013 | — | — | — |
@@ -104,7 +105,6 @@ obsolete), then `priority` (P0 → P3).
 | [EVAL-001](./evals/EVAL-001-evaluate-the-real-pipeline-not-a-roleplay.md) | Evaluate the real Lore pipeline instead of a roleplay prompt | P1 | S | evals | ready | — | — | — | — |
 | [MON-006](./monetization/MON-006-split-deploy-into-its-own-skill.md) | Move deploy mechanics from the skill into the CLI when edge serving lands | P1 | S | monetization | ready | MON-002, MON-004, MON-005, XC-005 | — | — | — |
 | [MON-016](./monetization/MON-016-provision-the-qa-deploy-environment-credentials.md) | Provision the qa GitHub Environment's credentials so Deploy QA can actually run | P1 | S | monetization | ready | MON-008, XC-008 | — | — | — |
-| [XC-019](./cross-cutting/XC-019-say-what-changed-behind-a-flagged-publication.md) | Say what changed behind a flagged publication | P1 | M | cross-cutting | ready | MON-004, APP-006, APP-011, STO-001 | — | — | — |
 | [XC-029](./cross-cutting/XC-029-stand-up-the-otlp-collector-worker.md) | Stand up the OTLP collector Worker and its Analytics Engine sink | P1 | M | cross-cutting | ready | XC-030, APP-058, MON-021, CLI-004 | — | "A Cloudflare account and Workers Analytics Engine binding the maintainers control — distinct from any owner's node" | — |
 | [AUT-003](./automation-synthesis/AUT-003-bring-the-codex-executor-to-parity-for-synthesis.md) | Bring the Codex executor to parity with Claude for synthesis | P2 | S | automation-synthesis | ready | AUT-001, AUT-002, XC-016, APP-004 | — | "windup (separate repo) for the `before` and `reasoning_effort` changes" | — |
 | [MON-011](./monetization/MON-011-verify-deployed-code-is-actually-live-after-deploy.md) | Verify the Worker is actually running newly deployed code, not a warm stale instance | P2 | S | monetization | ready | MON-006 | — | — | — |
@@ -114,6 +114,7 @@ obsolete), then `priority` (P0 → P3).
 | [MON-021](./monetization/MON-021-export-qa-node-traces-over-otlp.md) | Export QA node traces over OTLP and assert node health after each deploy | P2 | S | monetization | ready | MON-008, MON-020, XC-008, XC-029 | XC-029 | "An OTLP destination for lore-qa configured in the maintainers' Cloudflare Workers Observability dashboard, pointed at the XC-029 collector — cannot be created from a tracked file" | — |
 | [XC-031](./cross-cutting/XC-031-deploy-the-feedback-relay-and-pin-its-address.md) | Deploy the feedback relay, pin its address, and verify one real submission | P2 | S | cross-cutting | ready | XC-028, APP-105, CLI-003 | — | XC-028 | — |
 | [XC-006](./cross-cutting/XC-006-ship-the-owner-skills-as-agent-plugins.md) | Ship the owner skill pack as agent plugins with a marketplace entry | P3 | M | cross-cutting | ready | XC-005, ONB-001 | — | — | — |
+| [XC-019](./cross-cutting/XC-019-say-what-changed-behind-a-flagged-publication.md) | Say what changed behind a flagged publication | P1 | M | cross-cutting | in-progress | MON-004, APP-006, APP-011, STO-001, XC-035 | — | — | — |
 | [APP-121](./desktop-app/APP-121-ship-the-entitlements-and-purpose-strings-connectors-need.md) | Ship the entitlements and purpose strings connectors need | P1 | S | desktop-app | in-progress | CAP-004, CAP-007, APP-005, APP-120 | — | — | — |
 | [APP-019](./desktop-app/APP-019-price-content-natively-in-the-desktop-app.md) | Set the global publication price in Desktop | P1 | M | desktop-app | in-progress | MON-009, MON-013, APP-006, APP-035, XC-020 | — | — | — |
 | [APP-038](./desktop-app/APP-038-sign-in-fails-with-keychain-unavailable-on-unsigned-builds.md) | dogfood:new's HOME override hangs/breaks Keychain-backed sign-in | P1 | M | desktop-app | in-progress | APP-005, APP-013, APP-039 | — | — | — |

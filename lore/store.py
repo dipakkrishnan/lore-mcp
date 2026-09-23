@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import difflib
 import hashlib
 import json
 import os
@@ -397,6 +398,33 @@ class Store:
                 ON owner_jobs(started_at DESC);
             CREATE INDEX IF NOT EXISTS owner_jobs_open
                 ON owner_jobs(kind, started_at DESC) WHERE finished_at IS NULL;
+            -- A snapshot of each source memory's text as of the moment a
+            -- publication was approved (created, or reapproved after being
+            -- flagged). Lets a later `source_changed_at` flag show a diff
+            -- against what the owner actually approved, not just a timestamp.
+            CREATE TABLE IF NOT EXISTS publication_sources (
+                publication_id INTEGER NOT NULL
+                    REFERENCES publications(id) ON DELETE CASCADE,
+                memory_id INTEGER NOT NULL,
+                fingerprint TEXT NOT NULL,
+                content TEXT NOT NULL,
+                captured_at TEXT NOT NULL,
+                PRIMARY KEY (publication_id, memory_id)
+            );
+            -- Per-memory evidence that a provenance memory changed since the
+            -- publication's last approval. `publications.source_changed_at` is
+            -- a single mutable column that a later, unrelated trigger
+            -- overwrites, which silently drops an earlier trigger's evidence
+            -- for a snapshot-less memory (see flag_detail). A row here is
+            -- written once per triggering memory and never overwritten, so it
+            -- survives later triggers until `clear_publication_flag` clears it.
+            CREATE TABLE IF NOT EXISTS publication_flags (
+                publication_id INTEGER NOT NULL
+                    REFERENCES publications(id) ON DELETE CASCADE,
+                memory_id INTEGER NOT NULL,
+                flagged_at TEXT NOT NULL,
+                PRIMARY KEY (publication_id, memory_id)
+            );
             """
         )
         # Roll-forward normalization, not back-compat: a database created before
@@ -735,10 +763,43 @@ class Store:
                 now,
             ),
         )
-        self.db.commit()
         if cursor.lastrowid is None:
             raise OSError("SQLite did not return an id for the new publication")
-        return cursor.lastrowid
+        publication_id = cursor.lastrowid
+        self._snapshot_sources(publication_id, publication.provenance, now)
+        self.db.commit()
+        return publication_id
+
+    def _snapshot_sources(
+        self, publication_id: int, memory_ids: list[int], when: str
+    ) -> None:
+        """Record each source memory's fingerprint and text as of `when`,
+        replacing any prior snapshot for this publication.
+
+        Called at approval time (`add_publication`) and at re-approval
+        (`clear_publication_flag`), so a snapshot always reflects what the
+        owner most recently signed off on, not just the original publish.
+        """
+        self.db.execute(
+            "DELETE FROM publication_sources WHERE publication_id=?",
+            (publication_id,),
+        )
+        if not memory_ids:
+            return
+        rows = self.db.execute(
+            f"SELECT id,fingerprint,content FROM memories WHERE id IN "
+            f"({','.join('?' * len(memory_ids))})",
+            memory_ids,
+        ).fetchall()
+        self.db.executemany(
+            "INSERT INTO publication_sources"
+            "(publication_id,memory_id,fingerprint,content,captured_at) "
+            "VALUES (?,?,?,?,?)",
+            [
+                (publication_id, row["id"], row["fingerprint"], row["content"], when)
+                for row in rows
+            ],
+        )
 
     def missing_memories(self, ids: list[int]) -> list[int]:
         """Return the subset of ids with no memory row, preserving order."""
@@ -760,15 +821,34 @@ class Store:
 
         Matching goes through `json_each` rather than a `LIKE` over the JSON
         text, so memory 1 does not match a publication derived from memory 21.
+
+        Alongside the publication-level `source_changed_at` timestamp, records
+        a `publication_flags` row for this specific memory. That row is what
+        `flag_detail`'s no-snapshot degrade path checks instead of
+        `source_changed_at`, because a later, unrelated memory triggering this
+        same publication again would otherwise overwrite `source_changed_at`
+        and erase this memory's evidence of having changed.
         """
-        cursor = self.db.execute(
-            """UPDATE publications SET source_changed_at=? WHERE active=1 AND id IN (
-                   SELECT p.id FROM publications p, json_each(p.provenance) j
-                   WHERE j.value=?
-               )""",
-            (when, memory_id),
+        matched = [
+            row["id"]
+            for row in self.db.execute(
+                """SELECT p.id FROM publications p, json_each(p.provenance) j
+                   WHERE p.active=1 AND j.value=?""",
+                (memory_id,),
+            )
+        ]
+        if not matched:
+            return 0
+        self.db.executemany(
+            "UPDATE publications SET source_changed_at=? WHERE id=?",
+            [(when, pid) for pid in matched],
         )
-        return cursor.rowcount
+        self.db.executemany(
+            "INSERT OR IGNORE INTO publication_flags"
+            "(publication_id,memory_id,flagged_at) VALUES (?,?,?)",
+            [(pid, memory_id, when) for pid in matched],
+        )
+        return len(matched)
 
     def stale_publications(self) -> list[Publication]:
         """Return active publications whose source memory changed after approval."""
@@ -779,14 +859,113 @@ class Store:
         return [Publication.from_row(row) for row in rows]
 
     def clear_publication_flag(self, publication_id: int) -> None:
-        """Record that the owner re-approved a flagged publication as-is."""
+        """Record that the owner re-approved a flagged publication as-is.
+
+        Refreshes the source snapshot to the memories' current text, so a
+        future flag diffs against what was just re-approved, not the
+        original publish-time text.
+        """
+        now = datetime.now(timezone.utc).isoformat()
         cursor = self.db.execute(
             "UPDATE publications SET source_changed_at=NULL,updated_at=? WHERE id=?",
-            (datetime.now(timezone.utc).isoformat(), publication_id),
+            (now, publication_id),
         )
         if not cursor.rowcount:
             raise ValueError(f"publication not found: {publication_id}")
+        provenance = json.loads(
+            self.db.execute(
+                "SELECT provenance FROM publications WHERE id=?", (publication_id,)
+            ).fetchone()["provenance"]
+        )
+        self._snapshot_sources(publication_id, provenance, now)
+        self.db.execute(
+            "DELETE FROM publication_flags WHERE publication_id=?", (publication_id,)
+        )
         self.db.commit()
+
+    def flag_detail(self, publication: Publication) -> list[dict[str, object]]:
+        """Explain what changed behind a flagged publication.
+
+        For each provenance memory that appears to have caused the flag,
+        report its title, source, origin, and update time, plus a unified
+        diff between the approval-time snapshot and the memory's current
+        text where a snapshot was recorded. A publication approved before
+        this feature shipped (or whose provenance memory has no snapshot for
+        some other reason) has nothing to diff against, so a memory in that
+        state is reported with `diff: None` instead — degrading to name,
+        author, and date rather than showing an empty or wrong diff. Without a
+        snapshot, "changed" can't be told from "untouched" by fingerprint, so
+        it's inferred from `publication_flags`: `_flag_publications_of` writes
+        one row per (publication, memory) the first time that memory triggers
+        a flag, and `clear_publication_flag` clears them all on re-approval.
+        A snapshot-less memory with no row there was not a cause and is left
+        out rather than reported as changed. This is deliberately not
+        `publication.source_changed_at` — that single column is overwritten
+        by every triggering memory, so an earlier trigger's memory would lose
+        its own evidence the moment a different memory flags the same
+        publication again.
+        """
+        if not publication.source_changed_at or not publication.provenance:
+            return []
+        snapshots = {
+            row["memory_id"]: row
+            for row in self.db.execute(
+                "SELECT memory_id,fingerprint,content,captured_at "
+                "FROM publication_sources WHERE publication_id=?",
+                (publication.id,),
+            )
+        }
+        flagged_memory_ids = {
+            row["memory_id"]
+            for row in self.db.execute(
+                "SELECT memory_id FROM publication_flags WHERE publication_id=?",
+                (publication.id,),
+            )
+        }
+        memories = {
+            row["id"]: row
+            for row in self.db.execute(
+                f"SELECT id,title,source,origin,updated_at,fingerprint,content "
+                f"FROM memories WHERE id IN "
+                f"({','.join('?' * len(publication.provenance))})",
+                publication.provenance,
+            )
+        }
+        changed: list[dict[str, object]] = []
+        for memory_id in publication.provenance:
+            memory = memories.get(memory_id)
+            if memory is None:
+                continue  # deleted since approval; nothing left to attribute
+            snapshot = snapshots.get(memory_id)
+            if (
+                snapshot is not None
+                and snapshot["fingerprint"] == memory["fingerprint"]
+            ):
+                continue  # unchanged; a different provenance memory triggered the flag
+            if snapshot is None and memory_id not in flagged_memory_ids:
+                continue  # no snapshot to compare, and this one never triggered a flag
+            diff = None
+            if snapshot is not None:
+                diff = list(
+                    difflib.unified_diff(
+                        snapshot["content"].splitlines(),
+                        memory["content"].splitlines(),
+                        fromfile="approved",
+                        tofile="current",
+                        lineterm="",
+                    )
+                )
+            changed.append(
+                {
+                    "memory_id": memory_id,
+                    "title": memory["title"],
+                    "source": memory["source"],
+                    "origin": memory["origin"],
+                    "updated_at": memory["updated_at"],
+                    "diff": diff,
+                }
+            )
+        return changed
 
     def revoke_publication(self, publication_id: int) -> None:
         """Mark a publication revoked so MCP can no longer return it."""

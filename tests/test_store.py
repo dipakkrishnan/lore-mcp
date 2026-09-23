@@ -471,6 +471,198 @@ class PublicationTest(LoreTestCase):
             store.clear_publication_flag(derived)
             self.assertEqual(store.stale_publications(), [])
 
+    def test_flag_detail_reports_the_changed_memory_and_a_diff(self) -> None:
+        derived = self.publish()
+        with Store() as store:
+            store.put(
+                source="test",
+                origin="native",
+                source_path="Pricing lesson",
+                source_key="Pricing lesson",
+                fingerprint="changed",
+                title="Pricing lesson",
+                content="a changed body",
+            )
+            publication = next(p for p in store.stale_publications() if p.id == derived)
+            detail = store.flag_detail(publication)
+        self.assertEqual(len(detail), 1)
+        entry = detail[0]
+        self.assertEqual(entry["title"], "Pricing lesson")
+        self.assertEqual(entry["source"], "test")
+        self.assertEqual(entry["origin"], "native")
+        self.assertIsNotNone(entry["diff"])
+        diff_text = "\n".join(entry["diff"])
+        self.assertIn("-Pricing lesson about deployment", diff_text)
+        self.assertIn("+a changed body", diff_text)
+
+    def test_flag_detail_degrades_without_a_snapshot(self) -> None:
+        # A publication approved before this feature shipped (or whose row
+        # predates the publication_sources table) has no snapshot to diff
+        # against — the flag must still say what changed, just without a diff.
+        derived = self.publish()
+        with Store() as store:
+            store.db.execute(
+                "DELETE FROM publication_sources WHERE publication_id=?", (derived,)
+            )
+            store.db.commit()
+            store.put(
+                source="test",
+                origin="native",
+                source_path="Pricing lesson",
+                source_key="Pricing lesson",
+                fingerprint="changed",
+                title="Pricing lesson",
+                content="a changed body",
+            )
+            publication = next(p for p in store.stale_publications() if p.id == derived)
+            detail = store.flag_detail(publication)
+        self.assertEqual(len(detail), 1)
+        self.assertEqual(detail[0]["title"], "Pricing lesson")
+        self.assertIsNone(detail[0]["diff"])
+
+    def test_flag_detail_without_a_snapshot_does_not_attribute_untouched_provenance(
+        self,
+    ) -> None:
+        # Same setup as the "Live evidence" in the backlog item: a
+        # multi-provenance publication with no snapshot rows for any of
+        # them (approved before publication_sources existed). Only one of
+        # the two provenance memories is actually edited — the other must
+        # not show up as "changed" just because neither has a snapshot.
+        other = self.seed_memory("Deployment lesson")
+        derived = self.publish(provenance=[self.memory_id, other])
+        with Store() as store:
+            store.db.execute(
+                "DELETE FROM publication_sources WHERE publication_id=?", (derived,)
+            )
+            store.db.commit()
+            store.put(
+                source="test",
+                origin="native",
+                source_path="Pricing lesson",
+                source_key="Pricing lesson",
+                fingerprint="changed",
+                title="Pricing lesson",
+                content="a changed body",
+            )
+            publication = next(p for p in store.stale_publications() if p.id == derived)
+            detail = store.flag_detail(publication)
+        self.assertEqual([entry["title"] for entry in detail], ["Pricing lesson"])
+        self.assertIsNone(detail[0]["diff"])
+
+    def test_flag_detail_without_a_snapshot_keeps_an_earlier_changed_memory_after_a_later_one_also_flags(
+        self,
+    ) -> None:
+        # Round 2 regression: the round-1 degrade path compared a
+        # snapshot-less memory's updated_at against the publication's single
+        # source_changed_at column, but _flag_publications_of overwrites that
+        # column on every trigger. A second, unrelated provenance memory
+        # changing later must not erase the first memory's evidence of having
+        # changed — both are genuinely stale and must both be reported.
+        other = self.seed_memory("Deployment lesson")
+        derived = self.publish(provenance=[self.memory_id, other])
+        with Store() as store:
+            store.db.execute(
+                "DELETE FROM publication_sources WHERE publication_id=?", (derived,)
+            )
+            store.db.commit()
+            store.put(
+                source="test",
+                origin="native",
+                source_path="Pricing lesson",
+                source_key="Pricing lesson",
+                fingerprint="changed",
+                title="Pricing lesson",
+                content="a changed body",
+            )
+            store.put(
+                source="test",
+                origin="native",
+                source_path="Deployment lesson",
+                source_key="Deployment lesson",
+                fingerprint="changed-too",
+                title="Deployment lesson",
+                content="a second changed body",
+            )
+            publication = next(p for p in store.stale_publications() if p.id == derived)
+            detail = store.flag_detail(publication)
+        self.assertEqual(
+            {entry["title"] for entry in detail},
+            {"Pricing lesson", "Deployment lesson"},
+        )
+        self.assertTrue(all(entry["diff"] is None for entry in detail))
+
+    def test_flag_detail_is_empty_for_an_unflagged_publication(self) -> None:
+        pid = self.publish()
+        with Store() as store:
+            publication = next(p for p in store.list_publications() if p.id == pid)
+            self.assertEqual(store.flag_detail(publication), [])
+
+    def test_reapprove_refreshes_the_snapshot_for_a_later_diff(self) -> None:
+        derived = self.publish()
+        with Store() as store:
+            store.put(
+                source="test",
+                origin="native",
+                source_path="Pricing lesson",
+                source_key="Pricing lesson",
+                fingerprint="changed",
+                title="Pricing lesson",
+                content="first change",
+            )
+            store.clear_publication_flag(derived)
+            store.put(
+                source="test",
+                origin="native",
+                source_path="Pricing lesson",
+                source_key="Pricing lesson",
+                fingerprint="changed-again",
+                title="Pricing lesson",
+                content="second change",
+            )
+            publication = next(p for p in store.stale_publications() if p.id == derived)
+            detail = store.flag_detail(publication)
+        self.assertEqual(len(detail), 1)
+        diff_text = "\n".join(detail[0]["diff"])
+        # The diff is against the re-approval snapshot ("first change"), not
+        # the original publish-time text.
+        self.assertIn("-first change", diff_text)
+        self.assertIn("+second change", diff_text)
+        self.assertNotIn("deployment", diff_text)
+
+    def test_flag_detail_attributes_an_agents_own_rewrite_to_automation(self) -> None:
+        # `origin` is set once, at first import, and `put`'s update path never
+        # touches it — so an automation-sourced memory must be created with
+        # that origin from the start to exercise the attribution.
+        with Store() as store:
+            store.put(
+                source="automation",
+                origin="automation",
+                source_path="Synthesized note",
+                source_key="Synthesized note",
+                fingerprint="v1",
+                title="Synthesized note",
+                content="first version",
+            )
+            memory = store.search("Synthesized note")[0]
+            pid = store.add_publication(
+                title="Synth claim",
+                content="a claim",
+                topic="synth",
+                provenance=[memory.id],
+            )
+            store.put(
+                source="automation",
+                origin="automation",
+                source_path="Synthesized note",
+                source_key="Synthesized note",
+                fingerprint="v2",
+                title="Synthesized note",
+                content="rewritten by synthesis",
+            )
+            publication = next(p for p in store.stale_publications() if p.id == pid)
+            detail = store.flag_detail(publication)
+        self.assertEqual(detail[0]["origin"], "automation")
+
     def test_a_revoked_publication_is_never_flagged(self) -> None:
         pid = self.publish()
         with Store() as store:
