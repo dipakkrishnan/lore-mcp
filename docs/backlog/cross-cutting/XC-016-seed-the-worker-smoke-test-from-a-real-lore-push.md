@@ -4,13 +4,13 @@ title: Seed the Worker smoke test from a real `lore push --local`, not a hand-co
 priority: P1
 effort: S
 component: cross-cutting
-status: ready
+status: completed
 related: [CLI-002, XC-013, XC-004]
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-08-04
-updated: 2026-08-26
+updated: 2026-09-22
 ---
 
 ## Problem
@@ -52,14 +52,14 @@ today.
 
 ## Acceptance criteria
 
-- [ ] `worker-smoke` seeds its local D1 database by running
+- [x] `worker-smoke` seeds its local D1 database by running
       `lore push --local`, not a hand-written `CREATE TABLE`/`INSERT` script
-- [ ] The smoke assertions check specific content from the seeded
+- [x] The smoke assertions check specific content from the seeded
       publications (title, teaser, topic), not just row presence
-- [ ] A deliberate change to `_push_sql`'s column list (verify during
+- [x] A deliberate change to `_push_sql`'s column list (verify during
       implementation) makes this job fail rather than silently pass against
       a stale hand-copied schema
-- [ ] The existing unpaid `discover` and 402-`get` assertions in
+- [x] The existing unpaid `discover` and 402-`get` assertions in
       `scripts/smoke.ts` still pass
 
 ## Notes
@@ -82,3 +82,15 @@ drive-contract in the contract tests") merged to `main` first via #80 and
 claimed that id.
 
 **Prioritization pass 2026-08-26:** No blockers, closes a real fixture-drift gap with a concrete three-step approach. Promoted `in-review` → `ready`.
+
+**Implementation (2026-09-22):** already landed on `main` via PR #183
+(merged 2026-09-03, `f944240`) — `.github/workflows/tests.yml`'s
+`worker-smoke` job seeds via `.github/scripts/seed_worker_smoke.py` +
+`lore push --local --worker-dir .` and `scripts/smoke.ts` asserts on
+`SMOKE_EXPECT_TOPIC`/`SMOKE_EXPECT_TEASER`, exactly this item's proposed
+approach; the workflow file cites XC-016 by name. All four acceptance
+criteria verified against PR #183's own test plan, including a deliberate
+negative test (wrong `SMOKE_EXPECT_TEASER` value fails the job) standing in
+for criterion 3's `_push_sql` drift check. `status` had simply never been
+flipped from `ready` — no code change needed here, correcting the backlog
+record only.
