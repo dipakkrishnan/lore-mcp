@@ -1,0 +1,16 @@
+{
+  "feed": [
+    {
+      "post": {
+        "uri": "at://did:plc:abcd/app.bsky.feed.post/3lpost2",
+        "author": {"did": "did:plc:abcd", "handle": "writer.bsky.social", "displayName": "The Writer"},
+        "record": {
+          "$type": "app.bsky.feed.post",
+          "text": "A reply, which the filter should have excluded and the reader skips anyway.",
+          "createdAt": "2026-09-08T09:00:00.000Z",
+          "reply": {"root": {"uri": "at://did:plc:abcd/app.bsky.feed.post/3lroot"}}
+        }
+      }
+    }
+  ]
+}

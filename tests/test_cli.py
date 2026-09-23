@@ -24,6 +24,7 @@ from helpers import LoreTestCase, blueprint_input, captured
 
 from lore import automation, blueprint, cli, feedback
 from lore import deploy as deploy_module
+from lore import sources as sources_module
 from lore.store import JobKind, JobStatus, PublicationKind, Status, Store
 
 
@@ -89,6 +90,57 @@ class ParserTest(unittest.TestCase):
                 {"command": "capture", "capture_command": "apply", "file": "-"},
             ),
             (["status"], {"command": "status"}),
+            (
+                ["sources", "add", "--folder", "/notes", "--since", "2026-01-01"],
+                {
+                    "command": "sources",
+                    "sources_command": "add",
+                    "folder": "/notes",
+                    "label": None,
+                    "since": "2026-01-01",
+                },
+            ),
+            (
+                ["sources", "add", "--folder", "/v", "--connector", "obsidian"],
+                {"sources_command": "add", "folder": "/v", "connector": "obsidian"},
+            ),
+            (
+                [
+                    "sources",
+                    "connect",
+                    "substack",
+                    "https://a.example",
+                    "--replace",
+                    "x",
+                ],
+                {
+                    "sources_command": "connect",
+                    "connector": "substack",
+                    "locator": "https://a.example",
+                    "replace": "x",
+                },
+            ),
+            (
+                ["sources", "catalog", "--json"],
+                {"sources_command": "catalog", "json": True},
+            ),
+            (
+                ["sources", "choices", "obsidian", "--json"],
+                {"sources_command": "choices", "connector": "obsidian", "json": True},
+            ),
+            (
+                ["sources", "preview", "--folder", "/notes", "--json"],
+                {"sources_command": "preview", "folder": "/notes", "json": True},
+            ),
+            (["sources", "list"], {"sources_command": "list"}),
+            (
+                ["sources", "read", "codex"],
+                {"sources_command": "read", "name": ["codex"]},
+            ),
+            (
+                ["sources", "remove", "folder-1", "--delete"],
+                {"sources_command": "remove", "name": "folder-1", "delete": True},
+            ),
             (["help"], {"command": "help"}),
             (["price", "1.5"], {"amount": 1.5}),
             (
@@ -175,6 +227,10 @@ class ParserTest(unittest.TestCase):
             ["review", "--all", "external"],
             ["serve", "--transport", "grpc"],
             ["sync", "--source", "notion"],
+            ["sources", "add"],  # a folder is required
+            ["sources", "choices"],  # an app is required
+            ["sources", "remove", "folder-1"],  # keep or delete must be chosen
+            ["sources", "remove", "folder-1", "--keep", "--delete"],
             ["node"],  # `node` alone does nothing; a subcommand is required
             ["answer"],
             ["telemetry"],
@@ -401,6 +457,89 @@ class SetupTest(LoreTestCase):
         self.assertNotIn("Synthesis", output.getvalue())
 
 
+class SourcesCommandTest(LoreTestCase):
+    def folder(self, count: int = 3) -> Path:
+        root = Path(self.tmp.name) / "notes"
+        root.mkdir()
+        for index in range(count):
+            (root / f"note-{index}.md").write_text(
+                f"# Note {index}\n\nA lesson long enough to be worth keeping."
+            )
+        return root
+
+    def json_command(self, *argv: str) -> object:
+        with captured() as output:
+            self.assertEqual(cli.main([*argv, "--json"]), 0)
+        return json.loads(output.getvalue())
+
+    def test_a_folder_can_be_previewed_added_read_listed_and_removed(self) -> None:
+        root = self.folder()
+        preview = self.json_command("sources", "preview", "--folder", str(root))
+        self.assertEqual(preview["count"], 3)
+        self.assertEqual(preview["skipped"], 0)
+        self.assertEqual(preview["state"], "connected")
+
+        added = self.json_command(
+            "sources", "add", "--folder", str(root), "--label", "Notes"
+        )
+        self.assertEqual(added["label"], "Notes")
+        self.assertEqual(added["imported"], 3)
+        self.assertEqual(added["state"], "connected")
+
+        listed = self.json_command("sources", "list")
+        self.assertEqual([entry["name"] for entry in listed][2:], [added["name"]])
+
+        read = self.json_command("sources", "read", str(added["name"]))
+        self.assertEqual(
+            read,
+            [
+                {
+                    "name": added["name"],
+                    "added": 0,
+                    "updated": 0,
+                    "unchanged": 3,
+                    "errors": 0,
+                    "state": "connected",
+                }
+            ],
+        )
+
+        removed = self.json_command("sources", "remove", str(added["name"]), "--delete")
+        self.assertEqual(
+            removed,
+            {
+                "name": added["name"],
+                "removed": True,
+                "memories": {"deleted": 3, "kept": 0},
+            },
+        )
+        with Store() as store:
+            self.assertEqual(store.counts()["private"], 0)
+
+    def test_the_text_output_names_every_state(self) -> None:
+        root = self.folder(1)
+        with captured() as output:
+            self.assertEqual(cli.main(["sources", "add", "--folder", str(root)]), 0)
+            self.assertEqual(cli.main(["sources", "list"]), 0)
+        text = output.getvalue()
+        self.assertIn("connected", text)
+        self.assertIn("off", text)
+        self.assertIn("1 imported", text)
+
+    def test_a_bad_source_argument_exits_two_with_one_line(self) -> None:
+        for argv in (
+            ["sources", "add", "--folder", str(Path(self.tmp.name) / "gone")],
+            ["sources", "remove", "codex", "--keep"],
+            ["sources", "remove", "folder-0", "--keep"],
+            ["sources", "read", "nope"],
+        ):
+            with self.subTest(argv=argv):
+                with captured(), patch("sys.stderr", new_callable=StringIO) as stderr:
+                    self.assertEqual(cli.main(argv), 2)
+                self.assertEqual(len(stderr.getvalue().splitlines()), 1)
+                self.assertTrue(stderr.getvalue().startswith("lore: "))
+
+
 class SyncTest(LoreTestCase):
     def test_sync_reports_per_source_counts(self) -> None:
         (self.codex_home / "memories").mkdir(parents=True)
@@ -417,9 +556,19 @@ class SyncTest(LoreTestCase):
         # source they did not configure, they opted into their own library.
         with Store() as store:
             store.set_setting("sources", ["codex"])
-        with patch("lore.cli.scan", return_value={}) as scan:
+        with patch("lore.cli.Registry.scan", return_value={}) as scan:
             self.assertEqual(cli.sync(), 0)
-        self.assertEqual(scan.call_args.args[1], {"codex", "automation"})
+        self.assertEqual(scan.call_args.args[0], {"codex", "automation"})
+
+    def test_sync_also_refreshes_the_folders_the_owner_connected(self) -> None:
+        root = Path(self.tmp.name) / "notes"
+        root.mkdir()
+        (root / "note.md").write_text("# Note\n\nA lesson long enough to be kept.")
+        with Store() as store:
+            name = sources_module.Registry(store).add(str(root))["name"]
+        with captured() as output:
+            self.assertEqual(cli.sync(), 0)
+        self.assertIn(f"{name}", output.getvalue())
 
 
 class ScheduledSynthesisRecordTest(LoreTestCase):
@@ -789,6 +938,18 @@ class StatusTest(LoreTestCase):
             cli.status()
         text = output.getvalue()
         self.assertIn("NOT reached the deployed node", text)
+        self.assertIn("lore push", text)
+
+    def test_status_keeps_reminding_while_an_approval_has_not_reached_the_node(
+        self,
+    ) -> None:
+        with Store() as store:
+            store.set_setting("publish_pending", True)
+        with captured() as output:
+            cli.status()
+        text = output.getvalue()
+        self.assertIn("NOT reached the deployed node", text)
+        self.assertIn("does not serve the new set yet", text)
         self.assertIn("lore push", text)
 
     def test_status_nudges_when_a_publication_outlived_its_source(self) -> None:
@@ -1283,6 +1444,47 @@ class PublicationApplyTest(LoreTestCase):
         with Store() as store:
             self.assertIs(store.list_publications()[0].kind, PublicationKind.CONTENT)
 
+    def test_approving_without_a_deployed_node_stays_local(self) -> None:
+        with self._attended(), patch.object(cli, "ask", return_value="a"), captured():
+            with patch.object(cli, "push") as push:
+                self.assertEqual(cli.publication_apply(self.candidates()), 0)
+        push.assert_not_called()
+        with Store() as store:
+            self.assertFalse(store.setting("publish_pending", False))
+
+    def test_approving_several_candidates_in_one_sitting_pushes_once_not_per_card(
+        self,
+    ) -> None:
+        # MON-013: batched so the interactive loop in `publication_apply`
+        # doesn't cost one edge write per approved card.
+        path = self.candidates({"title": "First claim"}, {"title": "Second claim"})
+        with Store() as store:
+            store.set_setting("node_url", "https://node.example/mcp")
+        with (
+            self._attended(),
+            patch.object(cli, "ask", side_effect=["a", "a"]),
+            patch.object(cli, "push", return_value=0) as push,
+            captured(),
+        ):
+            self.assertEqual(cli.publication_apply(path), 0)
+        push.assert_called_once_with(str(cli.home() / "node"))
+
+    def test_a_failed_approval_push_is_recorded_never_silently_dropped(self) -> None:
+        with Store() as store:
+            store.set_setting("node_url", "https://node.example/mcp")
+        with (
+            self._attended(),
+            patch.object(cli, "ask", return_value="a"),
+            patch.object(cli, "push", side_effect=ValueError("wrangler down")),
+            captured(),
+            self.assertRaises(ValueError) as raised,
+        ):
+            cli.publication_apply(self.candidates())
+        self.assertIn("lore push", str(raised.exception))
+        with Store() as store:
+            self.assertEqual(len(store.list_publications(active_only=True)), 1)
+            self.assertTrue(store.setting("publish_pending", False))
+
     def drafted(self, *overrides: dict) -> list[dict]:
         """Stage candidates the way the desktop agent does: a JSON array on stdin."""
         with open(self.candidates(*overrides), encoding="utf-8") as batch:
@@ -1323,6 +1525,52 @@ class PublicationApplyTest(LoreTestCase):
         with Store() as store:
             self.assertEqual([p.title for p in store.list_publications()], ["First"])
         self.assertFalse(self.staged_path.exists())
+
+    def test_the_desktop_app_pushes_each_approved_card_immediately(self) -> None:
+        # MON-013, mirroring MON-004's granularity: the desktop app calls
+        # `publication_decide` once per card, so each call is already one
+        # discrete owner action — push per call, not batched.
+        first, second = self.drafted({"title": "First"}, {"title": "Second"})
+        with Store() as store:
+            store.set_setting("node_url", "https://node.example/mcp")
+        with (
+            desktop_stdin(json.dumps({"candidate": first, "approve": True})),
+            patch.object(cli, "push", return_value=0) as push,
+            captured(),
+        ):
+            self.assertEqual(cli.publication_decide(), 0)
+        push.assert_called_once_with(str(cli.home() / "node"))
+        with (
+            desktop_stdin(json.dumps({"candidate": second, "approve": True})),
+            patch.object(cli, "push", return_value=0) as push,
+            captured(),
+        ):
+            self.assertEqual(cli.publication_decide(), 0)
+        push.assert_called_once_with(str(cli.home() / "node"))
+
+    def test_a_failed_desktop_approval_push_is_recorded_never_silently_dropped(
+        self,
+    ) -> None:
+        (first,) = self.drafted()
+        with Store() as store:
+            store.set_setting("node_url", "https://node.example/mcp")
+        with (
+            desktop_stdin(json.dumps({"candidate": first, "approve": True})),
+            patch.object(cli, "push", side_effect=ValueError("wrangler down")),
+            captured(),
+            self.assertRaises(ValueError) as raised,
+        ):
+            cli.publication_decide()
+        self.assertIn("lore push", str(raised.exception))
+        with Store() as store:
+            self.assertEqual(len(store.list_publications(active_only=True)), 1)
+            self.assertTrue(store.setting("publish_pending", False))
+        # A failed push must not leave the card stuck in staged.json — retrying
+        # the same call would otherwise re-approve it and duplicate the
+        # publication (round 1 review finding).
+        with captured() as out:
+            cli.publication_candidates()
+        self.assertEqual(json.loads(out.getvalue()), [])
 
     def test_the_owner_can_edit_prose_but_not_a_drafts_identity(self) -> None:
         (original,) = self.drafted()
@@ -1722,6 +1970,20 @@ class PushTest(LoreTestCase):
         self._push()
         with Store() as store:
             self.assertFalse(store.setting("revocation_pending", True))
+
+    def test_a_remote_push_clears_a_pending_publish_but_a_local_one_does_not(
+        self,
+    ) -> None:
+        # MON-013's mirror of the revocation case above: a remote push is a
+        # full replace, so it discharges a pending approval too.
+        with Store() as store:
+            store.set_setting("publish_pending", True)
+        self._push(local=True)
+        with Store() as store:
+            self.assertTrue(store.setting("publish_pending", False))
+        self._push()
+        with Store() as store:
+            self.assertFalse(store.setting("publish_pending", True))
 
     def test_a_failed_edge_write_is_retried_once_before_it_fails_the_push(
         self,

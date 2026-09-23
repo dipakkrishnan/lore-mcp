@@ -267,6 +267,13 @@ legend { font-weight: 500; font-size: 14px; margin-bottom: 6px; }
 .blueprint-fields label:nth-child(4), .blueprint-fields label:nth-child(7) { grid-column: 1 / -1; }
 .blueprint-fields input, .blueprint-fields select, .blueprint-fields textarea { color: var(--ink); }
 .blueprint-fields textarea { min-height: 36px; padding: 6px 12px; border: 1px solid var(--line-strong); border-radius: var(--radius-sm); background: var(--surface); resize: none; line-height: 1.45; }
+/* Ghost panel (APP-022): read-only fields fill in as propose_blueprint streams. A field settles
+   once, the first time it gets a value; further streamed text never re-animates it. */
+.blueprint-panel.ghost .blueprint-fields .value { color: var(--ink); font-size: 13px; }
+.blueprint-panel.ghost .blueprint-fields label.pending .value { color: var(--muted); }
+.blueprint-panel.ghost .blueprint-fields label.settled .value { animation: blueprint-settle 0.35s ease-out; }
+@keyframes blueprint-settle { from { opacity: 0; transform: translateY(2px); } }
+@media (prefers-reduced-motion: reduce) { .blueprint-panel.ghost .blueprint-fields label.settled .value { animation: none; } }
 
 /* Rows */
 .rows { display: flex; flex-direction: column; }
@@ -286,6 +293,16 @@ legend { font-weight: 500; font-size: 14px; margin-bottom: 6px; }
 a.link-btn { display: inline-flex; align-items: center; height: 22px; padding: 0 8px; border: 1px solid var(--line-strong); border-radius: 6px; background: var(--surface); color: var(--accent); font-size: 12px; }
 a.link-btn:hover { background: var(--hover); text-decoration: none; }
 a.link-btn.glyph { width: 22px; padding: 0; justify-content: center; color: var(--muted); }
+.logo { width: 22px; height: 22px; flex-shrink: 0; }
+.logo + .t { flex: 1; }
+.logo.initial { display: inline-flex; align-items: center; justify-content: center; border-radius: 6px; background: var(--accent-soft); color: var(--accent); font-size: 12px; font-weight: 600; }
+.sheet-head .logo { width: 28px; height: 28px; }
+.choices { display: flex; flex-direction: column; gap: 8px; }
+.choice { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border: 1px solid var(--line); border-radius: var(--radius-sm); cursor: pointer; }
+.choice:has(:checked) { border-color: var(--accent); }
+.choice b { font-weight: 500; white-space: nowrap; }
+.choice .hint { flex: 1; min-width: 0; text-align: right; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sheet .actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 8px; }
 .row .v { display: flex; align-items: center; gap: 10px; flex-shrink: 0; max-width: 60%; font-size: 13px; color: var(--ink-soft); }
 .row .v .mono { min-width: 0; overflow-wrap: anywhere; }
 .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--attention); flex-shrink: 0; }
