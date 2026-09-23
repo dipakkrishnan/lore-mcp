@@ -2116,6 +2116,28 @@ class PushTest(LoreTestCase):
         with Store() as store:
             self.assertEqual(store.recent_jobs()[0].summary, "edge_write_failed")
 
+    def test_a_wedged_edge_write_is_bounded_rather_than_hanging_the_push(
+        self,
+    ) -> None:
+        # MON-023: the D1 write inside `_push` is routed through
+        # `deploy_module._run`, so a wedged `wrangler d1 execute` (no attended
+        # terminal to answer a hung prompt) must fail after
+        # SUBPROCESS_TIMEOUT_S rather than hang the push — and the owner's
+        # turn — forever, the same way every other deploy-chain subprocess
+        # already does.
+        self.publish()
+        error = subprocess.TimeoutExpired(
+            ("wrangler", "d1", "execute"), 300, output="", stderr="stuck"
+        )
+        with (
+            patch("subprocess.run", side_effect=error),
+            captured(),
+            self.assertRaisesRegex(ValueError, "could not write the edge database"),
+        ):
+            cli.push(str(self.worker))
+        with Store() as store:
+            self.assertEqual(store.recent_jobs()[0].summary, "edge_write_failed")
+
     def test_the_sql_file_is_cleaned_up_after_a_push(self) -> None:
         self.publish()
         _, run, _ = self._push()

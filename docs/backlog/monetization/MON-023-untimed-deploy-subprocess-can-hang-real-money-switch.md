@@ -127,3 +127,16 @@ item:
   (`lore/node/README.md`) — it runs plain `npx wrangler ...` commands by hand
   in a real terminal, not through an agent turn, so there is no "hang the
   turn indefinitely" failure mode there; a stuck command is just Ctrl-C-able.
+
+**Round 1/2 review found a missed call, fixed 2026-09-23:** `_deploy()`
+unconditionally calls `push_job()` near the end of every deploy, which routes
+to `_push()` in `lore/cli.py` — its own `wrangler d1 execute ... --remote`
+call (`lore/cli.py:1509`) was a bare `subprocess.run` with no `timeout=` or
+`stdin=subprocess.DEVNULL`, the same untimed-call class this item's own
+"Every `subprocess.run` in `lore/deploy.py`'s deploy chain" acceptance
+criterion was meant to cover, just one function over in `cli.py`. Fixed by
+routing `_push()`'s D1 write through `deploy_module._run()` (the same choke
+point everything else already goes through) instead of calling
+`subprocess.run` directly, so it now gets the same timeout, `stdin=DEVNULL`,
+and `TimeoutExpired`→`OSError` handling. Covered by a new case in
+`PushTest` (`tests/test_cli.py`).
