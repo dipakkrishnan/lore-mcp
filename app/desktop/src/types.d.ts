@@ -267,6 +267,7 @@ type AgentEvent =
   | AgentRequest
   | { type: "dismiss"; id: string }
   | { type: "live"; task: AgentTask | null; text: string }
+  | { type: "blueprint-progress"; task: AgentTask | null; fields: Partial<BlueprintFields> & { evidence?: string } }
   | { type: "working"; active: boolean; task: AgentTask }
   | { type: "changed" }
   | { type: "message"; task: AgentTask | null; text: string }

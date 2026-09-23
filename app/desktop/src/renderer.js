@@ -26,6 +26,7 @@ const agentPanel = $("#agent");
 const detailSlot = $("#detail");
 const log = $("#log");
 const requestSlot = $("#request");
+const blueprintSlot = $("#blueprint");
 const search = /** @type {HTMLButtonElement} */ ($("#search"));
 const palette = /** @type {HTMLDialogElement} */ ($("#palette"));
 const paletteInput = /** @type {HTMLInputElement} */ ($("#palette-input"));
@@ -80,6 +81,26 @@ let sales = null;
 let busy = null;
 /** The card awaiting the owner. A memory card also carries `current`, its entries as edited, so the composer can send a spoken or typed correction with them. @type {{id: string, task: AgentTask | null, box: HTMLElement, current?: () => ProposedMemory[]} | null} */
 let request = null;
+/**
+ * The one blueprint panel node for the current setup thread: a read-only
+ * ghost while propose_blueprint's fields are still streaming in, then the
+ * same node reparented into #request as the confirm form once it settles
+ * (APP-022 — one component, two modes). Null when no scan is in progress.
+ * @type {HTMLFormElement | null}
+ */
+let blueprintGhost = null;
+/** The ghost panel's fields as they arrive, merged in as each propose_blueprint delta parses further. @type {Partial<BlueprintFields> & { evidence?: string }} */
+let blueprintDraft = {};
+/** The ghost panel's per-field value nodes, built once and patched in place thereafter — a field's settle transition plays exactly once, whichever DOM node first carries a value. @type {Record<string, HTMLElement> | null} */
+let blueprintFieldValues = null;
+
+/** Drop the ghost panel and its draft — a new setup thread starts clean. */
+function resetBlueprintGhost() {
+  blueprintGhost = null;
+  blueprintDraft = {};
+  blueprintFieldValues = null;
+  blueprintSlot.replaceChildren();
+}
 
 const RING = `<svg viewBox="0 0 26 26" fill="none"><rect x="4.5" y="5" width="17" height="16" rx="3.2" fill="currentColor"></rect><path d="M3 11.2L4.5 10.6C8 9.2 10.5 12.2 13 10.9S18.5 9.6 21.5 11.2L23 12" stroke="var(--accent)" stroke-width="1.7"></path><path d="M3 16.9L4.5 16.3C8 15 10.5 17.8 13 16.6S18.5 15 21.5 16.8L23 17.7" stroke="var(--accent)" stroke-width="1.7"></path></svg>`;
 const RENAME_ICON = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7V4h16v3M9 20h6M12 4v16"></path></svg>`;
@@ -1395,6 +1416,7 @@ function syncComposer() {
 function clearRequest() {
   request = null;
   requestSlot.replaceChildren();
+  resetBlueprintGhost();
   syncComposer();
 }
 
@@ -1409,13 +1431,124 @@ function renderLog() {
     line.append(mark("mark mark-sm"), markdown(liveText));
     log.append(line);
   }
-  agentPanel.hidden = !lines.length && !liveText && !shownRequest() && !detailSlot.childElementCount;
+  agentPanel.hidden = !lines.length && !liveText && !shownRequest() && !detailSlot.childElementCount && !blueprintGhost;
   if (log.lastElementChild) mainEl.scrollTop = mainEl.scrollHeight;
+}
+
+/** Ghost-mode field order: key, label, and how to read that field's display text out of a (possibly partial) fields object. */
+const BLUEPRINT_GHOST_ROWS = /** @type {const} */ ([
+  ["name", "Name", (/** @type {Partial<BlueprintFields>} */ f) => f.name ?? ""],
+  ["persona", "Told as", (/** @type {Partial<BlueprintFields>} */ f) => f.persona ?? ""],
+  ["organizing_axis", "Organized by", (/** @type {Partial<BlueprintFields>} */ f) => f.organizing_axis ?? ""],
+  ["topic_outline", "Topics", (/** @type {Partial<BlueprintFields>} */ f) => (f.topic_outline ?? []).join(", ")],
+  ["focus_topics", "In depth", (/** @type {Partial<BlueprintFields>} */ f) => (f.focus_topics ?? []).join(", ")],
+  ["general_areas", "Lightly", (/** @type {Partial<BlueprintFields>} */ f) => (f.general_areas ?? []).join(", ")],
+  ["storytelling", "Voice", (/** @type {Partial<BlueprintFields>} */ f) => f.storytelling ?? ""]
+]);
+
+/**
+ * The blueprint panel: a read-only ghost while fields are still streaming in
+ * from propose_blueprint, or the editable confirm form once it settles.
+ * Reuses `blueprintGhost` as the same node across both modes (APP-022) —
+ * nothing is thrown away and rebuilt when the mode switches, only its
+ * contents change. In "live" mode the field rows are built once and then only
+ * patched in place, so a field's settle transition plays exactly once no
+ * matter how many more deltas stream in afterward, for it or any other field.
+ * @param {Partial<BlueprintFields> & { evidence?: string }} fields
+ * @param {"live" | "confirm"} mode
+ */
+function blueprintPanel(fields, mode) {
+  const reused = Boolean(blueprintGhost);
+  const box = /** @type {HTMLFormElement} */ (blueprintGhost ?? el("form", "card lead request blueprint-panel"));
+  blueprintGhost = box;
+  box.classList.toggle("ghost", mode === "live");
+  /** @type {Record<string, HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>} */
+  const controls = {};
+  if (mode === "live") {
+    if (!reused) {
+      box.replaceChildren(el("p", "q", "Shaping your Lore…"), el("p", "hint"));
+      const inputs = el("div", "blueprint-fields");
+      blueprintFieldValues = {};
+      for (const [key, label] of BLUEPRINT_GHOST_ROWS) {
+        const field = el("label", "pending");
+        const value = el("span", "value", "…");
+        field.append(el("span", "", label), value);
+        inputs.append(field);
+        blueprintFieldValues[key] = value;
+      }
+      box.append(inputs);
+    }
+    const hint = /** @type {HTMLElement} */ (box.querySelector(".hint"));
+    hint.textContent = fields.evidence ?? "";
+    hint.hidden = !fields.evidence;
+    for (const [key, , read] of BLUEPRINT_GHOST_ROWS) {
+      const text = read(fields);
+      const valueEl = blueprintFieldValues?.[key];
+      if (!text || !valueEl) continue;
+      valueEl.textContent = text;
+      const field = valueEl.parentElement;
+      if (field?.classList.contains("pending")) field.classList.replace("pending", "settled");
+    }
+    return { box, controls };
+  }
+  box.replaceChildren();
+  box.append(el("p", "q", "Use this shape for your Lore?"));
+  if (fields.evidence) box.append(el("p", "hint", fields.evidence));
+  const inputs = el("div", "blueprint-fields");
+  const add = (/** @type {string} */ key, /** @type {string} */ label, /** @type {string} */ value, grow = true) => {
+    const field = el("label");
+    field.append(el("span", "", label));
+    /** @type {HTMLInputElement | HTMLTextAreaElement} */
+    let inputField;
+    if (grow) {
+      inputField = el("textarea");
+      inputField.rows = 1;
+      inputField.addEventListener("input", () => fit(/** @type {HTMLTextAreaElement} */ (inputField)));
+    } else {
+      inputField = el("input");
+      inputField.type = "text";
+      enterMovesOn(inputField, inputs);
+    }
+    inputField.value = value;
+    field.append(inputField);
+    controls[key] = inputField;
+    inputs.append(field);
+  };
+  add("name", "Name", fields.name ?? "", false);
+  for (const [key, label] of [["persona", "Told as"], ["organizing_axis", "Organized by"]]) {
+    const field = el("label");
+    field.append(el("span", "", label));
+    const select = el("select");
+    const choices = key === "persona" ? ["storyteller", "schoolteacher", "professor", "executive", "sage"] : ["", "chronological", "theme", "project", "knowledge"];
+    for (const choice of choices) {
+      const option = el("option", "", choice || "persona default");
+      option.value = choice;
+      option.selected = choice === (/** @type {Record<string, unknown>} */ (fields)[key] ?? "");
+      select.append(option);
+    }
+    field.append(select);
+    controls[key] = select;
+    inputs.append(field);
+  }
+  add("topic_outline", "Topics", (fields.topic_outline ?? []).join(", "));
+  add("focus_topics", "In depth", (fields.focus_topics ?? []).join(", "));
+  add("general_areas", "Lightly", (fields.general_areas ?? []).join(", "));
+  add("storytelling", "Voice", fields.storytelling ?? "");
+  box.append(inputs);
+  const actions = el("div", "actions");
+  const use = el("button", "btn primary sm", "Use this shape");
+  use.type = "submit";
+  actions.append(use);
+  box.append(actions);
+  return { box, controls };
 }
 
 /** @param {AgentRequest} event */
 function renderRequest(event) {
-  const box = /** @type {HTMLFormElement} */ (el("form", "card lead request"));
+  // The blueprint panel is built by the shared blueprintPanel() below, in confirm
+  // mode, reusing the live ghost node if the evidence scan already built one.
+  const blueprint = event.type === "blueprint" ? blueprintPanel({ ...event.fields, evidence: event.evidence }, "confirm") : null;
+  const box = /** @type {HTMLFormElement} */ (blueprint?.box ?? el("form", "card lead request"));
   /** A memory card's entries as edited. @type {(() => ProposedMemory[]) | undefined} */
   let current;
   if (event.type === "question") {
@@ -1504,55 +1637,7 @@ function renderRequest(event) {
       respond(event.id, { entries: edited() }, drafts.length === 1 ? "Keep it" : "Keep these");
     });
   } else if (event.type === "blueprint") {
-    box.append(el("p", "q", "Use this shape for your Lore?"), el("p", "hint", event.evidence));
-    const inputs = el("div", "blueprint-fields");
-    /** @type {Record<string, HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>} */
-    const controls = {};
-    const add = (/** @type {string} */ key, /** @type {string} */ label, /** @type {string} */ value, grow = true) => {
-      const field = el("label");
-      field.append(el("span", "", label));
-      /** @type {HTMLInputElement | HTMLTextAreaElement} */
-      let inputField;
-      if (grow) {
-        inputField = el("textarea");
-        inputField.rows = 1;
-        inputField.addEventListener("input", () => fit(/** @type {HTMLTextAreaElement} */ (inputField)));
-      } else {
-        inputField = el("input");
-        inputField.type = "text";
-        enterMovesOn(inputField, inputs);
-      }
-      inputField.value = value;
-      field.append(inputField);
-      controls[key] = inputField;
-      inputs.append(field);
-    };
-    add("name", "Name", event.fields.name, false);
-    for (const [key, label] of [["persona", "Told as"], ["organizing_axis", "Organized by"]]) {
-      const field = el("label");
-      field.append(el("span", "", label));
-      const select = el("select");
-      const choices = key === "persona" ? ["storyteller", "schoolteacher", "professor", "executive", "sage"] : ["", "chronological", "theme", "project", "knowledge"];
-      for (const choice of choices) {
-        const option = el("option", "", choice || "persona default");
-        option.value = choice;
-        option.selected = choice === (/** @type {Record<string, unknown>} */ (event.fields)[key] ?? "");
-        select.append(option);
-      }
-      field.append(select);
-      controls[key] = select;
-      inputs.append(field);
-    }
-    add("topic_outline", "Topics", event.fields.topic_outline.join(", "));
-    add("focus_topics", "In depth", event.fields.focus_topics.join(", "));
-    add("general_areas", "Lightly", event.fields.general_areas.join(", "));
-    add("storytelling", "Voice", event.fields.storytelling);
-    box.append(inputs);
-    const actions = el("div", "actions");
-    const use = el("button", "btn primary sm", "Use this shape");
-    use.type = "submit";
-    actions.append(use);
-    box.append(actions);
+    const { controls } = /** @type {NonNullable<typeof blueprint>} */ (blueprint);
     box.addEventListener("submit", (submitEvent) => {
       submitEvent.preventDefault();
       const list = (/** @type {string} */ key) => controls[key].value.split(",").map((item) => item.trim()).filter(Boolean);
@@ -1740,6 +1825,7 @@ async function openTask(kind, record, fallback) {
   // reads the session file directly, returning [] when there is truly nothing there.
   lines.splice(0, lines.length, ...(await window.lore.history(kind).catch(() => [])));
   liveText = "";
+  resetBlueprintGhost();
   show("today");
   renderLog();
 }
@@ -1773,6 +1859,7 @@ function closeTask() {
   task = "capture";
   lines.splice(0);
   liveText = "";
+  resetBlueprintGhost();
   renderLog();
   render();
 }
@@ -1986,6 +2073,13 @@ function onEvent(event) {
     renderLog();
   }
   else if (event.type === "live") { if (event.task === task) live(event.text); }
+  else if (event.type === "blueprint-progress") {
+    if (event.task !== task) return;
+    blueprintDraft = { ...blueprintDraft, ...event.fields };
+    const { box } = blueprintPanel(blueprintDraft, "live");
+    blueprintSlot.replaceChildren(box);
+    renderLog();
+  }
   else if (event.type === "changed") void load();
   else if (event.type === "message") { if (event.task === task) say(event.text); }
   else if (event.type === "saved") { if (event.task === task) { lines.push({ text: "", owner: false, saved: event.memories }); renderLog(); } }
