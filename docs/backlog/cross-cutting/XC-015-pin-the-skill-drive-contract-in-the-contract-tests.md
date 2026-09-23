@@ -4,13 +4,13 @@ title: Pin the skill drive-contract in the contract tests
 priority: P2
 effort: S
 component: cross-cutting
-status: ready
+status: completed
 related: [XC-005, XC-003]
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-08-05
-updated: 2026-08-26
+updated: 2026-09-22
 ---
 
 ## Problem
@@ -38,12 +38,15 @@ substrings are enough and simplest.
 
 ## Acceptance criteria
 
-- [ ] A contract test fails if any owner skill lacks the drive rules (one step at a
-      time; announce-then-open; verify from state; decisions defer to the owner).
-- [ ] The test names the offending skill and missing rule in its failure message,
-      the way the `AskUserQuestion` test does.
-- [ ] Adding a new skill directory under `plugins/lore/skills/` picks it up with no
-      test edit.
+- [x] A contract test fails if any owner skill lacks the drive rules (one step at a
+      time; announce-then-open; verify from state; decisions defer to the owner) —
+      `test_every_owner_skill_states_the_drive_contract`.
+- [x] The test names the offending skill and missing rule in its failure message,
+      the way the `AskUserQuestion` test does — `subTest(skill=..., rule=...)` plus
+      an explicit `f"{skill.name} is missing the '{rule}' drive rule"` message.
+- [x] Adding a new skill directory under `plugins/lore/skills/` picks it up with no
+      test edit — the test iterates `_owner_skills()`, the same dynamic glob the
+      `AskUserQuestion` test already uses.
 
 ## Notes
 
@@ -53,3 +56,13 @@ live run has walked them — this item is the cheap mechanical backstop for the
 branches that XC-005-style dry-runs miss.
 
 **Prioritization pass 2026-08-26:** No blockers, small effort, concrete AC extending an existing contract-test pattern. Promoted `in-review` → `ready`.
+
+**Implementation (2026-09-22):** chose the pinned-substrings shape over the
+byte-compared section, per the item's own note that the `AskUserQuestion`
+precedent is simplest — `DRIVE_RULES` in `tests/test_skill_contract.py` maps each
+rule name to the exact bolded lead-in `lore-enable-payments` already used
+(`One step at a time.`, `Announce, then open.`,
+`Verify from state, never by asking.`, `Defer at decision points.`). Added a
+matching "How to drive" section to `lore-capture`, `lore-onboard`, and
+`lore-publish`, worded to each skill's own flow rather than byte-identical, since
+`lore-enable-payments`'s wallet-specific bullets don't generalize.
