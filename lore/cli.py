@@ -100,6 +100,19 @@ def parser() -> argparse.ArgumentParser:
         "--since", help="keep only items dated on or after YYYY-MM-DD"
     )
     source_add.add_argument("--json", action="store_true")
+    source_catalog = source_commands.add_parser(
+        "catalog", help="the apps Lore can connect"
+    )
+    source_catalog.add_argument("--json", action="store_true")
+    source_connect = source_commands.add_parser(
+        "connect", help="connect an app from the catalog"
+    )
+    source_connect.add_argument("connector", help="the app, like obsidian")
+    source_connect.add_argument("locator", help="the vault, file, or address to read")
+    source_connect.add_argument(
+        "--replace", metavar="NAME", help="the connection this one takes over from"
+    )
+    source_connect.add_argument("--json", action="store_true")
     source_choices = source_commands.add_parser(
         "choices", help="what an app on this Mac offers to connect"
     )
@@ -650,6 +663,17 @@ def source_command(args: argparse.Namespace) -> int:
                     locator, args.label, args.since, kind, args.connector
                 )
                 payload, lines = added, [_source_line(added)]
+            elif command == "catalog":
+                apps = [app.model_dump() for app in sources_module.Connector.catalog()]
+                payload, lines = (
+                    apps,
+                    [f"  {app['id']:<14} {app['what']}" for app in apps],
+                )
+            elif command == "connect":
+                added = Registry(store).connect(
+                    args.connector, args.locator, replacing=args.replace
+                )
+                payload, lines = added, [_source_line(added)]
             elif command == "choices":
                 connector = sources_module.Connector.named(args.connector)
                 choices = [choice.model_dump() for choice in connector.choices()]
@@ -914,6 +938,7 @@ def status() -> int:
         answer_settings = store.answer_settings()
         node_url = store.setting("node_url", None)
         revocation_pending = store.setting("revocation_pending", False)
+        publish_pending = store.setting("publish_pending", False)
         published = len(store.list_publications(active_only=True))
         stale = len(store.stale_publications())
     heading("Library")
@@ -953,6 +978,11 @@ def status() -> int:
         print(
             "A revocation has NOT reached the deployed node — it still serves "
             "the old set. Run: lore push"
+        )
+    if publish_pending:
+        print(
+            "A newly approved publication has NOT reached the deployed node — "
+            "it does not serve the new set yet. Run: lore push"
         )
     return 0
 
@@ -1158,6 +1188,7 @@ def publication_apply(path: str) -> int:
         )
     data = PUBLICATION_CANDIDATES.validate_json(Path(path).read_text(encoding="utf-8"))
     logo()
+    quit_early = False
     with Store() as store:
         candidates = [_candidate(raw, store) for raw in data]
         approved = 0
@@ -1190,16 +1221,23 @@ def publication_apply(path: str) -> int:
                     )
                     continue
                 if choice == "q":
-                    success(
-                        f"Approved {approved} publication{'s' if approved != 1 else ''}"
-                    )
-                    return 0
+                    quit_early = True
+                    break
                 break  # reject: save nothing, move on
+            if quit_early:
+                break
     success(f"Approved {approved} publication{'s' if approved != 1 else ''}")
     if approved:
         muted(
             "These are now answerable over MCP. Revoke any time: lore publication revoke <id>"
         )
+        # MON-013: pushed once per session rather than once per approval, so
+        # approving several candidates in one sitting (this loop) costs one
+        # edge write, not one per card. `publication_decide` (the desktop
+        # app's one-decision-per-call path) pushes per call instead, matching
+        # `publication_revoke`'s granularity exactly (MON-004) since each of
+        # its invocations is already its own discrete owner action.
+        _push_after_approval()
     return 0
 
 
@@ -1251,6 +1289,16 @@ def publication_decide() -> int:
     del staged[_index]
     _stage(staged)
     print(json.dumps({"approved": decision.approve, "remaining": len(staged)}))
+    if decision.approve:
+        # Each call here is already one discrete owner decision (the desktop
+        # app invokes this once per card), the same granularity MON-004 gave
+        # `publication_revoke` — so push per call, not batched like the CLI's
+        # multi-candidate loop in `publication_apply`. Staged-queue bookkeeping
+        # and the caller's response above are unconditional on push success —
+        # same ordering `publication_apply` uses — so a failed push can't leave
+        # the card stuck in staged.json where a retry would re-approve it and
+        # duplicate the publication (round 1 review finding).
+        _push_after_approval()
     return 0
 
 
@@ -1265,6 +1313,28 @@ def publication_list() -> int:
         publication_card(publication)
         print(f"  id {publication.id}")
     return 0
+
+
+def _push_after_approval() -> None:
+    """Push newly approved publications to the deployed node (MON-013): the
+    mirror-image of `publication_revoke`'s MON-004 push. A failed push
+    records `publish_pending` so `lore status` keeps saying the edge is
+    behind until a push lands — never silently dropped.
+    """
+    with Store() as store:
+        node_url = store.setting("node_url", None)
+    if not node_url:
+        return
+    try:
+        push(str(home() / "node"))
+    except (OSError, ValueError) as error:
+        with Store() as store:
+            store.set_setting("publish_pending", True)
+        raise ValueError(
+            "approved locally, but the deployed node does not yet serve the "
+            f"new set ({error}) — run `lore push` to finish; `lore status` "
+            "will remind you"
+        ) from error
 
 
 def publication_revoke(publication_id: int) -> int:
@@ -1418,10 +1488,11 @@ def _push(worker: Path, local: bool, job_id: int) -> int:
             "and that `lore-publications` exists (npx wrangler d1 create lore-publications)"
         )
     if not local:
-        # A remote push is a full replace, so whatever revocation was pending
-        # is now guaranteed gone from the edge.
+        # A remote push is a full replace, so whatever revocation or approval
+        # was pending is now guaranteed reflected at the edge (MON-004, MON-013).
         with Store() as store:
             store.set_setting("revocation_pending", False)
+            store.set_setting("publish_pending", False)
         from .snapshot import forget_live  # local import, as desktop-state does
 
         forget_live()

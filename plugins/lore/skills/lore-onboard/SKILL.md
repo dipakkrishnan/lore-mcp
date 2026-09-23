@@ -24,6 +24,19 @@ substitute a temp file, `echo`, `printf`, a pipe, or another delimiter:
 - `lore blueprint apply - <<'LORE_BLUEPRINT'` → `~/.lore/blueprint/blueprint.json` (the shape)
 - `lore profile - <<'LORE_PROFILE'` → `~/.lore/automation/profile.json` (what steers synthesis)
 
+## How to drive — read this first
+
+- **One step at a time.** Ask one question, wait for the answer, move to the
+  next. Never paste the whole interview as a wall of questions.
+- **Announce, then open.** Before running an install step or writing a file,
+  say in one sentence what it does and why.
+- **Verify from state, never by asking.** `lore status` and the onboarding
+  checkpoint are the truth — never re-ask an answered question or re-run a
+  finished phase.
+- **Defer at decision points.** Installing the runtime, the blueprint's shape,
+  and every profile field are the owner's calls; propose, then take their
+  answer.
+
 ## 0. Preconditions
 
 ```sh

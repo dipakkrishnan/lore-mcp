@@ -71,6 +71,10 @@ Load-bearing rules, in priority order:
 
 ## Inference auth
 
+Named source integrations follow the [connector contract](connectors.md).
+The catalog and validation live in Python; Desktop shares setup and management
+controls across apps.
+
 Resolved (was the largest open unknown): `pi-ai` already ships OAuth flows
 for Anthropic (Claude Pro/Max) and OpenAI Codex (ChatGPT), with PKCE,
 device-code, token refresh serialized inside the credential store. The app's

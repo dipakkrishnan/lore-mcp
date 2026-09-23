@@ -22,6 +22,17 @@ primary path; the host agent handles microphone and transcription.
 > propose again. Skip sections 3 and 4: never run the save command yourself,
 > and never offer publication. The owner starts that from the saved card.
 
+## How to drive — read this first
+
+- **One step at a time.** Listen, propose, correct, confirm — one exchange at a
+  time, never the whole flow at once.
+- **Announce, then open.** Before reading a file or folder, say in one sentence
+  what you're about to read and why.
+- **Verify from state, never by asking.** Read `~/.lore/automation/profile.json`
+  and the material itself; don't ask the owner to restate what you can read.
+- **Defer at decision points.** Which entries to keep, correct, or drop is the
+  owner's call alone — save nothing until they clearly approve.
+
 ## 1. Listen before structuring
 
 If the owner wants voice, tell them to use the current host's dictation control

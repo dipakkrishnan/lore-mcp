@@ -11,6 +11,7 @@ import os
 import unittest
 from datetime import datetime
 from pathlib import Path
+from unittest.mock import patch
 
 from helpers import LoreTestCase
 
@@ -254,6 +255,31 @@ class OwnerFolderTest(LoreTestCase):
             }
         self.assertEqual(states["claude"], "off")
 
+    def test_read_failures_keep_preview_unhealthy_even_with_other_good_notes(
+        self,
+    ) -> None:
+        root = self.vault(
+            good_md="# Good\n\nA readable note long enough to keep in Lore.",
+            locked_md="# Locked\n\nA private note long enough to keep in Lore.",
+        )
+        original = Path.read_text
+
+        def read_text(path: Path, *args: object, **kwargs: object) -> str:
+            if path.name == "locked.md":
+                raise PermissionError("denied")
+            return original(path, *args, **kwargs)
+
+        with patch.object(Path, "read_text", read_text):
+            found = sources_module.preview(str(root))
+            self.assertEqual((found["count"], found["state"]), (1, "needs_permission"))
+
+            (root / "good.md").unlink()
+            found = sources_module.preview(str(root))
+            self.assertEqual((found["count"], found["state"]), (0, "needs_permission"))
+
+        with patch.object(Path, "read_text", side_effect=OSError("offline")):
+            self.assertEqual(sources_module.preview(str(root))["state"], "unreachable")
+
     def test_preview_counts_what_would_be_kept_and_writes_nothing(self) -> None:
         root = self.vault(
             long_md="# Long\n\nA note long enough to count as a real memory.",
@@ -444,6 +470,47 @@ class ConnectorTest(LoreTestCase):
                     "connector"
                 ]
             )
+
+    def vault(self, name: str) -> Path:
+        root = Path(self.tmp.name) / name
+        root.mkdir()
+        (root / "note.md").write_text(
+            f"# {name}\n\nA lesson in {name} long enough to be worth keeping."
+        )
+        return root
+
+    def test_changing_the_vault_reads_the_new_one_before_retiring_the_old(
+        self,
+    ) -> None:
+        first, second = self.vault("First"), self.vault("Second")
+        with Store() as store:
+            registry = Registry(store)
+            old = registry.connect("obsidian", str(first))
+            with self.assertRaises(sources_module.SourceError):
+                registry.connect(
+                    "obsidian", str(first / "gone"), replacing=str(old["name"])
+                )
+            self.assertEqual([s.name for s in registry.owned], [old["name"]])
+            new = registry.connect("obsidian", str(second), replacing=str(old["name"]))
+            self.assertEqual([s.name for s in registry.owned], [new["name"]])
+            self.assertEqual(new["label"], "Second")
+            self.assertEqual(store.counts()["private"], 2)
+            with self.assertRaises(sources_module.SourceError):
+                registry.connect("obsidian", str(first), replacing="codex")
+
+    def test_the_catalog_says_what_each_app_needs(self) -> None:
+        apps = {app.id: app for app in Connector.catalog()}
+        self.assertEqual(list(apps), ["obsidian", "chatgpt", "claude", "substack"])
+        self.assertEqual(
+            (apps["obsidian"].kind, apps["obsidian"].refresh), ("folder", True)
+        )
+        self.assertEqual(
+            (apps["substack"].kind, apps["substack"].refresh), ("feed", True)
+        )
+        self.assertEqual(
+            (apps["chatgpt"].kind, apps["chatgpt"].refresh), ("export", False)
+        )
+        self.assertTrue(apps["substack"].placeholder.startswith("https://"))
 
     def test_an_unknown_app_or_the_wrong_kind_for_it_is_refused(self) -> None:
         with self.assertRaises(sources_module.SourceError):

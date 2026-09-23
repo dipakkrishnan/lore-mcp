@@ -56,6 +56,20 @@ if (scenario === "listing") {
     process.env.LORE_FEEDBACK_URL = `http://127.0.0.1:${relay.address().port}/report`;
     require(join(src, "main.cjs"));
   });
+} else if (scenario === "connectors") {
+  // A newsletter to address, served from a fixture; and the file dialog answered with the export
+  // the seed left, since a native dialog cannot be driven from here.
+  const { readFileSync } = require("node:fs");
+  const { dialog } = require("electron");
+  dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [join(S, "chatgpt.json")] });
+  const newsletter = require("node:http").createServer((_request, response) => {
+    response.writeHead(200, { "Content-Type": "application/rss+xml" });
+    response.end(readFileSync(join(S, "substack.xml")));
+  });
+  newsletter.listen(0, "127.0.0.1", () => {
+    process.env.LORE_EDGE_NEWSLETTER = `http://127.0.0.1:${newsletter.address().port}/`;
+    require(join(src, "main.cjs"));
+  });
 } else {
   require(join(src, "main.cjs"));
 }
@@ -129,7 +143,7 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         await shot("today-recent-runs-empty");
 
         // APP-084: Settings reports what the scheduler holds, not that a profile file exists.
-        await js(`window.__lore.show("settings")`);
+        await js(`window.__lore.show("connectors")`);
         await sleep(500);
         let rhythm = await js(`[...document.querySelectorAll("#content .row")].find((r) => r.textContent.includes("How often Lore reads them")).textContent`);
         check("a saved rhythm nothing runs says so, and offers Schedule", /Set for every day at 9 PM with Codex, but nothing on this Mac is running it\./.test(rhythm) && /Not scheduled/.test(rhythm) && /Schedule$/.test(rhythm), rhythm);
@@ -262,14 +276,14 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         await waitFor(`document.body.dataset.state === "welcome" && !document.querySelector("#welcome").classList.contains("provisioning")`);
         await js(`window.__lore.signIn()`);
         await waitFor(`document.querySelector("#content .strip")`);
-        await js(`window.__lore.show("settings")`);
+        await js(`window.__lore.show("connectors")`);
         const rowText = `[...document.querySelectorAll("#content .row")].find((r) => r.textContent.includes("Obsidian"))?.textContent ?? ""`;
         const rowButton = `[...document.querySelectorAll("#content .row")].find((r) => r.textContent.includes("Obsidian")).querySelector("button").click()`;
         await waitFor(rowText);
         await sleep(300);
         const offered = await js(rowText);
         check("Obsidian is offered by name, with what Lore reads and one Connect", /Your vaults and notes/.test(offered) && /Connect/.test(offered) && !/folder|source|markdown/i.test(offered), offered);
-        check("the row carries the app's own mark", await js(`document.querySelector("#content .row img.logo")?.getAttribute("src")`) === "assets/obsidian.svg");
+        check("the row carries the app's own mark", await js(`[...document.querySelectorAll("#content .row")].find((r) => r.textContent.includes("Obsidian"))?.querySelector("img.logo")?.getAttribute("src")`) === "assets/obsidian.svg");
         await shot("settings-obsidian-offered");
         await js(rowButton);
         check("Connect lists the vault by name; nothing to type or browse", await waitFor(`document.querySelector("dialog.sheet[open] .choice")?.textContent.includes("Edge Vault")`));
@@ -292,6 +306,88 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         await js(`[...document.querySelectorAll("dialog.sheet[open] button")].find((b) => b.textContent === "Disconnect").click()`);
         await js(`[...document.querySelectorAll("dialog.sheet[open] button")].find((b) => b.textContent === "Keep").click()`);
         check("disconnecting offers Obsidian again and keeps the memories", await waitFor(`/Your vaults and notes/.test(${rowText})`) && await js(`document.querySelector("#status").textContent.includes("3 memories kept")`));
+      } else if (scenario === "connectors") {
+        // The catalog drives the surface: three apps of three shapes, none of them special-cased.
+        await waitFor(`document.body.dataset.state === "welcome" && !document.querySelector("#welcome").classList.contains("provisioning")`);
+        await js(`window.__lore.signIn()`);
+        await waitFor(`document.querySelector("#content .strip")`);
+        await js(`window.__lore.show("connectors")`);
+        // Only the rows under "Where memories come from": Account also says Claude.
+        const sourceRows = `[...[...document.querySelectorAll("#content section")].find((s) => s.textContent.includes("Where memories come from")).querySelectorAll(".row")]`;
+        const rowOf = (name) => `${sourceRows}.find((r) => r.querySelector("b").textContent === ${JSON.stringify(name)})`;
+        const textOf = (name) => `(${rowOf(name)}?.textContent ?? "")`;
+        const clickOn = (name) => `${rowOf(name)}.querySelector("button").click()`;
+        const primary = `document.querySelector("dialog.sheet[open] .btn.primary")`;
+        await waitFor(textOf("Substack"));
+        await sleep(300);
+        const offered = await js(`["Obsidian", "ChatGPT", "Claude", "Substack"].map((n) => ${sourceRows}.find((r) => r.querySelector("b").textContent === n)?.textContent ?? "")`);
+        check("every app in the catalog is offered by name, in its own words", offered.length === 4 && /Connect/.test(offered[0]) && /Import/.test(offered[1]) && /Import/.test(offered[2]) && /Connect/.test(offered[3]) && !offered.some((t) => /folder|source|markdown|feed|rss|url/i.test(t)), offered.join(" | "));
+        check("every offered app carries its own mark", await js(`["Obsidian", "ChatGPT", "Claude", "Substack"].every((n) => ${sourceRows}.find((r) => r.querySelector("b").textContent === n)?.querySelector("img.logo"))`));
+        await shot("settings-catalog");
+
+        // Obsidian: choose among vaults; a change to a vault that is gone leaves the working one alone.
+        await js(clickOn("Obsidian"));
+        check("Obsidian offers every vault it knows", await waitFor(`document.querySelectorAll("dialog.sheet[open] .choice").length === 2`));
+        await js(`[...document.querySelectorAll("dialog.sheet[open] .choice")].find((c) => c.textContent.includes("Edge Vault")).querySelector("input").click()`);
+        await js(`${primary}.click()`);
+        check("a vault connects and says what it kept", await waitFor(`/Connected/.test(${textOf("Obsidian")}) && /2 notes kept/.test(${textOf("Obsidian")})`), await js(textOf("Obsidian")));
+        await js(clickOn("Obsidian"));
+        await waitFor(`document.querySelector("dialog.sheet[open]")`);
+        await js(`[...document.querySelectorAll("dialog.sheet[open] button")].find((b) => b.textContent === "Change vault").click()`);
+        await waitFor(`document.querySelectorAll("dialog.sheet[open] .choice").length === 2`);
+        await js(`[...document.querySelectorAll("dialog.sheet[open] .choice")].find((c) => c.textContent.includes("Stale Vault")).querySelector("input").click()`);
+        await js(`${primary}.click()`);
+        check("a change to a vault that is gone is refused where it happened, by name", await waitFor(`/can't reach Stale Vault/.test(document.querySelector("#status .notice.attention")?.textContent ?? "") && !${primary}.disabled`), await js(`document.querySelector("#status .notice.attention")?.textContent`));
+        await shot("obsidian-change-refused");
+        await js(`document.querySelector("dialog.sheet[open] .icon-btn").click()`);
+        await sleep(300);
+        check("…and the working vault stays connected", /Edge Vault/.test(await js(textOf("Obsidian"))) && /Connected/.test(await js(textOf("Obsidian"))), await js(textOf("Obsidian")));
+
+        // Substack: an address, nothing to browse.
+        await js(clickOn("Substack"));
+        check("Substack asks for an address and offers no folder", await waitFor(`document.querySelector("dialog.sheet[open] input[type=url]") && ![...document.querySelectorAll("dialog.sheet[open] button")].some((b) => /Choose a/.test(b.textContent))`));
+        check("Connect waits for the address", await js(`${primary}.disabled`));
+        await js(`{ const f = document.querySelector("dialog.sheet[open] input[type=url]"); f.value = ${JSON.stringify(process.env.LORE_EDGE_NEWSLETTER)}; f.dispatchEvent(new Event("input")); }`);
+        await js(`${primary}.click()`);
+        check("a newsletter connects and counts posts, not notes", await waitFor(`/Connected/.test(${textOf("Substack")}) && /\\d+ posts? kept/.test(${textOf("Substack")})`), await js(textOf("Substack")));
+        check("a connected newsletter still offers another", await js(`${sourceRows}.filter((r) => r.querySelector("b").textContent === "Substack").length`) === 2);
+
+        // An export: a file, brought in once.
+        await js(clickOn("ChatGPT"));
+        check("an export asks for the file that was downloaded", await waitFor(`/Choose the export/.test(document.querySelector("dialog.sheet[open] p")?.textContent ?? "")`));
+        await js(`[...document.querySelectorAll("dialog.sheet[open] button")].find((b) => b.textContent === "Choose a file…").click()`);
+        check("the chosen file is offered, selected", await waitFor(`${primary}.disabled === false && document.querySelector("dialog.sheet[open] .choice input").checked`));
+        await js(`${primary}.click()`);
+        check("an export imports and says what it kept", await waitFor(`/^ChatGPT2 conversations kept/.test(${textOf("ChatGPT")})`), await js(textOf("ChatGPT")));
+        await js(clickOn("ChatGPT"));
+        await waitFor(`document.querySelector("dialog.sheet[open]")`);
+        check("a connected export is not offered again; a newer one goes through Manage", await js(`${sourceRows}.filter((r) => r.querySelector("b").textContent === "ChatGPT").length`) === 1);
+        check("an export is read once: no Read again, and it says so", await js(`![...document.querySelectorAll("dialog.sheet[open] button")].some((b) => b.textContent === "Read again") && /Read once/.test(document.querySelector("dialog.sheet[open]").textContent)`));
+        await shot("export-manage");
+        await js(`document.querySelector("dialog.sheet[open] .icon-btn").click()`);
+        await sleep(200);
+        await shot("settings-connected");
+      } else if (scenario === "faq") {
+        // APP-118: one page that says what Lore does and how the money works, in plain words.
+        await waitFor(`document.body.dataset.state === "welcome" && !document.querySelector("#welcome").classList.contains("provisioning")`);
+        await js(`window.__lore.signIn()`);
+        await waitFor(`document.querySelector("#content .strip")`);
+        await js(`window.__lore.show("faq")`);
+        await waitFor(`document.querySelector("#title").textContent === "FAQ"`);
+        const faq = await js(`document.querySelector("#content").textContent`);
+        const questions = await js(`[...document.querySelectorAll("#content .row b")].map((b) => b.textContent)`);
+        check("FAQ is a tab, and its first question is what Lore does", questions[0] === "What is Lore?" && questions.length >= 9, questions.join(" | "));
+        check("it says who buys: agents, not people browsing", /AI agents, while they work/.test(faq) && /Not people browsing/.test(faq));
+        check("it says what a buyer pays and what the owner keeps", /Your price\./.test(faq) && /a publication/.test(faq) && /All of it\./.test(faq) && /never holds your money/.test(faq));
+        check("it names the rail in plain words and where the wallet question comes", /USDC, a coin pegged to the dollar/.test(faq) && /play money first/.test(faq) && /payout address/.test(faq));
+        check("it says what leaves the Mac, and that it is opt-in", /Only a publication you approved/.test(faq) && /stay here/.test(faq));
+        check("it promises no earnings: the only dollar figure is a price", (faq.match(/\\$\\d/g) ?? []).length <= 1 && !/\\bearn|income|revenue|passive/i.test(faq), faq.match(/\\$\\d[^ ]*/g)?.join(",") ?? "");
+        check("no jargon", !/\\bMCP\\b|x402|\\bnode\\b|worker|deploy|mainnet|testnet|endpoint|\\bAPI\\b|crypto|blockchain/i.test(faq), faq.match(/\\bMCP\\b|x402|\\bnode\\b|worker|deploy|mainnet|testnet|endpoint|\\bAPI\\b|crypto|blockchain/i)?.[0] ?? "");
+        check("the buyer fork is one row that opens the guide in the browser", await js(`[...document.querySelectorAll("#content .row")].filter((r) => r.textContent.includes("How do I buy?")).length === 1 && document.querySelector("#content a[href*='buying-from-a-node']") !== null`));
+        check("nothing about selling was added to Today or Settings", await js(`window.__lore.show("today"); document.querySelector("#content").textContent`).then((t) => !/Who buys|How you make money/.test(t)) && await js(`window.__lore.show("settings"); document.querySelector("#content").textContent`).then((t) => !/Who buys|How you make money/.test(t)));
+        await js(`window.__lore.show("faq")`);
+        await sleep(200);
+        await shot("faq");
       } else if (scenario === "listing") {
         // APP-119: one click lists the store; the row reads its state from the relay, never from local memory.
         await waitFor(`document.body.dataset.state === "welcome" && !document.querySelector("#welcome").classList.contains("provisioning")`);

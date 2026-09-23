@@ -102,12 +102,16 @@ type SourceEntry = {
   locator?: string;
   owned?: boolean;
   connector?: string | null;
+  refresh?: boolean;
   state?: SourceState;
   last_read_at?: string | null;
 };
 
 /** One place an app offers to connect, found without asking the owner. */
 type SourceChoice = { label: string; locator: string; open: boolean };
+
+/** An app as the CLI's catalog offers it: what to call it, what Lore reads there, what the owner picks. */
+type SourceApp = { id: string; name: string; what: string; unit: string; item: string; kind: "folder" | "export" | "feed"; refresh: boolean; placeholder: string };
 
 type SourceRead = { name: string; added: number; updated: number; unchanged: number; errors: number; state: SourceState };
 
@@ -216,8 +220,9 @@ interface Window {
     listingStatus(): Promise<Listing>;
     pickFiles(): Promise<string[]>;
     pickFolder(): Promise<string | null>;
+    sourceCatalog(): Promise<SourceApp[]>;
     sourceChoices(app: string): Promise<SourceChoice[]>;
-    addSource(input: { connector: string; locator: string }): Promise<SourceEntry>;
+    connectSource(input: { connector: string; locator: string; replace?: string }): Promise<SourceEntry>;
     readSource(name: string): Promise<SourceRead[]>;
     removeSource(name: string, keep: boolean): Promise<SourceRemoval>;
     openPrivacySettings(): Promise<void>;
@@ -262,6 +267,7 @@ type AgentEvent =
   | AgentRequest
   | { type: "dismiss"; id: string }
   | { type: "live"; task: AgentTask | null; text: string }
+  | { type: "blueprint-progress"; task: AgentTask | null; fields: Partial<BlueprintFields> & { evidence?: string } }
   | { type: "working"; active: boolean; task: AgentTask }
   | { type: "changed" }
   | { type: "message"; task: AgentTask | null; text: string }
