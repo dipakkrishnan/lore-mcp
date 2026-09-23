@@ -604,6 +604,15 @@ export class LoreAgent {
         const text = event.assistantMessageEvent.partial.content.map((block) => (block.type === "text" ? block.text : "")).join("");
         this.options.emit({ type: "live", task, text });
       }
+      if (event.type === "message_update" && (event.assistantMessageEvent.type === "toolcall_start" || event.assistantMessageEvent.type === "toolcall_delta")) {
+        // pi-ai keeps `arguments` parsed from the partial tool-call JSON as it streams
+        // (best-effort, always a valid object), so this is typed field data straight
+        // from the model's in-progress propose_blueprint call — never prose parsing.
+        const block = event.assistantMessageEvent.partial.content[event.assistantMessageEvent.contentIndex];
+        if (block?.type === "toolCall" && block.name === "propose_blueprint") {
+          this.options.emit({ type: "blueprint-progress", task, fields: /** @type {Partial<BlueprintFields> & { evidence?: string }} */ (block.arguments) });
+        }
+      }
       if (event.type === "tool_execution_end" && event.toolName === "bash") this.options.emit({ type: "changed" });
       if (event.type !== "message_end" || event.message.role !== "assistant") return;
       // Counted before the error return, so a turn that failed still reports
