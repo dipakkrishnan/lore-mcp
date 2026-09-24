@@ -1478,9 +1478,7 @@ def push_job(worker: Path, local: bool) -> int:
 
 def _push(worker: Path, local: bool, job_id: int) -> int:
     """Write the active publication set to the node's edge database."""
-    import subprocess
     import tempfile
-    import time
 
     with Store() as store:
         active = store.list_publications(active_only=True)
@@ -1501,15 +1499,22 @@ def _push(worker: Path, local: bool, job_id: int) -> int:
         script_path,
         "-y",
     ]
-    # A remote write is transactional, so a failed one leaves the edge as it
-    # was and can be retried. Cloudflare has answered 401 to the first write
-    # after wrangler refreshed its sign-in and accepted the same write moments
-    # later, so one retry covers that without the owner seeing it.
-    for attempt in range(2):
-        result = subprocess.run(command, cwd=worker, capture_output=True, text=True)
-        if result.returncode == 0 or attempt:
-            break
-        time.sleep(3)
+    try:
+        # A remote write is transactional, so a failed one leaves the edge as it
+        # was and can be retried. Cloudflare has answered 401 to the first write
+        # after wrangler refreshed its sign-in and accepted the same write moments
+        # later, so one retry covers that without the owner seeing it. Routed
+        # through deploy_module._run so this D1 write is bounded the same way
+        # every other deploy-chain subprocess is: a wedged wrangler process must
+        # not hang this call, and therefore the owner's turn, forever (MON-023).
+        result = deploy_module._run(tuple(command), worker, retry=True)
+    except OSError as error:
+        os.unlink(script_path)
+        with Store() as store:
+            store.finish_job(job_id, "failed", summary="edge_write_failed")
+        raise ValueError(
+            f"wrangler could not write the edge database:\n{error}"
+        ) from error
     os.unlink(script_path)
     if result.returncode != 0:
         # The cause names commands and a database, which owner history must not

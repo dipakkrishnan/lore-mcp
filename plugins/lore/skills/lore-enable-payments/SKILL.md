@@ -308,8 +308,14 @@ payout address on a network switch.
 > dialog notes belong in that one line), then call `store_secret` for
 > `CDP_API_KEY_ID` and again for `CDP_API_KEY_SECRET` — each shows the owner
 > a field whose value goes straight to Cloudflare's vault — then run
-> `lore node deploy --network real`. Say "real money" and "the test
-> network", never "mainnet". `lore node deploy --network test` goes back.
+> `lore node deploy --network real` **as a bash call with an explicit timeout
+> of at least 300 seconds** — the redeploy chains npm, wrangler, and a smoke
+> check with no timeout of its own below that, so an untimed bash call can
+> wedge the turn indefinitely (MON-023). If it times out or otherwise fails,
+> say so plainly and suggest checking `npx wrangler secret list` for a
+> partially-stored secret before retrying — don't leave the composer silent.
+> Say "real money" and "the test network", never "mainnet". `lore node
+> deploy --network test` goes back the same way, with the same timeout.
 
 All gates hold in a terminal → drive the **Mainnet cutover** section of
 `~/.lore/node/README.md` like any other section of this skill: one step at a

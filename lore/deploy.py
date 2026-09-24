@@ -35,6 +35,10 @@ WALLET = re.compile(r"0x[0-9a-fA-F]{40}")
 D1_NAME = "lore-publications"
 D1_PLACEHOLDER = "REPLACE_WITH_YOUR_D1_ID"
 NEEDS_NODE = "deploying needs Node.js; install it from nodejs.org and rerun"
+# Generous enough for a cold `npm install` plus a `wrangler deploy` on a slow
+# connection, but bounded: nothing in this chain may block a caller (the
+# desktop agent's turn, a terminal session) indefinitely (MON-023).
+SUBPROCESS_TIMEOUT_S = 300
 PRICE_DECLARATION = "export const PRICE_USD = 0.01;"
 SALES_QUERY = (
     "SELECT kind, item_id, title, price_usd, network, payer, tx, sold_at "
@@ -138,15 +142,34 @@ def _run(
     interactive: bool = False,
     input: str | None = None,
     retry: bool = False,
+    timeout: float = SUBPROCESS_TIMEOUT_S,
 ) -> subprocess.CompletedProcess[str]:
     """Run one tool. `retry` gives a refused request one more try after a
     pause, the way a push does: Cloudflare has refused the first request after
-    wrangler refreshed its sign-in and accepted the next one moments later."""
+    wrangler refreshed its sign-in and accepted the next one moments later.
+
+    Bounded by `timeout` either way: nothing here may prompt interactively for
+    something the caller never supplied, so stdin is closed unless `input` is
+    given, and a wedged subprocess is killed and reported rather than left to
+    hang the caller (the desktop agent's turn, a terminal session) forever
+    (MON-023)."""
     attempts = 2 if retry else 1
     for attempt in range(attempts):
-        result = subprocess.run(
-            args, cwd=cwd, input=input, capture_output=not interactive, text=True
-        )
+        try:
+            result = subprocess.run(
+                args,
+                cwd=cwd,
+                input=input,
+                stdin=None if input is not None else subprocess.DEVNULL,
+                capture_output=not interactive,
+                text=True,
+                timeout=timeout,
+            )
+        except subprocess.TimeoutExpired as error:
+            raise OSError(
+                f"{fail or ' '.join(args)} timed out after {timeout:.0f}s:\n"
+                f"{_timeout_detail(error)}"
+            ) from error
         if result.returncode == 0:
             break
         if attempt < attempts - 1:
@@ -166,6 +189,15 @@ def _detail(result: subprocess.CompletedProcess[str]) -> str:
         return re.sub(r"\s*\([^)]*\)", "", " ".join(parts))
     except (ValueError, KeyError, TypeError):
         return f"{result.stderr or ''}{result.stdout or ''}".strip()[-2000:]
+
+
+def _timeout_detail(error: subprocess.TimeoutExpired) -> str:
+    """Whatever partial output a killed subprocess produced before it was cut
+    off — `TimeoutExpired.stdout`/`.stderr` hold only what had already been
+    captured, same shape as `_detail`'s tail-of-both-streams."""
+    stdout = error.stdout if isinstance(error.stdout, str) else ""
+    stderr = error.stderr if isinstance(error.stderr, str) else ""
+    return f"{stderr}{stdout}".strip()[-2000:]
 
 
 def _ensure_d1(wrangler: str, target: Path) -> None:

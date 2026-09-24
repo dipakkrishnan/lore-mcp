@@ -4,13 +4,13 @@ title: An untimed deploy subprocess can hang the real-money switch indefinitely
 priority: P1
 effort: M
 component: monetization
-status: in-review
+status: completed
 related: [MON-012]
 blockers: []
 dependencies: []
 github_issue: https://github.com/dipakkrishnan/lore-mcp/issues/262
 created: 2026-09-09
-updated: 2026-09-09
+updated: 2026-09-23
 ---
 
 ## Problem
@@ -81,12 +81,12 @@ out.
 
 ## Acceptance criteria
 
-- [ ] `lore node deploy --network real` (and `--network test`) cannot hang
+- [x] `lore node deploy --network real` (and `--network test`) cannot hang
       the desktop app's turn indefinitely — either the bash call carries a
       timeout, or the invocation goes through a timeout-protected path
-- [ ] Every `subprocess.run` in `lore/deploy.py`'s deploy chain sets a
+- [x] Every `subprocess.run` in `lore/deploy.py`'s deploy chain sets a
       timeout and `stdin=subprocess.DEVNULL`
-- [ ] A deploy that times out surfaces a visible error to the owner rather
+- [x] A deploy that times out surfaces a visible error to the owner rather
       than leaving the composer locked with no explanation
 
 ## Notes
@@ -98,3 +98,45 @@ including the two ruled-out theories and their supporting evidence.
 Left a real (though incomplete and unusable without its pair) CDP secret on
 a live node's vault; this is a data-hygiene side effect worth a manual
 cleanup on the affected account, not itself part of this item's scope.
+
+**Implemented 2026-09-23**, once MON-012 (PR #305) merged and unblocked this
+item:
+
+- `lore/deploy.py`'s single subprocess choke point, `_run()`, now sets a
+  300s timeout (`SUBPROCESS_TIMEOUT_S`) and `stdin=subprocess.DEVNULL`
+  (unless `input=` is given) on every call, and turns a
+  `subprocess.TimeoutExpired` into the same `OSError` shape every other
+  `_run` failure already raises — so a wedged `npm install`/`wrangler
+  deploy`/`secret put`/D1 call is killed and reported instead of hanging
+  `_deploy()` (and its caller) forever. Covered by two new cases in
+  `RunTest` (`tests/test_deploy.py`).
+- `plugins/lore/skills/lore-enable-payments/SKILL.md`'s desktop mainnet-switch
+  bullet now explicitly instructs the agent to pass a >=300s timeout on the
+  `bash` tool call for `lore node deploy --network real`/`--network test`,
+  and to tell the owner plainly (and point at `wrangler secret list`) if the
+  deploy fails or times out, rather than leaving the composer silent — this
+  is what actually closes the loop on the desktop path, since the raw `bash`
+  tool call (not the IPC-timeout-protected `lore()` helper) is what hung
+  indefinitely.
+- Third proposed-approach bullet (detecting/recovering a partial CDP-secret
+  state from the UI) was a "consider," not an acceptance criterion, and is
+  left undone: with the deploy step now bounded and reporting failure, the
+  owner learns about a partial state from the surfaced error itself, and a
+  dedicated recovery UI would be new scope beyond what #262 asked for.
+- Did not touch the terminal-driven "Mainnet cutover" runbook
+  (`lore/node/README.md`) — it runs plain `npx wrangler ...` commands by hand
+  in a real terminal, not through an agent turn, so there is no "hang the
+  turn indefinitely" failure mode there; a stuck command is just Ctrl-C-able.
+
+**Round 1/2 review found a missed call, fixed 2026-09-23:** `_deploy()`
+unconditionally calls `push_job()` near the end of every deploy, which routes
+to `_push()` in `lore/cli.py` — its own `wrangler d1 execute ... --remote`
+call (`lore/cli.py:1509`) was a bare `subprocess.run` with no `timeout=` or
+`stdin=subprocess.DEVNULL`, the same untimed-call class this item's own
+"Every `subprocess.run` in `lore/deploy.py`'s deploy chain" acceptance
+criterion was meant to cover, just one function over in `cli.py`. Fixed by
+routing `_push()`'s D1 write through `deploy_module._run()` (the same choke
+point everything else already goes through) instead of calling
+`subprocess.run` directly, so it now gets the same timeout, `stdin=DEVNULL`,
+and `TimeoutExpired`→`OSError` handling. Covered by a new case in
+`PushTest` (`tests/test_cli.py`).

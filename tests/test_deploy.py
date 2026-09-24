@@ -727,6 +727,42 @@ class RunTest(_NodeCase):
         with patch("lore.deploy.subprocess.run", return_value=result):
             self.assertEqual(deploy_module._run(("x",), self.lore_home).returncode, 1)
 
+    def test_a_wedged_subprocess_is_killed_and_reported_rather_than_hanging(
+        self,
+    ) -> None:
+        # MON-023: a subprocess that never returns (a wedged `wrangler deploy`,
+        # say) must not hang the caller — a bash tool call from the desktop
+        # agent, a terminal session — forever.
+        error = subprocess.TimeoutExpired(
+            ("wrangler", "deploy"), 300, output="deploying...", stderr="stuck"
+        )
+        with patch("lore.deploy.subprocess.run", side_effect=error):
+            with self.assertRaises(OSError) as raised:
+                deploy_module._run(
+                    ("wrangler", "deploy"), self.lore_home, fail="deploy failed"
+                )
+        message = str(raised.exception)
+        self.assertIn("timed out after 300s", message)
+        self.assertIn("stuck", message)
+        self.assertIn("deploying...", message)
+
+    def test_every_call_sets_a_timeout_and_closes_stdin_unless_input_is_given(
+        self,
+    ) -> None:
+        # A hung wrangler prompt for interactive input it will never receive
+        # (this context has no owner at the terminal) must fail fast, not wait
+        # on a stdin nothing will ever write to.
+        result = subprocess.CompletedProcess(("x",), 0, stdout="", stderr="")
+        with patch("lore.deploy.subprocess.run", return_value=result) as run:
+            deploy_module._run(("x",), self.lore_home)
+        self.assertEqual(run.call_args.kwargs["stdin"], subprocess.DEVNULL)
+        self.assertGreater(run.call_args.kwargs["timeout"], 0)
+
+        with patch("lore.deploy.subprocess.run", return_value=result) as run:
+            deploy_module._run(("x",), self.lore_home, input="a-secret\n")
+        self.assertIsNone(run.call_args.kwargs["stdin"])
+        self.assertEqual(run.call_args.kwargs["input"], "a-secret\n")
+
 
 class WalletPatternTest(unittest.TestCase):
     def test_the_pattern_accepts_only_a_public_address(self) -> None:
