@@ -70,6 +70,59 @@ class InstallTest(unittest.TestCase):
                 installed = {path.name for path in (home / agent / "skills").iterdir()}
                 self.assertEqual(installed, expected)
 
+    def test_real_uv_install_produces_a_working_lore_binary(self) -> None:
+        """The bootstrap test above fakes `uv` and the `lore` binary it installs.
+
+        Neither ever exercises the real `uv tool install` line, so a break in the
+        actual package build (a bad entry point, a dependency that fails to
+        resolve) would only ever surface for a real owner's first run. This
+        leaves `uv`, `git`, and network on the real `PATH` — the same as a CI
+        runner or a developer machine that already has `uv` installed — and
+        checks the binary `uv tool install` actually produces.
+        """
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            home = root / "home"
+            home.mkdir()
+
+            env = os.environ | {
+                "HOME": str(home),
+                "LORE_SKIP_SETUP": "1",
+                "LORE_SOURCE_DIR": str(ROOT),
+                "LORE_INSTALL_DIR": str(root / "runtime"),
+                "LORE_BIN_DIR": str(root / "bin"),
+            }
+            result = subprocess.run(
+                ["sh", str(ROOT / "install.sh")],
+                capture_output=True,
+                text=True,
+                env=env,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+
+            lore_bin = root / "bin" / "lore"
+            self.assertTrue(
+                lore_bin.is_file(), "install.sh did not produce a lore binary"
+            )
+
+            help_result = subprocess.run(
+                [str(lore_bin), "help"], capture_output=True, text=True, env=env
+            )
+            self.assertEqual(help_result.returncode, 0, help_result.stderr)
+            self.assertIn("Lore workflow", help_result.stdout)
+
+            status_result = subprocess.run(
+                [str(lore_bin), "status"], capture_output=True, text=True, env=env
+            )
+            self.assertEqual(status_result.returncode, 0, status_result.stderr)
+
+            expected = {
+                path.name for path in (ROOT / "plugins/lore/skills").glob("lore-*")
+            }
+            for agent in (".agents", ".claude"):
+                installed = {path.name for path in (home / agent / "skills").iterdir()}
+                self.assertEqual(installed, expected)
+
 
 if __name__ == "__main__":
     unittest.main()
