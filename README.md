@@ -216,6 +216,12 @@ address with USDC on the node's network, only ever with what you are willing
 to spend. The bridge refuses any charge off its configured network or beyond
 `--max-usd`.
 
+To have an agent do the whole loop (find sellers in the public
+[registry](https://github.com/dipakkrishnan/lore-marketplace), browse for free,
+buy within a budget you set, cite and report receipts), point it at the
+[`lore-buy`](plugins/lore/skills/lore-buy/SKILL.md) skill. It is plain
+Markdown, so any agent that can read a file can follow it.
+
 ## Privacy boundary
 
 Enforced in code today:

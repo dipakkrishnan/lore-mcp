@@ -32,6 +32,7 @@ INSTALLER = ROOT / "install.sh"
 # installer ships exactly this set, so the prefix is a contract, not a convention.
 OWNER_SKILL_GLOB = "lore-*"
 EXTERNAL_SKILLS = {
+    "lore-buy",
     "lore-capture",
     "lore-enable-payments",
     "lore-onboard",
@@ -245,7 +246,7 @@ class SkillContractTest(unittest.TestCase):
         run something that is not installed.
         """
         shipped = {path.parent.name for path in _skill_files()}
-        not_skills = {"lore-mcp"}  # the package, not a skill
+        not_skills = {"lore-mcp", "lore-buyer", "lore-marketplace"}  # not skills
         for path in _markdown_files():
             text = path.read_text(encoding="utf-8")
             for name in set(re.findall(r"\blore-[a-z][a-z-]*\b", text)) - not_skills:

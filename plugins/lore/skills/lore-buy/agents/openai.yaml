@@ -1,0 +1,4 @@
+interface:
+  display_name: "Lore Buy"
+  short_description: "Find and buy first-hand knowledge from Lore sellers"
+  default_prompt: "Use $lore-buy to find a Lore seller who knows about this and buy what is worth it."
