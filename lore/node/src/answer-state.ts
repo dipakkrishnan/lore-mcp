@@ -17,6 +17,7 @@ export interface AnswerSettings {
   enabled: boolean;
   priceUsd: number;
   proxy: string;
+  listedName: string;
 }
 
 export interface AnswerOutcome {
@@ -106,14 +107,14 @@ export async function readAnswerSettings(db: D1Database): Promise<AnswerSettings
       .prepare("SELECT key, value FROM node_settings")
       .all<{ key: string; value: string }>());
   } catch {
-    return { enabled: false, priceUsd: 0, proxy: "" };
+    return { enabled: false, priceUsd: 0, proxy: "", listedName: "" };
   }
   const values = Object.fromEntries(rows.map(({ key, value }) => [key, value]));
   const priceUsd = Number(values.answer_price_usd ?? 0);
   const proxy = values.proxy_preamble ?? "";
   const enabled =
     values.answer_enabled === "true" && proxy.trim() !== "" && Number.isFinite(priceUsd) && priceUsd > 0;
-  return { enabled, priceUsd, proxy };
+  return { enabled, priceUsd, proxy, listedName: values.listed_name ?? "" };
 }
 
 export async function ensureAnswerSchema(db: D1Database): Promise<void> {

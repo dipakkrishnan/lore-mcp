@@ -938,7 +938,7 @@ function scheduleRow(s) {
 
 /** Read the listing state once per store address; Settings re-renders when it lands. @param {Snapshot} s */
 function loadListing(s) {
-  if (!s.node.url || !s.marketplace?.available || listingFor === s.node.url) return;
+  if (!s.node.url || listingFor === s.node.url) return;
   listingFor = s.node.url;
   listing = null;
   window.lore.listingStatus().then((state) => {
@@ -950,17 +950,18 @@ function loadListing(s) {
   });
 }
 
-/** List or delist, then show what the relay said. @param {"list" | "delist"} action */
+/** List or delist; listing opens the request form in the browser. @param {"list" | "delist"} action */
 async function changeListing(action) {
   await act(async () => {
     listing = await window.lore.listStore(action);
+    if (listing.url) window.open(listing.url);
     render();
   });
 }
 
-/** Settings → Your store → Marketplace: one row, three states, read from the marketplace repo and never from local memory. @param {Snapshot} s */
+/** Settings → Your store → Marketplace: one row, read from the public list and the store's own switch. @param {Snapshot} s */
 function marketplaceRow(s) {
-  if (!s.node.url || !s.marketplace?.available) return [];
+  if (!s.node.url) return [];
   loadListing(s);
   const label = "Marketplace";
   const shares = "It shows only what your store already shows: your name, topics, and prices.";
@@ -968,9 +969,10 @@ function marketplaceRow(s) {
   if (listing.state === "listed") {
     return [row(label, `Anyone can find your store in the public list of Lore sellers. ${shares}`, cell(dot(true, "Listed"), button("Delist", "quiet", () => void changeListing("delist"))), false)];
   }
-  if (listing.state === "pending") {
-    const what = listing.action === "delist" ? "Your removal is waiting for review." : "Your listing is waiting for review. It appears in the public list once approved.";
-    return [row(label, what, cell(dot(false, "Pending review"), ...(listing.pull_url ? [outLink("View ↗", listing.pull_url)] : [])), false)];
+  if (listing.action === "delist") return [row(label, "Your store leaves the public list within a day.", cell(dot(false, "Pending")), false)];
+  if (listing.url) {
+    const what = "Send the request on the page that opened. It needs a free GitHub account. You'll get a reply on that page within a few minutes.";
+    return [row(label, what, cell(dot(false, "Pending"), outLink("Open the request ↗", listing.url), button("Cancel", "quiet", () => void changeListing("delist"))), false)];
   }
   return [row(label, `Let buyers find your store in the public list of Lore sellers. ${shares}`, cell(button("List on the marketplace", "secondary", () => void changeListing("list"))), false)];
 }

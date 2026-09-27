@@ -30,9 +30,6 @@ type Snapshot = {
   // installed CLI older than this app omits it, and no relay is the safe
   // reading of its absence.
   feedback?: { available: boolean };
-  // Whether this build can list the store on the public marketplace; same
-  // relay, so absent means no (APP-119).
-  marketplace?: { available: boolean };
   library: {
     counts: { private: number };
     sources: SourceEntry[];
@@ -316,11 +313,9 @@ type LoreAgentOptions = {
   };
 };
 
-/** Where a store stands on the public marketplace, as the relay reports it. */
+/** Where a store stands on the public marketplace; `url` is the request form still to send. */
 interface Listing {
-  ok: boolean;
   state: "none" | "pending" | "listed";
   action?: "list" | "delist";
-  pull_url?: string;
-  pull_number?: number;
+  url?: string;
 }

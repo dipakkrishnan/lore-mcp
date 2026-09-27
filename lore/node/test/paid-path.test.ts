@@ -79,6 +79,8 @@ describe("discover", () => {
       expect(result.isError).toBeUndefined();
       const payload = textOf(result);
       expect(payload.payout).toBe(env.LORE_WALLET);
+      expect(payload.listed).toBe(false);
+      expect(payload).not.toHaveProperty("name");
       const entries = Object.values(payload.topics as Record<string, object[]>).flat();
       expect(entries.length).toBeGreaterThan(0);
       for (const entry of entries) {
