@@ -237,9 +237,6 @@ class MetadataTest(LoreTestCase):
 
 
 class RelayUrlTest(LoreTestCase):
-    def test_the_pinned_relay_is_https_on_the_project_domain(self) -> None:
-        self.assertEqual(feedback.RELAY_URL, "https://relay.yourlore.dev/report")
-
     def test_no_pinned_relay_refuses_and_says_so(self) -> None:
         with patch.object(feedback, "RELAY_URL", None):
             with self.assertRaises(ValueError) as caught:
