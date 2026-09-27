@@ -45,7 +45,7 @@ Source = Literal["cli", "desktop"]
 # POSTs here forever, so it only ever changes by shipping a new version —
 # never by editing the relay's own address. LORE_FEEDBACK_URL exists for
 # tests and for smoking a freshly deployed relay before pinning it here.
-RELAY_URL: str | None = None
+RELAY_URL: str | None = "https://relay.yourlore.dev/report"
 RELAY_ENV = "LORE_FEEDBACK_URL"
 
 REPORT_VERSION: Literal[1] = 1
