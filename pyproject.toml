@@ -12,6 +12,8 @@ license = "MIT"
 license-files = ["LICENSE"]
 dependencies = [
     "defusedxml>=0.7.1",
+    "keyring>=25",
+    "mcp>=1.20",
     "pydantic>=2",
     "windup @ git+https://github.com/dipakkrishnan/windup.git@372af8a",
 ]

@@ -47,6 +47,9 @@ contextBridge.exposeInMainWorld("lore", {
   sourceChoices: (app) => ipcRenderer.invoke("sources:choices", app),
   /** @param {{connector: string, locator: string, replace?: string}} input */
   connectSource: (input) => ipcRenderer.invoke("sources:connect", input),
+  /** @param {string} app */
+  signIn: (app) => ipcRenderer.invoke("sources:sign-in", app),
+  cancelSignIn: () => ipcRenderer.invoke("sources:cancel-sign-in"),
   /** @param {string} name */
   readSource: (name) => ipcRenderer.invoke("sources:read", name),
   /** @param {string} name @param {boolean} keep */

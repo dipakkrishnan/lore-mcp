@@ -2,10 +2,12 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import re
 import urllib.request
 import zipfile
 from abc import ABC, abstractmethod
+from contextlib import asynccontextmanager
 from dataclasses import replace
 from datetime import date, datetime, timezone
 from email.utils import parsedate_to_datetime
@@ -13,14 +15,34 @@ from enum import Enum
 from functools import cached_property
 from html.parser import HTMLParser
 from pathlib import Path
-from typing import ClassVar, Iterator, Literal
+from typing import (
+    AsyncIterator,
+    Awaitable,
+    Callable,
+    ClassVar,
+    Iterator,
+    Literal,
+    TypeVar,
+)
 from urllib.parse import quote, urljoin, urlsplit
 from xml.etree.ElementTree import Element, ParseError
 
+import anyio
+import httpx2
 from defusedxml.ElementTree import fromstring
+from mcp import Client
+from mcp.client.auth import (
+    AuthorizationCodeResult,
+    OAuthClientProvider,
+    OAuthFlowError,
+)
+from mcp.client.streamable_http import streamable_http_client
+from mcp.shared.auth import OAuthClientMetadata
+from mcp.types import TextContent
 from pydantic import (
     AliasChoices,
     AliasPath,
+    AnyUrl,
     BaseModel,
     Field,
     TypeAdapter,
@@ -31,7 +53,10 @@ from pydantic.dataclasses import dataclass
 
 from . import __version__
 from .paths import claude_home, codex_home, home, obsidian_home
+from .signin import Keychain, Loopback
 from .store import Store
+
+Kind = Literal["folder", "export", "feed", "mcp"]
 
 
 class State(Enum):
@@ -64,7 +89,7 @@ class Source:
     locator: str
     pattern: str = "**/*.md"
     origin: Literal["native", "automation"] = "native"
-    kind: Literal["folder", "export", "feed"] = "folder"
+    kind: Kind = "folder"
     owned: bool = False
     since: str | None = None
     connector: str | None = None
@@ -95,9 +120,7 @@ class Source:
                 "",
                 label or "",
                 locator,
-                kind=TypeAdapter(Literal["folder", "export", "feed"]).validate_python(
-                    kind
-                ),
+                kind=TypeAdapter(Kind).validate_python(kind),
                 owned=True,
                 since=_day(since),
                 connector=connector,
@@ -109,7 +132,7 @@ class Source:
 
 
 class Reader(ABC):
-    kind: ClassVar[Literal["folder", "export", "feed"]]
+    kind: ClassVar[Kind]
     # A place that keeps changing is read again on schedule; a file is read once.
     refresh: ClassVar[bool] = True
     # An owner's folder is arbitrary notes, not agent-written memory files: a
@@ -121,11 +144,22 @@ class Reader(ABC):
         self.label = source.label
         self.errors = 0
         self.failure: State | None = None
+        # Keys already kept from this source; a reader that pays a request per item skips them.
+        self.known: set[str] = set()
 
     @classmethod
     @abstractmethod
     def locate(cls, locator: str) -> tuple[str, str]:
         """Normalise what the owner typed into the source's identity and a default label."""
+
+    def sign_in(self, show: Callable[[str], None]) -> bool:
+        """Ask the owner to let Lore in, showing them where, and say whether anything was
+        asked; most places need nothing."""
+        return False
+
+    def sign_out(self) -> None:
+        """Forget whatever let Lore in; most places kept nothing."""
+        return None
 
     @abstractmethod
     def probe(self) -> State:
@@ -241,7 +275,7 @@ class App(BaseModel):
     what: str
     unit: str
     item: str
-    kind: Literal["folder", "export", "feed"]
+    kind: Kind
     refresh: bool
     placeholder: str = ""
     guide: str = ""
@@ -263,14 +297,22 @@ class Connector:
 
     @classmethod
     def named(cls, app: str) -> Connector:
-        for connector in cls.__subclasses__():
+        for connector in cls._apps():
             if connector.id == app:
                 return connector()
         raise SourceError(f"unknown app: {app}")
 
     @classmethod
     def catalog(cls) -> list[App]:
-        return [connector().app() for connector in cls.__subclasses__()]
+        return [connector().app() for connector in cls._apps()]
+
+    @classmethod
+    def _apps(cls) -> Iterator[type[Connector]]:
+        # A subclass without an id is a family of apps, like Hosted, not an app.
+        for connector in cls.__subclasses__():
+            if "id" in vars(connector):
+                yield connector
+            yield from connector._apps()
 
     def app(self) -> App:
         return App(
@@ -288,6 +330,10 @@ class Connector:
     def choices(self) -> list[Choice]:
         """What the owner picks among, found without asking them."""
         return []
+
+    def address(self, typed: str) -> str:
+        """Where to read, from what the owner typed; an app with one home needs nothing."""
+        return typed
 
 
 class Vault(BaseModel):
@@ -863,6 +909,375 @@ class Blog(Connector):
     placeholder = "https://yourblog.com"
 
 
+@dataclass(frozen=True)
+class Entry:
+    """One thing an app lists: enough to decide whether to read it."""
+
+    key: str
+    title: str
+    dated: str | None
+
+
+Result = TypeVar("Result")
+
+
+class HostedReader(Reader):
+    """An app's own server. Signing in is attended and happens once; every read after it
+    uses the saved sign-in and fails, rather than waits on a browser, once that runs out."""
+
+    kind = "mcp"
+    # A recent window, like a feed's: an app's whole history is not a sync's job.
+    pages = 10
+
+    def __init__(self, source: Source) -> None:
+        super().__init__(source)
+        app = Connector.named(source.connector or "")
+        if not isinstance(app, Hosted):
+            raise SourceError(f"{app.name} has no server to sign in to")
+        self.app = app
+        self.label = self.label or app.name
+
+    @classmethod
+    def locate(cls, locator: str) -> tuple[str, str]:
+        return locator.strip(), ""
+
+    def sign_out(self) -> None:
+        Keychain(self.source.locator).forget()
+
+    def sign_in(self, show: Callable[[str], None]) -> bool:
+        self.sign_out()
+
+        async def redirect(url: str) -> None:
+            show(url)
+
+        name = self.app.name
+        with Loopback() as landing:
+            auth = self._auth(landing.redirect, redirect, landing.callback)
+            try:
+                listed = self._run(auth, lambda client: client.list_tools())
+            except Exception as error:
+                if _refused(error):
+                    raise SourceError(
+                        f"{name} didn't let Lore in. Try again."
+                    ) from None
+                raise SourceError(f"Lore couldn't reach {name}. Try again.") from None
+        offered = {tool.name for tool in listed.tools}
+        if not {self.app.lister, self.app.fetcher} <= offered:
+            raise SourceError(f"{name} changed how it shares. Lore needs an update.")
+        return True
+
+    @cached_property
+    def listed(self) -> list[Entry] | None:
+        try:
+            return self._run(self._auth(), self._list)
+        except Exception as error:
+            self.failure = (
+                State.NEEDS_PERMISSION if _refused(error) else State.UNREACHABLE
+            )
+            return None
+
+    def probe(self) -> State:
+        if self.listed is None:
+            return self.failure or State.UNREACHABLE
+        return State.CONNECTED if self.listed else State.NOTHING_FOUND
+
+    def items(self) -> Iterator[Item]:
+        fresh = [entry for entry in self.listed or [] if entry.key not in self.known]
+        read: list[Item] = []
+        try:
+            if fresh:
+                self._run(self._auth(), lambda client: self._read(client, fresh, read))
+        except Exception as error:
+            self.errors += len(fresh) - len(read)
+            self.failure = (
+                State.NEEDS_PERMISSION if _refused(error) else State.UNREACHABLE
+            )
+        yield from read
+
+    @asynccontextmanager
+    async def connect(self, auth: OAuthClientProvider) -> AsyncIterator[Client]:
+        async with (
+            httpx2.AsyncClient(auth=auth) as http,
+            Client(
+                streamable_http_client(self.source.locator, http_client=http)
+            ) as client,
+        ):
+            yield client
+
+    def _auth(
+        self,
+        redirect_uri: str = "http://127.0.0.1/callback",
+        redirect: Callable[[str], Awaitable[None]] | None = None,
+        callback: Callable[[], Awaitable[AuthorizationCodeResult]] | None = None,
+    ) -> OAuthClientProvider:
+        # Without a redirect handler an expired sign-in raises instead of opening a browser.
+        return OAuthClientProvider(
+            self.source.locator,
+            OAuthClientMetadata(
+                client_name="Lore",
+                redirect_uris=[AnyUrl(redirect_uri)],
+                token_endpoint_auth_method="none",
+            ),
+            Keychain(self.source.locator),
+            redirect_handler=redirect,
+            callback_handler=callback,
+        )
+
+    def _run(
+        self,
+        auth: OAuthClientProvider,
+        work: Callable[[Client], Awaitable[Result]],
+    ) -> Result:
+        async def session() -> Result:
+            async with self.connect(auth) as client:
+                return await work(client)
+
+        return anyio.run(session)
+
+    async def _list(self, client: Client) -> list[Entry]:
+        entries: list[Entry] = []
+        cursor: str | None = None
+        for page in range(self.pages):
+            if page:
+                await anyio.sleep(self.app.pause)
+            answer = await self._call(client, self.app.lister, self.app.listing(cursor))
+            found, cursor = self.app.entries(answer)
+            entries += found
+            if not cursor:
+                break
+        return entries
+
+    async def _read(
+        self, client: Client, entries: list[Entry], into: list[Item]
+    ) -> None:
+        for entry in entries:
+            answer = await self._call(
+                client, self.app.fetcher, self.app.reading(entry.key)
+            )
+            into.append(
+                Item(
+                    entry.title,
+                    self.app.text(answer).strip(),
+                    f"{self.source.locator}#{entry.key}",
+                    entry.dated,
+                    key=entry.key,
+                )
+            )
+
+    @staticmethod
+    async def _call(client: Client, tool: str, arguments: dict[str, object]) -> str:
+        answer = await client.call_tool(tool, arguments)
+        text = "\n".join(
+            block.text for block in answer.content if isinstance(block, TextContent)
+        )
+        # A renamed or missing tool answers with an error, not an exception.
+        if answer.is_error:
+            raise LookupError(f"{tool}: {text[:200]}")
+        return text
+
+
+def _refused(error: BaseException) -> bool:
+    """Whether a failure, however deep in the SDK's task groups, was the sign-in's."""
+    if isinstance(error, OAuthFlowError):
+        return True
+    return any(_refused(inner) for inner in getattr(error, "exceptions", ()))
+
+
+class Hosted(Connector, ABC):
+    """An app that runs its own server, which the owner signs in to. A subclass names the
+    server, the tool that lists what the owner has and the tool that reads one, and says
+    how to ask them and read their answers."""
+
+    reader = HostedReader
+    unit = "account"
+    server: ClassVar[str]
+    lister: ClassVar[str]
+    fetcher: ClassVar[str]
+    # Seconds between list calls, for an app that limits how often it is searched.
+    pause: ClassVar[float] = 0.0
+
+    def address(self, typed: str) -> str:
+        return typed or os.environ.get(f"LORE_{self.id.upper()}_SERVER", self.server)
+
+    @abstractmethod
+    def listing(self, cursor: str | None) -> dict[str, object]:
+        """The list tool's arguments, for the first page or the one after `cursor`."""
+
+    @abstractmethod
+    def entries(self, answer: str) -> tuple[list[Entry], str | None]:
+        """What one page of the list says, and the cursor to the next page."""
+
+    @abstractmethod
+    def reading(self, key: str) -> dict[str, object]:
+        """The read tool's arguments for one listed item."""
+
+    @abstractmethod
+    def text(self, answer: str) -> str:
+        """The owner's words in what the read tool answered."""
+
+
+class Granola(Hosted):
+    """Granola answers in loosely escaped XML, so it is read with patterns, not a parser.
+    Its free plan shows the last 30 days."""
+
+    id = "granola"
+    name = "Granola"
+    what = "Your meeting notes"
+    item = "meeting"
+    server = "https://mcp.granola.ai/mcp"
+    lister = "list_meetings"
+    fetcher = "get_meetings"
+    meeting = re.compile(r'<meeting\s((?:"[^"]*"|[^>"])*)>(.*?)</meeting>', re.DOTALL)
+    attribute = re.compile(r'(\w+)="([^"]*)"')
+    sections = ("private_notes", "summary", "notes")
+
+    def listing(self, cursor: str | None) -> dict[str, object]:
+        return {
+            "time_range": "custom",
+            "custom_start": "2000-01-01",
+            "custom_end": date.today().isoformat(),
+        }
+
+    def entries(self, answer: str) -> tuple[list[Entry], str | None]:
+        entries = []
+        for found in self.meeting.finditer(answer):
+            fields = dict(self.attribute.findall(found.group(1)))
+            if fields.get("id"):
+                entries.append(
+                    Entry(
+                        fields["id"],
+                        fields.get("title", ""),
+                        self._day(fields.get("date", "")),
+                    )
+                )
+        return entries, None
+
+    def reading(self, key: str) -> dict[str, object]:
+        return {"meeting_ids": [key]}
+
+    @staticmethod
+    def _day(value: str) -> str | None:
+        try:
+            return datetime.strptime(value, "%b %d, %Y %I:%M %p").date().isoformat()
+        except ValueError:
+            return _date(value)
+
+    def text(self, answer: str) -> str:
+        return "\n\n".join(
+            found.group(1).strip()
+            for section in self.sections
+            if (found := re.search(rf"<{section}>(.*?)</{section}>", answer, re.DOTALL))
+        )
+
+
+class NotionFound(BaseModel):
+    id: str
+    title: str = ""
+    timestamp: str = ""
+
+
+class NotionResults(BaseModel):
+    results: list[NotionFound] = []
+    next_cursor: str | None = None
+
+
+class NotionPage(BaseModel):
+    text: str = ""
+
+
+class ReaderDocument(BaseModel):
+    id: str
+    title: str = ""
+    saved_at: str = ""
+
+
+class ReaderDocuments(BaseModel):
+    results: list[ReaderDocument] = []
+    cursor: str | None = Field(default=None, validation_alias="nextPageCursor")
+
+
+class ReaderHighlight(BaseModel):
+    text: str = Field(default="", validation_alias=AliasChoices("content", "text"))
+    note: str | None = None
+
+
+class ReaderHighlights(BaseModel):
+    results: list[ReaderHighlight] = []
+
+
+class Notion(Hosted):
+    id = "notion"
+    name = "Notion"
+    what = "Your pages"
+    item = "page"
+    server = "https://mcp.notion.com/mcp"
+    lister = "notion-search"
+    fetcher = "notion-fetch"
+    # Notion allows 30 searches a minute.
+    pause = 2.0
+
+    def listing(self, cursor: str | None) -> dict[str, object]:
+        # An empty query lists rather than searches, and only under an exact filter.
+        return {
+            "query": "",
+            "filters": {"created_date_range": {"start_date": "2000-01-01"}},
+            "page_size": 25,
+            **({"cursor": cursor} if cursor else {}),
+        }
+
+    def entries(self, answer: str) -> tuple[list[Entry], str | None]:
+        page = NotionResults.model_validate_json(answer)
+        return [
+            Entry(found.id, found.title, _date(found.timestamp))
+            for found in page.results
+        ], page.next_cursor
+
+    def reading(self, key: str) -> dict[str, object]:
+        return {"id": key}
+
+    def text(self, answer: str) -> str:
+        # Notion wraps a page's markdown in its own tags.
+        return re.sub(
+            r"</?[a-z-]+(?:\s[^>]*)?>", "", NotionPage.model_validate_json(answer).text
+        )
+
+
+class Readwise(Hosted):
+    """A Reader document is kept for what the owner highlighted and noted in it."""
+
+    id = "readwise"
+    name = "Readwise"
+    what = "Your highlights and notes"
+    item = "document"
+    server = "https://mcp2.readwise.io/mcp"
+    lister = "reader_list_documents"
+    fetcher = "reader_get_document_highlights"
+
+    def listing(self, cursor: str | None) -> dict[str, object]:
+        return {
+            "limit": 100,
+            "response_fields": ["title", "saved_at"],
+            **({"page_cursor": cursor} if cursor else {}),
+        }
+
+    def entries(self, answer: str) -> tuple[list[Entry], str | None]:
+        page = ReaderDocuments.model_validate_json(answer)
+        return [
+            Entry(found.id, found.title, _date(found.saved_at))
+            for found in page.results
+        ], page.cursor
+
+    def reading(self, key: str) -> dict[str, object]:
+        return {"document_id": key}
+
+    def text(self, answer: str) -> str:
+        return "\n\n".join(
+            "\n".join(filter(None, (f"> {found.text}", found.note)))
+            for found in ReaderHighlights.model_validate_json(answer).results
+            if found.text
+        )
+
+
 class _Html(HTMLParser):
     # The two things a feed importer wants out of HTML: a post's text with its
     # paragraphs intact, and the feeds a site page advertises.
@@ -986,16 +1401,20 @@ class Registry:
         connector: str | None = None,
         *,
         replacing: str | None = None,
+        show: Callable[[str], None] | None = None,
     ) -> dict[str, object]:
-        """Read a new source, and only then retire the one it replaces."""
+        """Read a new source, and only then retire the one it replaces. With `show`, the
+        owner is there to let Lore in wherever the place asks them to."""
         source = Source.owner(locator, label, since, kind, connector)
         reader = source.reader()
+        asked = show is not None and reader.sign_in(show)
         state = reader.probe()
         source = replace(source, name=reader.name(), label=source.label or reader.label)
         if state is State.UNREACHABLE:
             raise SourceError(f"can't reach {source.label or locator}")
         current = next((r for r in self.owned if r.name == source.name), None)
-        if current is not None and current.locator == source.locator:
+        # Signing in again to the same place is a read, not a no-op.
+        if current is not None and current.locator == source.locator and not asked:
             return next(e for e in self.entries() if e["name"] == source.name)
         if replacing is not None and replacing != source.name:
             old = next((r for r in self.owned if r.name == replacing), None)
@@ -1014,11 +1433,20 @@ class Registry:
         return next(entry for entry in self.entries() if entry["name"] == source.name)
 
     def connect(
-        self, app: str, locator: str, *, replacing: str | None = None
+        self,
+        app: str,
+        locator: str = "",
+        *,
+        replacing: str | None = None,
+        show: Callable[[str], None] | None = None,
     ) -> dict[str, object]:
         connector = Connector.named(app)
         return self.add(
-            locator, kind=connector.reader.kind, connector=app, replacing=replacing
+            connector.address(locator),
+            kind=connector.reader.kind,
+            connector=app,
+            replacing=replacing,
+            show=show,
         )
 
     def read(self, names: list[str] | None = None) -> list[dict[str, object]]:
@@ -1045,10 +1473,11 @@ class Registry:
     def remove(self, name: str, *, delete: bool) -> dict[str, object]:
         if name in {source.name for source in available_sources()}:
             raise SourceError(f"{name} is built in and cannot be removed")
-        remaining = [source for source in self.owned if source.name != name]
-        if len(remaining) == len(self.owned):
+        gone = next((source for source in self.owned if source.name == name), None)
+        if gone is None:
             raise SourceError(f"unknown source: {name}")
-        self.owned = remaining
+        gone.reader().sign_out()
+        self.owned = [source for source in self.owned if source.name != name]
         self.sources = [source for source in self.sources if source.name != name]
         self.reads.pop(name, None)
         self.store.set_setting(
@@ -1074,6 +1503,7 @@ class Registry:
 
     def _import(self, source: Source, reader: Reader) -> dict[str, int]:
         stats = {"found": 0, "added": 0, "updated": 0, "unchanged": 0, "errors": 0}
+        reader.known = self.store.source_keys(source.name)
         state = reader.probe()
         for item in reader.items():
             stats["found"] += 1
