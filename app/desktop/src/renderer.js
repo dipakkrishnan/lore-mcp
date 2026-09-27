@@ -1363,8 +1363,15 @@ const notices = [];
 /** Something Lore did or could not do, said where the owner is: in the open thread, or as a notice above the page when the log is hidden. @param {string} text @param {boolean} [attention] @param {NoticeAction} [action] The one next step, on the notice. */
 function tell(text, attention = false, action) {
   if (!log.hidden) { say(text, false, attention); return; }
+  if (action) retireOffers();
   notices.push({ text, attention, action });
   if (notices.length > 3) notices.shift();
+  renderNotices();
+}
+
+/** Only the newest notice carries a next step. */
+function retireOffers() {
+  notices.splice(0, notices.length, ...notices.filter((item) => !item.action));
   renderNotices();
 }
 
@@ -1827,14 +1834,13 @@ async function startPublish(source) {
   await send(source ? `Help me publish something from what Lore brought in from ${source.label}.` : "Help me publish something from my Lore.", undefined, undefined, source?.name);
 }
 
-/** The step after bringing an app's writing in; taking it retires every offer of it. @param {SourceEntry} source */
+/** The step after bringing an app's writing in. @param {SourceEntry} source */
 function sellAction(source) {
   return {
     label: "Turn these into something to sell",
     run: () => {
       closeSheet();
-      notices.splice(0, notices.length, ...notices.filter((item) => !item.action));
-      renderNotices();
+      retireOffers();
       void startPublish(source);
     }
   };

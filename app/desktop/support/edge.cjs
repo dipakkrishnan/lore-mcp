@@ -347,7 +347,7 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         check("a connected newsletter still offers another", await js(`${sourceRows}.filter((r) => r.querySelector("b").textContent === "Substack").length`) === 2);
         // CAP-003: what was brought in leads to selling, from the notice and from Manage.
         const sell = "Turn these into something to sell";
-        check("the connect notice offers the next step", await js(`[...document.querySelectorAll("#status .notice button")].some((b) => b.textContent === ${JSON.stringify(sell)})`));
+        check("after two connects, exactly one notice offers the next step", await js(`[...document.querySelectorAll("#status .notice button")].filter((b) => b.textContent === ${JSON.stringify(sell)}).length`) === 1);
         await shot("connected-next-step");
         await js(clickOn("Substack"));
         await waitFor(`document.querySelector("dialog.sheet[open]")`);
