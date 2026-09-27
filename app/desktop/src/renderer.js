@@ -970,7 +970,7 @@ function marketplaceRow(s) {
   if (listing.state === "listed") {
     return [row(label, `Anyone can find your store in the public list of Lore sellers. ${shares}`, cell(dot(true, "Listed"), button("Delist", "quiet", () => void changeListing("delist"))), false)];
   }
-  if (listing.action === "delist") return [row(label, "Your store leaves the public list within a day.", cell(dot(false, "Pending")), false)];
+  if (listing.action === "delist") return [row(label, "Your store leaves the public list within a day.", cell(dot(false, "Pending"), button("Stay listed", "quiet", () => void changeListing("list"))), false)];
   if (listing.url) {
     const what = "Send the request on the page that opened. It needs a free GitHub account. You'll get a reply on that page within a few minutes.";
     return [row(label, what, cell(dot(false, "Pending"), outLink("Open the request ↗", listing.url), button("Cancel", "quiet", () => void changeListing("delist"))), false)];
