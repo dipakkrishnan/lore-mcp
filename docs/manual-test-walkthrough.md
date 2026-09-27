@@ -30,11 +30,6 @@ a moving target.
 4. **Work the scenario's steps in order**, scoring each testable item as you go.
 5. **Score the scenario's catchall row** last, against the quoted "Pass if…"
    sentence at the top of that scenario.
-6. **Convert the record** when you are done:
-
-   ```sh
-   python3 support/manual_test_report.py docs/manual-test-runs/<your-file>.md
-   ```
 
 ### Scoring
 
@@ -146,13 +141,7 @@ have not said anything about it, ask.
 - replace the body of an observations block.
 
 Never reflow a table, reorder rows, add or remove testable items, or edit a
-`<!-- rubric:… -->` comment. After each edit, run:
-
-```sh
-python3 support/manual_test_report.py <run file> --check
-```
-
-If it reports an error, fix the row you just touched before continuing.
+`<!-- rubric:… -->` comment.
 
 **Stop conditions.** Stop and ask the tester how they want to proceed when a
 preflight gate fails, when a defect blocks the rest of the scenario, or when they

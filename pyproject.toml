@@ -39,7 +39,7 @@ extend-exclude = ["lore/node"]
 select = ["E4", "E7", "E9", "F", "I", "B"]
 
 [tool.mypy]
-files = ["lore", "support", "evals", ".github/scripts", "docs/backlog/agents"]
+files = ["lore", "evals", ".github/scripts", "docs/backlog/agents"]
 disallow_untyped_defs = true
 warn_return_any = true
 warn_unused_ignores = true
@@ -74,7 +74,7 @@ branch = true
 
 [tool.coverage.report]
 show_missing = true
-# The cheap outer guard. `tests/coverage_gate.py` is the real gate: fail_under
+# The cheap outer guard. `tests/gate.py` is the real gate: fail_under
 # checks one global combined number, so a file at 96% statements / 70% branches
 # hides behind it.
 fail_under = 90
