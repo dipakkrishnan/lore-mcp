@@ -8,19 +8,7 @@ cp docs/manual-test-walkthrough.md \
    docs/manual-test-runs/$(date +%F)-<tester>.md
 ```
 
-Fill in the copy. Leave the walkthrough itself blank — it is the template, and
-it is also the canonical list of testable items that the converter diffs every
-run against.
-
-When the session is over:
-
-```sh
-python3 support/manual_test_report.py docs/manual-test-runs/<file>.md
-```
-
-That prints JSON on success and validation errors on failure. Add `--check` to
-validate without printing, which is what an agent should run after every edit it
-makes mid-session.
+Fill in the copy. Leave the walkthrough itself blank — it is the template.
 
 ## Naming
 
@@ -44,10 +32,6 @@ linked from backlog items. That also means everything in it is published.
   most likely to tempt you.
 - **Screenshots are not committed.** Upload them somewhere and put the link in
   that row's Reference URLs.
-
-The generated JSON is not committed either. It is derived from the markdown and
-regenerable at any time, and a JSON diff tells a reviewer nothing the markdown
-diff does not.
 
 ## What a run is for
 
