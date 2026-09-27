@@ -10,7 +10,7 @@ blockers: []
 dependencies: []
 github_issue: null
 created: 2026-08-06
-updated: 2026-09-15
+updated: 2026-09-27
 ---
 
 ## Problem
@@ -95,3 +95,7 @@ validator; repo created the same day at dipakkrishnan/lore-marketplace),
 `APP-119` ("List on marketplace" from the app, which opens the PR through the
 relay), and `XC-034` (the bridge reads the registry and fans `discover` out).
 Self-advertisement and the MCP directory remain later trust and reach layers.
+
+**2026-09-27:** superseded in part by `XC-036`: the registry refreshes itself
+from each node's `discover`; listing is an issue form plus the node's own
+`"listed": true`, not a relay-opened pull request.

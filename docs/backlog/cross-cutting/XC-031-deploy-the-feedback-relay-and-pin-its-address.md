@@ -10,7 +10,7 @@ blockers: []
 dependencies: [XC-028]
 github_issue: null
 created: 2026-09-09
-updated: 2026-09-15
+updated: 2026-09-27
 ---
 
 ## Problem
@@ -81,3 +81,6 @@ fine-grained PAT scoped to dipakkrishnan/lore-marketplace with Contents and
 Pull requests read/write, and `LORE_LISTING_KEY`, a long random string.
 Pinning `RELAY_URL` un-hides both the feedback button and the Settings
 "List on the marketplace" row.
+
+2026-09-27: `XC-036` removed marketplace listing from the relay. The two
+extra secrets above are no longer needed; the relay is feedback only.

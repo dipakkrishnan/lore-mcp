@@ -357,11 +357,14 @@ def parser() -> argparse.ArgumentParser:
     )
     marketplace_commands = marketplace.add_subparsers(dest="marketplace_command")
     listing = marketplace_commands.add_parser(
-        "list", help="ask to be listed; a maintainer approves it"
+        "list",
+        help="switch this store on for the marketplace and print the request link",
     )
     listing.add_argument("--name", help="the name buyers see; defaults to yours")
     listing.add_argument("--json", action="store_true")
-    delisting = marketplace_commands.add_parser("delist", help="ask to be removed")
+    delisting = marketplace_commands.add_parser(
+        "delist", help="switch this store off; it leaves at the next daily refresh"
+    )
     delisting.add_argument("--json", action="store_true")
     listing_status = marketplace_commands.add_parser(
         "status", help="whether this store is listed, pending, or neither"
@@ -562,9 +565,9 @@ def manual() -> int:
      with the feedback relay's address pinned in, and refuses without one.
 
   13. lore marketplace list [--name N] | delist | status
-     Ask to be listed on the public Lore marketplace, or removed from it.
-     Only what your store already shows buyers is shared. A maintainer
-     approves each change; `status` says whether you are pending or listed.
+     Switch your store on for the public Lore marketplace and get the link
+     to request a listing, or switch it off. Only what your store already
+     shows buyers is shared; `status` says whether you are pending or listed.
 
 Use `lore <command> --help` for command-specific options.
 """
@@ -1401,7 +1404,9 @@ def publication_revoke(publication_id: int) -> int:
         ) from error
 
 
-def _push_sql(publications: list[Publication], answer: AnswerSettings) -> str:
+def _push_sql(
+    publications: list[Publication], answer: AnswerSettings, listed_name: str = ""
+) -> str:
     """Render the full-replace SQL for the edge database.
 
     Full replace, not diffing: the active set is small, the operation is
@@ -1435,6 +1440,7 @@ def _push_sql(publications: list[Publication], answer: AnswerSettings) -> str:
         "proxy_preamble": answer.proxy_preamble,
         "answer_price_usd": f"{answer.answer_price_usd:.6f}",
         "answer_enabled": "true" if answer.answer_enabled else "false",
+        "listed_name": listed_name,
     }
     statements.extend(
         [
@@ -1483,7 +1489,8 @@ def _push(worker: Path, local: bool, job_id: int) -> int:
     with Store() as store:
         active = store.list_publications(active_only=True)
         answer_settings = store.answer_settings()
-    script = _push_sql(active, answer_settings)
+        listed_name = str(store.setting(marketplace_module.NAME_SETTING, ""))
+    script = _push_sql(active, answer_settings, listed_name)
     with tempfile.NamedTemporaryFile("w", suffix=".sql", delete=False) as handle:
         handle.write(script)
         script_path = handle.name
@@ -1650,23 +1657,20 @@ def report_feedback(
 def marketplace(args: argparse.Namespace) -> int:
     """List, delist, or check this store on the public marketplace."""
     command = args.marketplace_command or "status"
+    market = marketplace_module.Marketplace()
     if command == "status":
-        receipt = marketplace_module.status()
+        listing = market.status()
     else:
         _owner_action("changing your marketplace listing")
-        action: marketplace_module.Action = "delist" if command == "delist" else "list"
-        receipt = marketplace_module.act(action, name=getattr(args, "name", None))
+        listing = market.delist() if command == "delist" else market.list(args.name)
     if args.json:
-        print(
-            json.dumps(
-                receipt.model_dump(mode="json", exclude={"secret"}, exclude_none=True)
-            )
-        )
-        return 0
-    if receipt.state == "listed":
+        print(listing.model_dump_json(exclude_none=True))
+    elif listing.state == "listed":
         success("Listed on the marketplace.")
-    elif receipt.state == "pending":
-        success(f"Sent for review: {receipt.pull_url}")
+    elif listing.action == "list":
+        success(f"Almost listed. Send the request: {listing.url}")
+    elif listing.action == "delist":
+        success("Leaving the marketplace at the next daily refresh.")
     else:
         print("Not listed.")
     return 0

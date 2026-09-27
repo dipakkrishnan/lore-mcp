@@ -10,7 +10,7 @@ blockers: []
 dependencies: []
 github_issue: null
 created: 2026-09-15
-updated: 2026-09-15
+updated: 2026-09-27
 ---
 
 ## Problem
@@ -56,3 +56,7 @@ and fails a doubled entry with a plain-http store, a bad network id, and a
 missing date (five errors). The validate workflow ran green on the first
 push and is configured for pull requests. `discover` on the listed node
 returned 21 publications. README names no other marketplace.
+
+2026-09-27: `XC-036` replaces the pull-request listing path with a daily
+`refresh` workflow and a "List my store" issue form; `--live` now calls
+`discover` on changed entries only.

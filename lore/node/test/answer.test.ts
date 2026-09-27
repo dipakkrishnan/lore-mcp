@@ -38,7 +38,8 @@ beforeAll(async () => {
     ).bind(String(ANSWER_PRICE)),
     env.LORE_DB.prepare(
       "INSERT OR REPLACE INTO node_settings(key,value) VALUES ('answer_enabled', 'true')"
-    )
+    ),
+    env.LORE_DB.prepare("INSERT OR REPLACE INTO node_settings(key,value) VALUES ('listed_name', 'Ada')")
   ]);
 });
 
@@ -210,6 +211,7 @@ describe("answer (paid) and result", () => {
       const discover = textOf(await client.callTool({ name: "discover", arguments: {} }));
       expect(discover.answer_price_usd).toBe(ANSWER_PRICE);
       expect(discover.answer_retention_disclosure).toContain("retained");
+      expect([discover.listed, discover.name]).toEqual([true, "Ada"]);
 
       const ticket = await buyAnswer(client, "What does the fixture teach?");
       const outcome = await pollResult(client, ticket);

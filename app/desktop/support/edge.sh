@@ -37,7 +37,12 @@ from lore import automation
 automation.save_profile({'executor': 'codex', 'cadence': 'daily', 'hour': 21})")
 fi
 if [[ "$scenario" == "listing" ]]; then
-  # APP-119: a live store and a setup name, the two things the marketplace row needs.
+  # XC-036: a live store, a setup name, a push that always succeeds, and an empty public list.
+  mkdir -p "$root/home/node" "$root/bin"
+  echo '{}' > "$root/home/node/wrangler.jsonc"
+  printf '#!/bin/sh\nexit 0\n' > "$root/bin/npx" && chmod +x "$root/bin/npx"
+  echo '{"sellers":[]}' > "$root/marketplace.json"
+  export PATH="$root/bin:$PATH" LORE_MARKETPLACE_URL="file://$root/marketplace.json"
   (cd "$repo_root" && uv run python -c "import json, time
 from lore import blueprint
 from lore.store import Store

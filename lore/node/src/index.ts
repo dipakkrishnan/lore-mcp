@@ -65,6 +65,8 @@ export class LorePaidMCP extends McpAgent<Env> {
             network: network(this.env),
             payout: payTo(this.env),
             price_usd: PRICE_USD,
+            listed: settings.listedName !== "",
+            ...(settings.listedName ? { name: settings.listedName } : {}),
             ...(settings.enabled
               ? {
                   answer_price_usd: settings.priceUsd,

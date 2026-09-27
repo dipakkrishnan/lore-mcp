@@ -98,3 +98,7 @@ none, since the node's URL isn't public until then. `lore marketplace list`
 and the Desktop card now send the saved secret automatically when one
 exists. Network/topics/count/prices still come only from `discover`, so
 AC #4 holds without qualification.
+
+2026-09-27: `XC-036` replaced the relay path. List switches the store on (its
+`discover` says `"listed": true`) and opens a prefilled issue form on the
+registry repo; the registry adds and refreshes entries itself.

@@ -10,7 +10,7 @@ blockers: [XC-033]
 dependencies: []
 github_issue: null
 created: 2026-09-15
-updated: 2026-09-15
+updated: 2026-09-27
 ---
 
 ## Problem
@@ -43,3 +43,7 @@ are skipped with one line in the log, not an error to the buyer.
 
 Personal agents that cannot run the bridge read the raw file directly; a
 hosted MCP over the registry is the later step, not this one.
+
+2026-09-27: after `XC-036` every entry is rewritten daily from its node's
+`discover` and dead nodes are dropped, so the bridge can trust the file's
+network field without re-checking it first.
