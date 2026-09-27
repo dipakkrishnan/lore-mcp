@@ -1172,24 +1172,23 @@ function renderFaq(s) {
   /** @param {string} question @param {string | HTMLElement} answer */
   const qa = (question, answer) => row(question, answer, undefined, true);
   const buyerGuide = el("span");
-  buyerGuide.append("Point your agent at a store's address: the catalog is free to read, each publication is paid. ", /** @type {HTMLElement} */ (outLink("Read the buyer guide ↗", "https://github.com/dipakkrishnan/lore-mcp#buying-from-a-node")));
+  buyerGuide.append("Give your agent the Lore buyer skill. It finds stores, reads their descriptions for free, and buys only within the budget you set. ", /** @type {HTMLElement} */ (outLink("Get the buyer skill ↗", "https://github.com/dipakkrishnan/lore-mcp/tree/main/plugins/lore/skills/lore-buy")));
   return [
-    section("What Lore does", card([
-      qa("What is Lore?", "A home for what you have learned, kept on this Mac. Your agents and the apps you connect fill it in. You choose what, if anything, goes up for sale."),
-      qa("Why connect my apps?", "Lore reads what you have already written, so you don't start from a blank page. It drafts things to sell from it, and you approve each one. Nothing leaves this Mac until you do."),
-      qa("What is a memory, and what is a publication?", "A memory is one thing you learned, private by default. A publication is a memory you drafted for sale and approved. Nothing is for sale until you approve it.")
+    section("Getting started", card([
+      qa("What is Lore?", "A private place on your Mac for what you've learned from your work. You can sell pieces of it to other people's AI agents, but only the pieces you approve."),
+      qa("How do I start?", "Connect an app you already write in, from Connectors, or tell Lore something you learned on Today. Lore drafts things to sell from it, and you approve the ones you like. Approved drafts go on sale in your store."),
+      qa("Why connect my apps?", "So you don't start from a blank page. Lore reads what you've already written and suggests what's worth selling."),
+      qa("What sells?", "Something specific that happened to you, with the lesson attached: what you tried, what broke, what you'd do again. Dated, firsthand, and not something an AI could guess.")
     ])),
-    section("How you make money", card([
-      qa("Who buys?", "Other people's AI agents, while they work on a task. Not people browsing a shop. An agent finds your store, reads your teasers for free, and pays to read a whole publication, or to ask you a question if you turn answers on."),
-      qa("What does a buyer pay?", `Your price. ${prices} Answers have their own price, set the same way.`),
-      qa("What do I keep?", "All of it. Each payment lands in your own wallet address the moment it is made. Lore never holds your money and cannot move it."),
-      qa("How does the money arrive?", "In USDC, a coin pegged to the dollar, on the Base network. Your store opens with play money first, so nothing is at stake while you learn it. When you switch to real payments in Settings, that is when Lore asks for your payout address."),
-      qa("What sells?", "Something specific that happened to you, with the lesson attached: dated, firsthand, and not something an agent could guess. What you tried, what broke, what you would do again."),
-      qa("How do buyers find me?", "Push what you approved to your store, then list the store on the marketplace from Settings. Agents look there first.")
+    section("Getting paid", card([
+      qa("Who buys?", "Other people's AI agents, in the middle of a task. Not people browsing a shop. They read your short descriptions for free and pay to read the full piece. If you turn on questions, they can also pay to ask you one."),
+      qa("What does a buyer pay?", `Your price. ${prices} Questions have their own price, set the same way.`),
+      qa("How do I get paid?", "Each payment goes straight to an account only you control, in digital dollars (USDC). Lore never holds your money. You can start on play money while you learn."),
+      qa("How do buyers find me?", "List your store from Settings. Agents that use the Lore marketplace will see it.")
     ])),
-    section("What stays private", card([
-      qa("What leaves this Mac?", "Only a publication you approved, and only when you push it to your store. Your memories, your connections, and your sign-in stay here."),
-      qa("Can I take something off sale?", "Yes, from For Sale, any time. What a buyer already paid for stays with that buyer.")
+    section("Privacy", card([
+      qa("What leaves this Mac?", "Only what you approve for sale, which goes to your store. While drafting, the AI you signed in with reads the memories it's working on, as it would if you used it directly. Nothing else leaves."),
+      qa("Can I take something off sale?", "Yes, from For Sale, any time. Anyone who already bought it keeps what they paid for.")
     ])),
     section("If you build agents", card([
       qa("How do I buy?", buyerGuide)
