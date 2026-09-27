@@ -183,6 +183,7 @@ obsolete), then `priority` (P0 → P3).
 | [APP-097](./desktop-app/APP-097-keep-a-finished-threads-context-when-the-owner-follows-up.md) | Keep a finished thread's context when the owner follows up | P1 | XS | desktop-app | completed | APP-023, APP-047, APP-083 | — | — | — |
 | [MON-020](./monetization/MON-020-trace-the-nodes-paid-path.md) | Trace the node's paid path in the owner's own Cloudflare account | P1 | S | monetization | completed | XC-030, MON-013, MON-018, XC-008 | — | — | — |
 | [CLI-004](./cli-ux/CLI-004-add-lore-telemetry-toggle.md) | Add lore telemetry on/off/status and the telemetry_enabled setting | P1 | XS | cli-ux | completed | XC-030, XC-029, APP-058 | — | — | — |
+| [CAP-008](./capture/CAP-008-connect-medium-bluesky-and-any-blog-feed.md) | Connect Medium, Bluesky and any blog feed | P1 | S | capture | completed | CAP-005, CAP-003, STO-003 | — | "CAP-005 for FeedReader" | — |
 | [ONB-002](./onboarding/ONB-002-smoke-test-install-sh-in-a-clean-environment.md) | Smoke-test install.sh in a clean, ephemeral environment | P2 | S | onboarding | completed | CLI-002, XC-004 | — | — | — |
 | [XC-015](./cross-cutting/XC-015-pin-the-skill-drive-contract-in-the-contract-tests.md) | Pin the skill drive-contract in the contract tests | P2 | S | cross-cutting | completed | XC-005, XC-003 | — | — | — |
 | [APP-022](./desktop-app/APP-022-build-the-blueprint-visibly-as-answers-land.md) | Build the blueprint visibly during the evidence scan | P2 | M | desktop-app | completed | APP-020, APP-021, APP-009 | — | — | — |

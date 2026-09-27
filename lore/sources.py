@@ -776,14 +776,80 @@ class FeedReader(Reader):
         )
 
 
+class SiteFeed(FeedReader):
+    @classmethod
+    def locate(cls, locator: str) -> tuple[str, str]:
+        if cls._handle(locator):
+            raise SourceError("Enter the site's address, as your browser shows it")
+        return super().locate(locator)
+
+
+class MediumFeed(FeedReader):
+    @classmethod
+    def locate(cls, locator: str) -> tuple[str, str]:
+        typed = locator.strip()
+        # you.medium.com and custom domains keep their feed at /feed; their
+        # pages turn away anything that is not a browser.
+        if "@" not in typed and "." in typed:
+            return super().locate(typed.rstrip("/").removesuffix("/feed") + "/feed")
+        user = typed.rpartition("@")[2].split("/")[0]
+        return f"https://medium.com/feed/@{user}", f"@{user}"
+
+
+class BlueskyFeed(FeedReader):
+    @classmethod
+    def locate(cls, locator: str) -> tuple[str, str]:
+        typed = re.sub(r"^(https?://)?bsky\.app/profile/", "", locator.strip())
+        handle = typed.strip("/@")
+        if not handle or any(c in handle for c in "/:@ "):
+            raise SourceError("Enter your Bluesky handle, like you.bsky.social")
+        if "." not in handle:
+            handle += ".bsky.social"
+        return super().locate(f"@{handle}")
+
+
 class Substack(Connector):
     id = "substack"
     name = "Substack"
     what = "Your published posts"
     unit = "newsletter"
     item = "post"
-    reader = FeedReader
+    reader = SiteFeed
     placeholder = "https://you.substack.com"
+
+
+class Medium(Connector):
+    """Medium's feed holds only the ten most recent stories."""
+
+    id = "medium"
+    name = "Medium"
+    what = "Your published stories"
+    unit = "profile"
+    item = "story"
+    reader = MediumFeed
+    placeholder = "@yourname"
+
+
+class Bluesky(Connector):
+    id = "bluesky"
+    name = "Bluesky"
+    what = "Your posts"
+    unit = "account"
+    item = "post"
+    reader = BlueskyFeed
+    placeholder = "you.bsky.social"
+
+
+class Blog(Connector):
+    """Ghost, WordPress, Beehiiv, or any site that publishes a feed."""
+
+    id = "blog"
+    name = "Blog or newsletter"
+    what = "Your published posts"
+    unit = "site"
+    item = "post"
+    reader = SiteFeed
+    placeholder = "https://yourblog.com"
 
 
 class _Html(HTMLParser):

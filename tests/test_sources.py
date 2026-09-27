@@ -500,7 +500,10 @@ class ConnectorTest(LoreTestCase):
 
     def test_the_catalog_says_what_each_app_needs(self) -> None:
         apps = {app.id: app for app in Connector.catalog()}
-        self.assertEqual(list(apps), ["obsidian", "chatgpt", "claude", "substack"])
+        self.assertEqual(
+            list(apps),
+            ["obsidian", "chatgpt", "claude", "substack", "medium", "bluesky", "blog"],
+        )
         self.assertEqual(
             (apps["obsidian"].kind, apps["obsidian"].refresh), ("folder", True)
         )

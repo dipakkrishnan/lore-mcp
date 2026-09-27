@@ -1,7 +1,7 @@
 # Connectors
 
 A connector is an app the owner recognises: Obsidian, ChatGPT, Claude,
-Substack. A reader is how Lore gets the content out of it. The owner only ever
+Substack, Medium, Bluesky, or any blog or newsletter. A reader is how Lore gets the content out of it. The owner only ever
 meets the connector; the reader is Lore's business.
 
 Everything about an app lives in one `Connector` subclass in `lore/sources.py`.
@@ -18,9 +18,15 @@ class Substack(Connector):
     what = "Your published posts"        # the row, in the owner's words
     unit = "newsletter"                  # what they pick: "Choose a newsletter."
     item = "post"                        # what was kept: "12 posts kept."
-    reader = FeedReader
+    reader = SiteFeed
     placeholder = "https://you.substack.com"
 ```
+
+Apps that share a reader differ only in what the owner types. A small reader
+subclass overriding `locate` keeps each app to its own kind of address:
+`MediumFeed` turns `@name` into Medium's feed (which holds only the ten most
+recent stories), `BlueskyFeed` takes a handle or profile link, and `SiteFeed`,
+behind Substack and "Blog or newsletter", refuses a handle.
 
 `choices()` is the one optional hook: what the app can offer without asking
 (Obsidian reads `obsidian.json` for its vaults). The rule is to ask only for
