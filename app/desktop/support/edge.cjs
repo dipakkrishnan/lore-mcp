@@ -369,7 +369,7 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         await connectAt("Blog or newsletter", `${process.env.LORE_EDGE_NEWSLETTER}blog`);
         check("any blog connects and counts posts", await waitFor(`/Connected/.test(${textOf("Blog or newsletter")}) && /1 post kept/.test(${textOf("Blog or newsletter")})`), await js(textOf("Blog or newsletter")));
         await connectAt("Bluesky", "https://example.com");
-        check("Bluesky asks for a handle and refuses a web address", await waitFor(`/Bluesky handle/.test(document.querySelector("#status .notice.attention")?.textContent ?? "")`), await js(`document.querySelector("#status .notice.attention")?.textContent`));
+        check("Bluesky asks for a handle and refuses a web address", await waitFor(`[...document.querySelectorAll("#status .notice.attention")].some((n) => /Bluesky handle/.test(n.textContent))`), await js(`[...document.querySelectorAll("#status .notice.attention")].map((n) => n.textContent).join(" | ")`));
         await js(`document.querySelector("dialog.sheet[open] .icon-btn").click()`);
         await sleep(300);
 
