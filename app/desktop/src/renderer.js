@@ -971,7 +971,7 @@ function marketplaceRow(s) {
   }
   if (listing.action === "delist") return [row(label, "Your store leaves the public list within a day.", cell(dot(false, "Pending")), false)];
   if (listing.url) {
-    const what = "Send the request on the page that opened. It needs a free GitHub account. Your store shows up in the list a few minutes later.";
+    const what = "Send the request on the page that opened. It needs a free GitHub account. You'll get a reply on that page within a few minutes.";
     return [row(label, what, cell(dot(false, "Pending"), outLink("Open the request ↗", listing.url), button("Cancel", "quiet", () => void changeListing("delist"))), false)];
   }
   return [row(label, `Let buyers find your store in the public list of Lore sellers. ${shares}`, cell(button("List on the marketplace", "secondary", () => void changeListing("list"))), false)];

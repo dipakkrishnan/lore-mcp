@@ -1405,7 +1405,7 @@ def publication_revoke(publication_id: int) -> int:
 
 
 def _push_sql(
-    publications: list[Publication], answer: AnswerSettings, listed_name: str = ""
+    publications: list[Publication], answer: AnswerSettings, listed_name: str
 ) -> str:
     """Render the full-replace SQL for the edge database.
 
@@ -1458,13 +1458,17 @@ def _push_sql(
 def push(worker_dir: str, local: bool = False) -> int:
     """Replace the deployed node's publications with the local active set."""
     _owner_action("pushing publications")
+    return push_job(_worker(worker_dir), local)
+
+
+def _worker(worker_dir: str) -> Path:
     worker = Path(worker_dir)
     if not (worker / "wrangler.jsonc").is_file():
         raise ValueError(
             f"no node source at {worker}/ — run `lore node deploy` first, "
             "or pass --worker-dir (contributors: --worker-dir lore/node)"
         )
-    return push_job(worker, local)
+    return worker
 
 
 def push_job(worker: Path, local: bool) -> int:
@@ -1657,7 +1661,9 @@ def report_feedback(
 def marketplace(args: argparse.Namespace) -> int:
     """List, delist, or check this store on the public marketplace."""
     command = args.marketplace_command or "status"
-    market = marketplace_module.Marketplace()
+    market = marketplace_module.Marketplace(
+        lambda: push_job(_worker(str(home() / "node")), False)
+    )
     if command == "status":
         listing = market.status()
     else:

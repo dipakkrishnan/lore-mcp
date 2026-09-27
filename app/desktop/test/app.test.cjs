@@ -878,7 +878,8 @@ blueprint.blueprint_path().write_text(json.dumps({"name": "Ada"}))
     });
     await writeFile(file, JSON.stringify({ sellers: [{ node: "https://lore.example.workers.dev/mcp" }] }));
     assert.deepEqual(await listingStatus(directory), { state: "listed" });
-    assert.deepEqual(await listStore(directory, "delist"), { state: "pending", action: "delist" });
+    assert.deepEqual(await listStore(directory, "delist"), { state: "none" });
+    assert.deepEqual(await listingStatus(directory), { state: "pending", action: "delist" });
   } finally {
     for (const [key, value] of Object.entries(previous)) {
       if (value === undefined) delete process.env[key];

@@ -17,12 +17,11 @@ import os
 import sys
 import urllib.parse
 import urllib.request
-from typing import Literal
+from typing import Callable, Literal
 
 from pydantic import BaseModel, ConfigDict
 
 from . import blueprint, feedback
-from .paths import home
 from .store import Store
 from .ui import CONTROL_CHARACTERS
 
@@ -42,7 +41,8 @@ class Listing(BaseModel):
 
 
 class Marketplace:
-    def __init__(self) -> None:
+    def __init__(self, push: Callable[[], object]) -> None:
+        self.push = push
         with Store() as store:
             node = store.setting("node_url", None)
             self.name = str(store.setting(NAME_SETTING, ""))
@@ -88,21 +88,19 @@ class Marketplace:
         if len(chosen) > MAX_NAME:
             raise ValueError(f"the display name is over {MAX_NAME} characters")
         self._switch(chosen)
-        return self.status()
+        return Listing(state="pending", action="list", url=self.request_url())
 
     def delist(self) -> Listing:
         self._switch("")
-        return self.status()
+        return Listing(state="none")
 
     def _switch(self, name: str) -> None:
         """Save the listed name and push it, so the node's discover says it."""
-        from .cli import push  # local import: cli imports this module
-
         with Store() as store:
             store.set_setting(NAME_SETTING, name)
         try:
             with contextlib.redirect_stdout(sys.stderr):
-                push(str(home() / "node"))
+                self.push()
         except BaseException:
             with Store() as store:
                 store.set_setting(NAME_SETTING, self.name)

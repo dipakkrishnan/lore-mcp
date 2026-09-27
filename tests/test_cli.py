@@ -1939,7 +1939,7 @@ class PushTest(LoreTestCase):
 
     def push_sql(self, publications: list) -> str:
         with Store() as store:
-            return cli._push_sql(publications, store.answer_settings())
+            return cli._push_sql(publications, store.answer_settings(), "")
 
     def _push(self, returncode: int = 0, **kwargs: object):
         result = subprocess.CompletedProcess(("wrangler",), returncode)

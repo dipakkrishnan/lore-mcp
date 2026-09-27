@@ -8,7 +8,7 @@ import json
 import unittest
 from io import StringIO
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from helpers import LoreTestCase
 
@@ -28,8 +28,10 @@ class MarketplaceTest(LoreTestCase):
         env = patch.dict("os.environ", {"LORE_MARKETPLACE_URL": self.file.as_uri()})
         env.start()
         self.addCleanup(env.stop)
-        self.push = patch.object(cli, "push", return_value=0).start()
-        self.addCleanup(patch.stopall)
+        self.push = Mock(return_value=0)
+
+    def market(self) -> marketplace.Marketplace:
+        return marketplace.Marketplace(self.push)
 
     def on_file(self, listed: bool) -> None:
         sellers = [{"node": NODE}] if listed else [{"node": "https://other.dev/mcp"}]
@@ -43,10 +45,10 @@ class MarketplaceTest(LoreTestCase):
         with Store() as store:
             store.set_setting("node_url", None)
         with self.assertRaisesRegex(ValueError, "open your store"):
-            marketplace.Marketplace()
+            self.market()
 
     def test_status_reads_the_file_and_the_switch(self) -> None:
-        market = marketplace.Marketplace()
+        market = self.market()
         self.assertEqual(market.status(), marketplace.Listing(state="none"))
         market.name = "Ada"
         pending = market.status()
@@ -58,7 +60,7 @@ class MarketplaceTest(LoreTestCase):
         self.assertEqual(market.status().action, "delist")
 
     def test_the_request_link_prefills_the_form(self) -> None:
-        url = marketplace.Marketplace().request_url()
+        url = self.market().request_url()
         self.assertTrue(
             url.startswith(
                 "https://github.com/dipakkrishnan/lore-marketplace/issues/new?"
@@ -70,52 +72,62 @@ class MarketplaceTest(LoreTestCase):
     def test_an_unreadable_file_is_an_oserror(self) -> None:
         self.file.write_text("not json")
         with self.assertRaisesRegex(OSError, "public list"):
-            marketplace.Marketplace().status()
+            self.market().status()
 
     def test_listing_pushes_the_setup_name(self) -> None:
         blueprint.blueprint_path().parent.mkdir(parents=True, exist_ok=True)
         blueprint.blueprint_path().write_text(json.dumps({"name": " A\x00da "}))
-        listing = marketplace.Marketplace().list()
+        listing = self.market().list()
         self.assertEqual(self.pushed_name(), "Ada")
-        self.push.assert_called_once_with(str(self.lore_home / "node"))
+        self.push.assert_called_once_with()
         self.assertEqual((listing.state, listing.action), ("pending", "list"))
 
     def test_a_name_is_needed_and_capped(self) -> None:
         with self.assertRaisesRegex(ValueError, "display name"):
-            marketplace.Marketplace().list()
+            self.market().list()
         with self.assertRaisesRegex(ValueError, "over 80"):
-            marketplace.Marketplace().list("x" * 81)
+            self.market().list("x" * 81)
         self.push.assert_not_called()
 
     def test_a_failed_push_keeps_the_old_switch(self) -> None:
         self.push.side_effect = ValueError("wrangler could not write")
         with self.assertRaisesRegex(ValueError, "wrangler"):
-            marketplace.Marketplace().list("Ada")
+            self.market().list("Ada")
         self.assertEqual(self.pushed_name(), "")
 
     def test_delisting_switches_the_store_off(self) -> None:
         self.on_file(True)
-        marketplace.Marketplace().list("Ada")
-        listing = marketplace.Marketplace().delist()
+        self.market().list("Ada")
+        listing = self.market().delist()
         self.assertEqual(self.pushed_name(), "")
-        self.assertEqual((listing.state, listing.action), ("pending", "delist"))
+        self.assertEqual(listing, marketplace.Listing(state="none"))
+
+    def test_a_switch_that_landed_does_not_need_the_public_list(self) -> None:
+        self.file.unlink()
+        listing = self.market().list("Ada")
+        self.assertEqual(listing.url, self.market().request_url())
 
     def test_the_push_carries_the_listed_name(self) -> None:
         with Store() as store:
             sql = cli._push_sql([], store.answer_settings(), "Ada")
         self.assertIn("VALUES ('listed_name','Ada');", sql)
 
-    def run_cli(self, *args: str) -> tuple[int, str]:
+    def test_list_pushes_the_node_and_prints_only_json(self) -> None:
+        worker = self.lore_home / "node"
+        worker.mkdir(parents=True)
+        (worker / "wrangler.jsonc").write_text("{}")
         out = StringIO()
-        with patch.object(cli, "_owner_action"), patch("sys.stdout", out):
-            code = cli.main(["marketplace", *args, "--json"])
-        return code, out.getvalue()
-
-    def test_list_prints_only_json(self) -> None:
-        self.push.side_effect = lambda _dir: print("✓ Pushed") or 0
-        code, out = self.run_cli("list", "--name", "Ada")
+        with (
+            patch.object(cli, "_owner_action"),
+            patch.object(
+                cli, "push_job", side_effect=lambda *_: print("✓ Pushed")
+            ) as push_job,
+            patch("sys.stdout", out),
+        ):
+            code = cli.main(["marketplace", "list", "--name", "Ada", "--json"])
+        push_job.assert_called_once_with(worker, False)
         self.assertEqual(code, 0)
-        self.assertEqual(json.loads(out)["state"], "pending")
+        self.assertEqual(json.loads(out.getvalue())["state"], "pending")
 
     def test_status_needs_no_attended_surface(self) -> None:
         out = StringIO()
@@ -131,7 +143,6 @@ class MarketplaceTest(LoreTestCase):
             code = cli.main(["marketplace", "list", "--name", "Ada"])
         self.assertEqual(code, 1)
         self.assertIn("attended terminal", err.getvalue())
-        self.push.assert_not_called()
 
 
 if __name__ == "__main__":
