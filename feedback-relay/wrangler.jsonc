@@ -3,6 +3,8 @@
   "name": "lore-feedback-relay",
   "main": "src/index.ts",
   "compatibility_date": "2026-06-11",
+  "account_id": "3227ac150184b0a79178897877781e2b",
+  "routes": [{ "pattern": "relay.yourlore.dev", "custom_domain": true }],
   // No nodejs_compat: nothing here needs Node built-ins, and the smaller the
   // relay's surface the better — it is the one Worker that holds a token
   // capable of writing to the project's issue tracker.

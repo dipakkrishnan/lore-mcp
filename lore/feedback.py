@@ -37,15 +37,10 @@ from .ui import CONTROL_CHARACTERS
 
 Source = Literal["cli", "desktop"]
 
-# None until a maintainer has actually deployed the relay and pinned its
-# address here. That pinning is the one switch that turns this feature on:
-# with no address, `lore report-feedback` refuses before it prompts and the
-# Desktop app hides its button, so no release can ship a Send that 502s
-# against an endpoint nobody configured. Once pinned, every installed copy
-# POSTs here forever, so it only ever changes by shipping a new version —
-# never by editing the relay's own address. LORE_FEEDBACK_URL exists for
-# tests and for smoking a freshly deployed relay before pinning it here.
-RELAY_URL: str | None = None
+# Pinned to the maintainer's relay. Every installed copy POSTs here, so it
+# only ever changes by shipping a new version. None hides feedback entirely.
+# LORE_FEEDBACK_URL exists for tests and for smoking a freshly deployed relay.
+RELAY_URL: str | None = "https://relay.yourlore.dev/report"
 RELAY_ENV = "LORE_FEEDBACK_URL"
 
 REPORT_VERSION: Literal[1] = 1

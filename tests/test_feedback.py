@@ -238,13 +238,11 @@ class MetadataTest(LoreTestCase):
 
 class RelayUrlTest(LoreTestCase):
     def test_no_pinned_relay_refuses_and_says_so(self) -> None:
-        """Until a maintainer deploys the relay and pins its address, a build
-        must refuse rather than POST somewhere nobody configured."""
-        self.assertIsNone(feedback.RELAY_URL)
-        with self.assertRaises(ValueError) as caught:
-            feedback.relay_url()
-        self.assertIn("not wired up", str(caught.exception))
-        self.assertFalse(feedback.available())
+        with patch.object(feedback, "RELAY_URL", None):
+            with self.assertRaises(ValueError) as caught:
+                feedback.relay_url()
+            self.assertIn("not wired up", str(caught.exception))
+            self.assertFalse(feedback.available())
 
     def test_a_pinned_relay_is_used_and_reported_available(self) -> None:
         with patch.object(feedback, "RELAY_URL", "https://feedback.example/report"):
