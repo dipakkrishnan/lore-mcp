@@ -183,6 +183,7 @@ obsolete), then `priority` (P0 → P3).
 | [APP-097](./desktop-app/APP-097-keep-a-finished-threads-context-when-the-owner-follows-up.md) | Keep a finished thread's context when the owner follows up | P1 | XS | desktop-app | completed | APP-023, APP-047, APP-083 | — | — | — |
 | [MON-020](./monetization/MON-020-trace-the-nodes-paid-path.md) | Trace the node's paid path in the owner's own Cloudflare account | P1 | S | monetization | completed | XC-030, MON-013, MON-018, XC-008 | — | — | — |
 | [CLI-004](./cli-ux/CLI-004-add-lore-telemetry-toggle.md) | Add lore telemetry on/off/status and the telemetry_enabled setting | P1 | XS | cli-ux | completed | XC-030, XC-029, APP-058 | — | — | — |
+| [XC-037](./cross-cutting/XC-037-a-buyer-skill-any-agent-can-follow.md) | A buyer skill any agent can follow | P1 | S | cross-cutting | completed | XC-033, XC-034 | — | — | — |
 | [APP-127](./desktop-app/APP-127-point-today-at-connectors-and-say-where-an-export-comes-from.md) | Point Today at Connectors and say where an export comes from | P1 | S | desktop-app | completed | CAP-003, APP-125, APP-118, APP-120 | — | — | — |
 | [CAP-008](./capture/CAP-008-connect-medium-bluesky-and-any-blog-feed.md) | Connect Medium, Bluesky and any blog feed | P1 | S | capture | completed | CAP-005, CAP-003, STO-003 | — | "CAP-005 for FeedReader" | — |
 | [ONB-002](./onboarding/ONB-002-smoke-test-install-sh-in-a-clean-environment.md) | Smoke-test install.sh in a clean, ephemeral environment | P2 | S | onboarding | completed | CLI-002, XC-004 | — | — | — |
