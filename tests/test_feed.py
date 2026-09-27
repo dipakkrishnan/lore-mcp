@@ -288,6 +288,46 @@ class FeedImportTest(LoreTestCase):
             )
             self.assertEqual(entry["label"], "My blog")
 
+    def test_each_feed_app_connects_what_its_owner_would_type(self) -> None:
+        routes = {
+            "medium.com/feed/@writer": "medium.xml",
+            "writer.medium.com/feed": "medium.xml",
+            "cursor=": "bluesky-2.json",
+            "getAuthorFeed": "bluesky.json",
+            "notes.example.com": "rss.xml",
+        }
+        with serving(routes), Store() as store:
+            registry = sources_module.Registry(store)
+            for app, typed, locator in (
+                ("medium", "medium.com/@writer", "https://medium.com/feed/@writer"),
+                ("medium", "@writer", "https://medium.com/feed/@writer"),
+                ("medium", "writer.medium.com", "https://writer.medium.com/feed"),
+                ("bluesky", "writer", "@writer.bsky.social"),
+                (
+                    "bluesky",
+                    "bsky.app/profile/writer.bsky.social",
+                    "@writer.bsky.social",
+                ),
+                ("blog", "notes.example.com", "https://notes.example.com"),
+            ):
+                with self.subTest(app=app, typed=typed):
+                    entry = registry.connect(app, typed)
+                    self.assertEqual(entry["locator"], locator)
+                    self.assertGreater(entry["imported"], 0)
+
+    def test_a_feed_app_refuses_another_kind_of_address(self) -> None:
+        with serving({}), Store() as store:
+            registry = sources_module.Registry(store)
+            for app, typed in (
+                ("substack", "@writer.bsky.social"),
+                ("blog", "@writer@hachyderm.io"),
+                ("bluesky", "https://notes.example.com"),
+                ("bluesky", "@writer@hachyderm.io"),
+            ):
+                with self.subTest(app=app, typed=typed):
+                    with self.assertRaisesRegex(sources_module.SourceError, "^Enter"):
+                        registry.connect(app, typed)
+
 
 class FeedCommandTest(LoreTestCase):
     def json_command(self, *argv: str) -> object:

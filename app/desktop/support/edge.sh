@@ -80,6 +80,8 @@ if [[ "$scenario" == "connectors" ]]; then
   printf '{"vaults":{"e1":{"path":"%s","ts":2,"open":true},"s1":{"path":"%s","ts":1}}}' "$root/Edge Vault" "$root/Stale Vault" > "$root/obsidian/obsidian.json"
   cp "$repo_root/tests/fixtures/exports/chatgpt/conversations.json" "$root/chatgpt.json"
   cp "$repo_root/tests/fixtures/feeds/substack.xml" "$root/substack.xml"
+  cp "$repo_root/tests/fixtures/feeds/medium.xml" "$root/medium.xml"
+  cp "$repo_root/tests/fixtures/feeds/rss.xml" "$root/blog.xml"
   export OBSIDIAN_HOME="$root/obsidian"
 fi
 echo "Screenshots land in $root"

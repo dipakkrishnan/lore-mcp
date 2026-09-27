@@ -48,9 +48,11 @@ if (scenario === "listing") {
   const { readFileSync } = require("node:fs");
   const { dialog } = require("electron");
   dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [join(S, "chatgpt.json")] });
-  const newsletter = require("node:http").createServer((_request, response) => {
+  // Each feed app's fixture at its own path: /medium, /blog; anything else is the newsletter.
+  const newsletter = require("node:http").createServer((request, response) => {
+    const name = ["medium", "blog"].find((n) => request.url?.startsWith(`/${n}`)) ?? "substack";
     response.writeHead(200, { "Content-Type": "application/rss+xml" });
-    response.end(readFileSync(join(S, "substack.xml")));
+    response.end(readFileSync(join(S, `${name}.xml`)));
   });
   newsletter.listen(0, "127.0.0.1", () => {
     process.env.LORE_EDGE_NEWSLETTER = `http://127.0.0.1:${newsletter.address().port}/`;
@@ -306,9 +308,10 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         const primary = `document.querySelector("dialog.sheet[open] .btn.primary")`;
         await waitFor(textOf("Substack"));
         await sleep(300);
-        const offered = await js(`["Obsidian", "ChatGPT", "Claude", "Substack"].map((n) => ${sourceRows}.find((r) => r.querySelector("b").textContent === n)?.textContent ?? "")`);
-        check("every app in the catalog is offered by name, in its own words", offered.length === 4 && /Connect/.test(offered[0]) && /Import/.test(offered[1]) && /Import/.test(offered[2]) && /Connect/.test(offered[3]) && !offered.some((t) => /folder|source|markdown|feed|rss|url/i.test(t)), offered.join(" | "));
-        check("every offered app carries its own mark", await js(`["Obsidian", "ChatGPT", "Claude", "Substack"].every((n) => ${sourceRows}.find((r) => r.querySelector("b").textContent === n)?.querySelector("img.logo"))`));
+        const apps = JSON.stringify(["Obsidian", "ChatGPT", "Claude", "Substack", "Medium", "Bluesky", "Blog or newsletter"]);
+        const offered = await js(`${apps}.map((n) => ${sourceRows}.find((r) => r.querySelector("b").textContent === n)?.textContent ?? "")`);
+        check("every app in the catalog is offered by name, in its own words", offered.length === 7 && /Connect/.test(offered[0]) && /Import/.test(offered[1]) && /Import/.test(offered[2]) && offered.slice(3).every((t) => /Connect/.test(t)) && !offered.some((t) => /folder|source|markdown|feed|rss|url/i.test(t)), offered.join(" | "));
+        check("every offered app carries its own mark", await js(`${apps}.every((n) => ${sourceRows}.find((r) => r.querySelector("b").textContent === n)?.querySelector("img.logo"))`));
         await shot("settings-catalog");
 
         // Obsidian: choose among vaults; a change to a vault that is gone leaves the working one alone.
@@ -337,6 +340,22 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         await js(`${primary}.click()`);
         check("a newsletter connects and counts posts, not notes", await waitFor(`/Connected/.test(${textOf("Substack")}) && /\\d+ posts? kept/.test(${textOf("Substack")})`), await js(textOf("Substack")));
         check("a connected newsletter still offers another", await js(`${sourceRows}.filter((r) => r.querySelector("b").textContent === "Substack").length`) === 2);
+
+        // The other feed apps: the same field, each with its own words for what it kept.
+        const connectAt = async (name, address) => {
+          await js(clickOn(name));
+          await waitFor(`document.querySelector("dialog.sheet[open] input[type=url]")`);
+          await js(`{ const f = document.querySelector("dialog.sheet[open] input[type=url]"); f.value = ${JSON.stringify(address)}; f.dispatchEvent(new Event("input")); }`);
+          await js(`${primary}.click()`);
+        };
+        await connectAt("Medium", `${process.env.LORE_EDGE_NEWSLETTER}medium`);
+        check("a Medium profile connects and counts stories", await waitFor(`/Connected/.test(${textOf("Medium")}) && /1 story kept/.test(${textOf("Medium")})`), await js(textOf("Medium")));
+        await connectAt("Blog or newsletter", `${process.env.LORE_EDGE_NEWSLETTER}blog`);
+        check("any blog connects and counts posts", await waitFor(`/Connected/.test(${textOf("Blog or newsletter")}) && /1 post kept/.test(${textOf("Blog or newsletter")})`), await js(textOf("Blog or newsletter")));
+        await connectAt("Bluesky", "https://example.com");
+        check("Bluesky asks for a handle and refuses a web address", await waitFor(`/Bluesky handle/.test(document.querySelector("#status .notice.attention")?.textContent ?? "")`), await js(`document.querySelector("#status .notice.attention")?.textContent`));
+        await js(`document.querySelector("dialog.sheet[open] .icon-btn").click()`);
+        await sleep(300);
 
         // An export: a file, brought in once.
         await js(clickOn("ChatGPT"));
