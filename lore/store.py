@@ -591,14 +591,21 @@ class Store:
         return cursor.rowcount
 
     def search(
-        self, query: str, *, status: str | None = None, limit: int = 20
+        self,
+        query: str,
+        *,
+        status: str | None = None,
+        limit: int = 20,
+        source: str | None = None,
     ) -> list[Memory]:
-        """Search memory text, optionally constrained by retention status."""
+        """Search memory text, optionally constrained by retention status and source."""
         if limit < 0:
             raise ValueError("limit cannot be negative")
         if status is not None and status not in STATUSES:
             raise ValueError(f"invalid status: {status}")
-        status_sql = " AND m.status=?" if status else ""
+        status_sql = (" AND m.status=?" if status else "") + (
+            " AND m.source=?" if source else ""
+        )
         args: list[object] = []
         if query.strip():
             terms = re.findall(r"[\w-]+", query, re.UNICODE)
@@ -613,8 +620,7 @@ class Store:
             args.append(match)
         else:
             sql = f"SELECT m.* FROM memories m WHERE 1=1{status_sql} ORDER BY m.updated_at DESC LIMIT ?"
-        if status:
-            args.append(status)
+        args.extend(value for value in (status, source) if value)
         args.append(limit or -1)
         return [Memory.from_row(row) for row in self.db.execute(sql, args).fetchall()]
 

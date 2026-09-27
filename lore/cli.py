@@ -149,6 +149,7 @@ def parser() -> argparse.ArgumentParser:
     search = commands.add_parser("search", help="search local memories")
     search.add_argument("query", nargs="*", help="words to search for")
     search.add_argument("--status", choices=STATUSES)
+    search.add_argument("--source", help="only memories from this source")
     search.add_argument(
         "--limit", type=int, default=20, help="maximum results; 0 means all"
     )
@@ -395,7 +396,9 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "review":
             return review(" ".join(args.query), args.status, args.limit, args.all)
         if args.command == "search":
-            return search(" ".join(args.query), args.status, args.limit, args.json)
+            return search(
+                " ".join(args.query), args.status, args.limit, args.json, args.source
+            )
         if args.command == "memory":
             if args.memory_command == "rename":
                 return rename_memory(args.id, args.title, args.json)
@@ -532,7 +535,7 @@ def manual() -> int:
      --all applies one status to every match in one command, no prompting.
      Reviewing never discloses anything — only a publication does that.
 
-  5. lore search [words] [--status STATUS]
+  5. lore search [words] [--status STATUS] [--source NAME]
      Inspect the local library without changing disclosure.
 
   6. lore price [USD]
@@ -849,10 +852,16 @@ def review(
     return 0
 
 
-def search(query: str, status_name: str | None, limit: int, as_json: bool) -> int:
+def search(
+    query: str,
+    status_name: str | None,
+    limit: int,
+    as_json: bool,
+    source: str | None = None,
+) -> int:
     """Search local memories and print cards or JSON."""
     with Store() as store:
-        memories = store.search(query, status=status_name, limit=limit)
+        memories = store.search(query, status=status_name, limit=limit, source=source)
     if as_json:
         print(json.dumps([memory.__dict__ for memory in memories], indent=2))
         return 0

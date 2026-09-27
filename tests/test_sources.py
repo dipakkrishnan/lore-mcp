@@ -514,6 +514,9 @@ class ConnectorTest(LoreTestCase):
             (apps["chatgpt"].kind, apps["chatgpt"].refresh), ("export", False)
         )
         self.assertTrue(apps["substack"].placeholder.startswith("https://"))
+        # An export has to be asked for first; the sheet says where.
+        self.assertIn("Export data", apps["chatgpt"].guide)
+        self.assertIn("Export data", apps["claude"].guide)
 
     def test_an_unknown_app_or_the_wrong_kind_for_it_is_refused(self) -> None:
         with self.assertRaises(sources_module.SourceError):

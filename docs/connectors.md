@@ -46,11 +46,14 @@ failure, and that failure, not the probe, is the state the owner sees.
 
 ## What the desktop does with the catalog
 
-Settings → Where memories come from lists every app in the catalog under the
-agents. An app with nothing connected is offered with `what` and one button;
-a connected one shows its label, its state and what it kept, with Manage. The
-sheet's setup control follows `kind`: a folder offers the app's choices and a
-folder picker, an export a file picker, a feed an address field. Every app
+The Connectors tab lists every app in the catalog under the agents, and Today
+points there until one is connected. An app with nothing connected is offered
+with `what` and one button; a connected one shows its label, its state and
+what it kept, with Manage and a step to turn what it kept into something to
+sell. The sheet's setup control follows `kind`: a folder offers the app's
+choices and a folder picker, an export a file picker with the app's `guide`
+(where to request the file), a feed an address field. A connection is read
+again only by a Read again or by the synthesis schedule's `lore sync`. Every app
 ships a mark at `assets/<id>.svg`, with its provenance in the file; the initial
 is only the fallback for a mark that fails to load.
 

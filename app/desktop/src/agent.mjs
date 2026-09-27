@@ -46,6 +46,8 @@ const CAPPED = "That reply took more steps than Lore allows at once, so it pause
 const ASIDE = "\n\n(For you only, not said by the owner: ";
 /** A memory to start from: the agent needs the id, the owner never sees or hears one. @param {number} id */
 const memoryAside = (id) => `${ASIDE}start from the memory with id ${id}. Call it by its title, never by its number.)`;
+/** A connected app to start from, by the source name its memories carry. @param {string} name */
+const sourceAside = (name) => `${ASIDE}start from the memories whose source is ${JSON.stringify(name)}.)`;
 /** Drafts are approved or skipped on cards the agent never sees, so every publish turn says where they stand. @param {number} waiting */
 export function draftsAside(waiting) {
   const state = waiting === 0 ? "no drafts are waiting on the owner; anything you staged before was approved or skipped on its card" : `${waiting} draft${waiting === 1 ? " is" : "s are"} still waiting on the owner's card`;
@@ -481,8 +483,8 @@ export class LoreAgent {
     return this.#activeTask;
   }
 
-  /** @param {string} text @param {AgentTask} task @param {AgentTask} [from] Continue from the latest `from` thread instead of starting cold. @param {number} [memory] A memory to start from, named by id to the agent only. */
-  async prompt(text, task, from, memory) {
+  /** @param {string} text @param {AgentTask} task @param {AgentTask} [from] Continue from the latest `from` thread instead of starting cold. @param {number} [memory] A memory to start from, named by id to the agent only. @param {string} [source] A connected app's memories to start from. */
+  async prompt(text, task, from, memory, source) {
     if (this.#busy) throw new Error("Lore is already working");
     if (!text.trim()) throw new Error("Nothing to capture");
     this.#busy = true;
@@ -512,6 +514,7 @@ export class LoreAgent {
       const [session, resumed] = existing ? [existing, true] : await this.#newSession(task, from);
       this.#record(session, task, "working");
       let body = memory === undefined ? text : `${text}${memoryAside(memory)}`;
+      if (source !== undefined) body += sourceAside(source);
       if (task === "publish" && this.options.drafts) body += draftsAside(await this.options.drafts());
       await session.prompt(resumed ? body : `/skill:${SKILLS[task]}\n\n${body}`);
       const closing = closingRecord(latestTaskRecord(session.sessionManager, task)?.state, task, this.#completed);

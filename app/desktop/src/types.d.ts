@@ -108,7 +108,7 @@ type SourceEntry = {
 type SourceChoice = { label: string; locator: string; open: boolean };
 
 /** An app as the CLI's catalog offers it: what to call it, what Lore reads there, what the owner picks. */
-type SourceApp = { id: string; name: string; what: string; unit: string; item: string; kind: "folder" | "export" | "feed"; refresh: boolean; placeholder: string };
+type SourceApp = { id: string; name: string; what: string; unit: string; item: string; kind: "folder" | "export" | "feed"; refresh: boolean; placeholder: string; guide?: string };
 
 type SourceRead = { name: string; added: number; updated: number; unchanged: number; errors: number; state: SourceState };
 
@@ -194,7 +194,7 @@ interface Window {
     snapshot(): Promise<Snapshot>;
     retrySetup(): Promise<void>;
     agentStatus(): Promise<AgentStatus>;
-    prompt(input: { text: string; task: AgentTask; from?: AgentTask; memory?: number }): Promise<void>;
+    prompt(input: { text: string; task: AgentTask; from?: AgentTask; memory?: number; source?: string }): Promise<void>;
     history(task: AgentTask): Promise<Line[]>;
     tasks(): Promise<TaskRecord[]>;
     restart(task: AgentTask): Promise<void>;
@@ -277,7 +277,7 @@ type AgentEvent =
 type LoreAgentInstance = {
   readonly activeTask: AgentTask | null;
   status(): Promise<AgentStatus>;
-  prompt(text: string, task: AgentTask, from?: AgentTask, memory?: number): Promise<void>;
+  prompt(text: string, task: AgentTask, from?: AgentTask, memory?: number, source?: string): Promise<void>;
   history(task: AgentTask): Line[];
   tasks(): TaskRecord[];
   restart(task: AgentTask): void;

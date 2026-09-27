@@ -299,7 +299,12 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         await waitFor(`document.body.dataset.state === "welcome" && !document.querySelector("#welcome").classList.contains("provisioning")`);
         await js(`window.__lore.signIn()`);
         await waitFor(`document.querySelector("#content .strip")`);
-        await js(`window.__lore.show("connectors")`);
+        // APP-127: an owner with no apps connected is pointed at Connectors, and nothing to publish yet.
+        const firstToday = await js(`document.querySelector("#content").textContent`);
+        check("Today points a new owner at their apps, with nothing to publish yet", /Bring in what you've written/.test(firstToday) && !/Publish something/.test(firstToday), firstToday);
+        await shot("today-bring-in");
+        await js(`[...document.querySelectorAll("#content .row")].find((r) => r.textContent.includes("Bring in what you've written")).querySelector("button").click()`);
+        check("…and its button opens Connectors", await waitFor(`document.querySelector("#title").textContent === "Connectors"`));
         // Only the rows under "Where memories come from": Account also says Claude.
         const sourceRows = `[...[...document.querySelectorAll("#content section")].find((s) => s.textContent.includes("Where memories come from")).querySelectorAll(".row")]`;
         const rowOf = (name) => `${sourceRows}.find((r) => r.querySelector("b").textContent === ${JSON.stringify(name)})`;
@@ -340,6 +345,17 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         await js(`${primary}.click()`);
         check("a newsletter connects and counts posts, not notes", await waitFor(`/Connected/.test(${textOf("Substack")}) && /\\d+ posts? kept/.test(${textOf("Substack")})`), await js(textOf("Substack")));
         check("a connected newsletter still offers another", await js(`${sourceRows}.filter((r) => r.querySelector("b").textContent === "Substack").length`) === 2);
+        // CAP-003: what was brought in leads to selling, from the notice and from Manage.
+        const sell = "Turn these into something to sell";
+        check("the connect notice offers the next step", await js(`[...document.querySelectorAll("#status .notice button")].some((b) => b.textContent === ${JSON.stringify(sell)})`));
+        await shot("connected-next-step");
+        await js(clickOn("Substack"));
+        await waitFor(`document.querySelector("dialog.sheet[open]")`);
+        const manage = await js(`document.querySelector("dialog.sheet[open]").textContent`);
+        check("with no schedule, a newsletter says it is read again only by hand", /new posts only when you choose Read again/.test(manage) && !/on its own/.test(manage), manage);
+        check("Manage offers the same next step", manage.includes(sell), manage);
+        await js(`document.querySelector("dialog.sheet[open] .icon-btn").click()`);
+        await sleep(200);
 
         // The other feed apps: the same field, each with its own words for what it kept.
         const connectAt = async (name, address) => {
@@ -360,6 +376,8 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         // An export: a file, brought in once.
         await js(clickOn("ChatGPT"));
         check("an export asks for the file that was downloaded", await waitFor(`/Choose the export/.test(document.querySelector("dialog.sheet[open] p")?.textContent ?? "")`));
+        check("…and says where to get it", await js(`document.querySelector("dialog.sheet[open]").textContent.includes("Settings → Data controls → Export data")`));
+        await shot("export-how-to");
         await js(`[...document.querySelectorAll("dialog.sheet[open] button")].find((b) => b.textContent === "Choose a file…").click()`);
         check("the chosen file is offered, selected", await waitFor(`${primary}.disabled === false && document.querySelector("dialog.sheet[open] .choice input").checked`));
         await js(`${primary}.click()`);
@@ -372,6 +390,19 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         await js(`document.querySelector("dialog.sheet[open] .icon-btn").click()`);
         await sleep(200);
         await shot("settings-connected");
+        await js(`window.__lore.show("today")`);
+        await sleep(300);
+        const today = await js(`document.querySelector("#content").textContent`);
+        check("with apps connected, Today offers to publish and stops asking to connect", /Publish something/.test(today) && !/Bring in what you've written/.test(today), today);
+        await shot("today-publish");
+        await js(`window.__lore.show("connectors")`);
+        await waitFor(textOf("ChatGPT"));
+        await js(clickOn("ChatGPT"));
+        await waitFor(`document.querySelector("dialog.sheet[open]")`);
+        await js(`[...document.querySelectorAll("dialog.sheet[open] button")].find((b) => b.textContent === ${JSON.stringify(sell)}).click()`);
+        check("the next step opens the publish thread, starting from that app", await waitFor(`document.querySelector("#title").textContent === "Publish from your Lore" && document.querySelector("#log").textContent.includes("brought in from ChatGPT")`), await js(`document.querySelector("#title").textContent`));
+        check("…and the other offers to sell go away", await js(`document.querySelectorAll("#status .notice button.btn").length`) === 0);
+        await shot("publish-from-app");
       } else if (scenario === "faq") {
         // APP-118: one page that says what Lore does and how the money works, in plain words.
         await waitFor(`document.body.dataset.state === "welcome" && !document.querySelector("#welcome").classList.contains("provisioning")`);
@@ -385,6 +416,7 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         check("it says who buys: agents, not people browsing", /AI agents, while they work/.test(faq) && /Not people browsing/.test(faq));
         check("it says what a buyer pays and what the owner keeps", /Your price\./.test(faq) && /a publication/.test(faq) && /All of it\./.test(faq) && /never holds your money/.test(faq));
         check("it names the rail in plain words and where the wallet question comes", /USDC, a coin pegged to the dollar/.test(faq) && /play money first/.test(faq) && /payout address/.test(faq));
+        check("it says why connecting apps helps", questions.includes("Why connect my apps?") && /blank page/.test(faq));
         check("it says what leaves the Mac, and that it is opt-in", /Only a publication you approved/.test(faq) && /stay here/.test(faq));
         check("it promises no earnings: the only dollar figure is a price", (faq.match(/\\$\\d/g) ?? []).length <= 1 && !/\\bearn|income|revenue|passive/i.test(faq), faq.match(/\\$\\d[^ ]*/g)?.join(",") ?? "");
         check("no jargon", !/\\bMCP\\b|x402|\\bnode\\b|worker|deploy|mainnet|testnet|endpoint|\\bAPI\\b|crypto|blockchain/i.test(faq), faq.match(/\\bMCP\\b|x402|\\bnode\\b|worker|deploy|mainnet|testnet|endpoint|\\bAPI\\b|crypto|blockchain/i)?.[0] ?? "");
