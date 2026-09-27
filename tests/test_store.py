@@ -251,6 +251,8 @@ class SearchTest(LoreTestCase):
             self.assertEqual(len(store.search("lesson", limit=1)), 1)
             # limit=0 means "no ceiling", not "no results".
             self.assertEqual(len(store.search("lesson", limit=0)), 3)
+            self.assertEqual(len(store.search("", source="test", status="private")), 2)
+            self.assertEqual(store.search("lesson", source="substack"), [])
 
     def test_a_query_with_no_word_characters_matches_nothing(self) -> None:
         # `!!!` is not a search for everything: it tokenizes to nothing, and

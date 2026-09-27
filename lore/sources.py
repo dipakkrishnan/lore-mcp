@@ -244,6 +244,7 @@ class App(BaseModel):
     kind: Literal["folder", "export", "feed"]
     refresh: bool
     placeholder: str = ""
+    guide: str = ""
 
 
 class Connector:
@@ -258,6 +259,7 @@ class Connector:
     item: ClassVar[str]
     reader: ClassVar[type[Reader]]
     placeholder: ClassVar[str] = ""
+    guide: ClassVar[str] = ""
 
     @classmethod
     def named(cls, app: str) -> Connector:
@@ -280,6 +282,7 @@ class Connector:
             kind=self.reader.kind,
             refresh=self.reader.refresh,
             placeholder=self.placeholder,
+            guide=self.guide,
         )
 
     def choices(self) -> list[Choice]:
@@ -500,6 +503,10 @@ class ChatGPT(Connector):
     unit = "export"
     item = "conversation"
     reader = ChatGPTExport
+    guide = (
+        "In ChatGPT, open Settings → Data controls → Export data. "
+        "A download link arrives by email, sometimes days later."
+    )
 
 
 class Claude(Connector):
@@ -509,6 +516,10 @@ class Claude(Connector):
     unit = "export"
     item = "conversation"
     reader = ClaudeExport
+    guide = (
+        "In Claude, open Settings → Privacy → Export data. "
+        "A download link arrives by email."
+    )
 
 
 class FeedPost(BaseModel):

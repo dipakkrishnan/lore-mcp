@@ -606,6 +606,7 @@ function needsYou(s) {
     node.append(lead, action);
     rows.push(node);
   };
+  if (!s.library.sources.some((source) => source.connector)) add("Bring in what you've written", "Notes, posts, or AI conversations from apps you already use.", button("Connect", "secondary", () => show("connectors")));
   if (!s.setup.sources_configured) add("Connect your agents", "Let Lore read what Claude Code and Codex already remember.", button("Start", "secondary", startSetup));
   else if (!s.setup.blueprint_configured) add("Shape your Lore", "Review one proposal based on what your agents already know.", button("Start", "secondary", startSetup));
   else if (!s.setup.profile_configured) add("Set the rhythm", "Choose which model writes new memories, and how often.", button("Start", "secondary", startSetup));
@@ -614,8 +615,8 @@ function needsYou(s) {
     // and this is the first moment the owner has a reason to name one.
     if (s.publications.counts.active && s.pricing.publication_usd === null) add("Set a price", "What a buyer pays for one publication. You can change it later.", button("Set", "secondary", openPriceEditor));
     if (!s.node.url) add("Open your store", "A payout address, a price, and a node on the test network first. Free until you say otherwise.", button("Open", "secondary", () => void startDeploy()));
-    if (s.library.counts.private && !candidates.length && !taskItems.some((item) => item.kind === "publish")) add("Publish something", "Lore drafts up to three things to sell; you approve each one.", button("Publish", "secondary", startPublish));
   }
+  if (s.library.counts.private && !candidates.length && !taskItems.some((item) => item.kind === "publish")) add("Publish something", "Lore drafts up to three things to sell; you approve each one.", button("Publish", "secondary", () => void startPublish()));
   // Approved work a buyer cannot see yet, or a price they are not yet paying, is actionable whatever rung setup is on.
   const stale = stalePrice(s);
   if (stale !== null) add("Redeploy your store", `Buyers still pay ${price(stale)}; you set ${price(s.pricing.publication_usd)}.`, button("Redeploy", "secondary", () => void startDeploy(REDEPLOY_PRICE)));
@@ -1076,7 +1077,7 @@ async function openConnect(app, current) {
     const done = await act(async () => {
       const added = await window.lore.connectSource({ connector: app.id, locator, ...(current ? { replace: current.name } : {}) });
       closeSheet();
-      tell(`${name} is connected. ${CONNECTION_STATES[added.state ?? "off"].line(app, added)}`);
+      tell(`${name} is connected. ${CONNECTION_STATES[added.state ?? "off"].line(app, added)}`, false, added.imported ? sellAction(added) : undefined);
     });
     connect.disabled = done;
   });
@@ -1118,15 +1119,17 @@ async function openConnect(app, current) {
     })));
   }
   actions.append(connect);
-  sheet(name, logo(app), lead, list, el("p", "hint", "Read only. Stays on this Mac."), actions);
+  sheet(name, logo(app), lead, ...(app.guide ? [el("p", "hint", app.guide)] : []), list, el("p", "hint", "Read only. Stays on this Mac."), actions);
 }
 
 /** What a connected app reads, where it stands, and what can be done to it. @param {SourceApp} app @param {SourceEntry} source */
 function openConnection(app, source) {
   const { name, unit } = app;
   const state = CONNECTION_STATES[source.state ?? "off"];
+  const sell = sellAction(source);
   const actions = el("div", "actions");
   const resting = [
+    ...(source.imported ? [button(sell.label, "secondary", sell.run)] : []),
     ...(source.state === "needs_permission"
       ? [button("Open System Settings", "secondary", () => void window.lore.openPrivacySettings())]
       : source.refresh === false
@@ -1152,7 +1155,7 @@ function openConnection(app, source) {
     });
   }
   actions.replaceChildren(...resting);
-  const standing = source.refresh === false ? `Read once. Change ${unit} to bring in a newer one.` : `Read again on its own when Lore next runs.`;
+  const standing = source.refresh === false ? `Read once. Change ${unit} to bring in a newer one.` : snapshot?.setup.schedule?.installed ? `Lore looks for new ${app.item}s each time your schedule runs.` : `Lore looks for new ${app.item}s only when you choose Read again.`;
   sheet(name, logo(app), el("p", "", `${source.label} · ${state.line(app, source)}`), el("p", "hint mono", source.locator ?? ""), el("p", "hint", standing), actions);
 }
 
@@ -1173,6 +1176,7 @@ function renderFaq(s) {
   return [
     section("What Lore does", card([
       qa("What is Lore?", "A home for what you have learned, kept on this Mac. Your agents and the apps you connect fill it in. You choose what, if anything, goes up for sale."),
+      qa("Why connect my apps?", "Lore reads what you have already written, so you don't start from a blank page. It drafts things to sell from it, and you approve each one. Nothing leaves this Mac until you do."),
       qa("What is a memory, and what is a publication?", "A memory is one thing you learned, private by default. A publication is a memory you drafted for sale and approved. Nothing is for sale until you approve it.")
     ])),
     section("How you make money", card([
@@ -1352,14 +1356,22 @@ function say(text, owner = false, stopped = false) {
   renderLog();
 }
 
-/** @type {Array<{text: string, attention: boolean}>} */
+/** @typedef {{label: string, run: () => void}} NoticeAction */
+/** @type {Array<{text: string, attention: boolean, action?: NoticeAction}>} */
 const notices = [];
 
-/** Something Lore did or could not do, said where the owner is: in the open thread, or as a notice above the page when the log is hidden. @param {string} text @param {boolean} [attention] */
-function tell(text, attention = false) {
+/** Something Lore did or could not do, said where the owner is: in the open thread, or as a notice above the page when the log is hidden. @param {string} text @param {boolean} [attention] @param {NoticeAction} [action] The one next step, on the notice. */
+function tell(text, attention = false, action) {
   if (!log.hidden) { say(text, false, attention); return; }
-  notices.push({ text, attention });
+  if (action) retireOffers();
+  notices.push({ text, attention, action });
   if (notices.length > 3) notices.shift();
+  renderNotices();
+}
+
+/** Only the newest notice carries a next step. */
+function retireOffers() {
+  notices.splice(0, notices.length, ...notices.filter((item) => !item.action));
   renderNotices();
 }
 
@@ -1369,8 +1381,11 @@ function renderNotices() {
     const dismiss = el("button", "dismiss", "×");
     dismiss.type = "button";
     dismiss.setAttribute("aria-label", "Dismiss");
-    dismiss.addEventListener("click", () => { notices.splice(notices.indexOf(item), 1); renderNotices(); });
-    box.append(el("span", "", item.text), dismiss);
+    const drop = () => { notices.splice(notices.indexOf(item), 1); renderNotices(); };
+    dismiss.addEventListener("click", drop);
+    box.append(el("span", "", item.text));
+    if (item.action) box.append(button(item.action.label, "quiet", () => { drop(); item.action?.run(); }));
+    box.append(dismiss);
     return box;
   }));
 }
@@ -1812,9 +1827,23 @@ function nextRung(s) {
   return box;
 }
 
-async function startPublish() {
+/** @param {SourceEntry} [source] A connected app to draft from. */
+async function startPublish(source) {
   await openTask("publish");
-  await send("Help me publish something from my Lore.");
+  if (busy === "publish") return;
+  await send(source ? `Help me publish something from what Lore brought in from ${source.label}.` : "Help me publish something from my Lore.", undefined, undefined, source?.name);
+}
+
+/** The step after bringing an app's writing in. @param {SourceEntry} source */
+function sellAction(source) {
+  return {
+    label: "Turn these into something to sell",
+    run: () => {
+      closeSheet();
+      retireOffers();
+      void startPublish(source);
+    }
+  };
 }
 
 /** @param {AgentTask} kind @param {TaskRecord} [record] @param {TaskRecord} [fallback] Used only when neither `record` nor a live entry in `taskItems` exists, so the header reflects the caller's best-known status instead of fabricating "Working". */
@@ -2002,14 +2031,14 @@ async function act(action, failed) {
   return done;
 }
 
-/** @param {string} text @param {AgentTask} [from] @param {number} [memory] A memory the agent starts from, named to it and never shown. */
-async function send(text, from, memory) {
+/** @param {string} text @param {AgentTask} [from] @param {number} [memory] A memory the agent starts from, named to it and never shown. @param {string} [source] Likewise, a connected app's memories. */
+async function send(text, from, memory, source) {
   const files = attachments.length ? `\n\nFiles to read:\n${attachments.map((path) => `- ${path}`).join("\n")}` : "";
   attachments = [];
   renderAttachments();
   say(text, true);
   try {
-    await window.lore.prompt({ text: text + files, task, from, memory });
+    await window.lore.prompt({ text: text + files, task, from, memory, source });
     await load();
   } catch (error) {
     say(reason(error, "Something went wrong."));

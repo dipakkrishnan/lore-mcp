@@ -54,6 +54,12 @@ APIs." If the intent is broad ("publish my expertise"), read
 owner before drafting. One topic per pass — the whole flow should cost the
 owner at most three decisions.
 
+A library filled from connected apps (notes, posts, AI conversations) may have
+no blueprint or synthesis note yet. Then read the newest private memories —
+`lore search --status private --limit 20 --json` — and propose topics from
+what is there. When the owner starts from one app, you are told its source
+name: add `--source <name>` to both this listing and the search below.
+
 ## 2. Read the private evidence
 
 ```sh

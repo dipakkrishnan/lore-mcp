@@ -10,7 +10,7 @@ blockers: []
 dependencies: []
 github_issue: null
 created: 2026-09-14
-updated: 2026-09-14
+updated: 2026-09-27
 ---
 
 ## Problem
@@ -53,9 +53,9 @@ synthesis INDEX gives.
       with their posts kept as private memories, each linking to its post.
 - [ ] A dropped LinkedIn or X archive imports the owner's own posts and skips
       reposts, likes, and messages.
-- [ ] The run ends with a "worth publishing" proposal drawn from the imported
+- [x] The run ends with a "worth publishing" proposal drawn from the imported
       posts, not with an empty For Sale.
-- [ ] Nothing imported is published or pushed without the usual approval.
+- [x] Nothing imported is published or pushed without the usual approval.
 
 ## Notes
 
@@ -72,3 +72,15 @@ imports seed rather than sell.
 may find the owner's Substack or X handle from a public search and raise it
 as a card ("do you want to connect your Substack"); this item never connects
 a source the owner did not say yes to.
+
+2026-09-27: connect → publish. A connect that kept anything, and the
+Manage sheet of any app with imports, offers "Turn these into something to
+sell". It opens the existing publish thread (`lore-publish` through the
+desktop agent) with that app's source name as an aside; `lore search
+--source` scopes the reading to it, and the skill now proposes topics from
+the newest private memories when there is no blueprint or synthesis note.
+Imports keep `project="personal"`: search never filtered by project, so they
+were always reachable, just not findable by app. "Publish something" on Today
+now depends only on the library having memories. The Substack criterion is
+met by the connectors (`STO-003`, `APP-124`); LinkedIn and X archives are
+still open, so this stays in review.

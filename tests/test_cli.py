@@ -257,7 +257,12 @@ class MainDispatchTest(LoreTestCase):
                 "review",
                 ("", "private", 0, "discarded"),
             ),
-            (["search", "a", "--limit", "5"], "search", ("a", None, 5, False)),
+            (["search", "a", "--limit", "5"], "search", ("a", None, 5, False, None)),
+            (
+                ["search", "--source", "substack"],
+                "search",
+                ("", None, 20, False, "substack"),
+            ),
             (["profile", "p.json"], "profile", ("p.json", True)),
             (["profile", "p.json", "--no-schedule"], "profile", ("p.json", False)),
             (["capture", "apply", "-"], "capture_apply", ("-",)),
