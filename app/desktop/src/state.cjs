@@ -39,10 +39,10 @@ async function lore(loreHome, args, decision) {
   }
 }
 
-/** @param {string} file @param {string[]} args @param {Record<string, string>} env @param {(line: string) => void} onLine @param {string} [cwd] */
-function stream(file, args, env, onLine, cwd) {
+/** @param {string} file @param {string[]} args @param {Record<string, string>} env @param {(line: string) => void} onLine @param {string} [cwd] @param {AbortSignal} [signal] */
+function stream(file, args, env, onLine, cwd, signal) {
   return new Promise((done, fail) => {
-    const child = spawn(file, args, { cwd, env: { ...process.env, ...env }, windowsHide: true });
+    const child = spawn(file, args, { cwd, env: { ...process.env, ...env }, windowsHide: true, signal });
     for (const output of [child.stdout, child.stderr]) {
       if (output) createInterface({ input: output }).on("line", (line) => line.trim() && onLine(line.trim()));
     }
@@ -51,19 +51,22 @@ function stream(file, args, env, onLine, cwd) {
   });
 }
 
-/** Run the CLI and hand back each output line as it arrives, for commands that wait on the owner. @param {string} loreHome @param {string[]} args @param {(line: string) => void} onLine */
-function loreStream(loreHome, args, onLine) {
-  return stream(runtime.file, [...runtime.args, ...args], { LORE_HOME: loreHome, NO_COLOR: "1" }, onLine, runtime.cwd ?? loreHome);
+/** Run the CLI and hand back each output line as it arrives, for commands that wait on the owner. @param {string} loreHome @param {string[]} args @param {(line: string) => void} onLine @param {AbortSignal} [signal] */
+function loreStream(loreHome, args, onLine, signal) {
+  return stream(runtime.file, [...runtime.args, ...args], { LORE_HOME: loreHome, NO_COLOR: "1" }, onLine, runtime.cwd ?? loreHome, signal);
 }
 
 /** The hosts the payments skill sends an owner to; anything else stays closed. */
 const OPENABLE = new Set(["coinbase.com", "www.coinbase.com", "dash.cloudflare.com", "portal.cdp.coinbase.com", "faucet.circle.com", "basescan.org", "sepolia.basescan.org"]);
 
-/** @param {string} url */
-function openable(url) {
+/** Where Granola, Notion and Readwise ask the owner to approve Lore. */
+const SIGN_IN = new Set(["mcp-auth.granola.ai", "mcp.notion.com", "readwise.io"]);
+
+/** @param {string} url @param {Set<string>} [hosts] */
+function openable(url, hosts = OPENABLE) {
   try {
     const { protocol, hostname } = new URL(url);
-    return protocol === "https:" && OPENABLE.has(hostname);
+    return protocol === "https:" && hosts.has(hostname);
   } catch {
     return false;
   }
@@ -205,6 +208,27 @@ async function connectSource(loreHome, input) {
   return JSON.parse(await lore(loreHome, ["sources", "connect", app, ...replacing, "--json", "--", input.locator]));
 }
 
+/** Sign in to an app that runs its own server, then read it. The CLI names the approval page and
+ * waits for the owner there; `open` shows it to them. Signing in again reads the app again. @param {string} loreHome @param {unknown} app @param {(url: string) => void} open
+ * @param {AbortSignal} signal @returns {Promise<SourceEntry>} */
+async function signIn(loreHome, app, open, signal) {
+  let last = "";
+  let result = "";
+  try {
+    await loreStream(loreHome, ["sources", "connect", connector(app), "--json"], (line) => {
+      // stderr interleaves with stdout, so the result is the JSON line, not the last one.
+      if (line.startsWith("{")) result = line;
+      else last = line;
+      const url = line.match(/^Approve Lore in your browser: (\S+)$/)?.[1];
+      if (url && openable(url, SIGN_IN)) open(url);
+    }, signal);
+  } catch (error) {
+    if (signal.aborted) throw new Error("Signing in was cancelled");
+    throw new Error(last.replace(/^lore: /, "") || /** @type {Error} */ (error).message);
+  }
+  return JSON.parse(result);
+}
+
 /** @param {string} loreHome @param {unknown} name @returns {Promise<SourceRead[]>} */
 async function readSource(loreHome, name) {
   return JSON.parse(await lore(loreHome, ["sources", "read", sourceName(name), "--json"]));
@@ -236,6 +260,7 @@ module.exports = {
   sourceCatalog,
   sourceChoices,
   connectSource,
+  signIn,
   readSource,
   removeSource,
   useRuntime

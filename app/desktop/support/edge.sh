@@ -84,6 +84,13 @@ if [[ "$scenario" == "connectors" ]]; then
   cp "$repo_root/tests/fixtures/feeds/medium.xml" "$root/medium.xml"
   cp "$repo_root/tests/fixtures/feeds/rss.xml" "$root/blog.xml"
   export OBSIDIAN_HOME="$root/obsidian"
+  # CAP-009: Granola's server stood in for by a local one that asks no sign-in, and a keyring that
+  # keeps nothing, so the owner's Keychain is never touched. The walk stops it to see the app fail.
+  port="$(python3 -c 'import socket; s = socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1])')"
+  (cd "$repo_root" && exec uv run python tests/fixtures/granola.py "$port" >"$root/granola.log" 2>&1) &
+  export LORE_EDGE_GRANOLA_PID=$! LORE_GRANOLA_SERVER="http://127.0.0.1:$port/mcp" PYTHON_KEYRING_BACKEND=keyring.backends.null.Keyring
+  trap 'kill "$LORE_EDGE_GRANOLA_PID" 2>/dev/null || true' EXIT
+  for _ in $(seq 1 60); do curl -s -o /dev/null "http://127.0.0.1:$port/mcp" && break; sleep 0.5; done
 fi
 echo "Screenshots land in $root"
 "$desktop_dir/node_modules/.bin/electron" "$desktop_dir/support/edge.cjs" "$scenario" 2>/dev/null | grep -E "^(PASS|FAIL|ERROR)"

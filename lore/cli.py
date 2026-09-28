@@ -109,7 +109,12 @@ def parser() -> argparse.ArgumentParser:
         "connect", help="connect an app from the catalog"
     )
     source_connect.add_argument("connector", help="the app, like obsidian")
-    source_connect.add_argument("locator", help="the vault, file, or address to read")
+    source_connect.add_argument(
+        "locator",
+        nargs="?",
+        default="",
+        help="the vault, file, or address to read; an app you sign in to needs none",
+    )
     source_connect.add_argument(
         "--replace", metavar="NAME", help="the connection this one takes over from"
     )
@@ -685,7 +690,10 @@ def source_command(args: argparse.Namespace) -> int:
                 )
             elif command == "connect":
                 added = Registry(store).connect(
-                    args.connector, args.locator, replacing=args.replace
+                    args.connector,
+                    args.locator,
+                    replacing=args.replace,
+                    show=_approve,
                 )
                 payload, lines = added, [_source_line(added)]
             elif command == "choices":
@@ -725,6 +733,11 @@ def source_command(args: argparse.Namespace) -> int:
     for line in lines:
         print(line)
     return 0
+
+
+def _approve(url: str) -> None:
+    # The desktop opens the page from this line; a person at a terminal follows it.
+    print(f"Approve Lore in your browser: {url}", file=sys.stderr, flush=True)
 
 
 def _locator_flags(parser: argparse.ArgumentParser) -> None:

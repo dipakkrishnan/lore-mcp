@@ -988,6 +988,15 @@ const CONNECTION_STATES = {
   off: { ok: false, label: "Off", line: () => "Not reading." }
 };
 
+/** An app Lore signs in to fails one way as far as the owner can act on it: sign in again. */
+const SIGNED_OUT = { ok: false, label: "Signed out", line: (/** @type {SourceApp} */ app) => `${app.name} didn't answer. Sign in again.` };
+
+/** @param {SourceApp} app @param {SourceEntry} source */
+function stateOf(app, source) {
+  const state = CONNECTION_STATES[source.state ?? "off"];
+  return app.kind === "mcp" && !state.ok && source.state !== "off" ? SIGNED_OUT : state;
+}
+
 /** @param {number} count @param {string} noun */
 function plural(count, noun) {
   return `${count} ${count === 1 ? noun : noun.replace(/y$/, "ie") + "s"}`;
@@ -1010,9 +1019,10 @@ function logo(app) {
 /** The agents' marks: their makers' marks, as sign-in draws them. @type {Record<string, string>} */
 const AGENT_MARKS = { codex: "openai", claude: "claude" };
 
-/** What connecting an app is called: an export is brought in once, everything else stays connected. @param {SourceApp} app */
+/** What connecting an app is called: an export is brought in once, an app with its own server is
+ * signed in to, everything else stays connected. @param {SourceApp} app */
 function verb(app) {
-  return app.kind === "export" ? "Import" : "Connect";
+  return app.kind === "export" ? "Import" : app.kind === "mcp" ? "Sign in" : "Connect";
 }
 
 /** Connectors: the agents, then every app in the catalog, connected or on offer. @param {Snapshot} s */
@@ -1025,7 +1035,7 @@ function sourceRows(s) {
   for (const app of apps) {
     const connected = s.library.sources.filter((source) => source.connector === app.id);
     for (const source of connected) {
-      const state = CONNECTION_STATES[source.state ?? "off"];
+      const state = stateOf(app, source);
       const node = row(app.name, source.label === app.name ? state.line(app, source) : `${source.label} · ${state.line(app, source)}`, cell(dot(state.ok, state.label), button("Manage", "quiet", () => openConnection(app, source))), false);
       node.prepend(logo(app));
       rows.push(node);
@@ -1066,6 +1076,7 @@ function sheet(title, mark, ...body) {
  * reads it. Changing what a connected app reads swaps the place only once the new one has been read,
  * and keeps the memories. @param {SourceApp} app @param {SourceEntry} [current] */
 async function openConnect(app, current) {
+  if (app.kind === "mcp") return openSignIn(app);
   const { name, unit, kind } = app;
   let locator = "";
   const list = el("div", "choices");
@@ -1122,29 +1133,68 @@ async function openConnect(app, current) {
   sheet(name, logo(app), lead, ...(app.guide ? [el("p", "hint", app.guide)] : []), list, el("p", "hint", "Read only. Stays on this Mac."), actions);
 }
 
+/** Sign in to an app that runs its own server: its own page, in the browser, lets Lore in, and Lore
+ * then reads it. Closing the sheet stops the wait. @param {SourceApp} app */
+function openSignIn(app) {
+  const { name } = app;
+  const invite = `Lore opens ${name} in your browser. Approve there, and Lore brings in your ${app.item}s.`;
+  const lead = el("p", "", invite);
+  const actions = el("div", "actions");
+  const start = button(`Sign in to ${name}`, "primary", () => void begin());
+  let cancelled = false;
+  async function begin() {
+    cancelled = false;
+    lead.textContent = "Waiting for you to approve in your browser…";
+    actions.replaceChildren(button("Cancel", "quiet", () => { cancelled = true; void window.lore.cancelSignIn(); }));
+    try {
+      const added = await window.lore.signIn(app.id);
+      closeSheet();
+      tell(`${name} is connected. ${stateOf(app, added).line(app, added)}`, false, added.imported ? sellAction(added) : undefined);
+    } catch (error) {
+      if (!cancelled) {
+        closeSheet();
+        tell(reason(error, `${name} didn't answer. Try again.`), true);
+      }
+      lead.textContent = invite;
+      actions.replaceChildren(start);
+    }
+    await load();
+  }
+  actions.append(start);
+  sheet(name, logo(app), lead, el("p", "hint", "Read only. Stays on this Mac."), actions);
+  document.querySelector("dialog.sheet[open]")?.addEventListener("close", () => { cancelled = true; void window.lore.cancelSignIn(); });
+}
+
 /** What a connected app reads, where it stands, and what can be done to it. @param {SourceApp} app @param {SourceEntry} source */
 function openConnection(app, source) {
   const { name, unit } = app;
-  const state = CONNECTION_STATES[source.state ?? "off"];
+  const state = stateOf(app, source);
   const sell = sellAction(source);
   const actions = el("div", "actions");
+  const signedOut = state === SIGNED_OUT;
   const resting = [
     ...(source.imported ? [button(sell.label, "secondary", sell.run)] : []),
-    ...(source.state === "needs_permission"
-      ? [button("Open System Settings", "secondary", () => void window.lore.openPrivacySettings())]
-      : source.refresh === false
-        ? []
-        : [button("Read again", "secondary", () => void act(async () => { await window.lore.readSource(source.name); closeSheet(); }))]),
-    button(`Change ${unit}`, "quiet", () => void openConnect(app, source)),
+    ...(signedOut
+      ? []
+      : source.state === "needs_permission"
+        ? [button("Open System Settings", "secondary", () => void window.lore.openPrivacySettings())]
+        : source.refresh === false
+          ? []
+          : [button("Read again", "secondary", () => void act(async () => { await window.lore.readSource(source.name); closeSheet(); }))]),
+    app.kind === "mcp"
+      ? button("Sign in again", signedOut ? "secondary" : "quiet", () => openSignIn(app))
+      : button(`Change ${unit}`, "quiet", () => void openConnect(app, source)),
     button("Disconnect", "quiet", ask)
   ];
   function ask() {
-    actions.replaceChildren(
-      el("span", "hint", `Keep the ${plural(source.imported, "memory")} it already kept?`),
-      button("Keep", "secondary", () => void remove(true)),
-      button("Delete them too", "secondary", () => void remove(false)),
-      button("Cancel", "quiet", () => actions.replaceChildren(...resting))
+    const kept = source.imported ? ` The ${plural(source.imported, "memory")} it brought in stay in your library.` : "";
+    const confirm = el("div", "actions");
+    confirm.append(
+      ...(source.imported ? [button("Delete them too", "quiet", () => void remove(false))] : []),
+      button("Cancel", "quiet", () => openConnection(app, source)),
+      button("Disconnect", "secondary", () => void remove(true))
     );
+    sheet(`Disconnect ${name}?`, logo(app), el("p", "", `Lore stops reading ${name}.${kept}`), confirm);
   }
   /** @param {boolean} keep */
   async function remove(keep) {
@@ -1156,7 +1206,7 @@ function openConnection(app, source) {
   }
   actions.replaceChildren(...resting);
   const standing = source.refresh === false ? `Read once. Change ${unit} to bring in a newer one.` : snapshot?.setup.schedule?.installed ? `Lore looks for new ${app.item}s each time your schedule runs.` : `Lore looks for new ${app.item}s only when you choose Read again.`;
-  sheet(name, logo(app), el("p", "", `${source.label} · ${state.line(app, source)}`), el("p", "hint mono", source.locator ?? ""), el("p", "hint", standing), actions);
+  sheet(name, logo(app), el("p", "", source.label === name ? state.line(app, source) : `${source.label} · ${state.line(app, source)}`), ...(app.kind === "mcp" ? [] : [el("p", "hint mono", source.locator ?? "")]), el("p", "hint", standing), actions);
 }
 
 /** Connectors: where memories come from, and how often Lore reads them. First class: the way

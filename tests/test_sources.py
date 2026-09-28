@@ -502,7 +502,18 @@ class ConnectorTest(LoreTestCase):
         apps = {app.id: app for app in Connector.catalog()}
         self.assertEqual(
             list(apps),
-            ["obsidian", "chatgpt", "claude", "substack", "medium", "bluesky", "blog"],
+            [
+                "obsidian",
+                "chatgpt",
+                "claude",
+                "substack",
+                "medium",
+                "bluesky",
+                "blog",
+                "granola",
+                "notion",
+                "readwise",
+            ],
         )
         self.assertEqual(
             (apps["obsidian"].kind, apps["obsidian"].refresh), ("folder", True)
@@ -520,6 +531,6 @@ class ConnectorTest(LoreTestCase):
 
     def test_an_unknown_app_or_the_wrong_kind_for_it_is_refused(self) -> None:
         with self.assertRaises(sources_module.SourceError):
-            Source.owner("/notes", connector="notion")
+            Source.owner("/notes", connector="evernote")
         with self.assertRaises(sources_module.SourceError):
             Source.owner("https://a.example", kind="feed", connector="obsidian")
