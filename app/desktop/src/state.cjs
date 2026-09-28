@@ -213,9 +213,12 @@ async function connectSource(loreHome, input) {
  * @param {AbortSignal} signal @returns {Promise<SourceEntry>} */
 async function signIn(loreHome, app, open, signal) {
   let last = "";
+  let result = "";
   try {
     await loreStream(loreHome, ["sources", "connect", connector(app), "--json"], (line) => {
-      last = line;
+      // stderr interleaves with stdout, so the result is the JSON line, not the last one.
+      if (line.startsWith("{")) result = line;
+      else last = line;
       const url = line.match(/^Approve Lore in your browser: (\S+)$/)?.[1];
       if (url && openable(url, SIGN_IN)) open(url);
     }, signal);
@@ -223,7 +226,7 @@ async function signIn(loreHome, app, open, signal) {
     if (signal.aborted) throw new Error("Signing in was cancelled");
     throw new Error(last.replace(/^lore: /, "") || /** @type {Error} */ (error).message);
   }
-  return JSON.parse(last);
+  return JSON.parse(result);
 }
 
 /** @param {string} loreHome @param {unknown} name @returns {Promise<SourceRead[]>} */

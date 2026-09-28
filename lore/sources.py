@@ -992,6 +992,8 @@ class HostedReader(Reader):
             self.failure = (
                 State.NEEDS_PERMISSION if _refused(error) else State.UNREACHABLE
             )
+        if fresh and not read and self.failure is None:
+            self.failure = State.UNREACHABLE
         yield from read
 
     @asynccontextmanager
@@ -1051,9 +1053,14 @@ class HostedReader(Reader):
         self, client: Client, entries: list[Entry], into: list[Item]
     ) -> None:
         for entry in entries:
-            answer = await self._call(
-                client, self.app.fetcher, self.app.reading(entry.key)
-            )
+            try:
+                answer = await self._call(
+                    client, self.app.fetcher, self.app.reading(entry.key)
+                )
+            except LookupError:
+                # One page the owner can't share (Notion's restricted pages) skips, not stops, the read.
+                self.errors += 1
+                continue
             into.append(
                 Item(
                     entry.title,

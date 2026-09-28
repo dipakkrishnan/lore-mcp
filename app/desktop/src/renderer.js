@@ -1151,7 +1151,10 @@ function openSignIn(app) {
       closeSheet();
       tell(`${name} is connected. ${stateOf(app, added).line(app, added)}`, false, added.imported ? sellAction(added) : undefined);
     } catch (error) {
-      if (!cancelled) tell(reason(error, `${name} didn't answer. Try again.`), true);
+      if (!cancelled) {
+        closeSheet();
+        tell(reason(error, `${name} didn't answer. Try again.`), true);
+      }
       lead.textContent = invite;
       actions.replaceChildren(start);
     }

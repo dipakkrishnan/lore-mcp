@@ -228,6 +228,28 @@ class HostedAppsTest(unittest.TestCase):
             ],
         )
 
+    def test_a_page_notion_will_not_share_is_skipped_not_the_whole_read(self) -> None:
+        stub = MCPServer("notion")
+
+        @stub.tool(name="notion-search")
+        def search(query: str, filters: dict[str, object], page_size: int) -> str:
+            pages = [{"id": key, "title": key} for key in ("p1", "locked", "p3")]
+            return json.dumps({"results": pages})
+
+        @stub.tool(name="notion-fetch")
+        def fetch(id: str) -> str:
+            if id == "locked":
+                raise PermissionError("restricted_resource")
+            return json.dumps({"text": id})
+
+        reader = sources_module.Source.owner(
+            Notion().address(""), kind="mcp", connector="notion"
+        ).reader()
+        with serving(stub):
+            items = list(reader.items())
+        self.assertEqual([i.key for i in items], ["p1", "p3"])
+        self.assertEqual((reader.errors, reader.failure), (1, None))
+
     def test_readwise_keeps_highlights_with_their_notes(self) -> None:
         app = Readwise()
         entries, cursor = app.entries(
