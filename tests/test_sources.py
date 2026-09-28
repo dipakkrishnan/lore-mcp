@@ -247,6 +247,7 @@ class OwnerFolderTest(LoreTestCase):
             self.assertEqual(
                 sources_module.preview(str(locked))["state"], "needs_permission"
             )
+        (self.claude_home / "projects").mkdir(parents=True)
         with Store() as store:
             store.set_setting("sources", ["codex"])
             states = {
@@ -254,6 +255,14 @@ class OwnerFolderTest(LoreTestCase):
                 for entry in sources_module.Registry(store).entries()
             }
         self.assertEqual(states["claude"], "off")
+
+    def test_an_agent_that_is_not_on_this_mac_is_not_offered(self) -> None:
+        with Store() as store:
+            names = [e["name"] for e in sources_module.Registry(store).entries()]
+            self.assertEqual(names, [])
+            (self.codex_home / "memories").mkdir(parents=True)
+            names = [e["name"] for e in sources_module.Registry(store).entries()]
+            self.assertEqual(names, ["codex"])
 
     def test_read_failures_keep_preview_unhealthy_even_with_other_good_notes(
         self,
@@ -449,6 +458,7 @@ class ConnectorTest(LoreTestCase):
         self.assertEqual(Obsidian().choices(), [])
 
     def test_a_connected_vault_keeps_the_app_it_came_from(self) -> None:
+        (self.codex_home / "memories").mkdir(parents=True)
         root = Path(self.tmp.name) / "Personal"
         root.mkdir()
         (root / "note.md").write_text(

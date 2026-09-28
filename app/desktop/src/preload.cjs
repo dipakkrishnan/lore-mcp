@@ -49,7 +49,7 @@ contextBridge.exposeInMainWorld("lore", {
   connectSource: (input) => ipcRenderer.invoke("sources:connect", input),
   /** @param {string} app */
   signIn: (app) => ipcRenderer.invoke("sources:sign-in", app),
-  cancelSignIn: () => ipcRenderer.invoke("sources:cancel-sign-in"),
+  cancelConnect: () => ipcRenderer.invoke("sources:cancel"),
   /** @param {string} name */
   readSource: (name) => ipcRenderer.invoke("sources:read", name),
   /** @param {string} name @param {boolean} keep */

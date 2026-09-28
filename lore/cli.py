@@ -85,7 +85,7 @@ def parser() -> argparse.ArgumentParser:
     connect = commands.add_parser(
         "sources", help="connect and read the places your memories live"
     )
-    source_commands = connect.add_subparsers(dest="sources_command")
+    source_commands = connect.add_subparsers(dest="sources_command", required=True)
     source_list = source_commands.add_parser("list", help="show every source")
     source_list.add_argument("--json", action="store_true")
     source_preview = source_commands.add_parser(
@@ -663,7 +663,7 @@ def sync(names: set[str] | None = None, *, record_job: bool = False) -> int:
 
 def source_command(args: argparse.Namespace) -> int:
     """Connect, inspect, and read the places Lore imports memories from."""
-    command = args.sources_command or "list"
+    command = args.sources_command
     payload: object
     with Store() as store:
         try:

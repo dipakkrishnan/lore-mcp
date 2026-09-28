@@ -198,6 +198,7 @@ obsolete), then `priority` (P0 → P3).
 | [APP-127](./desktop-app/APP-127-point-today-at-connectors-and-say-where-an-export-comes-from.md) | Point Today at Connectors and say where an export comes from | P1 | S | desktop-app | completed | CAP-003, APP-125, APP-118, APP-120 | — | — | — |
 | [CAP-008](./capture/CAP-008-connect-medium-bluesky-and-any-blog-feed.md) | Connect Medium, Bluesky and any blog feed | P1 | S | capture | completed | CAP-005, CAP-003, STO-003 | — | "CAP-005 for FeedReader" | — |
 | [XC-037](./cross-cutting/XC-037-a-buyer-skill-any-agent-can-follow.md) | A buyer skill any agent can follow | P1 | S | cross-cutting | completed | XC-033, XC-034 | — | — | — |
+| [APP-128](./desktop-app/APP-128-dogfood-fixes-errors-in-the-sheet-cancellable-connect-own-words-only.md) | Dogfood fixes: errors in the sheet, cancellable connect, own words only | P1 | M | desktop-app | completed | CAP-009, APP-125, APP-127, APP-118, CAP-005, CAP-006 | — | — | — |
 | [XC-038](./cross-cutting/XC-038-delete-stale-docs-and-one-off-test-tooling.md) | Delete stale docs and one-off test tooling | P2 | S | cross-cutting | completed | — | — | — | — |
 | [APP-012](./desktop-app/APP-012-give-sections-a-readable-vertical-rhythm.md) | Give sections a readable vertical rhythm | P2 | S | desktop-app | completed | APP-009, APP-011 | — | — | — |
 | [APP-022](./desktop-app/APP-022-build-the-blueprint-visibly-as-answers-land.md) | Build the blueprint visibly during the evidence scan | P2 | M | desktop-app | completed | APP-020, APP-021, APP-009 | — | — | — |

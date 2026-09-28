@@ -271,7 +271,9 @@ async function openMemory(id) {
   const head = el("div", "sheet-head");
   const text = el("div", "t");
   const titleLabel = el("b", "", memory.title);
-  text.append(titleLabel, el("span", "", [memory.project, memory.source, when(memory.updated_at)].filter(Boolean).join(" · ")));
+  const from = snapshot?.library.sources.find((source) => source.name === memory.source);
+  const origin = apps.find((app) => app.id === from?.connector)?.name ?? from?.label;
+  text.append(titleLabel, el("span", "", [...new Set([memory.project, origin, when(memory.updated_at)])].filter(Boolean).join(" · ")));
   const close = el("button", "icon-btn", "×");
   close.type = "button";
   close.setAttribute("aria-label", "Close");
@@ -607,8 +609,9 @@ function needsYou(s) {
     rows.push(node);
   };
   if (!s.library.sources.some((source) => source.connector)) add("Bring in what you've written", "Notes, posts, or AI conversations from apps you already use.", button("Connect", "secondary", () => show("connectors")));
-  if (!s.setup.sources_configured) add("Connect your agents", "Let Lore read what Claude Code and Codex already remember.", button("Start", "secondary", startSetup));
-  else if (!s.setup.blueprint_configured) add("Shape your Lore", "Review one proposal based on what your agents already know.", button("Start", "secondary", startSetup));
+  if (!s.setup.sources_configured) {
+    if (s.library.sources.some((source) => !source.owned)) add("Connect your agents", "Let Lore read what Claude Code and Codex already remember.", button("Start", "secondary", startSetup));
+  } else if (!s.setup.blueprint_configured) add("Shape your Lore", "Review one proposal based on what your agents already know.", button("Start", "secondary", startSetup));
   else if (!s.setup.profile_configured) add("Set the rhythm", "Choose which model writes new memories, and how often.", button("Start", "secondary", startSetup));
   else {
     // Before the store rung: something approved with no price cannot be sold,
@@ -732,6 +735,8 @@ function priceField(value) {
   return [field, input];
 }
 
+const ABOVE_ZERO = "A price has to be a number above zero";
+
 /** The amount typed, or null when the CLI would refuse it: zero is a conversation, not a text field. @param {string} raw */
 function parsePrice(raw) {
   const amount = Number(raw.trim().replace(/^\$/, ""));
@@ -770,12 +775,15 @@ function priceEditor(s) {
 async function savePrice(raw) {
   const amount = parsePrice(raw);
   if (amount === null) {
-    tell("A price has to be a number above zero. Free is a real choice, but you make it when you open your store.", true);
+    tell(`${ABOVE_ZERO}. Free is a real choice, but you make it when you open your store.`, true);
     return;
   }
   savingPrice = true;
   render();
-  if (await act(() => window.lore.setPrice(amount))) editingPrice = false;
+  if (await act(() => window.lore.setPrice(amount))) {
+    editingPrice = false;
+    drop((item) => item.text.startsWith(ABOVE_ZERO));
+  }
   savingPrice = false;
   render();
 }
@@ -981,8 +989,8 @@ function marketplaceRow(s) {
 /** How a connection stands, said the same way on its row and its sheet, in the app's own nouns.
  * Connected with nothing in it is still connected. @type {Record<SourceState, {ok: boolean, label: string, line: (app: SourceApp, source: SourceEntry) => string}>} */
 const CONNECTION_STATES = {
-  connected: { ok: true, label: "Connected", line: (app, source) => (source.imported ? `${plural(source.imported, app.item)} kept.` : `No ${app.item}s yet.`) },
-  nothing_found: { ok: true, label: "Connected", line: (app) => `No ${app.item}s yet.` },
+  connected: { ok: true, label: "Connected", line: (app, source) => (source.imported ? `${plural(source.imported, app.item)} kept.` : `No ${many(app.item)} yet.`) },
+  nothing_found: { ok: true, label: "Connected", line: (app) => `No ${many(app.item)} yet.` },
   needs_permission: { ok: false, label: "Needs access", line: (app) => `Lore can't read this ${app.unit} yet.` },
   unreachable: { ok: false, label: "Not found", line: (app) => `The ${app.unit} is gone or moved.` },
   off: { ok: false, label: "Off", line: () => "Not reading." }
@@ -999,7 +1007,12 @@ function stateOf(app, source) {
 
 /** @param {number} count @param {string} noun */
 function plural(count, noun) {
-  return `${count} ${count === 1 ? noun : noun.replace(/y$/, "ie") + "s"}`;
+  return `${count} ${count === 1 ? noun : many(noun)}`;
+}
+
+/** @param {string} noun */
+function many(noun) {
+  return `${noun.replace(/y$/, "ie")}s`;
 }
 
 /** A bundled brand mark by asset name, the initial when none loads. @param {string} asset @param {string} name */
@@ -1050,7 +1063,8 @@ function sourceRows(s) {
   return rows;
 }
 
-/** A narrow modal: a title, the app's mark, and whatever follows. @param {string} title @param {HTMLElement} mark @param {HTMLElement[]} body */
+/** A narrow modal: a title, the app's mark, and whatever follows. It opens on the first thing to
+ * fill in or do, not on ×. @param {string} title @param {HTMLElement} mark @param {HTMLElement[]} body */
 function sheet(title, mark, ...body) {
   closeSheet();
   const node = el("dialog", "sheet narrow");
@@ -1070,6 +1084,37 @@ function sheet(title, mark, ...body) {
   node.addEventListener("close", () => node.remove());
   document.body.append(node);
   node.showModal();
+  /** @type {HTMLElement | null} */ (panel.querySelector("input") ?? panel.querySelector(".btn.primary:not(:disabled), .btn.secondary") ?? panel.querySelector(".actions .btn"))?.focus();
+  return node;
+}
+
+/** A quiet line in a sheet for what went wrong there, so the owner corrects it in place. */
+function problemLine() {
+  const node = el("p", "problem");
+  node.setAttribute("role", "alert");
+  return node;
+}
+
+/** Connect from a sheet: it closes once the app is read, says in place why not, and closing it first
+ * stops the connect. @param {HTMLDialogElement} dialog @param {HTMLElement} problem @param {SourceApp} app
+ * @param {() => Promise<SourceEntry>} work @returns {Promise<boolean>} Whether it connected. */
+async function connectIn(dialog, problem, app, work) {
+  const stop = () => void window.lore.cancelConnect();
+  dialog.addEventListener("close", stop);
+  problem.textContent = "";
+  try {
+    const added = await work();
+    dialog.removeEventListener("close", stop);
+    dialog.close();
+    tell(`${app.name} is connected. ${stateOf(app, added).line(app, added)}`, false, added.imported ? sellAction(added) : undefined);
+    return true;
+  } catch (error) {
+    if (dialog.isConnected) problem.textContent = reason(error, `${app.name} didn't answer. Try again.`);
+    return false;
+  } finally {
+    dialog.removeEventListener("close", stop);
+    await load();
+  }
 }
 
 /** Connect an app: pick among what it offers, choose a folder or file, or give an address, and Lore
@@ -1082,15 +1127,11 @@ async function openConnect(app, current) {
   const list = el("div", "choices");
   const lead = el("p", "", `Choose a ${unit}.`);
   const actions = el("div", "actions");
+  const problem = problemLine();
   const connect = button(kind === "export" ? "Import" : `Connect ${name}`, "primary", async () => {
     if (!locator) return;
     connect.disabled = true;
-    const done = await act(async () => {
-      const added = await window.lore.connectSource({ connector: app.id, locator, ...(current ? { replace: current.name } : {}) });
-      closeSheet();
-      tell(`${name} is connected. ${CONNECTION_STATES[added.state ?? "off"].line(app, added)}`, false, added.imported ? sellAction(added) : undefined);
-    });
-    connect.disabled = done;
+    connect.disabled = await connectIn(dialog, problem, app, () => window.lore.connectSource({ connector: app.id, locator, ...(current ? { replace: current.name } : {}) }));
   });
   connect.disabled = true;
   /** @param {SourceChoice} choice @param {boolean} checked */
@@ -1112,6 +1153,7 @@ async function openConnect(app, current) {
     field.placeholder = app.placeholder;
     field.setAttribute("aria-label", `${name} address`);
     field.addEventListener("input", () => { locator = field.value.trim(); connect.disabled = !locator; });
+    field.addEventListener("keydown", (event) => { if (event.key === "Enter") connect.click(); });
     list.append(field);
   } else {
     /** @type {SourceChoice[]} */
@@ -1123,46 +1165,35 @@ async function openConnect(app, current) {
       return;
     }
     for (const choice of choices) option(choice, false);
-    if (!choices.length) lead.textContent = kind === "folder" ? `No ${unit}s found on this Mac.` : `Choose the ${unit} you downloaded.`;
+    if (!choices.length) lead.textContent = kind === "folder" ? `No ${many(unit)} found on this Mac.` : `Choose the ${unit} you downloaded.`;
     const pick = kind === "folder" ? () => window.lore.pickFolder() : () => window.lore.pickFiles().then((paths) => paths[0] ?? null);
     actions.append(button(kind === "folder" ? "Choose a folder…" : "Choose a file…", "quiet", () => void pick().then((path) => {
       if (path) option({ label: path.split("/").at(-1) ?? path, locator: path, open: false }, true);
     })));
   }
   actions.append(connect);
-  sheet(name, logo(app), lead, ...(app.guide ? [el("p", "hint", app.guide)] : []), list, el("p", "hint", "Read only. Stays on this Mac."), actions);
+  const dialog = sheet(name, logo(app), lead, ...(app.guide ? [el("p", "hint", app.guide)] : []), list, el("p", "hint", "Read only. Stays on this Mac."), problem, actions);
 }
 
 /** Sign in to an app that runs its own server: its own page, in the browser, lets Lore in, and Lore
  * then reads it. Closing the sheet stops the wait. @param {SourceApp} app */
 function openSignIn(app) {
   const { name } = app;
-  const invite = `Lore opens ${name} in your browser. Approve there, and Lore brings in your ${app.item}s.`;
+  const invite = `Lore opens ${name} in your browser. Approve there, and Lore brings in ${app.what.toLowerCase()}.`;
   const lead = el("p", "", invite);
   const actions = el("div", "actions");
+  const problem = problemLine();
   const start = button(`Sign in to ${name}`, "primary", () => void begin());
-  let cancelled = false;
   async function begin() {
-    cancelled = false;
     lead.textContent = "Waiting for you to approve in your browser…";
-    actions.replaceChildren(button("Cancel", "quiet", () => { cancelled = true; void window.lore.cancelSignIn(); }));
-    try {
-      const added = await window.lore.signIn(app.id);
-      closeSheet();
-      tell(`${name} is connected. ${stateOf(app, added).line(app, added)}`, false, added.imported ? sellAction(added) : undefined);
-    } catch (error) {
-      if (!cancelled) {
-        closeSheet();
-        tell(reason(error, `${name} didn't answer. Try again.`), true);
-      }
-      lead.textContent = invite;
-      actions.replaceChildren(start);
-    }
-    await load();
+    actions.replaceChildren(button("Cancel", "quiet", () => dialog.close()));
+    if (await connectIn(dialog, problem, app, () => window.lore.signIn(app.id))) return;
+    lead.textContent = invite;
+    actions.replaceChildren(start);
+    start.focus();
   }
   actions.append(start);
-  sheet(name, logo(app), lead, el("p", "hint", "Read only. Stays on this Mac."), actions);
-  document.querySelector("dialog.sheet[open]")?.addEventListener("close", () => { cancelled = true; void window.lore.cancelSignIn(); });
+  const dialog = sheet(name, logo(app), lead, el("p", "hint", "Read only. Stays on this Mac."), problem, actions);
 }
 
 /** What a connected app reads, where it stands, and what can be done to it. @param {SourceApp} app @param {SourceEntry} source */
@@ -1180,21 +1211,28 @@ function openConnection(app, source) {
         ? [button("Open System Settings", "secondary", () => void window.lore.openPrivacySettings())]
         : source.refresh === false
           ? []
-          : [button("Read again", "secondary", () => void act(async () => { await window.lore.readSource(source.name); closeSheet(); }))]),
+          : [button("Read again", "secondary", () => void act(async () => {
+            const [read] = await window.lore.readSource(source.name);
+            dialog.close();
+            tell(read?.added ? `${plural(read.added, `new ${app.item}`)}.` : "Nothing new.");
+          }))]),
     app.kind === "mcp"
       ? button("Sign in again", signedOut ? "secondary" : "quiet", () => openSignIn(app))
       : button(`Change ${unit}`, "quiet", () => void openConnect(app, source)),
     button("Disconnect", "quiet", ask)
   ];
   function ask() {
-    const kept = source.imported ? ` The ${plural(source.imported, "memory")} it brought in stay in your library.` : "";
+    const kept = source.imported ? ` The ${plural(source.imported, "memory")} it brought in ${source.imported === 1 ? "stays" : "stay"} in your library.` : "";
+    const which = source.label || name;
     const confirm = el("div", "actions");
+    const purge = button("Delete them too", "quiet", () => void remove(false));
+    purge.classList.add("destructive");
     confirm.append(
-      ...(source.imported ? [button("Delete them too", "quiet", () => void remove(false))] : []),
+      ...(source.imported ? [purge] : []),
       button("Cancel", "quiet", () => openConnection(app, source)),
       button("Disconnect", "secondary", () => void remove(true))
     );
-    sheet(`Disconnect ${name}?`, logo(app), el("p", "", `Lore stops reading ${name}.${kept}`), confirm);
+    sheet(`Disconnect ${which}?`, logo(app), el("p", "", `Lore stops reading ${which}.${kept}`), confirm);
   }
   /** @param {boolean} keep */
   async function remove(keep) {
@@ -1205,8 +1243,8 @@ function openConnection(app, source) {
     });
   }
   actions.replaceChildren(...resting);
-  const standing = source.refresh === false ? `Read once. Change ${unit} to bring in a newer one.` : snapshot?.setup.schedule?.installed ? `Lore looks for new ${app.item}s each time your schedule runs.` : `Lore looks for new ${app.item}s only when you choose Read again.`;
-  sheet(name, logo(app), el("p", "", source.label === name ? state.line(app, source) : `${source.label} · ${state.line(app, source)}`), ...(app.kind === "mcp" ? [] : [el("p", "hint mono", source.locator ?? "")]), el("p", "hint", standing), actions);
+  const standing = source.refresh === false ? `Read once. Change ${unit} to bring in a newer one.` : snapshot?.setup.schedule?.installed ? `Lore looks for new ${many(app.item)} each time your schedule runs.` : `Lore looks for new ${many(app.item)} only when you choose Read again.`;
+  const dialog = sheet(name, logo(app), el("p", "", source.label === name ? state.line(app, source) : `${source.label} · ${state.line(app, source)}`), ...(app.kind === "mcp" ? [] : [el("p", "hint mono", source.locator ?? "")]), el("p", "hint", standing), actions);
 }
 
 /** Connectors: where memories come from, and how often Lore reads them. First class: the way
@@ -1218,7 +1256,7 @@ function renderConnectors(s) {
 /** FAQ: what Lore does, then how the money works, in the order a first-time owner asks. Every
  * answer states the mechanism as it is; no earnings figure the ledger cannot show. @param {Snapshot} s */
 function renderFaq(s) {
-  const prices = typeof s.pricing.publication_usd === "number" ? `Yours is ${price(s.pricing.publication_usd)} a publication, set on For Sale.` : "A cent a publication until you set your own on For Sale.";
+  const prices = typeof s.pricing.publication_usd === "number" ? `Yours is ${price(s.pricing.publication_usd)} a publication, set on For Sale.` : "You set what a publication costs on For Sale, before your store opens.";
   /** @param {string} question @param {string | HTMLElement} answer */
   const qa = (question, answer) => row(question, answer, undefined, true);
   const buyerGuide = el("span");
@@ -1231,10 +1269,10 @@ function renderFaq(s) {
       qa("What sells?", "Something specific that happened to you, with the lesson attached: what you tried, what broke, what you'd do again. Dated, firsthand, and not something an AI could guess.")
     ])),
     section("Getting paid", card([
-      qa("Who buys?", "Other people's AI agents, in the middle of a task. Not people browsing a shop. They read your short descriptions for free and pay to read the full piece. If you turn on questions, they can also pay to ask you one."),
-      qa("What does a buyer pay?", `Your price. ${prices} Questions have their own price, set the same way.`),
+      qa("Who buys?", "Other people's AI agents, in the middle of a task. Not people browsing a shop. They read your short descriptions for free and pay to read the full piece."),
+      qa("What does a buyer pay?", `Your price. ${prices}`),
       qa("How do I get paid?", "Each payment goes straight to an account only you control, in digital dollars (USDC). Lore never holds your money. You can start on play money while you learn."),
-      qa("How do buyers find me?", "List your store from Settings. Agents that use the Lore marketplace will see it.")
+      qa("How do buyers find me?", "Once your store is open, list it from Settings. Agents that use the Lore marketplace will see it.")
     ])),
     section("Privacy", card([
       qa("What leaves this Mac?", "Only what you approve for sale, which goes to your store. While drafting, the AI you signed in with reads the memories it's working on, as it would if you used it directly. Nothing else leaves."),
@@ -1275,7 +1313,7 @@ function renderSettings(s) {
         : []),
       // One editor, on For Sale. Every other surface reads the same number and
       // sends the owner there rather than growing a second field.
-      row("Prices", "What a buyer's agent pays per call.", cell(el("span", "mono", typeof s.pricing.publication_usd === "number" ? `${price(s.pricing.publication_usd)} publication${s.pricing.answer_enabled ? ` · ${price(s.pricing.answer_usd)} answer` : ""}` : "Not set"), button(typeof s.pricing.publication_usd === "number" ? "Change price" : "Set a price", "quiet", openPriceEditor)), false),
+      row("Prices", "What a buyer's agent pays per read.", cell(el("span", "mono", typeof s.pricing.publication_usd === "number" ? `${price(s.pricing.publication_usd)} publication${s.pricing.answer_enabled ? ` · ${price(s.pricing.answer_usd)} answer` : ""}` : "Not set"), button(typeof s.pricing.publication_usd === "number" ? "Change price" : "Set a price", "quiet", openPriceEditor)), false),
       ...(live.network === TEST_NETWORK
         ? [row("Payments", "Buyers on the test network pay with play money. Switch when you want real buyers paying real money.", cell(button("Switch to real payments", "secondary", () => void startDeploy(REAL_MONEY))), false)]
         : live.network
@@ -1339,7 +1377,7 @@ function renderAccount() {
     line.append(img);
   }
   const store = snapshot ? nodeLabel(snapshot.node.live.state) : "";
-  line.append(document.createTextNode(`${name}${store ? ` · ${store === "Not set up" ? "Setting up" : store}` : ""}`));
+  line.append(document.createTextNode(`${name}${snapshot?.node.url ? ` · ${store}` : ""}`));
   who.append(line);
   trigger.append(mark(), who);
   trigger.addEventListener("click", (event) => {
@@ -1409,18 +1447,19 @@ function say(text, owner = false, stopped = false) {
 /** @type {Array<{text: string, attention: boolean, action?: NoticeAction}>} */
 const notices = [];
 
-/** Something Lore did or could not do, said where the owner is: in the open thread, or as a notice above the page when the log is hidden. @param {string} text @param {boolean} [attention] @param {NoticeAction} [action] The one next step, on the notice. */
+/** Something Lore did or could not do, said where the owner is: in the open thread, or as a notice above the page when the log is hidden, scrolled into view. A newer success replaces an older one. @param {string} text @param {boolean} [attention] @param {NoticeAction} [action] The one next step, on the notice. */
 function tell(text, attention = false, action) {
   if (!log.hidden) { say(text, false, attention); return; }
-  if (action) retireOffers();
+  if (!attention) drop((item) => !item.attention);
   notices.push({ text, attention, action });
   if (notices.length > 3) notices.shift();
   renderNotices();
+  status.scrollIntoView({ block: "nearest" });
 }
 
-/** Only the newest notice carries a next step. */
-function retireOffers() {
-  notices.splice(0, notices.length, ...notices.filter((item) => !item.action));
+/** @param {(item: typeof notices[number]) => boolean} which */
+function drop(which) {
+  notices.splice(0, notices.length, ...notices.filter((item) => !which(item)));
   renderNotices();
 }
 
@@ -1776,7 +1815,7 @@ function renderRequest(event) {
       // The agent only ever learns the number on this card, never its own.
       const value = parsePrice(amount.value);
       if (value === null) {
-        tell("A price has to be a number above zero.", true);
+        tell(`${ABOVE_ZERO}.`, true);
         return;
       }
       respond(event.id, value, price(value));
@@ -1889,7 +1928,7 @@ function sellAction(source) {
     label: "Turn these into something to sell",
     run: () => {
       closeSheet();
-      retireOffers();
+      drop((item) => Boolean(item.action));
       void startPublish(source);
     }
   };

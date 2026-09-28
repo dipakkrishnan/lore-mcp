@@ -224,7 +224,7 @@ interface Window {
     sourceChoices(app: string): Promise<SourceChoice[]>;
     connectSource(input: { connector: string; locator: string; replace?: string }): Promise<SourceEntry>;
     signIn(app: string): Promise<SourceEntry>;
-    cancelSignIn(): Promise<void>;
+    cancelConnect(): Promise<void>;
     readSource(name: string): Promise<SourceRead[]>;
     removeSource(name: string, keep: boolean): Promise<SourceRemoval>;
     openPrivacySettings(): Promise<void>;

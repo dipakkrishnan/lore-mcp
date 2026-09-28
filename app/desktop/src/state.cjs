@@ -14,8 +14,8 @@ function useRuntime(file) {
   runtime = file ? { file, args: [] } : { file: "uv", args: ["run", "lore"], cwd: root };
 }
 
-/** @param {string} loreHome @param {string[]} args @param {string} [decision] */
-async function lore(loreHome, args, decision) {
+/** @param {string} loreHome @param {string[]} args @param {string} [decision] @param {AbortSignal} [signal] */
+async function lore(loreHome, args, decision, signal) {
   const attended = decision === undefined ? {} : { LORE_ATTENDED_SURFACE: "desktop" };
   const env = { ...process.env, LORE_HOME: loreHome, NO_COLOR: "1", ...attended };
   const pending = run(runtime.file, [...runtime.args, ...args], {
@@ -23,12 +23,14 @@ async function lore(loreHome, args, decision) {
     env,
     maxBuffer: 8 * 1024 * 1024,
     timeout: 120_000,
-    windowsHide: true
+    windowsHide: true,
+    signal
   });
   pending.child.stdin?.end(decision);
   try {
     return (await pending).stdout;
   } catch (error) {
+    if (signal?.aborted) throw new Error("Cancelled");
     const stderr = String(/** @type {{stderr?: string}} */ (error).stderr ?? "").trim();
     // The log keeps all of it, so a failure that ends in a brace or a blank still says what happened somewhere.
     console.error(`lore ${args.join(" ")} failed:\n${stderr || /** @type {Error} */ (error).message}`);
@@ -200,12 +202,13 @@ async function sourceCatalog(loreHome) {
 
 /** Connect one place an app keeps, read it once, and hand back its row. With `replace`, the CLI reads
  * the new place before it retires the old one. The locator follows `--` so a path that starts with a
- * dash stays a value. @param {string} loreHome @param {{connector?: unknown, locator?: unknown, replace?: unknown}} input @returns {Promise<SourceEntry>} */
-async function connectSource(loreHome, input) {
+ * dash stays a value. @param {string} loreHome @param {{connector?: unknown, locator?: unknown, replace?: unknown}} input @param {AbortSignal} [signal]
+ * @returns {Promise<SourceEntry>} */
+async function connectSource(loreHome, input, signal) {
   const app = connector(input?.connector);
   if (typeof input.locator !== "string" || !input.locator.trim()) throw new Error("Choose what to connect");
   const replacing = input.replace === undefined ? [] : [`--replace=${sourceName(input.replace)}`];
-  return JSON.parse(await lore(loreHome, ["sources", "connect", app, ...replacing, "--json", "--", input.locator]));
+  return JSON.parse(await lore(loreHome, ["sources", "connect", app, ...replacing, "--json", "--", input.locator], undefined, signal));
 }
 
 /** Sign in to an app that runs its own server, then read it. The CLI names the approval page and

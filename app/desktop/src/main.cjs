@@ -21,8 +21,8 @@ function ready() {
 let window;
 /** @type {Map<string, {resolve(value: unknown): void, reject(error: Error): void}>} */
 const pending = new Map();
-/** The sign-in waiting on the owner's browser, if any; Cancel stops it. @type {AbortController | undefined} */
-let signing;
+/** The connect or sign-in in flight, if any; closing its sheet stops it. @type {AbortController | undefined} */
+let connecting;
 /** @param {AgentEvent} event */
 function emit(event) {
   window?.webContents.send("agent:event", event);
@@ -121,17 +121,19 @@ function registerIpc(loreHome) {
   ipcMain.handle("listing:status", () => listingStatus(loreHome));
   ipcMain.handle("sources:catalog", () => sourceCatalog(loreHome));
   ipcMain.handle("sources:choices", (_event, app) => sourceChoices(loreHome, app));
-  ipcMain.handle("sources:connect", (_event, input) => connectSource(loreHome, input));
-  ipcMain.handle("sources:sign-in", async (_event, app) => {
-    signing?.abort();
-    const current = (signing = new AbortController());
+  /** @template T @param {(signal: AbortSignal) => Promise<T>} work */
+  async function connect(work) {
+    connecting?.abort();
+    const current = (connecting = new AbortController());
     try {
-      return await signIn(loreHome, app, (url) => void shell.openExternal(url), current.signal);
+      return await work(current.signal);
     } finally {
-      if (signing === current) signing = undefined;
+      if (connecting === current) connecting = undefined;
     }
-  });
-  ipcMain.handle("sources:cancel-sign-in", () => signing?.abort());
+  }
+  ipcMain.handle("sources:connect", (_event, input) => connect((signal) => connectSource(loreHome, input, signal)));
+  ipcMain.handle("sources:sign-in", (_event, app) => connect((signal) => signIn(loreHome, app, (url) => void shell.openExternal(url), signal)));
+  ipcMain.handle("sources:cancel", () => connecting?.abort());
   ipcMain.handle("sources:read", (_event, name) => readSource(loreHome, name));
   ipcMain.handle("sources:remove", (_event, name, keep) => removeSource(loreHome, name, keep === true));
   // The Files and Folders pane, where the owner grants the read a folder needs.

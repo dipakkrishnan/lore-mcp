@@ -497,7 +497,7 @@ class SourcesCommandTest(LoreTestCase):
         self.assertEqual(added["state"], "connected")
 
         listed = self.json_command("sources", "list")
-        self.assertEqual([entry["name"] for entry in listed][2:], [added["name"]])
+        self.assertEqual([entry["name"] for entry in listed], [added["name"]])
 
         read = self.json_command("sources", "read", str(added["name"]))
         self.assertEqual(
@@ -528,6 +528,7 @@ class SourcesCommandTest(LoreTestCase):
 
     def test_the_text_output_names_every_state(self) -> None:
         root = self.folder(1)
+        (self.codex_home / "memories").mkdir(parents=True)
         with captured() as output:
             self.assertEqual(cli.main(["sources", "add", "--folder", str(root)]), 0)
             self.assertEqual(cli.main(["sources", "list"]), 0)
@@ -535,6 +536,16 @@ class SourcesCommandTest(LoreTestCase):
         self.assertIn("connected", text)
         self.assertIn("off", text)
         self.assertIn("1 imported", text)
+
+    def test_sources_alone_prints_usage(self) -> None:
+        with (
+            captured(),
+            patch("sys.stderr", new_callable=StringIO) as stderr,
+            self.assertRaises(SystemExit) as exited,
+        ):
+            cli.main(["sources"])
+        self.assertEqual(exited.exception.code, 2)
+        self.assertIn("usage: lore sources", stderr.getvalue())
 
     def test_a_bad_source_argument_exits_two_with_one_line(self) -> None:
         for argv in (

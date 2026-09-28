@@ -176,8 +176,18 @@ class ExportTest(LoreTestCase):
         ):
             with self.subTest(locator=locator):
                 self.assertEqual(self.preview(locator)["state"], "unreachable")
-                with self.assertRaises(sources_module.SourceError):
+                with self.assertRaisesRegex(
+                    sources_module.SourceError,
+                    "^That file isn't a ChatGPT or Claude export.$",
+                ):
                     self.add(locator)
+        with (
+            Store() as store,
+            self.assertRaisesRegex(
+                sources_module.SourceError, "^That file isn't a ChatGPT export.$"
+            ),
+        ):
+            sources_module.Registry(store).connect("chatgpt", str(empty))
         nothing = self.written("nothing.json", [])
         self.assertEqual(self.preview(nothing)["state"], "nothing_found")
         self.assertEqual(self.preview(nothing)["label"], "Export")
