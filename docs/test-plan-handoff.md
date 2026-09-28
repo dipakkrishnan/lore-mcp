@@ -2,8 +2,7 @@
 
 > **Superseded in part.** Phase 1 of this plan now exists as
 > `docs/manual-test-walkthrough.md` — a runnable manual walkthrough of all four
-> scenarios with a fillable rubric, plus `support/manual_test_report.py` to
-> convert a filled record to JSON. Run that. What remains open here is Phase 2,
+> scenarios with a fillable rubric. Run that. What remains open here is Phase 2,
 > the automation question, and the three questions below are still the ones that
 > decide it.
 
@@ -110,9 +109,7 @@ conversion list. Then one backlog item per gap.
   regenerated, not hand-edited; use the `backlog-*` skills.
 - `docs/` is a flat directory of kebab-case markdown files.
 - Relevant existing docs to read before writing: `docs/desktop-app.md`,
-  `docs/gamified-onboarding.md`, `docs/manual-capture-ux.md`,
-  `docs/demo-buyer-live.md`, `docs/agent-runtime-capture.md`,
-  `docs/answer-tier.md`.
+  `docs/demo-buyer-live.md`, `docs/answer-tier.md`.
 - The `github` MCP server failed to connect this session (bad Authorization
   header) — it is configured, not missing. Retry or use `gh`.
 
