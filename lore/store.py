@@ -649,6 +649,15 @@ class Store:
             )
         }
 
+    def source_keys(self, source: str) -> set[str]:
+        """The item keys one source has already kept, without the source's prefix."""
+        return {
+            row["source_key"].removeprefix(f"{source}:")
+            for row in self.db.execute(
+                "SELECT source_key FROM memories WHERE source=?", (source,)
+            )
+        }
+
     def delete_source_memories(self, source: str) -> dict[str, int]:
         """Delete one source's memories, returning what went and what stayed.
 

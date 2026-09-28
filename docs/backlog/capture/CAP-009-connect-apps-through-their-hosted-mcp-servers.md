@@ -4,7 +4,7 @@ title: Connect apps through their hosted MCP servers
 priority: P1
 effort: L
 component: capture
-status: ready
+status: in-review
 related: [STO-003, CAP-003]
 blockers: []
 dependencies: ["CAP-003 connect → publish path merged first"]
@@ -41,11 +41,11 @@ Google (developer preview, own GCP client, security review), Slack
 
 ## Acceptance criteria
 
-- [ ] `kind = "mcp"` reader with shared OAuth, Keychain token store and paging
-- [ ] Granola, Notion and Readwise connectors, one subclass + one mark each
-- [ ] A renamed or missing server tool shows as that connector's failure state, never silently
-- [ ] Refresh is incremental; no full re-pull on every sync
-- [ ] Edge scenario against a stub MCP server; no network in tests
+- [x] `kind = "mcp"` reader with shared OAuth, Keychain token store and paging
+- [x] Granola, Notion and Readwise connectors, one subclass + one mark each
+- [x] A renamed or missing server tool shows as that connector's failure state, never silently
+- [x] Refresh is incremental; no full re-pull on every sync
+- [x] Edge scenario against a stub MCP server; no network in tests
 
 ## Notes
 

@@ -95,7 +95,7 @@ type SourceEntry = {
   label: string;
   enabled: boolean;
   imported: number;
-  kind?: "folder" | "export" | "feed";
+  kind?: SourceKind;
   locator?: string;
   owned?: boolean;
   connector?: string | null;
@@ -108,7 +108,10 @@ type SourceEntry = {
 type SourceChoice = { label: string; locator: string; open: boolean };
 
 /** An app as the CLI's catalog offers it: what to call it, what Lore reads there, what the owner picks. */
-type SourceApp = { id: string; name: string; what: string; unit: string; item: string; kind: "folder" | "export" | "feed"; refresh: boolean; placeholder: string; guide?: string };
+/** How Lore reads a place: a folder, an export file, a feed, or an app's own server it signs in to. */
+type SourceKind = "folder" | "export" | "feed" | "mcp";
+
+type SourceApp = { id: string; name: string; what: string; unit: string; item: string; kind: SourceKind; refresh: boolean; placeholder: string; guide?: string };
 
 type SourceRead = { name: string; added: number; updated: number; unchanged: number; errors: number; state: SourceState };
 
@@ -220,6 +223,8 @@ interface Window {
     sourceCatalog(): Promise<SourceApp[]>;
     sourceChoices(app: string): Promise<SourceChoice[]>;
     connectSource(input: { connector: string; locator: string; replace?: string }): Promise<SourceEntry>;
+    signIn(app: string): Promise<SourceEntry>;
+    cancelSignIn(): Promise<void>;
     readSource(name: string): Promise<SourceRead[]>;
     removeSource(name: string, keep: boolean): Promise<SourceRemoval>;
     openPrivacySettings(): Promise<void>;

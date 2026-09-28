@@ -1,7 +1,8 @@
 # Connectors
 
 A connector is an app the owner recognises: Obsidian, ChatGPT, Claude,
-Substack, Medium, Bluesky, or any blog or newsletter. A reader is how Lore gets the content out of it. The owner only ever
+Substack, Medium, Bluesky, any blog or newsletter, Granola, Notion, or Readwise.
+A reader is how Lore gets the content out of it. The owner only ever
 meets the connector; the reader is Lore's business.
 
 Everything about an app lives in one `Connector` subclass in `lore/sources.py`.
@@ -34,7 +35,7 @@ what cannot be discovered.
 
 ## What a reader promises
 
-A `Reader` declares its `kind` (`folder`, `export`, `feed`) and whether it is
+A `Reader` declares its `kind` (`folder`, `export`, `feed`, `mcp`) and whether it is
 read again on schedule (`refresh`; an export is read once). `locate` turns what
 the owner typed into the locator Lore saves plus a default label; `probe` says
 whether the place is connected, empty, unreachable, or needs permission;
@@ -44,6 +45,23 @@ named by its product rather than its file, so a newer download replaces the
 old one instead of importing it twice. A reader that fails partway records the
 failure, and that failure, not the probe, is the state the owner sees.
 
+## Apps with their own server
+
+Granola, Notion and Readwise run hosted MCP servers, which Lore reads with the
+official MCP SDK (`HostedReader`, kind `mcp`). A `Hosted` subclass names only
+its `server`, the tool that lists what the owner has (`lister`), the tool that
+reads one item (`fetcher`), and four small methods that build their arguments
+and read their answers; transport, sign-in, paging and import are shared.
+
+`lore sources connect granola` signs in first: the SDK's `OAuthClientProvider`
+registers Lore dynamically, the CLI prints `Approve Lore in your browser: <url>`
+for the desktop to open, and a loopback page on `127.0.0.1` catches the answer.
+The tokens go to the macOS Keychain (`lore/signin.py`, one entry per server),
+never to disk. Every later read is unattended: an expired sign-in or a missing
+tool fails the read, and the row says "<App> didn't answer. Sign in again."
+A sync reads only items it has not already kept. `LORE_<APP>_SERVER` points an
+app at a stand-in server, which the edge scenario uses.
+
 ## What the desktop does with the catalog
 
 The Connectors tab lists every app in the catalog under the agents, and Today
@@ -52,7 +70,8 @@ with `what` and one button; a connected one shows its label, its state and
 what it kept, with Manage and a step to turn what it kept into something to
 sell. The sheet's setup control follows `kind`: a folder offers the app's
 choices and a folder picker, an export a file picker with the app's `guide`
-(where to request the file), a feed an address field. A connection is read
+(where to request the file), a feed an address field, an app with its own
+server one Sign in button. A connection is read
 again only by a Read again or by the synthesis schedule's `lore sync`. Every app
 ships a mark at `assets/<id>.svg`, with its provenance in the file; the initial
 is only the fallback for a mark that fails to load.
@@ -73,5 +92,5 @@ always asks whether to keep what was imported.
    (OAuth, macOS Automation) needs a real access adapter, not catalog metadata.
 3. Add the app to the `connectors` edge scenario and to the catalog test.
 
-`support/edge.sh connectors` drives all three shapes end to end, including a
+`support/edge.sh connectors` drives all four shapes end to end, including a
 refused change and a once-only import, and runs in CI.

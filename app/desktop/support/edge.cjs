@@ -295,7 +295,8 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         await js(rowButton);
         await waitFor(`document.querySelector("dialog.sheet[open]")`);
         await js(`[...document.querySelectorAll("dialog.sheet[open] button")].find((b) => b.textContent === "Disconnect").click()`);
-        await js(`[...document.querySelectorAll("dialog.sheet[open] button")].find((b) => b.textContent === "Keep").click()`);
+        check("disconnecting asks one plain question", await waitFor(`document.querySelector("dialog.sheet[open]")?.getAttribute("aria-label") === "Disconnect Obsidian?"`) && await js(`document.querySelector("dialog.sheet[open]").textContent.includes("stay in your library")`));
+        await js(`[...document.querySelectorAll("dialog.sheet[open] button")].find((b) => b.textContent === "Disconnect").click()`);
         check("disconnecting offers Obsidian again and keeps the memories", await waitFor(`/Your vaults and notes/.test(${rowText})`) && await js(`document.querySelector("#status").textContent.includes("3 memories kept")`));
       } else if (scenario === "connectors") {
         // The catalog drives the surface: three apps of three shapes, none of them special-cased.
@@ -316,9 +317,9 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         const primary = `document.querySelector("dialog.sheet[open] .btn.primary")`;
         await waitFor(textOf("Substack"));
         await sleep(300);
-        const apps = JSON.stringify(["Obsidian", "ChatGPT", "Claude", "Substack", "Medium", "Bluesky", "Blog or newsletter"]);
+        const apps = JSON.stringify(["Obsidian", "ChatGPT", "Claude", "Substack", "Medium", "Bluesky", "Blog or newsletter", "Granola", "Notion", "Readwise"]);
         const offered = await js(`${apps}.map((n) => ${sourceRows}.find((r) => r.querySelector("b").textContent === n)?.textContent ?? "")`);
-        check("every app in the catalog is offered by name, in its own words", offered.length === 7 && /Connect/.test(offered[0]) && /Import/.test(offered[1]) && /Import/.test(offered[2]) && offered.slice(3).every((t) => /Connect/.test(t)) && !offered.some((t) => /folder|source|markdown|feed|rss|url/i.test(t)), offered.join(" | "));
+        check("every app in the catalog is offered by name, in its own words", offered.length === 10 && /Connect/.test(offered[0]) && /Import/.test(offered[1]) && /Import/.test(offered[2]) && offered.slice(3, 7).every((t) => /Connect/.test(t)) && offered.slice(7).every((t) => /Sign in/.test(t)) && !offered.some((t) => /folder|source|markdown|feed|rss|url|mcp|oauth|token/i.test(t)), offered.join(" | "));
         check("every offered app carries its own mark", await js(`${apps}.every((n) => ${sourceRows}.find((r) => r.querySelector("b").textContent === n)?.querySelector("img.logo"))`));
         await shot("settings-catalog");
 
@@ -373,6 +374,29 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         check("any blog connects and counts posts", await waitFor(`/Connected/.test(${textOf("Blog or newsletter")}) && /1 post kept/.test(${textOf("Blog or newsletter")})`), await js(textOf("Blog or newsletter")));
         await connectAt("Bluesky", "https://example.com");
         check("Bluesky asks for a handle and refuses a web address", await waitFor(`[...document.querySelectorAll("#status .notice.attention")].some((n) => /Bluesky handle/.test(n.textContent))`), await js(`[...document.querySelectorAll("#status .notice.attention")].map((n) => n.textContent).join(" | ")`));
+        await js(`document.querySelector("dialog.sheet[open] .icon-btn").click()`);
+        await sleep(300);
+
+        // CAP-009: an app with its own server is one Sign in; its approval page would open in the browser.
+        await js(clickOn("Granola"));
+        check("Granola offers one Sign in and nothing to type or choose", await waitFor(`${primary}?.textContent === "Sign in to Granola"`) && await js(`!document.querySelector("dialog.sheet[open] input")`));
+        const signIn = await js(`document.querySelector("dialog.sheet[open]").textContent`);
+        check("…in plain words", /Approve there/.test(signIn) && !/mcp|oauth|token|server/i.test(signIn), signIn);
+        // Read in the same turn as the click: the stand-in answers faster than a person would.
+        check("…and waits on the browser with a way out", await js(`${primary}.click(); /Waiting for you to approve in your browser/.test(document.querySelector("dialog.sheet[open]")?.textContent ?? "") && [...document.querySelectorAll("dialog.sheet[open] button")].some((b) => b.textContent === "Cancel")`));
+        check("signing in connects Granola and keeps its meetings", await waitFor(`/Connected/.test(${textOf("Granola")}) && /2 meetings kept/.test(${textOf("Granola")})`), await js(textOf("Granola")));
+        check("…and offers to turn them into something to sell", await js(`[...document.querySelectorAll("#status .notice button")].filter((b) => b.textContent === ${JSON.stringify(sell)}).length`) === 1);
+        await shot("granola-connected");
+        process.kill(Number(process.env.LORE_EDGE_GRANOLA_PID));
+        await js(clickOn("Granola"));
+        await waitFor(`document.querySelector("dialog.sheet[open]")`);
+        check("Manage never shows where Lore reads it from", !/http|mcp/i.test(await js(`document.querySelector("dialog.sheet[open]").textContent`)));
+        await js(`[...document.querySelectorAll("dialog.sheet[open] button")].find((b) => b.textContent === "Read again").click()`);
+        check("when Granola stops answering, its row says so and asks to sign in again", await waitFor(`/Granola didn't answer\\. Sign in again\\./.test(${textOf("Granola")})`), await js(textOf("Granola")));
+        await js(clickOn("Granola"));
+        await waitFor(`document.querySelector("dialog.sheet[open]")`);
+        check("…and Manage offers Sign in again", await js(`[...document.querySelectorAll("dialog.sheet[open] button")].some((b) => b.textContent === "Sign in again")`));
+        await shot("granola-signed-out");
         await js(`document.querySelector("dialog.sheet[open] .icon-btn").click()`);
         await sleep(300);
 
