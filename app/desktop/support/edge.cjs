@@ -217,8 +217,7 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         check("a take-down whose push failed reads plainly", revokeNotice.includes("If your store still has it, push to finish.") && !/wrangler|--worker-dir|\/Users\/|\/var\//.test(revokeNotice), revokeNotice);
         execFileSync("uv", ["run", "python", "-c", `import time\nfrom lore.store import Store\nwith Store() as s:\n s.set_setting('node_live', {'url': 'https://store.example/mcp', 'checked_at': time.time(), 'live': {'state': 'online', 'network': 'eip155:84532', 'payout': '0x' + 'a' * 40}, 'ids': ['${publicId}']})`], { cwd: join(__dirname, "../../.."), env: process.env });
         await js(`window.__lore.event({ type: "changed" })`);
-        await sleep(800);
-        check("a taken-down item the node still serves says so", await js(`document.querySelector("#content").textContent.includes("Still on your store")`));
+        check("a taken-down item the node still serves says so", await waitFor(`document.querySelector("#content").textContent.includes("Still on your store")`));
         check("…and For Sale offers the push that removes it", await js(`[...document.querySelectorAll("#content .store-bar button")].some((b) => b.textContent === "Push to your store")`));
         await shot("store-removal-pending");
         await js(`window.__lore.show("today")`);
