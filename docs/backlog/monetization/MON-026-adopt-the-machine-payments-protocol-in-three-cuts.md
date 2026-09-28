@@ -6,11 +6,11 @@ effort: L
 component: monetization
 status: in-review
 related: [MON-005, MON-007, MON-009, MON-024, MON-025, XC-022, XC-024]
-blockers: []
+blockers: [MON-027]
 dependencies: ["Decision: which cut to launch with", "Tempo testnet (Moderato) reachable from the Worker"]
 github_issue: null
 created: 2026-09-15
-updated: 2026-09-15
+updated: 2026-09-27
 ---
 
 ## Problem
