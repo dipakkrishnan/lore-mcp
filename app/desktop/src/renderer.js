@@ -2057,7 +2057,7 @@ function pushReceipt(s) {
 
 /** @param {PublicationCandidate} original @param {boolean} approve @param {PublicationCandidate} [candidate] */
 async function decide(original, approve, candidate = original) {
-  if ((await act(() => window.lore.decide({ original, candidate, approve }))) && approve) approvedThisPass = true;
+  if ((await act(() => window.lore.decide({ original, candidate, approve }), approve ? "Approved here. Push to put it on your store." : undefined)) && approve) approvedThisPass = true;
   if (candidates.length || !approvedThisPass) return;
   approvedThisPass = false;
   pushOffer = snapshot?.node.url ? "Approved publications reach buyers only after a push. Leaving it is fine; the next push carries it." : false;

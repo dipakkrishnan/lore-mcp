@@ -74,6 +74,9 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
 
   window.webContents.once("did-finish-load", async () => {
     try {
+      // Focus events need a focused page, which a window launched in the background never is.
+      window.webContents.debugger.attach();
+      await window.webContents.debugger.sendCommand("Emulation.setFocusEmulationEnabled", { enabled: true });
       await sleep(1500);
       if (scenario === "provision") {
         // Fix 4: setup failed. Every button must answer, the banner must say so, and Try again must recover.
