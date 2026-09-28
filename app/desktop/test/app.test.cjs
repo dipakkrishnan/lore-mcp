@@ -22,10 +22,11 @@ test("reads only the fixed APP-001 snapshot", async () => {
 
 test("the agent may open only the pages the payments skill sends an owner to", () => {
   const { openable } = require("../src/state.cjs");
-  assert.ok(openable("https://portal.cdp.coinbase.com/products/faucet"));
+  assert.ok(openable("https://www.coinbase.com/"));
   assert.ok(openable("https://sepolia.basescan.org/address/0x1"));
-  assert.ok(!openable("http://portal.cdp.coinbase.com/products/faucet"));
-  assert.ok(!openable("https://portal.cdp.coinbase.com.evil.example/"));
+  assert.ok(!openable("http://www.coinbase.com/"));
+  assert.ok(!openable("https://www.coinbase.com.evil.example/"));
+  assert.ok(!openable("https://portal.cdp.coinbase.com/products/faucet"));
   assert.ok(!openable("not a url"));
 });
 
@@ -267,7 +268,7 @@ test("sessions persist per task, come back as a thread, and a cut-off tool call 
 
 test("a declined attended tool's plain-text result survives a resume, not just JSON-shaped ones", async () => {
   // Regression for a card response vanishing across a quit/relaunch (issue #256):
-  // cloudflare_login, open_url, and store_secret answer in a plain English
+  // cloudflare_login and open_url answer in a plain English
   // sentence, not JSON, so history()'s JSON.parse-based reader dropped their
   // result on every replay, not just one lost to a quit-timing race.
   const { LoreAgent } = await import("../src/agent.mjs");
@@ -380,7 +381,7 @@ test("a follow-up typed into a finished thread keeps what was said; only Start o
 test("every tool that puts a card in front of the owner runs one at a time", async () => {
   // Pi runs a turn's tool calls in parallel unless a tool in it is sequential; two owner cards at once would overwrite each other in the app's single card slot.
   const source = await readFile(join(__dirname, "../src/agent.mjs"), "utf8");
-  const owner = ["ask_user", "propose_memories", "propose_blueprint", "propose_price", "cloudflare_login", "open_url", "store_secret", "finish_task"];
+  const owner = ["ask_user", "propose_memories", "propose_blueprint", "propose_price", "cloudflare_login", "open_url", "finish_task"];
   for (const name of owner) assert.match(source, new RegExp(`name: "${name}",\\s*executionMode: "sequential"`), `${name} must be sequential`);
 });
 

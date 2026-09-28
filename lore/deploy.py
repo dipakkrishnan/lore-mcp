@@ -62,7 +62,8 @@ class Sale(BaseModel):
 SALES = TypeAdapter(list[Sale])
 # Plain words for the two chains the Worker accepts as LORE_NETWORK.
 NETWORKS = {"real": "eip155:8453", "test": "eip155:84532"}
-# The Coinbase facilitator credentials real money needs; nothing else is vaulted here.
+# The owner's own Coinbase facilitator credentials, optional: without them real
+# money settles through a keyless facilitator. Nothing else is vaulted here.
 SECRETS = ("CDP_API_KEY_ID", "CDP_API_KEY_SECRET")
 # The smallest price the six-decimal formatter can render without collapsing
 # to zero; `lore price` rounds to six decimals, so this matches its floor.
@@ -461,8 +462,8 @@ def _deploy(
             fail="setting LORE_WALLET failed",
         )
     if network:
-        # Real money needs the Coinbase credentials vaulted first (`lore node
-        # secret`); without them the Worker refuses to start and the smoke
+        # Real money settles keyless unless the owner vaulted a Coinbase pair
+        # (`lore node secret`); half a pair refuses to start and the smoke
         # check below says so.
         _run(
             (wrangler, "secret", "put", "LORE_NETWORK"),

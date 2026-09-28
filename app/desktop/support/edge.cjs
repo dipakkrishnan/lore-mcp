@@ -484,7 +484,7 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         check("it says who buys: agents, not people browsing", /AI agents, in the middle of a task/.test(faq) && /Not people browsing/.test(faq));
         check("it says what a buyer pays and that Lore never holds the money", /Your price\./.test(faq) && /a publication/.test(faq) && /never holds your money/.test(faq));
         check("it promises no control that isn't there: no questions, and listing waits for a store", !/turn on questions|ask you one|Questions have/i.test(faq) && /Once your store is open, list it from Settings/.test(faq) && !/A cent a publication/.test(faq), faq);
-        check("it names the money in plain words", /digital dollars \(USDC\)/.test(faq) && /play money/.test(faq));
+        check("it names the money in plain words, and says the address comes last", /digital dollars \(USDC\)/.test(faq) && /Coinbase account/.test(faq) && /asks where to send it last/.test(faq) && !/play money/.test(faq));
         check("it says why connecting apps helps", questions.includes("Why connect my apps?") && /blank page/.test(faq));
         check("it says honestly what leaves the Mac", /Only what you approve for sale/.test(faq) && /the AI you signed in with reads/.test(faq));
         check("it promises no earnings: the only dollar figure is a price", (faq.match(/\\$\\d/g) ?? []).length <= 1 && !/\\bearn|income|revenue|passive/i.test(faq), faq.match(/\\$\\d[^ ]*/g)?.join(",") ?? "");
@@ -620,7 +620,16 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         await js(`window.__lore.openTask("capture")`);
         await js(`window.__lore.preview({ type: "question", id: "preview-q", task: null, questions: [{ question: "What should a publication cost?", header: "Price", multiSelect: false, options: [{ label: "$0.05", description: "Higher", recommended: false }, { label: "$0.01", description: "Low first price", recommended: true }] }, { question: "Paste your payout address.", header: "Payout", multiSelect: false, options: [], format: "evm_address" }] })`);
         check("the model's recommended option starts selected and is chipped", await js(`document.querySelector("#request input:checked")?.value`) === "$0.01" && await js(`document.querySelector("#request .choice:has(input:checked)").textContent`) === "$0.01RecommendedLow first price");
-        check("a question with no options is one text field", await js(`document.querySelectorAll("#request fieldset")[1].querySelectorAll("input").length`) === 1);
+        check("the payout question is the guided card: Coinbase first, its taps, one address field", await js(`(() => { const f = document.querySelector("#request fieldset.payout"); return Boolean(f) && f.querySelector("input:checked")?.value === "My Coinbase account" && /Set the network to Base/.test(f.querySelector(".payout-steps").textContent) && f.querySelectorAll("input[type=text]").length === 1; })()`));
+        await js(`(() => { const f = document.querySelector("#request fieldset.payout"); f.querySelectorAll("input[type=radio]")[1].click(); return true; })()`);
+        check("choosing a wallet app swaps in its taps", await js(`/Open your wallet and tap Receive/.test(document.querySelector("#request .payout-steps").textContent)`));
+        await js(`(() => { const a = document.querySelector("#request fieldset.payout .other-answer"); a.value = "abandon ability able about above absent absorb abstract absurd abuse access accident"; a.dispatchEvent(new Event("input")); return true; })()`);
+        check("a pasted recovery phrase is cleared on the spot, with a warning", await js(`document.querySelector("#request fieldset.payout .other-answer").value === "" && /recovery phrase/.test(document.querySelector("#request .payout-status").textContent)`));
+        await js(`(() => { const a = document.querySelector("#request fieldset.payout .other-answer"); a.value = "0x0c270534cfcecc9224edb903ef5dd70410d08166"; a.dispatchEvent(new Event("input")); return true; })()`);
+        check("a good address is confirmed back, shortened", await js(`document.querySelector("#request .payout-status").textContent`) === "✓ Payments will land at 0x0c27…8166.");
+        await js(`document.querySelector("#request fieldset.payout").scrollIntoView({ block: "center" }); true`);
+        await shot("payout-card");
+        await js(`document.querySelector("#request fieldset.payout .other-answer").value = ""; true`);
         check("the chip sits to the right of the label on the same row", await js(`(() => { const c = document.querySelector("#request .choice:has(input:checked)"); const [label, chip] = [c.querySelector("span:not(.chip)"), c.querySelector(".chip")].map((n) => n.getBoundingClientRect()); return chip.left > label.right && Math.abs(chip.top - label.top) < 12 && chip.right <= c.getBoundingClientRect().right; })()`));
         check("the card lands below the sticky header", await js(`document.querySelector("#request form").getBoundingClientRect().top >= document.querySelector("#main header").getBoundingClientRect().bottom`));
         await js(`document.querySelectorAll("#request .other-answer")[1].value = "abandon ability able about above absent absorb abstract absurd abuse access accident"; document.querySelector("#request form").requestSubmit()`);

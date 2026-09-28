@@ -59,7 +59,7 @@ function loreStream(loreHome, args, onLine, signal) {
 }
 
 /** The hosts the payments skill sends an owner to; anything else stays closed. */
-const OPENABLE = new Set(["coinbase.com", "www.coinbase.com", "dash.cloudflare.com", "portal.cdp.coinbase.com", "faucet.circle.com", "basescan.org", "sepolia.basescan.org"]);
+const OPENABLE = new Set(["coinbase.com", "www.coinbase.com", "dash.cloudflare.com", "basescan.org", "sepolia.basescan.org"]);
 
 /** Where Granola, Notion and Readwise ask the owner to approve Lore. */
 const SIGN_IN = new Set(["mcp-auth.granola.ai", "mcp.notion.com", "readwise.io"]);
