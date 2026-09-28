@@ -1187,12 +1187,14 @@ function openConnection(app, source) {
     button("Disconnect", "quiet", ask)
   ];
   function ask() {
-    actions.replaceChildren(
-      el("span", "hint", `Keep the ${plural(source.imported, "memory")} it already kept?`),
-      button("Keep", "secondary", () => void remove(true)),
-      button("Delete them too", "secondary", () => void remove(false)),
-      button("Cancel", "quiet", () => actions.replaceChildren(...resting))
+    const kept = source.imported ? ` The ${plural(source.imported, "memory")} it brought in stay in your library.` : "";
+    const confirm = el("div", "actions");
+    confirm.append(
+      ...(source.imported ? [button("Delete them too", "quiet", () => void remove(false))] : []),
+      button("Cancel", "quiet", () => openConnection(app, source)),
+      button("Disconnect", "secondary", () => void remove(true))
     );
+    sheet(`Disconnect ${name}?`, logo(app), el("p", "", `Lore stops reading ${name}.${kept}`), confirm);
   }
   /** @param {boolean} keep */
   async function remove(keep) {

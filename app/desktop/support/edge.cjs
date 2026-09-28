@@ -292,7 +292,8 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         await js(rowButton);
         await waitFor(`document.querySelector("dialog.sheet[open]")`);
         await js(`[...document.querySelectorAll("dialog.sheet[open] button")].find((b) => b.textContent === "Disconnect").click()`);
-        await js(`[...document.querySelectorAll("dialog.sheet[open] button")].find((b) => b.textContent === "Keep").click()`);
+        check("disconnecting asks one plain question", await waitFor(`document.querySelector("dialog.sheet[open]")?.getAttribute("aria-label") === "Disconnect Obsidian?"`) && await js(`document.querySelector("dialog.sheet[open]").textContent.includes("stay in your library")`));
+        await js(`[...document.querySelectorAll("dialog.sheet[open] button")].find((b) => b.textContent === "Disconnect").click()`);
         check("disconnecting offers Obsidian again and keeps the memories", await waitFor(`/Your vaults and notes/.test(${rowText})`) && await js(`document.querySelector("#status").textContent.includes("3 memories kept")`));
       } else if (scenario === "connectors") {
         // The catalog drives the surface: three apps of three shapes, none of them special-cased.
