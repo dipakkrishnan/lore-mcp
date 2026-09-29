@@ -5,7 +5,7 @@ priority: P1
 effort: M
 component: cross-cutting
 status: in-progress
-related: [XC-031, XC-034, XC-036, XC-037, XC-039, MON-018]
+related: [XC-031, XC-034, XC-036, XC-037, MON-018]
 blockers: []
 dependencies: []
 github_issue: null
