@@ -1,11 +1,11 @@
 ---
 id: MON-029
-title: Cache store pages at Cloudflare's edge so crawlers can't exhaust the seller's quota
+title: Serve store pages from Cloudflare's edge cache without running the Worker
 priority: P1
 effort: S
 component: monetization
-status: in-review
-related: [XC-040, MON-018]
+status: in-progress
+related: [XC-040, MON-018, MON-034]
 blockers: []
 dependencies: []
 github_issue: null
@@ -25,20 +25,36 @@ the seller's bill.
 
 ## Proposed approach
 
-In `lore/node/src/index.ts`, wrap the page branch with `caches.default`:
-look up by URL and serve a hit; on a miss, render, `ctx.waitUntil(cache.put)`,
-and return. Keep HEAD on the same path. Never cache a response that carries
-unlocked content (XC-039). Consider a short `s-maxage`, and clearing the
-cache on `lore push`.
+Turn on Workers Cache (`"cache": { "enabled": true }` in
+`lore/node/wrangler.jsonc`). Unlike the Cache API, it works on `workers.dev`,
+and a hit is served without invoking the Worker. Store pages already send
+`public, max-age=60`. Every other response the Worker returns gets
+`no-store` unless it already sets `Cache-Control`, because Workers Cache
+also caches heuristically when that header is missing.
 
 ## Acceptance criteria
 
-- [ ] A second request for `/` or `/p/<id>` within the TTL is served without
-      a D1 query (tested).
-- [ ] 404s are cached briefly or not at all, so a newly pushed piece appears
-      within the TTL.
+- [x] Store pages are sent `public, max-age=60`, and every other response is
+      `no-store` or `no-cache` (tested in `test/pages.test.ts`).
+- [x] 404s are cached for at most the same 60 seconds, so a newly pushed
+      piece appears within that time.
+- [ ] After a deploy, a second request for `/` or `/p/<id>` within 60 seconds
+      returns `cf-cache-status: HIT`, which means the Worker and D1 were
+      skipped. Workers Cache can't run in the vitest pool, so this is checked
+      live.
 
 ## Notes
 
-Raised 2026-09-29 alongside the PR #341 deploy. Check the free-tier number
-against Cloudflare's current limits before quoting it to sellers.
+Raised 2026-09-29 alongside the PR #341 deploy.
+
+Implementation, 2026-09-29: the item's premise was half wrong.
+- The Cache API (`caches.default`) is a no-op on `workers.dev`, where every
+  seller's store runs. Workers Cache is the mechanism that works there
+  (https://developers.cloudflare.com/workers/cache/).
+- Cache hits are still billed as Worker requests, so no cache protects the
+  seller's daily request limit. What caching saves is D1 reads, CPU time and
+  latency.
+- Protecting the request limit was split off as MON-034.
+- The cache key includes the Worker version, so a deploy clears it. A
+  `lore push` doesn't redeploy the Worker, so pages can stay up to 60 seconds
+  stale after a push.
