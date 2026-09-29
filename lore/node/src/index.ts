@@ -211,6 +211,10 @@ export default {
         headers: { "content-type": "text/html; charset=utf-8", "cache-control": "public, max-age=60" }
       });
     }
-    return mcp.fetch(request, env, ctx);
+    const response = await mcp.fetch(request, env, ctx);
+    if (response.webSocket || response.headers.has("cache-control")) return response;
+    const uncached = new Response(response.body, response);
+    uncached.headers.set("cache-control", "no-store");
+    return uncached;
   }
 };

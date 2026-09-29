@@ -31,3 +31,12 @@ describe("store pages", () => {
     }
   });
 });
+
+describe("edge caching", () => {
+  it("marks store pages public and everything else no-store", async () => {
+    expect((await visit("/")).headers.get("cache-control")).toBe("public, max-age=60");
+    for (const path of ["/mcp", "/elsewhere"]) {
+      expect((await visit(path)).headers.get("cache-control")).toMatch(/no-store|no-cache/);
+    }
+  });
+});

@@ -4,6 +4,11 @@
   "main": "src/index.ts",
   "compatibility_date": "2026-06-11",
   "compatibility_flags": ["nodejs_compat"],
+  // Workers Cache (MON-029): store pages marked `public` are served from
+  // Cloudflare's edge without running the Worker or querying D1. Everything
+  // else is sent `no-store` by src/index.ts, since caching also applies
+  // heuristically to responses without a Cache-Control header.
+  "cache": { "enabled": true },
   "vars": {
     // Overridable so tests can point at a stubbed facilitator; unset in
     // deployment leaves this default in place.
