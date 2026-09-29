@@ -16,7 +16,7 @@ import { runAnswer } from "./answer.js";
 import { facilitator, network, networkLabel } from "./network.js";
 import { PRICE_USD } from "./price.js";
 import { ensureSalesSchema, recorded } from "./sales.js";
-import { storefront } from "./storefront.js";
+import { publicationPage, storefront } from "./storefront.js";
 import { toolSpanAttributes } from "./telemetry.js";
 import { withSpan } from "./tracing.js";
 import { payTo } from "./wallet.js";
@@ -199,8 +199,15 @@ const mcp = LorePaidMCP.serve("/mcp", { binding: "LorePaidMCP" });
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
-    if (request.method === "GET" && url.pathname === "/") {
-      return new Response(storefront(await manifest(env), PRICE_USD, networkLabel(env), url.origin), {
+    const piece = url.pathname.match(/^\/p\/([0-9a-f]{24})$/)?.[1];
+    if (request.method === "GET" && (url.pathname === "/" || piece)) {
+      const [catalog, settings] = await Promise.all([manifest(env), readAnswerSettings(env.LORE_DB)]);
+      const store = { name: settings.listedName, priceUsd: PRICE_USD, origin: url.origin };
+      const found = piece
+        ? Object.entries(catalog.topics).flatMap(([topic, entries]) => entries.map((entry) => ({ ...entry, topic }))).find((entry) => entry.id === piece)
+        : undefined;
+      if (piece && !found) return new Response("Not for sale here.", { status: 404 });
+      return new Response(found ? publicationPage(found, store) : storefront(catalog, store), {
         headers: { "content-type": "text/html; charset=utf-8", "cache-control": "public, max-age=60" }
       });
     }

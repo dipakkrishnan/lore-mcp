@@ -2,6 +2,9 @@
 
 Static download page for the Lore desktop app, served as Cloudflare Worker
 assets with the `yourlore.dev` and `www.yourlore.dev` custom domains bound.
+`/marketplace` is rendered by `src/worker.js` from the
+[lore-marketplace](https://github.com/dipakkrishnan/lore-marketplace) list,
+cached for five minutes; every other path is the static site.
 
 ## Deploy
 
