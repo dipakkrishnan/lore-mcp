@@ -31,9 +31,9 @@ const PERSONAS = ["storyteller", "schoolteacher", "professor", "executive", "sag
 const AXES = ["chronological", "theme", "project", "knowledge"];
 const CLOSED = "Lore was closed before this finished.";
 const LUNA_MODELS = ["openai-codex/gpt-5.6-luna", "openai/gpt-5.6-luna"];
-export const MODELS = ["anthropic/claude-opus-4-8", "anthropic/claude-sonnet-5", ...LUNA_MODELS];
+export const MODELS = ["anthropic/claude-opus-5-5", "anthropic/claude-sonnet-5", ...LUNA_MODELS];
 /** Luna names runs when the owner has it; otherwise whichever signed-in model is cheapest, so a run is never left nameless. */
-const NAMING_MODELS = [...LUNA_MODELS, "anthropic/claude-sonnet-5", "anthropic/claude-opus-4-8"];
+const NAMING_MODELS = [...LUNA_MODELS, "anthropic/claude-sonnet-5", "anthropic/claude-opus-5-5"];
 const MAX_TURNS = 60;
 const SANDBOX_TMPDIR = "/tmp/claude";
 /** @type {Partial<Record<AgentTask, string[]>>} Home-relative directories outside Lore that a task's commands must write. */
