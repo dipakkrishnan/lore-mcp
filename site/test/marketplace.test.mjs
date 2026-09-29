@@ -33,3 +33,11 @@ test("survives a list that isn't shaped like one", () => {
 test("labels a store on the test network", () => {
   assert.match(marketplacePage({ sellers: [{ ...seller, network: "eip155:84532" }] }), /test store · 3 pieces/);
 });
+
+test("serves the list itself at /marketplace.json", async (t) => {
+  const { default: worker } = await import("../src/worker.js");
+  t.mock.method(globalThis, "fetch", async () => new Response(JSON.stringify({ sellers: [seller] })));
+  const response = await worker.fetch(new Request("https://yourlore.dev/marketplace.json"), {});
+  assert.equal(response.headers.get("content-type"), "application/json; charset=utf-8");
+  assert.equal((await response.json()).sellers[0].name, "Dipak");
+});

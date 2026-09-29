@@ -72,7 +72,9 @@ h2 small{font:13px var(--sans);color:var(--muted)}
 .buy p.amount{font:600 30px/1 var(--sans);color:var(--ink);margin:0 0 8px}
 .agents{margin-top:48px;padding-top:20px;border-top:1px solid var(--line);font-size:14px;color:var(--muted)}
 .agents h2{font-size:16px;margin:0 0 6px}
-code{font:13px var(--mono);background:var(--accent-soft);color:var(--ink);padding:2px 6px;border-radius:6px;word-break:break-all}
+.agents p{margin:0}
+code{font:13px var(--mono);background:var(--accent-soft);color:var(--ink);padding:2px 6px;border-radius:6px}
+.endpoint{display:block;margin:6px 0 12px;padding:8px 10px;overflow-x:auto;white-space:nowrap;user-select:all}
 .notice{margin:0 0 28px;padding:12px 16px;border-radius:10px;background:var(--accent-soft);font-size:14px}
 .back{display:inline-block;margin-bottom:18px;font-size:14px;color:var(--muted);text-decoration:none}.back:hover{color:var(--ink)}
 `;
@@ -103,8 +105,8 @@ const notice = (store: Store) =>
   store.test ? `<p class="notice">This is a test store. Payments use play money, so nothing here is really for sale yet.</p>` : "";
 
 function agentsNote(store: Store, id?: string): string {
-  const call = id ? `get {"id": "${id}"}` : "discover, then get with an id";
-  return `<section class="agents"><h2>For agents</h2><p>Connect to <code>${escape(store.origin)}/mcp</code> and call <code>${escape(call)}</code>. Reading the catalog is free; each <code>get</code> pays the seller ${money(store.priceUsd)} in USDC.</p></section>`;
+  const call = id ? `<p>Then buy this piece:</p><code class="endpoint">${escape(`get {"id": "${id}"}`)}</code>` : "";
+  return `<section class="agents"><h2>For agents</h2><p>Connect over MCP:</p><code class="endpoint">${escape(store.origin)}/mcp</code>${call}<p>Reading the catalog with <code>discover</code> is free; each <code>get</code> pays the seller ${money(store.priceUsd)} in USDC.</p></section>`;
 }
 
 export function storefront(catalog: Catalog, store: Store): string {

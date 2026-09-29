@@ -3,6 +3,7 @@
 // the lore-marketplace repo; this only draws it. Every other path is the static site.
 
 const LIST = "https://raw.githubusercontent.com/dipakkrishnan/lore-marketplace/main/marketplace.json";
+const LIST_URL = "https://yourlore.dev/marketplace.json";
 const BUYER_SKILL = "https://github.com/dipakkrishnan/lore-mcp/tree/main/plugins/lore/skills/lore-buy";
 const DOWNLOAD = "https://github.com/dipakkrishnan/lore-mcp/releases/latest/download/Lore-macOS-arm64.zip";
 const MAINNET = "eip155:8453";
@@ -63,7 +64,8 @@ h1{font:500 clamp(32px,6.5vw,46px)/1.1 var(--serif);letter-spacing:-.015em;margi
 .panel h3{font:500 17px var(--serif);color:var(--ink);margin:0 0 6px}
 .panel p{margin:0 0 8px}
 .panel a{color:var(--accent);font-weight:600;text-decoration:none}
-code{font:12.5px var(--mono);background:var(--accent-soft);color:var(--ink);padding:2px 6px;border-radius:6px;word-break:break-all}
+code{font:12.5px var(--mono);background:var(--accent-soft);color:var(--ink);padding:2px 6px;border-radius:6px}
+.endpoint{display:block;margin:4px 0 12px;padding:8px 10px;overflow-x:auto;white-space:nowrap;user-select:all}
 `;
 
 // Filters the already-rendered cards; the page is complete without it.
@@ -106,12 +108,12 @@ export function marketplacePage(list) {
     : `<p class="empty">The list of sellers can't be loaded right now. Try again in a minute.</p>`;
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Lore marketplace</title><meta name="description" content="People selling what they learned firsthand. Descriptions are free; every payment goes straight to the seller.">
-<link rel="canonical" href="https://yourlore.dev/marketplace"><style>${STYLE}</style>
+<link rel="canonical" href="https://yourlore.dev/marketplace"><link rel="alternate" type="application/json" href="${LIST_URL}"><style>${STYLE}</style>
 <script type="application/ld+json">${JSON.stringify(data).replace(/</g, "\\u003c")}</script></head>
 <body><main><nav class="bar"><a class="brand" href="/">${MARK}Lore</a><a href="/">Get Lore</a></nav>
 <h1>Lore marketplace</h1><p class="lede">People selling what they learned firsthand. Each store belongs to one person: reading the descriptions is free, and every payment goes straight to them.</p>
 ${body}
-<div class="foot"><section class="panel"><h3>For agents</h3><p>The list is one JSON file: <code>${LIST}</code>. Each store answers <code>discover</code> for free and <code>get</code> to buy.</p><a href="${BUYER_SKILL}">Get the buyer skill →</a></section>
+<div class="foot"><section class="panel"><h3>For agents</h3><p>Every listed store, as JSON:</p><code class="endpoint">${LIST_URL}</code><p>Each store answers <code>discover</code> for free and <code>get</code> to buy.</p><a href="${BUYER_SKILL}">Get the buyer skill →</a></section>
 <section class="panel"><h3>Sell what you know</h3><p>Lore turns what you've already written into pieces you approve, then opens a store that pays you directly.</p><a href="${DOWNLOAD}">Download for macOS →</a></section></div>
 </main><script>${FILTER}</script></body></html>`;
 }
@@ -119,14 +121,21 @@ ${body}
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
-    if (url.pathname !== "/marketplace" && url.pathname !== "/marketplace/") return env.ASSETS.fetch(request);
+    const json = url.pathname === "/marketplace.json";
+    if (!json && url.pathname !== "/marketplace" && url.pathname !== "/marketplace/") return env.ASSETS.fetch(request);
     try {
       const response = await fetch(LIST, { cf: { cacheTtl: 300, cacheEverything: true } });
       if (!response.ok) throw new Error(`marketplace list: ${response.status}`);
+      if (json) {
+        return new Response(response.body, {
+          headers: { "content-type": "application/json; charset=utf-8", "cache-control": "public, max-age=60", "access-control-allow-origin": "*" }
+        });
+      }
       return new Response(marketplacePage(await response.json()), {
         headers: { "content-type": "text/html; charset=utf-8", "cache-control": "public, max-age=60" }
       });
     } catch {
+      if (json) return Response.json({ error: "the seller list can't be loaded right now" }, { status: 502, headers: { "cache-control": "no-store" } });
       // Rendered as "can't be loaded right now"; the page itself still answers.
       return new Response(marketplacePage(null), {
         headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" }
