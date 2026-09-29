@@ -12,8 +12,8 @@ const catalog = {
     pricing: [{ id: "b".repeat(24), teaser: "What a $0.01 floor protects", kind: "content", updated_at: "2026-08-02" }]
   }
 };
-const store = { name: "Dipak’s Working Lore", priceUsd: 0.01, origin: "https://lore.example.workers.dev" };
-const piece = { ...catalog.topics["team scaling"][0], topic: "team scaling" };
+const store = { name: "Dipak’s Working Lore", priceUsd: 0.01, origin: "https://lore.example.workers.dev", test: false };
+const piece = { ...catalog.topics["team scaling"][0], topic: "team scaling", section: 0 };
 type Ld = { "@type": string; name: string; itemListElement: { item: { offers: object } }[]; offers: { seller: { name: string } } };
 const ld = (html: string) => JSON.parse(html.match(/<script type="application\/ld\+json">(.*?)<\/script>/)![1]) as Ld;
 
@@ -40,8 +40,23 @@ describe("storefront", () => {
     expect(html).not.toContain("<before>");
   });
 
-  it("falls back to a generic name for an unlisted store", () => {
-    expect(storefront(catalog, { ...store, name: "" })).toContain("<h1>A Lore store</h1>");
+  it("falls back to a generic name for an unlisted store, without inventing a seller for agents", () => {
+    const html = storefront(catalog, { ...store, name: "" });
+    expect(html).toContain("<h1>A Lore store</h1>");
+    expect(ld(html).itemListElement[0].item.offers).not.toHaveProperty("seller");
+  });
+
+  it("marks a test store and offers nothing for sale to agents", () => {
+    const html = storefront(catalog, { ...store, test: true });
+    expect(html).toContain("This is a test store");
+    expect(ld(html).itemListElement[0].item).not.toHaveProperty("offers");
+  });
+
+  it("gives every topic its own anchor, even when two slug alike or one is empty", () => {
+    const html = storefront({ manifest_version: 1, publication_count: 3, topics: { "Team Scaling": catalog.topics.pricing, "team-scaling": catalog.topics.pricing, "": catalog.topics.pricing } }, store);
+    expect(html).toContain('id="topic-1"');
+    expect(html).toContain('id="topic-2"');
+    expect(html).toContain("<h2>Other <small>");
   });
 
   it("says when nothing is for sale", () => {

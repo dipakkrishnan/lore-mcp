@@ -5,6 +5,7 @@
 const LIST = "https://raw.githubusercontent.com/dipakkrishnan/lore-marketplace/main/marketplace.json";
 const BUYER_SKILL = "https://github.com/dipakkrishnan/lore-mcp/tree/main/plugins/lore/skills/lore-buy";
 const DOWNLOAD = "https://github.com/dipakkrishnan/lore-mcp/releases/latest/download/Lore-macOS-arm64.zip";
+const MAINNET = "eip155:8453";
 const TOPICS_SHOWN = 8;
 const day = new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" });
 
@@ -15,6 +16,19 @@ const date = (iso) => {
   const parsed = new Date(`${String(iso).slice(0, 10)}T00:00:00Z`);
   return Number.isNaN(parsed.getTime()) ? "" : day.format(parsed);
 };
+
+const https = (url) => {
+  try {
+    return new URL(url).protocol === "https:";
+  } catch {
+    return false;
+  }
+};
+// The list is hand-editable and filed from issues, so only well-formed entries with an https store are shown.
+const listed = (seller) =>
+  typeof seller?.name === "string" && typeof seller.price_usd === "number" && https(seller.store) && !seller.down_since
+    ? { ...seller, topics: Array.isArray(seller.topics) ? seller.topics.map(String) : [], publications: Number(seller.publications) || 0 }
+    : null;
 
 const MARK = `<svg class="mark" viewBox="0 0 26 26" aria-hidden="true"><rect x="4.5" y="5" width="17" height="16" rx="3.2" fill="currentColor"/><path d="M3 11.2L4.5 10.6C8 9.2 10.5 12.2 13 10.9S18.5 9.6 21.5 11.2L23 12M3 16.9L4.5 16.3C8 15 10.5 17.8 13 16.6S18.5 15 21.5 16.8L23 17.7" fill="none" stroke="var(--bg)" stroke-width="1.7"/></svg>`;
 
@@ -56,14 +70,15 @@ code{font:12.5px var(--mono);background:var(--accent-soft);color:var(--ink);padd
 const FILTER = `const f=document.querySelector(".filter"),c=[...document.querySelectorAll(".seller")],e=document.querySelector(".none");f.hidden=false;f.addEventListener("input",()=>{const q=f.value.trim().toLowerCase();let n=0;for(const s of c){const m=!q||s.dataset.search.includes(q);s.hidden=!m;n+=m}e.hidden=n>0})`;
 
 function sellerCard(seller) {
-  const topics = seller.topics ?? [];
+  const topics = seller.topics;
   const shown = topics.slice(0, TOPICS_SHOWN).map((topic) => `<li class="chip">${escape(topic)}</li>`).join("");
   const more = topics.length > TOPICS_SHOWN ? `<li class="chip">+${topics.length - TOPICS_SHOWN} more</li>` : "";
-  const count = seller.publications ?? 0;
+  const count = seller.publications;
   const facts = [
+    ...(seller.network === MAINNET ? [] : ["test store"]),
     `${count} ${count === 1 ? "piece" : "pieces"}`,
     `${money(seller.price_usd)} each`,
-    ...(seller.answer_price_usd ? [`questions ${money(seller.answer_price_usd)}`] : []),
+    ...(typeof seller.answer_price_usd === "number" ? [`questions ${money(seller.answer_price_usd)}`] : []),
     ...(date(seller.listed) ? [`listed ${date(seller.listed)}`] : [])
   ].join(" · ");
   const search = `${seller.name} ${topics.join(" ")}`.toLowerCase();
@@ -71,7 +86,7 @@ function sellerCard(seller) {
 }
 
 export function marketplacePage(list) {
-  const sellers = (list?.sellers ?? []).filter((seller) => seller.store && !seller.down_since).sort((a, b) => (b.publications ?? 0) - (a.publications ?? 0));
+  const sellers = (Array.isArray(list?.sellers) ? list.sellers : []).map(listed).filter(Boolean).sort((a, b) => b.publications - a.publications);
   const data = {
     "@context": "https://schema.org",
     "@type": "ItemList",
@@ -81,7 +96,7 @@ export function marketplacePage(list) {
     itemListElement: sellers.map((seller, index) => ({
       "@type": "ListItem",
       position: index + 1,
-      item: { "@type": "Person", name: seller.name, url: seller.store, knowsAbout: seller.topics ?? [] }
+      item: { "@type": "Person", name: seller.name, url: seller.store, knowsAbout: seller.topics }
     }))
   };
   const body = list
@@ -105,15 +120,17 @@ export default {
   async fetch(request, env) {
     const url = new URL(request.url);
     if (url.pathname !== "/marketplace" && url.pathname !== "/marketplace/") return env.ASSETS.fetch(request);
-    let list = null;
     try {
       const response = await fetch(LIST, { cf: { cacheTtl: 300, cacheEverything: true } });
-      if (response.ok) list = await response.json();
+      if (!response.ok) throw new Error(`marketplace list: ${response.status}`);
+      return new Response(marketplacePage(await response.json()), {
+        headers: { "content-type": "text/html; charset=utf-8", "cache-control": "public, max-age=60" }
+      });
     } catch {
       // Rendered as "can't be loaded right now"; the page itself still answers.
+      return new Response(marketplacePage(null), {
+        headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" }
+      });
     }
-    return new Response(marketplacePage(list), {
-      headers: { "content-type": "text/html; charset=utf-8", "cache-control": list ? "public, max-age=300" : "no-store" }
-    });
   }
 };
