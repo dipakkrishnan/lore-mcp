@@ -13,10 +13,10 @@ import {
   validPublicId
 } from "./answer-state.js";
 import { runAnswer } from "./answer.js";
-import { facilitator, network, networkLabel } from "./network.js";
+import { TESTNET, facilitator, network, networkLabel } from "./network.js";
 import { PRICE_USD } from "./price.js";
 import { ensureSalesSchema, recorded } from "./sales.js";
-import { storefront } from "./storefront.js";
+import { notFound, pieces, publicationPage, storefront } from "./storefront.js";
 import { toolSpanAttributes } from "./telemetry.js";
 import { withSpan } from "./tracing.js";
 import { payTo } from "./wallet.js";
@@ -199,8 +199,15 @@ const mcp = LorePaidMCP.serve("/mcp", { binding: "LorePaidMCP" });
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
-    if (request.method === "GET" && url.pathname === "/") {
-      return new Response(storefront(await manifest(env), PRICE_USD, networkLabel(env), url.origin), {
+    const page = url.pathname === "/" || /^\/p(\/|$)/.test(url.pathname);
+    if (page && (request.method === "GET" || request.method === "HEAD")) {
+      const [catalog, settings] = await Promise.all([manifest(env), readAnswerSettings(env.LORE_DB)]);
+      const store = { name: settings.listedName, priceUsd: PRICE_USD, origin: url.origin, test: network(env) === TESTNET };
+      const id = url.pathname.match(/^\/p\/([0-9a-f]{24})\/?$/)?.[1];
+      const found = pieces(catalog).find((piece) => piece.id === id);
+      const html = url.pathname === "/" ? storefront(catalog, store) : found ? publicationPage(found, store) : notFound(store);
+      return new Response(request.method === "HEAD" ? null : html, {
+        status: url.pathname === "/" || found ? 200 : 404,
         headers: { "content-type": "text/html; charset=utf-8", "cache-control": "public, max-age=60" }
       });
     }
