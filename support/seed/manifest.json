@@ -7,12 +7,12 @@
   "phase": "0 (offline): corpus, tooling and local proofs only; no remote account exists, every remote is null",
   "accounts": {
     "bluesky": {
-      "handle": "tidewell.bsky.social",
+      "handle": "tidewell-bsky-lore.bsky.social",
       "did": null,
       "created": null
     },
     "substack": {
-      "url": "https://tidewell.substack.com",
+      "url": "https://tidewell2lore.substack.com",
       "created": null
     },
     "medium": {
@@ -119,7 +119,7 @@
       }
     },
     "bluesky": {
-      "locator": "@tidewell.bsky.social",
+      "locator": "@tidewell-bsky-lore.bsky.social",
       "name": "bluesky-ef82d1bb",
       "label": "Priya @ Tidewell",
       "expected": {
@@ -130,10 +130,22 @@
       },
       "observed": null,
       "observed_at": null,
-      "note": "found is 8 and dropped 3 if the server still returns the reply bs-07"
+      "note": "found is 8 and dropped 3 if the server still returns the reply bs-07",
+      "real_library": {
+        "name": "bluesky-7ead825d",
+        "state": "connected",
+        "imported": 5,
+        "connected_at": "2026-09-30",
+        "canaries": "bs-01..05 one hit each; bs-06 (short), bs-07 (reply), bs-08 (repost) zero",
+        "recorded": {
+          "found": 7,
+          "kept": 5,
+          "dropped": 2
+        }
+      }
     },
     "substack": {
-      "locator": "https://tidewell.substack.com",
+      "locator": "https://tidewell2lore.substack.com",
       "name": "substack-0b146739",
       "label": "Tidewell Notes",
       "expected": {
@@ -940,9 +952,10 @@
       "expected": "kept",
       "why": "post over 40 characters",
       "remote": {
-        "id": null,
+        "id": "at://did:plc:REDACTED/app.bsky.feed.post/3mwqe2lgj5o2t",
         "url": null,
-        "created_at": null
+        "created_at": "2026-09-30T12:33:34.977Z",
+        "cid": "bafyreichgqci4oxxqxwmozdzylyrw5npql4nch3qelnfovxn6algdcatea"
       },
       "private_data": null,
       "observed": null,
@@ -963,9 +976,10 @@
       "expected": "kept",
       "why": "post over 40 characters",
       "remote": {
-        "id": null,
+        "id": "at://did:plc:REDACTED/app.bsky.feed.post/3mwqe2ni3ci2g",
         "url": null,
-        "created_at": null
+        "created_at": "2026-09-30T12:33:34.977Z",
+        "cid": "bafyreibe37zk6ek6mczwca3j2aa5srp643ibvghwwu7qd5l6h2atbfgiee"
       },
       "private_data": null,
       "observed": null,
@@ -984,9 +998,10 @@
       "expected": "kept",
       "why": "post over 40 characters",
       "remote": {
-        "id": null,
+        "id": "at://did:plc:REDACTED/app.bsky.feed.post/3mwqe2pjcxe2w",
         "url": null,
-        "created_at": null
+        "created_at": "2026-09-30T12:33:34.977Z",
+        "cid": "bafyreiavxl7ecvgg43zmqbff5wspp3p2hfopkutb2q77jnosam53fgt7yy"
       },
       "private_data": null,
       "observed": null,
@@ -1005,9 +1020,10 @@
       "expected": "kept",
       "why": "post over 40 characters",
       "remote": {
-        "id": null,
+        "id": "at://did:plc:REDACTED/app.bsky.feed.post/3mwqe2rkpfm22",
         "url": null,
-        "created_at": null
+        "created_at": "2026-09-30T12:33:34.977Z",
+        "cid": "bafyreihlgs32ehl6ab4g5zmzsgm5ilynji4n5veccm5dp4cewhbljkiyyy"
       },
       "private_data": null,
       "observed": null,
@@ -1026,9 +1042,10 @@
       "expected": "kept",
       "why": "post over 40 characters",
       "remote": {
-        "id": null,
+        "id": "at://did:plc:REDACTED/app.bsky.feed.post/3mwqe2tm4622u",
         "url": null,
-        "created_at": null
+        "created_at": "2026-09-30T12:33:34.977Z",
+        "cid": "bafyreib44rikop2xapatkm7wjqrzqtchj7qv4d3ro3khwvxt54wu64z3je"
       },
       "private_data": null,
       "observed": null,
@@ -1047,9 +1064,10 @@
       "expected": "dropped",
       "why": "under the floor",
       "remote": {
-        "id": null,
+        "id": "at://did:plc:REDACTED/app.bsky.feed.post/3mwqe2vnhyz2v",
         "url": null,
-        "created_at": null
+        "created_at": "2026-09-30T12:33:34.977Z",
+        "cid": "bafyreihfvekjkhg7q3bsjpa6r2md2rjsvkq2f4kh55nrvarrjnh3nsb2le"
       },
       "private_data": null,
       "observed": null,
@@ -1068,9 +1086,10 @@
       "expected": "excluded",
       "why": "reply; the reader asks for posts_no_replies and drops any reply it sees (UNCERTAIN whether the server returns it)",
       "remote": {
-        "id": null,
+        "id": "at://did:plc:REDACTED/app.bsky.feed.post/3mwqe2xovqz2v",
         "url": null,
-        "created_at": null
+        "created_at": "2026-09-30T12:33:34.977Z",
+        "cid": "bafyreifmmcjmyfvjlih3enij6ctjpbkjljunu425cxq6igrnredfd52qsu"
       },
       "private_data": null,
       "observed": null,
@@ -1089,9 +1108,10 @@
       "expected": "dropped",
       "why": "repost; the reader drops any entry with a reason",
       "remote": {
-        "id": null,
+        "id": "at://did:plc:REDACTED/app.bsky.feed.repost/3mwqe2zqmmd24",
         "url": null,
-        "created_at": null
+        "created_at": "2026-09-30T12:33:34.977Z",
+        "cid": "bafyreid5oubst6oprxuu2rtscrzy7e5ay2vtphl2mkaohrhaw7z53cddhe"
       },
       "private_data": null,
       "observed": null,
@@ -1568,9 +1588,9 @@
       "expected": "kept",
       "why": "body over 120 characters",
       "remote": {
-        "id": null,
-        "url": null,
-        "created_at": null
+        "id": "3eb0431b-8ba8-81ee-b4b0-d3a734f259aa",
+        "url": "https://www.notion.so/3eb0431b8ba881eeb4b0d3a734f259aa",
+        "created_at": "2026-09-30T12:27:13+00:00"
       },
       "private_data": null,
       "observed": null,
@@ -1591,9 +1611,9 @@
       "expected": "kept",
       "why": "body over 120 characters",
       "remote": {
-        "id": null,
-        "url": null,
-        "created_at": null
+        "id": "3eb0431b-8ba8-81fd-9d33-d87ebc07031a",
+        "url": "https://www.notion.so/3eb0431b8ba881fd9d33d87ebc07031a",
+        "created_at": "2026-09-30T12:27:13+00:00"
       },
       "private_data": null,
       "observed": null,
@@ -1614,9 +1634,9 @@
       "expected": "kept",
       "why": "body over 120 characters",
       "remote": {
-        "id": null,
-        "url": null,
-        "created_at": null
+        "id": "3eb0431b-8ba8-816b-947c-db65aef02014",
+        "url": "https://www.notion.so/3eb0431b8ba8816b947cdb65aef02014",
+        "created_at": "2026-09-30T12:27:13+00:00"
       },
       "private_data": "fake-phone",
       "observed": null,
@@ -1635,9 +1655,9 @@
       "expected": "kept",
       "why": "body over 120 characters",
       "remote": {
-        "id": null,
-        "url": null,
-        "created_at": null
+        "id": "3eb0431b-8ba8-816d-bfdf-ec4f51ff567a",
+        "url": "https://www.notion.so/3eb0431b8ba8816dbfdfec4f51ff567a",
+        "created_at": "2026-09-30T12:27:13+00:00"
       },
       "private_data": null,
       "observed": null,
@@ -1656,9 +1676,9 @@
       "expected": "kept",
       "why": "body over 120 characters",
       "remote": {
-        "id": null,
-        "url": null,
-        "created_at": null
+        "id": "3eb0431b-8ba8-8181-bf6c-ee1e14116022",
+        "url": "https://www.notion.so/3eb0431b8ba88181bf6cee1e14116022",
+        "created_at": "2026-09-30T12:27:13+00:00"
       },
       "private_data": null,
       "observed": null,
@@ -1677,9 +1697,9 @@
       "expected": "dropped",
       "why": "no blocks",
       "remote": {
-        "id": null,
-        "url": null,
-        "created_at": null
+        "id": "3eb0431b-8ba8-8131-af6d-eb89b967c480",
+        "url": "https://www.notion.so/3eb0431b8ba88131af6deb89b967c480",
+        "created_at": "2026-09-30T12:27:13+00:00"
       },
       "private_data": null,
       "observed": null,

@@ -131,10 +131,12 @@ class ManifestTest(unittest.TestCase):
     def setUp(self) -> None:
         self.manifest = json.loads((SEED / "manifest.json").read_text(encoding="utf-8"))
 
-    def test_no_remote_exists_before_phase_one(self) -> None:
+    def test_remote_is_all_empty_or_all_filled(self) -> None:
         for item in self.manifest["items"]:
-            self.assertEqual(
-                item["remote"], {"id": None, "url": None, "created_at": None}
+            remote = item["remote"]
+            self.assertEqual(set(remote), {"id", "url", "created_at"}, item["id"])
+            self.assertIn(
+                sum(v is not None for v in remote.values()), (0, 2, 3), item["id"]
             )
 
     def test_every_item_names_a_corpus_file_that_exists(self) -> None:
