@@ -568,7 +568,7 @@ function outLink(label, href, className = "link-btn") {
 
 /** @param {string | null} network */
 function explorer(network) {
-  return EXPLORERS[/** @type {keyof typeof EXPLORERS} */ (network ?? "")] ?? EXPLORERS[TEST_NETWORK];
+  return EXPLORERS[/** @type {keyof typeof EXPLORERS} */ (network ?? "")] ?? EXPLORERS["eip155:8453"];
 }
 
 /** @param {Snapshot["node"]["live"]} live */
@@ -614,7 +614,7 @@ function needsYou(s) {
   else if (!s.setup.profile_configured) add("Set the rhythm", "Choose which model writes new memories, and how often.", button("Start", "secondary", startSetup));
   // The store rung waits for approved work, whatever rung setup is on: the
   // payout address is asked last, once there is something worth being paid for.
-  if (s.publications.counts.active && !s.node.url) add("Open your store", `${s.publications.counts.active === 1 ? "Your approved piece is" : `Your ${s.publications.counts.active} approved pieces are`} ready to sell. Pick a price and where payments go.`, button("Open", "secondary", () => void startDeploy()));
+  if (s.publications.counts.active && !s.node.url && !pushOffer) add("Open your store", `${s.publications.counts.active === 1 ? "Your approved piece is" : `Your ${s.publications.counts.active} approved pieces are`} ready to sell. Pick a price and where payments go.`, button("Open", "secondary", () => void startDeploy()));
   if (s.library.counts.private && !candidates.length && !taskItems.some((item) => item.kind === "publish")) add("Publish something", "Lore drafts up to three things to sell; you approve each one.", button("Publish", "secondary", () => void startPublish()));
   // Approved work a buyer cannot see yet, or a price they are not yet paying, is actionable whatever rung setup is on.
   const stale = stalePrice(s);
@@ -796,7 +796,7 @@ function renderStore(s) {
     text.append(storeAddress(s.node));
   } else {
     const open = el("span");
-    open.append(inline("Open a store", () => void startDeploy()), " when you're ready to sell.");
+    open.append(inline("Open your store", () => void startDeploy()), " when you're ready to sell.");
     text.append(open);
   }
   lead.append(text);
@@ -1267,7 +1267,7 @@ function renderFaq(s) {
     section("Getting paid", card([
       qa("Who buys?", "Other people's AI agents, in the middle of a task. Not people browsing a shop. They read your short descriptions for free and pay to read the full piece."),
       qa("What does a buyer pay?", `Your price. ${prices}`),
-      qa("How do I get paid?", "Each payment goes straight to an account you control, like your Coinbase account, in digital dollars (USDC). Lore never holds your money. Lore asks where to send it last, when you open your store."),
+      qa("How do I get paid?", "Each payment goes straight to an account you control, like your Coinbase account, in digital dollars (USDC). Lore never holds your money. Lore asks where to send it when you open your store."),
       qa("How do buyers find me?", "Once your store is open, list it from Settings. Agents that use the Lore marketplace will see it.")
     ])),
     section("Privacy", card([
@@ -1692,7 +1692,6 @@ function payoutField(question, index) {
   address.placeholder = "0x…";
   address.spellcheck = false;
   address.autocomplete = "off";
-  address.title = "Paste a public address: 0x plus 40 letters and numbers.";
   const status = el("p", "hint payout-status");
   address.addEventListener("input", () => {
     const value = address.value.trim();
@@ -1702,6 +1701,7 @@ function payoutField(question, index) {
       status.textContent = "That looks like a recovery phrase. Never share it with anyone, Lore included. Paste the address that starts with 0x.";
       status.dataset.state = "warn";
     } else if (PUBLIC_ADDRESS.test(value)) {
+      address.value = value;
       status.textContent = `✓ Payments will land at ${value.slice(0, 6)}…${value.slice(-4)}.`;
       status.dataset.state = "ok";
     } else {
@@ -1952,9 +1952,9 @@ async function startDeploy(intent = STORE_INTENT) {
 function storeOpened(s) {
   const count = s.publications.counts.active;
   const each = typeof s.pricing.publication_usd === "number" ? ` at ${price(s.pricing.publication_usd)} each` : "";
-  const onSale = count ? `${count === 1 ? "Your approved piece is" : `All ${count} approved pieces are`} on sale${each}.` : "Approve a draft and it goes on sale here.";
+  const onSale = `${count === 1 ? "Your approved piece is" : `All ${count} approved pieces are`} on sale${each}.`;
   const payout = s.node.live.payout;
-  return `${onSale} ${payout ? `Every payment lands at ${payout.slice(0, 6)}…${payout.slice(-4)}, and nowhere else.` : "Everything else stays private."}`;
+  return payout ? `${onSale} Every payment lands at ${payout.slice(0, 6)}…${payout.slice(-4)}, and nowhere else.` : onSale;
 }
 
 /** @param {Snapshot} s */
@@ -2120,10 +2120,11 @@ function approvalForm(candidate) {
 
 function seamCard() {
   const box = el("div", "card lead request");
-  box.append(el("p", "q", "Push to your store now?"), el("p", "hint", pushOffer || ""));
+  const store = Boolean(snapshot?.node.url);
+  box.append(el("p", "q", store ? "Push to your store now?" : "Open your store?"), el("p", "hint", pushOffer || ""));
   const actions = el("div", "actions");
   const leave = button("Leave it for now", "secondary", () => { pushOffer = false; render(); });
-  const push = button(pushing ? "Pushing…" : "Push now", "primary", pushNow);
+  const push = store ? button(pushing ? "Pushing…" : "Push now", "primary", pushNow) : button("Open your store", "primary", () => { pushOffer = false; void startDeploy(); });
   leave.disabled = pushing;
   push.disabled = pushing;
   actions.append(leave, push);
@@ -2171,8 +2172,7 @@ async function decide(original, approve, candidate = original) {
   if ((await act(() => window.lore.decide({ original, candidate, approve }), approve ? "Approved here. Push to put it on your store." : undefined)) && approve) approvedThisPass = true;
   if (candidates.length || !approvedThisPass) return;
   approvedThisPass = false;
-  pushOffer = snapshot?.node.url ? "Approved publications reach buyers only after a push. Leaving it is fine; the next push carries it." : false;
-  if (!pushOffer) tell("Approved. It goes on sale the moment you open a store.");
+  pushOffer = snapshot?.node.url ? "Approved publications reach buyers only after a push. Leaving it is fine; the next push carries it." : "What you approved goes on sale once it's open. Pick a price and where payments go.";
   render();
 }
 

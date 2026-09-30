@@ -255,7 +255,7 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         check("Add your first memory lands on Today with the composer focused", await js(`document.querySelector("#title").textContent !== "Memories" && document.activeElement === document.querySelector("#capture-input")`));
         await js(`window.__lore.show("store")`);
         await sleep(600);
-        check("no store: the bar offers to open one", await js(`[...document.querySelectorAll("#content .store-bar button")].some((b) => b.textContent === "Open a store")`));
+        check("no store: the bar offers to open one", await js(`[...document.querySelectorAll("#content .store-bar button")].some((b) => b.textContent === "Open your store")`));
         const forSale = await js(`[...document.querySelectorAll("#content .empty")].map((n) => n.textContent).join("|")`);
         check("nothing for sale: one sentence and a way to draft", /Nothing for sale yet\./.test(forSale) && await js(`[...document.querySelectorAll("#content .empty button")].some((b) => b.textContent === "Draft one from a memory")`), forSale);
         check("no sales: left alone, no action", await js(`[...document.querySelectorAll("#content .empty")].find((n) => n.textContent.includes("No sales yet")).querySelector("button") === null`));
@@ -484,7 +484,7 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         check("it says who buys: agents, not people browsing", /AI agents, in the middle of a task/.test(faq) && /Not people browsing/.test(faq));
         check("it says what a buyer pays and that Lore never holds the money", /Your price\./.test(faq) && /a publication/.test(faq) && /never holds your money/.test(faq));
         check("it promises no control that isn't there: no questions, and listing waits for a store", !/turn on questions|ask you one|Questions have/i.test(faq) && /Once your store is open, list it from Settings/.test(faq) && !/A cent a publication/.test(faq), faq);
-        check("it names the money in plain words, and says the address comes last", /digital dollars \(USDC\)/.test(faq) && /Coinbase account/.test(faq) && /asks where to send it last/.test(faq) && !/play money/.test(faq));
+        check("it names the money in plain words, and says the address comes last", /digital dollars \(USDC\)/.test(faq) && /Coinbase account/.test(faq) && /asks where to send it when you open your store/.test(faq) && !/play money/.test(faq));
         check("it says why connecting apps helps", questions.includes("Why connect my apps?") && /blank page/.test(faq));
         check("it says honestly what leaves the Mac", /Only what you approve for sale/.test(faq) && /the AI you signed in with reads/.test(faq));
         check("it promises no earnings: the only dollar figure is a price", (faq.match(/\\$\\d/g) ?? []).length <= 1 && !/\\bearn|income|revenue|passive/i.test(faq), faq.match(/\\$\\d[^ ]*/g)?.join(",") ?? "");
@@ -661,14 +661,13 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         await waitFor(`document.querySelectorAll("#content .draft-title").length === 1`);
         check("a double click submits one edited decision", await js(`document.querySelectorAll("#content .draft-title").length`) === 1 && !(await js(`document.querySelector("#status .notice.attention")`)));
         await js(`[...document.querySelectorAll("#content button")].find((b) => b.textContent === "Skip").click()`);
-        await waitFor(`document.querySelector("#status .notice")`);
-        const notice = await js(`document.querySelector("#status .notice")?.textContent ?? ""`);
-        check("approval confirmation is visible outside a thread", notice.includes("Approved. It goes on sale the moment you open a store."), notice);
-        check("confirmation is not styled as a problem", !(await js(`document.querySelector("#status .notice").classList.contains("attention")`)));
+        await waitFor(`[...document.querySelectorAll("#content .request .q")].some((q) => q.textContent === "Open your store?")`);
+        check("approving with no store offers to open one, one click away", await js(`[...document.querySelectorAll("#content .request button")].some((b) => b.textContent === "Open your store")`));
+        check("the offer is said once, not again under Needs you", !(await js(`[...document.querySelectorAll("#content .row b")].some((b) => b.textContent === "Open your store")`)));
         check("approved title carried the edit", await js(`window.lore.snapshot().then((s) => s.publications.items.map((i) => i.title).join("|"))`) === "Edited by the owner");
-        await shot("seller-approved-notice");
-        await js(`document.querySelector("#status .notice .dismiss").click()`);
-        check("notice dismisses", await js(`document.querySelectorAll("#status .notice").length`) === 0);
+        await shot("seller-approved-offer");
+        await js(`[...document.querySelectorAll("#content .request button")].find((b) => b.textContent === "Leave it for now").click()`);
+        check("the offer can be left for later", !(await js(`[...document.querySelectorAll("#content .request .q")].some((q) => q.textContent === "Open your store?")`)));
 
         // Ledger: with no store there is nothing to read, and the section says so without a probe.
         await js(`window.__lore.show("store")`);

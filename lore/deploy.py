@@ -452,16 +452,9 @@ def _deploy(
         with Store() as store:
             store.set_setting("node_url", url)
 
-    if wallet:
-        # Setting a secret redeploys, so the smoke check below sees a
-        # configured node even on the very first deploy.
-        _run(
-            (wrangler, "secret", "put", "LORE_WALLET"),
-            target,
-            input=wallet + "\n",
-            fail="setting LORE_WALLET failed",
-        )
     if network:
+        # Before the wallet: a new node without LORE_WALLET refuses to start,
+        # so it never serves a moment on the wrong network.
         # Real money settles keyless unless the owner vaulted a Coinbase pair
         # (`lore node secret`); half a pair refuses to start and the smoke
         # check below says so.
@@ -470,6 +463,15 @@ def _deploy(
             target,
             input=NETWORKS[network] + "\n",
             fail="setting LORE_NETWORK failed",
+        )
+    if wallet:
+        # Setting a secret redeploys, so the smoke check below sees a
+        # configured node even on the very first deploy.
+        _run(
+            (wrangler, "secret", "put", "LORE_WALLET"),
+            target,
+            input=wallet + "\n",
+            fail="setting LORE_WALLET failed",
         )
 
     # First push creates the publications table (CREATE TABLE IF NOT EXISTS),

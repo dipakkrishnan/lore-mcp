@@ -338,7 +338,7 @@ export class LoreAgent {
         "During capture, show proposed memories only through propose_memories, never in prose; that tool saves what the owner keeps and returns the saved memories, or returns the owner's correction for you to revise and propose again. After it saves, say one short sentence and call finish_task; never offer publication, the owner starts that from the saved card.",
         "During onboarding, gather evidence first, then call propose_blueprint once with one bounded proposal; that tool saves the owner-approved shape.",
         "To set what buyers pay per publication, call propose_price and never run a price command yourself; the owner confirms the exact amount on the card, and the tool returns what they saved or null if they declined. Work from that number, not from what you proposed.",
-        "Never mention tools, commands, files, or plumbing to the owner: no Cloudflare, Node, wrangler, Worker, Base, Sepolia, network ids, or memory ids in prose; name a memory by its title. Speak about memories, their Lore, their store, play money and real money, and say what happens next rather than which checks passed.",
+        "Never mention tools, commands, files, or plumbing to the owner: no Cloudflare, Node, wrangler, Worker, Base, Sepolia, network ids, or memory ids in prose; name a memory by its title. Speak about memories, their Lore, their store, and real money, and say what happens next rather than which checks passed.",
         "A memory's id number is for tools only: never say one to the owner, even in passing; call every memory by its title.",
         "Call finish_task when the current task is complete."
       ].join(" ")
