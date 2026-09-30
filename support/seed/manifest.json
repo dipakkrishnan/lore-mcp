@@ -58,7 +58,17 @@
           "errors": 0
         }
       },
-      "observed_at": "2026-09-30 (throwaway LORE_HOME, local copy of the vault)"
+      "observed_at": "2026-09-30 (throwaway LORE_HOME, local copy of the vault)",
+      "real_library": {
+        "name": "obsidian-1ff9efc9",
+        "state": "connected",
+        "imported": 9,
+        "connected_at": "2026-09-30",
+        "library_before": "723 private",
+        "library_after": "732 private",
+        "active_publications": 5,
+        "obsidian_app_registration": "not verified (Obsidian never wrote obsidian.json; GUI not drivable this session)"
+      }
     },
     "blog": {
       "locator": "https://tidewell-notes.pages.dev",
@@ -85,7 +95,28 @@
           "errors": 0
         }
       },
-      "observed_at": "2026-09-30 (local http.server on the corpus/blog site, throwaway LORE_HOME)"
+      "observed_at": "2026-09-30 (local http.server on the corpus/blog site, throwaway LORE_HOME)",
+      "real_library": {
+        "name": "blog-f601edab",
+        "state": "connected",
+        "imported": 5,
+        "connect_label": "tidewell-notes.pages.dev",
+        "preview_label": "Tidewell Notes",
+        "connected_at": "2026-09-30",
+        "deployed_at": "https://tidewell-notes.pages.dev",
+        "feed_headers": {
+          "status": 200,
+          "content_type": "application/xml",
+          "cache_control": "public, max-age=0, must-revalidate"
+        },
+        "canaries": "bl-01..05 one hit each, bl-06 zero",
+        "preview": {
+          "count": 5,
+          "skipped": 1,
+          "from": "2026-02-20",
+          "to": "2026-08-06"
+        }
+      }
     },
     "bluesky": {
       "locator": "@tidewell.bsky.social",
