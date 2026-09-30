@@ -68,7 +68,7 @@ export, which is `<connector>-export`.
 - **Shape (keys only):** top-level array; each conversation has `uuid`, `name`, `summary`, `created_at`, `updated_at`, `account`,
   `chat_messages[]`; each message has `uuid`, `sender`, `text`, `content[]`, `attachments[]`, `files[]`, `created_at`, `updated_at`,
   `parent_message_uuid`. Lore reads `text` only. Provider is detected by absence of `mapping`.
-- **Kept / dropped:** 12 conversations dropped; the reason was not inspected (rules: no `text`, or under 40 characters).
+- **Kept / dropped:** a conversation is kept only if one of the owner's messages has 40 or more characters in `text`. The 12 dropped: 11 where every owner message is under 40 characters (one of those has an attachment or file, whose `extracted_content` Lore does not read) and 1 whose owner text is empty. No conversation was dropped for having no messages.
 - **Recorded:** `exports/claude/real-shape.json` (paths and value types, no values). Real content is never committed.
 
 ## ChatGPT export — not connected yet (assumed)

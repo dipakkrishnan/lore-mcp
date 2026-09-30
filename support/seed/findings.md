@@ -20,7 +20,7 @@ Corpus canaries, ids and counts live in `manifest.json`; recordings in `tests/fi
 | F-md-01 | medium | Import adds an "Originally published at" footer to each story. | live |
 | F-md-02 | medium | The feed exposes the account holder's real name in its channel title; scrub before committing. | tooling |
 | F-md-03 | medium | The recorder names its file after the handle; renamed to `01-feed.xml`. | tooling |
-| F-cl-01 | claude export | cl-03 is dropped because Lore reads `text` only. Real export: 82 of 94 conversations kept. | unit |
+| F-cl-01 | claude export | cl-03 is dropped because Lore reads `text` only. Real export: 82 of 94 kept; the 12 dropped are 11 with all owner messages under 40 characters (one has an attachment whose `extracted_content` is not read) and 1 with empty owner text. | unit |
 | F-cx-01 | export | Claude's download is five separate zips; `conversations.json` arrives loose after browser unzip. Lore needs one zip. | contract |
 | F-gr-01 | granola | `list_meetings` now accepts only `time_range` of this_week, last_week or last_30_days; Lore sends `custom` with dates and is rejected. Fix is one line in `Granola.listing`; the stub in `tests/fixtures/granola.py` still expects the old arguments. | contract, blocks-live |
 | F-gr-02 | granola | A Google account with no Granola account gets "Unauthorized: user has not created a Granola account yet", which Lore shows as "can't reach Granola". | unit |
