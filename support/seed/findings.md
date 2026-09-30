@@ -22,6 +22,9 @@ Corpus canaries, ids and counts live in `manifest.json`; recordings in `tests/fi
 | F-md-03 | medium | The recorder names its file after the handle; renamed to `01-feed.xml`. | tooling |
 | F-cl-01 | claude export | cl-03 is dropped because Lore reads `text` only. Real export: 82 of 94 conversations kept. | unit |
 | F-cx-01 | export | Claude's download is five separate zips; `conversations.json` arrives loose after browser unzip. Lore needs one zip. | contract |
+| F-gr-01 | granola | `list_meetings` now accepts only `time_range` of this_week, last_week or last_30_days; Lore sends `custom` with dates and is rejected. Fix is one line in `Granola.listing`; the stub in `tests/fixtures/granola.py` still expects the old arguments. | contract, blocks-live |
+| F-gr-02 | granola | A Google account with no Granola account gets "Unauthorized: user has not created a Granola account yet", which Lore shows as "can't reach Granola". | unit |
+| F-gr-03 | granola | The sign-in wait is 5 minutes; an unanswered approval reads as "didn't let Lore in", the same text as a refusal. | unit |
 | F-xc-01 | all | Test-suite gap: no test asserts that a hit's source is one of the seed sources. | component |
 
-Not done yet: ChatGPT export (waiting on OpenAI), Granola (needs computer-use permissions).
+Not done yet: ChatGPT export (waiting on OpenAI), Granola (needs a Granola account and a recorded meeting).
