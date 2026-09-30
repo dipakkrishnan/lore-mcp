@@ -478,8 +478,10 @@ class Store:
         title: str,
         content: str,
         project: str = "",
+        dated: str | None = None,
     ) -> str:
-        """Insert or update a memory, returning added, updated, or unchanged."""
+        """Insert or update a memory, returning added, updated, or unchanged. A new
+        memory is dated when it was written, where its source says, not when it was read."""
         now = datetime.now(timezone.utc).isoformat()
         row = self.db.execute(
             "SELECT id,fingerprint FROM memories WHERE source_key=?", (source_key,)
@@ -524,8 +526,8 @@ class Store:
                     content,
                     project,
                     "private",
-                    now,
-                    now,
+                    dated or now,
+                    dated or now,
                 ),
             )
             result = "added"

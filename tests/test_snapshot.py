@@ -276,6 +276,7 @@ class DesktopSnapshotTest(LoreTestCase):
         vault.mkdir()
         (vault / "note.md").write_text("# Note\n\nA lesson long enough to keep here.")
         (self.codex_home / "memories").mkdir(parents=True)
+        (self.claude_home / "projects").mkdir(parents=True)
         with Store() as store:
             store.set_setting("sources", ["codex"])
             added = sources.Registry(store).add(str(vault))

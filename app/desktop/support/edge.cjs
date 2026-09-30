@@ -49,10 +49,13 @@ if (scenario === "listing") {
   const { dialog } = require("electron");
   dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [join(S, "chatgpt.json")] });
   // Each feed app's fixture at its own path: /medium, /blog; anything else is the newsletter.
+  // /slow is a blog that takes its time, so a connect can be closed while it is still reading.
   const newsletter = require("node:http").createServer((request, response) => {
-    const name = ["medium", "blog"].find((n) => request.url?.startsWith(`/${n}`)) ?? "substack";
-    response.writeHead(200, { "Content-Type": "application/rss+xml" });
-    response.end(readFileSync(join(S, `${name}.xml`)));
+    const name = ["medium", "blog", "slow"].find((n) => request.url?.startsWith(`/${n}`)) ?? "substack";
+    setTimeout(() => {
+      response.writeHead(200, { "Content-Type": "application/rss+xml" });
+      response.end(readFileSync(join(S, `${name === "slow" ? "blog" : name}.xml`)));
+    }, name === "slow" ? 4000 : 0);
   });
   newsletter.listen(0, "127.0.0.1", () => {
     process.env.LORE_EDGE_NEWSLETTER = `http://127.0.0.1:${newsletter.address().port}/`;
@@ -290,11 +293,11 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         await waitFor(`document.querySelector("dialog.sheet[open]")`);
         await shot("obsidian-manage");
         await js(`[...document.querySelectorAll("dialog.sheet[open] button")].find((b) => b.textContent === "Read again").click()`);
-        check("a note written after connecting is picked up", await waitFor(`/3 notes kept/.test(${rowText})`));
+        check("a note written after connecting is picked up, and Read again says so", await waitFor(`/3 notes kept/.test(${rowText})`) && await waitFor(`document.querySelector("#status").textContent.includes("1 new note.")`));
         await js(rowButton);
         await waitFor(`document.querySelector("dialog.sheet[open]")`);
         await js(`[...document.querySelectorAll("dialog.sheet[open] button")].find((b) => b.textContent === "Disconnect").click()`);
-        check("disconnecting asks one plain question", await waitFor(`document.querySelector("dialog.sheet[open]")?.getAttribute("aria-label") === "Disconnect Obsidian?"`) && await js(`document.querySelector("dialog.sheet[open]").textContent.includes("stay in your library")`));
+        check("disconnecting asks one plain question, naming the vault", await waitFor(`document.querySelector("dialog.sheet[open]")?.getAttribute("aria-label") === "Disconnect Edge Vault?"`) && await js(`document.querySelector("dialog.sheet[open]").textContent.includes("stay in your library")`));
         await js(`[...document.querySelectorAll("dialog.sheet[open] button")].find((b) => b.textContent === "Disconnect").click()`);
         check("disconnecting offers Obsidian again and keeps the memories", await waitFor(`/Your vaults and notes/.test(${rowText})`) && await js(`document.querySelector("#status").textContent.includes("3 memories kept")`));
       } else if (scenario === "connectors") {
@@ -305,6 +308,7 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         // APP-127: an owner with no apps connected is pointed at Connectors, and nothing to publish yet.
         const firstToday = await js(`document.querySelector("#content").textContent`);
         check("Today points a new owner at their apps, with nothing to publish yet", /Bring in what you've written/.test(firstToday) && !/Publish something/.test(firstToday), firstToday);
+        check("…and asks nothing about agents that are not on this Mac", !/Connect your agents/.test(firstToday), firstToday);
         await shot("today-bring-in");
         await js(`[...document.querySelectorAll("#content .row")].find((r) => r.textContent.includes("Bring in what you've written")).querySelector("button").click()`);
         check("…and its button opens Connectors", await waitFor(`document.querySelector("#title").textContent === "Connectors"`));
@@ -319,6 +323,7 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         const apps = JSON.stringify(["Obsidian", "ChatGPT", "Claude", "Substack", "Medium", "Bluesky", "Blog or newsletter", "Granola", "Notion", "Readwise"]);
         const offered = await js(`${apps}.map((n) => ${sourceRows}.find((r) => r.querySelector("b").textContent === n)?.textContent ?? "")`);
         check("every app in the catalog is offered by name, in its own words", offered.length === 10 && /Connect/.test(offered[0]) && /Import/.test(offered[1]) && /Import/.test(offered[2]) && offered.slice(3, 7).every((t) => /Connect/.test(t)) && offered.slice(7).every((t) => /Sign in/.test(t)) && !offered.some((t) => /folder|source|markdown|feed|rss|url|mcp|oauth|token/i.test(t)), offered.join(" | "));
+        check("an agent that is not on this Mac is not offered", await js(`!${sourceRows}.some((r) => /^(Codex|Claude Code)$/.test(r.querySelector("b").textContent))`));
         check("every offered app carries its own mark", await js(`${apps}.every((n) => ${sourceRows}.find((r) => r.querySelector("b").textContent === n)?.querySelector("img.logo"))`));
         await shot("settings-catalog");
 
@@ -334,7 +339,8 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         await waitFor(`document.querySelectorAll("dialog.sheet[open] .choice").length === 2`);
         await js(`[...document.querySelectorAll("dialog.sheet[open] .choice")].find((c) => c.textContent.includes("Stale Vault")).querySelector("input").click()`);
         await js(`${primary}.click()`);
-        check("a change to a vault that is gone is refused where it happened, by name", await waitFor(`/can't reach Stale Vault/.test(document.querySelector("#status .notice.attention")?.textContent ?? "") && !${primary}.disabled`), await js(`document.querySelector("#status .notice.attention")?.textContent`));
+        const problem = `(document.querySelector("dialog.sheet[open] .problem")?.textContent ?? "")`;
+        check("a change to a vault that is gone is refused in the sheet, by name, and the sheet stays open", await waitFor(`/can't reach Stale Vault/.test(${problem}) && !${primary}.disabled`) && await js(`!document.querySelector("#status .notice.attention")`), await js(problem));
         await shot("obsidian-change-refused");
         await js(`document.querySelector("dialog.sheet[open] .icon-btn").click()`);
         await sleep(300);
@@ -372,9 +378,45 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         await connectAt("Blog or newsletter", `${process.env.LORE_EDGE_NEWSLETTER}blog`);
         check("any blog connects and counts posts", await waitFor(`/Connected/.test(${textOf("Blog or newsletter")}) && /1 post kept/.test(${textOf("Blog or newsletter")})`), await js(textOf("Blog or newsletter")));
         await connectAt("Bluesky", "https://example.com");
-        check("Bluesky asks for a handle and refuses a web address", await waitFor(`[...document.querySelectorAll("#status .notice.attention")].some((n) => /Bluesky handle/.test(n.textContent))`), await js(`[...document.querySelectorAll("#status .notice.attention")].map((n) => n.textContent).join(" | ")`));
+        check("Bluesky asks for a handle and refuses a web address, in the sheet", await waitFor(`/Bluesky handle/.test(${problem})`), await js(problem));
         await js(`document.querySelector("dialog.sheet[open] .icon-btn").click()`);
         await sleep(300);
+
+        // APP-128: a refusal is said in the sheet, in plain words, and the sheet stays open to correct it.
+        const offerOf = (name) => `${sourceRows}.find((r) => r.querySelector("b").textContent === ${JSON.stringify(name)} && /Connect/.test(r.querySelector("button").textContent)).querySelector("button").click()`;
+        const fillIn = (value) => `{ const f = document.querySelector("dialog.sheet[open] input[type=url]"); f.value = ${JSON.stringify(value)}; f.dispatchEvent(new Event("input")); }`;
+        await js(offerOf("Blog or newsletter"));
+        check("a feed sheet opens on its address field", await waitFor(`document.activeElement === document.querySelector("dialog.sheet[open] input[type=url]")`));
+        await js(fillIn("asdf not a url"));
+        await key("keyDown", "Enter");
+        check("Enter connects, and what is not an address is refused in the sheet", await waitFor(`${problem} === "That doesn't look like a web address."`), await js(problem));
+        check("…with the sheet still open, the address still there, and nothing behind it", await js(`document.querySelector("dialog.sheet[open] input[type=url]")?.value === "asdf not a url" && !document.querySelector("#status .notice.attention")`));
+        await shot("error-in-sheet");
+
+        // Closing the sheet while a connect is still reading stops it, and it closes nothing else.
+        await js(`document.querySelectorAll("#status .dismiss").forEach((b) => b.click())`);
+        await js(fillIn(`${process.env.LORE_EDGE_NEWSLETTER}slow`));
+        await js(`${primary}.click()`);
+        await sleep(500);
+        await key("keyDown", "Escape");
+        await sleep(300);
+        await js(offerOf("Medium"));
+        await waitFor(`document.querySelector("dialog.sheet[open]")?.getAttribute("aria-label") === "Medium"`);
+        await sleep(5000);
+        check("a connect closed mid-read never closes the sheet opened after it", await js(`document.querySelector("dialog.sheet[open]")?.getAttribute("aria-label") === "Medium"`));
+        check("…and connects nothing", await js(`${sourceRows}.filter((r) => r.querySelector("b").textContent === "Blog or newsletter").length`) === 2 && await js(`!document.querySelector("#status").textContent.includes("is connected")`), await js(`document.querySelector("#status").textContent`));
+        await js(`document.querySelector("dialog.sheet[open] .icon-btn").click()`);
+        await sleep(300);
+
+        // What Read again found is said, and seen even from the bottom of a long list.
+        await js(`document.querySelector("#main").scrollTop = 1e6`);
+        await sleep(200);
+        await js(clickOn("Blog or newsletter"));
+        await waitFor(`document.querySelector("dialog.sheet[open]")`);
+        await js(`[...document.querySelectorAll("dialog.sheet[open] button")].find((b) => b.textContent === "Read again").click()`);
+        check("Read again says what it found", await waitFor(`document.querySelector("#status").textContent.includes("Nothing new.")`), await js(`document.querySelector("#status").textContent`));
+        check("…in view, below the header, however far down the owner was", await js(`{ const r = document.querySelector("#status").getBoundingClientRect(); r.top >= document.querySelector("main header").getBoundingClientRect().bottom - 1 && r.bottom <= innerHeight }`));
+        await shot("notice-in-view");
 
         // CAP-009: an app with its own server is one Sign in; its approval page would open in the browser.
         await js(clickOn("Granola"));
@@ -441,6 +483,7 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         check("FAQ is a tab: what Lore is, then how to start", questions[0] === "What is Lore?" && questions[1] === "How do I start?" && questions.length >= 9, questions.join(" | "));
         check("it says who buys: agents, not people browsing", /AI agents, in the middle of a task/.test(faq) && /Not people browsing/.test(faq));
         check("it says what a buyer pays and that Lore never holds the money", /Your price\./.test(faq) && /a publication/.test(faq) && /never holds your money/.test(faq));
+        check("it promises no control that isn't there: no questions, and listing waits for a store", !/turn on questions|ask you one|Questions have/i.test(faq) && /Once your store is open, list it from Settings/.test(faq) && !/A cent a publication/.test(faq), faq);
         check("it names the money in plain words", /digital dollars \(USDC\)/.test(faq) && /play money/.test(faq));
         check("it says why connecting apps helps", questions.includes("Why connect my apps?") && /blank page/.test(faq));
         check("it says honestly what leaves the Mac", /Only what you approve for sale/.test(faq) && /the AI you signed in with reads/.test(faq));

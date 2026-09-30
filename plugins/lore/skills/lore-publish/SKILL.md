@@ -74,6 +74,10 @@ draws on — those become `provenance`.
 Each candidate is a **reusable bounded claim**: a stable, self-contained
 statement of what the owner knows, at the precision the evidence supports.
 
+- Draft only from the owner's own words. Quoted material (blockquotes,
+  "Quoting X" posts, anything the owner attributes to someone else) and the
+  AI's replies in ChatGPT or Claude imports (the `Reply:` blocks) are context,
+  never the sellable content. Never sell quoted or AI-written text as theirs.
 - Keep the owner's domain vocabulary, sample sizes, and outcome counts exact.
 - Bounded means it answers one question well — not a topic dump.
 - Never include: secrets and credentials, health and financial data,

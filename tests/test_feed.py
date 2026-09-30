@@ -10,9 +10,11 @@ from __future__ import annotations
 import json
 import os
 import unittest
+from email.message import Message
 from io import StringIO
 from pathlib import Path
 from unittest.mock import patch
+from urllib.error import HTTPError
 
 from helpers import LoreTestCase, captured
 
@@ -314,6 +316,42 @@ class FeedImportTest(LoreTestCase):
                     entry = registry.connect(app, typed)
                     self.assertEqual(entry["locator"], locator)
                     self.assertGreater(entry["imported"], 0)
+
+    def test_each_refusal_says_what_went_wrong_in_plain_words(self) -> None:
+        routes = {"writer.substack.com": "substack.xml", "": "bare.html"}
+        with serving(routes), Store() as store:
+            registry = sources_module.Registry(store)
+            for app, typed, said in (
+                ("blog", "asdf not a url", "That doesn't look like a web address."),
+                ("blog", "asdf", "That doesn't look like a web address."),
+                ("blog", "notes.example.com", "Couldn't find posts at that address."),
+                (
+                    "medium",
+                    "https://writer.substack.com",
+                    "Couldn't find stories at that address.",
+                ),
+            ):
+                with self.subTest(app=app, typed=typed):
+                    with self.assertRaises(sources_module.SourceError) as refused:
+                        registry.connect(app, typed)
+                    self.assertEqual(str(refused.exception), said)
+
+    def test_a_page_that_is_not_there_answered_and_had_no_posts(self) -> None:
+        missing = HTTPError(
+            "https://notes.example.com", 404, "Not Found", Message(), None
+        )
+        with patch.object(FeedReader, "fetch", side_effect=missing), Store() as store:
+            with self.assertRaisesRegex(sources_module.SourceError, "^Couldn't find"):
+                sources_module.Registry(store).connect("blog", "notes.example.com")
+
+    def test_a_post_is_kept_under_its_app_and_dated_when_it_was_published(
+        self,
+    ) -> None:
+        with serving({"": "medium.xml"}), Store() as store:
+            sources_module.Registry(store).connect("medium", "@writer")
+            memory = store.search("buyer")[0]
+        self.assertEqual(memory.project, "Medium")
+        self.assertEqual(memory.updated_at, "2026-09-15")
 
     def test_a_feed_app_refuses_another_kind_of_address(self) -> None:
         with serving({}), Store() as store:

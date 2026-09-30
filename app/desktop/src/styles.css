@@ -80,6 +80,7 @@ textarea, input, [contenteditable] { -webkit-user-select: text; user-select: tex
 .btn.secondary:hover { background: var(--hover); }
 .btn.quiet { color: var(--accent); padding: 0 6px; height: 28px; }
 .btn.quiet:hover { text-decoration: underline; }
+.btn.quiet.destructive { color: var(--attention-ink); }
 .btn.sm { height: 30px; font-size: 13px; }
 .btn > svg { width: 15px; height: 15px; flex-shrink: 0; }
 .btn.provider { height: 48px; font-size: 15px; background: var(--surface); border-color: var(--line-strong); position: relative; }
@@ -169,7 +170,7 @@ h2 { font-size: 12px; font-weight: 600; letter-spacing: 0.06em; text-transform: 
 .card.lead .link-btn { margin-left: auto; }
 .hint { font-size: 12px; color: var(--muted); }
 .status:empty { display: none; }
-.status { display: flex; flex-direction: column; gap: 8px; }
+.status { display: flex; flex-direction: column; gap: 8px; scroll-margin-top: 120px; }
 .notice { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; padding: 10px 6px 10px 14px; font-size: 13px; line-height: 1.5; color: var(--ink-soft); background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-sm); }
 .notice.attention { color: var(--attention-ink); background: var(--attention-soft); border-color: var(--attention); }
 .notice > span { flex: 1; }
@@ -304,6 +305,8 @@ a.link-btn.glyph { width: 22px; padding: 0; justify-content: center; color: var(
 .choice:has(:checked) { border-color: var(--accent); }
 .choice b { font-weight: 500; white-space: nowrap; }
 .choice .hint { flex: 1; min-width: 0; text-align: right; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.problem { font-size: 13px; color: var(--attention-ink); }
+.problem:empty { display: none; }
 .sheet .actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 8px; }
 .row .v { display: flex; align-items: center; gap: 10px; flex-shrink: 0; max-width: 60%; font-size: 13px; color: var(--ink-soft); }
 .row .v .mono { min-width: 0; overflow-wrap: anywhere; }

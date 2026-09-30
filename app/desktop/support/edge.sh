@@ -83,7 +83,8 @@ if [[ "$scenario" == "connectors" ]]; then
   cp "$repo_root/tests/fixtures/feeds/substack.xml" "$root/substack.xml"
   cp "$repo_root/tests/fixtures/feeds/medium.xml" "$root/medium.xml"
   cp "$repo_root/tests/fixtures/feeds/rss.xml" "$root/blog.xml"
-  export OBSIDIAN_HOME="$root/obsidian"
+  # No Claude Code or Codex on this Mac, whatever the machine running the walk has.
+  export OBSIDIAN_HOME="$root/obsidian" CLAUDE_HOME="$root/claude" CODEX_HOME="$root/codex"
   # CAP-009: Granola's server stood in for by a local one that asks no sign-in, and a keyring that
   # keeps nothing, so the owner's Keychain is never touched. The walk stops it to see the app fail.
   port="$(python3 -c 'import socket; s = socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1])')"

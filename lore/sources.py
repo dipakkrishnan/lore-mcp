@@ -14,6 +14,7 @@ from email.utils import parsedate_to_datetime
 from enum import Enum
 from functools import cached_property
 from html.parser import HTMLParser
+from http.client import HTTPException
 from pathlib import Path
 from typing import (
     AsyncIterator,
@@ -24,6 +25,7 @@ from typing import (
     Literal,
     TypeVar,
 )
+from urllib.error import HTTPError
 from urllib.parse import quote, urljoin, urlsplit
 from xml.etree.ElementTree import Element, ParseError
 
@@ -168,6 +170,11 @@ class Reader(ABC):
     @abstractmethod
     def items(self) -> Iterator[Item]:
         """Yield source items, counting unreadable records in errors."""
+
+    @property
+    def trouble(self) -> str:
+        """What the owner is told when the place can't be read."""
+        return f"can't reach {self.label or self.source.locator}"
 
     def name(self) -> str:
         """Every spelling of one place is one source, so the name digests the locator."""
@@ -517,9 +524,14 @@ class ExportReader(Reader):
             return State.UNREACHABLE
         if self.product and self.provider and self.provider != self.product:
             raise SourceError(
-                f"this is a {self.label} export, not {self.products[self.product]}"
+                f"That's a {self.label} export, not {self.products[self.product]}."
             )
         return State.CONNECTED if self.conversations else State.NOTHING_FOUND
+
+    @property
+    def trouble(self) -> str:
+        product = self.products.get(self.product, "ChatGPT or Claude")
+        return f"That file isn't a {product} export."
 
     def name(self) -> str:
         # A newer download of the same history is the same source, whatever it
@@ -551,7 +563,8 @@ class ChatGPT(Connector):
     reader = ChatGPTExport
     guide = (
         "In ChatGPT, open Settings → Data controls → Export data. "
-        "A download link arrives by email, sometimes days later."
+        "A download link arrives by email, sometimes days later. "
+        "It's a .zip file; choose it as it is."
     )
 
 
@@ -564,7 +577,8 @@ class Claude(Connector):
     reader = ClaudeExport
     guide = (
         "In Claude, open Settings → Privacy → Export data. "
-        "A download link arrives by email."
+        "A download link arrives by email. "
+        "It's a .zip file; choose it as it is."
     )
 
 
@@ -627,6 +641,8 @@ class FeedReader(Reader):
     pages = 5
     limit = 40
     guesses = ("/feed", "/rss/", "/atom.xml", "/feed.json")
+    # The app that writes the feed, for a reader that reads only that app's.
+    generator: ClassVar[str] = ""
     # What a paid post arrives as: the free opening, then the prompt Substack
     # cuts it off with. A fully paid post is under the sentence floor anyway.
     paywall = re.compile(
@@ -640,6 +656,8 @@ class FeedReader(Reader):
     def __init__(self, source: Source) -> None:
         super().__init__(source)
         self.reached = False
+        # The address answered, whether or not a feed was found there.
+        self.answered = False
 
     @classmethod
     def locate(cls, locator: str) -> tuple[str, str]:
@@ -648,6 +666,9 @@ class FeedReader(Reader):
             return f"@{handle}", f"@{handle}"
         typed = locator.strip()
         url = typed if "://" in typed else f"https://{typed}"
+        host = urlsplit(url).hostname or ""
+        if not re.fullmatch(r"[\w-]+(\.[\w-]+)+|localhost", host):
+            raise SourceError("That doesn't look like a web address.")
         return url, urlsplit(url).netloc
 
     @cached_property
@@ -656,7 +677,10 @@ class FeedReader(Reader):
         # are two questions about the same answer.
         try:
             found = self._read()
-        except (OSError, ValueError, ParseError, LookupError, TypeError):
+        except HTTPError:
+            self.answered = True
+            return []
+        except (OSError, ValueError, ParseError, LookupError, TypeError, HTTPException):
             return []
         self.reached = True
         return found
@@ -669,6 +693,14 @@ class FeedReader(Reader):
     def items(self) -> Iterator[Item]:
         for post in self.posts:
             yield post
+
+    @property
+    def trouble(self) -> str:
+        if not self.answered:
+            return super().trouble
+        connector = self.source.connector
+        item = Connector.named(connector).item if connector else "post"
+        return f"Couldn't find {re.sub('y$', 'ie', item)}s at that address."
 
     def fetch(self, url: str) -> bytes:
         request = urllib.request.Request(url, headers={"User-Agent": self.agent})
@@ -693,6 +725,7 @@ class FeedReader(Reader):
 
     def _site(self, url: str) -> list[Item]:
         body = self.fetch(url)
+        self.answered = True
         posts = self._feed(body)
         if posts is not None:
             return posts
@@ -703,7 +736,7 @@ class FeedReader(Reader):
         ] + [urljoin(url, guess) for guess in self.guesses]:
             try:
                 posts = self._feed(self.fetch(candidate))
-            except OSError:
+            except (OSError, HTTPException):
                 continue
             if posts is not None:
                 return posts
@@ -717,6 +750,8 @@ class FeedReader(Reader):
         if root.tag.rpartition("}")[2] not in ("rss", "feed"):
             return None
         channel = next((e for e in root if e.tag.rpartition("}")[2] == "channel"), root)
+        if self.generator and _field(channel, "generator") != self.generator:
+            return None
         self.label = _field(channel, "title") or self.label
         return [
             self._item(e, index)
@@ -842,6 +877,8 @@ class SiteFeed(FeedReader):
 
 
 class MediumFeed(FeedReader):
+    generator = "Medium"
+
     @classmethod
     def locate(cls, locator: str) -> tuple[str, str]:
         typed = locator.strip()
@@ -1376,6 +1413,9 @@ class Registry:
             if source.origin == "automation":
                 continue
             enabled = source.owned or source.name in self.enabled
+            # An agent that is not on this Mac is not offered.
+            if not enabled and source.reader().probe() is State.UNREACHABLE:
+                continue
             last = self.reads.get(source.name)
             state = (
                 (last.state if last else source.reader().probe())
@@ -1418,7 +1458,7 @@ class Registry:
         state = reader.probe()
         source = replace(source, name=reader.name(), label=source.label or reader.label)
         if state is State.UNREACHABLE:
-            raise SourceError(f"can't reach {source.label or locator}")
+            raise SourceError(reader.trouble)
         current = next((r for r in self.owned if r.name == source.name), None)
         # Signing in again to the same place is a read, not a no-op.
         if current is not None and current.locator == source.locator and not asked:
@@ -1526,6 +1566,7 @@ class Registry:
                 title=item.title,
                 content=item.content,
                 project=_project(source, path),
+                dated=item.dated,
             )
             stats[result] += 1
         stats["found"] += reader.errors
@@ -1600,6 +1641,8 @@ def _project(source: Source, path: Path) -> str:
     if source.name == "codex":
         relative = path.relative_to(Path(source.locator))
         return relative.parts[0] if len(relative.parts) > 1 else ""
+    if source.connector:
+        return Connector.named(source.connector).name
     return "personal"
 
 
