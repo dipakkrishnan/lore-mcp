@@ -1,0 +1,114 @@
+{
+  "schema": 1,
+  "note": "Ordered scrub rules. A rule's `allow` list holds regular expressions searched inside each match; a match that any of them hits is left alone (and is not a hygiene violation). Patterns spell the names they hunt with character classes so this file does not contain the strings it exists to catch.",
+  "rules": [
+    {
+      "name": "jwt",
+      "pattern": "ey[J][A-Za-z0-9_-]{8,}\\.[A-Za-z0-9_-]{8,}\\.[A-Za-z0-9_-]{8,}",
+      "replacement": "JWT.REDACTED",
+      "allow": []
+    },
+    {
+      "name": "bearer",
+      "pattern": "(?i)bearer\\s+[A-Za-z0-9._~+/=-]{16,}",
+      "replacement": "Bearer REDACTED",
+      "allow": []
+    },
+    {
+      "name": "notion-secret",
+      "pattern": "\\b(?:n[t]n|s[e]cret)_[A-Za-z0-9]{20,}",
+      "replacement": "INTEGRATION-KEY-REDACTED",
+      "allow": []
+    },
+    {
+      "name": "bsky-app-password",
+      "pattern": "\\b(?=[a-z0-9-]*\\d)[a-z0-9]{4}-[a-z0-9]{4}-[a-z0-9]{4}-[a-z0-9]{4}\\b",
+      "replacement": "xxxx-xxxx-xxxx-xxxx",
+      "allow": ["^xxxx-xxxx-xxxx-xxxx$"]
+    },
+    {
+      "name": "bsky-session",
+      "pattern": "\"((?:acc[e]ss|refr[e]sh)J[w]t)\"\\s*:\\s*\"[^\"]+\"",
+      "replacement": "\"\\1\": \"REDACTED\"",
+      "allow": [":\\s*\"REDACTED\"$"]
+    },
+    {
+      "name": "cloudflare-token",
+      "pattern": "(?i)(api[_-]?token|authorization)[\"']?\\s*[:=]\\s*[\"']?[A-Za-z0-9_-]{30,}",
+      "replacement": "\\1=REDACTED",
+      "allow": []
+    },
+    {
+      "name": "cookie",
+      "pattern": "(?i)((?:s[e]t-)?c[o]okie)\\s*:\\s*[^\\n]+",
+      "replacement": "\\1: REDACTED",
+      "allow": [":\\s*REDACTED$"]
+    },
+    {
+      "name": "email",
+      "pattern": "[\\w.+-]+@[\\w-]+\\.[\\w.-]+",
+      "replacement": "redacted@example.com",
+      "allow": ["@tidewell\\.example\\.?$", "@example\\.(?:com|org)\\.?$"]
+    },
+    {
+      "name": "owner-path",
+      "pattern": "(?i)/User[s]/s[h]ane[d]asbach",
+      "replacement": "/Users/owner",
+      "allow": []
+    },
+    {
+      "name": "home-path",
+      "pattern": "/Users/(?!owner\\b)[A-Za-z0-9._-]+",
+      "replacement": "/Users/owner",
+      "allow": []
+    },
+    {
+      "name": "owner-identity",
+      "pattern": "(?i)s[d]asbach4?|s[h]ane[d]asbach|s[h]ane\\s+d[a]sbach",
+      "replacement": "owner",
+      "allow": []
+    },
+    {
+      "name": "phone",
+      "pattern": "(?<![\\w.:/-])(?:\\+?1[\\s.-]?)?\\(?[2-9]\\d{2}\\)?[\\s.-]\\d{3}[\\s.-]\\d{4}(?![\\w-])",
+      "replacement": "+1 (555) 019-9999",
+      "allow": ["\\(?555\\)?[\\s.-]0\\d\\d[\\s.-]\\d{4}$"]
+    },
+    {
+      "name": "bsky-did",
+      "pattern": "did:plc:[a-z2-7]{24}",
+      "replacement": "did:plc:tidewellseed000000000000",
+      "allow": []
+    },
+    {
+      "name": "notion-ids",
+      "pattern": "\"((?:workspace|owner|user)_id)\"\\s*:\\s*\"[^\"]+\"",
+      "replacement": "\"\\1\": \"REDACTED\"",
+      "allow": [":\\s*\"REDACTED\"$"]
+    },
+    {
+      "name": "granola-account-field",
+      "pattern": "(?i)\\b((?:account|workspace|user)[_-]?id|email)([\"']\\s*:\\s*[\"']?|\\s*=\\s*[\"']?)[^\"'\\s<,}]+",
+      "replacement": "\\1\\2REDACTED",
+      "allow": ["REDACTED$"]
+    },
+    {
+      "name": "granola-account-tag",
+      "pattern": "(?i)(<(?:account[_-]?id|workspace[_-]?id|email)>)[^<]+",
+      "replacement": "\\1REDACTED",
+      "allow": ["REDACTED$"]
+    },
+    {
+      "name": "oauth-client",
+      "pattern": "\"client_(id|secret)\"\\s*:\\s*\"[^\"]+\"",
+      "replacement": "\"client_\\1\": \"REDACTED\"",
+      "allow": [":\\s*\"REDACTED\"$"]
+    },
+    {
+      "name": "loopback-state",
+      "pattern": "([?&])(code|state)=[^&\\s\"]+",
+      "replacement": "\\1\\2=REDACTED",
+      "allow": ["=REDACTED$"]
+    }
+  ]
+}

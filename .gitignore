@@ -11,3 +11,9 @@ node_modules
 .env
 app/desktop/packaging/out/
 app/desktop/out/
+
+# Seed connectors: raw recordings stay local; only scrubbed copies are committed.
+support/seed/private/
+*.raw.json
+*.raw.xml
+*.raw.txt

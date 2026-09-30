@@ -1,0 +1,49 @@
+{
+  "publication": {
+    "name": "Tidewell Notes",
+    "url": "https://tidewell.substack.com",
+    "fallback_url": "https://tidewellnotes.substack.com"
+  },
+  "posts": [
+    {
+      "id": "ss-01",
+      "slug": "the-deposit-that-fixed-no-shows",
+      "title": "The deposit that fixed no-shows",
+      "date": "2026-04-25",
+      "canary": "canary-substack-01",
+      "html": "<p>A 25 % no-show deposit cut no-shows from 18 % to 4 % in six weeks.</p>\n<p>Delia was losing about one booking in five to people who simply did not answer the door. We asked new customers for a quarter of the price at booking time, credited it against the final bill, and refunded it automatically if the groomer cancelled.</p>\n<p>Repeat customers never noticed, because they are exempt after their second visit.</p>\n<p>tidewell-seed · canary-substack-01</p>"
+    },
+    {
+      "id": "ss-02",
+      "slug": "what-happened-when-i-raised-the-price",
+      "title": "What happened when I raised the price",
+      "date": "2026-08-12",
+      "canary": "canary-substack-02",
+      "html": "<p>Raising $29 to $39 with grandfathering lost nobody; the new price only ever applied to people who never saw the old one.</p>\n<p>I braced for cancellations and got two thank-you notes. The trick was not cleverness, it was order: existing groomers were told first and kept their price, and new visitors never saw $29 at all.</p>\n<p>tidewell-seed · canary-substack-02</p>"
+    },
+    {
+      "id": "ss-03",
+      "slug": "a-week-in-the-van-with-delia",
+      "title": "A week in the van with Delia",
+      "date": "2026-05-15",
+      "canary": "canary-substack-03",
+      "html": "<p>I spent a week riding along in Delia's grooming van, notebook in hand, watching where the software helped and where it got in the way.</p>\n<p>On Tuesday the route sent us to the wrong side of a rail crossing. On Thursday a customer's dog would not leave the porch and the whole afternoon slid twenty minutes. Every problem I wrote down that week became a line on the roadmap.</p>\n<p>tidewell-seed · canary-substack-03</p>"
+    },
+    {
+      "id": "ss-04",
+      "slug": "twilio-stripe-and-the-boring-middle",
+      "title": "Twilio, Stripe and the boring middle",
+      "date": "2026-06-29",
+      "canary": "canary-substack-04",
+      "html": "<p>Most of Tidewell is the boring middle between a text message and a payout: Twilio sends the reminder, Stripe Connect Express moves the money, and a small Django app keeps the two honest.</p>\n<p>Nobody asks about that middle until it breaks, so it gets a checklist, a dashboard and an on-call phone that is always on the passenger seat.</p>\n<p>tidewell-seed · canary-substack-04</p>"
+    },
+    {
+      "id": "ss-05",
+      "slug": "housekeeping",
+      "title": "Housekeeping · tidewell-seed",
+      "date": "2026-09-25",
+      "canary": null,
+      "html": "<p>New posts resume next month.</p>"
+    }
+  ]
+}
