@@ -216,7 +216,20 @@
       },
       "observed": null,
       "observed_at": null,
-      "note": "errors 0 or 1 depending on nt-07"
+      "note": "errors 0 or 1 depending on nt-07",
+      "real_library": {
+        "name": "notion-1cbd18bf",
+        "state": "connected",
+        "imported": 23,
+        "connected_at": "2026-09-30",
+        "canaries": "nt-01..05 one hit each; nt-06 (empty page) imported title-only, no canary",
+        "note": "includes Notion's default template pages",
+        "recorded": {
+          "listed": 25,
+          "fetched": 23,
+          "errors": 2
+        }
+      }
     },
     "chatgpt": {
       "name": "chatgpt-export",
