@@ -1,6 +1,6 @@
 ---
 name: lore-enable-payments
-description: Set up a paid Lore node end to end, so other agents pay to call `get`. Walks the owner to a self-custody payout address, a price, a deployed Cloudflare Worker, and a proven test-network payment — in whichever order they choose. Use when the user says "enable payments on Lore", "monetize my lore", "charge for answers", "deploy my lore node", "put my lore online", or picks the Monetize branch after onboarding.
+description: Set up a paid Lore node end to end, so other agents pay to call `get`. Walks the owner to a price, a deployed Cloudflare Worker, and a payout address they control, asked last. In a terminal, a proven test-network payment can come first. Use when the user says "enable payments on Lore", "monetize my lore", "charge for answers", "deploy my lore node", "put my lore online", or picks the Monetize branch after onboarding.
 ---
 
 # Enabling payments
@@ -23,21 +23,47 @@ having at least one.
 > provides a structured question control. Never block because a named question
 > tool is unavailable.
 
-> **Lore desktop:** this skill runs as the app's "Open your store" task. Ask every
-> decision through `ask_user`. You run every command yourself except two the app
-> keeps for the owner: Cloudflare sign-in (call `cloudflare_login`; it opens
-> Cloudflare in their browser and returns who is signed in — never send the
-> owner to a terminal) and `lore push` (they press **Push** in the app; never
-> run it). Every other browser step — the wallet, the workers.dev subdomain,
-> the faucet, Basescan — goes through `open_url` with a short step title and
-> a note of up to three short numbered lines; it waits for the owner and tells
-> you whether they finished, got stuck, or declined. Never paste a link into prose. If
-> `lore node deploy` stops with "not signed in to Cloudflare", call
-> `cloudflare_login` and rerun it. Default the path to the **test network**
-> (Base Sepolia); mainnet is an explicit choice the owner makes with a publication
-> live. Keep the desktop flow publication-only; paid answers remain a separate,
-> terminal-attended option. Do not read or write
-> `~/.lore/automation/onboarding.json`.
+> **Lore desktop:** this skill runs as the app's "Open your store" task, and it
+> opens the store on **real money** in one pass: price, Cloudflare sign-in,
+> payout address, deploy. There is no test-network step, no test payment, and
+> no Coinbase developer keys in the app (the node settles through a keyless
+> facilitator). Ask every decision through `ask_user`. You run every command
+> yourself except two the app keeps for the owner: Cloudflare sign-in (call
+> `cloudflare_login`; it opens Cloudflare in their browser and returns who is
+> signed in — never send the owner to a terminal) and `lore push` (they press
+> **Push** in the app; never run it). Other browser steps — the workers.dev
+> subdomain, Basescan — go through `open_url` with a short step title and a
+> note of up to three short numbered lines; it waits for the owner and tells
+> you whether they finished, got stuck, or declined. Never paste a link into
+> prose. If `lore node deploy` stops with "not signed in to Cloudflare", call
+> `cloudflare_login` and rerun it. Keep the desktop flow publication-only;
+> paid answers remain a separate, terminal-attended option. Do not read or
+> write `~/.lore/automation/onboarding.json`.
+>
+> The desktop order, one step each:
+>
+> 1. `lore publication list`. No active publication → say the store opens once
+>    they have approved something to sell, offer to draft one now, and stop;
+>    a real buyer must never pay against an empty catalog.
+> 2. Price through `propose_price` (step 4).
+> 3. Cloudflare: `npx wrangler whoami`, and `cloudflare_login` if needed.
+> 4. **The payout address, last.** One `ask_user` question, exactly:
+>    question "Where should buyers' payments go?", header "Payouts", no
+>    options, format `evm_address`. The app renders the whole guided step
+>    itself: Coinbase first, a wallet app second, the Base network check, and
+>    format validation. Do not add your own wallet instructions around it or
+>    open Coinbase for them. An address already stored on the node (a
+>    redeploy) is never asked again (`npx wrangler secret list` shows
+>    `LORE_WALLET`).
+> 5. `lore node deploy --wallet <address> --network real` as a bash call with
+>    an explicit timeout of at least 300 seconds (MON-023). Say plainly if it
+>    fails or times out; never leave the composer silent.
+> 6. Close in two sentences: the store is open, what buyers pay, and that each
+>    payment lands at the address ending in its last four characters. Then
+>    `finish_task`.
+>
+> Say "real money", never "mainnet", and never name Base, Sepolia, USDC
+> contracts, facilitators, or Coinbase developer keys in prose.
 
 ## How to drive — read this first
 
@@ -98,12 +124,13 @@ and private-only are complete outcomes.
 
 ## 2. Show the whole cost first
 
-Before asking for anything, tell the owner everything this takes: a self-custody
-**payout address** on Base (public by design), a free-tier **Cloudflare account**
+Before asking for anything, tell the owner everything this takes: a **payout
+address** on Base they control (public by design), a free-tier **Cloudflare account**
 (their login, never seen here), a **price** per publication in USD, and a throwaway
 **test buyer** that `npm run pay` creates and funds from a faucet. On the test
-network all of it is free — faucet funds are play money. Then say this once,
-plainly:
+network all of it is free — faucet funds are play money. In Lore desktop there is
+no test buyer and no faucet: say only price, Cloudflare sign-in, and where
+payments go. Then say this once, plainly:
 
 > The address is yours alone. Lore never holds, custodies, or can recover these
 > funds. You are receiving cryptocurrency into a wallet you control.
@@ -113,28 +140,27 @@ Say it is outside what you can advise on.
 
 ## 3. The payout address
 
-**Ask first whether they already have an EVM wallet** (MetaMask, Rainbow, Rabby,
-Coinbase Wallet, hardware — anything with a stable Base address they control).
-Name the two traps before either branch: an app showing prices, buy buttons,
-and a portfolio is the Coinbase *exchange* app, not a self-custody wallet —
-exchange deposit addresses can rotate and silently break payouts; and the
-network label must read **Base**, not Ethereum or Solana — a wrong-network
-payout address means x402 settles funds they'll never see, with no error
-anywhere. Base is a network selection *inside* the wallet, not a site — say
-that plainly before anyone goes looking for a Base app.
+Ask this last, after the price and the Cloudflare sign-in: it is the step
+where new owners stall, so it comes when they already have something worth
+selling. In Lore desktop the app's payout card is the whole step (see the
+desktop order above); what follows is the terminal version.
 
-**Has one:** ask *which* app, then drive it with that app's exact taps — "copy
-the address" is not guidance. Generic shape, adapted to their app: open the app
-or extension → **Receive** → network **Base** (same address across EVM chains;
-what matters is receiving on Base) → **Copy**.
+**Recommend a Coinbase account first.** It reaches a bank without a wallet app.
+In the Coinbase app: **Receive** → **USDC** → network **Base** → **Copy**. The
+network label must read **Base**, not Ethereum or Solana: a wrong-network payout
+address means x402 settles funds they'll never see, with no error anywhere.
+Base is a network selection, not a separate app — say that plainly before
+anyone goes looking for a Base app.
 
-**Needs one:** open the self-custody app at `coinbase.com/wallet` with the title
-**Create an empty wallet** and this exact note:
+**Already has a wallet app** (MetaMask, Rainbow, Rabby, Coinbase Wallet,
+hardware — anything with a stable Base address they control): ask *which*
+app, then drive it with that app's exact taps — "copy the address" is not
+guidance. Generic shape: **Receive** → network **Base** → **Copy**.
 
-> Use a passkey, skip buying or funding anything, then come back with your
-> public address—it starts with `0x`. Never share your recovery phrase.
->
-> Choose **Wallet**, not the Coinbase app with prices and Buy buttons.
+**Has neither:** open `coinbase.com` to create a free account, or
+`coinbase.com/wallet` for a self-custody wallet with a passkey. Either way:
+skip buying or funding anything, come back with the public address that
+starts with `0x`, and never share a recovery phrase.
 
 Either way, the address is its own step once the wallet exists: one question
 with no options and format `evm_address`, so the owner gets a single field
@@ -191,7 +217,8 @@ Verify three prerequisites from state, then one command:
    own `/workers/onboarding` link 404s; don't use it.
 
 ```sh
-lore node deploy --wallet <payout-address>   # the public 0x address from step 3
+lore node deploy --wallet <payout-address> --network real   # desktop: real money, one pass
+lore node deploy --wallet <payout-address>                  # terminal: test network first
 ```
 
 It stages the node at `~/.lore/node`, installs dependencies, creates the D1
@@ -298,36 +325,30 @@ network-switch one). Only pass `--wallet` again if `npx wrangler secret list`
 shows `LORE_WALLET` is unexpectedly missing. Do not ask the owner for their
 payout address on a network switch.
 
-> **Lore desktop:** read the gates from `lore publication list` and
-> `lore node sales --json` only, quietly, then say where they stand in one
-> sentence in the owner's words. Never run `npm run pay`, query the chain, or
-> call an explorer from the app: its sandbox cannot bind sockets or reach
-> them, and the ledger already holds every settlement. No settled test sale →
-> say so, offer the test-network path, stop. All gates hold → frame and open the Coinbase Developer
-> Platform's API keys page through `open_url` (the runbook's decoy and
-> dialog notes belong in that one line), then call `store_secret` for
-> `CDP_API_KEY_ID` and again for `CDP_API_KEY_SECRET` — each shows the owner
-> a field whose value goes straight to Cloudflare's vault — then run
-> `lore node deploy --network real` **as a bash call with an explicit timeout
-> of at least 300 seconds** — the redeploy chains npm, wrangler, and a smoke
-> check with no timeout of its own below that, so an untimed bash call can
-> wedge the turn indefinitely (MON-023). If it times out or otherwise fails,
-> say so plainly and suggest checking `npx wrangler secret list` for a
-> partially-stored secret before retrying — don't leave the composer silent.
-> Say "real money" and "the test network", never "mainnet". `lore node
-> deploy --network test` goes back the same way, with the same timeout.
+Real money needs no Coinbase developer keys: the node settles through PayAI's
+keyless facilitator. A facilitator only submits the buyer's signed transfer,
+which already fixes the recipient and amount, so it never holds the money.
+An owner who wants Coinbase's facilitator instead vaults **both**
+`CDP_API_KEY_ID` and `CDP_API_KEY_SECRET` (`lore node secret`, value on stdin,
+never in conversation); half a pair refuses to start.
 
-All gates hold in a terminal → drive the **Mainnet cutover** section of
-`~/.lore/node/README.md` like any other section of this skill: one step at a
-time, announce each portal page before opening it, verify each step from
-state. The runbook carries the sharp edges — the API-keys page hides behind
-an "API key wallets" decoy; the create dialog's right answers (opt out of IP
-allowlisting for a Worker, leave the account scopes unchecked); secrets are
-scoped to the worker's *name*, so any rename happens before vaulting; and the
-key values go from the CDP tab into `wrangler secret put` prompts in a real
-terminal — they live in Cloudflare's vault, never on this machine and never
-in this conversation. The test-network facilitator needs no keys; CDP is the
-only facilitator that settles Base mainnet.
+> **Lore desktop:** a store opened from the app is already on real money. The
+> switch exists only for a store opened earlier on the test network: read gate
+> 1 from `lore publication list`, quietly, say where it stands in one
+> sentence, and take the owner's explicit yes as gate 3; a settled test sale
+> is not required in the app. Never run `npm run pay`, query the chain, or
+> call an explorer from the app: its sandbox cannot bind sockets or reach
+> them. Then run `lore node deploy --network real` **as a bash call with an
+> explicit timeout of at least 300 seconds** (MON-023). If it times out or
+> otherwise fails, say so plainly — don't leave the composer silent. Say
+> "real money" and "the test network", never "mainnet".
+
+All gates hold in a terminal → `lore node deploy --network real`. The
+**Mainnet cutover** section of `~/.lore/node/README.md` covers the optional
+Coinbase keys (from `portal.cdp.coinbase.com`, whose API-keys page hides
+behind an "API key wallets" decoy) for an owner who asks for them; the key
+values go into `wrangler secret put` prompts in a real terminal and live in
+Cloudflare's vault, never on this machine and never in this conversation.
 
 After the cutover deploy, close the loop where the owner can see it: the
 server names itself `Lore x402 (MAINNET)` and `discover` reports

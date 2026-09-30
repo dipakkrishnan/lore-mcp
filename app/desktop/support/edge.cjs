@@ -255,7 +255,7 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         check("Add your first memory lands on Today with the composer focused", await js(`document.querySelector("#title").textContent !== "Memories" && document.activeElement === document.querySelector("#capture-input")`));
         await js(`window.__lore.show("store")`);
         await sleep(600);
-        check("no store: the bar offers to open one", await js(`[...document.querySelectorAll("#content .store-bar button")].some((b) => b.textContent === "Open a store")`));
+        check("no store: the bar offers to open one", await js(`[...document.querySelectorAll("#content .store-bar button")].some((b) => b.textContent === "Open your store")`));
         const forSale = await js(`[...document.querySelectorAll("#content .empty")].map((n) => n.textContent).join("|")`);
         check("nothing for sale: one sentence and a way to draft", /Nothing for sale yet\./.test(forSale) && await js(`[...document.querySelectorAll("#content .empty button")].some((b) => b.textContent === "Draft one from a memory")`), forSale);
         check("no sales: left alone, no action", await js(`[...document.querySelectorAll("#content .empty")].find((n) => n.textContent.includes("No sales yet")).querySelector("button") === null`));
@@ -484,7 +484,7 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         check("it says who buys: agents, not people browsing", /AI agents, in the middle of a task/.test(faq) && /Not people browsing/.test(faq));
         check("it says what a buyer pays and that Lore never holds the money", /Your price\./.test(faq) && /a publication/.test(faq) && /never holds your money/.test(faq));
         check("it promises no control that isn't there: no questions, and listing waits for a store", !/turn on questions|ask you one|Questions have/i.test(faq) && /Once your store is open, list it from Settings/.test(faq) && !/A cent a publication/.test(faq), faq);
-        check("it names the money in plain words", /digital dollars \(USDC\)/.test(faq) && /play money/.test(faq));
+        check("it names the money in plain words, and says the address comes last", /digital dollars \(USDC\)/.test(faq) && /Coinbase account/.test(faq) && /asks where to send it when you open your store/.test(faq) && !/play money/.test(faq));
         check("it says why connecting apps helps", questions.includes("Why connect my apps?") && /blank page/.test(faq));
         check("it says honestly what leaves the Mac", /Only what you approve for sale/.test(faq) && /the AI you signed in with reads/.test(faq));
         check("it promises no earnings: the only dollar figure is a price", (faq.match(/\\$\\d/g) ?? []).length <= 1 && !/\\bearn|income|revenue|passive/i.test(faq), faq.match(/\\$\\d[^ ]*/g)?.join(",") ?? "");
@@ -620,7 +620,16 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         await js(`window.__lore.openTask("capture")`);
         await js(`window.__lore.preview({ type: "question", id: "preview-q", task: null, questions: [{ question: "What should a publication cost?", header: "Price", multiSelect: false, options: [{ label: "$0.05", description: "Higher", recommended: false }, { label: "$0.01", description: "Low first price", recommended: true }] }, { question: "Paste your payout address.", header: "Payout", multiSelect: false, options: [], format: "evm_address" }] })`);
         check("the model's recommended option starts selected and is chipped", await js(`document.querySelector("#request input:checked")?.value`) === "$0.01" && await js(`document.querySelector("#request .choice:has(input:checked)").textContent`) === "$0.01RecommendedLow first price");
-        check("a question with no options is one text field", await js(`document.querySelectorAll("#request fieldset")[1].querySelectorAll("input").length`) === 1);
+        check("the payout question is the guided card: Coinbase first, its taps, one address field", await js(`(() => { const f = document.querySelector("#request fieldset.payout"); return Boolean(f) && f.querySelector("input:checked")?.value === "My Coinbase account" && /Set the network to Base/.test(f.querySelector(".payout-steps").textContent) && f.querySelectorAll("input[type=text]").length === 1; })()`));
+        await js(`(() => { const f = document.querySelector("#request fieldset.payout"); f.querySelectorAll("input[type=radio]")[1].click(); return true; })()`);
+        check("choosing a wallet app swaps in its taps", await js(`/Open your wallet and tap Receive/.test(document.querySelector("#request .payout-steps").textContent)`));
+        await js(`(() => { const a = document.querySelector("#request fieldset.payout .other-answer"); a.value = "abandon ability able about above absent absorb abstract absurd abuse access accident"; a.dispatchEvent(new Event("input")); return true; })()`);
+        check("a pasted recovery phrase is cleared on the spot, with a warning", await js(`document.querySelector("#request fieldset.payout .other-answer").value === "" && /recovery phrase/.test(document.querySelector("#request .payout-status").textContent)`));
+        await js(`(() => { const a = document.querySelector("#request fieldset.payout .other-answer"); a.value = "0x0c270534cfcecc9224edb903ef5dd70410d08166"; a.dispatchEvent(new Event("input")); return true; })()`);
+        check("a good address is confirmed back, shortened", await js(`document.querySelector("#request .payout-status").textContent`) === "✓ Payments will land at 0x0c27…8166.");
+        await js(`document.querySelector("#request fieldset.payout").scrollIntoView({ block: "center" }); true`);
+        await shot("payout-card");
+        await js(`document.querySelector("#request fieldset.payout .other-answer").value = ""; true`);
         check("the chip sits to the right of the label on the same row", await js(`(() => { const c = document.querySelector("#request .choice:has(input:checked)"); const [label, chip] = [c.querySelector("span:not(.chip)"), c.querySelector(".chip")].map((n) => n.getBoundingClientRect()); return chip.left > label.right && Math.abs(chip.top - label.top) < 12 && chip.right <= c.getBoundingClientRect().right; })()`));
         check("the card lands below the sticky header", await js(`document.querySelector("#request form").getBoundingClientRect().top >= document.querySelector("#main header").getBoundingClientRect().bottom`));
         await js(`document.querySelectorAll("#request .other-answer")[1].value = "abandon ability able about above absent absorb abstract absurd abuse access accident"; document.querySelector("#request form").requestSubmit()`);
@@ -652,14 +661,13 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         await waitFor(`document.querySelectorAll("#content .draft-title").length === 1`);
         check("a double click submits one edited decision", await js(`document.querySelectorAll("#content .draft-title").length`) === 1 && !(await js(`document.querySelector("#status .notice.attention")`)));
         await js(`[...document.querySelectorAll("#content button")].find((b) => b.textContent === "Skip").click()`);
-        await waitFor(`document.querySelector("#status .notice")`);
-        const notice = await js(`document.querySelector("#status .notice")?.textContent ?? ""`);
-        check("approval confirmation is visible outside a thread", notice.includes("Approved. It goes on sale the moment you open a store."), notice);
-        check("confirmation is not styled as a problem", !(await js(`document.querySelector("#status .notice").classList.contains("attention")`)));
+        await waitFor(`[...document.querySelectorAll("#content .request .q")].some((q) => q.textContent === "Open your store?")`);
+        check("approving with no store offers to open one, one click away", await js(`[...document.querySelectorAll("#content .request button")].some((b) => b.textContent === "Open your store")`));
+        check("the offer is said once, not again under Needs you", !(await js(`[...document.querySelectorAll("#content .row b")].some((b) => b.textContent === "Open your store")`)));
         check("approved title carried the edit", await js(`window.lore.snapshot().then((s) => s.publications.items.map((i) => i.title).join("|"))`) === "Edited by the owner");
-        await shot("seller-approved-notice");
-        await js(`document.querySelector("#status .notice .dismiss").click()`);
-        check("notice dismisses", await js(`document.querySelectorAll("#status .notice").length`) === 0);
+        await shot("seller-approved-offer");
+        await js(`[...document.querySelectorAll("#content .request button")].find((b) => b.textContent === "Leave it for now").click()`);
+        check("the offer can be left for later", !(await js(`[...document.querySelectorAll("#content .request .q")].some((q) => q.textContent === "Open your store?")`)));
 
         // Ledger: with no store there is nothing to read, and the section says so without a probe.
         await js(`window.__lore.show("store")`);

@@ -17,3 +17,6 @@ support/seed/private/
 *.raw.json
 *.raw.xml
 *.raw.txt
+
+# git worktrees (local, per-developer)
+.worktrees/

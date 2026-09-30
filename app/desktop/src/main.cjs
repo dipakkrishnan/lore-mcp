@@ -268,20 +268,12 @@ async function start(loreHome) {
       return last;
     },
     openUrl: async (page) => {
-      if (!openable(page.url)) return "Lore does not open that address; only the wallet, Cloudflare, faucet, Basescan and Coinbase developer pages.";
+      if (!openable(page.url)) return "Lore does not open that address; only Coinbase, Cloudflare and Basescan pages.";
       const answer = await request("open", page);
       if (answer === "done") return "The owner says they finished there; verify from state before going on.";
       return answer === "stuck" ? "The owner got stuck on that page; ask what happened." : "The owner chose not to open it right now.";
     },
     drafts: async () => (await candidates(loreHome)).length,
-    storeSecret: async (name) => {
-      const label = name === "CDP_API_KEY_ID" ? "API key ID" : "API key secret";
-      const prompt = { type: "secret", message: `Paste the ${label} from Coinbase. The agent never sees it. Lore passes it to Cloudflare's vault and does not save it on this Mac.`, placeholder: label };
-      const value = String(await request("auth-prompt", { prompt })).trim();
-      if (!value) return "The owner did not provide it.";
-      await lore(loreHome, ["node", "secret", name], value);
-      return `Stored the ${label}.`;
-    },
     job: {
       // This process is the one that owes the row a close, so it claims the row
       // with its own pid. The long ceiling only bounds pid reuse; it is not a

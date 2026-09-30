@@ -79,6 +79,28 @@ class ScrubRulesTest(unittest.TestCase):
         self.assertNotIn("w-123", out)
         self.assertNotIn("corp.io", out)
 
+    def test_notion_mcp_account_identifiers_are_replaced(self) -> None:
+        fake = "-".join(["00000000", "1111", "2222", "3333", "444444444444"])
+        url = (
+            "https://app.notion.com/notion-mcp?tool=x"
+            f"&mcpRequestId={fake}&mcpUpsellOpportunityId={fake}"
+            f"&spaceId={fake}&notionAccountId={fake}&action=learn_more"
+        )
+        out = cleaned(url)
+        self.assertNotIn(fake, out)
+        self.assertIn("&spaceId=REDACTED&notionAccountId=REDACTED&action=", out)
+        keyed = cleaned(f'{{"spaceId": "{fake}", "notionAccountId": "{fake}"}}')
+        self.assertNotIn(fake, keyed)
+        self.assertEqual(
+            keyed, '{"spaceId": "REDACTED", "notionAccountId": "REDACTED"}'
+        )
+
+    def test_a_notion_user_mention_url_is_replaced(self) -> None:
+        fake = "-".join(["00000000", "1111", "2222", "3333", "444444444444"])
+        out = cleaned(f'<mention-user url="user://{fake}"></mention-user>')
+        self.assertNotIn(fake, out)
+        self.assertIn('url="user://REDACTED"', out)
+
     def test_scrubbing_twice_changes_nothing(self) -> None:
         once = cleaned(f"{JWT} {NOTION} {OWNER_PATH} +1 (415) 555-0134")
         self.assertEqual(cleaned(once), once)
@@ -136,7 +158,9 @@ class ManifestTest(unittest.TestCase):
             remote = item["remote"]
             self.assertLessEqual({"id", "url", "created_at"}, set(remote), item["id"])
             self.assertIn(
-                sum(remote[k] is not None for k in ("id", "url", "created_at")), (0, 2, 3), item["id"]
+                sum(remote[k] is not None for k in ("id", "url", "created_at")),
+                (0, 2, 3),
+                item["id"],
             )
 
     def test_every_item_names_a_corpus_file_that_exists(self) -> None:

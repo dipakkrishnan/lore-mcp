@@ -24,7 +24,7 @@ const TASKS = {
   capture: { title: "Capture a memory", phase: "Review the capture" },
   setup: { title: "Set up your Lore", phase: "Shape your Lore" },
   publish: { title: "Publish from your Lore", phase: "Draft publications" },
-  deploy: { title: "Open your store", phase: "Payout, price, deploy" }
+  deploy: { title: "Open your store", phase: "Price, sign-in, payout" }
 };
 const TASK_STATES = new Set(["needs_you", "working", "stopped", "done"]);
 const PERSONAS = ["storyteller", "schoolteacher", "professor", "executive", "sage"];
@@ -55,7 +55,7 @@ export function draftsAside(waiting) {
 }
 const KEY_REJECTED = /\b401\b|authentication_error|invalid[_ -](?:x-)?api[_ -]?key|incorrect api key/i;
 /** Attended tools whose result is a plain-English sentence, not JSON — history() must not run these through toolResultJson. */
-const PLAIN_TEXT_TOOLS = new Set(["cloudflare_login", "open_url", "store_secret"]);
+const PLAIN_TEXT_TOOLS = new Set(["cloudflare_login", "open_url"]);
 
 /** @param {import("@earendil-works/pi-coding-agent").ModelRuntime} models @param {string} text */
 export async function nameRun(models, text) {
@@ -338,7 +338,7 @@ export class LoreAgent {
         "During capture, show proposed memories only through propose_memories, never in prose; that tool saves what the owner keeps and returns the saved memories, or returns the owner's correction for you to revise and propose again. After it saves, say one short sentence and call finish_task; never offer publication, the owner starts that from the saved card.",
         "During onboarding, gather evidence first, then call propose_blueprint once with one bounded proposal; that tool saves the owner-approved shape.",
         "To set what buyers pay per publication, call propose_price and never run a price command yourself; the owner confirms the exact amount on the card, and the tool returns what they saved or null if they declined. Work from that number, not from what you proposed.",
-        "Never mention tools, commands, files, or plumbing to the owner: no Cloudflare, Node, wrangler, Worker, Base, Sepolia, network ids, or memory ids in prose; name a memory by its title. Speak about memories, their Lore, their store, play money and real money, and say what happens next rather than which checks passed.",
+        "Never mention tools, commands, files, or plumbing to the owner: no Cloudflare, Node, wrangler, Worker, Base, Sepolia, network ids, or memory ids in prose; name a memory by its title. Speak about memories, their Lore, their store, and real money, and say what happens next rather than which checks passed.",
         "A memory's id number is for tools only: never say one to the owner, even in passing; call every memory by its title.",
         "Call finish_task when the current task is complete."
       ].join(" ")
@@ -572,7 +572,7 @@ export class LoreAgent {
       resourceLoader: this.resources,
       settingsManager: this.settings,
       sessionManager,
-      tools: ["read", "write", "edit", "bash", "ask_user", "propose_memories", "propose_blueprint", "propose_price", "cloudflare_login", "open_url", "store_secret", "finish_task"],
+      tools: ["read", "write", "edit", "bash", "ask_user", "propose_memories", "propose_blueprint", "propose_price", "cloudflare_login", "open_url", "finish_task"],
       customTools: [
         createBashTool(this.options.loreHome, {
           operations: createSandboxedBashOperations(this.options.loreHome, task, this.options.binDir),
@@ -595,7 +595,6 @@ export class LoreAgent {
         this.#priceTool(),
         this.#cloudflareTool(),
         this.#openTool(),
-        this.#secretTool(),
         this.#finishTool()
       ]
     });
@@ -766,24 +765,10 @@ export class LoreAgent {
       name: "open_url",
       executionMode: "sequential",
       label: "Open a page for the owner",
-      description: "Open one web page in the owner's browser for a step only they can do there: a wallet, the workers.dev subdomain, a faucet, Basescan, the Coinbase developer portal. Give the step a short title and a note of up to four short lines on what to do there. Waits until the owner comes back and returns whether they finished, got stuck, or declined.",
+      description: "Open one web page in the owner's browser for a step only they can do there: Coinbase or a wallet, the workers.dev subdomain, Basescan. Give the step a short title and a note of up to four short lines on what to do there. Waits until the owner comes back and returns whether they finished, got stuck, or declined.",
       parameters: Type.Object({ title: Type.String(), url: Type.String(), note: Type.String() }),
       execute: async (_id, page) => {
         const text = await this.#attended(page.title, () => this.options.openUrl(page));
-        return { content: [{ type: "text", text }], details: {} };
-      }
-    });
-  }
-
-  #secretTool() {
-    return defineTool({
-      name: "store_secret",
-      executionMode: "sequential",
-      label: "Store a Coinbase credential",
-      description: "Ask the owner for one Coinbase Developer Platform value and vault it on their node for real payments. The value never reaches you; returns whether it was stored.",
-      parameters: Type.Object({ name: Type.Union([Type.Literal("CDP_API_KEY_ID"), Type.Literal("CDP_API_KEY_SECRET")]) }),
-      execute: async (_id, { name }) => {
-        const text = await this.#attended("Enter a Coinbase API key", () => this.options.storeSecret(name));
         return { content: [{ type: "text", text }], details: {} };
       }
     });

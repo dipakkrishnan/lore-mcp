@@ -81,42 +81,37 @@ settlement receipt.
 ## Mainnet cutover (real money — read all of this first)
 
 The node runs Base Sepolia (`eip155:84532`) against the free `x402.org`
-facilitator unless every step below is taken; nothing defaults or falls back
-to mainnet (MON-005). Cut over only after a full Sepolia payment has settled
-end to end.
+facilitator unless `LORE_NETWORK` says otherwise; nothing defaults or falls
+back to mainnet (MON-005). A store opened from Lore desktop goes straight to
+real money with `lore node deploy --wallet <address> --network real`.
 
-**Getting the CDP credentials** (a first live cutover hit every one of these):
+On mainnet the Worker settles through PayAI's keyless facilitator
+(`facilitator.payai.network`), so no Coinbase account or API keys are needed
+(MON-025). A facilitator only submits the buyer's signed transfer, which
+already fixes the recipient and the amount; it never holds the money.
+
+To use Coinbase's CDP facilitator instead, vault **both** credentials from
+`~/.lore/node`, in a real terminal. Half a pair refuses to start.
 
 - Keys are minted at `portal.cdp.coinbase.com` → **API keys** in the left
   nav's settings cluster. Beware the decoy: the "API key wallets" product
-  page creates server-controlled *wallets*, which you do not want — the right
-  page is a plain table of keys with a **Create API key** button, and it
-  talks about authenticating requests, not creating wallets.
-- In the create dialog: **Secret API key**; *opt out* of IP allowlisting (the
-  caller is a Cloudflare Worker with no stable egress IPs — pinning IPs
-  breaks settlement randomly); leave the Trade/Transfer/Receive account
-  scopes unchecked — the facilitator authenticates settlement calls and
-  never touches funds in any Coinbase account.
-- The secret is shown once. It goes straight from that tab into the
-  `wrangler secret put` prompt below — never into an agent conversation, a
-  file, or a clipboard manager. A lost secret is not an incident: mint a
-  replacement key.
-- **Secrets are scoped to the worker's name.** If you intend to rename the
-  worker, rename and redeploy first — secrets vaulted against the old name
-  do not carry over.
-
-Then, from `~/.lore/node`, in a real terminal:
+  page creates server-controlled *wallets*, which you do not want.
+- In the create dialog: **Secret API key**; *opt out* of IP allowlisting (a
+  Worker has no stable egress IPs); leave the Trade/Transfer/Receive account
+  scopes unchecked.
+- The secret is shown once. It goes straight into the `wrangler secret put`
+  prompt, never into an agent conversation, a file, or a clipboard manager.
+- **Secrets are scoped to the worker's name.** Rename and redeploy before
+  vaulting.
 
 ```sh
-npx wrangler secret put CDP_API_KEY_ID      # paste at the prompt
-npx wrangler secret put CDP_API_KEY_SECRET
+npx wrangler secret put CDP_API_KEY_ID      # optional, paste at the prompt
+npx wrangler secret put CDP_API_KEY_SECRET  # optional, the other half
 npx wrangler secret put LORE_NETWORK        # enter exactly: eip155:8453
 npx wrangler deploy
 ```
 
-On mainnet the Worker uses Coinbase's authenticated CDP facilitator; if either
-credential is missing it refuses to start rather than serving unsettleable
-answers. The server names itself `Lore x402 (MAINNET)` and `discover` reports
+The server names itself `Lore x402 (MAINNET)` and `discover` reports
 `network: eip155:8453`, so a deployed node's mode is visible at a glance. To
 return to the testnet, delete the `LORE_NETWORK` secret and redeploy.
 

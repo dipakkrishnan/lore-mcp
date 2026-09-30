@@ -118,7 +118,6 @@ const EXPLORERS = { "eip155:8453": "https://basescan.org", "eip155:84532": "http
 const REAL_MONEY = "I'm ready to switch my store to real money.";
 const SETUP_INTENT = "Let's set up my Lore.";
 const STORE_INTENT = "Help me open my store.";
-const PLAY_MONEY = "Put my store back on the test network.";
 const REDEPLOY_PRICE = "I changed my publication price. Redeploy my store so buyers pay the new amount.";
 // Six decimals, not the default two: a price can run below a cent, and rounding
 // $0.000001 up to $0.01 would misstate what a buyer pays. Six is the CLI's floor.
@@ -569,7 +568,7 @@ function outLink(label, href, className = "link-btn") {
 
 /** @param {string | null} network */
 function explorer(network) {
-  return EXPLORERS[/** @type {keyof typeof EXPLORERS} */ (network ?? "")] ?? EXPLORERS[TEST_NETWORK];
+  return EXPLORERS[/** @type {keyof typeof EXPLORERS} */ (network ?? "")] ?? EXPLORERS["eip155:8453"];
 }
 
 /** @param {Snapshot["node"]["live"]} live */
@@ -613,12 +612,9 @@ function needsYou(s) {
     if (s.library.sources.some((source) => !source.owned)) add("Connect your agents", "Let Lore read what Claude Code and Codex already remember.", button("Start", "secondary", startSetup));
   } else if (!s.setup.blueprint_configured) add("Shape your Lore", "Review one proposal based on what your agents already know.", button("Start", "secondary", startSetup));
   else if (!s.setup.profile_configured) add("Set the rhythm", "Choose which model writes new memories, and how often.", button("Start", "secondary", startSetup));
-  else {
-    // Before the store rung: something approved with no price cannot be sold,
-    // and this is the first moment the owner has a reason to name one.
-    if (s.publications.counts.active && s.pricing.publication_usd === null) add("Set a price", "What a buyer pays for one publication. You can change it later.", button("Set", "secondary", openPriceEditor));
-    if (!s.node.url) add("Open your store", "A payout address, a price, and a node on the test network first. Free until you say otherwise.", button("Open", "secondary", () => void startDeploy()));
-  }
+  // The store rung waits for approved work, whatever rung setup is on: the
+  // payout address is asked last, once there is something worth being paid for.
+  if (s.publications.counts.active && !s.node.url && !pushOffer) add("Open your store", `${s.publications.counts.active === 1 ? "Your approved piece is" : `Your ${s.publications.counts.active} approved pieces are`} ready to sell. Pick a price and where payments go.`, button("Open", "secondary", () => void startDeploy()));
   if (s.library.counts.private && !candidates.length && !taskItems.some((item) => item.kind === "publish")) add("Publish something", "Lore drafts up to three things to sell; you approve each one.", button("Publish", "secondary", () => void startPublish()));
   // Approved work a buyer cannot see yet, or a price they are not yet paying, is actionable whatever rung setup is on.
   const stale = stalePrice(s);
@@ -800,7 +796,7 @@ function renderStore(s) {
     text.append(storeAddress(s.node));
   } else {
     const open = el("span");
-    open.append(inline("Open a store", () => void startDeploy()), " when you're ready to sell.");
+    open.append(inline("Open your store", () => void startDeploy()), " when you're ready to sell.");
     text.append(open);
   }
   lead.append(text);
@@ -1271,7 +1267,7 @@ function renderFaq(s) {
     section("Getting paid", card([
       qa("Who buys?", "Other people's AI agents, in the middle of a task. Not people browsing a shop. They read your short descriptions for free and pay to read the full piece."),
       qa("What does a buyer pay?", `Your price. ${prices}`),
-      qa("How do I get paid?", "Each payment goes straight to an account only you control, in digital dollars (USDC). Lore never holds your money. You can start on play money while you learn."),
+      qa("How do I get paid?", "Each payment goes straight to an account you control, like your Coinbase account, in digital dollars (USDC). Lore never holds your money. Lore asks where to send it when you open your store."),
       qa("How do buyers find me?", "Once your store is open, list it from Settings. Agents that use the Lore marketplace will see it.")
     ])),
     section("Privacy", card([
@@ -1314,11 +1310,10 @@ function renderSettings(s) {
       // One editor, on For Sale. Every other surface reads the same number and
       // sends the owner there rather than growing a second field.
       row("Prices", "What a buyer's agent pays per read.", cell(el("span", "mono", typeof s.pricing.publication_usd === "number" ? `${price(s.pricing.publication_usd)} publication${s.pricing.answer_enabled ? ` · ${price(s.pricing.answer_usd)} answer` : ""}` : "Not set"), button(typeof s.pricing.publication_usd === "number" ? "Change price" : "Set a price", "quiet", openPriceEditor)), false),
+      // Stores open on real money; only one opened before that sits on the test network.
       ...(live.network === TEST_NETWORK
-        ? [row("Payments", "Buyers on the test network pay with play money. Switch when you want real buyers paying real money.", cell(button("Switch to real payments", "secondary", () => void startDeploy(REAL_MONEY))), false)]
-        : live.network
-          ? [row("Payments", "Buyers pay real money. Switch back to the test network any time; nothing already paid changes.", cell(button("Switch to play money", "secondary", () => void startDeploy(PLAY_MONEY))), false)]
-          : []),
+        ? [row("Payments", "Your store is on the test network, where buyers pay with play money. Switch when you want real buyers paying real money.", cell(button("Switch to real payments", "secondary", () => void startDeploy(REAL_MONEY))), false)]
+        : []),
       ...marketplaceRow(s)
     ]))
   ];
@@ -1648,6 +1643,76 @@ function blueprintPanel(fields, mode) {
   return { box, controls };
 }
 
+const PAYOUT_PATHS = [
+  {
+    label: "My Coinbase account",
+    detail: "Payments can go on to your bank from there.",
+    steps: ["In the Coinbase app, tap Receive, then USDC.", "Set the network to Base. Not Ethereum or Solana.", "Copy the address and paste it here."],
+    help: outLink("No account yet? Create one ↗", "https://www.coinbase.com/signup")
+  },
+  {
+    label: "A wallet app",
+    detail: "MetaMask, Rainbow, Coinbase Wallet, or similar.",
+    steps: ["Open your wallet and tap Receive.", "Pick the Base network.", "Copy the address and paste it here."],
+    help: null
+  }
+];
+const PUBLIC_ADDRESS = /^0x[0-9a-fA-F]{40}$/;
+
+/** The one step where new sellers stalled: two paths, their exact taps, and a field that says what it got. @param {OwnerQuestion} question @param {number} index */
+function payoutField(question, index) {
+  const fieldset = el("fieldset", "payout");
+  fieldset.dataset.question = question.question;
+  fieldset.append(el("legend", "q", question.question), el("p", "hint", "Each payment goes straight there. Lore never holds your money."));
+  const choices = el("div", "choices");
+  const steps = el("div", "payout-steps");
+  const pick = (/** @type {typeof PAYOUT_PATHS[number]} */ path) => {
+    const list = el("ol");
+    list.append(...path.steps.map((step) => el("li", "", step)));
+    steps.replaceChildren(list, ...(path.help ? [path.help] : []));
+  };
+  for (const [position, path] of PAYOUT_PATHS.entries()) {
+    const label = el("label", "choice");
+    const radio = el("input");
+    radio.type = "radio";
+    radio.name = `question-${index}`;
+    radio.value = path.label;
+    radio.checked = position === 0;
+    radio.addEventListener("change", () => pick(path));
+    label.append(radio, el("span", "", path.label));
+    if (position === 0) label.append(chip("Recommended"));
+    label.append(el("small", "", path.detail));
+    choices.append(label);
+  }
+  pick(PAYOUT_PATHS[0]);
+  const address = el("input", "other-answer mono");
+  address.type = "text";
+  address.required = true;
+  address.pattern = PUBLIC_ADDRESS.source.slice(1, -1);
+  address.placeholder = "0x…";
+  address.spellcheck = false;
+  address.autocomplete = "off";
+  const status = el("p", "hint payout-status");
+  address.addEventListener("input", () => {
+    const value = address.value.trim();
+    // A recovery phrase is the wallet itself; it must not sit in a field, a transcript, or a memory.
+    if (value.split(/\s+/).length >= 12) {
+      address.value = "";
+      status.textContent = "That looks like a recovery phrase. Never share it with anyone, Lore included. Paste the address that starts with 0x.";
+      status.dataset.state = "warn";
+    } else if (PUBLIC_ADDRESS.test(value)) {
+      address.value = value;
+      status.textContent = `✓ Payments will land at ${value.slice(0, 6)}…${value.slice(-4)}.`;
+      status.dataset.state = "ok";
+    } else {
+      status.textContent = value ? "Not an address yet. It starts with 0x and is 42 characters long." : "";
+      status.dataset.state = "";
+    }
+  });
+  fieldset.append(choices, steps, address, status);
+  return fieldset;
+}
+
 /** @param {AgentRequest} event */
 function renderRequest(event) {
   // The blueprint panel is built by the shared blueprintPanel() below, in confirm
@@ -1658,6 +1723,10 @@ function renderRequest(event) {
   let current;
   if (event.type === "question") {
     for (const [index, question] of event.questions.entries()) {
+      if (question.format === "evm_address") {
+        box.append(payoutField(question, index));
+        continue;
+      }
       const fieldset = el("fieldset");
       fieldset.dataset.question = question.question;
       fieldset.append(el("legend", "q", question.question));
@@ -1679,17 +1748,11 @@ function renderRequest(event) {
       const other = el("input", "other-answer");
       other.type = "text";
       other.placeholder = question.options.length ? "Or type your answer" : "Type your answer";
-      if (question.format === "evm_address") {
-        other.required = true;
-        other.pattern = "0x[0-9a-fA-F]{40}";
-        other.placeholder = "0x…";
-        other.title = "Paste a public address: 0x plus 40 hexadecimal characters.";
-      }
       fieldset.append(other);
       box.append(fieldset);
     }
     const actions = el("div", "actions");
-    const go = el("button", "btn primary sm", "Continue");
+    const go = el("button", "btn primary sm", event.questions.every((question) => question.format === "evm_address") ? "Use this address" : "Continue");
     go.type = "submit";
     actions.append(go);
     box.append(actions);
@@ -1885,6 +1948,15 @@ async function startDeploy(intent = STORE_INTENT) {
 }
 
 
+/** What the owner just made, in their terms: what is on sale, for how much, and where the money lands. @param {Snapshot} s */
+function storeOpened(s) {
+  const count = s.publications.counts.active;
+  const each = typeof s.pricing.publication_usd === "number" ? ` at ${price(s.pricing.publication_usd)} each` : "";
+  const onSale = `${count === 1 ? "Your approved piece is" : `All ${count} approved pieces are`} on sale${each}.`;
+  const payout = s.node.live.payout;
+  return payout ? `${onSale} Every payment lands at ${payout.slice(0, 6)}…${payout.slice(-4)}, and nowhere else.` : onSale;
+}
+
 /** @param {Snapshot} s */
 function nextRung(s) {
   const box = el("div", "card lead request");
@@ -1893,7 +1965,7 @@ function nextRung(s) {
   const heading = deploy ? (storeOpen ? "Your store is open." : "Your store isn't open yet.") : "Your Lore is set up.";
   const detail = deploy
     ? storeOpen
-      ? "This thread is closed. Publications reach buyers after a push; everything else stays private."
+      ? storeOpened(s)
       : "This thread is closed. Try again now, or any time from Today."
     : "This thread is closed. What comes next is a separate step — take it now, or any time from Today.";
   box.append(
@@ -2048,10 +2120,11 @@ function approvalForm(candidate) {
 
 function seamCard() {
   const box = el("div", "card lead request");
-  box.append(el("p", "q", "Push to your store now?"), el("p", "hint", pushOffer || ""));
+  const store = Boolean(snapshot?.node.url);
+  box.append(el("p", "q", store ? "Push to your store now?" : "Open your store?"), el("p", "hint", pushOffer || ""));
   const actions = el("div", "actions");
   const leave = button("Leave it for now", "secondary", () => { pushOffer = false; render(); });
-  const push = button(pushing ? "Pushing…" : "Push now", "primary", pushNow);
+  const push = store ? button(pushing ? "Pushing…" : "Push now", "primary", pushNow) : button("Open your store", "primary", () => { pushOffer = false; void startDeploy(); });
   leave.disabled = pushing;
   push.disabled = pushing;
   actions.append(leave, push);
@@ -2099,8 +2172,7 @@ async function decide(original, approve, candidate = original) {
   if ((await act(() => window.lore.decide({ original, candidate, approve }), approve ? "Approved here. Push to put it on your store." : undefined)) && approve) approvedThisPass = true;
   if (candidates.length || !approvedThisPass) return;
   approvedThisPass = false;
-  pushOffer = snapshot?.node.url ? "Approved publications reach buyers only after a push. Leaving it is fine; the next push carries it." : false;
-  if (!pushOffer) tell("Approved. It goes on sale the moment you open a store.");
+  pushOffer = snapshot?.node.url ? "Approved publications reach buyers only after a push. Leaving it is fine; the next push carries it." : "What you approved goes on sale once it's open. Pick a price and where payments go.";
   render();
 }
 

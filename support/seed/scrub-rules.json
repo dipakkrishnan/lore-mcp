@@ -109,6 +109,24 @@
       "pattern": "([?&])(code|state)=[^&\\s\"]+",
       "replacement": "\\1\\2=REDACTED",
       "allow": ["=REDACTED$"]
+    },
+    {
+      "name": "notion-mcp-params",
+      "pattern": "([?&])(spaceId|notionAccountId|mcpRequestId|mcpUpsellOpportunityId)=[^&\\s\"]+",
+      "replacement": "\\1\\2=REDACTED",
+      "allow": ["=REDACTED$"]
+    },
+    {
+      "name": "notion-user-mention",
+      "pattern": "user://[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}",
+      "replacement": "user://REDACTED",
+      "allow": ["^user://REDACTED$"]
+    },
+    {
+      "name": "notion-mcp-keys",
+      "pattern": "\"(spaceId|notionAccountId|mcpRequestId|mcpUpsellOpportunityId)\"\\s*:\\s*\"[^\"]+\"",
+      "replacement": "\"\\1\": \"REDACTED\"",
+      "allow": [":\\s*\"REDACTED\"$"]
     }
   ]
 }
