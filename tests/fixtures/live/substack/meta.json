@@ -1,0 +1,27 @@
+{
+  "recorded_at": "2026-09-30T13:29:57+00:00",
+  "lore_version": "0.1.0",
+  "locator": "https://tidewell2lore.substack.com",
+  "requests": [
+    {
+      "n": 1,
+      "url_or_tool": "https://tidewell2lore.substack.com",
+      "arguments": null,
+      "file": "01-index.html",
+      "sha256_raw": "ea0d14654f52ad0171ed92bbf0d20d593295a0e8ff878e4311d20402b2e23bd0",
+      "bytes_raw": 76630,
+      "scrub_hits": {}
+    },
+    {
+      "n": 2,
+      "url_or_tool": "https://tidewell2lore.substack.com/feed",
+      "arguments": null,
+      "file": "02-feed.xml",
+      "sha256_raw": "6db4b1fd4c9b9bedf87fc4e588f1eda9124c772605a3011d476e538ed96b7382",
+      "bytes_raw": 5929,
+      "scrub_hits": {
+        "email": REDACTED
+      }
+    }
+  ]
+}

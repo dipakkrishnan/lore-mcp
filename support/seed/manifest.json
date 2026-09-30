@@ -155,7 +155,17 @@
         "errors": 0
       },
       "observed": null,
-      "observed_at": null
+      "observed_at": null,
+      "real_library": {
+        "name": "substack-4d077b5b",
+        "state": "connected",
+        "imported": 4,
+        "connected_at": "2026-09-30",
+        "label": "publication host (tidewell2lore.substack.com)",
+        "publication_title_actual": "tidewell lore",
+        "seeded_via": "Settings > Import from the deployed RSS; importer published all 5 directly, no drafts",
+        "canaries": "ss-01..04 one hit each, ss-05 zero"
+      }
     },
     "medium": {
       "locator": "https://medium.com/feed/@tidewell",
@@ -169,7 +179,16 @@
       },
       "observed": null,
       "observed_at": null,
-      "note": "the four base stories; the seven stretch stories push the feed to its ten-story window"
+      "note": "the four base stories; the seven stretch stories push the feed to its ten-story window",
+      "real_library": {
+        "name": "medium-3575665c",
+        "state": "connected",
+        "imported": 4,
+        "connected_at": "2026-09-30",
+        "account": "real account on the owner's own email (handle not recorded in the repo)",
+        "seeded_via": "medium.com/p/import for md-01..04, then Publish; footer 'Originally published at' added",
+        "canaries": "md-01..04 one hit each, md-05 zero; md-05..11 stretch not published"
+      }
     },
     "granola": {
       "locator": "https://mcp.granola.ai/mcp",
