@@ -11,7 +11,7 @@
       "sha256_raw": "e3be214d2fa194bbfdfb9409e8b526330a18e66fae6409a1b37b20137a3cae2e",
       "bytes_raw": 5992,
       "scrub_hits": {
-        "email": REDACTED,
+        "email": null,
         "owner-identity": 14
       }
     }

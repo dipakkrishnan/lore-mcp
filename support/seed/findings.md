@@ -25,6 +25,8 @@ Corpus canaries, ids and counts live in `manifest.json`; recordings in `tests/fi
 | F-gr-01 | granola | `list_meetings` now accepts only `time_range` of this_week, last_week or last_30_days; Lore sends `custom` with dates and is rejected. Fix is one line in `Granola.listing`; the stub in `tests/fixtures/granola.py` still expects the old arguments. | contract, blocks-live |
 | F-gr-02 | granola | A Google account with no Granola account gets "Unauthorized: user has not created a Granola account yet", which Lore shows as "can't reach Granola". | unit |
 | F-gr-03 | granola | The sign-in wait is 5 minutes; an unanswered approval reads as "didn't let Lore in", the same text as a refusal. | unit |
+| F-tool-01 | scrub | A scrub rule matched `"user_id": {` and replaced the brace, so the recorded Notion tools list was invalid JSON; the same rule replaced a numeric `email` hit count in two `meta.json` files. Rule fixed to skip braces and `null`; the three files repaired by hand. | tooling |
+| F-gr-04 | granola | The tool list is now six tools (`list_meetings`, `get_meetings`, `query_granola_meetings`, `list_meeting_folders`, `get_meeting_transcript`, `get_account_info`); schemas saved in `tests/fixtures/live/granola/`. | contract |
 | F-xc-01 | all | Test-suite gap: no test asserts that a hit's source is one of the seed sources. | component |
 
 Not done yet: ChatGPT export (waiting on OpenAI), Granola (needs a Granola account and a recorded meeting).

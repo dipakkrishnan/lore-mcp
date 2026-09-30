@@ -88,9 +88,9 @@
     },
     {
       "name": "granola-account-field",
-      "pattern": "(?i)\\b((?:account|workspace|user)[_-]?id|email)([\"']\\s*:\\s*[\"']?|\\s*=\\s*[\"']?)[^\"'\\s<,}]+",
+      "pattern": "(?i)\\b((?:account|workspace|user)[_-]?id|email)([\"']\\s*:\\s*[\"']?|\\s*=\\s*[\"']?)[^\"'\\s<,}{\\[]+",
       "replacement": "\\1\\2REDACTED",
-      "allow": ["REDACTED$"]
+      "allow": ["REDACTED$", "null$"]
     },
     {
       "name": "granola-account-tag",

@@ -2292,7 +2292,7 @@
             "minimum": 1,
             "maximum": 100
           },
-          "user_id": REDACTED
+          "user_id": {
             "description": "Return only the user matching this ID. Pass \"self\" to fetch the current user.",
             "type": "string",
             "minLength": 1,
