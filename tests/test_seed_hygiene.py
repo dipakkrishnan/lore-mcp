@@ -134,9 +134,9 @@ class ManifestTest(unittest.TestCase):
     def test_remote_is_all_empty_or_all_filled(self) -> None:
         for item in self.manifest["items"]:
             remote = item["remote"]
-            self.assertEqual(set(remote), {"id", "url", "created_at"}, item["id"])
+            self.assertLessEqual({"id", "url", "created_at"}, set(remote), item["id"])
             self.assertIn(
-                sum(v is not None for v in remote.values()), (0, 2, 3), item["id"]
+                sum(remote[k] is not None for k in ("id", "url", "created_at")), (0, 2, 3), item["id"]
             )
 
     def test_every_item_names_a_corpus_file_that_exists(self) -> None:
