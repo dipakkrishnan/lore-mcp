@@ -11,3 +11,6 @@ node_modules
 .env
 app/desktop/packaging/out/
 app/desktop/out/
+
+# git worktrees (local, per-developer)
+.worktrees/
