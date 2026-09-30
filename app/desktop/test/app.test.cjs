@@ -400,11 +400,11 @@ test("a publish turn tells the agent where its drafts stand, and the owner never
   }
 });
 
-test("desktop prefers Opus 4.8 when Anthropic is available", async () => {
+test("desktop prefers Opus 5.5 when Anthropic is available", async () => {
   const { MODELS } = await import("../src/agent.mjs");
   const { getBuiltinModel } = await import("@earendil-works/pi-ai/providers/all");
-  assert.equal(MODELS[0], "anthropic/claude-opus-4-8");
-  assert.equal(getBuiltinModel("anthropic", "claude-opus-4-8").id, "claude-opus-4-8");
+  assert.equal(MODELS[0], "anthropic/claude-opus-5-5");
+  assert.equal(getBuiltinModel("anthropic", "claude-opus-5-5").id, "claude-opus-5-5");
 });
 
 test("Luna gives capture runs a short friendly name", async () => {
