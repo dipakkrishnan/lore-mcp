@@ -265,6 +265,12 @@ legend { font-weight: 500; font-size: 14px; margin-bottom: 6px; }
 .choice small { color: var(--muted); }
 .choice .chip { grid-column: 3; grid-row: 1; justify-self: end; height: 18px; font-size: 11px; }
 .other-answer { height: 34px; font-size: 14px; }
+.payout .payout-steps { display: flex; flex-direction: column; gap: 6px; padding: 10px 12px; border-radius: var(--radius-sm); background: var(--accent-soft); font-size: 13px; }
+.payout .payout-steps ol { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 3px; }
+.payout .payout-steps a { align-self: flex-start; }
+.payout .payout-status { min-height: 18px; margin: 0; }
+.payout .payout-status[data-state="ok"] { color: var(--ok); }
+.payout .payout-status[data-state="warn"] { color: var(--attention-ink); }
 .blueprint-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 .blueprint-fields label { display: flex; flex-direction: column; gap: 4px; color: var(--muted); font-size: 12px; }
 .blueprint-fields label:nth-child(4), .blueprint-fields label:nth-child(7) { grid-column: 1 / -1; }

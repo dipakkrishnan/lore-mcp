@@ -1,8 +1,8 @@
-// The MON-005 invariants: testnet is the only default, mainnet is opt-in and
-// fails closed without CDP credentials. Pure unit tests on the leaf module —
+// The MON-005 invariants: testnet is the only default and mainnet is opt-in.
+// Mainnet settles keyless through PayAI unless the owner vaulted a full CDP pair. Pure unit tests on the leaf module —
 // the paid path itself is covered by paid-path.test.ts.
 import { describe, expect, it } from "vitest";
-import { MAINNET, TESTNET, facilitator, network, type NetworkEnv } from "../src/network";
+import { KEYLESS_FACILITATOR, MAINNET, TESTNET, facilitator, network, type NetworkEnv } from "../src/network";
 
 function env(overrides: Partial<NetworkEnv> = {}): NetworkEnv {
   return overrides as NetworkEnv;
@@ -32,10 +32,18 @@ describe("facilitator", () => {
     );
   });
 
-  it("fails closed on mainnet without CDP credentials", () => {
-    expect(() => facilitator(env({ LORE_NETWORK: MAINNET }))).toThrow(/CDP/);
+  it("settles mainnet through the keyless facilitator when no CDP pair is vaulted", () => {
+    const config = facilitator(env({ LORE_NETWORK: MAINNET }));
+    expect(config.url).toBe(KEYLESS_FACILITATOR);
+    expect(config.createAuthHeaders).toBeUndefined();
+  });
+
+  it("fails closed on mainnet with half a CDP pair", () => {
     expect(() =>
       facilitator(env({ LORE_NETWORK: MAINNET, CDP_API_KEY_ID: "key-id" }))
+    ).toThrow(/CDP/);
+    expect(() =>
+      facilitator(env({ LORE_NETWORK: MAINNET, CDP_API_KEY_SECRET: "key-secret" }))
     ).toThrow(/CDP/);
   });
 

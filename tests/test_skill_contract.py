@@ -327,12 +327,29 @@ class SkillContractTest(unittest.TestCase):
             encoding="utf-8"
         )
         lowered = skill.lower()
-        # A concrete origin for each account the owner does not yet have.
+        # A concrete origin for each account the owner does not yet have, with
+        # a Coinbase account first because it reaches a bank without a wallet app.
+        self.assertIn("recommend a coinbase account first", lowered)
         self.assertIn("coinbase.com/wallet", lowered)
-        self.assertIn("portal.cdp.coinbase.com", lowered)
         # And a funded test payer that is never the payout wallet.
         self.assertIn("faucet", lowered)
         self.assertIn("never the payout wallet", lowered)
+
+    def test_the_desktop_store_asks_for_the_payout_address_last(self) -> None:
+        """MON-025: the address is where new owners stalled, so it comes after value."""
+        skill = " ".join(
+            (OWNER_SKILLS / "lore-enable-payments/SKILL.md").read_text().lower().split()
+        )
+        order = [
+            skill.index("no active publication"),
+            skill.index("price through `propose_price`"),
+            skill.index("cloudflare_login` if needed"),
+            skill.index("the payout address, last"),
+            skill.index("lore node deploy --wallet <address> --network real"),
+        ]
+        self.assertEqual(order, sorted(order))
+        self.assertIn("no coinbase developer keys in the app", skill)
+        self.assertIn("never asked again", skill)
 
     def test_the_payment_skill_refuses_a_recovery_phrase(self) -> None:
         """The one secret worse than an API key to land in a transcript."""

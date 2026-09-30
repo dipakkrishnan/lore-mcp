@@ -304,7 +304,6 @@ type LoreAgentOptions = {
   proposePrice(amount: number, reason: string): Promise<number | null>;
   cloudflareLogin(): Promise<string>;
   openUrl(page: { title: string; url: string; note: string }): Promise<string>;
-  storeSecret(name: "CDP_API_KEY_ID" | "CDP_API_KEY_SECRET"): Promise<string>;
   /** How many staged drafts still wait on the owner's cards. */
   drafts?(): Promise<number>;
   authPrompt(prompt: import("@earendil-works/pi-ai").AuthPrompt): Promise<string>;
