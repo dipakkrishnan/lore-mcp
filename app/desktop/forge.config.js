@@ -7,6 +7,8 @@ const out = join(__dirname, "packaging/out");
 // smaller file count is the difference between minutes and days.
 const ignored = [
   /^\/(packaging|out|test|support)($|\/)/,
+  // Local tool caches (.mypy_cache and the like) are never part of the app.
+  /^\/\.[^/]+($|\/)/,
   /^\/(test-capture\.sh|tsconfig\.json|forge\.config\.js)$/,
   // License and notice files always ship (distribution compliance), whatever their extension.
   /^\/node_modules\/.*\/(?!(licen[cs]e|copying|notice)[.-])[^/]*\.(md|markdown|d\.ts|d\.mts|d\.cts|map|flow|tsbuildinfo)$/i,
@@ -17,7 +19,9 @@ const ignored = [
   // The app ships darwin-arm64 only; these foreign-platform native payloads sit
   // behind per-platform loaders (try/catch or win32-only paths) and never load.
   /^\/node_modules\/@anthropic-ai\/sandbox-runtime\/vendor\/srt-win($|\/)/,
-  /^\/node_modules\/.*\/@mariozechner\/clipboard-(?!darwin-arm64($|\/))/
+  /^\/node_modules\/.*\/@mariozechner\/clipboard-(?!darwin-arm64($|\/))/,
+  // esbuild loads only @esbuild/<this platform>; the other 25 cost ~280 MB.
+  /^\/node_modules\/(.*\/)?@esbuild\/(?!darwin-arm64($|\/))/
 ];
 
 module.exports = {
