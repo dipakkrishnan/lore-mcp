@@ -1176,11 +1176,7 @@ class Granola(Hosted):
     sections = ("private_notes", "summary", "notes")
 
     def listing(self, cursor: str | None) -> dict[str, object]:
-        return {
-            "time_range": "custom",
-            "custom_start": "2000-01-01",
-            "custom_end": date.today().isoformat(),
-        }
+        return {"time_range": "last_30_days"}
 
     def entries(self, answer: str) -> tuple[list[Entry], str | None]:
         entries = []
