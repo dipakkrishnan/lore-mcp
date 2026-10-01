@@ -240,6 +240,7 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         await js(`window.__lore.openTask("deploy")`);
         const deployLog = await js(`document.querySelector("#log").textContent`);
         check("a completed deploy opens with fresh history", !deployLog.includes("OLD COMPLETED DEPLOY"), deployLog);
+        check("drafts stay out of a thread that cannot draft", !(await js(`[...document.querySelectorAll("#main h2")].some((h) => h.textContent === "Approve what to sell")`)));
       } else if (scenario === "fresh") {
         // APP-109: an empty Lore names the next action and carries the control that takes it.
         await waitFor(`document.body.dataset.state === "welcome" && !document.querySelector("#welcome").classList.contains("provisioning")`);
@@ -615,6 +616,8 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         // the card lands below the sticky header; a card waiting in another thread names itself in the locked composer.
         await js(`window.__lore.openTask("capture")`);
         await js(`window.__lore.preview({ type: "question", id: "preview-q", task: null, questions: [{ question: "What should a publication cost?", header: "Price", multiSelect: false, options: [{ label: "$0.05", description: "Higher", recommended: false }, { label: "$0.01", description: "Low first price", recommended: true }] }, { question: "Paste your payout address.", header: "Payout", multiSelect: false, options: [], format: "evm_address" }] })`);
+        check("the card lands below the sticky header", await js(`document.querySelector("#request form").getBoundingClientRect().top >= document.querySelector("#main header").getBoundingClientRect().bottom`));
+        check("drafts wait in the capture thread that can draft them", await js(`[...document.querySelectorAll("#main h2")].some((h) => h.textContent === "Approve what to sell")`));
         check("the model's recommended option starts selected and is chipped", await js(`document.querySelector("#request input:checked")?.value`) === "$0.01" && await js(`document.querySelector("#request .choice:has(input:checked)").textContent`) === "$0.01RecommendedLow first price");
         check("the payout question is the guided card: Coinbase first, its taps, one address field", await js(`(() => { const f = document.querySelector("#request fieldset.payout"); return Boolean(f) && f.querySelector("input:checked")?.value === "My Coinbase account" && /Set the network to Base/.test(f.querySelector(".payout-steps").textContent) && f.querySelectorAll("input[type=text]").length === 1; })()`));
         await js(`(() => { const f = document.querySelector("#request fieldset.payout"); f.querySelectorAll("input[type=radio]")[1].click(); return true; })()`);
@@ -627,7 +630,6 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         await shot("payout-card");
         await js(`document.querySelector("#request fieldset.payout .other-answer").value = ""; true`);
         check("the chip sits to the right of the label on the same row", await js(`(() => { const c = document.querySelector("#request .choice:has(input:checked)"); const [label, chip] = [c.querySelector("span:not(.chip)"), c.querySelector(".chip")].map((n) => n.getBoundingClientRect()); return chip.left > label.right && Math.abs(chip.top - label.top) < 12 && chip.right <= c.getBoundingClientRect().right; })()`));
-        check("the card lands below the sticky header", await js(`document.querySelector("#request form").getBoundingClientRect().top >= document.querySelector("#main header").getBoundingClientRect().bottom`));
         await js(`document.querySelectorAll("#request .other-answer")[1].value = "abandon ability able about above absent absorb abstract absurd abuse access accident"; document.querySelector("#request form").requestSubmit()`);
         await sleep(100);
         check("a recovery phrase is refused before it reaches the agent", await js(`Boolean(document.querySelector("#request form"))`));

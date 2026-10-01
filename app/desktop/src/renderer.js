@@ -79,7 +79,7 @@ let accountMenuOpen = false;
 let sales = null;
 /** The task whose turn is open, while one is. @type {AgentTask | null} */
 let busy = null;
-/** The card awaiting the owner. A memory card also carries `current`, its entries as edited, so the composer can send a spoken or typed correction with them. @type {{id: string, task: AgentTask | null, box: HTMLElement, current?: () => ProposedMemory[]} | null} */
+/** The card awaiting the owner. A memory card also carries `current`, its entries as edited, so the composer can send a spoken or typed correction with them; `pinned` cards stay in view as the thread re-renders. @type {{id: string, task: AgentTask | null, box: HTMLElement, pinned: boolean, current?: () => ProposedMemory[]} | null} */
 let request = null;
 /**
  * The one blueprint panel node for the current setup thread: a read-only
@@ -632,22 +632,23 @@ function draftsPhase() {
   return `${candidates.length} ${candidates.length === 1 ? "draft" : "drafts"} to approve`;
 }
 
+/** Threads whose agent can stage a publication draft. */
+const DRAFTING = new Set(["publish", "capture"]);
+
 /** @param {Snapshot} s */
 function renderToday(s) {
-  if (detailTask) {
-    /** @type {HTMLElement[]} */
-    const detailParts = [];
-    if (detailTask === "publish" && candidates.length) detailParts.push(section("Approve what to sell", approvals(), el("span", "hint", "Buyers only ever get what you approve here.")));
-    if (detailTask === "publish" && (pushOffer || pushing)) detailParts.push(seamCard());
-    if (detailTask === "publish" && pushedNote) detailParts.push(pushReceipt(s));
-    if ((detailTask === "setup" || detailTask === "deploy") && detailRecord?.state === "done") detailParts.push(nextRung(s));
-    return detailParts;
-  }
   /** @type {HTMLElement[]} */
   const parts = [];
-  if (candidates.length) parts.push(section("Approve what to sell", approvals(), el("span", "hint", "Buyers only ever get what you approve here.")));
-  if (pushOffer || pushing) parts.push(seamCard());
-  if (pushedNote) parts.push(pushReceipt(s));
+  // Drafts and the push after approving show on Today and in the threads that draft.
+  if (!detailTask || DRAFTING.has(detailTask)) {
+    if (candidates.length) parts.push(section("Approve what to sell", approvals(), el("span", "hint", "Buyers only ever get what you approve here.")));
+    if (pushOffer || pushing) parts.push(seamCard());
+    if (pushedNote) parts.push(pushReceipt(s));
+  }
+  if (detailTask) {
+    if ((detailTask === "setup" || detailTask === "deploy") && detailRecord?.state === "done") parts.push(nextRung(s));
+    return parts;
+  }
   const attention = needsYou(s);
   if (attention.length) parts.push(section("Needs you", card(attention)));
   const shown = displayTasks();
@@ -1532,7 +1533,13 @@ function renderLog() {
     log.append(line);
   }
   agentPanel.hidden = !lines.length && !liveText && !shownRequest() && !detailSlot.childElementCount && !blueprintGhost;
-  if (log.lastElementChild) mainEl.scrollTop = mainEl.scrollHeight;
+  if (log.lastElementChild) reveal();
+}
+
+/** Show the newest thing: a pinned card just below the sticky header, otherwise the end of the thread. */
+function reveal() {
+  const box = shownRequest()?.pinned ? request?.box : null;
+  mainEl.scrollTop = box ? Math.max(0, box.getBoundingClientRect().top - mainEl.getBoundingClientRect().top + mainEl.scrollTop - header.offsetHeight - 16) : mainEl.scrollHeight;
 }
 
 /** Ghost-mode field order: key, label, and how to read that field's display text out of a (possibly partial) fields object. */
@@ -1912,7 +1919,8 @@ function renderRequest(event) {
       respond(event.id, value);
     });
   }
-  request = { id: event.id, task: event.task, box, current };
+  const pinned = event.type === "question" || event.type === "memories" || event.type === "blueprint";
+  request = { id: event.id, task: event.task, box, pinned, current };
   liveText = "";
   renderLog();
   requestSlot.replaceChildren(box);
@@ -1920,12 +1928,8 @@ function renderRequest(event) {
   syncComposer();
   if (view !== "today") show("today");
   for (const area of box.querySelectorAll("textarea")) fit(/** @type {HTMLTextAreaElement} */ (area));
-  if (event.type === "question" || event.type === "memories" || event.type === "blueprint") {
-    mainEl.scrollTop = Math.max(0, box.getBoundingClientRect().top - mainEl.getBoundingClientRect().top + mainEl.scrollTop - header.offsetHeight - 16);
-  } else {
-    mainEl.scrollTop = mainEl.scrollHeight;
-    /** @type {HTMLElement | null} */ (box.querySelector("input[type=text], input[type=password], select"))?.focus({ preventScroll: true });
-  }
+  reveal();
+  if (!pinned) /** @type {HTMLElement | null} */ (box.querySelector("input[type=text], input[type=password], select"))?.focus({ preventScroll: true });
 }
 
 /** @param {string} id @param {unknown} value @param {string} [echo] */
