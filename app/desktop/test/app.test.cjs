@@ -586,6 +586,15 @@ test("only Electron main can pipe a decision, and only for a card that is drafte
     });
     assert.equal(piped.status, 1);
     assert.match(piped.stderr, /only from the Lore desktop app/);
+    // The old marker, which the agent's shell could set itself, no longer opens the gate.
+    const forged = spawnSync("uv", ["run", "lore", "publication", "decide"], {
+      cwd: join(__dirname, "../../.."),
+      env: { ...process.env, LORE_HOME: directory, NO_COLOR: "1", LORE_ATTENDED_SURFACE: "desktop", LORE_ATTENDED_KEY: "guess" },
+      input: JSON.stringify({ candidate: card, approve: true }),
+      encoding: "utf8"
+    });
+    assert.equal(forged.status, 1);
+    assert.match(forged.stderr, /only from the Lore desktop app/);
     await assert.rejects(decide(directory, card, card, true), { message: /not drafted/ });
     const state = await readState(directory);
     assert.equal(state.publications.counts.active, 0);

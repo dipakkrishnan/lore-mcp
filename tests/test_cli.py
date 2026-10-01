@@ -12,6 +12,7 @@ import os
 import sqlite3
 import subprocess
 import sys
+import tempfile
 import unittest
 from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
@@ -30,12 +31,16 @@ from lore.store import JobKind, JobStatus, PublicationKind, Status, Store
 
 @contextmanager
 def desktop_stdin(text: str) -> Iterator[None]:
-    """Stand in for Electron main piping a decision with the attended marker set."""
-    with (
-        patch.dict(os.environ, {"LORE_ATTENDED_SURFACE": "desktop"}),
-        patch.object(sys, "stdin", StringIO(text)),
-    ):
-        yield
+    """Stand in for Electron main piping a decision with its launch key."""
+    with tempfile.TemporaryDirectory() as directory:
+        key = Path(directory) / "attended"
+        key.write_text("launch-key", encoding="utf-8")
+        with (
+            patch.object(cli, "ATTENDED_KEY", key),
+            patch.dict(os.environ, {"LORE_ATTENDED_KEY": "launch-key"}),
+            patch.object(sys, "stdin", StringIO(text)),
+        ):
+            yield
 
 
 class ParserTest(unittest.TestCase):
@@ -1687,28 +1692,42 @@ class PublicationApplyTest(LoreTestCase):
         self.assertTrue(self.staged_path.exists())
 
     def test_stdin_decisions_are_refused_off_the_desktop_app(self) -> None:
-        # The marker is what Electron main sets; a TTY or any other pipe with it
-        # is not the app, so neither the model's shell nor a script can decide.
+        # Only the key Electron main wrote this launch opens the gate: the old
+        # marker, a guess, or the right key on a TTY is the model's shell or a script.
         (first,) = self.drafted()
         payload = json.dumps({"candidate": first, "approve": True})
-        for marker, tty in ((None, False), ("desktop", True), ("shell", False)):
-            stdin = StringIO(payload)
-            with self.subTest(marker=marker, tty=tty):
-                with (
-                    patch.dict(os.environ),
-                    patch.object(sys, "stdin", stdin),
-                    patch.object(stdin, "isatty", return_value=tty),
-                ):
-                    os.environ.pop("LORE_ATTENDED_SURFACE", None)
-                    if marker:
-                        os.environ["LORE_ATTENDED_SURFACE"] = marker
-                    with self.assertRaisesRegex(
-                        ValueError, "only from the Lore desktop app"
+        with tempfile.TemporaryDirectory() as directory:
+            key = Path(directory) / "attended"
+            key.write_text("launch-key", encoding="utf-8")
+            for env, tty in (
+                ({"LORE_ATTENDED_KEY": ""}, False),
+                ({"LORE_ATTENDED_KEY": "", "LORE_ATTENDED_SURFACE": "desktop"}, False),
+                ({"LORE_ATTENDED_KEY": "guess"}, False),
+                ({"LORE_ATTENDED_KEY": "launch-key"}, True),
+            ):
+                stdin = StringIO(payload)
+                with self.subTest(env=env, tty=tty):
+                    with (
+                        patch.object(cli, "ATTENDED_KEY", key),
+                        patch.dict(os.environ, env),
+                        patch.object(sys, "stdin", stdin),
+                        patch.object(stdin, "isatty", return_value=tty),
                     ):
-                        cli.publication_decide()
+                        with self.assertRaisesRegex(
+                            ValueError, "only from the Lore desktop app"
+                        ):
+                            cli.publication_decide()
         with Store() as store:
             self.assertEqual(store.list_publications(), [])
         self.assertTrue(self.staged_path.exists())
+
+    def test_no_key_file_means_no_desktop_app(self) -> None:
+        with (
+            patch.object(cli, "ATTENDED_KEY", Path("/nonexistent/attended")),
+            patch.dict(os.environ, {"LORE_ATTENDED_KEY": "launch-key"}),
+            patch.object(sys, "stdin", StringIO("")),
+        ):
+            self.assertFalse(cli._attended())
 
 
 class PublicationCommandTest(LoreTestCase):
