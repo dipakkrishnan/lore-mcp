@@ -44,8 +44,21 @@ const OWNER_DIRS = {
 const CAPPED = "That reply took more steps than Lore allows at once, so it paused. Say continue to keep going.";
 /** Owner turns carry what the app knows and the owner never typed; thread history cuts each turn off here. */
 const ASIDE = "\n\n(For you only, not said by the owner: ";
-/** An assistant message's text, one paragraph per block: a model may answer in several. @param {import("@earendil-works/pi-ai").AssistantMessage["content"]} content */
-const spoken = (content) => content.flatMap((block) => (block.type === "text" && block.text.trim() ? [block.text.trim()] : [])).join("\n\n");
+/** OpenAI tags each text block as a preview ("commentary") or the reply ("final_answer"); other providers leave it out. @param {import("@earendil-works/pi-ai").TextContent} block */
+const phase = (block) => {
+  try {
+    return /** @type {import("@earendil-works/pi-ai").TextSignatureV1} */ (JSON.parse(block.textSignature ?? "")).phase;
+  } catch {
+    return undefined;
+  }
+};
+
+/** An assistant message's text, one paragraph per block; once a reply has a final answer, its preview of that answer is dropped. @param {import("@earendil-works/pi-ai").AssistantMessage["content"]} content */
+const spoken = (content) => {
+  const texts = content.flatMap((block) => (block.type === "text" && block.text.trim() ? [block] : []));
+  const final = texts.filter((block) => phase(block) === "final_answer");
+  return (final.length ? final : texts).map((block) => block.text.trim()).join("\n\n");
+};
 /** A memory to start from: the agent needs the id, the owner never sees or hears one. @param {number} id */
 const memoryAside = (id) => `${ASIDE}start from the memory with id ${id}. Call it by its title, never by its number.)`;
 /** A connected app to start from, by the source name its memories carry. @param {string} name */

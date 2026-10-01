@@ -205,14 +205,31 @@ test("switching tasks updates the live network policy the proxy actually filters
   }
 });
 
-test("an answer in several text blocks comes back as separate paragraphs", async () => {
+test("a reply reads the same from Anthropic and OpenAI: paragraphs, and OpenAI's preview dropped once its final answer lands", async () => {
   const { LoreAgent } = await import("../src/agent.mjs");
   const home = await mkdtemp(join(tmpdir(), "lore-desktop-"));
+  const usage = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } };
+  const luna = { api: "openai-codex-responses", provider: "openai-codex", model: "gpt-5.6-luna", usage };
+  const claude = { api: "anthropic-messages", provider: "anthropic", model: "claude-opus-5-5", usage };
+  /** @param {string} id @param {"commentary" | "final_answer"} phase */
+  const signed = (id, phase) => JSON.stringify({ v: 1, id, phase });
   try {
     const written = LoreAgent.sessionFor(home, "capture");
-    written.appendMessage({ role: "user", content: "/skill:lore-capture\n\nI mean to sell", timestamp: 1 });
-    written.appendMessage({ role: "assistant", content: [{ type: "text", text: "Got it." }, { type: "text", text: "Choose Draft for sale on the saved memory." }], api: "anthropic-messages", provider: "anthropic", model: "m", usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } }, stopReason: "stop", timestamp: 2 });
-    assert.equal(LoreAgent.history(home, "capture")[1].text, "Got it.\n\nChoose Draft for sale on the saved memory.");
+    written.appendMessage({ role: "user", content: "/skill:lore-capture\n\nwhat do you think will sell the best", timestamp: 1 });
+    // Recorded from GPT-5.6 Luna: a preview before a tool call stands alone, then a preview and the final answer that repeats it.
+    written.appendMessage({ role: "assistant", content: [{ type: "text", text: "I’m grounding the draft in your Deep Review case study.", textSignature: signed("msg_1", "commentary") }, { type: "toolCall", id: "call-1", name: "bash", arguments: { command: "lore search x" } }], ...luna, stopReason: "toolUse", timestamp: 2 });
+    written.appendMessage({ role: "toolResult", toolCallId: "call-1", toolName: "bash", content: [{ type: "text", text: "[]" }], isError: false, timestamp: 3 });
+    written.appendMessage({ role: "assistant", content: [{ type: "thinking", thinking: "**Drafting readiness confirmation sentence**" }, { type: "text", text: "The publication draft is ready for your approval below.", textSignature: signed("msg_2", "commentary") }, { type: "text", text: "The publication draft is waiting for your approval.", textSignature: signed("msg_3", "final_answer") }], ...luna, stopReason: "stop", timestamp: 4 });
+    // Claude sends no phase; two text blocks are two paragraphs.
+    written.appendMessage({ role: "user", content: "I mean to sell", timestamp: 5 });
+    written.appendMessage({ role: "assistant", content: [{ type: "text", text: "Got it." }, { type: "text", text: "Choose Draft for sale on the saved memory." }], ...claude, stopReason: "stop", timestamp: 6 });
+    assert.deepEqual(LoreAgent.history(home, "capture").map(({ text }) => text), [
+      "what do you think will sell the best",
+      "I’m grounding the draft in your Deep Review case study.",
+      "The publication draft is waiting for your approval.",
+      "I mean to sell",
+      "Got it.\n\nChoose Draft for sale on the saved memory."
+    ]);
   } finally {
     await rm(home, { recursive: true });
   }
