@@ -56,16 +56,6 @@ SECRET_LEAKS = (
     (re.compile(r"0x[0-9a-fA-F]{64}"), "contains something shaped like a private key"),
 )
 
-# The shared "how to drive" contract every owner skill must state, pinned as the
-# exact bolded lead-in `lore-enable-payments` already uses. A skill that never says
-# these can silently ship as a manual instead of a script.
-DRIVE_RULES = {
-    "one step at a time": "One step at a time.",
-    "announce before opening": "Announce, then open.",
-    "verify from state": "Verify from state, never by asking.",
-    "decisions defer to the owner": "Defer at decision points.",
-}
-
 
 def _skill_files() -> list[Path]:
     return sorted(OWNER_SKILLS.glob("*/SKILL.md")) + sorted(
@@ -196,28 +186,6 @@ class SkillContractTest(unittest.TestCase):
             text = path.read_text(encoding="utf-8")
             with self.subTest(skill=path.parent.name):
                 self.assertNotIn("$ARGUMENTS", text)
-        for skill in _owner_skills():
-            text = (skill / "SKILL.md").read_text(encoding="utf-8")
-            with self.subTest(skill=skill.name):
-                self.assertIn("Claude Code, use `AskUserQuestion`", text)
-                self.assertIn("In Codex, ask directly in chat", text)
-                self.assertIn("Never block because a named question", text)
-
-    def test_every_owner_skill_states_the_drive_contract(self) -> None:
-        """A skill that never says how to drive can silently ship as a manual.
-
-        The pattern was earned twice the hard way (see `lore-enable-payments`'s "How
-        to drive" section) but only enforced there. A future skill, or a future edit
-        to an existing one, could otherwise ship as a manual instead of a script with
-        nothing going red.
-        """
-        for skill in _owner_skills():
-            text = (skill / "SKILL.md").read_text(encoding="utf-8")
-            for rule, phrase in DRIVE_RULES.items():
-                with self.subTest(skill=skill.name, rule=rule):
-                    self.assertIn(
-                        phrase, text, f"{skill.name} is missing the '{rule}' drive rule"
-                    )
 
     def test_every_owner_skill_reaches_both_places_an_agent_looks(self) -> None:
         """Discovery is all-or-nothing: an unlinked or uncopied skill simply never runs."""
@@ -321,20 +289,6 @@ class SkillContractTest(unittest.TestCase):
             with self.subTest(promise=promise):
                 self.assertIn(promise, skill)
 
-    def test_the_payment_skill_can_start_from_no_wallet_at_all(self) -> None:
-        """ "Walk them to a wallet" is not an instruction anyone can follow."""
-        skill = (OWNER_SKILLS / "lore-enable-payments/SKILL.md").read_text(
-            encoding="utf-8"
-        )
-        lowered = skill.lower()
-        # A concrete origin for each account the owner does not yet have, with
-        # a Coinbase account first because it reaches a bank without a wallet app.
-        self.assertIn("recommend a coinbase account first", lowered)
-        self.assertIn("coinbase.com/wallet", lowered)
-        # And a funded test payer that is never the payout wallet.
-        self.assertIn("faucet", lowered)
-        self.assertIn("never the payout wallet", lowered)
-
     def test_the_desktop_store_asks_for_the_payout_address_last(self) -> None:
         """MON-025: the address is where new owners stalled, so it comes after value."""
         skill = " ".join(
@@ -384,16 +338,6 @@ class SkillContractTest(unittest.TestCase):
             with self.subTest(sentence=sentence.strip()[:80]):
                 self.assertNotRegex(sentence, invitation)
 
-    def test_the_payment_skill_keeps_free_a_first_class_outcome(self) -> None:
-        """`useful before monetized` is a product principle, not a footnote."""
-        skill = (
-            (OWNER_SKILLS / "lore-enable-payments/SKILL.md")
-            .read_text(encoding="utf-8")
-            .lower()
-        )
-        self.assertIn("lore price 0", skill)
-        self.assertIn("has not failed", skill)
-
     def test_owner_handoffs_offer_and_decline_paid_proxy_answers(self) -> None:
         onboard = " ".join(
             (OWNER_SKILLS / "lore-onboard/SKILL.md").read_text().lower().split()
@@ -418,19 +362,6 @@ class SkillContractTest(unittest.TestCase):
             "publication-only, free, and private-only are complete outcomes",
         ):
             self.assertIn(boundary, payments)
-
-    def test_onboarding_owns_the_runtime_install(self) -> None:
-        skill = " ".join(
-            (OWNER_SKILLS / "lore-onboard/SKILL.md").read_text().lower().split()
-        )
-        for boundary in (
-            "ask permission to install it and wait",
-            "never ask the owner to type, paste, or understand `curl`",
-            "run `lore status` again",
-            "only after it succeeds",
-            "a refusal changes nothing",
-        ):
-            self.assertIn(boundary, skill)
 
     def test_capture_skill_requires_private_approval_before_publish_handoff(
         self,

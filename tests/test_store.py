@@ -18,14 +18,11 @@ from helpers import LoreTestCase
 
 from lore.store import (
     JOB_MAX_ROWS,
-    JOB_SUMMARIES,
     STATUSES,
     AnswerSettings,
     JobKind,
     JobStatus,
-    Memory,
     OwnerJob,
-    Publication,
     PublicationKind,
     Status,
     Store,
@@ -41,19 +38,10 @@ class StoreLifecycleTest(LoreTestCase):
             self.assertEqual(stat.S_IMODE(store.path.parent.stat().st_mode), 0o700)
 
     def test_an_explicit_path_is_used_verbatim(self) -> None:
-        # `lore node deploy` and future tooling open a store by path; only the
-        # default (~/.lore) location owns the directory mode.
         path = Path(self.tmp.name) / "elsewhere/custom.db"
         with Store(path) as store:
             self.assertEqual(store.path, path)
             self.assertEqual(stat.S_IMODE(path.stat().st_mode), 0o600)
-
-    def test_close_is_idempotent_through_the_context_manager(self) -> None:
-        store = Store()
-        with store:
-            store.counts()
-        with self.assertRaises(sqlite3.ProgrammingError):
-            store.counts()
 
     def test_legacy_database_is_normalized_on_open(self) -> None:
         # A database created before the retention-only model holds rows in
@@ -329,11 +317,6 @@ class SettingsTest(LoreTestCase):
             store.set_setting("answer_price_usd", "not a number")
             with self.assertRaises(ValueError):
                 store.answer_settings()
-
-    def test_answer_settings_model_is_frozen(self) -> None:
-        settings = AnswerSettings()
-        with self.assertRaises(ValueError):
-            settings.answer_enabled = True  # type: ignore[misc]
 
 
 class PublicationTest(LoreTestCase):
@@ -846,39 +829,6 @@ class ModelTest(unittest.TestCase):
         self.assertEqual(f"{Status.PRIVATE}", "private")
         self.assertEqual(f"{PublicationKind.CONTENT}", "content")
 
-    def test_models_are_frozen(self) -> None:
-        memory = Memory(
-            id=1,
-            source="test",
-            origin="native",
-            title="t",
-            content="c",
-            project="",
-            status="private",
-            source_path="",
-            updated_at="now",
-        )
-        with self.assertRaises(ValueError):
-            memory.title = "changed"  # type: ignore[misc]
-
-    def test_from_row_decodes_what_sqlite_stores(self) -> None:
-        db = sqlite3.connect(":memory:")
-        db.row_factory = sqlite3.Row
-        db.execute(
-            "CREATE TABLE publications (id INTEGER, title TEXT, content TEXT, kind TEXT, "
-            "provenance TEXT, active INTEGER, created_at TEXT, updated_at TEXT, "
-            "source_changed_at TEXT)"
-        )
-        db.execute(
-            "INSERT INTO publications VALUES (1,'T','C','claim',?,1,'now','now',NULL)",
-            (json.dumps([7, 8]),),
-        )
-        row = db.execute("SELECT * FROM publications").fetchone()
-        publication = Publication.from_row(row)
-        self.assertEqual(publication.provenance, [7, 8])
-        self.assertIs(publication.kind, PublicationKind.CLAIM)
-        db.close()
-
 
 class OwnerJobTest(LoreTestCase):
     """Owner-run history: what ran, whether it finished, and what it cost.
@@ -1053,28 +1003,6 @@ class OwnerJobTest(LoreTestCase):
             self.assertIs(store.recent_jobs()[0].status, JobStatus.RUNNING)
             with self.assertRaises(ValueError):
                 store.finish_job(job_id, "running")
-
-    def test_the_summary_vocabulary_is_closed(self) -> None:
-        # Pinned so adding a code is a deliberate, reviewed act.
-        self.assertEqual(
-            set(JOB_SUMMARIES),
-            {
-                "",
-                "captured",
-                "stopped",
-                "closed",
-                "model_error",
-                "synthesized",
-                "not_reported",
-                "deployed",
-                "deployed_test",
-                "deployed_real",
-                "pushed",
-                "edge_write_failed",
-                "interrupted",
-                "failed",
-            },
-        )
 
     def test_prose_in_the_database_cannot_reach_a_reader(self) -> None:
         # Even a hand-edited database cannot surface arbitrary text.

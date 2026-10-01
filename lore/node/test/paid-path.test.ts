@@ -1,8 +1,6 @@
-// Exercises the Worker's paid `get` handler end to end against a stubbed
-// facilitator: no network, wallet, or faucet funds involved (MON-010).
-// `discover` and damaged-id rejection are already covered by scripts/smoke.ts
-// against a real deployment; this suite covers what smoke.ts cannot: the
-// facilitator round trip and its failure modes.
+// Exercises the Worker's free `discover` and paid `get` handlers end to end
+// against a stubbed facilitator: no network, wallet, or faucet funds involved
+// (MON-010).
 import { toClientEvmSigner } from "@x402/evm";
 import { registerExactEvmScheme } from "@x402/evm/exact/client";
 import { x402Client } from "@x402/core/client";

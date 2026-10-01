@@ -433,7 +433,6 @@ class SnapshotJobsTest(LoreTestCase):
             store.start_job("capture", owner_pid=4_000_000, timeout_minutes=720)
         items = snapshot.build()["jobs"]["items"]  # type: ignore[index,call-overload]
         self.assertEqual(items[0]["status"], "incomplete")
-        self.assertNotEqual(items[0]["status"], "succeeded")
 
     def test_the_liveness_columns_never_reach_the_snapshot(self) -> None:
         with Store() as store:

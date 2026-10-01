@@ -498,7 +498,7 @@ class DeployTest(_NodeCase):
                 side_effect=(w := _Wrangler(secret_put_fails=True)),
             ),
             patch("lore.deploy.shutil.which", return_value="/usr/bin/npm"),
-            patch("lore.cli.push"),
+            patch("lore.cli.push_job"),
             captured(),
             self.assertRaisesRegex(OSError, "LORE_WALLET"),
         ):
@@ -627,7 +627,7 @@ class DeployTest(_NodeCase):
         with (
             patch("lore.deploy.subprocess.run", side_effect=no_listing),
             patch("lore.deploy.shutil.which", return_value="/usr/bin/npm"),
-            patch("lore.cli.push"),
+            patch("lore.cli.push_job"),
             captured(),
             self.assertRaisesRegex(OSError, "wrangler d1 list"),
         ):

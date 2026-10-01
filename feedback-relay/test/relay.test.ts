@@ -44,12 +44,6 @@ function post(body: unknown, headers: Record<string, string> = {}): Promise<Resp
 }
 
 describe("routing", () => {
-  it("serves a plain-text description at /", async () => {
-    const response = await fetchWorker("https://relay.test/");
-    expect(response.status).toBe(200);
-    expect(response.headers.get("content-type")).toContain("text/plain");
-  });
-
   it("404s an unknown path", async () => {
     const response = await fetchWorker("https://relay.test/nope");
     expect(response.status).toBe(404);

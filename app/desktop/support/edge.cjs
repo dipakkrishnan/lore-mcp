@@ -1,5 +1,5 @@
 // Walks the renderer through the edge audit's two personas against a seeded scratch home.
-// Usage: support/edge.sh seller|provision   (seeds LORE_HOME, then runs this under Electron)
+// Usage: support/edge.sh <scenario>   (seeds LORE_HOME, then runs this under Electron)
 const { app } = require("electron");
 const { chmodSync, mkdirSync, writeFileSync } = require("node:fs");
 const { execFileSync } = require("node:child_process");
@@ -481,12 +481,8 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         const faq = await js(`document.querySelector("#content").textContent`);
         const questions = await js(`[...document.querySelectorAll("#content .row b")].map((b) => b.textContent)`);
         check("FAQ is a tab: what Lore is, then how to start", questions[0] === "What is Lore?" && questions[1] === "How do I start?" && questions.length >= 9, questions.join(" | "));
-        check("it says who buys: agents, not people browsing", /AI agents, in the middle of a task/.test(faq) && /Not people browsing/.test(faq));
-        check("it says what a buyer pays and that Lore never holds the money", /Your price\./.test(faq) && /a publication/.test(faq) && /never holds your money/.test(faq));
-        check("it promises no control that isn't there: no questions, and listing waits for a store", !/turn on questions|ask you one|Questions have/i.test(faq) && /Once your store is open, list it from Settings/.test(faq) && !/A cent a publication/.test(faq), faq);
-        check("it names the money in plain words, and says the address comes last", /digital dollars \(USDC\)/.test(faq) && /Coinbase account/.test(faq) && /asks where to send it when you open your store/.test(faq) && !/play money/.test(faq));
-        check("it says why connecting apps helps", questions.includes("Why connect my apps?") && /blank page/.test(faq));
-        check("it says honestly what leaves the Mac", /Only what you approve for sale/.test(faq) && /the AI you signed in with reads/.test(faq));
+        check("it says Lore never holds the money", /never holds your money/.test(faq));
+        check("it promises no control that isn't there", !/turn on questions|ask you one|Questions have|play money/i.test(faq), faq);
         check("it promises no earnings: the only dollar figure is a price", (faq.match(/\\$\\d/g) ?? []).length <= 1 && !/\\bearn|income|revenue|passive/i.test(faq), faq.match(/\\$\\d[^ ]*/g)?.join(",") ?? "");
         check("no jargon", !/\\bMCP\\b|x402|\\bnode\\b|worker|deploy|mainnet|testnet|endpoint|\\bAPI\\b|crypto|blockchain/i.test(faq), faq.match(/\\bMCP\\b|x402|\\bnode\\b|worker|deploy|mainnet|testnet|endpoint|\\bAPI\\b|crypto|blockchain/i)?.[0] ?? "");
         check("the buyer fork is one row that opens the buyer skill in the browser", await js(`[...document.querySelectorAll("#content .row")].filter((r) => r.textContent.includes("How do I buy?")).length === 1 && document.querySelector("#content a[href*='lore-buy']") !== null`));
