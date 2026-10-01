@@ -205,6 +205,19 @@ test("switching tasks updates the live network policy the proxy actually filters
   }
 });
 
+test("an answer in several text blocks comes back as separate paragraphs", async () => {
+  const { LoreAgent } = await import("../src/agent.mjs");
+  const home = await mkdtemp(join(tmpdir(), "lore-desktop-"));
+  try {
+    const written = LoreAgent.sessionFor(home, "capture");
+    written.appendMessage({ role: "user", content: "/skill:lore-capture\n\nI mean to sell", timestamp: 1 });
+    written.appendMessage({ role: "assistant", content: [{ type: "text", text: "Got it." }, { type: "text", text: "Choose Draft for sale on the saved memory." }], api: "anthropic-messages", provider: "anthropic", model: "m", usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } }, stopReason: "stop", timestamp: 2 });
+    assert.equal(LoreAgent.history(home, "capture")[1].text, "Got it.\n\nChoose Draft for sale on the saved memory.");
+  } finally {
+    await rm(home, { recursive: true });
+  }
+});
+
 test("sessions persist per task, come back as a thread, and a cut-off tool call is closed out", async () => {
   const { LoreAgent } = await import("../src/agent.mjs");
   const { SessionManager } = await import("@earendil-works/pi-coding-agent");

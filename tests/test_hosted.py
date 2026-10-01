@@ -23,6 +23,7 @@ from keyring.errors import PasswordDeleteError
 from mcp import Client
 from mcp.client.auth import OAuthFlowError
 from mcp.server.mcpserver import MCPServer
+from mcp.server.mcpserver.exceptions import ToolError
 from mcp.shared.auth import OAuthToken
 
 from lore import sources as sources_module
@@ -123,6 +124,23 @@ class HostedTest(LoreTestCase):
         with serving(stub):
             added = self.connect()
         self.assertEqual((added["state"], added["imported"]), ("unreachable", 0))
+
+    def test_signing_in_without_a_granola_account_says_so(self) -> None:
+        stub = MCPServer("granola")
+
+        @stub.tool()
+        def list_meetings(time_range: str = "last_30_days") -> str:
+            raise ToolError("Unauthorized: user has not created a Granola account yet")
+
+        @stub.tool()
+        def get_meetings(meeting_ids: list[str]) -> str:
+            return ""
+
+        with (
+            serving(stub),
+            self.assertRaisesRegex(SourceError, "don't have a Granola account yet"),
+        ):
+            self.connect(show=print)
 
     def test_a_sign_in_that_ran_out_asks_for_another(self) -> None:
         with serving(self.granola.server):

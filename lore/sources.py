@@ -973,6 +973,7 @@ class HostedReader(Reader):
             raise SourceError(f"{app.name} has no server to sign in to")
         self.app = app
         self.label = self.label or app.name
+        self.unregistered = False
 
     @classmethod
     def locate(cls, locator: str) -> tuple[str, str]:
@@ -1011,7 +1012,14 @@ class HostedReader(Reader):
             self.failure = (
                 State.NEEDS_PERMISSION if _refused(error) else State.UNREACHABLE
             )
+            self.unregistered = _says(error, self.app.unregistered)
             return None
+
+    @property
+    def trouble(self) -> str:
+        if self.unregistered:
+            return f"You don't have a {self.app.name} account yet. Sign up, then sign in again."
+        return super().trouble
 
     def probe(self) -> State:
         if self.listed is None:
@@ -1120,6 +1128,13 @@ class HostedReader(Reader):
         return text
 
 
+def _says(error: BaseException, phrase: str) -> bool:
+    """Whether a failure, however deep in the SDK's task groups, says `phrase`."""
+    if phrase and phrase in str(error):
+        return True
+    return any(_says(inner, phrase) for inner in getattr(error, "exceptions", ()))
+
+
 def _refused(error: BaseException) -> bool:
     """Whether a failure, however deep in the SDK's task groups, was the sign-in's."""
     if isinstance(error, OAuthFlowError):
@@ -1139,6 +1154,8 @@ class Hosted(Connector, ABC):
     fetcher: ClassVar[str]
     # Seconds between list calls, for an app that limits how often it is searched.
     pause: ClassVar[float] = 0.0
+    # What the app answers to someone who signed in without an account there.
+    unregistered: ClassVar[str] = ""
 
     def address(self, typed: str) -> str:
         return typed or os.environ.get(f"LORE_{self.id.upper()}_SERVER", self.server)
@@ -1171,6 +1188,7 @@ class Granola(Hosted):
     server = "https://mcp.granola.ai/mcp"
     lister = "list_meetings"
     fetcher = "get_meetings"
+    unregistered = "has not created a Granola account"
     meeting = re.compile(r'<meeting\s((?:"[^"]*"|[^>"])*)>(.*?)</meeting>', re.DOTALL)
     attribute = re.compile(r'(\w+)="([^"]*)"')
     sections = ("private_notes", "summary", "notes")
