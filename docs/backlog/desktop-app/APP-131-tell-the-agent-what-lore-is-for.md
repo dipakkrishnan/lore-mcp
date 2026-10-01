@@ -26,7 +26,7 @@ Granola".
 ## Proposed approach
 
 One purpose sentence in the system prompt; the capture rule points a selling
-request at Publish on the saved memory. Text blocks join as paragraphs. A hosted
+request at Draft for sale on the saved memory. Text blocks join as paragraphs. A hosted
 app can name the phrase it answers someone with no account, and Lore says so.
 
 ## Acceptance criteria
