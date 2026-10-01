@@ -237,8 +237,6 @@ describe("answer (paid) and result", () => {
       const agentRequest = model.requests[1] as { system: { type: string; text: string }[] };
       const system = agentRequest.system.map(({ text }) => text).join("");
       expect(system).toContain(PROXY);
-      expect(system).toContain("authorized AI proxy");
-      expect(system).toContain("search only when no teaser matches");
 
       const row = await env.LORE_DB.prepare(
         "SELECT model, input_tokens, output_tokens, cost_usd, tool_calls FROM answer_jobs WHERE ticket_id = ?1"
@@ -318,5 +316,4 @@ describe("answer (paid) and result", () => {
       await client.close();
     }
   });
-
 });

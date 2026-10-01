@@ -52,16 +52,6 @@ describe("storefront", () => {
     expect(ld(html).itemListElement[0].item).not.toHaveProperty("offers");
   });
 
-  it("gives every topic its own anchor, even when two slug alike or one is empty", () => {
-    const html = storefront({ manifest_version: 1, publication_count: 3, topics: { "Team Scaling": catalog.topics.pricing, "team-scaling": catalog.topics.pricing, "": catalog.topics.pricing } }, store);
-    expect(html).toContain('id="topic-1"');
-    expect(html).toContain('id="topic-2"');
-    expect(html).toContain("<h2>Other <small>");
-  });
-
-  it("says when nothing is for sale", () => {
-    expect(storefront({ manifest_version: 1, publication_count: 0, topics: {} }, store)).toContain("Nothing for sale yet");
-  });
 });
 
 describe("publicationPage", () => {

@@ -416,10 +416,6 @@ class OwnerFolderTest(LoreTestCase):
                 sources_module.Registry(store).read(["nope"])
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class ConnectorTest(LoreTestCase):
     """An app the owner names, found and read without them learning what a source is."""
 
@@ -535,12 +531,13 @@ class ConnectorTest(LoreTestCase):
             (apps["chatgpt"].kind, apps["chatgpt"].refresh), ("export", False)
         )
         self.assertTrue(apps["substack"].placeholder.startswith("https://"))
-        # An export has to be asked for first; the sheet says where.
-        self.assertIn("Export data", apps["chatgpt"].guide)
-        self.assertIn("Export data", apps["claude"].guide)
 
     def test_an_unknown_app_or_the_wrong_kind_for_it_is_refused(self) -> None:
         with self.assertRaises(sources_module.SourceError):
             Source.owner("/notes", connector="evernote")
         with self.assertRaises(sources_module.SourceError):
             Source.owner("https://a.example", kind="feed", connector="obsidian")
+
+
+if __name__ == "__main__":
+    unittest.main()

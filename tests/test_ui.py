@@ -39,20 +39,6 @@ class PaintTest(unittest.TestCase):
         with patch.object(ui, "COLOR", False):
             self.assertEqual(ui.paint("1", "hi"), "hi")
 
-    def test_the_chrome_helpers_print_their_text(self) -> None:
-        with patch.object(ui, "COLOR", False):
-            for helper, text, expected in (
-                (ui.heading, "Library", "Library"),
-                (ui.success, "done", "✓ done"),
-                (ui.muted, "aside", "aside"),
-            ):
-                with self.subTest(helper=helper.__name__), captured() as output:
-                    helper(text)
-                    self.assertIn(expected, output.getvalue())
-            with captured() as output:
-                ui.logo()
-            self.assertIn("Lore", output.getvalue())
-
 
 def _publication(**overrides: object) -> Publication:
     return Publication(

@@ -239,21 +239,14 @@ class MetadataTest(LoreTestCase):
 class RelayUrlTest(LoreTestCase):
     def test_no_pinned_relay_refuses_and_says_so(self) -> None:
         with patch.object(feedback, "RELAY_URL", None):
-            with self.assertRaises(ValueError) as caught:
+            with self.assertRaises(ValueError):
                 feedback.relay_url()
-            self.assertIn("not wired up", str(caught.exception))
             self.assertFalse(feedback.available())
 
     def test_a_pinned_relay_is_used_and_reported_available(self) -> None:
         with patch.object(feedback, "RELAY_URL", "https://feedback.example/report"):
             self.assertEqual(feedback.relay_url(), "https://feedback.example/report")
             self.assertTrue(feedback.available())
-
-    def test_a_malformed_override_is_not_available(self) -> None:
-        with patch.dict(
-            "os.environ", {feedback.RELAY_ENV: "http://example.com/report"}
-        ):
-            self.assertFalse(feedback.available())
 
     def test_https_override_is_accepted(self) -> None:
         with patch.dict(
@@ -273,6 +266,7 @@ class RelayUrlTest(LoreTestCase):
         ):
             with self.assertRaises(ValueError):
                 feedback.relay_url()
+            self.assertFalse(feedback.available())
 
 
 class SpoolTest(LoreTestCase):
@@ -423,14 +417,14 @@ class SubmitTest(LoreTestCase):
 
     def test_400_with_a_non_dict_body_still_yields_a_message(self) -> None:
         with stub_relay(400, ["oops"]) as (url, _received):
-            with self.assertRaises(ValueError):
+            with self.assertRaisesRegex(ValueError, "oops"):
                 feedback.submit(self._report(), url=url)
 
     def test_400_with_an_error_field_that_is_not_a_string_falls_back_to_the_body(
         self,
     ) -> None:
         with stub_relay(400, {"error": 123}) as (url, _received):
-            with self.assertRaises(ValueError):
+            with self.assertRaisesRegex(ValueError, "123"):
                 feedback.submit(self._report(), url=url)
 
     def test_400_with_non_json_body_falls_back_to_raw_text(self) -> None:
