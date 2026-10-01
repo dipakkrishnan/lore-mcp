@@ -863,3 +863,10 @@ blueprint.blueprint_path().write_text(json.dumps({"name": "Ada"}))
     await rm(directory, { recursive: true });
   }
 });
+
+test("every tool that puts a card in front of the owner runs one at a time", async () => {
+  // Pi runs a turn's tool calls in parallel unless a tool in it is sequential; two owner cards at once would overwrite each other in the app's single card slot.
+  const source = await readFile(join(__dirname, "../src/agent.mjs"), "utf8");
+  const owner = ["ask_user", "propose_memories", "propose_blueprint", "propose_price", "cloudflare_login", "open_url", "finish_task"];
+  for (const name of owner) assert.match(source, new RegExp(`name: "${name}",\\s*executionMode: "sequential"`), `${name} must be sequential`);
+});
