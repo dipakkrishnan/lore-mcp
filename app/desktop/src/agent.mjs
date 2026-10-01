@@ -44,6 +44,8 @@ const OWNER_DIRS = {
 const CAPPED = "That reply took more steps than Lore allows at once, so it paused. Say continue to keep going.";
 /** Owner turns carry what the app knows and the owner never typed; thread history cuts each turn off here. */
 const ASIDE = "\n\n(For you only, not said by the owner: ";
+/** An assistant message's text, one paragraph per block: a model may answer in several. @param {import("@earendil-works/pi-ai").AssistantMessage["content"]} content */
+const spoken = (content) => content.flatMap((block) => (block.type === "text" && block.text.trim() ? [block.text.trim()] : [])).join("\n\n");
 /** A memory to start from: the agent needs the id, the owner never sees or hears one. @param {number} id */
 const memoryAside = (id) => `${ASIDE}start from the memory with id ${id}. Call it by its title, never by its number.)`;
 /** A connected app to start from, by the source name its memories carry. @param {string} name */
@@ -332,10 +334,11 @@ export class LoreAgent {
       noContextFiles: true,
       systemPrompt: [
         "You are Lore's desktop agent, talking with the owner inside the Lore app.",
+        "Lore helps the owner turn their first-hand experience into private memories and sell bounded publications of it to other people's AI agents through their own store. When the owner talks about offerings, selling, or making money, they mean their Lore: publishing what they know and their store, not advice on their business.",
         "Follow the skill named in the latest message that names one exactly, and skip its install steps because Lore is already provisioned.",
         "Ask the owner everything through ask_user — decisions and open questions alike; offer the likely answers as options, and the owner can always type their own. Set recommended true on the one option you recommend, if any. To ask for something the owner types or pastes, send the question with no options; for a payout address also set format to evm_address. Never end a turn with a question in prose.",
         "Keep every message light: a sentence or two, question text under fifteen words, option labels of a few words with one short description, and never restate what a card already shows.",
-        "During capture, show proposed memories only through propose_memories, never in prose; that tool saves what the owner keeps and returns the saved memories, or returns the owner's correction for you to revise and propose again. After it saves, say one short sentence and call finish_task; never offer publication, the owner starts that from the saved card.",
+        "During capture, show proposed memories only through propose_memories, never in prose; that tool saves what the owner keeps and returns the saved memories, or returns the owner's correction for you to revise and propose again. After it saves, say one short sentence and call finish_task; never offer publication unprompted. If the owner asks to sell what they captured, tell them to choose Publish on the saved memory.",
         "During onboarding, gather evidence first, then call propose_blueprint once with one bounded proposal; that tool saves the owner-approved shape.",
         "To set what buyers pay per publication, call propose_price and never run a price command yourself; the owner confirms the exact amount on the card, and the tool returns what they saved or null if they declined. Work from that number, not from what you proposed.",
         "Never mention tools, commands, files, or plumbing to the owner: no Cloudflare, Node, wrangler, Worker, Base, Sepolia, network ids, or memory ids in prose; name a memory by its title. Speak about memories, their Lore, their store, and real money, and say what happens next rather than which checks passed.",
@@ -390,7 +393,7 @@ export class LoreAgent {
         const text = typeof message.content === "string" ? message.content : message.content.map((block) => (block.type === "text" ? block.text : "")).join("");
         lines.push({ text: text.replace(/^\/skill:\S+\n\n/, "").split(ASIDE)[0], owner: true });
       } else if (message.role === "assistant") {
-        const text = message.content.map((block) => (block.type === "text" ? block.text : "")).join("").trim();
+        const text = spoken(message.content);
         if (text) lines.push({ text, owner: false });
       } else if (message.role === "toolResult") {
         if (PLAIN_TEXT_TOOLS.has(message.toolName)) {
@@ -603,8 +606,7 @@ export class LoreAgent {
         this.options.emit({ type: "live", task, text: task === "deploy" ? "Setting up your store…" : event.toolName === "read" ? "Reading…" : "Looking through your Lore…" });
       }
       if (event.type === "message_update" && event.assistantMessageEvent.type === "text_delta") {
-        const text = event.assistantMessageEvent.partial.content.map((block) => (block.type === "text" ? block.text : "")).join("");
-        this.options.emit({ type: "live", task, text });
+        this.options.emit({ type: "live", task, text: spoken(event.assistantMessageEvent.partial.content) });
       }
       if (event.type === "message_update" && (event.assistantMessageEvent.type === "toolcall_start" || event.assistantMessageEvent.type === "toolcall_delta")) {
         // pi-ai keeps `arguments` parsed from the partial tool-call JSON as it streams
@@ -628,10 +630,7 @@ export class LoreAgent {
         this.#capped = true;
         void session.abort();
       }
-      const text = event.message.content
-        .map((block) => (block.type === "text" ? block.text : ""))
-        .join("")
-        .trim();
+      const text = spoken(event.message.content);
       if (text) this.options.emit({ type: "message", task, text });
     });
     this.#sessions.set(task, session);
