@@ -699,7 +699,7 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         check("a preview card appears after a short hover", await waitFor(`document.querySelector(".peek")`));
         const peekText = await js(`document.querySelector(".peek")?.textContent ?? ""`);
         const rowTitle = await js(`document.querySelector("#content .task-link b").textContent`);
-        check("the card shows title, date, and content, and offers no actions", peekText.startsWith(rowTitle) && /Sep \d+/.test(peekText) && /first ten buyers|management layer/.test(peekText) && await js(`document.querySelectorAll(".peek button").length`) === 0, peekText);
+        check("the card shows title, date, and content, and offers no actions", peekText.startsWith(rowTitle) && /(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) \d+/.test(peekText) && /first ten buyers|management layer/.test(peekText) && await js(`document.querySelectorAll(".peek button").length`) === 0, peekText);
         check("the card stays inside the window", await js(`(() => { const r = document.querySelector(".peek").getBoundingClientRect(); return r.left >= 0 && r.top >= 0 && r.right <= innerWidth && r.bottom <= innerHeight; })()`));
         await shot("memory-peek");
         await key("keyDown", "Escape");
