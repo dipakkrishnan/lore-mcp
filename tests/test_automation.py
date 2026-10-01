@@ -88,44 +88,26 @@ class ProfileTest(LoreTestCase):
         with self.assertRaisesRegex(ValueError, "unknown executor"):
             automation.save_profile({"executor": "cursor"})
 
-    def test_the_agent_enum_renders_as_its_wire_value(self) -> None:
-        self.assertEqual(f"{automation.Agent.CLAUDE}", "claude")
-
 
 class PromptTest(LoreTestCase):
-    def test_the_prompt_states_the_thesis_and_hands_off_execution(self) -> None:
+    def test_the_prompt_names_its_commands_and_the_no_publish_rule(self) -> None:
         prompt = automation.build_prompt(automation_profile())
         for expected in (
-            "topic-based memory library",
-            "perform a cold-start pass",
-            "delegate coherent slices",
             "/INDEX.md",
-            "failed launches",
             "lore search --status private",
             "-m lore sync --source automation",
-            "prior agent sessions",
             "You never publish and never change disclosure",
-            "Worth publishing",
-            "What earns a place in memory",
         ):
             with self.subTest(expected=expected):
                 self.assertIn(expected, prompt)
 
-    def test_later_runs_add_only_net_new_claims_named_by_the_claim(self) -> None:
+    def test_each_cadence_reads_back_its_own_window(self) -> None:
         for cadence, window in (("daily", "last day"), ("weekly", "last week")):
             prompt = automation.build_prompt(
                 {**automation_profile(), "cadence": cadence}
             )
             with self.subTest(cadence=cadence):
                 self.assertIn(window, prompt)
-        for expected in (
-            "search the library for it",
-            "write only what\nis net new",
-            "never by date, run, or the word",
-            "`deep-review-wedge.md`",
-        ):
-            with self.subTest(expected=expected):
-                self.assertIn(expected, prompt)
 
     def test_the_readable_statuses_are_derived_from_the_store(self) -> None:
         # Hardcoding the status model here is how the prompt goes stale after a

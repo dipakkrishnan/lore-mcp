@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import hmac
 import json
 import math
 import os
@@ -1132,11 +1133,21 @@ def _interactive() -> bool:
     return sys.stdin.isatty() and sys.stdout.isatty()
 
 
+ATTENDED_KEY = Path.home() / "Library" / "Application Support" / "Lore" / "attended"
+
+
 def _attended() -> bool:
-    """Whether the Lore desktop app, the other attended surface, is piping a decision."""
-    return (
-        os.environ.get("LORE_ATTENDED_SURFACE") == "desktop" and not sys.stdin.isatty()
-    )
+    """Whether the Lore desktop app, the other attended surface, is piping a decision.
+
+    The app writes a fresh key each launch where its agent's sandbox cannot read,
+    and hands it only to the CLI processes it spawns, so the agent cannot pose as it.
+    """
+    key = os.environ.get("LORE_ATTENDED_KEY", "")
+    try:
+        expected = ATTENDED_KEY.read_text(encoding="utf-8").strip()
+    except OSError:
+        return False
+    return bool(key) and hmac.compare_digest(key, expected) and not sys.stdin.isatty()
 
 
 def _desktop_decision(what: str) -> str:
@@ -1667,7 +1678,7 @@ def report_feedback(
         text = ask_lines("Description (end with Ctrl-D)")
 
     # `_attended()` is exactly the Desktop app's signature (state.cjs pipes
-    # the description over stdin with LORE_ATTENDED_SURFACE=desktop set), so
+    # the description over stdin with its LORE_ATTENDED_KEY set), so
     # the report's metadata says which surface it actually came from.
     source: feedback_module.Source = "desktop" if _attended() else "cli"
     receipt = feedback_module.report_feedback(

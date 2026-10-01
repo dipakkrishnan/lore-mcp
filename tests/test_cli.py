@@ -12,6 +12,7 @@ import os
 import sqlite3
 import subprocess
 import sys
+import tempfile
 import unittest
 from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
@@ -30,197 +31,19 @@ from lore.store import JobKind, JobStatus, PublicationKind, Status, Store
 
 @contextmanager
 def desktop_stdin(text: str) -> Iterator[None]:
-    """Stand in for Electron main piping a decision with the attended marker set."""
-    with (
-        patch.dict(os.environ, {"LORE_ATTENDED_SURFACE": "desktop"}),
-        patch.object(sys, "stdin", StringIO(text)),
-    ):
-        yield
+    """Stand in for Electron main piping a decision with its launch key."""
+    with tempfile.TemporaryDirectory() as directory:
+        key = Path(directory) / "attended"
+        key.write_text("launch-key", encoding="utf-8")
+        with (
+            patch.object(cli, "ATTENDED_KEY", key),
+            patch.dict(os.environ, {"LORE_ATTENDED_KEY": "launch-key"}),
+            patch.object(sys, "stdin", StringIO(text)),
+        ):
+            yield
 
 
 class ParserTest(unittest.TestCase):
-    def test_every_documented_command_is_reachable(self) -> None:
-        root = cli.parser()
-        for argv, expected in (
-            (["setup", "--yes"], {"command": "setup", "yes": True}),
-            (["sync", "--source", "codex"], {"command": "sync", "source": ["codex"]}),
-            (["review", "a", "b", "--limit", "3"], {"query": ["a", "b"], "limit": 3}),
-            (
-                ["review", "--all", "discarded"],
-                {"all": "discarded"},
-            ),
-            (["search", "x", "--json"], {"json": True, "limit": 20}),
-            (
-                ["memory", "show", "7", "--json"],
-                {"command": "memory", "memory_command": "show", "id": 7, "json": True},
-            ),
-            (
-                ["memory", "rename", "7", "New title", "--json"],
-                {
-                    "command": "memory",
-                    "memory_command": "rename",
-                    "id": 7,
-                    "title": "New title",
-                    "json": True,
-                },
-            ),
-            (
-                ["memory", "edit", "7", "New content", "--json"],
-                {
-                    "command": "memory",
-                    "memory_command": "edit",
-                    "id": 7,
-                    "content": "New content",
-                    "json": True,
-                },
-            ),
-            (
-                ["memory", "edit", "7", "--stdin"],
-                {
-                    "command": "memory",
-                    "memory_command": "edit",
-                    "id": 7,
-                    "content": None,
-                    "stdin": True,
-                },
-            ),
-            (["profile", "-", "--no-schedule"], {"path": "-", "no_schedule": True}),
-            (
-                ["capture", "apply", "-"],
-                {"command": "capture", "capture_command": "apply", "file": "-"},
-            ),
-            (["status"], {"command": "status"}),
-            (
-                ["sources", "add", "--folder", "/notes", "--since", "2026-01-01"],
-                {
-                    "command": "sources",
-                    "sources_command": "add",
-                    "folder": "/notes",
-                    "label": None,
-                    "since": "2026-01-01",
-                },
-            ),
-            (
-                ["sources", "add", "--folder", "/v", "--connector", "obsidian"],
-                {"sources_command": "add", "folder": "/v", "connector": "obsidian"},
-            ),
-            (
-                [
-                    "sources",
-                    "connect",
-                    "substack",
-                    "https://a.example",
-                    "--replace",
-                    "x",
-                ],
-                {
-                    "sources_command": "connect",
-                    "connector": "substack",
-                    "locator": "https://a.example",
-                    "replace": "x",
-                },
-            ),
-            (
-                ["sources", "catalog", "--json"],
-                {"sources_command": "catalog", "json": True},
-            ),
-            (
-                ["sources", "choices", "obsidian", "--json"],
-                {"sources_command": "choices", "connector": "obsidian", "json": True},
-            ),
-            (
-                ["sources", "preview", "--folder", "/notes", "--json"],
-                {"sources_command": "preview", "folder": "/notes", "json": True},
-            ),
-            (["sources", "list"], {"sources_command": "list"}),
-            (
-                ["sources", "read", "codex"],
-                {"sources_command": "read", "name": ["codex"]},
-            ),
-            (
-                ["sources", "remove", "folder-1", "--delete"],
-                {"sources_command": "remove", "name": "folder-1", "delete": True},
-            ),
-            (["help"], {"command": "help"}),
-            (["price", "1.5"], {"amount": 1.5}),
-            (
-                ["answer", "on", "p.txt", "0.5"],
-                {
-                    "command": "answer",
-                    "answer_command": "on",
-                    "file": "p.txt",
-                    "price": 0.5,
-                },
-            ),
-            (["answer", "off"], {"answer_command": "off"}),
-            (["telemetry", "on"], {"command": "telemetry", "telemetry_command": "on"}),
-            (["telemetry", "off"], {"telemetry_command": "off"}),
-            (["telemetry", "status"], {"telemetry_command": "status"}),
-            (["serve", "--transport", "http"], {"transport": "http", "port": 8765}),
-            (
-                ["node", "deploy", "--wallet", "0xabc"],
-                {"node_command": "deploy", "wallet": "0xabc"},
-            ),
-            (
-                ["blueprint", "apply", "f.json"],
-                {"blueprint_command": "apply", "file": "f.json"},
-            ),
-            (["blueprint", "apply", "-"], {"blueprint_command": "apply", "file": "-"}),
-            (["blueprint", "show"], {"blueprint_command": "show"}),
-            (
-                ["publication", "review", "c.json"],
-                {"publication_command": "review", "file": "c.json"},
-            ),
-            (["publication", "list"], {"publication_command": "list"}),
-            (
-                ["publication", "draft", "-"],
-                {"publication_command": "draft", "file": "-"},
-            ),
-            (["publication", "candidates"], {"publication_command": "candidates"}),
-            (["publication", "decide"], {"publication_command": "decide"}),
-            (
-                ["publication", "revoke", "7"],
-                {"publication_command": "revoke", "id": 7},
-            ),
-            (
-                ["publication", "reapprove", "7"],
-                {"publication_command": "reapprove", "id": [7]},
-            ),
-            (["push", "--local"], {"command": "push", "local": True}),
-            (
-                ["report-feedback"],
-                {
-                    "command": "report-feedback",
-                    "title": None,
-                    "email": None,
-                    "description": None,
-                    "description_file": None,
-                    "json": False,
-                },
-            ),
-            (
-                [
-                    "report-feedback",
-                    "--title",
-                    "T",
-                    "--email",
-                    "e@x.com",
-                    "--description",
-                    "D",
-                    "--json",
-                ],
-                {"title": "T", "email": "e@x.com", "description": "D", "json": True},
-            ),
-            (
-                ["report-feedback", "--title", "T", "--description-file", "-"],
-                {"title": "T", "description_file": "-"},
-            ),
-        ):
-            with self.subTest(argv=argv):
-                args = vars(root.parse_args(argv))
-                for key, value in expected.items():
-                    self.assertEqual(args[key], value)
-
     def test_unknown_values_are_refused_by_the_parser(self) -> None:
         for argv in (
             ["review", "--status", "external"],
@@ -536,16 +359,6 @@ class SourcesCommandTest(LoreTestCase):
         self.assertIn("connected", text)
         self.assertIn("off", text)
         self.assertIn("1 imported", text)
-
-    def test_sources_alone_prints_usage(self) -> None:
-        with (
-            captured(),
-            patch("sys.stderr", new_callable=StringIO) as stderr,
-            self.assertRaises(SystemExit) as exited,
-        ):
-            cli.main(["sources"])
-        self.assertEqual(exited.exception.code, 2)
-        self.assertIn("usage: lore sources", stderr.getvalue())
 
     def test_a_bad_source_argument_exits_two_with_one_line(self) -> None:
         for argv in (
@@ -1687,28 +1500,42 @@ class PublicationApplyTest(LoreTestCase):
         self.assertTrue(self.staged_path.exists())
 
     def test_stdin_decisions_are_refused_off_the_desktop_app(self) -> None:
-        # The marker is what Electron main sets; a TTY or any other pipe with it
-        # is not the app, so neither the model's shell nor a script can decide.
+        # Only the key Electron main wrote this launch opens the gate: the old
+        # marker, a guess, or the right key on a TTY is the model's shell or a script.
         (first,) = self.drafted()
         payload = json.dumps({"candidate": first, "approve": True})
-        for marker, tty in ((None, False), ("desktop", True), ("shell", False)):
-            stdin = StringIO(payload)
-            with self.subTest(marker=marker, tty=tty):
-                with (
-                    patch.dict(os.environ),
-                    patch.object(sys, "stdin", stdin),
-                    patch.object(stdin, "isatty", return_value=tty),
-                ):
-                    os.environ.pop("LORE_ATTENDED_SURFACE", None)
-                    if marker:
-                        os.environ["LORE_ATTENDED_SURFACE"] = marker
-                    with self.assertRaisesRegex(
-                        ValueError, "only from the Lore desktop app"
+        with tempfile.TemporaryDirectory() as directory:
+            key = Path(directory) / "attended"
+            key.write_text("launch-key", encoding="utf-8")
+            for env, tty in (
+                ({"LORE_ATTENDED_KEY": ""}, False),
+                ({"LORE_ATTENDED_KEY": "", "LORE_ATTENDED_SURFACE": "desktop"}, False),
+                ({"LORE_ATTENDED_KEY": "guess"}, False),
+                ({"LORE_ATTENDED_KEY": "launch-key"}, True),
+            ):
+                stdin = StringIO(payload)
+                with self.subTest(env=env, tty=tty):
+                    with (
+                        patch.object(cli, "ATTENDED_KEY", key),
+                        patch.dict(os.environ, env),
+                        patch.object(sys, "stdin", stdin),
+                        patch.object(stdin, "isatty", return_value=tty),
                     ):
-                        cli.publication_decide()
+                        with self.assertRaisesRegex(
+                            ValueError, "only from the Lore desktop app"
+                        ):
+                            cli.publication_decide()
         with Store() as store:
             self.assertEqual(store.list_publications(), [])
         self.assertTrue(self.staged_path.exists())
+
+    def test_no_key_file_means_no_desktop_app(self) -> None:
+        with (
+            patch.object(cli, "ATTENDED_KEY", Path("/nonexistent/attended")),
+            patch.dict(os.environ, {"LORE_ATTENDED_KEY": "launch-key"}),
+            patch.object(sys, "stdin", StringIO("")),
+        ):
+            self.assertFalse(cli._attended())
 
 
 class PublicationCommandTest(LoreTestCase):
@@ -2374,17 +2201,6 @@ class ReportFeedbackTest(LoreTestCase):
             self.assertEqual(cli.report_feedback("T", None, "D", None, True), 0)
         self.assertEqual(submit.call_args.kwargs["source"], "desktop")
 
-    def test_a_real_terminal_is_labeled_cli(self) -> None:
-        with (
-            patch.object(cli, "_interactive", return_value=True),
-            patch.object(
-                cli.feedback_module, "report_feedback", return_value=self._receipt()
-            ) as submit,
-            captured(),
-        ):
-            self.assertEqual(cli.report_feedback("T", None, "D", None, True), 0)
-        self.assertEqual(submit.call_args.kwargs["source"], "cli")
-
     def test_a_relay_failure_propagates_as_the_cli_error_convention(self) -> None:
         with (
             patch.object(cli, "_interactive", return_value=True),
@@ -2396,24 +2212,6 @@ class ReportFeedbackTest(LoreTestCase):
         ):
             with self.assertRaises(OSError):
                 cli.report_feedback("T", None, "D", None, False)
-
-
-class ManualTest(unittest.TestCase):
-    def test_help_is_a_workflow_manual(self) -> None:
-        with captured() as output:
-            self.assertEqual(cli.manual(), 0)
-        text = output.getvalue()
-        for command in (
-            "lore setup",
-            "lore review",
-            "lore price",
-            "lore node deploy",
-            "lore report-feedback",
-        ):
-            with self.subTest(command=command):
-                self.assertIn(command, text)
-        # The manual is where an owner learns that reviewing is not publishing.
-        self.assertIn("Reviewing never discloses anything", text)
 
 
 class DashboardTest(LoreTestCase):

@@ -1,13 +1,28 @@
 const { execFile, spawn } = require("node:child_process");
 const { createInterface } = require("node:readline");
 const { promisify } = require("node:util");
-const { resolve } = require("node:path");
+const { randomBytes } = require("node:crypto");
+const { mkdirSync, writeFileSync } = require("node:fs");
+const { homedir } = require("node:os");
+const { dirname, join, resolve } = require("node:path");
 
 const run = promisify(execFile);
 const root = resolve(__dirname, "../../..");
 
 /** The packaged CLI runs from the Lore home: the app inherits whatever directory launched it, and the CLI treats a checkout there as development. @type {{file: string, args: string[], cwd?: string}} */
 let runtime = { file: "uv", args: ["run", "lore"], cwd: root };
+
+/** Where the CLI checks a decision came from this app: outside every root the agent's sandbox can read. */
+const ATTENDED_KEY = join(homedir(), "Library", "Application Support", "Lore", "attended");
+/** Fresh each launch and never in process.env, so the agent's shell cannot pass it. */
+const attendedKey = randomBytes(32).toString("hex");
+
+/** Rewritten on every decision, so the app that launched last still answers for itself. */
+function attended() {
+  mkdirSync(dirname(ATTENDED_KEY), { recursive: true });
+  writeFileSync(ATTENDED_KEY, attendedKey, { mode: 0o600 });
+  return { LORE_ATTENDED_KEY: attendedKey };
+}
 
 /** @param {string} [file] */
 function useRuntime(file) {
@@ -16,8 +31,7 @@ function useRuntime(file) {
 
 /** @param {string} loreHome @param {string[]} args @param {string} [decision] @param {AbortSignal} [signal] */
 async function lore(loreHome, args, decision, signal) {
-  const attended = decision === undefined ? {} : { LORE_ATTENDED_SURFACE: "desktop" };
-  const env = { ...process.env, LORE_HOME: loreHome, NO_COLOR: "1", ...attended };
+  const env = { ...process.env, LORE_HOME: loreHome, NO_COLOR: "1", ...(decision === undefined ? {} : attended()) };
   const pending = run(runtime.file, [...runtime.args, ...args], {
     cwd: runtime.cwd ?? loreHome,
     env,

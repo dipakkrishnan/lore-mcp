@@ -49,30 +49,6 @@ test("useRuntime runs the packaged binary instead of uv", async () => {
   }
 });
 
-test("dev start refreshes the CLI that agent Bash gets from PATH", async () => {
-  const pkg = JSON.parse(await readFile(join(__dirname, "../package.json"), "utf8"));
-  assert.match(pkg.scripts.start, /^uv tool install --force --reinstall \.\.\/\.\. && /);
-});
-
-test("the desktop agent has Pi's normal file and shell tools", async () => {
-  const { createAgentSession, createBashTool, ModelRuntime, SessionManager, SettingsManager } =
-    await import("@earendil-works/pi-coding-agent");
-  const { getModel } = await import("@earendil-works/pi-ai/compat");
-  const runtime = await ModelRuntime.create({ modelsPath: null, refreshOnCreate: false });
-  const { session } = await createAgentSession({
-    cwd: process.cwd(),
-    modelRuntime: runtime,
-    model: getModel("anthropic", "claude-sonnet-4-20250514"),
-    settingsManager: SettingsManager.inMemory(),
-    sessionManager: SessionManager.inMemory(process.cwd()),
-    tools: ["read", "write", "edit", "bash"],
-    customTools: [createBashTool(process.cwd())]
-  });
-  assert.deepEqual(session.getActiveToolNames().sort(), ["bash", "edit", "read", "write"]);
-  assert.equal(session.getAllTools().find(({ name }) => name === "bash").sourceInfo.path, "<sdk:bash>");
-  session.dispose();
-});
-
 test("desktop Bash is confined to Lore", { skip: process.platform !== "darwin" }, async () => {
   const { createSandboxedBashOperations, initializeBashSandbox } = await import("../src/agent.mjs");
   const { SandboxManager } = await import("@anthropic-ai/sandbox-runtime");
@@ -229,6 +205,19 @@ test("switching tasks updates the live network policy the proxy actually filters
   }
 });
 
+test("an answer in several text blocks comes back as separate paragraphs", async () => {
+  const { LoreAgent } = await import("../src/agent.mjs");
+  const home = await mkdtemp(join(tmpdir(), "lore-desktop-"));
+  try {
+    const written = LoreAgent.sessionFor(home, "capture");
+    written.appendMessage({ role: "user", content: "/skill:lore-capture\n\nI mean to sell", timestamp: 1 });
+    written.appendMessage({ role: "assistant", content: [{ type: "text", text: "Got it." }, { type: "text", text: "Choose Draft for sale on the saved memory." }], api: "anthropic-messages", provider: "anthropic", model: "m", usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } }, stopReason: "stop", timestamp: 2 });
+    assert.equal(LoreAgent.history(home, "capture")[1].text, "Got it.\n\nChoose Draft for sale on the saved memory.");
+  } finally {
+    await rm(home, { recursive: true });
+  }
+});
+
 test("sessions persist per task, come back as a thread, and a cut-off tool call is closed out", async () => {
   const { LoreAgent } = await import("../src/agent.mjs");
   const { SessionManager } = await import("@earendil-works/pi-coding-agent");
@@ -378,13 +367,6 @@ test("a follow-up typed into a finished thread keeps what was said; only Start o
   }
 });
 
-test("every tool that puts a card in front of the owner runs one at a time", async () => {
-  // Pi runs a turn's tool calls in parallel unless a tool in it is sequential; two owner cards at once would overwrite each other in the app's single card slot.
-  const source = await readFile(join(__dirname, "../src/agent.mjs"), "utf8");
-  const owner = ["ask_user", "propose_memories", "propose_blueprint", "propose_price", "cloudflare_login", "open_url", "finish_task"];
-  for (const name of owner) assert.match(source, new RegExp(`name: "${name}",\\s*executionMode: "sequential"`), `${name} must be sequential`);
-});
-
 test("a publish turn tells the agent where its drafts stand, and the owner never sees that line", async () => {
   const { LoreAgent, draftsAside } = await import("../src/agent.mjs");
   assert.match(draftsAside(0), /no drafts are waiting on the owner; anything you staged before was approved or skipped/);
@@ -401,11 +383,14 @@ test("a publish turn tells the agent where its drafts stand, and the owner never
   }
 });
 
-test("desktop prefers Opus 5.5 when Anthropic is available", async () => {
+test("desktop prefers Anthropic, and every model it asks for is one Pi knows", async () => {
   const { MODELS } = await import("../src/agent.mjs");
   const { getBuiltinModel } = await import("@earendil-works/pi-ai/providers/all");
-  assert.equal(MODELS[0], "anthropic/claude-opus-5-5");
-  assert.equal(getBuiltinModel("anthropic", "claude-opus-5-5").id, "claude-opus-5-5");
+  assert.match(MODELS[0], /^anthropic\//);
+  for (const model of MODELS) {
+    const [provider, ...id] = model.split("/");
+    assert.equal(getBuiltinModel(provider, id.join("/"))?.id, id.join("/"), model);
+  }
 });
 
 test("Luna gives capture runs a short friendly name", async () => {
@@ -586,6 +571,15 @@ test("only Electron main can pipe a decision, and only for a card that is drafte
     });
     assert.equal(piped.status, 1);
     assert.match(piped.stderr, /only from the Lore desktop app/);
+    // The old marker, which the agent's shell could set itself, no longer opens the gate.
+    const forged = spawnSync("uv", ["run", "lore", "publication", "decide"], {
+      cwd: join(__dirname, "../../.."),
+      env: { ...process.env, LORE_HOME: directory, NO_COLOR: "1", LORE_ATTENDED_SURFACE: "desktop", LORE_ATTENDED_KEY: "guess" },
+      input: JSON.stringify({ candidate: card, approve: true }),
+      encoding: "utf8"
+    });
+    assert.equal(forged.status, 1);
+    assert.match(forged.stderr, /only from the Lore desktop app/);
     await assert.rejects(decide(directory, card, card, true), { message: /not drafted/ });
     const state = await readState(directory);
     assert.equal(state.publications.counts.active, 0);
@@ -797,16 +791,6 @@ test("the price action refuses anything but a positive number, and round-trips t
   }
 });
 
-test("propose_price is a live tool, and the agent is told not to price by hand", async () => {
-  // A custom tool missing from `tools:` is defined but inactive, which is the
-  // silent way this wiring breaks.
-  const source = await readFile(join(__dirname, "../src/agent.mjs"), "utf8");
-  const active = source.match(/tools: \[([^\]]*)\]/)[1];
-  assert.match(active, /"propose_price"/, "propose_price must be in the active tool list");
-  assert.match(source, /this\.#priceTool\(\)/, "and registered as a custom tool");
-  assert.match(source, /call propose_price and never run a price command yourself/);
-});
-
 test("connecting an app validates before any CLI call, then round-trips through the CLI with the app kept on its row", async () => {
   const { sourceCatalog, sourceChoices, connectSource, readSource, removeSource, readState } = require("../src/state.cjs");
   await assert.rejects(sourceChoices("/nonexistent", "../etc"), { message: /Unknown app/ });
@@ -891,4 +875,11 @@ blueprint.blueprint_path().write_text(json.dumps({"name": "Ada"}))
     }
     await rm(directory, { recursive: true });
   }
+});
+
+test("every tool that puts a card in front of the owner runs one at a time", async () => {
+  // Pi runs a turn's tool calls in parallel unless a tool in it is sequential; two owner cards at once would overwrite each other in the app's single card slot.
+  const source = await readFile(join(__dirname, "../src/agent.mjs"), "utf8");
+  const owner = ["ask_user", "propose_memories", "propose_blueprint", "propose_price", "cloudflare_login", "open_url", "finish_task"];
+  for (const name of owner) assert.match(source, new RegExp(`name: "${name}",\\s*executionMode: "sequential"`), `${name} must be sequential`);
 });

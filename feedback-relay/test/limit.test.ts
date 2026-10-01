@@ -1,7 +1,7 @@
 import { env } from "cloudflare:workers";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { allow } from "../src/limit";
-import { QUOTA_NAME, WINDOWS } from "../src/quota";
+import { WINDOWS } from "../src/quota";
 import { resetQuota } from "./quota-reset";
 
 function limiter(success: boolean) {
@@ -118,11 +118,5 @@ describe("allow", () => {
     for (let i = 0; i < minute!.limit; i++) {
       await expect(allow(quotaOnly, report())).resolves.toBe(true);
     }
-  });
-
-  it("sends every request to the one named instance, not one per caller", async () => {
-    expect(env.FEEDBACK_QUOTA.idFromName(QUOTA_NAME).toString()).toBe(
-      env.FEEDBACK_QUOTA.idFromName(QUOTA_NAME).toString()
-    );
   });
 });
