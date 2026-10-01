@@ -5,6 +5,7 @@ serves it over HTTP for the desktop's edge scenario."""
 from __future__ import annotations
 
 import sys
+from typing import Literal
 
 from mcp.server.mcpserver import MCPServer
 
@@ -29,9 +30,7 @@ class Granola:
 
         @self.server.tool()
         def list_meetings(
-            time_range: str = "this_week",
-            custom_start: str = "",
-            custom_end: str = "",
+            time_range: Literal["this_week", "last_week", "last_30_days"] = "last_30_days",
         ) -> str:
             rows = "".join(
                 f'<meeting id="{key}" title="{title}" date="{when}"></meeting>'
