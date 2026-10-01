@@ -30,7 +30,9 @@ class Granola:
 
         @self.server.tool()
         def list_meetings(
-            time_range: Literal["this_week", "last_week", "last_30_days"] = "last_30_days",
+            time_range: Literal[
+                "this_week", "last_week", "last_30_days"
+            ] = "last_30_days",
         ) -> str:
             rows = "".join(
                 f'<meeting id="{key}" title="{title}" date="{when}"></meeting>'
