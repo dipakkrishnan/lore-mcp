@@ -1,0 +1,1762 @@
+{
+  "schema": 1,
+  "persona": "Priya Lindqvist / Tidewell (fictional)",
+  "generated_by": "support/seed/README.md procedure",
+  "updated": "2026-09-30",
+  "lore_version": "0.1.0",
+  "phase": "0 (offline): corpus, tooling and local proofs only; no remote account exists, every remote is null",
+  "accounts": {
+    "bluesky": {
+      "handle": "tidewell-bsky-lore.bsky.social",
+      "did": null,
+      "created": null
+    },
+    "substack": {
+      "url": "https://tidewell2lore.substack.com",
+      "created": null
+    },
+    "medium": {
+      "handle": "@tidewell",
+      "created": null
+    },
+    "blog": {
+      "url": "https://tidewell-notes.pages.dev",
+      "cloudflare_project": "tidewell-notes"
+    },
+    "granola": {
+      "signed_in_with": null,
+      "free_plan": null
+    },
+    "notion": {
+      "workspace": "Tidewell",
+      "plan": null
+    }
+  },
+  "sources": {
+    "obsidian": {
+      "locator": "~/lore-seed/obsidian/Tidewell",
+      "name": "obsidian-<8hex of the absolute vault path>",
+      "label": "Tidewell",
+      "expected": {
+        "found": 12,
+        "kept": 9,
+        "dropped": 3,
+        "errors": 0
+      },
+      "observed": {
+        "found": 12,
+        "kept": 9,
+        "dropped": 3,
+        "errors": 0,
+        "preview_count": 9,
+        "preview_skipped": 3,
+        "imported": 9,
+        "read_again": {
+          "added": 0,
+          "updated": 0,
+          "unchanged": 9,
+          "errors": 0
+        }
+      },
+      "observed_at": "2026-09-30 (throwaway LORE_HOME, local copy of the vault)",
+      "real_library": {
+        "name": "obsidian-1ff9efc9",
+        "state": "connected",
+        "imported": 9,
+        "connected_at": "2026-09-30",
+        "library_before": "723 private",
+        "library_after": "732 private",
+        "active_publications": 5,
+        "obsidian_app_registration": "not verified (Obsidian never wrote obsidian.json; GUI not drivable this session)"
+      }
+    },
+    "blog": {
+      "locator": "https://tidewell-notes.pages.dev",
+      "name": "blog-f601edab",
+      "label": "Tidewell Notes",
+      "expected": {
+        "found": 6,
+        "kept": 5,
+        "dropped": 1,
+        "errors": 0
+      },
+      "observed": {
+        "found": 6,
+        "kept": 5,
+        "dropped": 1,
+        "errors": 0,
+        "preview_label": "Tidewell Notes",
+        "connect_label": "the address (127.0.0.1:8765 locally)",
+        "imported": 5,
+        "read_again": {
+          "added": 0,
+          "updated": 0,
+          "unchanged": 5,
+          "errors": 0
+        }
+      },
+      "observed_at": "2026-09-30 (local http.server on the corpus/blog site, throwaway LORE_HOME)",
+      "real_library": {
+        "name": "blog-f601edab",
+        "state": "connected",
+        "imported": 5,
+        "connect_label": "tidewell-notes.pages.dev",
+        "preview_label": "Tidewell Notes",
+        "connected_at": "2026-09-30",
+        "deployed_at": "https://tidewell-notes.pages.dev",
+        "feed_headers": {
+          "status": 200,
+          "content_type": "application/xml",
+          "cache_control": "public, max-age=0, must-revalidate"
+        },
+        "canaries": "bl-01..05 one hit each, bl-06 zero",
+        "preview": {
+          "count": 5,
+          "skipped": 1,
+          "from": "2026-02-20",
+          "to": "2026-08-06"
+        }
+      }
+    },
+    "bluesky": {
+      "locator": "@tidewell-bsky-lore.bsky.social",
+      "name": "bluesky-ef82d1bb",
+      "label": "Priya @ Tidewell",
+      "expected": {
+        "found": 7,
+        "kept": 5,
+        "dropped": 2,
+        "errors": 0
+      },
+      "observed": null,
+      "observed_at": null,
+      "note": "found is 8 and dropped 3 if the server still returns the reply bs-07",
+      "real_library": {
+        "name": "bluesky-7ead825d",
+        "state": "connected",
+        "imported": 5,
+        "connected_at": "2026-09-30",
+        "canaries": "bs-01..05 one hit each; bs-06 (short), bs-07 (reply), bs-08 (repost) zero",
+        "recorded": {
+          "found": 7,
+          "kept": 5,
+          "dropped": 2
+        }
+      }
+    },
+    "substack": {
+      "locator": "https://tidewell2lore.substack.com",
+      "name": "substack-0b146739",
+      "label": "Tidewell Notes",
+      "expected": {
+        "found": 5,
+        "kept": 4,
+        "dropped": 1,
+        "errors": 0
+      },
+      "observed": null,
+      "observed_at": null,
+      "real_library": {
+        "name": "substack-4d077b5b",
+        "state": "connected",
+        "imported": 4,
+        "connected_at": "2026-09-30",
+        "label": "publication host (tidewell2lore.substack.com)",
+        "publication_title_actual": "tidewell lore",
+        "seeded_via": "Settings > Import from the deployed RSS; importer published all 5 directly, no drafts",
+        "canaries": "ss-01..04 one hit each, ss-05 zero"
+      }
+    },
+    "medium": {
+      "locator": "https://medium.com/feed/@tidewell",
+      "name": "medium-921a731c",
+      "label": "@tidewell",
+      "expected": {
+        "found": 4,
+        "kept": 4,
+        "dropped": 0,
+        "errors": 0
+      },
+      "observed": null,
+      "observed_at": null,
+      "note": "the four base stories; the seven stretch stories push the feed to its ten-story window",
+      "real_library": {
+        "name": "medium-3575665c",
+        "state": "connected",
+        "imported": 4,
+        "connected_at": "2026-09-30",
+        "account": "real account on the owner's own email (handle not recorded in the repo)",
+        "seeded_via": "medium.com/p/import for md-01..04, then Publish; footer 'Originally published at' added",
+        "canaries": "md-01..04 one hit each, md-05 zero; md-05..11 stretch not published"
+      }
+    },
+    "granola": {
+      "locator": "https://mcp.granola.ai/mcp",
+      "name": "granola-c4edc823",
+      "label": "Granola",
+      "expected": {
+        "found": 4,
+        "kept": 4,
+        "dropped": 0,
+        "errors": 0
+      },
+      "observed": null,
+      "observed_at": null,
+      "note": "3 kept if the free plan returns nothing for gr-04"
+    },
+    "notion": {
+      "locator": "https://mcp.notion.com/mcp",
+      "name": "notion-1cbd18bf",
+      "label": "Notion",
+      "expected": {
+        "found": 7,
+        "kept": 5,
+        "dropped": 2,
+        "errors": 0
+      },
+      "observed": null,
+      "observed_at": null,
+      "note": "errors 0 or 1 depending on nt-07",
+      "real_library": {
+        "name": "notion-1cbd18bf",
+        "state": "connected",
+        "imported": 23,
+        "connected_at": "2026-09-30",
+        "canaries": "nt-01..05 one hit each; nt-06 (empty page) imported title-only, no canary",
+        "note": "includes Notion's default template pages",
+        "recorded": {
+          "listed": 25,
+          "fetched": 23,
+          "errors": 2
+        }
+      }
+    },
+    "chatgpt": {
+      "name": "chatgpt-export",
+      "label": "ChatGPT",
+      "note": "synthetic export in a throwaway LORE_HOME only; a real export is connected to the real library later and its counts recorded as observed only",
+      "expected": {
+        "found": 5,
+        "kept": 4,
+        "dropped": 1,
+        "errors": 0
+      },
+      "observed": {
+        "found": 5,
+        "kept": 4,
+        "dropped": 1,
+        "errors": 0,
+        "preview_count": 4,
+        "preview_skipped": 1,
+        "imported": 4
+      },
+      "observed_at": "2026-09-30 (throwaway LORE_HOME)"
+    },
+    "claude": {
+      "name": "claude-export",
+      "label": "Claude",
+      "note": "same as chatgpt",
+      "expected": {
+        "found": 4,
+        "kept": 2,
+        "dropped": 2,
+        "errors": 0
+      },
+      "observed": {
+        "found": 4,
+        "kept": 2,
+        "dropped": 2,
+        "errors": 0,
+        "preview_count": 2,
+        "preview_skipped": 2,
+        "imported": 2
+      },
+      "observed_at": "2026-09-30 (throwaway LORE_HOME)"
+    }
+  },
+  "items": [
+    {
+      "id": "obs-01",
+      "connector": "obsidian",
+      "kind": "note",
+      "title": "No-show deposit",
+      "lessons": [
+        "L1"
+      ],
+      "dated": "2026-04-18",
+      "canary": "canary-obsidian-01",
+      "corpus_path": "support/seed/corpus/obsidian-vault/Tidewell/lessons/no-show-deposit.md",
+      "projection": "markdown file, frontmatter date",
+      "expected": "kept",
+      "why": "over 40 characters; dated from frontmatter date",
+      "remote": {
+        "id": null,
+        "url": null,
+        "created_at": null
+      },
+      "private_data": null,
+      "observed": "kept",
+      "observed_in": "tests/fixtures/live/obsidian/cli.jsonl"
+    },
+    {
+      "id": "obs-02",
+      "connector": "obsidian",
+      "kind": "note",
+      "title": "SMS reminder timing",
+      "lessons": [
+        "L2"
+      ],
+      "dated": "2026-05-02",
+      "canary": "canary-obsidian-02",
+      "corpus_path": "support/seed/corpus/obsidian-vault/Tidewell/lessons/sms-timing.md",
+      "projection": "markdown file, frontmatter date",
+      "expected": "kept",
+      "why": "over 40 characters",
+      "remote": {
+        "id": null,
+        "url": null,
+        "created_at": null
+      },
+      "private_data": null,
+      "observed": "kept",
+      "observed_in": "tests/fixtures/live/obsidian/cli.jsonl"
+    },
+    {
+      "id": "obs-03",
+      "connector": "obsidian",
+      "kind": "note",
+      "title": "Calendar sync can wait",
+      "lessons": [
+        "L8"
+      ],
+      "dated": "2026-06-11",
+      "canary": "canary-obsidian-03",
+      "corpus_path": "support/seed/corpus/obsidian-vault/Tidewell/lessons/calendar-sync-later.md",
+      "projection": "markdown file, frontmatter created (no date)",
+      "expected": "kept",
+      "why": "dated from the created fallback",
+      "remote": {
+        "id": null,
+        "url": null,
+        "created_at": null
+      },
+      "private_data": null,
+      "observed": "kept",
+      "observed_in": "tests/fixtures/live/obsidian/cli.jsonl"
+    },
+    {
+      "id": "obs-04",
+      "connector": "obsidian",
+      "kind": "note",
+      "title": "Suds And Buds",
+      "lessons": [],
+      "dated": "mtime",
+      "canary": "canary-obsidian-04",
+      "corpus_path": "support/seed/corpus/obsidian-vault/Tidewell/customers/suds-and-buds.md",
+      "projection": "markdown file, no frontmatter, no heading",
+      "expected": "kept",
+      "why": "title from the file name; dated from the copy's modified time",
+      "remote": {
+        "id": null,
+        "url": null,
+        "created_at": null
+      },
+      "private_data": null,
+      "observed": "kept",
+      "observed_in": "tests/fixtures/live/obsidian/cli.jsonl"
+    },
+    {
+      "id": "obs-05",
+      "connector": "obsidian",
+      "kind": "note",
+      "title": "<Onboarding> 🐕 checklist & \"quotes\"",
+      "lessons": [],
+      "dated": "2026-07-03",
+      "canary": "canary-obsidian-05",
+      "corpus_path": "support/seed/corpus/obsidian-vault/Tidewell/ops/onboarding-checklist.md",
+      "projection": "markdown file, heading with angle brackets, emoji, quotes",
+      "expected": "kept",
+      "why": "the title survives search verbatim",
+      "remote": {
+        "id": null,
+        "url": null,
+        "created_at": null
+      },
+      "private_data": null,
+      "observed": "kept",
+      "observed_in": "tests/fixtures/live/obsidian/cli.jsonl"
+    },
+    {
+      "id": "obs-06",
+      "connector": "obsidian",
+      "kind": "note",
+      "title": "Twilio setup",
+      "lessons": [],
+      "dated": "2026-03-30",
+      "canary": "canary-obsidian-06",
+      "corpus_path": "support/seed/corpus/obsidian-vault/Tidewell/ops/twilio-setup.md",
+      "projection": "markdown file with the fake API key line",
+      "expected": "kept",
+      "why": "Lore has no secret detector; imported private like everything else",
+      "remote": {
+        "id": null,
+        "url": null,
+        "created_at": null
+      },
+      "private_data": "fake-api-key",
+      "observed": "kept",
+      "observed_in": "tests/fixtures/live/obsidian/cli.jsonl"
+    },
+    {
+      "id": "obs-07",
+      "connector": "obsidian",
+      "kind": "note",
+      "title": "Contacts",
+      "lessons": [],
+      "dated": "2026-03-15",
+      "canary": "canary-obsidian-07",
+      "corpus_path": "support/seed/corpus/obsidian-vault/Tidewell/ops/contacts.md",
+      "projection": "markdown file with the fake phone number",
+      "expected": "kept",
+      "why": "same as obs-06",
+      "remote": {
+        "id": null,
+        "url": null,
+        "created_at": null
+      },
+      "private_data": "fake-phone",
+      "observed": "kept",
+      "observed_in": "tests/fixtures/live/obsidian/cli.jsonl"
+    },
+    {
+      "id": "obs-08",
+      "connector": "obsidian",
+      "kind": "note",
+      "title": "Journal, 14 September",
+      "lessons": [
+        "L4"
+      ],
+      "dated": "2026-09-14",
+      "canary": "canary-obsidian-08",
+      "corpus_path": "support/seed/corpus/obsidian-vault/Tidewell/journal/2026-09-14.md",
+      "projection": "markdown file, single-quoted frontmatter date",
+      "expected": "kept",
+      "why": "quoted date form parses",
+      "remote": {
+        "id": null,
+        "url": null,
+        "created_at": null
+      },
+      "private_data": null,
+      "observed": "kept",
+      "observed_in": "tests/fixtures/live/obsidian/cli.jsonl"
+    },
+    {
+      "id": "obs-09",
+      "connector": "obsidian",
+      "kind": "note",
+      "title": "A heading-only note kept on length alone canary-obsidian-09",
+      "lessons": [],
+      "dated": "mtime",
+      "canary": "canary-obsidian-09",
+      "corpus_path": "support/seed/corpus/obsidian-vault/Tidewell/drafts/heading-only.md",
+      "projection": "markdown file that is one long heading",
+      "expected": "kept",
+      "why": "a heading over 40 characters passes the floor (quirk)",
+      "remote": {
+        "id": null,
+        "url": null,
+        "created_at": null
+      },
+      "private_data": null,
+      "observed": "kept",
+      "observed_in": "tests/fixtures/live/obsidian/cli.jsonl"
+    },
+    {
+      "id": "obs-10",
+      "connector": "obsidian",
+      "kind": "note",
+      "title": "Tidewell",
+      "lessons": [],
+      "dated": null,
+      "canary": null,
+      "corpus_path": "support/seed/corpus/obsidian-vault/Tidewell/00-index.md",
+      "projection": "markdown file, 33 characters",
+      "expected": "dropped",
+      "why": "stub under the 40 character floor; no canary because one would lift it over",
+      "remote": {
+        "id": null,
+        "url": null,
+        "created_at": null
+      },
+      "private_data": null,
+      "observed": "dropped",
+      "observed_in": "tests/fixtures/live/obsidian/cli.jsonl"
+    },
+    {
+      "id": "obs-11",
+      "connector": "obsidian",
+      "kind": "note",
+      "title": "Todo",
+      "lessons": [],
+      "dated": null,
+      "canary": null,
+      "corpus_path": "support/seed/corpus/obsidian-vault/Tidewell/stub-todo.md",
+      "projection": "markdown file, stub",
+      "expected": "dropped",
+      "why": "stub under the floor",
+      "remote": {
+        "id": null,
+        "url": null,
+        "created_at": null
+      },
+      "private_data": null,
+      "observed": "dropped",
+      "observed_in": "tests/fixtures/live/obsidian/cli.jsonl"
+    },
+    {
+      "id": "obs-12",
+      "connector": "obsidian",
+      "kind": "note",
+      "title": "Empty",
+      "lessons": [],
+      "dated": null,
+      "canary": null,
+      "corpus_path": "support/seed/corpus/obsidian-vault/Tidewell/empty.md",
+      "projection": "empty markdown file",
+      "expected": "dropped",
+      "why": "found, never stored",
+      "remote": {
+        "id": null,
+        "url": null,
+        "created_at": null
+      },
+      "private_data": null,
+      "observed": "dropped",
+      "observed_in": "tests/fixtures/live/obsidian/cli.jsonl"
+    },
+    {
+      "id": "obs-13",
+      "connector": "obsidian",
+      "kind": "note",
+      "title": "Daily note template",
+      "lessons": [],
+      "dated": null,
+      "canary": "canary-obsidian-13",
+      "corpus_path": "support/seed/corpus/obsidian-vault/Tidewell/templates/daily.md",
+      "projection": "markdown file in a templates folder",
+      "expected": "excluded",
+      "why": "the templates folder is skipped",
+      "remote": {
+        "id": null,
+        "url": null,
+        "created_at": null
+      },
+      "private_data": null,
+      "observed": "excluded",
+      "observed_in": "tests/fixtures/live/obsidian/cli.jsonl"
+    },
+    {
+      "id": "obs-14",
+      "connector": "obsidian",
+      "kind": "note",
+      "title": "Old pricing",
+      "lessons": [],
+      "dated": null,
+      "canary": "canary-obsidian-14",
+      "corpus_path": "support/seed/corpus/obsidian-vault/Tidewell/.trash/old-pricing.md",
+      "projection": "markdown file in .trash",
+      "expected": "excluded",
+      "why": ".trash is skipped",
+      "remote": {
+        "id": null,
+        "url": null,
+        "created_at": null
+      },
+      "private_data": null,
+      "observed": "excluded",
+      "observed_in": "tests/fixtures/live/obsidian/cli.jsonl"
+    },
+    {
+      "id": "obs-15",
+      "connector": "obsidian",
+      "kind": "note",
+      "title": "Plugin notes",
+      "lessons": [],
+      "dated": null,
+      "canary": "canary-obsidian-15",
+      "corpus_path": "support/seed/corpus/obsidian-vault/Tidewell/.obsidian/plugin-notes.md",
+      "projection": "markdown file in .obsidian, next to app.json",
+      "expected": "excluded",
+      "why": ".obsidian is skipped",
+      "remote": {
+        "id": null,
+        "url": null,
+        "created_at": null
+      },
+      "private_data": null,
+      "observed": "excluded",
+      "observed_in": "tests/fixtures/live/obsidian/cli.jsonl"
+    },
+    {
+      "id": "obs-16",
+      "connector": "obsidian",
+      "kind": "note",
+      "title": "SMS reminder timing (symlink)",
+      "lessons": [],
+      "dated": null,
+      "canary": null,
+      "corpus_path": "support/seed/corpus/obsidian-vault/Tidewell/lessons/alias-sms-timing.md",
+      "projection": "symlink to sms-timing.md, committed as a git symlink",
+      "expected": "excluded",
+      "why": "symlinks are skipped",
+      "remote": {
+        "id": null,
+        "url": null,
+        "created_at": null
+      },
+      "private_data": null,
+      "observed": "excluded",
+      "observed_in": "tests/fixtures/live/obsidian/cli.jsonl"
+    },
+    {
+      "id": "cg-01",
+      "connector": "chatgpt",
+      "kind": "conversation",
+      "title": "Deposit policy for no-shows",
+      "lessons": [
+        "L1"
+      ],
+      "dated": "2026-04-20",
+      "canary": "canary-chatgpt-01",
+      "corpus_path": "support/seed/corpus/exports/chatgpt.json",
+      "projection": "conversation with one regenerated sibling branch and a final short owner turn",
+      "expected": "kept",
+      "why": "three owner turns over 40 characters; the regenerated branch is off the current path",
+      "remote": {
+        "id": null,
+        "url": null,
+        "created_at": null
+      },
+      "private_data": null,
+      "observed": "kept",
+      "observed_in": "tests/fixtures/live/local-proof/chatgpt/cli.jsonl"
+    },
+    {
+      "id": "cg-02",
+      "connector": "chatgpt",
+      "kind": "conversation",
+      "title": "Stripe Connect payout timing",
+      "lessons": [
+        "L5"
+      ],
+      "dated": "2026-05-27",
+      "canary": "canary-chatgpt-02",
+      "corpus_path": "support/seed/corpus/exports/chatgpt.json",
+      "projection": "conversation whose first assistant reply is over 700 characters",
+      "expected": "kept",
+      "why": "owner turns kept; the assistant reply is cut at 600 characters",
+      "remote": {
+        "id": null,
+        "url": null,
+        "created_at": null
+      },
+      "private_data": null,
+      "observed": "kept",
+      "observed_in": "tests/fixtures/live/local-proof/chatgpt/cli.jsonl"
+    },
+    {
+      "id": "cg-03",
+      "connector": "chatgpt",
+      "kind": "conversation",
+      "title": "Draft a two-line explanation of route batching for a groomer",
+      "lessons": [],
+      "dated": "2026-06-09",
+      "canary": "canary-chatgpt-03",
+      "corpus_path": "support/seed/corpus/exports/chatgpt.json",
+      "projection": "conversation with an empty title and a non-text assistant part",
+      "expected": "kept",
+      "why": "title comes from the first owner line; the image pointer part is ignored",
+      "remote": {
+        "id": null,
+        "url": null,
+        "created_at": null
+      },
+      "private_data": null,
+      "observed": "kept",
+      "observed_in": "tests/fixtures/live/local-proof/chatgpt/cli.jsonl"
+    },
+    {
+      "id": "cg-04",
+      "connector": "chatgpt",
+      "kind": "conversation",
+      "title": "Quick check",
+      "lessons": [],
+      "dated": "2026-07-01",
+      "canary": "canary-chatgpt-04",
+      "corpus_path": "support/seed/corpus/exports/chatgpt.json",
+      "projection": "conversation of owner turns under 40 characters",
+      "expected": "dropped",
+      "why": "content is empty after the floor",
+      "remote": {
+        "id": null,
+        "url": null,
+        "created_at": null
+      },
+      "private_data": null,
+      "observed": "dropped",
+      "observed_in": "tests/fixtures/live/local-proof/chatgpt/cli.jsonl"
+    },
+    {
+      "id": "cg-05",
+      "connector": "chatgpt",
+      "kind": "conversation",
+      "title": "Old idea",
+      "lessons": [],
+      "dated": null,
+      "canary": "canary-chatgpt-05",
+      "corpus_path": "support/seed/corpus/exports/chatgpt.json",
+      "projection": "conversation with create_time null everywhere",
+      "expected": "kept",
+      "why": "kept, undated",
+      "remote": {
+        "id": null,
+        "url": null,
+        "created_at": null
+      },
+      "private_data": null,
+      "observed": "kept",
+      "observed_in": "tests/fixtures/live/local-proof/chatgpt/cli.jsonl"
+    },
+    {
+      "id": "cg-91",
+      "connector": "chatgpt",
+      "kind": "regenerated-branch",
+      "title": "regenerated assistant reply inside cg-01",
+      "lessons": [],
+      "dated": "2026-04-20",
+      "canary": "canary-chatgpt-91",
+      "corpus_path": "support/seed/corpus/exports/chatgpt.json",
+      "projection": "off-path sibling node of cg-01",
+      "expected": "excluded",
+      "why": "the reader walks current_node upward, so a regenerated sibling is never read",
+      "remote": {
+        "id": null,
+        "url": null,
+        "created_at": null
+      },
+      "private_data": null,
+      "observed": "excluded",
+      "observed_in": "tests/fixtures/live/local-proof/chatgpt/cli.jsonl"
+    },
+    {
+      "id": "cl-01",
+      "connector": "claude",
+      "kind": "conversation",
+      "title": "Why one-van shops churn",
+      "lessons": [
+        "L4"
+      ],
+      "dated": "2026-06-02",
+      "canary": "canary-claude-01",
+      "corpus_path": "support/seed/corpus/exports/claude.json",
+      "projection": "conversation with two long human turns",
+      "expected": "kept",
+      "why": "human turns over 40 characters",
+      "remote": {
+        "id": null,
+        "url": null,
+        "created_at": null
+      },
+      "private_data": null,
+      "observed": "kept",
+      "observed_in": "tests/fixtures/live/local-proof/claude/cli.jsonl"
+    },
+    {
+      "id": "cl-02",
+      "connector": "claude",
+      "kind": "conversation",
+      "title": "Calendar sync, later",
+      "lessons": [
+        "L8"
+      ],
+      "dated": "2026-06-15",
+      "canary": "canary-claude-02",
+      "corpus_path": "support/seed/corpus/exports/claude.json",
+      "projection": "conversation with one long human turn",
+      "expected": "kept",
+      "why": "human turn over 40 characters",
+      "remote": {
+        "id": null,
+        "url": null,
+        "created_at": null
+      },
+      "private_data": null,
+      "observed": "kept",
+      "observed_in": "tests/fixtures/live/local-proof/claude/cli.jsonl"
+    },
+    {
+      "id": "cl-03",
+      "connector": "claude",
+      "kind": "conversation",
+      "title": "Content-only message",
+      "lessons": [],
+      "dated": "2026-07-08",
+      "canary": "canary-claude-03",
+      "corpus_path": "support/seed/corpus/exports/claude.json",
+      "projection": "human message with empty text and the words only in the content array",
+      "expected": "dropped",
+      "why": "Lore reads text only; documents that a content-only message is lost",
+      "remote": {
+        "id": null,
+        "url": null,
+        "created_at": null
+      },
+      "private_data": null,
+      "observed": "dropped",
+      "observed_in": "tests/fixtures/live/local-proof/claude/cli.jsonl"
+    },
+    {
+      "id": "cl-04",
+      "connector": "claude",
+      "kind": "conversation",
+      "title": "Short one",
+      "lessons": [],
+      "dated": "2026-08-20",
+      "canary": "canary-claude-04",
+      "corpus_path": "support/seed/corpus/exports/claude.json",
+      "projection": "conversation with one short human turn",
+      "expected": "dropped",
+      "why": "under the floor",
+      "remote": {
+        "id": null,
+        "url": null,
+        "created_at": null
+      },
+      "private_data": null,
+      "observed": "dropped",
+      "observed_in": "tests/fixtures/live/local-proof/claude/cli.jsonl"
+    },
+    {
+      "id": "bl-01",
+      "connector": "blog",
+      "kind": "post",
+      "title": "Why the route is the product",
+      "lessons": [
+        "L3"
+      ],
+      "dated": "2026-05-06",
+      "canary": "canary-blog-01",
+      "corpus_path": "support/seed/corpus/blog/posts/why-the-route-is-the-product.html",
+      "projection": "content:encoded with paragraphs, a list and a blockquote",
+      "expected": "kept",
+      "why": "content:encoded body over 120 characters",
+      "remote": {
+        "id": null,
+        "url": null,
+        "created_at": null
+      },
+      "private_data": null,
+      "observed": "kept",
+      "observed_in": "tests/fixtures/live/local-proof/blog/cli.jsonl"
+    },
+    {
+      "id": "bl-02",
+      "connector": "blog",
+      "kind": "post",
+      "title": "Raising the price without losing anyone",
+      "lessons": [
+        "L6"
+      ],
+      "dated": "2026-08-06",
+      "canary": "canary-blog-02",
+      "corpus_path": "support/seed/corpus/blog/posts/raising-the-price-without-losing-anyone.html",
+      "projection": "content:encoded",
+      "expected": "kept",
+      "why": "content:encoded body",
+      "remote": {
+        "id": null,
+        "url": null,
+        "created_at": null
+      },
+      "private_data": null,
+      "observed": "kept",
+      "observed_in": "tests/fixtures/live/local-proof/blog/cli.jsonl"
+    },
+    {
+      "id": "bl-03",
+      "connector": "blog",
+      "kind": "post",
+      "title": "Routes & ramps: <van> life 🚐",
+      "lessons": [],
+      "dated": "2026-06-18",
+      "canary": "canary-blog-03",
+      "corpus_path": "support/seed/corpus/blog/posts/routes-ramps-van-life.html",
+      "projection": "content:encoded with br breaks; title has entities and an emoji",
+      "expected": "kept",
+      "why": "entities decode to the title",
+      "remote": {
+        "id": null,
+        "url": null,
+        "created_at": null
+      },
+      "private_data": null,
+      "observed": "kept",
+      "observed_in": "tests/fixtures/live/local-proof/blog/cli.jsonl"
+    },
+    {
+      "id": "bl-04",
+      "connector": "blog",
+      "kind": "post",
+      "title": "The first forty never asked for calendar sync",
+      "lessons": [
+        "L8"
+      ],
+      "dated": "2026-07-09",
+      "canary": "canary-blog-04",
+      "corpus_path": "support/seed/corpus/blog/posts/the-first-forty-never-asked-for-calendar-sync.html",
+      "projection": "description only, no content:encoded",
+      "expected": "kept",
+      "why": "description is the fallback body",
+      "remote": {
+        "id": null,
+        "url": null,
+        "created_at": null
+      },
+      "private_data": null,
+      "observed": "kept",
+      "observed_in": "tests/fixtures/live/local-proof/blog/cli.jsonl"
+    },
+    {
+      "id": "bl-05",
+      "connector": "blog",
+      "kind": "post",
+      "title": "How Tidewell started",
+      "lessons": [],
+      "dated": "2026-02-20",
+      "canary": "canary-blog-05",
+      "corpus_path": "support/seed/corpus/blog/posts/how-tidewell-started.html",
+      "projection": "content:encoded containing script and style blocks",
+      "expected": "kept",
+      "why": "script and style text is silenced",
+      "remote": {
+        "id": null,
+        "url": null,
+        "created_at": null
+      },
+      "private_data": null,
+      "observed": "kept",
+      "observed_in": "tests/fixtures/live/local-proof/blog/cli.jsonl"
+    },
+    {
+      "id": "bl-06",
+      "connector": "blog",
+      "kind": "post",
+      "title": "Short note",
+      "lessons": [],
+      "dated": "2026-09-22",
+      "canary": null,
+      "corpus_path": "support/seed/corpus/blog/posts/short-note.html",
+      "projection": "description of 29 characters",
+      "expected": "dropped",
+      "why": "under the floor",
+      "remote": {
+        "id": null,
+        "url": null,
+        "created_at": null
+      },
+      "private_data": null,
+      "observed": "dropped",
+      "observed_in": "tests/fixtures/live/local-proof/blog/cli.jsonl"
+    },
+    {
+      "id": "bs-01",
+      "connector": "bluesky",
+      "kind": "post",
+      "title": "A reminder SMS two hours before the slot beats one the night before; the night-…",
+      "lessons": [
+        "L2"
+      ],
+      "dated": null,
+      "canary": "canary-bluesky-01",
+      "corpus_path": "support/seed/corpus/bluesky.json",
+      "projection": "post record",
+      "expected": "kept",
+      "why": "post over 40 characters",
+      "remote": {
+        "id": "at://did:plc:REDACTED/app.bsky.feed.post/3mwqe2lgj5o2t",
+        "url": null,
+        "created_at": "2026-09-30T12:33:34.977Z",
+        "cid": "bafyreichgqci4oxxqxwmozdzylyrw5npql4nch3qelnfovxn6algdcatea"
+      },
+      "private_data": null,
+      "observed": null,
+      "observed_in": null
+    },
+    {
+      "id": "bs-02",
+      "connector": "bluesky",
+      "kind": "post",
+      "title": "Raising $29 to $39 with grandfathering lost nobody; the new price only ever app…",
+      "lessons": [
+        "L6"
+      ],
+      "dated": null,
+      "canary": "canary-bluesky-02",
+      "corpus_path": "support/seed/corpus/bluesky.json",
+      "projection": "post record",
+      "expected": "kept",
+      "why": "post over 40 characters",
+      "remote": {
+        "id": "at://did:plc:REDACTED/app.bsky.feed.post/3mwqe2ni3ci2g",
+        "url": null,
+        "created_at": "2026-09-30T12:33:34.977Z",
+        "cid": "bafyreibe37zk6ek6mczwca3j2aa5srp643ibvghwwu7qd5l6h2atbfgiee"
+      },
+      "private_data": null,
+      "observed": null,
+      "observed_in": null
+    },
+    {
+      "id": "bs-03",
+      "connector": "bluesky",
+      "kind": "post",
+      "title": "41 groomers on Tidewell as of this week, from one van in Port Alder to a two-va…",
+      "lessons": [],
+      "dated": null,
+      "canary": "canary-bluesky-03",
+      "corpus_path": "support/seed/corpus/bluesky.json",
+      "projection": "post record",
+      "expected": "kept",
+      "why": "post over 40 characters",
+      "remote": {
+        "id": "at://did:plc:REDACTED/app.bsky.feed.post/3mwqe2pjcxe2w",
+        "url": null,
+        "created_at": "2026-09-30T12:33:34.977Z",
+        "cid": "bafyreiavxl7ecvgg43zmqbff5wspp3p2hfopkutb2q77jnosam53fgt7yy"
+      },
+      "private_data": null,
+      "observed": null,
+      "observed_in": null
+    },
+    {
+      "id": "bs-04",
+      "connector": "bluesky",
+      "kind": "post",
+      "title": "Why the route is the product, the long version: https://tidewell-notes.pages.de…",
+      "lessons": [],
+      "dated": null,
+      "canary": "canary-bluesky-04",
+      "corpus_path": "support/seed/corpus/bluesky.json",
+      "projection": "post record",
+      "expected": "kept",
+      "why": "post over 40 characters",
+      "remote": {
+        "id": "at://did:plc:REDACTED/app.bsky.feed.post/3mwqe2rkpfm22",
+        "url": null,
+        "created_at": "2026-09-30T12:33:34.977Z",
+        "cid": "bafyreihlgs32ehl6ab4g5zmzsgm5ilynji4n5veccm5dp4cewhbljkiyyy"
+      },
+      "private_data": null,
+      "observed": null,
+      "observed_in": null
+    },
+    {
+      "id": "bs-05",
+      "connector": "bluesky",
+      "kind": "post",
+      "title": "Emoji and <angle> brackets in a post 🚐 <not html> should come through untouched…",
+      "lessons": [],
+      "dated": null,
+      "canary": "canary-bluesky-05",
+      "corpus_path": "support/seed/corpus/bluesky.json",
+      "projection": "post record",
+      "expected": "kept",
+      "why": "post over 40 characters",
+      "remote": {
+        "id": "at://did:plc:REDACTED/app.bsky.feed.post/3mwqe2tm4622u",
+        "url": null,
+        "created_at": "2026-09-30T12:33:34.977Z",
+        "cid": "bafyreib44rikop2xapatkm7wjqrzqtchj7qv4d3ro3khwvxt54wu64z3je"
+      },
+      "private_data": null,
+      "observed": null,
+      "observed_in": null
+    },
+    {
+      "id": "bs-06",
+      "connector": "bluesky",
+      "kind": "post",
+      "title": "ship it 🚐 tidewell-seed",
+      "lessons": [],
+      "dated": null,
+      "canary": null,
+      "corpus_path": "support/seed/corpus/bluesky.json",
+      "projection": "post record",
+      "expected": "dropped",
+      "why": "under the floor",
+      "remote": {
+        "id": "at://did:plc:REDACTED/app.bsky.feed.post/3mwqe2vnhyz2v",
+        "url": null,
+        "created_at": "2026-09-30T12:33:34.977Z",
+        "cid": "bafyreihfvekjkhg7q3bsjpa6r2md2rjsvkq2f4kh55nrvarrjnh3nsb2le"
+      },
+      "private_data": null,
+      "observed": null,
+      "observed_in": null
+    },
+    {
+      "id": "bs-07",
+      "connector": "bluesky",
+      "kind": "reply",
+      "title": "Replying to myself: the two-hour window also suits the customer's dog, who has…",
+      "lessons": [],
+      "dated": null,
+      "canary": "canary-bluesky-07",
+      "corpus_path": "support/seed/corpus/bluesky.json",
+      "projection": "reply record",
+      "expected": "excluded",
+      "why": "reply; the reader asks for posts_no_replies and drops any reply it sees (UNCERTAIN whether the server returns it)",
+      "remote": {
+        "id": "at://did:plc:REDACTED/app.bsky.feed.post/3mwqe2xovqz2v",
+        "url": null,
+        "created_at": "2026-09-30T12:33:34.977Z",
+        "cid": "bafyreifmmcjmyfvjlih3enij6ctjpbkjljunu425cxq6igrnredfd52qsu"
+      },
+      "private_data": null,
+      "observed": null,
+      "observed_in": null
+    },
+    {
+      "id": "bs-08",
+      "connector": "bluesky",
+      "kind": "repost",
+      "title": "repost of bs-02",
+      "lessons": [],
+      "dated": null,
+      "canary": null,
+      "corpus_path": "support/seed/corpus/bluesky.json",
+      "projection": "repost record",
+      "expected": "dropped",
+      "why": "repost; the reader drops any entry with a reason",
+      "remote": {
+        "id": "at://did:plc:REDACTED/app.bsky.feed.repost/3mwqe2zqmmd24",
+        "url": null,
+        "created_at": "2026-09-30T12:33:34.977Z",
+        "cid": "bafyreid5oubst6oprxuu2rtscrzy7e5ay2vtphl2mkaohrhaw7z53cddhe"
+      },
+      "private_data": null,
+      "observed": null,
+      "observed_in": null
+    },
+    {
+      "id": "ss-01",
+      "connector": "substack",
+      "kind": "post",
+      "title": "The deposit that fixed no-shows",
+      "lessons": [
+        "L1"
+      ],
+      "dated": "2026-04-25",
+      "canary": "canary-substack-01",
+      "corpus_path": "support/seed/corpus/substack.json",
+      "projection": "publication post (also served as import/substack.xml)",
+      "expected": "kept",
+      "why": "body over 120 characters",
+      "remote": {
+        "id": null,
+        "url": null,
+        "created_at": null
+      },
+      "private_data": null,
+      "observed": null,
+      "observed_in": null
+    },
+    {
+      "id": "ss-02",
+      "connector": "substack",
+      "kind": "post",
+      "title": "What happened when I raised the price",
+      "lessons": [
+        "L6"
+      ],
+      "dated": "2026-08-12",
+      "canary": "canary-substack-02",
+      "corpus_path": "support/seed/corpus/substack.json",
+      "projection": "publication post (also served as import/substack.xml)",
+      "expected": "kept",
+      "why": "body over 120 characters",
+      "remote": {
+        "id": null,
+        "url": null,
+        "created_at": null
+      },
+      "private_data": null,
+      "observed": null,
+      "observed_in": null
+    },
+    {
+      "id": "ss-03",
+      "connector": "substack",
+      "kind": "post",
+      "title": "A week in the van with Delia",
+      "lessons": [],
+      "dated": "2026-05-15",
+      "canary": "canary-substack-03",
+      "corpus_path": "support/seed/corpus/substack.json",
+      "projection": "publication post (also served as import/substack.xml)",
+      "expected": "kept",
+      "why": "body over 120 characters",
+      "remote": {
+        "id": null,
+        "url": null,
+        "created_at": null
+      },
+      "private_data": null,
+      "observed": null,
+      "observed_in": null
+    },
+    {
+      "id": "ss-04",
+      "connector": "substack",
+      "kind": "post",
+      "title": "Twilio, Stripe and the boring middle",
+      "lessons": [],
+      "dated": "2026-06-29",
+      "canary": "canary-substack-04",
+      "corpus_path": "support/seed/corpus/substack.json",
+      "projection": "publication post (also served as import/substack.xml)",
+      "expected": "kept",
+      "why": "body over 120 characters",
+      "remote": {
+        "id": null,
+        "url": null,
+        "created_at": null
+      },
+      "private_data": null,
+      "observed": null,
+      "observed_in": null
+    },
+    {
+      "id": "ss-05",
+      "connector": "substack",
+      "kind": "post",
+      "title": "Housekeeping · tidewell-seed",
+      "lessons": [],
+      "dated": "2026-09-25",
+      "canary": null,
+      "corpus_path": "support/seed/corpus/substack.json",
+      "projection": "publication post (also served as import/substack.xml)",
+      "expected": "dropped",
+      "why": "under the floor",
+      "remote": {
+        "id": null,
+        "url": null,
+        "created_at": null
+      },
+      "private_data": null,
+      "observed": null,
+      "observed_in": null
+    },
+    {
+      "id": "md-01",
+      "connector": "medium",
+      "kind": "story",
+      "title": "The hour of driving is the product",
+      "lessons": [
+        "L3"
+      ],
+      "dated": "2026-05-20",
+      "canary": "canary-medium-01",
+      "corpus_path": "support/seed/corpus/medium.json",
+      "projection": "story",
+      "expected": "kept",
+      "why": "body over 120 characters",
+      "remote": {
+        "id": null,
+        "url": null,
+        "created_at": null
+      },
+      "private_data": null,
+      "observed": null,
+      "observed_in": null
+    },
+    {
+      "id": "md-02",
+      "connector": "medium",
+      "kind": "story",
+      "title": "Fifty customers before calendar sync",
+      "lessons": [
+        "L8"
+      ],
+      "dated": "2026-06-24",
+      "canary": "canary-medium-02",
+      "corpus_path": "support/seed/corpus/medium.json",
+      "projection": "story",
+      "expected": "kept",
+      "why": "body over 120 characters",
+      "remote": {
+        "id": null,
+        "url": null,
+        "created_at": null
+      },
+      "private_data": null,
+      "observed": null,
+      "observed_in": null
+    },
+    {
+      "id": "md-03",
+      "connector": "medium",
+      "kind": "story",
+      "title": "Port Alder groomers: what a route day looks like",
+      "lessons": [],
+      "dated": "2026-07-15",
+      "canary": "canary-medium-03",
+      "corpus_path": "support/seed/corpus/medium.json",
+      "projection": "story",
+      "expected": "kept",
+      "why": "body over 120 characters",
+      "remote": {
+        "id": null,
+        "url": null,
+        "created_at": null
+      },
+      "private_data": null,
+      "observed": null,
+      "observed_in": null
+    },
+    {
+      "id": "md-04",
+      "connector": "medium",
+      "kind": "story",
+      "title": "Grandfathering, explained to a groomer",
+      "lessons": [],
+      "dated": "2026-08-19",
+      "canary": "canary-medium-04",
+      "corpus_path": "support/seed/corpus/medium.json",
+      "projection": "story",
+      "expected": "kept",
+      "why": "body over 120 characters",
+      "remote": {
+        "id": null,
+        "url": null,
+        "created_at": null
+      },
+      "private_data": null,
+      "observed": null,
+      "observed_in": null
+    },
+    {
+      "id": "md-05",
+      "connector": "medium",
+      "kind": "story",
+      "title": "Why the van has a name",
+      "lessons": [],
+      "dated": "2026-09-01",
+      "canary": "canary-medium-05",
+      "corpus_path": "support/seed/corpus/medium.json",
+      "projection": "story (stretch: only to push the first off the feed)",
+      "expected": "kept",
+      "why": "stretch story; the feed shows only the ten most recent",
+      "remote": {
+        "id": null,
+        "url": null,
+        "created_at": null
+      },
+      "private_data": null,
+      "observed": null,
+      "observed_in": null
+    },
+    {
+      "id": "md-06",
+      "connector": "medium",
+      "kind": "story",
+      "title": "The two-hour text",
+      "lessons": [],
+      "dated": "2026-09-02",
+      "canary": "canary-medium-06",
+      "corpus_path": "support/seed/corpus/medium.json",
+      "projection": "story (stretch: only to push the first off the feed)",
+      "expected": "kept",
+      "why": "stretch story; the feed shows only the ten most recent",
+      "remote": {
+        "id": null,
+        "url": null,
+        "created_at": null
+      },
+      "private_data": null,
+      "observed": null,
+      "observed_in": null
+    },
+    {
+      "id": "md-07",
+      "connector": "medium",
+      "kind": "story",
+      "title": "What a deposit does to a calendar",
+      "lessons": [],
+      "dated": "2026-09-03",
+      "canary": "canary-medium-07",
+      "corpus_path": "support/seed/corpus/medium.json",
+      "projection": "story (stretch: only to push the first off the feed)",
+      "expected": "kept",
+      "why": "stretch story; the feed shows only the ten most recent",
+      "remote": {
+        "id": null,
+        "url": null,
+        "created_at": null
+      },
+      "private_data": null,
+      "observed": null,
+      "observed_in": null
+    },
+    {
+      "id": "md-08",
+      "connector": "medium",
+      "kind": "story",
+      "title": "The seven-day payout nobody warns you about",
+      "lessons": [],
+      "dated": "2026-09-04",
+      "canary": "canary-medium-08",
+      "corpus_path": "support/seed/corpus/medium.json",
+      "projection": "story (stretch: only to push the first off the feed)",
+      "expected": "kept",
+      "why": "stretch story; the feed shows only the ten most recent",
+      "remote": {
+        "id": null,
+        "url": null,
+        "created_at": null
+      },
+      "private_data": null,
+      "observed": null,
+      "observed_in": null
+    },
+    {
+      "id": "md-09",
+      "connector": "medium",
+      "kind": "story",
+      "title": "Vet clinic cards that get used",
+      "lessons": [],
+      "dated": "2026-09-05",
+      "canary": "canary-medium-09",
+      "corpus_path": "support/seed/corpus/medium.json",
+      "projection": "story (stretch: only to push the first off the feed)",
+      "expected": "kept",
+      "why": "stretch story; the feed shows only the ten most recent",
+      "remote": {
+        "id": null,
+        "url": null,
+        "created_at": null
+      },
+      "private_data": null,
+      "observed": null,
+      "observed_in": null
+    },
+    {
+      "id": "md-10",
+      "connector": "medium",
+      "kind": "story",
+      "title": "Why two-van shops stay",
+      "lessons": [],
+      "dated": "2026-09-06",
+      "canary": "canary-medium-10",
+      "corpus_path": "support/seed/corpus/medium.json",
+      "projection": "story (stretch: only to push the first off the feed)",
+      "expected": "kept",
+      "why": "stretch story; the feed shows only the ten most recent",
+      "remote": {
+        "id": null,
+        "url": null,
+        "created_at": null
+      },
+      "private_data": null,
+      "observed": null,
+      "observed_in": null
+    },
+    {
+      "id": "md-11",
+      "connector": "medium",
+      "kind": "story",
+      "title": "Forty-one groomers",
+      "lessons": [],
+      "dated": "2026-09-07",
+      "canary": "canary-medium-11",
+      "corpus_path": "support/seed/corpus/medium.json",
+      "projection": "story (stretch: only to push the first off the feed)",
+      "expected": "kept",
+      "why": "stretch story; the feed shows only the ten most recent",
+      "remote": {
+        "id": null,
+        "url": null,
+        "created_at": null
+      },
+      "private_data": null,
+      "observed": null,
+      "observed_in": null
+    },
+    {
+      "id": "gr-01",
+      "connector": "granola",
+      "kind": "meeting",
+      "title": "Delia weekly check-in",
+      "lessons": [
+        "L1",
+        "L6"
+      ],
+      "dated": null,
+      "canary": "canary-granola-01",
+      "corpus_path": "support/seed/corpus/granola/g01-notes.md",
+      "projection": "spoken script plus typed notes",
+      "expected": "kept",
+      "why": "typed notes over 120 characters",
+      "remote": {
+        "id": null,
+        "url": null,
+        "created_at": null
+      },
+      "private_data": null,
+      "observed": null,
+      "observed_in": null
+    },
+    {
+      "id": "gr-02",
+      "connector": "granola",
+      "kind": "meeting",
+      "title": "Cedar Hollow partnership call",
+      "lessons": [
+        "L7"
+      ],
+      "dated": null,
+      "canary": "canary-granola-02",
+      "corpus_path": "support/seed/corpus/granola/g02-notes.md",
+      "projection": "spoken script plus typed notes",
+      "expected": "kept",
+      "why": "typed notes over 120 characters",
+      "remote": {
+        "id": null,
+        "url": null,
+        "created_at": null
+      },
+      "private_data": null,
+      "observed": null,
+      "observed_in": null
+    },
+    {
+      "id": "gr-03",
+      "connector": "granola",
+      "kind": "meeting",
+      "title": "Vet partners <> Tidewell sync",
+      "lessons": [
+        "L5"
+      ],
+      "dated": null,
+      "canary": "canary-granola-03",
+      "corpus_path": "support/seed/corpus/granola/g03-notes.md",
+      "projection": "spoken script plus typed notes; title has angle brackets",
+      "expected": "kept",
+      "why": "typed notes over 120 characters",
+      "remote": {
+        "id": null,
+        "url": null,
+        "created_at": null
+      },
+      "private_data": null,
+      "observed": null,
+      "observed_in": null
+    },
+    {
+      "id": "gr-04",
+      "connector": "granola",
+      "kind": "meeting",
+      "title": "Payout timing with Marcus",
+      "lessons": [],
+      "dated": null,
+      "canary": "canary-granola-04",
+      "corpus_path": "support/seed/corpus/granola/g04-notes.md",
+      "projection": "typed notes only, no audio",
+      "expected": "kept",
+      "why": "typed notes over 120 characters; UNCERTAIN whether the free plan returns private_notes",
+      "remote": {
+        "id": null,
+        "url": null,
+        "created_at": null
+      },
+      "private_data": null,
+      "observed": null,
+      "observed_in": null
+    },
+    {
+      "id": "nt-00",
+      "connector": "notion",
+      "kind": "page",
+      "title": "Tidewell HQ",
+      "lessons": [],
+      "dated": null,
+      "canary": null,
+      "corpus_path": "support/seed/corpus/notion.json",
+      "projection": "top-level page, one short line",
+      "expected": "dropped",
+      "why": "under the floor (flip if Notion returns child links as text)",
+      "remote": {
+        "id": null,
+        "url": null,
+        "created_at": null
+      },
+      "private_data": null,
+      "observed": null,
+      "observed_in": null
+    },
+    {
+      "id": "nt-01",
+      "connector": "notion",
+      "kind": "page",
+      "title": "No-show deposit policy",
+      "lessons": [
+        "L1"
+      ],
+      "dated": null,
+      "canary": "canary-notion-01",
+      "corpus_path": "support/seed/corpus/notion.json",
+      "projection": "child page of Tidewell HQ",
+      "expected": "kept",
+      "why": "body over 120 characters",
+      "remote": {
+        "id": "3eb0431b-8ba8-81ee-b4b0-d3a734f259aa",
+        "url": "https://www.notion.so/3eb0431b8ba881eeb4b0d3a734f259aa",
+        "created_at": "2026-09-30T12:27:13+00:00"
+      },
+      "private_data": null,
+      "observed": null,
+      "observed_in": null
+    },
+    {
+      "id": "nt-02",
+      "connector": "notion",
+      "kind": "page",
+      "title": "Churn notes: one-van shops",
+      "lessons": [
+        "L4"
+      ],
+      "dated": null,
+      "canary": "canary-notion-02",
+      "corpus_path": "support/seed/corpus/notion.json",
+      "projection": "child page of Tidewell HQ",
+      "expected": "kept",
+      "why": "body over 120 characters",
+      "remote": {
+        "id": "3eb0431b-8ba8-81fd-9d33-d87ebc07031a",
+        "url": "https://www.notion.so/3eb0431b8ba881fd9d33d87ebc07031a",
+        "created_at": "2026-09-30T12:27:13+00:00"
+      },
+      "private_data": null,
+      "observed": null,
+      "observed_in": null
+    },
+    {
+      "id": "nt-03",
+      "connector": "notion",
+      "kind": "page",
+      "title": "Cedar Hollow partnership",
+      "lessons": [
+        "L7"
+      ],
+      "dated": null,
+      "canary": "canary-notion-03",
+      "corpus_path": "support/seed/corpus/notion.json",
+      "projection": "child page of Tidewell HQ",
+      "expected": "kept",
+      "why": "body over 120 characters",
+      "remote": {
+        "id": "3eb0431b-8ba8-816b-947c-db65aef02014",
+        "url": "https://www.notion.so/3eb0431b8ba8816b947cdb65aef02014",
+        "created_at": "2026-09-30T12:27:13+00:00"
+      },
+      "private_data": "fake-phone",
+      "observed": null,
+      "observed_in": null
+    },
+    {
+      "id": "nt-04",
+      "connector": "notion",
+      "kind": "page",
+      "title": "<Roadmap> 🗺️ & priorities",
+      "lessons": [],
+      "dated": null,
+      "canary": "canary-notion-04",
+      "corpus_path": "support/seed/corpus/notion.json",
+      "projection": "child page of Tidewell HQ",
+      "expected": "kept",
+      "why": "body over 120 characters",
+      "remote": {
+        "id": "3eb0431b-8ba8-816d-bfdf-ec4f51ff567a",
+        "url": "https://www.notion.so/3eb0431b8ba8816dbfdfec4f51ff567a",
+        "created_at": "2026-09-30T12:27:13+00:00"
+      },
+      "private_data": null,
+      "observed": null,
+      "observed_in": null
+    },
+    {
+      "id": "nt-05",
+      "connector": "notion",
+      "kind": "page",
+      "title": "Pricing history",
+      "lessons": [],
+      "dated": null,
+      "canary": "canary-notion-05",
+      "corpus_path": "support/seed/corpus/notion.json",
+      "projection": "child page of Tidewell HQ with a child database",
+      "expected": "kept",
+      "why": "body over 120 characters",
+      "remote": {
+        "id": "3eb0431b-8ba8-8181-bf6c-ee1e14116022",
+        "url": "https://www.notion.so/3eb0431b8ba88181bf6cee1e14116022",
+        "created_at": "2026-09-30T12:27:13+00:00"
+      },
+      "private_data": null,
+      "observed": null,
+      "observed_in": null
+    },
+    {
+      "id": "nt-06",
+      "connector": "notion",
+      "kind": "page",
+      "title": "Empty page",
+      "lessons": [],
+      "dated": null,
+      "canary": null,
+      "corpus_path": "support/seed/corpus/notion.json",
+      "projection": "child page of Tidewell HQ",
+      "expected": "dropped",
+      "why": "no blocks",
+      "remote": {
+        "id": "3eb0431b-8ba8-8131-af6d-eb89b967c480",
+        "url": "https://www.notion.so/3eb0431b8ba88131af6deb89b967c480",
+        "created_at": "2026-09-30T12:27:13+00:00"
+      },
+      "private_data": null,
+      "observed": null,
+      "observed_in": null
+    },
+    {
+      "id": "nt-07",
+      "connector": "notion",
+      "kind": "page",
+      "title": "Payroll (restricted)",
+      "lessons": [],
+      "dated": null,
+      "canary": "canary-notion-07",
+      "corpus_path": "support/seed/corpus/notion.json",
+      "projection": "top-level page left out of Lore's grant",
+      "expected": "excluded",
+      "why": "error or excluded: UNCERTAIN, depends on whether the consent screen offers a page picker",
+      "remote": {
+        "id": null,
+        "url": null,
+        "created_at": null
+      },
+      "private_data": null,
+      "observed": null,
+      "observed_in": null
+    }
+  ]
+}

@@ -1,0 +1,108 @@
+{
+  "profile": {
+    "handle": "@tidewell",
+    "fallback_handle": "@priyalindqvist",
+    "feed_cap": 10
+  },
+  "stories": [
+    {
+      "id": "md-01",
+      "slug": "the-hour-of-driving-is-the-product",
+      "title": "The hour of driving is the product",
+      "date": "2026-05-20",
+      "canary": "canary-medium-01",
+      "stretch": false,
+      "html": "<p>Batching a groomer's day by neighbourhood saves about an hour of driving; that hour is the whole pitch.</p>\n<p>A groomer does not buy a booking form, she buys back an hour of her afternoon. Everything else in the app exists to protect it.</p>\n<p>tidewell-seed · canary-medium-01</p>"
+    },
+    {
+      "id": "md-02",
+      "slug": "fifty-customers-before-calendar-sync",
+      "title": "Fifty customers before calendar sync",
+      "date": "2026-06-24",
+      "canary": "canary-medium-02",
+      "stretch": false,
+      "html": "<p>Do not build calendar sync before fifty customers; the first forty never asked for it.</p>\n<p>Every early feature request feels urgent. The ones that come from your ten happiest customers are worth building; the ones that come from a hunch are worth a note.</p>\n<p>tidewell-seed · canary-medium-02</p>"
+    },
+    {
+      "id": "md-03",
+      "slug": "port-alder-groomers-a-route-day",
+      "title": "Port Alder groomers: what a route day looks like",
+      "date": "2026-07-15",
+      "canary": "canary-medium-03",
+      "stretch": false,
+      "html": "<p>A route day in Port Alder starts at seven with the van's tanks filled and ends at five with a wash of the van itself, and in between there are six to nine stops.</p>\n<p>The best days are the ones where the neighbourhoods line up and the worst are the ones with a cancelled first slot.</p>\n<p>tidewell-seed · canary-medium-03</p>"
+    },
+    {
+      "id": "md-04",
+      "slug": "grandfathering-explained-to-a-groomer",
+      "title": "Grandfathering, explained to a groomer",
+      "date": "2026-08-19",
+      "canary": "canary-medium-04",
+      "stretch": false,
+      "html": "<p>Grandfathering means the price you signed up at is the price you keep, even when the price for new customers goes up.</p>\n<p>I explain it to groomers with a van analogy: the fuel price changed at the pump, but the tank you already filled is still full.</p>\n<p>tidewell-seed · canary-medium-04</p>"
+    },
+    {
+      "id": "md-05",
+      "slug": "why-the-van-has-a-name",
+      "title": "Why the van has a name",
+      "date": "2026-09-01",
+      "canary": "canary-medium-05",
+      "stretch": true,
+      "html": "<p>Delia's van is called Biscuit, and customers ask for the van by name, which is a small piece of marketing that no software could invent.</p>\n<p>tidewell-seed · canary-medium-05</p>"
+    },
+    {
+      "id": "md-06",
+      "slug": "the-two-hour-text",
+      "title": "The two-hour text",
+      "date": "2026-09-02",
+      "canary": "canary-medium-06",
+      "stretch": true,
+      "html": "<p>A reminder text two hours before the slot gets a reply; the one the night before gets ignored, and that is worth a whole afternoon of tuning.</p>\n<p>tidewell-seed · canary-medium-06</p>"
+    },
+    {
+      "id": "md-07",
+      "slug": "what-a-deposit-does",
+      "title": "What a deposit does to a calendar",
+      "date": "2026-09-03",
+      "canary": "canary-medium-07",
+      "stretch": true,
+      "html": "<p>A small deposit turns a calendar of maybes into a calendar of promises, and that change is felt by both the groomer and the dog owner.</p>\n<p>tidewell-seed · canary-medium-07</p>"
+    },
+    {
+      "id": "md-08",
+      "slug": "the-seven-day-payout",
+      "title": "The seven-day payout nobody warns you about",
+      "date": "2026-09-04",
+      "canary": "canary-medium-08",
+      "stretch": true,
+      "html": "<p>The first Stripe payout takes about seven days, and a groomer who is not told will assume the money is lost, so we now say it before signup.</p>\n<p>tidewell-seed · canary-medium-08</p>"
+    },
+    {
+      "id": "md-09",
+      "slug": "vet-clinic-cards",
+      "title": "Vet clinic cards that get used",
+      "date": "2026-09-05",
+      "canary": "canary-medium-09",
+      "stretch": true,
+      "html": "<p>Vet clinics hand out a printable card with their own name on it, and it works because the clinic is vouching for the groomer, not for us.</p>\n<p>tidewell-seed · canary-medium-09</p>"
+    },
+    {
+      "id": "md-10",
+      "slug": "two-vans-stay",
+      "title": "Why two-van shops stay",
+      "date": "2026-09-06",
+      "canary": "canary-medium-10",
+      "stretch": true,
+      "html": "<p>Two-van shops stay because the second van needs the calendar, and a shared calendar is the one thing a paper diary cannot do.</p>\n<p>tidewell-seed · canary-medium-10</p>"
+    },
+    {
+      "id": "md-11",
+      "slug": "forty-one-groomers",
+      "title": "Forty-one groomers",
+      "date": "2026-09-07",
+      "canary": "canary-medium-11",
+      "stretch": true,
+      "html": "<p>Forty-one groomers is not a big number, but every one of them has a name, a van and a phone number that I know by heart.</p>\n<p>tidewell-seed · canary-medium-11</p>"
+    }
+  ]
+}
