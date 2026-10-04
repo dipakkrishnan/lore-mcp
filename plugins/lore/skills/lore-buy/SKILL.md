@@ -28,6 +28,10 @@ browse.
 
 ## 2. Read the registry
 
+Given a piece link (`https://<host>/p/<id>`), skip the registry: the node is
+`https://<host>/mcp` and the id is `<id>`. Discover there to confirm the price,
+then go to step 5.
+
 Fetch it directly; no wallet or MCP server is needed:
 
 ```sh
@@ -56,7 +60,9 @@ curl -s -H "$H" -H "$A" -H "Mcp-Session-Id: $SID" "$NODE" -d '{"jsonrpc":"2.0","
 ## 4. Judge
 
 Pick ids whose teaser answers the task and whose `updated_at` is recent enough
-for it. Drop the rest. Prefer `get` (a fixed publication) over `answer` (a
+for it. When an entry carries `useful_if`, `not_useful_if` or a free `sample`,
+read them first: they are the seller's own word on who the piece is for. Drop
+the rest. Prefer `get` (a fixed publication) over `answer` (a
 paid question to the seller's proxy): questions sent to `answer` are kept and
 seen by the seller, so never send one containing private or user-identifying
 detail, and ask the user first.

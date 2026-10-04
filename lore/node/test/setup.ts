@@ -5,7 +5,7 @@ import { env } from "cloudflare:workers";
 // maintains (lore/store.py) and the seed step in .github/workflows/tests.yml.
 // `D1Database.exec()` splits on newlines, so the statement must stay on one line.
 await env.LORE_DB.exec(
-  "CREATE TABLE IF NOT EXISTS publications (public_id TEXT PRIMARY KEY, title TEXT NOT NULL, content TEXT NOT NULL, kind TEXT NOT NULL, topic TEXT NOT NULL DEFAULT '', teaser TEXT NOT NULL DEFAULT '', updated_at TEXT NOT NULL DEFAULT '')"
+  "CREATE TABLE IF NOT EXISTS publications (public_id TEXT PRIMARY KEY, title TEXT NOT NULL, content TEXT NOT NULL, kind TEXT NOT NULL, topic TEXT NOT NULL DEFAULT '', teaser TEXT NOT NULL DEFAULT '', sample TEXT NOT NULL DEFAULT '', useful_if TEXT NOT NULL DEFAULT '', not_useful_if TEXT NOT NULL DEFAULT '', updated_at TEXT NOT NULL DEFAULT '')"
 );
 
 // Ids are checksummed (see `validPublicId` in src/index.ts); these are the
@@ -17,8 +17,8 @@ const SECOND_PUBLICATION_ID = "1111111111111111807ae5f3";
 await env.LORE_DB.batch([
   env.LORE_DB.prepare(
     `INSERT OR IGNORE INTO publications
-       (public_id, title, content, kind, topic, teaser, updated_at)
-     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)`
+       (public_id, title, content, kind, topic, teaser, sample, useful_if, updated_at)
+     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)`
   ).bind(
     FIXTURE_PUBLICATION_ID,
     "Fixture Publication",
@@ -26,6 +26,8 @@ await env.LORE_DB.batch([
     "note",
     "testing",
     "a teaser that is safe to advertise",
+    "a free sample the owner approved",
+    "you are testing the free surface",
     "2026-01-01T00:00:00Z"
   ),
   env.LORE_DB.prepare(

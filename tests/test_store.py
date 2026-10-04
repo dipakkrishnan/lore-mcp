@@ -724,6 +724,37 @@ class PublicationTest(LoreTestCase):
         self.assertNotIn("raised median scores", text)  # content is paid
         self.assertNotIn("Unadvertised", text)
 
+    def test_manifest_lists_the_free_sample_and_fit_lines_only_when_written(
+        self,
+    ) -> None:
+        with Store() as store:
+            store.add_publication(
+                title="Lab conversion results",
+                content="Replacing two lecture hours with a graded lab raised median scores.",
+                topic="course design",
+                teaser="What happened when lectures became a graded lab",
+                sample="We cut two lecture hours in week three.",
+                useful_if="you teach an intro course",
+                provenance=[self.memory_id],
+            )
+            entry = store.manifest()["topics"]["course design"][0]
+        self.assertEqual(entry["sample"], "We cut two lecture hours in week three.")
+        self.assertEqual(entry["useful_if"], "you teach an intro course")
+        self.assertNotIn("not_useful_if", entry)
+        self.assertNotIn("raised median scores", json.dumps(entry))
+
+    def test_a_sample_holding_the_whole_paid_text_is_refused(self) -> None:
+        content = "Replacing two lecture hours with a graded lab raised median scores."
+        with Store() as store, self.assertRaisesRegex(ValueError, "free sample"):
+            store.add_publication(
+                title="Lab",
+                content=content,
+                topic="course design",
+                teaser="What happened",
+                sample=f"Preview: {content}",
+                provenance=[self.memory_id],
+            )
+
     def test_manifest_is_byte_identical_under_private_row_changes(self) -> None:
         # MCP-001 AC 2: everything a buyer observes derives exclusively from
         # owner-approved fields of active publications. The invariant holds
@@ -802,6 +833,7 @@ class PublicationMigrationTest(LoreTestCase):
             by_title = {p.title: p for p in store.list_publications()}
             self.assertEqual(by_title["Old"].topic, "")
             self.assertEqual(by_title["Old"].teaser, "")
+            self.assertEqual(by_title["Old"].sample, "")
             self.assertEqual(by_title["New"].topic, "migrated")
             self.assertEqual(by_title["New"].teaser, "an advertisement")
             # public_id is minted for new rows and backfilled for legacy ones,

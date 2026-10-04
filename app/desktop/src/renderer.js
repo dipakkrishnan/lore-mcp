@@ -2103,6 +2103,9 @@ function approvalForm(candidate) {
   const memory = el("div", "memory");
   const title = draftField(memory, "Title", candidate.title, true);
   const teaser = draftField(memory, "Free teaser, what buyers see first", candidate.teaser);
+  const usefulIf = draftField(memory, "Free · useful if…", candidate.useful_if ?? "");
+  const notUsefulIf = draftField(memory, "Free · not useful if…", candidate.not_useful_if ?? "");
+  const sample = draftField(memory, "Free sample, anyone can read it on the piece's page", candidate.sample ?? "");
   const paid = draftField(memory, "Paid content, what a buyer's agent gets", candidate.content);
   const meta = el("div", "meta");
   meta.append(chip(candidate.topic));
@@ -2111,7 +2114,7 @@ function approvalForm(candidate) {
   /** @param {boolean} approved */
   const choose = async (approved) => {
     skip.disabled = approve.disabled = true;
-    await decide(candidate, approved, approved ? { ...candidate, title: title.value, teaser: teaser.value, content: paid.value } : candidate);
+    await decide(candidate, approved, approved ? { ...candidate, title: title.value, teaser: teaser.value, useful_if: usefulIf.value, not_useful_if: notUsefulIf.value, sample: sample.value, content: paid.value } : candidate);
     if (memory.isConnected) skip.disabled = approve.disabled = false;
   };
   const skip = button("Skip", "secondary", () => void choose(false));
