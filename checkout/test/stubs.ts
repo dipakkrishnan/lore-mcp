@@ -55,7 +55,7 @@ export function stub({ store = listing(), session = {}, stripeStatus = 200, card
       if (stripeStatus !== 200) return Response.json({ error: { message: "no" } }, { status: stripeStatus });
       if (url.pathname === "/v2/core/accounts") return Response.json({ id: "acct_1NewSeller" });
       if (url.pathname === "/v2/core/account_links") return Response.json({ url: "https://connect.stripe.test/setup/s/abc" });
-      if (request.method === "POST") return Response.json({ id: url.pathname.split("/").pop(), metadata: JSON.parse(stripe.at(-1)!.body).metadata });
+      if (request.method === "POST") return Response.json({ id: url.pathname.split("/").pop(), metadata: (JSON.parse(stripe.at(-1)!.body) as { metadata: Record<string, string> }).metadata });
       return Response.json({ id: url.pathname.split("/").pop(), metadata: { lore_store: boundTo }, configuration: { merchant: { capabilities: { card_payments: { status: cardPayments } } } } });
     }
     throw new Error(`unexpected outbound fetch during test: ${request.method} ${url}`);

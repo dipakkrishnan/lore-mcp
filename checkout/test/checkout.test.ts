@@ -119,7 +119,7 @@ describe("store binding", () => {
 
   it("ties an account to a store only with the seller's token", async () => {
     stub();
-    const { account, token } = (await (await exports.default.fetch("https://checkout.test/accounts", { method: "POST" })).json()) as { account: string; token: string };
+    const { account, token } = (await (await exports.default.fetch("https://checkout.test/accounts", { method: "POST" })).json<{ account: string; token: string }>());
     const bind = (fields: Record<string, string>) => exports.default.fetch("https://checkout.test/accounts/bind", { method: "POST", body: new URLSearchParams(fields) });
     const calls = stub();
     expect((await bind({ account, token, origin: STORE })).status).toBe(200);
@@ -130,7 +130,7 @@ describe("store binding", () => {
 });
 
 describe("seller accounts", () => {
-  const open = async () => (await (await exports.default.fetch("https://checkout.test/accounts", { method: "POST" })).json()) as { account: string; token: string };
+  const open = async () => (await (await exports.default.fetch("https://checkout.test/accounts", { method: "POST" })).json<{ account: string; token: string }>());
 
   it("opens a seller's own account: full dashboard, Stripe's fees and losses on Stripe, never Lore", async () => {
     const calls = stub();
@@ -152,7 +152,7 @@ describe("seller accounts", () => {
     const mine = await exports.default.fetch(`https://checkout.test/onboard?account=${account}&token=${token}`, { redirect: "manual" });
     expect(mine.status).toBe(303);
     expect(mine.headers.get("location")).toBe("https://connect.stripe.test/setup/s/abc");
-    const link = JSON.parse(calls[0].body);
+    const link = JSON.parse(calls[0].body) as { use_case: { account_onboarding: { refresh_url: string; return_url: string } } };
     expect(link.use_case.account_onboarding.refresh_url).toBe(`https://checkout.test/onboard?account=${account}&token=${token}`);
     expect(link.use_case.account_onboarding.return_url).toBe("https://checkout.test/onboarded");
     const forged = await exports.default.fetch(`https://checkout.test/onboard?account=acct_1SomeoneElse&token=${token}`, { redirect: "manual" });
