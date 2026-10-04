@@ -65,6 +65,7 @@ describe("a card receipt", () => {
       const response = await receipt();
       expect(response.status).toBe(200);
       expect(response.headers.get("cache-control")).toBe("private, no-store");
+      expect(response.headers.get("referrer-policy")).toBe("no-referrer");
       const html = await response.text();
       expect(html).toContain("the secret owner-approved content");
       expect(html).toContain("Fixture Publication");
