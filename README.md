@@ -191,6 +191,27 @@ owner's machine only ever pushes approved publications outward — no tunnel, no
 inbound path to the private library. The deployed node serves only the
 owner-approved publications `lore push` maintains in its edge database.
 
+### List your store
+
+Listing puts a deployed store in the public
+[registry](https://github.com/dipakkrishnan/lore-marketplace) buyers' agents
+read. In the desktop app choose **List on the marketplace** in Settings; from a
+terminal run:
+
+```sh
+lore marketplace list --name "Your Name"   # defaults to your blueprint name
+```
+
+Either one pushes the name to your node, so its `discover` says
+`"listed": true` and its store and piece pages carry a "Listed on Lore
+marketplace" link, then opens (or prints) the registry's **List my store**
+form with your address filled in. Submitting it is the one step left: the
+request starts the registry's refresh, which reads your node, adds it, and
+replies on the request within a few minutes. `lore marketplace status` says
+whether you are listed or pending. `lore marketplace delist` takes the name
+and the link off your node at once; the registry drops the entry at its next
+daily refresh.
+
 ## Buying from a node
 
 Buying needs no Lore install and no Coinbase/CDP account — CDP is the
