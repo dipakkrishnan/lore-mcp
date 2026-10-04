@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { publicationPage, storefront } from "../src/storefront.js";
+import { publicationPage, storefront, unlockedPage } from "../src/storefront.js";
 
 const A = "a".repeat(24);
 const catalog = {
@@ -93,5 +93,29 @@ describe("publicationPage", () => {
     expect(html).toContain("<button data-share>Share</button>");
     expect(html).toContain("goes straight to the seller");
     expect(publicationPage(piece, { ...store, test: true })).toContain("only a rehearsal");
+  });
+
+  it("puts a card button first when the store takes cards, posting only the store and piece", () => {
+    const html = publicationPage(piece, { ...store, priceUsd: 3, checkout: "https://checkout.example" });
+    expect(html).toContain(
+      `<form method="post" action="https://checkout.example/create"><input type="hidden" name="origin" value="https://lore.example.workers.dev"><input type="hidden" name="id" value="${A}"><button class="primary card" type="submit">Buy for $3.00</button></form>`
+    );
+    expect(html.indexOf("Buy for $3.00")).toBeLessThan(html.indexOf("Or buy it with your AI agent"));
+    expect(html).toContain("Lore never holds it");
+    expect(publicationPage(piece, { ...store, priceUsd: 3, checkout: "https://checkout.example", test: true })).toContain("4242 4242 4242 4242");
+    expect(publicationPage(piece, store)).not.toContain("<form");
+  });
+
+  it("shows a receipt problem without the piece", () => {
+    expect(publicationPage(piece, store, "No <payment> found")).toContain('<p class="notice">No &lt;payment&gt; found</p>');
+  });
+});
+
+describe("unlockedPage", () => {
+  it("shows the paid title and text, escaped", () => {
+    const html = unlockedPage(piece, store, { title: "Hire <managers>", content: "First.\n\n<script>x</script>" });
+    expect(html).toContain("Hire &lt;managers&gt;");
+    expect(html).toContain("<p>First.</p><p>&lt;script&gt;x&lt;/script&gt;</p>");
+    expect(html).toContain("Thanks for buying");
   });
 });

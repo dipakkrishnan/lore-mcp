@@ -851,6 +851,50 @@ class PriceTest(LoreTestCase):
         self.assertNotIn("still charges", output.getvalue())
 
 
+class CardsCommandTest(LoreTestCase):
+    @staticmethod
+    def _attended():
+        return patch.object(cli, "_interactive", return_value=True)
+
+    def test_cards_need_a_price_of_at_least_fifty_cents(self) -> None:
+        with self._attended(), captured():
+            cli.price(0.49)
+            with self.assertRaisesRegex(ValueError, "less than \\$0.50"):
+                cli.cards("account", "acct_1Seller")
+            cli.price(0.50)
+            self.assertEqual(cli.cards("account", "acct_1Seller"), 0)
+        with Store() as store:
+            self.assertEqual(store.setting("stripe_account"), "acct_1Seller")
+
+    def test_a_card_store_cannot_be_priced_under_fifty_cents_until_cards_are_off(
+        self,
+    ) -> None:
+        with self._attended(), captured():
+            cli.price(3)
+            cli.cards("account", "acct_1Seller")
+            with self.assertRaisesRegex(ValueError, "lore cards off"):
+                cli.price(0.01)
+            cli.cards("off", None)
+            self.assertEqual(cli.price(0.01), 0)
+
+    def test_only_a_stripe_account_id_is_accepted(self) -> None:
+        with self._attended(), captured():
+            cli.price(3)
+            for bad in ("", "acct_", "sk_live_abc", "acct_1 ; rm", "https://x"):
+                with self.subTest(bad=bad), self.assertRaisesRegex(ValueError, "acct_"):
+                    cli.cards("account", bad)
+
+    def test_changing_cards_needs_the_owner(self) -> None:
+        with patch.object(cli, "_interactive", return_value=False):
+            with self.assertRaisesRegex(ValueError, "attended terminal"):
+                cli.cards("account", "acct_1Seller")
+
+    def test_status_says_where_cards_go(self) -> None:
+        with captured() as output:
+            cli.cards(None, None)
+        self.assertIn("Not taking cards", output.getvalue())
+
+
 class AnswerCommandTest(LoreTestCase):
     def proxy_file(
         self, text: str = "Act as Ada's concise, evidence-first proxy."
@@ -1874,6 +1918,12 @@ class PushTest(LoreTestCase):
         sql = self.push_sql([])
         self.assertIn("DROP TABLE IF EXISTS publications;", sql)
         self.assertNotIn("INSERT INTO publications", sql)
+
+    def test_push_ships_the_stripe_account_beside_the_listed_name(self) -> None:
+        with Store() as store:
+            sql = cli._push_sql([], store.answer_settings(), "Ada", "acct_1Seller")
+        self.assertIn("('stripe_account','acct_1Seller')", sql)
+        self.assertIn("('listed_name','Ada')", sql)
 
     def test_push_ships_the_answer_settings_alongside_publications(self) -> None:
         with Store() as store:

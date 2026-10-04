@@ -1,0 +1,17 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "lore-checkout",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-06-11",
+  // Lore's card checkout (XC-039). It holds the Stripe platform key, so it is
+  // the one place a Checkout Session can be created on a seller's connected
+  // account. Charges are direct: the money lands in the seller's Stripe
+  // account and never passes through this Worker or Lore's balance.
+  // No route yet: it ships to checkout.yourlore.dev once Lore has a Stripe
+  // platform account.
+  "observability": { "enabled": true },
+  "vars": {
+    // Overridable so tests point at a stubbed Stripe instead of the real API.
+    "STRIPE_API": "https://api.stripe.com"
+  }
+}

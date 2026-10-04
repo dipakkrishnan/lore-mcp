@@ -12,6 +12,7 @@ export default defineProject({
         // is a fixture: the answer tests stub api.anthropic.com the same way.
         bindings: {
           LORE_FACILITATOR_URL: "https://facilitator.test",
+          CHECKOUT_URL: "https://checkout.test",
           ANTHROPIC_API_KEY: "test-key"
         }
       }

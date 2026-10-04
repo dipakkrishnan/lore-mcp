@@ -15,8 +15,8 @@ import {
 import { runAnswer } from "./answer.js";
 import { TESTNET, facilitator, network, networkLabel } from "./network.js";
 import { PRICE_USD } from "./price.js";
-import { ensureSalesSchema, recorded } from "./sales.js";
-import { notFound, pieces, publicationPage, storefront } from "./storefront.js";
+import { ensureSalesSchema, recordCardSale, recorded } from "./sales.js";
+import { type Piece, type Store, notFound, pieces, publicationPage, storefront, unlockedPage } from "./storefront.js";
 import { toolSpanAttributes } from "./telemetry.js";
 import { withSpan } from "./tracing.js";
 import { payTo } from "./wallet.js";
@@ -196,20 +196,88 @@ export class LorePaidMCP extends McpAgent<Env> {
 
 const mcp = LorePaidMCP.serve("/mcp", { binding: "LorePaidMCP" });
 
+/** Cards can't charge less, so a store priced below this offers no card checkout. */
+const CARD_MINIMUM_USD = 0.5;
+const STRIPE_ACCOUNT = /^acct_[A-Za-z0-9]+$/;
+const SESSION = /^cs_[A-Za-z0-9_]+$/;
+const PUBLIC = { "cache-control": "public, max-age=60" };
+const PRIVATE = { "cache-control": "private, no-store" };
+const html = (body: string | null, status: number, cache: Record<string, string>) =>
+  new Response(body, { status, headers: { "content-type": "text/html; charset=utf-8", ...cache } });
+
+type Receipt = { paid: boolean; piece?: string; origin?: string; payment_intent?: string; amount_usd?: number };
+type Paid = { tx: string; priceUsd: number };
+
+/** Ask Lore's checkout whether this receipt paid for this piece in this store; anything else, including an outage, is no. */
+async function paidFor(env: Env, account: string, session: string, piece: Piece, origin: string): Promise<Paid | null> {
+  try {
+    const query = new URLSearchParams({ session, account });
+    const response = await fetch(`${env.CHECKOUT_URL}/verify?${query}`);
+    if (!response.ok) return null;
+    const receipt: Receipt = await response.json();
+    const tx = receipt.payment_intent ?? "";
+    const matches = receipt.paid && receipt.piece === piece.id && receipt.origin === origin && tx;
+    return matches ? { tx, priceUsd: receipt.amount_usd ?? 0 } : null;
+  } catch {
+    return null;
+  }
+}
+
+async function receiptPage(env: Env, store: Store, account: string, session: string, piece: Piece): Promise<Response> {
+  // Only the account gates this, not the price: a receipt keeps working after the owner reprices or stops taking cards.
+  const paid = SESSION.test(session) && STRIPE_ACCOUNT.test(account) ? await paidFor(env, account, session, piece, store.origin) : null;
+  const unlocked = paid
+    ? await env.LORE_DB.prepare("SELECT title, content FROM publications WHERE public_id = ?1")
+        .bind(piece.id)
+        .first<{ title: string; content: string }>()
+    : null;
+  if (!paid || !unlocked) {
+    const problem = "We couldn't find a finished card payment for this piece. If you just paid, wait a minute and reload this page.";
+    return html(publicationPage(piece, store, problem), 200, PRIVATE);
+  }
+  try {
+    await recordCardSale(env.LORE_DB, { item: piece.id, title: unlocked.title, ...paid });
+  } catch {
+    // The buyer has paid; a ledger failure must never cost them the piece.
+    console.error("receiptPage(): failed to write sales row for a paid card session");
+  }
+  return html(unlockedPage(piece, store, unlocked), 200, PRIVATE);
+}
+
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
     const page = url.pathname === "/" || /^\/p(\/|$)/.test(url.pathname);
     if (page && (request.method === "GET" || request.method === "HEAD")) {
       const [catalog, settings] = await Promise.all([manifest(env), readAnswerSettings(env.LORE_DB)]);
-      const store = { name: settings.listedName, priceUsd: PRICE_USD, origin: url.origin, test: network(env) === TESTNET };
-      const id = url.pathname.match(/^\/p\/([0-9a-f]{24})\/?$/)?.[1];
+      const cards = STRIPE_ACCOUNT.test(settings.stripeAccount) && PRICE_USD >= CARD_MINIMUM_USD;
+      const store: Store = {
+        name: settings.listedName,
+        priceUsd: PRICE_USD,
+        origin: url.origin,
+        test: network(env) === TESTNET,
+        ...(cards ? { checkout: env.CHECKOUT_URL } : {})
+      };
+      const [, id, format] = url.pathname.match(/^\/p\/([0-9a-f]{24})(\.json|\/)?$/) ?? [];
       const found = pieces(catalog).find((piece) => piece.id === id);
-      const html = url.pathname === "/" ? storefront(catalog, store) : found ? publicationPage(found, store) : notFound(store);
-      return new Response(request.method === "HEAD" ? null : html, {
-        status: url.pathname === "/" || found ? 200 : 404,
-        headers: { "content-type": "text/html; charset=utf-8", "cache-control": "public, max-age=60" }
-      });
+      if (format === ".json") {
+        // What Lore's checkout reads before charging: only what the page already shows, plus the payee.
+        const listing = found && {
+          id: found.id,
+          teaser: found.teaser,
+          price_usd: PRICE_USD,
+          stripe_account: cards ? settings.stripeAccount : "",
+          test: store.test
+        };
+        return Response.json(listing ?? { error: "not for sale here" }, { status: listing ? 200 : 404, headers: PUBLIC });
+      }
+      const session = url.searchParams.get("session_id");
+      if (found && session !== null) {
+        const response = await receiptPage(env, store, settings.stripeAccount, session, found);
+        return request.method === "HEAD" ? html(null, response.status, PRIVATE) : response;
+      }
+      const body = url.pathname === "/" ? storefront(catalog, store) : found ? publicationPage(found, store) : notFound(store);
+      return html(request.method === "HEAD" ? null : body, url.pathname === "/" || found ? 200 : 404, PUBLIC);
     }
     const response = await mcp.fetch(request, env, ctx);
     if (response.webSocket || response.headers.has("cache-control")) return response;

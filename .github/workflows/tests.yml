@@ -172,6 +172,54 @@ jobs:
       - name: Run the stubbed-GitHub test suite (XC-028)
         run: npm test
 
+  checkout-lint:
+    name: Card checkout lint
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: checkout
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: lts/*
+      - run: npm ci
+      - run: npm run lint
+
+  checkout-compiler:
+    name: Card checkout compiler checks
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: checkout
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: lts/*
+      - run: npm ci
+      # Placeholder: never a real Stripe key. Lets `wrangler types` resolve
+      # the secret binding the same way the feedback relay's job does.
+      - run: echo "STRIPE_SECRET_KEY=sk_test_not_a_real_key" > .dev.vars
+      - run: npm run types
+      - run: npm run check
+
+  checkout-component:
+    name: Card checkout component tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: checkout
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: lts/*
+      - run: npm ci
+      - run: echo "STRIPE_SECRET_KEY=sk_test_not_a_real_key" > .dev.vars
+      - name: Run the stubbed-Stripe test suite (XC-039)
+        run: npm test
+
   worker-smoke:
     name: Worker smoke test
     runs-on: ubuntu-latest

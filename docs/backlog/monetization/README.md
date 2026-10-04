@@ -14,6 +14,10 @@ Two payment paths exist deliberately, and items here should say which they mean:
   dependency (epic #25, Beta decisions). `lore/node/` holds it. `MON-002` onward
   cover it.
 
+**One price per store, on every rail (MON-028).** The owner's `lore price` is
+the only price a buyer ever sees, whether they pay by card or through an agent.
+Cards are offered only while that price is at least $0.50.
+
 Lore owns what is disclosed; a payment rail owns offer, verification, and
 settlement. Disclosure is a publication (see `STO-001`), never a memory status —
 `external` was retired in PR #19.
