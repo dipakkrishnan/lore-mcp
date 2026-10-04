@@ -1,3 +1,5 @@
+const { readFile, rename, writeFile } = require("node:fs/promises");
+
 // New-sale notifications (MON-037): which sales the owner hasn't heard about,
 // and the plain words for each Mac notification.
 
@@ -50,4 +52,21 @@ function notify(words, onClick) {
   note.show();
 }
 
-module.exports = { marker, unseen, announcements, notify };
+/** The last sale announced, or null when there is none or the file can't be read: a damaged
+ * marker reads as a first read, and the next write repairs it. @param {string} file @returns {Promise<SeenSale | null>} */
+async function readSeen(file) {
+  try {
+    const seen = JSON.parse(await readFile(file, "utf8"));
+    return typeof seen?.sold_at === "string" && typeof seen?.key === "string" ? seen : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Written beside the file, then renamed over it, so a crash mid-write leaves the old marker whole. @param {string} file @param {SeenSale} seen */
+async function writeSeen(file, seen) {
+  await writeFile(`${file}.tmp`, JSON.stringify(seen));
+  await rename(`${file}.tmp`, file);
+}
+
+module.exports = { marker, unseen, announcements, notify, readSeen, writeSeen };

@@ -929,3 +929,20 @@ test("previews a draft's page with the store's renderer, free fields only", asyn
   assert.match(html, /\$3\.00/);
   assert.doesNotMatch(html, /the paid finding|Paid title/);
 });
+
+test("a damaged sales marker reads as a first read, and the next write repairs it whole", async () => {
+  const sales = require("../src/sales.cjs");
+  const directory = await mkdtemp(join(tmpdir(), "lore-seen-"));
+  const file = join(directory, "sales-seen.json");
+  try {
+    await writeFile(file, '{"sold_at":"2026-10-0');
+    assert.equal(await sales.readSeen(file), null);
+    await writeFile(file, '"just a string"');
+    assert.equal(await sales.readSeen(file), null);
+    await sales.writeSeen(file, { sold_at: "2026-10-04T12:00:00Z", key: "stripe:pi_1" });
+    assert.deepEqual(await sales.readSeen(file), { sold_at: "2026-10-04T12:00:00Z", key: "stripe:pi_1" });
+    await assert.rejects(access(`${file}.tmp`));
+  } finally {
+    await rm(directory, { recursive: true });
+  }
+});

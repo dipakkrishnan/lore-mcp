@@ -1,6 +1,5 @@
 const { randomUUID } = require("node:crypto");
 const { existsSync } = require("node:fs");
-const { readFile, writeFile } = require("node:fs/promises");
 const { join } = require("node:path");
 const { app, BrowserWindow, dialog, ipcMain, safeStorage, shell, systemPreferences } = require("electron");
 const { provision, skillsDir, whisper } = require("./runtime.cjs");
@@ -235,9 +234,8 @@ function watchSales(loreHome) {
     // Only a deployed store has a ledger; skip the CLI entirely until one exists.
     if (checking || !existsSync(join(loreHome, "node", "node_modules", ".bin", "wrangler"))) return;
     checking = true;
-    /** @type {SeenSale | null} */
-    const seen = await readFile(seenFile, "utf8").then((text) => JSON.parse(text), () => null);
     try {
+      const seen = await sales.readSeen(seenFile);
       // A store nobody has bought from or connected to yet has no ledger table: that is an empty
       // ledger, and remembering it as read is what lets the very first sale be announced.
       /** @type {Sale[]} */
@@ -246,7 +244,8 @@ function watchSales(loreHome) {
         throw error;
       });
       const fresh = sales.unseen(rows, seen);
-      if (rows.length || !seen) await writeFile(seenFile, JSON.stringify(sales.marker(rows)));
+      // Remembered before announcing: a crash in between loses one banner rather than repeating it.
+      if (rows.length || !seen) await sales.writeSeen(seenFile, sales.marker(rows));
       for (const words of sales.announcements(fresh)) {
         sales.notify(words, () => {
           if (!window) createWindow();

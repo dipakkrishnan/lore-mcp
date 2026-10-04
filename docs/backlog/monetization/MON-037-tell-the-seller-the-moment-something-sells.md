@@ -48,6 +48,7 @@ of interest short of a sale.
 
 Pages are served with `cache-control: public, max-age=60` and Workers Cache
 (MON-029), so a view served from the edge cache may not reach the Worker and
-isn't counted. Treat the number as a floor. Buyers' questions to the answer
+isn't counted, while crawlers and link-preview unfurlers are, so the number
+can run low or high. Read it as a rough signal of interest, not an audience. Buyers' questions to the answer
 tier are kept in `answer_jobs` but not shown in the app yet; that is a
 follow-up.
