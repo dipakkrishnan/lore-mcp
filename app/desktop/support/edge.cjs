@@ -24,6 +24,8 @@ runtime.provision = async (emit) => { if (failSetup) throw new Error("uv explode
 const relayReports = [];
 // XC-036: the request form opens in the browser; record it instead.
 const opened = [];
+const checkoutCalls = [];
+let stripeCleared = false;
 if (scenario === "listing") {
   require("electron").shell.openExternal = async (url) => { opened.push(url); };
   require(join(src, "main.cjs"));
@@ -40,6 +42,19 @@ if (scenario === "listing") {
   });
   relay.listen(0, "127.0.0.1", () => {
     process.env.LORE_FEEDBACK_URL = `http://127.0.0.1:${relay.address().port}/report`;
+    require(join(src, "main.cjs"));
+  });
+} else if (scenario === "cards") {
+  // XC-039: Lore's checkout, stubbed. One account, which Stripe clears once the owner "finishes" its form.
+  require("electron").shell.openExternal = async (url) => { opened.push(url); };
+  const checkout = require("node:http").createServer((request, response) => {
+    const url = new URL(request.url ?? "/", "http://localhost");
+    response.writeHead(200, { "Content-Type": "application/json" });
+    if (request.method === "POST" && url.pathname === "/accounts") { checkoutCalls.push("open"); response.end(JSON.stringify({ account: "acct_1EdgeSeller", token: "a".repeat(64) })); }
+    else response.end(JSON.stringify({ ready: stripeCleared }));
+  });
+  checkout.listen(0, "localhost", () => {
+    process.env.LORE_CHECKOUT_URL = `http://localhost:${checkout.address().port}`;
     require(join(src, "main.cjs"));
   });
 } else if (scenario === "connectors") {
@@ -70,6 +85,7 @@ const results = [];
 function check(name, ok, detail = "") { results.push(`${ok ? "PASS" : "FAIL"} ${name}${detail ? ` — ${detail}` : ""}`); }
 
 app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {import("electron").BrowserWindow} */ window) => {
+  if (window.getParentWindow()) return; // a page preview, not the app
   const js = (code) => window.webContents.executeJavaScript(code);
   const shot = (name) => window.webContents.capturePage().then((image) => writeFileSync(join(S, `${name}.png`), image.toPNG()));
   const waitFor = async (code, tries = 40) => { for (let i = 0; i < tries; i++) { if (await js(code)) return true; await sleep(250); } return false; };
@@ -570,6 +586,55 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         check("the in-flight report did not close the sheet opened after it", await js(`(() => { const open = [...document.querySelectorAll("dialog.sheet")]; return open.length === 1 && open[0].open === true && !open[0].classList.contains("narrow"); })()`));
         check("the second report filed once", relayReports.length === 2, `relay saw ${relayReports.length}`);
         await shot("feedback-other-sheet-survives");
+      } else if (scenario === "sell") {
+        // APP-134: a draft previews as the page buyers will see; pasted writing is kept privately, then drafted.
+        await js(`window.__lore.signIn()`);
+        await waitFor(`document.querySelector("#content").textContent.includes("Approve what to sell")`);
+        await js(`[...document.querySelectorAll("#content button")].find((b) => b.textContent === "Preview page").click()`);
+        let preview;
+        for (let i = 0; i < 40 && !preview; i++) { preview = window.getChildWindows()[0]; if (!preview) await sleep(250); }
+        await sleep(800);
+        const page = decodeURIComponent(preview?.webContents.getURL() ?? "");
+        check("Preview page opens the draft's page in its own window", page.includes("When to add managers in a fast-growing team."));
+        check("the preview carries no paid text", !page.includes("Add the management layer"));
+        check("the preview window runs no script", preview?.webContents.getLastWebPreferences().javascript === false);
+        if (preview) writeFileSync(join(S, "sell-preview.png"), (await preview.webContents.capturePage()).toPNG());
+        preview?.close();
+        const opened = await js(`(() => { try { window.__lore.paste(); return "ok"; } catch (e) { return String(e && e.stack || e); } })()`);
+        check("Paste opens the sheet", opened === "ok", opened);
+        await sleep(300);
+        await js(`const t = document.querySelector("dialog.sheet[open] textarea"); t.value = "Our launch deck lost to four-minute demos.\\nTwelve cold sends, zero replies."; t.dispatchEvent(new Event("input"))`);
+        await shot("sell-paste");
+        await js(`[...document.querySelectorAll("dialog.sheet[open] button")].find((b) => b.textContent === "Draft it for sale").click()`);
+        check("Draft it for sale keeps the writing privately", await waitFor(`window.lore.search("four-minute demos").then((found) => found.some((m) => m.title === "Our launch deck lost to four-minute demos."))`));
+        check("…and starts the publish thread from it", await waitFor(`document.querySelector("#log").textContent.includes("starting from \\"Our launch deck lost to four-minute demos.\\"")`));
+        await shot("sell-drafting");
+      } else if (scenario === "cards") {
+        // XC-039: Settings takes an owner from "Get paid to your bank" to card payments on, with no Stripe key on this Mac.
+        await js(`window.__lore.signIn()`);
+        await waitFor(`document.querySelector("#content").textContent.includes("Approve what to sell")`);
+        await js(`window.lore.setPrice(3)`);
+        await js(`window.__lore.show("settings")`);
+        const cardsRow = `[...document.querySelectorAll("#content .row")].find((r) => r.textContent.startsWith("Card payments"))`;
+        const press = (label) => js(`[...${cardsRow}.querySelectorAll("button")].find((b) => b.textContent === ${JSON.stringify(label)}).click()`);
+        check("Settings offers to get paid to the bank", await waitFor(`${cardsRow}?.textContent.includes("Get paid to your bank")`));
+        await shot("cards-offer");
+        await press("Get paid to your bank");
+        for (let i = 0; i < 40 && !opened.length; i++) await sleep(250);
+        check("Stripe's form opens in the browser, through Lore's checkout", /\/onboard\?account=acct_1EdgeSeller&token=a{64}$/.test(opened[0] ?? ""), opened[0]);
+        check("while Stripe checks, the row says so and offers the form again", await waitFor(`${cardsRow}?.textContent.includes("Waiting on Stripe") && ${cardsRow}.textContent.includes("Finish with Stripe")`));
+        await shot("cards-waiting");
+        await press("Finish with Stripe");
+        for (let i = 0; i < 40 && opened.length < 2; i++) await sleep(250);
+        check("finishing later reopens the form for the same account", checkoutCalls.length === 1 && opened[1] === opened[0], `${checkoutCalls.length} accounts opened`);
+        stripeCleared = true;
+        await js(`window.dispatchEvent(new Event("focus"))`);
+        check("coming back once Stripe clears it offers to turn cards on", await waitFor(`${cardsRow}?.textContent.includes("Turn on card payments")`));
+        await shot("cards-ready");
+        await press("Turn on card payments");
+        check("cards are on, with a way to turn them off", await waitFor(`${cardsRow}?.textContent.includes("Turn off")`));
+        check("…into the account Stripe cleared", await js(`window.lore.cardStatus().then((c) => c.account)`) === "acct_1EdgeSeller");
+        await shot("cards-on");
       } else {
         await js(`window.__lore.signIn()`);
         await waitFor(`document.querySelector("#content").textContent.includes("Approve what to sell")`);

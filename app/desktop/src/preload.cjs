@@ -25,7 +25,11 @@ contextBridge.exposeInMainWorld("lore", {
   renameMemory: (id, title) => ipcRenderer.invoke("memory:rename", id, title),
   /** @param {number} id @param {string} content */
   editMemory: (id, content) => ipcRenderer.invoke("memory:edit", id, content),
+  /** @param {{title: string, content: string}} input */
+  pasteMemory: (input) => ipcRenderer.invoke("memory:paste", input),
   candidates: () => ipcRenderer.invoke("publication:candidates"),
+  /** @param {{candidate: PublicationCandidate, store: {priceUsd: number, origin: string, test: boolean}}} input */
+  preview: (input) => ipcRenderer.invoke("publication:preview", input),
   /** @param {{original: PublicationCandidate, candidate: PublicationCandidate, approve: boolean}} input */
   decide: (input) => ipcRenderer.invoke("publication:decide", input),
   /** @param {number} id */
@@ -40,6 +44,10 @@ contextBridge.exposeInMainWorld("lore", {
   /** @param {"list" | "delist"} action */
   listStore: (action) => ipcRenderer.invoke("listing:act", action),
   listingStatus: () => ipcRenderer.invoke("listing:status"),
+  cardStatus: () => ipcRenderer.invoke("cards:status"),
+  connectCards: () => ipcRenderer.invoke("cards:connect"),
+  /** @param {string | null} account */
+  switchCards: (account) => ipcRenderer.invoke("cards:switch", account),
   pickFiles: () => ipcRenderer.invoke("files:pick"),
   pickFolder: () => ipcRenderer.invoke("folders:pick"),
   sourceCatalog: () => ipcRenderer.invoke("sources:catalog"),

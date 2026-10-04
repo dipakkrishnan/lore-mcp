@@ -118,6 +118,7 @@ const EXPLORERS = { "eip155:8453": "https://basescan.org", "eip155:84532": "http
 const REAL_MONEY = "I'm ready to switch my store to real money.";
 const SETUP_INTENT = "Let's set up my Lore.";
 const STORE_INTENT = "Help me open my store.";
+const CARDS_ON = "I turned on card payments. Redeploy my store so buyers can pay by card.";
 const REDEPLOY_PRICE = "I changed my publication price. Redeploy my store so buyers pay the new amount.";
 // Six decimals, not the default two: a price can run below a cent, and rounding
 // $0.000001 up to $0.01 would misstate what a buyer pays. Six is the CLI's floor.
@@ -615,7 +616,9 @@ function needsYou(s) {
   // The store rung waits for approved work, whatever rung setup is on: the
   // payout address is asked last, once there is something worth being paid for.
   if (s.publications.counts.active && !s.node.url && !pushOffer) add("Open your store", `${s.publications.counts.active === 1 ? "Your approved piece is" : `Your ${s.publications.counts.active} approved pieces are`} ready to sell. Pick a price and where payments go.`, button("Open", "secondary", () => void startDeploy()));
-  if (s.library.counts.private && !candidates.length && !taskItems.some((item) => item.kind === "publish")) add("Publish something", "Lore drafts up to three things to sell; you approve each one.", button("Publish", "secondary", () => void startPublish()));
+  const publishing = candidates.length || taskItems.some((item) => item.kind === "publish");
+  if (!publishing) add("Sell something you wrote", "Paste a post, a postmortem or notes. Lore drafts the piece and shows you its page.", button("Paste", "secondary", openPasteSheet));
+  if (s.library.counts.private && !publishing) add("Publish something", "Lore drafts up to three things to sell; you approve each one.", button("Publish", "secondary", () => void startPublish()));
   // Approved work a buyer cannot see yet, or a price they are not yet paying, is actionable whatever rung setup is on.
   const stale = stalePrice(s);
   if (stale !== null) add("Redeploy your store", `Buyers still pay ${price(stale)}; you set ${price(s.pricing.publication_usd)}.`, button("Redeploy", "secondary", () => void startDeploy(REDEPLOY_PRICE)));
@@ -940,6 +943,55 @@ function scheduleRow(s) {
   const who = `${rhythm(schedule)} with ${EXECUTORS[schedule.executor]}`;
   if (schedule.installed) return row(label, `${who}. ${lastSynthesis(s)}`, cell(dot(true, "Scheduled")), false);
   return row(label, `Set for ${who.charAt(0).toLowerCase()}${who.slice(1)}, but nothing on this Mac is running it.`, cell(dot(false, "Not scheduled"), button("Schedule", "secondary", () => void act(window.lore.schedule))), false);
+}
+
+/** Card payments, read from Lore and, while an account waits on Stripe, from Stripe. @type {CardStatus | null | Error} */
+let cards = null;
+let cardsLoading = false;
+
+async function loadCards() {
+  if (cardsLoading) return;
+  cardsLoading = true;
+  try {
+    cards = await window.lore.cardStatus();
+  } catch (error) {
+    cards = error instanceof Error ? error : new Error(String(error));
+  }
+  cardsLoading = false;
+  if (view === "settings") render();
+}
+
+// Coming back from Stripe's form in the browser is when the answer changes.
+window.addEventListener("focus", () => { if (cards && !(cards instanceof Error) && cards.pending) void loadCards(); });
+
+/** Settings → Your store → Card payments: from "Get paid to your bank" to on, without a Stripe key on this Mac. @param {Snapshot} s */
+function cardsRow(s) {
+  const label = "Card payments";
+  if (cards === null) { void loadCards(); return [row(label, "Checking…", cell(dot(false, "Checking")), false)]; }
+  if (cards instanceof Error) return [row(label, "Lore couldn't check card payments.", cell(button("Try again", "quiet", () => { cards = null; render(); })), false)];
+  const status = cards;
+  const switchTo = (/** @type {string | null} */ account) => act(async () => {
+    await window.lore.switchCards(account);
+    cards = null;
+    tell(account ? (s.node.url ? "Card payments are on. Lore is updating your store so buyers see Buy by card." : "Card payments are on. They start when your store opens.") : "Card payments are off.");
+    if (account && s.node.url) await startDeploy(CARDS_ON);
+  });
+  if (status.account) {
+    return [row(label, "Buyers can pay by card. Stripe pays you out to your bank; Lore never holds the money.", cell(dot(true, "On"), outLink("Stripe ↗", "https://dashboard.stripe.com"), button("Turn off", "quiet", () => void switchTo(null))), false)];
+  }
+  const finish = button(status.pending ? "Finish with Stripe" : "Get paid to your bank", "secondary", () => void act(async () => {
+    await window.lore.connectCards();
+    cards = null;
+    tell("Finish with Stripe in your browser, then come back here.");
+  }));
+  if (!status.pending) {
+    return [row(label, "Let people buy with a card. Stripe checks who you are and pays you out to your bank; Lore never holds the money.", cell(finish), false)];
+  }
+  if (status.ready === null) return [row(label, "Lore couldn't reach Stripe to check your account.", cell(button("Check again", "quiet", () => void loadCards())), false)];
+  if (!status.ready) return [row(label, "Stripe still needs a few details before you can take cards.", cell(dot(false, "Waiting on Stripe"), finish), false)];
+  const priced = typeof s.pricing.publication_usd === "number" && s.pricing.publication_usd >= status.minimum_usd;
+  if (!priced) return [row(label, `Stripe is ready. Cards need a price of at least ${price(status.minimum_usd)}.`, cell(button("Change price", "secondary", openPriceEditor)), false)];
+  return [row(label, s.node.url ? "Stripe is ready. Turning cards on updates your store." : "Stripe is ready. Cards start when your store opens.", cell(button("Turn on card payments", "primary", () => void switchTo(status.pending))), false)];
 }
 
 /** Read the listing state once per store address; Settings re-renders when it lands. @param {Snapshot} s */
@@ -1315,6 +1367,7 @@ function renderSettings(s) {
       ...(live.network === TEST_NETWORK
         ? [row("Payments", "Your store is on the test network, where buyers pay with play money. Switch when you want real buyers paying real money.", cell(button("Switch to real payments", "secondary", () => void startDeploy(REAL_MONEY))), false)]
         : []),
+      ...cardsRow(s),
       ...marketplaceRow(s)
     ]))
   ];
@@ -2117,12 +2170,54 @@ function approvalForm(candidate) {
     await decide(candidate, approved, approved ? { ...candidate, title: title.value, teaser: teaser.value, useful_if: usefulIf.value, not_useful_if: notUsefulIf.value, sample: sample.value, content: paid.value } : candidate);
     if (memory.isConnected) skip.disabled = approve.disabled = false;
   };
+  const preview = button("Preview page", "quiet", () => void previewPage({ ...candidate, title: title.value, teaser: teaser.value, useful_if: usefulIf.value, not_useful_if: notUsefulIf.value, sample: sample.value }));
   const skip = button("Skip", "secondary", () => void choose(false));
   const approve = button("Approve", "primary", () => void choose(true));
-  group.append(skip, approve);
+  group.append(preview, skip, approve);
   meta.append(group);
   memory.append(meta);
   return memory;
+}
+
+/** The page buyers will see for a draft, rendered by the store's own code; nothing is published. @param {PublicationCandidate} candidate */
+async function previewPage(candidate) {
+  const live = snapshot?.node;
+  const store = {
+    priceUsd: snapshot?.pricing.publication_usd ?? live?.live.price_usd ?? 0.01,
+    origin: live?.url ?? "https://your-store.yourlore.dev",
+    test: live?.live.network === TEST_NETWORK
+  };
+  try {
+    await window.lore.preview({ candidate, store });
+  } catch (error) {
+    tell(reason(error, "Lore could not show the preview."), true);
+  }
+}
+
+/** Paste writing to sell: Lore keeps it privately, then drafts a piece from it. */
+function openPasteSheet() {
+  const form = el("div", "feedback-form");
+  const title = draftField(form, "What it's about (optional)", "", true);
+  const text = /** @type {HTMLTextAreaElement} */ (draftField(form, "Your writing: a post, a postmortem, or notes", ""));
+  text.rows = 8;
+  const problem = problemLine();
+  const draft = button("Draft it for sale", "primary", async () => {
+    const content = text.value.trim();
+    if (!content) { problem.textContent = "Paste something first."; return; }
+    draft.disabled = true;
+    try {
+      const [saved] = await window.lore.pasteMemory({ title: title.value.trim() || content.split("\n")[0].slice(0, 80), content });
+      dialog.close();
+      await publishMemory(saved);
+    } catch (error) {
+      problem.textContent = reason(error, "Lore could not save that.");
+      draft.disabled = false;
+    }
+  });
+  const actions = el("div", "actions");
+  actions.append(button("Cancel", "secondary", () => dialog.close()), draft);
+  form.append(el("p", "hint", "Saved privately to your Lore. Nothing is public until you approve a draft."), problem, actions);
+  const dialog = sheet("Sell something you wrote", mark(), form);
 }
 
 function seamCard() {
@@ -2684,7 +2779,7 @@ keyForm.addEventListener("submit", (event) => {
   void signIn(provider, "api_key", value);
 });
 
-Object.assign(window, { __lore: { show, openTask, preview: renderRequest, event: onEvent, signIn: () => { previewSignIn = true; auth = { credentials: [{ providerId: "anthropic", type: "oauth" }] }; enter(); } } });
+Object.assign(window, { __lore: { show, openTask, paste: openPasteSheet, preview: renderRequest, event: onEvent, signIn: () => { previewSignIn = true; auth = { credentials: [{ providerId: "anthropic", type: "oauth" }] }; enter(); } } });
 
 function boot() {
   if (previewSignIn) return;

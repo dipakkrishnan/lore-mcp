@@ -211,7 +211,9 @@ interface Window {
     memory(id: number): Promise<Memory>;
     renameMemory(id: number, title: string): Promise<Memory>;
     editMemory(id: number, content: string): Promise<Memory>;
+    pasteMemory(input: { title: string; content: string }): Promise<SavedMemory[]>;
     candidates(): Promise<PublicationCandidate[]>;
+    preview(input: { candidate: PublicationCandidate; store: { priceUsd: number; origin: string; test: boolean } }): Promise<void>;
     decide(input: { original: PublicationCandidate; candidate: PublicationCandidate; approve: boolean }): Promise<void>;
     revoke(id: number): Promise<void>;
     push(): Promise<void>;
@@ -221,6 +223,9 @@ interface Window {
     reportFeedback(input: { title: string; email: string; description: string }): Promise<FeedbackReceipt>;
     listStore(action: "list" | "delist"): Promise<Listing>;
     listingStatus(): Promise<Listing>;
+    cardStatus(): Promise<CardStatus>;
+    connectCards(): Promise<void>;
+    switchCards(account: string | null): Promise<void>;
     pickFiles(): Promise<string[]>;
     pickFolder(): Promise<string | null>;
     sourceCatalog(): Promise<SourceApp[]>;
@@ -325,4 +330,12 @@ interface Listing {
   state: "none" | "pending" | "listed";
   action?: "list" | "delist";
   url?: string;
+}
+
+/** Card payments (XC-039): `account` takes them; `pending` is opened but not yet on; `ready` is Stripe's answer, null when unknown. */
+interface CardStatus {
+  account: string;
+  pending: string;
+  ready: boolean | null;
+  minimum_usd: number;
 }

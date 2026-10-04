@@ -138,6 +138,24 @@ async function captureMemories(loreHome, entries) {
   return JSON.parse(await lore(loreHome, ["capture", "apply", "-"], JSON.stringify(entries)));
 }
 
+/** A draft's piece page exactly as the store would render it, before anything is published.
+ * @param {PublicationCandidate} candidate @param {{priceUsd: number, origin: string, test: boolean}} store */
+async function previewPage(candidate, store) {
+  const { publicationPage } = await import("./storefront.mjs");
+  const piece = {
+    id: "0".repeat(24),
+    teaser: candidate.teaser,
+    kind: candidate.kind,
+    topic: candidate.topic,
+    section: 0,
+    updated_at: new Date().toISOString().slice(0, 10),
+    sample: candidate.sample,
+    useful_if: candidate.useful_if,
+    not_useful_if: candidate.not_useful_if
+  };
+  return publicationPage(piece, { name: "", priceUsd: store.priceUsd, origin: store.origin, test: Boolean(store.test) });
+}
+
 /** The one global publication price, saved through Lore's own validation.
  * Zero is a legal CLI value ("free"), but a store the owner is pricing needs a
  * positive one — choosing not to sell stays a conversation, not a text field.
@@ -185,6 +203,22 @@ async function reportFeedback(loreHome, input) {
 async function listStore(loreHome, action) {
   if (action !== "list" && action !== "delist") throw new Error("Invalid listing action");
   return JSON.parse(await lore(loreHome, ["marketplace", action, "--json"], ""));
+}
+
+/** Card payments: the account taking them, one Stripe hasn't cleared yet, and whether it has. @param {string} loreHome @returns {Promise<CardStatus>} */
+async function cardStatus(loreHome) {
+  return JSON.parse(await lore(loreHome, ["cards", "--json"]));
+}
+
+/** Open (or reopen) the owner's own Stripe account through Lore's checkout; returns Stripe's form to finish in the browser. @param {string} loreHome @returns {Promise<{account: string, url: string}>} */
+async function connectCards(loreHome) {
+  return JSON.parse(await lore(loreHome, ["cards", "connect", "--json"], ""));
+}
+
+/** Turn card payments on into an account Stripe cleared, or off. @param {string} loreHome @param {string | null} account */
+async function switchCards(loreHome, account) {
+  if (account !== null && !/^acct_[A-Za-z0-9]+$/.test(account)) throw new Error("Invalid Stripe account");
+  await lore(loreHome, account === null ? ["cards", "off"] : ["cards", "account", account], "");
 }
 
 /** Whether this store is listed, pending, or neither, read from the public list. @param {string} loreHome @returns {Promise<Listing>} */
@@ -268,11 +302,15 @@ module.exports = {
   renameMemory,
   editMemory,
   captureMemories,
+  previewPage,
   setPrice,
   candidates,
   decide,
   reportFeedback,
   listStore,
+  cardStatus,
+  connectCards,
+  switchCards,
   listingStatus,
   sourceCatalog,
   sourceChoices,
