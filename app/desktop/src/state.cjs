@@ -138,6 +138,24 @@ async function captureMemories(loreHome, entries) {
   return JSON.parse(await lore(loreHome, ["capture", "apply", "-"], JSON.stringify(entries)));
 }
 
+/** A draft's piece page exactly as the store would render it, before anything is published.
+ * @param {PublicationCandidate} candidate @param {{priceUsd: number, origin: string, test: boolean}} store */
+async function previewPage(candidate, store) {
+  const { publicationPage } = await import("./storefront.mjs");
+  const piece = {
+    id: "0".repeat(24),
+    teaser: candidate.teaser,
+    kind: candidate.kind,
+    topic: candidate.topic,
+    section: 0,
+    updated_at: new Date().toISOString().slice(0, 10),
+    sample: candidate.sample,
+    useful_if: candidate.useful_if,
+    not_useful_if: candidate.not_useful_if
+  };
+  return publicationPage(piece, { name: "", priceUsd: store.priceUsd, origin: store.origin, test: Boolean(store.test) });
+}
+
 /** The one global publication price, saved through Lore's own validation.
  * Zero is a legal CLI value ("free"), but a store the owner is pricing needs a
  * positive one — choosing not to sell stays a conversation, not a text field.
@@ -268,6 +286,7 @@ module.exports = {
   renameMemory,
   editMemory,
   captureMemories,
+  previewPage,
   setPrice,
   candidates,
   decide,

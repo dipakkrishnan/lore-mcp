@@ -900,3 +900,16 @@ test("every tool that puts a card in front of the owner runs one at a time", asy
   const owner = ["ask_user", "propose_memories", "propose_blueprint", "propose_price", "cloudflare_login", "open_url", "finish_task"];
   for (const name of owner) assert.match(source, new RegExp(`name: "${name}",\\s*executionMode: "sequential"`), `${name} must be sequential`);
 });
+
+test("previews a draft's page with the store's renderer, free fields only", async () => {
+  const { previewPage } = require("../src/state.cjs");
+  const html = await previewPage(
+    { title: "Paid title", teaser: "What <worked>?", content: "the paid finding", kind: "claim", topic: "launches", provenance: [1], sample: "We had two weeks.", useful_if: "you launch tools", not_useful_if: "" },
+    { priceUsd: 3, origin: "https://store.example", test: false }
+  );
+  assert.match(html, /What &lt;worked&gt;\?/);
+  assert.match(html, /We had two weeks\./);
+  assert.match(html, /Useful if you launch tools/);
+  assert.match(html, /\$3\.00/);
+  assert.doesNotMatch(html, /the paid finding|Paid title/);
+});

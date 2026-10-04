@@ -615,7 +615,9 @@ function needsYou(s) {
   // The store rung waits for approved work, whatever rung setup is on: the
   // payout address is asked last, once there is something worth being paid for.
   if (s.publications.counts.active && !s.node.url && !pushOffer) add("Open your store", `${s.publications.counts.active === 1 ? "Your approved piece is" : `Your ${s.publications.counts.active} approved pieces are`} ready to sell. Pick a price and where payments go.`, button("Open", "secondary", () => void startDeploy()));
-  if (s.library.counts.private && !candidates.length && !taskItems.some((item) => item.kind === "publish")) add("Publish something", "Lore drafts up to three things to sell; you approve each one.", button("Publish", "secondary", () => void startPublish()));
+  const publishing = candidates.length || taskItems.some((item) => item.kind === "publish");
+  if (!publishing) add("Sell something you wrote", "Paste a post, a postmortem or notes. Lore drafts the piece and shows you its page.", button("Paste", "secondary", openPasteSheet));
+  if (s.library.counts.private && !publishing) add("Publish something", "Lore drafts up to three things to sell; you approve each one.", button("Publish", "secondary", () => void startPublish()));
   // Approved work a buyer cannot see yet, or a price they are not yet paying, is actionable whatever rung setup is on.
   const stale = stalePrice(s);
   if (stale !== null) add("Redeploy your store", `Buyers still pay ${price(stale)}; you set ${price(s.pricing.publication_usd)}.`, button("Redeploy", "secondary", () => void startDeploy(REDEPLOY_PRICE)));
@@ -2117,12 +2119,54 @@ function approvalForm(candidate) {
     await decide(candidate, approved, approved ? { ...candidate, title: title.value, teaser: teaser.value, useful_if: usefulIf.value, not_useful_if: notUsefulIf.value, sample: sample.value, content: paid.value } : candidate);
     if (memory.isConnected) skip.disabled = approve.disabled = false;
   };
+  const preview = button("Preview page", "quiet", () => void previewPage({ ...candidate, title: title.value, teaser: teaser.value, useful_if: usefulIf.value, not_useful_if: notUsefulIf.value, sample: sample.value }));
   const skip = button("Skip", "secondary", () => void choose(false));
   const approve = button("Approve", "primary", () => void choose(true));
-  group.append(skip, approve);
+  group.append(preview, skip, approve);
   meta.append(group);
   memory.append(meta);
   return memory;
+}
+
+/** The page buyers will see for a draft, rendered by the store's own code; nothing is published. @param {PublicationCandidate} candidate */
+async function previewPage(candidate) {
+  const live = snapshot?.node;
+  const store = {
+    priceUsd: snapshot?.pricing.publication_usd ?? live?.live.price_usd ?? 0.01,
+    origin: live?.url ?? "https://your-store.yourlore.dev",
+    test: live?.live.network === TEST_NETWORK
+  };
+  try {
+    await window.lore.preview({ candidate, store });
+  } catch (error) {
+    tell(reason(error, "Lore could not show the preview."), true);
+  }
+}
+
+/** Paste writing to sell: Lore keeps it privately, then drafts a piece from it. */
+function openPasteSheet() {
+  const form = el("div", "feedback-form");
+  const title = draftField(form, "What it's about (optional)", "", true);
+  const text = /** @type {HTMLTextAreaElement} */ (draftField(form, "Your writing: a post, a postmortem, or notes", ""));
+  text.rows = 8;
+  const problem = problemLine();
+  const draft = button("Draft it for sale", "primary", async () => {
+    const content = text.value.trim();
+    if (!content) { problem.textContent = "Paste something first."; return; }
+    draft.disabled = true;
+    try {
+      const [saved] = await window.lore.pasteMemory({ title: title.value.trim() || content.split("\n")[0].slice(0, 80), content });
+      dialog.close();
+      await publishMemory(saved);
+    } catch (error) {
+      problem.textContent = reason(error, "Lore could not save that.");
+      draft.disabled = false;
+    }
+  });
+  const actions = el("div", "actions");
+  actions.append(button("Cancel", "secondary", () => dialog.close()), draft);
+  form.append(el("p", "hint", "Saved privately to your Lore. Nothing is public until you approve a draft."), problem, actions);
+  const dialog = sheet("Sell something you wrote", mark(), form);
 }
 
 function seamCard() {
@@ -2684,7 +2728,7 @@ keyForm.addEventListener("submit", (event) => {
   void signIn(provider, "api_key", value);
 });
 
-Object.assign(window, { __lore: { show, openTask, preview: renderRequest, event: onEvent, signIn: () => { previewSignIn = true; auth = { credentials: [{ providerId: "anthropic", type: "oauth" }] }; enter(); } } });
+Object.assign(window, { __lore: { show, openTask, paste: openPasteSheet, preview: renderRequest, event: onEvent, signIn: () => { previewSignIn = true; auth = { credentials: [{ providerId: "anthropic", type: "oauth" }] }; enter(); } } });
 
 function boot() {
   if (previewSignIn) return;
