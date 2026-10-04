@@ -19,6 +19,7 @@ import { ensureSalesSchema, recordCardSale, recorded } from "./sales.js";
 import { type Piece, type Store, notFound, pieces, publicationPage, storefront, unlockedPage } from "./storefront.js";
 import { toolSpanAttributes } from "./telemetry.js";
 import { withSpan } from "./tracing.js";
+import { countView } from "./views.js";
 import { payTo } from "./wallet.js";
 
 const ANSWER_DISABLED = { error: "the answer tier is not enabled on this node" };
@@ -276,6 +277,8 @@ export default {
         const response = await receiptPage(env, store, settings.stripeAccount, session, found);
         return request.method === "HEAD" ? html(null, response.status, PRIVATE) : response;
       }
+      // Counted after the response; a buyer reopening their receipt returned above and is never a view.
+      if (found && request.method === "GET") ctx.waitUntil(countView(env.LORE_DB, found.id).catch(() => undefined));
       const body = url.pathname === "/" ? storefront(catalog, store) : found ? publicationPage(found, store) : notFound(store);
       return html(request.method === "HEAD" ? null : body, url.pathname === "/" || found ? 200 : 404, PUBLIC);
     }

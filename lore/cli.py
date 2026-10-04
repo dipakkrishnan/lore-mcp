@@ -297,6 +297,10 @@ def parser() -> argparse.ArgumentParser:
     node_sales.add_argument(
         "--json", action="store_true", help="print the sales as JSON"
     )
+    node_views = node_commands.add_parser(
+        "views", help="how often each piece's page was opened"
+    )
+    node_views.add_argument("--json", action="store_true")
     node_secret = node_commands.add_parser(
         "secret",
         help="vault a Coinbase credential on the node; the value is read from stdin",
@@ -487,6 +491,8 @@ def main(argv: list[str] | None = None) -> int:
                 return deploy_module.login()
             if args.node_command == "sales":
                 return sales(args.json)
+            if args.node_command == "views":
+                return views(args.json)
         if args.command == "publication":
             if args.publication_command == "review":
                 return publication_apply(args.file)
@@ -990,6 +996,20 @@ def sales(as_json: bool) -> int:
     heading(f"{len(rows)} sale{'s' if len(rows) != 1 else ''} · ${total:.2f}")
     for row in rows:
         print(f"  {row.sold_at[:10]}  ${row.price_usd:.2f}  {row.title}")
+    return 0
+
+
+def views(as_json: bool) -> int:
+    rows = deploy_module.views()
+    if as_json:
+        print(deploy_module.VIEWS.dump_json(rows).decode())
+        return 0
+    with Store() as store:
+        titles = {p.public_id: p.title for p in store.list_publications()}
+    for row in sorted(rows, key=lambda row: -row.views):
+        print(f"  {row.views:>6}  {titles.get(row.item_id, row.item_id)}")
+    if not rows:
+        muted("No page views yet.")
     return 0
 
 

@@ -1,6 +1,6 @@
 #!/bin/bash
 # Seed a scratch Lore home with two memories and two drafts, then drive the renderer as one persona.
-# Scenarios: seller | provision | store | jobs | fresh | feedback | listing | obsidian | connectors | faq | sell | cards
+# Scenarios: seller | provision | store | jobs | fresh | feedback | listing | obsidian | connectors | faq | sell | cards | sales
 set -euo pipefail
 scenario="${1:-seller}"
 desktop_dir="$(cd "$(dirname "$0")/.." && pwd)"
@@ -36,6 +36,24 @@ with Store() as store:
  store.start_job('deploy', timeout_minutes=720)
 from lore import automation
 automation.save_profile({'executor': 'codex', 'cadence': 'daily', 'hour': 21})")
+fi
+if [[ "$scenario" == "sales" ]]; then
+  # MON-037: a store with one piece for sale and one card sale already in its ledger. The node's
+  # wrangler is a stand-in that answers from files the scenario rewrites as new sales arrive.
+  (cd "$repo_root" && uv run python -c "
+import json, os
+from lore.store import Store
+out = os.environ['LORE_EDGE_OUT']
+with Store() as store:
+ store.set_setting('node_url', 'https://edge-store.invalid/mcp')
+ store.add_publication(title='Live demos beat cold decks', content='paid text', topic='launches', teaser='What beat a cold deck', provenance=[1])
+ piece = store.list_publications()[0].public_id
+json.dump([{'kind': 'publication', 'item_id': piece, 'title': 'Live demos beat cold decks', 'price_usd': 3.0, 'network': 'stripe', 'payer': '', 'tx': 'pi_old', 'sold_at': '2026-10-01T12:00:00Z'}], open(f'{out}/sales.json', 'w'))
+json.dump([{'item_id': piece, 'views': 42}], open(f'{out}/views.json', 'w'))
+open(f'{out}/piece', 'w').write(piece)")
+  mkdir -p "$LORE_HOME/node/node_modules/.bin"
+  printf '#!/bin/sh\ncase "$*" in *page_views*) printf "[{\\"results\\": []}, {\\"results\\": %%s}]" "$(cat "$LORE_EDGE_OUT/views.json")";; *) printf "[{\\"results\\": %%s}]" "$(cat "$LORE_EDGE_OUT/sales.json")";; esac\n' > "$LORE_HOME/node/node_modules/.bin/wrangler"
+  chmod +x "$LORE_HOME/node/node_modules/.bin/wrangler"
 fi
 if [[ "$scenario" == "listing" ]]; then
   # XC-036: a live store, a setup name, a push that always succeeds, and an empty public list.

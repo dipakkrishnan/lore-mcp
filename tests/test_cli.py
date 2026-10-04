@@ -174,6 +174,15 @@ class MainDispatchTest(LoreTestCase):
         self.assertIn("1 sale · $0.01", output.getvalue())
         self.assertIn("2026-09-02  $0.01  A", output.getvalue())
 
+    def test_node_views_prints_counts_as_json(self) -> None:
+        rows = [deploy_module.PageViews(item_id="0000000000000000fcdb4b42", views=7)]
+        with patch("lore.deploy.views", return_value=rows), captured() as output:
+            self.assertEqual(cli.main(["node", "views", "--json"]), 0)
+        self.assertEqual(
+            json.loads(output.getvalue()),
+            [{"item_id": "0000000000000000fcdb4b42", "views": 7}],
+        )
+
     def test_node_deploy_forwards_the_wallet_and_the_network(self) -> None:
         with patch("lore.deploy.deploy", return_value=0) as deploy:
             self.assertEqual(cli.main(["node", "deploy", "--wallet", "0x1"]), 0)
