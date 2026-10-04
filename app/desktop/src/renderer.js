@@ -118,6 +118,7 @@ const EXPLORERS = { "eip155:8453": "https://basescan.org", "eip155:84532": "http
 const REAL_MONEY = "I'm ready to switch my store to real money.";
 const SETUP_INTENT = "Let's set up my Lore.";
 const STORE_INTENT = "Help me open my store.";
+const CARDS_ON = "I turned on card payments. Redeploy my store so buyers can pay by card.";
 const REDEPLOY_PRICE = "I changed my publication price. Redeploy my store so buyers pay the new amount.";
 // Six decimals, not the default two: a price can run below a cent, and rounding
 // $0.000001 up to $0.01 would misstate what a buyer pays. Six is the CLI's floor.
@@ -944,6 +945,55 @@ function scheduleRow(s) {
   return row(label, `Set for ${who.charAt(0).toLowerCase()}${who.slice(1)}, but nothing on this Mac is running it.`, cell(dot(false, "Not scheduled"), button("Schedule", "secondary", () => void act(window.lore.schedule))), false);
 }
 
+/** Card payments, read from Lore and, while an account waits on Stripe, from Stripe. @type {CardStatus | null | Error} */
+let cards = null;
+let cardsLoading = false;
+
+async function loadCards() {
+  if (cardsLoading) return;
+  cardsLoading = true;
+  try {
+    cards = await window.lore.cardStatus();
+  } catch (error) {
+    cards = error instanceof Error ? error : new Error(String(error));
+  }
+  cardsLoading = false;
+  if (view === "settings") render();
+}
+
+// Coming back from Stripe's form in the browser is when the answer changes.
+window.addEventListener("focus", () => { if (cards && !(cards instanceof Error) && cards.pending) void loadCards(); });
+
+/** Settings → Your store → Card payments: from "Get paid to your bank" to on, without a Stripe key on this Mac. @param {Snapshot} s */
+function cardsRow(s) {
+  const label = "Card payments";
+  if (cards === null) { void loadCards(); return [row(label, "Checking…", cell(dot(false, "Checking")), false)]; }
+  if (cards instanceof Error) return [row(label, "Lore couldn't check card payments.", cell(button("Try again", "quiet", () => { cards = null; render(); })), false)];
+  const status = cards;
+  const switchTo = (/** @type {string | null} */ account) => act(async () => {
+    await window.lore.switchCards(account);
+    cards = null;
+    tell(account ? (s.node.url ? "Card payments are on. Lore is updating your store so buyers see Buy by card." : "Card payments are on. They start when your store opens.") : "Card payments are off.");
+    if (account && s.node.url) await startDeploy(CARDS_ON);
+  });
+  if (status.account) {
+    return [row(label, "Buyers can pay by card. Stripe pays you out to your bank; Lore never holds the money.", cell(dot(true, "On"), outLink("Stripe ↗", "https://dashboard.stripe.com"), button("Turn off", "quiet", () => void switchTo(null))), false)];
+  }
+  const finish = button(status.pending ? "Finish with Stripe" : "Get paid to your bank", "secondary", () => void act(async () => {
+    await window.lore.connectCards();
+    cards = null;
+    tell("Finish with Stripe in your browser, then come back here.");
+  }));
+  if (!status.pending) {
+    return [row(label, "Let people buy with a card. Stripe checks who you are and pays you out to your bank; Lore never holds the money.", cell(finish), false)];
+  }
+  if (status.ready === null) return [row(label, "Lore couldn't reach Stripe to check your account.", cell(button("Check again", "quiet", () => void loadCards())), false)];
+  if (!status.ready) return [row(label, "Stripe still needs a few details before you can take cards.", cell(dot(false, "Waiting on Stripe"), finish), false)];
+  const priced = typeof s.pricing.publication_usd === "number" && s.pricing.publication_usd >= status.minimum_usd;
+  if (!priced) return [row(label, `Stripe is ready. Cards need a price of at least ${price(status.minimum_usd)}.`, cell(button("Change price", "secondary", openPriceEditor)), false)];
+  return [row(label, s.node.url ? "Stripe is ready. Turning cards on updates your store." : "Stripe is ready. Cards start when your store opens.", cell(button("Turn on card payments", "primary", () => void switchTo(status.pending))), false)];
+}
+
 /** Read the listing state once per store address; Settings re-renders when it lands. @param {Snapshot} s */
 function loadListing(s) {
   if (!s.node.url || listingFor === s.node.url) return;
@@ -1317,6 +1367,7 @@ function renderSettings(s) {
       ...(live.network === TEST_NETWORK
         ? [row("Payments", "Your store is on the test network, where buyers pay with play money. Switch when you want real buyers paying real money.", cell(button("Switch to real payments", "secondary", () => void startDeploy(REAL_MONEY))), false)]
         : []),
+      ...cardsRow(s),
       ...marketplaceRow(s)
     ]))
   ];

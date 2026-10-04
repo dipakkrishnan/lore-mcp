@@ -18,7 +18,7 @@ describe("create", () => {
     const response = await buy();
     expect(response.status).toBe(303);
     expect(response.headers.get("location")).toBe("https://checkout.stripe.test/c/pay/cs_test_abc");
-    const [call] = calls;
+    const call = calls.find((c) => c.url.includes("/v1/checkout/sessions"))!;
     expect(call.headers.get("stripe-account")).toBe(ACCOUNT);
     expect(call.headers.get("authorization")).toBe("Bearer sk_test_not_a_real_key");
     const sent = new URLSearchParams(call.body);
@@ -37,8 +37,9 @@ describe("create", () => {
   it("takes price and payee from the store, ignoring anything the buyer adds to the form", async () => {
     const calls = stub();
     await buy({ origin: STORE, id: PIECE, price_usd: "0.01", stripe_account: "acct_Attacker", unit_amount: "1" });
-    const sent = new URLSearchParams(calls[0].body);
-    expect(calls[0].headers.get("stripe-account")).toBe(ACCOUNT);
+    const session = calls.find((c) => c.url.includes("/v1/checkout/sessions"))!;
+    const sent = new URLSearchParams(session.body);
+    expect(session.headers.get("stripe-account")).toBe(ACCOUNT);
     expect(sent.get("line_items[0][price_data][unit_amount]")).toBe("300");
   });
 
@@ -101,4 +102,70 @@ describe("verify", () => {
 
 it("exports only the handler, since the Workers runtime refuses any other export", () => {
   expect(Object.keys(entry)).toEqual(["default"]);
+});
+
+describe("store binding", () => {
+  it("refuses a store naming an account that the seller tied to a different store", async () => {
+    const calls = stub({ boundTo: "https://real-seller.test" });
+    const response = await buy();
+    expect(response.status).toBe(409);
+    expect(calls.some((c) => c.url.includes("/v1/checkout/sessions"))).toBe(false);
+  });
+
+  it("refuses an account no seller has tied to a store", async () => {
+    stub({ boundTo: "" });
+    expect((await buy()).status).toBe(409);
+  });
+
+  it("ties an account to a store only with the seller's token", async () => {
+    stub();
+    const { account, token } = (await (await exports.default.fetch("https://checkout.test/accounts", { method: "POST" })).json<{ account: string; token: string }>());
+    const bind = (fields: Record<string, string>) => exports.default.fetch("https://checkout.test/accounts/bind", { method: "POST", body: new URLSearchParams(fields) });
+    const calls = stub();
+    expect((await bind({ account, token, origin: STORE })).status).toBe(200);
+    expect(JSON.parse(calls[0].body)).toEqual({ metadata: { lore_store: STORE } });
+    expect((await bind({ account, token: "0".repeat(64), origin: STORE })).status).toBe(403);
+    expect((await bind({ account, token, origin: "javascript:alert(1)" })).status).toBe(400);
+  });
+});
+
+describe("seller accounts", () => {
+  const open = async () => (await (await exports.default.fetch("https://checkout.test/accounts", { method: "POST" })).json<{ account: string; token: string }>());
+
+  it("opens a seller's own account: full dashboard, Stripe's fees and losses on Stripe, never Lore", async () => {
+    const calls = stub();
+    const { account, token } = await open();
+    expect(account).toBe("acct_1NewSeller");
+    expect(token).toMatch(/^[0-9a-f]{64}$/);
+    expect(calls[0].headers.get("stripe-version")).toMatch(/^\d{4}-\d{2}-\d{2}\./);
+    expect(JSON.parse(calls[0].body)).toMatchObject({
+      dashboard: "full",
+      defaults: { responsibilities: { fees_collector: "stripe", losses_collector: "stripe" } },
+      configuration: { merchant: { capabilities: { card_payments: { requested: true } } } }
+    });
+  });
+
+  it("sends the seller to Stripe's form only with their token, and an expired form comes back for a fresh one", async () => {
+    stub();
+    const { account, token } = await open();
+    const calls = stub();
+    const mine = await exports.default.fetch(`https://checkout.test/onboard?account=${account}&token=${token}`, { redirect: "manual" });
+    expect(mine.status).toBe(303);
+    expect(mine.headers.get("location")).toBe("https://connect.stripe.test/setup/s/abc");
+    const link = JSON.parse(calls[0].body) as { use_case: { account_onboarding: { refresh_url: string; return_url: string } } };
+    expect(link.use_case.account_onboarding.refresh_url).toBe(`https://checkout.test/onboard?account=${account}&token=${token}`);
+    expect(link.use_case.account_onboarding.return_url).toBe("https://checkout.test/onboarded");
+    const forged = await exports.default.fetch(`https://checkout.test/onboard?account=acct_1SomeoneElse&token=${token}`, { redirect: "manual" });
+    expect(forged.status).toBe(403);
+  });
+
+  it("says when Stripe lets the account take cards", async () => {
+    stub();
+    const { account, token } = await open();
+    stub({ cardPayments: "restricted" });
+    expect(await (await exports.default.fetch(`https://checkout.test/accounts/status?account=${account}&token=${token}`)).json()).toEqual({ ready: false });
+    stub({ cardPayments: "active" });
+    expect(await (await exports.default.fetch(`https://checkout.test/accounts/status?account=${account}&token=${token}`)).json()).toEqual({ ready: true });
+    expect((await exports.default.fetch(`https://checkout.test/accounts/status?account=${account}&token=${"0".repeat(64)}`)).status).toBe(403);
+  });
 });

@@ -103,9 +103,23 @@ session itself. Only where the key lives changes.
   opens, the seller's balance rose by $2.61 after Stripe's fee, the platform
   balance did not move, and a forged session id showed nothing. The second
   criterion stays open until the sale also shows in the desktop Sales list.
-- Slice 2: the Account Links onboarding in the desktop app, the Connect
-  webhooks (`checkout.session.completed`, `account.updated`), the nonzero-fee
-  check, and deploying `checkout/` to `checkout.yourlore.dev`.
+- Slice 2a (2026-10-04): Settings → Your store → Card payments. "Get paid to
+  your bank" has the checkout Worker open the seller's own account (Accounts
+  v2: full dashboard, `fees_collector` and `losses_collector` both `stripe`)
+  and sends them to Stripe's form in the browser. The app checks with Stripe
+  when the owner comes back and offers "Turn on card payments" once
+  `card_payments` is active and the price is at least $0.50. The Worker signs
+  each account id with an HMAC token only the opening app holds, so an id
+  read off a store page can't reopen that seller's form. Verified against
+  the sandbox up to Stripe's form; the form itself is the owner's to fill.
+- Store binding (review of #373): a store's `/p/<id>.json` names its payee,
+  so any site could name a real seller's account. Each remote `lore push`
+  now ties the account to the store's origin in Stripe account metadata
+  (`lore_store`), proven with the seller's token, and `/create` refuses any
+  other origin. Verified against the sandbox.
+- Still open: the Connect webhooks (`checkout.session.completed`,
+  `account.updated`), the nonzero-fee check, a rate limit on opening
+  accounts, and deploying `checkout/` to `checkout.yourlore.dev`.
 
 Decided 2026-09-29: model 1 over having the platform charge and pay sellers
 out (Uber, DoorDash) or being the seller of record (Gumroad, Paddle). The

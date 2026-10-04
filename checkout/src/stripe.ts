@@ -54,3 +54,60 @@ export function createSession(env: Env, sale: Sale): Promise<Session> {
 export function retrieveSession(env: Env, account: string, id: string): Promise<Session> {
   return call(env, account, `/v1/checkout/sessions/${id}`);
 }
+
+/** The v2 Accounts API is versioned per request; this is the version Lore's platform account was opened on. */
+const V2_VERSION = "2026-08-26.dahlia";
+
+async function v2<T>(env: Env, path: string, body?: unknown): Promise<T> {
+  const response = await fetch(`${env.STRIPE_API}${path}`, {
+    method: body ? "POST" : "GET",
+    headers: { Authorization: `Bearer ${env.STRIPE_SECRET_KEY}`, "Stripe-Version": V2_VERSION, "Content-Type": "application/json" },
+    body: body ? JSON.stringify(body) : undefined
+  });
+  if (!response.ok) throw new StripeError(response.status);
+  return response.json();
+}
+
+/**
+ * A seller's own Stripe account: the full Stripe Dashboard, Stripe's fees taken
+ * from the seller, and Stripe (not Lore) covering losses. Neither can change later.
+ */
+export async function createAccount(env: Env): Promise<string> {
+  const account = await v2<{ id: string }>(env, "/v2/core/accounts", {
+    identity: { country: "us" },
+    dashboard: "full",
+    defaults: { responsibilities: { fees_collector: "stripe", losses_collector: "stripe" } },
+    configuration: { merchant: { capabilities: { card_payments: { requested: true } } } }
+  });
+  return account.id;
+}
+
+/** Stripe's hosted form, where the seller gives Stripe their details and bank. */
+export async function onboardingLink(env: Env, account: string, refresh: string, done: string): Promise<string> {
+  const link = await v2<{ url: string }>(env, "/v2/core/account_links", {
+    account,
+    use_case: { type: "account_onboarding", account_onboarding: { configurations: ["merchant"], refresh_url: refresh, return_url: done } }
+  });
+  return link.url;
+}
+
+type Account = {
+  metadata?: Record<string, string>;
+  configuration?: { merchant?: { capabilities?: { card_payments?: { status?: string } } } };
+};
+
+const lookup = (env: Env, account: string) => v2<Account>(env, `/v2/core/accounts/${account}?include=configuration.merchant`);
+
+/** Whether Stripe lets this account take card payments yet. */
+export async function cardPaymentsReady(env: Env, account: string): Promise<boolean> {
+  return (await lookup(env, account)).configuration?.merchant?.capabilities?.card_payments?.status === "active";
+}
+
+/** The one store this account sells through, kept on the account where no store can write it. */
+export async function boundStore(env: Env, account: string): Promise<string> {
+  return (await lookup(env, account)).metadata?.lore_store ?? "";
+}
+
+export async function bindStore(env: Env, account: string, origin: string): Promise<void> {
+  await v2(env, `/v2/core/accounts/${account}`, { metadata: { lore_store: origin } });
+}
