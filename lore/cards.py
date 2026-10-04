@@ -20,10 +20,13 @@ def checkout_url() -> str:
     return os.environ.get(CHECKOUT_ENV, CHECKOUT_URL).rstrip("/")
 
 
-def _call(path: str, method: str = "GET") -> dict[str, object]:
+def _call(
+    path: str, method: str = "GET", form: dict[str, str] | None = None
+) -> dict[str, object]:
     request = urllib.request.Request(
         f"{checkout_url()}{path}",
         method=method,
+        data=urllib.parse.urlencode(form).encode() if form else None,
         headers={"Accept": "application/json"},
     )
     try:
@@ -56,3 +59,12 @@ def ready(account: str, token: str) -> bool:
     """Whether Stripe lets the account take card payments yet."""
     query = urllib.parse.urlencode({"account": account, "token": token})
     return bool(_call(f"/accounts/status?{query}").get("ready"))
+
+
+def bind(account: str, token: str, origin: str) -> None:
+    """Tie the account to this owner's store, so no other store can charge into it."""
+    _call(
+        "/accounts/bind",
+        "POST",
+        {"account": account, "token": token, "origin": origin},
+    )

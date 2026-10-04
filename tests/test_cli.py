@@ -2025,6 +2025,34 @@ class PushTest(LoreTestCase):
         self.assertIn("--local", run.call_args.args[0])
         self.assertIn("local dev database", out.getvalue())
 
+    def test_a_remote_push_ties_the_card_account_to_this_store_and_a_local_one_does_not(
+        self,
+    ) -> None:
+        with Store() as store:
+            store.set_setting("stripe_account", "acct_1Seller")
+            store.set_setting("stripe_account_token", "a" * 64)
+            store.set_setting("node_url", "https://ada.workers.dev/mcp")
+        with patch.object(cli.cards_module, "bind") as bind:
+            self._push(local=True)
+            bind.assert_not_called()
+            self._push()
+        bind.assert_called_once_with(
+            "acct_1Seller", "a" * 64, "https://ada.workers.dev"
+        )
+
+    def test_a_push_still_succeeds_when_card_checkout_is_unreachable(self) -> None:
+        with Store() as store:
+            store.set_setting("stripe_account", "acct_1Seller")
+            store.set_setting("stripe_account_token", "a" * 64)
+            store.set_setting("node_url", "https://ada.workers.dev/mcp")
+        with (
+            patch.object(cli.cards_module, "bind", side_effect=OSError("offline")),
+            patch.object(cli, "warn") as warned,
+        ):
+            code, _run, _out = self._push()
+        self.assertEqual(code, 0)
+        self.assertIn("can't pay by card until the next push", warned.call_args.args[0])
+
     def test_a_remote_push_clears_a_pending_revocation_but_a_local_one_does_not(
         self,
     ) -> None:

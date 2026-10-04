@@ -91,11 +91,23 @@ export async function onboardingLink(env: Env, account: string, refresh: string,
   return link.url;
 }
 
+type Account = {
+  metadata?: Record<string, string>;
+  configuration?: { merchant?: { capabilities?: { card_payments?: { status?: string } } } };
+};
+
+const lookup = (env: Env, account: string) => v2<Account>(env, `/v2/core/accounts/${account}?include=configuration.merchant`);
+
 /** Whether Stripe lets this account take card payments yet. */
 export async function cardPaymentsReady(env: Env, account: string): Promise<boolean> {
-  const found = await v2<{ configuration?: { merchant?: { capabilities?: { card_payments?: { status?: string } } } } }>(
-    env,
-    `/v2/core/accounts/${account}?include=configuration.merchant`
-  );
-  return found.configuration?.merchant?.capabilities?.card_payments?.status === "active";
+  return (await lookup(env, account)).configuration?.merchant?.capabilities?.card_payments?.status === "active";
+}
+
+/** The one store this account sells through, kept on the account where no store can write it. */
+export async function boundStore(env: Env, account: string): Promise<string> {
+  return (await lookup(env, account)).metadata?.lore_store ?? "";
+}
+
+export async function bindStore(env: Env, account: string, origin: string): Promise<void> {
+  await v2(env, `/v2/core/accounts/${account}`, { metadata: { lore_store: origin } });
 }

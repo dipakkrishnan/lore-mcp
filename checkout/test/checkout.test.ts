@@ -18,7 +18,7 @@ describe("create", () => {
     const response = await buy();
     expect(response.status).toBe(303);
     expect(response.headers.get("location")).toBe("https://checkout.stripe.test/c/pay/cs_test_abc");
-    const [call] = calls;
+    const call = calls.find((c) => c.url.includes("/v1/checkout/sessions"))!;
     expect(call.headers.get("stripe-account")).toBe(ACCOUNT);
     expect(call.headers.get("authorization")).toBe("Bearer sk_test_not_a_real_key");
     const sent = new URLSearchParams(call.body);
@@ -37,8 +37,9 @@ describe("create", () => {
   it("takes price and payee from the store, ignoring anything the buyer adds to the form", async () => {
     const calls = stub();
     await buy({ origin: STORE, id: PIECE, price_usd: "0.01", stripe_account: "acct_Attacker", unit_amount: "1" });
-    const sent = new URLSearchParams(calls[0].body);
-    expect(calls[0].headers.get("stripe-account")).toBe(ACCOUNT);
+    const session = calls.find((c) => c.url.includes("/v1/checkout/sessions"))!;
+    const sent = new URLSearchParams(session.body);
+    expect(session.headers.get("stripe-account")).toBe(ACCOUNT);
     expect(sent.get("line_items[0][price_data][unit_amount]")).toBe("300");
   });
 
@@ -101,6 +102,31 @@ describe("verify", () => {
 
 it("exports only the handler, since the Workers runtime refuses any other export", () => {
   expect(Object.keys(entry)).toEqual(["default"]);
+});
+
+describe("store binding", () => {
+  it("refuses a store naming an account that the seller tied to a different store", async () => {
+    const calls = stub({ boundTo: "https://real-seller.test" });
+    const response = await buy();
+    expect(response.status).toBe(409);
+    expect(calls.some((c) => c.url.includes("/v1/checkout/sessions"))).toBe(false);
+  });
+
+  it("refuses an account no seller has tied to a store", async () => {
+    stub({ boundTo: "" });
+    expect((await buy()).status).toBe(409);
+  });
+
+  it("ties an account to a store only with the seller's token", async () => {
+    stub();
+    const { account, token } = (await (await exports.default.fetch("https://checkout.test/accounts", { method: "POST" })).json()) as { account: string; token: string };
+    const bind = (fields: Record<string, string>) => exports.default.fetch("https://checkout.test/accounts/bind", { method: "POST", body: new URLSearchParams(fields) });
+    const calls = stub();
+    expect((await bind({ account, token, origin: STORE })).status).toBe(200);
+    expect(JSON.parse(calls[0].body)).toEqual({ metadata: { lore_store: STORE } });
+    expect((await bind({ account, token: "0".repeat(64), origin: STORE })).status).toBe(403);
+    expect((await bind({ account, token, origin: "javascript:alert(1)" })).status).toBe(400);
+  });
 });
 
 describe("seller accounts", () => {

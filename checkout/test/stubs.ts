@@ -22,13 +22,14 @@ type Options = {
   session?: Record<string, unknown>;
   stripeStatus?: number;
   cardPayments?: string;
+  boundTo?: string;
 };
 
 /**
  * Stubs the store's `/p/<id>.json` and the two Stripe endpoints. Restore with
  * `vi.restoreAllMocks()`. Any other outbound fetch throws.
  */
-export function stub({ store = listing(), session = {}, stripeStatus = 200, cardPayments = "active" }: Options = {}) {
+export function stub({ store = listing(), session = {}, stripeStatus = 200, cardPayments = "active", boundTo = STORE }: Options = {}) {
   const stripe: { url: string; headers: Headers; body: string }[] = [];
   vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
     const request = new Request(input, init);
@@ -54,7 +55,8 @@ export function stub({ store = listing(), session = {}, stripeStatus = 200, card
       if (stripeStatus !== 200) return Response.json({ error: { message: "no" } }, { status: stripeStatus });
       if (url.pathname === "/v2/core/accounts") return Response.json({ id: "acct_1NewSeller" });
       if (url.pathname === "/v2/core/account_links") return Response.json({ url: "https://connect.stripe.test/setup/s/abc" });
-      return Response.json({ id: url.pathname.split("/").pop(), configuration: { merchant: { capabilities: { card_payments: { status: cardPayments } } } } });
+      if (request.method === "POST") return Response.json({ id: url.pathname.split("/").pop(), metadata: JSON.parse(stripe.at(-1)!.body).metadata });
+      return Response.json({ id: url.pathname.split("/").pop(), metadata: { lore_store: boundTo }, configuration: { merchant: { capabilities: { card_payments: { status: cardPayments } } } } });
     }
     throw new Error(`unexpected outbound fetch during test: ${request.method} ${url}`);
   });

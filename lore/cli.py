@@ -7,6 +7,7 @@ import math
 import os
 import re
 import sys
+import urllib.parse
 from pathlib import Path
 from typing import Annotated
 
@@ -1641,6 +1642,7 @@ def _push(worker: Path, local: bool, job_id: int) -> int:
         from .snapshot import forget_live  # local import, as desktop-state does
 
         forget_live()
+        _bind_card_store()
     with Store() as store:
         store.finish_job(job_id, "succeeded", summary="pushed", count=len(active))
     where = "local dev database" if local else "deployed node"
@@ -1840,6 +1842,21 @@ def cards(command: str | None, account: str | None, as_json: bool = False) -> in
             success(f"Card payments go to {account}.")
     muted("Your store shows the change after its next push: lore push")
     return 0
+
+
+def _bind_card_store() -> None:
+    """Card checkout charges an account only for the store its seller tied it to."""
+    with Store() as store:
+        account = str(store.setting(STRIPE_ACCOUNT_SETTING, ""))
+        token = str(store.setting(STRIPE_TOKEN_SETTING, ""))
+        node_url = str(store.setting("node_url", "") or "")
+    if not (account and token and node_url):
+        return
+    parts = urllib.parse.urlsplit(node_url)
+    try:
+        cards_module.bind(account, token, f"{parts.scheme}://{parts.netloc}")
+    except OSError as error:
+        warn(f"Buyers can't pay by card until the next push: {error}")
 
 
 def _read_description_source(path: str) -> str:

@@ -1,4 +1,4 @@
-import { StripeError, cardPaymentsReady, createAccount, createSession, onboardingLink, retrieveSession } from "./stripe.js";
+import { StripeError, bindStore, boundStore, cardPaymentsReady, createAccount, createSession, onboardingLink, retrieveSession } from "./stripe.js";
 
 /** Cards can't charge less; a store priced below this offers no card checkout. */
 const CARD_MINIMUM_USD = 0.5;
@@ -57,6 +57,8 @@ async function create(request: Request, env: Env): Promise<Response> {
     return text(409, "This is a test store, so it can't take a real card payment.");
   }
   try {
+    // A store names its payee, but only the seller can say which store an account sells through.
+    if ((await boundStore(env, found.stripe_account)) !== origin) return text(409, "This store isn't connected to that Stripe account.");
     const session = await createSession(env, {
       account: found.stripe_account,
       origin,
@@ -131,6 +133,25 @@ async function onboard(url: URL, env: Env): Promise<Response> {
   }
 }
 
+/** The seller ties their account to their store; checkout then refuses any other store naming it. */
+async function bind(request: Request, env: Env): Promise<Response> {
+  const form = await request.formData().catch(() => null);
+  const field = (name: string) => {
+    const value = form?.get(name);
+    return typeof value === "string" ? value : "";
+  };
+  const account = field("account");
+  const origin = storeOrigin(field("origin"));
+  if (!(await owns(env, account, field("token")))) return json({ error: "not your account" }, 403);
+  if (!origin) return json({ error: "a store address is required" }, 400);
+  try {
+    await bindStore(env, account, origin);
+    return json({ account, origin });
+  } catch {
+    return json({ error: "Stripe is unreachable" }, 502);
+  }
+}
+
 async function accountStatus(url: URL, env: Env): Promise<Response> {
   const account = url.searchParams.get("account") ?? "";
   if (!(await owns(env, account, url.searchParams.get("token") ?? ""))) return json({ error: "not your account" }, 403);
@@ -148,6 +169,7 @@ export default {
     if (url.pathname === "/verify" && request.method === "GET") return verify(url, env);
     if (url.pathname === "/accounts" && request.method === "POST") return openAccount(env);
     if (url.pathname === "/accounts/status" && request.method === "GET") return accountStatus(url, env);
+    if (url.pathname === "/accounts/bind" && request.method === "POST") return bind(request, env);
     if (url.pathname === "/onboard" && request.method === "GET") return onboard(url, env);
     if (url.pathname === "/onboarded") return text(200, "You're set up with Stripe. Go back to Lore; it finishes the rest.");
     if (url.pathname === "/") return text(200, "Lore card checkout. Payments go straight to each seller's own Stripe account.");

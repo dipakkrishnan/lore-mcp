@@ -112,6 +112,11 @@ session itself. Only where the key lives changes.
   each account id with an HMAC token only the opening app holds, so an id
   read off a store page can't reopen that seller's form. Verified against
   the sandbox up to Stripe's form; the form itself is the owner's to fill.
+- Store binding (review of #373): a store's `/p/<id>.json` names its payee,
+  so any site could name a real seller's account. Each remote `lore push`
+  now ties the account to the store's origin in Stripe account metadata
+  (`lore_store`), proven with the seller's token, and `/create` refuses any
+  other origin. Verified against the sandbox.
 - Still open: the Connect webhooks (`checkout.session.completed`,
   `account.updated`), the nonzero-fee check, a rate limit on opening
   accounts, and deploying `checkout/` to `checkout.yourlore.dev`.
