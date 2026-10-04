@@ -201,7 +201,7 @@ const CARD_MINIMUM_USD = 0.5;
 const STRIPE_ACCOUNT = /^acct_[A-Za-z0-9]+$/;
 const SESSION = /^cs_[A-Za-z0-9_]+$/;
 const PUBLIC = { "cache-control": "public, max-age=60" };
-const PRIVATE = { "cache-control": "private, no-store" };
+const PRIVATE = { "cache-control": "private, no-store", "referrer-policy": "no-referrer" };
 const html = (body: string | null, status: number, cache: Record<string, string>) =>
   new Response(body, { status, headers: { "content-type": "text/html; charset=utf-8", ...cache } });
 
