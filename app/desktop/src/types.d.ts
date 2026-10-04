@@ -161,6 +161,9 @@ type MemoryOutcome = { saved: SavedMemory[] } | { entries: ProposedMemory[]; not
 type PublicationCandidate = {
   title: string;
   teaser: string;
+  sample?: string;
+  useful_if?: string;
+  not_useful_if?: string;
   content: string;
   kind: "claim" | "content";
   topic: string;

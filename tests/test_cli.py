@@ -1173,8 +1173,20 @@ class PublicationApplyTest(LoreTestCase):
             {"title": "Third claim"},
         )
         # Approve the first; edit then approve the second; reject the third.
-        # The edit prompt asks title, teaser, then content in that order.
-        answers = ["a", "e", "Edited claim", "", "", "a", "r"]
+        # The edit prompt asks title, teaser, sample, useful if, not useful if,
+        # then content in that order.
+        answers = [
+            "a",
+            "e",
+            "Edited claim",
+            "",
+            "Two demos, one deck.",
+            "",
+            "",
+            "",
+            "a",
+            "r",
+        ]
         with (
             self._attended(),
             patch.object(cli, "ask", side_effect=answers),
@@ -1189,6 +1201,7 @@ class PublicationApplyTest(LoreTestCase):
         self.assertEqual(
             saved["Edited claim"].content, "a bounded claim about pricing agent APIs"
         )
+        self.assertEqual(saved["Edited claim"].sample, "Two demos, one deck.")
 
     def test_rejecting_everything_saves_nothing_and_says_so(self) -> None:
         with (
@@ -1425,7 +1438,7 @@ class PublicationApplyTest(LoreTestCase):
                     "approve": True,
                 }
                 with desktop_stdin(json.dumps(payload)):
-                    with self.assertRaisesRegex(ValueError, "only a draft's title"):
+                    with self.assertRaisesRegex(ValueError, "only a draft's wording"):
                         cli.publication_decide()
         with desktop_stdin(
             json.dumps(
@@ -1830,7 +1843,7 @@ class PushTest(LoreTestCase):
     def test_push_sql_is_executable_sqlite_against_a_node_created_before_current_columns(
         self,
     ) -> None:
-        self.publish(teaser="an ad")
+        self.publish(teaser="an ad", sample="a free bit", useful_if="you price APIs")
         sql = self.push_sql(self.active())
         with sqlite3.connect(":memory:") as db:
             db.execute(
@@ -1839,10 +1852,20 @@ class PushTest(LoreTestCase):
             )
             db.executescript(sql)
             row = db.execute(
-                "SELECT public_id, title, topic, teaser FROM publications"
+                "SELECT public_id, title, topic, teaser, sample, useful_if, not_useful_if "
+                "FROM publications"
             ).fetchone()
         self.assertEqual(
-            row, (self.active()[0].public_id, "Pricing claim", "pricing", "an ad")
+            row,
+            (
+                self.active()[0].public_id,
+                "Pricing claim",
+                "pricing",
+                "an ad",
+                "a free bit",
+                "you price APIs",
+                "",
+            ),
         )
 
     def test_an_empty_active_set_is_still_a_valid_push(self) -> None:

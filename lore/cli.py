@@ -1210,16 +1210,13 @@ def _candidate(raw: object, missing_check: Store) -> Publication:
     if missing:
         raise ValueError(f"candidate provenance references unknown memories: {missing}")
     return Publication(
-        id=0,
-        title=candidate.title,
-        content=candidate.content,
-        kind=candidate.kind,
-        topic=candidate.topic,
-        teaser=candidate.teaser,
-        provenance=candidate.provenance,
-        active=1,
-        created_at="",
-        updated_at="",
+        id=0, **candidate.model_dump(), active=1, created_at="", updated_at=""
+    )
+
+
+def _save(store: Store, publication: Publication) -> None:
+    store.add_publication(
+        **publication.model_dump(include=set(PublicationInput.model_fields))
     )
 
 
@@ -1242,27 +1239,40 @@ def publication_apply(path: str) -> int:
                 print("\n  [a] approve   [e] edit   [r] reject   [q] quit")
                 choice = ask("Choose", "r").lower()
                 if choice == "a":
-                    store.add_publication(
-                        title=candidate.title,
-                        content=candidate.content,
-                        kind=candidate.kind,
-                        topic=candidate.topic,
-                        teaser=candidate.teaser,
-                        provenance=candidate.provenance,
-                    )
+                    _save(store, candidate)
                     approved += 1
                     break
                 if choice == "e":
                     title = ask("Title (enter keeps current)") or candidate.title
                     teaser = ask("Teaser (enter keeps current)") or candidate.teaser
-                    content = ask("Content (enter keeps current)") or candidate.content
-                    candidate = candidate.model_copy(
-                        update={
-                            "title": title.strip(),
-                            "teaser": teaser.strip(),
-                            "content": content.strip(),
-                        }
+                    sample = (
+                        ask("Free sample (enter keeps current)") or candidate.sample
                     )
+                    useful_if = (
+                        ask("Useful if (enter keeps current)") or candidate.useful_if
+                    )
+                    not_useful_if = (
+                        ask("Not useful if (enter keeps current)")
+                        or candidate.not_useful_if
+                    )
+                    content = ask("Content (enter keeps current)") or candidate.content
+                    try:
+                        candidate = _candidate(
+                            candidate.model_dump(
+                                include=set(PublicationInput.model_fields)
+                            )
+                            | {
+                                "title": title,
+                                "teaser": teaser,
+                                "sample": sample,
+                                "useful_if": useful_if,
+                                "not_useful_if": not_useful_if,
+                                "content": content,
+                            },
+                            store,
+                        )
+                    except ValueError as error:
+                        warn(str(error))
                     continue
                 if choice == "q":
                     quit_early = True
@@ -1318,18 +1328,10 @@ def publication_decide() -> int:
         raise ValueError("that candidate is not drafted; nothing saved")
     for field in ("kind", "topic", "provenance"):
         if getattr(decision.candidate, field) != getattr(original, field):
-            raise ValueError("only a draft's title, teaser, and content can be edited")
+            raise ValueError("only a draft's wording can be edited")
     if decision.approve:
         with Store() as store:
-            approved = _candidate(decision.candidate, store)
-            store.add_publication(
-                title=approved.title,
-                teaser=approved.teaser,
-                content=approved.content,
-                kind=approved.kind,
-                topic=approved.topic,
-                provenance=approved.provenance,
-            )
+            _save(store, _candidate(decision.candidate, store))
     del staged[_index]
     _stage(staged)
     print(json.dumps({"approved": decision.approve, "remaining": len(staged)}))
@@ -1461,12 +1463,24 @@ def _push_sql(
         "CREATE TABLE publications ("
         "public_id TEXT PRIMARY KEY, title TEXT NOT NULL, content TEXT NOT NULL, "
         "kind TEXT NOT NULL, topic TEXT NOT NULL DEFAULT '', "
-        "teaser TEXT NOT NULL DEFAULT '', updated_at TEXT NOT NULL DEFAULT '');",
+        "teaser TEXT NOT NULL DEFAULT '', sample TEXT NOT NULL DEFAULT '', "
+        "useful_if TEXT NOT NULL DEFAULT '', not_useful_if TEXT NOT NULL DEFAULT '', "
+        "updated_at TEXT NOT NULL DEFAULT '');",
     ]
+    columns = (
+        "public_id",
+        "title",
+        "content",
+        "teaser",
+        "sample",
+        "useful_if",
+        "not_useful_if",
+        "topic",
+        "updated_at",
+    )
     statements.extend(
-        f"INSERT INTO publications(public_id,title,content,kind,topic,teaser,updated_at) VALUES "
-        f"({quote(p.public_id)},{quote(p.title)},{quote(p.content)},{quote(p.kind.value)},"
-        f"{quote(p.topic)},{quote(p.teaser)},{quote(p.updated_at)});"
+        f"INSERT INTO publications({','.join(columns)},kind) VALUES "
+        f"({','.join(quote(getattr(p, column)) for column in columns)},{quote(p.kind.value)});"
         for p in publications
     )
     settings = {

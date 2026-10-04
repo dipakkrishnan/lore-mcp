@@ -81,6 +81,15 @@ class PublicationKind(str, Enum):
         return self.value
 
 
+# The free face is a page, not an essay: a short excerpt and one line each for
+# who the piece is and isn't for.
+SAMPLE_LIMIT = 800
+FIT_LIMIT = 200
+# Listed in the manifest only when the owner wrote them, so older readers see
+# the same entry shape as before.
+FREE_EXTRAS = ("sample", "useful_if", "not_useful_if")
+
+
 class PublicationInput(BaseModel):
     """Validated publication fields before database-backed provenance checks."""
 
@@ -91,7 +100,17 @@ class PublicationInput(BaseModel):
     kind: PublicationKind = PublicationKind.CLAIM
     topic: str = Field(min_length=1)
     teaser: str = ""
+    sample: str = Field(default="", max_length=SAMPLE_LIMIT)
+    useful_if: str = Field(default="", max_length=FIT_LIMIT)
+    not_useful_if: str = Field(default="", max_length=FIT_LIMIT)
     provenance: list[StrictInt] = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def sample_is_not_the_piece(self) -> "PublicationInput":
+        """A free sample that holds the whole paid text gives the piece away."""
+        if self.sample and self.content in self.sample:
+            raise ValueError("the free sample can't contain the whole paid content")
+        return self
 
 
 class Publication(BaseModel):
@@ -122,6 +141,11 @@ class Publication(BaseModel):
     # a publication without one is never advertised, and its unguessable
     # public_id means absence from the catalog is true absence.
     teaser: str = ""
+    # Also free, also owner-approved: an excerpt to judge the writing by, and
+    # who the piece is and isn't for. Empty when the owner wrote none.
+    sample: str = ""
+    useful_if: str = ""
+    not_useful_if: str = ""
     provenance: list[int]
     active: int
     created_at: str
@@ -357,6 +381,9 @@ class Store:
                     CHECK(kind IN ('claim','content')),
                 topic TEXT NOT NULL DEFAULT '',
                 teaser TEXT NOT NULL DEFAULT '',
+                sample TEXT NOT NULL DEFAULT '',
+                useful_if TEXT NOT NULL DEFAULT '',
+                not_useful_if TEXT NOT NULL DEFAULT '',
                 provenance TEXT NOT NULL DEFAULT '[]',
                 active INTEGER NOT NULL DEFAULT 1 CHECK(active IN (0,1)),
                 created_at TEXT NOT NULL,
@@ -441,7 +468,14 @@ class Store:
         columns = {
             row["name"] for row in self.db.execute("PRAGMA table_info(publications)")
         }
-        for column in ("topic", "teaser", "public_id"):
+        for column in (
+            "topic",
+            "teaser",
+            "public_id",
+            "sample",
+            "useful_if",
+            "not_useful_if",
+        ):
             if column not in columns:
                 self.db.execute(
                     f"ALTER TABLE publications ADD COLUMN {column} TEXT NOT NULL DEFAULT ''"
@@ -741,6 +775,9 @@ class Store:
         kind: PublicationKind | str = PublicationKind.CLAIM,
         topic: str = "",
         teaser: str = "",
+        sample: str = "",
+        useful_if: str = "",
+        not_useful_if: str = "",
         provenance: list[int] | None = None,
     ) -> int:
         """Create an active publication and return its id.
@@ -756,6 +793,9 @@ class Store:
                 "kind": kind,
                 "topic": topic,
                 "teaser": teaser,
+                "sample": sample,
+                "useful_if": useful_if,
+                "not_useful_if": not_useful_if,
                 "provenance": provenance,
             }
         )
@@ -766,8 +806,8 @@ class Store:
             )
         now = datetime.now(timezone.utc).isoformat()
         cursor = self.db.execute(
-            """INSERT INTO publications(public_id,title,content,kind,topic,teaser,provenance,active,created_at,updated_at)
-               VALUES (?,?,?,?,?,?,?,1,?,?)""",
+            """INSERT INTO publications(public_id,title,content,kind,topic,teaser,sample,useful_if,not_useful_if,provenance,active,created_at,updated_at)
+               VALUES (?,?,?,?,?,?,?,?,?,?,1,?,?)""",
             (
                 new_public_id(),
                 publication.title,
@@ -775,6 +815,9 @@ class Store:
                 publication.kind.value,
                 publication.topic,
                 publication.teaser,
+                publication.sample,
+                publication.useful_if,
+                publication.not_useful_if,
                 json.dumps(publication.provenance),
                 now,
                 now,
@@ -1014,7 +1057,8 @@ class Store:
         timestamps would reveal the owner's approval-session structure.
         """
         rows = self.db.execute(
-            "SELECT public_id,teaser,topic,kind,substr(updated_at,1,10) AS updated_at "
+            "SELECT public_id,teaser,sample,useful_if,not_useful_if,topic,kind,"
+            "substr(updated_at,1,10) AS updated_at "
             "FROM publications WHERE active=1 AND teaser<>'' "
             "ORDER BY topic,updated_at DESC,public_id"
         ).fetchall()
@@ -1027,6 +1071,7 @@ class Store:
                     "kind": row["kind"],
                     "updated_at": row["updated_at"],
                 }
+                | {key: row[key] for key in FREE_EXTRAS if row[key]}
             )
         return {
             "manifest_version": 1,

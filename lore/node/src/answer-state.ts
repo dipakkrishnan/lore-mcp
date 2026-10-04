@@ -48,7 +48,13 @@ interface ManifestRow {
   topic: string;
   kind: string;
   updated_at: string;
+  sample?: string;
+  useful_if?: string;
+  not_useful_if?: string;
 }
+
+// Free like the teaser, but listed only when the owner wrote them.
+const EXTRAS = ["sample", "useful_if", "not_useful_if"] as const;
 
 export type CatalogEntry = Omit<ManifestRow, "topic">;
 export type Catalog = { manifest_version: 1; publication_count: number; topics: Record<string, CatalogEntry[]> };
@@ -73,14 +79,16 @@ export interface AnswerJob {
 
 export async function manifest(env: Env): Promise<Catalog> {
   const { results } = await env.LORE_DB.prepare(
-    `SELECT public_id AS id, teaser, topic, kind,
+    `SELECT public_id AS id, teaser, topic, kind, sample, useful_if, not_useful_if,
             substr(updated_at, 1, 10) AS updated_at
      FROM publications WHERE teaser <> ''
      ORDER BY topic, updated_at DESC, public_id`
   ).all<ManifestRow>();
   const topics: Record<string, CatalogEntry[]> = {};
-  for (const { id, teaser, topic, kind, updated_at } of results) {
-    (topics[topic] ??= []).push({ id, teaser, kind, updated_at });
+  for (const row of results) {
+    const { id, teaser, topic, kind, updated_at } = row;
+    const extras = Object.fromEntries(EXTRAS.filter((key) => row[key]).map((key) => [key, row[key]]));
+    (topics[topic] ??= []).push({ id, teaser, kind, updated_at, ...extras });
   }
   return { manifest_version: 1, publication_count: results.length, topics };
 }

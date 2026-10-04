@@ -139,6 +139,13 @@ def publication_card(
         # The teaser is the free surface: it is what every buyer reads without
         # paying, so approving the publication approves this advertisement.
         print(paint("2", f"teaser: {publication.teaser}".translate(CONTROL_CHARACTERS)))
+    for label, text in (
+        ("useful if", publication.useful_if),
+        ("not useful if", publication.not_useful_if),
+        ("free sample", publication.sample),
+    ):
+        if text:
+            print(paint("2", f"{label}: {text}".translate(CONTROL_CHARACTERS)))
     print()
     for paragraph in publication.content.splitlines():
         paragraph = paragraph.translate(CONTROL_CHARACTERS)

@@ -65,4 +65,33 @@ describe("publicationPage", () => {
     expect(data).toMatchObject({ "@type": "Product", name: "Why hire managers <before> ten engineers?", category: "team scaling" });
     expect(data.offers.seller.name).toBe("Dipak’s Working Lore");
   });
+
+  it("renders the owner's sample and fit lines, escaped, and describes the piece by its sample", () => {
+    const html = publicationPage(
+      { ...piece, sample: "First <b>paragraph</b>.\n\nSecond one.", useful_if: "you hire <fast>", not_useful_if: "you're solo" },
+      store
+    );
+    expect(html).toContain("<h2>Free sample</h2><blockquote><p>First &lt;b&gt;paragraph&lt;/b&gt;.</p><p>Second one.</p></blockquote>");
+    expect(html).toContain("Useful if you hire &lt;fast&gt;");
+    expect(html).toContain("Not useful if you&#39;re solo");
+    expect(html).not.toContain("<b>paragraph");
+    expect(html).toContain('<meta property="og:description" content="First &lt;b&gt;paragraph&lt;/b&gt;. Second one.">');
+  });
+
+  it("renders without a sample or fit lines exactly as before", () => {
+    const html = publicationPage(piece, store);
+    expect(html).not.toContain("Free sample");
+    expect(html).not.toContain('class="fit"');
+    expect(html).toContain("A firsthand piece by Dipak’s Working Lore, for sale on Lore.");
+  });
+
+  it("gives a person a prompt to hand their agent and a way to share the page", () => {
+    const html = publicationPage(piece, store);
+    const url = `https://lore.example.workers.dev/p/${A}`;
+    expect(html).toContain(`data-copy="Buy this piece from Lore for me: ${url}"`);
+    expect(html).toContain(`data-copy="${url}"`);
+    expect(html).toContain("<button data-share>Share</button>");
+    expect(html).toContain("goes straight to the seller");
+    expect(publicationPage(piece, { ...store, test: true })).toContain("only a rehearsal");
+  });
 });

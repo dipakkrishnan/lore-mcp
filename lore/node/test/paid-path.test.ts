@@ -82,7 +82,7 @@ describe("discover", () => {
       const entries = Object.values(payload.topics as Record<string, object[]>).flat();
       expect(entries.length).toBeGreaterThan(0);
       for (const entry of entries) {
-        expect(Object.keys(entry).sort()).toEqual(["id", "kind", "teaser", "updated_at"]);
+        expect(["id", "kind", "not_useful_if", "sample", "teaser", "updated_at", "useful_if"]).toEqual(expect.arrayContaining(Object.keys(entry)));
       }
       expect(JSON.stringify(payload)).not.toContain("owner-approved content");
     } finally {
