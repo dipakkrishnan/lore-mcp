@@ -42,6 +42,19 @@ export async function ensureSalesSchema(db: D1Database): Promise<void> {
     .run();
 }
 
+/** Write one card sale, once: the buyer reopening their receipt page must not count it again. */
+export async function recordCardSale(db: D1Database, sale: Sale & { priceUsd: number; tx: string }): Promise<void> {
+  await ensureSalesSchema(db);
+  await db
+    .prepare(
+      `INSERT INTO sales(kind,item_id,title,price_usd,network,payer,tx,sold_at)
+       SELECT 'publication',?1,?2,?3,'stripe','',?4,?5
+       WHERE NOT EXISTS (SELECT 1 FROM sales WHERE network = 'stripe' AND tx = ?4)`
+    )
+    .bind(sale.item, sale.title, sale.priceUsd, sale.tx, new Date().toISOString())
+    .run();
+}
+
 /** What a paid tool with input `Args` is called with; the SDK spells this as a conditional type that stays unresolved on a generic `Args`. */
 type Paid<Args extends ZodRawShapeCompat> = (
   args: ShapeOutput<Args>,

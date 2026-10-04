@@ -12,7 +12,12 @@ export type Store = {
   origin: string;
   /** Play money: nothing here is really for sale, so no Offer is advertised. */
   test: boolean;
+  /** Lore's card checkout, set only when this store takes cards. */
+  checkout?: string;
 };
+
+/** A piece the buyer has paid for, shown to them in full. */
+export type Unlocked = { title: string; content: string };
 
 /** `section` numbers the piece's topic on the store page, so anchors never collide. */
 export type Piece = CatalogEntry & { topic: string; section: number };
@@ -76,6 +81,11 @@ h2 small{font:13px var(--sans);color:var(--muted)}
 .buy .prompt{display:flex;gap:8px;align-items:stretch;margin:12px 0}
 .buy .prompt code{flex:1;min-width:0;margin:0;padding:10px 12px;white-space:normal;overflow-wrap:anywhere}
 .buy .small{font-size:14px;margin-top:10px}
+.buy form{margin:14px 0 4px}
+.buy button.card{font-size:16px;padding:12px 22px}
+.buy h2.or{margin-top:24px;font-size:16px}
+.piece{font:18px/1.7 var(--serif);margin-top:28px}
+.piece p{margin:0 0 16px}
 .actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:16px}
 button{font:600 14px var(--sans);padding:9px 14px;border-radius:10px;border:1px solid var(--line);background:var(--bg);color:var(--ink);cursor:pointer}
 button:hover{border-color:var(--accent)}
@@ -193,21 +203,31 @@ const sample = (piece: Piece) =>
     ? `<section class="sample"><h2>Free sample</h2><blockquote>${paragraphs(piece.sample)}</blockquote><p class="rest">The rest is in the full piece.</p></section>`
     : "";
 
-/** How a person buys: today through their own agent; card checkout belongs here too. */
+/** How a person buys: by card when the store takes cards, and always through their own agent. */
+function card(piece: Piece, store: Store): string {
+  if (!store.checkout) return "";
+  const note = store.test
+    ? "This is a test store: pay with Stripe's test card 4242 4242 4242 4242. No real money moves."
+    : "Pay by card through Stripe. The payment goes straight to the seller; Lore never holds it.";
+  return `<form method="post" action="${escape(store.checkout)}/create"><input type="hidden" name="origin" value="${escape(store.origin)}"><input type="hidden" name="id" value="${escape(piece.id)}"><button class="primary card" type="submit">Buy for ${money(store.priceUsd)}</button></form>
+<p class="small">${note} You come back to this page to read it.</p>`;
+}
+
 function buy(piece: Piece, store: Store): string {
   const url = `${store.origin}/p/${piece.id}`;
   const prompt = `Buy this piece from Lore for me: ${url}`;
   const settle = store.test
     ? "This store takes play money, so buying here is only a rehearsal."
     : "Every payment goes straight to the seller; Lore never holds it.";
-  return `<section class="buy"><p class="amount">${money(store.priceUsd)}</p><h2>Buy it with your AI agent</h2>
+  const agent = store.checkout ? `<h2 class="or">Or buy it with your AI agent</h2>` : `<h2>Buy it with your AI agent</h2>`;
+  return `<section class="buy"><p class="amount">${money(store.priceUsd)}</p>${card(piece, store)}${agent}
 <p>Paste this into Claude, ChatGPT or any agent that can pay on Lore:</p>
-<div class="prompt"><code>${escape(prompt)}</code><button class="primary" data-copy="${escape(prompt)}">Copy</button></div>
+<div class="prompt"><code>${escape(prompt)}</code><button class="${store.checkout ? "" : "primary"}" data-copy="${escape(prompt)}">Copy</button></div>
 <p class="small">${settle} No agent set up yet? <a href="${BUYER_SKILL}">Get the buyer skill</a>.</p>
 <div class="actions"><button data-share>Share</button><button data-copy="${escape(url)}">Copy link</button></div></section>`;
 }
 
-export function publicationPage(piece: Piece, store: Store): string {
+export function publicationPage(piece: Piece, store: Store, problem = ""): string {
   const name = seller(store);
   const data = {
     "@context": "https://schema.org",
@@ -219,13 +239,27 @@ export function publicationPage(piece: Piece, store: Store): string {
     offers: offer(store, piece)
   };
   const body = `<a class="back" href="/">← ${escape(name)}</a>
-${notice(store)}<ul class="chips"><li><a class="chip" href="/#${anchor(piece.section)}">${escape(label(piece.topic))}</a></li></ul>
+${notice(store)}${problem ? `<p class="notice">${escape(problem)}</p>` : ""}<ul class="chips"><li><a class="chip" href="/#${anchor(piece.section)}">${escape(label(piece.topic))}</a></li></ul>
 <h1 class="teaser">${escape(piece.teaser)}</h1>
 <div class="meta"><span>${KINDS[piece.kind] ?? escape(piece.kind)}</span><span>Updated ${date(piece.updated_at)}</span><span>By ${escape(name)}</span></div>
 ${fit(piece)}${sample(piece)}${buy(piece, store)}
 ${agentsNote(store, piece.id)}`;
   const description = clip(piece.sample || (piece.useful_if && `Useful if ${piece.useful_if}`) || `A firsthand piece by ${name}, for sale on Lore.`, 200);
   return page(`${piece.teaser} · ${name}`, description, `${store.origin}/p/${piece.id}`, body, data);
+}
+
+/** The paid piece, for the buyer holding its receipt. Never cached: the address alone unlocks it. */
+export function unlockedPage(piece: Piece, store: Store, unlocked: Unlocked): string {
+  const name = seller(store);
+  const body = `<a class="back" href="/">← ${escape(name)}</a>
+<p class="notice">Thanks for buying. Keep this page's address: it's your copy, and it opens the piece again.</p>
+<h1 class="teaser">${escape(unlocked.title)}</h1>
+<div class="meta"><span>${KINDS[piece.kind] ?? escape(piece.kind)}</span><span>Updated ${date(piece.updated_at)}</span><span>By ${escape(name)}</span></div>
+<article class="piece">${paragraphs(unlocked.content)}</article>`;
+  return page(`${unlocked.title} · ${name}`, `A firsthand piece by ${name}.`, `${store.origin}/p/${piece.id}`, body, {
+    "@context": "https://schema.org",
+    "@type": "WebPage"
+  });
 }
 
 export function notFound(store: Store): string {

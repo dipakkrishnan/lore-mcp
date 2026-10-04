@@ -4,13 +4,13 @@ title: Charge one price for a piece however the buyer pays
 priority: P1
 effort: M
 component: monetization
-status: in-review
-related: [MON-009, MON-026, APP-019, XC-040]
+status: completed
+related: [MON-009, MON-026, APP-019, XC-039, XC-040]
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-09-29
-updated: 2026-09-29
+updated: 2026-10-04
 ---
 
 ## Problem
@@ -39,8 +39,8 @@ one source of truth.
 
 ## Acceptance criteria
 
-- [ ] The rule is recorded here and in the monetization README.
-- [ ] No page, JSON-LD offer or `discover` response quotes two different
+- [x] The rule is recorded here and in the monetization README.
+- [x] No page, JSON-LD offer or `discover` response quotes two different
       prices for the same thing.
 
 ## Notes
@@ -48,3 +48,10 @@ one source of truth.
 Raised 2026-09-29 while scoping Stripe card checkout (XC-039, PR #345).
 MON-009 decides per-piece versus global prices; this item decides
 consistency across payment rails. They may be settled together.
+
+Decided 2026-10-04: **(a), one price everywhere.** The store's single
+`lore price` is what a card buyer, an agent paying over x402, the page, the
+JSON-LD offer and `discover` all see. Cards appear only while that price is
+at least $0.50, and below that the page says nothing about cards.
+`lore cards account` refuses a price under $0.50, and `lore price` refuses to
+drop under $0.50 while cards are on. Built with XC-039 slice 1.

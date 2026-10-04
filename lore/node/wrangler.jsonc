@@ -12,7 +12,10 @@
   "vars": {
     // Overridable so tests can point at a stubbed facilitator; unset in
     // deployment leaves this default in place.
-    "LORE_FACILITATOR_URL": "https://x402.org/facilitator"
+    "LORE_FACILITATOR_URL": "https://x402.org/facilitator",
+    // Lore's card checkout (XC-039). Cards appear on a piece page only once
+    // the owner connects a Stripe account and prices pieces at $0.50 or more.
+    "CHECKOUT_URL": "https://checkout.yourlore.dev"
   },
   // Cloudflare's own request traces and logs (XC-028/MON-020) — stored in
   // and readable only from the owner's own Cloudflare account. No
@@ -56,7 +59,8 @@
     "qa": {
       "name": "lore-qa",
       "vars": {
-        "LORE_FACILITATOR_URL": "https://x402.org/facilitator"
+        "LORE_FACILITATOR_URL": "https://x402.org/facilitator",
+        "CHECKOUT_URL": "https://checkout.yourlore.dev"
       },
       // Same traces/logs as the default env above; MON-021 tracks pointing
       // this at an OTLP `destinations` entry once one exists in the

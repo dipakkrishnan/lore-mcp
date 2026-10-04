@@ -5,6 +5,7 @@ import hmac
 import json
 import math
 import os
+import re
 import sys
 from pathlib import Path
 from typing import Annotated
@@ -43,6 +44,13 @@ from .ui import (
     success,
     warn,
 )
+
+# Card checkout (XC-039): the seller's Stripe connected account, and the
+# lowest price a card can be charged. One price everywhere (MON-028), so a
+# store takes cards only while its price is at least this.
+STRIPE_ACCOUNT_SETTING = "stripe_account"
+CARD_MINIMUM_USD = 0.5
+STRIPE_ACCOUNT_ID = re.compile(r"acct_[A-Za-z0-9]+")
 
 PUBLICATION_CANDIDATES: TypeAdapter[list[PublicationInput]] = TypeAdapter(
     Annotated[list[PublicationInput], Field(min_length=1)]
@@ -377,6 +385,14 @@ def parser() -> argparse.ArgumentParser:
         "status", help="whether this store is listed, pending, or neither"
     )
     listing_status.add_argument("--json", action="store_true")
+
+    cards = commands.add_parser("cards", help="take card payments through Stripe")
+    cards_commands = cards.add_subparsers(dest="cards_command")
+    card_account = cards_commands.add_parser(
+        "account", help="connect the Stripe account card payments go to"
+    )
+    card_account.add_argument("id", help="your Stripe account id, acct_…")
+    cards_commands.add_parser("off", help="stop taking card payments")
     return root
 
 
@@ -482,6 +498,8 @@ def main(argv: list[str] | None = None) -> int:
             return blueprint_show()
         if args.command == "marketplace":
             return marketplace(args)
+        if args.command == "cards":
+            return cards(args.cards_command, getattr(args, "id", None))
         if args.command == "report-feedback":
             return report_feedback(
                 args.title,
@@ -577,6 +595,11 @@ def manual() -> int:
      Switch your store on for the public Lore marketplace and get the link
      to request a listing, or switch it off. Only what your store already
      shows buyers is shared; `status` says whether you are pending or listed.
+
+  14. lore cards account <acct_…> | off
+     Take card payments through Stripe, paid straight into your own Stripe
+     account. Cards need a price of at least $0.50, the one price your
+     store charges everywhere. `lore cards` alone says where cards go.
 
 Use `lore <command> --help` for command-specific options.
 """
@@ -1030,6 +1053,11 @@ def price(amount: float | None) -> int:
             return 0
         if not math.isfinite(amount) or amount < 0:
             raise ValueError("price must be a finite, non-negative number")
+        if amount < CARD_MINIMUM_USD and store.setting(STRIPE_ACCOUNT_SETTING, ""):
+            raise ValueError(
+                f"Cards can't be charged less than ${CARD_MINIMUM_USD:.2f}. "
+                "Keep the price there, or stop taking cards first: lore cards off"
+            )
         store.set_setting("price_usd", round(amount, 6))
         node_url = store.setting("node_url", None)
     success(
@@ -1440,7 +1468,10 @@ def publication_revoke(publication_id: int) -> int:
 
 
 def _push_sql(
-    publications: list[Publication], answer: AnswerSettings, listed_name: str
+    publications: list[Publication],
+    answer: AnswerSettings,
+    listed_name: str,
+    stripe_account: str = "",
 ) -> str:
     """Render the full-replace SQL for the edge database.
 
@@ -1488,6 +1519,7 @@ def _push_sql(
         "answer_price_usd": f"{answer.answer_price_usd:.6f}",
         "answer_enabled": "true" if answer.answer_enabled else "false",
         "listed_name": listed_name,
+        "stripe_account": stripe_account,
     }
     statements.extend(
         [
@@ -1541,7 +1573,8 @@ def _push(worker: Path, local: bool, job_id: int) -> int:
         active = store.list_publications(active_only=True)
         answer_settings = store.answer_settings()
         listed_name = str(store.setting(marketplace_module.NAME_SETTING, ""))
-    script = _push_sql(active, answer_settings, listed_name)
+        stripe_account = str(store.setting(STRIPE_ACCOUNT_SETTING, ""))
+    script = _push_sql(active, answer_settings, listed_name, stripe_account)
     with tempfile.NamedTemporaryFile("w", suffix=".sql", delete=False) as handle:
         handle.write(script)
         script_path = handle.name
@@ -1726,6 +1759,34 @@ def marketplace(args: argparse.Namespace) -> int:
         success("Leaving the marketplace at the next daily refresh.")
     else:
         print("Not listed.")
+    return 0
+
+
+def cards(command: str | None, account: str | None) -> int:
+    """Connect, disconnect, or show the Stripe account card payments go to."""
+    with Store() as store:
+        if command is None:
+            current = store.setting(STRIPE_ACCOUNT_SETTING, "")
+            print(f"Taking cards into {current}" if current else "Not taking cards.")
+            return 0
+        _owner_action("changing card payments")
+        if command == "off":
+            store.set_setting(STRIPE_ACCOUNT_SETTING, "")
+            success("Card payments are off.")
+        else:
+            if not STRIPE_ACCOUNT_ID.fullmatch(account or ""):
+                raise ValueError(
+                    "a Stripe account id looks like acct_ followed by letters and numbers"
+                )
+            price_usd = store.setting("price_usd", None)
+            if not isinstance(price_usd, (int, float)) or price_usd < CARD_MINIMUM_USD:
+                raise ValueError(
+                    f"Cards can't be charged less than ${CARD_MINIMUM_USD:.2f}. "
+                    f"Set a price of at least that first: lore price {CARD_MINIMUM_USD:.2f}"
+                )
+            store.set_setting(STRIPE_ACCOUNT_SETTING, account)
+            success(f"Card payments go to {account}.")
+    muted("Your store shows the change after its next push: lore push")
     return 0
 
 
