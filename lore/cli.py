@@ -14,6 +14,7 @@ from pydantic import BaseModel, ConfigDict, Field, TypeAdapter
 
 from . import blueprint as blueprint_module
 from . import capture as capture_module
+from . import cards as cards_module
 from . import deploy as deploy_module
 from . import feedback as feedback_module
 from . import marketplace as marketplace_module
@@ -49,6 +50,10 @@ from .ui import (
 # lowest price a card can be charged. One price everywhere (MON-028), so a
 # store takes cards only while its price is at least this.
 STRIPE_ACCOUNT_SETTING = "stripe_account"
+# An account opened through `lore cards connect` that Stripe hasn't cleared yet,
+# and the token proving to Lore's checkout that it is this owner's.
+STRIPE_PENDING_SETTING = "stripe_account_pending"
+STRIPE_TOKEN_SETTING = "stripe_account_token"
 CARD_MINIMUM_USD = 0.5
 STRIPE_ACCOUNT_ID = re.compile(r"acct_[A-Za-z0-9]+")
 
@@ -393,6 +398,11 @@ def parser() -> argparse.ArgumentParser:
     )
     card_account.add_argument("id", help="your Stripe account id, acct_…")
     cards_commands.add_parser("off", help="stop taking card payments")
+    card_connect = cards_commands.add_parser(
+        "connect", help="open a Stripe account to get paid to your bank"
+    )
+    card_connect.add_argument("--json", action="store_true")
+    cards.add_argument("--json", action="store_true")
     return root
 
 
@@ -499,7 +509,7 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "marketplace":
             return marketplace(args)
         if args.command == "cards":
-            return cards(args.cards_command, getattr(args, "id", None))
+            return cards(args.cards_command, getattr(args, "id", None), args.json)
         if args.command == "report-feedback":
             return report_feedback(
                 args.title,
@@ -1762,16 +1772,56 @@ def marketplace(args: argparse.Namespace) -> int:
     return 0
 
 
-def cards(command: str | None, account: str | None) -> int:
+def cards(command: str | None, account: str | None, as_json: bool = False) -> int:
     """Connect, disconnect, or show the Stripe account card payments go to."""
     with Store() as store:
+        current = str(store.setting(STRIPE_ACCOUNT_SETTING, ""))
+        pending = str(store.setting(STRIPE_PENDING_SETTING, ""))
+        token = str(store.setting(STRIPE_TOKEN_SETTING, ""))
         if command is None:
-            current = store.setting(STRIPE_ACCOUNT_SETTING, "")
-            print(f"Taking cards into {current}" if current else "Not taking cards.")
+            if not as_json:
+                print(
+                    f"Taking cards into {current}"
+                    if current
+                    else f"Waiting on Stripe for {pending}"
+                    if pending
+                    else "Not taking cards."
+                )
+                return 0
+            ready: bool | None = True if current else None
+            if pending and token:
+                try:
+                    ready = cards_module.ready(pending, token)
+                except OSError:
+                    ready = None
+            print(
+                json.dumps(
+                    {
+                        "account": current,
+                        "pending": pending,
+                        "ready": ready,
+                        "minimum_usd": CARD_MINIMUM_USD,
+                    }
+                )
+            )
             return 0
         _owner_action("changing card payments")
+        if command == "connect":
+            if not (pending and token):
+                pending, token = cards_module.open_account()
+                store.set_setting(STRIPE_PENDING_SETTING, pending)
+                store.set_setting(STRIPE_TOKEN_SETTING, token)
+            url = cards_module.onboarding_url(pending, token)
+            if as_json:
+                print(json.dumps({"account": pending, "url": url}))
+            else:
+                success(f"Finish with Stripe in your browser: {url}")
+            return 0
         if command == "off":
             store.set_setting(STRIPE_ACCOUNT_SETTING, "")
+            # Kept as pending, so turning cards back on needs no new account.
+            if current and token:
+                store.set_setting(STRIPE_PENDING_SETTING, current)
             success("Card payments are off.")
         else:
             if not STRIPE_ACCOUNT_ID.fullmatch(account or ""):
@@ -1785,6 +1835,8 @@ def cards(command: str | None, account: str | None) -> int:
                     f"Set a price of at least that first: lore price {CARD_MINIMUM_USD:.2f}"
                 )
             store.set_setting(STRIPE_ACCOUNT_SETTING, account)
+            if account == pending:
+                store.set_setting(STRIPE_PENDING_SETTING, "")
             success(f"Card payments go to {account}.")
     muted("Your store shows the change after its next push: lore push")
     return 0

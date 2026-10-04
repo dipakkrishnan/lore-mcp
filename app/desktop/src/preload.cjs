@@ -44,6 +44,10 @@ contextBridge.exposeInMainWorld("lore", {
   /** @param {"list" | "delist"} action */
   listStore: (action) => ipcRenderer.invoke("listing:act", action),
   listingStatus: () => ipcRenderer.invoke("listing:status"),
+  cardStatus: () => ipcRenderer.invoke("cards:status"),
+  connectCards: () => ipcRenderer.invoke("cards:connect"),
+  /** @param {string | null} account */
+  switchCards: (account) => ipcRenderer.invoke("cards:switch", account),
   pickFiles: () => ipcRenderer.invoke("files:pick"),
   pickFolder: () => ipcRenderer.invoke("folders:pick"),
   sourceCatalog: () => ipcRenderer.invoke("sources:catalog"),

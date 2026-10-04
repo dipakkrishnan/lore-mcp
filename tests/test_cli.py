@@ -894,6 +894,57 @@ class CardsCommandTest(LoreTestCase):
             cli.cards(None, None)
         self.assertIn("Not taking cards", output.getvalue())
 
+    def test_connect_opens_one_account_and_reuses_it_until_stripe_clears_it(
+        self,
+    ) -> None:
+        opened = patch.object(
+            cli.cards_module, "open_account", return_value=("acct_1New", "a" * 64)
+        )
+        with self._attended(), opened as open_account, captured() as output:
+            cli.cards("connect", None, True)
+            cli.cards("connect", None, True)
+        self.assertEqual(open_account.call_count, 1)
+        first = json.loads(output.getvalue().splitlines()[0])
+        self.assertEqual(first["account"], "acct_1New")
+        self.assertIn("/onboard?account=acct_1New&token=", first["url"])
+        with Store() as store:
+            self.assertEqual(store.setting("stripe_account_pending"), "acct_1New")
+            self.assertEqual(store.setting("stripe_account"), None)
+
+    def test_status_asks_stripe_about_a_pending_account_and_activating_it_clears_it(
+        self,
+    ) -> None:
+        with Store() as store:
+            store.set_setting("stripe_account_pending", "acct_1New")
+            store.set_setting("stripe_account_token", "a" * 64)
+        with patch.object(cli.cards_module, "ready", return_value=True) as ready:
+            with captured() as output:
+                cli.cards(None, None, True)
+        ready.assert_called_once_with("acct_1New", "a" * 64)
+        self.assertEqual(
+            json.loads(output.getvalue()),
+            {"account": "", "pending": "acct_1New", "ready": True, "minimum_usd": 0.5},
+        )
+        with self._attended(), captured():
+            cli.price(3)
+            cli.cards("account", "acct_1New")
+            cli.cards("off", None)
+        with Store() as store:
+            self.assertEqual(store.setting("stripe_account"), "")
+            # Off keeps the account, so turning cards back on opens no new one.
+            self.assertEqual(store.setting("stripe_account_pending"), "acct_1New")
+
+    def test_status_still_answers_when_checkout_is_unreachable(self) -> None:
+        with Store() as store:
+            store.set_setting("stripe_account_pending", "acct_1New")
+            store.set_setting("stripe_account_token", "a" * 64)
+        with (
+            patch.object(cli.cards_module, "ready", side_effect=OSError("offline")),
+            captured() as output,
+        ):
+            cli.cards(None, None, True)
+        self.assertIsNone(json.loads(output.getvalue())["ready"])
+
 
 class AnswerCommandTest(LoreTestCase):
     def proxy_file(

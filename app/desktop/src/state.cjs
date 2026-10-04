@@ -205,6 +205,22 @@ async function listStore(loreHome, action) {
   return JSON.parse(await lore(loreHome, ["marketplace", action, "--json"], ""));
 }
 
+/** Card payments: the account taking them, one Stripe hasn't cleared yet, and whether it has. @param {string} loreHome @returns {Promise<CardStatus>} */
+async function cardStatus(loreHome) {
+  return JSON.parse(await lore(loreHome, ["cards", "--json"]));
+}
+
+/** Open (or reopen) the owner's own Stripe account through Lore's checkout; returns Stripe's form to finish in the browser. @param {string} loreHome @returns {Promise<{account: string, url: string}>} */
+async function connectCards(loreHome) {
+  return JSON.parse(await lore(loreHome, ["cards", "connect", "--json"], ""));
+}
+
+/** Turn card payments on into an account Stripe cleared, or off. @param {string} loreHome @param {string | null} account */
+async function switchCards(loreHome, account) {
+  if (account !== null && !/^acct_[A-Za-z0-9]+$/.test(account)) throw new Error("Invalid Stripe account");
+  await lore(loreHome, account === null ? ["cards", "off"] : ["cards", "account", account], "");
+}
+
 /** Whether this store is listed, pending, or neither, read from the public list. @param {string} loreHome @returns {Promise<Listing>} */
 async function listingStatus(loreHome) {
   return JSON.parse(await lore(loreHome, ["marketplace", "status", "--json"]));
@@ -292,6 +308,9 @@ module.exports = {
   decide,
   reportFeedback,
   listStore,
+  cardStatus,
+  connectCards,
+  switchCards,
   listingStatus,
   sourceCatalog,
   sourceChoices,

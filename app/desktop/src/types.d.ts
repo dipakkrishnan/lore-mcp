@@ -223,6 +223,9 @@ interface Window {
     reportFeedback(input: { title: string; email: string; description: string }): Promise<FeedbackReceipt>;
     listStore(action: "list" | "delist"): Promise<Listing>;
     listingStatus(): Promise<Listing>;
+    cardStatus(): Promise<CardStatus>;
+    connectCards(): Promise<void>;
+    switchCards(account: string | null): Promise<void>;
     pickFiles(): Promise<string[]>;
     pickFolder(): Promise<string | null>;
     sourceCatalog(): Promise<SourceApp[]>;
@@ -327,4 +330,12 @@ interface Listing {
   state: "none" | "pending" | "listed";
   action?: "list" | "delist";
   url?: string;
+}
+
+/** Card payments (XC-039): `account` takes them; `pending` is opened but not yet on; `ready` is Stripe's answer, null when unknown. */
+interface CardStatus {
+  account: string;
+  pending: string;
+  ready: boolean | null;
+  minimum_usd: number;
 }

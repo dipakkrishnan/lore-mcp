@@ -3,7 +3,7 @@ const { join } = require("node:path");
 const { app, BrowserWindow, dialog, ipcMain, safeStorage, shell, systemPreferences } = require("electron");
 const { provision, skillsDir, whisper } = require("./runtime.cjs");
 const { transcribe } = require("./dictation.cjs");
-const { lore, loreStream, openable, readState, readSales, searchMemories, readMemory, renameMemory, editMemory, captureMemories, previewPage, setPrice, candidates, decide, reportFeedback, listStore, listingStatus, sourceCatalog, sourceChoices, connectSource, signIn, readSource, removeSource, useRuntime } = require("./state.cjs");
+const { lore, loreStream, openable, readState, readSales, searchMemories, readMemory, renameMemory, editMemory, captureMemories, previewPage, setPrice, candidates, decide, reportFeedback, listStore, cardStatus, connectCards, switchCards, listingStatus, sourceCatalog, sourceChoices, connectSource, signIn, readSource, removeSource, useRuntime } = require("./state.cjs");
 
 if (process.env.LORE_DESKTOP_USER_DATA) app.setPath("userData", process.env.LORE_DESKTOP_USER_DATA);
 
@@ -139,6 +139,13 @@ function registerIpc(loreHome) {
     return reportFeedback(loreHome, input);
   });
   ipcMain.handle("listing:act", (_event, action) => listStore(loreHome, action));
+  ipcMain.handle("cards:status", () => cardStatus(loreHome));
+  ipcMain.handle("cards:connect", async () => {
+    const { url } = await connectCards(loreHome);
+    // Stripe's hosted form doesn't run inside the app window.
+    if (url.startsWith("https://") || url.startsWith("http://localhost")) await shell.openExternal(url);
+  });
+  ipcMain.handle("cards:switch", (_event, account) => switchCards(loreHome, account));
   ipcMain.handle("listing:status", () => listingStatus(loreHome));
   ipcMain.handle("sources:catalog", () => sourceCatalog(loreHome));
   ipcMain.handle("sources:choices", (_event, app) => sourceChoices(loreHome, app));

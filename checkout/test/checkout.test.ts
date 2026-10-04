@@ -102,3 +102,44 @@ describe("verify", () => {
 it("exports only the handler, since the Workers runtime refuses any other export", () => {
   expect(Object.keys(entry)).toEqual(["default"]);
 });
+
+describe("seller accounts", () => {
+  const open = async () => (await (await exports.default.fetch("https://checkout.test/accounts", { method: "POST" })).json()) as { account: string; token: string };
+
+  it("opens a seller's own account: full dashboard, Stripe's fees and losses on Stripe, never Lore", async () => {
+    const calls = stub();
+    const { account, token } = await open();
+    expect(account).toBe("acct_1NewSeller");
+    expect(token).toMatch(/^[0-9a-f]{64}$/);
+    expect(calls[0].headers.get("stripe-version")).toMatch(/^\d{4}-\d{2}-\d{2}\./);
+    expect(JSON.parse(calls[0].body)).toMatchObject({
+      dashboard: "full",
+      defaults: { responsibilities: { fees_collector: "stripe", losses_collector: "stripe" } },
+      configuration: { merchant: { capabilities: { card_payments: { requested: true } } } }
+    });
+  });
+
+  it("sends the seller to Stripe's form only with their token, and an expired form comes back for a fresh one", async () => {
+    stub();
+    const { account, token } = await open();
+    const calls = stub();
+    const mine = await exports.default.fetch(`https://checkout.test/onboard?account=${account}&token=${token}`, { redirect: "manual" });
+    expect(mine.status).toBe(303);
+    expect(mine.headers.get("location")).toBe("https://connect.stripe.test/setup/s/abc");
+    const link = JSON.parse(calls[0].body);
+    expect(link.use_case.account_onboarding.refresh_url).toBe(`https://checkout.test/onboard?account=${account}&token=${token}`);
+    expect(link.use_case.account_onboarding.return_url).toBe("https://checkout.test/onboarded");
+    const forged = await exports.default.fetch(`https://checkout.test/onboard?account=acct_1SomeoneElse&token=${token}`, { redirect: "manual" });
+    expect(forged.status).toBe(403);
+  });
+
+  it("says when Stripe lets the account take cards", async () => {
+    stub();
+    const { account, token } = await open();
+    stub({ cardPayments: "restricted" });
+    expect(await (await exports.default.fetch(`https://checkout.test/accounts/status?account=${account}&token=${token}`)).json()).toEqual({ ready: false });
+    stub({ cardPayments: "active" });
+    expect(await (await exports.default.fetch(`https://checkout.test/accounts/status?account=${account}&token=${token}`)).json()).toEqual({ ready: true });
+    expect((await exports.default.fetch(`https://checkout.test/accounts/status?account=${account}&token=${"0".repeat(64)}`)).status).toBe(403);
+  });
+});
