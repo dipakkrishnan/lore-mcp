@@ -46,6 +46,11 @@ describe("storefront", () => {
     expect(ld(html).itemListElement[0].item.offers).not.toHaveProperty("seller");
   });
 
+  it("links a listed store to the marketplace and says nothing for an unlisted one", () => {
+    expect(storefront(catalog, store)).toContain(`<a class="listed" href="https://yourlore.dev/marketplace">`);
+    expect(storefront(catalog, { ...store, name: "" })).not.toContain("Listed on Lore marketplace");
+  });
+
   it("marks a test store and offers nothing for sale to agents", () => {
     const html = storefront(catalog, { ...store, test: true });
     expect(html).toContain("This is a test store");
@@ -104,6 +109,11 @@ describe("publicationPage", () => {
     expect(html).toContain("Lore never holds it");
     expect(publicationPage(piece, { ...store, priceUsd: 3, checkout: "https://checkout.example", test: true })).toContain("4242 4242 4242 4242");
     expect(publicationPage(piece, store)).not.toContain("<form");
+  });
+
+  it("carries the marketplace badge only while the store is listed", () => {
+    expect(publicationPage(piece, store)).toContain("Listed on Lore marketplace");
+    expect(publicationPage(piece, { ...store, name: "" })).not.toContain("Listed on Lore marketplace");
   });
 
   it("shows a receipt problem without the piece", () => {

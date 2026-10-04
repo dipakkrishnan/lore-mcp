@@ -105,6 +105,7 @@ button.primary{background:var(--accent);border-color:var(--accent);color:var(--b
 code{font:13px var(--mono);background:var(--accent-soft);color:var(--ink);padding:2px 6px;border-radius:6px}
 .endpoint{display:block;margin:6px 0 12px;padding:8px 10px;overflow-x:auto;white-space:nowrap;user-select:all}
 .notice{margin:0 0 28px;padding:12px 16px;border-radius:10px;background:var(--accent-soft);font-size:14px}
+.listed{display:inline-flex;align-items:center;gap:6px;margin-top:20px;padding:4px 10px;border:1px solid var(--line);border-radius:999px;font-size:13px;color:var(--muted);text-decoration:none}.listed:hover{border-color:var(--accent);color:var(--ink)}.listed .mark{width:14px;height:14px}
 .back{display:inline-block;margin-bottom:18px;font-size:14px;color:var(--muted);text-decoration:none}.back:hover{color:var(--ink)}
 `;
 
@@ -138,9 +139,12 @@ function offer(store: Store, piece: Piece) {
 const notice = (store: Store) =>
   store.test ? `<p class="notice">This is a test store. Payments use play money, so nothing here is really for sale yet.</p>` : "";
 
+// Listing pushes the listed name and delisting clears it, so a name means listed.
+const listed = (store: Store) => (store.name ? `<a class="listed" href="${MARKETPLACE}">${MARK}Listed on Lore marketplace</a>` : "");
+
 function agentsNote(store: Store, id?: string): string {
   const call = id ? `<p>Then buy this piece:</p><code class="endpoint">${escape(`get {"id": "${id}"}`)}</code>` : "";
-  return `<section class="agents"><h2>For agents</h2><p>Connect over MCP:</p><code class="endpoint">${escape(store.origin)}/mcp</code>${call}<p>Reading the catalog with <code>discover</code> is free; each <code>get</code> pays the seller ${money(store.priceUsd)} in USDC.</p></section>`;
+  return `<section class="agents"><h2>For agents</h2><p>Connect over MCP:</p><code class="endpoint">${escape(store.origin)}/mcp</code>${call}<p>Reading the catalog with <code>discover</code> is free; each <code>get</code> pays the seller ${money(store.priceUsd)} in USDC.</p></section>${listed(store)}`;
 }
 
 export function storefront(catalog: Catalog, store: Store): string {
