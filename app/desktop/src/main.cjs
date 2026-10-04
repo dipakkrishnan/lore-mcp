@@ -3,7 +3,7 @@ const { join } = require("node:path");
 const { app, BrowserWindow, dialog, ipcMain, safeStorage, shell, systemPreferences } = require("electron");
 const { provision, skillsDir, whisper } = require("./runtime.cjs");
 const { transcribe } = require("./dictation.cjs");
-const { lore, loreStream, openable, readState, readSales, searchMemories, readMemory, renameMemory, editMemory, captureMemories, setPrice, candidates, decide, reportFeedback, listStore, listingStatus, sourceCatalog, sourceChoices, connectSource, signIn, readSource, removeSource, useRuntime } = require("./state.cjs");
+const { lore, loreStream, openable, readState, readSales, searchMemories, readMemory, renameMemory, editMemory, captureMemories, previewPage, setPrice, candidates, decide, reportFeedback, listStore, listingStatus, sourceCatalog, sourceChoices, connectSource, signIn, readSource, removeSource, useRuntime } = require("./state.cjs");
 
 if (process.env.LORE_DESKTOP_USER_DATA) app.setPath("userData", process.env.LORE_DESKTOP_USER_DATA);
 
@@ -94,7 +94,28 @@ function registerIpc(loreHome) {
     if (typeof content !== "string") throw new Error("Invalid content");
     return editMemory(loreHome, id, content);
   });
+  ipcMain.handle("memory:paste", (_event, input) => {
+    if (!input || typeof input.title !== "string" || typeof input.content !== "string") throw new Error("Invalid memory");
+    return captureMemories(loreHome, [{ title: input.title, content: input.content, source_path: "pasted" }]);
+  });
   ipcMain.handle("publication:candidates", () => candidates(loreHome));
+  ipcMain.handle("publication:preview", async (_event, input) => {
+    const { candidate, store } = input ?? {};
+    if (!candidate || typeof candidate.teaser !== "string" || !store || typeof store.priceUsd !== "number" || typeof store.origin !== "string") {
+      throw new Error("Invalid preview");
+    }
+    // Its own window, not a frame in the app: a frame inherits the app's style policy and the page's inline styles never apply.
+    const preview = new BrowserWindow({
+      parent: window ?? undefined,
+      width: 880,
+      height: 760,
+      backgroundColor: "#f7f3ea",
+      webPreferences: { javascript: false, sandbox: true, contextIsolation: true, nodeIntegration: false }
+    });
+    preview.webContents.on("will-navigate", (event) => event.preventDefault());
+    preview.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
+    await preview.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(await previewPage(candidate, store))}`);
+  });
   ipcMain.handle("publication:decide", (_event, input) => {
     if (!input || typeof input.approve !== "boolean" || !input.original || typeof input.original !== "object" || !input.candidate || typeof input.candidate !== "object") {
       throw new Error("Invalid decision");

@@ -211,7 +211,9 @@ interface Window {
     memory(id: number): Promise<Memory>;
     renameMemory(id: number, title: string): Promise<Memory>;
     editMemory(id: number, content: string): Promise<Memory>;
+    pasteMemory(input: { title: string; content: string }): Promise<SavedMemory[]>;
     candidates(): Promise<PublicationCandidate[]>;
+    preview(input: { candidate: PublicationCandidate; store: { priceUsd: number; origin: string; test: boolean } }): Promise<void>;
     decide(input: { original: PublicationCandidate; candidate: PublicationCandidate; approve: boolean }): Promise<void>;
     revoke(id: number): Promise<void>;
     push(): Promise<void>;

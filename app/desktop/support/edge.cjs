@@ -70,6 +70,7 @@ const results = [];
 function check(name, ok, detail = "") { results.push(`${ok ? "PASS" : "FAIL"} ${name}${detail ? ` — ${detail}` : ""}`); }
 
 app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {import("electron").BrowserWindow} */ window) => {
+  if (window.getParentWindow()) return; // a page preview, not the app
   const js = (code) => window.webContents.executeJavaScript(code);
   const shot = (name) => window.webContents.capturePage().then((image) => writeFileSync(join(S, `${name}.png`), image.toPNG()));
   const waitFor = async (code, tries = 40) => { for (let i = 0; i < tries; i++) { if (await js(code)) return true; await sleep(250); } return false; };
@@ -570,6 +571,29 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         check("the in-flight report did not close the sheet opened after it", await js(`(() => { const open = [...document.querySelectorAll("dialog.sheet")]; return open.length === 1 && open[0].open === true && !open[0].classList.contains("narrow"); })()`));
         check("the second report filed once", relayReports.length === 2, `relay saw ${relayReports.length}`);
         await shot("feedback-other-sheet-survives");
+      } else if (scenario === "sell") {
+        // APP-134: a draft previews as the page buyers will see; pasted writing is kept privately, then drafted.
+        await js(`window.__lore.signIn()`);
+        await waitFor(`document.querySelector("#content").textContent.includes("Approve what to sell")`);
+        await js(`[...document.querySelectorAll("#content button")].find((b) => b.textContent === "Preview page").click()`);
+        let preview;
+        for (let i = 0; i < 40 && !preview; i++) { preview = window.getChildWindows()[0]; if (!preview) await sleep(250); }
+        await sleep(800);
+        const page = decodeURIComponent(preview?.webContents.getURL() ?? "");
+        check("Preview page opens the draft's page in its own window", page.includes("When to add managers in a fast-growing team."));
+        check("the preview carries no paid text", !page.includes("Add the management layer"));
+        check("the preview window runs no script", preview?.webContents.getLastWebPreferences().javascript === false);
+        if (preview) writeFileSync(join(S, "sell-preview.png"), (await preview.webContents.capturePage()).toPNG());
+        preview?.close();
+        const opened = await js(`(() => { try { window.__lore.paste(); return "ok"; } catch (e) { return String(e && e.stack || e); } })()`);
+        check("Paste opens the sheet", opened === "ok", opened);
+        await sleep(300);
+        await js(`const t = document.querySelector("dialog.sheet[open] textarea"); t.value = "Our launch deck lost to four-minute demos.\\nTwelve cold sends, zero replies."; t.dispatchEvent(new Event("input"))`);
+        await shot("sell-paste");
+        await js(`[...document.querySelectorAll("dialog.sheet[open] button")].find((b) => b.textContent === "Draft it for sale").click()`);
+        check("Draft it for sale keeps the writing privately", await waitFor(`window.lore.search("four-minute demos").then((found) => found.some((m) => m.title === "Our launch deck lost to four-minute demos."))`));
+        check("…and starts the publish thread from it", await waitFor(`document.querySelector("#log").textContent.includes("starting from \\"Our launch deck lost to four-minute demos.\\"")`));
+        await shot("sell-drafting");
       } else {
         await js(`window.__lore.signIn()`);
         await waitFor(`document.querySelector("#content").textContent.includes("Approve what to sell")`);
