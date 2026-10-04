@@ -1,5 +1,6 @@
 import { exports } from "cloudflare:workers";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import * as entry from "../src/index";
 import { ACCOUNT, PIECE, STORE, listing, stub } from "./stubs";
 
 afterEach(() => {
@@ -96,4 +97,8 @@ describe("verify", () => {
     expect((await verify(`session=cs_test_abc&account=x/../y`)).status).toBe(400);
     expect(calls).toHaveLength(0);
   });
+});
+
+it("exports only the handler, since the Workers runtime refuses any other export", () => {
+  expect(Object.keys(entry)).toEqual(["default"]);
 });

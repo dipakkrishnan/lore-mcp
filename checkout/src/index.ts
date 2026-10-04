@@ -1,7 +1,7 @@
 import { StripeError, createSession, retrieveSession } from "./stripe.js";
 
 /** Cards can't charge less; a store priced below this offers no card checkout. */
-export const CARD_MINIMUM_USD = 0.5;
+const CARD_MINIMUM_USD = 0.5;
 
 const PIECE = /^[0-9a-f]{24}$/;
 const ACCOUNT = /^acct_[A-Za-z0-9]+$/;

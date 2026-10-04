@@ -73,12 +73,12 @@ session itself. Only where the key lives changes.
       list, and nothing lands in the platform balance.
 - [ ] One purchase by Instinct, or another browsing agent, with a Link card
       succeeds end to end. Record whether Radar or bot checks interfered.
-- [ ] Unlocked responses carry `private, no-store`. A reused, foreign or
+- [x] Unlocked responses carry `private, no-store`. A reused, foreign or
       unpaid `session_id` serves no text. Tests pin both.
 - [ ] Setting a nonzero `application_fee_amount` in test mode moves only the
       fee to the platform balance. This proves a cut can be switched on later
       without a seller migration.
-- [ ] The x402 `get` path is unchanged, and the paid-path tests still pass.
+- [x] The x402 `get` path is unchanged, and the paid-path tests still pass.
 
 ## Notes
 
@@ -97,10 +97,15 @@ session itself. Only where the key lives changes.
   positive `application_fee_amount`.
 - "Reused" in the criteria below reads as "used for another piece or store".
   A session id is the buyer's receipt for one piece, so reopening it works.
-- Waiting for Lore's Stripe test keys (slice 2): the Account Links
-  onboarding in the desktop app, the Connect webhooks
-  (`checkout.session.completed`, `account.updated`), a real test-mode
-  purchase, and the nonzero-fee check.
+- Verified 2026-10-04 against Lore's Stripe sandbox: a headless browser paid
+  $3 with the 4242 test card on a local store, returned to `/p/<id>`, and read
+  the text (`private, no-store`). One `stripe` sale was recorded across three
+  opens, the seller's balance rose by $2.61 after Stripe's fee, the platform
+  balance did not move, and a forged session id showed nothing. The second
+  criterion stays open until the sale also shows in the desktop Sales list.
+- Slice 2: the Account Links onboarding in the desktop app, the Connect
+  webhooks (`checkout.session.completed`, `account.updated`), the nonzero-fee
+  check, and deploying `checkout/` to `checkout.yourlore.dev`.
 
 Decided 2026-09-29: model 1 over having the platform charge and pay sellers
 out (Uber, DoorDash) or being the seller of record (Gumroad, Paddle). The
