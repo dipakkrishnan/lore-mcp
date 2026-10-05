@@ -26,6 +26,18 @@ npm test        # stubbed Stripe; no network
 npm run dev
 ```
 
-Not deployed yet. It needs Lore's Stripe platform account first. Once that
-exists, it ships to `checkout.yourlore.dev`, the default `CHECKOUT_URL` in
-`lore/node/wrangler.jsonc`.
+## Deploy
+
+Runs at `checkout.yourlore.dev`, the default `CHECKOUT_URL` in
+`lore/node/wrangler.jsonc`, on Lore's own Cloudflare account. Secrets are set
+once, never committed, and never pasted into a chat:
+
+```sh
+npx wrangler secret put STRIPE_SECRET_KEY       # Lore's live secret key
+npx wrangler secret put STRIPE_WEBHOOK_SECRET   # signing secret of the live Connect webhook
+npx wrangler deploy
+```
+
+The live webhook is a **Connect** endpoint at
+`https://checkout.yourlore.dev/webhooks` for `checkout.session.completed` and
+`checkout.session.async_payment_succeeded`.
