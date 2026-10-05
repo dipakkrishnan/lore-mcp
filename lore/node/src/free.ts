@@ -77,5 +77,5 @@ export function freeFirst(
       return deliver(found);
     });
   };
-  tool.update({ callback: callback as unknown as ToolCallback<{ id: never }> });
+  tool.update({ callback: callback as NonNullable<Parameters<RegisteredTool["update"]>[0]["callback"]> });
 }
