@@ -26,6 +26,8 @@ const relayReports = [];
 const opened = [];
 const checkoutCalls = [];
 let stripeCleared = false;
+/** MON-037: every Mac notification Lore posted, in order. */
+const notes = [];
 if (scenario === "listing") {
   require("electron").shell.openExternal = async (url) => { opened.push(url); };
   require(join(src, "main.cjs"));
@@ -44,6 +46,10 @@ if (scenario === "listing") {
     process.env.LORE_FEEDBACK_URL = `http://127.0.0.1:${relay.address().port}/report`;
     require(join(src, "main.cjs"));
   });
+} else if (scenario === "sales") {
+  // Records each Mac notification instead of posting it; main.cjs calls through the module, so this takes.
+  require(join(src, "sales.cjs")).notify = (words, onClick) => { notes.push({ words, handlers: { click: onClick } }); };
+  require(join(src, "main.cjs"));
 } else if (scenario === "cards") {
   // XC-039: Lore's checkout, stubbed. One account, which Stripe clears once the owner "finishes" its form.
   require("electron").shell.openExternal = async (url) => { opened.push(url); };
@@ -609,6 +615,38 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         check("Draft it for sale keeps the writing privately", await waitFor(`window.lore.search("four-minute demos").then((found) => found.some((m) => m.title === "Our launch deck lost to four-minute demos."))`));
         check("…and starts the publish thread from it", await waitFor(`document.querySelector("#log").textContent.includes("starting from \\"Our launch deck lost to four-minute demos.\\"")`));
         await shot("sell-drafting");
+      } else if (scenario === "sales") {
+        // MON-037: a new sale is a Mac notification and shows on Today; old sales never are.
+        const { existsSync, readFileSync } = require("node:fs");
+        const piece = readFileSync(join(S, "piece"), "utf8");
+        const sale = (tx, sold_at, network = "stripe", price_usd = 3) => ({ kind: "publication", item_id: piece, title: "Live demos beat cold decks", price_usd, network, payer: "", tx, sold_at });
+        const ledger = JSON.parse(readFileSync(join(S, "sales.json"), "utf8"));
+        const arrive = async (...fresh) => {
+          ledger.unshift(...fresh.reverse());
+          writeFileSync(join(S, "sales.json"), JSON.stringify(ledger));
+          const before = notes.length;
+          app.emit("browser-window-focus");
+          for (let i = 0; i < 60 && notes.length === before; i++) await sleep(250);
+        };
+        await js(`window.__lore.signIn()`);
+        check("Today shows what the store has earned, and the sale", await waitFor(`document.querySelector("#content").textContent.includes("$3.00 earned") && document.querySelector("#content").textContent.includes("by card")`));
+        for (let i = 0; i < 60 && !existsSync(join(process.env.LORE_DESKTOP_USER_DATA ?? "", "sales-seen.json")); i++) await sleep(250);
+        check("a sale from before is never announced", notes.length === 0, String(notes.length));
+        await js(`[...document.querySelectorAll("#content .row")].find((r) => r.textContent.includes("earned"))?.scrollIntoView({ block: "center" })`);
+        await sleep(300);
+        await shot("sales-today");
+        await arrive(sale("pi_new", "2026-10-04T18:00:00Z"));
+        check("a new sale is a Mac notification", notes.length === 1 && notes[0].words.title === "You sold a piece" && notes[0].words.body === "Live demos beat cold decks · $3.00 by card", JSON.stringify(notes.map((n) => n.words)));
+        check("…and Today counts it", await waitFor(`document.querySelector("#content").textContent.includes("$6.00 earned")`));
+        await arrive(...[1, 2, 3, 4, 5].map((n) => sale(`0xtx${n}`, `2026-10-04T19:0${n}:00Z`, "eip155:8453", 0.5)));
+        check("many at once are one notification", notes.length === 2 && notes[1].words.title === "You sold 5 pieces" && notes[1].words.body === "$2.50", JSON.stringify(notes.map((n) => n.words)));
+        app.emit("browser-window-focus");
+        await sleep(2000);
+        check("a sale is announced once", notes.length === 2, String(notes.length));
+        notes[1].handlers.click();
+        check("clicking it opens For Sale", await waitFor(`document.querySelector("#title").textContent === "For Sale"`));
+        check("For Sale shows each piece's page views and how each sale was paid", await waitFor(`document.querySelector("#content").textContent.includes("42 views") && document.querySelector("#content").textContent.includes("by an agent")`));
+        await shot("sales-for-sale");
       } else if (scenario === "cards") {
         // XC-039: Settings takes an owner from "Get paid to your bank" to card payments on, with no Stripe key on this Mac.
         await js(`window.__lore.signIn()`);

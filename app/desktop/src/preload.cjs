@@ -39,6 +39,7 @@ contextBridge.exposeInMainWorld("lore", {
   /** @param {number} amount */
   setPrice: (amount) => ipcRenderer.invoke("pricing:set", amount),
   sales: () => ipcRenderer.invoke("store:sales"),
+  views: () => ipcRenderer.invoke("store:views"),
   /** @param {{title: string, email: string, description: string}} input */
   reportFeedback: (input) => ipcRenderer.invoke("feedback:report", input),
   /** @param {"list" | "delist"} action */

@@ -8,6 +8,22 @@ const { spawnSync } = require("node:child_process");
 const { test } = require("node:test");
 const { readState } = require("../src/state.cjs");
 
+test("announces only sales after the last one seen, one by one or as one lot", () => {
+  const { announcements, marker, unseen } = require("../src/sales.cjs");
+  /** @param {string} tx @param {string} sold_at @param {string} [network] */
+  const sale = (tx, sold_at, network = "stripe") => ({ kind: /** @type {const} */ ("publication"), item_id: "a", title: "Demos beat decks", price_usd: 3, network, payer: "", tx, sold_at });
+  const old = sale("pi_1", "2026-10-01T00:00:00Z");
+  assert.deepEqual(unseen([old], null), [], "a first read announces nothing");
+  assert.deepEqual(unseen([old], marker([old])), []);
+  const fresh = sale("0xa", "2026-10-02T00:00:00Z", "eip155:8453");
+  assert.deepEqual(unseen([fresh, old], marker([old])), [fresh]);
+  assert.deepEqual(unseen([old], marker([])), [old], "a ledger read empty still hears its first sale");
+  assert.deepEqual(announcements([fresh]), [{ title: "You sold a piece", body: "Demos beat decks · $3.00 by an agent" }]);
+  assert.deepEqual(announcements([old]), [{ title: "You sold a piece", body: "Demos beat decks · $3.00 by card" }]);
+  const many = [1, 2, 3, 4].map((n) => sale(`pi_${n}`, `2026-10-0${n}T00:00:00Z`));
+  assert.deepEqual(announcements(many), [{ title: "You sold 4 pieces", body: "$12.00" }]);
+});
+
 test("reads only the fixed APP-001 snapshot", async () => {
   const directory = await mkdtemp(join(tmpdir(), "lore-desktop-"));
   try {
@@ -912,4 +928,21 @@ test("previews a draft's page with the store's renderer, free fields only", asyn
   assert.match(html, /Useful if you launch tools/);
   assert.match(html, /\$3\.00/);
   assert.doesNotMatch(html, /the paid finding|Paid title/);
+});
+
+test("a damaged sales marker reads as a first read, and the next write repairs it whole", async () => {
+  const sales = require("../src/sales.cjs");
+  const directory = await mkdtemp(join(tmpdir(), "lore-seen-"));
+  const file = join(directory, "sales-seen.json");
+  try {
+    await writeFile(file, '{"sold_at":"2026-10-0');
+    assert.equal(await sales.readSeen(file), null);
+    await writeFile(file, '"just a string"');
+    assert.equal(await sales.readSeen(file), null);
+    await sales.writeSeen(file, { sold_at: "2026-10-04T12:00:00Z", key: "stripe:pi_1" });
+    assert.deepEqual(await sales.readSeen(file), { sold_at: "2026-10-04T12:00:00Z", key: "stripe:pi_1" });
+    await assert.rejects(access(`${file}.tmp`));
+  } finally {
+    await rm(directory, { recursive: true });
+  }
 });

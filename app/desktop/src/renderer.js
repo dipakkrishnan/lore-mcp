@@ -77,6 +77,9 @@ let savingPrice = false;
 let accountMenuOpen = false;
 /** The node's ledger, read each time For Sale opens: rows, the reason it could not be read, or null while it loads. @type {Sale[] | Error | null} */
 let sales = null;
+/** Page views per piece, by public id; empty until read. @type {Record<string, number>} */
+let views = {};
+let salesAsked = false;
 /** The task whose turn is open, while one is. @type {AgentTask | null} */
 let busy = null;
 /** The card awaiting the owner. A memory card also carries `current`, its entries as edited, so the composer can send a spoken or typed correction with them; `pinned` cards stay in view as the thread re-renders. @type {{id: string, task: AgentTask | null, box: HTMLElement, pinned: boolean, current?: () => ProposedMemory[]} | null} */
@@ -654,6 +657,7 @@ function renderToday(s) {
   }
   const attention = needsYou(s);
   if (attention.length) parts.push(section("Needs you", card(attention)));
+  if (Array.isArray(sales) && sales.length) parts.push(earned(sales));
   const shown = displayTasks();
   if (shown.length) {
     parts.push(section("Unfinished", card(shown.map((item) => {
@@ -829,7 +833,8 @@ function renderStore(s) {
   /** @param {PublicationItem} item */
   const sold = (item) => {
     const count = Array.isArray(sales) ? sales.filter((sale) => sale.item_id === item.public_id).length : 0;
-    return count ? `${item.topic} · ${count} sold` : item.topic;
+    const seen = views[item.public_id] ?? 0;
+    return [item.topic, seen ? `${seen} ${seen === 1 ? "view" : "views"}` : "", count ? `${count} sold` : ""].filter(Boolean).join(" · ");
   };
   // One chip per row only when rows differ; a list all in one state says it once in the heading.
   const mixed = approved.some((item) => item.live !== approved[0].live);
@@ -873,24 +878,37 @@ function renderStore(s) {
 function renderSales() {
   if (sales instanceof Error) return section("Sales", emptyState(sales.message, button("Try again", "secondary", () => void loadSales())));
   if (sales === null) return section("Sales", el("div", "card pad empty", "Checking your store…"));
-  if (!sales.length) return section("Sales", el("div", "card pad empty", "No sales yet. When a buyer's agent pays for a publication, it shows here."));
-  const total = sales.reduce((sum, sale) => sum + sale.price_usd, 0);
-  const rows = sales.map((sale) => {
-    const trailing = el("div", "v");
-    const receipt = outLink("↗", `${explorer(sale.network)}/tx/${sale.tx}`, "link-btn glyph");
-    receipt.title = `See this payment on Basescan · ${sale.tx}`;
-    receipt.setAttribute("aria-label", "See this payment on Basescan");
-    trailing.append(el("span", "mono", price(sale.price_usd)), receipt);
-    return row(sale.title, when(sale.sold_at), trailing);
-  });
-  return section("Sales", card(rows), el("span", "hint", `${sales.length} ${sales.length === 1 ? "sale" : "sales"} · ${price(total)} · last ${when(sales[0].sold_at)}`));
+  if (!sales.length) return section("Sales", el("div", "card pad empty", "No sales yet. When someone buys a piece, by card or through their agent, it shows here."));
+  return section("Sales", card(sales.map(saleRow)), el("span", "hint", `${sales.length} ${sales.length === 1 ? "sale" : "sales"} · ${price(total(sales))} · last ${when(sales[0].sold_at)}`));
+}
+
+/** @param {Sale[]} rows */
+const total = (rows) => rows.reduce((sum, sale) => sum + sale.price_usd, 0);
+
+/** One sale: what sold, when, how it was paid, and where the payment can be seen. @param {Sale} sale */
+function saleRow(sale) {
+  const byCard = sale.network === "stripe";
+  const trailing = el("div", "v");
+  const [where, href] = byCard ? ["Stripe", `https://dashboard.stripe.com/payments/${sale.tx}`] : ["Basescan", `${explorer(sale.network)}/tx/${sale.tx}`];
+  const receipt = outLink("↗", href, "link-btn glyph");
+  receipt.title = `See this payment on ${where} · ${sale.tx}`;
+  receipt.setAttribute("aria-label", `See this payment on ${where}`);
+  trailing.append(el("span", "mono", price(sale.price_usd)), receipt);
+  return row(sale.title, `${when(sale.sold_at)} · ${byCard ? "by card" : "by an agent"}`, trailing);
+}
+
+/** Today: what the store has earned, and the latest few sales. @param {Sale[]} rows */
+function earned(rows) {
+  const head = row(`${price(total(rows))} earned`, `${rows.length} ${rows.length === 1 ? "sale" : "sales"} · paid straight to you; Lore never holds it`, cell(button("See all", "quiet", () => show("store"))), false);
+  return section("Earned", card([head, ...rows.slice(0, 3).map(saleRow)]));
 }
 
 /** Read the ledger for the open store; without one there is nothing to read. */
 async function loadSales() {
+  salesAsked = true;
   sales = null;
   try {
-    sales = snapshot?.node.url ? await window.lore.sales() : [];
+    [sales, views] = snapshot?.node.url ? await Promise.all([window.lore.sales(), window.lore.views().catch(() => views)]) : [[], {}];
   } catch (error) {
     sales = new Error(reason(error, "Lore could not read your sales."));
   }
@@ -1477,6 +1495,8 @@ async function load() {
     if (detailTask) detailRecord = taskItems.find((item) => item.kind === detailTask) ?? detailRecord;
     peeked.clear();
     render();
+    // Today's earnings need the ledger once; after that a new sale or For Sale reads it again.
+    if (!salesAsked && snapshot.node.url) void loadSales();
   } catch {
     const error = el("section", "card error");
     error.setAttribute("role", "alert");
@@ -2374,6 +2394,8 @@ function onEvent(event) {
     renderLog();
   }
   else if (event.type === "changed") void load();
+  else if (event.type === "sold") void loadSales();
+  else if (event.type === "show") show(event.view);
   else if (event.type === "message") { if (event.task === task) say(event.text); }
   else if (event.type === "saved") { if (event.task === task) { lines.push({ text: "", owner: false, saved: event.memories }); renderLog(); } }
   else if (event.type === "stopped") { say(event.text, false, true); input.focus({ preventScroll: true }); }

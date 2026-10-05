@@ -181,6 +181,29 @@ class SalesTest(LoreTestCase):
         with self.assertRaisesRegex(ValueError, "open your store first"):
             deploy_module.sales()
 
+    def test_views_read_the_last_statement_so_an_unvisited_store_has_none(
+        self,
+    ) -> None:
+        self._stage_node()
+        answer = subprocess.CompletedProcess(
+            ("wrangler",),
+            0,
+            json.dumps(
+                [
+                    {"results": []},
+                    {"results": [{"item_id": "0000000000000000fcdb4b42", "views": 3}]},
+                ]
+            ),
+            "",
+        )
+        with patch("lore.deploy.subprocess.run", return_value=answer) as run:
+            found = deploy_module.views()
+        self.assertEqual(
+            [row.model_dump() for row in found],
+            [{"item_id": "0000000000000000fcdb4b42", "views": 3}],
+        )
+        self.assertEqual(run.call_args.args[0][-1], deploy_module.VIEWS_QUERY)
+
     def _stage_node(self) -> None:
         binary = deploy_module.materialize(0.1) / "node_modules/.bin/wrangler"
         binary.parent.mkdir(parents=True)

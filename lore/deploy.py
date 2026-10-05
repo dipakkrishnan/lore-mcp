@@ -60,6 +60,23 @@ class Sale(BaseModel):
 
 
 SALES = TypeAdapter(list[Sale])
+# The Worker creates the table on the first view; creating it here too means
+# a store nobody has visited yet reads as no views, not an error.
+VIEWS_QUERY = (
+    "CREATE TABLE IF NOT EXISTS page_views "
+    "(item_id TEXT PRIMARY KEY, views INTEGER NOT NULL); "
+    "SELECT item_id, views FROM page_views"
+)
+
+
+class PageViews(BaseModel):
+    """How often one piece's page was opened; the node keeps nothing else."""
+
+    item_id: str
+    views: int
+
+
+VIEWS = TypeAdapter(list[PageViews])
 # Plain words for the two chains the Worker accepts as LORE_NETWORK.
 NETWORKS = {"real": "eip155:8453", "test": "eip155:84532"}
 # The owner's own Coinbase facilitator credentials, optional: without them real
@@ -293,9 +310,9 @@ def login() -> int:
     return 0
 
 
-def sales() -> list[Sale]:
-    """Read the node's sales ledger through the owner's Cloudflare login,
-    the same way `lore push` writes the edge database."""
+def _read(query: str, fail: str) -> list[dict[str, object]]:
+    """Run `query` on the node's database through the owner's Cloudflare login,
+    the same way `lore push` writes it, and return its last statement's rows."""
     target = home() / "node"
     wrangler = target / "node_modules/.bin/wrangler"
     if not wrangler.exists():
@@ -309,14 +326,24 @@ def sales() -> list[Sale]:
             "--remote",
             "--json",
             "--command",
-            SALES_QUERY,
+            query,
         ),
         target,
-        fail="reading sales failed",
+        fail=fail,
         retry=True,
     )
-    statements = json.loads(result.stdout)
-    return SALES.validate_python(statements[0]["results"])
+    rows: list[dict[str, object]] = json.loads(result.stdout)[-1]["results"]
+    return rows
+
+
+def sales() -> list[Sale]:
+    """Read the node's sales ledger."""
+    return SALES.validate_python(_read(SALES_QUERY, "reading sales failed"))
+
+
+def views() -> list[PageViews]:
+    """Read how often each piece's page was opened."""
+    return VIEWS.validate_python(_read(VIEWS_QUERY, "reading page views failed"))
 
 
 def secret(name: str, value: str) -> int:

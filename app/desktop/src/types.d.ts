@@ -74,6 +74,9 @@ type JobItem = {
 };
 
 /** One settled paid call, as the node's ledger records it. */
+/** The newest sale already announced, kept across launches; empty fields mean the ledger was read empty. */
+type SeenSale = { sold_at: string; key: string };
+
 type Sale = {
   kind: "publication" | "answer";
   item_id: string;
@@ -220,6 +223,7 @@ interface Window {
     schedule(): Promise<void>;
     setPrice(amount: number): Promise<void>;
     sales(): Promise<Sale[]>;
+    views(): Promise<Record<string, number>>;
     reportFeedback(input: { title: string; email: string; description: string }): Promise<FeedbackReceipt>;
     listStore(action: "list" | "delist"): Promise<Listing>;
     listingStatus(): Promise<Listing>;
@@ -285,7 +289,9 @@ type AgentEvent =
   | { type: "stopped"; text: string }
   | { type: "task"; task: TaskRecord }
   | { type: "auth"; message?: string; event?: import("@earendil-works/pi-ai").AuthEvent }
-  | { type: "progress"; text?: string; done?: boolean; error?: string };
+  | { type: "progress"; text?: string; done?: boolean; error?: string }
+  | { type: "sold" }
+  | { type: "show"; view: "store" };
 
 type LoreAgentInstance = {
   readonly activeTask: AgentTask | null;

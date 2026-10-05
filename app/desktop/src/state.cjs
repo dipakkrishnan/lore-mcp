@@ -102,6 +102,13 @@ async function readSales(loreHome) {
   return JSON.parse(await lore(loreHome, ["node", "sales", "--json"]));
 }
 
+/** How often each piece's page was opened, keyed by its public id. @param {string} loreHome @returns {Promise<Record<string, number>>} */
+async function readViews(loreHome) {
+  /** @type {Array<{item_id: string, views: number}>} */
+  const rows = JSON.parse(await lore(loreHome, ["node", "views", "--json"]));
+  return Object.fromEntries(rows.map((row) => [row.item_id, row.views]));
+}
+
 /** @param {string} loreHome @param {string} query @returns {Promise<SearchHit[]>} */
 async function searchMemories(loreHome, query) {
   const terms = query.trim().split(/\s+/).filter((term) => term && !term.startsWith("-")).slice(0, 8);
@@ -297,6 +304,7 @@ module.exports = {
   openable,
   readState,
   readSales,
+  readViews,
   searchMemories,
   readMemory,
   renameMemory,

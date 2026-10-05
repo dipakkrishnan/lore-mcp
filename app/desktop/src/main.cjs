@@ -1,9 +1,11 @@
 const { randomUUID } = require("node:crypto");
+const { existsSync } = require("node:fs");
 const { join } = require("node:path");
 const { app, BrowserWindow, dialog, ipcMain, safeStorage, shell, systemPreferences } = require("electron");
 const { provision, skillsDir, whisper } = require("./runtime.cjs");
 const { transcribe } = require("./dictation.cjs");
-const { lore, loreStream, openable, readState, readSales, searchMemories, readMemory, renameMemory, editMemory, captureMemories, previewPage, setPrice, candidates, decide, reportFeedback, listStore, cardStatus, connectCards, switchCards, listingStatus, sourceCatalog, sourceChoices, connectSource, signIn, readSource, removeSource, useRuntime } = require("./state.cjs");
+const sales = require("./sales.cjs");
+const { lore, loreStream, openable, readState, readSales, readViews, searchMemories, readMemory, renameMemory, editMemory, captureMemories, previewPage, setPrice, candidates, decide, reportFeedback, listStore, cardStatus, connectCards, switchCards, listingStatus, sourceCatalog, sourceChoices, connectSource, signIn, readSource, removeSource, useRuntime } = require("./state.cjs");
 
 if (process.env.LORE_DESKTOP_USER_DATA) app.setPath("userData", process.env.LORE_DESKTOP_USER_DATA);
 
@@ -130,6 +132,7 @@ function registerIpc(loreHome) {
     await lore(loreHome, ["push"], "");
   });
   ipcMain.handle("store:sales", () => readSales(loreHome));
+  ipcMain.handle("store:views", () => readViews(loreHome));
   ipcMain.handle("schedule:install", () => lore(loreHome, ["profile", join(loreHome, "automation", "profile.json")]));
   ipcMain.handle("pricing:set", (_event, amount) => setPrice(loreHome, amount));
   ipcMain.handle("feedback:report", (_event, input) => {
@@ -212,10 +215,56 @@ app.whenReady().then(async () => {
   createWindow();
   await new Promise((loaded) => window?.webContents.once("did-finish-load", () => loaded(undefined)));
   await boot(loreHome);
+  watchSales(loreHome);
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
   });
 });
+
+/** Reading the ledger asks Cloudflare, so once a minute is plenty; coming back to the app checks at once. */
+const SALES_EVERY_MS = 60_000;
+
+/** A Mac notification for every new sale while Lore is open. The last one announced is kept on disk,
+ * so a relaunch never repeats one and a first look at an old store doesn't replay its history.
+ * @param {string} loreHome */
+function watchSales(loreHome) {
+  const seenFile = join(app.getPath("userData"), "sales-seen.json");
+  let checking = false;
+  const check = async () => {
+    // Only a deployed store has a ledger; skip the CLI entirely until one exists.
+    if (checking || !existsSync(join(loreHome, "node", "node_modules", ".bin", "wrangler"))) return;
+    checking = true;
+    try {
+      const seen = await sales.readSeen(seenFile);
+      // A store nobody has bought from or connected to yet has no ledger table: that is an empty
+      // ledger, and remembering it as read is what lets the very first sale be announced.
+      /** @type {Sale[]} */
+      const rows = await readSales(loreHome).catch((error) => {
+        if (/no such table/i.test(String(error?.message))) return [];
+        throw error;
+      });
+      const fresh = sales.unseen(rows, seen);
+      // Remembered before announcing: a crash in between loses one banner rather than repeating it.
+      if (rows.length || !seen) await sales.writeSeen(seenFile, sales.marker(rows));
+      for (const words of sales.announcements(fresh)) {
+        sales.notify(words, () => {
+          if (!window) createWindow();
+          window?.show();
+          window?.focus();
+          emit({ type: "show", view: "store" });
+        });
+      }
+      if (fresh.length) emit({ type: "sold" });
+    } catch {
+      // Offline or signed out of Cloudflare: the next check tries again.
+    } finally {
+      checking = false;
+    }
+  };
+  setInterval(() => void check(), SALES_EVERY_MS);
+  app.on("browser-window-focus", () => void check());
+  void check();
+}
 
 /** @param {string} loreHome */
 async function boot(loreHome) {
