@@ -7,8 +7,8 @@
   // the one place a Checkout Session can be created on a seller's connected
   // account. Charges are direct: the money lands in the seller's Stripe
   // account and never passes through this Worker or Lore's balance.
-  // No route yet: it ships to checkout.yourlore.dev once Lore has a Stripe
-  // platform account.
+  "account_id": "3227ac150184b0a79178897877781e2b",
+  "routes": [{ "pattern": "checkout.yourlore.dev", "custom_domain": true }],
   "observability": { "enabled": true },
   "vars": {
     // Overridable so tests point at a stubbed Stripe instead of the real API.
