@@ -1,4 +1,5 @@
-import { StripeError, bindStore, boundStore, cardPaymentsReady, createAccount, createSession, onboardingLink, retrieveSession } from "./stripe.js";
+import { StripeError, bindStore, boundStore, cardPayments, createAccount, createSession, onboardingLink, retrieveSession } from "./stripe.js";
+import { webhook } from "./webhooks.js";
 
 /** Cards can't charge less; a store priced below this offers no card checkout. */
 const CARD_MINIMUM_USD = 0.5;
@@ -78,11 +79,14 @@ async function verify(url: URL, env: Env): Promise<Response> {
   const account = url.searchParams.get("account") ?? "";
   if (!SESSION.test(session) || !ACCOUNT.test(account)) return json({ error: "a session and an account are required" }, 400);
   try {
-    const found = await retrieveSession(env, account, session);
+    const [found, bound] = await Promise.all([retrieveSession(env, account, session), boundStore(env, account)]);
+    const origin = found.metadata.origin ?? "";
     return json({
-      paid: found.payment_status === "paid",
+      // Paid into an account its seller tied to this very store: anyone can open an account
+      // and pay themselves, but only the seller can tie it to their store.
+      paid: found.payment_status === "paid" && origin !== "" && bound === origin,
       piece: found.metadata.piece ?? "",
-      origin: found.metadata.origin ?? "",
+      origin,
       payment_intent: found.payment_intent ?? "",
       amount_usd: (found.amount_total ?? 0) / 100
     });
@@ -156,7 +160,7 @@ async function accountStatus(url: URL, env: Env): Promise<Response> {
   const account = url.searchParams.get("account") ?? "";
   if (!(await owns(env, account, url.searchParams.get("token") ?? ""))) return json({ error: "not your account" }, 403);
   try {
-    return json({ ready: await cardPaymentsReady(env, account) });
+    return json(await cardPayments(env, account));
   } catch {
     return json({ error: "Stripe is unreachable" }, 502);
   }
@@ -171,6 +175,7 @@ export default {
     if (url.pathname === "/accounts/status" && request.method === "GET") return accountStatus(url, env);
     if (url.pathname === "/accounts/bind" && request.method === "POST") return bind(request, env);
     if (url.pathname === "/onboard" && request.method === "GET") return onboard(url, env);
+    if (url.pathname === "/webhooks" && request.method === "POST") return webhook(request, env);
     if (url.pathname === "/onboarded") return text(200, "You're set up with Stripe. Go back to Lore; it finishes the rest.");
     if (url.pathname === "/") return text(200, "Lore card checkout. Payments go straight to each seller's own Stripe account.");
     return text(404, "Not found.");

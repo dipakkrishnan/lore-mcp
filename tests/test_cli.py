@@ -168,11 +168,15 @@ class MainDispatchTest(LoreTestCase):
         rows = [deploy_module.Sale(**row)]
         with patch("lore.deploy.sales", return_value=rows), captured() as output:
             self.assertEqual(cli.main(["node", "sales", "--json"]), 0)
-        self.assertEqual(json.loads(output.getvalue()), [row])
+        self.assertEqual(json.loads(output.getvalue()), [row | {"refund_owed": False}])
         with patch("lore.deploy.sales", return_value=rows), captured() as output:
             self.assertEqual(cli.main(["node", "sales"]), 0)
         self.assertIn("1 sale · $0.01", output.getvalue())
         self.assertIn("2026-09-02  $0.01  A", output.getvalue())
+        owed = [deploy_module.Sale(**row | {"kind": "answer", "refund_owed": True})]
+        with patch("lore.deploy.sales", return_value=owed), captured() as output:
+            self.assertEqual(cli.main(["node", "sales"]), 0)
+        self.assertIn("(refund owed to 0xpayer)", output.getvalue())
 
     def test_node_views_prints_counts_as_json(self) -> None:
         rows = [deploy_module.PageViews(item_id="0000000000000000fcdb4b42", views=7)]
@@ -926,13 +930,21 @@ class CardsCommandTest(LoreTestCase):
         with Store() as store:
             store.set_setting("stripe_account_pending", "acct_1New")
             store.set_setting("stripe_account_token", "a" * 64)
-        with patch.object(cli.cards_module, "ready", return_value=True) as ready:
+        with patch.object(
+            cli.cards_module, "status", return_value=(True, False)
+        ) as status:
             with captured() as output:
                 cli.cards(None, None, True)
-        ready.assert_called_once_with("acct_1New", "a" * 64)
+        status.assert_called_once_with("acct_1New", "a" * 64)
         self.assertEqual(
             json.loads(output.getvalue()),
-            {"account": "", "pending": "acct_1New", "ready": True, "minimum_usd": 0.5},
+            {
+                "account": "",
+                "pending": "acct_1New",
+                "ready": True,
+                "checking": False,
+                "minimum_usd": 0.5,
+            },
         )
         with self._attended(), captured():
             cli.price(3)
@@ -948,7 +960,7 @@ class CardsCommandTest(LoreTestCase):
             store.set_setting("stripe_account_pending", "acct_1New")
             store.set_setting("stripe_account_token", "a" * 64)
         with (
-            patch.object(cli.cards_module, "ready", side_effect=OSError("offline")),
+            patch.object(cli.cards_module, "status", side_effect=OSError("offline")),
             captured() as output,
         ):
             cli.cards(None, None, True)

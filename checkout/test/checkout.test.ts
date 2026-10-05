@@ -79,8 +79,9 @@ describe("verify", () => {
     const calls = stub();
     const response = await verify(`session=cs_test_abc&account=${ACCOUNT}`);
     expect(await response.json()).toEqual({ paid: true, piece: PIECE, origin: STORE, payment_intent: "pi_123", amount_usd: 3 });
-    expect(new URL(calls[0].url).pathname).toBe("/v1/checkout/sessions/cs_test_abc");
-    expect(calls[0].headers.get("stripe-account")).toBe(ACCOUNT);
+    const asked = calls.find((call) => call.url.includes("/v1/checkout/sessions/"))!;
+    expect(new URL(asked.url).pathname).toBe("/v1/checkout/sessions/cs_test_abc");
+    expect(asked.headers.get("stripe-account")).toBe(ACCOUNT);
     expect(response.headers.get("cache-control")).toBe("no-store");
   });
 
@@ -90,6 +91,14 @@ describe("verify", () => {
     vi.restoreAllMocks();
     stub({ stripeStatus: 404 });
     expect(await (await verify(`session=cs_test_abc&account=${ACCOUNT}`)).json()).toEqual({ paid: false });
+  });
+
+  it("reports a session paid into an account tied to another store, or to none, as unpaid", async () => {
+    stub({ boundTo: "https://someone-else.test" });
+    expect(await (await verify(`session=cs_test_abc&account=${ACCOUNT}`)).json()).toMatchObject({ paid: false });
+    vi.restoreAllMocks();
+    stub({ boundTo: "" });
+    expect(await (await verify(`session=cs_test_abc&account=${ACCOUNT}`)).json()).toMatchObject({ paid: false });
   });
 
   it("rejects malformed input before asking Stripe", async () => {
@@ -162,10 +171,15 @@ describe("seller accounts", () => {
   it("says when Stripe lets the account take cards", async () => {
     stub();
     const { account, token } = await open();
+    const status = async () => (await exports.default.fetch(`https://checkout.test/accounts/status?account=${account}&token=${token}`)).json();
+    stub({ cardPayments: "restricted", awaiting: ["stripe", "stripe"] });
+    expect(await status()).toEqual({ ready: false, checking: true });
+    stub({ cardPayments: "restricted", awaiting: ["stripe", "user"] });
+    expect(await status()).toEqual({ ready: false, checking: false });
     stub({ cardPayments: "restricted" });
-    expect(await (await exports.default.fetch(`https://checkout.test/accounts/status?account=${account}&token=${token}`)).json()).toEqual({ ready: false });
+    expect(await status()).toEqual({ ready: false, checking: false });
     stub({ cardPayments: "active" });
-    expect(await (await exports.default.fetch(`https://checkout.test/accounts/status?account=${account}&token=${token}`)).json()).toEqual({ ready: true });
+    expect(await status()).toEqual({ ready: true, checking: false });
     expect((await exports.default.fetch(`https://checkout.test/accounts/status?account=${account}&token=${"0".repeat(64)}`)).status).toBe(403);
   });
 });

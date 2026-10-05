@@ -117,9 +117,25 @@ session itself. Only where the key lives changes.
   now ties the account to the store's origin in Stripe account metadata
   (`lore_store`), proven with the seller's token, and `/create` refuses any
   other origin. Verified against the sandbox.
-- Still open: the Connect webhooks (`checkout.session.completed`,
-  `account.updated`), the nonzero-fee check, a rate limit on opening
-  accounts, and deploying `checkout/` to `checkout.yourlore.dev`.
+- Durable receipts (2026-10-04): the first verified payment keeps a copy of
+  the piece (title and text as bought) in the store's `card_receipts`, keyed
+  by payment and session. The receipt link opens that copy after an edit, a
+  takedown or cards turned off, without asking checkout again.
+- Webhooks (2026-10-04): `POST /webhooks` on the checkout Worker checks
+  Stripe's signature (`STRIPE_WEBHOOK_SECRET`, HMAC with WebCrypto, five
+  minute tolerance) and, for a paid `checkout.session.completed` or
+  `checkout.session.async_payment_succeeded` on an account tied to the
+  session's store, notifies `POST <store>/p/<id>/paid`. The store re-verifies
+  the session with checkout before keeping the copy and counting the sale,
+  once per payment; a store that can't take it gets a 502, so Stripe
+  retries. Verified in the sandbox with `stripe listen
+  --forward-connect-to`: a buyer who never returned was counted, the receipt
+  opened after the piece was taken down and cards turned off, and a resent
+  event counted nothing new.
+- Still open: registering the live Connect webhook endpoint and its secret,
+  `account.updated` (the app asks Stripe directly today), the nonzero-fee
+  check, a rate limit on opening accounts, and deploying `checkout/` to
+  `checkout.yourlore.dev`.
 
 Decided 2026-09-29: model 1 over having the platform charge and pay sellers
 out (Uber, DoorDash) or being the seller of record (Gumroad, Paddle). The

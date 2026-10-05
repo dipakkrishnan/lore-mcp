@@ -86,6 +86,8 @@ type Sale = {
   payer: string;
   tx: string;
   sold_at: string;
+  /** A paid answer that ended refused or failed; absent from stores deployed before it existed. */
+  refund_owed?: boolean;
 };
 
 /** Where a source stands, as its last read left it. */
@@ -343,5 +345,7 @@ interface CardStatus {
   account: string;
   pending: string;
   ready: boolean | null;
+  /** Stripe is still verifying what the owner entered; nothing is owed by them. */
+  checking?: boolean;
   minimum_usd: number;
 }
