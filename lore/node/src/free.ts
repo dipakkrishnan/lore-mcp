@@ -68,6 +68,7 @@ export function freeFirst(
     if (paying(extra)) return paid(args, extra);
     const copies = (await readAnswerSettings(db)).freeCopies;
     const found = copies ? await find(args.id) : null;
+    if (found) await ensureSalesSchema(db);
     // The copy is a ledger row only: an agent keeps what `get` returned, so no link is kept.
     const given = found && (await give(db, found.id, found.title, freeLink(), copies).run()).meta.changes;
     if (!found || !given) return paid(args, extra);

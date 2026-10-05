@@ -1190,7 +1190,7 @@ def free_copies(count: int | None) -> int:
     success(
         "No free copies"
         if count == 0
-        else f"The first {count} {'copy' if count == 1 else 'copies'} of each piece are free"
+        else f"The first {count} {'copy' if count == 1 else 'copies'} of each piece {'is' if count == 1 else 'are'} free"
     )
     if node_url:
         muted("Your store picks this up on the next `lore push`.")
@@ -1825,7 +1825,7 @@ def _push(worker: Path, local: bool, job_id: int) -> int:
         answer_settings = store.answer_settings()
         listed_name = str(store.setting(marketplace_module.NAME_SETTING, ""))
         stripe_account = str(store.setting(STRIPE_ACCOUNT_SETTING, ""))
-        free = int(store.setting(FREE_COPIES_SETTING, FREE_COPIES))
+        free = int(str(store.setting(FREE_COPIES_SETTING, FREE_COPIES)))
     script = _push_sql(active, answer_settings, listed_name, stripe_account, free)
     with tempfile.NamedTemporaryFile("w", suffix=".sql", delete=False) as handle:
         handle.write(script)
