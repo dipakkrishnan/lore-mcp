@@ -10,6 +10,8 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
+from . import feedback
+
 # LORE_CHECKOUT_URL exists for tests and for a checkout Worker run locally.
 CHECKOUT_ENV = "LORE_CHECKOUT_URL"
 CHECKOUT_URL = "https://checkout.yourlore.dev"
@@ -27,7 +29,7 @@ def _call(
         f"{checkout_url()}{path}",
         method=method,
         data=urllib.parse.urlencode(form).encode() if form else None,
-        headers={"Accept": "application/json"},
+        headers={"Accept": "application/json", "User-Agent": feedback.USER_AGENT},
     )
     try:
         with urllib.request.urlopen(request, timeout=TIMEOUT_SECONDS) as response:

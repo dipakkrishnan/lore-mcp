@@ -924,6 +924,15 @@ class CardsCommandTest(LoreTestCase):
             self.assertEqual(store.setting("stripe_account_pending"), "acct_1New")
             self.assertEqual(store.setting("stripe_account"), None)
 
+    def test_checkout_calls_name_lore_so_cloudflare_lets_them_through(self) -> None:
+        # Cloudflare refuses Python's default user agent with a 403 (error 1010).
+        with patch("urllib.request.urlopen") as urlopen:
+            response = urlopen.return_value.__enter__.return_value
+            response.read.return_value = b'{"account": "acct_1New", "token": "t"}'
+            cli.cards_module.open_account()
+        request = urlopen.call_args.args[0]
+        self.assertEqual(request.get_header("User-agent"), feedback.USER_AGENT)
+
     def test_status_asks_stripe_about_a_pending_account_and_activating_it_clears_it(
         self,
     ) -> None:
