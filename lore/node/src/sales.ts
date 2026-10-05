@@ -42,6 +42,32 @@ export async function ensureSalesSchema(db: D1Database): Promise<void> {
     .run();
 }
 
+/**
+ * A paid answer that ends refused or failed is owed back. x402 pays the owner's own
+ * wallet directly and Lore holds no key to it, so nothing can refund on-chain
+ * automatically; the ledger marks the sale instead, and the owner refunds the payer.
+ * Triggers set the mark whichever is written last, the sale or the job's end.
+ */
+export async function ensureRefundTracking(db: D1Database): Promise<void> {
+  const columns = await db.prepare("PRAGMA table_info(sales)").all<{ name: string }>();
+  if (!columns.results.some((column) => column.name === "refund_owed")) {
+    await db.prepare("ALTER TABLE sales ADD COLUMN refund_owed INTEGER NOT NULL DEFAULT 0").run();
+  }
+  await db.batch([
+    db.prepare(
+      `CREATE TRIGGER IF NOT EXISTS refund_owed_on_end AFTER UPDATE OF status ON answer_jobs
+       WHEN NEW.status IN ('refused','failed')
+       BEGIN UPDATE sales SET refund_owed = 1 WHERE kind = 'answer' AND item_id = NEW.ticket_id; END`
+    ),
+    db.prepare(
+      `CREATE TRIGGER IF NOT EXISTS refund_owed_on_sale AFTER INSERT ON sales
+       WHEN NEW.kind = 'answer'
+       BEGIN UPDATE sales SET refund_owed = 1 WHERE id = NEW.id AND EXISTS
+         (SELECT 1 FROM answer_jobs WHERE ticket_id = NEW.item_id AND status IN ('refused','failed')); END`
+    )
+  ]);
+}
+
 /** Write one card sale, once: the buyer reopening their receipt page must not count it again. */
 export async function recordCardSale(db: D1Database, sale: Sale & { priceUsd: number; tx: string }): Promise<void> {
   await ensureSalesSchema(db);

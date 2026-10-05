@@ -168,11 +168,15 @@ class MainDispatchTest(LoreTestCase):
         rows = [deploy_module.Sale(**row)]
         with patch("lore.deploy.sales", return_value=rows), captured() as output:
             self.assertEqual(cli.main(["node", "sales", "--json"]), 0)
-        self.assertEqual(json.loads(output.getvalue()), [row])
+        self.assertEqual(json.loads(output.getvalue()), [row | {"refund_owed": False}])
         with patch("lore.deploy.sales", return_value=rows), captured() as output:
             self.assertEqual(cli.main(["node", "sales"]), 0)
         self.assertIn("1 sale · $0.01", output.getvalue())
         self.assertIn("2026-09-02  $0.01  A", output.getvalue())
+        owed = [deploy_module.Sale(**row | {"kind": "answer", "refund_owed": True})]
+        with patch("lore.deploy.sales", return_value=owed), captured() as output:
+            self.assertEqual(cli.main(["node", "sales"]), 0)
+        self.assertIn("(refund owed to 0xpayer)", output.getvalue())
 
     def test_node_views_prints_counts_as_json(self) -> None:
         rows = [deploy_module.PageViews(item_id="0000000000000000fcdb4b42", views=7)]

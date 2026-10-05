@@ -194,6 +194,26 @@ describe("get (paid)", () => {
     }
   });
 
+  it("never settles a get for a piece that isn't for sale, such as one revoked after discover", async () => {
+    const fetchSpy = mockFacilitator();
+    const client = await connect();
+    try {
+      const revokedId = newTicketId();
+      const token = await challengeAndBuildToken(client, revokedId);
+      const result = await client.callTool({ name: "get", arguments: { id: revokedId }, _meta: { "x402/payment": token } });
+      expect(result.isError).toBe(true);
+      expect(result._meta?.["x402/payment-response"]).toBeUndefined();
+      const settleCalls = fetchSpy.mock.calls.filter(
+        ([input]) => new URL(input instanceof Request ? input.url : input).pathname === "/settle"
+      );
+      expect(settleCalls).toHaveLength(0);
+      const sold = await env.LORE_DB.prepare("SELECT COUNT(*) AS n FROM sales WHERE item_id = ?1").bind(revokedId).first<{ n: number }>();
+      expect(sold?.n).toBe(0);
+    } finally {
+      await client.close();
+    }
+  });
+
   it("fails closed on an invalid credential: no content, settlement never attempted", async () => {
     const fetchSpy = mockFacilitator({ verify: { kind: "rejected", reason: "INVALID_SIGNATURE" } });
     const client = await connect();

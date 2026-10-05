@@ -893,8 +893,11 @@ function saleRow(sale) {
   const receipt = outLink("↗", href, "link-btn glyph");
   receipt.title = `See this payment on ${where} · ${sale.tx}`;
   receipt.setAttribute("aria-label", `See this payment on ${where}`);
+  if (sale.refund_owed) trailing.append(chip("Refund owed", "attention"));
   trailing.append(el("span", "mono", price(sale.price_usd)), receipt);
-  return row(sale.title, `${when(sale.sold_at)} · ${byCard ? "by card" : "by an agent"}`, trailing);
+  // An answer the buyer paid for and never got: Lore can't send money from your wallet, so it says whom to refund.
+  const owed = sale.refund_owed ? ` · not answered, refund ${sale.payer.slice(0, 6)}…${sale.payer.slice(-4)}` : "";
+  return row(sale.title, `${when(sale.sold_at)} · ${byCard ? "by card" : "by an agent"}${owed}`, trailing);
 }
 
 /** Today: what the store has earned, and the latest few sales. @param {Sale[]} rows */
