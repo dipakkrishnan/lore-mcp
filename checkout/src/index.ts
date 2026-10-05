@@ -79,11 +79,14 @@ async function verify(url: URL, env: Env): Promise<Response> {
   const account = url.searchParams.get("account") ?? "";
   if (!SESSION.test(session) || !ACCOUNT.test(account)) return json({ error: "a session and an account are required" }, 400);
   try {
-    const found = await retrieveSession(env, account, session);
+    const [found, bound] = await Promise.all([retrieveSession(env, account, session), boundStore(env, account)]);
+    const origin = found.metadata.origin ?? "";
     return json({
-      paid: found.payment_status === "paid",
+      // Paid into an account its seller tied to this very store: anyone can open an account
+      // and pay themselves, but only the seller can tie it to their store.
+      paid: found.payment_status === "paid" && origin !== "" && bound === origin,
       piece: found.metadata.piece ?? "",
-      origin: found.metadata.origin ?? "",
+      origin,
       payment_intent: found.payment_intent ?? "",
       amount_usd: (found.amount_total ?? 0) / 100
     });

@@ -49,11 +49,13 @@ export async function ensureSalesSchema(db: D1Database): Promise<void> {
  * Triggers set the mark whichever is written last, the sale or the job's end.
  */
 export async function ensureRefundTracking(db: D1Database): Promise<void> {
-  const columns = await db.prepare("PRAGMA table_info(sales)").all<{ name: string }>();
-  if (!columns.results.some((column) => column.name === "refund_owed")) {
-    await db.prepare("ALTER TABLE sales ADD COLUMN refund_owed INTEGER NOT NULL DEFAULT 0").run();
-  }
+  await ensureRefundColumn(db);
   await db.batch([
+    // Answers that ended unanswered before tracking existed.
+    db.prepare(
+      `UPDATE sales SET refund_owed = 1 WHERE kind = 'answer' AND refund_owed = 0
+       AND item_id IN (SELECT ticket_id FROM answer_jobs WHERE status IN ('refused','failed'))`
+    ),
     db.prepare(
       `CREATE TRIGGER IF NOT EXISTS refund_owed_on_end AFTER UPDATE OF status ON answer_jobs
        WHEN NEW.status IN ('refused','failed')
@@ -68,17 +70,27 @@ export async function ensureRefundTracking(db: D1Database): Promise<void> {
   ]);
 }
 
-/** Write one card sale, once: the buyer reopening their receipt page must not count it again. */
-export async function recordCardSale(db: D1Database, sale: Sale & { priceUsd: number; tx: string }): Promise<void> {
+/** The sales table, with the refund column a database made before refunds were tracked lacks.
+ * Two sessions starting at once may both add it; the loser's "duplicate column" is harmless. */
+export async function ensureRefundColumn(db: D1Database): Promise<void> {
   await ensureSalesSchema(db);
   await db
+    .prepare("ALTER TABLE sales ADD COLUMN refund_owed INTEGER NOT NULL DEFAULT 0")
+    .run()
+    .catch((error: unknown) => {
+      if (!/duplicate column/i.test(String(error))) throw error;
+    });
+}
+
+/** One card sale, once: the buyer reopening their receipt and Stripe resending must not count it again. */
+export function cardSale(db: D1Database, sale: Sale & { priceUsd: number; tx: string; refundOwed: boolean }): D1PreparedStatement {
+  return db
     .prepare(
-      `INSERT INTO sales(kind,item_id,title,price_usd,network,payer,tx,sold_at)
-       SELECT 'publication',?1,?2,?3,'stripe','',?4,?5
+      `INSERT INTO sales(kind,item_id,title,price_usd,network,payer,tx,sold_at,refund_owed)
+       SELECT 'publication',?1,?2,?3,'stripe','',?4,?5,?6
        WHERE NOT EXISTS (SELECT 1 FROM sales WHERE network = 'stripe' AND tx = ?4)`
     )
-    .bind(sale.item, sale.title, sale.priceUsd, sale.tx, new Date().toISOString())
-    .run();
+    .bind(sale.item, sale.title, sale.priceUsd, sale.tx, new Date().toISOString(), sale.refundOwed ? 1 : 0);
 }
 
 /** What a paid tool with input `Args` is called with; the SDK spells this as a conditional type that stays unresolved on a generic `Args`. */

@@ -46,6 +46,16 @@ describe("a paid answer that ends without one", () => {
     expect(await owed("ticket-early-refuse")).toBe(1);
   });
 
+  it("is owed back for an answer that ended unanswered before tracking existed", async () => {
+    await db.prepare("UPDATE sales SET refund_owed = 0").run();
+    await job("ticket-before", "failed");
+    await db.prepare("DROP TRIGGER refund_owed_on_sale").run();
+    await sale("answer", "ticket-before");
+    expect(await owed("ticket-before")).toBe(0);
+    await ensureRefundTracking(db);
+    expect(await owed("ticket-before")).toBe(1);
+  });
+
   it("owes nothing for an answer that completes, or for a publication", async () => {
     await job("ticket-done", "running");
     await sale("answer", "ticket-done");

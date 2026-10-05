@@ -184,23 +184,31 @@ describe("checkout's paid notice", () => {
   it("writes nothing on its word alone: checkout has to confirm the payment", async () => {
     checkout({ paid: false });
     const response = await notice({ session_id: "cs_test_forged", account: ACCOUNT });
-    expect(response.status).toBe(409);
+    expect(response.status).toBe(404);
     expect(await cardSales()).toEqual([]);
     expect((await notice({ session_id: "cs_test_abc" }, "f".repeat(24))).status).toBe(404);
   });
 
-  it("counts a sale whose piece was taken down before the notice arrived", async () => {
+  it("counts a sale whose piece was taken down before the notice arrived, as owed back", async () => {
     const gone = "f".repeat(24);
     checkout({ piece: gone });
     expect((await notice({ session_id: "cs_test_abc", account: ACCOUNT }, gone)).status).toBe(200);
     expect(await cardSales()).toEqual([{ item_id: gone, price_usd: 3, network: "stripe", tx: "pi_123" }]);
+    const owed = await env.LORE_DB.prepare("SELECT refund_owed FROM sales WHERE item_id = ?1").bind(gone).first("refund_owed");
+    expect(owed).toBe(1);
   });
 
-  it("still counts a sale for a store that has since stopped taking cards, against the account the session paid", async () => {
+  it("takes no word for the payee: a store that takes no cards records nothing, whatever the notice names", async () => {
     await env.LORE_DB.prepare("DELETE FROM node_settings WHERE key = 'stripe_account'").run();
     const asked = checkout();
-    expect((await notice({ session_id: "cs_test_abc", account: ACCOUNT })).status).toBe(200);
-    expect(asked[0].searchParams.get("account")).toBe(ACCOUNT);
-    expect(await cardSales()).toHaveLength(1);
+    expect((await notice({ session_id: "cs_test_abc", account: "acct_1Attacker" })).status).toBe(404);
+    expect(asked).toEqual([]);
+    expect(await cardSales()).toEqual([]);
+  });
+
+  it("answers 5xx when the sale can't be written, so Stripe sends it again", async () => {
+    checkout();
+    vi.spyOn(env.LORE_DB, "batch").mockRejectedValue(new Error("D1 is down"));
+    expect((await notice({ session_id: "cs_test_abc", account: ACCOUNT })).status).toBe(503);
   });
 });

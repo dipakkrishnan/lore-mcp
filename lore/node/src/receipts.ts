@@ -16,8 +16,7 @@ export async function ensureReceiptSchema(db: D1Database): Promise<void> {
   await db
     .prepare(
       `CREATE TABLE IF NOT EXISTS card_receipts (
-      tx TEXT PRIMARY KEY,
-      session_id TEXT NOT NULL UNIQUE,
+      session_id TEXT PRIMARY KEY,
       piece_id TEXT NOT NULL,
       teaser TEXT NOT NULL,
       kind TEXT NOT NULL,
@@ -42,13 +41,11 @@ export async function keptCopy(db: D1Database, session: string, pieceId: string)
 }
 
 /** Keep the copy once per payment; a later call for the same payment keeps the first. */
-export async function keepCopy(db: D1Database, session: string, tx: string, copy: Copy): Promise<void> {
-  await ensureReceiptSchema(db);
-  await db
+export function keepCopy(db: D1Database, session: string, copy: Copy): D1PreparedStatement {
+  return db
     .prepare(
-      `INSERT OR IGNORE INTO card_receipts(tx,session_id,piece_id,teaser,kind,updated_at,title,content,bought_at)
-       VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9)`
+      `INSERT OR IGNORE INTO card_receipts(session_id,piece_id,teaser,kind,updated_at,title,content,bought_at)
+       VALUES (?1,?2,?3,?4,?5,?6,?7,?8)`
     )
-    .bind(tx, session, copy.piece_id, copy.teaser, copy.kind, copy.updated_at, copy.title, copy.content, new Date().toISOString())
-    .run();
+    .bind(session, copy.piece_id, copy.teaser, copy.kind, copy.updated_at, copy.title, copy.content, new Date().toISOString());
 }

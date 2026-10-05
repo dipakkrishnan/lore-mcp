@@ -52,7 +52,7 @@ export async function webhook(request: Request, env: Env): Promise<Response> {
     if ((await boundStore(env, account)) !== origin) return reply(200, "not this account's store");
     const notice = await fetch(`${origin}/p/${piece}/paid`, {
       method: "POST",
-      body: new URLSearchParams({ session_id: session.id ?? "", account })
+      body: new URLSearchParams({ session_id: session.id ?? "" })
     });
     // A store that can't take it now gets it again: Stripe retries a failed delivery for days.
     return notice.ok ? reply(200, "recorded") : reply(502, "store refused");

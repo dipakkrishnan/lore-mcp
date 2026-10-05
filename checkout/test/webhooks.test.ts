@@ -55,13 +55,13 @@ describe("Stripe's signature", () => {
 });
 
 describe("a paid checkout", () => {
-  it("tells the store the account is tied to, naming only the session and the account", async () => {
+  it("tells the store the account is tied to, naming only the session", async () => {
     const calls = stub();
     const response = await deliver(event());
     expect(response.status).toBe(200);
     const [notice] = notices(calls);
     expect(notice.url).toBe(`${STORE}/p/${PIECE}/paid`);
-    expect(Object.fromEntries(new URLSearchParams(notice.body))).toEqual({ session_id: "cs_test_abc", account: ACCOUNT });
+    expect(Object.fromEntries(new URLSearchParams(notice.body))).toEqual({ session_id: "cs_test_abc" });
   });
 
   it("counts an async payment once it succeeds", async () => {

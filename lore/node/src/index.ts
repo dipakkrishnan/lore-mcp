@@ -15,8 +15,8 @@ import {
 import { runAnswer } from "./answer.js";
 import { TESTNET, facilitator, network, networkLabel } from "./network.js";
 import { PRICE_USD } from "./price.js";
-import { type Copy, keepCopy, keptCopy } from "./receipts.js";
-import { ensureRefundTracking, ensureSalesSchema, recordCardSale, recorded } from "./sales.js";
+import { type Copy, ensureReceiptSchema, keepCopy, keptCopy } from "./receipts.js";
+import { cardSale, ensureRefundColumn, ensureRefundTracking, ensureSalesSchema, recorded } from "./sales.js";
 import { type Piece, type Store, notFound, pieces, publicationPage, storefront, unlockedPage } from "./storefront.js";
 import { toolSpanAttributes } from "./telemetry.js";
 import { withSpan } from "./tracing.js";
@@ -228,28 +228,37 @@ async function paidFor(env: Env, account: string, session: string, piece: { id: 
   }
 }
 
-/** A verified payment for this piece in this store, kept: the copy is written once and the sale counted once. */
-async function settle(env: Env, account: string, session: string, piece: Piece, origin: string): Promise<Copy | null> {
-  const paid = SESSION.test(session) && STRIPE_ACCOUNT.test(account) ? await paidFor(env, account, session, piece, origin) : null;
+type Settled = Paid & { id: string; title: string; copy: Copy | null };
+
+/** A payment checkout confirms into this store's account, for this piece in this store, and what it
+ * bought: the piece as it stands, or nothing if it has since been taken down. */
+async function settled(env: Env, account: string, session: string, id: string, origin: string, found?: Piece): Promise<Settled | null> {
+  const paid = SESSION.test(session) && STRIPE_ACCOUNT.test(account) ? await paidFor(env, account, session, { id }, origin) : null;
   if (!paid) return null;
-  const current = await env.LORE_DB.prepare("SELECT title, content FROM publications WHERE public_id = ?1")
-    .bind(piece.id)
-    .first<{ title: string; content: string }>();
-  const copy = current && { piece_id: piece.id, teaser: piece.teaser, kind: piece.kind, updated_at: piece.updated_at, ...current };
-  try {
-    if (copy) await keepCopy(env.LORE_DB, session, paid.tx, copy);
-    await recordCardSale(env.LORE_DB, { item: piece.id, title: copy?.title ?? piece.teaser, ...paid });
-  } catch {
-    // The buyer has paid; a bookkeeping failure must never cost them the piece.
-    console.error("settle(): failed to keep a paid card session");
-  }
-  return copy;
+  const current = found
+    ? await env.LORE_DB.prepare("SELECT title, content FROM publications WHERE public_id = ?1").bind(id).first<{ title: string; content: string }>()
+    : null;
+  const copy = found && current ? { piece_id: id, teaser: found.teaser, kind: found.kind, updated_at: found.updated_at, ...current } : null;
+  return { ...paid, id, title: copy?.title ?? found?.teaser ?? "A piece since taken down", copy };
+}
+
+/** Keep the copy and count the sale together, once each; a payment with nothing left to keep is owed back. */
+async function keep(env: Env, session: string, sale: Settled): Promise<void> {
+  const db = env.LORE_DB;
+  await Promise.all([ensureReceiptSchema(db), ensureRefundColumn(db)]);
+  await db.batch([
+    ...(sale.copy ? [keepCopy(db, session, sale.copy)] : []),
+    cardSale(db, { item: sale.id, title: sale.title, priceUsd: sale.priceUsd, tx: sale.tx, refundOwed: !sale.copy })
+  ]);
 }
 
 async function receiptPage(env: Env, store: Store, account: string, session: string, id: string, found: Piece | undefined): Promise<Response> {
   // A kept copy opens whatever happened since: an edit, a takedown, or cards turned off.
   const kept = SESSION.test(session) ? await keptCopy(env.LORE_DB, session, id) : null;
-  const copy = kept ?? (found ? await settle(env, account, session, found, store.origin) : null);
+  const sale = kept || !found ? null : await settled(env, account, session, id, store.origin, found);
+  // The buyer has paid; a bookkeeping failure must never cost them the piece.
+  if (sale) await keep(env, session, sale).catch(() => console.error("receiptPage(): failed to keep a paid card session"));
+  const copy = kept ?? sale?.copy;
   if (copy) {
     const piece = found ?? { id, teaser: copy.teaser, kind: copy.kind, updated_at: copy.updated_at, topic: "", section: 0 };
     return html(unlockedPage(piece, store, copy), 200, PRIVATE);
@@ -264,18 +273,15 @@ async function receiptPage(env: Env, store: Store, account: string, session: str
 async function paidNotice(request: Request, env: Env, account: string, origin: string, id: string, found: Piece | undefined): Promise<Response> {
   const form = await request.formData().catch(() => null);
   const session = form?.get("session_id");
-  const named = form?.get("account");
   if (typeof session !== "string") return Response.json({ recorded: false }, { status: 400, headers: PRIVATE });
-  // A store that stopped taking cards still owes the sale to the account the session paid.
-  const payee = account || (typeof named === "string" ? named : "");
-  if (found) {
-    const copy = await settle(env, payee, session, found, origin);
-    return Response.json({ recorded: copy !== null }, { status: copy ? 200 : 409, headers: PRIVATE });
-  }
-  // Taken down between the payment and this notice: no text is left to keep, but the money moved, so the sale counts.
-  const paid = SESSION.test(session) && STRIPE_ACCOUNT.test(payee) ? await paidFor(env, payee, session, { id }, origin) : null;
-  if (paid) await recordCardSale(env.LORE_DB, { item: id, title: "A piece since taken down", ...paid });
-  return Response.json({ recorded: paid !== null }, { status: paid ? 200 : 404, headers: PRIVATE });
+  // Only the account this store takes cards into; nothing in the notice names the payee.
+  const sale = await settled(env, account, session, id, origin, found);
+  if (!sale) return Response.json({ recorded: false }, { status: 404, headers: PRIVATE });
+  // A failed write answers 5xx, so checkout fails the webhook and Stripe sends it again.
+  return keep(env, session, sale).then(
+    () => Response.json({ recorded: true }, { headers: PRIVATE }),
+    () => Response.json({ recorded: false }, { status: 503, headers: PRIVATE })
+  );
 }
 
 export default {

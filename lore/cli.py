@@ -995,7 +995,8 @@ def sales(as_json: bool) -> int:
     total = sum(row.price_usd for row in rows)
     heading(f"{len(rows)} sale{'s' if len(rows) != 1 else ''} · ${total:.2f}")
     for row in rows:
-        owed = f"  (refund owed to {row.payer})" if row.refund_owed else ""
+        to = f" to {row.payer}" if row.payer else ""
+        owed = f"  (refund owed{to})" if row.refund_owed else ""
         print(f"  {row.sold_at[:10]}  ${row.price_usd:.2f}  {row.title}{owed}")
     return 0
 
