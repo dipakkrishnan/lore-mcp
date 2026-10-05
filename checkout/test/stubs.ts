@@ -63,7 +63,7 @@ export function stub({ store = listing(), session = {}, stripeStatus = 200, card
       if (url.pathname === "/v2/core/accounts") return Response.json({ id: "acct_1NewSeller" });
       if (url.pathname === "/v2/core/account_links") return Response.json({ url: "https://connect.stripe.test/setup/s/abc" });
       if (request.method === "POST") return Response.json({ id: url.pathname.split("/").pop(), metadata: (JSON.parse(stripe.at(-1)!.body) as { metadata: Record<string, string> }).metadata });
-      return Response.json({ id: url.pathname.split("/").pop(), metadata: { lore_store: boundTo }, configuration: { merchant: { capabilities: { card_payments: { status: cardPayments } } } }, requirements: { entries: awaiting.map((who) => ({ awaiting_action_from: who })) } });
+      return Response.json({ id: url.pathname.split("/").pop(), metadata: { lore_store: boundTo }, configuration: { merchant: { capabilities: { card_payments: { status: cardPayments } } } }, requirements: { entries: awaiting.map((who) => ({ awaiting_action_from: who, minimum_deadline: { status: "currently_due" } })) } });
     }
     throw new Error(`unexpected outbound fetch during test: ${request.method} ${url}`);
   });

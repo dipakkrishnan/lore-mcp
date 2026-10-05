@@ -176,6 +176,8 @@ describe("seller accounts", () => {
     expect(await status()).toEqual({ ready: false, checking: true });
     stub({ cardPayments: "restricted", awaiting: ["stripe", "user"] });
     expect(await status()).toEqual({ ready: false, checking: false });
+    stub({ cardPayments: "restricted" });
+    expect(await status()).toEqual({ ready: false, checking: false });
     stub({ cardPayments: "active" });
     expect(await status()).toEqual({ ready: true, checking: false });
     expect((await exports.default.fetch(`https://checkout.test/accounts/status?account=${account}&token=${"0".repeat(64)}`)).status).toBe(403);

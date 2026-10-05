@@ -1014,8 +1014,7 @@ function cardsRow(s) {
   if (status.ready === null) return [row(label, "Lore couldn't reach Stripe to check your account.", cell(button("Check again", "quiet", () => void loadCards())), false)];
   if (!status.ready && status.checking) {
     // Stripe verifies what the owner entered on its own clock; look again shortly rather than waiting for a click.
-    window.clearTimeout(cardsRecheck);
-    cardsRecheck = window.setTimeout(() => { if (view === "settings") void loadCards(); }, 10_000);
+    if (!cardsRecheck) cardsRecheck = window.setTimeout(() => { cardsRecheck = 0; if (view === "settings") void loadCards(); }, 10_000);
     return [row(label, "Stripe is checking your details. This usually takes a minute or two.", cell(dot(false, "Checking")), false)];
   }
   if (!status.ready) return [row(label, "Stripe needs a few more details from you before you can take cards.", cell(dot(false, "Needs you"), finish), false)];
