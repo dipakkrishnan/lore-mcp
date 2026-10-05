@@ -11,7 +11,8 @@ export default defineProject({
         bindings: {
           STRIPE_API: "https://stripe.test",
           STRIPE_SECRET_KEY: "sk_test_not_a_real_key",
-          STRIPE_WEBHOOK_SECRET: "whsec_test_not_a_real_secret"
+          STRIPE_WEBHOOK_SECRET: "whsec_test_not_a_real_secret",
+          ACCOUNT_TOKEN_SECRET: "not_a_real_token_secret"
         }
       }
     })

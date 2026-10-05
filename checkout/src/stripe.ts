@@ -114,6 +114,16 @@ export async function boundStore(env: Env, account: string): Promise<string> {
   return (await lookup(env, account)).metadata?.lore_store ?? "";
 }
 
+/** Whether the key works: a read every checkout key can make, with nothing sent back to the caller. */
+export async function reachable(env: Env): Promise<boolean> {
+  try {
+    await v2(env, "/v2/core/accounts?limit=1");
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export async function bindStore(env: Env, account: string, origin: string): Promise<void> {
   await v2(env, `/v2/core/accounts/${account}`, { metadata: { lore_store: origin } });
 }

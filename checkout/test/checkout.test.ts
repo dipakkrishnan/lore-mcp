@@ -1,4 +1,4 @@
-import { exports } from "cloudflare:workers";
+import { env, exports } from "cloudflare:workers";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import * as entry from "../src/index";
 import { ACCOUNT, PIECE, STORE, listing, stub } from "./stubs";
@@ -154,6 +154,14 @@ describe("seller accounts", () => {
     });
   });
 
+  it("signs a seller's token with its own secret, not the Stripe key, so rolling the key keeps sellers in", async () => {
+    stub();
+    const { account, token } = await open();
+    const key = await crypto.subtle.importKey("raw", new TextEncoder().encode(env.ACCOUNT_TOKEN_SECRET), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+    const signed = new Uint8Array(await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(account)));
+    expect(token).toBe([...signed].map((byte) => byte.toString(16).padStart(2, "0")).join(""));
+  });
+
   it("sends the seller to Stripe's form only with their token, and an expired form comes back for a fresh one", async () => {
     stub();
     const { account, token } = await open();
@@ -181,5 +189,22 @@ describe("seller accounts", () => {
     stub({ cardPayments: "active" });
     expect(await status()).toEqual({ ready: true, checking: false });
     expect((await exports.default.fetch(`https://checkout.test/accounts/status?account=${account}&token=${"0".repeat(64)}`)).status).toBe(403);
+  });
+});
+
+describe("health", () => {
+  it("says only whether Stripe takes the key, with a read that changes nothing", async () => {
+    const calls = stub();
+    const ok = await exports.default.fetch("https://checkout.test/health");
+    expect(ok.status).toBe(200);
+    expect(await ok.json()).toEqual({ ok: true });
+    expect(calls).toHaveLength(1);
+    expect(calls[0].url).toBe("https://stripe.test/v2/core/accounts?limit=1");
+    expect(calls[0].body).toBe("");
+
+    stub({ stripeStatus: 401 });
+    const down = await exports.default.fetch("https://checkout.test/health");
+    expect(down.status).toBe(502);
+    expect(await down.json()).toEqual({ ok: false });
   });
 });
