@@ -345,5 +345,7 @@ interface CardStatus {
   account: string;
   pending: string;
   ready: boolean | null;
+  /** Stripe is still verifying what the owner entered; nothing is owed by them. */
+  checking?: boolean;
   minimum_usd: number;
 }

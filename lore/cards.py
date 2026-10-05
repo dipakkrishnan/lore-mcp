@@ -55,10 +55,12 @@ def onboarding_url(account: str, token: str) -> str:
     return f"{checkout_url()}/onboard?{query}"
 
 
-def ready(account: str, token: str) -> bool:
-    """Whether Stripe lets the account take card payments yet."""
+def status(account: str, token: str) -> tuple[bool, bool]:
+    """Whether Stripe lets the account take cards yet, and if not, whether
+    Stripe is still checking (rather than waiting on the owner)."""
     query = urllib.parse.urlencode({"account": account, "token": token})
-    return bool(_call(f"/accounts/status?{query}").get("ready"))
+    found = _call(f"/accounts/status?{query}")
+    return bool(found.get("ready")), bool(found.get("checking"))
 
 
 def bind(account: str, token: str, origin: str) -> None:

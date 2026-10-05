@@ -930,13 +930,21 @@ class CardsCommandTest(LoreTestCase):
         with Store() as store:
             store.set_setting("stripe_account_pending", "acct_1New")
             store.set_setting("stripe_account_token", "a" * 64)
-        with patch.object(cli.cards_module, "ready", return_value=True) as ready:
+        with patch.object(
+            cli.cards_module, "status", return_value=(True, False)
+        ) as status:
             with captured() as output:
                 cli.cards(None, None, True)
-        ready.assert_called_once_with("acct_1New", "a" * 64)
+        status.assert_called_once_with("acct_1New", "a" * 64)
         self.assertEqual(
             json.loads(output.getvalue()),
-            {"account": "", "pending": "acct_1New", "ready": True, "minimum_usd": 0.5},
+            {
+                "account": "",
+                "pending": "acct_1New",
+                "ready": True,
+                "checking": False,
+                "minimum_usd": 0.5,
+            },
         )
         with self._attended(), captured():
             cli.price(3)
@@ -952,7 +960,7 @@ class CardsCommandTest(LoreTestCase):
             store.set_setting("stripe_account_pending", "acct_1New")
             store.set_setting("stripe_account_token", "a" * 64)
         with (
-            patch.object(cli.cards_module, "ready", side_effect=OSError("offline")),
+            patch.object(cli.cards_module, "status", side_effect=OSError("offline")),
             captured() as output,
         ):
             cli.cards(None, None, True)

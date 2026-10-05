@@ -94,13 +94,19 @@ export async function onboardingLink(env: Env, account: string, refresh: string,
 type Account = {
   metadata?: Record<string, string>;
   configuration?: { merchant?: { capabilities?: { card_payments?: { status?: string } } } };
+  requirements?: { entries?: { awaiting_action_from?: string; minimum_deadline?: { status?: string } }[] };
 };
 
-const lookup = (env: Env, account: string) => v2<Account>(env, `/v2/core/accounts/${account}?include=configuration.merchant`);
+const lookup = (env: Env, account: string) =>
+  v2<Account>(env, `/v2/core/accounts/${account}?include=configuration.merchant&include=requirements`);
 
-/** Whether Stripe lets this account take card payments yet. */
-export async function cardPaymentsReady(env: Env, account: string): Promise<boolean> {
-  return (await lookup(env, account)).configuration?.merchant?.capabilities?.card_payments?.status === "active";
+/** Whether Stripe lets this account take cards yet, and if not, whether Stripe is still checking or the seller owes it something. */
+export async function cardPayments(env: Env, account: string): Promise<{ ready: boolean; checking: boolean }> {
+  const found = await lookup(env, account);
+  const ready = found.configuration?.merchant?.capabilities?.card_payments?.status === "active";
+  // Only what is due now decides it; items due later don't hold cards back.
+  const due = (found.requirements?.entries ?? []).filter((entry) => ["currently_due", "past_due"].includes(entry.minimum_deadline?.status ?? ""));
+  return { ready, checking: !ready && due.length > 0 && due.every((entry) => entry.awaiting_action_from === "stripe") };
 }
 
 /** The one store this account sells through, kept on the account where no store can write it. */

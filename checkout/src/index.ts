@@ -1,4 +1,4 @@
-import { StripeError, bindStore, boundStore, cardPaymentsReady, createAccount, createSession, onboardingLink, retrieveSession } from "./stripe.js";
+import { StripeError, bindStore, boundStore, cardPayments, createAccount, createSession, onboardingLink, retrieveSession } from "./stripe.js";
 import { webhook } from "./webhooks.js";
 
 /** Cards can't charge less; a store priced below this offers no card checkout. */
@@ -160,7 +160,7 @@ async function accountStatus(url: URL, env: Env): Promise<Response> {
   const account = url.searchParams.get("account") ?? "";
   if (!(await owns(env, account, url.searchParams.get("token") ?? ""))) return json({ error: "not your account" }, 403);
   try {
-    return json({ ready: await cardPaymentsReady(env, account) });
+    return json(await cardPayments(env, account));
   } catch {
     return json({ error: "Stripe is unreachable" }, 502);
   }

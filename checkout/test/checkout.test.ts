@@ -171,10 +171,15 @@ describe("seller accounts", () => {
   it("says when Stripe lets the account take cards", async () => {
     stub();
     const { account, token } = await open();
+    const status = async () => (await exports.default.fetch(`https://checkout.test/accounts/status?account=${account}&token=${token}`)).json();
+    stub({ cardPayments: "restricted", awaiting: ["stripe", "stripe"] });
+    expect(await status()).toEqual({ ready: false, checking: true });
+    stub({ cardPayments: "restricted", awaiting: ["stripe", "user"] });
+    expect(await status()).toEqual({ ready: false, checking: false });
     stub({ cardPayments: "restricted" });
-    expect(await (await exports.default.fetch(`https://checkout.test/accounts/status?account=${account}&token=${token}`)).json()).toEqual({ ready: false });
+    expect(await status()).toEqual({ ready: false, checking: false });
     stub({ cardPayments: "active" });
-    expect(await (await exports.default.fetch(`https://checkout.test/accounts/status?account=${account}&token=${token}`)).json()).toEqual({ ready: true });
+    expect(await status()).toEqual({ ready: true, checking: false });
     expect((await exports.default.fetch(`https://checkout.test/accounts/status?account=${account}&token=${"0".repeat(64)}`)).status).toBe(403);
   });
 });
