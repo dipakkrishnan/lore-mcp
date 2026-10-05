@@ -175,6 +175,20 @@ type PublicationCandidate = {
   provenance: number[];
 };
 
+/** New free parts for a piece already on sale; its link, price and paid content stay. */
+type PublicationExtras = {
+  publication_id: number;
+  sample: string;
+  useful_if: string;
+  not_useful_if: string;
+};
+
+/** A staged update beside the live piece it changes. */
+type ExtrasCandidate = {
+  extras: PublicationExtras;
+  piece: { title: string; teaser: string; kind: "claim" | "content"; topic: string; sample: string; useful_if: string; not_useful_if: string };
+};
+
 type AgentTask = "capture" | "setup" | "publish" | "deploy";
 type TaskState = "needs_you" | "working" | "stopped" | "done";
 
@@ -220,6 +234,8 @@ interface Window {
     candidates(): Promise<PublicationCandidate[]>;
     preview(input: { candidate: PublicationCandidate; store: { priceUsd: number; origin: string; test: boolean } }): Promise<void>;
     decide(input: { original: PublicationCandidate; candidate: PublicationCandidate; approve: boolean }): Promise<void>;
+    extras(): Promise<ExtrasCandidate[]>;
+    decideExtras(input: { original: PublicationExtras; extras: PublicationExtras; approve: boolean }): Promise<void>;
     revoke(id: number): Promise<void>;
     push(): Promise<void>;
     schedule(): Promise<void>;
