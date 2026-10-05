@@ -1,4 +1,5 @@
 import { StripeError, bindStore, boundStore, cardPaymentsReady, createAccount, createSession, onboardingLink, retrieveSession } from "./stripe.js";
+import { webhook } from "./webhooks.js";
 
 /** Cards can't charge less; a store priced below this offers no card checkout. */
 const CARD_MINIMUM_USD = 0.5;
@@ -171,6 +172,7 @@ export default {
     if (url.pathname === "/accounts/status" && request.method === "GET") return accountStatus(url, env);
     if (url.pathname === "/accounts/bind" && request.method === "POST") return bind(request, env);
     if (url.pathname === "/onboard" && request.method === "GET") return onboard(url, env);
+    if (url.pathname === "/webhooks" && request.method === "POST") return webhook(request, env);
     if (url.pathname === "/onboarded") return text(200, "You're set up with Stripe. Go back to Lore; it finishes the rest.");
     if (url.pathname === "/") return text(200, "Lore card checkout. Payments go straight to each seller's own Stripe account.");
     return text(404, "Not found.");

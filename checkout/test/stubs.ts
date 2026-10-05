@@ -23,19 +23,25 @@ type Options = {
   stripeStatus?: number;
   cardPayments?: string;
   boundTo?: string;
+  /** How the store answers checkout's paid notice. */
+  noticeStatus?: number;
 };
 
 /**
  * Stubs the store's `/p/<id>.json` and the two Stripe endpoints. Restore with
  * `vi.restoreAllMocks()`. Any other outbound fetch throws.
  */
-export function stub({ store = listing(), session = {}, stripeStatus = 200, cardPayments = "active", boundTo = STORE }: Options = {}) {
+export function stub({ store = listing(), session = {}, stripeStatus = 200, cardPayments = "active", boundTo = STORE, noticeStatus = 200 }: Options = {}) {
   const stripe: { url: string; headers: Headers; body: string }[] = [];
   vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
     const request = new Request(input, init);
     const url = new URL(request.url);
     if (url.origin === STORE && url.pathname === `/p/${PIECE}.json`) {
       return store ? Response.json(store) : new Response("not found", { status: 404 });
+    }
+    if (url.origin === STORE && url.pathname === `/p/${PIECE}/paid` && request.method === "POST") {
+      stripe.push({ url: request.url, headers: request.headers, body: await request.text() });
+      return Response.json({ recorded: noticeStatus === 200 }, { status: noticeStatus });
     }
     if (url.origin === STRIPE_API && url.pathname.startsWith("/v1/checkout/sessions")) {
       stripe.push({ url: request.url, headers: request.headers, body: await request.text() });
