@@ -835,7 +835,7 @@ function renderStore(s) {
   const revoked = s.publications.items.filter((item) => item.state === "revoked");
   /** @param {PublicationItem} item */
   const sold = (item) => {
-    const count = Array.isArray(sales) ? sales.filter((sale) => sale.item_id === item.public_id).length : 0;
+    const count = Array.isArray(sales) ? sales.filter((sale) => sale.item_id === item.public_id && sale.network !== "free").length : 0;
     const seen = views[item.public_id] ?? 0;
     return [item.topic, seen ? `${seen} ${seen === 1 ? "view" : "views"}` : "", count ? `${count} sold` : ""].filter(Boolean).join(" · ");
   };
@@ -882,14 +882,22 @@ function renderSales() {
   if (sales instanceof Error) return section("Sales", emptyState(sales.message, button("Try again", "secondary", () => void loadSales())));
   if (sales === null) return section("Sales", el("div", "card pad empty", "Checking your store…"));
   if (!sales.length) return section("Sales", el("div", "card pad empty", "No sales yet. When someone buys a piece, by card or through their agent, it shows here."));
-  return section("Sales", card(sales.map(saleRow)), el("span", "hint", `${sales.length} ${sales.length === 1 ? "sale" : "sales"} · ${price(total(sales))} · last ${when(sales[0].sold_at)}`));
+  return section("Sales", card(sales.map(saleRow)), el("span", "hint", `${tally(sales)} · ${price(total(sales))} · last ${when(sales[0].sold_at)}`));
 }
 
 /** @param {Sale[]} rows */
 const total = (rows) => rows.reduce((sum, sale) => sum + sale.price_usd, 0);
 
+/** "3 sales · 2 free copies": a free copy is a reader, not a sale. @param {Sale[]} rows */
+function tally(rows) {
+  const free = rows.filter((sale) => sale.network === "free").length;
+  const paid = rows.length - free;
+  return [`${paid} ${paid === 1 ? "sale" : "sales"}`, free ? `${free} free ${free === 1 ? "copy" : "copies"}` : ""].filter(Boolean).join(" · ");
+}
+
 /** One sale: what sold, when, how it was paid, and where the payment can be seen. @param {Sale} sale */
 function saleRow(sale) {
+  if (sale.network === "free") return row(sale.title, `${when(sale.sold_at)} · a free copy`, cell(el("span", "mono", "Free")));
   const byCard = sale.network === "stripe";
   const trailing = el("div", "v");
   const [where, href] = byCard ? ["Stripe", `https://dashboard.stripe.com/payments/${sale.tx}`] : ["Basescan", `${explorer(sale.network)}/tx/${sale.tx}`];
@@ -907,7 +915,7 @@ function saleRow(sale) {
 
 /** Today: what the store has earned, and the latest few sales. @param {Sale[]} rows */
 function earned(rows) {
-  const head = row(`${price(total(rows))} earned`, `${rows.length} ${rows.length === 1 ? "sale" : "sales"} · paid straight to you; Lore never holds it`, cell(button("See all", "quiet", () => show("store"))), false);
+  const head = row(`${price(total(rows))} earned`, `${tally(rows)} · paid straight to you; Lore never holds it`, cell(button("See all", "quiet", () => show("store"))), false);
   return section("Earned", card([head, ...rows.slice(0, 3).map(saleRow)]));
 }
 

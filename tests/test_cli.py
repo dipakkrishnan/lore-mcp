@@ -182,6 +182,13 @@ class MainDispatchTest(LoreTestCase):
         with patch("lore.deploy.sales", return_value=owed), captured() as output:
             self.assertEqual(cli.main(["node", "sales"]), 0)
         self.assertIn("(refund owed to 0xpayer)", output.getvalue())
+        free = row | {"price_usd": 0, "network": "free", "payer": "", "tx": "free_1"}
+        rows = [deploy_module.Sale(**free), deploy_module.Sale(**row)]
+        with patch("lore.deploy.sales", return_value=rows), captured() as output:
+            self.assertEqual(cli.main(["node", "sales"]), 0)
+        self.assertIn("1 sale · $0.01 · 1 free copy", output.getvalue())
+        self.assertIn("2026-09-02    free  A", output.getvalue())
+        self.assertNotIn("refund owed", output.getvalue())
 
     def test_node_views_prints_counts_as_json(self) -> None:
         rows = [deploy_module.PageViews(item_id="0000000000000000fcdb4b42", views=7)]
@@ -847,6 +854,21 @@ class PriceTest(LoreTestCase):
         with captured() as output:
             self.assertEqual(cli.price(0), 0)
         self.assertIn("Publications are free", output.getvalue())
+
+    def test_free_copies_default_to_three_and_zero_turns_them_off(self) -> None:
+        with captured() as output:
+            self.assertEqual(cli.main(["free-copies"]), 0)
+        self.assertIn("3 free copies per piece", output.getvalue())
+        with captured() as output:
+            self.assertEqual(cli.main(["free-copies", "1"]), 0)
+        self.assertIn("The first 1 copy of each piece is free", output.getvalue())
+        with Store() as store:
+            self.assertEqual(store.setting(cli.FREE_COPIES_SETTING), 1)
+        with captured() as output:
+            self.assertEqual(cli.free_copies(0), 0)
+        self.assertIn("No free copies", output.getvalue())
+        with self.assertRaisesRegex(ValueError, "zero or more"):
+            cli.free_copies(-1)
 
     def test_prices_that_cannot_be_charged_are_refused(self) -> None:
         for amount in (float("nan"), float("inf"), -1.0):
@@ -2151,6 +2173,12 @@ class PushTest(LoreTestCase):
             sql = cli._push_sql([], store.answer_settings(), "Ada", "acct_1Seller")
         self.assertIn("('stripe_account','acct_1Seller')", sql)
         self.assertIn("('listed_name','Ada')", sql)
+
+    def test_push_ships_the_free_copies_setting(self) -> None:
+        self.assertIn("('free_copies','3')", self.push_sql([]))
+        with Store() as store:
+            sql = cli._push_sql([], store.answer_settings(), "", "", 0)
+        self.assertIn("('free_copies','0')", sql)
 
     def test_push_ships_the_answer_settings_alongside_publications(self) -> None:
         with Store() as store:

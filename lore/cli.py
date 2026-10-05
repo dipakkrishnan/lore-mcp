@@ -57,6 +57,9 @@ STRIPE_ACCOUNT_SETTING = "stripe_account"
 STRIPE_PENDING_SETTING = "stripe_account_pending"
 STRIPE_TOKEN_SETTING = "stripe_account_token"
 CARD_MINIMUM_USD = 0.5
+# Copies of each piece given away before it costs anything (MON-040).
+FREE_COPIES_SETTING = "free_copies"
+FREE_COPIES = 3
 STRIPE_ACCOUNT_ID = re.compile(r"acct_[A-Za-z0-9]+")
 
 PUBLICATION_CANDIDATES: TypeAdapter[list[PublicationInput]] = TypeAdapter(
@@ -267,6 +270,12 @@ def parser() -> argparse.ArgumentParser:
     price = commands.add_parser("price", help="show or set the per-publication price")
     price.add_argument(
         "amount", nargs="?", type=float, help="USD per publication; use 0 for free"
+    )
+    free_copies = commands.add_parser(
+        "free-copies", help="show or set how many copies of each piece are free"
+    )
+    free_copies.add_argument(
+        "count", nargs="?", type=int, help="free copies per piece; use 0 for none"
     )
     answer = commands.add_parser(
         "answer", help="enable or disable the paid answer tier"
@@ -495,6 +504,8 @@ def main(argv: list[str] | None = None) -> int:
             return manual()
         if args.command == "price":
             return price(args.amount)
+        if args.command == "free-copies":
+            return free_copies(args.count)
         if args.command == "answer":
             if args.answer_command == "on":
                 return answer_enable(args.file, args.price)
@@ -627,6 +638,11 @@ def manual() -> int:
 
   6. lore price [USD]
      Show or set the advertised price per publication.
+
+  6a. lore free-copies [N]
+     Show or set how many copies of each piece are free before it costs
+     anything (3 unless you change it; 0 turns it off). Ships on the next
+     `lore push`.
 
   6b. lore answer on <proxy-file> <price> | off
      Enable the paid answer tier or switch it off. Ships on the next `lore push`.
@@ -1038,12 +1054,17 @@ def sales(as_json: bool) -> int:
     if not rows:
         muted("No sales yet.")
         return 0
-    total = sum(row.price_usd for row in rows)
-    heading(f"{len(rows)} sale{'s' if len(rows) != 1 else ''} · ${total:.2f}")
+    paid = [row for row in rows if row.network != deploy_module.FREE_NETWORK]
+    given = len(rows) - len(paid)
+    total = sum(row.price_usd for row in paid)
+    free = f" · {given} free {'copy' if given == 1 else 'copies'}" if given else ""
+    heading(f"{len(paid)} sale{'s' if len(paid) != 1 else ''} · ${total:.2f}{free}")
     for row in rows:
         to = f" to {row.payer}" if row.payer else ""
         owed = f"  (refund owed{to})" if row.refund_owed else ""
-        print(f"  {row.sold_at[:10]}  ${row.price_usd:.2f}  {row.title}{owed}")
+        free_copy = row.network == deploy_module.FREE_NETWORK
+        amount = "  free" if free_copy else f"${row.price_usd:.2f}"
+        print(f"  {row.sold_at[:10]}  {amount}  {row.title}{owed}")
     return 0
 
 
@@ -1071,6 +1092,7 @@ def status() -> int:
         connected = Registry(store).sources
         database_path = store.path
         publication_price = store.setting("price_usd", None)
+        free = store.setting(FREE_COPIES_SETTING, FREE_COPIES)
         answer_settings = store.answer_settings()
         node_url = store.setting("node_url", None)
         revocation_pending = store.setting("revocation_pending", False)
@@ -1098,6 +1120,7 @@ def status() -> int:
     print(
         f"Publication price: {'not set' if publication_price is None else f'${publication_price:.2f}'}"
     )
+    print(f"Free copies: {free} per piece")
     print(
         "Answer tier: "
         + (
@@ -1150,6 +1173,27 @@ def price(amount: float | None) -> int:
         muted(
             "Your deployed node still charges its old price until `lore node deploy` reruns."
         )
+    return 0
+
+
+def free_copies(count: int | None) -> int:
+    """Show or update how many copies of each piece are given away free."""
+    with Store() as store:
+        if count is None:
+            current = store.setting(FREE_COPIES_SETTING, FREE_COPIES)
+            print(f"{current} free {'copy' if current == 1 else 'copies'} per piece")
+            return 0
+        if count < 0:
+            raise ValueError("free copies must be zero or more")
+        store.set_setting(FREE_COPIES_SETTING, count)
+        node_url = store.setting("node_url", None)
+    success(
+        "No free copies"
+        if count == 0
+        else f"The first {count} {'copy' if count == 1 else 'copies'} of each piece {'is' if count == 1 else 'are'} free"
+    )
+    if node_url:
+        muted("Your store picks this up on the next `lore push`.")
     return 0
 
 
@@ -1677,6 +1721,7 @@ def _push_sql(
     answer: AnswerSettings,
     listed_name: str,
     stripe_account: str = "",
+    free_copies: int = FREE_COPIES,
 ) -> str:
     """Render the full-replace SQL for the edge database.
 
@@ -1725,6 +1770,7 @@ def _push_sql(
         "answer_enabled": "true" if answer.answer_enabled else "false",
         "listed_name": listed_name,
         "stripe_account": stripe_account,
+        "free_copies": str(free_copies),
     }
     statements.extend(
         [
@@ -1779,7 +1825,8 @@ def _push(worker: Path, local: bool, job_id: int) -> int:
         answer_settings = store.answer_settings()
         listed_name = str(store.setting(marketplace_module.NAME_SETTING, ""))
         stripe_account = str(store.setting(STRIPE_ACCOUNT_SETTING, ""))
-    script = _push_sql(active, answer_settings, listed_name, stripe_account)
+        free = int(str(store.setting(FREE_COPIES_SETTING, FREE_COPIES)))
+    script = _push_sql(active, answer_settings, listed_name, stripe_account, free)
     with tempfile.NamedTemporaryFile("w", suffix=".sql", delete=False) as handle:
         handle.write(script)
         script_path = handle.name
