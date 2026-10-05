@@ -35,6 +35,14 @@ calls, each on a seller's connected account:
 
 Webhook signature checks use `STRIPE_WEBHOOK_SECRET`, not the key.
 
+Seller tokens are an HMAC keyed on `STRIPE_SECRET_KEY` (`signer()` in
+`checkout/src/index.ts`), so swapping or rolling the key logs every
+connected seller's app out of `/accounts/status`, `/accounts/bind` and
+`/onboard`. Before the swap, key tokens on their own `ACCOUNT_TOKEN_SECRET`
+Worker secret. If any seller has connected by then, set it to the current
+`lore-accounts:<key>` input for one release, or have the app re-open
+accounts on a 403.
+
 Steps:
 1. In the sandbox, create a restricted key with the fewest permissions
    that plausibly cover the table, for example Checkout Sessions write and
@@ -52,6 +60,8 @@ Steps:
 
 - [ ] The permission list is recorded here, found by running the sandbox
       path against a restricted key.
+- [ ] Seller tokens no longer depend on the Stripe key, and a connected
+      seller's app still reads its status after the swap.
 - [ ] The live Worker runs on the restricted key, and the full secret key
       is rolled.
 
