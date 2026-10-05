@@ -15,7 +15,8 @@ import {
 import { runAnswer } from "./answer.js";
 import { TESTNET, facilitator, network, networkLabel } from "./network.js";
 import { PRICE_USD } from "./price.js";
-import { ensureSalesSchema, recordCardSale, recorded } from "./sales.js";
+import { type Copy, ensureReceiptSchema, keepCopy, keptCopy } from "./receipts.js";
+import { cardSale, ensureRefundColumn, ensureRefundTracking, ensureSalesSchema, recorded } from "./sales.js";
 import { type Piece, type Store, notFound, pieces, publicationPage, storefront, unlockedPage } from "./storefront.js";
 import { toolSpanAttributes } from "./telemetry.js";
 import { withSpan } from "./tracing.js";
@@ -48,6 +49,7 @@ export class LorePaidMCP extends McpAgent<Env> {
   async init() {
     await ensureAnswerSchema(this.env.LORE_DB);
     await ensureSalesSchema(this.env.LORE_DB);
+    await ensureRefundTracking(this.env.LORE_DB);
     const settings = await readAnswerSettings(this.env.LORE_DB);
     this.server.registerTool(
       "discover",
@@ -83,7 +85,7 @@ export class LorePaidMCP extends McpAgent<Env> {
       "get",
       "Fetch one owner-approved publication by its id from the discover catalog. " +
         "Each call buys exactly one publication. Damaged ids are rejected before " +
-        "payment; use a current catalog because a just-revoked id can still be billed.",
+        "payment, and an id that is no longer for sale returns an error and is never charged.",
       PRICE_USD,
       {
         id: z.string().trim().refine(validPublicId, {
@@ -125,8 +127,9 @@ export class LorePaidMCP extends McpAgent<Env> {
       "Buy a response from the owner's authorized AI proxy, grounded in the " +
       "owner's approved publications. Payment settles at submission and returns a ticket " +
       "immediately; poll result until it completes. Questions are retained and " +
-      "visible to the owner. Unsupported questions are refused after payment; " +
-      "there are no automated refunds.";
+      "visible to the owner. Unsupported questions are refused after payment. " +
+      "Refunds are not automatic: a refused or failed answer is marked owed back to " +
+      "your paying address, and the owner refunds it.";
 
     if (settings.enabled) {
       const answer = this.server.paidTool(
@@ -171,7 +174,8 @@ export class LorePaidMCP extends McpAgent<Env> {
         description:
           "Fetch the outcome of a paid answer ticket. Free and idempotent; keep " +
           "polling while status is running. Terminal statuses: complete, refused " +
-          "(no coverage), failed (agent error or timeout — no automated refund yet).",
+          "(no coverage), failed (agent error or timeout). Refused and failed answers are " +
+          "marked owed back; the owner refunds them.",
         inputSchema: {
           ticket: z.string().trim().refine(validPublicId, {
             message: "invalid ticket id; use the one answer returned"
@@ -210,7 +214,7 @@ type Receipt = { paid: boolean; piece?: string; origin?: string; payment_intent?
 type Paid = { tx: string; priceUsd: number };
 
 /** Ask Lore's checkout whether this receipt paid for this piece in this store; anything else, including an outage, is no. */
-async function paidFor(env: Env, account: string, session: string, piece: Piece, origin: string): Promise<Paid | null> {
+async function paidFor(env: Env, account: string, session: string, piece: { id: string }, origin: string): Promise<Paid | null> {
   try {
     const query = new URLSearchParams({ session, account });
     const response = await fetch(`${env.CHECKOUT_URL}/verify?${query}`);
@@ -224,25 +228,60 @@ async function paidFor(env: Env, account: string, session: string, piece: Piece,
   }
 }
 
-async function receiptPage(env: Env, store: Store, account: string, session: string, piece: Piece): Promise<Response> {
-  // Only the account gates this, not the price: a receipt keeps working after the owner reprices or stops taking cards.
-  const paid = SESSION.test(session) && STRIPE_ACCOUNT.test(account) ? await paidFor(env, account, session, piece, store.origin) : null;
-  const unlocked = paid
-    ? await env.LORE_DB.prepare("SELECT title, content FROM publications WHERE public_id = ?1")
-        .bind(piece.id)
-        .first<{ title: string; content: string }>()
+type Settled = Paid & { id: string; title: string; copy: Copy | null };
+
+/** A payment checkout confirms into this store's account, for this piece in this store, and what it
+ * bought: the piece as it stands, or nothing if it has since been taken down. */
+async function settled(env: Env, account: string, session: string, id: string, origin: string, found?: Piece): Promise<Settled | null> {
+  const paid = SESSION.test(session) && STRIPE_ACCOUNT.test(account) ? await paidFor(env, account, session, { id }, origin) : null;
+  if (!paid) return null;
+  const current = found
+    ? await env.LORE_DB.prepare("SELECT title, content FROM publications WHERE public_id = ?1").bind(id).first<{ title: string; content: string }>()
     : null;
-  if (!paid || !unlocked) {
-    const problem = "We couldn't find a finished card payment for this piece. If you just paid, wait a minute and reload this page.";
-    return html(publicationPage(piece, store, problem), 200, PRIVATE);
+  const copy = found && current ? { piece_id: id, teaser: found.teaser, kind: found.kind, updated_at: found.updated_at, ...current } : null;
+  return { ...paid, id, title: copy?.title ?? found?.teaser ?? "A piece since taken down", copy };
+}
+
+/** Keep the copy and count the sale together, once each; a payment with nothing left to keep is owed back. */
+async function keep(env: Env, session: string, sale: Settled): Promise<void> {
+  const db = env.LORE_DB;
+  await Promise.all([ensureReceiptSchema(db), ensureRefundColumn(db)]);
+  await db.batch([
+    ...(sale.copy ? [keepCopy(db, session, sale.copy)] : []),
+    cardSale(db, { item: sale.id, title: sale.title, priceUsd: sale.priceUsd, tx: sale.tx, refundOwed: !sale.copy })
+  ]);
+}
+
+async function receiptPage(env: Env, store: Store, account: string, session: string, id: string, found: Piece | undefined): Promise<Response> {
+  // A kept copy opens whatever happened since: an edit, a takedown, or cards turned off.
+  const kept = SESSION.test(session) ? await keptCopy(env.LORE_DB, session, id) : null;
+  const sale = kept || !found ? null : await settled(env, account, session, id, store.origin, found);
+  // The buyer has paid; a bookkeeping failure must never cost them the piece.
+  if (sale) await keep(env, session, sale).catch(() => console.error("receiptPage(): failed to keep a paid card session"));
+  const copy = kept ?? sale?.copy;
+  if (copy) {
+    const piece = found ?? { id, teaser: copy.teaser, kind: copy.kind, updated_at: copy.updated_at, topic: "", section: 0 };
+    return html(unlockedPage(piece, store, copy), 200, PRIVATE);
   }
-  try {
-    await recordCardSale(env.LORE_DB, { item: piece.id, title: unlocked.title, ...paid });
-  } catch {
-    // The buyer has paid; a ledger failure must never cost them the piece.
-    console.error("receiptPage(): failed to write sales row for a paid card session");
-  }
-  return html(unlockedPage(piece, store, unlocked), 200, PRIVATE);
+  if (!found) return html(notFound(store), 404, PRIVATE);
+  const problem = "We couldn't find a finished card payment for this piece. If you just paid, wait a minute and reload this page.";
+  return html(publicationPage(found, store, problem), 200, PRIVATE);
+}
+
+/** Lore's checkout saying a card payment finished, so the sale counts even if the buyer never returns. The
+ * notice only names a session: it is checked with checkout before anything is written. */
+async function paidNotice(request: Request, env: Env, account: string, origin: string, id: string, found: Piece | undefined): Promise<Response> {
+  const form = await request.formData().catch(() => null);
+  const session = form?.get("session_id");
+  if (typeof session !== "string") return Response.json({ recorded: false }, { status: 400, headers: PRIVATE });
+  // Only the account this store takes cards into; nothing in the notice names the payee.
+  const sale = await settled(env, account, session, id, origin, found);
+  if (!sale) return Response.json({ recorded: false }, { status: 404, headers: PRIVATE });
+  // A failed write answers 5xx, so checkout fails the webhook and Stripe sends it again.
+  return keep(env, session, sale).then(
+    () => Response.json({ recorded: true }, { headers: PRIVATE }),
+    () => Response.json({ recorded: false }, { status: 503, headers: PRIVATE })
+  );
 }
 
 export default {
@@ -273,14 +312,19 @@ export default {
         return Response.json(listing ?? { error: "not for sale here" }, { status: listing ? 200 : 404, headers: PUBLIC });
       }
       const session = url.searchParams.get("session_id");
-      if (found && session !== null) {
-        const response = await receiptPage(env, store, settings.stripeAccount, session, found);
+      if (id && session !== null) {
+        const response = await receiptPage(env, store, settings.stripeAccount, session, id, found);
         return request.method === "HEAD" ? html(null, response.status, PRIVATE) : response;
       }
       // Counted after the response; a buyer reopening their receipt returned above and is never a view.
       if (found && request.method === "GET") ctx.waitUntil(countView(env.LORE_DB, found.id).catch(() => undefined));
       const body = url.pathname === "/" ? storefront(catalog, store) : found ? publicationPage(found, store) : notFound(store);
       return html(request.method === "HEAD" ? null : body, url.pathname === "/" || found ? 200 : 404, PUBLIC);
+    }
+    const paid = url.pathname.match(/^\/p\/([0-9a-f]{24})\/paid$/)?.[1];
+    if (paid && request.method === "POST") {
+      const [catalog, settings] = await Promise.all([manifest(env), readAnswerSettings(env.LORE_DB)]);
+      return paidNotice(request, env, settings.stripeAccount, url.origin, paid, pieces(catalog).find((piece) => piece.id === paid));
     }
     const response = await mcp.fetch(request, env, ctx);
     if (response.webSocket || response.headers.has("cache-control")) return response;

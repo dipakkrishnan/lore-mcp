@@ -40,10 +40,9 @@ NEEDS_NODE = "deploying needs Node.js; install it from nodejs.org and rerun"
 # desktop agent's turn, a terminal session) indefinitely (MON-023).
 SUBPROCESS_TIMEOUT_S = 300
 PRICE_DECLARATION = "export const PRICE_USD = 0.01;"
-SALES_QUERY = (
-    "SELECT kind, item_id, title, price_usd, network, payer, tx, sold_at "
-    "FROM sales ORDER BY sold_at DESC, id DESC"
-)
+# `*`, not a column list: a node deployed before `refund_owed` existed still
+# reads, and the field defaults to nothing owed.
+SALES_QUERY = "SELECT * FROM sales ORDER BY sold_at DESC, id DESC"
 
 
 class Sale(BaseModel):
@@ -57,6 +56,8 @@ class Sale(BaseModel):
     payer: str
     tx: str
     sold_at: str
+    # A paid answer that ended refused or failed: the owner refunds the payer.
+    refund_owed: bool = False
 
 
 SALES = TypeAdapter(list[Sale])

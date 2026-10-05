@@ -893,8 +893,13 @@ function saleRow(sale) {
   const receipt = outLink("↗", href, "link-btn glyph");
   receipt.title = `See this payment on ${where} · ${sale.tx}`;
   receipt.setAttribute("aria-label", `See this payment on ${where}`);
+  if (sale.refund_owed) trailing.append(chip("Refund owed", "attention"));
   trailing.append(el("span", "mono", price(sale.price_usd)), receipt);
-  return row(sale.title, `${when(sale.sold_at)} · ${byCard ? "by card" : "by an agent"}`, trailing);
+  // Paid for and never delivered: Lore can't send money from your wallet or Stripe account, so it says whom to refund.
+  const why = byCard ? "taken down before delivery" : "not answered";
+  const who = sale.payer ? `, refund ${sale.payer.slice(0, 6)}…${sale.payer.slice(-4)}` : "";
+  const owed = sale.refund_owed ? ` · ${why}${who}` : "";
+  return row(sale.title, `${when(sale.sold_at)} · ${byCard ? "by card" : "by an agent"}${owed}`, trailing);
 }
 
 /** Today: what the store has earned, and the latest few sales. @param {Sale[]} rows */

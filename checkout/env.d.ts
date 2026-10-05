@@ -3,6 +3,7 @@
 interface __BaseEnv_Env {
 	STRIPE_API: "https://api.stripe.com";
 	STRIPE_SECRET_KEY: string;
+	STRIPE_WEBHOOK_SECRET: string;
 }
 declare namespace Cloudflare {
 	interface GlobalProps {

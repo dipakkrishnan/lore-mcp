@@ -10,7 +10,8 @@ export default defineProject({
         // test/stubs.ts); no test reaches the real Stripe API.
         bindings: {
           STRIPE_API: "https://stripe.test",
-          STRIPE_SECRET_KEY: "sk_test_not_a_real_key"
+          STRIPE_SECRET_KEY: "sk_test_not_a_real_key",
+          STRIPE_WEBHOOK_SECRET: "whsec_test_not_a_real_secret"
         }
       }
     })

@@ -158,8 +158,10 @@ class SalesTest(LoreTestCase):
         binary.write_text("#!/bin/sh\n")
         wrangler = _Wrangler()
         with patch("lore.deploy.subprocess.run", side_effect=wrangler):
+            # A node deployed before refunds were tracked has no refund_owed column.
             self.assertEqual(
-                [sale.model_dump() for sale in deploy_module.sales()], SALES
+                [sale.model_dump() for sale in deploy_module.sales()],
+                [sale | {"refund_owed": False} for sale in SALES],
             )
         self.assertEqual(
             wrangler.commands,
@@ -176,6 +178,10 @@ class SalesTest(LoreTestCase):
                 )
             ],
         )
+
+    def test_a_refund_owed_answer_reads_from_a_current_node(self) -> None:
+        row = SALES[0] | {"id": 7, "kind": "answer", "refund_owed": 1}
+        self.assertTrue(deploy_module.SALES.validate_python([row])[0].refund_owed)
 
     def test_no_staged_node_is_a_plain_error(self) -> None:
         with self.assertRaisesRegex(ValueError, "open your store first"):
