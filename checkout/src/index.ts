@@ -54,7 +54,7 @@ async function create(request: Request, env: Env): Promise<Response> {
   if (!ACCOUNT.test(found.stripe_account) || !(found.price_usd >= CARD_MINIMUM_USD)) {
     return text(409, "This store doesn't take cards.");
   }
-  if (found.test && !env.STRIPE_SECRET_KEY.startsWith("sk_test_")) {
+  if (found.test && !/^[rs]k_test_/.test(env.STRIPE_SECRET_KEY)) {
     return text(409, "This is a test store, so it can't take a real card payment.");
   }
   try {
