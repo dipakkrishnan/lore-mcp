@@ -30,6 +30,7 @@ from .store import (
     AnswerSettings,
     JobKind,
     Publication,
+    PublicationExtras,
     PublicationInput,
     Store,
 )
@@ -62,6 +63,10 @@ PUBLICATION_CANDIDATES: TypeAdapter[list[PublicationInput]] = TypeAdapter(
     Annotated[list[PublicationInput], Field(min_length=1)]
 )
 
+PUBLICATION_EXTRAS: TypeAdapter[list[PublicationExtras]] = TypeAdapter(
+    Annotated[list[PublicationExtras], Field(min_length=1)]
+)
+
 
 class PublicationDecision(BaseModel):
     """One approval card answered in the Lore desktop app."""
@@ -70,6 +75,16 @@ class PublicationDecision(BaseModel):
 
     candidate: PublicationInput
     original: PublicationInput | None = None
+    approve: bool
+
+
+class ExtrasDecision(BaseModel):
+    """One card of new free parts for a live piece, answered in the desktop app."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    extras: PublicationExtras
+    original: PublicationExtras | None = None
     approve: bool
 
 
@@ -327,6 +342,29 @@ def parser() -> argparse.ArgumentParser:
     publication_commands.add_parser(
         "decide", help="apply one approval card from the Lore desktop app (stdin)"
     )
+    publication_extras = publication_commands.add_parser(
+        "extras", help="update the free parts of pieces already on sale"
+    )
+    extras_commands = publication_extras.add_subparsers(
+        dest="extras_command", required=True
+    )
+    extras_draft = extras_commands.add_parser(
+        "draft", help="validate new free parts and stage them for approval"
+    )
+    extras_draft.add_argument(
+        "file",
+        help="JSON array of {publication_id, sample, useful_if, not_useful_if}; "
+        "use - for stdin",
+    )
+    extras_commands.add_parser(
+        "candidates", help="print the staged free parts and their pieces as JSON"
+    )
+    extras_commands.add_parser(
+        "review", help="approve each staged update to a piece's free parts"
+    )
+    extras_commands.add_parser(
+        "decide", help="apply one free-parts card from the Lore desktop app (stdin)"
+    )
     publication_commands.add_parser("list", help="show active and revoked publications")
     publication_revoke = publication_commands.add_parser(
         "revoke", help="immediately remove a publication from MCP retrieval"
@@ -502,6 +540,14 @@ def main(argv: list[str] | None = None) -> int:
                 return publication_candidates()
             if args.publication_command == "decide":
                 return publication_decide()
+            if args.publication_command == "extras":
+                if args.extras_command == "draft":
+                    return extras_draft(args.file)
+                if args.extras_command == "candidates":
+                    return extras_candidates()
+                if args.extras_command == "review":
+                    return extras_review()
+                return extras_decide()
             if args.publication_command == "revoke":
                 return publication_revoke(args.id)
             if args.publication_command == "reapprove":
@@ -1251,12 +1297,35 @@ def _staged() -> list[PublicationInput]:
 
 
 def _stage(candidates: list[PublicationInput]) -> None:
-    path = _candidates_path()
-    if candidates:
-        path.write_bytes(PUBLICATION_CANDIDATES.dump_json(candidates, indent=2))
+    _write_staged(_candidates_path(), PUBLICATION_CANDIDATES, candidates)
+
+
+def _write_staged(path: Path, adapter: TypeAdapter, drafts: list) -> None:
+    if drafts:
+        path.write_bytes(adapter.dump_json(drafts, indent=2))
         path.chmod(0o600)
     else:
         path.unlink(missing_ok=True)
+
+
+def _extras_path() -> Path:
+    return home() / "publish-extras.json"
+
+
+def _validated_extras(text: str) -> list[PublicationExtras]:
+    """Validate drafted free parts against the live pieces they would change."""
+    drafts = PUBLICATION_EXTRAS.validate_json(text)
+    with Store() as store:
+        for extras in drafts:
+            store.with_extras(extras)
+    return drafts
+
+
+def _staged_extras() -> list[PublicationExtras]:
+    path = _extras_path()
+    if not path.is_file():
+        return []
+    return _validated_extras(path.read_text(encoding="utf-8"))
 
 
 def _candidate(raw: object, missing_check: Store) -> Publication:
@@ -1405,6 +1474,109 @@ def publication_decide() -> int:
         # same ordering `publication_apply` uses — so a failed push can't leave
         # the card stuck in staged.json where a retry would re-approve it and
         # duplicate the publication (round 1 review finding).
+        _push_after_approval()
+    return 0
+
+
+def extras_draft(file: str) -> int:
+    """Stage agent-drafted free parts for pieces already on sale."""
+    text = sys.stdin.read() if file == "-" else Path(file).read_text(encoding="utf-8")
+    drafts = _validated_extras(text)
+    _write_staged(_extras_path(), PUBLICATION_EXTRAS, drafts)
+    success(
+        f"Drafted new free parts for {len(drafts)} "
+        f"piece{'s' if len(drafts) != 1 else ''} for the owner to approve"
+    )
+    return 0
+
+
+def extras_candidates() -> int:
+    """Print each staged update beside the piece it changes, for the approval cards."""
+    staged = _staged_extras()
+    with Store() as store:
+        cards = [
+            {
+                "extras": extras.model_dump(mode="json"),
+                "piece": store.active_publication(extras.publication_id).model_dump(
+                    mode="json",
+                    include={
+                        "title",
+                        "teaser",
+                        "kind",
+                        "topic",
+                        "sample",
+                        "useful_if",
+                        "not_useful_if",
+                    },
+                ),
+            }
+            for extras in staged
+        ]
+    print(json.dumps(cards))
+    return 0
+
+
+def extras_review() -> int:
+    """Walk the owner through each staged update; save only what they approve."""
+    _owner_action("approving a piece's free parts")
+    staged = _staged_extras()
+    logo()
+    approved = 0
+    with Store() as store:
+        for index, original in enumerate(list(staged), 1):
+            extras = original
+            while True:
+                publication_card(store.with_extras(extras), index, len(staged))
+                muted("Only the free parts change; its link, price and paid text stay.")
+                print("\n  [a] approve   [e] edit   [r] reject   [q] quit")
+                choice = ask("Choose", "r").lower()
+                if choice != "e":
+                    break
+                try:
+                    edited = PublicationExtras(
+                        publication_id=extras.publication_id,
+                        sample=ask("Free sample (enter keeps current)")
+                        or extras.sample,
+                        useful_if=ask("Useful if (enter keeps current)")
+                        or extras.useful_if,
+                        not_useful_if=ask("Not useful if (enter keeps current)")
+                        or extras.not_useful_if,
+                    )
+                    store.with_extras(edited)
+                    extras = edited
+                except ValueError as error:
+                    warn(str(error))
+            if choice == "q":
+                break
+            if choice == "a":
+                store.set_extras(extras)
+                approved += 1
+            staged.remove(original)
+    _write_staged(_extras_path(), PUBLICATION_EXTRAS, staged)
+    success(f"Updated {approved} piece{'s' if approved != 1 else ''}")
+    if approved:
+        _push_after_approval()
+    return 0
+
+
+def extras_decide() -> int:
+    """Apply one free-parts card the owner answered in the Lore desktop app."""
+    decision = ExtrasDecision.model_validate_json(
+        _desktop_decision("approving a piece's free parts")
+    )
+    original = decision.original or decision.extras
+    staged = _staged_extras()
+    if original not in staged:
+        raise ValueError("those free parts are not drafted; nothing saved")
+    if decision.extras.publication_id != original.publication_id:
+        raise ValueError("only a draft's wording can be edited")
+    if decision.approve:
+        with Store() as store:
+            store.set_extras(decision.extras)
+    staged.remove(original)
+    _write_staged(_extras_path(), PUBLICATION_EXTRAS, staged)
+    print(json.dumps({"approved": decision.approve, "remaining": len(staged)}))
+    if decision.approve:
         _push_after_approval()
     return 0
 

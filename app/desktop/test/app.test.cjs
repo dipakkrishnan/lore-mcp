@@ -621,6 +621,42 @@ test("only Electron main can pipe a decision, and only for a card that is drafte
   }
 });
 
+test("new free parts for a live piece are staged by the agent and decided only by Electron main", async () => {
+  const { lore, decide, extrasCandidates, decideExtras } = require("../src/state.cjs");
+  const directory = await mkdtemp(join(tmpdir(), "lore-desktop-"));
+  /** @param {string[]} args @param {string} input */
+  const piped = (args, input) => spawnSync("uv", ["run", "lore", ...args], {
+    cwd: join(__dirname, "../../.."),
+    env: { ...process.env, LORE_HOME: directory, NO_COLOR: "1" },
+    input,
+    encoding: "utf8"
+  });
+  const card = { title: "Price low", teaser: "How to set a first price.", content: "Price low first.", kind: /** @type {const} */ ("claim"), topic: "pricing", provenance: [1] };
+  const extras = { publication_id: 1, sample: "We started at a dollar.", useful_if: "you price an API", not_useful_if: "" };
+  try {
+    await lore(directory, ["capture", "apply", "-"], JSON.stringify([{ title: "Pricing", content: "Price low first.", project: "pricing" }]));
+    assert.equal(piped(["publication", "extras", "draft", "-"], JSON.stringify([extras])).status, 1, "nothing is on sale yet");
+    await lore(directory, ["publication", "draft", "-"], JSON.stringify([card]));
+    await decide(directory, card, card, true);
+    await lore(directory, ["publication", "extras", "draft", "-"], JSON.stringify([extras]));
+    const [staged] = await extrasCandidates(directory);
+    assert.deepEqual(staged.extras, extras);
+    assert.equal(staged.piece.title, "Price low");
+    assert.equal(staged.piece.sample, "");
+    const refused = piped(["publication", "extras", "decide"], JSON.stringify({ extras, approve: true }));
+    assert.equal(refused.status, 1);
+    assert.match(refused.stderr, /only from the Lore desktop app/);
+    await decideExtras(directory, extras, { ...extras, sample: "The owner's excerpt." }, true);
+    assert.deepEqual(await extrasCandidates(directory), []);
+    const listed = await lore(directory, ["publication", "list"]);
+    assert.match(listed, /free sample: The owner's excerpt\./);
+    assert.equal((await readState(directory)).publications.counts.active, 1, "the same piece, not a new one");
+    await assert.rejects(decideExtras(directory, extras, extras, true), { message: /not drafted/ });
+  } finally {
+    await rm(directory, { recursive: true });
+  }
+});
+
 test("safeStorage credentials survive an Electron restart", { skip: process.platform !== "darwin" }, async () => {
   const directory = await mkdtemp(join(tmpdir(), "lore-credentials-"));
   const electron = require("electron");

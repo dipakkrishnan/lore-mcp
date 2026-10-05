@@ -113,6 +113,18 @@ class PublicationInput(BaseModel):
         return self
 
 
+class PublicationExtras(BaseModel):
+    """New free parts for a piece already on sale. Approving them keeps its
+    public id, link, price and paid content; they replace all three at once."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True, str_strip_whitespace=True)
+
+    publication_id: StrictInt
+    sample: str = Field(default="", max_length=SAMPLE_LIMIT)
+    useful_if: str = Field(default="", max_length=FIT_LIMIT)
+    not_useful_if: str = Field(default="", max_length=FIT_LIMIT)
+
+
 class Publication(BaseModel):
     """An owner-approved, externally-disclosable artifact.
 
@@ -1035,6 +1047,40 @@ class Store:
         )
         if not cursor.rowcount:
             raise ValueError(f"publication not found: {publication_id}")
+        self.db.commit()
+
+    def active_publication(self, publication_id: int) -> Publication:
+        """Return one active publication by its owner-only id."""
+        row = self.db.execute(
+            "SELECT * FROM publications WHERE id=? AND active=1", (publication_id,)
+        ).fetchone()
+        if row is None:
+            raise ValueError(f"no active publication with id {publication_id}")
+        return Publication.from_row(row)
+
+    def with_extras(self, extras: PublicationExtras) -> Publication:
+        """The active publication as it reads once these free parts replace its own."""
+        publication = self.active_publication(extras.publication_id)
+        if extras.sample and publication.content in extras.sample:
+            raise ValueError("the free sample can't contain the whole paid content")
+        return publication.model_copy(
+            update=extras.model_dump(exclude={"publication_id"})
+        )
+
+    def set_extras(self, extras: PublicationExtras) -> None:
+        """Replace a live piece's free parts in place; nothing else about it changes."""
+        publication = self.with_extras(extras)
+        self.db.execute(
+            "UPDATE publications SET sample=?,useful_if=?,not_useful_if=?,updated_at=? "
+            "WHERE id=?",
+            (
+                publication.sample,
+                publication.useful_if,
+                publication.not_useful_if,
+                datetime.now(timezone.utc).isoformat(),
+                publication.id,
+            ),
+        )
         self.db.commit()
 
     def list_publications(self, *, active_only: bool = False) -> list[Publication]:

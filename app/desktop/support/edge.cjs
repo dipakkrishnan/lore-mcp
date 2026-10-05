@@ -616,6 +616,28 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         check("Draft it for sale keeps the writing privately", await waitFor(`window.lore.search("four-minute demos").then((found) => found.some((m) => m.title === "Our launch deck lost to four-minute demos."))`));
         check("…and starts the publish thread from it", await waitFor(`document.querySelector("#log").textContent.includes("starting from \\"Our launch deck lost to four-minute demos.\\"")`));
         await shot("sell-drafting");
+      } else if (scenario === "extras") {
+        // New free parts for a piece already on sale wait beside new drafts, preview as its page, and approve in place.
+        await js(`window.__lore.signIn()`);
+        check("the update waits with the drafts", await waitFor(`document.querySelector("#content").textContent.includes("Already for sale")`));
+        const card = `[...document.querySelectorAll("#content .memory")].find((m) => m.textContent.includes("Already for sale"))`;
+        check("…showing only the free parts", await js(`${card}.querySelectorAll("textarea, input").length === 3`));
+        await js(`${card}.scrollIntoView({ block: "center" })`);
+        await shot("extras-card");
+        await js(`[...${card}.querySelectorAll("button")].find((b) => b.textContent === "Preview page").click()`);
+        let preview;
+        for (let i = 0; i < 40 && !preview; i++) { preview = window.getChildWindows()[0]; if (!preview) await sleep(250); }
+        await sleep(800);
+        const page = decodeURIComponent(preview?.webContents.getURL() ?? "");
+        check("Preview shows the new sample on the piece's page", page.includes("We had two weeks and a deck we were proud of."));
+        check("the preview carries no paid text", !page.includes("Three demos, seven trials"));
+        preview?.close();
+        await js(`{ const t = ${card}.querySelectorAll("textarea")[1]; t.value = "you sell to developers"; t.dispatchEvent(new Event("input")); }`);
+        await js(`[...${card}.querySelectorAll("button")].find((b) => b.textContent === "Approve").click()`);
+        check("approving consumes the card", await waitFor(`window.lore.extras().then((left) => !left.length)`));
+        check("the new drafts are untouched", await js(`window.lore.candidates().then((left) => left.length)`) === 2);
+        check("the same piece stays on sale", await js(`window.lore.snapshot().then((s) => s.publications.counts.active)`) === 1);
+        await shot("extras-approved");
       } else if (scenario === "sales") {
         // MON-037: a new sale is a Mac notification and shows on Today; old sales never are.
         const { existsSync, readFileSync } = require("node:fs");

@@ -23,6 +23,7 @@ from lore.store import (
     JobKind,
     JobStatus,
     OwnerJob,
+    PublicationExtras,
     PublicationKind,
     Status,
     Store,
@@ -754,6 +755,44 @@ class PublicationTest(LoreTestCase):
                 sample=f"Preview: {content}",
                 provenance=[self.memory_id],
             )
+
+    def test_new_free_parts_change_the_live_piece_in_place(self) -> None:
+        pid = self.publish(teaser="What did pricing teach?")
+        with Store() as store:
+            before = store.active_publication(pid)
+            store.set_extras(
+                PublicationExtras(
+                    publication_id=pid,
+                    sample="We priced the first tier at a dollar.",
+                    useful_if="you are pricing an agent API",
+                )
+            )
+            after = store.active_publication(pid)
+            self.assertEqual(len(store.list_publications()), 1)
+        self.assertEqual(
+            (after.public_id, after.title, after.content, after.created_at),
+            (before.public_id, before.title, before.content, before.created_at),
+        )
+        self.assertEqual(after.sample, "We priced the first tier at a dollar.")
+        self.assertEqual(after.useful_if, "you are pricing an agent API")
+        self.assertGreater(after.updated_at, before.updated_at)
+
+    def test_free_parts_need_a_live_piece_and_must_not_give_it_away(self) -> None:
+        pid = self.publish()
+        with Store() as store:
+            with self.assertRaisesRegex(ValueError, "free sample"):
+                store.set_extras(
+                    PublicationExtras(
+                        publication_id=pid,
+                        sample="a bounded claim about pricing agent APIs, in full",
+                    )
+                )
+            store.revoke_publication(pid)
+            for missing in (pid, 9999):
+                with self.assertRaisesRegex(ValueError, "no active publication"):
+                    store.set_extras(
+                        PublicationExtras(publication_id=missing, useful_if="x")
+                    )
 
     def test_manifest_is_byte_identical_under_private_row_changes(self) -> None:
         # MCP-001 AC 2: everything a buyer observes derives exclusively from
