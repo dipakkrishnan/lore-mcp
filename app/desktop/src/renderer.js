@@ -971,6 +971,7 @@ function scheduleRow(s) {
 /** Card payments, read from Lore and, while an account waits on Stripe, from Stripe. @type {CardStatus | null | Error} */
 let cards = null;
 let cardsLoading = false;
+let cardsRecheck = 0;
 
 async function loadCards() {
   if (cardsLoading) return;
@@ -1011,7 +1012,13 @@ function cardsRow(s) {
     return [row(label, "Let people buy with a card. Stripe checks who you are and pays you out to your bank; Lore never holds the money.", cell(finish), false)];
   }
   if (status.ready === null) return [row(label, "Lore couldn't reach Stripe to check your account.", cell(button("Check again", "quiet", () => void loadCards())), false)];
-  if (!status.ready) return [row(label, "Stripe still needs a few details before you can take cards.", cell(dot(false, "Waiting on Stripe"), finish), false)];
+  if (!status.ready && status.checking) {
+    // Stripe verifies what the owner entered on its own clock; look again shortly rather than waiting for a click.
+    window.clearTimeout(cardsRecheck);
+    cardsRecheck = window.setTimeout(() => { if (view === "settings") void loadCards(); }, 10_000);
+    return [row(label, "Stripe is checking your details. This usually takes a minute or two.", cell(dot(false, "Checking")), false)];
+  }
+  if (!status.ready) return [row(label, "Stripe needs a few more details from you before you can take cards.", cell(dot(false, "Needs you"), finish), false)];
   const priced = typeof s.pricing.publication_usd === "number" && s.pricing.publication_usd >= status.minimum_usd;
   if (!priced) return [row(label, `Stripe is ready. Cards need a price of at least ${price(status.minimum_usd)}.`, cell(button("Change price", "secondary", openPriceEditor)), false)];
   return [row(label, s.node.url ? "Stripe is ready. Turning cards on updates your store." : "Stripe is ready. Cards start when your store opens.", cell(button("Turn on card payments", "primary", () => void switchTo(status.pending))), false)];
@@ -1385,7 +1392,7 @@ function renderSettings(s) {
         : []),
       // One editor, on For Sale. Every other surface reads the same number and
       // sends the owner there rather than growing a second field.
-      row("Prices", "What a buyer's agent pays per read.", cell(el("span", "mono", typeof s.pricing.publication_usd === "number" ? `${price(s.pricing.publication_usd)} publication${s.pricing.answer_enabled ? ` · ${price(s.pricing.answer_usd)} answer` : ""}` : "Not set"), button(typeof s.pricing.publication_usd === "number" ? "Change price" : "Set a price", "quiet", openPriceEditor)), false),
+      row("Prices", "What buyers pay for each piece, by card or through their AI agent.", cell(el("span", "mono", typeof s.pricing.publication_usd === "number" ? `${price(s.pricing.publication_usd)} per piece${s.pricing.answer_enabled ? ` · ${price(s.pricing.answer_usd)} per answer` : ""}` : "Not set"), button(typeof s.pricing.publication_usd === "number" ? "Change price" : "Set a price", "quiet", openPriceEditor)), false),
       // Stores open on real money; only one opened before that sits on the test network.
       ...(live.network === TEST_NETWORK
         ? [row("Payments", "Your store is on the test network, where buyers pay with play money. Switch when you want real buyers paying real money.", cell(button("Switch to real payments", "secondary", () => void startDeploy(REAL_MONEY))), false)]

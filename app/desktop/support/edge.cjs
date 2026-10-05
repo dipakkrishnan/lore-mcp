@@ -26,6 +26,7 @@ const relayReports = [];
 const opened = [];
 const checkoutCalls = [];
 let stripeCleared = false;
+let stripeChecking = false;
 /** MON-037: every Mac notification Lore posted, in order. */
 const notes = [];
 if (scenario === "listing") {
@@ -57,7 +58,7 @@ if (scenario === "listing") {
     const url = new URL(request.url ?? "/", "http://localhost");
     response.writeHead(200, { "Content-Type": "application/json" });
     if (request.method === "POST" && url.pathname === "/accounts") { checkoutCalls.push("open"); response.end(JSON.stringify({ account: "acct_1EdgeSeller", token: "a".repeat(64) })); }
-    else response.end(JSON.stringify({ ready: stripeCleared }));
+    else response.end(JSON.stringify({ ready: stripeCleared, checking: stripeChecking }));
   });
   checkout.listen(0, "localhost", () => {
     process.env.LORE_CHECKOUT_URL = `http://localhost:${checkout.address().port}`;
@@ -660,14 +661,17 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         await press("Get paid to your bank");
         for (let i = 0; i < 40 && !opened.length; i++) await sleep(250);
         check("Stripe's form opens in the browser, through Lore's checkout", /\/onboard\?account=acct_1EdgeSeller&token=a{64}$/.test(opened[0] ?? ""), opened[0]);
-        check("while Stripe checks, the row says so and offers the form again", await waitFor(`${cardsRow}?.textContent.includes("Waiting on Stripe") && ${cardsRow}.textContent.includes("Finish with Stripe")`));
+        check("while Stripe needs more, the row says so and offers the form again", await waitFor(`${cardsRow}?.textContent.includes("Needs you") && ${cardsRow}.textContent.includes("Finish with Stripe")`));
         await shot("cards-waiting");
         await press("Finish with Stripe");
         for (let i = 0; i < 40 && opened.length < 2; i++) await sleep(250);
         check("finishing later reopens the form for the same account", checkoutCalls.length === 1 && opened[1] === opened[0], `${checkoutCalls.length} accounts opened`);
-        stripeCleared = true;
+        stripeChecking = true;
         await js(`window.dispatchEvent(new Event("focus"))`);
-        check("coming back once Stripe clears it offers to turn cards on", await waitFor(`${cardsRow}?.textContent.includes("Turn on card payments")`));
+        check("while Stripe verifies, the row says it is checking, with nothing for the owner to do", await waitFor(`${cardsRow}?.textContent.includes("Stripe is checking your details") && !${cardsRow}.querySelector("button")`));
+        stripeCleared = true;
+        stripeChecking = false;
+        check("once Stripe clears it, the row offers to turn cards on without a click", await waitFor(`${cardsRow}?.textContent.includes("Turn on card payments")`, 60));
         await shot("cards-ready");
         await press("Turn on card payments");
         check("cards are on, with a way to turn them off", await waitFor(`${cardsRow}?.textContent.includes("Turn off")`));

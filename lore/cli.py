@@ -1813,9 +1813,10 @@ def cards(command: str | None, account: str | None, as_json: bool = False) -> in
                 )
                 return 0
             ready: bool | None = True if current else None
+            checking = False
             if pending and token:
                 try:
-                    ready = cards_module.ready(pending, token)
+                    ready, checking = cards_module.status(pending, token)
                 except OSError:
                     ready = None
             print(
@@ -1824,6 +1825,7 @@ def cards(command: str | None, account: str | None, as_json: bool = False) -> in
                         "account": current,
                         "pending": pending,
                         "ready": ready,
+                        "checking": checking,
                         "minimum_usd": CARD_MINIMUM_USD,
                     }
                 )

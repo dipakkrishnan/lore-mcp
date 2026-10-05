@@ -94,13 +94,18 @@ export async function onboardingLink(env: Env, account: string, refresh: string,
 type Account = {
   metadata?: Record<string, string>;
   configuration?: { merchant?: { capabilities?: { card_payments?: { status?: string } } } };
+  requirements?: { entries?: { awaiting_action_from?: string }[] };
 };
 
-const lookup = (env: Env, account: string) => v2<Account>(env, `/v2/core/accounts/${account}?include=configuration.merchant`);
+const lookup = (env: Env, account: string) =>
+  v2<Account>(env, `/v2/core/accounts/${account}?include=configuration.merchant&include=requirements`);
 
-/** Whether Stripe lets this account take card payments yet. */
-export async function cardPaymentsReady(env: Env, account: string): Promise<boolean> {
-  return (await lookup(env, account)).configuration?.merchant?.capabilities?.card_payments?.status === "active";
+/** Whether Stripe lets this account take cards yet, and if not, whether Stripe is still checking or the seller owes it something. */
+export async function cardPayments(env: Env, account: string): Promise<{ ready: boolean; checking: boolean }> {
+  const found = await lookup(env, account);
+  const ready = found.configuration?.merchant?.capabilities?.card_payments?.status === "active";
+  const due = found.requirements?.entries ?? [];
+  return { ready, checking: !ready && due.every((entry) => entry.awaiting_action_from === "stripe") };
 }
 
 /** The one store this account sells through, kept on the account where no store can write it. */
