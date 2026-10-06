@@ -152,8 +152,7 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         // switching views alone re-renders what it already had.
         await js(`window.__lore.event({ type: "changed" })`);
         await sleep(800);
-        const empty = await js(`[...document.querySelectorAll("#content .section")].find((s) => s.textContent.includes("Recent runs"))?.textContent ?? ""`);
-        check("an owner with no runs yet is told so", /Nothing has run yet/.test(empty), empty);
+        check("an owner with no runs yet sees no Recent runs section", await js(`![...document.querySelectorAll("#content .section")].some((s) => s.textContent.includes("Recent runs"))`));
         check("the rest of Today still renders", await js(`document.querySelector("#content .strip") !== null`));
         await js(`[...document.querySelectorAll("#content .section")].find((s) => s.textContent.includes("Recent runs"))?.scrollIntoView()`);
         await sleep(300);
@@ -240,7 +239,7 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         await waitFor(`document.querySelector("#content").textContent.includes("Taken down")`);
         // This scratch home has no node source, so the revoke's push fails: the owner hears that plainly, not as a command.
         const revokeNotice = await js(`document.querySelector("#status").textContent`);
-        check("a take-down whose push failed reads plainly", revokeNotice.includes("If your store still has it, push to finish.") && !/wrangler|--worker-dir|\/Users\/|\/var\//.test(revokeNotice), revokeNotice);
+        check("a take-down whose push failed reads plainly", revokeNotice.includes("Your store stops selling it as soon as it updates.") && !/wrangler|--worker-dir|\/Users\/|\/var\//.test(revokeNotice), revokeNotice);
         execFileSync("uv", ["run", "python", "-c", `import time\nfrom lore.store import Store\nwith Store() as s:\n s.set_setting('node_live', {'url': 'https://store.example/mcp', 'checked_at': time.time(), 'live': {'state': 'online', 'network': 'eip155:84532', 'payout': '0x' + 'a' * 40}, 'ids': ['${publicId}']})`], { cwd: join(__dirname, "../../.."), env: process.env });
         await js(`window.__lore.event({ type: "changed" })`);
         check("a taken-down item the node still serves says so", await waitFor(`document.querySelector("#content").textContent.includes("Still on your store")`));
@@ -281,13 +280,13 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         await sleep(600);
         check("no store: the bar offers to open one", await js(`[...document.querySelectorAll("#content .store-bar button")].some((b) => b.textContent === "Open your store")`));
         const forSale = await js(`[...document.querySelectorAll("#content .empty")].map((n) => n.textContent).join("|")`);
-        check("nothing for sale: one sentence and a way to draft", /Nothing for sale yet\./.test(forSale) && await js(`[...document.querySelectorAll("#content .empty button")].some((b) => b.textContent === "Draft one from a memory")`), forSale);
+        check("nothing for sale: one sentence and a way to draft", /Nothing for sale yet\./.test(forSale) && await js(`[...document.querySelectorAll("#content .empty button")].some((b) => b.textContent === "Draft your first piece")`), forSale);
         check("no sales: left alone, no action", await js(`[...document.querySelectorAll("#content .empty")].find((n) => n.textContent.includes("No sales yet")).querySelector("button") === null`));
         check("every empty-state action is a real button, reachable by keyboard", await js(`[...document.querySelectorAll("#content .empty button, #content .store-bar button")].every((b) => b.tabIndex >= 0)`));
         await shot("store-empty");
-        await js(`[...document.querySelectorAll("#content .empty button")].find((b) => b.textContent === "Draft one from a memory").click()`);
+        await js(`[...document.querySelectorAll("#content .empty button")].find((b) => b.textContent === "Draft your first piece").click()`);
         await sleep(300);
-        check("Draft one from a memory opens Memories", await js(`document.querySelector("#title").textContent`) === "Memories");
+        check("Draft your first piece opens Memories", await js(`document.querySelector("#title").textContent`) === "Memories");
       } else if (scenario === "obsidian") {
         // APP-124: an app by name, one Connect, the vault offered rather than asked for.
         await waitFor(`document.body.dataset.state === "welcome" && !document.querySelector("#welcome").classList.contains("provisioning")`);
@@ -861,7 +860,7 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         check("the offer is said once, not again under Needs you", !(await js(`[...document.querySelectorAll("#content .row b")].some((b) => b.textContent === "Open your store")`)));
         check("approved title carried the edit", await js(`window.lore.snapshot().then((s) => s.publications.items.map((i) => i.title).join("|"))`) === "Edited by the owner");
         await shot("seller-approved-offer");
-        await js(`[...document.querySelectorAll("#content .request button")].find((b) => b.textContent === "Leave it for now").click()`);
+        await js(`[...document.querySelectorAll("#content .request button")].find((b) => b.textContent === "Not now").click()`);
         check("the offer can be left for later", !(await js(`[...document.querySelectorAll("#content .request .q")].some((q) => q.textContent === "Open your store?")`)));
 
         // Ledger: with no store there is nothing to read, and the section says so without a probe.

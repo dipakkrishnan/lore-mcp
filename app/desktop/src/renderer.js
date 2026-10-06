@@ -227,7 +227,7 @@ function memoryRow(id, title, detail) {
   open.type = "button";
   const text = el("div", "t");
   text.append(el("b", "", title), el("span", "", detail));
-  open.append(text, chip("Private"));
+  open.append(text);
   open.addEventListener("click", () => openMemory(Number(id)));
   peekable(open, Number(id));
   node.append(open, button("Draft for sale", "quiet", () => void publishMemory({ id: Number(id), title })));
@@ -509,7 +509,7 @@ function recentRuns(s) {
   if (!s.jobs) return null;
   const all = s.jobs.items;
   const items = all.slice(0, 5);
-  if (!items.length) return section("Recent runs", el("p", "hint", "Nothing has run yet."));
+  if (!items.length) return null;
   return section("Recent runs", card(items.map((item, index) => {
     const detail = [pushDetail(all, index) ?? item.summary, when(item.started_at), typeof item.cost_usd === "number" ? money.format(item.cost_usd) : ""].filter(Boolean);
     const label = item.title?.trim() || RUN_LABELS[item.kind] || item.kind;
@@ -701,7 +701,8 @@ function renderToday(s) {
 
 /** @param {Snapshot} s */
 function memoriesCountLabel(s) {
-  return `${privateMemories(s).length} private`;
+  const count = privateMemories(s).length;
+  return `${count} ${count === 1 ? "memory" : "memories"} · only on this Mac`;
 }
 
 /** @param {Snapshot} s */
@@ -832,7 +833,7 @@ function renderStore(s) {
   const lead = el("div", "lead");
   lead.append(el("span", `dot ${live.state === "online" ? "ok" : live.state === "unreachable" ? "" : "off"}`));
   const text = el("div", "t");
-  text.append(el("b", "sans", live.state === "online" ? `Live, answering on ${networkLabel(live.network) || "your node"}` : live.state === "unreachable" ? "Your node isn't answering" : "No store yet"));
+  text.append(el("b", "sans", live.state === "online" ? (live.network === TEST_NETWORK ? "Live · Test mode" : "Live") : live.state === "unreachable" ? "Your store isn't responding" : "No store yet"));
   if (s.node.url) {
     text.append(storeAddress(s.node));
   } else {
@@ -881,7 +882,7 @@ function renderStore(s) {
         el("span", "hint", "No one can buy it after this. Anyone who already did keeps their copy."),
         button("Keep", "secondary", () => trailing.replaceChildren(...state(item), ask)),
         // The CLI's reason for a push that did not land names commands and paths; the list below shows whether the store still has it.
-        button("Take down", "primary", () => void act(() => window.lore.revoke(item.id), "Taken down here. If your store still has it, push to finish."))
+        button("Take down", "primary", () => void act(() => window.lore.revoke(item.id), "Taken down. Your store stops selling it as soon as it updates."))
       );
     });
     trailing.append(...state(item), ask);
@@ -901,7 +902,7 @@ function renderStore(s) {
   if (pushOffer) parts.push(seamCard());
   parts.push(section("For sale", approved.length
     ? card(approved.map((item) => row(item.title, sold(item), controls(item))))
-    : emptyState("Nothing for sale yet.", button("Draft one from a memory", "quiet", () => show("memories"))),
+    : emptyState("Nothing for sale yet.", button("Draft your first piece", "quiet", () => show("memories"))),
     aside));
   if (revoked.length) parts.push(section("Taken down", card(revoked.map((item) => row(item.title, item.topic, item.live === true ? chip("Still on your store", "attention") : chip("Taken down"))))));
   parts.push(renderSales());
@@ -1450,9 +1451,9 @@ function renderFaq(s) {
       qa("What sells?", "Something specific that happened to you, with the lesson attached: what you tried, what broke, what you'd do again. Dated, firsthand, and not something an AI could guess.")
     ])),
     section("Getting paid", card([
-      qa("Who buys?", "Other people's AI agents, in the middle of a task. Not people browsing a shop. They read your short descriptions for free and pay to read the full piece."),
+      qa("Who buys?", "AI agents in the middle of a task, and people who find your store page. They read your short descriptions and samples for free, and pay to read the full piece."),
       qa("What does a buyer pay?", `Your price. ${prices}`),
-      qa("How do I get paid?", "Each payment goes straight to an account you control, like your Coinbase account, in digital dollars (USDC). Lore never holds your money. Lore asks where to send it when you open your store."),
+      qa("How do I get paid?", "By card: Stripe pays you out to your bank. Set it up in Settings → Get paid. Agents can also pay a wallet you control directly. Either way, Lore never holds your money."),
       qa("How do buyers find me?", "Once your store is open, list it from Settings. Agents that use the Lore marketplace will see it.")
     ])),
     section("Privacy", card([
@@ -2158,8 +2159,8 @@ function nextRung(s) {
   const detail = deploy
     ? storeOpen
       ? storeOpened(s)
-      : "This thread is closed. Try again now, or any time from Today."
-    : "This thread is closed. What comes next is a separate step — take it now, or any time from Today.";
+      : "This step is done. Try again now, or any time from Today."
+    : "This step is done. What comes next is a separate step — take it now, or any time from Today.";
   box.append(
     el("p", "q", heading),
     el("p", "hint", detail)
@@ -2494,7 +2495,7 @@ function seamCard() {
   const store = Boolean(snapshot?.node.url);
   box.append(el("p", "q", store ? "Push to your store now?" : "Open your store?"), el("p", "hint", pushOffer || ""));
   const actions = el("div", "actions");
-  const leave = button("Leave it for now", "secondary", () => { pushOffer = false; render(); });
+  const leave = button("Not now", "secondary", () => { pushOffer = false; render(); });
   const push = store ? button(pushing ? "Pushing…" : "Push now", "primary", pushNow) : button("Open your store", "primary", () => { pushOffer = false; void startDeploy(); });
   leave.disabled = pushing;
   push.disabled = pushing;
@@ -2545,7 +2546,7 @@ async function decide(original, approve, candidate = original) {
 
 /** Apply one card, then offer the push once the last card is answered. @param {() => Promise<void>} action @param {boolean} approve */
 async function settle(action, approve) {
-  if ((await act(action, approve ? "Approved here. Push to put it on your store." : undefined)) && approve) approvedThisPass = true;
+  if ((await act(action, approve ? "Approved. It goes live with your next store update." : undefined)) && approve) approvedThisPass = true;
   if (candidates.length || extraDrafts.length || !approvedThisPass) return;
   approvedThisPass = false;
   pushOffer = snapshot?.node.url ? "Approved publications reach buyers only after a push. Leaving it is fine; the next push carries it." : "What you approved goes on sale once it's open. Pick a price and where payments go.";
@@ -3008,6 +3009,7 @@ function showPeek(anchor, memory) {
   peek.style.top = `${Math.max(margin, top)}px`;
 }
 mainEl.addEventListener("scroll", hidePeek, { passive: true });
+mainEl.addEventListener("scroll", () => mainEl.classList.toggle("scrolled", mainEl.scrollTop > 0), { passive: true });
 feedbackBtn.addEventListener("click", openFeedbackDialog);
 for (const nav of navButtons) nav.addEventListener("click", () => {
   const next = /** @type {View} */ (nav.dataset.view);
