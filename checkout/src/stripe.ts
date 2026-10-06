@@ -4,9 +4,17 @@
 export const APPLICATION_FEE_CENTS = 0;
 
 export class StripeError extends Error {
-  constructor(readonly status: number) {
-    super(`Stripe answered ${status}`);
+  constructor(readonly status: number, reason = "") {
+    super(`Stripe answered ${status}${reason ? `: ${reason}` : ""}`);
   }
+}
+
+/** Stripe's own reason for refusing, kept in the Worker's logs so a 502 to the app can be explained. */
+async function refused(response: Response, path: string): Promise<StripeError> {
+  const body = await response.json<{ error?: { code?: string; message?: string } }>().catch(() => ({ error: undefined }));
+  const error = new StripeError(response.status, [body.error?.code, body.error?.message].filter(Boolean).join(" — "));
+  console.error(`${path}: ${error.message}`);
+  return error;
 }
 
 export type Sale = { account: string; origin: string; piece: string; name: string; cents: number };
@@ -26,7 +34,7 @@ async function call(env: Env, account: string, path: string, body?: URLSearchPar
     headers: { Authorization: `Bearer ${env.STRIPE_SECRET_KEY}`, "Stripe-Account": account },
     body
   });
-  if (!response.ok) throw new StripeError(response.status);
+  if (!response.ok) throw await refused(response, path);
   return response.json();
 }
 
@@ -64,7 +72,7 @@ async function v2<T>(env: Env, path: string, body?: unknown): Promise<T> {
     headers: { Authorization: `Bearer ${env.STRIPE_SECRET_KEY}`, "Stripe-Version": V2_VERSION, "Content-Type": "application/json" },
     body: body ? JSON.stringify(body) : undefined
   });
-  if (!response.ok) throw new StripeError(response.status);
+  if (!response.ok) throw await refused(response, path);
   return response.json();
 }
 
