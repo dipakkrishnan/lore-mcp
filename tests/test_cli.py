@@ -54,6 +54,7 @@ class ParserTest(unittest.TestCase):
             ["sources", "choices"],  # an app is required
             ["sources", "remove", "folder-1"],  # keep or delete must be chosen
             ["sources", "remove", "folder-1", "--keep", "--delete"],
+            ["publication", "extras"],  # a subcommand is required
             ["node"],  # `node` alone does nothing; a subcommand is required
             ["answer"],
             ["telemetry"],
@@ -107,6 +108,10 @@ class MainDispatchTest(LoreTestCase):
             (["publication", "draft", "-"], "publication_draft", ("-",)),
             (["publication", "candidates"], "publication_candidates", ()),
             (["publication", "decide"], "publication_decide", ()),
+            (["publication", "extras", "draft", "-"], "extras_draft", ("-",)),
+            (["publication", "extras", "candidates"], "extras_candidates", ()),
+            (["publication", "extras", "review"], "extras_review", ()),
+            (["publication", "extras", "decide"], "extras_decide", ()),
             (["publication", "revoke", "7"], "publication_revoke", (7,)),
             (["publication", "reapprove", "7"], "publication_reapprove", ([7],)),
             (
@@ -177,6 +182,13 @@ class MainDispatchTest(LoreTestCase):
         with patch("lore.deploy.sales", return_value=owed), captured() as output:
             self.assertEqual(cli.main(["node", "sales"]), 0)
         self.assertIn("(refund owed to 0xpayer)", output.getvalue())
+        free = row | {"price_usd": 0, "network": "free", "payer": "", "tx": "free_1"}
+        rows = [deploy_module.Sale(**free), deploy_module.Sale(**row)]
+        with patch("lore.deploy.sales", return_value=rows), captured() as output:
+            self.assertEqual(cli.main(["node", "sales"]), 0)
+        self.assertIn("1 sale · $0.01 · 1 free copy", output.getvalue())
+        self.assertIn("2026-09-02    free  A", output.getvalue())
+        self.assertNotIn("refund owed", output.getvalue())
 
     def test_node_views_prints_counts_as_json(self) -> None:
         rows = [deploy_module.PageViews(item_id="0000000000000000fcdb4b42", views=7)]
@@ -842,6 +854,21 @@ class PriceTest(LoreTestCase):
         with captured() as output:
             self.assertEqual(cli.price(0), 0)
         self.assertIn("Publications are free", output.getvalue())
+
+    def test_free_copies_default_to_three_and_zero_turns_them_off(self) -> None:
+        with captured() as output:
+            self.assertEqual(cli.main(["free-copies"]), 0)
+        self.assertIn("3 free copies per piece", output.getvalue())
+        with captured() as output:
+            self.assertEqual(cli.main(["free-copies", "1"]), 0)
+        self.assertIn("The first 1 copy of each piece is free", output.getvalue())
+        with Store() as store:
+            self.assertEqual(store.setting(cli.FREE_COPIES_SETTING), 1)
+        with captured() as output:
+            self.assertEqual(cli.free_copies(0), 0)
+        self.assertIn("No free copies", output.getvalue())
+        with self.assertRaisesRegex(ValueError, "zero or more"):
+            cli.free_copies(-1)
 
     def test_prices_that_cannot_be_charged_are_refused(self) -> None:
         for amount in (float("nan"), float("inf"), -1.0):
@@ -1676,6 +1703,147 @@ class PublicationApplyTest(LoreTestCase):
             self.assertFalse(cli._attended())
 
 
+class PublicationExtrasTest(LoreTestCase):
+    """New free parts for a live piece go through the same owner gate as a new
+    piece, and change it in place: same public id, same paid content."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        with Store() as store:
+            self.piece = store.add_publication(
+                title="Pricing claim",
+                content="a bounded claim about pricing agent APIs",
+                topic="pricing",
+                teaser="What did pricing teach?",
+                provenance=[self.seed_memory("Pricing lesson")],
+            )
+            self.public_id = store.active_publication(self.piece).public_id
+
+    def drafted(self, *overrides: dict) -> list[dict]:
+        base = {"publication_id": self.piece, "sample": "We started at a dollar."}
+        batch = json.dumps([base | o for o in (overrides or ({},))])
+        with patch.object(sys, "stdin", StringIO(batch)), captured():
+            self.assertEqual(cli.extras_draft("-"), 0)
+        return json.loads(cli._extras_path().read_text(encoding="utf-8"))
+
+    def live(self):
+        with Store() as store:
+            return store.active_publication(self.piece)
+
+    def test_drafting_stages_without_changing_the_piece(self) -> None:
+        (staged,) = self.drafted({"useful_if": "you price an API"})
+        self.assertEqual(cli._extras_path().stat().st_mode & 0o777, 0o600)
+        self.assertEqual(self.live().sample, "")
+        with captured() as out:
+            self.assertEqual(cli.extras_candidates(), 0)
+        (card,) = json.loads(out.getvalue())
+        self.assertEqual(card["extras"], staged)
+        self.assertEqual(card["piece"]["title"], "Pricing claim")
+        self.assertNotIn("content", card["piece"])
+        for bad, message in (
+            ({"publication_id": 9999}, "no active publication"),
+            ({"sample": "a bounded claim about pricing agent APIs"}, "free sample"),
+            ({"title": "x"}, "Extra inputs"),
+        ):
+            with self.subTest(bad=bad), self.assertRaisesRegex(ValueError, message):
+                self.drafted(bad)
+        self.assertEqual(json.loads(cli._extras_path().read_text()), [staged])
+
+    def test_the_desktop_app_updates_the_piece_in_place_and_pushes(self) -> None:
+        first, second = self.drafted({}, {"useful_if": "you sell to developers"})
+        edited = first | {"sample": "The owner's own excerpt."}
+        with Store() as store:
+            store.set_setting("node_url", "https://node.example/mcp")
+        with (
+            desktop_stdin(
+                json.dumps({"original": first, "extras": edited, "approve": True})
+            ),
+            patch.object(cli, "push", return_value=0) as push,
+            captured() as out,
+        ):
+            self.assertEqual(cli.extras_decide(), 0)
+        push.assert_called_once_with(str(cli.home() / "node"))
+        self.assertEqual(json.loads(out.getvalue()), {"approved": True, "remaining": 1})
+        piece = self.live()
+        self.assertEqual(
+            (piece.public_id, piece.sample, piece.content),
+            (
+                self.public_id,
+                "The owner's own excerpt.",
+                "a bounded claim about pricing agent APIs",
+            ),
+        )
+        with desktop_stdin(json.dumps({"extras": second, "approve": False})):
+            with captured():
+                self.assertEqual(cli.extras_decide(), 0)
+        self.assertEqual(self.live().useful_if, "")
+        self.assertFalse(cli._extras_path().exists())
+        with Store() as store:
+            self.assertEqual(len(store.list_publications()), 1)
+
+    def test_a_card_must_be_drafted_and_keep_its_piece(self) -> None:
+        with Store() as store:
+            other = store.add_publication(
+                title="Other",
+                content="other paid text",
+                topic="pricing",
+                provenance=[self.seed_memory("Other lesson")],
+            )
+        (first,) = self.drafted()
+        for payload, message in (
+            ({"extras": first | {"sample": "never drafted"}}, "not drafted"),
+            (
+                {"original": first, "extras": first | {"publication_id": other}},
+                "only a draft's wording",
+            ),
+        ):
+            with self.subTest(payload=payload):
+                with desktop_stdin(json.dumps(payload | {"approve": True})):
+                    with self.assertRaisesRegex(ValueError, message):
+                        cli.extras_decide()
+        self.assertEqual(self.live().sample, "")
+        self.assertTrue(cli._extras_path().exists())
+
+    def test_piped_approval_is_refused(self) -> None:
+        (first,) = self.drafted()
+        with patch.object(sys, "stdin", StringIO(json.dumps({"extras": first}))):
+            with self.assertRaisesRegex(ValueError, "only from the Lore desktop app"):
+                cli.extras_decide()
+        with (
+            patch.object(cli, "_interactive", return_value=False),
+            patch.object(cli, "_attended", return_value=False),
+            self.assertRaisesRegex(ValueError, "attended terminal"),
+        ):
+            cli.extras_review()
+        self.assertEqual(self.live().sample, "")
+
+    def test_the_terminal_edits_approves_and_rejects(self) -> None:
+        with Store() as store:
+            other = store.add_publication(
+                title="Other",
+                content="other paid text",
+                topic="pricing",
+                provenance=[self.seed_memory("Other lesson")],
+            )
+        self.drafted({}, {"publication_id": other, "useful_if": "skip me"})
+        answers = ["e", "", "you price an API", "", "a", "r"]
+        with (
+            patch.object(cli, "_interactive", return_value=True),
+            patch.object(cli, "ask", side_effect=answers),
+            captured() as out,
+        ):
+            self.assertEqual(cli.extras_review(), 0)
+        self.assertIn("Updated 1 piece", out.getvalue())
+        piece = self.live()
+        self.assertEqual(
+            (piece.sample, piece.useful_if),
+            ("We started at a dollar.", "you price an API"),
+        )
+        with Store() as store:
+            self.assertEqual(store.active_publication(other).useful_if, "")
+        self.assertFalse(cli._extras_path().exists())
+
+
 class PublicationCommandTest(LoreTestCase):
     def setUp(self) -> None:
         super().setUp()
@@ -2005,6 +2173,12 @@ class PushTest(LoreTestCase):
             sql = cli._push_sql([], store.answer_settings(), "Ada", "acct_1Seller")
         self.assertIn("('stripe_account','acct_1Seller')", sql)
         self.assertIn("('listed_name','Ada')", sql)
+
+    def test_push_ships_the_free_copies_setting(self) -> None:
+        self.assertIn("('free_copies','3')", self.push_sql([]))
+        with Store() as store:
+            sql = cli._push_sql([], store.answer_settings(), "", "", 0)
+        self.assertIn("('free_copies','0')", sql)
 
     def test_push_ships_the_answer_settings_alongside_publications(self) -> None:
         with Store() as store:

@@ -30,6 +30,7 @@ from .store import (
     AnswerSettings,
     JobKind,
     Publication,
+    PublicationExtras,
     PublicationInput,
     Store,
 )
@@ -56,10 +57,17 @@ STRIPE_ACCOUNT_SETTING = "stripe_account"
 STRIPE_PENDING_SETTING = "stripe_account_pending"
 STRIPE_TOKEN_SETTING = "stripe_account_token"
 CARD_MINIMUM_USD = 0.5
+# Copies of each piece given away before it costs anything (MON-040).
+FREE_COPIES_SETTING = "free_copies"
+FREE_COPIES = 3
 STRIPE_ACCOUNT_ID = re.compile(r"acct_[A-Za-z0-9]+")
 
 PUBLICATION_CANDIDATES: TypeAdapter[list[PublicationInput]] = TypeAdapter(
     Annotated[list[PublicationInput], Field(min_length=1)]
+)
+
+PUBLICATION_EXTRAS: TypeAdapter[list[PublicationExtras]] = TypeAdapter(
+    Annotated[list[PublicationExtras], Field(min_length=1)]
 )
 
 
@@ -70,6 +78,16 @@ class PublicationDecision(BaseModel):
 
     candidate: PublicationInput
     original: PublicationInput | None = None
+    approve: bool
+
+
+class ExtrasDecision(BaseModel):
+    """One card of new free parts for a live piece, answered in the desktop app."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    extras: PublicationExtras
+    original: PublicationExtras | None = None
     approve: bool
 
 
@@ -253,6 +271,12 @@ def parser() -> argparse.ArgumentParser:
     price.add_argument(
         "amount", nargs="?", type=float, help="USD per publication; use 0 for free"
     )
+    free_copies = commands.add_parser(
+        "free-copies", help="show or set how many copies of each piece are free"
+    )
+    free_copies.add_argument(
+        "count", nargs="?", type=int, help="free copies per piece; use 0 for none"
+    )
     answer = commands.add_parser(
         "answer", help="enable or disable the paid answer tier"
     )
@@ -326,6 +350,29 @@ def parser() -> argparse.ArgumentParser:
     )
     publication_commands.add_parser(
         "decide", help="apply one approval card from the Lore desktop app (stdin)"
+    )
+    publication_extras = publication_commands.add_parser(
+        "extras", help="update the free parts of pieces already on sale"
+    )
+    extras_commands = publication_extras.add_subparsers(
+        dest="extras_command", required=True
+    )
+    extras_draft = extras_commands.add_parser(
+        "draft", help="validate new free parts and stage them for approval"
+    )
+    extras_draft.add_argument(
+        "file",
+        help="JSON array of {publication_id, sample, useful_if, not_useful_if}; "
+        "use - for stdin",
+    )
+    extras_commands.add_parser(
+        "candidates", help="print the staged free parts and their pieces as JSON"
+    )
+    extras_commands.add_parser(
+        "review", help="approve each staged update to a piece's free parts"
+    )
+    extras_commands.add_parser(
+        "decide", help="apply one free-parts card from the Lore desktop app (stdin)"
     )
     publication_commands.add_parser("list", help="show active and revoked publications")
     publication_revoke = publication_commands.add_parser(
@@ -457,6 +504,8 @@ def main(argv: list[str] | None = None) -> int:
             return manual()
         if args.command == "price":
             return price(args.amount)
+        if args.command == "free-copies":
+            return free_copies(args.count)
         if args.command == "answer":
             if args.answer_command == "on":
                 return answer_enable(args.file, args.price)
@@ -502,6 +551,14 @@ def main(argv: list[str] | None = None) -> int:
                 return publication_candidates()
             if args.publication_command == "decide":
                 return publication_decide()
+            if args.publication_command == "extras":
+                if args.extras_command == "draft":
+                    return extras_draft(args.file)
+                if args.extras_command == "candidates":
+                    return extras_candidates()
+                if args.extras_command == "review":
+                    return extras_review()
+                return extras_decide()
             if args.publication_command == "revoke":
                 return publication_revoke(args.id)
             if args.publication_command == "reapprove":
@@ -581,6 +638,11 @@ def manual() -> int:
 
   6. lore price [USD]
      Show or set the advertised price per publication.
+
+  6a. lore free-copies [N]
+     Show or set how many copies of each piece are free before it costs
+     anything (3 unless you change it; 0 turns it off). Ships on the next
+     `lore push`.
 
   6b. lore answer on <proxy-file> <price> | off
      Enable the paid answer tier or switch it off. Ships on the next `lore push`.
@@ -992,12 +1054,17 @@ def sales(as_json: bool) -> int:
     if not rows:
         muted("No sales yet.")
         return 0
-    total = sum(row.price_usd for row in rows)
-    heading(f"{len(rows)} sale{'s' if len(rows) != 1 else ''} · ${total:.2f}")
+    paid = [row for row in rows if row.network != deploy_module.FREE_NETWORK]
+    given = len(rows) - len(paid)
+    total = sum(row.price_usd for row in paid)
+    free = f" · {given} free {'copy' if given == 1 else 'copies'}" if given else ""
+    heading(f"{len(paid)} sale{'s' if len(paid) != 1 else ''} · ${total:.2f}{free}")
     for row in rows:
         to = f" to {row.payer}" if row.payer else ""
         owed = f"  (refund owed{to})" if row.refund_owed else ""
-        print(f"  {row.sold_at[:10]}  ${row.price_usd:.2f}  {row.title}{owed}")
+        free_copy = row.network == deploy_module.FREE_NETWORK
+        amount = "  free" if free_copy else f"${row.price_usd:.2f}"
+        print(f"  {row.sold_at[:10]}  {amount}  {row.title}{owed}")
     return 0
 
 
@@ -1025,6 +1092,7 @@ def status() -> int:
         connected = Registry(store).sources
         database_path = store.path
         publication_price = store.setting("price_usd", None)
+        free = store.setting(FREE_COPIES_SETTING, FREE_COPIES)
         answer_settings = store.answer_settings()
         node_url = store.setting("node_url", None)
         revocation_pending = store.setting("revocation_pending", False)
@@ -1052,6 +1120,7 @@ def status() -> int:
     print(
         f"Publication price: {'not set' if publication_price is None else f'${publication_price:.2f}'}"
     )
+    print(f"Free copies: {free} per piece")
     print(
         "Answer tier: "
         + (
@@ -1104,6 +1173,27 @@ def price(amount: float | None) -> int:
         muted(
             "Your deployed node still charges its old price until `lore node deploy` reruns."
         )
+    return 0
+
+
+def free_copies(count: int | None) -> int:
+    """Show or update how many copies of each piece are given away free."""
+    with Store() as store:
+        if count is None:
+            current = store.setting(FREE_COPIES_SETTING, FREE_COPIES)
+            print(f"{current} free {'copy' if current == 1 else 'copies'} per piece")
+            return 0
+        if count < 0:
+            raise ValueError("free copies must be zero or more")
+        store.set_setting(FREE_COPIES_SETTING, count)
+        node_url = store.setting("node_url", None)
+    success(
+        "No free copies"
+        if count == 0
+        else f"The first {count} {'copy' if count == 1 else 'copies'} of each piece {'is' if count == 1 else 'are'} free"
+    )
+    if node_url:
+        muted("Your store picks this up on the next `lore push`.")
     return 0
 
 
@@ -1251,12 +1341,35 @@ def _staged() -> list[PublicationInput]:
 
 
 def _stage(candidates: list[PublicationInput]) -> None:
-    path = _candidates_path()
-    if candidates:
-        path.write_bytes(PUBLICATION_CANDIDATES.dump_json(candidates, indent=2))
+    _write_staged(_candidates_path(), PUBLICATION_CANDIDATES, candidates)
+
+
+def _write_staged(path: Path, adapter: TypeAdapter, drafts: list) -> None:
+    if drafts:
+        path.write_bytes(adapter.dump_json(drafts, indent=2))
         path.chmod(0o600)
     else:
         path.unlink(missing_ok=True)
+
+
+def _extras_path() -> Path:
+    return home() / "publish-extras.json"
+
+
+def _validated_extras(text: str) -> list[PublicationExtras]:
+    """Validate drafted free parts against the live pieces they would change."""
+    drafts = PUBLICATION_EXTRAS.validate_json(text)
+    with Store() as store:
+        for extras in drafts:
+            store.with_extras(extras)
+    return drafts
+
+
+def _staged_extras() -> list[PublicationExtras]:
+    path = _extras_path()
+    if not path.is_file():
+        return []
+    return _validated_extras(path.read_text(encoding="utf-8"))
 
 
 def _candidate(raw: object, missing_check: Store) -> Publication:
@@ -1409,6 +1522,109 @@ def publication_decide() -> int:
     return 0
 
 
+def extras_draft(file: str) -> int:
+    """Stage agent-drafted free parts for pieces already on sale."""
+    text = sys.stdin.read() if file == "-" else Path(file).read_text(encoding="utf-8")
+    drafts = _validated_extras(text)
+    _write_staged(_extras_path(), PUBLICATION_EXTRAS, drafts)
+    success(
+        f"Drafted new free parts for {len(drafts)} "
+        f"piece{'s' if len(drafts) != 1 else ''} for the owner to approve"
+    )
+    return 0
+
+
+def extras_candidates() -> int:
+    """Print each staged update beside the piece it changes, for the approval cards."""
+    staged = _staged_extras()
+    with Store() as store:
+        cards = [
+            {
+                "extras": extras.model_dump(mode="json"),
+                "piece": store.active_publication(extras.publication_id).model_dump(
+                    mode="json",
+                    include={
+                        "title",
+                        "teaser",
+                        "kind",
+                        "topic",
+                        "sample",
+                        "useful_if",
+                        "not_useful_if",
+                    },
+                ),
+            }
+            for extras in staged
+        ]
+    print(json.dumps(cards))
+    return 0
+
+
+def extras_review() -> int:
+    """Walk the owner through each staged update; save only what they approve."""
+    _owner_action("approving a piece's free parts")
+    staged = _staged_extras()
+    logo()
+    approved = 0
+    with Store() as store:
+        for index, original in enumerate(list(staged), 1):
+            extras = original
+            while True:
+                publication_card(store.with_extras(extras), index, len(staged))
+                muted("Only the free parts change; its link, price and paid text stay.")
+                print("\n  [a] approve   [e] edit   [r] reject   [q] quit")
+                choice = ask("Choose", "r").lower()
+                if choice != "e":
+                    break
+                try:
+                    edited = PublicationExtras(
+                        publication_id=extras.publication_id,
+                        sample=ask("Free sample (enter keeps current)")
+                        or extras.sample,
+                        useful_if=ask("Useful if (enter keeps current)")
+                        or extras.useful_if,
+                        not_useful_if=ask("Not useful if (enter keeps current)")
+                        or extras.not_useful_if,
+                    )
+                    store.with_extras(edited)
+                    extras = edited
+                except ValueError as error:
+                    warn(str(error))
+            if choice == "q":
+                break
+            if choice == "a":
+                store.set_extras(extras)
+                approved += 1
+            staged.remove(original)
+    _write_staged(_extras_path(), PUBLICATION_EXTRAS, staged)
+    success(f"Updated {approved} piece{'s' if approved != 1 else ''}")
+    if approved:
+        _push_after_approval()
+    return 0
+
+
+def extras_decide() -> int:
+    """Apply one free-parts card the owner answered in the Lore desktop app."""
+    decision = ExtrasDecision.model_validate_json(
+        _desktop_decision("approving a piece's free parts")
+    )
+    original = decision.original or decision.extras
+    staged = _staged_extras()
+    if original not in staged:
+        raise ValueError("those free parts are not drafted; nothing saved")
+    if decision.extras.publication_id != original.publication_id:
+        raise ValueError("only a draft's wording can be edited")
+    if decision.approve:
+        with Store() as store:
+            store.set_extras(decision.extras)
+    staged.remove(original)
+    _write_staged(_extras_path(), PUBLICATION_EXTRAS, staged)
+    print(json.dumps({"approved": decision.approve, "remaining": len(staged)}))
+    if decision.approve:
+        _push_after_approval()
+    return 0
+
+
 def publication_list() -> int:
     """Show every publication and its disclosure state.
 
@@ -1505,6 +1721,7 @@ def _push_sql(
     answer: AnswerSettings,
     listed_name: str,
     stripe_account: str = "",
+    free_copies: int = FREE_COPIES,
 ) -> str:
     """Render the full-replace SQL for the edge database.
 
@@ -1553,6 +1770,7 @@ def _push_sql(
         "answer_enabled": "true" if answer.answer_enabled else "false",
         "listed_name": listed_name,
         "stripe_account": stripe_account,
+        "free_copies": str(free_copies),
     }
     statements.extend(
         [
@@ -1607,7 +1825,8 @@ def _push(worker: Path, local: bool, job_id: int) -> int:
         answer_settings = store.answer_settings()
         listed_name = str(store.setting(marketplace_module.NAME_SETTING, ""))
         stripe_account = str(store.setting(STRIPE_ACCOUNT_SETTING, ""))
-    script = _push_sql(active, answer_settings, listed_name, stripe_account)
+        free = int(str(store.setting(FREE_COPIES_SETTING, FREE_COPIES)))
+    script = _push_sql(active, answer_settings, listed_name, stripe_account, free)
     with tempfile.NamedTemporaryFile("w", suffix=".sql", delete=False) as handle:
         handle.write(script)
         script_path = handle.name

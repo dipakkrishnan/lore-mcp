@@ -61,6 +61,8 @@ let previewSignIn = false;
 const lines = [];
 /** @type {PublicationCandidate[]} */
 let candidates = [];
+/** @type {ExtrasCandidate[]} */
+let extraDrafts = [];
 let approvedThisPass = false;
 /** Where the store stands on the public marketplace, as last read from the relay; null until Settings asks. @type {Listing | null} */
 let listing = null;
@@ -619,7 +621,7 @@ function needsYou(s) {
   // The store rung waits for approved work, whatever rung setup is on: the
   // payout address is asked last, once there is something worth being paid for.
   if (s.publications.counts.active && !s.node.url && !pushOffer) add("Open your store", `${s.publications.counts.active === 1 ? "Your approved piece is" : `Your ${s.publications.counts.active} approved pieces are`} ready to sell. Pick a price and where payments go.`, button("Open", "secondary", () => void startDeploy()));
-  const publishing = candidates.length || taskItems.some((item) => item.kind === "publish");
+  const publishing = candidates.length || extraDrafts.length || taskItems.some((item) => item.kind === "publish");
   if (!publishing) add("Sell something you wrote", "Paste a post, a postmortem or notes. Lore drafts the piece and shows you its page.", button("Paste", "secondary", openPasteSheet));
   if (s.library.counts.private && !publishing) add("Publish something", "Lore drafts up to three things to sell; you approve each one.", button("Publish", "secondary", () => void startPublish()));
   // Approved work a buyer cannot see yet, or a price they are not yet paying, is actionable whatever rung setup is on.
@@ -635,7 +637,8 @@ function displayTasks() {
 }
 
 function draftsPhase() {
-  return `${candidates.length} ${candidates.length === 1 ? "draft" : "drafts"} to approve`;
+  const count = candidates.length + extraDrafts.length;
+  return `${count} ${count === 1 ? "draft" : "drafts"} to approve`;
 }
 
 /** Threads whose agent can stage a publication draft. */
@@ -647,7 +650,7 @@ function renderToday(s) {
   const parts = [];
   // Drafts and the push after approving show on Today and in the threads that draft.
   if (!detailTask || DRAFTING.has(detailTask)) {
-    if (candidates.length) parts.push(section("Approve what to sell", approvals(), el("span", "hint", "Buyers only ever get what you approve here.")));
+    if (candidates.length || extraDrafts.length) parts.push(section("Approve what to sell", approvals(), el("span", "hint", "Buyers only ever get what you approve here.")));
     if (pushOffer || pushing) parts.push(seamCard());
     if (pushedNote) parts.push(pushReceipt(s));
   }
@@ -832,7 +835,7 @@ function renderStore(s) {
   const revoked = s.publications.items.filter((item) => item.state === "revoked");
   /** @param {PublicationItem} item */
   const sold = (item) => {
-    const count = Array.isArray(sales) ? sales.filter((sale) => sale.item_id === item.public_id).length : 0;
+    const count = Array.isArray(sales) ? sales.filter((sale) => sale.item_id === item.public_id && sale.network !== "free").length : 0;
     const seen = views[item.public_id] ?? 0;
     return [item.topic, seen ? `${seen} ${seen === 1 ? "view" : "views"}` : "", count ? `${count} sold` : ""].filter(Boolean).join(" · ");
   };
@@ -879,14 +882,22 @@ function renderSales() {
   if (sales instanceof Error) return section("Sales", emptyState(sales.message, button("Try again", "secondary", () => void loadSales())));
   if (sales === null) return section("Sales", el("div", "card pad empty", "Checking your store…"));
   if (!sales.length) return section("Sales", el("div", "card pad empty", "No sales yet. When someone buys a piece, by card or through their agent, it shows here."));
-  return section("Sales", card(sales.map(saleRow)), el("span", "hint", `${sales.length} ${sales.length === 1 ? "sale" : "sales"} · ${price(total(sales))} · last ${when(sales[0].sold_at)}`));
+  return section("Sales", card(sales.map(saleRow)), el("span", "hint", `${tally(sales)} · ${price(total(sales))} · last ${when(sales[0].sold_at)}`));
 }
 
 /** @param {Sale[]} rows */
 const total = (rows) => rows.reduce((sum, sale) => sum + sale.price_usd, 0);
 
+/** "3 sales · 2 free copies": a free copy is a reader, not a sale. @param {Sale[]} rows */
+function tally(rows) {
+  const free = rows.filter((sale) => sale.network === "free").length;
+  const paid = rows.length - free;
+  return [`${paid} ${paid === 1 ? "sale" : "sales"}`, free ? `${free} free ${free === 1 ? "copy" : "copies"}` : ""].filter(Boolean).join(" · ");
+}
+
 /** One sale: what sold, when, how it was paid, and where the payment can be seen. @param {Sale} sale */
 function saleRow(sale) {
+  if (sale.network === "free") return row(sale.title, `${when(sale.sold_at)} · a free copy`, cell(el("span", "mono", "Free")));
   const byCard = sale.network === "stripe";
   const trailing = el("div", "v");
   const [where, href] = byCard ? ["Stripe", `https://dashboard.stripe.com/payments/${sale.tx}`] : ["Basescan", `${explorer(sale.network)}/tx/${sale.tx}`];
@@ -904,7 +915,7 @@ function saleRow(sale) {
 
 /** Today: what the store has earned, and the latest few sales. @param {Sale[]} rows */
 function earned(rows) {
-  const head = row(`${price(total(rows))} earned`, `${rows.length} ${rows.length === 1 ? "sale" : "sales"} · paid straight to you; Lore never holds it`, cell(button("See all", "quiet", () => show("store"))), false);
+  const head = row(`${price(total(rows))} earned`, `${tally(rows)} · paid straight to you; Lore never holds it`, cell(button("See all", "quiet", () => show("store"))), false);
   return section("Earned", card([head, ...rows.slice(0, 3).map(saleRow)]));
 }
 
@@ -1408,7 +1419,7 @@ function render() {
   hidePeek();
   const detail = view === "today" ? detailTask : null;
   const heading = detail ? detailRecord?.title ?? TASK_TITLES[detail] : { today: greeting(), memories: "Memories", store: "For Sale", connectors: "Connectors", faq: "FAQ", settings: "Settings" }[view];
-  const pendingDrafts = detail === "publish" && candidates.length;
+  const pendingDrafts = detail === "publish" && (candidates.length || extraDrafts.length);
   eyebrow.textContent = detail
     ? pendingDrafts ? `Needs you · ${draftsPhase()}` : `${TASK_STATES[detailRecord?.state ?? "working"]} · ${detailRecord?.phase ?? "Starting"}`
     : view === "today" ? longDate.format(new Date())
@@ -1502,7 +1513,7 @@ function openPriceEditor() {
 async function load() {
   if (!snapshot) content.replaceChildren(el("p", "hint", "Loading…"));
   try {
-    [snapshot, candidates, taskItems, apps] = await Promise.all([window.lore.snapshot(), window.lore.candidates().catch(() => []), window.lore.tasks().catch(() => []), apps.length ? apps : window.lore.sourceCatalog().catch(() => [])]);
+    [snapshot, candidates, extraDrafts, taskItems, apps] = await Promise.all([window.lore.snapshot(), window.lore.candidates().catch(() => []), window.lore.extras().catch(() => []), window.lore.tasks().catch(() => []), apps.length ? apps : window.lore.sourceCatalog().catch(() => [])]);
     if (detailTask) detailRecord = taskItems.find((item) => item.kind === detailTask) ?? detailRecord;
     peeked.clear();
     render();
@@ -2171,10 +2182,10 @@ const approvalForms = new Map();
 function approvals() {
   const list = el("div", "card pad stack");
   const shown = new Set();
-  for (const candidate of candidates) {
-    const key = JSON.stringify(candidate);
+  for (const draft of [...candidates, ...extraDrafts]) {
+    const key = JSON.stringify(draft);
     shown.add(key);
-    const form = approvalForms.get(key) ?? approvalForm(candidate);
+    const form = approvalForms.get(key) ?? ("extras" in draft ? extrasForm(draft) : approvalForm(draft));
     approvalForms.set(key, form);
     list.append(form);
   }
@@ -2202,6 +2213,32 @@ function approvalForm(candidate) {
     if (memory.isConnected) skip.disabled = approve.disabled = false;
   };
   const preview = button("Preview page", "quiet", () => void previewPage({ ...candidate, title: title.value, teaser: teaser.value, useful_if: usefulIf.value, not_useful_if: notUsefulIf.value, sample: sample.value }));
+  const skip = button("Skip", "secondary", () => void choose(false));
+  const approve = button("Approve", "primary", () => void choose(true));
+  group.append(preview, skip, approve);
+  meta.append(group);
+  memory.append(meta);
+  return memory;
+}
+
+/** New free parts for a piece already on sale: only these three fields change. @param {ExtrasCandidate} draft */
+function extrasForm({ extras, piece }) {
+  const memory = el("div", "memory");
+  memory.append(el("p", "q", piece.title), el("p", "hint", "Already for sale. Approving changes only these free parts; its link, price and paid content stay the same."));
+  const usefulIf = draftField(memory, "Free · useful if…", extras.useful_if);
+  const notUsefulIf = draftField(memory, "Free · not useful if…", extras.not_useful_if);
+  const sample = draftField(memory, "Free sample, anyone can read it on the piece's page", extras.sample);
+  const edited = () => ({ ...extras, useful_if: usefulIf.value, not_useful_if: notUsefulIf.value, sample: sample.value });
+  const meta = el("div", "meta");
+  meta.append(chip(piece.topic));
+  const group = el("div", "group");
+  /** @param {boolean} approved */
+  const choose = async (approved) => {
+    skip.disabled = approve.disabled = true;
+    await settle(() => window.lore.decideExtras({ original: extras, extras: approved ? edited() : extras, approve: approved }), approved);
+    if (memory.isConnected) skip.disabled = approve.disabled = false;
+  };
+  const preview = button("Preview page", "quiet", () => void previewPage({ ...piece, ...edited(), content: "", provenance: [] }));
   const skip = button("Skip", "secondary", () => void choose(false));
   const approve = button("Approve", "primary", () => void choose(true));
   group.append(preview, skip, approve);
@@ -2302,8 +2339,13 @@ function pushReceipt(s) {
 
 /** @param {PublicationCandidate} original @param {boolean} approve @param {PublicationCandidate} [candidate] */
 async function decide(original, approve, candidate = original) {
-  if ((await act(() => window.lore.decide({ original, candidate, approve }), approve ? "Approved here. Push to put it on your store." : undefined)) && approve) approvedThisPass = true;
-  if (candidates.length || !approvedThisPass) return;
+  await settle(() => window.lore.decide({ original, candidate, approve }), approve);
+}
+
+/** Apply one card, then offer the push once the last card is answered. @param {() => Promise<void>} action @param {boolean} approve */
+async function settle(action, approve) {
+  if ((await act(action, approve ? "Approved here. Push to put it on your store." : undefined)) && approve) approvedThisPass = true;
+  if (candidates.length || extraDrafts.length || !approvedThisPass) return;
   approvedThisPass = false;
   pushOffer = snapshot?.node.url ? "Approved publications reach buyers only after a push. Leaving it is fine; the next push carries it." : "What you approved goes on sale once it's open. Pick a price and where payments go.";
   render();

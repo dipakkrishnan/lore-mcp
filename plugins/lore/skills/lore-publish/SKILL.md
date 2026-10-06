@@ -163,6 +163,27 @@ approved changes don't reach the edge until pushed. If they choose Monetize,
 say that the payment flow will ask whether to keep the exact publication through
 `get` only or also add grounded proxy responses through `answer`.
 
+## Free parts for a piece already on sale
+
+To add or rewrite the `sample`, `useful_if` and `not_useful_if` of a piece
+that is already approved (pieces published before these fields existed have
+none), don't draft a new publication: that would mint a new link. Read the
+piece with `lore publication list` (its `id` is printed under it), then stage
+new free parts by id. The three given values replace the piece's current ones,
+so carry over any you want to keep; the same limits and the no-whole-paid-text
+rule apply.
+
+```sh
+lore publication extras draft - <<'LORE_PUBLISH'
+[{"publication_id": 3, "sample": "...", "useful_if": "...", "not_useful_if": "..."}]
+LORE_PUBLISH
+```
+
+The owner approves each one on a card in the desktop app, or in a real
+terminal with `lore publication extras review`. Approving changes only those
+fields: the piece keeps its link, price and paid content. Never approve them
+yourself.
+
 ## Rules
 
 - Draft, never approve. Never call `add_publication` through Python, never

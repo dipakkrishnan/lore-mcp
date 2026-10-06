@@ -107,7 +107,8 @@ var notice = (store) => store.test ? `<p class="notice">This is a test store. Pa
 var listed = (store) => store.name ? `<a class="listed" href="${MARKETPLACE}">${MARK}Listed on Lore marketplace</a>` : "";
 function agentsNote(store, id) {
   const call = id ? `<p>Then buy this piece:</p><code class="endpoint">${escape(`get {"id": "${id}"}`)}</code>` : "";
-  return `<section class="agents"><h2>For agents</h2><p>Connect over MCP:</p><code class="endpoint">${escape(store.origin)}/mcp</code>${call}<p>Reading the catalog with <code>discover</code> is free; each <code>get</code> pays the seller ${money(store.priceUsd)} in USDC.</p></section>${listed(store)}`;
+  const free2 = store.freeCopies ? `the first ${store.freeCopies} copies of each piece are free, then ` : "";
+  return `<section class="agents"><h2>For agents</h2><p>Connect over MCP:</p><code class="endpoint">${escape(store.origin)}/mcp</code>${call}<p>Reading the catalog with <code>discover</code> is free; ${free2}each <code>get</code> pays the seller ${money(store.priceUsd)} in USDC.</p></section>${listed(store)}`;
 }
 function storefront(catalog, store) {
   const topics = Object.entries(catalog.topics);
@@ -154,7 +155,14 @@ function card(piece, store) {
   return `<form method="post" action="${escape(store.checkout)}/create"><input type="hidden" name="origin" value="${escape(store.origin)}"><input type="hidden" name="id" value="${escape(piece.id)}"><button class="primary card" type="submit">Buy for ${money(store.priceUsd)}</button></form>
 <p class="small">${note} You come back to this page to read it.</p>`;
 }
-function buy(piece, store) {
+var share = (url) => `<div class="actions"><button data-share>Share</button><button data-copy="${escape(url)}">Copy link</button></div>`;
+function free(piece, store, left) {
+  return `<section class="buy"><p class="amount">Free</p><form method="post" action="/p/${escape(piece.id)}/free"><button class="primary card" type="submit">Read free</button></form>
+<p class="small">${left} of ${store.freeCopies} free copies left. The seller gives the first ${store.freeCopies} away; after that it's ${money(store.priceUsd)}.</p>
+${share(`${store.origin}/p/${piece.id}`)}</section>`;
+}
+function buy(piece, store, left) {
+  if (left > 0) return free(piece, store, left);
   const url = `${store.origin}/p/${piece.id}`;
   const prompt = `Buy this piece from Lore for me: ${url}`;
   const settle = store.test ? "This store takes play money, so buying here is only a rehearsal." : "Every payment goes straight to the seller; Lore never holds it.";
@@ -163,9 +171,9 @@ function buy(piece, store) {
 <p>Paste this into Claude, ChatGPT or any agent that can pay on Lore:</p>
 <div class="prompt"><code>${escape(prompt)}</code><button class="${store.checkout ? "" : "primary"}" data-copy="${escape(prompt)}">Copy</button></div>
 <p class="small">${settle} No agent set up yet? <a href="${BUYER_SKILL}">Get the buyer skill</a>.</p>
-<div class="actions"><button data-share>Share</button><button data-copy="${escape(url)}">Copy link</button></div></section>`;
+${share(url)}</section>`;
 }
-function publicationPage(piece, store, problem = "") {
+function publicationPage(piece, store, problem = "", left = 0) {
   const name = seller(store);
   const data = {
     "@context": "https://schema.org",
@@ -180,15 +188,16 @@ function publicationPage(piece, store, problem = "") {
 ${notice(store)}${problem ? `<p class="notice">${escape(problem)}</p>` : ""}<ul class="chips"><li><a class="chip" href="/#${anchor(piece.section)}">${escape(label(piece.topic))}</a></li></ul>
 <h1 class="teaser">${escape(piece.teaser)}</h1>
 <div class="meta"><span>${KINDS[piece.kind] ?? escape(piece.kind)}</span><span>Updated ${date(piece.updated_at)}</span><span>By ${escape(name)}</span></div>
-${fit(piece)}${sample(piece)}${buy(piece, store)}
+${fit(piece)}${sample(piece)}${buy(piece, store, left)}
 ${agentsNote(store, piece.id)}`;
   const description = clip(piece.sample || piece.useful_if && `Useful if ${piece.useful_if}` || `A firsthand piece by ${name}, for sale on Lore.`, 200);
   return page(`${piece.teaser} \xB7 ${name}`, description, `${store.origin}/p/${piece.id}`, body, data);
 }
-function unlockedPage(piece, store, unlocked) {
+function unlockedPage(piece, store, unlocked, free2 = false) {
   const name = seller(store);
+  const thanks = free2 ? "This copy is free, from the seller." : "Thanks for buying.";
   const body = `<a class="back" href="/">\u2190 ${escape(name)}</a>
-<p class="notice">Thanks for buying. Keep this page's address: it's your copy, and it opens the piece again.</p>
+<p class="notice">${thanks} Keep this page's address: it's your copy, and it opens the piece again.</p>
 <h1 class="teaser">${escape(unlocked.title)}</h1>
 <div class="meta"><span>${KINDS[piece.kind] ?? escape(piece.kind)}</span><span>Updated ${date(piece.updated_at)}</span><span>By ${escape(name)}</span></div>
 <article class="piece">${paragraphs(unlocked.content)}</article>`;

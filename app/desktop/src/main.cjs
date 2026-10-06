@@ -5,7 +5,7 @@ const { app, BrowserWindow, dialog, ipcMain, safeStorage, shell, systemPreferenc
 const { provision, skillsDir, whisper } = require("./runtime.cjs");
 const { transcribe } = require("./dictation.cjs");
 const sales = require("./sales.cjs");
-const { lore, loreStream, openable, readState, readSales, readViews, searchMemories, readMemory, renameMemory, editMemory, captureMemories, previewPage, setPrice, candidates, decide, reportFeedback, listStore, cardStatus, connectCards, switchCards, listingStatus, sourceCatalog, sourceChoices, connectSource, signIn, readSource, removeSource, useRuntime } = require("./state.cjs");
+const { lore, loreStream, openable, readState, readSales, readViews, searchMemories, readMemory, renameMemory, editMemory, captureMemories, previewPage, setPrice, candidates, decide, extrasCandidates, decideExtras, reportFeedback, listStore, cardStatus, connectCards, switchCards, listingStatus, sourceCatalog, sourceChoices, connectSource, signIn, readSource, removeSource, useRuntime } = require("./state.cjs");
 
 if (process.env.LORE_DESKTOP_USER_DATA) app.setPath("userData", process.env.LORE_DESKTOP_USER_DATA);
 
@@ -123,6 +123,13 @@ function registerIpc(loreHome) {
       throw new Error("Invalid decision");
     }
     return decide(loreHome, input.original, input.candidate, input.approve);
+  });
+  ipcMain.handle("publication:extras", () => extrasCandidates(loreHome));
+  ipcMain.handle("publication:decide-extras", (_event, input) => {
+    if (!input || typeof input.approve !== "boolean" || !input.original || typeof input.original !== "object" || !input.extras || typeof input.extras !== "object") {
+      throw new Error("Invalid decision");
+    }
+    return decideExtras(loreHome, input.original, input.extras, input.approve);
   });
   ipcMain.handle("publication:revoke", async (_event, id) => {
     if (!Number.isInteger(id) || id < 1) throw new Error("Invalid publication");
@@ -350,7 +357,7 @@ async function start(loreHome) {
       if (answer === "done") return "The owner says they finished there; verify from state before going on.";
       return answer === "stuck" ? "The owner got stuck on that page; ask what happened." : "The owner chose not to open it right now.";
     },
-    drafts: async () => (await candidates(loreHome)).length,
+    drafts: async () => (await candidates(loreHome)).length + (await extrasCandidates(loreHome)).length,
     job: {
       // This process is the one that owes the row a close, so it claims the row
       // with its own pid. The long ceiling only bounds pid reuse; it is not a
