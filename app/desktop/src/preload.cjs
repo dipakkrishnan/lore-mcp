@@ -35,6 +35,8 @@ contextBridge.exposeInMainWorld("lore", {
   extras: () => ipcRenderer.invoke("publication:extras"),
   /** @param {{original: PublicationExtras, extras: PublicationExtras, approve: boolean}} input */
   decideExtras: (input) => ipcRenderer.invoke("publication:decide-extras", input),
+  /** @param {Array<{original: PublicationExtras, extras: PublicationExtras}>} decisions */
+  approveExtras: (decisions) => ipcRenderer.invoke("publication:approve-extras", decisions),
   /** @param {number} id */
   revoke: (id) => ipcRenderer.invoke("publication:revoke", id),
   push: () => ipcRenderer.invoke("store:push"),

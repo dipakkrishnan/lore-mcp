@@ -90,6 +90,11 @@ class ExtrasDecision(BaseModel):
     approve: bool
 
 
+EXTRAS_DECISIONS: TypeAdapter[ExtrasDecision | list[ExtrasDecision]] = TypeAdapter(
+    ExtrasDecision | Annotated[list[ExtrasDecision], Field(min_length=1)]
+)
+
+
 def parser() -> argparse.ArgumentParser:
     """Build the Lore command-line parser."""
     root = argparse.ArgumentParser(
@@ -1603,23 +1608,27 @@ def extras_review() -> int:
 
 
 def extras_decide() -> int:
-    """Apply one free-parts card the owner answered in the Lore desktop app."""
-    decision = ExtrasDecision.model_validate_json(
+    """Apply the free-parts cards the owner answered in the Lore desktop app:
+    one card, or a whole batch at once, which pushes the store only once."""
+    decided = EXTRAS_DECISIONS.validate_json(
         _desktop_decision("approving a piece's free parts")
     )
-    original = decision.original or decision.extras
+    decisions = decided if isinstance(decided, list) else [decided]
     staged = _staged_extras()
-    if original not in staged:
-        raise ValueError("those free parts are not drafted; nothing saved")
-    if decision.extras.publication_id != original.publication_id:
-        raise ValueError("only a draft's wording can be edited")
-    if decision.approve:
-        with Store() as store:
-            store.set_extras(decision.extras)
-    staged.remove(original)
+    for decision in decisions:
+        original = decision.original or decision.extras
+        if original not in staged:
+            raise ValueError("those free parts are not drafted; nothing saved")
+        if decision.extras.publication_id != original.publication_id:
+            raise ValueError("only a draft's wording can be edited")
+        staged.remove(original)
+    approved = [decision.extras for decision in decisions if decision.approve]
+    with Store() as store:
+        for extras in approved:
+            store.set_extras(extras)
     _write_staged(_extras_path(), PUBLICATION_EXTRAS, staged)
-    print(json.dumps({"approved": decision.approve, "remaining": len(staged)}))
-    if decision.approve:
+    print(json.dumps({"approved": len(approved), "remaining": len(staged)}))
+    if approved:
         _push_after_approval()
     return 0
 
