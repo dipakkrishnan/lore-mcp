@@ -175,6 +175,15 @@ async function setPrice(loreHome, amount) {
   await lore(loreHome, ["price", String(amount)], "");
 }
 
+/** How many copies of each piece are given away before it costs anything; zero gives none away.
+ * @param {string} loreHome @param {unknown} count */
+async function setFreeCopies(loreHome, count) {
+  if (typeof count !== "number" || !Number.isInteger(count) || count < 0) {
+    throw new Error("Free copies has to be a whole number, zero or more");
+  }
+  await lore(loreHome, ["free-copies", String(count)], "");
+}
+
 /** @param {string} loreHome @returns {Promise<PublicationCandidate[]>} */
 async function candidates(loreHome) {
   return JSON.parse(await lore(loreHome, ["publication", "candidates"]));
@@ -322,6 +331,7 @@ module.exports = {
   captureMemories,
   previewPage,
   setPrice,
+  setFreeCopies,
   candidates,
   decide,
   extrasCandidates,

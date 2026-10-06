@@ -182,7 +182,6 @@ h2 { font-size: 12px; font-weight: 600; letter-spacing: 0.06em; text-transform: 
 .empty.act { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 button.inline { color: var(--accent); font-size: inherit; }
 button.inline:hover { text-decoration: underline; }
-.state { display: inline-flex; align-items: center; gap: 8px; }
 
 /* Composer + agent */
 .capture-area { display: flex; flex-direction: column; gap: 12px; }
@@ -297,9 +296,9 @@ legend { font-weight: 500; font-size: 14px; margin-bottom: 6px; }
 .t b.sans { font-family: var(--sans); font-size: 14px; }
 .t span, .t a { font-size: 12px; color: var(--muted); }
 .t a { color: var(--accent); }
-.address { display: flex; align-items: baseline; gap: 12px; font-size: 12px; }
+.address { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px; font-size: 12px; }
 .address .mono { color: var(--accent); -webkit-user-select: text; user-select: text; }
-a.link-btn { display: inline-flex; align-items: center; height: 22px; padding: 0 8px; border: 1px solid var(--line-strong); border-radius: 6px; background: var(--surface); color: var(--accent); font-size: 12px; }
+a.link-btn { display: inline-flex; align-items: center; white-space: nowrap; height: 22px; padding: 0 8px; border: 1px solid var(--line-strong); border-radius: 6px; background: var(--surface); color: var(--accent); font-size: 12px; }
 a.link-btn:hover { background: var(--hover); text-decoration: none; }
 a.link-btn.glyph { width: 22px; padding: 0; justify-content: center; color: var(--muted); }
 .logo { width: 22px; height: 22px; flex-shrink: 0; }
@@ -328,11 +327,11 @@ a.link-btn.glyph { width: 22px; padding: 0; justify-content: center; color: var(
 /* Store status */
 .store-bar { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 16px 20px; }
 .store-bar .prices { display: flex; flex-direction: column; gap: 2px; text-align: right; font-family: var(--mono); font-size: 15px; }
-.store-bar .prices span { font-family: var(--sans); font-size: 12px; color: var(--muted); }
+.store-bar .prices span { font-family: var(--sans); font-size: 12px; color: var(--muted); white-space: nowrap; }
 .price-open { font: inherit; color: inherit; background: none; border: 0; padding: 2px 4px; margin: -2px -4px; border-radius: var(--radius-sm); cursor: pointer; }
 .price-open:hover { background: var(--hover); }
-.store-bar .price-edit { display: flex; align-items: center; justify-content: flex-end; gap: 8px; }
-.store-bar .price-edit .actions { display: flex; gap: 4px; }
+.store-bar .price-edit { display: grid; grid-template-columns: auto auto; align-items: center; justify-items: start; gap: 6px 8px; }
+.store-bar .price-edit .actions { grid-column: 1 / -1; justify-self: end; display: flex; gap: 4px; }
 .price-field { display: inline-flex; align-items: center; height: 32px; padding: 0 8px; gap: 2px; border: 1px solid var(--line-strong); border-radius: var(--radius-sm); background: var(--surface); }
 /* The ring belongs on the whole field, not the inner input — an input ring with
    its offset paints over the "$" prefix sitting 2px away inside the same box. */
@@ -400,3 +399,54 @@ dialog.palette[open] { animation: rise 0.12s ease; }
 .md a { color: var(--accent); text-decoration: underline; }
 .md strong { color: var(--ink); }
 .composer-wait .btn { margin-left: auto; }
+
+/* Status pills: one shape for every state a row can be in */
+.status-pill { display: inline-flex; align-items: center; gap: 6px; height: 22px; padding: 0 9px; border-radius: 999px; background: var(--hover); color: var(--ink-soft); font-size: 12px; font-weight: 500; white-space: nowrap; }
+.status-pill::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--faint); }
+.status-pill.ok { background: var(--accent-soft); color: var(--accent-ink); }
+.status-pill.ok::before { background: var(--ok); }
+.status-pill.attention { background: var(--attention-soft); color: var(--attention-ink); }
+.status-pill.attention::before { background: var(--attention); }
+.status-pill.wait::before { background: var(--muted); animation: pulse 1.4s ease-in-out infinite; }
+@media (prefers-reduced-motion: reduce) { .status-pill.wait::before { animation: none; } }
+
+/* Settings row anatomy: title and one line on the left; value, status, action on the right */
+.row .v .value { font-size: 13px; font-variant-numeric: tabular-nums; color: var(--ink); white-space: nowrap; }
+.row .v .path { max-width: 280px; color: var(--muted); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; -webkit-user-select: text; user-select: text; }
+.t b img { margin-right: 8px; vertical-align: -1px; }
+.t .row-warn { display: block; margin-top: 4px; color: var(--attention-ink); }
+.t .row-warn::before { content: "⚠ "; }
+.address a.quiet-link { color: var(--muted); }
+.address a.quiet-link:hover { color: var(--accent); }
+.row.stacked { flex-direction: column; align-items: stretch; gap: 10px; }
+.ways { display: flex; flex-direction: column; border: 1px solid var(--line-soft); border-radius: var(--radius-sm); }
+.way { display: grid; grid-template-columns: 112px minmax(0, 1fr) auto; align-items: center; gap: 12px; min-height: 46px; padding: 6px 6px 6px 12px; font-size: 13px; }
+.way + .way { border-top: 1px solid var(--line-soft); }
+.way-channel { font-weight: 500; color: var(--ink); }
+.way-value { color: var(--ink-soft); }
+.way-value .mono { font-size: 12px; }
+
+/* Inline banners, like a console's: icon, tone, one action, dismiss */
+.notice { align-items: center; }
+.notice.info { background: var(--accent-soft); border-color: #c9dbd0; color: var(--accent-ink); }
+.notice .notice-icon { width: 16px; height: 16px; flex-shrink: 0; }
+
+/* Draft cards that read like the piece's page until edited */
+.read-first { gap: 8px; padding: 14px 16px; }
+.read-title { align-self: flex-start; font-family: var(--serif); font-weight: 500; font-size: 18px; line-height: 1.3; text-align: left; color: var(--ink); cursor: pointer; }
+.read-title:hover { color: var(--accent); text-decoration: underline; text-underline-offset: 3px; }
+.read { display: flex; flex-direction: column; gap: 6px; }
+.read-teaser { font-size: 14px; color: var(--ink-soft); }
+.read-line { display: grid; grid-template-columns: 76px minmax(0, 1fr); gap: 10px; }
+.read-label { font-size: 12px; font-weight: 500; color: var(--muted); padding-top: 2px; }
+.read-sample q { font-family: var(--serif); font-style: italic; color: var(--ink); }
+.read-paid { display: flex; flex-direction: column; gap: 4px; margin-top: 4px; padding: 10px 12px; border-radius: var(--radius-sm); background: var(--bg); }
+.read-paid p { white-space: pre-wrap; font-size: 13px; }
+.fields { display: flex; flex-direction: column; gap: 6px; }
+.extras-batch { display: flex; flex-direction: column; gap: 10px; }
+.card.stack > .extras-batch:not(:first-child) { margin-top: 8px; padding-top: 14px; border-top: 1px solid var(--line-soft); }
+.batch-head { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.batch-head .t { flex: 1; min-width: 260px; }
+.batch-head .t b { white-space: normal; }
+.batch-head .v { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+.price-field.copies input[type="text"] { width: 3ch; }

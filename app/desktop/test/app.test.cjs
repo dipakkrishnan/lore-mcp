@@ -40,6 +40,21 @@ test("reads only the fixed APP-001 snapshot", async () => {
   }
 });
 
+test("free copies save through the CLI, refused before it unless a whole number, and read back in the snapshot", async () => {
+  const { setFreeCopies } = require("../src/state.cjs");
+  const directory = await mkdtemp(join(tmpdir(), "lore-desktop-"));
+  try {
+    assert.equal((await readState(directory)).pricing.free_copies, 3);
+    for (const bad of [-1, 1.5, "4", Number.NaN]) await assert.rejects(setFreeCopies(directory, bad), { message: /whole number/ });
+    await setFreeCopies(directory, 0);
+    assert.equal((await readState(directory)).pricing.free_copies, 0);
+    await setFreeCopies(directory, 5);
+    assert.equal((await readState(directory)).pricing.free_copies, 5);
+  } finally {
+    await rm(directory, { recursive: true });
+  }
+});
+
 test("the agent may open only the pages the payments skill sends an owner to", () => {
   const { openable } = require("../src/state.cjs");
   assert.ok(openable("https://www.coinbase.com/"));

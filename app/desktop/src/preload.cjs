@@ -41,6 +41,9 @@ contextBridge.exposeInMainWorld("lore", {
   schedule: () => ipcRenderer.invoke("schedule:install"),
   /** @param {number} amount */
   setPrice: (amount) => ipcRenderer.invoke("pricing:set", amount),
+  /** @param {number} count */
+  setFreeCopies: (count) => ipcRenderer.invoke("pricing:free-copies", count),
+  revealHome: () => ipcRenderer.invoke("home:reveal"),
   sales: () => ipcRenderer.invoke("store:sales"),
   views: () => ipcRenderer.invoke("store:views"),
   /** @param {{title: string, email: string, description: string}} input */
