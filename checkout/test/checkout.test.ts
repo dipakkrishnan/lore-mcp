@@ -154,6 +154,14 @@ describe("seller accounts", () => {
     });
   });
 
+  it("logs Stripe's reason when it refuses to open an account, while the app gets a plain 502", async () => {
+    stub({ stripeStatus: 400 });
+    const logged = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const response = await exports.default.fetch("https://checkout.test/accounts", { method: "POST" });
+    expect(response.status).toBe(502);
+    expect(logged).toHaveBeenCalledWith("/v2/core/accounts: Stripe answered 400: no");
+  });
+
   it("signs a seller's token with its own secret, not the Stripe key, so rolling the key keeps sellers in", async () => {
     stub();
     const { account, token } = await open();
