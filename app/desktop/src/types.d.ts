@@ -43,6 +43,8 @@ type Snapshot = {
     publication_usd: number | null;
     answer_usd: number | null;
     answer_enabled: boolean;
+    // Absent from a CLI older than MON-040's free copies.
+    free_copies?: number;
   };
   node: {
     url: string | null;
@@ -240,6 +242,8 @@ interface Window {
     push(): Promise<void>;
     schedule(): Promise<void>;
     setPrice(amount: number): Promise<void>;
+    setFreeCopies(count: number): Promise<void>;
+    revealHome(): Promise<string>;
     sales(): Promise<Sale[]>;
     views(): Promise<Record<string, number>>;
     reportFeedback(input: { title: string; email: string; description: string }): Promise<FeedbackReceipt>;

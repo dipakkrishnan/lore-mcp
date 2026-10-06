@@ -110,6 +110,8 @@ function resetBlueprintGhost() {
 const RING = `<svg viewBox="0 0 26 26" fill="none"><rect x="4.5" y="5" width="17" height="16" rx="3.2" fill="currentColor"></rect><path d="M3 11.2L4.5 10.6C8 9.2 10.5 12.2 13 10.9S18.5 9.6 21.5 11.2L23 12" stroke="var(--accent)" stroke-width="1.7"></path><path d="M3 16.9L4.5 16.3C8 15 10.5 17.8 13 16.6S18.5 15 21.5 16.8L23 17.7" stroke="var(--accent)" stroke-width="1.7"></path></svg>`;
 const RENAME_ICON = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7V4h16v3M9 20h6M12 4v16"></path></svg>`;
 const EDIT_ICON = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L8 18l-4 1 1-4z"></path></svg>`;
+const INFO_ICON = `<svg class="notice-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="9"></circle><path d="M12 11v5M12 8h.01"></path></svg>`;
+const ALERT_ICON = `<svg class="notice-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4l9 16H3z"></path><path d="M12 10v4M12 17h.01"></path></svg>`;
 const SALE_ICON = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 12l-8 8-9-9V3h8z"></path><circle cx="7.5" cy="7.5" r="1.5"></circle></svg>`;
 /** @type {Record<string, [name: string, icon: string]>} */
 const PROVIDERS = {
@@ -225,7 +227,7 @@ function memoryRow(id, title, detail) {
   open.type = "button";
   const text = el("div", "t");
   text.append(el("b", "", title), el("span", "", detail));
-  open.append(text, chip("Private"));
+  open.append(text);
   open.addEventListener("click", () => openMemory(Number(id)));
   peekable(open, Number(id));
   node.append(open, button("Draft for sale", "quiet", () => void publishMemory({ id: Number(id), title })));
@@ -507,7 +509,7 @@ function recentRuns(s) {
   if (!s.jobs) return null;
   const all = s.jobs.items;
   const items = all.slice(0, 5);
-  if (!items.length) return section("Recent runs", el("p", "hint", "Nothing has run yet."));
+  if (!items.length) return null;
   return section("Recent runs", card(items.map((item, index) => {
     const detail = [pushDetail(all, index) ?? item.summary, when(item.started_at), typeof item.cost_usd === "number" ? money.format(item.cost_usd) : ""].filter(Boolean);
     const label = item.title?.trim() || RUN_LABELS[item.kind] || item.kind;
@@ -699,7 +701,8 @@ function renderToday(s) {
 
 /** @param {Snapshot} s */
 function memoriesCountLabel(s) {
-  return `${privateMemories(s).length} private`;
+  const count = privateMemories(s).length;
+  return `${count} ${count === 1 ? "memory" : "memories"} · only on this Mac`;
 }
 
 /** @param {Snapshot} s */
@@ -722,7 +725,7 @@ function priceRow(s) {
   const open = el("button", "price-open");
   open.type = "button";
   open.title = "Change what a buyer pays per publication";
-  if (typeof s.pricing.publication_usd === "number") open.append(document.createTextNode(`${price(s.pricing.publication_usd)} `), el("span", "", "a publication"));
+  if (typeof s.pricing.publication_usd === "number") open.append(document.createTextNode(`${price(s.pricing.publication_usd)} `), el("span", "", ["a publication", freeCopies(s.pricing.free_copies)].filter(Boolean).join(" · ")));
   else open.append("Not set");
   open.addEventListener("click", () => { editingPrice = true; render(); });
   item.append(open);
@@ -769,27 +772,55 @@ function priceEditor(s) {
   cancel.disabled = savingPrice;
   save.disabled = savingPrice;
   actions.append(cancel, save);
-  form.append(field, el("span", "", "a publication"), actions);
+  form.append(field, el("span", "", "a publication"));
+  /** @type {HTMLInputElement | null} */
+  let copies = null;
+  if (typeof s.pricing.free_copies === "number") {
+    const box = el("div", "price-field copies");
+    copies = el("input");
+    copies.type = "text";
+    copies.inputMode = "numeric";
+    copies.setAttribute("aria-label", "Free copies of each piece");
+    copies.value = String(s.pricing.free_copies);
+    box.append(copies);
+    form.append(box, el("span", "", "free copies"));
+  }
+  form.append(actions);
   form.addEventListener("submit", (submitEvent) => {
     submitEvent.preventDefault();
-    void savePrice(input.value);
+    void savePrice(input.value, copies?.value);
   });
   queueMicrotask(() => input.focus());
   return form;
 }
 
-/** @param {string} raw */
-async function savePrice(raw) {
+const WHOLE_COPIES = "Free copies has to be a whole number, zero or more";
+
+/** @param {string} raw @param {string} [rawCopies] Absent when the CLI predates free copies. */
+async function savePrice(raw, rawCopies) {
   const amount = parsePrice(raw);
   if (amount === null) {
     tell(`${ABOVE_ZERO}. Free is a real choice, but you make it when you open your store.`, true);
     return;
   }
+  const copies = rawCopies === undefined ? null : Number(rawCopies.trim());
+  if (copies !== null && (!rawCopies?.trim() || !Number.isInteger(copies) || copies < 0)) {
+    tell(`${WHOLE_COPIES}.`, true);
+    return;
+  }
+  const before = snapshot?.pricing;
+  const newCopies = copies !== null && copies !== before?.free_copies;
   savingPrice = true;
   render();
-  if (await act(() => window.lore.setPrice(amount))) {
+  const saved = await act(async () => {
+    if (amount !== before?.publication_usd) await window.lore.setPrice(amount);
+    if (newCopies && copies !== null) await window.lore.setFreeCopies(copies);
+  });
+  if (saved) {
     editingPrice = false;
-    drop((item) => item.text.startsWith(ABOVE_ZERO));
+    drop((item) => item.text.startsWith(ABOVE_ZERO) || item.text.startsWith(WHOLE_COPIES));
+    // Free copies ride on the next push; the price waits for a redeploy, which For Sale already offers.
+    if (newCopies && snapshot?.node.url) tell("Saved. Buyers see the new free copies after your next push.", false, { label: "Push now", run: () => void pushNow() });
   }
   savingPrice = false;
   render();
@@ -802,7 +833,7 @@ function renderStore(s) {
   const lead = el("div", "lead");
   lead.append(el("span", `dot ${live.state === "online" ? "ok" : live.state === "unreachable" ? "" : "off"}`));
   const text = el("div", "t");
-  text.append(el("b", "sans", live.state === "online" ? `Live, answering on ${networkLabel(live.network) || "your node"}` : live.state === "unreachable" ? "Your node isn't answering" : "No store yet"));
+  text.append(el("b", "sans", live.state === "online" ? (live.network === TEST_NETWORK ? "Live · Test mode" : "Live") : live.state === "unreachable" ? "Your store isn't responding" : "No store yet"));
   if (s.node.url) {
     text.append(storeAddress(s.node));
   } else {
@@ -851,7 +882,7 @@ function renderStore(s) {
         el("span", "hint", "No one can buy it after this. Anyone who already did keeps their copy."),
         button("Keep", "secondary", () => trailing.replaceChildren(...state(item), ask)),
         // The CLI's reason for a push that did not land names commands and paths; the list below shows whether the store still has it.
-        button("Take down", "primary", () => void act(() => window.lore.revoke(item.id), "Taken down here. If your store still has it, push to finish."))
+        button("Take down", "primary", () => void act(() => window.lore.revoke(item.id), "Taken down. Your store stops selling it as soon as it updates."))
       );
     });
     trailing.append(...state(item), ask);
@@ -871,7 +902,7 @@ function renderStore(s) {
   if (pushOffer) parts.push(seamCard());
   parts.push(section("For sale", approved.length
     ? card(approved.map((item) => row(item.title, sold(item), controls(item))))
-    : emptyState("Nothing for sale yet.", button("Draft one from a memory", "quiet", () => show("memories"))),
+    : emptyState("Nothing for sale yet.", button("Draft your first piece", "quiet", () => show("memories"))),
     aside));
   if (revoked.length) parts.push(section("Taken down", card(revoked.map((item) => row(item.title, item.topic, item.live === true ? chip("Still on your store", "attention") : chip("Taken down"))))));
   parts.push(renderSales());
@@ -959,11 +990,9 @@ function cell(...parts) {
   return node;
 }
 
-/** A state dot with its label. @param {boolean} ok @param {string} label */
-function dot(ok, label) {
-  const node = el("span", "state");
-  node.append(el("span", `dot ${ok ? "ok" : ""}`), document.createTextNode(label));
-  return node;
+/** A status pill: one shape for every state a Settings row can be in. @param {string} label @param {"ok" | "wait" | "attention" | ""} [tone] */
+function pill(label, tone = "") {
+  return el("span", `status-pill ${tone}`.trim(), label);
 }
 
 /** Settings → How often Lore reads them: the scheduler's answer, not the profile's. A saved rhythm that nothing runs says so and offers the fix. @param {Snapshot} s */
@@ -971,12 +1000,12 @@ function scheduleRow(s) {
   const label = "How often Lore reads them";
   const schedule = s.setup.schedule;
   if (!s.setup.profile_configured || schedule === undefined) {
-    return row(label, "New memories are written from what your agents learned.", cell(dot(s.setup.profile_configured, s.setup.profile_configured ? "Set" : "Not set"), ...(s.setup.profile_configured ? [] : [button("Start", "secondary", startSetup)])), false);
+    return row(label, "New memories are written from what your agents learned.", cell(pill(s.setup.profile_configured ? "Set" : "Not set", s.setup.profile_configured ? "ok" : ""), ...(s.setup.profile_configured ? [] : [button("Start", "secondary", startSetup)])), false);
   }
-  if (!schedule?.executor) return row(label, "Your rhythm is saved, but no model was chosen to run it.", cell(dot(false, "Not scheduled"), button("Start", "secondary", startSetup)), false);
+  if (!schedule?.executor) return row(label, "Your rhythm is saved, but no model was chosen to run it.", cell(pill("Not scheduled", "attention"), button("Start", "secondary", startSetup)), false);
   const who = `${rhythm(schedule)} with ${EXECUTORS[schedule.executor]}`;
-  if (schedule.installed) return row(label, `${who}. ${lastSynthesis(s)}`, cell(dot(true, "Scheduled")), false);
-  return row(label, `Set for ${who.charAt(0).toLowerCase()}${who.slice(1)}, but nothing on this Mac is running it.`, cell(dot(false, "Not scheduled"), button("Schedule", "secondary", () => void act(window.lore.schedule))), false);
+  if (schedule.installed) return row(label, `${who}. ${lastSynthesis(s)}`, cell(pill("Scheduled", "ok")), false);
+  return row(label, `Set for ${who.charAt(0).toLowerCase()}${who.slice(1)}, but nothing on this Mac is running it.`, cell(pill("Not scheduled", "attention"), button("Schedule", "secondary", () => void act(window.lore.schedule))), false);
 }
 
 /** Card payments, read from Lore and, while an account waits on Stripe, from Stripe. @type {CardStatus | null | Error} */
@@ -989,6 +1018,8 @@ async function loadCards() {
   cardsLoading = true;
   try {
     cards = await window.lore.cardStatus();
+    // The form's notice stands only while the owner still owes Stripe the form.
+    if (cards.account || cards.ready || cards.checking) drop((item) => item.text === STRIPE_FORM);
   } catch (error) {
     cards = error instanceof Error ? error : new Error(String(error));
   }
@@ -999,11 +1030,20 @@ async function loadCards() {
 // Coming back from Stripe's form in the browser is when the answer changes.
 window.addEventListener("focus", () => { if (cards && !(cards instanceof Error) && cards.pending) void loadCards(); });
 
-/** Settings → Your store → Card payments: from "Get paid to your bank" to on, without a Stripe key on this Mac. @param {Snapshot} s */
-function cardsRow(s) {
-  const label = "Card payments";
-  if (cards === null) { void loadCards(); return [row(label, "Checking…", cell(dot(false, "Checking")), false)]; }
-  if (cards instanceof Error) return [row(label, "Lore couldn't check card payments.", cell(button("Try again", "quiet", () => { cards = null; render(); })), false)];
+const STRIPE_FORM = "Finish with Stripe in your browser, then come back here.";
+
+/** One way money reaches the owner, a line inside Get paid. @param {string} channel @param {string | HTMLElement} value @param {...HTMLElement} trailing */
+function way(channel, value, ...trailing) {
+  const node = el("div", "way");
+  node.append(el("span", "way-channel", channel), typeof value === "string" ? el("span", "way-value", value) : value, cell(...trailing));
+  return node;
+}
+
+/** Get paid → By card: from "Get paid to your bank" to on, without a Stripe key on this Mac. @param {Snapshot} s */
+function cardWay(s) {
+  const by = "By card";
+  if (cards === null) { void loadCards(); return way(by, "Checking with Stripe…", pill("Checking", "wait")); }
+  if (cards instanceof Error) return way(by, "Lore couldn't check card payments.", button("Try again", "quiet", () => { cards = null; render(); }));
   const status = cards;
   const switchTo = (/** @type {string | null} */ account) => act(async () => {
     await window.lore.switchCards(account);
@@ -1011,27 +1051,80 @@ function cardsRow(s) {
     tell(account ? (s.node.url ? "Card payments are on. Lore is updating your store so buyers see Buy by card." : "Card payments are on. They start when your store opens.") : "Card payments are off.");
     if (account && s.node.url) await startDeploy(CARDS_ON);
   });
-  if (status.account) {
-    return [row(label, "Buyers can pay by card. Stripe pays you out to your bank; Lore never holds the money.", cell(dot(true, "On"), outLink("Stripe ↗", "https://dashboard.stripe.com"), button("Turn off", "quiet", () => void switchTo(null))), false)];
-  }
+  if (status.account) return way(by, "People, or their agents in a browser, pay by card. Stripe pays you out to your bank.", pill("On", "ok"), outLink("Stripe ↗", "https://dashboard.stripe.com"), button("Turn off", "quiet", () => void switchTo(null)));
   const finish = button(status.pending ? "Finish with Stripe" : "Get paid to your bank", "secondary", () => void act(async () => {
     await window.lore.connectCards();
     cards = null;
-    tell("Finish with Stripe in your browser, then come back here.");
+    tell(STRIPE_FORM);
   }));
-  if (!status.pending) {
-    return [row(label, "Let people buy with a card. Stripe checks who you are and pays you out to your bank; Lore never holds the money.", cell(finish), false)];
-  }
-  if (status.ready === null) return [row(label, "Lore couldn't reach Stripe to check your account.", cell(button("Check again", "quiet", () => void loadCards())), false)];
+  if (!status.pending) return way(by, "Let people, or their agents in a browser, pay by card. Stripe checks who you are and pays you out to your bank.", finish);
+  if (status.ready === null) return way(by, "Lore couldn't reach Stripe to check your account.", button("Check again", "quiet", () => void loadCards()));
   if (!status.ready && status.checking) {
     // Stripe verifies what the owner entered on its own clock; look again shortly rather than waiting for a click.
     if (!cardsRecheck) cardsRecheck = window.setTimeout(() => { cardsRecheck = 0; if (view === "settings") void loadCards(); }, 10_000);
-    return [row(label, "Stripe is checking your details. This usually takes a minute or two.", cell(dot(false, "Checking")), false)];
+    return way(by, "Stripe is checking your details. This usually takes a minute or two.", pill("Checking", "wait"));
   }
-  if (!status.ready) return [row(label, "Stripe needs a few more details from you before you can take cards.", cell(dot(false, "Needs you"), finish), false)];
-  const priced = typeof s.pricing.publication_usd === "number" && s.pricing.publication_usd >= status.minimum_usd;
-  if (!priced) return [row(label, `Stripe is ready. Cards need a price of at least ${price(status.minimum_usd)}.`, cell(button("Change price", "secondary", openPriceEditor)), false)];
-  return [row(label, s.node.url ? "Stripe is ready. Turning cards on updates your store." : "Stripe is ready. Cards start when your store opens.", cell(button("Turn on card payments", "primary", () => void switchTo(status.pending))), false)];
+  if (!status.ready) return way(by, "Stripe needs a few more details from you.", pill("Needs you", "attention"), finish);
+  if (cardMinimum(s) !== null) return way(by, "Stripe is ready. Raise your price to turn cards on.", pill("Ready", "ok"));
+  return way(by, s.node.url ? "Stripe is ready. Turning cards on updates your store." : "Stripe is ready. Cards start when your store opens.", button("Turn on", "primary", () => void switchTo(status.pending)));
+}
+
+/** The card minimum, when Stripe is connected and the price is under it; null otherwise. @param {Snapshot} s */
+function cardMinimum(s) {
+  if (!cards || cards instanceof Error || !(cards.account || cards.ready)) return null;
+  const amount = s.pricing.publication_usd;
+  return typeof amount === "number" && amount >= cards.minimum_usd ? null : cards.minimum_usd;
+}
+
+/** Get paid → To your wallet: agents can also pay the wallet the store names directly. @param {Snapshot} s */
+function walletWay(s) {
+  const by = "To your wallet";
+  const payout = s.node.live.payout;
+  if (!payout) return way(by, s.node.url ? "Lore can't see your store's wallet right now." : "You choose a wallet when your store opens.");
+  const value = el("span", "way-value");
+  value.append("Agents can pay it directly · ", el("span", "mono", `${payout.slice(0, 6)}…${payout.slice(-4)}`));
+  return way(by, value, outLink("View ↗", `${explorer(s.node.live.network)}/address/${payout}`));
+}
+
+/** Settings → Your store → Get paid: every way money reaches the owner, in one row. @param {Snapshot} s */
+function getPaidRow(s) {
+  const node = row("Get paid", "Payments go straight to you. Lore never holds the money.", undefined, false);
+  node.classList.add("stacked");
+  const ways = el("div", "ways");
+  ways.append(cardWay(s), walletWay(s));
+  node.append(ways);
+  return node;
+}
+
+/** "first 3 copies free", or nothing from a CLI that predates free copies. @param {number | undefined} count */
+function freeCopies(count) {
+  if (typeof count !== "number") return "";
+  return count === 0 ? "no free copies" : count === 1 ? "first copy free" : `first ${count} copies free`;
+}
+
+/** Settings → Your store → Price: the one number, its free copies, and the one way to change both. @param {Snapshot} s */
+function priceSetting(s) {
+  const set = typeof s.pricing.publication_usd === "number";
+  const value = set ? [`${price(s.pricing.publication_usd)} per piece`, freeCopies(s.pricing.free_copies)].filter(Boolean).join(" · ") : "Not set";
+  const detail = el("span");
+  detail.append(el("span", "", "What buyers pay for each piece, by card or through their AI agent."));
+  const minimum = cardMinimum(s);
+  if (minimum !== null) detail.append(el("span", "row-warn", `Card payments need at least ${price(minimum)} a piece. Buyers can't pay by card until you raise it.`));
+  // One editor, on For Sale. Every other surface reads the same numbers and
+  // sends the owner there rather than growing a second field.
+  return row("Price", detail, cell(el("span", "value", value), button(set ? "Change" : "Set a price", "quiet", openPriceEditor)), false);
+}
+
+/** Settings → Your store → Address: where buyers find the store, whether it answers, and one way to open it. @param {Snapshot} s */
+function addressRow(s) {
+  const live = s.node.live;
+  if (!s.node.url) return row("Address", "Where buyers find your pieces once your store opens.", cell(pill("Not open"), button("Open your store", "secondary", () => void startDeploy())), false);
+  const home = s.node.url.replace(/\/mcp$/, "");
+  const detail = el("span", "address");
+  detail.append(el("span", "mono", home.replace(/^https?:\/\//, "")));
+  const console = workerConsole(s.node.url);
+  if (console) detail.append(outLink("Hosted on Cloudflare ↗", console, "quiet-link"));
+  return row("Address", detail, cell(pill(nodeLabel(live.state), live.state === "online" ? "ok" : live.state === "unreachable" ? "attention" : ""), outLink("Open ↗", home)), false);
 }
 
 /** Read the listing state once per store address; Settings re-renders when it lands. @param {Snapshot} s */
@@ -1063,14 +1156,14 @@ function marketplaceRow(s) {
   loadListing(s);
   const label = "Marketplace";
   const shares = "It shows only what your store already shows: your name, topics, and prices.";
-  if (!listing) return [row(label, "Checking the public list of Lore sellers…", cell(dot(false, "Checking")), false)];
+  if (!listing) return [row(label, "Checking the public list of Lore sellers…", cell(pill("Checking", "wait")), false)];
   if (listing.state === "listed") {
-    return [row(label, `Anyone can find your store in the public list of Lore sellers. ${shares}`, cell(dot(true, "Listed"), button("Delist", "quiet", () => void changeListing("delist"))), false)];
+    return [row(label, `Anyone can find your store in the public list of Lore sellers. ${shares}`, cell(pill("Listed", "ok"), button("Delist", "quiet", () => void changeListing("delist"))), false)];
   }
-  if (listing.action === "delist") return [row(label, "Your store leaves the public list within a day.", cell(dot(false, "Pending"), button("Stay listed", "quiet", () => void changeListing("list"))), false)];
+  if (listing.action === "delist") return [row(label, "Your store leaves the public list within a day.", cell(pill("Pending", "wait"), button("Stay listed", "quiet", () => void changeListing("list"))), false)];
   if (listing.url) {
     const what = "Send the request on the page that opened. It needs a free GitHub account. You'll get a reply on that page within a few minutes.";
-    return [row(label, what, cell(dot(false, "Pending"), outLink("Open the request ↗", listing.url), button("Cancel", "quiet", () => void changeListing("delist"))), false)];
+    return [row(label, what, cell(pill("Pending", "wait"), outLink("Open the request ↗", listing.url), button("Cancel", "quiet", () => void changeListing("delist"))), false)];
   }
   return [row(label, `Let buyers find your store in the public list of Lore sellers. ${shares}`, cell(button("List on the marketplace", "secondary", () => void changeListing("list"))), false)];
 }
@@ -1130,7 +1223,7 @@ function verb(app) {
 /** Connectors: the agents, then every app in the catalog, connected or on offer. @param {Snapshot} s */
 function sourceRows(s) {
   const rows = s.library.sources.filter((source) => !source.connector).map((source) => {
-    const node = row(source.label, source.enabled ? `${plural(source.imported, "memory")} imported` : "Not connected", cell(dot(source.enabled, source.enabled ? "Connected" : "Off")), false);
+    const node = row(source.label, source.enabled ? `${plural(source.imported, "memory")} imported` : "Not connected", cell(pill(source.enabled ? "Connected" : "Off", source.enabled ? "ok" : "")), false);
     node.prepend(brand(AGENT_MARKS[source.name] ?? source.name, source.label));
     return node;
   });
@@ -1138,7 +1231,7 @@ function sourceRows(s) {
     const connected = s.library.sources.filter((source) => source.connector === app.id);
     for (const source of connected) {
       const state = stateOf(app, source);
-      const node = row(app.name, source.label === app.name ? state.line(app, source) : `${source.label} · ${state.line(app, source)}`, cell(dot(state.ok, state.label), button("Manage", "quiet", () => openConnection(app, source))), false);
+      const node = row(app.name, source.label === app.name ? state.line(app, source) : `${source.label} · ${state.line(app, source)}`, cell(pill(state.label, state.ok ? "ok" : source.state === "off" ? "" : "attention"), button("Manage", "quiet", () => openConnection(app, source))), false);
       node.prepend(logo(app));
       rows.push(node);
     }
@@ -1358,9 +1451,9 @@ function renderFaq(s) {
       qa("What sells?", "Something specific that happened to you, with the lesson attached: what you tried, what broke, what you'd do again. Dated, firsthand, and not something an AI could guess.")
     ])),
     section("Getting paid", card([
-      qa("Who buys?", "Other people's AI agents, in the middle of a task. Not people browsing a shop. They read your short descriptions for free and pay to read the full piece."),
+      qa("Who buys?", "AI agents in the middle of a task, and people who find your store page. They read your short descriptions and samples for free, and pay to read the full piece."),
       qa("What does a buyer pay?", `Your price. ${prices}`),
-      qa("How do I get paid?", "Each payment goes straight to an account you control, like your Coinbase account, in digital dollars (USDC). Lore never holds your money. Lore asks where to send it when you open your store."),
+      qa("How do I get paid?", "By card: Stripe pays you out to your bank. Set it up in Settings → Get paid. Agents can also pay a wallet you control directly. Either way, Lore never holds your money."),
       qa("How do buyers find me?", "Once your store is open, list it from Settings. Agents that use the Lore marketplace will see it.")
     ])),
     section("Privacy", card([
@@ -1376,38 +1469,37 @@ function renderFaq(s) {
 /** @param {Snapshot} s */
 function renderSettings(s) {
   const live = s.node.live;
+  const path = el("span", "mono path", s.home.replace(/^\/Users\/[^/]+/, "~"));
+  path.title = s.home;
   return [
     section("Account", card((auth?.credentials.length ? auth.credentials : [null]).map((credential) => {
-      const [name, icon] = credential ? provider(credential) : ["No one", ""];
-      const trailing = cell(name);
+      const [name, icon] = credential ? provider(credential) : ["", ""];
+      const node = row(credential ? `Signed in with ${name}` : "Not signed in", credential?.type === "api_key" ? "An API key on this Mac reads and writes your memories with you." : "Your subscription reads and writes your memories with you.", credential ? cell(button("Sign out", "quiet", () => signOut(credential.providerId))) : undefined, false);
       if (icon) {
         const img = el("img");
         img.src = icon;
         img.alt = "";
         img.width = 14;
         img.height = 14;
-        trailing.prepend(img);
+        node.querySelector(".t b")?.prepend(img);
       }
-      if (credential) trailing.append(button("Sign out", "quiet", () => signOut(credential.providerId)));
-      return row(`Signed in with ${name}`, credential?.type === "api_key" ? "An API key on this Mac reads and writes your memories with you." : "Your subscription reads and writes your memories with you.", trailing, false);
+      return node;
     }))),
     section("What Lore keeps", card([
-      row("Lore's shape", "What it keeps, what it ignores, what it may sell. Set in a short conversation.", cell(dot(s.setup.blueprint_configured, s.setup.blueprint_configured ? "Set" : "Not set"), ...(s.setup.blueprint_configured ? [] : [button("Start", "secondary", startSetup)])), false),
-      row("Where it lives", `Your memories are kept on this Mac. ${provider()[0]} reads them when it works with you here. Buyers only ever get what you approve for sale.`, cell(Object.assign(el("span", "mono", s.home), { style: "color: var(--muted)" })), false)
+      row("Lore's shape", "What it keeps, what it ignores, what it may sell. Set in a short conversation.", cell(pill(s.setup.blueprint_configured ? "Set" : "Not set", s.setup.blueprint_configured ? "ok" : ""), ...(s.setup.blueprint_configured ? [] : [button("Start", "secondary", startSetup)])), false),
+      row("Where it lives", `Your memories are kept on this Mac. ${provider()[0]} reads them when it works with you here. Buyers only ever get what you approve for sale.`, cell(path, button("Show in Finder", "quiet", () => void window.lore.revealHome())), false)
     ])),
     section("Your store", card([
-      row("Address", s.node.url ? storeAddress(s.node) : "Not opened yet.", cell(dot(live.state === "online", live.state === "online" ? `Live on ${networkLabel(live.network) || "your node"}` : nodeLabel(live.state))), false),
-      ...(live.payout
-        ? [row("Payouts", "Where each payment lands. Lore never holds it.", cell(el("span", "mono", `${live.payout.slice(0, 6)}…${live.payout.slice(-4)}`), /** @type {HTMLElement} */ (payoutLink(live))), false)]
+      addressRow(s),
+      priceSetting(s),
+      getPaidRow(s),
+      ...(s.pricing.answer_enabled
+        ? [row("Paid answers", "Buyers' agents can ask you a question and pay for each answer.", cell(el("span", "value", `${price(s.pricing.answer_usd)} per answer`)), false)]
         : []),
-      // One editor, on For Sale. Every other surface reads the same number and
-      // sends the owner there rather than growing a second field.
-      row("Prices", "What buyers pay for each piece, by card or through their AI agent.", cell(el("span", "mono", typeof s.pricing.publication_usd === "number" ? `${price(s.pricing.publication_usd)} per piece${s.pricing.answer_enabled ? ` · ${price(s.pricing.answer_usd)} per answer` : ""}` : "Not set"), button(typeof s.pricing.publication_usd === "number" ? "Change price" : "Set a price", "quiet", openPriceEditor)), false),
       // Stores open on real money; only one opened before that sits on the test network.
       ...(live.network === TEST_NETWORK
-        ? [row("Payments", "Your store is on the test network, where buyers pay with play money. Switch when you want real buyers paying real money.", cell(button("Switch to real payments", "secondary", () => void startDeploy(REAL_MONEY))), false)]
+        ? [row("Test payments", "Your store takes play money while it's on the test network. Switch when you want real buyers paying real money.", cell(pill("Test"), button("Switch to real payments", "secondary", () => void startDeploy(REAL_MONEY))), false)]
         : []),
-      ...cardsRow(s),
       ...marketplaceRow(s)
     ]))
   ];
@@ -1556,7 +1648,9 @@ function drop(which) {
 
 function renderNotices() {
   status.replaceChildren(...notices.map((item) => {
-    const box = el("div", item.attention ? "notice attention" : "notice");
+    const box = el("div", item.attention ? "notice attention" : "notice info");
+    box.setAttribute("role", item.attention ? "alert" : "status");
+    box.insertAdjacentHTML("afterbegin", item.attention ? ALERT_ICON : INFO_ICON);
     const dismiss = el("button", "dismiss", "×");
     dismiss.type = "button";
     dismiss.setAttribute("aria-label", "Dismiss");
@@ -2065,8 +2159,8 @@ function nextRung(s) {
   const detail = deploy
     ? storeOpen
       ? storeOpened(s)
-      : "This thread is closed. Try again now, or any time from Today."
-    : "This thread is closed. What comes next is a separate step — take it now, or any time from Today.";
+      : "This step is done. Try again now, or any time from Today."
+    : "This step is done. What comes next is a separate step — take it now, or any time from Today.";
   box.append(
     el("p", "q", heading),
     el("p", "hint", detail)
@@ -2178,73 +2272,181 @@ function enterMovesOn(field, within) {
 
 /** Approval forms outlive renders, so edits survive the agent's next event. @type {Map<string, HTMLElement>} */
 const approvalForms = new Map();
+/** Each update card's own approval, with whatever the owner edited, for Approve all. @type {WeakMap<HTMLElement, () => Promise<void>>} */
+const extrasApprovals = new WeakMap();
+let confirmingExtras = false;
 
 function approvals() {
   const list = el("div", "card pad stack");
   const shown = new Set();
-  for (const draft of [...candidates, ...extraDrafts]) {
+  /** @param {PublicationCandidate | ExtrasCandidate} draft */
+  const form = (draft) => {
     const key = JSON.stringify(draft);
     shown.add(key);
-    const form = approvalForms.get(key) ?? ("extras" in draft ? extrasForm(draft) : approvalForm(draft));
-    approvalForms.set(key, form);
-    list.append(form);
-  }
+    const node = approvalForms.get(key) ?? ("extras" in draft ? extrasForm(draft) : approvalForm(draft));
+    approvalForms.set(key, node);
+    return node;
+  };
+  list.append(...candidates.map(form));
+  if (extraDrafts.length) list.append(extrasBatch(extraDrafts, extraDrafts.map(form)));
   for (const key of approvalForms.keys()) if (!shown.has(key)) approvalForms.delete(key);
   return list;
 }
 
+/** "Add who-it's-for lines and samples to 2 pieces already for sale". @param {ExtrasCandidate[]} drafts */
+function extrasHeading(drafts) {
+  const lines = drafts.some(({ extras }) => extras.useful_if || extras.not_useful_if);
+  const samples = drafts.some(({ extras }) => extras.sample);
+  const what = [lines ? "who-it's-for lines" : "", samples ? "samples" : ""].filter(Boolean).join(" and ") || "free parts";
+  const fresh = drafts.every(({ piece }) => !piece.useful_if && !piece.not_useful_if && !piece.sample);
+  return `${fresh ? "Add" : "Update"} ${what} ${fresh ? "to" : "on"} ${plural(drafts.length, "piece")} already for sale`;
+}
+
+/** Updates to pieces already for sale, said once above their cards, with one way to approve them all. @param {ExtrasCandidate[]} drafts @param {HTMLElement[]} forms */
+function extrasBatch(drafts, forms) {
+  const box = el("div", "extras-batch");
+  const head = el("div", "batch-head");
+  const text = el("div", "t");
+  text.append(el("b", "sans", extrasHeading(drafts)), el("span", "", "Buyers see these on each piece's page. Links, prices and paid text don't change."));
+  head.append(text);
+  if (forms.length > 1) {
+    const actions = el("div", "v");
+    if (confirmingExtras) {
+      const cancel = button("Cancel", "quiet", () => { confirmingExtras = false; render(); });
+      const all = button(forms.length === 2 ? "Approve both" : `Approve ${forms.length}`, "primary", () => {
+        cancel.disabled = all.disabled = true;
+        confirmingExtras = false;
+        // One attended decision per piece, exactly as each card's own Approve sends it. A push that
+        // fails after one lands must not strand the rest, so every piece is decided before it is said.
+        void settle(async () => {
+          /** @type {unknown} */
+          let failure = null;
+          for (const form of forms) await extrasApprovals.get(form)?.().catch((error) => { failure ??= error; });
+          if (failure) throw failure;
+        }, true);
+      });
+      actions.append(el("span", "hint", `Approve all ${forms.length}? Lore updates each page on your store.`), cancel, all);
+    } else {
+      actions.append(button(`Approve all ${forms.length}`, "secondary", () => { confirmingExtras = true; render(); }));
+    }
+    head.append(actions);
+  }
+  box.append(head, ...forms);
+  return box;
+}
+
+/** A draft as its page will read: who it's for, who it's not for, and the sample when there is one. @param {Array<[string, string]>} lines @param {string} sample */
+function readLines(lines, sample) {
+  const nodes = lines.filter(([, value]) => value.trim()).map(([label, value]) => {
+    const line = el("p", "read-line");
+    line.append(el("span", "read-label", label), document.createTextNode(value.trim()));
+    return line;
+  });
+  if (sample.trim()) {
+    const line = el("p", "read-line read-sample");
+    line.append(el("span", "read-label", "Sample"), el("q", "", sample.trim()));
+    nodes.push(line);
+  }
+  return nodes;
+}
+
+/** A card that reads like the piece's page until the owner asks to edit it. Its fields stay in the card either way, so edits survive a re-render.
+ * @param {string} heading @param {() => void} preview @param {(fields: HTMLElement) => () => HTMLElement[]} build Adds the fields; returns what the card reads as. @param {boolean} [titleEdits] A field edits the heading, so the heading hides while editing. */
+function readFirst(heading, preview, build, titleEdits = false) {
+  const memory = el("div", "memory read-first");
+  const title = el("button", "read-title", heading);
+  title.type = "button";
+  title.title = "Preview the page buyers see";
+  title.addEventListener("click", preview);
+  const read = el("div", "read");
+  const fields = el("div", "fields");
+  fields.hidden = true;
+  const reading = build(fields);
+  read.append(...reading());
+  const previewButton = button("Preview page", "quiet", preview);
+  previewButton.hidden = true;
+  const edit = button("Edit", "quiet", () => {
+    const editing = fields.hidden;
+    fields.hidden = !editing;
+    read.hidden = editing;
+    previewButton.hidden = !editing;
+    if (titleEdits) title.hidden = editing;
+    edit.textContent = editing ? "Done" : "Edit";
+    if (editing) {
+      for (const area of fields.querySelectorAll("textarea")) fit(area);
+      /** @type {HTMLElement | null} */ (fields.querySelector("input, textarea"))?.focus();
+    } else {
+      title.textContent = /** @type {HTMLInputElement | null} */ (fields.querySelector(".draft-title"))?.value ?? heading;
+      read.replaceChildren(...reading());
+    }
+  });
+  memory.append(title, read, fields);
+  return { memory, edit, preview: previewButton };
+}
+
+/** @param {HTMLElement} memory @param {string} topic @param {HTMLElement[]} actions @param {HTMLElement[]} chips */
+function approvalMeta(memory, topic, actions, ...chips) {
+  const meta = el("div", "meta");
+  meta.append(chip(topic), ...chips);
+  const group = el("div", "group");
+  group.append(...actions);
+  meta.append(group);
+  memory.append(meta);
+}
+
 /** @param {PublicationCandidate} candidate */
 function approvalForm(candidate) {
-  const memory = el("div", "memory");
-  const title = draftField(memory, "Title", candidate.title, true);
-  const teaser = draftField(memory, "Free teaser, what buyers see first", candidate.teaser);
-  const usefulIf = draftField(memory, "Free · useful if…", candidate.useful_if ?? "");
-  const notUsefulIf = draftField(memory, "Free · not useful if…", candidate.not_useful_if ?? "");
-  const sample = draftField(memory, "Free sample, anyone can read it on the piece's page", candidate.sample ?? "");
-  const paid = draftField(memory, "Paid content, what a buyer's agent gets", candidate.content);
-  const meta = el("div", "meta");
-  meta.append(chip(candidate.topic));
-  if (candidate.kind === "content") meta.append(chip("Verbatim"));
-  const group = el("div", "group");
+  /** @type {Record<string, HTMLInputElement | HTMLTextAreaElement>} */
+  const field = {};
+  const edited = () => ({ ...candidate, title: field.title.value, teaser: field.teaser.value, useful_if: field.usefulIf.value, not_useful_if: field.notUsefulIf.value, sample: field.sample.value, content: field.paid.value });
+  const card = readFirst(candidate.title, () => void previewPage(edited()), (fields) => {
+    field.title = draftField(fields, "Title", candidate.title, true);
+    field.teaser = draftField(fields, "Teaser · free, what buyers see first", candidate.teaser);
+    field.usefulIf = draftField(fields, "Good for · free", candidate.useful_if ?? "");
+    field.notUsefulIf = draftField(fields, "Not for · free", candidate.not_useful_if ?? "");
+    field.sample = draftField(fields, "Sample · free, anyone can read it on the piece's page", candidate.sample ?? "");
+    field.paid = draftField(fields, "Paid text · what a buyer gets", candidate.content);
+    return () => {
+      const paid = el("div", "read-paid");
+      paid.append(el("span", "read-label", "What buyers get"), el("p", "", field.paid.value));
+      return [el("p", "read-teaser", field.teaser.value), ...readLines([["Good for", field.usefulIf.value], ["Not for", field.notUsefulIf.value]], field.sample.value), paid];
+    };
+  }, true);
   /** @param {boolean} approved */
   const choose = async (approved) => {
     skip.disabled = approve.disabled = true;
-    await decide(candidate, approved, approved ? { ...candidate, title: title.value, teaser: teaser.value, useful_if: usefulIf.value, not_useful_if: notUsefulIf.value, sample: sample.value, content: paid.value } : candidate);
-    if (memory.isConnected) skip.disabled = approve.disabled = false;
+    await decide(candidate, approved, approved ? edited() : candidate);
+    if (card.memory.isConnected) skip.disabled = approve.disabled = false;
   };
-  const preview = button("Preview page", "quiet", () => void previewPage({ ...candidate, title: title.value, teaser: teaser.value, useful_if: usefulIf.value, not_useful_if: notUsefulIf.value, sample: sample.value }));
   const skip = button("Skip", "secondary", () => void choose(false));
   const approve = button("Approve", "primary", () => void choose(true));
-  group.append(preview, skip, approve);
-  meta.append(group);
-  memory.append(meta);
-  return memory;
+  approvalMeta(card.memory, candidate.topic, [card.preview, card.edit, skip, approve], ...(candidate.kind === "content" ? [chip("Verbatim")] : []));
+  return card.memory;
 }
 
 /** New free parts for a piece already on sale: only these three fields change. @param {ExtrasCandidate} draft */
 function extrasForm({ extras, piece }) {
-  const memory = el("div", "memory");
-  memory.append(el("p", "q", piece.title), el("p", "hint", "Already for sale. Approving changes only these free parts; its link, price and paid content stay the same."));
-  const usefulIf = draftField(memory, "Free · useful if…", extras.useful_if);
-  const notUsefulIf = draftField(memory, "Free · not useful if…", extras.not_useful_if);
-  const sample = draftField(memory, "Free sample, anyone can read it on the piece's page", extras.sample);
-  const edited = () => ({ ...extras, useful_if: usefulIf.value, not_useful_if: notUsefulIf.value, sample: sample.value });
-  const meta = el("div", "meta");
-  meta.append(chip(piece.topic));
-  const group = el("div", "group");
+  /** @type {Record<string, HTMLInputElement | HTMLTextAreaElement>} */
+  const field = {};
+  const edited = () => ({ ...extras, useful_if: field.usefulIf.value, not_useful_if: field.notUsefulIf.value, sample: field.sample.value });
+  const card = readFirst(piece.title, () => void previewPage({ ...piece, ...edited(), content: "", provenance: [] }), (fields) => {
+    field.usefulIf = draftField(fields, "Good for", extras.useful_if);
+    field.notUsefulIf = draftField(fields, "Not for", extras.not_useful_if);
+    field.sample = draftField(fields, "Sample, anyone can read it on the piece's page", extras.sample);
+    return () => readLines([["Good for", field.usefulIf.value], ["Not for", field.notUsefulIf.value]], field.sample.value);
+  });
+  const approveEdited = () => window.lore.decideExtras({ original: extras, extras: edited(), approve: true });
+  extrasApprovals.set(card.memory, approveEdited);
   /** @param {boolean} approved */
   const choose = async (approved) => {
     skip.disabled = approve.disabled = true;
-    await settle(() => window.lore.decideExtras({ original: extras, extras: approved ? edited() : extras, approve: approved }), approved);
-    if (memory.isConnected) skip.disabled = approve.disabled = false;
+    await settle(() => approved ? approveEdited() : window.lore.decideExtras({ original: extras, extras, approve: false }), approved);
+    if (card.memory.isConnected) skip.disabled = approve.disabled = false;
   };
-  const preview = button("Preview page", "quiet", () => void previewPage({ ...piece, ...edited(), content: "", provenance: [] }));
   const skip = button("Skip", "secondary", () => void choose(false));
   const approve = button("Approve", "primary", () => void choose(true));
-  group.append(preview, skip, approve);
-  meta.append(group);
-  memory.append(meta);
-  return memory;
+  approvalMeta(card.memory, piece.topic, [card.preview, card.edit, skip, approve]);
+  return card.memory;
 }
 
 /** The page buyers will see for a draft, rendered by the store's own code; nothing is published. @param {PublicationCandidate} candidate */
@@ -2293,7 +2495,7 @@ function seamCard() {
   const store = Boolean(snapshot?.node.url);
   box.append(el("p", "q", store ? "Push to your store now?" : "Open your store?"), el("p", "hint", pushOffer || ""));
   const actions = el("div", "actions");
-  const leave = button("Leave it for now", "secondary", () => { pushOffer = false; render(); });
+  const leave = button("Not now", "secondary", () => { pushOffer = false; render(); });
   const push = store ? button(pushing ? "Pushing…" : "Push now", "primary", pushNow) : button("Open your store", "primary", () => { pushOffer = false; void startDeploy(); });
   leave.disabled = pushing;
   push.disabled = pushing;
@@ -2344,7 +2546,7 @@ async function decide(original, approve, candidate = original) {
 
 /** Apply one card, then offer the push once the last card is answered. @param {() => Promise<void>} action @param {boolean} approve */
 async function settle(action, approve) {
-  if ((await act(action, approve ? "Approved here. Push to put it on your store." : undefined)) && approve) approvedThisPass = true;
+  if ((await act(action, approve ? "Approved. It goes live with your next store update." : undefined)) && approve) approvedThisPass = true;
   if (candidates.length || extraDrafts.length || !approvedThisPass) return;
   approvedThisPass = false;
   pushOffer = snapshot?.node.url ? "Approved publications reach buyers only after a push. Leaving it is fine; the next push carries it." : "What you approved goes on sale once it's open. Pick a price and where payments go.";
@@ -2807,6 +3009,7 @@ function showPeek(anchor, memory) {
   peek.style.top = `${Math.max(margin, top)}px`;
 }
 mainEl.addEventListener("scroll", hidePeek, { passive: true });
+mainEl.addEventListener("scroll", () => mainEl.classList.toggle("scrolled", mainEl.scrollTop > 0), { passive: true });
 feedbackBtn.addEventListener("click", openFeedbackDialog);
 for (const nav of navButtons) nav.addEventListener("click", () => {
   const next = /** @type {View} */ (nav.dataset.view);

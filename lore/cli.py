@@ -23,6 +23,8 @@ from . import sources as sources_module
 from .paths import home
 from .sources import Registry, available_sources
 from .store import (
+    FREE_COPIES,
+    FREE_COPIES_SETTING,
     JOB_FINAL_STATUSES,
     JOB_KINDS,
     JOB_SUMMARIES,
@@ -57,9 +59,6 @@ STRIPE_ACCOUNT_SETTING = "stripe_account"
 STRIPE_PENDING_SETTING = "stripe_account_pending"
 STRIPE_TOKEN_SETTING = "stripe_account_token"
 CARD_MINIMUM_USD = 0.5
-# Copies of each piece given away before it costs anything (MON-040).
-FREE_COPIES_SETTING = "free_copies"
-FREE_COPIES = 3
 STRIPE_ACCOUNT_ID = re.compile(r"acct_[A-Za-z0-9]+")
 
 PUBLICATION_CANDIDATES: TypeAdapter[list[PublicationInput]] = TypeAdapter(

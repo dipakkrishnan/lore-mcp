@@ -152,8 +152,7 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         // switching views alone re-renders what it already had.
         await js(`window.__lore.event({ type: "changed" })`);
         await sleep(800);
-        const empty = await js(`[...document.querySelectorAll("#content .section")].find((s) => s.textContent.includes("Recent runs"))?.textContent ?? ""`);
-        check("an owner with no runs yet is told so", /Nothing has run yet/.test(empty), empty);
+        check("an owner with no runs yet sees no Recent runs section", await js(`![...document.querySelectorAll("#content .section")].some((s) => s.textContent.includes("Recent runs"))`));
         check("the rest of Today still renders", await js(`document.querySelector("#content .strip") !== null`));
         await js(`[...document.querySelectorAll("#content .section")].find((s) => s.textContent.includes("Recent runs"))?.scrollIntoView()`);
         await sleep(300);
@@ -180,16 +179,16 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         await js(`window.__lore.show("settings")`);
         await sleep(600);
         const settings = await js(`document.querySelector("#content").textContent`);
-        check("Settings offers to set the price once a store exists", /Set a price|Change price/.test(settings));
+        check("Settings offers to set the price once a store exists", await js(`[...document.querySelectorAll("#content button")].some((b) => /^(Set a price|Change)$/.test(b.textContent))`));
         // Ledger: the payout address links to Basescan on the live network, on Settings and on the For Sale bar.
         check("Settings shows the payout address", settings.includes("0xaaaa…aaaa"));
-        check("…linked to the address on Sepolia Basescan", await js(`[...document.querySelectorAll("#content a.link-btn")].some((a) => a.textContent === "Payouts ↗" && a.href === "https://sepolia.basescan.org/address/0x${"a".repeat(40)}")`));
+        check("…linked to the address on Sepolia Basescan", await js(`[...document.querySelectorAll("#content a.link-btn")].some((a) => a.textContent === "View ↗" && a.href === "https://sepolia.basescan.org/address/0x${"a".repeat(40)}")`));
         check("Settings offers the switch to real payments while on the test network", settings.includes("Switch to real payments"));
         await js(`document.querySelector("#main").scrollTop = 1e6`);
         await sleep(200);
         await shot("settings-store");
         // APP-019: one editor on For Sale; a saved price the node does not charge yet is standing state on For Sale and Today.
-        await js(`[...document.querySelectorAll("#content button")].find((b) => /^(Set a|Change) price$/.test(b.textContent)).click()`);
+        await js(`[...document.querySelectorAll("#content button")].find((b) => /^(Set a price|Change)$/.test(b.textContent)).click()`);
         await waitFor(`document.querySelector("#content .price-edit input")`);
         check("Settings' Change price lands on the For Sale editor", await js(`document.querySelector("#title").textContent === "For Sale" && document.activeElement === document.querySelector("#content .price-edit input")`));
         await js(`{ const field = document.querySelector("#content .price-edit input"); field.value = "0"; field.form.requestSubmit(); }`);
@@ -240,7 +239,7 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         await waitFor(`document.querySelector("#content").textContent.includes("Taken down")`);
         // This scratch home has no node source, so the revoke's push fails: the owner hears that plainly, not as a command.
         const revokeNotice = await js(`document.querySelector("#status").textContent`);
-        check("a take-down whose push failed reads plainly", revokeNotice.includes("If your store still has it, push to finish.") && !/wrangler|--worker-dir|\/Users\/|\/var\//.test(revokeNotice), revokeNotice);
+        check("a take-down whose push failed reads plainly", revokeNotice.includes("Your store stops selling it as soon as it updates.") && !/wrangler|--worker-dir|\/Users\/|\/var\//.test(revokeNotice), revokeNotice);
         execFileSync("uv", ["run", "python", "-c", `import time\nfrom lore.store import Store\nwith Store() as s:\n s.set_setting('node_live', {'url': 'https://store.example/mcp', 'checked_at': time.time(), 'live': {'state': 'online', 'network': 'eip155:84532', 'payout': '0x' + 'a' * 40}, 'ids': ['${publicId}']})`], { cwd: join(__dirname, "../../.."), env: process.env });
         await js(`window.__lore.event({ type: "changed" })`);
         check("a taken-down item the node still serves says so", await waitFor(`document.querySelector("#content").textContent.includes("Still on your store")`));
@@ -281,13 +280,13 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         await sleep(600);
         check("no store: the bar offers to open one", await js(`[...document.querySelectorAll("#content .store-bar button")].some((b) => b.textContent === "Open your store")`));
         const forSale = await js(`[...document.querySelectorAll("#content .empty")].map((n) => n.textContent).join("|")`);
-        check("nothing for sale: one sentence and a way to draft", /Nothing for sale yet\./.test(forSale) && await js(`[...document.querySelectorAll("#content .empty button")].some((b) => b.textContent === "Draft one from a memory")`), forSale);
+        check("nothing for sale: one sentence and a way to draft", /Nothing for sale yet\./.test(forSale) && await js(`[...document.querySelectorAll("#content .empty button")].some((b) => b.textContent === "Draft your first piece")`), forSale);
         check("no sales: left alone, no action", await js(`[...document.querySelectorAll("#content .empty")].find((n) => n.textContent.includes("No sales yet")).querySelector("button") === null`));
         check("every empty-state action is a real button, reachable by keyboard", await js(`[...document.querySelectorAll("#content .empty button, #content .store-bar button")].every((b) => b.tabIndex >= 0)`));
         await shot("store-empty");
-        await js(`[...document.querySelectorAll("#content .empty button")].find((b) => b.textContent === "Draft one from a memory").click()`);
+        await js(`[...document.querySelectorAll("#content .empty button")].find((b) => b.textContent === "Draft your first piece").click()`);
         await sleep(300);
-        check("Draft one from a memory opens Memories", await js(`document.querySelector("#title").textContent`) === "Memories");
+        check("Draft your first piece opens Memories", await js(`document.querySelector("#title").textContent`) === "Memories");
       } else if (scenario === "obsidian") {
         // APP-124: an app by name, one Connect, the vault offered rather than asked for.
         await waitFor(`document.body.dataset.state === "welcome" && !document.querySelector("#welcome").classList.contains("provisioning")`);
@@ -597,7 +596,7 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         // APP-134: a draft previews as the page buyers will see; pasted writing is kept privately, then drafted.
         await js(`window.__lore.signIn()`);
         await waitFor(`document.querySelector("#content").textContent.includes("Approve what to sell")`);
-        await js(`[...document.querySelectorAll("#content button")].find((b) => b.textContent === "Preview page").click()`);
+        await js(`document.querySelector("#content .read-title").click()`);
         let preview;
         for (let i = 0; i < 40 && !preview; i++) { preview = window.getChildWindows()[0]; if (!preview) await sleep(250); }
         await sleep(800);
@@ -619,8 +618,8 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
       } else if (scenario === "extras") {
         // New free parts for a piece already on sale wait beside new drafts, preview as its page, and approve in place.
         await js(`window.__lore.signIn()`);
-        check("the update waits with the drafts", await waitFor(`document.querySelector("#content").textContent.includes("Already for sale")`));
-        const card = `[...document.querySelectorAll("#content .memory")].find((m) => m.textContent.includes("Already for sale"))`;
+        check("the update waits with the drafts", await waitFor(`document.querySelector("#content").textContent.includes("already for sale")`));
+        const card = `document.querySelector("#content .extras-batch .memory")`;
         check("…showing only the free parts", await js(`${card}.querySelectorAll("textarea, input").length === 3`));
         await js(`${card}.scrollIntoView({ block: "center" })`);
         await shot("extras-card");
@@ -638,6 +637,64 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         check("the new drafts are untouched", await js(`window.lore.candidates().then((left) => left.length)`) === 2);
         check("the same piece stays on sale", await js(`window.lore.snapshot().then((s) => s.publications.counts.active)`) === 1);
         await shot("extras-approved");
+      } else if (scenario === "settings") {
+        // Settings → Your store with every row filled, then the batch of free-part updates on Today.
+        const text = () => js(`document.querySelector("#content").textContent`);
+        const rowOf = (label) => `[...document.querySelectorAll("#content .row")].find((r) => r.querySelector(".t b")?.textContent === ${JSON.stringify(label)})`;
+        await js(`window.__lore.signIn()`);
+        await waitFor(`document.querySelector("#content").textContent.includes("Approve what to sell")`);
+        await js(`[...document.querySelectorAll("#content .memory")].at(-2)?.scrollIntoView({ block: "start" })`);
+        await sleep(200);
+        await shot("today-approvals");
+        await js(`window.__lore.show("settings")`);
+        await waitFor(`document.querySelector("#content").textContent.includes("Listed")`);
+        await sleep(300);
+        await shot("settings-top");
+        await js(`document.querySelector("#main").scrollTop = 1e6`);
+        await sleep(200);
+        await shot("settings-your-store");
+        const settings = await text();
+        check("no network jargon in Settings", !/Base(?![a-z])|mainnet|USDC/.test(settings), settings);
+        check("the address row has one Live pill and one Open link", await js(`(() => { const r = ${rowOf("Address")}; return r.querySelector(".status-pill")?.textContent === "Live" && [...r.querySelectorAll("a.link-btn")].map((a) => a.textContent + " " + a.href).join() === "Open ↗ https://lore-edge.example.workers.dev/"; })()`));
+        check("one Change control for the price, and no second payouts link", await js(`[...document.querySelectorAll("#content button")].filter((b) => /Change/.test(b.textContent)).length === 1 && ![...document.querySelectorAll("#content a")].some((a) => a.textContent === "Payouts ↗")`));
+        check("the price row says the free copies", await js(`${rowOf("Price")}.textContent.includes("$1.00 per piece · first 3 copies free")`));
+        const paid = await js(`${rowOf("Get paid")}?.textContent ?? ""`);
+        check("Get paid names both ways in, card first", /By card.*agents in a browser.*Stripe.*On.*To your wallet.*0x0c27…8166/.test(paid), paid);
+        check("…with the wallet one link away", await js(`[...${rowOf("Get paid")}.querySelectorAll("a.link-btn")].some((a) => a.textContent === "View ↗" && a.href === "https://basescan.org/address/0x0c270534cfcecc9224edb903ef5dd70410d08166")`));
+        check("paid answers get their own row", await js(`${rowOf("Paid answers")}?.textContent.includes("$0.10 per answer")`));
+        check("the home folder is one click from Finder", await js(`${rowOf("Where it lives")}?.textContent.includes("Show in Finder")`));
+        await js(`${rowOf("Price")}.querySelector("button").click()`);
+        await waitFor(`Boolean(document.querySelector("#content .price-edit"))`);
+        check("Change opens one editor for price and free copies", await js(`document.querySelectorAll("#content .price-edit input").length === 2 && document.querySelector("#title").textContent === "For Sale"`));
+        await js(`{ const [amount, copies] = document.querySelectorAll("#content .price-edit input"); amount.value = "0.75"; copies.value = "5"; amount.form.requestSubmit(); }`);
+        check("both save through the CLI", await waitFor(`window.lore.snapshot().then((s) => s.pricing.publication_usd === 0.75 && s.pricing.free_copies === 5)`));
+        check("…and a live store is offered the push that carries free copies", await waitFor(`[...document.querySelectorAll("#status .notice button")].some((b) => b.textContent === "Push now")`));
+        await shot("store-price-editor-saved");
+        await js(`window.__lore.show("settings")`);
+        await waitFor(`${rowOf("Price")}?.textContent.includes("first 5 copies free")`);
+
+        await js(`window.__lore.show("today")`);
+        await waitFor(`document.querySelector("#content").textContent.includes("already for sale")`);
+        const batch = `document.querySelector("#content .extras-batch")`;
+        check("one header names the batch", await js(`${batch}?.querySelector(".batch-head b")?.textContent`) === "Add who-it's-for lines and samples to 2 pieces already for sale");
+        check("the cards read like the buyer page, with no fields showing", await js(`[...${batch}.querySelectorAll(".fields")].every((f) => f.hidden) && ${batch}.textContent.includes("Good for") && ${batch}.textContent.includes("Not for")`));
+        check("a sample shows only where there is one", await js(`${batch}.querySelectorAll(".read-sample").length === 1`));
+        check("the old per-card disclaimer is gone", !(await text()).includes("Already for sale. Approving changes"));
+        await js(`${batch}.scrollIntoView({ block: "start" })`);
+        await sleep(200);
+        await shot("today-extras-batch");
+        await js(`[...[...${batch}.querySelectorAll(".memory")][1].querySelectorAll("button")].find((b) => b.textContent === "Edit").click()`);
+        check("Edit swaps in the three free fields", await js(`(() => { const m = [...${batch}.querySelectorAll(".memory")][1]; return !m.querySelector(".fields").hidden && m.querySelector(".read").hidden && m.querySelectorAll(".fields textarea").length === 3; })()`));
+        await js(`{ const t = [...${batch}.querySelectorAll(".memory")][1].querySelectorAll("textarea")[1]; t.value = "you have no buyers yet"; t.dispatchEvent(new Event("input")); }`);
+        await shot("today-extras-editing");
+        await js(`[...${batch}.querySelectorAll("button")].find((b) => b.textContent === "Approve all 2").click()`);
+        check("Approve all asks once before acting", await js(`${batch}.textContent.includes("Approve all 2?")`) && await js(`window.lore.extras().then((left) => left.length)`) === 2);
+        await shot("today-extras-confirm");
+        await js(`[...${batch}.querySelectorAll("button")].find((b) => b.textContent === "Approve both").click()`);
+        check("approving all consumes every update", await waitFor(`window.lore.extras().then((left) => !left.length)`));
+        check("…carrying the edit made on the card", /Not useful if: you have no buyers yet|not useful if: you have no buyers yet/i.test(execFileSync("uv", ["run", "lore", "publication", "list"], { cwd: join(__dirname, "../../.."), env: process.env, encoding: "utf8" })));
+        check("…and leaves the new drafts alone", await js(`window.lore.candidates().then((left) => left.length)`) === 2);
+        await shot("today-extras-approved");
       } else if (scenario === "sales") {
         // MON-037: a new sale is a Mac notification and shows on Today; old sales never are.
         const { existsSync, readFileSync } = require("node:fs");
@@ -676,7 +733,7 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         await waitFor(`document.querySelector("#content").textContent.includes("Approve what to sell")`);
         await js(`window.lore.setPrice(3)`);
         await js(`window.__lore.show("settings")`);
-        const cardsRow = `[...document.querySelectorAll("#content .row")].find((r) => r.textContent.startsWith("Card payments"))`;
+        const cardsRow = `[...document.querySelectorAll("#content .way")].find((r) => r.textContent.startsWith("By card"))`;
         const press = (label) => js(`[...${cardsRow}.querySelectorAll("button")].find((b) => b.textContent === ${JSON.stringify(label)}).click()`);
         check("Settings offers to get paid to the bank", await waitFor(`${cardsRow}?.textContent.includes("Get paid to your bank")`));
         await shot("cards-offer");
@@ -691,11 +748,21 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         stripeChecking = true;
         await js(`window.dispatchEvent(new Event("focus"))`);
         check("while Stripe verifies, the row says it is checking, with nothing for the owner to do", await waitFor(`${cardsRow}?.textContent.includes("Stripe is checking your details") && !${cardsRow}.querySelector("button")`));
+        check("…and the notice to finish the form clears itself", await js(`!document.querySelector("#status").textContent.includes("Finish with Stripe in your browser")`));
         stripeCleared = true;
         stripeChecking = false;
-        check("once Stripe clears it, the row offers to turn cards on without a click", await waitFor(`${cardsRow}?.textContent.includes("Turn on card payments")`, 60));
+        check("once Stripe clears it, the row offers to turn cards on without a click", await waitFor(`${cardsRow}?.textContent.includes("Turn on")`, 60));
         await shot("cards-ready");
-        await press("Turn on card payments");
+        // A price under Stripe's minimum is said once, on the price row; the card line only says what to do.
+        await js(`window.lore.setPrice(0.25)`);
+        await js(`window.__lore.event({ type: "changed" })`);
+        const priceRow = `[...document.querySelectorAll("#content .row")].find((r) => r.querySelector(".t b")?.textContent === "Price")`;
+        check("a price under the card minimum warns on the price row, once", await waitFor(`${priceRow}?.textContent.includes("Card payments need at least $0.50") && (document.querySelector("#content").textContent.match(/\\$0\\.50/g) ?? []).length === 1 && ${cardsRow}.textContent.includes("Raise your price")`));
+        await shot("cards-price-warning");
+        await js(`window.lore.setPrice(3)`);
+        await js(`window.__lore.event({ type: "changed" })`);
+        await waitFor(`!${priceRow}?.textContent.includes("Card payments need")`);
+        await press("Turn on");
         check("cards are on, with a way to turn them off", await waitFor(`${cardsRow}?.textContent.includes("Turn off")`));
         check("…into the account Stripe cleared", await js(`window.lore.cardStatus().then((c) => c.account)`) === "acct_1EdgeSeller");
         await shot("cards-on");
@@ -793,7 +860,7 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         check("the offer is said once, not again under Needs you", !(await js(`[...document.querySelectorAll("#content .row b")].some((b) => b.textContent === "Open your store")`)));
         check("approved title carried the edit", await js(`window.lore.snapshot().then((s) => s.publications.items.map((i) => i.title).join("|"))`) === "Edited by the owner");
         await shot("seller-approved-offer");
-        await js(`[...document.querySelectorAll("#content .request button")].find((b) => b.textContent === "Leave it for now").click()`);
+        await js(`[...document.querySelectorAll("#content .request button")].find((b) => b.textContent === "Not now").click()`);
         check("the offer can be left for later", !(await js(`[...document.querySelectorAll("#content .request .q")].some((q) => q.textContent === "Open your store?")`)));
 
         // Ledger: with no store there is nothing to read, and the section says so without a probe.
