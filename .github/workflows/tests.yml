@@ -200,7 +200,7 @@ jobs:
       - run: npm ci
       # Placeholder: never a real Stripe key. Lets `wrangler types` resolve
       # the secret binding the same way the feedback relay's job does.
-      - run: printf "STRIPE_SECRET_KEY=sk_test_not_a_real_key\nSTRIPE_WEBHOOK_SECRET=whsec_not_a_real_secret\n" > .dev.vars
+      - run: printf "STRIPE_SECRET_KEY=sk_test_not_a_real_key\nSTRIPE_WEBHOOK_SECRET=whsec_not_a_real_secret\nACCOUNT_TOKEN_SECRET=not_a_real_token_secret\n" > .dev.vars
       - run: npm run types
       - run: npm run check
 
@@ -216,7 +216,7 @@ jobs:
         with:
           node-version: lts/*
       - run: npm ci
-      - run: printf "STRIPE_SECRET_KEY=sk_test_not_a_real_key\nSTRIPE_WEBHOOK_SECRET=whsec_not_a_real_secret\n" > .dev.vars
+      - run: printf "STRIPE_SECRET_KEY=sk_test_not_a_real_key\nSTRIPE_WEBHOOK_SECRET=whsec_not_a_real_secret\nACCOUNT_TOKEN_SECRET=not_a_real_token_secret\n" > .dev.vars
       - name: Run the stubbed-Stripe test suite (XC-039)
         run: npm test
 

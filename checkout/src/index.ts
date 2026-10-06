@@ -1,4 +1,4 @@
-import { StripeError, bindStore, boundStore, cardPayments, createAccount, createSession, onboardingLink, retrieveSession } from "./stripe.js";
+import { StripeError, bindStore, boundStore, cardPayments, createAccount, createSession, onboardingLink, reachable, retrieveSession } from "./stripe.js";
 import { webhook } from "./webhooks.js";
 
 /** Cards can't charge less; a store priced below this offers no card checkout. */
@@ -54,7 +54,7 @@ async function create(request: Request, env: Env): Promise<Response> {
   if (!ACCOUNT.test(found.stripe_account) || !(found.price_usd >= CARD_MINIMUM_USD)) {
     return text(409, "This store doesn't take cards.");
   }
-  if (found.test && !env.STRIPE_SECRET_KEY.startsWith("sk_test_")) {
+  if (found.test && !/^[rs]k_test_/.test(env.STRIPE_SECRET_KEY)) {
     return text(409, "This is a test store, so it can't take a real card payment.");
   }
   try {
@@ -99,10 +99,11 @@ async function verify(url: URL, env: Env): Promise<Response> {
 /**
  * Proof that a caller is the seller this Worker opened an account for. Only the
  * desktop app that asked for the account gets it, so an account id read off a
- * store page can't be used to open that seller's Stripe form.
+ * store page can't be used to open that seller's Stripe form. Keyed on its own
+ * secret so a Stripe key can be rolled without logging sellers out.
  */
 async function signer(env: Env): Promise<CryptoKey> {
-  return crypto.subtle.importKey("raw", new TextEncoder().encode(`lore-accounts:${env.STRIPE_SECRET_KEY}`), { name: "HMAC", hash: "SHA-256" }, false, ["sign", "verify"]);
+  return crypto.subtle.importKey("raw", new TextEncoder().encode(env.ACCOUNT_TOKEN_SECRET), { name: "HMAC", hash: "SHA-256" }, false, ["sign", "verify"]);
 }
 
 const hex = (bytes: ArrayBuffer) => [...new Uint8Array(bytes)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
@@ -166,6 +167,11 @@ async function accountStatus(url: URL, env: Env): Promise<Response> {
   }
 }
 
+/** After a key swap: does Stripe take this key? Says only yes or no. */
+async function health(env: Env): Promise<Response> {
+  return (await reachable(env)) ? json({ ok: true }) : json({ ok: false }, 502);
+}
+
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
@@ -176,6 +182,7 @@ export default {
     if (url.pathname === "/accounts/bind" && request.method === "POST") return bind(request, env);
     if (url.pathname === "/onboard" && request.method === "GET") return onboard(url, env);
     if (url.pathname === "/webhooks" && request.method === "POST") return webhook(request, env);
+    if (url.pathname === "/health" && request.method === "GET") return health(env);
     if (url.pathname === "/onboarded") return text(200, "You're set up with Stripe. Go back to Lore; it finishes the rest.");
     if (url.pathname === "/") return text(200, "Lore card checkout. Payments go straight to each seller's own Stripe account.");
     return text(404, "Not found.");
