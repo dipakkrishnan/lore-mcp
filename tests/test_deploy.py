@@ -749,6 +749,23 @@ class RunTest(_NodeCase):
         self.assertIn("THE CAUSE", message)
         self.assertLess(len(message), 2100)
 
+    def test_failure_detail_is_wranglers_refusal_not_its_help_footer(self) -> None:
+        # The desktop shows the last line, which after a refusal is a bug-report link.
+        result = subprocess.CompletedProcess(
+            ("x",),
+            1,
+            stdout="",
+            stderr="\x1b[31m✘ \x1b[41;31m[\x1b[41;97mERROR\x1b[41;31m]\x1b[0m \x1b[1mUnknown arguments: d1\x1b[0m\n"
+            "COMMANDS\n  wrangler d1  Manage D1\n"
+            "Please report any issues to https://github.com/cloudflare/workers-sdk/issues/new/choose",
+        )
+        with patch("lore.deploy.subprocess.run", return_value=result):
+            with self.assertRaises(OSError) as raised:
+                deploy_module._run(("x",), self.lore_home, fail="reading sales failed")
+        self.assertEqual(
+            str(raised.exception), "reading sales failed:\nUnknown arguments: d1"
+        )
+
     def test_a_nonzero_exit_is_returned_when_no_failure_message_is_given(self) -> None:
         # `whoami` and `secret list` are probes: their exit code is information,
         # not an error to raise on.
