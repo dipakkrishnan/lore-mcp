@@ -22,6 +22,10 @@ test("announces only sales after the last one seen, one by one or as one lot", (
   assert.deepEqual(announcements([old]), [{ title: "You sold a piece", body: "Demos beat decks · $3.00 by card" }]);
   const many = [1, 2, 3, 4].map((n) => sale(`pi_${n}`, `2026-10-0${n}T00:00:00Z`));
   assert.deepEqual(announcements(many), [{ title: "You sold 4 pieces", body: "$12.00" }]);
+  const free = { ...fresh, network: "free", price_usd: 0 };
+  assert.deepEqual(announcements([free]), [{ title: "Someone read a free copy", body: "Demos beat decks" }]);
+  assert.deepEqual(announcements([free, free, free, free]), [{ title: "4 free copies read", body: "Free copies of your pieces" }]);
+  assert.deepEqual(announcements([...many.slice(0, 3), free]), [{ title: "You sold 3 pieces", body: "$9.00 · 1 free copy read" }]);
 });
 
 test("reads only the fixed APP-001 snapshot", async () => {

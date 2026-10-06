@@ -43,6 +43,8 @@ PRICE_DECLARATION = "export const PRICE_USD = 0.01;"
 # `*`, not a column list: a node deployed before `refund_owed` existed still
 # reads, and the field defaults to nothing owed.
 SALES_QUERY = "SELECT * FROM sales ORDER BY sold_at DESC, id DESC"
+# A free first copy (MON-040): a $0 ledger row, never earnings and never owed back.
+FREE_NETWORK = "free"
 
 
 class Sale(BaseModel):
