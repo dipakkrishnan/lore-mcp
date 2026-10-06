@@ -1050,13 +1050,13 @@ function cardWay(s) {
     tell(account ? (s.node.url ? "Card payments are on. Lore is updating your store so buyers see Buy by card." : "Card payments are on. They start when your store opens.") : "Card payments are off.");
     if (account && s.node.url) await startDeploy(CARDS_ON);
   });
-  if (status.account) return way(by, "Stripe pays you out to your bank.", pill("On", "ok"), outLink("Stripe ↗", "https://dashboard.stripe.com"), button("Turn off", "quiet", () => void switchTo(null)));
+  if (status.account) return way(by, "People, or their agents in a browser, pay by card. Stripe pays you out to your bank.", pill("On", "ok"), outLink("Stripe ↗", "https://dashboard.stripe.com"), button("Turn off", "quiet", () => void switchTo(null)));
   const finish = button(status.pending ? "Finish with Stripe" : "Get paid to your bank", "secondary", () => void act(async () => {
     await window.lore.connectCards();
     cards = null;
     tell(STRIPE_FORM);
   }));
-  if (!status.pending) return way(by, "Let buyers pay by card. Stripe checks who you are and pays you out to your bank.", finish);
+  if (!status.pending) return way(by, "Let people, or their agents in a browser, pay by card. Stripe checks who you are and pays you out to your bank.", finish);
   if (status.ready === null) return way(by, "Lore couldn't reach Stripe to check your account.", button("Check again", "quiet", () => void loadCards()));
   if (!status.ready && status.checking) {
     // Stripe verifies what the owner entered on its own clock; look again shortly rather than waiting for a click.
@@ -1075,13 +1075,13 @@ function cardMinimum(s) {
   return typeof amount === "number" && amount >= cards.minimum_usd ? null : cards.minimum_usd;
 }
 
-/** Get paid → By AI agents: the wallet the store names, one link from its public record. @param {Snapshot} s */
+/** Get paid → To your wallet: agents can also pay the wallet the store names directly. @param {Snapshot} s */
 function walletWay(s) {
-  const by = "By AI agents";
+  const by = "To your wallet";
   const payout = s.node.live.payout;
   if (!payout) return way(by, s.node.url ? "Lore can't see your store's wallet right now." : "You choose a wallet when your store opens.");
   const value = el("span", "way-value");
-  value.append("Wallet ", el("span", "mono", `${payout.slice(0, 6)}…${payout.slice(-4)}`));
+  value.append("Agents can pay it directly · ", el("span", "mono", `${payout.slice(0, 6)}…${payout.slice(-4)}`));
   return way(by, value, outLink("View ↗", `${explorer(s.node.live.network)}/address/${payout}`));
 }
 
