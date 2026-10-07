@@ -7,6 +7,7 @@ import os
 import re
 import secrets
 import sqlite3
+import time
 from datetime import datetime, timedelta, timezone
 from enum import Enum
 from pathlib import Path
@@ -35,6 +36,11 @@ class Status(str, Enum):
 
 
 STATUSES = tuple(status.value for status in Status)
+
+# How long an open waits, in seconds, for another process that holds the
+# database. On a brand-new home the desktop app starts several `lore` commands
+# at once and every one of them runs the first migration.
+BUSY_SECONDS = 15.0
 
 
 def new_public_id() -> str:
@@ -331,7 +337,7 @@ class Store:
         self.path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
         if path is None:
             self.path.parent.chmod(0o700)
-        self.db = sqlite3.connect(self.path)
+        self.db = sqlite3.connect(self.path, timeout=BUSY_SECONDS)
         self.path.chmod(0o600)
         self.db.row_factory = sqlite3.Row
         self._migrate()
@@ -345,10 +351,29 @@ class Store:
     def __exit__(self, *_: object) -> None:
         self.close()
 
+    def _enter_wal(self) -> None:
+        """Switch to write-ahead logging, waiting out another process's write.
+
+        SQLite refuses this switch at once, without consulting the busy
+        timeout, while another connection is writing to a database that is not
+        in WAL mode yet — which is exactly the first migration on a new home.
+        A filesystem that cannot do WAL answers with its old mode and no error,
+        and Lore carries on in that mode as it always has.
+        """
+        deadline = time.monotonic() + BUSY_SECONDS
+        while True:
+            try:
+                self.db.execute("PRAGMA journal_mode=WAL").fetchone()
+                return
+            except sqlite3.OperationalError as error:
+                if "locked" not in str(error) or time.monotonic() >= deadline:
+                    raise
+            time.sleep(0.05)
+
     def _migrate(self) -> None:
+        self._enter_wal()
         self.db.executescript(
             """
-            PRAGMA journal_mode=WAL;
             PRAGMA foreign_keys=ON;
             CREATE TABLE IF NOT EXISTS memories (
                 id INTEGER PRIMARY KEY,

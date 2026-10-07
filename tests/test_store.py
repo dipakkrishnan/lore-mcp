@@ -10,9 +10,14 @@ import json
 import os
 import sqlite3
 import stat
+import subprocess
+import sys
+import threading
+import time
 import unittest
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from unittest import mock
 
 from helpers import LoreTestCase
 
@@ -100,6 +105,146 @@ class StoreLifecycleTest(LoreTestCase):
             self.assertEqual(
                 {m.status for m in found}, {Status.PRIVATE, Status.DISCARDED}
             )
+
+
+class _JournalPragma(sqlite3.Connection):
+    """A connection whose journal-mode switch does what a test scripts for it."""
+
+    answer: str | Exception = "delete"
+    asked = 0
+
+    def execute(self, sql: str, *args: object) -> sqlite3.Cursor:
+        if "journal_mode" not in sql:
+            return super().execute(sql, *args)
+        type(self).asked += 1
+        if isinstance(self.answer, Exception):
+            raise self.answer
+        return super().execute("SELECT ?", (self.answer,))
+
+
+class StoreConcurrencyTest(LoreTestCase):
+    """Several `lore` processes open one brand-new home at once (STO-004).
+
+    The first migration switches the database to WAL, and SQLite refuses that
+    switch immediately — ignoring the busy timeout — while another connection
+    is writing. The loser of that race used to die with "database is locked".
+    """
+
+    # Every one of these opens the store; the desktop app's first render runs
+    # the first two together.
+    COMMANDS = (
+        ("desktop-state",),
+        ("sources", "catalog", "--json"),
+        ("search", "deployment", "--json"),
+    )
+
+    def hold_write_lock(self) -> sqlite3.Connection:
+        """Stand in for another process that is midway through a write to a
+        database that has not been switched to WAL yet."""
+        self.lore_home.mkdir(parents=True, exist_ok=True)
+        holder = sqlite3.connect(
+            self.lore_home / "lore.db", isolation_level=None, check_same_thread=False
+        )
+        self.addCleanup(holder.close)
+        holder.execute("BEGIN IMMEDIATE")
+        return holder
+
+    def release_after(self, holder: sqlite3.Connection, seconds: float) -> None:
+        timer = threading.Timer(seconds, holder.execute, ("COMMIT",))
+        timer.start()
+        self.addCleanup(timer.join)
+
+    def connect_with(self, factory: type[sqlite3.Connection]) -> None:
+        """Open the store's connection through `factory`, and close it afterwards:
+        a store that fails to open hands nothing back to close."""
+        real = sqlite3.connect
+
+        def connect(*args: object, **kwargs: object) -> sqlite3.Connection:
+            connection = real(*args, factory=factory, **kwargs)
+            self.addCleanup(connection.close)
+            return connection
+
+        patcher = mock.patch("lore.store.sqlite3.connect", connect)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def scripted_pragma(self, answer: str | Exception) -> type[_JournalPragma]:
+        scripted = type("Scripted", (_JournalPragma,), {"answer": answer, "asked": 0})
+        self.connect_with(scripted)
+        return scripted
+
+    def start_lore_processes(self, count: int) -> list[subprocess.Popen[str]]:
+        """Start `count` real `lore` processes together."""
+        processes = [
+            subprocess.Popen(
+                [sys.executable, "-m", "lore", *self.COMMANDS[i % len(self.COMMANDS)]],
+                cwd=Path(__file__).resolve().parent.parent,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.PIPE,
+                text=True,
+            )
+            for i in range(count)
+        ]
+        self.addCleanup(self.reap, processes)
+        return processes
+
+    @staticmethod
+    def reap(processes: list[subprocess.Popen[str]]) -> None:
+        for process in processes:
+            process.kill()
+            process.wait()
+            if process.stderr and not process.stderr.closed:
+                process.stderr.close()
+
+    def assert_all_succeed(self, processes: list[subprocess.Popen[str]]) -> None:
+        for process in processes:
+            _, stderr = process.communicate(timeout=90)
+            self.assertEqual(process.returncode, 0, stderr)
+
+    def test_open_waits_for_another_process_mid_first_migration(self) -> None:
+        self.release_after(self.hold_write_lock(), 0.3)
+        with Store() as store:
+            mode = store.db.execute("PRAGMA journal_mode").fetchone()[0]
+            self.assertEqual(mode, "wal")
+            self.assertEqual(store.counts()["private"], 0)
+
+    def test_open_gives_up_once_the_wait_runs_out(self) -> None:
+        self.connect_with(sqlite3.Connection)
+        self.hold_write_lock()
+        started = time.monotonic()
+        with mock.patch("lore.store.BUSY_SECONDS", 0.2):
+            with self.assertRaisesRegex(sqlite3.OperationalError, "locked"):
+                Store()
+        self.assertGreaterEqual(time.monotonic() - started, 0.2)
+
+    def test_an_error_that_is_not_a_lock_is_raised_at_once(self) -> None:
+        scripted = self.scripted_pragma(sqlite3.OperationalError("disk I/O error"))
+        with self.assertRaisesRegex(sqlite3.OperationalError, "disk I/O error"):
+            Store()
+        self.assertEqual(scripted.asked, 1)
+
+    def test_a_filesystem_without_wal_keeps_its_journal_mode(self) -> None:
+        # SQLite answers the switch with the old mode and no error where WAL
+        # cannot work. That must stay an open store, not a wait.
+        scripted = self.scripted_pragma("delete")
+        with Store() as store:
+            self.assertEqual(store.counts()["private"], 0)
+        self.assertEqual(scripted.asked, 1)
+
+    def test_several_lore_processes_on_an_empty_home_all_succeed(self) -> None:
+        self.assert_all_succeed(self.start_lore_processes(4))
+
+    def test_lore_processes_wait_for_a_migration_already_under_way(self) -> None:
+        # The race itself is rare, so hold the lock the winner would hold until
+        # every process has had time to start and meet it on the journal-mode
+        # switch. One that gives up exits while the lock is still held.
+        holder = self.hold_write_lock()
+        processes = self.start_lore_processes(4)
+        ceiling = time.monotonic() + 6
+        while time.monotonic() < ceiling and all(p.poll() is None for p in processes):
+            time.sleep(0.1)
+        holder.execute("COMMIT")
+        self.assert_all_succeed(processes)
 
 
 class RetentionTest(LoreTestCase):
