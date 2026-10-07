@@ -4,13 +4,13 @@ title: Accept -- before a path in connectors connect on every supported Python
 priority: P1
 effort: XS
 component: cli-ux
-status: ready
+status: in-progress
 related: [APP-124, STO-003]
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-10-06
-updated: 2026-10-06
+updated: 2026-10-07
 ---
 
 ## Problem
