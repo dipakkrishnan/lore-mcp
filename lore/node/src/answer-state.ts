@@ -22,6 +22,8 @@ export interface AnswerSettings {
   stripeAccount: string;
   /** Copies of each piece given away before it costs anything (MON-040); none unless the owner's push set it. */
   freeCopies: number;
+  /** Where buyers write for help or a refund; empty shows no support line. */
+  supportEmail: string;
 }
 
 export interface AnswerOutcome {
@@ -119,7 +121,7 @@ export async function readAnswerSettings(db: D1Database): Promise<AnswerSettings
       .prepare("SELECT key, value FROM node_settings")
       .all<{ key: string; value: string }>());
   } catch {
-    return { enabled: false, priceUsd: 0, proxy: "", listedName: "", stripeAccount: "", freeCopies: 0 };
+    return { enabled: false, priceUsd: 0, proxy: "", listedName: "", stripeAccount: "", freeCopies: 0, supportEmail: "" };
   }
   const values = Object.fromEntries(rows.map(({ key, value }) => [key, value]));
   const priceUsd = Number(values.answer_price_usd ?? 0);
@@ -133,7 +135,8 @@ export async function readAnswerSettings(db: D1Database): Promise<AnswerSettings
     proxy,
     listedName: values.listed_name ?? "",
     stripeAccount: values.stripe_account ?? "",
-    freeCopies: Number.isInteger(freeCopies) && freeCopies > 0 ? freeCopies : 0
+    freeCopies: Number.isInteger(freeCopies) && freeCopies > 0 ? freeCopies : 0,
+    supportEmail: values.support_email ?? ""
   };
 }
 

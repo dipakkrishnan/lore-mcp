@@ -870,6 +870,24 @@ class PriceTest(LoreTestCase):
         with self.assertRaisesRegex(ValueError, "zero or more"):
             cli.free_copies(-1)
 
+    def test_support_email_is_set_shown_and_turned_off(self) -> None:
+        with captured() as output:
+            self.assertEqual(cli.main(["support"]), 0)
+        self.assertIn("No support email", output.getvalue())
+        with captured() as output:
+            self.assertEqual(cli.main(["support", "help@example.com"]), 0)
+        self.assertIn("Buyers write to help@example.com", output.getvalue())
+        with Store() as store:
+            self.assertEqual(
+                store.setting(cli.SUPPORT_EMAIL_SETTING), "help@example.com"
+            )
+        with self.assertRaisesRegex(ValueError, "email address"):
+            cli.support_email("<script>@x")
+        with captured():
+            self.assertEqual(cli.support_email("off"), 0)
+        with Store() as store:
+            self.assertEqual(store.setting(cli.SUPPORT_EMAIL_SETTING), "")
+
     def test_prices_that_cannot_be_charged_are_refused(self) -> None:
         for amount in (float("nan"), float("inf"), -1.0):
             with self.subTest(amount=amount):
@@ -2166,6 +2184,13 @@ class PushTest(LoreTestCase):
         # The local integer id never leaves this machine — the edge is keyed
         # on the opaque public id, so revocations leave no visible gap.
         self.assertNotIn(f"({kept},", sql)
+
+    def test_push_sql_carries_the_support_email(self) -> None:
+        with Store() as store:
+            sql = cli._push_sql(
+                [], store.answer_settings(), "", support_email="help@example.com"
+            )
+        self.assertIn("VALUES ('support_email','help@example.com');", sql)
 
     def test_push_sql_escapes_quotes_rather_than_breaking_the_script(self) -> None:
         # An apostrophe in an owner's own prose would otherwise truncate the

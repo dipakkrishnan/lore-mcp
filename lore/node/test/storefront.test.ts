@@ -129,3 +129,15 @@ describe("unlockedPage", () => {
     expect(html).toContain("Thanks for buying");
   });
 });
+
+describe("support line", () => {
+  const help = { ...store, support: "help@example.com" };
+  it("ends every page with the seller's support email when set", () => {
+    for (const html of [storefront(catalog, help), publicationPage(piece, help), unlockedPage(piece, help, { title: "T", content: "C" })]) {
+      expect(html).toContain('Email the seller at <a href="mailto:help@example.com">help@example.com</a>.');
+    }
+  });
+  it("shows nothing when the seller has not set one", () => {
+    expect(storefront(catalog, store)).not.toContain("Email the seller");
+  });
+});

@@ -91,6 +91,7 @@ FREE_EXTRAS = ("sample", "useful_if", "not_useful_if")
 # Copies of each piece given away before it costs anything (MON-040).
 FREE_COPIES_SETTING = "free_copies"
 FREE_COPIES = 3
+SUPPORT_EMAIL_SETTING = "support_email"
 
 
 class PublicationInput(BaseModel):
