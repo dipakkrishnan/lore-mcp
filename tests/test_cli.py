@@ -14,7 +14,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
-from contextlib import contextmanager
+from contextlib import contextmanager, redirect_stderr
 from datetime import datetime, timedelta, timezone
 from io import StringIO
 from pathlib import Path
@@ -1524,6 +1524,34 @@ class PublicationApplyTest(LoreTestCase):
         self.assertEqual(json.loads(self.staged_path.read_text()), staged)
         with Store() as store:
             self.assertEqual(store.list_publications(), [])
+
+    def test_a_draft_that_repeats_a_piece_for_sale_is_skipped(self) -> None:
+        with Store() as store:
+            store.add_publication(
+                title="Prove the real request path before calling a product ready",
+                content="a bounded claim",
+                topic="pricing",
+                provenance=[self.memory_id],
+            )
+        batch = self.candidates(
+            {"title": "Prove the real request path before calling it ready"},
+            {"title": "Unit tests miss the install path"},
+        )
+        with captured(), redirect_stderr(StringIO()) as out:
+            self.assertEqual(cli.publication_draft(batch), 0)
+        staged = json.loads(self.staged_path.read_text(encoding="utf-8"))
+        self.assertEqual(
+            [c["title"] for c in staged], ["Unit tests miss the install path"]
+        )
+        self.assertIn("already for sale", out.getvalue())
+        with self.assertRaisesRegex(ValueError, "already for sale"):
+            cli.publication_draft(
+                self.candidates(
+                    {
+                        "title": "Prove the real request path before calling a product ready"
+                    }
+                )
+            )
 
     def test_nothing_is_staged_until_something_is_drafted(self) -> None:
         with captured() as out:

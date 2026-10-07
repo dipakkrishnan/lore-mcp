@@ -13,7 +13,6 @@ const content = $("#content");
 const account = $("#account");
 const taskBack = /** @type {HTMLButtonElement} */ ($("#task-back"));
 const taskRestart = /** @type {HTMLButtonElement} */ ($("#task-restart"));
-const taskResume = /** @type {HTMLButtonElement} */ ($("#task-resume"));
 const addMemoryBtn = /** @type {HTMLButtonElement} */ ($("#add-memory"));
 const feedbackBtn = /** @type {HTMLButtonElement} */ ($("#feedback-open"));
 const captureArea = $("#capture");
@@ -144,7 +143,7 @@ waiting.append(el("span", "dot"), waitingText, button("Open", "secondary", () =>
 waiting.hidden = true;
 composer.insertAdjacentElement("afterend", waiting);
 const THINKING = { setup: "Thinking…", publish: "Drafting…", capture: "Reading this…", deploy: "Setting up your store…" };
-const TASK_STATES = { needs_you: "Needs you", working: "Working", stopped: "Stopped", done: "Done" };
+const TASK_STATES = { needs_you: "Needs you", working: "Working", stopped: "Waiting for you", done: "Done" };
 
 /**
  * @template {keyof HTMLElementTagNameMap} K
@@ -641,8 +640,9 @@ function needsYou(s) {
   return rows;
 }
 
+/** Unfinished threads, without the store's once the store is open: nothing is left to finish there. */
 function displayTasks() {
-  return taskItems.slice(0, 3);
+  return taskItems.filter((item) => !(item.kind === "deploy" && snapshot?.node.url)).slice(0, 3);
 }
 
 function draftsPhase() {
@@ -681,7 +681,6 @@ function renderToday(s) {
       open.append(text, chip(TASK_STATES[item.state], item.state === "working" ? "ok" : ""));
       open.addEventListener("click", () => void openTask(item.kind, item));
       row.append(open);
-      if (item.state === "stopped") row.append(button("Resume", "secondary", () => void resumeTask(item.kind)), button("Start over", "quiet", () => void startOver(item.kind)));
       return row;
     }))));
   }
@@ -1532,7 +1531,6 @@ function render() {
   title.textContent = heading;
   taskBack.hidden = !detail;
   taskRestart.hidden = !detail || detailRecord?.state !== "stopped";
-  taskResume.hidden = taskRestart.hidden;
   addMemoryBtn.hidden = Boolean(detail) || view !== "memories";
   captureArea.hidden = view !== "today";
   log.hidden = !detail;
@@ -2257,12 +2255,6 @@ async function startOver(kind) {
   else input.focus({ preventScroll: true });
 }
 
-/** @param {AgentTask} kind */
-async function resumeTask(kind) {
-  await openTask(kind);
-  await send("Let's pick up where we left off.");
-}
-
 function closeTask() {
   detailTask = null;
   detailRecord = null;
@@ -2884,7 +2876,6 @@ document.addEventListener("drop", (event) => {
 
 taskBack.addEventListener("click", closeTask);
 taskRestart.addEventListener("click", () => { if (detailTask) void startOver(detailTask); });
-taskResume.addEventListener("click", () => { if (detailTask) void resumeTask(detailTask); });
 /** Land on Today with the composer ready, carrying anything the owner already typed. @param {string} [text] */
 function startCapture(text = "") {
   if (detailTask) closeTask();
