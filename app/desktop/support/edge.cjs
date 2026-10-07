@@ -836,6 +836,14 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         await js(`window.__lore.event({ type: "message", task: "capture", text: "Ready." })`);
         check("owner turns are right-aligned bubbles while Lore stays open", await js(`(() => { const owner = document.querySelector("#log .line.owner"); const bubble = owner?.querySelector("p"); const lore = document.querySelector("#log .line:not(.owner) .md"); return Boolean(owner && bubble && lore) && getComputedStyle(owner).justifyContent === "flex-end" && getComputedStyle(bubble).backgroundColor !== "rgba(0, 0, 0, 0)" && getComputedStyle(lore).backgroundColor === "rgba(0, 0, 0, 0)"; })()`));
         await shot("conversation-bubble");
+        await js(`window.__lore.event({ type: "working", task: "capture", active: true }); window.__lore.event({ type: "message", task: "capture", text: "I'll check the store is serving the new price." })`);
+        await sleep(100);
+        check("an open turn ends in a typing bubble labelled with what Lore is doing", await js(`(() => { const last = document.querySelector("#log").lastElementChild; return last?.classList.contains("thinking") && last.querySelectorAll(".bubble i").length === 3 && last.textContent === "Reading this…"; })()`));
+        await js(`window.__lore.event({ type: "live", task: "capture", text: "Setting up your store…", status: true })`);
+        check("a tool's status relabels the bubble instead of replacing what Lore said", await js(`document.querySelector("#log .thinking").textContent`) === "Setting up your store…" && /new price/.test(await js(`document.querySelector("#log").textContent`)));
+        await shot("thinking-bubble");
+        await js(`window.__lore.event({ type: "working", task: "capture", active: false })`);
+        check("the bubble goes when the turn closes", !(await js(`Boolean(document.querySelector("#log .thinking"))`)));
         await js(`window.__lore.event({ type: "working", task: "deploy", active: true }); window.__lore.preview({ type: "open", id: "preview-wait", task: "deploy", title: "Get a wallet", url: "https://www.coinbase.com/wallet", note: "1. Create new wallet." })`);
         await sleep(200);
         check("a card waiting in another thread replaces the composer with a row that opens it", await js(`document.querySelector("#composer").hidden`) && await js(`document.querySelector(".composer-wait").textContent`) === "Lore is waiting on you in Open your store.Open");

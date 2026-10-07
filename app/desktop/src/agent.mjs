@@ -616,7 +616,7 @@ export class LoreAgent {
     });
     session.subscribe((event) => {
       if (event.type === "tool_execution_start" && event.toolName !== "ask_user") {
-        this.options.emit({ type: "live", task, text: task === "deploy" ? "Setting up your store…" : event.toolName === "read" ? "Reading…" : "Looking through your Lore…" });
+        this.options.emit({ type: "live", task, text: task === "deploy" ? "Setting up your store…" : event.toolName === "read" ? "Reading…" : "Looking through your Lore…", status: true });
       }
       if (event.type === "message_update" && event.assistantMessageEvent.type === "text_delta") {
         this.options.emit({ type: "live", task, text: spoken(event.assistantMessageEvent.partial.content) });

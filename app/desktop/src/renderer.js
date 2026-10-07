@@ -56,6 +56,8 @@ let detailRecord = null;
 /** @type {string[]} */
 let attachments = [];
 let liveText = "";
+/** What Lore says it is doing beside the thinking bubble, e.g. "Reading…". */
+let liveStatus = "";
 let previewSignIn = false;
 /** @type {Line[]} */
 const lines = [];
@@ -141,6 +143,7 @@ const waitingText = el("span");
 waiting.append(el("span", "dot"), waitingText, button("Open", "secondary", () => { if (waitingTask) void openTask(waitingTask); }));
 waiting.hidden = true;
 composer.insertAdjacentElement("afterend", waiting);
+const THINKING = { setup: "Thinking…", publish: "Drafting…", capture: "Reading this…", deploy: "Setting up your store…" };
 const TASK_STATES = { needs_you: "Needs you", working: "Working", stopped: "Stopped", done: "Done" };
 
 /**
@@ -1670,9 +1673,10 @@ function renderNotices() {
   }));
 }
 
-/** @param {string} text */
-function live(text) {
-  liveText = text;
+/** @param {string} text @param {boolean} [status] */
+function live(text, status = false) {
+  if (status) liveStatus = text;
+  else liveText = text;
   renderLog();
 }
 
@@ -1717,6 +1721,16 @@ function clearRequest() {
   syncComposer();
 }
 
+/** Lore's typing bubble while its turn is open, with what it is doing beside it. @param {string} label */
+function thinkingLine(label) {
+  const line = el("div", "line live thinking");
+  const bubble = el("span", "bubble");
+  bubble.append(el("i"), el("i"), el("i"));
+  line.setAttribute("role", "status");
+  line.append(mark("mark mark-sm"), bubble, el("span", "", label));
+  return line;
+}
+
 function renderLog() {
   log.replaceChildren(...lines.map(({ text, owner, stopped, saved }) => {
     const line = el("div", owner ? "line owner" : stopped ? "line stop" : "line");
@@ -1728,7 +1742,9 @@ function renderLog() {
     line.append(mark("mark mark-sm"), markdown(liveText));
     log.append(line);
   }
-  agentPanel.hidden = !lines.length && !liveText && !shownRequest() && !detailSlot.childElementCount && !blueprintGhost;
+  const thinking = busy !== null && !request;
+  if (thinking && busy) log.append(thinkingLine(liveStatus || THINKING[busy] || ""));
+  agentPanel.hidden = !lines.length && !liveText && !thinking && !shownRequest() && !detailSlot.childElementCount && !blueprintGhost;
   if (log.lastElementChild) reveal();
 }
 
@@ -2117,7 +2133,7 @@ function renderRequest(event) {
   }
   const pinned = event.type === "question" || event.type === "memories" || event.type === "blueprint";
   request = { id: event.id, task: event.task, box, pinned, current };
-  liveText = "";
+  liveText = liveStatus = "";
   renderLog();
   requestSlot.replaceChildren(box);
   agentPanel.hidden = false;
@@ -2215,7 +2231,7 @@ async function openTask(kind, record, fallback) {
   // a thread that already finished (and so dropped out of taskItems), and history()
   // reads the session file directly, returning [] when there is truly nothing there.
   lines.splice(0, lines.length, ...(await window.lore.history(kind).catch(() => [])));
-  liveText = "";
+  liveText = liveStatus = "";
   resetBlueprintGhost();
   show("today");
   renderLog();
@@ -2228,7 +2244,7 @@ async function startOver(kind) {
   detailTask = kind;
   detailRecord = null;
   lines.splice(0);
-  liveText = "";
+  liveText = liveStatus = "";
   clearRequest();
   show("today");
   renderLog();
@@ -2249,7 +2265,7 @@ function closeTask() {
   detailRecord = null;
   task = "capture";
   lines.splice(0);
-  liveText = "";
+  liveText = liveStatus = "";
   resetBlueprintGhost();
   renderLog();
   render();
@@ -2662,11 +2678,11 @@ function enter() {
 function onEvent(event) {
   if (event.type === "working") {
     busy = event.active ? event.task : null;
-    liveText = busy ? liveText || { setup: "Thinking…", publish: "Drafting…", capture: "Reading this…", deploy: "Setting up your store…" }[busy] : "";
+    if (!busy) liveText = liveStatus = "";
     syncComposer();
     renderLog();
   }
-  else if (event.type === "live") { if (event.task === task) live(event.text); }
+  else if (event.type === "live") { if (event.task === task) live(event.text, event.status); }
   else if (event.type === "blueprint-progress") {
     if (event.task !== task) return;
     blueprintDraft = { ...blueprintDraft, ...event.fields };
