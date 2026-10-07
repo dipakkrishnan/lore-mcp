@@ -11,6 +11,7 @@
     "test:edge": "support/edge.sh seller && support/edge.sh provision && support/edge.sh store && support/edge.sh jobs && support/edge.sh fresh && support/edge.sh feedback && support/edge.sh obsidian && support/edge.sh connectors && support/edge.sh faq && support/edge.sh sell && support/edge.sh cards && support/edge.sh sales && support/edge.sh settings",
     "dogfood:new": "./support/dogfood.sh new",
     "dogfood:current": "./support/dogfood.sh current",
+    "prepackage": "support/guard-running.sh",
     "package": "electron-forge package",
     "make": "electron-forge make"
   },
