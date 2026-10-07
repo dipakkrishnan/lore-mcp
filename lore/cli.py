@@ -1506,10 +1506,42 @@ def publication_apply(path: str) -> int:
     return 0
 
 
+def _title_words(title: str) -> set[str]:
+    return set(re.findall(r"[a-z0-9]+", title.lower()))
+
+
+def _repeats(
+    candidate: PublicationInput, for_sale: list[Publication]
+) -> Publication | None:
+    """The piece for sale a draft repeats: drawn from the same memory, saying the same thing."""
+    words = _title_words(candidate.title)
+    for piece in for_sale:
+        shared = _title_words(piece.title)
+        if set(candidate.provenance) & set(piece.provenance) and len(
+            words & shared
+        ) >= 0.6 * len(words | shared):
+            return piece
+    return None
+
+
 def publication_draft(file: str) -> int:
     """Validate agent-drafted candidates and stage them for the owner's approval."""
     text = sys.stdin.read() if file == "-" else Path(file).read_text(encoding="utf-8")
-    candidates = _validated_candidates(text)
+    with Store() as store:
+        for_sale = store.list_publications(active_only=True)
+    candidates = []
+    for candidate in _validated_candidates(text):
+        if repeated := _repeats(candidate, for_sale):
+            warn(
+                f"Skipped “{candidate.title}”: it repeats “{repeated.title}”, "
+                "already for sale. Draft something that piece doesn't cover."
+            )
+        else:
+            candidates.append(candidate)
+    if not candidates:
+        raise ValueError(
+            "every draft repeats a piece already for sale; draft something new"
+        )
     _stage(candidates)
     success(
         f"Drafted {len(candidates)} candidate{'s' if len(candidates) != 1 else ''} "

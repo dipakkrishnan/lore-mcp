@@ -250,14 +250,14 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         check("Needs you names the pending removal", await js(`document.querySelector("#content").textContent.includes("1 taken down, still on your store.")`));
         // Fix 9: a memory typed on Today joins the unfinished capture thread instead of an empty one.
         await js(`window.__lore.show("today")`);
-        await js(`window.__lore.event({ type: "task", task: { version: 1, kind: "capture", title: "Capture", state: "stopped", phase: "Ready to resume", updatedAt: new Date().toISOString() } })`);
+        await js(`window.__lore.event({ type: "task", task: { version: 1, kind: "capture", title: "Capture", state: "stopped", phase: "Reply to keep going", updatedAt: new Date().toISOString() } })`);
         await sleep(300);
-        check("unfinished capture is listed", await js(`document.querySelector("#content").textContent.includes("Ready to resume")`));
-        check("a stopped task offers Resume beside Start over", /Resume\|Start over/.test(await js(`[...document.querySelectorAll("#content .row .btn")].map((b) => b.textContent).join("|")`)));
+        check("unfinished capture is listed", await js(`document.querySelector("#content").textContent.includes("Reply to keep going")`));
+        check("an unfinished thread is one row to open, waiting for the owner, with no Resume", await js(`(() => { const row = [...document.querySelectorAll("#content .row")].find((r) => r.textContent.includes("Reply to keep going")); return Boolean(row) && row.textContent.includes("Waiting for you") && !row.querySelector(".btn"); })()`));
         await js(`const i = document.querySelector("#capture-input"); i.value = "Something I learned"; document.querySelector("#composer").requestSubmit();`);
         await sleep(800);
         const eyebrow = await js(`document.querySelector("#eyebrow").textContent`);
-        check("root capture joins the unfinished thread", /Ready to resume/.test(eyebrow), eyebrow);
+        check("root capture joins the unfinished thread", /Reply to keep going/.test(eyebrow), eyebrow);
         await shot("root-capture-joined");
         await js(`window.__lore.openTask("deploy")`);
         const deployLog = await js(`document.querySelector("#log").textContent`);
