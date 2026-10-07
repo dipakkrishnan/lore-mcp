@@ -871,6 +871,11 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         await shot("seller-approved-offer");
         await js(`[...document.querySelectorAll("#content .request button")].find((b) => b.textContent === "Not now").click()`);
         check("the offer can be left for later", !(await js(`[...document.querySelectorAll("#content .request .q")].some((q) => q.textContent === "Open your store?")`)));
+        await js(`document.querySelector("#main").scrollTop = 1e6; window.__lore.show("settings")`);
+        await sleep(200);
+        check("each tab opens at its top, not where the last one was scrolled", await js(`document.querySelector("#main").scrollTop`) === 0);
+        await js(`window.__lore.show("today")`);
+        await sleep(200);
 
         // Ledger: with no store there is nothing to read, and the section says so without a probe.
         await js(`window.__lore.show("store")`);

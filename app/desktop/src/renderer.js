@@ -905,6 +905,7 @@ function renderStore(s) {
   /** @type {HTMLElement[]} */
   const parts = [bar];
   if (pushOffer) parts.push(seamCard());
+  if (pushedNote) parts.push(pushReceipt(s));
   parts.push(section("For sale", approved.length
     ? card(approved.map((item) => row(item.title, sold(item), controls(item))))
     : emptyState("Nothing for sale yet.", button("Draft your first piece", "quiet", () => show("memories"))),
@@ -1601,7 +1602,10 @@ function show(next) {
   // Leaving For Sale abandons a half-typed price rather than keeping the field
   // open behind the owner's back.
   if (next !== "store") editingPrice = false;
+  // A store update said once, where it happened; it doesn't follow the owner around.
+  pushedNote = false;
   render();
+  mainEl.scrollTop = 0;
   mainEl.focus({ preventScroll: true });
 }
 
@@ -2225,6 +2229,7 @@ function sellAction(source) {
 
 /** @param {AgentTask} kind @param {TaskRecord} [record] @param {TaskRecord} [fallback] Used only when neither `record` nor a live entry in `taskItems` exists, so the header reflects the caller's best-known status instead of fabricating "Working". */
 async function openTask(kind, record, fallback) {
+  pushedNote = false;
   task = kind;
   detailTask = kind;
   detailRecord = record ?? taskItems.find((item) => item.kind === kind) ?? fallback ?? null;
@@ -2578,7 +2583,9 @@ async function decide(original, approve, candidate = original) {
 /** Apply one card, then offer the push once the last card is answered. @param {() => Promise<void>} action @param {boolean} approve */
 async function settle(action, approve) {
   if ((await act(action, approve ? "Approved. It goes live with your next store update." : undefined)) && approve) approvedThisPass = true;
-  if (candidates.length || extraDrafts.length || !approvedThisPass) return;
+  if (candidates.length || extraDrafts.length) return;
+  // The thread's last word was "ready for your approval below"; with every card skipped, close it.
+  if (!approvedThisPass) return void (detailTask && say("Skipped. Nothing new is for sale."));
   approvedThisPass = false;
   if (snapshot?.node.url) return void (await goLive());
   pushOffer = "What you approved goes on sale once it's open. Pick a price and where payments go.";
