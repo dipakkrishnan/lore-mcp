@@ -162,7 +162,10 @@ function el(tag, className = "", text) {
 
 /** @param {unknown} error @param {string} fallback */
 function reason(error, fallback) {
-  return error instanceof Error ? error.message.replace(/^Error invoking remote method '[^']+': (?:Error: )?/, "") : fallback;
+  if (!(error instanceof Error)) return fallback;
+  const message = error.message.replace(/^Error invoking remote method '[^']+': (?:Error: )?/, "");
+  // Lore's own files changed under this open copy (an update or rebuild); only a relaunch loads a matching set.
+  return /does not provide an export named|Cannot find module|ERR_MODULE_NOT_FOUND/.test(message) ? "Lore was updated while it was open. Quit Lore and open it again to continue." : message;
 }
 
 /** @param {HTMLTextAreaElement} area */

@@ -1001,3 +1001,34 @@ test("a damaged sales marker reads as a first read, and the next write repairs i
     await rm(directory, { recursive: true });
   }
 });
+
+test("packaging refuses while a copy runs from the output bundle", async () => {
+  const { spawn } = require("node:child_process");
+  const bundle = await mkdtemp(join(tmpdir(), "lore-guard-"));
+  const binary = join(bundle, "Contents/MacOS/Lore");
+  await mkdir(dirname(binary), { recursive: true });
+  await writeFile(binary, "#!/bin/bash\nsleep 30\n", { mode: 0o755 });
+  const guard = () => spawnSync(join(__dirname, "../support/guard-running.sh"), { env: { ...process.env, LORE_GUARD_BUNDLE: bundle }, encoding: "utf8" });
+  assert.equal(guard().status, 0, "nothing running: packaging proceeds");
+  const running = spawn(binary, { stdio: "ignore" });
+  try {
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    const refused = guard();
+    assert.equal(refused.status, 1);
+    assert.match(refused.stderr, /Quit it first/);
+  } finally {
+    running.kill();
+    await rm(bundle, { recursive: true, force: true });
+  }
+});
+
+test("a module mismatch from an updated app tells the owner to relaunch", async () => {
+  const source = await readFile(join(__dirname, "../src/renderer.js"), "utf8");
+  const body = source.match(/function reason\(error, fallback\) \{[\s\S]*?\n\}\n/)?.[0];
+  assert.ok(body);
+  const reason = new Function(`${body}; return reason;`)();
+  const mismatch = new Error("Error invoking remote method 'send': Error: The requested module './text.js' does not provide an export named 'getSystemMessageText'");
+  assert.match(reason(mismatch, "x"), /Quit Lore and open it again/);
+  assert.equal(reason(new Error("Stripe is down"), "x"), "Stripe is down");
+  assert.equal(reason("nope", "fallback"), "fallback");
+});

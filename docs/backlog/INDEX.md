@@ -279,6 +279,7 @@ obsolete), then `priority` (P0 → P3).
 | [XC-026](./cross-cutting/XC-026-point-the-faucet-card-at-onchain-tools.md) | Point the faucet card at Onchain Tools → Faucet in four short lines | P2 | XS | cross-cutting | completed | XC-025, APP-056, MON-007 | — | — | — |
 | [XC-028](./cross-cutting/XC-028-report-feedback-as-a-github-issue.md) | Send owner-submitted feedback to GitHub as a shared core and relay | P2 | L | cross-cutting | completed | APP-105, CLI-003 | — | — | — |
 | [APP-129](./desktop-app/APP-129-default-the-desktop-agent-to-opus-5-5.md) | Default the desktop agent to Opus 5.5 | P2 | XS | desktop-app | completed | APP-045 | — | — | — |
+| [APP-190](./desktop-app/APP-190-do-not-rebuild-lore-under-a-running-copy.md) | Refuse to rebuild Lore.app while a copy is running, and say to relaunch if it happens | P2 | S | desktop-app | completed | APP-181, APP-005 | — | — | — |
 | [APP-083](./desktop-app/APP-083-keep-memory-ids-out-of-the-publish-thread.md) | Keep memory ids out of the publish thread | P3 | XS | desktop-app | completed | APP-023 | — | — | — |
 | [APP-088](./desktop-app/APP-088-put-add-memory-beside-the-title.md) | Put Add Memory beside the title, not above it | P3 | XS | desktop-app | completed | APP-067, APP-051 | — | — | — |
 | [APP-092](./desktop-app/APP-092-explain-memories-and-for-sale-on-hover.md) | Explain Memories and For Sale on hover | P3 | XS | desktop-app | completed | APP-091, APP-054 | — | — | — |
