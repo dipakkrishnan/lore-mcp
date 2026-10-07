@@ -1,5 +1,5 @@
 ---
-id: APP-190
+id: APP-194
 title: Drop Resume and never draft a piece already for sale
 priority: P1
 effort: S
