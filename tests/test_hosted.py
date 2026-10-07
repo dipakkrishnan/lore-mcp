@@ -246,6 +246,28 @@ class HostedAppsTest(unittest.TestCase):
             ],
         )
 
+    def test_notion_keeps_a_pages_writing_and_skips_databases(self) -> None:
+        fetched = (
+            'Here is the result of "fetch" for the Page with URL https://x as of now:\n'
+            '<page url="https://x"><properties>{"title":"Plan"}</properties>\n'
+            '<iconMetadata>{"type":"emoji","emoji":"🔐"}</iconMetadata>\n'
+            "<content>Ship the smallest thing first.<empty-block/></content></page>"
+        )
+        notion = Notion()
+        self.assertEqual(
+            notion.text(json.dumps({"text": fetched})), "Ship the smallest thing first."
+        )
+        database = "The title of this Database is: Tasks\nYou can use the fetch tool"
+        self.assertEqual(notion.text(json.dumps({"text": database})), "")
+        # A page read before this fix kept the preamble and metadata once its tags were gone.
+        stored = (
+            'Here is the result of "fetch" for the Page with URL https://x as of now:\n\n'
+            '{"title":"Plan"}\n\n{"type":"emoji","emoji":"🔐"}\n\n> **Core:** keep it private.'
+        )
+        self.assertEqual(
+            sources_module.notion_writing(stored), "> **Core:** keep it private."
+        )
+
     def test_a_page_notion_will_not_share_is_skipped_not_the_whole_read(self) -> None:
         stub = MCPServer("notion")
 

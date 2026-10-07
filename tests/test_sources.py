@@ -93,6 +93,14 @@ class ScanTest(LoreTestCase):
             self.assertEqual(store.search("top level")[0].project, "")
             self.assertEqual(store.search("nested"), [])
 
+    def test_claude_codes_memory_index_is_not_a_memory(self) -> None:
+        root = self.claude_home / "projects/demo/memory"
+        root.mkdir(parents=True)
+        (root / "MEMORY.md").write_text("- [Testing](testing.md) — focused tests")
+        (root / "testing.md").write_text("# Testing\n\nUse focused integration tests.")
+        with Store() as store:
+            self.assertEqual(Registry(store).scan({"claude"})["claude"]["added"], 1)
+
     def test_synthesis_memories_are_labelled_personal(self) -> None:
         root = self.lore_home / "memories"
         root.mkdir(parents=True)
