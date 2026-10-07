@@ -1,5 +1,5 @@
 ---
-id: APP-191
+id: APP-195
 title: Open each tab at the top and say a store update where it happened
 priority: P2
 effort: XS
