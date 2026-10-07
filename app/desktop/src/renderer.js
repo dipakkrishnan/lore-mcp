@@ -2272,9 +2272,11 @@ function enterMovesOn(field, within) {
 
 /** Approval forms outlive renders, so edits survive the agent's next event. @type {Map<string, HTMLElement>} */
 const approvalForms = new Map();
-/** Each update card's own approval, with whatever the owner edited, for Approve all. @type {WeakMap<HTMLElement, () => Promise<void>>} */
+/** Each update card's decision, with whatever the owner edited, for Approve all. @type {WeakMap<HTMLElement, () => {original: PublicationExtras, extras: PublicationExtras}>} */
 const extrasApprovals = new WeakMap();
 let confirmingExtras = false;
+/** How many pieces Approve all is saving and pushing; zero when it isn't. */
+let approvingExtras = 0;
 
 function approvals() {
   const list = el("div", "card pad stack");
@@ -2306,6 +2308,13 @@ function extrasHeading(drafts) {
 function extrasBatch(drafts, forms) {
   const box = el("div", "extras-batch");
   const head = el("div", "batch-head");
+  if (approvingExtras) {
+    const working = el("span", "pill");
+    working.append(el("i"), document.createTextNode("Updating your store…"));
+    head.append(el("b", "sans", `Approving ${plural(approvingExtras, "piece")}`), working);
+    box.append(head);
+    return box;
+  }
   const text = el("div", "t");
   text.append(el("b", "sans", extrasHeading(drafts)), el("span", "", "Buyers see these on each piece's page. Links, prices and paid text don't change."));
   head.append(text);
@@ -2313,18 +2322,7 @@ function extrasBatch(drafts, forms) {
     const actions = el("div", "v");
     if (confirmingExtras) {
       const cancel = button("Cancel", "quiet", () => { confirmingExtras = false; render(); });
-      const all = button(forms.length === 2 ? "Approve both" : `Approve ${forms.length}`, "primary", () => {
-        cancel.disabled = all.disabled = true;
-        confirmingExtras = false;
-        // One attended decision per piece, exactly as each card's own Approve sends it. A push that
-        // fails after one lands must not strand the rest, so every piece is decided before it is said.
-        void settle(async () => {
-          /** @type {unknown} */
-          let failure = null;
-          for (const form of forms) await extrasApprovals.get(form)?.().catch((error) => { failure ??= error; });
-          if (failure) throw failure;
-        }, true);
-      });
+      const all = button(forms.length === 2 ? "Approve both" : `Approve ${forms.length}`, "primary", () => void approveAllExtras(forms));
       actions.append(el("span", "hint", `Approve all ${forms.length}? Lore updates each page on your store.`), cancel, all);
     } else {
       actions.append(button(`Approve all ${forms.length}`, "secondary", () => { confirmingExtras = true; render(); }));
@@ -2333,6 +2331,21 @@ function extrasBatch(drafts, forms) {
   }
   box.append(head, ...forms);
   return box;
+}
+
+/** Every card in one attended decision, so the store is pushed once; the owner keeps working meanwhile. @param {HTMLElement[]} forms */
+async function approveAllExtras(forms) {
+  const decisions = forms.flatMap((form) => extrasApprovals.get(form)?.() ?? []);
+  confirmingExtras = false;
+  approvingExtras = decisions.length;
+  const working = `Approving ${plural(decisions.length, "piece")} and updating your store. It takes a minute; you can keep working.`;
+  tell(working);
+  render();
+  const done = await act(() => window.lore.approveExtras(decisions), "Approved. They go live with your next store update.");
+  approvingExtras = 0;
+  drop((item) => item.text === working);
+  if (done) tell(`Your store is updated · ${plural(decisions.length, "piece")} have their new pages.`);
+  render();
 }
 
 /** A draft as its page will read: who it's for, who it's not for, and the sample when there is one. @param {Array<[string, string]>} lines @param {string} sample */
@@ -2436,7 +2449,7 @@ function extrasForm({ extras, piece }) {
     return () => readLines([["Good for", field.usefulIf.value], ["Not for", field.notUsefulIf.value]], field.sample.value);
   });
   const approveEdited = () => window.lore.decideExtras({ original: extras, extras: edited(), approve: true });
-  extrasApprovals.set(card.memory, approveEdited);
+  extrasApprovals.set(card.memory, () => ({ original: extras, extras: edited() }));
   /** @param {boolean} approved */
   const choose = async (approved) => {
     skip.disabled = approve.disabled = true;

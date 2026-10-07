@@ -689,10 +689,12 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         await shot("today-extras-editing");
         await js(`[...${batch}.querySelectorAll("button")].find((b) => b.textContent === "Approve all 2").click()`);
         check("Approve all asks once before acting", await js(`${batch}.textContent.includes("Approve all 2?")`) && await js(`window.lore.extras().then((left) => left.length)`) === 2);
+        check("…with every confirm button inside the card", await js(`(() => { const edge = ${batch}.getBoundingClientRect().right; return [...${batch}.querySelectorAll(".batch-head button")].every((b) => b.getBoundingClientRect().right <= edge); })()`));
         await shot("today-extras-confirm");
         await js(`[...${batch}.querySelectorAll("button")].find((b) => b.textContent === "Approve both").click()`);
         check("approving all consumes every update", await waitFor(`window.lore.extras().then((left) => !left.length)`));
         check("…carrying the edit made on the card", /Not useful if: you have no buyers yet|not useful if: you have no buyers yet/i.test(execFileSync("uv", ["run", "lore", "publication", "list"], { cwd: join(__dirname, "../../.."), env: process.env, encoding: "utf8" })));
+        check("…and says how the store update went, once it has", await waitFor(`/have their new pages|go live with your next store update/.test(document.body.textContent) && !document.body.textContent.includes("updating your store. It takes")`));
         check("…and leaves the new drafts alone", await js(`window.lore.candidates().then((left) => left.length)`) === 2);
         await shot("today-extras-approved");
       } else if (scenario === "sales") {

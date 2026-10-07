@@ -238,6 +238,7 @@ interface Window {
     decide(input: { original: PublicationCandidate; candidate: PublicationCandidate; approve: boolean }): Promise<void>;
     extras(): Promise<ExtrasCandidate[]>;
     decideExtras(input: { original: PublicationExtras; extras: PublicationExtras; approve: boolean }): Promise<void>;
+    approveExtras(decisions: Array<{ original: PublicationExtras; extras: PublicationExtras }>): Promise<void>;
     revoke(id: number): Promise<void>;
     push(): Promise<void>;
     schedule(): Promise<void>;

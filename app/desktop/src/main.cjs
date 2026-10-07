@@ -5,7 +5,7 @@ const { app, BrowserWindow, dialog, ipcMain, safeStorage, shell, systemPreferenc
 const { provision, skillsDir, whisper } = require("./runtime.cjs");
 const { transcribe } = require("./dictation.cjs");
 const sales = require("./sales.cjs");
-const { lore, loreStream, openable, readState, readSales, readViews, searchMemories, readMemory, renameMemory, editMemory, captureMemories, previewPage, setPrice, setFreeCopies, candidates, decide, extrasCandidates, decideExtras, reportFeedback, listStore, cardStatus, connectCards, switchCards, listingStatus, sourceCatalog, sourceChoices, connectSource, signIn, readSource, removeSource, useRuntime } = require("./state.cjs");
+const { lore, loreStream, openable, readState, readSales, readViews, searchMemories, readMemory, renameMemory, editMemory, captureMemories, previewPage, setPrice, setFreeCopies, candidates, decide, extrasCandidates, decideExtras, approveExtras, reportFeedback, listStore, cardStatus, connectCards, switchCards, listingStatus, sourceCatalog, sourceChoices, connectSource, signIn, readSource, removeSource, useRuntime } = require("./state.cjs");
 
 if (process.env.LORE_DESKTOP_USER_DATA) app.setPath("userData", process.env.LORE_DESKTOP_USER_DATA);
 
@@ -130,6 +130,19 @@ function registerIpc(loreHome) {
       throw new Error("Invalid decision");
     }
     return decideExtras(loreHome, input.original, input.extras, input.approve);
+  });
+  ipcMain.handle("publication:approve-extras", async (_event, decisions) => {
+    if (!Array.isArray(decisions) || !decisions.length || !decisions.every((d) => d && typeof d.original === "object" && d.original && typeof d.extras === "object" && d.extras)) {
+      throw new Error("Invalid decisions");
+    }
+    await approveExtras(loreHome, decisions);
+    if (!window?.isFocused()) {
+      sales.notify({ title: "Your store is updated", body: `${decisions.length} pieces have their new pages.` }, () => {
+        if (!window) createWindow();
+        window?.show();
+        window?.focus();
+      });
+    }
   });
   ipcMain.handle("publication:revoke", async (_event, id) => {
     if (!Number.isInteger(id) || id < 1) throw new Error("Invalid publication");

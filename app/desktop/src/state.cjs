@@ -204,6 +204,12 @@ async function decideExtras(loreHome, original, extras, approve) {
   await lore(loreHome, ["publication", "extras", "decide"], JSON.stringify({ original, extras, approve }));
 }
 
+/** Approve a batch of free-parts cards in one CLI call, so the store is pushed once.
+ * @param {string} loreHome @param {Array<{original: PublicationExtras, extras: PublicationExtras}>} decisions */
+async function approveExtras(loreHome, decisions) {
+  await lore(loreHome, ["publication", "extras", "decide"], JSON.stringify(decisions.map(({ original, extras }) => ({ original, extras, approve: true }))));
+}
+
 /** Send one feedback report through `lore report-feedback`. The description
  * goes over stdin (`editMemory` does the same, for the same reason: owner
  * text that starts with a dash must never be read as an option). Title and
@@ -336,6 +342,7 @@ module.exports = {
   decide,
   extrasCandidates,
   decideExtras,
+  approveExtras,
   reportFeedback,
   listStore,
   cardStatus,

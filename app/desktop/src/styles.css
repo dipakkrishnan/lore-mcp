@@ -447,8 +447,8 @@ dialog.palette[open] { animation: rise 0.12s ease; }
 .fields { display: flex; flex-direction: column; gap: 6px; }
 .extras-batch { display: flex; flex-direction: column; gap: 10px; }
 .card.stack > .extras-batch:not(:first-child) { margin-top: 8px; padding-top: 14px; border-top: 1px solid var(--line-soft); }
-.batch-head { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.batch-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px 16px; }
 .batch-head .t { flex: 1; min-width: 260px; }
 .batch-head .t b { white-space: normal; }
-.batch-head .v { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+.batch-head .v { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 8px; margin-left: auto; }
 .price-field.copies input[type="text"] { width: 3ch; }

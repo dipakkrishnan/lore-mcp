@@ -1517,7 +1517,7 @@ class PublicationApplyTest(LoreTestCase):
         with desktop_stdin(json.dumps({"candidate": first, "approve": True})):
             with captured() as out:
                 self.assertEqual(cli.publication_decide(), 0)
-        self.assertEqual(json.loads(out.getvalue()), {"approved": True, "remaining": 1})
+        self.assertEqual(json.loads(out.getvalue()), {"approved": 1, "remaining": 1})
         with desktop_stdin(json.dumps({"candidate": second, "approve": False})):
             with captured():
                 self.assertEqual(cli.publication_decide(), 0)
@@ -1763,7 +1763,7 @@ class PublicationExtrasTest(LoreTestCase):
         ):
             self.assertEqual(cli.extras_decide(), 0)
         push.assert_called_once_with(str(cli.home() / "node"))
-        self.assertEqual(json.loads(out.getvalue()), {"approved": True, "remaining": 1})
+        self.assertEqual(json.loads(out.getvalue()), {"approved": 1, "remaining": 1})
         piece = self.live()
         self.assertEqual(
             (piece.public_id, piece.sample, piece.content),
@@ -1780,6 +1780,55 @@ class PublicationExtrasTest(LoreTestCase):
         self.assertFalse(cli._extras_path().exists())
         with Store() as store:
             self.assertEqual(len(store.list_publications()), 1)
+
+    def test_a_batch_saves_every_card_then_pushes_once(self) -> None:
+        with Store() as store:
+            other = store.add_publication(
+                title="Other",
+                content="other paid text",
+                topic="pricing",
+                provenance=[self.seed_memory("Other lesson")],
+            )
+            store.set_setting("node_url", "https://node.example/mcp")
+        first, second, third = self.drafted(
+            {},
+            {"publication_id": other, "useful_if": "you sell to developers"},
+            {"useful_if": "never approved"},
+        )
+        batch = [
+            {
+                "original": first,
+                "extras": first | {"sample": "Edited."},
+                "approve": True,
+            },
+            {"extras": second, "approve": True},
+        ]
+        with (
+            desktop_stdin(json.dumps(batch)),
+            patch.object(cli, "push", return_value=0) as push,
+            captured() as out,
+        ):
+            self.assertEqual(cli.extras_decide(), 0)
+        push.assert_called_once_with(str(cli.home() / "node"))
+        self.assertEqual(json.loads(out.getvalue()), {"approved": 2, "remaining": 1})
+        self.assertEqual(self.live().sample, "Edited.")
+        with Store() as store:
+            self.assertEqual(
+                store.active_publication(other).useful_if, "you sell to developers"
+            )
+        self.assertEqual(json.loads(cli._extras_path().read_text()), [third])
+
+    def test_one_bad_card_in_a_batch_saves_none(self) -> None:
+        (first,) = self.drafted()
+        batch = [
+            {"extras": first, "approve": True},
+            {"extras": first | {"sample": "never drafted"}, "approve": True},
+        ]
+        with desktop_stdin(json.dumps(batch)):
+            with self.assertRaisesRegex(ValueError, "not drafted"):
+                cli.extras_decide()
+        self.assertEqual(self.live().sample, "")
+        self.assertEqual(json.loads(cli._extras_path().read_text()), [first])
 
     def test_a_card_must_be_drafted_and_keep_its_piece(self) -> None:
         with Store() as store:
