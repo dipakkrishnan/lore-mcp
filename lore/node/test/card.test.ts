@@ -52,6 +52,16 @@ describe("the listing checkout reads", () => {
     expect((await visit(`/p/${"f".repeat(24)}.json`)).status).toBe(404);
   });
 
+  it("charges the pushed price, so a new price needs no redeploy, and offers cards once it clears the minimum", async () => {
+    await env.LORE_DB.prepare("INSERT OR REPLACE INTO node_settings(key,value) VALUES ('price_usd', '1.000000')").run();
+    try {
+      expect(await (await visit(`/p/${FIXTURE_PUBLICATION_ID}.json`)).json()).toMatchObject({ price_usd: 1, stripe_account: ACCOUNT });
+      expect(await (await visit(`/p/${FIXTURE_PUBLICATION_ID}`)).text()).toContain("Buy for $1.00");
+    } finally {
+      await env.LORE_DB.prepare("DELETE FROM node_settings WHERE key = 'price_usd'").run();
+    }
+  });
+
   it("shows no card button on a store priced under $0.50", async () => {
     const html = await (await visit(`/p/${FIXTURE_PUBLICATION_ID}`)).text();
     expect(html).not.toContain("checkout.test");

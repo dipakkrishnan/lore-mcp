@@ -70,7 +70,7 @@ export class LorePaidMCP extends McpAgent<Env> {
             ...(await manifest(this.env)),
             network: network(this.env),
             payout: payTo(this.env),
-            price_usd: PRICE_USD,
+            price_usd: priceOf(settings),
             listed: settings.listedName !== "",
             ...(settings.freeCopies ? { free_copies: settings.freeCopies } : {}),
             ...(settings.listedName ? { name: settings.listedName } : {}),
@@ -99,7 +99,7 @@ export class LorePaidMCP extends McpAgent<Env> {
       "Fetch one owner-approved publication by its id from the discover catalog. " +
         "Each call buys exactly one publication. Damaged ids are rejected before " +
         "payment, and an id that is no longer for sale returns an error and is never charged.",
-      PRICE_USD,
+      priceOf(settings),
       {
         id: z.string().trim().refine(validPublicId, {
           message: "invalid publication id; run discover again"
@@ -123,7 +123,7 @@ export class LorePaidMCP extends McpAgent<Env> {
           );
         })
     );
-    recorded(this.env.LORE_DB, get, "publication", PRICE_USD, (payload) => {
+    recorded(this.env.LORE_DB, get, "publication", priceOf(settings), (payload) => {
       const { publication } = payload as { publication: { id: string; title: string } };
       return { item: publication.id, title: publication.title };
     });
@@ -311,7 +311,7 @@ async function readFree(request: Request, env: Env, store: Store, id: string, fo
 function storeFor(env: Env, url: URL, settings: AnswerSettings): Store {
   return {
     name: settings.listedName,
-    priceUsd: PRICE_USD,
+    priceUsd: priceOf(settings),
     origin: url.origin,
     test: network(env) === TESTNET,
     freeCopies: settings.freeCopies,
@@ -320,7 +320,9 @@ function storeFor(env: Env, url: URL, settings: AnswerSettings): Store {
   };
 }
 
-const takesCards = (settings: AnswerSettings) => STRIPE_ACCOUNT.test(settings.stripeAccount) && PRICE_USD >= CARD_MINIMUM_USD;
+const takesCards = (settings: AnswerSettings) => STRIPE_ACCOUNT.test(settings.stripeAccount) && priceOf(settings) >= CARD_MINIMUM_USD;
+/** What a piece costs: the owner's pushed price, so a new price needs no redeploy; the deployed one until a push carries it. */
+const priceOf = (settings: AnswerSettings) => settings.publicationPriceUsd || PRICE_USD;
 
 /** Lore's checkout saying a card payment finished, so the sale counts even if the buyer never returns. The
  * notice only names a session: it is checked with checkout before anything is written. */
@@ -352,7 +354,7 @@ export default {
         const listing = found && {
           id: found.id,
           teaser: found.teaser,
-          price_usd: PRICE_USD,
+          price_usd: priceOf(settings),
           stripe_account: takesCards(settings) ? settings.stripeAccount : "",
           test: store.test
         };

@@ -2192,6 +2192,13 @@ class PushTest(LoreTestCase):
             )
         self.assertIn("VALUES ('support_email','help@example.com');", sql)
 
+    def test_push_sql_carries_the_price_so_it_needs_no_redeploy(self) -> None:
+        with Store() as store:
+            answer = store.answer_settings()
+        sql = cli._push_sql([], answer, "", price_usd=1.0)
+        self.assertIn("VALUES ('price_usd','1.000000');", sql)
+        self.assertNotIn("'price_usd'", cli._push_sql([], answer, ""))
+
     def test_push_sql_escapes_quotes_rather_than_breaking_the_script(self) -> None:
         # An apostrophe in an owner's own prose would otherwise truncate the
         # statement and publish something they never approved.

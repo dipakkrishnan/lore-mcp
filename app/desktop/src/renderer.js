@@ -71,6 +71,8 @@ let listingFor = "";
 /** @type {string | false} */
 let pushOffer = false;
 let pushing = false;
+/** Cards are being switched on by themselves, so a re-render doesn't switch them twice. */
+let switchingCards = false;
 /** @type {string | false} */
 let pushedNote = false;
 /** Whether the For Sale price row is open as an editor. */
@@ -125,7 +127,6 @@ const EXPLORERS = { "eip155:8453": "https://basescan.org", "eip155:84532": "http
 const REAL_MONEY = "I'm ready to switch my store to real money.";
 const SETUP_INTENT = "Let's set up my Lore.";
 const STORE_INTENT = "Help me open my store.";
-const CARDS_ON = "I turned on card payments. Redeploy my store so buyers can pay by card.";
 const REDEPLOY_PRICE = "I changed my publication price. Redeploy my store so buyers pay the new amount.";
 // Six decimals, not the default two: a price can run below a cent, and rounding
 // $0.000001 up to $0.01 would misstate what a buyer pays. Six is the CLI's floor.
@@ -628,9 +629,9 @@ function needsYou(s) {
   if (s.library.counts.private && !publishing) add("Publish something", "Lore drafts up to three things to sell; you approve each one.", button("Publish", "secondary", () => void startPublish()));
   // Approved work a buyer cannot see yet, or a price they are not yet paying, is actionable whatever rung setup is on.
   const stale = stalePrice(s);
-  if (stale !== null) add("Redeploy your store", `Buyers still pay ${price(stale)}; you set ${price(s.pricing.publication_usd)}.`, button("Redeploy", "secondary", () => void startDeploy(REDEPLOY_PRICE)));
+  if (stale !== null && !pushing) add("Your new price isn't live yet", `Your store still charges ${price(stale)}. Update it to start charging ${price(s.pricing.publication_usd)}.`, button("Update store", "secondary", () => void startDeploy(REDEPLOY_PRICE)));
   const waiting = unpushed(s);
-  if (waiting.length && !pushOffer && !pushing) add("Push to your store", `${pendingLabel(waiting)}.`, button("Push", "secondary", pushNow));
+  if (waiting.length && !pushOffer && !pushing) add("Update your store", `${pendingLabel(waiting)}.`, button("Update store", "secondary", pushNow));
   return rows;
 }
 
@@ -753,7 +754,7 @@ function parsePrice(raw) {
   return raw.trim() && Number.isFinite(amount) && amount > 0 ? amount : null;
 }
 
-/** What the node charges when that differs from what the owner saved; only a redeploy changes it. Read from the probe, so it survives a relaunch and says nothing about a node it cannot reach. @param {Snapshot} s */
+/** What the node charges when that differs from what the owner saved, after the push that carries the price; only a store from before pushed prices needs a redeploy. Read from the probe, so it survives a relaunch and says nothing about a node it cannot reach. @param {Snapshot} s */
 function stalePrice(s) {
   const live = s.node.live.price_usd;
   return typeof live === "number" && typeof s.pricing.publication_usd === "number" && live !== s.pricing.publication_usd ? live : null;
@@ -819,11 +820,10 @@ async function savePrice(raw, rawCopies) {
   if (saved) {
     editingPrice = false;
     drop((item) => item.text.startsWith(ABOVE_ZERO) || item.text.startsWith(WHOLE_COPIES));
-    // Free copies ride on the next push; the price waits for a redeploy, which For Sale already offers.
-    if (newCopies && snapshot?.node.url) tell("Saved. Buyers see the new free copies after your next push.", false, { label: "Push now", run: () => void pushNow() });
   }
   savingPrice = false;
   render();
+  if (saved && (newCopies || amount !== before?.publication_usd)) await goLive();
 }
 
 /** @param {Snapshot} s */
@@ -850,14 +850,14 @@ function renderStore(s) {
     prices.append(answers);
   }
   const stale = stalePrice(s);
-  if (stale !== null) {
+  if (stale !== null && !pushing) {
     const note = el("div", "stale-price");
-    note.append(el("span", "", `Buyers still pay ${price(stale)} until you redeploy.`), button("Redeploy", "quiet", () => void startDeploy(REDEPLOY_PRICE)));
+    note.append(el("span", "", `Your store still charges ${price(stale)}.`), button("Update store", "quiet", () => void startDeploy(REDEPLOY_PRICE)));
     prices.append(note);
   }
   bar.append(lead, prices);
   if (unpushed(s).length && !pushOffer) {
-    const push = button(pushing ? "Pushing…" : "Push to your store", "primary", pushNow);
+    const push = button(pushing ? "Updating…" : "Update store", "primary", pushNow);
     push.disabled = pushing;
     bar.append(push);
   }
@@ -893,7 +893,7 @@ function renderStore(s) {
   const onStore = adds === 0 ? "all on your store" : adds < approved.length ? `${adds} not on your store yet` : approved.length === 1 ? "not on your store yet" : "none on your store yet";
   if (approved.length) aside.append(el("span", "hint", `${approved.length} ${approved.length === 1 ? "publication" : "publications"}${live.state === "online" ? ` · ${onStore}` : ""}`));
   if (waiting.length) {
-    const push = button(pushing ? "Pushing…" : "Push to your store", "quiet", pushNow);
+    const push = button(pushing ? "Updating…" : "Update store", "quiet", pushNow);
     push.disabled = pushing;
     aside.append(push);
   }
@@ -1045,12 +1045,14 @@ function cardWay(s) {
   if (cards === null) { void loadCards(); return way(by, "Checking with Stripe…", pill("Checking", "wait")); }
   if (cards instanceof Error) return way(by, "Lore couldn't check card payments.", button("Try again", "quiet", () => { cards = null; render(); }));
   const status = cards;
-  const switchTo = (/** @type {string | null} */ account) => act(async () => {
-    await window.lore.switchCards(account);
-    cards = null;
-    tell(account ? (s.node.url ? "Card payments are on. Lore is updating your store so buyers see Buy by card." : "Card payments are on. They start when your store opens.") : "Card payments are off.");
-    if (account && s.node.url) await startDeploy(CARDS_ON);
-  });
+  const switchTo = async (/** @type {string | null} */ account) => {
+    const done = await act(async () => {
+      await window.lore.switchCards(account);
+      cards = null;
+      tell(account ? (s.node.url ? "Card payments are on. Lore is updating your store so buyers see Buy by card." : "Card payments are on. They start when your store opens.") : "Card payments are off.");
+    });
+    if (done) await goLive();
+  };
   if (status.account) return way(by, "People, or their agents in a browser, pay by card. Stripe pays you out to your bank.", pill("On", "ok"), outLink("Stripe ↗", "https://dashboard.stripe.com"), button("Turn off", "quiet", () => void switchTo(null)));
   const finish = button(status.pending ? "Finish with Stripe" : "Get paid to your bank", "secondary", () => void act(async () => {
     await window.lore.connectCards();
@@ -1065,8 +1067,13 @@ function cardWay(s) {
     return way(by, "Stripe is checking your details. This usually takes a minute or two.", pill("Checking", "wait"));
   }
   if (!status.ready) return way(by, "Stripe needs a few more details from you.", pill("Needs you", "attention"), finish);
-  if (cardMinimum(s) !== null) return way(by, "Stripe is ready. Raise your price to turn cards on.", pill("Ready", "ok"));
-  return way(by, s.node.url ? "Stripe is ready. Turning cards on updates your store." : "Stripe is ready. Cards start when your store opens.", button("Turn on", "primary", () => void switchTo(status.pending)));
+  if (cardMinimum(s) !== null) return way(by, "Stripe is ready. Card payments start once you raise your price.");
+  // Stripe cleared and the price can be charged: nothing is left for the owner to decide, so cards come on by themselves.
+  if (!switchingCards) {
+    switchingCards = true;
+    void switchTo(status.pending).finally(() => { switchingCards = false; });
+  }
+  return way(by, "Turning on card payments…", pill("Checking", "wait"));
 }
 
 /** The card minimum, when Stripe is connected and the price is under it; null otherwise. @param {Snapshot} s */
@@ -2521,9 +2528,9 @@ async function pushNow() {
   pushing = true;
   render();
   const offer = pushOffer;
-  if (await act(window.lore.push)) {
+  if (await act(window.lore.push, "Lore couldn't update your store. Try Update store again in a minute.")) {
     const live = snapshot ? `${snapshot.publications.counts.active} ${snapshot.publications.counts.active === 1 ? "publication" : "publications"}` : "publications";
-    pushedNote = `Pushed · ${live} now on your store`;
+    pushedNote = `Your store is updated · ${live} for sale`;
   } else {
     pushOffer = offer;
   }
@@ -2562,8 +2569,14 @@ async function settle(action, approve) {
   if ((await act(action, approve ? "Approved. It goes live with your next store update." : undefined)) && approve) approvedThisPass = true;
   if (candidates.length || extraDrafts.length || !approvedThisPass) return;
   approvedThisPass = false;
-  pushOffer = snapshot?.node.url ? "Approved publications reach buyers only after a push. Leaving it is fine; the next push carries it." : "What you approved goes on sale once it's open. Pick a price and where payments go.";
+  if (snapshot?.node.url) return void (await goLive());
+  pushOffer = "What you approved goes on sale once it's open. Pick a price and where payments go.";
   render();
+}
+
+/** Every change reaches the store by itself: once a change is saved, push it. */
+async function goLive() {
+  if (snapshot?.node.url && !pushing) await pushNow();
 }
 
 /** @param {() => Promise<void>} action @param {string} [failed] Said instead of the CLI's reason when that reason would be plumbing. */

@@ -195,17 +195,17 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         await sleep(300);
         check("zero is refused with the editor still open", await js(`document.querySelector("#status .notice.attention")?.textContent.includes("above zero") && Boolean(document.querySelector("#content .price-edit"))`));
         await js(`{ const field = document.querySelector("#content .price-edit input"); field.value = "0.75"; field.form.requestSubmit(); }`);
-        await waitFor(`document.querySelector("#content").textContent.includes("Buyers still pay $0.02 until you redeploy.")`);
-        check("a saved price the node does not charge yet says so on For Sale", await js(`document.querySelector("#content .store-bar").textContent.includes("$0.75") && document.querySelector("#content .store-bar").textContent.includes("Buyers still pay $0.02 until you redeploy.")`));
+        await waitFor(`document.querySelector("#content").textContent.includes("Your store still charges $0.02.")`);
+        check("a saved price the node does not charge yet says so on For Sale", await js(`document.querySelector("#content .store-bar").textContent.includes("$0.75") && document.querySelector("#content .store-bar").textContent.includes("Your store still charges $0.02.")`));
         await shot("store-stale-price");
         await js(`window.__lore.show("today")`);
         await sleep(400);
-        check("Today offers the redeploy as standing state", await js(`document.querySelector("#content").textContent.includes("Buyers still pay $0.02; you set $0.75.")`));
+        check("Today offers the update as standing state, in plain words", await js(`document.querySelector("#content").textContent.includes("Your store still charges $0.02. Update it to start charging $0.75.")`));
         // Fix 5: approved work the node does not hold yet gets a standing Push, on For Sale and under Needs you.
         await js(`window.__lore.show("today")`);
         await sleep(400);
         await js(`[...document.querySelectorAll("#content button")].find((b) => b.textContent === "Approve").click()`);
-        await waitFor(`document.querySelector("#content").textContent.includes("Push to your store")`);
+        await waitFor(`document.querySelector("#content").textContent.includes("Update your store")`);
         // The staged node answers the ledger query with two sales, one of them the publication just approved.
         const publicId = await js(`window.lore.snapshot().then((s) => s.publications.items.find((i) => i.state === "approved").public_id)`);
         const wrangler = join(process.env.LORE_HOME, "node/node_modules/.bin/wrangler");
@@ -222,7 +222,7 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         check("the approved publication counts its sales", store.includes("· 1 sold"));
         check("the For Sale bar links to payouts", await js(`[...document.querySelectorAll("#content .store-bar a.link-btn")].some((a) => a.textContent === "Payouts ↗")`));
         await shot("store-sales");
-        check("For Sale bar offers Push while an approved item is not live", await js(`[...document.querySelectorAll("#content .store-bar button")].some((b) => b.textContent === "Push to your store")`));
+        check("For Sale bar offers Update store while an approved item is not live", await js(`[...document.querySelectorAll("#content .store-bar button")].some((b) => b.textContent === "Update store")`));
         check("the heading says the one item is not live, once", await js(`document.querySelector("#content").textContent.includes("1 publication · not on your store yet") && !document.querySelector("#content").textContent.includes("Not live yet")`));
         await shot("store-unpushed");
         await js(`window.__lore.show("today")`);
@@ -243,7 +243,7 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         execFileSync("uv", ["run", "python", "-c", `import time\nfrom lore.store import Store\nwith Store() as s:\n s.set_setting('node_live', {'url': 'https://store.example/mcp', 'checked_at': time.time(), 'live': {'state': 'online', 'network': 'eip155:84532', 'payout': '0x' + 'a' * 40}, 'ids': ['${publicId}']})`], { cwd: join(__dirname, "../../.."), env: process.env });
         await js(`window.__lore.event({ type: "changed" })`);
         check("a taken-down item the node still serves says so", await waitFor(`document.querySelector("#content").textContent.includes("Still on your store")`));
-        check("…and For Sale offers the push that removes it", await js(`[...document.querySelectorAll("#content .store-bar button")].some((b) => b.textContent === "Push to your store")`));
+        check("…and For Sale offers the update that removes it", await js(`[...document.querySelectorAll("#content .store-bar button")].some((b) => b.textContent === "Update store")`));
         await shot("store-removal-pending");
         await js(`window.__lore.show("today")`);
         await sleep(400);
@@ -668,7 +668,7 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         check("Change opens one editor for price and free copies", await js(`document.querySelectorAll("#content .price-edit input").length === 2 && document.querySelector("#title").textContent === "For Sale"`));
         await js(`{ const [amount, copies] = document.querySelectorAll("#content .price-edit input"); amount.value = "0.75"; copies.value = "5"; amount.form.requestSubmit(); }`);
         check("both save through the CLI", await waitFor(`window.lore.snapshot().then((s) => s.pricing.publication_usd === 0.75 && s.pricing.free_copies === 5)`));
-        check("…and a live store is offered the push that carries free copies", await waitFor(`[...document.querySelectorAll("#status .notice button")].some((b) => b.textContent === "Push now")`));
+        check("…and a live store is updated without being asked", await waitFor(`!document.querySelector("#status").textContent.includes("next push") && (document.querySelector("#content").textContent.includes("Your store is updated") || [...document.querySelectorAll("#content button")].some((b) => b.textContent === "Update store"))`));
         await shot("store-price-editor-saved");
         await js(`window.__lore.show("settings")`);
         await waitFor(`${rowOf("Price")}?.textContent.includes("first 5 copies free")`);
@@ -751,20 +751,19 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         await js(`window.dispatchEvent(new Event("focus"))`);
         check("while Stripe verifies, the row says it is checking, with nothing for the owner to do", await waitFor(`${cardsRow}?.textContent.includes("Stripe is checking your details") && !${cardsRow}.querySelector("button")`));
         check("…and the notice to finish the form clears itself", await js(`!document.querySelector("#status").textContent.includes("Finish with Stripe in your browser")`));
+        // Stripe clears while the price is under its minimum: said once, on the price row; the card line only says what to do.
+        await js(`window.lore.setPrice(0.25)`);
         stripeCleared = true;
         stripeChecking = false;
-        check("once Stripe clears it, the row offers to turn cards on without a click", await waitFor(`${cardsRow}?.textContent.includes("Turn on")`, 60));
-        await shot("cards-ready");
-        // A price under Stripe's minimum is said once, on the price row; the card line only says what to do.
-        await js(`window.lore.setPrice(0.25)`);
         await js(`window.__lore.event({ type: "changed" })`);
         const priceRow = `[...document.querySelectorAll("#content .row")].find((r) => r.querySelector(".t b")?.textContent === "Price")`;
-        check("a price under the card minimum warns on the price row, once", await waitFor(`${priceRow}?.textContent.includes("Card payments need at least $0.50") && (document.querySelector("#content").textContent.match(/\\$0\\.50/g) ?? []).length === 1 && ${cardsRow}.textContent.includes("Raise your price")`));
+        check("a price under the card minimum warns on the price row, once", await waitFor(`${priceRow}?.textContent.includes("Card payments need at least $0.50") && (document.querySelector("#content").textContent.match(/\\$0\\.50/g) ?? []).length === 1 && ${cardsRow}.textContent.includes("once you raise your price") && !${cardsRow}.querySelector(".pill")`, 60));
         await shot("cards-price-warning");
+        // Raising the price leaves nothing for the owner to decide, so cards come on by themselves.
         await js(`window.lore.setPrice(3)`);
         await js(`window.__lore.event({ type: "changed" })`);
         await waitFor(`!${priceRow}?.textContent.includes("Card payments need")`);
-        await press("Turn on");
+        check("once Stripe has cleared and the price can be charged, cards come on by themselves", await waitFor(`${cardsRow}?.textContent.includes("Turn off")`, 60));
         check("cards are on, with a way to turn them off", await waitFor(`${cardsRow}?.textContent.includes("Turn off")`));
         check("…into the account Stripe cleared", await js(`window.lore.cardStatus().then((c) => c.account)`) === "acct_1EdgeSeller");
         await shot("cards-on");
