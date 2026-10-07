@@ -5,7 +5,9 @@ import hmac
 import json
 import math
 import os
+import re
 import sys
+import urllib.parse
 from pathlib import Path
 from typing import Annotated
 
@@ -13,6 +15,7 @@ from pydantic import BaseModel, ConfigDict, Field, TypeAdapter
 
 from . import blueprint as blueprint_module
 from . import capture as capture_module
+from . import cards as cards_module
 from . import deploy as deploy_module
 from . import feedback as feedback_module
 from . import marketplace as marketplace_module
@@ -20,13 +23,17 @@ from . import sources as sources_module
 from .paths import home
 from .sources import Registry, available_sources
 from .store import (
+    FREE_COPIES,
+    FREE_COPIES_SETTING,
     JOB_FINAL_STATUSES,
     JOB_KINDS,
     JOB_SUMMARIES,
     STATUSES,
+    SUPPORT_EMAIL_SETTING,
     AnswerSettings,
     JobKind,
     Publication,
+    PublicationExtras,
     PublicationInput,
     Store,
 )
@@ -44,8 +51,23 @@ from .ui import (
     warn,
 )
 
+# Card checkout (XC-039): the seller's Stripe connected account, and the
+# lowest price a card can be charged. One price everywhere (MON-028), so a
+# store takes cards only while its price is at least this.
+STRIPE_ACCOUNT_SETTING = "stripe_account"
+# An account opened through `lore cards connect` that Stripe hasn't cleared yet,
+# and the token proving to Lore's checkout that it is this owner's.
+STRIPE_PENDING_SETTING = "stripe_account_pending"
+STRIPE_TOKEN_SETTING = "stripe_account_token"
+CARD_MINIMUM_USD = 0.5
+STRIPE_ACCOUNT_ID = re.compile(r"acct_[A-Za-z0-9]+")
+
 PUBLICATION_CANDIDATES: TypeAdapter[list[PublicationInput]] = TypeAdapter(
     Annotated[list[PublicationInput], Field(min_length=1)]
+)
+
+PUBLICATION_EXTRAS: TypeAdapter[list[PublicationExtras]] = TypeAdapter(
+    Annotated[list[PublicationExtras], Field(min_length=1)]
 )
 
 
@@ -57,6 +79,21 @@ class PublicationDecision(BaseModel):
     candidate: PublicationInput
     original: PublicationInput | None = None
     approve: bool
+
+
+class ExtrasDecision(BaseModel):
+    """One card of new free parts for a live piece, answered in the desktop app."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    extras: PublicationExtras
+    original: PublicationExtras | None = None
+    approve: bool
+
+
+EXTRAS_DECISIONS: TypeAdapter[ExtrasDecision | list[ExtrasDecision]] = TypeAdapter(
+    ExtrasDecision | Annotated[list[ExtrasDecision], Field(min_length=1)]
+)
 
 
 def parser() -> argparse.ArgumentParser:
@@ -239,6 +276,18 @@ def parser() -> argparse.ArgumentParser:
     price.add_argument(
         "amount", nargs="?", type=float, help="USD per publication; use 0 for free"
     )
+    free_copies = commands.add_parser(
+        "free-copies", help="show or set how many copies of each piece are free"
+    )
+    free_copies.add_argument(
+        "count", nargs="?", type=int, help="free copies per piece; use 0 for none"
+    )
+    support = commands.add_parser(
+        "support", help="show or set the email buyers write to for help or a refund"
+    )
+    support.add_argument(
+        "email", nargs="?", help="an email address, or `off` to remove it"
+    )
     answer = commands.add_parser(
         "answer", help="enable or disable the paid answer tier"
     )
@@ -283,6 +332,10 @@ def parser() -> argparse.ArgumentParser:
     node_sales.add_argument(
         "--json", action="store_true", help="print the sales as JSON"
     )
+    node_views = node_commands.add_parser(
+        "views", help="how often each piece's page was opened"
+    )
+    node_views.add_argument("--json", action="store_true")
     node_secret = node_commands.add_parser(
         "secret",
         help="vault a Coinbase credential on the node; the value is read from stdin",
@@ -308,6 +361,29 @@ def parser() -> argparse.ArgumentParser:
     )
     publication_commands.add_parser(
         "decide", help="apply one approval card from the Lore desktop app (stdin)"
+    )
+    publication_extras = publication_commands.add_parser(
+        "extras", help="update the free parts of pieces already on sale"
+    )
+    extras_commands = publication_extras.add_subparsers(
+        dest="extras_command", required=True
+    )
+    extras_draft = extras_commands.add_parser(
+        "draft", help="validate new free parts and stage them for approval"
+    )
+    extras_draft.add_argument(
+        "file",
+        help="JSON array of {publication_id, sample, useful_if, not_useful_if}; "
+        "use - for stdin",
+    )
+    extras_commands.add_parser(
+        "candidates", help="print the staged free parts and their pieces as JSON"
+    )
+    extras_commands.add_parser(
+        "review", help="approve each staged update to a piece's free parts"
+    )
+    extras_commands.add_parser(
+        "decide", help="apply one free-parts card from the Lore desktop app (stdin)"
     )
     publication_commands.add_parser("list", help="show active and revoked publications")
     publication_revoke = publication_commands.add_parser(
@@ -377,6 +453,19 @@ def parser() -> argparse.ArgumentParser:
         "status", help="whether this store is listed, pending, or neither"
     )
     listing_status.add_argument("--json", action="store_true")
+
+    cards = commands.add_parser("cards", help="take card payments through Stripe")
+    cards_commands = cards.add_subparsers(dest="cards_command")
+    card_account = cards_commands.add_parser(
+        "account", help="connect the Stripe account card payments go to"
+    )
+    card_account.add_argument("id", help="your Stripe account id, acct_…")
+    cards_commands.add_parser("off", help="stop taking card payments")
+    card_connect = cards_commands.add_parser(
+        "connect", help="open a Stripe account to get paid to your bank"
+    )
+    card_connect.add_argument("--json", action="store_true")
+    cards.add_argument("--json", action="store_true")
     return root
 
 
@@ -426,6 +515,10 @@ def main(argv: list[str] | None = None) -> int:
             return manual()
         if args.command == "price":
             return price(args.amount)
+        if args.command == "free-copies":
+            return free_copies(args.count)
+        if args.command == "support":
+            return support_email(args.email)
         if args.command == "answer":
             if args.answer_command == "on":
                 return answer_enable(args.file, args.price)
@@ -460,6 +553,8 @@ def main(argv: list[str] | None = None) -> int:
                 return deploy_module.login()
             if args.node_command == "sales":
                 return sales(args.json)
+            if args.node_command == "views":
+                return views(args.json)
         if args.command == "publication":
             if args.publication_command == "review":
                 return publication_apply(args.file)
@@ -469,6 +564,14 @@ def main(argv: list[str] | None = None) -> int:
                 return publication_candidates()
             if args.publication_command == "decide":
                 return publication_decide()
+            if args.publication_command == "extras":
+                if args.extras_command == "draft":
+                    return extras_draft(args.file)
+                if args.extras_command == "candidates":
+                    return extras_candidates()
+                if args.extras_command == "review":
+                    return extras_review()
+                return extras_decide()
             if args.publication_command == "revoke":
                 return publication_revoke(args.id)
             if args.publication_command == "reapprove":
@@ -482,6 +585,8 @@ def main(argv: list[str] | None = None) -> int:
             return blueprint_show()
         if args.command == "marketplace":
             return marketplace(args)
+        if args.command == "cards":
+            return cards(args.cards_command, getattr(args, "id", None), args.json)
         if args.command == "report-feedback":
             return report_feedback(
                 args.title,
@@ -547,6 +652,11 @@ def manual() -> int:
   6. lore price [USD]
      Show or set the advertised price per publication.
 
+  6a. lore free-copies [N]
+     Show or set how many copies of each piece are free before it costs
+     anything (3 unless you change it; 0 turns it off). Ships on the next
+     `lore push`.
+
   6b. lore answer on <proxy-file> <price> | off
      Enable the paid answer tier or switch it off. Ships on the next `lore push`.
 
@@ -577,6 +687,11 @@ def manual() -> int:
      Switch your store on for the public Lore marketplace and get the link
      to request a listing, or switch it off. Only what your store already
      shows buyers is shared; `status` says whether you are pending or listed.
+
+  14. lore cards account <acct_…> | off
+     Take card payments through Stripe, paid straight into your own Stripe
+     account. Cards need a price of at least $0.50, the one price your
+     store charges everywhere. `lore cards` alone says where cards go.
 
 Use `lore <command> --help` for command-specific options.
 """
@@ -952,10 +1067,31 @@ def sales(as_json: bool) -> int:
     if not rows:
         muted("No sales yet.")
         return 0
-    total = sum(row.price_usd for row in rows)
-    heading(f"{len(rows)} sale{'s' if len(rows) != 1 else ''} · ${total:.2f}")
+    paid = [row for row in rows if row.network != deploy_module.FREE_NETWORK]
+    given = len(rows) - len(paid)
+    total = sum(row.price_usd for row in paid)
+    free = f" · {given} free {'copy' if given == 1 else 'copies'}" if given else ""
+    heading(f"{len(paid)} sale{'s' if len(paid) != 1 else ''} · ${total:.2f}{free}")
     for row in rows:
-        print(f"  {row.sold_at[:10]}  ${row.price_usd:.2f}  {row.title}")
+        to = f" to {row.payer}" if row.payer else ""
+        owed = f"  (refund owed{to})" if row.refund_owed else ""
+        free_copy = row.network == deploy_module.FREE_NETWORK
+        amount = "  free" if free_copy else f"${row.price_usd:.2f}"
+        print(f"  {row.sold_at[:10]}  {amount}  {row.title}{owed}")
+    return 0
+
+
+def views(as_json: bool) -> int:
+    rows = deploy_module.views()
+    if as_json:
+        print(deploy_module.VIEWS.dump_json(rows).decode())
+        return 0
+    with Store() as store:
+        titles = {p.public_id: p.title for p in store.list_publications()}
+    for row in sorted(rows, key=lambda row: -row.views):
+        print(f"  {row.views:>6}  {titles.get(row.item_id, row.item_id)}")
+    if not rows:
+        muted("No page views yet.")
     return 0
 
 
@@ -969,6 +1105,7 @@ def status() -> int:
         connected = Registry(store).sources
         database_path = store.path
         publication_price = store.setting("price_usd", None)
+        free = store.setting(FREE_COPIES_SETTING, FREE_COPIES)
         answer_settings = store.answer_settings()
         node_url = store.setting("node_url", None)
         revocation_pending = store.setting("revocation_pending", False)
@@ -996,6 +1133,7 @@ def status() -> int:
     print(
         f"Publication price: {'not set' if publication_price is None else f'${publication_price:.2f}'}"
     )
+    print(f"Free copies: {free} per piece")
     print(
         "Answer tier: "
         + (
@@ -1030,6 +1168,11 @@ def price(amount: float | None) -> int:
             return 0
         if not math.isfinite(amount) or amount < 0:
             raise ValueError("price must be a finite, non-negative number")
+        if amount < CARD_MINIMUM_USD and store.setting(STRIPE_ACCOUNT_SETTING, ""):
+            raise ValueError(
+                f"Cards can't be charged less than ${CARD_MINIMUM_USD:.2f}. "
+                "Keep the price there, or stop taking cards first: lore cards off"
+            )
         store.set_setting("price_usd", round(amount, 6))
         node_url = store.setting("node_url", None)
     success(
@@ -1043,6 +1186,51 @@ def price(amount: float | None) -> int:
         muted(
             "Your deployed node still charges its old price until `lore node deploy` reruns."
         )
+    return 0
+
+
+def support_email(email: str | None) -> int:
+    """Show or update the support line every store page ends with."""
+    with Store() as store:
+        if email is None:
+            current = store.setting(SUPPORT_EMAIL_SETTING, "")
+            print(current or "No support email; store pages show no refund line")
+            return 0
+        email = "" if email == "off" else email.strip()
+        if email and not re.fullmatch(
+            r"[^@\s<>\"']+@[^@\s<>\"']+\.[^@\s<>\"']+", email
+        ):
+            raise ValueError("that doesn't look like an email address")
+        store.set_setting(SUPPORT_EMAIL_SETTING, email)
+        node_url = store.setting("node_url", None)
+    success(
+        f"Buyers write to {email} for help or a refund"
+        if email
+        else "Removed the support line"
+    )
+    if node_url:
+        muted("Your store picks this up on the next `lore push`.")
+    return 0
+
+
+def free_copies(count: int | None) -> int:
+    """Show or update how many copies of each piece are given away free."""
+    with Store() as store:
+        if count is None:
+            current = store.setting(FREE_COPIES_SETTING, FREE_COPIES)
+            print(f"{current} free {'copy' if current == 1 else 'copies'} per piece")
+            return 0
+        if count < 0:
+            raise ValueError("free copies must be zero or more")
+        store.set_setting(FREE_COPIES_SETTING, count)
+        node_url = store.setting("node_url", None)
+    success(
+        "No free copies"
+        if count == 0
+        else f"The first {count} {'copy' if count == 1 else 'copies'} of each piece {'is' if count == 1 else 'are'} free"
+    )
+    if node_url:
+        muted("Your store picks this up on the next `lore push`.")
     return 0
 
 
@@ -1190,12 +1378,35 @@ def _staged() -> list[PublicationInput]:
 
 
 def _stage(candidates: list[PublicationInput]) -> None:
-    path = _candidates_path()
-    if candidates:
-        path.write_bytes(PUBLICATION_CANDIDATES.dump_json(candidates, indent=2))
+    _write_staged(_candidates_path(), PUBLICATION_CANDIDATES, candidates)
+
+
+def _write_staged(path: Path, adapter: TypeAdapter, drafts: list) -> None:
+    if drafts:
+        path.write_bytes(adapter.dump_json(drafts, indent=2))
         path.chmod(0o600)
     else:
         path.unlink(missing_ok=True)
+
+
+def _extras_path() -> Path:
+    return home() / "publish-extras.json"
+
+
+def _validated_extras(text: str) -> list[PublicationExtras]:
+    """Validate drafted free parts against the live pieces they would change."""
+    drafts = PUBLICATION_EXTRAS.validate_json(text)
+    with Store() as store:
+        for extras in drafts:
+            store.with_extras(extras)
+    return drafts
+
+
+def _staged_extras() -> list[PublicationExtras]:
+    path = _extras_path()
+    if not path.is_file():
+        return []
+    return _validated_extras(path.read_text(encoding="utf-8"))
 
 
 def _candidate(raw: object, missing_check: Store) -> Publication:
@@ -1210,16 +1421,13 @@ def _candidate(raw: object, missing_check: Store) -> Publication:
     if missing:
         raise ValueError(f"candidate provenance references unknown memories: {missing}")
     return Publication(
-        id=0,
-        title=candidate.title,
-        content=candidate.content,
-        kind=candidate.kind,
-        topic=candidate.topic,
-        teaser=candidate.teaser,
-        provenance=candidate.provenance,
-        active=1,
-        created_at="",
-        updated_at="",
+        id=0, **candidate.model_dump(), active=1, created_at="", updated_at=""
+    )
+
+
+def _save(store: Store, publication: Publication) -> None:
+    store.add_publication(
+        **publication.model_dump(include=set(PublicationInput.model_fields))
     )
 
 
@@ -1242,27 +1450,40 @@ def publication_apply(path: str) -> int:
                 print("\n  [a] approve   [e] edit   [r] reject   [q] quit")
                 choice = ask("Choose", "r").lower()
                 if choice == "a":
-                    store.add_publication(
-                        title=candidate.title,
-                        content=candidate.content,
-                        kind=candidate.kind,
-                        topic=candidate.topic,
-                        teaser=candidate.teaser,
-                        provenance=candidate.provenance,
-                    )
+                    _save(store, candidate)
                     approved += 1
                     break
                 if choice == "e":
                     title = ask("Title (enter keeps current)") or candidate.title
                     teaser = ask("Teaser (enter keeps current)") or candidate.teaser
-                    content = ask("Content (enter keeps current)") or candidate.content
-                    candidate = candidate.model_copy(
-                        update={
-                            "title": title.strip(),
-                            "teaser": teaser.strip(),
-                            "content": content.strip(),
-                        }
+                    sample = (
+                        ask("Free sample (enter keeps current)") or candidate.sample
                     )
+                    useful_if = (
+                        ask("Useful if (enter keeps current)") or candidate.useful_if
+                    )
+                    not_useful_if = (
+                        ask("Not useful if (enter keeps current)")
+                        or candidate.not_useful_if
+                    )
+                    content = ask("Content (enter keeps current)") or candidate.content
+                    try:
+                        candidate = _candidate(
+                            candidate.model_dump(
+                                include=set(PublicationInput.model_fields)
+                            )
+                            | {
+                                "title": title,
+                                "teaser": teaser,
+                                "sample": sample,
+                                "useful_if": useful_if,
+                                "not_useful_if": not_useful_if,
+                                "content": content,
+                            },
+                            store,
+                        )
+                    except ValueError as error:
+                        warn(str(error))
                     continue
                 if choice == "q":
                     quit_early = True
@@ -1285,10 +1506,42 @@ def publication_apply(path: str) -> int:
     return 0
 
 
+def _title_words(title: str) -> set[str]:
+    return set(re.findall(r"[a-z0-9]+", title.lower()))
+
+
+def _repeats(
+    candidate: PublicationInput, for_sale: list[Publication]
+) -> Publication | None:
+    """The piece for sale a draft repeats: drawn from the same memory, saying the same thing."""
+    words = _title_words(candidate.title)
+    for piece in for_sale:
+        shared = _title_words(piece.title)
+        if set(candidate.provenance) & set(piece.provenance) and len(
+            words & shared
+        ) >= 0.6 * len(words | shared):
+            return piece
+    return None
+
+
 def publication_draft(file: str) -> int:
     """Validate agent-drafted candidates and stage them for the owner's approval."""
     text = sys.stdin.read() if file == "-" else Path(file).read_text(encoding="utf-8")
-    candidates = _validated_candidates(text)
+    with Store() as store:
+        for_sale = store.list_publications(active_only=True)
+    candidates = []
+    for candidate in _validated_candidates(text):
+        if repeated := _repeats(candidate, for_sale):
+            warn(
+                f"Skipped “{candidate.title}”: it repeats “{repeated.title}”, "
+                "already for sale. Draft something that piece doesn't cover."
+            )
+        else:
+            candidates.append(candidate)
+    if not candidates:
+        raise ValueError(
+            "every draft repeats a piece already for sale; draft something new"
+        )
     _stage(candidates)
     success(
         f"Drafted {len(candidates)} candidate{'s' if len(candidates) != 1 else ''} "
@@ -1318,18 +1571,10 @@ def publication_decide() -> int:
         raise ValueError("that candidate is not drafted; nothing saved")
     for field in ("kind", "topic", "provenance"):
         if getattr(decision.candidate, field) != getattr(original, field):
-            raise ValueError("only a draft's title, teaser, and content can be edited")
+            raise ValueError("only a draft's wording can be edited")
     if decision.approve:
         with Store() as store:
-            approved = _candidate(decision.candidate, store)
-            store.add_publication(
-                title=approved.title,
-                teaser=approved.teaser,
-                content=approved.content,
-                kind=approved.kind,
-                topic=approved.topic,
-                provenance=approved.provenance,
-            )
+            _save(store, _candidate(decision.candidate, store))
     del staged[_index]
     _stage(staged)
     print(json.dumps({"approved": decision.approve, "remaining": len(staged)}))
@@ -1342,6 +1587,113 @@ def publication_decide() -> int:
         # same ordering `publication_apply` uses — so a failed push can't leave
         # the card stuck in staged.json where a retry would re-approve it and
         # duplicate the publication (round 1 review finding).
+        _push_after_approval()
+    return 0
+
+
+def extras_draft(file: str) -> int:
+    """Stage agent-drafted free parts for pieces already on sale."""
+    text = sys.stdin.read() if file == "-" else Path(file).read_text(encoding="utf-8")
+    drafts = _validated_extras(text)
+    _write_staged(_extras_path(), PUBLICATION_EXTRAS, drafts)
+    success(
+        f"Drafted new free parts for {len(drafts)} "
+        f"piece{'s' if len(drafts) != 1 else ''} for the owner to approve"
+    )
+    return 0
+
+
+def extras_candidates() -> int:
+    """Print each staged update beside the piece it changes, for the approval cards."""
+    staged = _staged_extras()
+    with Store() as store:
+        cards = [
+            {
+                "extras": extras.model_dump(mode="json"),
+                "piece": store.active_publication(extras.publication_id).model_dump(
+                    mode="json",
+                    include={
+                        "title",
+                        "teaser",
+                        "kind",
+                        "topic",
+                        "sample",
+                        "useful_if",
+                        "not_useful_if",
+                    },
+                ),
+            }
+            for extras in staged
+        ]
+    print(json.dumps(cards))
+    return 0
+
+
+def extras_review() -> int:
+    """Walk the owner through each staged update; save only what they approve."""
+    _owner_action("approving a piece's free parts")
+    staged = _staged_extras()
+    logo()
+    approved = 0
+    with Store() as store:
+        for index, original in enumerate(list(staged), 1):
+            extras = original
+            while True:
+                publication_card(store.with_extras(extras), index, len(staged))
+                muted("Only the free parts change; its link, price and paid text stay.")
+                print("\n  [a] approve   [e] edit   [r] reject   [q] quit")
+                choice = ask("Choose", "r").lower()
+                if choice != "e":
+                    break
+                try:
+                    edited = PublicationExtras(
+                        publication_id=extras.publication_id,
+                        sample=ask("Free sample (enter keeps current)")
+                        or extras.sample,
+                        useful_if=ask("Useful if (enter keeps current)")
+                        or extras.useful_if,
+                        not_useful_if=ask("Not useful if (enter keeps current)")
+                        or extras.not_useful_if,
+                    )
+                    store.with_extras(edited)
+                    extras = edited
+                except ValueError as error:
+                    warn(str(error))
+            if choice == "q":
+                break
+            if choice == "a":
+                store.set_extras(extras)
+                approved += 1
+            staged.remove(original)
+    _write_staged(_extras_path(), PUBLICATION_EXTRAS, staged)
+    success(f"Updated {approved} piece{'s' if approved != 1 else ''}")
+    if approved:
+        _push_after_approval()
+    return 0
+
+
+def extras_decide() -> int:
+    """Apply the free-parts cards the owner answered in the Lore desktop app:
+    one card, or a whole batch at once, which pushes the store only once."""
+    decided = EXTRAS_DECISIONS.validate_json(
+        _desktop_decision("approving a piece's free parts")
+    )
+    decisions = decided if isinstance(decided, list) else [decided]
+    staged = _staged_extras()
+    for decision in decisions:
+        original = decision.original or decision.extras
+        if original not in staged:
+            raise ValueError("those free parts are not drafted; nothing saved")
+        if decision.extras.publication_id != original.publication_id:
+            raise ValueError("only a draft's wording can be edited")
+        staged.remove(original)
+    approved = [decision.extras for decision in decisions if decision.approve]
+    with Store() as store:
+        for extras in approved:
+            store.set_extras(extras)
+    _write_staged(_extras_path(), PUBLICATION_EXTRAS, staged)
+    print(json.dumps({"approved": len(approved), "remaining": len(staged)}))
+    if approved:
         _push_after_approval()
     return 0
 
@@ -1438,7 +1790,13 @@ def publication_revoke(publication_id: int) -> int:
 
 
 def _push_sql(
-    publications: list[Publication], answer: AnswerSettings, listed_name: str
+    publications: list[Publication],
+    answer: AnswerSettings,
+    listed_name: str,
+    stripe_account: str = "",
+    free_copies: int = FREE_COPIES,
+    support_email: str = "",
+    price_usd: float = 0,
 ) -> str:
     """Render the full-replace SQL for the edge database.
 
@@ -1461,12 +1819,24 @@ def _push_sql(
         "CREATE TABLE publications ("
         "public_id TEXT PRIMARY KEY, title TEXT NOT NULL, content TEXT NOT NULL, "
         "kind TEXT NOT NULL, topic TEXT NOT NULL DEFAULT '', "
-        "teaser TEXT NOT NULL DEFAULT '', updated_at TEXT NOT NULL DEFAULT '');",
+        "teaser TEXT NOT NULL DEFAULT '', sample TEXT NOT NULL DEFAULT '', "
+        "useful_if TEXT NOT NULL DEFAULT '', not_useful_if TEXT NOT NULL DEFAULT '', "
+        "updated_at TEXT NOT NULL DEFAULT '');",
     ]
+    columns = (
+        "public_id",
+        "title",
+        "content",
+        "teaser",
+        "sample",
+        "useful_if",
+        "not_useful_if",
+        "topic",
+        "updated_at",
+    )
     statements.extend(
-        f"INSERT INTO publications(public_id,title,content,kind,topic,teaser,updated_at) VALUES "
-        f"({quote(p.public_id)},{quote(p.title)},{quote(p.content)},{quote(p.kind.value)},"
-        f"{quote(p.topic)},{quote(p.teaser)},{quote(p.updated_at)});"
+        f"INSERT INTO publications({','.join(columns)},kind) VALUES "
+        f"({','.join(quote(getattr(p, column)) for column in columns)},{quote(p.kind.value)});"
         for p in publications
     )
     settings = {
@@ -1474,6 +1844,11 @@ def _push_sql(
         "answer_price_usd": f"{answer.answer_price_usd:.6f}",
         "answer_enabled": "true" if answer.answer_enabled else "false",
         "listed_name": listed_name,
+        "stripe_account": stripe_account,
+        "free_copies": str(free_copies),
+        "support_email": support_email,
+        # The store charges this from its next push, so a new price needs no redeploy.
+        **({"price_usd": f"{price_usd:.6f}"} if price_usd > 0 else {}),
     }
     statements.extend(
         [
@@ -1527,7 +1902,19 @@ def _push(worker: Path, local: bool, job_id: int) -> int:
         active = store.list_publications(active_only=True)
         answer_settings = store.answer_settings()
         listed_name = str(store.setting(marketplace_module.NAME_SETTING, ""))
-    script = _push_sql(active, answer_settings, listed_name)
+        stripe_account = str(store.setting(STRIPE_ACCOUNT_SETTING, ""))
+        free = int(str(store.setting(FREE_COPIES_SETTING, FREE_COPIES)))
+        support = str(store.setting(SUPPORT_EMAIL_SETTING, ""))
+        price_usd = store.setting("price_usd", 0)
+    script = _push_sql(
+        active,
+        answer_settings,
+        listed_name,
+        stripe_account,
+        free,
+        support,
+        float(price_usd) if isinstance(price_usd, (int, float)) else 0,
+    )
     with tempfile.NamedTemporaryFile("w", suffix=".sql", delete=False) as handle:
         handle.write(script)
         script_path = handle.name
@@ -1584,6 +1971,7 @@ def _push(worker: Path, local: bool, job_id: int) -> int:
         from .snapshot import forget_live  # local import, as desktop-state does
 
         forget_live()
+        _bind_card_store()
     with Store() as store:
         store.finish_job(job_id, "succeeded", summary="pushed", count=len(active))
     where = "local dev database" if local else "deployed node"
@@ -1713,6 +2101,93 @@ def marketplace(args: argparse.Namespace) -> int:
     else:
         print("Not listed.")
     return 0
+
+
+def cards(command: str | None, account: str | None, as_json: bool = False) -> int:
+    """Connect, disconnect, or show the Stripe account card payments go to."""
+    with Store() as store:
+        current = str(store.setting(STRIPE_ACCOUNT_SETTING, ""))
+        pending = str(store.setting(STRIPE_PENDING_SETTING, ""))
+        token = str(store.setting(STRIPE_TOKEN_SETTING, ""))
+        if command is None:
+            if not as_json:
+                print(
+                    f"Taking cards into {current}"
+                    if current
+                    else f"Waiting on Stripe for {pending}"
+                    if pending
+                    else "Not taking cards."
+                )
+                return 0
+            ready: bool | None = True if current else None
+            checking = False
+            if pending and token:
+                try:
+                    ready, checking = cards_module.status(pending, token)
+                except OSError:
+                    ready = None
+            print(
+                json.dumps(
+                    {
+                        "account": current,
+                        "pending": pending,
+                        "ready": ready,
+                        "checking": checking,
+                        "minimum_usd": CARD_MINIMUM_USD,
+                    }
+                )
+            )
+            return 0
+        _owner_action("changing card payments")
+        if command == "connect":
+            if not (pending and token):
+                pending, token = cards_module.open_account()
+                store.set_setting(STRIPE_PENDING_SETTING, pending)
+                store.set_setting(STRIPE_TOKEN_SETTING, token)
+            url = cards_module.onboarding_url(pending, token)
+            if as_json:
+                print(json.dumps({"account": pending, "url": url}))
+            else:
+                success(f"Finish with Stripe in your browser: {url}")
+            return 0
+        if command == "off":
+            store.set_setting(STRIPE_ACCOUNT_SETTING, "")
+            # Kept as pending, so turning cards back on needs no new account.
+            if current and token:
+                store.set_setting(STRIPE_PENDING_SETTING, current)
+            success("Card payments are off.")
+        else:
+            if not STRIPE_ACCOUNT_ID.fullmatch(account or ""):
+                raise ValueError(
+                    "a Stripe account id looks like acct_ followed by letters and numbers"
+                )
+            price_usd = store.setting("price_usd", None)
+            if not isinstance(price_usd, (int, float)) or price_usd < CARD_MINIMUM_USD:
+                raise ValueError(
+                    f"Cards can't be charged less than ${CARD_MINIMUM_USD:.2f}. "
+                    f"Set a price of at least that first: lore price {CARD_MINIMUM_USD:.2f}"
+                )
+            store.set_setting(STRIPE_ACCOUNT_SETTING, account)
+            if account == pending:
+                store.set_setting(STRIPE_PENDING_SETTING, "")
+            success(f"Card payments go to {account}.")
+    muted("Your store shows the change after its next push: lore push")
+    return 0
+
+
+def _bind_card_store() -> None:
+    """Card checkout charges an account only for the store its seller tied it to."""
+    with Store() as store:
+        account = str(store.setting(STRIPE_ACCOUNT_SETTING, ""))
+        token = str(store.setting(STRIPE_TOKEN_SETTING, ""))
+        node_url = str(store.setting("node_url", "") or "")
+    if not (account and token and node_url):
+        return
+    parts = urllib.parse.urlsplit(node_url)
+    try:
+        cards_module.bind(account, token, f"{parts.scheme}://{parts.netloc}")
+    except OSError as error:
+        warn(f"Buyers can't pay by card until the next push: {error}")
 
 
 def _read_description_source(path: str) -> str:

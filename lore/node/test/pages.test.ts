@@ -16,6 +16,13 @@ describe("store pages", () => {
     }
   });
 
+  it("shows the owner's free sample on the piece page, never the paid text", async () => {
+    const html = await (await visit(`/p/${FIXTURE_PUBLICATION_ID}`)).text();
+    expect(html).toContain("a free sample the owner approved");
+    expect(html).toContain("Useful if you are testing the free surface");
+    expect(html).not.toContain("the secret owner-approved content");
+  });
+
   it("answers HEAD with headers only", async () => {
     const response = await visit(`/p/${FIXTURE_PUBLICATION_ID}`, "HEAD");
     expect(response.status).toBe(200);

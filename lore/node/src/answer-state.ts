@@ -18,6 +18,14 @@ export interface AnswerSettings {
   priceUsd: number;
   proxy: string;
   listedName: string;
+  /** The seller's Stripe connected account; empty when the store takes no cards. */
+  stripeAccount: string;
+  /** Copies of each piece given away before it costs anything (MON-040); none unless the owner's push set it. */
+  freeCopies: number;
+  /** Where buyers write for help or a refund; empty shows no support line. */
+  supportEmail: string;
+  /** The price of a piece as the owner last pushed it; 0 until a push carries one, and the deployed price applies. */
+  publicationPriceUsd: number;
 }
 
 export interface AnswerOutcome {
@@ -48,7 +56,13 @@ interface ManifestRow {
   topic: string;
   kind: string;
   updated_at: string;
+  sample?: string;
+  useful_if?: string;
+  not_useful_if?: string;
 }
+
+// Free like the teaser, but listed only when the owner wrote them.
+const EXTRAS = ["sample", "useful_if", "not_useful_if"] as const;
 
 export type CatalogEntry = Omit<ManifestRow, "topic">;
 export type Catalog = { manifest_version: 1; publication_count: number; topics: Record<string, CatalogEntry[]> };
@@ -73,14 +87,16 @@ export interface AnswerJob {
 
 export async function manifest(env: Env): Promise<Catalog> {
   const { results } = await env.LORE_DB.prepare(
-    `SELECT public_id AS id, teaser, topic, kind,
+    `SELECT public_id AS id, teaser, topic, kind, sample, useful_if, not_useful_if,
             substr(updated_at, 1, 10) AS updated_at
      FROM publications WHERE teaser <> ''
      ORDER BY topic, updated_at DESC, public_id`
   ).all<ManifestRow>();
   const topics: Record<string, CatalogEntry[]> = {};
-  for (const { id, teaser, topic, kind, updated_at } of results) {
-    (topics[topic] ??= []).push({ id, teaser, kind, updated_at });
+  for (const row of results) {
+    const { id, teaser, topic, kind, updated_at } = row;
+    const extras = Object.fromEntries(EXTRAS.filter((key) => row[key]).map((key) => [key, row[key]]));
+    (topics[topic] ??= []).push({ id, teaser, kind, updated_at, ...extras });
   }
   return { manifest_version: 1, publication_count: results.length, topics };
 }
@@ -107,14 +123,25 @@ export async function readAnswerSettings(db: D1Database): Promise<AnswerSettings
       .prepare("SELECT key, value FROM node_settings")
       .all<{ key: string; value: string }>());
   } catch {
-    return { enabled: false, priceUsd: 0, proxy: "", listedName: "" };
+    return { enabled: false, priceUsd: 0, proxy: "", listedName: "", stripeAccount: "", freeCopies: 0, supportEmail: "", publicationPriceUsd: 0 };
   }
   const values = Object.fromEntries(rows.map(({ key, value }) => [key, value]));
   const priceUsd = Number(values.answer_price_usd ?? 0);
   const proxy = values.proxy_preamble ?? "";
+  const freeCopies = Number(values.free_copies ?? 0);
+  const publicationPriceUsd = Number(values.price_usd ?? 0);
   const enabled =
     values.answer_enabled === "true" && proxy.trim() !== "" && Number.isFinite(priceUsd) && priceUsd > 0;
-  return { enabled, priceUsd, proxy, listedName: values.listed_name ?? "" };
+  return {
+    enabled,
+    priceUsd,
+    proxy,
+    listedName: values.listed_name ?? "",
+    stripeAccount: values.stripe_account ?? "",
+    freeCopies: Number.isInteger(freeCopies) && freeCopies > 0 ? freeCopies : 0,
+    supportEmail: values.support_email ?? "",
+    publicationPriceUsd: Number.isFinite(publicationPriceUsd) && publicationPriceUsd > 0 ? publicationPriceUsd : 0
+  };
 }
 
 export async function ensureAnswerSchema(db: D1Database): Promise<void> {

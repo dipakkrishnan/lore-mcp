@@ -98,6 +98,14 @@ statement of what the owner knows, at the precision the evidence supports.
   never the finding itself. A teaser that gives away the lesson sells
   nothing. The title travels with the paid content, so it may state the
   claim plainly.
+- `useful_if` and `not_useful_if` are one short line each (under 200
+  characters), finishing "Useful if …" and "Not useful if …": who the piece is
+  for and who should skip it. Free, so they say who it's for, never what it says.
+- `sample` is a free excerpt anyone can read on the piece's page (under 800
+  characters): setup or context that shows the owner's voice and first-hand
+  detail, never the finding, numbers, or recommendation that make the piece
+  worth buying. Leave it empty when no part reads well without giving the
+  piece away. Lore refuses a sample that contains the whole paid text.
 
 Write the candidates to `~/.lore/publish-candidates.json`:
 
@@ -106,6 +114,9 @@ Write the candidates to `~/.lore/publish-candidates.json`:
   {
     "title": "Live demos beat cold decks in an agent-tool launch",
     "teaser": "What outperformed a polished cold deck in one agent-tool launch, with trial-conversion counts",
+    "useful_if": "you're about to launch a developer tool and choosing between demos and a deck",
+    "not_useful_if": "you sell to enterprise buyers through a sales team",
+    "sample": "We had two weeks before launch and a deck we were proud of. I sent it cold to twelve founders I'd been warned were deck people, and ran short live demos for everyone else.",
     "content": "Across one launch: 3 short live demos produced 7 follow-up trials from 10 qualified viewers; a polished deck sent cold produced 0 replies from 12. Small sample; treat as a strong prior, not a law.",
     "kind": "claim",
     "topic": "go-to-market lessons",
@@ -151,6 +162,27 @@ both first-class answers. Node exists? The question is `lore push` instead:
 approved changes don't reach the edge until pushed. If they choose Monetize,
 say that the payment flow will ask whether to keep the exact publication through
 `get` only or also add grounded proxy responses through `answer`.
+
+## Free parts for a piece already on sale
+
+To add or rewrite the `sample`, `useful_if` and `not_useful_if` of a piece
+that is already approved (pieces published before these fields existed have
+none), don't draft a new publication: that would mint a new link. Read the
+piece with `lore publication list` (its `id` is printed under it), then stage
+new free parts by id. The three given values replace the piece's current ones,
+so carry over any you want to keep; the same limits and the no-whole-paid-text
+rule apply.
+
+```sh
+lore publication extras draft - <<'LORE_PUBLISH'
+[{"publication_id": 3, "sample": "...", "useful_if": "...", "not_useful_if": "..."}]
+LORE_PUBLISH
+```
+
+The owner approves each one on a card in the desktop app, or in a real
+terminal with `lore publication extras review`. Approving changes only those
+fields: the piece keeps its link, price and paid content. Never approve them
+yourself.
 
 ## Rules
 

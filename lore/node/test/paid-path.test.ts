@@ -82,7 +82,7 @@ describe("discover", () => {
       const entries = Object.values(payload.topics as Record<string, object[]>).flat();
       expect(entries.length).toBeGreaterThan(0);
       for (const entry of entries) {
-        expect(Object.keys(entry).sort()).toEqual(["id", "kind", "teaser", "updated_at"]);
+        expect(["id", "kind", "not_useful_if", "sample", "teaser", "updated_at", "useful_if"]).toEqual(expect.arrayContaining(Object.keys(entry)));
       }
       expect(JSON.stringify(payload)).not.toContain("owner-approved content");
     } finally {
@@ -189,6 +189,26 @@ describe("get (paid)", () => {
       expect(span?.attributes["lore.outcome"]).toBe("not_found");
       expect(span?.attributes["lore.item_hash"]).toBeTypeOf("string");
       expect(JSON.stringify(spans)).not.toContain(unknownId);
+    } finally {
+      await client.close();
+    }
+  });
+
+  it("never settles a get for a piece that isn't for sale, such as one revoked after discover", async () => {
+    const fetchSpy = mockFacilitator();
+    const client = await connect();
+    try {
+      const revokedId = newTicketId();
+      const token = await challengeAndBuildToken(client, revokedId);
+      const result = await client.callTool({ name: "get", arguments: { id: revokedId }, _meta: { "x402/payment": token } });
+      expect(result.isError).toBe(true);
+      expect(result._meta?.["x402/payment-response"]).toBeUndefined();
+      const settleCalls = fetchSpy.mock.calls.filter(
+        ([input]) => new URL(input instanceof Request ? input.url : input).pathname === "/settle"
+      );
+      expect(settleCalls).toHaveLength(0);
+      const sold = await env.LORE_DB.prepare("SELECT COUNT(*) AS n FROM sales WHERE item_id = ?1").bind(revokedId).first<{ n: number }>();
+      expect(sold?.n).toBe(0);
     } finally {
       await client.close();
     }

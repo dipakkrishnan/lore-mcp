@@ -158,8 +158,10 @@ class SalesTest(LoreTestCase):
         binary.write_text("#!/bin/sh\n")
         wrangler = _Wrangler()
         with patch("lore.deploy.subprocess.run", side_effect=wrangler):
+            # A node deployed before refunds were tracked has no refund_owed column.
             self.assertEqual(
-                [sale.model_dump() for sale in deploy_module.sales()], SALES
+                [sale.model_dump() for sale in deploy_module.sales()],
+                [sale | {"refund_owed": False} for sale in SALES],
             )
         self.assertEqual(
             wrangler.commands,
@@ -177,9 +179,36 @@ class SalesTest(LoreTestCase):
             ],
         )
 
+    def test_a_refund_owed_answer_reads_from_a_current_node(self) -> None:
+        row = SALES[0] | {"id": 7, "kind": "answer", "refund_owed": 1}
+        self.assertTrue(deploy_module.SALES.validate_python([row])[0].refund_owed)
+
     def test_no_staged_node_is_a_plain_error(self) -> None:
         with self.assertRaisesRegex(ValueError, "open your store first"):
             deploy_module.sales()
+
+    def test_views_read_the_last_statement_so_an_unvisited_store_has_none(
+        self,
+    ) -> None:
+        self._stage_node()
+        answer = subprocess.CompletedProcess(
+            ("wrangler",),
+            0,
+            json.dumps(
+                [
+                    {"results": []},
+                    {"results": [{"item_id": "0000000000000000fcdb4b42", "views": 3}]},
+                ]
+            ),
+            "",
+        )
+        with patch("lore.deploy.subprocess.run", return_value=answer) as run:
+            found = deploy_module.views()
+        self.assertEqual(
+            [row.model_dump() for row in found],
+            [{"item_id": "0000000000000000fcdb4b42", "views": 3}],
+        )
+        self.assertEqual(run.call_args.args[0][-1], deploy_module.VIEWS_QUERY)
 
     def _stage_node(self) -> None:
         binary = deploy_module.materialize(0.1) / "node_modules/.bin/wrangler"
@@ -719,6 +748,23 @@ class RunTest(_NodeCase):
         message = str(raised.exception)
         self.assertIn("THE CAUSE", message)
         self.assertLess(len(message), 2100)
+
+    def test_failure_detail_is_wranglers_refusal_not_its_help_footer(self) -> None:
+        # The desktop shows the last line, which after a refusal is a bug-report link.
+        result = subprocess.CompletedProcess(
+            ("x",),
+            1,
+            stdout="",
+            stderr="\x1b[31m✘ \x1b[41;31m[\x1b[41;97mERROR\x1b[41;31m]\x1b[0m \x1b[1mUnknown arguments: d1\x1b[0m\n"
+            "COMMANDS\n  wrangler d1  Manage D1\n"
+            "Please report any issues to https://github.com/cloudflare/workers-sdk/issues/new/choose",
+        )
+        with patch("lore.deploy.subprocess.run", return_value=result):
+            with self.assertRaises(OSError) as raised:
+                deploy_module._run(("x",), self.lore_home, fail="reading sales failed")
+        self.assertEqual(
+            str(raised.exception), "reading sales failed:\nUnknown arguments: d1"
+        )
 
     def test_a_nonzero_exit_is_returned_when_no_failure_message_is_given(self) -> None:
         # `whoami` and `secret list` are probes: their exit code is information,

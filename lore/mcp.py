@@ -55,8 +55,8 @@ TOOLS = [
         "description": (
             "Fetch one owner-approved publication by its id from the discover "
             "catalog. Each call buys exactly one publication. Damaged ids are "
-            "rejected before payment; use a current catalog because a "
-            "just-revoked id can still be billed."
+            "rejected before payment, and an id that is no longer for sale "
+            "returns an error and is never charged."
         ),
         "inputSchema": GetArguments.model_json_schema(),
         "annotations": {"readOnlyHint": True, "openWorldHint": False},

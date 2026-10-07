@@ -102,6 +102,13 @@ async function readSales(loreHome) {
   return JSON.parse(await lore(loreHome, ["node", "sales", "--json"]));
 }
 
+/** How often each piece's page was opened, keyed by its public id. @param {string} loreHome @returns {Promise<Record<string, number>>} */
+async function readViews(loreHome) {
+  /** @type {Array<{item_id: string, views: number}>} */
+  const rows = JSON.parse(await lore(loreHome, ["node", "views", "--json"]));
+  return Object.fromEntries(rows.map((row) => [row.item_id, row.views]));
+}
+
 /** @param {string} loreHome @param {string} query @returns {Promise<SearchHit[]>} */
 async function searchMemories(loreHome, query) {
   const terms = query.trim().split(/\s+/).filter((term) => term && !term.startsWith("-")).slice(0, 8);
@@ -138,6 +145,24 @@ async function captureMemories(loreHome, entries) {
   return JSON.parse(await lore(loreHome, ["capture", "apply", "-"], JSON.stringify(entries)));
 }
 
+/** A draft's piece page exactly as the store would render it, before anything is published.
+ * @param {PublicationCandidate} candidate @param {{priceUsd: number, origin: string, test: boolean}} store */
+async function previewPage(candidate, store) {
+  const { publicationPage } = await import("./storefront.mjs");
+  const piece = {
+    id: "0".repeat(24),
+    teaser: candidate.teaser,
+    kind: candidate.kind,
+    topic: candidate.topic,
+    section: 0,
+    updated_at: new Date().toISOString().slice(0, 10),
+    sample: candidate.sample,
+    useful_if: candidate.useful_if,
+    not_useful_if: candidate.not_useful_if
+  };
+  return publicationPage(piece, { name: "", priceUsd: store.priceUsd, origin: store.origin, test: Boolean(store.test) });
+}
+
 /** The one global publication price, saved through Lore's own validation.
  * Zero is a legal CLI value ("free"), but a store the owner is pricing needs a
  * positive one — choosing not to sell stays a conversation, not a text field.
@@ -150,6 +175,15 @@ async function setPrice(loreHome, amount) {
   await lore(loreHome, ["price", String(amount)], "");
 }
 
+/** How many copies of each piece are given away before it costs anything; zero gives none away.
+ * @param {string} loreHome @param {unknown} count */
+async function setFreeCopies(loreHome, count) {
+  if (typeof count !== "number" || !Number.isInteger(count) || count < 0) {
+    throw new Error("Free copies has to be a whole number, zero or more");
+  }
+  await lore(loreHome, ["free-copies", String(count)], "");
+}
+
 /** @param {string} loreHome @returns {Promise<PublicationCandidate[]>} */
 async function candidates(loreHome) {
   return JSON.parse(await lore(loreHome, ["publication", "candidates"]));
@@ -158,6 +192,22 @@ async function candidates(loreHome) {
 /** @param {string} loreHome @param {PublicationCandidate} original @param {PublicationCandidate} candidate @param {boolean} approve */
 async function decide(loreHome, original, candidate, approve) {
   await lore(loreHome, ["publication", "decide"], JSON.stringify({ original, candidate, approve }));
+}
+
+/** @param {string} loreHome @returns {Promise<ExtrasCandidate[]>} */
+async function extrasCandidates(loreHome) {
+  return JSON.parse(await lore(loreHome, ["publication", "extras", "candidates"]));
+}
+
+/** @param {string} loreHome @param {PublicationExtras} original @param {PublicationExtras} extras @param {boolean} approve */
+async function decideExtras(loreHome, original, extras, approve) {
+  await lore(loreHome, ["publication", "extras", "decide"], JSON.stringify({ original, extras, approve }));
+}
+
+/** Approve a batch of free-parts cards in one CLI call, so the store is pushed once.
+ * @param {string} loreHome @param {Array<{original: PublicationExtras, extras: PublicationExtras}>} decisions */
+async function approveExtras(loreHome, decisions) {
+  await lore(loreHome, ["publication", "extras", "decide"], JSON.stringify(decisions.map(({ original, extras }) => ({ original, extras, approve: true }))));
 }
 
 /** Send one feedback report through `lore report-feedback`. The description
@@ -185,6 +235,22 @@ async function reportFeedback(loreHome, input) {
 async function listStore(loreHome, action) {
   if (action !== "list" && action !== "delist") throw new Error("Invalid listing action");
   return JSON.parse(await lore(loreHome, ["marketplace", action, "--json"], ""));
+}
+
+/** Card payments: the account taking them, one Stripe hasn't cleared yet, and whether it has. @param {string} loreHome @returns {Promise<CardStatus>} */
+async function cardStatus(loreHome) {
+  return JSON.parse(await lore(loreHome, ["cards", "--json"]));
+}
+
+/** Open (or reopen) the owner's own Stripe account through Lore's checkout; returns Stripe's form to finish in the browser. @param {string} loreHome @returns {Promise<{account: string, url: string}>} */
+async function connectCards(loreHome) {
+  return JSON.parse(await lore(loreHome, ["cards", "connect", "--json"], ""));
+}
+
+/** Turn card payments on into an account Stripe cleared, or off. @param {string} loreHome @param {string | null} account */
+async function switchCards(loreHome, account) {
+  if (account !== null && !/^acct_[A-Za-z0-9]+$/.test(account)) throw new Error("Invalid Stripe account");
+  await lore(loreHome, account === null ? ["cards", "off"] : ["cards", "account", account], "");
 }
 
 /** Whether this store is listed, pending, or neither, read from the public list. @param {string} loreHome @returns {Promise<Listing>} */
@@ -263,16 +329,25 @@ module.exports = {
   openable,
   readState,
   readSales,
+  readViews,
   searchMemories,
   readMemory,
   renameMemory,
   editMemory,
   captureMemories,
+  previewPage,
   setPrice,
+  setFreeCopies,
   candidates,
   decide,
+  extrasCandidates,
+  decideExtras,
+  approveExtras,
   reportFeedback,
   listStore,
+  cardStatus,
+  connectCards,
+  switchCards,
   listingStatus,
   sourceCatalog,
   sourceChoices,

@@ -3,14 +3,15 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "check": "tsc --noEmit",
+    "check": "tsc --noEmit && tsx scripts/preview.ts --check",
     "deploy": "wrangler deploy",
     "dev": "wrangler dev",
     "lint": "eslint '**/*.ts'",
     "pay": "tsx scripts/pay.ts",
     "smoke": "tsx scripts/smoke.ts",
     "test": "vitest run",
-    "types": "wrangler types env.d.ts --include-runtime false"
+    "types": "wrangler types env.d.ts --include-runtime false",
+    "preview": "tsx scripts/preview.ts"
   },
   "dependencies": {
     "@coinbase/x402": "^2.1.0",
@@ -31,6 +32,7 @@
     "@eslint/js": "^10.0.1",
     "@types/node": "26.5.1",
     "@x402/core": "^2.20.0",
+    "esbuild": "0.28.1",
     "eslint": "^10.10.0",
     "tsx": "4.23.13",
     "typescript": "6.0.3",
