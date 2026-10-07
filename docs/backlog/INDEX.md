@@ -11,6 +11,7 @@ obsolete), then `priority` (P0 → P3).
 | ID | Title | Priority | Effort | Component | Status | Related | Blockers | Dependencies | Issue |
 |---|---|---|---|---|---|---|---|---|---|
 | [XC-035](./cross-cutting/XC-035-show-a-diff-for-flagged-publications-in-desktop.md) | Show a diff for flagged publications in Desktop | P1 | M | cross-cutting | ideation | XC-019, MON-004, APP-006, APP-011 | XC-019 | — | — |
+| [MON-043](./monetization/MON-043-price-pieces-by-demand.md) | Price pieces by demand | P3 | XL | monetization | ideation | APP-192, MON-018, MON-028 | MON-009 | — | — |
 | [APP-046](./desktop-app/APP-046-render-capture-proposals-as-an-editable-memory-card.md) | Render capture proposals as an editable memory card | P0 | S | desktop-app | in-review | APP-003, APP-009, APP-016, APP-045 | — | — | — |
 | [APP-047](./desktop-app/APP-047-give-publication-drafts-one-home.md) | Give publication drafts one home and keep cards in their own thread | P0 | S | desktop-app | in-review | APP-020, APP-023, APP-032, APP-046 | — | — | — |
 | [MON-019](./monetization/MON-019-let-a-desktop-deploy-finish-its-own-push.md) | Let a desktop deploy finish its own push | P0 | S | monetization | in-review | APP-056, APP-055, APP-006, MON-013 | — | — | — |
@@ -63,6 +64,7 @@ obsolete), then `priority` (P0 → P3).
 | [MON-039](./monetization/MON-039-update-a-live-pieces-free-parts-in-place.md) | Update a live piece's free parts in place | P1 | S | monetization | in-review | MON-035 | — | MON-035 | — |
 | [MON-040](./monetization/MON-040-give-each-pieces-first-copies-away-free.md) | Give each piece's first copies away free | P1 | M | monetization | in-review | MON-038, MON-039, XC-039 | — | — | — |
 | [APP-136](./desktop-app/APP-136-console-style-settings-and-read-first-approvals.md) | Tidy Settings into console-style rows and make approval cards read first | P1 | M | desktop-app | in-review | APP-135, APP-019, MON-039, MON-040, XC-039 | — | — | — |
+| [APP-193](./desktop-app/APP-193-say-when-the-ai-session-has-expired-and-offer-to-sign-back-in.md) | Say when the AI session has expired and offer to sign back in | P1 | S | desktop-app | in-review | APP-181, APP-183 | — | — | — |
 | [APP-140](./desktop-app/APP-140-show-a-typing-bubble-while-lore-works.md) | Show a typing bubble while Lore works | P2 | S | desktop-app | in-review | APP-137 | — | — | — |
 | [APP-041](./desktop-app/APP-041-desktop-onboarding-flow-for-a-new-user.md) | Guide a new desktop user through an onboarding flow | P2 | M | desktop-app | in-review | ONB-001, ONB-003, APP-030, APP-036 | — | — | [#176](https://github.com/dipakkrishnan/lore-mcp/issues/176) |
 | [APP-042](./desktop-app/APP-042-select-memories-to-combine-and-synthesize.md) | Let a desktop owner select memories to combine and synthesize | P2 | M | desktop-app | in-review | AUT-002, APP-014, APP-011 | — | — | [#173](https://github.com/dipakkrishnan/lore-mcp/issues/173) |
@@ -106,6 +108,7 @@ obsolete), then `priority` (P0 → P3).
 | [MON-033](./monetization/MON-033-state-what-a-buyer-is-licensed-to-do.md) | State what a buyer's agent may do with a piece it bought | P2 | S | monetization | in-review | XC-040, MON-028 | — | — | — |
 | [MON-034](./monetization/MON-034-keep-crawler-traffic-off-the-sellers-request-limit.md) | Keep crawler traffic off the seller's Workers request limit | P2 | M | monetization | in-review | MON-029, XC-040 | — | — | — |
 | [XC-043](./cross-cutting/XC-043-prune-tests-that-are-out-of-date-or-not-core.md) | Prune tests that are out of date or don't test core behavior | P2 | S | cross-cutting | in-review | XC-013 | — | — | — |
+| [APP-192](./desktop-app/APP-192-price-each-piece-when-listing-it.md) | Price each piece when listing it, defaulting to the store price | P2 | M | desktop-app | in-review | MON-009, APP-189, MON-041, MON-028 | MON-009 | — | — |
 | [XC-027](./cross-cutting/XC-027-drive-the-owners-browser-steps-for-them.md) | Drive the owner's browser steps for them | P3 | L | cross-cutting | in-review | APP-056, XC-026, XC-024, APP-008 | — | "A browser-use surface the desktop can drive with the owner watching (Claude in Chrome, Playwright over the owner's browser, or similar)" | — |
 | [APP-052](./desktop-app/APP-052-reveal-the-blueprint-form-progressively.md) | Reveal the blueprint-review form progressively instead of all at once | P3 | M | desktop-app | in-review | APP-022, APP-028 | — | — | — |
 | [MON-005](./monetization/MON-005-mainnet-cutover-for-the-x402-adapter.md) | Cut the x402 edge adapter over to mainnet | P3 | M | monetization | in-review | MON-002, MON-003, MON-004 | MON-002, MON-003, MON-004 | "CDP account and API credentials", "Decision to launch the edge adapter at all" | [#25](https://github.com/dipakkrishnan/lore-mcp/issues/25) |
@@ -120,6 +123,7 @@ obsolete), then `priority` (P0 → P3).
 | [APP-104](./desktop-app/APP-104-drop-the-or-from-a-free-text-question-with-no-options.md) | Drop the "Or" from a free-text question with no options | P3 | XS | desktop-app | in-review | — | — | — | [#254](https://github.com/dipakkrishnan/lore-mcp/issues/254) |
 | [APP-111](./desktop-app/APP-111-show-a-memorys-metadata-as-properties-on-the-sheet.md) | Show a memory's metadata as properties on the sheet | P3 | S | desktop-app | in-review | APP-096, APP-037, APP-075, APP-043, APP-108 | — | — | — |
 | [APP-110](./desktop-app/APP-110-preview-a-memory-on-hover-without-leaving-the-list.md) | Preview a memory on hover without leaving the list | P3 | S | desktop-app | in-review | APP-092, APP-096, APP-108, APP-023 | — | — | — |
+| [APP-191](./desktop-app/APP-191-export-the-sales-table-to-csv.md) | Export the sales table to CSV | P3 | S | desktop-app | in-review | MON-018, APP-185 | — | — | — |
 | [APP-010](./desktop-app/APP-010-constrain-native-read-to-owner-selected-files.md) | Constrain native read to owner-selected files | P1 | M | desktop-app | ready | APP-003, APP-005, APP-009 | — | — | — |
 | [APP-024](./desktop-app/APP-024-start-recording-from-the-dictation-button.md) | Start recording from the dictation button | P1 | M | desktop-app | ready | APP-003, APP-005, APP-009, APP-010, APP-020 | — | — | — |
 | [APP-036](./desktop-app/APP-036-guide-cloudflare-and-wallet-setup-inside-desktop.md) | Guide Cloudflare and wallet setup inside Desktop | P1 | M | desktop-app | ready | APP-004, APP-005, APP-006, APP-030, MON-006, XC-005 | — | — | — |
