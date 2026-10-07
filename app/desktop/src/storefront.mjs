@@ -79,9 +79,11 @@ code{font:13px var(--mono);background:var(--accent-soft);color:var(--ink);paddin
 .endpoint{display:block;margin:6px 0 12px;padding:8px 10px;overflow-x:auto;white-space:nowrap;user-select:all}
 .notice{margin:0 0 28px;padding:12px 16px;border-radius:10px;background:var(--accent-soft);font-size:14px}
 .listed{display:inline-flex;align-items:center;gap:6px;margin-top:20px;padding:4px 10px;border:1px solid var(--line);border-radius:999px;font-size:13px;color:var(--muted);text-decoration:none}.listed:hover{border-color:var(--accent);color:var(--ink)}.listed .mark{width:14px;height:14px}
+.foot{margin-top:48px;padding-top:16px;border-top:1px solid var(--line);font-size:14px;color:var(--muted)}
 .back{display:inline-block;margin-bottom:18px;font-size:14px;color:var(--muted);text-decoration:none}.back:hover{color:var(--ink)}
 `;
 var SCRIPT = `document.addEventListener("click",async(e)=>{const b=e.target.closest("[data-copy],[data-share]");if(!b)return;const url=location.href.split("#")[0];if("share" in b.dataset&&navigator.share){try{await navigator.share({title:document.title,url})}catch{}return}await navigator.clipboard.writeText(b.dataset.copy||url);const label=b.textContent;b.textContent="Copied";setTimeout(()=>{b.textContent=label},1500)})`;
+var foot = (store) => store.support ? `<footer class="foot">Questions, or a piece that isn't what its page promised? Email <a href="mailto:${escape(store.support)}">${escape(store.support)}</a> within 14 days for a full refund.</footer>` : "";
 function page(title, description, canonical, body, data) {
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>${escape(title)}</title><meta name="description" content="${escape(description)}"><link rel="canonical" href="${escape(canonical)}">
@@ -134,7 +136,7 @@ function storefront(catalog, store) {
     }))
   };
   const body = `<h1>${escape(name)}</h1><p class="lede">${lede}</p>${notice(store)}${chips}${sections || '<p class="empty">Nothing for sale yet. Check back soon.</p>'}${agentsNote(store)}`;
-  return page(`${name} \xB7 Lore`, `${count} firsthand ${count === 1 ? "piece" : "pieces"} for sale on Lore.`, `${store.origin}/`, body, data);
+  return page(`${name} \xB7 Lore`, `${count} firsthand ${count === 1 ? "piece" : "pieces"} for sale on Lore.`, `${store.origin}/`, body + foot(store), data);
 }
 var clip = (text, length) => {
   const flat = text.replace(/\s+/g, " ").trim();
@@ -191,7 +193,7 @@ ${notice(store)}${problem ? `<p class="notice">${escape(problem)}</p>` : ""}<ul 
 ${fit(piece)}${sample(piece)}${buy(piece, store, left)}
 ${agentsNote(store, piece.id)}`;
   const description = clip(piece.sample || piece.useful_if && `Useful if ${piece.useful_if}` || `A firsthand piece by ${name}, for sale on Lore.`, 200);
-  return page(`${piece.teaser} \xB7 ${name}`, description, `${store.origin}/p/${piece.id}`, body, data);
+  return page(`${piece.teaser} \xB7 ${name}`, description, `${store.origin}/p/${piece.id}`, body + foot(store), data);
 }
 function unlockedPage(piece, store, unlocked, free2 = false) {
   const name = seller(store);
@@ -201,14 +203,14 @@ function unlockedPage(piece, store, unlocked, free2 = false) {
 <h1 class="teaser">${escape(unlocked.title)}</h1>
 <div class="meta"><span>${KINDS[piece.kind] ?? escape(piece.kind)}</span><span>Updated ${date(piece.updated_at)}</span><span>By ${escape(name)}</span></div>
 <article class="piece">${paragraphs(unlocked.content)}</article>`;
-  return page(`${unlocked.title} \xB7 ${name}`, `A firsthand piece by ${name}.`, `${store.origin}/p/${piece.id}`, body, {
+  return page(`${unlocked.title} \xB7 ${name}`, `A firsthand piece by ${name}.`, `${store.origin}/p/${piece.id}`, body + foot(store), {
     "@context": "https://schema.org",
     "@type": "WebPage"
   });
 }
 function notFound(store) {
   const body = `<h1 class="teaser">Not for sale here.</h1><p class="lede">This piece isn't in ${escape(seller(store))}'s store, or it has been taken down.</p><a class="go" href="/">See everything for sale \u2192</a>`;
-  return page(`Not found \xB7 ${seller(store)}`, "Not for sale here.", `${store.origin}/`, body, { "@context": "https://schema.org", "@type": "WebPage" });
+  return page(`Not found \xB7 ${seller(store)}`, "Not for sale here.", `${store.origin}/`, body + foot(store), { "@context": "https://schema.org", "@type": "WebPage" });
 }
 export {
   notFound,

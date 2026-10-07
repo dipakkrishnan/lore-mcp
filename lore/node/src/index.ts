@@ -315,6 +315,7 @@ function storeFor(env: Env, url: URL, settings: AnswerSettings): Store {
     origin: url.origin,
     test: network(env) === TESTNET,
     freeCopies: settings.freeCopies,
+    support: settings.supportEmail,
     ...(takesCards(settings) ? { checkout: env.CHECKOUT_URL } : {})
   };
 }

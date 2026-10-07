@@ -29,6 +29,7 @@ from .store import (
     JOB_KINDS,
     JOB_SUMMARIES,
     STATUSES,
+    SUPPORT_EMAIL_SETTING,
     AnswerSettings,
     JobKind,
     Publication,
@@ -281,6 +282,12 @@ def parser() -> argparse.ArgumentParser:
     free_copies.add_argument(
         "count", nargs="?", type=int, help="free copies per piece; use 0 for none"
     )
+    support = commands.add_parser(
+        "support", help="show or set the email buyers write to for help or a refund"
+    )
+    support.add_argument(
+        "email", nargs="?", help="an email address, or `off` to remove it"
+    )
     answer = commands.add_parser(
         "answer", help="enable or disable the paid answer tier"
     )
@@ -510,6 +517,8 @@ def main(argv: list[str] | None = None) -> int:
             return price(args.amount)
         if args.command == "free-copies":
             return free_copies(args.count)
+        if args.command == "support":
+            return support_email(args.email)
         if args.command == "answer":
             if args.answer_command == "on":
                 return answer_enable(args.file, args.price)
@@ -1180,6 +1189,30 @@ def price(amount: float | None) -> int:
     return 0
 
 
+def support_email(email: str | None) -> int:
+    """Show or update the support line every store page ends with."""
+    with Store() as store:
+        if email is None:
+            current = store.setting(SUPPORT_EMAIL_SETTING, "")
+            print(current or "No support email; store pages show no refund line")
+            return 0
+        email = "" if email == "off" else email.strip()
+        if email and not re.fullmatch(
+            r"[^@\s<>\"']+@[^@\s<>\"']+\.[^@\s<>\"']+", email
+        ):
+            raise ValueError("that doesn't look like an email address")
+        store.set_setting(SUPPORT_EMAIL_SETTING, email)
+        node_url = store.setting("node_url", None)
+    success(
+        f"Buyers write to {email} for help or a refund"
+        if email
+        else "Removed the support line"
+    )
+    if node_url:
+        muted("Your store picks this up on the next `lore push`.")
+    return 0
+
+
 def free_copies(count: int | None) -> int:
     """Show or update how many copies of each piece are given away free."""
     with Store() as store:
@@ -1730,6 +1763,7 @@ def _push_sql(
     listed_name: str,
     stripe_account: str = "",
     free_copies: int = FREE_COPIES,
+    support_email: str = "",
 ) -> str:
     """Render the full-replace SQL for the edge database.
 
@@ -1779,6 +1813,7 @@ def _push_sql(
         "listed_name": listed_name,
         "stripe_account": stripe_account,
         "free_copies": str(free_copies),
+        "support_email": support_email,
     }
     statements.extend(
         [
@@ -1834,7 +1869,10 @@ def _push(worker: Path, local: bool, job_id: int) -> int:
         listed_name = str(store.setting(marketplace_module.NAME_SETTING, ""))
         stripe_account = str(store.setting(STRIPE_ACCOUNT_SETTING, ""))
         free = int(str(store.setting(FREE_COPIES_SETTING, FREE_COPIES)))
-    script = _push_sql(active, answer_settings, listed_name, stripe_account, free)
+        support = str(store.setting(SUPPORT_EMAIL_SETTING, ""))
+    script = _push_sql(
+        active, answer_settings, listed_name, stripe_account, free, support
+    )
     with tempfile.NamedTemporaryFile("w", suffix=".sql", delete=False) as handle:
         handle.write(script)
         script_path = handle.name

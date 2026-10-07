@@ -16,6 +16,8 @@ export type Store = {
   checkout?: string;
   /** Copies of each piece given away before it costs anything (MON-040). */
   freeCopies?: number;
+  /** Where buyers write for help or a refund; every page ends with it when set. */
+  support?: string;
 };
 
 /** A piece the buyer has paid for, shown to them in full. */
@@ -108,12 +110,18 @@ code{font:13px var(--mono);background:var(--accent-soft);color:var(--ink);paddin
 .endpoint{display:block;margin:6px 0 12px;padding:8px 10px;overflow-x:auto;white-space:nowrap;user-select:all}
 .notice{margin:0 0 28px;padding:12px 16px;border-radius:10px;background:var(--accent-soft);font-size:14px}
 .listed{display:inline-flex;align-items:center;gap:6px;margin-top:20px;padding:4px 10px;border:1px solid var(--line);border-radius:999px;font-size:13px;color:var(--muted);text-decoration:none}.listed:hover{border-color:var(--accent);color:var(--ink)}.listed .mark{width:14px;height:14px}
+.foot{margin-top:48px;padding-top:16px;border-top:1px solid var(--line);font-size:14px;color:var(--muted)}
 .back{display:inline-block;margin-bottom:18px;font-size:14px;color:var(--muted);text-decoration:none}.back:hover{color:var(--ink)}
 `;
 
 // Copy and share buttons carry their text in data attributes, so no owner text
 // is ever interpolated into script.
 const SCRIPT = `document.addEventListener("click",async(e)=>{const b=e.target.closest("[data-copy],[data-share]");if(!b)return;const url=location.href.split("#")[0];if("share" in b.dataset&&navigator.share){try{await navigator.share({title:document.title,url})}catch{}return}await navigator.clipboard.writeText(b.dataset.copy||url);const label=b.textContent;b.textContent="Copied";setTimeout(()=>{b.textContent=label},1500)})`;
+
+const foot = (store: Store) =>
+  store.support
+    ? `<footer class="foot">Questions, or a piece that isn't what its page promised? Email <a href="mailto:${escape(store.support)}">${escape(store.support)}</a> within 14 days for a full refund.</footer>`
+    : "";
 
 function page(title: string, description: string, canonical: string, body: string, data: unknown): string {
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
@@ -184,7 +192,7 @@ export function storefront(catalog: Catalog, store: Store): string {
     }))
   };
   const body = `<h1>${escape(name)}</h1><p class="lede">${lede}</p>${notice(store)}${chips}${sections || '<p class="empty">Nothing for sale yet. Check back soon.</p>'}${agentsNote(store)}`;
-  return page(`${name} · Lore`, `${count} firsthand ${count === 1 ? "piece" : "pieces"} for sale on Lore.`, `${store.origin}/`, body, data);
+  return page(`${name} · Lore`, `${count} firsthand ${count === 1 ? "piece" : "pieces"} for sale on Lore.`, `${store.origin}/`, body + foot(store), data);
 }
 
 const clip = (text: string, length: number) => {
@@ -262,7 +270,7 @@ ${notice(store)}${problem ? `<p class="notice">${escape(problem)}</p>` : ""}<ul 
 ${fit(piece)}${sample(piece)}${buy(piece, store, left)}
 ${agentsNote(store, piece.id)}`;
   const description = clip(piece.sample || (piece.useful_if && `Useful if ${piece.useful_if}`) || `A firsthand piece by ${name}, for sale on Lore.`, 200);
-  return page(`${piece.teaser} · ${name}`, description, `${store.origin}/p/${piece.id}`, body, data);
+  return page(`${piece.teaser} · ${name}`, description, `${store.origin}/p/${piece.id}`, body + foot(store), data);
 }
 
 /** The paid piece, for the buyer holding its receipt. Never cached: the address alone unlocks it. */
@@ -274,7 +282,7 @@ export function unlockedPage(piece: Piece, store: Store, unlocked: Unlocked, fre
 <h1 class="teaser">${escape(unlocked.title)}</h1>
 <div class="meta"><span>${KINDS[piece.kind] ?? escape(piece.kind)}</span><span>Updated ${date(piece.updated_at)}</span><span>By ${escape(name)}</span></div>
 <article class="piece">${paragraphs(unlocked.content)}</article>`;
-  return page(`${unlocked.title} · ${name}`, `A firsthand piece by ${name}.`, `${store.origin}/p/${piece.id}`, body, {
+  return page(`${unlocked.title} · ${name}`, `A firsthand piece by ${name}.`, `${store.origin}/p/${piece.id}`, body + foot(store), {
     "@context": "https://schema.org",
     "@type": "WebPage"
   });
@@ -282,5 +290,5 @@ export function unlockedPage(piece: Piece, store: Store, unlocked: Unlocked, fre
 
 export function notFound(store: Store): string {
   const body = `<h1 class="teaser">Not for sale here.</h1><p class="lede">This piece isn't in ${escape(seller(store))}'s store, or it has been taken down.</p><a class="go" href="/">See everything for sale →</a>`;
-  return page(`Not found · ${seller(store)}`, "Not for sale here.", `${store.origin}/`, body, { "@context": "https://schema.org", "@type": "WebPage" });
+  return page(`Not found · ${seller(store)}`, "Not for sale here.", `${store.origin}/`, body + foot(store), { "@context": "https://schema.org", "@type": "WebPage" });
 }
