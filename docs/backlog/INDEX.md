@@ -164,6 +164,7 @@ obsolete), then `priority` (P0 → P3).
 | [APP-187](./desktop-app/APP-187-count-only-live-pieces-in-for-sale.md) | Count only live pieces in the For Sale tab | P2 | XS | desktop-app | ready | APP-093, APP-091 | — | — | — |
 | [APP-188](./desktop-app/APP-188-order-settings-by-what-a-seller-changes-most.md) | Order Settings by what a seller changes most | P2 | S | desktop-app | ready | APP-136, APP-119, APP-184 | — | — | — |
 | [APP-189](./desktop-app/APP-189-show-the-price-on-approval-cards-and-preview-without-edit.md) | Show the price on approval cards and Preview without Edit | P2 | XS | desktop-app | ready | APP-136, APP-134, MON-041 | — | — | — |
+| [APP-196](./desktop-app/APP-196-narrow-what-the-store-agent-can-read-and-reach.md) | Narrow what the store agent can read and reach | P2 | S | desktop-app | ready | APP-005 | — | — | — |
 | [XC-006](./cross-cutting/XC-006-ship-the-owner-skills-as-agent-plugins.md) | Ship the owner skill pack as agent plugins with a marketplace entry | P3 | M | cross-cutting | ready | XC-005, ONB-001 | — | — | — |
 | [MON-029](./monetization/MON-029-cache-store-pages-at-the-edge.md) | Serve store pages from Cloudflare's edge cache without running the Worker | P1 | S | monetization | in-progress | XC-040, MON-018, MON-034 | — | — | — |
 | [XC-019](./cross-cutting/XC-019-say-what-changed-behind-a-flagged-publication.md) | Say what changed behind a flagged publication | P1 | M | cross-cutting | in-progress | MON-004, APP-006, APP-011, STO-001, XC-035 | — | — | — |
