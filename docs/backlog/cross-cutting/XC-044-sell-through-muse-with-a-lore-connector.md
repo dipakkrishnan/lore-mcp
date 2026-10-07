@@ -10,7 +10,7 @@ blockers: []
 dependencies: ["Muse connector review and business verification", "Stripe: connected account profile management enabled for Lore (only for the SPT route)"]
 github_issue: null
 created: 2026-10-04
-updated: 2026-10-04
+updated: 2026-10-06
 ---
 
 ## Problem
@@ -60,3 +60,14 @@ Payment writes must show seller, price, currency, terms and refund policy,
 and can only be allowed once. Its docs don't name the wire protocol; ask in
 the submission. XC-041 (seller terms, takedown) is likely part of business
 verification.
+
+2026-10-06: the Muse submission form (muse.ai/platform) asks for name,
+company, website, example prompts, a 512px icon, whether the app accepts
+payments, a support contact, and privacy and terms URLs. Step 2 asks for
+"Existing MCP" or "Raw API", with auth by API key, OAuth PKCE or Other. For
+payments Muse offers Link single-use cards (the checkout handoff above works
+with the existing card checkout) or Stripe Shared Payment Tokens. With the
+checkout handoff the connector's job is helping Muse users find Lore pieces;
+the payment itself still goes through Lore's checkout. Before submitting,
+yourlore.dev needs real /privacy and /terms pages: today the site's fallback
+serves the home page at both.
