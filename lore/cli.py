@@ -1764,6 +1764,7 @@ def _push_sql(
     stripe_account: str = "",
     free_copies: int = FREE_COPIES,
     support_email: str = "",
+    price_usd: float = 0,
 ) -> str:
     """Render the full-replace SQL for the edge database.
 
@@ -1814,6 +1815,8 @@ def _push_sql(
         "stripe_account": stripe_account,
         "free_copies": str(free_copies),
         "support_email": support_email,
+        # The store charges this from its next push, so a new price needs no redeploy.
+        **({"price_usd": f"{price_usd:.6f}"} if price_usd > 0 else {}),
     }
     statements.extend(
         [
@@ -1870,8 +1873,15 @@ def _push(worker: Path, local: bool, job_id: int) -> int:
         stripe_account = str(store.setting(STRIPE_ACCOUNT_SETTING, ""))
         free = int(str(store.setting(FREE_COPIES_SETTING, FREE_COPIES)))
         support = str(store.setting(SUPPORT_EMAIL_SETTING, ""))
+        price_usd = store.setting("price_usd", 0)
     script = _push_sql(
-        active, answer_settings, listed_name, stripe_account, free, support
+        active,
+        answer_settings,
+        listed_name,
+        stripe_account,
+        free,
+        support,
+        float(price_usd) if isinstance(price_usd, (int, float)) else 0,
     )
     with tempfile.NamedTemporaryFile("w", suffix=".sql", delete=False) as handle:
         handle.write(script)
