@@ -83,7 +83,7 @@ code{font:13px var(--mono);background:var(--accent-soft);color:var(--ink);paddin
 .back{display:inline-block;margin-bottom:18px;font-size:14px;color:var(--muted);text-decoration:none}.back:hover{color:var(--ink)}
 `;
 var SCRIPT = `document.addEventListener("click",async(e)=>{const b=e.target.closest("[data-copy],[data-share]");if(!b)return;const url=location.href.split("#")[0];if("share" in b.dataset&&navigator.share){try{await navigator.share({title:document.title,url})}catch{}return}await navigator.clipboard.writeText(b.dataset.copy||url);const label=b.textContent;b.textContent="Copied";setTimeout(()=>{b.textContent=label},1500)})`;
-var foot = (store) => store.support ? `<footer class="foot">Questions, or a piece that isn't what its page promised? Email <a href="mailto:${escape(store.support)}">${escape(store.support)}</a> within 14 days for a full refund.</footer>` : "";
+var foot = (store) => store.support ? `<footer class="foot">Questions, or want a refund? Email the seller at <a href="mailto:${escape(store.support)}">${escape(store.support)}</a>.</footer>` : "";
 function page(title, description, canonical, body, data) {
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>${escape(title)}</title><meta name="description" content="${escape(description)}"><link rel="canonical" href="${escape(canonical)}">

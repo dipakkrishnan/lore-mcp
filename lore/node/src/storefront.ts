@@ -120,7 +120,7 @@ const SCRIPT = `document.addEventListener("click",async(e)=>{const b=e.target.cl
 
 const foot = (store: Store) =>
   store.support
-    ? `<footer class="foot">Questions, or a piece that isn't what its page promised? Email <a href="mailto:${escape(store.support)}">${escape(store.support)}</a> within 14 days for a full refund.</footer>`
+    ? `<footer class="foot">Questions, or want a refund? Email the seller at <a href="mailto:${escape(store.support)}">${escape(store.support)}</a>.</footer>`
     : "";
 
 function page(title: string, description: string, canonical: string, body: string, data: unknown): string {
