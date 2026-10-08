@@ -107,7 +107,7 @@ to) and imports nothing from `lore`. Things a future reader should know:
   so the test puts a stand-in `npx` first on `PATH`. It refuses any call but
   `wrangler d1 execute lore-publications --local --file <file> -y`, and keeps
   the script, which the test then loads into SQLite and reads back: the
-  approved piece and the price set two commands earlier. Everything on
+  approved piece and the price set three commands earlier. Everything on
   Lore's side of the boundary is real (the owner gate, the job row, the SQL).
   The real-wrangler half of the same command is the `worker-smoke` job's
   (`XC-016`). This narrows criterion 3's "local dev database" to "the script
