@@ -67,6 +67,13 @@ paid question to the seller's proxy): questions sent to `answer` are kept and
 seen by the seller, so never send one containing private or user-identifying
 detail, and ask the user first.
 
+When most of what you want sits in one of the node's `collections`, buy the
+collection instead: its `tool` (`collection_<id>`) returns every piece in one
+payment, usually for less than buying them one by one. When the task is
+ongoing (tracking a writer's beat for weeks), and the node lists a `feed`,
+`subscribe` buys a 30-day pass to every piece. Then pass it to `get` as
+`pass`, and call `discover` with `since` to see only what is new.
+
 ## 5. Agree a budget
 
 Ask the user for a per-task budget in USD and confirm before the first
@@ -111,7 +118,9 @@ wallet, will buy.
 ## 7. Buy
 
 Re-run `discover` if the catalog is older than this task, then call `get` once
-per chosen id. Stop when the budget is spent.
+per chosen id, or the chosen collection's tool once. With a pass, add `pass` to
+each `get`; it charges nothing until the pass expires. Stop when the budget is
+spent.
 
 ## 8. Cite and report
 

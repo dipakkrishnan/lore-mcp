@@ -19,6 +19,8 @@ export type Store = {
   freeCopies?: number;
   /** Where buyers write for help or a refund; every page ends with it when set. */
   support?: string;
+  /** What a 30-day pass to everything costs agents (MON-045); unset while the feed is off. */
+  feedUsd?: number;
 };
 
 /** A piece the buyer has paid for, shown to them in full. */
@@ -160,7 +162,8 @@ function agentsNote(store: Store, id?: string, collection?: Collection): string 
   const pays = collection
     ? `one call pays the seller ${money(collection.price_usd)} in USDC for every piece in it`
     : `${free}each <code>get</code> pays the seller ${money(store.priceUsd)} in USDC`;
-  return `<section class="agents"><h2>For agents</h2><p>Connect over MCP:</p><code class="endpoint">${escape(store.origin)}/mcp</code>${call}<p>Reading the catalog with <code>discover</code> is free; ${pays}.</p></section>${listed(store)}`;
+  const feed = store.feedUsd ? `<p>Or call <code>subscribe</code> once: ${money(store.feedUsd)} for 30 days of everything here, old and new.</p>` : "";
+  return `<section class="agents"><h2>For agents</h2><p>Connect over MCP:</p><code class="endpoint">${escape(store.origin)}/mcp</code>${call}<p>Reading the catalog with <code>discover</code> is free; ${pays}.</p>${feed}</section>${listed(store)}`;
 }
 
 const worth = (collection: Collection, store: Store) => money(collection.pieces.length * store.priceUsd);
@@ -210,7 +213,8 @@ export function storefront(catalog: Catalog, store: Store, sets: Collection[] = 
       item: { "@type": "Product", name: piece.teaser, category: label(piece.topic), url: `${store.origin}/p/${piece.id}`, offers: offer(store, piece) }
     }))
   };
-  const body = `<h1>${escape(name)}</h1><p class="lede">${lede}</p>${notice(store)}${chips}${shelf(sets, store)}${sections || '<p class="empty">Nothing for sale yet. Check back soon.</p>'}${agentsNote(store)}`;
+  const feed = store.feedUsd ? `<p class="notice">Agents can subscribe: ${money(store.feedUsd)} for 30 days of everything here.</p>` : "";
+  const body = `<h1>${escape(name)}</h1><p class="lede">${lede}</p>${notice(store)}${feed}${chips}${shelf(sets, store)}${sections || '<p class="empty">Nothing for sale yet. Check back soon.</p>'}${agentsNote(store)}`;
   return page(`${name} · Lore`, `${count} firsthand ${count === 1 ? "piece" : "pieces"} for sale on Lore.`, `${store.origin}/`, body + foot(store), data);
 }
 

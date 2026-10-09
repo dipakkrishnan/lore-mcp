@@ -11,6 +11,7 @@ from typing import Any, Literal, cast
 from pydantic import BaseModel, ConfigDict, TypeAdapter
 
 from . import automation, blueprint, feedback, sources
+from .collection import FEED_DAYS, Feed
 from .paths import claude_home, home
 from .store import FREE_COPIES, FREE_COPIES_SETTING, JOB_SUMMARIES, Store
 
@@ -284,6 +285,11 @@ def build() -> dict[str, object]:
                 }
                 for c in collections
             ]
+        },
+        "feed": {
+            "price_usd": Feed.price(),
+            "suggested_usd": Feed.suggested(),
+            "days": FEED_DAYS,
         },
         "pricing": {
             "publication_usd": publication_price,

@@ -26,6 +26,8 @@ export interface AnswerSettings {
   supportEmail: string;
   /** The price of a piece as the owner last pushed it; 0 until a push carries one, and the deployed price applies. */
   publicationPriceUsd: number;
+  /** What a 30-day pass to every piece costs (MON-045); 0 while the owner has the feed off. */
+  feedPriceUsd: number;
 }
 
 export interface AnswerOutcome {
@@ -123,13 +125,14 @@ export async function readAnswerSettings(db: D1Database): Promise<AnswerSettings
       .prepare("SELECT key, value FROM node_settings")
       .all<{ key: string; value: string }>());
   } catch {
-    return { enabled: false, priceUsd: 0, proxy: "", listedName: "", stripeAccount: "", freeCopies: 0, supportEmail: "", publicationPriceUsd: 0 };
+    return { enabled: false, priceUsd: 0, proxy: "", listedName: "", stripeAccount: "", freeCopies: 0, supportEmail: "", publicationPriceUsd: 0, feedPriceUsd: 0 };
   }
   const values = Object.fromEntries(rows.map(({ key, value }) => [key, value]));
   const priceUsd = Number(values.answer_price_usd ?? 0);
   const proxy = values.proxy_preamble ?? "";
   const freeCopies = Number(values.free_copies ?? 0);
   const publicationPriceUsd = Number(values.price_usd ?? 0);
+  const feedPriceUsd = Number(values.feed_price_usd ?? 0);
   const enabled =
     values.answer_enabled === "true" && proxy.trim() !== "" && Number.isFinite(priceUsd) && priceUsd > 0;
   return {
@@ -140,7 +143,8 @@ export async function readAnswerSettings(db: D1Database): Promise<AnswerSettings
     stripeAccount: values.stripe_account ?? "",
     freeCopies: Number.isInteger(freeCopies) && freeCopies > 0 ? freeCopies : 0,
     supportEmail: values.support_email ?? "",
-    publicationPriceUsd: Number.isFinite(publicationPriceUsd) && publicationPriceUsd > 0 ? publicationPriceUsd : 0
+    publicationPriceUsd: Number.isFinite(publicationPriceUsd) && publicationPriceUsd > 0 ? publicationPriceUsd : 0,
+    feedPriceUsd: Number.isFinite(feedPriceUsd) && feedPriceUsd > 0 ? feedPriceUsd : 0
   };
 }
 

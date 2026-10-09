@@ -16,6 +16,7 @@ import {
 } from "./answer-state.js";
 import { runAnswer } from "./answer.js";
 import { type Collection, collectionCopy, collections, listing, members, toolName } from "./collections.js";
+import { FEED_DAYS, mintPass, passFirst } from "./feed.js";
 import { FREE_LINK, freeFirst, freeLeft, giveCopy } from "./free.js";
 import { TESTNET, facilitator, network, networkLabel } from "./network.js";
 import { PRICE_USD } from "./price.js";
@@ -76,6 +77,29 @@ export class LorePaidMCP extends McpAgent<Env> {
     recorded(this.env.LORE_DB, tool, "publication", set.price_usd, () => ({ item: set.id, title: `Collection: ${set.title}` }));
   }
 
+  /** The feed's one paid tool: a pass to every piece for FEED_DAYS. */
+  sellFeed(priceUsd: number) {
+    const tool = this.server.paidTool(
+      "subscribe",
+      `Buy a ${FEED_DAYS}-day pass to every publication in this store, old and new, in one payment. ` +
+        "Pass it to get to read any piece free until it expires; call discover with since to see what's new.",
+      priceUsd,
+      {},
+      {},
+      async () =>
+        withSpan("lore.subscribe", async (setAttributes) => {
+          const minted = await mintPass(this.env.LORE_DB);
+          setAttributes(() => toolSpanAttributes({ tool: "subscribe", outcome: "ok", paid: true }));
+          return asText({
+            ...minted,
+            covers: "every piece in this store, old and new",
+            how: "call get with this pass to read any piece free until it expires; call discover with since to see what's new"
+          });
+        })
+    );
+    recorded(this.env.LORE_DB, tool, "publication", priceUsd, () => ({ item: "feed", title: `Feed, ${FEED_DAYS} days` }));
+  }
+
   async init() {
     await ensureAnswerSchema(this.env.LORE_DB);
     await ensureSalesSchema(this.env.LORE_DB);
@@ -89,18 +113,25 @@ export class LorePaidMCP extends McpAgent<Env> {
           "Return this node's full catalog of owner-approved publications: " +
           "teasers grouped by topic, with ids, freshness, and price. Free. " +
           "Choose zero, one, multiple, or all ids; call get once per chosen id.",
-        inputSchema: {}
+        inputSchema: {
+          since: z
+            .string()
+            .regex(/^\d{4}-\d{2}-\d{2}$/, { message: "since is a date like 2026-10-09" })
+            .optional()
+            .describe("Only pieces updated on or after this day (YYYY-MM-DD), to see what's new.")
+        }
       },
-      async () =>
+      async ({ since }) =>
         withSpan("lore.discover", async (setAttributes) => {
           setAttributes(() => toolSpanAttributes({ tool: "discover", outcome: "ok" }));
           return asText({
-            ...(await manifest(this.env)),
+            ...newSince(await manifest(this.env), since),
             network: network(this.env),
             payout: payTo(this.env),
             price_usd: priceOf(settings),
             listed: settings.listedName !== "",
             ...(sets.length ? { collections: sets.map((set) => listing(set, priceOf(settings))) } : {}),
+            ...(settings.feedPriceUsd ? { feed: { price_usd: settings.feedPriceUsd, days: FEED_DAYS, tool: "subscribe" } } : {}),
             ...(settings.freeCopies ? { free_copies: settings.freeCopies } : {}),
             ...(settings.listedName ? { name: settings.listedName } : {}),
             ...(settings.enabled
@@ -112,6 +143,7 @@ export class LorePaidMCP extends McpAgent<Env> {
             disclosure:
               "Choose any advertised ids; get buys one publication per call." +
               (sets.length ? " Each collection's tool buys all of its pieces in one call." : "") +
+              (settings.feedPriceUsd ? ` subscribe buys a ${FEED_DAYS}-day pass; get with that pass reads any piece free.` : "") +
               (settings.freeCopies ? ` The first ${settings.freeCopies} copies of each are free, while they last.` : "")
           });
         })
@@ -133,7 +165,8 @@ export class LorePaidMCP extends McpAgent<Env> {
       {
         id: z.string().trim().refine(validPublicId, {
           message: "invalid publication id; run discover again"
-        })
+        }),
+        pass: z.string().trim().optional().describe("A feed pass from subscribe; while valid, get charges nothing.")
       },
       {},
       async ({ id }) =>
@@ -165,7 +198,12 @@ export class LorePaidMCP extends McpAgent<Env> {
       })
     );
 
+    passFirst(this.env.LORE_DB, get, publication, (row) =>
+      asText({ publication: row, feed_pass: true, disclosure: `Read with a feed pass, so nothing was charged. ${ATTRIBUTION}` })
+    );
+
     for (const set of sets) this.sellCollection(set);
+    if (settings.feedPriceUsd) this.sellFeed(settings.feedPriceUsd);
 
     const question = {
       question: z.string().trim().min(1).max(4000)
@@ -244,6 +282,17 @@ export class LorePaidMCP extends McpAgent<Env> {
         })
     );
   }
+}
+
+/** The catalog as of `since`: only pieces updated that day or later, for a subscriber checking what's new. */
+function newSince(catalog: Catalog, since?: string): Catalog {
+  if (!since) return catalog;
+  const topics = Object.fromEntries(
+    Object.entries(catalog.topics)
+      .map(([topic, entries]) => [topic, entries.filter((entry) => entry.updated_at >= since)] as const)
+      .filter(([, entries]) => entries.length)
+  );
+  return { ...catalog, topics, publication_count: Object.values(topics).flat().length };
 }
 
 const mcp = LorePaidMCP.serve("/mcp", { binding: "LorePaidMCP" });
@@ -390,6 +439,7 @@ function storeFor(env: Env, url: URL, settings: AnswerSettings, priceUsd = price
     test: network(env) === TESTNET,
     freeCopies: settings.freeCopies,
     support: settings.supportEmail,
+    ...(settings.feedPriceUsd ? { feedUsd: settings.feedPriceUsd } : {}),
     ...(takesCards(settings, priceUsd) ? { checkout: env.CHECKOUT_URL } : {})
   };
 }

@@ -1,4 +1,6 @@
-"""Collections (MON-044): make one, drop context into it, price it.
+"""Collections (MON-044) and the feed (MON-045).
+
+A collection: make one, drop context into it, price it.
 
 Each dropped file or pasted text becomes a piece of the collection, kept as a
 private memory and put on sale with it. Pricing a collection puts it on sale;
@@ -101,12 +103,7 @@ class Collections:
             self._push()
 
     def _push(self) -> None:
-        with Store() as store:
-            if not store.setting("node_url", None):
-                return
-        # The caller prints JSON on stdout; the push's own lines go to stderr.
-        with contextlib.redirect_stdout(sys.stderr):
-            self.push()
+        push_open_store(self.push)
 
     @staticmethod
     def _files(paths: list[str]) -> list[Path]:
@@ -149,6 +146,54 @@ class Collections:
             ) from None
 
 
+def push_open_store(push: Callable[[], object]) -> None:
+    """Push when the owner has a store; the caller's JSON keeps stdout to itself."""
+    with Store() as store:
+        if not store.setting("node_url", None):
+            return
+    with contextlib.redirect_stdout(sys.stderr):
+        push()
+
+
 def _first_line(content: str) -> str:
     line = next((line for line in content.splitlines() if line.strip()), "")
     return line.lstrip("#").strip()[:80] or "Untitled piece"
+
+
+FEED_SETTING = "feed_price_usd"
+FEED_DAYS = 30
+
+
+class Feed:
+    """A 30-day pass to every piece in the store, old and new, for agents."""
+
+    def __init__(self, push: Callable[[], object]) -> None:
+        self.push = push
+
+    @staticmethod
+    def price() -> float:
+        with Store() as store:
+            value = store.setting(FEED_SETTING, 0)
+        return float(value) if isinstance(value, (int, float)) else 0.0
+
+    @staticmethod
+    def suggested() -> float:
+        with Store() as store:
+            piece = store.setting("price_usd", 0)
+        piece = float(piece) if isinstance(piece, (int, float)) else 0.0
+        return float(max(5, round(piece * 10)))
+
+    def on(self, price_usd: float | None = None) -> float:
+        price = self.suggested() if price_usd is None else round(price_usd, 2)
+        if not price > 0 or price == float("inf"):
+            raise ValueError("a feed price has to be above zero")
+        self._set(price)
+        return price
+
+    def off(self) -> None:
+        self._set(0)
+
+    def _set(self, price: float) -> None:
+        with Store() as store:
+            store.set_setting(FEED_SETTING, price)
+        push_open_store(self.push)

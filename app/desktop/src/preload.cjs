@@ -57,6 +57,9 @@ contextBridge.exposeInMainWorld("lore", {
   removeFromCollection: (id, piece) => ipcRenderer.invoke("collection:remove", id, piece),
   /** @param {number} id */
   deleteCollection: (id) => ipcRenderer.invoke("collection:delete", id),
+  /** @param {number | null} amount Null takes Lore's suggested price. */
+  setFeed: (amount) => ipcRenderer.invoke("feed:set", amount),
+  feedOff: () => ipcRenderer.invoke("feed:off"),
   revealHome: () => ipcRenderer.invoke("home:reveal"),
   sales: () => ipcRenderer.invoke("store:sales"),
   views: () => ipcRenderer.invoke("store:views"),

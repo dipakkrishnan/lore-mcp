@@ -20,7 +20,7 @@ from . import deploy as deploy_module
 from . import feedback as feedback_module
 from . import marketplace as marketplace_module
 from . import sources as sources_module
-from .collection import Collections, Drop
+from .collection import FEED_SETTING, Collections, Drop, Feed
 from .paths import home
 from .sources import Registry, available_sources
 from .store import (
@@ -437,6 +437,14 @@ def parser() -> argparse.ArgumentParser:
     )
     collection_delete.add_argument("id", type=int)
 
+    feed = commands.add_parser(
+        "feed", help="let agents subscribe to everything in the store for 30 days"
+    )
+    feed_commands = feed.add_subparsers(dest="feed_command", required=True)
+    feed_on = feed_commands.add_parser("on", help="turn the feed on")
+    feed_on.add_argument("--price", type=float, help="defaults to a suggested price")
+    feed_commands.add_parser("off", help="turn the feed off")
+
     push = commands.add_parser(
         "push", help="replace the deployed node's publications with the active set"
     )
@@ -634,6 +642,8 @@ def main(argv: list[str] | None = None) -> int:
             if args.publication_command == "reapprove":
                 return publication_reapprove(args.id)
             return publication_list()
+        if args.command == "feed":
+            return feed_command(args)
         if args.command == "collection":
             return collection_command(args)
         if args.command == "push":
@@ -1873,6 +1883,21 @@ def collection_command(args: argparse.Namespace) -> int:
     return 0
 
 
+def feed_command(args: argparse.Namespace) -> int:
+    """Turn the feed on or off; prints its price as JSON (0 is off)."""
+    _owner_action("changing the feed")
+    feed = Feed(lambda: push(str(home() / "node")))
+    if args.feed_command == "on":
+        if args.price is not None and not math.isfinite(args.price):
+            raise ValueError("a feed price has to be a number")
+        price = feed.on(args.price)
+    else:
+        feed.off()
+        price = 0.0
+    print(json.dumps({"price_usd": price}))
+    return 0
+
+
 def _push_sql(
     publications: list[Publication],
     answer: AnswerSettings,
@@ -1882,6 +1907,7 @@ def _push_sql(
     support_email: str = "",
     price_usd: float = 0,
     collections: list[Collection] | None = None,
+    feed_price_usd: float = 0,
 ) -> str:
     """Render the full-replace SQL for the edge database.
 
@@ -1959,6 +1985,7 @@ def _push_sql(
         "support_email": support_email,
         # The store charges this from its next push, so a new price needs no redeploy.
         **({"price_usd": f"{price_usd:.6f}"} if price_usd > 0 else {}),
+        **({"feed_price_usd": f"{feed_price_usd:.6f}"} if feed_price_usd > 0 else {}),
     }
     statements.extend(
         [
@@ -2020,6 +2047,7 @@ def _push(worker: Path, local: bool, job_id: int) -> int:
         support = str(store.setting(SUPPORT_EMAIL_SETTING, ""))
         price_usd = store.setting("price_usd", 0)
         collections = store.collections()
+        feed_price = store.setting(FEED_SETTING, 0)
     script = _push_sql(
         active,
         answer_settings,
@@ -2029,6 +2057,7 @@ def _push(worker: Path, local: bool, job_id: int) -> int:
         support,
         float(price_usd) if isinstance(price_usd, (int, float)) else 0,
         collections,
+        float(feed_price) if isinstance(feed_price, (int, float)) else 0,
     )
     with tempfile.NamedTemporaryFile("w", suffix=".sql", delete=False) as handle:
         handle.write(script)

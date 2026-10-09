@@ -87,6 +87,8 @@ let collectionDraft = "";
 /** What the open collection is doing, said on the button doing it. @type {"" | "adding" | "pricing" | "naming"} */
 let collectionBusy = "";
 let editingCollectionPrice = false;
+let editingFeedPrice = false;
+let savingFeed = false;
 /** The node's ledger, read each time For Sale opens: rows, the reason it could not be read, or null while it loads. @type {Sale[] | Error | null} */
 let sales = null;
 /** Page views per piece, by public id; empty until read. @type {Record<string, number>} */
@@ -913,6 +915,7 @@ function renderStore(s) {
   const parts = [bar];
   if (pushOffer) parts.push(seamCard());
   if (pushedNote) parts.push(pushReceipt(s));
+  if (s.feed) parts.push(feedCard(s.feed));
   parts.push(collectionsSection(s));
   parts.push(section("For sale", approved.length
     ? card(approved.map((item) => row(item.title, sold(item), controls(item))))
@@ -921,6 +924,65 @@ function renderStore(s) {
   if (revoked.length) parts.push(section("Taken down", card(revoked.map((item) => row(item.title, item.topic, item.live === true ? chip("Still on your store", "attention") : chip("Taken down"))))));
   parts.push(renderSales());
   return parts;
+}
+
+/** One click lets agents subscribe to everything for sale. @param {{price_usd: number, suggested_usd: number, days: number}} feed */
+function feedCard(feed) {
+  const box = el("div", "card pad feed-card");
+  const on = feed.price_usd > 0;
+  const lead = el("div", "lead");
+  const text = el("div", "t");
+  if (on) {
+    lead.append(el("span", "dot ok"));
+    text.append(el("b", "sans", `Feed on · ${price(feed.price_usd)} for ${feed.days} days`), el("span", "hint", "Agents that subscribe can read everything you sell, old and new, until their pass runs out."));
+  } else {
+    text.append(el("b", "sans", "Let agents subscribe to everything you sell"), el("span", "hint", `${price(feed.suggested_usd)} for ${feed.days} days, old pieces and new. You can change the price after.`));
+  }
+  lead.append(text);
+  box.append(lead);
+  if (editingFeedPrice) {
+    const form = /** @type {HTMLFormElement} */ (el("form", "price-edit"));
+    const [field, input] = priceField(String(on ? feed.price_usd : feed.suggested_usd));
+    input.setAttribute("aria-label", `Feed price for ${feed.days} days in US dollars`);
+    const save = el("button", "btn primary sm", savingFeed ? "Saving…" : "Save");
+    save.type = "submit";
+    save.disabled = savingFeed;
+    form.append(field, el("span", "", `for ${feed.days} days`), save, button("Cancel", "quiet", () => { editingFeedPrice = false; render(); }));
+    form.addEventListener("submit", (event) => {
+      event.preventDefault();
+      const amount = parsePrice(input.value);
+      if (amount === null) return void tell(`${ABOVE_ZERO}.`, true);
+      void saveFeed(amount);
+    });
+    queueMicrotask(() => input.focus());
+    box.append(form);
+    return box;
+  }
+  const actions = el("div", "actions");
+  if (on) {
+    actions.append(button("Change price", "quiet", () => { editingFeedPrice = true; render(); }), button(savingFeed ? "Turning off…" : "Turn off", "secondary", () => void saveFeed(0)));
+  } else {
+    actions.append(button(savingFeed ? "Turning on…" : "Turn on feed", "primary", () => void saveFeed(null)));
+  }
+  for (const control of actions.querySelectorAll("button")) /** @type {HTMLButtonElement} */ (control).disabled = savingFeed;
+  box.append(actions);
+  return box;
+}
+
+/** Null turns it on at the suggested price; zero turns it off. @param {number | null} amount */
+async function saveFeed(amount) {
+  savingFeed = true;
+  render();
+  const done = await act(() => amount === 0 ? window.lore.feedOff() : window.lore.setFeed(amount).then(() => undefined));
+  savingFeed = false;
+  if (done) {
+    editingFeedPrice = false;
+    const feed = snapshot?.feed;
+    const live = Boolean(snapshot?.node.url);
+    if (amount === 0) tell("Feed off. Passes already bought keep working until they run out.");
+    else tell(live ? `Feed on at ${price(feed?.price_usd ?? amount ?? 0)} for ${feed?.days ?? 30} days.` : "Feed on. Agents can subscribe once your store is open.", false, live ? undefined : { label: "Open your store", run: () => void startDeploy() });
+  }
+  render();
 }
 
 /** @returns {CollectionItem | undefined} */
@@ -1833,7 +1895,7 @@ function show(next) {
   if (next === "store") void loadSales();
   // Leaving For Sale abandons a half-typed price rather than keeping the field
   // open behind the owner's back.
-  if (next !== "store") editingPrice = false;
+  if (next !== "store") { editingPrice = false; editingFeedPrice = false; }
   if (next !== "collection") { editingCollectionPrice = false; collectionDraft = ""; }
   // A store update said once, where it happened; it doesn't follow the owner around.
   pushedNote = false;

@@ -56,6 +56,8 @@ type Snapshot = {
   };
   // Optional: an installed CLI older than collections (MON-044) omits it.
   collections?: { items: CollectionItem[] };
+  // A 30-day pass to everything for sale (MON-045); price 0 is off. Optional: older CLIs omit it.
+  feed?: { price_usd: number; suggested_usd: number; days: number };
   pricing: {
     publication_usd: number | null;
     answer_usd: number | null;
@@ -267,6 +269,8 @@ interface Window {
     priceCollection(id: number, amount: number): Promise<void>;
     removeFromCollection(id: number, piece: number): Promise<void>;
     deleteCollection(id: number): Promise<void>;
+    setFeed(amount: number | null): Promise<{ price_usd: number }>;
+    feedOff(): Promise<void>;
     revealHome(): Promise<string>;
     sales(): Promise<Sale[]>;
     views(): Promise<Record<string, number>>;

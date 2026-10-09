@@ -11,7 +11,7 @@ from lore import cli
 from lore.store import Store
 
 
-class CollectionTest(LoreTestCase):
+class OwnerTestCase(LoreTestCase):
     def run_cli(self, *argv: str, stdin: str = "") -> dict:
         with (
             patch.object(cli, "_interactive", return_value=True),
@@ -21,6 +21,8 @@ class CollectionTest(LoreTestCase):
             self.assertEqual(cli.main(list(argv)), 0)
         return json.loads(output.getvalue())
 
+
+class CollectionTest(OwnerTestCase):
     def test_new_drop_and_price_puts_it_on_sale(self) -> None:
         made = self.run_cli("collection", "new")
         self.assertEqual(made["title"], "Untitled collection")
@@ -101,3 +103,19 @@ class CollectionTest(LoreTestCase):
             self.assertNotEqual(cli.main(["collection", "new"]), 0)
         with Store() as store:
             self.assertEqual(store.collections(), [])
+
+
+class FeedTest(OwnerTestCase):
+    def test_one_click_turns_it_on_at_the_suggested_price(self) -> None:
+        with Store() as store:
+            store.set_setting("price_usd", 1.0)
+        self.assertEqual(self.run_cli("feed", "on"), {"price_usd": 10.0})
+        sql = cli._push_sql([], Store().answer_settings(), "", feed_price_usd=10)
+        self.assertIn("('feed_price_usd','10.000000')", sql)
+        self.assertEqual(self.run_cli("feed", "off"), {"price_usd": 0.0})
+        self.assertNotIn(
+            "feed_price_usd", cli._push_sql([], Store().answer_settings(), "")
+        )
+
+    def test_a_chosen_price_wins(self) -> None:
+        self.assertEqual(self.run_cli("feed", "on", "--price", "8"), {"price_usd": 8.0})

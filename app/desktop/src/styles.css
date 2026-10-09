@@ -487,3 +487,10 @@ dialog.palette[open] { animation: rise 0.12s ease; }
 .collection-price .price-edit { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 14px; color: var(--ink-soft); }
 .collection-price .price-field input[type="text"] { width: 7ch; }
 .collection-foot { display: flex; align-items: center; justify-content: flex-end; gap: 8px; }
+
+/* Feed: one click lets agents subscribe (MON-045) */
+.feed-card { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+.feed-card .lead { display: flex; align-items: center; gap: 10px; min-width: 0; flex: 1; }
+.feed-card .t { display: flex; flex-direction: column; gap: 2px; }
+.feed-card .actions { display: flex; gap: 6px; }
+.feed-card .price-edit { display: flex; align-items: center; gap: 8px; font-size: 14px; color: var(--ink-soft); }

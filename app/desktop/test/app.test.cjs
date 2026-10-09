@@ -1080,3 +1080,22 @@ test("a collection is made, filled, renamed, priced and deleted through the CLI,
     await rm(directory, { recursive: true });
   }
 });
+
+test("the feed turns on at its suggestion or a set price, and off, through the CLI, refused before it unless priced above zero", async () => {
+  const { setFeed, feedOff } = require("../src/state.cjs");
+  const directory = await mkdtemp(join(tmpdir(), "lore-desktop-"));
+  try {
+    for (const bad of [0, -1, Number.NaN, "5"]) await assert.rejects(setFeed(directory, bad), { message: /above zero/ });
+    const off = (await readState(directory)).feed;
+    assert.equal(off.price_usd, 0);
+    assert.equal(off.days, 30);
+    assert.equal((await setFeed(directory, null)).price_usd, off.suggested_usd);
+    assert.equal((await readState(directory)).feed.price_usd, off.suggested_usd);
+    await setFeed(directory, 7.5);
+    assert.equal((await readState(directory)).feed.price_usd, 7.5);
+    await feedOff(directory);
+    assert.equal((await readState(directory)).feed.price_usd, 0);
+  } finally {
+    await rm(directory, { recursive: true });
+  }
+});
