@@ -45,6 +45,18 @@ contextBridge.exposeInMainWorld("lore", {
   setPrice: (amount) => ipcRenderer.invoke("pricing:set", amount),
   /** @param {number} count */
   setFreeCopies: (count) => ipcRenderer.invoke("pricing:free-copies", count),
+  /** @param {string} [title] */
+  newCollection: (title) => ipcRenderer.invoke("collection:new", title),
+  /** @param {number} id @param {{items?: Array<{title: string, content: string}>, files?: string[]}} input */
+  addToCollection: (id, input) => ipcRenderer.invoke("collection:add", id, input),
+  /** @param {number} id @param {string} title */
+  renameCollection: (id, title) => ipcRenderer.invoke("collection:rename", id, title),
+  /** @param {number} id @param {number} amount */
+  priceCollection: (id, amount) => ipcRenderer.invoke("collection:price", id, amount),
+  /** @param {number} id @param {number} piece */
+  removeFromCollection: (id, piece) => ipcRenderer.invoke("collection:remove", id, piece),
+  /** @param {number} id */
+  deleteCollection: (id) => ipcRenderer.invoke("collection:delete", id),
   revealHome: () => ipcRenderer.invoke("home:reveal"),
   sales: () => ipcRenderer.invoke("store:sales"),
   views: () => ipcRenderer.invoke("store:views"),

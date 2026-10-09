@@ -179,6 +179,36 @@ class Publication(BaseModel):
         )
 
 
+class CollectionPiece(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    id: int
+    public_id: str
+    title: str
+    teaser: str
+    active: bool
+
+
+class Collection(BaseModel):
+    """A named set of pieces sold together at one price (MON-044)."""
+
+    model_config = ConfigDict(frozen=True)
+
+    id: int
+    public_id: str
+    title: str
+    price_usd: float
+    updated_at: str
+    pieces: list[CollectionPiece]
+
+    @property
+    def on_sale(self) -> bool:
+        return self.price_usd > 0 and any(piece.active for piece in self.pieces)
+
+
+UNTITLED_COLLECTION = "Untitled collection"
+
+
 class AnswerSettings(BaseModel):
     model_config = ConfigDict(frozen=True)
 
@@ -467,6 +497,24 @@ class Store:
                 memory_id INTEGER NOT NULL,
                 flagged_at TEXT NOT NULL,
                 PRIMARY KEY (publication_id, memory_id)
+            );
+            -- A named set of pieces sold together at one price (MON-044). On
+            -- sale while it has a price and at least one active piece.
+            CREATE TABLE IF NOT EXISTS collections (
+                id INTEGER PRIMARY KEY,
+                public_id TEXT NOT NULL UNIQUE,
+                title TEXT NOT NULL,
+                price_usd REAL NOT NULL DEFAULT 0,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS collection_pieces (
+                collection_id INTEGER NOT NULL
+                    REFERENCES collections(id) ON DELETE CASCADE,
+                publication_id INTEGER NOT NULL
+                    REFERENCES publications(id) ON DELETE CASCADE,
+                position INTEGER NOT NULL,
+                PRIMARY KEY (collection_id, publication_id)
             );
             """
         )
@@ -1139,6 +1187,156 @@ class Store:
         if row is None:
             raise ValueError(f"publication not found: {public_id}")
         return Publication.from_row(row)
+
+    # --- Collections (MON-044) -------------------------------------------
+
+    def new_collection(self, title: str = UNTITLED_COLLECTION) -> Collection:
+        now = datetime.now(timezone.utc).isoformat()
+        cursor = self.db.execute(
+            "INSERT INTO collections(public_id,title,created_at,updated_at) "
+            "VALUES (?,?,?,?)",
+            (new_public_id(), title.strip() or UNTITLED_COLLECTION, now, now),
+        )
+        self.db.commit()
+        return self.collection(int(cursor.lastrowid or 0))
+
+    def collection(self, collection_id: int) -> Collection:
+        row = self.db.execute(
+            "SELECT * FROM collections WHERE id=?", (collection_id,)
+        ).fetchone()
+        if row is None:
+            raise ValueError(f"collection not found: {collection_id}")
+        pieces = self.db.execute(
+            "SELECT p.id,p.public_id,p.title,p.teaser,p.active FROM collection_pieces c "
+            "JOIN publications p ON p.id=c.publication_id "
+            "WHERE c.collection_id=? ORDER BY c.position",
+            (collection_id,),
+        ).fetchall()
+        return Collection(
+            id=row["id"],
+            public_id=row["public_id"],
+            title=row["title"],
+            price_usd=row["price_usd"],
+            updated_at=row["updated_at"],
+            pieces=[CollectionPiece(**dict(piece)) for piece in pieces],
+        )
+
+    def collections(self) -> list[Collection]:
+        rows = self.db.execute(
+            "SELECT id FROM collections ORDER BY created_at DESC,id DESC"
+        ).fetchall()
+        return [self.collection(row["id"]) for row in rows]
+
+    def add_to_collection(
+        self, collection_id: int, title: str, content: str
+    ) -> CollectionPiece:
+        """Keep the text as a private memory and put it on sale as a piece of
+        the collection. Dropping it in is the owner's approval."""
+        collection = self.collection(collection_id)
+        already = self.db.execute(
+            "SELECT p.id FROM collection_pieces c JOIN publications p "
+            "ON p.id=c.publication_id WHERE c.collection_id=? AND p.content=? "
+            "AND p.active=1",
+            (collection_id, content),
+        ).fetchone()
+        if already:
+            return next(p for p in collection.pieces if p.id == already["id"])
+        fingerprint = hashlib.sha256(content.encode()).hexdigest()
+        source_key = f"collection:{collection.public_id}:{fingerprint}"
+        self.put(
+            source="collection",
+            origin="attended",
+            source_path=collection.title,
+            source_key=source_key,
+            fingerprint=fingerprint,
+            title=title,
+            content=content,
+            project=collection.title,
+        )
+        memory = self.db.execute(
+            "SELECT id FROM memories WHERE source_key=?", (source_key,)
+        ).fetchone()
+        publication_id = self.add_publication(
+            title=title,
+            content=content,
+            kind=PublicationKind.CONTENT,
+            topic=collection.title,
+            teaser=title,
+            provenance=[memory["id"]],
+        )
+        self.db.execute(
+            "INSERT INTO collection_pieces(collection_id,publication_id,position) "
+            "VALUES (?,?,(SELECT coalesce(max(position),0)+1 FROM collection_pieces "
+            "WHERE collection_id=?))",
+            (collection_id, publication_id, collection_id),
+        )
+        self._touch_collection(collection_id)
+        return next(
+            piece
+            for piece in self.collection(collection_id).pieces
+            if piece.id == publication_id
+        )
+
+    def rename_collection(self, collection_id: int, title: str) -> Collection:
+        title = title.strip()
+        if not title:
+            raise ValueError("a collection needs a name")
+        self.collection(collection_id)
+        self.db.execute(
+            "UPDATE publications SET topic=? WHERE id IN "
+            "(SELECT publication_id FROM collection_pieces WHERE collection_id=?)",
+            (title, collection_id),
+        )
+        self.db.execute(
+            "UPDATE collections SET title=? WHERE id=?", (title, collection_id)
+        )
+        self._touch_collection(collection_id)
+        return self.collection(collection_id)
+
+    def price_collection(self, collection_id: int, price_usd: float) -> Collection:
+        if not price_usd >= 0 or price_usd == float("inf"):
+            raise ValueError("a price has to be a number, zero or more")
+        self.collection(collection_id)
+        self.db.execute(
+            "UPDATE collections SET price_usd=? WHERE id=?",
+            (round(price_usd, 6), collection_id),
+        )
+        self._touch_collection(collection_id)
+        return self.collection(collection_id)
+
+    def remove_from_collection(self, collection_id: int, publication_id: int) -> None:
+        """Take the piece out of the collection and off sale."""
+        cursor = self.db.execute(
+            "DELETE FROM collection_pieces WHERE collection_id=? AND publication_id=?",
+            (collection_id, publication_id),
+        )
+        if not cursor.rowcount:
+            raise ValueError(f"piece {publication_id} isn't in this collection")
+        self.revoke_publication(publication_id)
+        self._touch_collection(collection_id)
+
+    def delete_collection(self, collection_id: int) -> None:
+        """Remove the collection; its pieces stay on sale one by one."""
+        cursor = self.db.execute("DELETE FROM collections WHERE id=?", (collection_id,))
+        if not cursor.rowcount:
+            raise ValueError(f"collection not found: {collection_id}")
+        self.db.commit()
+
+    def unpriced_pieces(self) -> set[int]:
+        """Pieces waiting in collections with no price yet: pricing puts them on sale."""
+        rows = self.db.execute(
+            "SELECT publication_id FROM collection_pieces c JOIN collections k "
+            "ON k.id=c.collection_id GROUP BY publication_id "
+            "HAVING max(k.price_usd) <= 0"
+        ).fetchall()
+        return {row["publication_id"] for row in rows}
+
+    def _touch_collection(self, collection_id: int) -> None:
+        self.db.execute(
+            "UPDATE collections SET updated_at=? WHERE id=?",
+            (datetime.now(timezone.utc).isoformat(), collection_id),
+        )
+        self.db.commit()
 
     # --- Owner job history -------------------------------------------------
     # The columns a job read may select. `deadline_at` and `owner_pid` are

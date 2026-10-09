@@ -35,7 +35,7 @@ const mainEl = $("#main");
 const header = /** @type {HTMLElement} */ (mainEl.querySelector("header"));
 const navButtons = /** @type {HTMLButtonElement[]} */ ([...document.querySelectorAll("nav button")]);
 
-/** @typedef {"today" | "memories" | "store" | "connectors" | "faq" | "settings"} View */
+/** @typedef {"today" | "memories" | "store" | "collection" | "connectors" | "faq" | "settings"} View */
 /** @type {Snapshot | null} */
 let snapshot = null;
 /** The apps Lore can connect, read once from the CLI's catalog. @type {SourceApp[]} */
@@ -80,6 +80,13 @@ let pushedNote = false;
 let editingPrice = false;
 let savingPrice = false;
 let accountMenuOpen = false;
+/** The collection open in its own view. @type {number | null} */
+let openCollectionId = null;
+/** Text pasted into the open collection and not added yet; kept across renders. */
+let collectionDraft = "";
+/** What the open collection is doing, said on the button doing it. @type {"" | "adding" | "pricing" | "naming"} */
+let collectionBusy = "";
+let editingCollectionPrice = false;
 /** The node's ledger, read each time For Sale opens: rows, the reason it could not be read, or null while it loads. @type {Sale[] | Error | null} */
 let sales = null;
 /** Page views per piece, by public id; empty until read. @type {Record<string, number>} */
@@ -906,6 +913,7 @@ function renderStore(s) {
   const parts = [bar];
   if (pushOffer) parts.push(seamCard());
   if (pushedNote) parts.push(pushReceipt(s));
+  parts.push(collectionsSection(s));
   parts.push(section("For sale", approved.length
     ? card(approved.map((item) => row(item.title, sold(item), controls(item))))
     : emptyState("Nothing for sale yet.", button("Draft your first piece", "quiet", () => show("memories"))),
@@ -913,6 +921,228 @@ function renderStore(s) {
   if (revoked.length) parts.push(section("Taken down", card(revoked.map((item) => row(item.title, item.topic, item.live === true ? chip("Still on your store", "attention") : chip("Taken down"))))));
   parts.push(renderSales());
   return parts;
+}
+
+/** @returns {CollectionItem | undefined} */
+function openCollection() {
+  return snapshot?.collections?.items.find((item) => item.id === openCollectionId);
+}
+
+/** @param {CollectionItem | undefined} item */
+function collectionEyebrow(item) {
+  if (!item) return "Collection";
+  return item.on_sale ? `Collection · On sale at ${price(item.price_usd)}` : "Collection · Not on sale yet";
+}
+
+/** @param {CollectionItem} item */
+function collectionDetail(item) {
+  const count = `${item.pieces.length} ${item.pieces.length === 1 ? "piece" : "pieces"}`;
+  return item.on_sale ? `${count} · ${price(item.price_usd)} for all of them` : `${count} · not on sale yet`;
+}
+
+/** For Sale's collections, each opening its own view. @param {Snapshot} s */
+function collectionsSection(s) {
+  const items = s.collections?.items ?? [];
+  const make = button("New collection", "quiet", () => void newCollection());
+  if (!items.length) return section("Collections", emptyState("Sell a set of pieces together, at one price.", make));
+  const rows = items.map((item) => {
+    const node = el("button", "row link");
+    node.type = "button";
+    const text = el("div", "t");
+    text.append(el("b", "", item.title), el("span", "", collectionDetail(item)));
+    node.append(text, item.on_sale ? chip("On sale", "ok") : chip("Draft"));
+    node.addEventListener("click", () => showCollection(item.id));
+    return node;
+  });
+  return section("Collections", card(rows), make);
+}
+
+/** @param {number} id */
+function showCollection(id) {
+  openCollectionId = id;
+  if (detailTask) closeTask();
+  show("collection");
+}
+
+/** Step one: the collection exists the moment it's asked for. */
+async function newCollection() {
+  if (collectionBusy) return;
+  /** @type {NewCollection | null} */
+  let made = null;
+  if (await act(async () => { made = await window.lore.newCollection(); })) {
+    if (made) showCollection(/** @type {NewCollection} */ (made).id);
+    queueMicrotask(() => /** @type {HTMLElement | null} */ (document.querySelector(".drop-zone textarea"))?.focus());
+  }
+}
+
+/** Step two: dropped files or pasted text, each one piece. @param {{items?: Array<{title: string, content: string}>, files?: string[]}} input */
+async function addToCollection(input) {
+  const item = openCollection();
+  if (!item || collectionBusy) return;
+  const files = (input.files ?? []).filter((path) => {
+    if (!GUARDED.test(path)) return true;
+    tell(`${path.split("/").pop()} looks like a credential or hidden file, so Lore won't add it.`, true);
+    return false;
+  });
+  if (!files.length && !input.items?.length) return;
+  collectionBusy = "adding";
+  render();
+  /** @type {{added: Array<{title: string}>} | null} */
+  let result = null;
+  const done = await act(async () => { result = await window.lore.addToCollection(item.id, { items: input.items, files }); });
+  collectionBusy = "";
+  if (done && result) {
+    if (input.items?.length) collectionDraft = "";
+    const added = /** @type {{added: Array<{title: string}>}} */ (result).added.length;
+    const after = openCollection();
+    tell(added === 1 ? "Added 1 piece." : `Added ${added} pieces.`, false, after && !after.on_sale ? { label: "Price it", run: () => { editingCollectionPrice = true; render(); } } : undefined);
+  }
+  render();
+}
+
+function addPasted() {
+  const text = collectionDraft.trim();
+  if (!text) return void tell("Paste or type something first.", true);
+  const first = text.split("\n").find((line) => line.trim())?.replace(/^#+\s*/, "").trim() ?? "";
+  const title = first.length > 80 ? `${first.slice(0, 77).trimEnd()}…` : first;
+  void addToCollection({ items: [{ title, content: text }] });
+}
+
+/** @param {CollectionItem} item @param {string} raw */
+async function renameCollection(item, raw) {
+  const name = raw.trim();
+  if (!name || name === item.title || collectionBusy) return;
+  collectionBusy = "naming";
+  await act(() => window.lore.renameCollection(item.id, name));
+  collectionBusy = "";
+  render();
+}
+
+/** Step three: a price puts it on sale; zero takes it off. @param {CollectionItem} item @param {number} amount */
+async function priceCollection(item, amount) {
+  collectionBusy = "pricing";
+  render();
+  const done = await act(() => window.lore.priceCollection(item.id, amount));
+  collectionBusy = "";
+  if (done) {
+    editingCollectionPrice = false;
+    const live = Boolean(snapshot?.node.url);
+    if (amount === 0) tell("Taken off sale. Its pieces are still for sale one by one.");
+    else tell(live ? `On sale at ${price(amount)}. Buyers can get all of it in one go.` : `Priced at ${price(amount)}. It goes on sale once your store is open.`, false, live ? undefined : { label: "Open your store", run: () => void startDeploy() });
+  }
+  render();
+}
+
+/** @param {CollectionItem} item */
+function collectionPrice(item) {
+  const box = el("div", "card pad collection-price");
+  const busy = collectionBusy === "pricing";
+  if (item.on_sale && !editingCollectionPrice) {
+    const line = el("div", "lead");
+    line.append(el("span", "dot ok"), el("span", "", `On sale at ${price(item.price_usd)} for all ${item.pieces.length} ${item.pieces.length === 1 ? "piece" : "pieces"}`));
+    const actions = el("div", "actions");
+    actions.append(
+      button("Change price", "quiet", () => { editingCollectionPrice = true; render(); }),
+      button(busy ? "Taking off…" : "Take off sale", "secondary", () => void priceCollection(item, 0))
+    );
+    box.append(line, actions);
+    if (item.value_usd > item.price_usd) box.append(el("p", "hint", `Worth ${price(item.value_usd)} one by one.`));
+    return box;
+  }
+  const form = /** @type {HTMLFormElement} */ (el("form", "price-edit"));
+  const [field, input] = priceField(item.price_usd > 0 ? String(item.price_usd) : "");
+  input.setAttribute("aria-label", "Price for the whole collection in US dollars");
+  input.placeholder = item.value_usd > 0 ? String(Math.max(1, Math.round(item.value_usd * 0.8))) : "10";
+  const save = el("button", "btn primary sm", busy ? "Saving…" : item.on_sale ? "Update price" : "Put on sale");
+  save.type = "submit";
+  save.disabled = busy || !item.pieces.length;
+  form.append(field, el("span", "", "for the whole collection"), save);
+  if (item.on_sale) form.append(button("Cancel", "quiet", () => { editingCollectionPrice = false; render(); }));
+  form.addEventListener("submit", (event) => {
+    event.preventDefault();
+    const amount = parsePrice(input.value);
+    if (amount === null) return void tell(`${ABOVE_ZERO}.`, true);
+    void priceCollection(item, amount);
+  });
+  box.append(form);
+  const hint = !item.pieces.length ? "Add a piece first, then price it."
+    : item.value_usd > 0 ? `Its ${item.pieces.length} ${item.pieces.length === 1 ? "piece costs" : "pieces cost"} ${price(item.value_usd)} one by one. A lower price here gives buyers a reason to take them all.`
+    : "Buyers pay this once and get every piece in it.";
+  box.append(el("p", "hint", hint));
+  if (editingCollectionPrice) queueMicrotask(() => input.focus());
+  return box;
+}
+
+/** @param {CollectionItem} item @param {{id: number, title: string}} piece */
+function collectionPiece(item, piece) {
+  const trailing = el("div", "v");
+  const ask = button("Remove", "quiet", () => {
+    trailing.replaceChildren(
+      el("span", "hint", "It comes off sale too. Anyone who already bought it keeps their copy."),
+      button("Keep", "secondary", () => trailing.replaceChildren(ask)),
+      button("Remove", "primary", () => void act(() => window.lore.removeFromCollection(item.id, piece.id)))
+    );
+  });
+  trailing.append(ask);
+  return row(piece.title, "", trailing);
+}
+
+/** A collection in three steps: name it, fill it, price it. @param {Snapshot} s */
+function renderCollection(s) {
+  const item = openCollection();
+  if (!item) return [emptyState("This collection is gone.", button("Back to For Sale", "quiet", () => show("store")))];
+  const busy = Boolean(collectionBusy);
+
+  const name = el("input", "collection-name");
+  name.type = "text";
+  name.value = item.title;
+  name.maxLength = 120;
+  name.setAttribute("aria-label", "Collection name");
+  name.disabled = busy;
+  name.addEventListener("keydown", (event) => { if (event.key === "Enter") name.blur(); if (event.key === "Escape") { name.value = item.title; name.blur(); } });
+  name.addEventListener("change", () => void renameCollection(item, name.value));
+
+  const zone = el("div", "card drop-zone");
+  const lead = el("div", "drop-lead");
+  lead.append(el("b", "", collectionBusy === "adding" ? "Adding…" : "Drop files here"), el("span", "hint", "Each file becomes one piece. Or paste text below."));
+  const choose = button("Choose files", "secondary", async () => void addToCollection({ files: await window.lore.pickFiles() }));
+  choose.disabled = busy;
+  lead.append(choose);
+  const paste = el("textarea");
+  paste.rows = 3;
+  paste.placeholder = "Paste a post, a note, anything you wrote. The first line becomes its title.";
+  paste.setAttribute("aria-label", "Paste text to add as a piece");
+  paste.value = collectionDraft;
+  paste.disabled = busy;
+  paste.addEventListener("input", () => { collectionDraft = paste.value; fit(paste); });
+  paste.addEventListener("keydown", (event) => { if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) { event.preventDefault(); addPasted(); } });
+  const add = button(collectionBusy === "adding" ? "Adding…" : "Add", "primary", addPasted);
+  add.disabled = busy;
+  const pasteRow = el("div", "paste-row");
+  pasteRow.append(paste, add);
+  zone.append(lead, pasteRow);
+
+  const pieces = item.pieces.length
+    ? card(item.pieces.map((piece) => collectionPiece(item, piece)))
+    : el("div", "card pad empty", "Nothing in it yet. Drop a file or paste some text above.");
+
+  const remove = button("Delete collection", "quiet", () => {
+    foot.replaceChildren(
+      el("span", "hint", "Its pieces stay for sale one by one."),
+      button("Keep", "secondary", () => foot.replaceChildren(remove)),
+      button("Delete", "primary", async () => { if (await act(() => window.lore.deleteCollection(item.id))) { openCollectionId = null; show("store"); } })
+    );
+  });
+  const foot = el("div", "collection-foot");
+  foot.append(remove);
+
+  return [
+    section("Name", name),
+    section("Add to it", zone),
+    section("In this collection", pieces, item.pieces.length ? el("span", "hint", `${item.pieces.length} ${item.pieces.length === 1 ? "piece" : "pieces"}`) : undefined),
+    section("Price", collectionPrice(item)),
+    foot
+  ];
 }
 
 function renderSales() {
@@ -1518,17 +1748,18 @@ function renderSettings(s) {
   ];
 }
 
-const renderers = { today: renderToday, memories: renderMemories, store: renderStore, connectors: renderConnectors, faq: renderFaq, settings: renderSettings };
+const renderers = { today: renderToday, memories: renderMemories, store: renderStore, collection: renderCollection, connectors: renderConnectors, faq: renderFaq, settings: renderSettings };
 
 function render() {
   hidePeek();
   const detail = view === "today" ? detailTask : null;
-  const heading = detail ? detailRecord?.title ?? TASK_TITLES[detail] : { today: greeting(), memories: "Memories", store: "For Sale", connectors: "Connectors", faq: "FAQ", settings: "Settings" }[view];
+  const heading = detail ? detailRecord?.title ?? TASK_TITLES[detail] : { today: greeting(), memories: "Memories", store: "For Sale", collection: openCollection()?.title ?? "Collection", connectors: "Connectors", faq: "FAQ", settings: "Settings" }[view];
   const pendingDrafts = detail === "publish" && (candidates.length || extraDrafts.length);
   eyebrow.textContent = detail
     ? pendingDrafts ? `Needs you · ${draftsPhase()}` : `${TASK_STATES[detailRecord?.state ?? "working"]} · ${detailRecord?.phase ?? "Starting"}`
     : view === "today" ? longDate.format(new Date())
-    : view === "memories" && snapshot ? memoriesCountLabel(snapshot) : "";
+    : view === "memories" && snapshot ? memoriesCountLabel(snapshot)
+    : view === "collection" ? collectionEyebrow(openCollection()) : "";
   title.textContent = heading;
   taskBack.hidden = !detail;
   taskRestart.hidden = !detail || detailRecord?.state !== "stopped";
@@ -1536,7 +1767,8 @@ function render() {
   captureArea.hidden = view !== "today";
   log.hidden = !detail;
   syncComposer();
-  for (const nav of navButtons) nav.setAttribute("aria-pressed", String(nav.dataset.view === view));
+  // A collection is something for sale, so For Sale stays lit while one is open.
+  for (const nav of navButtons) nav.setAttribute("aria-pressed", String(nav.dataset.view === (view === "collection" ? "store" : view)));
   if (!snapshot) return;
   $("[data-count=memories]").textContent = String(snapshot.library.counts.private);
   $("[data-count=store]").textContent = String(snapshot.publications.counts.active);
@@ -1602,6 +1834,7 @@ function show(next) {
   // Leaving For Sale abandons a half-typed price rather than keeping the field
   // open behind the owner's back.
   if (next !== "store") editingPrice = false;
+  if (next !== "collection") { editingCollectionPrice = false; collectionDraft = ""; }
   // A store update said once, where it happened; it doesn't follow the owner around.
   pushedNote = false;
   render();
@@ -2871,12 +3104,15 @@ function attach(paths) {
 }
 $("#attach").addEventListener("click", async () => attach(await window.lore.pickFiles()));
 for (const type of ["dragenter", "dragover"]) {
-  document.addEventListener(type, (event) => { event.preventDefault(); composer.classList.add("dropping"); });
+  document.addEventListener(type, (event) => { event.preventDefault(); (view === "collection" ? document.querySelector(".drop-zone") ?? composer : composer).classList.add("dropping"); });
 }
-document.addEventListener("dragleave", (event) => { if (!event.relatedTarget) composer.classList.remove("dropping"); });
+document.addEventListener("dragleave", (event) => { if (!event.relatedTarget) { composer.classList.remove("dropping"); document.querySelector(".drop-zone")?.classList.remove("dropping"); } });
 document.addEventListener("drop", (event) => {
   event.preventDefault();
   composer.classList.remove("dropping");
+  document.querySelector(".drop-zone")?.classList.remove("dropping");
+  // Open on a collection, a drop goes into it, not into a memory.
+  if (view === "collection") return void addToCollection({ files: [...(event.dataTransfer?.files ?? [])].map((file) => window.lore.pathFor(file)).filter(Boolean) });
   attach([...(event.dataTransfer?.files ?? [])].map((file) => window.lore.pathFor(file)).filter(Boolean));
   if (attachments.length) show("today");
 });
@@ -2892,6 +3128,28 @@ function startCapture(text = "") {
   input.focus();
 }
 addMemoryBtn.addEventListener("click", () => startCapture());
+
+/* New: one place to start anything the owner makes. */
+const newOpen = /** @type {HTMLButtonElement} */ ($("#new-open"));
+const newMenu = $("#new-menu");
+function closeNewMenu() {
+  newMenu.hidden = true;
+  newOpen.setAttribute("aria-expanded", "false");
+}
+newOpen.addEventListener("click", (event) => {
+  event.stopPropagation();
+  const opening = newMenu.hidden;
+  newMenu.hidden = !opening;
+  newOpen.setAttribute("aria-expanded", String(opening));
+  if (opening) /** @type {HTMLElement | null} */ (newMenu.querySelector("button"))?.focus();
+});
+for (const item of newMenu.querySelectorAll("button")) {
+  item.addEventListener("click", () => {
+    closeNewMenu();
+    if (/** @type {HTMLElement} */ (item).dataset.new === "collection") void newCollection();
+    else startCapture();
+  });
+}
 
 /* Find or capture: one gesture for both, so the owner never has to know whether a memory exists before reaching for it. */
 /** @type {Array<{node: HTMLElement, verb: string, run: () => void}>} */
@@ -3067,10 +3325,12 @@ welcomeRetry.addEventListener("click", () => {
 document.addEventListener("keydown", (event) => {
   if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") { event.preventDefault(); openPalette(); }
   if (event.key === "Escape" && accountMenuOpen) { accountMenuOpen = false; renderAccount(); }
+  if (event.key === "Escape" && !newMenu.hidden) { closeNewMenu(); newOpen.focus(); }
   if (event.key === "Escape") hidePeek();
 });
 document.addEventListener("click", (event) => {
   if (accountMenuOpen && !account.contains(/** @type {Node} */ (event.target))) { accountMenuOpen = false; renderAccount(); }
+  if (!newMenu.hidden && !newOpen.parentElement?.contains(/** @type {Node} */ (event.target))) closeNewMenu();
 });
 
 for (const node of document.querySelectorAll("[data-login]")) {

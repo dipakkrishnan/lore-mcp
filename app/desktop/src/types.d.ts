@@ -15,6 +15,21 @@ type PublicationItem = {
   live: boolean | null;
 };
 
+/** A named set of pieces sold together at one price (MON-044). */
+type CollectionItem = {
+  id: number;
+  public_id: string;
+  title: string;
+  /** 0 when it isn't on sale. */
+  price_usd: number;
+  on_sale: boolean;
+  pieces: Array<{ id: number; public_id: string; title: string }>;
+  /** What its pieces cost one by one at the store's price; 0 when no price is set. */
+  value_usd: number;
+};
+
+type NewCollection = { id: number; public_id: string; title: string };
+
 type Snapshot = {
   version: 1;
   home: string;
@@ -39,6 +54,8 @@ type Snapshot = {
     counts: { active: number; revoked: number };
     items: PublicationItem[];
   };
+  // Optional: an installed CLI older than collections (MON-044) omits it.
+  collections?: { items: CollectionItem[] };
   pricing: {
     publication_usd: number | null;
     answer_usd: number | null;
@@ -244,6 +261,12 @@ interface Window {
     schedule(): Promise<void>;
     setPrice(amount: number): Promise<void>;
     setFreeCopies(count: number): Promise<void>;
+    newCollection(title?: string): Promise<NewCollection>;
+    addToCollection(id: number, input: { items?: Array<{ title: string; content: string }>; files?: string[] }): Promise<{ added: Array<{ publication_id: number; public_id: string; title: string }> }>;
+    renameCollection(id: number, title: string): Promise<void>;
+    priceCollection(id: number, amount: number): Promise<void>;
+    removeFromCollection(id: number, piece: number): Promise<void>;
+    deleteCollection(id: number): Promise<void>;
     revealHome(): Promise<string>;
     sales(): Promise<Sale[]>;
     views(): Promise<Record<string, number>>;

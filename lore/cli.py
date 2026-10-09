@@ -20,6 +20,7 @@ from . import deploy as deploy_module
 from . import feedback as feedback_module
 from . import marketplace as marketplace_module
 from . import sources as sources_module
+from .collection import Collections, Drop
 from .paths import home
 from .sources import Registry, available_sources
 from .store import (
@@ -31,6 +32,7 @@ from .store import (
     STATUSES,
     SUPPORT_EMAIL_SETTING,
     AnswerSettings,
+    Collection,
     JobKind,
     Publication,
     PublicationExtras,
@@ -402,6 +404,39 @@ def parser() -> argparse.ArgumentParser:
         "to re-approve them as one group",
     )
 
+    collection = commands.add_parser(
+        "collection", help="make a collection, drop context into it, and price it"
+    )
+    collection_commands = collection.add_subparsers(
+        dest="collection_command", required=True
+    )
+    collection_new = collection_commands.add_parser("new", help="start a collection")
+    collection_new.add_argument("--title", default="Untitled collection")
+    collection_add = collection_commands.add_parser(
+        "add", help="add pasted text and files as pieces"
+    )
+    collection_add.add_argument("id", type=int)
+    collection_add.add_argument(
+        "file", help='JSON {"items": [{title, content}], "files": [paths]}; - for stdin'
+    )
+    collection_rename = collection_commands.add_parser("rename", help="rename it")
+    collection_rename.add_argument("id", type=int)
+    collection_rename.add_argument("title")
+    collection_price = collection_commands.add_parser(
+        "price", help="set its price; 0 takes it off sale"
+    )
+    collection_price.add_argument("id", type=int)
+    collection_price.add_argument("amount", type=float)
+    collection_remove = collection_commands.add_parser(
+        "remove", help="take one piece out of it and off sale"
+    )
+    collection_remove.add_argument("id", type=int)
+    collection_remove.add_argument("publication_id", type=int)
+    collection_delete = collection_commands.add_parser(
+        "delete", help="delete it; its pieces stay on sale one by one"
+    )
+    collection_delete.add_argument("id", type=int)
+
     push = commands.add_parser(
         "push", help="replace the deployed node's publications with the active set"
     )
@@ -599,6 +634,8 @@ def main(argv: list[str] | None = None) -> int:
             if args.publication_command == "reapprove":
                 return publication_reapprove(args.id)
             return publication_list()
+        if args.command == "collection":
+            return collection_command(args)
         if args.command == "push":
             return push(args.worker_dir, local=args.local)
         if args.command == "blueprint":
@@ -1811,6 +1848,31 @@ def publication_revoke(publication_id: int) -> int:
         ) from error
 
 
+def collection_command(args: argparse.Namespace) -> int:
+    """Owner actions on collections; each prints the result as JSON."""
+    _owner_action("changing a collection")
+    collections = Collections(lambda: push(str(home() / "node")))
+    command = args.collection_command
+    if command == "new":
+        result: object = collections.new(args.title).model_dump()
+    elif command == "add":
+        text = sys.stdin.read() if args.file == "-" else Path(args.file).read_text()
+        result = {"added": collections.add(args.id, Drop.model_validate_json(text))}
+    elif command == "rename":
+        result = collections.rename(args.id, args.title).model_dump()
+    elif command == "price":
+        if not math.isfinite(args.amount) or args.amount < 0:
+            raise ValueError("a price has to be a number, zero or more")
+        result = collections.price(args.id, args.amount).model_dump()
+    elif command == "remove":
+        result = collections.remove(args.id, args.publication_id).model_dump()
+    else:
+        collections.delete(args.id)
+        result = {"deleted": args.id}
+    print(json.dumps(result, separators=(",", ":")))
+    return 0
+
+
 def _push_sql(
     publications: list[Publication],
     answer: AnswerSettings,
@@ -1819,6 +1881,7 @@ def _push_sql(
     free_copies: int = FREE_COPIES,
     support_email: str = "",
     price_usd: float = 0,
+    collections: list[Collection] | None = None,
 ) -> str:
     """Render the full-replace SQL for the edge database.
 
@@ -1861,6 +1924,31 @@ def _push_sql(
         f"({','.join(quote(getattr(p, column)) for column in columns)},{quote(p.kind.value)});"
         for p in publications
     )
+    # Only what is on sale, and only pieces the catalog advertises.
+    listed = {p.public_id for p in publications if p.teaser}
+    statements += [
+        "DROP TABLE IF EXISTS collections;",
+        "CREATE TABLE collections (public_id TEXT PRIMARY KEY, title TEXT NOT NULL, "
+        "price_usd REAL NOT NULL, updated_at TEXT NOT NULL DEFAULT '');",
+        "DROP TABLE IF EXISTS collection_pieces;",
+        "CREATE TABLE collection_pieces (collection_id TEXT NOT NULL, "
+        "piece_id TEXT NOT NULL, position INTEGER NOT NULL, "
+        "PRIMARY KEY (collection_id, piece_id));",
+    ]
+    for collection in collections or []:
+        pieces = [p.public_id for p in collection.pieces if p.public_id in listed]
+        if collection.price_usd <= 0 or not pieces:
+            continue
+        statements.append(
+            "INSERT INTO collections(public_id,title,price_usd,updated_at) VALUES "
+            f"({quote(collection.public_id)},{quote(collection.title)},"
+            f"{collection.price_usd:.6f},{quote(collection.updated_at)});"
+        )
+        statements.extend(
+            "INSERT INTO collection_pieces(collection_id,piece_id,position) VALUES "
+            f"({quote(collection.public_id)},{quote(piece)},{position});"
+            for position, piece in enumerate(pieces, 1)
+        )
     settings = {
         "proxy_preamble": answer.proxy_preamble,
         "answer_price_usd": f"{answer.answer_price_usd:.6f}",
@@ -1921,13 +2009,17 @@ def _push(worker: Path, local: bool, job_id: int) -> int:
     import tempfile
 
     with Store() as store:
-        active = store.list_publications(active_only=True)
+        waiting = store.unpriced_pieces()
+        active = [
+            p for p in store.list_publications(active_only=True) if p.id not in waiting
+        ]
         answer_settings = store.answer_settings()
         listed_name = str(store.setting(marketplace_module.NAME_SETTING, ""))
         stripe_account = str(store.setting(STRIPE_ACCOUNT_SETTING, ""))
         free = int(str(store.setting(FREE_COPIES_SETTING, FREE_COPIES)))
         support = str(store.setting(SUPPORT_EMAIL_SETTING, ""))
         price_usd = store.setting("price_usd", 0)
+        collections = store.collections()
     script = _push_sql(
         active,
         answer_settings,
@@ -1936,6 +2028,7 @@ def _push(worker: Path, local: bool, job_id: int) -> int:
         free,
         support,
         float(price_usd) if isinstance(price_usd, (int, float)) else 0,
+        collections,
     )
     with tempfile.NamedTemporaryFile("w", suffix=".sql", delete=False) as handle:
         handle.write(script)
