@@ -457,3 +457,33 @@ dialog.palette[open] { animation: rise 0.12s ease; }
 .batch-head .t b { white-space: normal; }
 .batch-head .v { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 8px; margin-left: auto; }
 .price-field.copies input[type="text"] { width: 3ch; }
+
+/* New: one menu for everything the owner makes (MON-044) */
+.new-wrap { position: relative; }
+.new-open { display: flex; align-items: center; gap: 8px; width: 100%; height: 34px; padding: 0 10px; border-radius: var(--radius-sm); background: var(--accent); color: var(--bg); font-size: 13px; font-weight: 600; }
+.new-open:hover { filter: brightness(1.08); }
+.new-open svg { width: 15px; height: 15px; }
+.new-menu { position: absolute; top: calc(100% + 6px); left: 0; right: -40px; z-index: 5; display: flex; flex-direction: column; padding: 4px; background: var(--surface); border: 1px solid var(--line-strong); border-radius: var(--radius-sm); box-shadow: 0 8px 24px rgba(29, 31, 28, 0.14); }
+.new-menu[hidden] { display: none; }
+.new-menu button { display: flex; flex-direction: column; gap: 2px; padding: 8px 10px; border-radius: 6px; text-align: left; }
+.new-menu button:hover, .new-menu button:focus-visible { background: var(--hover); }
+.new-menu b { font-size: 13px; font-weight: 600; }
+.new-menu span { font-size: 12px; color: var(--muted); }
+
+/* A collection: name it, fill it, price it */
+.collection-name { width: 100%; height: 40px; padding: 0 12px; border: 1px solid var(--line-strong); border-radius: var(--radius-sm); background: var(--surface); font: 500 18px var(--serif); color: var(--ink); }
+.collection-name:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.drop-zone { display: flex; flex-direction: column; gap: 14px; padding: 20px; border: 1.5px dashed var(--line-strong); }
+.drop-zone.dropping { border-color: var(--accent); background: var(--accent-soft); }
+.drop-lead { display: flex; align-items: center; gap: 12px; }
+.drop-lead b { font-size: 15px; }
+.drop-lead .hint { flex: 1; }
+.paste-row { display: flex; align-items: flex-end; gap: 8px; }
+.paste-row textarea { flex: 1; min-height: 64px; padding: 10px 12px; border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--bg); font-family: inherit; font-size: 14px; line-height: 1.5; color: var(--ink); resize: none; }
+.paste-row textarea:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.collection-price { display: flex; flex-direction: column; gap: 10px; }
+.collection-price .lead { display: flex; align-items: center; gap: 10px; font-size: 14px; }
+.collection-price .actions { display: flex; gap: 6px; }
+.collection-price .price-edit { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 14px; color: var(--ink-soft); }
+.collection-price .price-field input[type="text"] { width: 7ch; }
+.collection-foot { display: flex; align-items: center; justify-content: flex-end; gap: 8px; }

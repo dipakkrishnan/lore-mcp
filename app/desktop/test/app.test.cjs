@@ -1032,3 +1032,51 @@ test("a module mismatch from an updated app tells the owner to relaunch", async 
   assert.equal(reason(new Error("Stripe is down"), "x"), "Stripe is down");
   assert.equal(reason("nope", "fallback"), "fallback");
 });
+
+test("collection changes are refused before any CLI call unless well formed", async () => {
+  const { addToCollection, renameCollection, priceCollection, removeFromCollection, deleteCollection } = require("../src/state.cjs");
+  const directory = await mkdtemp(join(tmpdir(), "lore-desktop-"));
+  try {
+    for (const bad of [0, -1, 1.5, "2", null]) {
+      await assert.rejects(deleteCollection(directory, bad), { message: /Invalid collection/ });
+      await assert.rejects(priceCollection(directory, bad, 5), { message: /Invalid collection/ });
+    }
+    for (const bad of [-1, Number.NaN, Number.POSITIVE_INFINITY, "5"]) await assert.rejects(priceCollection(directory, 1, bad), { message: /zero or more/ });
+    await assert.rejects(addToCollection(directory, 1, {}), { message: /Drop a file or paste/ });
+    await assert.rejects(addToCollection(directory, 1, { files: ["relative/path.md"] }), { message: /Drop a file or paste/ });
+    await assert.rejects(addToCollection(directory, 1, { items: [{ title: "Empty", content: "   " }] }), { message: /nothing to add/ });
+    await assert.rejects(renameCollection(directory, 1, "   "), { message: /needs a name/ });
+    await assert.rejects(removeFromCollection(directory, 1, 0), { message: /Invalid piece/ });
+  } finally {
+    await rm(directory, { recursive: true });
+  }
+});
+
+test("a collection is made, filled, renamed, priced and deleted through the CLI, and reads back in the snapshot", async () => {
+  const { newCollection, addToCollection, renameCollection, priceCollection, removeFromCollection, deleteCollection } = require("../src/state.cjs");
+  const directory = await mkdtemp(join(tmpdir(), "lore-desktop-"));
+  try {
+    const made = await newCollection(directory);
+    assert.equal(made.title, "Untitled collection");
+    const note = join(directory, "pricing-notes.md");
+    await writeFile(note, "# Pricing notes\n\nCharge for the outcome, not the hours.\n");
+    const { added } = await addToCollection(directory, made.id, { items: [{ title: "-starts with a dash", content: "Demos beat decks." }], files: [note] });
+    assert.equal(added.length, 2);
+    await renameCollection(directory, made.id, "-Sales playbook");
+    await priceCollection(directory, made.id, 12);
+    let [item] = (await readState(directory)).collections.items;
+    assert.equal(item.title, "-Sales playbook");
+    assert.equal(item.pieces.length, 2);
+    assert.equal(item.price_usd, 12);
+    assert.equal(item.on_sale, true);
+    await removeFromCollection(directory, made.id, item.pieces[0].id);
+    await priceCollection(directory, made.id, 0);
+    [item] = (await readState(directory)).collections.items;
+    assert.equal(item.pieces.length, 1);
+    assert.equal(item.on_sale, false);
+    await deleteCollection(directory, made.id);
+    assert.deepEqual((await readState(directory)).collections.items, []);
+  } finally {
+    await rm(directory, { recursive: true });
+  }
+});

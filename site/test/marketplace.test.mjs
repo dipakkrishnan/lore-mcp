@@ -25,6 +25,24 @@ test("drops entries that are malformed or whose store isn't https", () => {
   assert.match(html, /Loose topics/);
 });
 
+test("shows a seller's collections and drops malformed ones", () => {
+  const collections = [
+    { title: "<i>China</i> industrial policy", price_usd: 40, pieces: 12 },
+    { title: "Unpriced", price_usd: 0, pieces: 2 },
+    { title: "String price", price_usd: "5", pieces: 2 },
+    { price_usd: 5, pieces: 2 }
+  ];
+  const html = marketplacePage({ sellers: [{ ...seller, collections }] });
+  assert.match(html, /3 pieces · 1 collection · \$0\.01 each/);
+  assert.match(html, /&lt;i&gt;China&lt;\/i&gt; industrial policy<span>12 pieces · \$40\.00<\/span>/);
+  assert.doesNotMatch(html, /Unpriced|String price/);
+});
+
+test("says nothing about collections a seller doesn't have", () => {
+  const html = marketplacePage({ sellers: [{ ...seller, collections: "shelf" }] });
+  assert.doesNotMatch(html, /<ul class="collections">|· [0-9]+ collection/);
+});
+
 test("survives a list that isn't shaped like one", () => {
   assert.match(marketplacePage({ sellers: {} }), /No stores are listed yet/);
   assert.match(marketplacePage(null), /can't be loaded right now/);
