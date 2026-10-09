@@ -87,6 +87,8 @@ let collectionDraft = "";
 /** What the open collection is doing, said on the button doing it. @type {"" | "adding" | "pricing" | "naming"} */
 let collectionBusy = "";
 let editingCollectionPrice = false;
+let editingFeedPrice = false;
+let savingFeed = false;
 /** The node's ledger, read each time For Sale opens: rows, the reason it could not be read, or null while it loads. @type {Sale[] | Error | null} */
 let sales = null;
 /** Page views per piece, by public id; empty until read. @type {Record<string, number>} */
@@ -233,8 +235,9 @@ async function publishMemory(memory, from) {
   await send(`Help me publish something from my Lore, starting from "${memory.title}".`, from, memory.id);
 }
 
-/** @param {number | string} id @param {string} title @param {string} detail */
-function memoryRow(id, title, detail) {
+/** A memory dropped into a collection is already on sale with it, so its row says where instead of offering a draft.
+ * @param {number | string} id @param {string} title @param {string} detail @param {{id: number, title: string} | null} [collection] */
+function memoryRow(id, title, detail, collection = null) {
   const node = el("div", "row");
   const open = el("button", "task-link");
   open.type = "button";
@@ -243,7 +246,9 @@ function memoryRow(id, title, detail) {
   open.append(text);
   open.addEventListener("click", () => openMemory(Number(id)));
   peekable(open, Number(id));
-  node.append(open, button("Draft for sale", "quiet", () => void publishMemory({ id: Number(id), title })));
+  node.append(open, collection
+    ? button(`In ${collection.title}`, "quiet", () => showCollection(collection.id))
+    : button("Draft for sale", "quiet", () => void publishMemory({ id: Number(id), title })));
   return node;
 }
 
@@ -725,7 +730,7 @@ function privateMemories(s) {
 
 /** @param {Snapshot} s */
 function renderMemories(s) {
-  const items = privateMemories(s).map((item) => memoryRow(item.id, item.title, [item.project_label, when(item.updated_at)].filter(Boolean).join(" · ")));
+  const items = privateMemories(s).map((item) => memoryRow(item.id, item.title, [item.project_label, when(item.updated_at)].filter(Boolean).join(" · "), item.collection));
   const body = items.length ? card(items) : emptyState("Nothing kept yet. Say what you learned and Lore will keep it.", button("Add your first memory", "quiet", () => startCapture()));
   return [section("", body)];
 }
@@ -913,6 +918,7 @@ function renderStore(s) {
   const parts = [bar];
   if (pushOffer) parts.push(seamCard());
   if (pushedNote) parts.push(pushReceipt(s));
+  if (s.feed) parts.push(feedCard(s.feed));
   parts.push(collectionsSection(s));
   parts.push(section("For sale", approved.length
     ? card(approved.map((item) => row(item.title, sold(item), controls(item))))
@@ -923,6 +929,65 @@ function renderStore(s) {
   return parts;
 }
 
+/** One click lets agents subscribe to everything for sale. @param {{price_usd: number, suggested_usd: number, days: number}} feed */
+function feedCard(feed) {
+  const box = el("div", "card pad feed-card");
+  const on = feed.price_usd > 0;
+  const lead = el("div", "lead");
+  const text = el("div", "t");
+  if (on) {
+    lead.append(el("span", "dot ok"));
+    text.append(el("b", "sans", `Feed on · ${price(feed.price_usd)} for ${feed.days} days`), el("span", "hint", "Agents that subscribe can read everything you sell, old and new, until their pass runs out."));
+  } else {
+    text.append(el("b", "sans", "Let agents subscribe to everything you sell"), el("span", "hint", `${price(feed.suggested_usd)} for ${feed.days} days, old pieces and new. You can change the price after.`));
+  }
+  lead.append(text);
+  box.append(lead);
+  if (editingFeedPrice) {
+    const form = /** @type {HTMLFormElement} */ (el("form", "price-edit"));
+    const [field, input] = priceField(String(on ? feed.price_usd : feed.suggested_usd));
+    input.setAttribute("aria-label", `Feed price for ${feed.days} days in US dollars`);
+    const save = el("button", "btn primary sm", savingFeed ? "Saving…" : "Save");
+    save.type = "submit";
+    save.disabled = savingFeed;
+    form.append(field, el("span", "", `for ${feed.days} days`), save, button("Cancel", "quiet", () => { editingFeedPrice = false; render(); }));
+    form.addEventListener("submit", (event) => {
+      event.preventDefault();
+      const amount = parsePrice(input.value);
+      if (amount === null) return void tell(`${ABOVE_ZERO}.`, true);
+      void saveFeed(amount);
+    });
+    queueMicrotask(() => input.focus());
+    box.append(form);
+    return box;
+  }
+  const actions = el("div", "actions");
+  if (on) {
+    actions.append(button("Change price", "quiet", () => { editingFeedPrice = true; render(); }), button(savingFeed ? "Turning off…" : "Turn off", "secondary", () => void saveFeed(0)));
+  } else {
+    actions.append(button(savingFeed ? "Turning on…" : "Turn on feed", "primary", () => void saveFeed(null)));
+  }
+  for (const control of actions.querySelectorAll("button")) /** @type {HTMLButtonElement} */ (control).disabled = savingFeed;
+  box.append(actions);
+  return box;
+}
+
+/** Null turns it on at the suggested price; zero turns it off. @param {number | null} amount */
+async function saveFeed(amount) {
+  savingFeed = true;
+  render();
+  const done = await act(() => amount === 0 ? window.lore.feedOff() : window.lore.setFeed(amount).then(() => undefined));
+  savingFeed = false;
+  if (done) {
+    editingFeedPrice = false;
+    const feed = snapshot?.feed;
+    const live = storeOpen();
+    if (amount === 0) tell("Feed off. Passes already bought keep working until they run out.");
+    else tell(live ? `Feed on at ${price(feed?.price_usd ?? amount ?? 0)} for ${feed?.days ?? 30} days.` : "Feed on. Agents can subscribe once your store is open.", false, live ? undefined : { label: "Open your store", run: () => void startDeploy() });
+  }
+  render();
+}
+
 /** @returns {CollectionItem | undefined} */
 function openCollection() {
   return snapshot?.collections?.items.find((item) => item.id === openCollectionId);
@@ -931,7 +996,8 @@ function openCollection() {
 /** @param {CollectionItem | undefined} item */
 function collectionEyebrow(item) {
   if (!item) return "Collection";
-  return item.on_sale ? `Collection · On sale at ${price(item.price_usd)}` : "Collection · Not on sale yet";
+  if (!item.on_sale) return "Collection · Not on sale yet";
+  return storeOpen() ? `Collection · On sale at ${price(item.price_usd)}` : `Collection · Priced at ${price(item.price_usd)}`;
 }
 
 /** @param {CollectionItem} item */
@@ -950,7 +1016,7 @@ function collectionsSection(s) {
     node.type = "button";
     const text = el("div", "t");
     text.append(el("b", "", item.title), el("span", "", collectionDetail(item)));
-    node.append(text, item.on_sale ? chip("On sale", "ok") : chip("Draft"));
+    node.append(text, item.on_sale && storeOpen() ? chip("On sale", "ok") : chip(item.on_sale ? "Priced" : "Draft"));
     node.addEventListener("click", () => showCollection(item.id));
     return node;
   });
@@ -964,6 +1030,9 @@ function showCollection(id) {
   show("collection");
 }
 
+/** Whether buyers can reach what's priced: a store has been opened. */
+const storeOpen = () => Boolean(snapshot?.node.url);
+
 /** Step one: the collection exists the moment it's asked for. */
 async function newCollection() {
   if (collectionBusy) return;
@@ -975,10 +1044,23 @@ async function newCollection() {
   }
 }
 
+/** Collection changes run one at a time, in the order the owner made them; none is dropped for arriving mid-change. */
+let collectionWork = Promise.resolve();
+/** @param {() => Promise<void>} work */
+function inTurn(work) {
+  collectionWork = collectionWork.then(work, work);
+  return collectionWork;
+}
+
 /** Step two: dropped files or pasted text, each one piece. @param {{items?: Array<{title: string, content: string}>, files?: string[]}} input */
-async function addToCollection(input) {
+function addToCollection(input) {
+  return inTurn(() => addNow(input));
+}
+
+/** @param {{items?: Array<{title: string, content: string}>, files?: string[]}} input */
+async function addNow(input) {
   const item = openCollection();
-  if (!item || collectionBusy) return;
+  if (!item) return;
   const files = (input.files ?? []).filter((path) => {
     if (!GUARDED.test(path)) return true;
     tell(`${path.split("/").pop()} looks like a credential or hidden file, so Lore won't add it.`, true);
@@ -1009,9 +1091,15 @@ function addPasted() {
 }
 
 /** @param {CollectionItem} item @param {string} raw */
-async function renameCollection(item, raw) {
+function renameCollection(item, raw) {
+  return inTurn(() => renameNow(item, raw));
+}
+
+/** @param {CollectionItem} item @param {string} raw */
+async function renameNow(item, raw) {
   const name = raw.trim();
-  if (!name || name === item.title || collectionBusy) return;
+  // Change and blur can both ask; the second sees the name already saved.
+  if (!name || name === (openCollection()?.title ?? item.title)) return;
   collectionBusy = "naming";
   await act(() => window.lore.renameCollection(item.id, name));
   collectionBusy = "";
@@ -1019,7 +1107,12 @@ async function renameCollection(item, raw) {
 }
 
 /** Step three: a price puts it on sale; zero takes it off. @param {CollectionItem} item @param {number} amount */
-async function priceCollection(item, amount) {
+function priceCollection(item, amount) {
+  return inTurn(() => priceNow(item, amount));
+}
+
+/** @param {CollectionItem} item @param {number} amount */
+async function priceNow(item, amount) {
   collectionBusy = "pricing";
   render();
   const done = await act(() => window.lore.priceCollection(item.id, amount));
@@ -1039,7 +1132,7 @@ function collectionPrice(item) {
   const busy = collectionBusy === "pricing";
   if (item.on_sale && !editingCollectionPrice) {
     const line = el("div", "lead");
-    line.append(el("span", "dot ok"), el("span", "", `On sale at ${price(item.price_usd)} for all ${item.pieces.length} ${item.pieces.length === 1 ? "piece" : "pieces"}`));
+    line.append(el("span", storeOpen() ? "dot ok" : "dot"), el("span", "", `${storeOpen() ? "On sale" : "Priced"} at ${price(item.price_usd)} for all ${item.pieces.length} ${item.pieces.length === 1 ? "piece" : "pieces"}`));
     const actions = el("div", "actions");
     actions.append(
       button("Change price", "quiet", () => { editingCollectionPrice = true; render(); }),
@@ -1833,7 +1926,7 @@ function show(next) {
   if (next === "store") void loadSales();
   // Leaving For Sale abandons a half-typed price rather than keeping the field
   // open behind the owner's back.
-  if (next !== "store") editingPrice = false;
+  if (next !== "store") { editingPrice = false; editingFeedPrice = false; }
   if (next !== "collection") { editingCollectionPrice = false; collectionDraft = ""; }
   // A store update said once, where it happened; it doesn't follow the owner around.
   pushedNote = false;

@@ -16,12 +16,25 @@ import {
 } from "./answer-state.js";
 import { runAnswer } from "./answer.js";
 import { type Collection, collectionCopy, collections, listing, members, toolName } from "./collections.js";
+import { FEED_DAYS, bindBrowser, cardPassEnds, mintPass, passFirst, payerOf } from "./feed.js";
 import { FREE_LINK, freeFirst, freeLeft, giveCopy } from "./free.js";
 import { TESTNET, facilitator, network, networkLabel } from "./network.js";
 import { PRICE_USD } from "./price.js";
 import { type Copy, ensureReceiptSchema, keepCopy, keptCopy } from "./receipts.js";
-import { cardSale, ensureRefundColumn, ensureRefundTracking, ensureSalesSchema, recorded } from "./sales.js";
-import { type Piece, type Store, collectionPage, notFound, pieces, publicationPage, storefront, unlockedPage } from "./storefront.js";
+import { type SaleKind, cardSale, ensureRefundColumn, ensureRefundTracking, ensureSalesSchema, recorded } from "./sales.js";
+import {
+  type Piece,
+  type Store,
+  collectionPage,
+  feedPage,
+  notFound,
+  pieces,
+  publicationPage,
+  storefront,
+  subscribedPage,
+  subscriptionNotice,
+  unlockedPage
+} from "./storefront.js";
 import { toolSpanAttributes } from "./telemetry.js";
 import { withSpan } from "./tracing.js";
 import { countView } from "./views.js";
@@ -73,7 +86,34 @@ export class LorePaidMCP extends McpAgent<Env> {
           );
         })
     );
-    recorded(this.env.LORE_DB, tool, "publication", set.price_usd, () => ({ item: set.id, title: `Collection: ${set.title}` }));
+    recorded(this.env.LORE_DB, tool, "collection", set.price_usd, () => ({ item: set.id, title: `Collection: ${set.title}` }));
+  }
+
+  /** The feed's one paid tool: a pass to every piece for FEED_DAYS, tied to the wallet that paid. */
+  sellFeed(priceUsd: number, feedId: string) {
+    const tool = this.server.paidTool(
+      "subscribe",
+      `Buy a ${FEED_DAYS}-day pass to every publication in this store, old and new, in one payment. ` +
+        "Pass it to get, signed by the same wallet, to read any piece free until it expires; " +
+        "call discover with since to see what's new.",
+      priceUsd,
+      {},
+      {},
+      async (_args, extra) =>
+        withSpan("lore.subscribe", async (setAttributes) => {
+          const minted = await mintPass(this.env.LORE_DB, payerOf(extra));
+          setAttributes(() => toolSpanAttributes({ tool: "subscribe", outcome: "ok", paid: true }));
+          return asText({
+            ...minted,
+            covers: "every piece in this store, old and new",
+            how:
+              "call get with this pass, signed_at and signature (the paying wallet's signature over " +
+              "'Lore pass <pass> for <id> at <signed_at>') to read any piece free until it expires; " +
+              "call discover with since to see what's new"
+          });
+        })
+    );
+    recorded(this.env.LORE_DB, tool, "feed", priceUsd, () => ({ item: feedId || "feed", title: `Feed, ${FEED_DAYS} days` }));
   }
 
   async init() {
@@ -89,18 +129,25 @@ export class LorePaidMCP extends McpAgent<Env> {
           "Return this node's full catalog of owner-approved publications: " +
           "teasers grouped by topic, with ids, freshness, and price. Free. " +
           "Choose zero, one, multiple, or all ids; call get once per chosen id.",
-        inputSchema: {}
+        inputSchema: {
+          since: z
+            .string()
+            .regex(/^\d{4}-\d{2}-\d{2}$/, { message: "since is a date like 2026-10-09" })
+            .optional()
+            .describe("Only pieces updated on or after this day (YYYY-MM-DD), to see what's new.")
+        }
       },
-      async () =>
+      async ({ since }) =>
         withSpan("lore.discover", async (setAttributes) => {
           setAttributes(() => toolSpanAttributes({ tool: "discover", outcome: "ok" }));
           return asText({
-            ...(await manifest(this.env)),
+            ...newSince(await manifest(this.env), since),
             network: network(this.env),
             payout: payTo(this.env),
             price_usd: priceOf(settings),
             listed: settings.listedName !== "",
             ...(sets.length ? { collections: sets.map((set) => listing(set, priceOf(settings))) } : {}),
+            ...(settings.feedPriceUsd ? { feed: { price_usd: settings.feedPriceUsd, days: FEED_DAYS, tool: "subscribe" } } : {}),
             ...(settings.freeCopies ? { free_copies: settings.freeCopies } : {}),
             ...(settings.listedName ? { name: settings.listedName } : {}),
             ...(settings.enabled
@@ -112,6 +159,7 @@ export class LorePaidMCP extends McpAgent<Env> {
             disclosure:
               "Choose any advertised ids; get buys one publication per call." +
               (sets.length ? " Each collection's tool buys all of its pieces in one call." : "") +
+              (settings.feedPriceUsd ? ` subscribe buys a ${FEED_DAYS}-day pass; get with that pass reads any piece free.` : "") +
               (settings.freeCopies ? ` The first ${settings.freeCopies} copies of each are free, while they last.` : "")
           });
         })
@@ -133,7 +181,14 @@ export class LorePaidMCP extends McpAgent<Env> {
       {
         id: z.string().trim().refine(validPublicId, {
           message: "invalid publication id; run discover again"
-        })
+        }),
+        pass: z.string().trim().optional().describe("A feed pass from subscribe; while valid, get charges nothing."),
+        signed_at: z.string().trim().optional().describe("With pass: when the signature was made (ISO time), within 10 minutes of now."),
+        signature: z
+          .string()
+          .trim()
+          .optional()
+          .describe("With pass: the paying wallet's signature over 'Lore pass <pass> for <id> at <signed_at>'.")
       },
       {},
       async ({ id }) =>
@@ -165,7 +220,12 @@ export class LorePaidMCP extends McpAgent<Env> {
       })
     );
 
+    passFirst(this.env.LORE_DB, get, publication, (row) =>
+      asText({ publication: row, feed_pass: true, disclosure: `Read with a feed pass, so nothing was charged. ${ATTRIBUTION}` })
+    );
+
     for (const set of sets) this.sellCollection(set);
+    if (settings.feedPriceUsd) this.sellFeed(settings.feedPriceUsd, settings.feedId);
 
     const question = {
       question: z.string().trim().min(1).max(4000)
@@ -246,6 +306,17 @@ export class LorePaidMCP extends McpAgent<Env> {
   }
 }
 
+/** The catalog as of `since`: only pieces updated that day or later, for a subscriber checking what's new. */
+function newSince(catalog: Catalog, since?: string): Catalog {
+  if (!since) return catalog;
+  const topics = Object.fromEntries(
+    Object.entries(catalog.topics)
+      .map(([topic, entries]) => [topic, entries.filter((entry) => entry.updated_at >= since)] as const)
+      .filter(([, entries]) => entries.length)
+  );
+  return { ...catalog, topics, publication_count: Object.values(topics).flat().length };
+}
+
 const mcp = LorePaidMCP.serve("/mcp", { binding: "LorePaidMCP" });
 
 /** Cards can't charge less, so a store priced below this offers no card checkout. */
@@ -275,13 +346,14 @@ async function paidFor(env: Env, account: string, session: string, piece: { id: 
   }
 }
 
-type Settled = Paid & { id: string; title: string; copy: Copy | null };
+type Settled = Paid & { id: string; title: string; kind: SaleKind; copy: Copy | null };
 
-/** What a card can buy here: one piece, or a whole collection kept as one copy. */
+/** What a card can buy here: one piece, a whole collection kept as one copy, or a 30-day subscription. */
 type Sellable = {
   id: string;
   teaser: string;
   priceUsd: number;
+  kind: SaleKind;
   /** Set for a piece; a collection's receipt is drawn from its kept copy. */
   piece?: Piece;
   /** The sale's title in the ledger. */
@@ -306,10 +378,23 @@ function sellable(env: Env, catalog: Catalog, sets: Collection[], settings: Answ
       id,
       teaser: found.teaser,
       priceUsd: priceOf(settings),
+      kind: "publication",
       piece: found,
       sold: (copy) => copy.title,
       copy: () => pieceCopy(env.LORE_DB, found),
       page: (store, problem, left = 0) => publicationPage(found, store, problem, left)
+    };
+  }
+  if (settings.feedPriceUsd && settings.feedId === id) {
+    const teaser = `${settings.listedName || "This store"} feed: ${FEED_DAYS} days of everything`;
+    return {
+      id,
+      teaser,
+      priceUsd: settings.feedPriceUsd,
+      kind: "feed",
+      sold: () => `Feed, ${FEED_DAYS} days`,
+      copy: async () => ({ piece_id: id, teaser, kind: "feed", updated_at: new Date().toISOString().slice(0, 10), title: `Feed, ${FEED_DAYS} days`, content: "" }),
+      page: (store, problem) => feedPage(id, all, store, problem)
     };
   }
   const set = sets.find((candidate) => candidate.id === id);
@@ -319,6 +404,7 @@ function sellable(env: Env, catalog: Catalog, sets: Collection[], settings: Answ
     id,
     teaser: set.title,
     priceUsd: set.price_usd,
+    kind: "collection",
     sold: (copy) => `Collection: ${copy.title}`,
     copy: () => collectionCopy(env.LORE_DB, set),
     page: (store, problem) => collectionPage(set, entries, store, priceOf(settings), problem)
@@ -331,7 +417,8 @@ async function settled(env: Env, account: string, session: string, id: string, o
   const paid = SESSION.test(session) && STRIPE_ACCOUNT.test(account) ? await paidFor(env, account, session, { id }, origin) : null;
   if (!paid) return null;
   const copy = item ? await item.copy() : null;
-  return { ...paid, id, title: copy && item ? item.sold(copy) : (item?.teaser ?? "A piece since taken down"), copy };
+  const title = copy && item ? item.sold(copy) : (item?.teaser ?? "A piece since taken down");
+  return { ...paid, id, title, kind: item?.kind ?? "publication", copy };
 }
 
 /** Keep the copy and count the sale together, once each; a payment with nothing left to keep is owed back. */
@@ -340,11 +427,11 @@ async function keep(env: Env, session: string, sale: Settled): Promise<void> {
   await Promise.all([ensureReceiptSchema(db), ensureRefundColumn(db)]);
   await db.batch([
     ...(sale.copy ? [keepCopy(db, session, sale.copy)] : []),
-    cardSale(db, { item: sale.id, title: sale.title, priceUsd: sale.priceUsd, tx: sale.tx, refundOwed: !sale.copy })
+    cardSale(db, { kind: sale.kind, item: sale.id, title: sale.title, priceUsd: sale.priceUsd, tx: sale.tx, refundOwed: !sale.copy })
   ]);
 }
 
-async function receiptPage(env: Env, store: Store, account: string, session: string, id: string, item: Sellable | undefined): Promise<Response> {
+async function receiptPage(request: Request, env: Env, store: Store, account: string, session: string, id: string, item: Sellable | undefined): Promise<Response> {
   // A kept copy opens whatever happened since: an edit, a takedown, or cards turned off.
   const free = FREE_LINK.test(session);
   const kept = SESSION.test(session) || free ? await keptCopy(env.LORE_DB, session, id) : null;
@@ -352,6 +439,7 @@ async function receiptPage(env: Env, store: Store, account: string, session: str
   // The buyer has paid; a bookkeeping failure must never cost them the piece.
   if (sale) await keep(env, session, sale).catch(() => console.error("receiptPage(): failed to keep a paid card session"));
   const copy = kept ?? sale?.copy;
+  if (copy?.kind === "feed") return subscribed(request, env, store, session, id, copy, item);
   if (copy) {
     const piece = item?.piece ?? { id, teaser: copy.teaser, kind: copy.kind, updated_at: copy.updated_at, topic: "", section: 0 };
     return html(unlockedPage(piece, store, copy, free), 200, PRIVATE);
@@ -359,8 +447,45 @@ async function receiptPage(env: Env, store: Store, account: string, session: str
   if (!item) return html(notFound(store), 404, PRIVATE);
   const problem = free
     ? "This link doesn't open a free copy here."
-    : `We couldn't find a finished card payment for this ${item.piece ? "piece" : "collection"}. If you just paid, wait a minute and reload this page.`;
+    : `We couldn't find a finished card payment for this ${item.piece ? "piece" : item.kind === "feed" ? "subscription" : "collection"}. If you just paid, wait a minute and reload this page.`;
   return html(item.page(store, problem), 200, PRIVATE);
+}
+
+const FEED_COOKIE = /(?:^|;\s*)lore_feed=(browser_[0-9a-f]{32})/;
+
+/** A card subscriber's receipt: every piece in full while the 30 days last, in the browser that first opened it.
+ * It keeps opening after the seller turns the feed off. */
+async function subscribed(request: Request, env: Env, store: Store, session: string, id: string, copy: Copy, item: Sellable | undefined): Promise<Response> {
+  const db = env.LORE_DB;
+  const bound = await bindBrowser(db, session, request.headers.get("cookie")?.match(FEED_COOKIE)?.[1]);
+  if (!bound) {
+    return html(subscriptionNotice(store, "This subscription opens in the browser it was bought in.", "Open this link there. If you can't, write to the seller."), 403, PRIVATE);
+  }
+  const ends = cardPassEnds(copy.bought_at ?? new Date().toISOString());
+  const response =
+    ends.getTime() <= Date.now()
+      ? item
+        ? html(item.page(store, "Your 30 days ended. Subscribe again to keep reading."), 200, PRIVATE)
+        : html(subscriptionNotice(store, "Your 30 days ended.", "This store doesn't sell subscriptions right now."), 200, PRIVATE)
+      : html(
+          subscribedPage(
+            id,
+            store,
+            (
+              await db
+                .prepare("SELECT title, content, kind, updated_at FROM publications WHERE teaser <> '' ORDER BY updated_at DESC, public_id")
+                .all<{ title: string; content: string; kind: string; updated_at: string }>()
+            ).results,
+            ends
+          ),
+          200,
+          PRIVATE
+        );
+  if (bound.fresh) {
+    const seconds = Math.max(0, Math.ceil((ends.getTime() - Date.now()) / 1000));
+    response.headers.set("set-cookie", `lore_feed=${bound.browser}; Path=/p/${id}; Max-Age=${seconds}; Secure; HttpOnly; SameSite=Lax`);
+  }
+  return response;
 }
 
 const FREE_COOKIE = /(?:^|;\s*)lore_free=(free_[0-9a-f]{32})/;
@@ -390,6 +515,8 @@ function storeFor(env: Env, url: URL, settings: AnswerSettings, priceUsd = price
     test: network(env) === TESTNET,
     freeCopies: settings.freeCopies,
     support: settings.supportEmail,
+    ...(settings.feedPriceUsd ? { feedUsd: settings.feedPriceUsd } : {}),
+    ...(settings.feedPriceUsd && settings.feedId ? { feedId: settings.feedId } : {}),
     ...(takesCards(settings, priceUsd) ? { checkout: env.CHECKOUT_URL } : {})
   };
 }
@@ -436,7 +563,7 @@ export default {
       }
       const session = url.searchParams.get("session_id");
       if (id && session !== null) {
-        const response = await receiptPage(env, store, settings.stripeAccount, session, id, item);
+        const response = await receiptPage(request, env, store, settings.stripeAccount, session, id, item);
         return request.method === "HEAD" ? html(null, response.status, PRIVATE) : response;
       }
       // Counted after the response; a buyer reopening their receipt returned above and is never a view.

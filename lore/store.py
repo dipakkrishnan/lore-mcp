@@ -1322,6 +1322,18 @@ class Store:
             raise ValueError(f"collection not found: {collection_id}")
         self.db.commit()
 
+    def memory_collections(self) -> dict[int, dict[str, object]]:
+        """Which collection each memory went into, for memories dropped into one."""
+        rows = self.db.execute(
+            "SELECT m.value AS memory_id, k.id, k.title FROM publications p "
+            "JOIN json_each(p.provenance) m "
+            "JOIN collection_pieces c ON c.publication_id=p.id "
+            "JOIN collections k ON k.id=c.collection_id WHERE p.active=1"
+        ).fetchall()
+        return {
+            row["memory_id"]: {"id": row["id"], "title": row["title"]} for row in rows
+        }
+
     def unpriced_pieces(self) -> set[int]:
         """Pieces waiting in collections with no price yet: pricing puts them on sale."""
         rows = self.db.execute(

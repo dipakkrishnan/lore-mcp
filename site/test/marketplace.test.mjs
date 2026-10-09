@@ -43,6 +43,12 @@ test("says nothing about collections a seller doesn't have", () => {
   assert.doesNotMatch(html, /<ul class="collections">|· [0-9]+ collection/);
 });
 
+test("shows a seller's feed price and ignores a malformed one", () => {
+  assert.match(marketplacePage({ sellers: [{ ...seller, feed_price_usd: 5 }] }), /\$0\.01 each · feed \$5\.00\/30 days/);
+  assert.doesNotMatch(marketplacePage({ sellers: [{ ...seller, feed_price_usd: "5" }] }), /feed \$/);
+  assert.doesNotMatch(marketplacePage({ sellers: [{ ...seller, feed_price_usd: 0 }] }), /feed \$/);
+});
+
 test("survives a list that isn't shaped like one", () => {
   assert.match(marketplacePage({ sellers: {} }), /No stores are listed yet/);
   assert.match(marketplacePage(null), /can't be loaded right now/);

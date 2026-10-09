@@ -50,7 +50,7 @@ type Publication = { id: string; title: string };
 type Handler = (args: { id: string }, extra: Parameters<ToolCallback>[0]) => Promise<CallToolResult>;
 
 /** Where `agents/x402` looks for a payment; a call carrying one always pays. */
-function paying(extra: Parameters<ToolCallback>[0]): boolean {
+export function paying(extra: Parameters<ToolCallback>[0]): boolean {
   const headers = (extra.requestInfo?.headers ?? {}) as Record<string, unknown>;
   return Boolean(extra._meta?.["x402/payment"] ?? headers["PAYMENT-SIGNATURE"] ?? headers["X-PAYMENT"]);
 }

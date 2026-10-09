@@ -24,6 +24,8 @@ codex mcp add lore-buyer -- npm --prefix /path/to/bridge run start -- --node htt
 - On a 402 challenge, `withX402Client` (Cloudflare Agents SDK) signs a USDC
   transfer authorization and retries. The settlement receipt is appended to
   the tool result, so it lands in the buyer's conversation.
+- A `get` carrying a feed `pass` is signed with the same key that bought the
+  pass (`signed_at` + `signature`), so the pass reads only for this wallet.
 - Every step is logged to stderr as JSON lines (`startup`, `call`,
   `challenge`, `settled`) — tail it for a live payment feed.
 

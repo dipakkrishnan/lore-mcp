@@ -36,6 +36,7 @@ const listed = (seller) =>
         ...seller,
         topics: Array.isArray(seller.topics) ? seller.topics.map(String) : [],
         publications: Number(seller.publications) || 0,
+        feed_price_usd: typeof seller.feed_price_usd === "number" && seller.feed_price_usd > 0 ? seller.feed_price_usd : null,
         collections: Array.isArray(seller.collections) ? seller.collections.map(collection).filter(Boolean) : []
       }
     : null;
@@ -94,6 +95,7 @@ function sellerCard(seller) {
     `${count} ${count === 1 ? "piece" : "pieces"}`,
     ...(sets.length ? [`${sets.length} ${sets.length === 1 ? "collection" : "collections"}`] : []),
     `${money(seller.price_usd)} each`,
+    ...(seller.feed_price_usd ? [`feed ${money(seller.feed_price_usd)}/30 days`] : []),
     ...(typeof seller.answer_price_usd === "number" ? [`questions ${money(seller.answer_price_usd)}`] : []),
     ...(date(seller.listed) ? [`listed ${date(seller.listed)}`] : [])
   ].join(" · ");

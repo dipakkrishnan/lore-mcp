@@ -637,6 +637,57 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         check("the new drafts are untouched", await js(`window.lore.candidates().then((left) => left.length)`) === 2);
         check("the same piece stays on sale", await js(`window.lore.snapshot().then((s) => s.publications.counts.active)`) === 1);
         await shot("extras-approved");
+      } else if (scenario === "collections") {
+        // MON-044/045: New → Collection, paste, drop, price; then the one-click feed. All against the real CLI.
+        await js(`window.__lore.signIn()`);
+        const snap = (code) => js(`window.lore.snapshot().then((s) => ${code})`);
+        await js(`document.querySelector("#new-open").click()`);
+        check("New offers a collection", await js(`!document.querySelector("#new-menu").hidden && !!document.querySelector('[data-new="collection"]')`));
+        await shot("collections-new-menu");
+        await js(`document.querySelector('[data-new="collection"]').click()`);
+        check("a collection exists at once", await waitFor(`window.lore.snapshot().then((s) => s.collections.items.length === 1)`));
+        check("…and opens, named for now", await waitFor(`document.querySelector("#title").textContent === "Untitled collection"`));
+        await js(`{ const n = document.querySelector(".collection-name"); n.value = "China's industrial policy"; n.dispatchEvent(new Event("change")); n.blur(); }`);
+        check("renaming it sticks", await waitFor(`window.lore.snapshot().then((s) => s.collections.items[0].title === "China's industrial policy")`));
+        check("the drop area is ready", await waitFor(`document.querySelector(".paste-row textarea")?.disabled === false`));
+        await js(`{ const t = document.querySelector(".paste-row textarea"); t.value = "Export controls leak\\nThe licences go to subsidiaries."; t.dispatchEvent(new Event("input")); }`);
+        await js(`[...document.querySelectorAll(".paste-row button")].find((b) => b.textContent === "Add").click()`);
+        check("pasted text becomes a piece titled by its first line", await waitFor(`window.lore.snapshot().then((s) => s.collections.items[0].pieces.some((p) => p.title === "Export controls leak"))`));
+        check("…and the view shows it", await waitFor(`document.querySelector("#content").textContent.includes("Export controls leak")`));
+        const zone = await js(`(() => { const r = document.querySelector(".drop-zone").getBoundingClientRect(); return { x: r.x + r.width / 2, y: r.y + r.height / 2 }; })()`);
+        const data = { items: [], files: [join(S, "Subsidies by the numbers.md")], dragOperationsMask: 1 };
+        for (const type of ["dragEnter", "dragOver", "drop"]) await window.webContents.debugger.sendCommand("Input.dispatchDragEvent", { type, ...zone, data });
+        check("a dropped file becomes a piece titled by its name", await waitFor(`window.lore.snapshot().then((s) => s.collections.items[0].pieces.some((p) => p.title === "Subsidies by the numbers"))`));
+        check("nothing is on sale before a price", await snap(`!s.collections.items[0].on_sale`));
+        await js(`window.__lore.show("memories")`);
+        check("Memories says which collection a dropped piece went into", await waitFor(`[...document.querySelectorAll("#content .row")].filter((r) => r.textContent.includes("In China's industrial policy")).length === 2`));
+        check("…while a standalone memory still offers a draft", await js(`[...document.querySelectorAll("#content .row")].some((r) => r.textContent.includes("Price the first tier low") && r.textContent.includes("Draft for sale"))`));
+        await shot("collections-memories");
+        await js(`[...document.querySelectorAll("#content .row button")].find((b) => b.textContent === "In China's industrial policy").click()`);
+        check("…and opens it", await waitFor(`document.querySelector("#title").textContent === "China's industrial policy"`));
+        await shot("collections-filled");
+        await js(`{ const f = document.querySelector(".collection-price input"); f.value = "12"; f.dispatchEvent(new Event("input")); }`);
+        await js(`[...document.querySelectorAll(".collection-price button")].find((b) => b.textContent === "Put on sale").click()`);
+        check("pricing puts it on sale", await waitFor(`window.lore.snapshot().then((s) => s.collections.items[0].on_sale && s.collections.items[0].price_usd === 12)`));
+        check("…and says so", await waitFor(`document.querySelector(".collection-price").textContent.includes("Priced at $12")`));
+        await shot("collections-on-sale");
+        await js(`window.__lore.show("store")`);
+        check("For Sale lists it", await waitFor(`document.querySelector("#content").textContent.includes("China's industrial policy")`));
+        check("the feed is off with a suggested price", await waitFor(`document.querySelector(".feed-card")?.textContent.includes("$10.00 for 30 days")`));
+        await shot("feed-off");
+        await js(`[...document.querySelectorAll(".feed-card button")].find((b) => b.textContent === "Turn on feed").click()`);
+        check("one click turns the feed on at the suggestion", await waitFor(`window.lore.snapshot().then((s) => s.feed.price_usd === 10)`));
+        check("…and the card says so", await waitFor(`document.querySelector(".feed-card").textContent.includes("Feed on")`));
+        await shot("feed-on");
+        await js(`[...document.querySelectorAll(".feed-card button")].find((b) => b.textContent === "Change price").click()`);
+        await sleep(200);
+        await js(`{ const f = document.querySelector(".feed-card input"); f.value = "8"; f.dispatchEvent(new Event("input")); }`);
+        await js(`[...document.querySelectorAll(".feed-card button")].find((b) => b.textContent === "Save").click()`);
+        check("the feed price changes in place", await waitFor(`window.lore.snapshot().then((s) => s.feed.price_usd === 8)`));
+        const turnOff = `[...document.querySelectorAll(".feed-card button")].find((b) => b.textContent === "Turn off")`;
+        check("…and the card offers Turn off again", await waitFor(`!!${turnOff}`));
+        await js(`${turnOff}.click()`);
+        check("Turn off turns it off", await waitFor(`window.lore.snapshot().then((s) => s.feed.price_usd === 0)`));
       } else if (scenario === "settings") {
         // Settings → Your store with every row filled, then the batch of free-part updates on Today.
         const text = () => js(`document.querySelector("#content").textContent`);

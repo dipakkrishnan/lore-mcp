@@ -5,7 +5,7 @@ const { app, BrowserWindow, dialog, ipcMain, safeStorage, shell, systemPreferenc
 const { provision, skillsDir, whisper } = require("./runtime.cjs");
 const { transcribe } = require("./dictation.cjs");
 const sales = require("./sales.cjs");
-const { lore, loreStream, openable, readState, readSales, readViews, searchMemories, readMemory, renameMemory, editMemory, captureMemories, previewPage, setPrice, setFreeCopies, newCollection, addToCollection, renameCollection, priceCollection, removeFromCollection, deleteCollection, candidates, decide, extrasCandidates, decideExtras, approveExtras, reportFeedback, listStore, cardStatus, connectCards, switchCards, listingStatus, sourceCatalog, sourceChoices, connectSource, signIn, readSource, removeSource, useRuntime } = require("./state.cjs");
+const { lore, loreStream, openable, readState, readSales, readViews, searchMemories, readMemory, renameMemory, editMemory, captureMemories, previewPage, setPrice, setFreeCopies, newCollection, addToCollection, renameCollection, priceCollection, removeFromCollection, deleteCollection, setFeed, feedOff, candidates, decide, extrasCandidates, decideExtras, approveExtras, reportFeedback, listStore, cardStatus, connectCards, switchCards, listingStatus, sourceCatalog, sourceChoices, connectSource, signIn, readSource, removeSource, useRuntime } = require("./state.cjs");
 
 if (process.env.LORE_DESKTOP_USER_DATA) app.setPath("userData", process.env.LORE_DESKTOP_USER_DATA);
 
@@ -168,6 +168,8 @@ function registerIpc(loreHome) {
   ipcMain.handle("collection:price", (_event, id, amount) => priceCollection(loreHome, id, amount));
   ipcMain.handle("collection:remove", (_event, id, piece) => removeFromCollection(loreHome, id, piece));
   ipcMain.handle("collection:delete", (_event, id) => deleteCollection(loreHome, id));
+  ipcMain.handle("feed:set", (_event, amount) => setFeed(loreHome, amount ?? null));
+  ipcMain.handle("feed:off", () => feedOff(loreHome));
   ipcMain.handle("home:reveal", () => shell.openPath(loreHome));
   ipcMain.handle("feedback:report", (_event, input) => {
     if (!input || typeof input.title !== "string" || typeof input.email !== "string" || typeof input.description !== "string") {

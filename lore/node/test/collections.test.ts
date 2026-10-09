@@ -9,6 +9,7 @@ import { env, exports } from "cloudflare:workers";
 import { generatePrivateKey, privateKeyToAccount } from "viem/accounts";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { mockFacilitator } from "./facilitator";
+import { ensureRefundTracking, ensureSalesSchema } from "../src/sales";
 import { FIXTURE_PUBLICATION_ID } from "./setup";
 
 const ORIGIN = "https://worker.test";
@@ -92,7 +93,7 @@ describe("a collection, to agents", () => {
       expect(payload.pieces.map((piece) => piece.id)).toEqual([SECOND, FIXTURE_PUBLICATION_ID]);
       expect(payload.pieces[1].content).toContain("secret owner-approved content");
       const { results } = await env.LORE_DB.prepare("SELECT kind, item_id, title, price_usd FROM sales").all();
-      expect(results).toEqual([{ kind: "publication", item_id: COLLECTION, title: "Collection: The Full Shelf", price_usd: 2 }]);
+      expect(results).toEqual([{ kind: "collection", item_id: COLLECTION, title: "Collection: The Full Shelf", price_usd: 2 }]);
     } finally {
       await client.close();
     }
@@ -130,7 +131,27 @@ describe("a collection, to people", () => {
     expect(html).toContain("secret owner-approved content");
     const { results } = await env.LORE_DB.prepare("SELECT piece_id, kind FROM card_receipts").all();
     expect(results).toEqual([{ piece_id: COLLECTION, kind: "collection" }]);
-    const sale = await env.LORE_DB.prepare("SELECT item_id, title, price_usd FROM sales WHERE network = 'stripe'").first();
-    expect(sale).toEqual({ item_id: COLLECTION, title: "Collection: The Full Shelf", price_usd: 2 });
+    const sale = await env.LORE_DB.prepare("SELECT kind, item_id, title, price_usd FROM sales WHERE network = 'stripe'").first();
+    expect(sale).toEqual({ kind: "collection", item_id: COLLECTION, title: "Collection: The Full Shelf", price_usd: 2 });
+  });
+});
+
+describe("the sales ledger", () => {
+  it("moves a ledger made before collections and feeds onto the four kinds, keeping every row", async () => {
+    await env.LORE_DB.exec("DROP TABLE IF EXISTS sales");
+    await env.LORE_DB.exec(
+      "CREATE TABLE sales (id INTEGER PRIMARY KEY AUTOINCREMENT, kind TEXT NOT NULL CHECK(kind IN ('publication','answer')), item_id TEXT NOT NULL, title TEXT NOT NULL, price_usd REAL NOT NULL, network TEXT NOT NULL, payer TEXT NOT NULL DEFAULT '', tx TEXT NOT NULL, sold_at TEXT NOT NULL)"
+    );
+    await env.LORE_DB.exec("INSERT INTO sales(kind,item_id,title,price_usd,network,tx,sold_at) VALUES ('answer','t1','A question',1,'eip155:84532','0xabc','2026-10-01')");
+    await ensureSalesSchema(env.LORE_DB);
+    await ensureSalesSchema(env.LORE_DB);
+    await ensureRefundTracking(env.LORE_DB);
+    expect(await env.LORE_DB.prepare("SELECT id, kind, item_id, refund_owed FROM sales").all().then((rows) => rows.results)).toEqual([
+      { id: 1, kind: "answer", item_id: "t1", refund_owed: 0 }
+    ]);
+    await env.LORE_DB.exec("INSERT INTO sales(kind,item_id,title,price_usd,network,tx,sold_at) VALUES ('feed','feed','Feed, 30 days',5,'stripe','pi_1','2026-10-09')");
+    expect(await env.LORE_DB.prepare("SELECT COUNT(*) AS n FROM sales WHERE kind = 'feed'").first<number>("n")).toBe(1);
+    const triggers = await env.LORE_DB.prepare("SELECT name FROM sqlite_master WHERE type = 'trigger' ORDER BY name").all<{ name: string }>();
+    expect(triggers.results.map((row) => row.name)).toEqual(["refund_owed_on_end", "refund_owed_on_sale"]);
   });
 });

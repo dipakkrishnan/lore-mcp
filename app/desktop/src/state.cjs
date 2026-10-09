@@ -237,6 +237,17 @@ async function deleteCollection(loreHome, id) {
   await lore(loreHome, ["collection", "delete", collectionId(id)], "");
 }
 
+/** Turn the feed on, at a price or at Lore's suggestion when none is given. @param {string} loreHome @param {unknown} amount */
+async function setFeed(loreHome, amount) {
+  if (amount !== null && (typeof amount !== "number" || !Number.isFinite(amount) || amount <= 0)) throw new Error("A price has to be a number above zero");
+  return JSON.parse(await lore(loreHome, ["feed", "on", ...(amount === null ? [] : ["--price", String(amount)])], ""));
+}
+
+/** @param {string} loreHome */
+async function feedOff(loreHome) {
+  await lore(loreHome, ["feed", "off"], "");
+}
+
 /** @param {string} loreHome @returns {Promise<PublicationCandidate[]>} */
 async function candidates(loreHome) {
   return JSON.parse(await lore(loreHome, ["publication", "candidates"]));
@@ -397,6 +408,8 @@ module.exports = {
   priceCollection,
   removeFromCollection,
   deleteCollection,
+  setFeed,
+  feedOff,
   candidates,
   decide,
   extrasCandidates,

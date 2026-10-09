@@ -8,10 +8,10 @@ from unittest.mock import patch
 from helpers import LoreTestCase, captured
 
 from lore import cli
-from lore.store import Store
+from lore.store import Store, valid_public_id
 
 
-class CollectionTest(LoreTestCase):
+class OwnerTestCase(LoreTestCase):
     def run_cli(self, *argv: str, stdin: str = "") -> dict:
         with (
             patch.object(cli, "_interactive", return_value=True),
@@ -21,6 +21,8 @@ class CollectionTest(LoreTestCase):
             self.assertEqual(cli.main(list(argv)), 0)
         return json.loads(output.getvalue())
 
+
+class CollectionTest(OwnerTestCase):
     def test_new_drop_and_price_puts_it_on_sale(self) -> None:
         made = self.run_cli("collection", "new")
         self.assertEqual(made["title"], "Untitled collection")
@@ -54,6 +56,21 @@ class CollectionTest(LoreTestCase):
             again = store.add_to_collection(collection.id, "A", "same text")
             self.assertEqual(first.id, again.id)
             self.assertEqual(len(store.collection(collection.id).pieces), 1)
+
+    def test_memories_say_which_collection_they_went_into(self) -> None:
+        from lore.snapshot import build
+
+        alone = self.seed_memory("Standalone")
+        with Store() as store:
+            collection = store.new_collection("Sales playbook")
+            store.add_to_collection(collection.id, "A", "dropped text")
+        memories = {m["title"]: m for m in build()["library"]["items"]}
+        self.assertEqual(
+            memories["A"]["collection"],
+            {"id": collection.id, "title": "Sales playbook"},
+        )
+        self.assertIsNone(memories["Standalone"]["collection"])
+        self.assertEqual(memories["Standalone"]["id"], alone)
 
     def test_rename_retopics_its_pieces(self) -> None:
         with Store() as store:
@@ -101,3 +118,26 @@ class CollectionTest(LoreTestCase):
             self.assertNotEqual(cli.main(["collection", "new"]), 0)
         with Store() as store:
             self.assertEqual(store.collections(), [])
+
+
+class FeedTest(OwnerTestCase):
+    def test_one_click_turns_it_on_at_the_suggested_price(self) -> None:
+        with Store() as store:
+            store.set_setting("price_usd", 1.0)
+        self.assertEqual(self.run_cli("feed", "on"), {"price_usd": 10.0})
+        with Store() as store:
+            feed_id = str(store.setting("feed_id"))
+        self.assertTrue(valid_public_id(feed_id))
+        sql = cli._push_sql(
+            [], Store().answer_settings(), "", feed_price_usd=10, feed_id=feed_id
+        )
+        self.assertIn(f"('feed_id','{feed_id}')", sql)
+        sql = cli._push_sql([], Store().answer_settings(), "", feed_price_usd=10)
+        self.assertIn("('feed_price_usd','10.000000')", sql)
+        self.assertEqual(self.run_cli("feed", "off"), {"price_usd": 0.0})
+        self.assertNotIn(
+            "feed_price_usd", cli._push_sql([], Store().answer_settings(), "")
+        )
+
+    def test_a_chosen_price_wins(self) -> None:
+        self.assertEqual(self.run_cli("feed", "on", "--price", "8"), {"price_usd": 8.0})

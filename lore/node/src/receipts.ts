@@ -10,6 +10,8 @@ export type Copy = {
   updated_at: string;
   title: string;
   content: string;
+  /** Set on a kept copy read back: when it was bought. */
+  bought_at?: string;
 };
 
 export async function ensureReceiptSchema(db: D1Database): Promise<void> {
@@ -34,7 +36,7 @@ export async function keptCopy(db: D1Database, session: string, pieceId: string)
   await ensureReceiptSchema(db);
   return db
     .prepare(
-      "SELECT piece_id, teaser, kind, updated_at, title, content FROM card_receipts WHERE session_id = ?1 AND piece_id = ?2"
+      "SELECT piece_id, teaser, kind, updated_at, title, content, bought_at FROM card_receipts WHERE session_id = ?1 AND piece_id = ?2"
     )
     .bind(session, pieceId)
     .first<Copy>();

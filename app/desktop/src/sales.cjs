@@ -28,6 +28,9 @@ function unseen(rows, seen) {
 /** @param {number} usd */
 const dollars = (usd) => `$${usd < 0.01 ? usd : usd.toFixed(2)}`;
 
+/** @type {Record<string, string>} */
+const SOLD = { answer: "You sold an answer", collection: "You sold a collection", feed: "Someone subscribed" };
+
 /** @param {Sale} sale */
 const how = (sale) => (sale.network === "stripe" ? "by card" : "by an agent");
 
@@ -45,7 +48,7 @@ function announcements(fresh) {
     sale.network === "free"
       ? { title: "Someone read a free copy", body: sale.title }
       : {
-          title: sale.kind === "answer" ? "You sold an answer" : "You sold a piece",
+          title: SOLD[sale.kind] ?? "You sold a piece",
           body: `${sale.title} · ${dollars(sale.price_usd)} ${how(sale)}`
         }
   );

@@ -11,6 +11,7 @@ from typing import Any, Literal, cast
 from pydantic import BaseModel, ConfigDict, TypeAdapter
 
 from . import automation, blueprint, feedback, sources
+from .collection import FEED_DAYS, Feed
 from .paths import claude_home, home
 from .store import FREE_COPIES, FREE_COPIES_SETTING, JOB_SUMMARIES, Store
 
@@ -210,6 +211,7 @@ def build() -> dict[str, object]:
         memories = store.memory_inventory()
         publications = store.publication_inventory()
         collections = store.collections()
+        in_collection = store.memory_collections()
         publication_price = store.setting("price_usd", None)
         answer_price = store.setting("answer_price_usd", 0.0)
         answer_enabled = store.setting("answer_enabled", False) is True
@@ -229,6 +231,7 @@ def build() -> dict[str, object]:
     for memory in memories:
         project = str(memory.pop("project"))
         memory["project_label"] = labels.get(project) or project.removeprefix(prefix)
+        memory["collection"] = in_collection.get(int(str(memory["id"])))
     for publication in publications:
         active = bool(publication.pop("active"))
         public_id = publication["public_id"]
@@ -284,6 +287,11 @@ def build() -> dict[str, object]:
                 }
                 for c in collections
             ]
+        },
+        "feed": {
+            "price_usd": Feed.price(),
+            "suggested_usd": Feed.suggested(),
+            "days": FEED_DAYS,
         },
         "pricing": {
             "publication_usd": publication_price,

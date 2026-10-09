@@ -1,6 +1,6 @@
 #!/bin/bash
 # Seed a scratch Lore home with two memories and two drafts, then drive the renderer as one persona.
-# Scenarios: seller | provision | store | jobs | fresh | feedback | listing | obsidian | connectors | faq | sell | cards | sales | extras | settings
+# Scenarios: seller | provision | store | jobs | fresh | feedback | listing | obsidian | connectors | faq | sell | cards | sales | extras | settings | collections
 set -euo pipefail
 scenario="${1:-seller}"
 desktop_dir="$(cd "$(dirname "$0")/.." && pwd)"
@@ -108,6 +108,10 @@ with Store() as store:
  store.add_publication(title='Live demos beat cold decks', content='Three demos, seven trials; the deck got nothing.', topic='launches', teaser='What beat a cold deck', provenance=[1])
  store.add_publication(title='Raise prices after the tenth buyer', content='We doubled at ten buyers and lost none.', topic='pricing', teaser='When to raise a first price', provenance=[2])"
   echo '[{"publication_id":1,"sample":"We had two weeks and a deck we were proud of.","useful_if":"you are launching a developer tool","not_useful_if":"you sell through a sales team"},{"publication_id":2,"sample":"","useful_if":"you have your first paying customers","not_useful_if":""}]' | uv run lore publication extras draft - >/dev/null)
+fi
+if [[ "$scenario" == "collections" ]]; then
+  printf '# Subsidies\n\nWhat the numbers say about who got paid.\n' > "$root/Subsidies by the numbers.md"
+  (cd "$repo_root" && uv run lore price 1 >/dev/null)
 fi
 if [[ "$scenario" == "obsidian" ]]; then
   # APP-124: a vault Obsidian knows about, so Connect has something to offer without a path.

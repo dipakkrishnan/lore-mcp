@@ -10,12 +10,15 @@ import {
   CallToolRequestSchema,
   ListToolsRequestSchema
 } from "@modelcontextprotocol/sdk/types.js";
-import { generatePrivateKey } from "viem/accounts";
+import { verifyMessage } from "viem";
+import { generatePrivateKey, privateKeyToAccount } from "viem/accounts";
 
 const network = "eip155:84532";
 const asset = "0x036CbD53842c5426634e7929541eC2318f3dCF7e";
 const payTo = "0x000000000000000000000000000000000000dEaD";
 let signedRetries = 0;
+const key = generatePrivateKey();
+const buyer = privateKeyToAccount(key).address;
 
 // When set, the 402 challenge pairs a cheap decoy on a network the bridge
 // filters out with an expensive entry on the bridge's own network. The SDK's
@@ -51,6 +54,12 @@ function remoteServer(): Server {
     ]
   }));
   server.setRequestHandler(CallToolRequestSchema, async ({ params }) => {
+    const args = params.arguments ?? {};
+    if (typeof args.pass === "string") {
+      const message = `Lore pass ${args.pass} for ${String(args.id)} at ${String(args.signed_at)}`;
+      const proven = await verifyMessage({ address: buyer, message, signature: args.signature as `0x${string}` });
+      return { content: [{ type: "text", text: proven ? "pass content" : "pass not proven" }] };
+    }
     const token = params._meta?.["x402/payment"];
     if (!token) {
       return {
@@ -121,7 +130,7 @@ try {
         "--max-usd",
         "0.01"
       ],
-      env: { ...process.env, X402_PRIVATE_KEY: generatePrivateKey() },
+      env: { ...process.env, X402_PRIVATE_KEY: key },
       stderr: "inherit"
     })
   );
@@ -139,12 +148,15 @@ try {
   assert.match(JSON.stringify(result.content), /paid content/);
   assert.match(JSON.stringify(result.content), /x402 settlement receipt.*0xfixturetransaction/);
 
+  const passRead = await client.callTool({ name: "get", arguments: { id: "piece", pass: "pass_fixture" } });
+  assert.match(JSON.stringify(passRead.content), /pass content/, "bridge did not sign the pass read with its key");
+
   const overBudget = await client.callTool({ name: "get", arguments: {} });
   assert(overBudget.isError, "bridge exceeded its cumulative spend cap");
   assert.match(JSON.stringify(overBudget.content), /declined/i);
   assert.equal(signedRetries, 1, "bridge signed a second payment over its cap");
   console.log(
-    "ok: bridge declined the decoy challenge, paid once, surfaced the receipt, and stopped at its spend cap"
+    "ok: bridge declined the decoy challenge, paid once, surfaced the receipt, signed a pass read, and stopped at its spend cap"
   );
 } finally {
   await client.close();

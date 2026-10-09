@@ -201,6 +201,7 @@ class DesktopSnapshotTest(LoreTestCase):
                 "id",
                 "title",
                 "project_label",
+                "collection",
                 "status",
                 "updated_at",
             },
