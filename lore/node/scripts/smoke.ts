@@ -9,9 +9,14 @@
 // sets SMOKE_EXPECT_TOPIC/SMOKE_EXPECT_TEASER so this checks that exact
 // publication came back out of discover(), not just that some row exists. A
 // manual run against a real deployed node leaves those unset and skips it.
+//
+// test/request-path.test.ts makes the same checks in workerd with no node
+// running, on every `npm test`; the tool list and entry keys both of them
+// expect live in ./surface.ts.
 import assert from "node:assert/strict";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
+import { TOOL_NAMES } from "./surface.js";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
@@ -28,10 +33,7 @@ await client.connect(
 
 try {
   const tools = await client.listTools();
-  assert.deepEqual(
-    tools.tools.map(({ name }) => name).sort(),
-    ["answer", "discover", "get", "result"]
-  );
+  assert.deepEqual(tools.tools.map(({ name }) => name).sort(), [...TOOL_NAMES]);
 
   const discover = await client.callTool({
     name: "discover",
