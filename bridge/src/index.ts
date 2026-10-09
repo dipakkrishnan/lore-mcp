@@ -13,6 +13,7 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import {
   CallToolRequestSchema,
   ListToolsRequestSchema,
+  type CallToolRequest,
   type CallToolResult
 } from "@modelcontextprotocol/sdk/types.js";
 import { toClientEvmSigner } from "@x402/evm";
@@ -161,9 +162,18 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
   return paid.listTools();
 });
 
+// A feed pass reads only for the wallet that bought it, so a pass read is signed here, by the same key.
+async function withPassProof(params: CallToolRequest["params"]): Promise<CallToolRequest["params"]> {
+  const args = params.arguments ?? {};
+  if (params.name !== "get" || typeof args.pass !== "string" || args.signature !== undefined) return params;
+  const signed_at = new Date().toISOString();
+  const signature = await account.signMessage({ message: `Lore pass ${args.pass} for ${String(args.id)} at ${signed_at}` });
+  return { ...params, arguments: { ...args, signed_at, signature } };
+}
+
 server.setRequestHandler(CallToolRequestSchema, async (request) => {
   emit("call", { tool: request.params.name });
-  const result = (await paid.callTool(null, request.params)) as CallToolResult;
+  const result = (await paid.callTool(null, await withPassProof(request.params))) as CallToolResult;
   const receipt = decodeReceipt(result._meta?.["x402/payment-response"]);
   if (receipt) {
     emit("settled", { tool: request.params.name, receipt });

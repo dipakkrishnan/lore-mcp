@@ -2,6 +2,8 @@ type MemoryItem = {
   id: number;
   title: string;
   project_label: string;
+  /** The collection this memory was dropped into, if any; it is on sale with it. */
+  collection?: { id: number; title: string } | null;
   status: "private" | "discarded";
   updated_at: string;
 };
@@ -99,7 +101,7 @@ type JobItem = {
 type SeenSale = { sold_at: string; key: string };
 
 type Sale = {
-  kind: "publication" | "answer";
+  kind: "publication" | "answer" | "collection" | "feed";
   item_id: string;
   title: string;
   price_usd: number;

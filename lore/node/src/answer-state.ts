@@ -28,6 +28,8 @@ export interface AnswerSettings {
   publicationPriceUsd: number;
   /** What a 30-day pass to every piece costs (MON-045); 0 while the owner has the feed off. */
   feedPriceUsd: number;
+  /** The feed's piece-shaped id, so card checkout can sell it like a piece; empty until a push carries one. */
+  feedId: string;
 }
 
 export interface AnswerOutcome {
@@ -125,7 +127,7 @@ export async function readAnswerSettings(db: D1Database): Promise<AnswerSettings
       .prepare("SELECT key, value FROM node_settings")
       .all<{ key: string; value: string }>());
   } catch {
-    return { enabled: false, priceUsd: 0, proxy: "", listedName: "", stripeAccount: "", freeCopies: 0, supportEmail: "", publicationPriceUsd: 0, feedPriceUsd: 0 };
+    return { enabled: false, priceUsd: 0, proxy: "", listedName: "", stripeAccount: "", freeCopies: 0, supportEmail: "", publicationPriceUsd: 0, feedPriceUsd: 0, feedId: "" };
   }
   const values = Object.fromEntries(rows.map(({ key, value }) => [key, value]));
   const priceUsd = Number(values.answer_price_usd ?? 0);
@@ -144,7 +146,8 @@ export async function readAnswerSettings(db: D1Database): Promise<AnswerSettings
     freeCopies: Number.isInteger(freeCopies) && freeCopies > 0 ? freeCopies : 0,
     supportEmail: values.support_email ?? "",
     publicationPriceUsd: Number.isFinite(publicationPriceUsd) && publicationPriceUsd > 0 ? publicationPriceUsd : 0,
-    feedPriceUsd: Number.isFinite(feedPriceUsd) && feedPriceUsd > 0 ? feedPriceUsd : 0
+    feedPriceUsd: Number.isFinite(feedPriceUsd) && feedPriceUsd > 0 ? feedPriceUsd : 0,
+    feedId: validPublicId(values.feed_id ?? "") ? values.feed_id : ""
   };
 }
 

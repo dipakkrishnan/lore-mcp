@@ -74,6 +74,8 @@ jobs:
         timeout-minutes: 5
       - run: support/edge.sh store
         timeout-minutes: 5
+      - run: support/edge.sh collections
+        timeout-minutes: 5
       - run: npm run package
 
   node-lint:

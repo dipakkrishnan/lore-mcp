@@ -235,8 +235,9 @@ async function publishMemory(memory, from) {
   await send(`Help me publish something from my Lore, starting from "${memory.title}".`, from, memory.id);
 }
 
-/** @param {number | string} id @param {string} title @param {string} detail */
-function memoryRow(id, title, detail) {
+/** A memory dropped into a collection is already on sale with it, so its row says where instead of offering a draft.
+ * @param {number | string} id @param {string} title @param {string} detail @param {{id: number, title: string} | null} [collection] */
+function memoryRow(id, title, detail, collection = null) {
   const node = el("div", "row");
   const open = el("button", "task-link");
   open.type = "button";
@@ -245,7 +246,9 @@ function memoryRow(id, title, detail) {
   open.append(text);
   open.addEventListener("click", () => openMemory(Number(id)));
   peekable(open, Number(id));
-  node.append(open, button("Draft for sale", "quiet", () => void publishMemory({ id: Number(id), title })));
+  node.append(open, collection
+    ? button(`In ${collection.title}`, "quiet", () => showCollection(collection.id))
+    : button("Draft for sale", "quiet", () => void publishMemory({ id: Number(id), title })));
   return node;
 }
 
@@ -727,7 +730,7 @@ function privateMemories(s) {
 
 /** @param {Snapshot} s */
 function renderMemories(s) {
-  const items = privateMemories(s).map((item) => memoryRow(item.id, item.title, [item.project_label, when(item.updated_at)].filter(Boolean).join(" · ")));
+  const items = privateMemories(s).map((item) => memoryRow(item.id, item.title, [item.project_label, when(item.updated_at)].filter(Boolean).join(" · "), item.collection));
   const body = items.length ? card(items) : emptyState("Nothing kept yet. Say what you learned and Lore will keep it.", button("Add your first memory", "quiet", () => startCapture()));
   return [section("", body)];
 }
@@ -1037,10 +1040,23 @@ async function newCollection() {
   }
 }
 
+/** Collection changes run one at a time, in the order the owner made them; none is dropped for arriving mid-change. */
+let collectionWork = Promise.resolve();
+/** @param {() => Promise<void>} work */
+function inTurn(work) {
+  collectionWork = collectionWork.then(work, work);
+  return collectionWork;
+}
+
 /** Step two: dropped files or pasted text, each one piece. @param {{items?: Array<{title: string, content: string}>, files?: string[]}} input */
-async function addToCollection(input) {
+function addToCollection(input) {
+  return inTurn(() => addNow(input));
+}
+
+/** @param {{items?: Array<{title: string, content: string}>, files?: string[]}} input */
+async function addNow(input) {
   const item = openCollection();
-  if (!item || collectionBusy) return;
+  if (!item) return;
   const files = (input.files ?? []).filter((path) => {
     if (!GUARDED.test(path)) return true;
     tell(`${path.split("/").pop()} looks like a credential or hidden file, so Lore won't add it.`, true);
@@ -1071,9 +1087,15 @@ function addPasted() {
 }
 
 /** @param {CollectionItem} item @param {string} raw */
-async function renameCollection(item, raw) {
+function renameCollection(item, raw) {
+  return inTurn(() => renameNow(item, raw));
+}
+
+/** @param {CollectionItem} item @param {string} raw */
+async function renameNow(item, raw) {
   const name = raw.trim();
-  if (!name || name === item.title || collectionBusy) return;
+  // Change and blur can both ask; the second sees the name already saved.
+  if (!name || name === (openCollection()?.title ?? item.title)) return;
   collectionBusy = "naming";
   await act(() => window.lore.renameCollection(item.id, name));
   collectionBusy = "";
@@ -1081,7 +1103,12 @@ async function renameCollection(item, raw) {
 }
 
 /** Step three: a price puts it on sale; zero takes it off. @param {CollectionItem} item @param {number} amount */
-async function priceCollection(item, amount) {
+function priceCollection(item, amount) {
+  return inTurn(() => priceNow(item, amount));
+}
+
+/** @param {CollectionItem} item @param {number} amount */
+async function priceNow(item, amount) {
   collectionBusy = "pricing";
   render();
   const done = await act(() => window.lore.priceCollection(item.id, amount));

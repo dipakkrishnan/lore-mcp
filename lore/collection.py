@@ -18,7 +18,7 @@ from typing import Callable
 from pydantic import BaseModel, ConfigDict, Field
 
 from .capture import CaptureEntry
-from .store import Collection, Store
+from .store import Collection, Store, new_public_id
 
 TEXT = {".md", ".markdown", ".txt", ".text", ".csv", ".json", ".org", ".rst"}
 # Formats macOS's textutil turns into plain text.
@@ -161,6 +161,8 @@ def _first_line(content: str) -> str:
 
 
 FEED_SETTING = "feed_price_usd"
+# A piece-shaped id for the feed, so card checkout can sell it like a piece.
+FEED_ID_SETTING = "feed_id"
 FEED_DAYS = 30
 
 
@@ -196,4 +198,6 @@ class Feed:
     def _set(self, price: float) -> None:
         with Store() as store:
             store.set_setting(FEED_SETTING, price)
+            if not store.setting(FEED_ID_SETTING, ""):
+                store.set_setting(FEED_ID_SETTING, new_public_id())
         push_open_store(self.push)

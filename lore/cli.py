@@ -20,7 +20,7 @@ from . import deploy as deploy_module
 from . import feedback as feedback_module
 from . import marketplace as marketplace_module
 from . import sources as sources_module
-from .collection import FEED_SETTING, Collections, Drop, Feed
+from .collection import FEED_ID_SETTING, FEED_SETTING, Collections, Drop, Feed
 from .paths import home
 from .sources import Registry, available_sources
 from .store import (
@@ -1908,6 +1908,7 @@ def _push_sql(
     price_usd: float = 0,
     collections: list[Collection] | None = None,
     feed_price_usd: float = 0,
+    feed_id: str = "",
 ) -> str:
     """Render the full-replace SQL for the edge database.
 
@@ -1985,7 +1986,11 @@ def _push_sql(
         "support_email": support_email,
         # The store charges this from its next push, so a new price needs no redeploy.
         **({"price_usd": f"{price_usd:.6f}"} if price_usd > 0 else {}),
-        **({"feed_price_usd": f"{feed_price_usd:.6f}"} if feed_price_usd > 0 else {}),
+        **(
+            {"feed_price_usd": f"{feed_price_usd:.6f}", "feed_id": feed_id}
+            if feed_price_usd > 0
+            else {}
+        ),
     }
     statements.extend(
         [
@@ -2048,6 +2053,7 @@ def _push(worker: Path, local: bool, job_id: int) -> int:
         price_usd = store.setting("price_usd", 0)
         collections = store.collections()
         feed_price = store.setting(FEED_SETTING, 0)
+        feed_id = str(store.setting(FEED_ID_SETTING, ""))
     script = _push_sql(
         active,
         answer_settings,
@@ -2058,6 +2064,7 @@ def _push(worker: Path, local: bool, job_id: int) -> int:
         float(price_usd) if isinstance(price_usd, (int, float)) else 0,
         collections,
         float(feed_price) if isinstance(feed_price, (int, float)) else 0,
+        feed_id,
     )
     with tempfile.NamedTemporaryFile("w", suffix=".sql", delete=False) as handle:
         handle.write(script)

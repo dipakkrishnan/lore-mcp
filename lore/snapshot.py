@@ -211,6 +211,7 @@ def build() -> dict[str, object]:
         memories = store.memory_inventory()
         publications = store.publication_inventory()
         collections = store.collections()
+        in_collection = store.memory_collections()
         publication_price = store.setting("price_usd", None)
         answer_price = store.setting("answer_price_usd", 0.0)
         answer_enabled = store.setting("answer_enabled", False) is True
@@ -230,6 +231,7 @@ def build() -> dict[str, object]:
     for memory in memories:
         project = str(memory.pop("project"))
         memory["project_label"] = labels.get(project) or project.removeprefix(prefix)
+        memory["collection"] = in_collection.get(int(str(memory["id"])))
     for publication in publications:
         active = bool(publication.pop("active"))
         public_id = publication["public_id"]

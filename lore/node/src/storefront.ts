@@ -21,6 +21,8 @@ export type Store = {
   support?: string;
   /** What a 30-day pass to everything costs agents (MON-045); unset while the feed is off. */
   feedUsd?: number;
+  /** The feed's own page, /p/<feedId>, where a person subscribes by card. */
+  feedId?: string;
 };
 
 /** A piece the buyer has paid for, shown to them in full. */
@@ -213,7 +215,8 @@ export function storefront(catalog: Catalog, store: Store, sets: Collection[] = 
       item: { "@type": "Product", name: piece.teaser, category: label(piece.topic), url: `${store.origin}/p/${piece.id}`, offers: offer(store, piece) }
     }))
   };
-  const feed = store.feedUsd ? `<p class="notice">Agents can subscribe: ${money(store.feedUsd)} for 30 days of everything here.</p>` : "";
+  const subscribe = store.feedId ? ` <a href="/p/${escape(store.feedId)}">Subscribe →</a>` : "";
+  const feed = store.feedUsd ? `<p class="notice">Subscribe for ${money(store.feedUsd)}: 30 days of everything here, old and new.${subscribe}</p>` : "";
   const body = `<h1>${escape(name)}</h1><p class="lede">${lede}</p>${notice(store)}${feed}${chips}${shelf(sets, store)}${sections || '<p class="empty">Nothing for sale yet. Check back soon.</p>'}${agentsNote(store)}`;
   return page(`${name} · Lore`, `${count} firsthand ${count === 1 ? "piece" : "pieces"} for sale on Lore.`, `${store.origin}/`, body + foot(store), data);
 }
@@ -245,12 +248,12 @@ const sample = (piece: Piece) =>
     : "";
 
 /** How a person buys: by card when the store takes cards, and always through their own agent. */
-function card(piece: Pick<Piece, "id">, store: Store): string {
+function card(piece: Pick<Piece, "id">, store: Store, verb = "Buy"): string {
   if (!store.checkout) return "";
   const note = store.test
     ? "This is a test store: pay with Stripe's test card 4242 4242 4242 4242. No real money moves."
     : "Pay by card through Stripe. The payment goes straight to the seller; Lore never holds it.";
-  return `<form method="post" action="${escape(store.checkout)}/create"><input type="hidden" name="origin" value="${escape(store.origin)}"><input type="hidden" name="id" value="${escape(piece.id)}"><button class="primary card" type="submit">Buy for ${money(store.priceUsd)}</button></form>
+  return `<form method="post" action="${escape(store.checkout)}/create"><input type="hidden" name="origin" value="${escape(store.origin)}"><input type="hidden" name="id" value="${escape(piece.id)}"><button class="primary card" type="submit">${verb} for ${money(store.priceUsd)}</button></form>
 <p class="small">${note} You come back to this page to read it.</p>`;
 }
 
@@ -263,7 +266,7 @@ function free(piece: Pick<Piece, "id">, store: Store, left: number): string {
 ${share(`${store.origin}/p/${piece.id}`)}</section>`;
 }
 
-function buy(piece: Pick<Piece, "id">, store: Store, left: number, what = "this piece"): string {
+function buy(piece: Pick<Piece, "id">, store: Store, left: number, what = "this piece", verb = "Buy"): string {
   if (left > 0) return free(piece, store, left);
   const url = `${store.origin}/p/${piece.id}`;
   const prompt = `Buy ${what} from Lore for me: ${url}`;
@@ -271,7 +274,7 @@ function buy(piece: Pick<Piece, "id">, store: Store, left: number, what = "this 
     ? "This store takes play money, so buying here is only a rehearsal."
     : "Every payment goes straight to the seller; Lore never holds it.";
   const agent = store.checkout ? `<h2 class="or">Or buy it with your AI agent</h2>` : `<h2>Buy it with your AI agent</h2>`;
-  return `<section class="buy"><p class="amount">${money(store.priceUsd)}</p>${card(piece, store)}${agent}
+  return `<section class="buy"><p class="amount">${money(store.priceUsd)}</p>${card(piece, store, verb)}${agent}
 <p>Paste this into Claude, ChatGPT or any agent that can pay on Lore:</p>
 <div class="prompt"><code>${escape(prompt)}</code><button class="${store.checkout ? "" : "primary"}" data-copy="${escape(prompt)}">Copy</button></div>
 <p class="small">${settle} No agent set up yet? <a href="${BUYER_SKILL}">Get the buyer skill</a>.</p>
@@ -321,6 +324,48 @@ ${notice(store)}${problem ? `<p class="notice">${escape(problem)}</p>` : ""}<h1 
 <ul class="cards">${cards}</ul>${buy(set, store, 0, "this collection")}
 ${agentsNote(store, set.id, set)}`;
   return page(`${set.title} · ${name}`, `A collection of ${count(entries.length)} by ${name}, for sale on Lore.`, url, body + foot(store), data);
+}
+
+/** Where a person subscribes: what's here now, and the one price for 30 days of it and what comes next.
+ * `store` carries the feed's price and, when it clears the card minimum, the checkout. */
+export function feedPage(id: string, entries: Piece[], store: Store, problem = ""): string {
+  const name = seller(store);
+  const cards = entries
+    .map((entry) => `<li><a class="card" href="/p/${escape(entry.id)}"><h3>${escape(entry.teaser)}</h3><div class="meta"><span>${KINDS[entry.kind] ?? escape(entry.kind)}</span><span>${date(entry.updated_at)}</span></div></a></li>`)
+    .join("");
+  const body = `<a class="back" href="/">← ${escape(name)}</a>
+${notice(store)}${problem ? `<p class="notice">${escape(problem)}</p>` : ""}<h1 class="teaser">Everything from ${escape(name)}, for 30 days</h1>
+<div class="meta"><span>Subscription</span><span>${count(entries.length)} now, and whatever comes next</span></div>
+<ul class="cards">${cards}</ul>${buy({ id }, store, 0, "a 30-day subscription to this store", "Subscribe")}
+${agentsNote(store)}`;
+  return page(`Subscribe · ${name}`, `30 days of everything ${name} sells on Lore.`, `${store.origin}/p/${id}`, body + foot(store), {
+    "@context": "https://schema.org",
+    "@type": "WebPage"
+  });
+}
+
+/** A card subscriber's page: every piece in full, as it stands now, until the subscription ends. */
+export function subscribedPage(id: string, store: Store, unlocked: (Unlocked & { kind: string; updated_at: string })[], ends: Date): string {
+  const name = seller(store);
+  const articles = unlocked
+    .map(
+      (piece) =>
+        `<h2>${escape(piece.title)}</h2><div class="meta"><span>${KINDS[piece.kind] ?? escape(piece.kind)}</span><span>Updated ${date(piece.updated_at.slice(0, 10))}</span></div><article class="piece">${paragraphs(piece.content)}</article>`
+    )
+    .join("");
+  const body = `<a class="back" href="/">← ${escape(name)}</a>
+<p class="notice">Thanks for subscribing. Keep this page's address: it opens everything here, new pieces too, until ${day.format(ends)}, in this browser.</p>
+<h1 class="teaser">Everything from ${escape(name)}</h1>${articles || '<p class="empty">Nothing here yet. New pieces show up on this page.</p>'}`;
+  return page(`Subscribed · ${name}`, `Everything ${name} sells on Lore.`, `${store.origin}/p/${id}`, body + foot(store), {
+    "@context": "https://schema.org",
+    "@type": "WebPage"
+  });
+}
+
+/** A card subscription that can't open here: another browser's, or one whose 30 days are over. */
+export function subscriptionNotice(store: Store, heading: string, lede: string): string {
+  const body = `<a class="back" href="/">← ${escape(seller(store))}</a><h1 class="teaser">${escape(heading)}</h1><p class="lede">${escape(lede)}</p>`;
+  return page(`Subscription · ${seller(store)}`, heading, `${store.origin}/`, body + foot(store), { "@context": "https://schema.org", "@type": "WebPage" });
 }
 
 /** The paid piece, for the buyer holding its receipt. Never cached: the address alone unlocks it. */

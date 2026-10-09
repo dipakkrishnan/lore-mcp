@@ -150,7 +150,8 @@ function storefront(catalog, store, sets = []) {
       item: { "@type": "Product", name: piece.teaser, category: label(piece.topic), url: `${store.origin}/p/${piece.id}`, offers: offer(store, piece) }
     }))
   };
-  const feed = store.feedUsd ? `<p class="notice">Agents can subscribe: ${money(store.feedUsd)} for 30 days of everything here.</p>` : "";
+  const subscribe = store.feedId ? ` <a href="/p/${escape(store.feedId)}">Subscribe \u2192</a>` : "";
+  const feed = store.feedUsd ? `<p class="notice">Subscribe for ${money(store.feedUsd)}: 30 days of everything here, old and new.${subscribe}</p>` : "";
   const body = `<h1>${escape(name)}</h1><p class="lede">${lede}</p>${notice(store)}${feed}${chips}${shelf(sets, store)}${sections || '<p class="empty">Nothing for sale yet. Check back soon.</p>'}${agentsNote(store)}`;
   return page(`${name} \xB7 Lore`, `${count2} firsthand ${count2 === 1 ? "piece" : "pieces"} for sale on Lore.`, `${store.origin}/`, body + foot(store), data);
 }
@@ -170,10 +171,10 @@ function fit(piece) {
   return rows.length ? `<ul class="fit">${rows.join("")}</ul>` : "";
 }
 var sample = (piece) => piece.sample ? `<section class="sample"><h2>Free sample</h2><blockquote>${paragraphs(piece.sample)}</blockquote><p class="rest">The rest is in the full piece.</p></section>` : "";
-function card(piece, store) {
+function card(piece, store, verb = "Buy") {
   if (!store.checkout) return "";
   const note = store.test ? "This is a test store: pay with Stripe's test card 4242 4242 4242 4242. No real money moves." : "Pay by card through Stripe. The payment goes straight to the seller; Lore never holds it.";
-  return `<form method="post" action="${escape(store.checkout)}/create"><input type="hidden" name="origin" value="${escape(store.origin)}"><input type="hidden" name="id" value="${escape(piece.id)}"><button class="primary card" type="submit">Buy for ${money(store.priceUsd)}</button></form>
+  return `<form method="post" action="${escape(store.checkout)}/create"><input type="hidden" name="origin" value="${escape(store.origin)}"><input type="hidden" name="id" value="${escape(piece.id)}"><button class="primary card" type="submit">${verb} for ${money(store.priceUsd)}</button></form>
 <p class="small">${note} You come back to this page to read it.</p>`;
 }
 var share = (url) => `<div class="actions"><button data-share>Share</button><button data-copy="${escape(url)}">Copy link</button></div>`;
@@ -182,13 +183,13 @@ function free(piece, store, left) {
 <p class="small">${left} of ${store.freeCopies} free copies left. The seller gives the first ${store.freeCopies} away; after that it's ${money(store.priceUsd)}.</p>
 ${share(`${store.origin}/p/${piece.id}`)}</section>`;
 }
-function buy(piece, store, left, what = "this piece") {
+function buy(piece, store, left, what = "this piece", verb = "Buy") {
   if (left > 0) return free(piece, store, left);
   const url = `${store.origin}/p/${piece.id}`;
   const prompt = `Buy ${what} from Lore for me: ${url}`;
   const settle = store.test ? "This store takes play money, so buying here is only a rehearsal." : "Every payment goes straight to the seller; Lore never holds it.";
   const agent = store.checkout ? `<h2 class="or">Or buy it with your AI agent</h2>` : `<h2>Buy it with your AI agent</h2>`;
-  return `<section class="buy"><p class="amount">${money(store.priceUsd)}</p>${card(piece, store)}${agent}
+  return `<section class="buy"><p class="amount">${money(store.priceUsd)}</p>${card(piece, store, verb)}${agent}
 <p>Paste this into Claude, ChatGPT or any agent that can pay on Lore:</p>
 <div class="prompt"><code>${escape(prompt)}</code><button class="${store.checkout ? "" : "primary"}" data-copy="${escape(prompt)}">Copy</button></div>
 <p class="small">${settle} No agent set up yet? <a href="${BUYER_SKILL}">Get the buyer skill</a>.</p>
@@ -233,6 +234,36 @@ ${notice(store)}${problem ? `<p class="notice">${escape(problem)}</p>` : ""}<h1 
 ${agentsNote(store, set.id, set)}`;
   return page(`${set.title} \xB7 ${name}`, `A collection of ${count(entries.length)} by ${name}, for sale on Lore.`, url, body + foot(store), data);
 }
+function feedPage(id, entries, store, problem = "") {
+  const name = seller(store);
+  const cards = entries.map((entry) => `<li><a class="card" href="/p/${escape(entry.id)}"><h3>${escape(entry.teaser)}</h3><div class="meta"><span>${KINDS[entry.kind] ?? escape(entry.kind)}</span><span>${date(entry.updated_at)}</span></div></a></li>`).join("");
+  const body = `<a class="back" href="/">\u2190 ${escape(name)}</a>
+${notice(store)}${problem ? `<p class="notice">${escape(problem)}</p>` : ""}<h1 class="teaser">Everything from ${escape(name)}, for 30 days</h1>
+<div class="meta"><span>Subscription</span><span>${count(entries.length)} now, and whatever comes next</span></div>
+<ul class="cards">${cards}</ul>${buy({ id }, store, 0, "a 30-day subscription to this store", "Subscribe")}
+${agentsNote(store)}`;
+  return page(`Subscribe \xB7 ${name}`, `30 days of everything ${name} sells on Lore.`, `${store.origin}/p/${id}`, body + foot(store), {
+    "@context": "https://schema.org",
+    "@type": "WebPage"
+  });
+}
+function subscribedPage(id, store, unlocked, ends) {
+  const name = seller(store);
+  const articles = unlocked.map(
+    (piece) => `<h2>${escape(piece.title)}</h2><div class="meta"><span>${KINDS[piece.kind] ?? escape(piece.kind)}</span><span>Updated ${date(piece.updated_at.slice(0, 10))}</span></div><article class="piece">${paragraphs(piece.content)}</article>`
+  ).join("");
+  const body = `<a class="back" href="/">\u2190 ${escape(name)}</a>
+<p class="notice">Thanks for subscribing. Keep this page's address: it opens everything here, new pieces too, until ${day.format(ends)}, in this browser.</p>
+<h1 class="teaser">Everything from ${escape(name)}</h1>${articles || '<p class="empty">Nothing here yet. New pieces show up on this page.</p>'}`;
+  return page(`Subscribed \xB7 ${name}`, `Everything ${name} sells on Lore.`, `${store.origin}/p/${id}`, body + foot(store), {
+    "@context": "https://schema.org",
+    "@type": "WebPage"
+  });
+}
+function subscriptionNotice(store, heading, lede) {
+  const body = `<a class="back" href="/">\u2190 ${escape(seller(store))}</a><h1 class="teaser">${escape(heading)}</h1><p class="lede">${escape(lede)}</p>`;
+  return page(`Subscription \xB7 ${seller(store)}`, heading, `${store.origin}/`, body + foot(store), { "@context": "https://schema.org", "@type": "WebPage" });
+}
 function unlockedPage(piece, store, unlocked, free2 = false) {
   const name = seller(store);
   const thanks = free2 ? "This copy is free, from the seller." : "Thanks for buying.";
@@ -252,9 +283,12 @@ function notFound(store) {
 }
 export {
   collectionPage,
+  feedPage,
   notFound,
   pieces,
   publicationPage,
   storefront,
+  subscribedPage,
+  subscriptionNotice,
   unlockedPage
 };

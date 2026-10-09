@@ -24,22 +24,44 @@ export interface Sale {
   title: string;
 }
 
-export async function ensureSalesSchema(db: D1Database): Promise<void> {
-  await db
-    .prepare(
-      `CREATE TABLE IF NOT EXISTS sales (
+export type SaleKind = "publication" | "answer" | "collection" | "feed";
+
+const salesTable = (name: string) => `CREATE TABLE ${name} (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
-      kind TEXT NOT NULL CHECK(kind IN ('publication','answer')),
+      kind TEXT NOT NULL CHECK(kind IN ('publication','answer','collection','feed')),
       item_id TEXT NOT NULL,
       title TEXT NOT NULL,
       price_usd REAL NOT NULL,
       network TEXT NOT NULL,
       payer TEXT NOT NULL DEFAULT '',
       tx TEXT NOT NULL,
-      sold_at TEXT NOT NULL
-    )`
-    )
-    .run();
+      sold_at TEXT NOT NULL,
+      refund_owed INTEGER NOT NULL DEFAULT 0
+    )`;
+
+/** The ledger, rebuilt once when a node made before collections and feeds still checks for two kinds.
+ * SQLite can't alter a CHECK, so the rows move to a new table in one batch. The refund triggers name
+ * the table, so they go too; `ensureRefundTracking` puts them back on the next start. */
+export async function ensureSalesSchema(db: D1Database): Promise<void> {
+  const found = await db
+    .prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'sales'")
+    .first<string>("sql");
+  if (!found) {
+    await db.prepare(salesTable("IF NOT EXISTS sales")).run();
+    return;
+  }
+  if (found.includes("'feed'")) return;
+  const { results } = await db.prepare("PRAGMA table_info(sales)").all<{ name: string }>();
+  const columns = results.map((column) => column.name).join(",");
+  await db.batch([
+    db.prepare("DROP TRIGGER IF EXISTS refund_owed_on_end"),
+    db.prepare("DROP TRIGGER IF EXISTS refund_owed_on_sale"),
+    db.prepare("DROP TABLE IF EXISTS sales_rebuild"),
+    db.prepare(salesTable("sales_rebuild")),
+    db.prepare(`INSERT INTO sales_rebuild(${columns}) SELECT ${columns} FROM sales`),
+    db.prepare("DROP TABLE sales"),
+    db.prepare("ALTER TABLE sales_rebuild RENAME TO sales")
+  ]);
 }
 
 /**
@@ -83,14 +105,14 @@ export async function ensureRefundColumn(db: D1Database): Promise<void> {
 }
 
 /** One card sale, once: the buyer reopening their receipt and Stripe resending must not count it again. */
-export function cardSale(db: D1Database, sale: Sale & { priceUsd: number; tx: string; refundOwed: boolean }): D1PreparedStatement {
+export function cardSale(db: D1Database, sale: Sale & { kind: SaleKind; priceUsd: number; tx: string; refundOwed: boolean }): D1PreparedStatement {
   return db
     .prepare(
       `INSERT INTO sales(kind,item_id,title,price_usd,network,payer,tx,sold_at,refund_owed)
-       SELECT 'publication',?1,?2,?3,'stripe','',?4,?5,?6
+       SELECT ?7,?1,?2,?3,'stripe','',?4,?5,?6
        WHERE NOT EXISTS (SELECT 1 FROM sales WHERE network = 'stripe' AND tx = ?4)`
     )
-    .bind(sale.item, sale.title, sale.priceUsd, sale.tx, new Date().toISOString(), sale.refundOwed ? 1 : 0);
+    .bind(sale.item, sale.title, sale.priceUsd, sale.tx, new Date().toISOString(), sale.refundOwed ? 1 : 0, sale.kind);
 }
 
 /** What a paid tool with input `Args` is called with; the SDK spells this as a conditional type that stays unresolved on a generic `Args`. */
@@ -103,7 +125,7 @@ type Paid<Args extends ZodRawShapeCompat> = (
 export function recorded<Args extends ZodRawShapeCompat>(
   db: D1Database,
   tool: RegisteredTool,
-  kind: "publication" | "answer",
+  kind: SaleKind,
   priceUsd: number,
   sold: (payload: unknown, args: ShapeOutput<Args>) => Sale
 ): void {

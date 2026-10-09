@@ -50,7 +50,7 @@ FREE_NETWORK = "free"
 class Sale(BaseModel):
     """One settled paid call, as the node's ledger records it."""
 
-    kind: Literal["publication", "answer"]
+    kind: Literal["publication", "answer", "collection", "feed"]
     item_id: str
     title: str
     price_usd: float

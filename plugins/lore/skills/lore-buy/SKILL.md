@@ -72,7 +72,10 @@ collection instead: its `tool` (`collection_<id>`) returns every piece in one
 payment, usually for less than buying them one by one. When the task is
 ongoing (tracking a writer's beat for weeks), and the node lists a `feed`,
 `subscribe` buys a 30-day pass to every piece. Then pass it to `get` as
-`pass`, and call `discover` with `since` to see only what is new.
+`pass`, and call `discover` with `since` to see only what is new. A pass reads only for the wallet that bought it: the bridge signs each pass
+read for you; a runtime with its own wallet signs
+`Lore pass <pass> for <id> at <signed_at>` and sends `signed_at` and
+`signature` with `get`.
 
 ## 5. Agree a budget
 
