@@ -36,10 +36,13 @@ money held by Lore: when the pass runs out, the agent buys another or stops.
 - [x] One click in For Sale turns the feed on at a suggested price
 - [x] `subscribe` sells a 30-day pass; `get` honours it; `discover(since)` filters
 - [x] Marketplace entries and yourlore.dev/marketplace show the feed price
-- [ ] Card-paying readers can subscribe (a 30-day receipt link)
+- [x] Card-paying readers can subscribe: a 30-day receipt that opens in the browser that bought it
+- [x] An agent's pass reads only when signed by the wallet that paid for it
 - [ ] A real agent renews a pass
 
 ## Notes
 
-Passes are bearer tokens; an agent that leaks one leaks 30 days of reads.
-Acceptable for v1; per-payer binding can come later.
+An agent's pass is tied to the paying wallet: each read is an EIP-191
+signature over `Lore pass <pass> for <id> at <signed_at>`, within 10 minutes.
+The bridge signs for the agent. A card subscription is tied to the first
+browser that opens its receipt.

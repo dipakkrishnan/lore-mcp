@@ -669,7 +669,7 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         await js(`{ const f = document.querySelector(".collection-price input"); f.value = "12"; f.dispatchEvent(new Event("input")); }`);
         await js(`[...document.querySelectorAll(".collection-price button")].find((b) => b.textContent === "Put on sale").click()`);
         check("pricing puts it on sale", await waitFor(`window.lore.snapshot().then((s) => s.collections.items[0].on_sale && s.collections.items[0].price_usd === 12)`));
-        check("…and says so", await waitFor(`document.querySelector(".collection-price").textContent.includes("On sale at $12")`));
+        check("…and says so", await waitFor(`document.querySelector(".collection-price").textContent.includes("Priced at $12")`));
         await shot("collections-on-sale");
         await js(`window.__lore.show("store")`);
         check("For Sale lists it", await waitFor(`document.querySelector("#content").textContent.includes("China's industrial policy")`));

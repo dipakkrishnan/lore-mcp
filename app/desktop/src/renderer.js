@@ -981,7 +981,7 @@ async function saveFeed(amount) {
   if (done) {
     editingFeedPrice = false;
     const feed = snapshot?.feed;
-    const live = Boolean(snapshot?.node.url);
+    const live = storeOpen();
     if (amount === 0) tell("Feed off. Passes already bought keep working until they run out.");
     else tell(live ? `Feed on at ${price(feed?.price_usd ?? amount ?? 0)} for ${feed?.days ?? 30} days.` : "Feed on. Agents can subscribe once your store is open.", false, live ? undefined : { label: "Open your store", run: () => void startDeploy() });
   }
@@ -996,7 +996,8 @@ function openCollection() {
 /** @param {CollectionItem | undefined} item */
 function collectionEyebrow(item) {
   if (!item) return "Collection";
-  return item.on_sale ? `Collection · On sale at ${price(item.price_usd)}` : "Collection · Not on sale yet";
+  if (!item.on_sale) return "Collection · Not on sale yet";
+  return storeOpen() ? `Collection · On sale at ${price(item.price_usd)}` : `Collection · Priced at ${price(item.price_usd)}`;
 }
 
 /** @param {CollectionItem} item */
@@ -1015,7 +1016,7 @@ function collectionsSection(s) {
     node.type = "button";
     const text = el("div", "t");
     text.append(el("b", "", item.title), el("span", "", collectionDetail(item)));
-    node.append(text, item.on_sale ? chip("On sale", "ok") : chip("Draft"));
+    node.append(text, item.on_sale && storeOpen() ? chip("On sale", "ok") : chip(item.on_sale ? "Priced" : "Draft"));
     node.addEventListener("click", () => showCollection(item.id));
     return node;
   });
@@ -1028,6 +1029,9 @@ function showCollection(id) {
   if (detailTask) closeTask();
   show("collection");
 }
+
+/** Whether buyers can reach what's priced: a store has been opened. */
+const storeOpen = () => Boolean(snapshot?.node.url);
 
 /** Step one: the collection exists the moment it's asked for. */
 async function newCollection() {
@@ -1128,7 +1132,7 @@ function collectionPrice(item) {
   const busy = collectionBusy === "pricing";
   if (item.on_sale && !editingCollectionPrice) {
     const line = el("div", "lead");
-    line.append(el("span", "dot ok"), el("span", "", `On sale at ${price(item.price_usd)} for all ${item.pieces.length} ${item.pieces.length === 1 ? "piece" : "pieces"}`));
+    line.append(el("span", storeOpen() ? "dot ok" : "dot"), el("span", "", `${storeOpen() ? "On sale" : "Priced"} at ${price(item.price_usd)} for all ${item.pieces.length} ${item.pieces.length === 1 ? "piece" : "pieces"}`));
     const actions = el("div", "actions");
     actions.append(
       button("Change price", "quiet", () => { editingCollectionPrice = true; render(); }),
