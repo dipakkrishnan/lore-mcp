@@ -1,6 +1,6 @@
 #!/bin/bash
 # Seed a scratch Lore home with two memories and two drafts, then drive the renderer as one persona.
-# Scenarios: seller | provision | store | jobs | fresh | feedback | listing | obsidian | connectors | faq
+# Scenarios: seller | provision | store | jobs | fresh | feedback | listing | obsidian | connectors | faq | sell | cards | sales | extras | settings
 set -euo pipefail
 scenario="${1:-seller}"
 desktop_dir="$(cd "$(dirname "$0")/.." && pwd)"
@@ -37,6 +37,24 @@ with Store() as store:
 from lore import automation
 automation.save_profile({'executor': 'codex', 'cadence': 'daily', 'hour': 21})")
 fi
+if [[ "$scenario" == "sales" ]]; then
+  # MON-037: a store with one piece for sale and one card sale already in its ledger. The node's
+  # wrangler is a stand-in that answers from files the scenario rewrites as new sales arrive.
+  (cd "$repo_root" && uv run python -c "
+import json, os
+from lore.store import Store
+out = os.environ['LORE_EDGE_OUT']
+with Store() as store:
+ store.set_setting('node_url', 'https://edge-store.invalid/mcp')
+ store.add_publication(title='Live demos beat cold decks', content='paid text', topic='launches', teaser='What beat a cold deck', provenance=[1])
+ piece = store.list_publications()[0].public_id
+json.dump([{'kind': 'publication', 'item_id': piece, 'title': 'Live demos beat cold decks', 'price_usd': 3.0, 'network': 'stripe', 'payer': '', 'tx': 'pi_old', 'sold_at': '2026-10-01T12:00:00Z'}], open(f'{out}/sales.json', 'w'))
+json.dump([{'item_id': piece, 'views': 42}], open(f'{out}/views.json', 'w'))
+open(f'{out}/piece', 'w').write(piece)")
+  mkdir -p "$LORE_HOME/node/node_modules/.bin"
+  printf '#!/bin/sh\ncase "$*" in *page_views*) printf "[{\\"results\\": []}, {\\"results\\": %%s}]" "$(cat "$LORE_EDGE_OUT/views.json")";; *) printf "[{\\"results\\": %%s}]" "$(cat "$LORE_EDGE_OUT/sales.json")";; esac\n' > "$LORE_HOME/node/node_modules/.bin/wrangler"
+  chmod +x "$LORE_HOME/node/node_modules/.bin/wrangler"
+fi
 if [[ "$scenario" == "listing" ]]; then
   # XC-036: a live store, a setup name, a push that always succeeds, and an empty public list.
   mkdir -p "$root/home/node" "$root/bin"
@@ -63,6 +81,33 @@ with Store() as store:
 const session = SessionManager.create(process.env.LORE_HOME, resolve(process.env.LORE_HOME, '.pi/sessions/deploy'));
 session.appendMessage({ role: 'user', content: 'OLD COMPLETED DEPLOY', timestamp: 1 });
 session.appendCustomEntry('lore.task', { version: 1, kind: 'deploy', title: 'Open your store', state: 'done', phase: 'Finished' });")
+fi
+if [[ "$scenario" == "extras" ]]; then
+  # A piece already for sale from before samples existed, and new free parts an agent drafted for it.
+  (cd "$repo_root" && uv run python -c "
+from lore.store import Store
+with Store() as store:
+ store.add_publication(title='Live demos beat cold decks', content='Three demos, seven trials; the deck got nothing.', topic='launches', teaser='What beat a cold deck', provenance=[1])"
+  echo '[{"publication_id":1,"sample":"We had two weeks and a deck we were proud of.","useful_if":"you are launching a developer tool"}]' | uv run lore publication extras draft - >/dev/null)
+fi
+if [[ "$scenario" == "settings" ]]; then
+  # A store on real money with every Settings row filled: cards on, paid answers, listed, and two
+  # pieces already for sale with new free parts waiting, one with a sample and one without.
+  echo '{"sellers":[{"node":"https://lore-edge.example.workers.dev/mcp"}]}' > "$root/marketplace.json"
+  export LORE_MARKETPLACE_URL="file://$root/marketplace.json"
+  (cd "$repo_root" && uv run python -c "import time
+from lore.store import Store
+with Store() as store:
+ store.set_setting('node_url', 'https://lore-edge.example.workers.dev/mcp')
+ store.set_setting('node_live', {'url': 'https://lore-edge.example.workers.dev/mcp', 'checked_at': time.time(), 'live': {'state': 'online', 'network': 'eip155:8453', 'price_usd': 1.0, 'payout': '0x0c270534cfcecc9224edb903ef5dd70410d08166'}, 'ids': []})
+ store.set_setting('price_usd', 1.0)
+ store.set_setting('answer_enabled', True)
+ store.set_setting('answer_price_usd', 0.1)
+ store.set_setting('stripe_account', 'acct_1EdgeSeller')
+ store.set_setting('listed_name', 'Edge Seller')
+ store.add_publication(title='Live demos beat cold decks', content='Three demos, seven trials; the deck got nothing.', topic='launches', teaser='What beat a cold deck', provenance=[1])
+ store.add_publication(title='Raise prices after the tenth buyer', content='We doubled at ten buyers and lost none.', topic='pricing', teaser='When to raise a first price', provenance=[2])"
+  echo '[{"publication_id":1,"sample":"We had two weeks and a deck we were proud of.","useful_if":"you are launching a developer tool","not_useful_if":"you sell through a sales team"},{"publication_id":2,"sample":"","useful_if":"you have your first paying customers","not_useful_if":""}]' | uv run lore publication extras draft - >/dev/null)
 fi
 if [[ "$scenario" == "obsidian" ]]; then
   # APP-124: a vault Obsidian knows about, so Connect has something to offer without a path.

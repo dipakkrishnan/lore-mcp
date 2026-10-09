@@ -11,7 +11,7 @@ OUT="$(cd "$(dirname "$0")" && pwd)/out"
 NODE="$OUT/node"
 
 mkdir -p "$OUT"
-if [ -x "$NODE/bin/node" ] && grep -qs "npm from node-v$NODE_VERSION" "$NODE/bin/node" && [ -f "$NODE/lib/electron-as-node.cjs" ]; then
+if [ -x "$NODE/bin/node" ] && grep -qs "npm from node-v$NODE_VERSION" "$NODE/bin/node" && grep -qsF -- '--require "$dir' "$NODE/bin/node" && [ -f "$NODE/lib/electron-as-node.cjs" ]; then
   exit 0
 fi
 rm -rf "$NODE"
@@ -34,9 +34,9 @@ PRELOAD
   cat <<'SHIM'
 dir="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd -P)"
 export ELECTRON_RUN_AS_NODE=1
-export NODE_OPTIONS="${NODE_OPTIONS:+$NODE_OPTIONS }--require \"$dir/../lib/electron-as-node.cjs\""
+# A flag, not NODE_OPTIONS: Electron ignores NODE_ environment variables when another app starts it.
 for electron in "$dir/../../../MacOS/Lore" "$dir/../../../../node_modules/electron/dist/Electron.app/Contents/MacOS/Electron"; do
-  [ -x "$electron" ] && exec "$electron" "$@"
+  [ -x "$electron" ] && exec "$electron" --require "$dir/../lib/electron-as-node.cjs" "$@"
 done
 echo "node: no Electron binary near $dir" >&2
 exit 1

@@ -8,6 +8,26 @@ const { spawnSync } = require("node:child_process");
 const { test } = require("node:test");
 const { readState } = require("../src/state.cjs");
 
+test("announces only sales after the last one seen, one by one or as one lot", () => {
+  const { announcements, marker, unseen } = require("../src/sales.cjs");
+  /** @param {string} tx @param {string} sold_at @param {string} [network] */
+  const sale = (tx, sold_at, network = "stripe") => ({ kind: /** @type {const} */ ("publication"), item_id: "a", title: "Demos beat decks", price_usd: 3, network, payer: "", tx, sold_at });
+  const old = sale("pi_1", "2026-10-01T00:00:00Z");
+  assert.deepEqual(unseen([old], null), [], "a first read announces nothing");
+  assert.deepEqual(unseen([old], marker([old])), []);
+  const fresh = sale("0xa", "2026-10-02T00:00:00Z", "eip155:8453");
+  assert.deepEqual(unseen([fresh, old], marker([old])), [fresh]);
+  assert.deepEqual(unseen([old], marker([])), [old], "a ledger read empty still hears its first sale");
+  assert.deepEqual(announcements([fresh]), [{ title: "You sold a piece", body: "Demos beat decks · $3.00 by an agent" }]);
+  assert.deepEqual(announcements([old]), [{ title: "You sold a piece", body: "Demos beat decks · $3.00 by card" }]);
+  const many = [1, 2, 3, 4].map((n) => sale(`pi_${n}`, `2026-10-0${n}T00:00:00Z`));
+  assert.deepEqual(announcements(many), [{ title: "You sold 4 pieces", body: "$12.00" }]);
+  const free = { ...fresh, network: "free", price_usd: 0 };
+  assert.deepEqual(announcements([free]), [{ title: "Someone read a free copy", body: "Demos beat decks" }]);
+  assert.deepEqual(announcements([free, free, free, free]), [{ title: "4 free copies read", body: "Free copies of your pieces" }]);
+  assert.deepEqual(announcements([...many.slice(0, 3), free]), [{ title: "You sold 3 pieces", body: "$9.00 · 1 free copy read" }]);
+});
+
 test("reads only the fixed APP-001 snapshot", async () => {
   const directory = await mkdtemp(join(tmpdir(), "lore-desktop-"));
   try {
@@ -15,6 +35,21 @@ test("reads only the fixed APP-001 snapshot", async () => {
     assert.equal(state.version, 1);
     assert.equal(state.home, directory);
     assert.equal(state.node.live.state, "not_configured");
+  } finally {
+    await rm(directory, { recursive: true });
+  }
+});
+
+test("free copies save through the CLI, refused before it unless a whole number, and read back in the snapshot", async () => {
+  const { setFreeCopies } = require("../src/state.cjs");
+  const directory = await mkdtemp(join(tmpdir(), "lore-desktop-"));
+  try {
+    assert.equal((await readState(directory)).pricing.free_copies, 3);
+    for (const bad of [-1, 1.5, "4", Number.NaN]) await assert.rejects(setFreeCopies(directory, bad), { message: /whole number/ });
+    await setFreeCopies(directory, 0);
+    assert.equal((await readState(directory)).pricing.free_copies, 0);
+    await setFreeCopies(directory, 5);
+    assert.equal((await readState(directory)).pricing.free_copies, 5);
   } finally {
     await rm(directory, { recursive: true });
   }
@@ -263,7 +298,7 @@ test("sessions persist per task, come back as a thread, and a cut-off tool call 
     assert.equal(messages.length, 9);
     assert.deepEqual({ role: messages[8].role, toolCallId: messages[8].toolCallId, isError: messages[8].isError }, { role: "toolResult", toolCallId: "call-2", isError: true });
     assert.deepEqual(LoreAgent.tasks(home).map(({ kind, state, phase }) => ({ kind, state, phase })), [
-      { kind: "setup", state: "stopped", phase: "Ready to resume" }
+      { kind: "setup", state: "stopped", phase: "Reply to keep going" }
     ]);
     assert.equal(SessionManager.create(home).buildSessionContext().messages.length, 0);
     assert.equal(LoreAgent.sessionFor(home, "capture").buildSessionContext().messages.length, 0);
@@ -469,8 +504,8 @@ test("typed task records survive relaunch and only unfinished known tasks are li
 test("an early-ended turn stays resumable until the owner starts over", async () => {
   const { LoreAgent, closingRecord, latestTaskRecord } = await import("../src/agent.mjs");
   const { SessionManager } = await import("@earendil-works/pi-coding-agent");
-  assert.deepEqual(closingRecord("working", "setup", false), ["stopped", "Ready to resume"]);
-  assert.deepEqual(closingRecord("working", "capture", false), ["stopped", "Ready to resume"]);
+  assert.deepEqual(closingRecord("working", "setup", false), ["stopped", "Reply to keep going"]);
+  assert.deepEqual(closingRecord("working", "capture", false), ["stopped", "Reply to keep going"]);
   assert.deepEqual(closingRecord("working", "setup", true), ["done", "Finished"]);
   assert.deepEqual(closingRecord("working", "publish", false), ["done", "Finished"]);
   assert.equal(closingRecord("needs_you", "setup", false), null);
@@ -486,7 +521,7 @@ test("an early-ended turn stays resumable until the owner starts over", async ()
     assert.equal((await readFile(live.getSessionFile(), "utf8")).split("\n").filter(Boolean).length, before, "listing must not write");
     const events = [];
     const idle = new LoreAgent(/** @type {LoreAgentOptions} */ ({ loreHome: home, emit: (event) => events.push(event) }), /** @type {never} */ (null), /** @type {never} */ (null), /** @type {never} */ (null));
-    assert.deepEqual(idle.tasks().map(({ state, phase }) => ({ state, phase })), [{ state: "stopped", phase: "Ready to resume" }]);
+    assert.deepEqual(idle.tasks().map(({ state, phase }) => ({ state, phase })), [{ state: "stopped", phase: "Reply to keep going" }]);
     const resumedFile = LoreAgent.sessionFor(home, "setup").getSessionFile();
     assert.equal(resumedFile, live.getSessionFile(), "a resumable session continues the same file");
     const durable = join(home, "durable.txt");
@@ -521,7 +556,7 @@ test("a capture that saves closes as done even when the agent never calls finish
   // A capture that saved (savedCompletion true) closes the same way finish_task does.
   assert.deepEqual(closingRecord("working", "capture", true), ["done", "Finished"]);
   // Without a save or finish_task, it stays resumable, exactly as before.
-  assert.deepEqual(closingRecord("working", "capture", false), ["stopped", "Ready to resume"]);
+  assert.deepEqual(closingRecord("working", "capture", false), ["stopped", "Reply to keep going"]);
   // The job row: done only when the save is known to have finished; otherwise the
   // outcome is unknown ("incomplete", Recent runs' "Unfinished"), never a quiet
   // "succeeded" paired with a summary that says the opposite.
@@ -600,6 +635,42 @@ test("only Electron main can pipe a decision, and only for a card that is drafte
     await assert.rejects(decide(directory, card, card, true), { message: /not drafted/ });
     const state = await readState(directory);
     assert.equal(state.publications.counts.active, 0);
+  } finally {
+    await rm(directory, { recursive: true });
+  }
+});
+
+test("new free parts for a live piece are staged by the agent and decided only by Electron main", async () => {
+  const { lore, decide, extrasCandidates, decideExtras } = require("../src/state.cjs");
+  const directory = await mkdtemp(join(tmpdir(), "lore-desktop-"));
+  /** @param {string[]} args @param {string} input */
+  const piped = (args, input) => spawnSync("uv", ["run", "lore", ...args], {
+    cwd: join(__dirname, "../../.."),
+    env: { ...process.env, LORE_HOME: directory, NO_COLOR: "1" },
+    input,
+    encoding: "utf8"
+  });
+  const card = { title: "Price low", teaser: "How to set a first price.", content: "Price low first.", kind: /** @type {const} */ ("claim"), topic: "pricing", provenance: [1] };
+  const extras = { publication_id: 1, sample: "We started at a dollar.", useful_if: "you price an API", not_useful_if: "" };
+  try {
+    await lore(directory, ["capture", "apply", "-"], JSON.stringify([{ title: "Pricing", content: "Price low first.", project: "pricing" }]));
+    assert.equal(piped(["publication", "extras", "draft", "-"], JSON.stringify([extras])).status, 1, "nothing is on sale yet");
+    await lore(directory, ["publication", "draft", "-"], JSON.stringify([card]));
+    await decide(directory, card, card, true);
+    await lore(directory, ["publication", "extras", "draft", "-"], JSON.stringify([extras]));
+    const [staged] = await extrasCandidates(directory);
+    assert.deepEqual(staged.extras, extras);
+    assert.equal(staged.piece.title, "Price low");
+    assert.equal(staged.piece.sample, "");
+    const refused = piped(["publication", "extras", "decide"], JSON.stringify({ extras, approve: true }));
+    assert.equal(refused.status, 1);
+    assert.match(refused.stderr, /only from the Lore desktop app/);
+    await decideExtras(directory, extras, { ...extras, sample: "The owner's excerpt." }, true);
+    assert.deepEqual(await extrasCandidates(directory), []);
+    const listed = await lore(directory, ["publication", "list"]);
+    assert.match(listed, /free sample: The owner's excerpt\./);
+    assert.equal((await readState(directory)).publications.counts.active, 1, "the same piece, not a new one");
+    await assert.rejects(decideExtras(directory, extras, extras, true), { message: /not drafted/ });
   } finally {
     await rm(directory, { recursive: true });
   }
@@ -899,4 +970,65 @@ test("every tool that puts a card in front of the owner runs one at a time", asy
   const source = await readFile(join(__dirname, "../src/agent.mjs"), "utf8");
   const owner = ["ask_user", "propose_memories", "propose_blueprint", "propose_price", "cloudflare_login", "open_url", "finish_task"];
   for (const name of owner) assert.match(source, new RegExp(`name: "${name}",\\s*executionMode: "sequential"`), `${name} must be sequential`);
+});
+
+test("previews a draft's page with the store's renderer, free fields only", async () => {
+  const { previewPage } = require("../src/state.cjs");
+  const html = await previewPage(
+    { title: "Paid title", teaser: "What <worked>?", content: "the paid finding", kind: "claim", topic: "launches", provenance: [1], sample: "We had two weeks.", useful_if: "you launch tools", not_useful_if: "" },
+    { priceUsd: 3, origin: "https://store.example", test: false }
+  );
+  assert.match(html, /What &lt;worked&gt;\?/);
+  assert.match(html, /We had two weeks\./);
+  assert.match(html, /Useful if you launch tools/);
+  assert.match(html, /\$3\.00/);
+  assert.doesNotMatch(html, /the paid finding|Paid title/);
+});
+
+test("a damaged sales marker reads as a first read, and the next write repairs it whole", async () => {
+  const sales = require("../src/sales.cjs");
+  const directory = await mkdtemp(join(tmpdir(), "lore-seen-"));
+  const file = join(directory, "sales-seen.json");
+  try {
+    await writeFile(file, '{"sold_at":"2026-10-0');
+    assert.equal(await sales.readSeen(file), null);
+    await writeFile(file, '"just a string"');
+    assert.equal(await sales.readSeen(file), null);
+    await sales.writeSeen(file, { sold_at: "2026-10-04T12:00:00Z", key: "stripe:pi_1" });
+    assert.deepEqual(await sales.readSeen(file), { sold_at: "2026-10-04T12:00:00Z", key: "stripe:pi_1" });
+    await assert.rejects(access(`${file}.tmp`));
+  } finally {
+    await rm(directory, { recursive: true });
+  }
+});
+
+test("packaging refuses while a copy runs from the output bundle", async () => {
+  const { spawn } = require("node:child_process");
+  const bundle = await mkdtemp(join(tmpdir(), "lore-guard-"));
+  const binary = join(bundle, "Contents/MacOS/Lore");
+  await mkdir(dirname(binary), { recursive: true });
+  await writeFile(binary, "#!/bin/bash\nsleep 30\n", { mode: 0o755 });
+  const guard = () => spawnSync(join(__dirname, "../support/guard-running.sh"), { env: { ...process.env, LORE_GUARD_BUNDLE: bundle }, encoding: "utf8" });
+  assert.equal(guard().status, 0, "nothing running: packaging proceeds");
+  const running = spawn(binary, { stdio: "ignore" });
+  try {
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    const refused = guard();
+    assert.equal(refused.status, 1);
+    assert.match(refused.stderr, /Quit it first/);
+  } finally {
+    running.kill();
+    await rm(bundle, { recursive: true, force: true });
+  }
+});
+
+test("a module mismatch from an updated app tells the owner to relaunch", async () => {
+  const source = await readFile(join(__dirname, "../src/renderer.js"), "utf8");
+  const body = source.match(/function reason\(error, fallback\) \{[\s\S]*?\n\}\n/)?.[0];
+  assert.ok(body);
+  const reason = new Function(`${body}; return reason;`)();
+  const mismatch = new Error("Error invoking remote method 'send': Error: The requested module './text.js' does not provide an export named 'getSystemMessageText'");
+  assert.match(reason(mismatch, "x"), /Quit Lore and open it again/);
+  assert.equal(reason(new Error("Stripe is down"), "x"), "Stripe is down");
+  assert.equal(reason("nope", "fallback"), "fallback");
 });

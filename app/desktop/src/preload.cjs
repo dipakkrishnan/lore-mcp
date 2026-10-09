@@ -25,21 +25,38 @@ contextBridge.exposeInMainWorld("lore", {
   renameMemory: (id, title) => ipcRenderer.invoke("memory:rename", id, title),
   /** @param {number} id @param {string} content */
   editMemory: (id, content) => ipcRenderer.invoke("memory:edit", id, content),
+  /** @param {{title: string, content: string}} input */
+  pasteMemory: (input) => ipcRenderer.invoke("memory:paste", input),
   candidates: () => ipcRenderer.invoke("publication:candidates"),
+  /** @param {{candidate: PublicationCandidate, store: {priceUsd: number, origin: string, test: boolean}}} input */
+  preview: (input) => ipcRenderer.invoke("publication:preview", input),
   /** @param {{original: PublicationCandidate, candidate: PublicationCandidate, approve: boolean}} input */
   decide: (input) => ipcRenderer.invoke("publication:decide", input),
+  extras: () => ipcRenderer.invoke("publication:extras"),
+  /** @param {{original: PublicationExtras, extras: PublicationExtras, approve: boolean}} input */
+  decideExtras: (input) => ipcRenderer.invoke("publication:decide-extras", input),
+  /** @param {Array<{original: PublicationExtras, extras: PublicationExtras}>} decisions */
+  approveExtras: (decisions) => ipcRenderer.invoke("publication:approve-extras", decisions),
   /** @param {number} id */
   revoke: (id) => ipcRenderer.invoke("publication:revoke", id),
   push: () => ipcRenderer.invoke("store:push"),
   schedule: () => ipcRenderer.invoke("schedule:install"),
   /** @param {number} amount */
   setPrice: (amount) => ipcRenderer.invoke("pricing:set", amount),
+  /** @param {number} count */
+  setFreeCopies: (count) => ipcRenderer.invoke("pricing:free-copies", count),
+  revealHome: () => ipcRenderer.invoke("home:reveal"),
   sales: () => ipcRenderer.invoke("store:sales"),
+  views: () => ipcRenderer.invoke("store:views"),
   /** @param {{title: string, email: string, description: string}} input */
   reportFeedback: (input) => ipcRenderer.invoke("feedback:report", input),
   /** @param {"list" | "delist"} action */
   listStore: (action) => ipcRenderer.invoke("listing:act", action),
   listingStatus: () => ipcRenderer.invoke("listing:status"),
+  cardStatus: () => ipcRenderer.invoke("cards:status"),
+  connectCards: () => ipcRenderer.invoke("cards:connect"),
+  /** @param {string | null} account */
+  switchCards: (account) => ipcRenderer.invoke("cards:switch", account),
   pickFiles: () => ipcRenderer.invoke("files:pick"),
   pickFolder: () => ipcRenderer.invoke("folders:pick"),
   sourceCatalog: () => ipcRenderer.invoke("sources:catalog"),

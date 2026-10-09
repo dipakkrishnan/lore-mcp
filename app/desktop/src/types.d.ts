@@ -43,6 +43,8 @@ type Snapshot = {
     publication_usd: number | null;
     answer_usd: number | null;
     answer_enabled: boolean;
+    // Absent from a CLI older than MON-040's free copies.
+    free_copies?: number;
   };
   node: {
     url: string | null;
@@ -74,6 +76,9 @@ type JobItem = {
 };
 
 /** One settled paid call, as the node's ledger records it. */
+/** The newest sale already announced, kept across launches; empty fields mean the ledger was read empty. */
+type SeenSale = { sold_at: string; key: string };
+
 type Sale = {
   kind: "publication" | "answer";
   item_id: string;
@@ -83,6 +88,8 @@ type Sale = {
   payer: string;
   tx: string;
   sold_at: string;
+  /** A paid answer that ended refused or failed; absent from stores deployed before it existed. */
+  refund_owed?: boolean;
 };
 
 /** Where a source stands, as its last read left it. */
@@ -161,10 +168,27 @@ type MemoryOutcome = { saved: SavedMemory[] } | { entries: ProposedMemory[]; not
 type PublicationCandidate = {
   title: string;
   teaser: string;
+  sample?: string;
+  useful_if?: string;
+  not_useful_if?: string;
   content: string;
   kind: "claim" | "content";
   topic: string;
   provenance: number[];
+};
+
+/** New free parts for a piece already on sale; its link, price and paid content stay. */
+type PublicationExtras = {
+  publication_id: number;
+  sample: string;
+  useful_if: string;
+  not_useful_if: string;
+};
+
+/** A staged update beside the live piece it changes. */
+type ExtrasCandidate = {
+  extras: PublicationExtras;
+  piece: { title: string; teaser: string; kind: "claim" | "content"; topic: string; sample: string; useful_if: string; not_useful_if: string };
 };
 
 type AgentTask = "capture" | "setup" | "publish" | "deploy";
@@ -208,16 +232,27 @@ interface Window {
     memory(id: number): Promise<Memory>;
     renameMemory(id: number, title: string): Promise<Memory>;
     editMemory(id: number, content: string): Promise<Memory>;
+    pasteMemory(input: { title: string; content: string }): Promise<SavedMemory[]>;
     candidates(): Promise<PublicationCandidate[]>;
+    preview(input: { candidate: PublicationCandidate; store: { priceUsd: number; origin: string; test: boolean } }): Promise<void>;
     decide(input: { original: PublicationCandidate; candidate: PublicationCandidate; approve: boolean }): Promise<void>;
+    extras(): Promise<ExtrasCandidate[]>;
+    decideExtras(input: { original: PublicationExtras; extras: PublicationExtras; approve: boolean }): Promise<void>;
+    approveExtras(decisions: Array<{ original: PublicationExtras; extras: PublicationExtras }>): Promise<void>;
     revoke(id: number): Promise<void>;
     push(): Promise<void>;
     schedule(): Promise<void>;
     setPrice(amount: number): Promise<void>;
+    setFreeCopies(count: number): Promise<void>;
+    revealHome(): Promise<string>;
     sales(): Promise<Sale[]>;
+    views(): Promise<Record<string, number>>;
     reportFeedback(input: { title: string; email: string; description: string }): Promise<FeedbackReceipt>;
     listStore(action: "list" | "delist"): Promise<Listing>;
     listingStatus(): Promise<Listing>;
+    cardStatus(): Promise<CardStatus>;
+    connectCards(): Promise<void>;
+    switchCards(account: string | null): Promise<void>;
     pickFiles(): Promise<string[]>;
     pickFolder(): Promise<string | null>;
     sourceCatalog(): Promise<SourceApp[]>;
@@ -268,7 +303,7 @@ type AgentRequest =
 type AgentEvent =
   | AgentRequest
   | { type: "dismiss"; id: string }
-  | { type: "live"; task: AgentTask | null; text: string }
+  | { type: "live"; task: AgentTask | null; text: string; status?: boolean }
   | { type: "blueprint-progress"; task: AgentTask | null; fields: Partial<BlueprintFields> & { evidence?: string } }
   | { type: "working"; active: boolean; task: AgentTask }
   | { type: "changed" }
@@ -277,7 +312,9 @@ type AgentEvent =
   | { type: "stopped"; text: string }
   | { type: "task"; task: TaskRecord }
   | { type: "auth"; message?: string; event?: import("@earendil-works/pi-ai").AuthEvent }
-  | { type: "progress"; text?: string; done?: boolean; error?: string };
+  | { type: "progress"; text?: string; done?: boolean; error?: string }
+  | { type: "sold" }
+  | { type: "show"; view: "store" };
 
 type LoreAgentInstance = {
   readonly activeTask: AgentTask | null;
@@ -322,4 +359,14 @@ interface Listing {
   state: "none" | "pending" | "listed";
   action?: "list" | "delist";
   url?: string;
+}
+
+/** Card payments (XC-039): `account` takes them; `pending` is opened but not yet on; `ready` is Stripe's answer, null when unknown. */
+interface CardStatus {
+  account: string;
+  pending: string;
+  ready: boolean | null;
+  /** Stripe is still verifying what the owner entered; nothing is owed by them. */
+  checking?: boolean;
+  minimum_usd: number;
 }

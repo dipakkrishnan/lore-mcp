@@ -40,10 +40,11 @@ NEEDS_NODE = "deploying needs Node.js; install it from nodejs.org and rerun"
 # desktop agent's turn, a terminal session) indefinitely (MON-023).
 SUBPROCESS_TIMEOUT_S = 300
 PRICE_DECLARATION = "export const PRICE_USD = 0.01;"
-SALES_QUERY = (
-    "SELECT kind, item_id, title, price_usd, network, payer, tx, sold_at "
-    "FROM sales ORDER BY sold_at DESC, id DESC"
-)
+# `*`, not a column list: a node deployed before `refund_owed` existed still
+# reads, and the field defaults to nothing owed.
+SALES_QUERY = "SELECT * FROM sales ORDER BY sold_at DESC, id DESC"
+# A free first copy (MON-040): a $0 ledger row, never earnings and never owed back.
+FREE_NETWORK = "free"
 
 
 class Sale(BaseModel):
@@ -57,9 +58,28 @@ class Sale(BaseModel):
     payer: str
     tx: str
     sold_at: str
+    # A paid answer that ended refused or failed: the owner refunds the payer.
+    refund_owed: bool = False
 
 
 SALES = TypeAdapter(list[Sale])
+# The Worker creates the table on the first view; creating it here too means
+# a store nobody has visited yet reads as no views, not an error.
+VIEWS_QUERY = (
+    "CREATE TABLE IF NOT EXISTS page_views "
+    "(item_id TEXT PRIMARY KEY, views INTEGER NOT NULL); "
+    "SELECT item_id, views FROM page_views"
+)
+
+
+class PageViews(BaseModel):
+    """How often one piece's page was opened; the node keeps nothing else."""
+
+    item_id: str
+    views: int
+
+
+VIEWS = TypeAdapter(list[PageViews])
 # Plain words for the two chains the Worker accepts as LORE_NETWORK.
 NETWORKS = {"real": "eip155:8453", "test": "eip155:84532"}
 # The owner's own Coinbase facilitator credentials, optional: without them real
@@ -189,7 +209,12 @@ def _detail(result: subprocess.CompletedProcess[str]) -> str:
         parts = (error["text"], *(note["text"] for note in error.get("notes", [])))
         return re.sub(r"\s*\([^)]*\)", "", " ".join(parts))
     except (ValueError, KeyError, TypeError):
-        return f"{result.stderr or ''}{result.stdout or ''}".strip()[-2000:]
+        output = re.sub(
+            r"\x1b\[[0-9;]*m", "", f"{result.stderr or ''}{result.stdout or ''}"
+        )
+        # Wrangler ends a refusal with its help text and a bug-report footer; its ✘ line says why.
+        refusal = re.search(r"✘ \[ERROR\] (.+)", output)
+        return refusal.group(1).strip() if refusal else output.strip()[-2000:]
 
 
 def _timeout_detail(error: subprocess.TimeoutExpired) -> str:
@@ -293,9 +318,9 @@ def login() -> int:
     return 0
 
 
-def sales() -> list[Sale]:
-    """Read the node's sales ledger through the owner's Cloudflare login,
-    the same way `lore push` writes the edge database."""
+def _read(query: str, fail: str) -> list[dict[str, object]]:
+    """Run `query` on the node's database through the owner's Cloudflare login,
+    the same way `lore push` writes it, and return its last statement's rows."""
     target = home() / "node"
     wrangler = target / "node_modules/.bin/wrangler"
     if not wrangler.exists():
@@ -309,14 +334,24 @@ def sales() -> list[Sale]:
             "--remote",
             "--json",
             "--command",
-            SALES_QUERY,
+            query,
         ),
         target,
-        fail="reading sales failed",
+        fail=fail,
         retry=True,
     )
-    statements = json.loads(result.stdout)
-    return SALES.validate_python(statements[0]["results"])
+    rows: list[dict[str, object]] = json.loads(result.stdout)[-1]["results"]
+    return rows
+
+
+def sales() -> list[Sale]:
+    """Read the node's sales ledger."""
+    return SALES.validate_python(_read(SALES_QUERY, "reading sales failed"))
+
+
+def views() -> list[PageViews]:
+    """Read how often each piece's page was opened."""
+    return VIEWS.validate_python(_read(VIEWS_QUERY, "reading page views failed"))
 
 
 def secret(name: str, value: str) -> int:

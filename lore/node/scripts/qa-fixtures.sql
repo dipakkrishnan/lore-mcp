@@ -9,7 +9,9 @@ DROP TABLE IF EXISTS publications;
 CREATE TABLE publications (
   public_id TEXT PRIMARY KEY, title TEXT NOT NULL, content TEXT NOT NULL,
   kind TEXT NOT NULL, topic TEXT NOT NULL DEFAULT '',
-  teaser TEXT NOT NULL DEFAULT '', updated_at TEXT NOT NULL DEFAULT ''
+  teaser TEXT NOT NULL DEFAULT '', sample TEXT NOT NULL DEFAULT '',
+  useful_if TEXT NOT NULL DEFAULT '', not_useful_if TEXT NOT NULL DEFAULT '',
+  updated_at TEXT NOT NULL DEFAULT ''
 );
 INSERT INTO publications(public_id,title,content,kind,topic,teaser,updated_at) VALUES
   ('00000000000000a1bc7c1b5f','QA fixture: cold brew ratio',

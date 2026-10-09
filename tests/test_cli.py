@@ -14,7 +14,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
-from contextlib import contextmanager
+from contextlib import contextmanager, redirect_stderr
 from datetime import datetime, timedelta, timezone
 from io import StringIO
 from pathlib import Path
@@ -54,6 +54,7 @@ class ParserTest(unittest.TestCase):
             ["sources", "choices"],  # an app is required
             ["sources", "remove", "folder-1"],  # keep or delete must be chosen
             ["sources", "remove", "folder-1", "--keep", "--delete"],
+            ["publication", "extras"],  # a subcommand is required
             ["node"],  # `node` alone does nothing; a subcommand is required
             ["answer"],
             ["telemetry"],
@@ -107,6 +108,10 @@ class MainDispatchTest(LoreTestCase):
             (["publication", "draft", "-"], "publication_draft", ("-",)),
             (["publication", "candidates"], "publication_candidates", ()),
             (["publication", "decide"], "publication_decide", ()),
+            (["publication", "extras", "draft", "-"], "extras_draft", ("-",)),
+            (["publication", "extras", "candidates"], "extras_candidates", ()),
+            (["publication", "extras", "review"], "extras_review", ()),
+            (["publication", "extras", "decide"], "extras_decide", ()),
             (["publication", "revoke", "7"], "publication_revoke", (7,)),
             (["publication", "reapprove", "7"], "publication_reapprove", ([7],)),
             (
@@ -168,11 +173,31 @@ class MainDispatchTest(LoreTestCase):
         rows = [deploy_module.Sale(**row)]
         with patch("lore.deploy.sales", return_value=rows), captured() as output:
             self.assertEqual(cli.main(["node", "sales", "--json"]), 0)
-        self.assertEqual(json.loads(output.getvalue()), [row])
+        self.assertEqual(json.loads(output.getvalue()), [row | {"refund_owed": False}])
         with patch("lore.deploy.sales", return_value=rows), captured() as output:
             self.assertEqual(cli.main(["node", "sales"]), 0)
         self.assertIn("1 sale · $0.01", output.getvalue())
         self.assertIn("2026-09-02  $0.01  A", output.getvalue())
+        owed = [deploy_module.Sale(**row | {"kind": "answer", "refund_owed": True})]
+        with patch("lore.deploy.sales", return_value=owed), captured() as output:
+            self.assertEqual(cli.main(["node", "sales"]), 0)
+        self.assertIn("(refund owed to 0xpayer)", output.getvalue())
+        free = row | {"price_usd": 0, "network": "free", "payer": "", "tx": "free_1"}
+        rows = [deploy_module.Sale(**free), deploy_module.Sale(**row)]
+        with patch("lore.deploy.sales", return_value=rows), captured() as output:
+            self.assertEqual(cli.main(["node", "sales"]), 0)
+        self.assertIn("1 sale · $0.01 · 1 free copy", output.getvalue())
+        self.assertIn("2026-09-02    free  A", output.getvalue())
+        self.assertNotIn("refund owed", output.getvalue())
+
+    def test_node_views_prints_counts_as_json(self) -> None:
+        rows = [deploy_module.PageViews(item_id="0000000000000000fcdb4b42", views=7)]
+        with patch("lore.deploy.views", return_value=rows), captured() as output:
+            self.assertEqual(cli.main(["node", "views", "--json"]), 0)
+        self.assertEqual(
+            json.loads(output.getvalue()),
+            [{"item_id": "0000000000000000fcdb4b42", "views": 7}],
+        )
 
     def test_node_deploy_forwards_the_wallet_and_the_network(self) -> None:
         with patch("lore.deploy.deploy", return_value=0) as deploy:
@@ -830,6 +855,39 @@ class PriceTest(LoreTestCase):
             self.assertEqual(cli.price(0), 0)
         self.assertIn("Publications are free", output.getvalue())
 
+    def test_free_copies_default_to_three_and_zero_turns_them_off(self) -> None:
+        with captured() as output:
+            self.assertEqual(cli.main(["free-copies"]), 0)
+        self.assertIn("3 free copies per piece", output.getvalue())
+        with captured() as output:
+            self.assertEqual(cli.main(["free-copies", "1"]), 0)
+        self.assertIn("The first 1 copy of each piece is free", output.getvalue())
+        with Store() as store:
+            self.assertEqual(store.setting(cli.FREE_COPIES_SETTING), 1)
+        with captured() as output:
+            self.assertEqual(cli.free_copies(0), 0)
+        self.assertIn("No free copies", output.getvalue())
+        with self.assertRaisesRegex(ValueError, "zero or more"):
+            cli.free_copies(-1)
+
+    def test_support_email_is_set_shown_and_turned_off(self) -> None:
+        with captured() as output:
+            self.assertEqual(cli.main(["support"]), 0)
+        self.assertIn("No support email", output.getvalue())
+        with captured() as output:
+            self.assertEqual(cli.main(["support", "help@example.com"]), 0)
+        self.assertIn("Buyers write to help@example.com", output.getvalue())
+        with Store() as store:
+            self.assertEqual(
+                store.setting(cli.SUPPORT_EMAIL_SETTING), "help@example.com"
+            )
+        with self.assertRaisesRegex(ValueError, "email address"):
+            cli.support_email("<script>@x")
+        with captured():
+            self.assertEqual(cli.support_email("off"), 0)
+        with Store() as store:
+            self.assertEqual(store.setting(cli.SUPPORT_EMAIL_SETTING), "")
+
     def test_prices_that_cannot_be_charged_are_refused(self) -> None:
         for amount in (float("nan"), float("inf"), -1.0):
             with self.subTest(amount=amount):
@@ -849,6 +907,118 @@ class PriceTest(LoreTestCase):
         with captured() as output:
             cli.price(0.50)
         self.assertNotIn("still charges", output.getvalue())
+
+
+class CardsCommandTest(LoreTestCase):
+    @staticmethod
+    def _attended():
+        return patch.object(cli, "_interactive", return_value=True)
+
+    def test_cards_need_a_price_of_at_least_fifty_cents(self) -> None:
+        with self._attended(), captured():
+            cli.price(0.49)
+            with self.assertRaisesRegex(ValueError, "less than \\$0.50"):
+                cli.cards("account", "acct_1Seller")
+            cli.price(0.50)
+            self.assertEqual(cli.cards("account", "acct_1Seller"), 0)
+        with Store() as store:
+            self.assertEqual(store.setting("stripe_account"), "acct_1Seller")
+
+    def test_a_card_store_cannot_be_priced_under_fifty_cents_until_cards_are_off(
+        self,
+    ) -> None:
+        with self._attended(), captured():
+            cli.price(3)
+            cli.cards("account", "acct_1Seller")
+            with self.assertRaisesRegex(ValueError, "lore cards off"):
+                cli.price(0.01)
+            cli.cards("off", None)
+            self.assertEqual(cli.price(0.01), 0)
+
+    def test_only_a_stripe_account_id_is_accepted(self) -> None:
+        with self._attended(), captured():
+            cli.price(3)
+            for bad in ("", "acct_", "sk_live_abc", "acct_1 ; rm", "https://x"):
+                with self.subTest(bad=bad), self.assertRaisesRegex(ValueError, "acct_"):
+                    cli.cards("account", bad)
+
+    def test_changing_cards_needs_the_owner(self) -> None:
+        with patch.object(cli, "_interactive", return_value=False):
+            with self.assertRaisesRegex(ValueError, "attended terminal"):
+                cli.cards("account", "acct_1Seller")
+
+    def test_status_says_where_cards_go(self) -> None:
+        with captured() as output:
+            cli.cards(None, None)
+        self.assertIn("Not taking cards", output.getvalue())
+
+    def test_connect_opens_one_account_and_reuses_it_until_stripe_clears_it(
+        self,
+    ) -> None:
+        opened = patch.object(
+            cli.cards_module, "open_account", return_value=("acct_1New", "a" * 64)
+        )
+        with self._attended(), opened as open_account, captured() as output:
+            cli.cards("connect", None, True)
+            cli.cards("connect", None, True)
+        self.assertEqual(open_account.call_count, 1)
+        first = json.loads(output.getvalue().splitlines()[0])
+        self.assertEqual(first["account"], "acct_1New")
+        self.assertIn("/onboard?account=acct_1New&token=", first["url"])
+        with Store() as store:
+            self.assertEqual(store.setting("stripe_account_pending"), "acct_1New")
+            self.assertEqual(store.setting("stripe_account"), None)
+
+    def test_checkout_calls_name_lore_so_cloudflare_lets_them_through(self) -> None:
+        # Cloudflare refuses Python's default user agent with a 403 (error 1010).
+        with patch("urllib.request.urlopen") as urlopen:
+            response = urlopen.return_value.__enter__.return_value
+            response.read.return_value = b'{"account": "acct_1New", "token": "t"}'
+            cli.cards_module.open_account()
+        request = urlopen.call_args.args[0]
+        self.assertEqual(request.get_header("User-agent"), feedback.USER_AGENT)
+
+    def test_status_asks_stripe_about_a_pending_account_and_activating_it_clears_it(
+        self,
+    ) -> None:
+        with Store() as store:
+            store.set_setting("stripe_account_pending", "acct_1New")
+            store.set_setting("stripe_account_token", "a" * 64)
+        with patch.object(
+            cli.cards_module, "status", return_value=(True, False)
+        ) as status:
+            with captured() as output:
+                cli.cards(None, None, True)
+        status.assert_called_once_with("acct_1New", "a" * 64)
+        self.assertEqual(
+            json.loads(output.getvalue()),
+            {
+                "account": "",
+                "pending": "acct_1New",
+                "ready": True,
+                "checking": False,
+                "minimum_usd": 0.5,
+            },
+        )
+        with self._attended(), captured():
+            cli.price(3)
+            cli.cards("account", "acct_1New")
+            cli.cards("off", None)
+        with Store() as store:
+            self.assertEqual(store.setting("stripe_account"), "")
+            # Off keeps the account, so turning cards back on opens no new one.
+            self.assertEqual(store.setting("stripe_account_pending"), "acct_1New")
+
+    def test_status_still_answers_when_checkout_is_unreachable(self) -> None:
+        with Store() as store:
+            store.set_setting("stripe_account_pending", "acct_1New")
+            store.set_setting("stripe_account_token", "a" * 64)
+        with (
+            patch.object(cli.cards_module, "status", side_effect=OSError("offline")),
+            captured() as output,
+        ):
+            cli.cards(None, None, True)
+        self.assertIsNone(json.loads(output.getvalue())["ready"])
 
 
 class AnswerCommandTest(LoreTestCase):
@@ -1173,8 +1343,20 @@ class PublicationApplyTest(LoreTestCase):
             {"title": "Third claim"},
         )
         # Approve the first; edit then approve the second; reject the third.
-        # The edit prompt asks title, teaser, then content in that order.
-        answers = ["a", "e", "Edited claim", "", "", "a", "r"]
+        # The edit prompt asks title, teaser, sample, useful if, not useful if,
+        # then content in that order.
+        answers = [
+            "a",
+            "e",
+            "Edited claim",
+            "",
+            "Two demos, one deck.",
+            "",
+            "",
+            "",
+            "a",
+            "r",
+        ]
         with (
             self._attended(),
             patch.object(cli, "ask", side_effect=answers),
@@ -1189,6 +1371,7 @@ class PublicationApplyTest(LoreTestCase):
         self.assertEqual(
             saved["Edited claim"].content, "a bounded claim about pricing agent APIs"
         )
+        self.assertEqual(saved["Edited claim"].sample, "Two demos, one deck.")
 
     def test_rejecting_everything_saves_nothing_and_says_so(self) -> None:
         with (
@@ -1342,6 +1525,34 @@ class PublicationApplyTest(LoreTestCase):
         with Store() as store:
             self.assertEqual(store.list_publications(), [])
 
+    def test_a_draft_that_repeats_a_piece_for_sale_is_skipped(self) -> None:
+        with Store() as store:
+            store.add_publication(
+                title="Prove the real request path before calling a product ready",
+                content="a bounded claim",
+                topic="pricing",
+                provenance=[self.memory_id],
+            )
+        batch = self.candidates(
+            {"title": "Prove the real request path before calling it ready"},
+            {"title": "Unit tests miss the install path"},
+        )
+        with captured(), redirect_stderr(StringIO()) as out:
+            self.assertEqual(cli.publication_draft(batch), 0)
+        staged = json.loads(self.staged_path.read_text(encoding="utf-8"))
+        self.assertEqual(
+            [c["title"] for c in staged], ["Unit tests miss the install path"]
+        )
+        self.assertIn("already for sale", out.getvalue())
+        with self.assertRaisesRegex(ValueError, "already for sale"):
+            cli.publication_draft(
+                self.candidates(
+                    {
+                        "title": "Prove the real request path before calling a product ready"
+                    }
+                )
+            )
+
     def test_nothing_is_staged_until_something_is_drafted(self) -> None:
         with captured() as out:
             self.assertEqual(cli.publication_candidates(), 0)
@@ -1352,7 +1563,7 @@ class PublicationApplyTest(LoreTestCase):
         with desktop_stdin(json.dumps({"candidate": first, "approve": True})):
             with captured() as out:
                 self.assertEqual(cli.publication_decide(), 0)
-        self.assertEqual(json.loads(out.getvalue()), {"approved": True, "remaining": 1})
+        self.assertEqual(json.loads(out.getvalue()), {"approved": 1, "remaining": 1})
         with desktop_stdin(json.dumps({"candidate": second, "approve": False})):
             with captured():
                 self.assertEqual(cli.publication_decide(), 0)
@@ -1425,7 +1636,7 @@ class PublicationApplyTest(LoreTestCase):
                     "approve": True,
                 }
                 with desktop_stdin(json.dumps(payload)):
-                    with self.assertRaisesRegex(ValueError, "only a draft's title"):
+                    with self.assertRaisesRegex(ValueError, "only a draft's wording"):
                         cli.publication_decide()
         with desktop_stdin(
             json.dumps(
@@ -1536,6 +1747,196 @@ class PublicationApplyTest(LoreTestCase):
             patch.object(sys, "stdin", StringIO("")),
         ):
             self.assertFalse(cli._attended())
+
+
+class PublicationExtrasTest(LoreTestCase):
+    """New free parts for a live piece go through the same owner gate as a new
+    piece, and change it in place: same public id, same paid content."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        with Store() as store:
+            self.piece = store.add_publication(
+                title="Pricing claim",
+                content="a bounded claim about pricing agent APIs",
+                topic="pricing",
+                teaser="What did pricing teach?",
+                provenance=[self.seed_memory("Pricing lesson")],
+            )
+            self.public_id = store.active_publication(self.piece).public_id
+
+    def drafted(self, *overrides: dict) -> list[dict]:
+        base = {"publication_id": self.piece, "sample": "We started at a dollar."}
+        batch = json.dumps([base | o for o in (overrides or ({},))])
+        with patch.object(sys, "stdin", StringIO(batch)), captured():
+            self.assertEqual(cli.extras_draft("-"), 0)
+        return json.loads(cli._extras_path().read_text(encoding="utf-8"))
+
+    def live(self):
+        with Store() as store:
+            return store.active_publication(self.piece)
+
+    def test_drafting_stages_without_changing_the_piece(self) -> None:
+        (staged,) = self.drafted({"useful_if": "you price an API"})
+        self.assertEqual(cli._extras_path().stat().st_mode & 0o777, 0o600)
+        self.assertEqual(self.live().sample, "")
+        with captured() as out:
+            self.assertEqual(cli.extras_candidates(), 0)
+        (card,) = json.loads(out.getvalue())
+        self.assertEqual(card["extras"], staged)
+        self.assertEqual(card["piece"]["title"], "Pricing claim")
+        self.assertNotIn("content", card["piece"])
+        for bad, message in (
+            ({"publication_id": 9999}, "no active publication"),
+            ({"sample": "a bounded claim about pricing agent APIs"}, "free sample"),
+            ({"title": "x"}, "Extra inputs"),
+        ):
+            with self.subTest(bad=bad), self.assertRaisesRegex(ValueError, message):
+                self.drafted(bad)
+        self.assertEqual(json.loads(cli._extras_path().read_text()), [staged])
+
+    def test_the_desktop_app_updates_the_piece_in_place_and_pushes(self) -> None:
+        first, second = self.drafted({}, {"useful_if": "you sell to developers"})
+        edited = first | {"sample": "The owner's own excerpt."}
+        with Store() as store:
+            store.set_setting("node_url", "https://node.example/mcp")
+        with (
+            desktop_stdin(
+                json.dumps({"original": first, "extras": edited, "approve": True})
+            ),
+            patch.object(cli, "push", return_value=0) as push,
+            captured() as out,
+        ):
+            self.assertEqual(cli.extras_decide(), 0)
+        push.assert_called_once_with(str(cli.home() / "node"))
+        self.assertEqual(json.loads(out.getvalue()), {"approved": 1, "remaining": 1})
+        piece = self.live()
+        self.assertEqual(
+            (piece.public_id, piece.sample, piece.content),
+            (
+                self.public_id,
+                "The owner's own excerpt.",
+                "a bounded claim about pricing agent APIs",
+            ),
+        )
+        with desktop_stdin(json.dumps({"extras": second, "approve": False})):
+            with captured():
+                self.assertEqual(cli.extras_decide(), 0)
+        self.assertEqual(self.live().useful_if, "")
+        self.assertFalse(cli._extras_path().exists())
+        with Store() as store:
+            self.assertEqual(len(store.list_publications()), 1)
+
+    def test_a_batch_saves_every_card_then_pushes_once(self) -> None:
+        with Store() as store:
+            other = store.add_publication(
+                title="Other",
+                content="other paid text",
+                topic="pricing",
+                provenance=[self.seed_memory("Other lesson")],
+            )
+            store.set_setting("node_url", "https://node.example/mcp")
+        first, second, third = self.drafted(
+            {},
+            {"publication_id": other, "useful_if": "you sell to developers"},
+            {"useful_if": "never approved"},
+        )
+        batch = [
+            {
+                "original": first,
+                "extras": first | {"sample": "Edited."},
+                "approve": True,
+            },
+            {"extras": second, "approve": True},
+        ]
+        with (
+            desktop_stdin(json.dumps(batch)),
+            patch.object(cli, "push", return_value=0) as push,
+            captured() as out,
+        ):
+            self.assertEqual(cli.extras_decide(), 0)
+        push.assert_called_once_with(str(cli.home() / "node"))
+        self.assertEqual(json.loads(out.getvalue()), {"approved": 2, "remaining": 1})
+        self.assertEqual(self.live().sample, "Edited.")
+        with Store() as store:
+            self.assertEqual(
+                store.active_publication(other).useful_if, "you sell to developers"
+            )
+        self.assertEqual(json.loads(cli._extras_path().read_text()), [third])
+
+    def test_one_bad_card_in_a_batch_saves_none(self) -> None:
+        (first,) = self.drafted()
+        batch = [
+            {"extras": first, "approve": True},
+            {"extras": first | {"sample": "never drafted"}, "approve": True},
+        ]
+        with desktop_stdin(json.dumps(batch)):
+            with self.assertRaisesRegex(ValueError, "not drafted"):
+                cli.extras_decide()
+        self.assertEqual(self.live().sample, "")
+        self.assertEqual(json.loads(cli._extras_path().read_text()), [first])
+
+    def test_a_card_must_be_drafted_and_keep_its_piece(self) -> None:
+        with Store() as store:
+            other = store.add_publication(
+                title="Other",
+                content="other paid text",
+                topic="pricing",
+                provenance=[self.seed_memory("Other lesson")],
+            )
+        (first,) = self.drafted()
+        for payload, message in (
+            ({"extras": first | {"sample": "never drafted"}}, "not drafted"),
+            (
+                {"original": first, "extras": first | {"publication_id": other}},
+                "only a draft's wording",
+            ),
+        ):
+            with self.subTest(payload=payload):
+                with desktop_stdin(json.dumps(payload | {"approve": True})):
+                    with self.assertRaisesRegex(ValueError, message):
+                        cli.extras_decide()
+        self.assertEqual(self.live().sample, "")
+        self.assertTrue(cli._extras_path().exists())
+
+    def test_piped_approval_is_refused(self) -> None:
+        (first,) = self.drafted()
+        with patch.object(sys, "stdin", StringIO(json.dumps({"extras": first}))):
+            with self.assertRaisesRegex(ValueError, "only from the Lore desktop app"):
+                cli.extras_decide()
+        with (
+            patch.object(cli, "_interactive", return_value=False),
+            patch.object(cli, "_attended", return_value=False),
+            self.assertRaisesRegex(ValueError, "attended terminal"),
+        ):
+            cli.extras_review()
+        self.assertEqual(self.live().sample, "")
+
+    def test_the_terminal_edits_approves_and_rejects(self) -> None:
+        with Store() as store:
+            other = store.add_publication(
+                title="Other",
+                content="other paid text",
+                topic="pricing",
+                provenance=[self.seed_memory("Other lesson")],
+            )
+        self.drafted({}, {"publication_id": other, "useful_if": "skip me"})
+        answers = ["e", "", "you price an API", "", "a", "r"]
+        with (
+            patch.object(cli, "_interactive", return_value=True),
+            patch.object(cli, "ask", side_effect=answers),
+            captured() as out,
+        ):
+            self.assertEqual(cli.extras_review(), 0)
+        self.assertIn("Updated 1 piece", out.getvalue())
+        piece = self.live()
+        self.assertEqual(
+            (piece.sample, piece.useful_if),
+            ("We started at a dollar.", "you price an API"),
+        )
+        with Store() as store:
+            self.assertEqual(store.active_publication(other).useful_if, "")
+        self.assertFalse(cli._extras_path().exists())
 
 
 class PublicationCommandTest(LoreTestCase):
@@ -1812,6 +2213,20 @@ class PushTest(LoreTestCase):
         # on the opaque public id, so revocations leave no visible gap.
         self.assertNotIn(f"({kept},", sql)
 
+    def test_push_sql_carries_the_support_email(self) -> None:
+        with Store() as store:
+            sql = cli._push_sql(
+                [], store.answer_settings(), "", support_email="help@example.com"
+            )
+        self.assertIn("VALUES ('support_email','help@example.com');", sql)
+
+    def test_push_sql_carries_the_price_so_it_needs_no_redeploy(self) -> None:
+        with Store() as store:
+            answer = store.answer_settings()
+        sql = cli._push_sql([], answer, "", price_usd=1.0)
+        self.assertIn("VALUES ('price_usd','1.000000');", sql)
+        self.assertNotIn("'price_usd'", cli._push_sql([], answer, ""))
+
     def test_push_sql_escapes_quotes_rather_than_breaking_the_script(self) -> None:
         # An apostrophe in an owner's own prose would otherwise truncate the
         # statement and publish something they never approved.
@@ -1830,7 +2245,7 @@ class PushTest(LoreTestCase):
     def test_push_sql_is_executable_sqlite_against_a_node_created_before_current_columns(
         self,
     ) -> None:
-        self.publish(teaser="an ad")
+        self.publish(teaser="an ad", sample="a free bit", useful_if="you price APIs")
         sql = self.push_sql(self.active())
         with sqlite3.connect(":memory:") as db:
             db.execute(
@@ -1839,10 +2254,20 @@ class PushTest(LoreTestCase):
             )
             db.executescript(sql)
             row = db.execute(
-                "SELECT public_id, title, topic, teaser FROM publications"
+                "SELECT public_id, title, topic, teaser, sample, useful_if, not_useful_if "
+                "FROM publications"
             ).fetchone()
         self.assertEqual(
-            row, (self.active()[0].public_id, "Pricing claim", "pricing", "an ad")
+            row,
+            (
+                self.active()[0].public_id,
+                "Pricing claim",
+                "pricing",
+                "an ad",
+                "a free bit",
+                "you price APIs",
+                "",
+            ),
         )
 
     def test_an_empty_active_set_is_still_a_valid_push(self) -> None:
@@ -1851,6 +2276,18 @@ class PushTest(LoreTestCase):
         sql = self.push_sql([])
         self.assertIn("DROP TABLE IF EXISTS publications;", sql)
         self.assertNotIn("INSERT INTO publications", sql)
+
+    def test_push_ships_the_stripe_account_beside_the_listed_name(self) -> None:
+        with Store() as store:
+            sql = cli._push_sql([], store.answer_settings(), "Ada", "acct_1Seller")
+        self.assertIn("('stripe_account','acct_1Seller')", sql)
+        self.assertIn("('listed_name','Ada')", sql)
+
+    def test_push_ships_the_free_copies_setting(self) -> None:
+        self.assertIn("('free_copies','3')", self.push_sql([]))
+        with Store() as store:
+            sql = cli._push_sql([], store.answer_settings(), "", "", 0)
+        self.assertIn("('free_copies','0')", sql)
 
     def test_push_ships_the_answer_settings_alongside_publications(self) -> None:
         with Store() as store:
@@ -1900,6 +2337,34 @@ class PushTest(LoreTestCase):
         _, run, out = self._push(local=True)
         self.assertIn("--local", run.call_args.args[0])
         self.assertIn("local dev database", out.getvalue())
+
+    def test_a_remote_push_ties_the_card_account_to_this_store_and_a_local_one_does_not(
+        self,
+    ) -> None:
+        with Store() as store:
+            store.set_setting("stripe_account", "acct_1Seller")
+            store.set_setting("stripe_account_token", "a" * 64)
+            store.set_setting("node_url", "https://ada.workers.dev/mcp")
+        with patch.object(cli.cards_module, "bind") as bind:
+            self._push(local=True)
+            bind.assert_not_called()
+            self._push()
+        bind.assert_called_once_with(
+            "acct_1Seller", "a" * 64, "https://ada.workers.dev"
+        )
+
+    def test_a_push_still_succeeds_when_card_checkout_is_unreachable(self) -> None:
+        with Store() as store:
+            store.set_setting("stripe_account", "acct_1Seller")
+            store.set_setting("stripe_account_token", "a" * 64)
+            store.set_setting("node_url", "https://ada.workers.dev/mcp")
+        with (
+            patch.object(cli.cards_module, "bind", side_effect=OSError("offline")),
+            patch.object(cli, "warn") as warned,
+        ):
+            code, _run, _out = self._push()
+        self.assertEqual(code, 0)
+        self.assertIn("can't pay by card until the next push", warned.call_args.args[0])
 
     def test_a_remote_push_clears_a_pending_revocation_but_a_local_one_does_not(
         self,
