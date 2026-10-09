@@ -49,6 +49,17 @@ class CollectionTest(OwnerTestCase):
             piece = store.get_publication(collection.pieces[0].public_id)
             self.assertEqual(piece.teaser, "Export controls")
 
+    def test_sell_puts_each_item_on_sale_on_its_own(self) -> None:
+        drop = {"items": [{"title": "", "content": "# Tariffs\nwho pays"}]}
+        sold = self.run_cli("sell", "-", stdin=json.dumps(drop))["added"]
+        self.assertEqual([s["title"] for s in sold], ["Tariffs"])
+        again = self.run_cli("sell", "-", stdin=json.dumps(drop))["added"]
+        self.assertEqual(again[0]["publication_id"], sold[0]["publication_id"])
+        with Store() as store:
+            self.assertEqual(store.unpriced_pieces(), set())
+            piece = store.get_publication(sold[0]["public_id"])
+        self.assertEqual(piece.teaser, "Tariffs")
+
     def test_the_same_text_dropped_twice_is_one_piece(self) -> None:
         with Store() as store:
             collection = store.new_collection()

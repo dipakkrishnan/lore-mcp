@@ -437,6 +437,13 @@ def parser() -> argparse.ArgumentParser:
     )
     collection_delete.add_argument("id", type=int)
 
+    sell = commands.add_parser(
+        "sell", help="put pasted text and files on sale, each as its own piece"
+    )
+    sell.add_argument(
+        "file", help='JSON {"items": [{title, content}], "files": [paths]}; - for stdin'
+    )
+
     feed = commands.add_parser(
         "feed", help="let agents subscribe to everything in the store for 30 days"
     )
@@ -642,6 +649,13 @@ def main(argv: list[str] | None = None) -> int:
             if args.publication_command == "reapprove":
                 return publication_reapprove(args.id)
             return publication_list()
+        if args.command == "sell":
+            _owner_action("putting pieces on sale")
+            text = sys.stdin.read() if args.file == "-" else Path(args.file).read_text()
+            collections = Collections(lambda: push(str(home() / "node")))
+            sold = collections.sell(Drop.model_validate_json(text))
+            print(json.dumps({"added": sold}, separators=(",", ":")))
+            return 0
         if args.command == "feed":
             return feed_command(args)
         if args.command == "collection":
