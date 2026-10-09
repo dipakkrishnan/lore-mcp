@@ -16,7 +16,7 @@
 import assert from "node:assert/strict";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
-import { TOOL_NAMES } from "./surface.js";
+import { TOOL_NAMES, entryKeysProblem } from "./surface.js";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
@@ -40,8 +40,9 @@ try {
     arguments: {}
   });
   assert.equal(discover.isError, undefined);
-  // The manifest must advertise without disclosing: teasers and topics are the
-  // only text, and the payload shape matches the stdio server's discover.
+  // The manifest must advertise without disclosing: an entry carries its
+  // teaser, plus a sample and who-it's-for lines when the owner wrote them,
+  // and the payload shape matches the stdio server's discover.
   const payload: unknown = JSON.parse((discover.content as { text: string }[])[0].text);
   assert.ok(isRecord(payload));
   assert.equal(payload.manifest_version, 1);
@@ -51,10 +52,7 @@ try {
     assert.ok(Array.isArray(entries));
     for (const entry of entries) {
       assert.ok(isRecord(entry));
-      assert.deepEqual(
-        Object.keys(entry).sort(),
-        ["id", "kind", "teaser", "updated_at"]
-      );
+      assert.equal(entryKeysProblem(Object.keys(entry)), null);
     }
   }
 

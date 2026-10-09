@@ -177,6 +177,20 @@ describe("before any payment", () => {
   });
 });
 
+describe("the catalog-entry check the smoke script shares", () => {
+  const required = ["id", "kind", "teaser", "updated_at"];
+
+  it("accepts an entry with or without the lines an owner may add", () => {
+    expect(entryKeysProblem(required)).toBeNull();
+    expect(entryKeysProblem([...required, "sample", "useful_if", "not_useful_if"])).toBeNull();
+  });
+
+  it("names a missing key, and any key that would put the piece itself in the catalog", () => {
+    expect(entryKeysProblem(["id", "kind", "teaser"])).toBe("missing updated_at");
+    expect(entryKeysProblem([...required, "title", "content"])).toBe("unexpected title, content");
+  });
+});
+
 describe("without a usable LORE_WALLET", () => {
   const initialize = () =>
     workerFetch("https://worker.test/mcp", {
