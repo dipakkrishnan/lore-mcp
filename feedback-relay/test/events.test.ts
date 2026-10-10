@@ -53,7 +53,7 @@ describe("usage events", () => {
 
   it("keeps nothing without a PostHog key", async () => {
     const sent = vi.spyOn(globalThis, "fetch");
-    await forward({ ...env, POSTHOG_KEY: undefined }, parseBatch(batch([{ name: "store.opened", props: {}, at: AT }]))!);
+    await forward({ ...env, POSTHOG_KEY: "" }, parseBatch(batch([{ name: "store.opened", props: {}, at: AT }]))!);
     expect(sent).not.toHaveBeenCalled();
   });
 
