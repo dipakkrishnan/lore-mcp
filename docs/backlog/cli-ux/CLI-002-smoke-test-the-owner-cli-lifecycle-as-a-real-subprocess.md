@@ -4,13 +4,13 @@ title: Smoke-test the owner CLI lifecycle as a real subprocess, not mocked handl
 priority: P1
 effort: M
 component: cli-ux
-status: ready
+status: completed
 related: [XC-004, XC-013, XC-016]
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-08-04
-updated: 2026-08-26
+updated: 2026-10-08
 ---
 
 ## Problem
@@ -64,18 +64,18 @@ request.
 
 ## Acceptance criteria
 
-- [ ] A test invokes the real `lore` entry point via `subprocess`, not a
+- [x] A test invokes the real `lore` entry point via `subprocess`, not a
       handler function called in-process
-- [ ] It runs in a temp `LORE_HOME`/`CLAUDE_HOME`/`CODEX_HOME`, never
+- [x] It runs in a temp `LORE_HOME`/`CLAUDE_HOME`/`CODEX_HOME`, never
       touching a real user's files or `~/.lore`
-- [ ] It chains `setup → sync → review → capture → price → publication
+- [x] It chains `setup → sync → review → capture → price → publication
       review → publication list → push --local → blueprint apply →
       blueprint show` in one continuous run, asserting each step's exit
       code and a distinguishing piece of its stdout
-- [ ] It needs no network access, secrets, or Cloudflare/Base Sepolia
+- [x] It needs no network access, secrets, or Cloudflare/Base Sepolia
       account — `node deploy` and non-local `push` stay out of scope
-- [ ] Runs in CI on every pull request
-- [ ] A regression where one command writes state the next command can't
+- [x] Runs in CI on every pull request
+- [x] A regression where one command writes state the next command can't
       actually read (simulate by temporarily breaking one, e.g. a
       mismatched status string between `review` and `capture`) fails this
       test even though `tests/test_cli.py`'s mocked-handler tests still pass
@@ -97,3 +97,42 @@ contract tests") merged to `main` first via #80, so the id this item
 originally referenced was claimed by that item instead.
 
 **Prioritization pass 2026-08-26:** No blockers, explicit offline-only scope, concrete command chain given in the approach. Promoted `in-review` → `ready`.
+
+**Completed 2026-10-08.** `tests/test_cli_smoke.py` runs the chain as
+`python -m lore` processes (the same `cli.main` the `lore` script is bound
+to) and imports nothing from `lore`. Things a future reader should know:
+
+- **`push --local` stops at the `npx` boundary.** `push` shells out to
+  `npx wrangler d1 execute`, and the `python-unit` job has no Node toolchain,
+  so the test puts a stand-in `npx` first on `PATH`. It refuses any call but
+  `wrangler d1 execute lore-publications --local --file <file> -y`, and keeps
+  the script, which the test then loads into SQLite and reads back: the
+  approved piece and the price set three commands earlier. Everything on
+  Lore's side of the boundary is real (the owner gate, the job row, the SQL).
+  The real-wrangler half of the same command is the `worker-smoke` job's
+  (`XC-016`). This narrows criterion 3's "local dev database" to "the script
+  the local dev database is given"; it was the price of criterion 5 without
+  a new job.
+- **`publication review` runs on a pseudo-terminal**, because it refuses
+  anything but an attended terminal. `push` instead goes through the desktop
+  app's launch key, written under a temp `HOME` (the key path hangs off
+  `Path.home()`), so the developer's real key is never read or written. The
+  test ends by asserting that temp `HOME` holds nothing else.
+- **It lives in `python-unit`, not its own job**, so `tests.yml` is
+  untouched. The cost is thirteen cold starts of `lore`, which is not small:
+  34 s, 35 s, 64 s and 102 s over four runs on a busy laptop, where the
+  whole 555-test suite took 98 s. Nearly all of each start is `import mcp`
+  (2–4 s measured there), which `lore/sources.py` pulls in for every
+  command. That cost is every owner's too, and has no item yet. If the job
+  gets too slow on CI, move this file to its own job rather than thin the
+  chain.
+- **Criterion 6, demonstrated once and reverted:** with `_push` reading the
+  price from `store.setting("price", 0)` instead of `"price_usd"` — `price`
+  writes state `push` can no longer read — this test fails (`[] !=
+  [('0.250000',)]` on the pushed `node_settings`), while `tests/test_cli.py`
+  still passes all 170 tests, since its push-price test hands `_push_sql`
+  the price directly. The write-side versions of the same break (renaming
+  the key in `price` or in `setup`) are caught by `tests/test_cli.py`
+  itself, so they prove nothing here.
+- The two `search`/`status` calls outside the listed chain are how the test
+  reads ids and counts back out, the way an owner's agent does.
