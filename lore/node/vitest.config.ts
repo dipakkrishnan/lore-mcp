@@ -8,7 +8,9 @@ export default defineProject({
       miniflare: {
         // Point every test at a stub facilitator instead of the real
         // x402.org endpoint; individual tests control its responses by
-        // mocking `globalThis.fetch` (see test/facilitator.ts). The API key
+        // mocking `globalThis.fetch` (see test/facilitator.ts). This is the
+        // only place the override is set — wrangler.jsonc's default vars
+        // deliberately carry none (MON-042). The API key
         // is a fixture: the answer tests stub api.anthropic.com the same way.
         bindings: {
           LORE_FACILITATOR_URL: "https://facilitator.test",

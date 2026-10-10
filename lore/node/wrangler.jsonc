@@ -10,9 +10,9 @@
   // heuristically to responses without a Cache-Control header.
   "cache": { "enabled": true },
   "vars": {
-    // Overridable so tests can point at a stubbed facilitator; unset in
-    // deployment leaves this default in place.
-    "LORE_FACILITATOR_URL": "https://x402.org/facilitator",
+    // No LORE_FACILITATOR_URL here (MON-042): src/network.ts picks the
+    // facilitator from the network, and a value set here overrides it on
+    // real money too. The tests set their own stub in vitest.config.ts.
     // Lore's card checkout (XC-039). Cards appear on a piece page only once
     // the owner connects a Stripe account and prices pieces at $0.50 or more.
     "CHECKOUT_URL": "https://checkout.yourlore.dev"
