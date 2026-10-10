@@ -16,6 +16,7 @@ from __future__ import annotations
 import argparse
 import json
 import re
+import subprocess
 import unittest
 from pathlib import Path
 
@@ -150,6 +151,36 @@ class SkillContractTest(unittest.TestCase):
         codex = json.loads((ROOT / ".agents/plugins/marketplace.json").read_text())
         self.assertEqual(claude["plugins"][0]["source"], "./plugins/lore")
         self.assertEqual(codex["plugins"][0]["source"]["path"], "./plugins/lore")
+
+    def test_the_plugin_ships_the_tested_skills_and_no_second_copy(self) -> None:
+        """XC-006: one set of skill files, so a fix reaches every channel at once.
+
+        The plugin, the installer and the tests in this file all read
+        `plugins/lore/skills`. A manifest pointed somewhere else, or a second real
+        `lore-*` skill folder elsewhere in the tree, is a fork these tests never see.
+        """
+        claude = json.loads((PLUGIN / ".claude-plugin/plugin.json").read_text())
+        codex = json.loads((PLUGIN / ".codex-plugin/plugin.json").read_text())
+        # Claude Code ships the `skills/` beside the manifest unless told otherwise.
+        self.assertNotIn("skills", claude)
+        self.assertEqual((PLUGIN / codex["skills"]).resolve(), OWNER_SKILLS.resolve())
+
+        if not (ROOT / ".git").exists():
+            self.skipTest("listing the tree needs the git checkout")
+        # Untracked files count: a copy is a fork before it is ever committed. The
+        # host links under `.claude/skills` and `.agents/skills` are tracked as
+        # links, so they list no `SKILL.md` of their own.
+        listed = subprocess.run(
+            ["git", "ls-files", "--cached", "--others", "--exclude-standard"],
+            cwd=ROOT,
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout.splitlines()
+        self.assertEqual(
+            {path for path in listed if re.search(r"(^|/)lore-[^/]+/SKILL\.md$", path)},
+            {f"plugins/lore/skills/{name}/SKILL.md" for name in EXTERNAL_SKILLS},
+        )
 
     def test_every_skill_says_when_to_use_it(self) -> None:
         """A description with no trigger phrasing is a skill that never fires."""
