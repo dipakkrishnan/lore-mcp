@@ -10,7 +10,7 @@ blockers: []
 dependencies: []
 github_issue: null
 created: 2026-09-07
-updated: 2026-09-08
+updated: 2026-10-10
 ---
 
 ## Problem
@@ -59,3 +59,28 @@ stance for the desktop funnel was a deliberate call, not a default: it trades
 some of the absolute claim `PRIVACY.md` used to make for representative alpha
 data, on the condition that the disclosure and off switch actually ship in
 the same wave (`XC-029`, `CLI-004`) before `APP-058` sends anything.
+
+**2026-10-10:** `docs/telemetry.md` has drifted from the event list that
+shipped in `contracts/usage_events.json` (`APP-058`, #428). Noticed while
+filing `XC-060`..`XC-062`; recorded here because this item owns the document.
+Nothing was changed.
+
+- The funnel row names `setup.completed`, `publication.approved` and
+  `sale.viewed`. None is in the contract; the shipped names are
+  `piece.approved` and `sale.seen`, and there is no setup event. Whether
+  setup needs an event is `APP-058`'s call: its first criterion asks how
+  many installs reach setup.
+- `source.connected` and `store.listed` are sent and appear in no row,
+  against the doc's rule that an event needs a question in that table first.
+- The failure row says `cli.failed` carries "a coded command + outcome".
+  It carries the command only, as the same doc says further down.
+- The scope table still sends QA traces to "the same maintainer collector"
+  although the desktop row above it now goes to the relay, and the closing
+  paragraph still calls Workers Analytics Engine the maintainers' surface.
+- The backlog table says `APP-058` is "in-review, blocked on `XC-029` and
+  `CLI-004`". `APP-058` is `in-progress`, `CLI-004` is `completed`, and the
+  doc says `XC-029` is superseded for the desktop plane.
+
+For prioritization: `XC-029` is still `ready` at `P1` and still a blocker
+of `APP-058`, and `XC-031` still says `RELAY_URL` is `None` while
+`lore/feedback.py` pins it.
