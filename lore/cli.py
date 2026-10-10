@@ -20,6 +20,7 @@ from . import deploy as deploy_module
 from . import feedback as feedback_module
 from . import marketplace as marketplace_module
 from . import sources as sources_module
+from . import usage
 from .paths import home
 from .sources import Registry, available_sources
 from .store import (
@@ -307,6 +308,14 @@ def parser() -> argparse.ArgumentParser:
     telemetry_commands.add_parser("on", help="re-enable milestone telemetry")
     telemetry_commands.add_parser("off", help="disable milestone telemetry")
     telemetry_commands.add_parser("status", help="print whether telemetry is enabled")
+    telemetry_commands.add_parser(
+        "noticed", help="record that the owner has seen the usage notice"
+    )
+    telemetry_record = telemetry_commands.add_parser(
+        "record", help="send one usage event the desktop app observed"
+    )
+    telemetry_record.add_argument("name", choices=sorted(usage.EVENTS))
+    telemetry_record.add_argument("value", nargs="?", default="")
     serve = commands.add_parser("serve", help="run the Lore MCP server")
     serve.add_argument("--transport", choices=["stdio", "http"], default="stdio")
     serve.add_argument("--host", default="127.0.0.1")
@@ -469,9 +478,33 @@ def parser() -> argparse.ArgumentParser:
     return root
 
 
+def _parse(argv: list[str] | None) -> argparse.Namespace:
+    """Parse a command line the same way on every supported Python."""
+    root = parser()
+    args, extra = root.parse_known_args(argv)
+    # Older argparse spends `sources connect`'s optional locator on nothing as
+    # soon as an option follows the app, so `obsidian --json -- <path>` leaves
+    # the path here as a leftover instead of in `args.locator`.
+    if (
+        extra
+        and args.command == "sources"
+        and args.sources_command == "connect"
+        and not args.locator
+    ):
+        rest = extra[1:] if extra[0] == "--" else extra
+        # Without `--`, a leftover that looks like an option is a typo, not a path.
+        if len(rest) == 1 and (extra[0] == "--" or not rest[0].startswith("-")):
+            args.locator, extra = rest[0], []
+    if extra:
+        root.error(f"unrecognized arguments: {' '.join(extra)}")
+    return args
+
+
 def main(argv: list[str] | None = None) -> int:
     """Parse and run one Lore command."""
-    args = parser().parse_args(argv)
+    args = _parse(argv)
+    if _interactive() and args.command not in (None, "telemetry"):
+        _usage_notice()
     if not args.command:
         if sys.stdin.isatty() and sys.stdout.isatty():
             return dashboard()
@@ -523,6 +556,12 @@ def main(argv: list[str] | None = None) -> int:
             if args.answer_command == "on":
                 return answer_enable(args.file, args.price)
             return answer_disable()
+        if args.command == "telemetry" and args.telemetry_command == "noticed":
+            usage.notice_shown()
+            return 0
+        if args.command == "telemetry" and args.telemetry_command == "record":
+            usage.record(args.name, args.value)
+            return 0
         if args.command == "telemetry":
             if args.telemetry_command == "on":
                 return telemetry_set(True)
@@ -545,7 +584,10 @@ def main(argv: list[str] | None = None) -> int:
             return serve(serve_args)
         if args.command == "node":
             if args.node_command == "deploy":
-                return deploy_module.deploy(args.wallet, args.network)
+                deployed = deploy_module.deploy(args.wallet, args.network)
+                if deployed == 0:
+                    usage.record("store.opened")
+                return deployed
             if args.node_command == "secret":
                 _owner_action("storing a node secret")
                 return deploy_module.secret(args.name, sys.stdin.read().strip())
@@ -600,6 +642,8 @@ def main(argv: list[str] | None = None) -> int:
         return 130
     except (OSError, ValueError) as error:
         print(f"lore: {error}", file=sys.stderr)
+        command = args.command if args.command in usage.COMMANDS else "other"
+        usage.record("cli.failed", command)
         return 1
     return 0
 
@@ -727,6 +771,8 @@ def setup(yes: bool = False) -> int:
     total = sum(item["added"] + item["updated"] for item in report.values())
     heading("Ready")
     success(f"Imported {total} candidate memories")
+    if enabled:
+        usage.record("source.connected", "agents")
     print('Next, tell Claude or Codex: "Onboard me to Lore."')
     return 0
 
@@ -812,6 +858,8 @@ def source_command(args: argparse.Namespace) -> int:
                     show=_approve,
                 )
                 payload, lines = added, [_source_line(added)]
+                if args.connector in usage.CONNECTORS:
+                    usage.record("source.connected", args.connector)
             elif command == "choices":
                 connector = sources_module.Connector.named(args.connector)
                 choices = [choice.model_dump() for choice in connector.choices()]
@@ -924,6 +972,7 @@ def capture_apply(file: str) -> int:
     """Validate and save memories the owner corrected in an attended agent session."""
     text = sys.stdin.read() if file == "-" else Path(file).read_text(encoding="utf-8")
     results = capture_module.save(json.loads(text))
+    usage.record("memory.saved")
     print(json.dumps(results, indent=2))
     return 0
 
@@ -1061,6 +1110,12 @@ def edit_memory(
 
 def sales(as_json: bool) -> int:
     rows = deploy_module.sales()
+    for via in {
+        "card" if r.network == "stripe" else "agent"
+        for r in rows
+        if r.network != deploy_module.FREE_NETWORK
+    }:
+        usage.record("sale.seen", via)
     if as_json:
         print(deploy_module.SALES.dump_json(rows).decode())
         return 0
@@ -1316,6 +1371,20 @@ def profile(path: str, schedule: bool = True) -> int:
     return 0
 
 
+def _usage_notice() -> None:
+    """Say once, before the first event, what is sent and how to stop it."""
+    with Store() as store:
+        if store.setting(usage.NOTICED_SETTING, False) is True:
+            return
+    print(
+        "Lore sends anonymous usage events, like 'store opened' or 'first piece "
+        "approved', never your writing. See them in ~/.lore/usage.log; turn "
+        "them off with `lore telemetry off`.",
+        file=sys.stderr,
+    )
+    usage.notice_shown()
+
+
 def _interactive() -> bool:
     """Whether approval is running in an attended interactive terminal."""
     return sys.stdin.isatty() and sys.stdout.isatty()
@@ -1429,6 +1498,7 @@ def _save(store: Store, publication: Publication) -> None:
     store.add_publication(
         **publication.model_dump(include=set(PublicationInput.model_fields))
     )
+    usage.record("piece.approved")
 
 
 def publication_apply(path: str) -> int:
@@ -2090,6 +2160,8 @@ def marketplace(args: argparse.Namespace) -> int:
     else:
         _owner_action("changing your marketplace listing")
         listing = market.delist() if command == "delist" else market.list(args.name)
+        if command == "list":
+            usage.record("store.listed")
     if args.json:
         print(listing.model_dump_json(exclude_none=True))
     elif listing.state == "listed":

@@ -7,8 +7,10 @@ so with an exit code and a message rather than a traceback.
 
 from __future__ import annotations
 
+import argparse
 import json
 import os
+import re
 import sqlite3
 import subprocess
 import sys
@@ -19,7 +21,7 @@ from datetime import datetime, timedelta, timezone
 from io import StringIO
 from pathlib import Path
 from typing import Iterator
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from helpers import LoreTestCase, blueprint_input, captured
 
@@ -397,6 +399,104 @@ class SourcesCommandTest(LoreTestCase):
                     self.assertEqual(cli.main(argv), 2)
                 self.assertEqual(len(stderr.getvalue().splitlines()), 1)
                 self.assertTrue(stderr.getvalue().startswith("lore: "))
+
+    @contextmanager
+    def connecting(self) -> Iterator[MagicMock]:
+        """Stand in for the registry, so a case sees only what the parser sent."""
+        connected = {
+            "name": "obsidian-1",
+            "label": "Obsidian",
+            "state": "connected",
+            "imported": 0,
+            "enabled": True,
+        }
+        with patch.object(
+            sources_module.Registry, "connect", return_value=connected
+        ) as connect:
+            yield connect
+
+    def test_connect_takes_its_locator_after_options_and_a_double_dash(self) -> None:
+        # The desktop app sends the fourth shape. Older argparse gives up on the
+        # optional locator as soon as an option follows the app, so each of
+        # these has to hold on the lowest Python `pyproject.toml` allows.
+        for tail, locator, replacing in (
+            (["/vault"], "/vault", None),
+            (["--", "/vault"], "/vault", None),
+            (["--json", "--", "/vault"], "/vault", None),
+            (["--replace", "old", "--json", "--", "/vault"], "/vault", "old"),
+            (["--json", "/vault"], "/vault", None),
+            (["--json", "--", "-vault"], "-vault", None),
+            (["--json"], "", None),
+        ):
+            with self.subTest(tail=tail), self.connecting() as connect, captured():
+                self.assertEqual(cli.main(["sources", "connect", "obsidian", *tail]), 0)
+                connect.assert_called_once()
+                self.assertEqual(connect.call_args.args, ("obsidian", locator))
+                self.assertEqual(connect.call_args.kwargs["replacing"], replacing)
+
+    def test_connect_recovers_a_locator_the_parser_left_over(self) -> None:
+        # What older argparse hands back, replayed so the recovery is exercised
+        # on every Python rather than only on the ones that need it.
+        for extra in (["--", "/vault"], ["/vault"], ["--", "-vault"]):
+            stranded = argparse.Namespace(
+                command="sources",
+                sources_command="connect",
+                connector="obsidian",
+                locator="",
+                replace=None,
+                json=True,
+            )
+            with (
+                self.subTest(extra=extra),
+                patch.object(
+                    argparse.ArgumentParser,
+                    "parse_known_args",
+                    return_value=(stranded, list(extra)),
+                ),
+                self.connecting() as connect,
+                captured(),
+            ):
+                self.assertEqual(cli.main(["ignored"]), 0)
+                self.assertEqual(connect.call_args.args, ("obsidian", extra[-1]))
+
+    def test_connect_still_refuses_what_is_not_one_locator(self) -> None:
+        for argv in (
+            ["sources", "connect", "obsidian", "--bogus"],
+            ["sources", "connect", "obsidian", "--json", "--bogus"],
+            ["sources", "connect", "obsidian", "--", "/vault", "/other"],
+            ["sources", "connect", "obsidian", "/vault", "--json", "--", "/other"],
+            ["sources", "list", "extra"],
+            ["status", "--", "extra"],
+        ):
+            with (
+                self.subTest(argv=argv),
+                self.connecting() as connect,
+                captured(),
+                patch.object(sys, "stderr", StringIO()),
+            ):
+                with self.assertRaises(SystemExit) as refused:
+                    cli.main(argv)
+                self.assertEqual(refused.exception.code, 2)
+                # An empty locator means the current folder to a folder reader.
+                connect.assert_not_called()
+
+
+class SupportedPythonTest(unittest.TestCase):
+    def test_ci_runs_this_file_on_the_lowest_python_the_package_allows(self) -> None:
+        # `python-floor.yml` is what makes the cases above mean "every supported
+        # Python"; it only does while it names the floor `pyproject.toml` declares.
+        root = Path(__file__).resolve().parents[1]
+        declared = re.search(
+            r'^requires-python = ">=(\d+\.\d+)"$',
+            (root / "pyproject.toml").read_text(encoding="utf-8"),
+            re.MULTILINE,
+        )
+        assert declared is not None
+        workflow = (root / ".github/workflows/python-floor.yml").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn(f"--python {declared.group(1)} ", workflow)
+        self.assertIn("-p test_cli.py", workflow)
 
 
 class SyncTest(LoreTestCase):
@@ -1942,7 +2042,9 @@ class PublicationExtrasTest(LoreTestCase):
 class PublicationCommandTest(LoreTestCase):
     def setUp(self) -> None:
         super().setUp()
-        self.enterContext(patch.object(cli, "_interactive", return_value=True))
+        interactive = patch.object(cli, "_interactive", return_value=True)
+        interactive.start()
+        self.addCleanup(interactive.stop)
         self.memory_id = self.seed_memory("Pricing lesson")
 
     def publish(
@@ -2159,7 +2261,9 @@ class PushTest(LoreTestCase):
 
     def setUp(self) -> None:
         super().setUp()
-        self.enterContext(patch.object(cli, "_interactive", return_value=True))
+        interactive = patch.object(cli, "_interactive", return_value=True)
+        interactive.start()
+        self.addCleanup(interactive.stop)
         self.memory_id = self.seed_memory("Pricing lesson")
         self.worker = self.lore_home / "node"
         self.worker.mkdir(parents=True)

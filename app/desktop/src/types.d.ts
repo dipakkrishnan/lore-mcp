@@ -22,6 +22,9 @@ type Snapshot = {
     sources_configured: boolean;
     blueprint_configured: boolean;
     profile_configured: boolean;
+    // Anonymous usage events (APP-058): on unless turned off, sent only once the notice was shown.
+    telemetry_enabled?: boolean;
+    telemetry_noticed?: boolean;
     // What the saved rhythm asks for and whether the scheduler holds it; null
     // with no profile. Optional: an installed CLI older than this app omits it.
     schedule?: { installed: boolean; executor: "claude" | "codex" | null; cadence: "daily" | "weekly" | null; hour: number | null } | null;
@@ -245,6 +248,9 @@ interface Window {
     setPrice(amount: number): Promise<void>;
     setFreeCopies(count: number): Promise<void>;
     revealHome(): Promise<string>;
+    usage(name: "noticed" | "app.opened"): Promise<void>;
+    setTelemetry(on: boolean): Promise<void>;
+    usageLog(): Promise<string>;
     sales(): Promise<Sale[]>;
     views(): Promise<Record<string, number>>;
     reportFeedback(input: { title: string; email: string; description: string }): Promise<FeedbackReceipt>;

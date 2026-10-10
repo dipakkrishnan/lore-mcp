@@ -697,6 +697,14 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         check("…and says how the store update went, once it has", await waitFor(`/have their new pages|go live with your next store update/.test(document.body.textContent) && !document.body.textContent.includes("updating your store. It takes")`));
         check("…and leaves the new drafts alone", await js(`window.lore.candidates().then((left) => left.length)`) === 2);
         await shot("today-extras-approved");
+        // APP-058: someone signed in before usage events existed hears about them once, then can turn them off.
+        check("the usage notice is said once, before anything is sent", await js(`window.lore.snapshot().then((s) => s.setup.telemetry_noticed === true)`));
+        await js(`window.__lore.show("settings")`);
+        const usage = `[...document.querySelectorAll("#content .row")].find((r) => r.textContent.includes("Anonymous usage"))`;
+        check("Settings shows the usage switch, on", await waitFor(`${usage}?.textContent.includes("On")`));
+        await js(`[...${usage}.querySelectorAll("button")].find((b) => b.textContent === "Turn off").click()`);
+        check("…and turns it off", await waitFor(`window.lore.snapshot().then((s) => s.setup.telemetry_enabled === false)`));
+        await shot("settings-usage-off");
       } else if (scenario === "sales") {
         // MON-037: a new sale is a Mac notification and shows on Today; old sales never are.
         const { existsSync, readFileSync } = require("node:fs");

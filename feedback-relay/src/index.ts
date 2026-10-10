@@ -1,3 +1,4 @@
+import { forward, parseBatch } from "./events.js";
 import { createIssue } from "./issue.js";
 import { allow } from "./limit.js";
 import { LIMITS, ReportError, parseReport } from "./report.js";
@@ -17,9 +18,34 @@ function errorResponse(status: number, message: string, headers: HeadersInit = {
   return json({ error: message }, status, headers);
 }
 
+const EVENTS_BODY_BYTES = 8_192;
+
+/** Usage events: checked against the list here, passed on after the response, never blocking the sender. */
+async function events(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+  if (request.method !== "POST") return errorResponse(405, "method not allowed", { Allow: "POST" });
+  if (env.EVENTS_RATE_LIMIT) {
+    const ip = request.headers.get("cf-connecting-ip") ?? "unknown";
+    if (!(await env.EVENTS_RATE_LIMIT.limit({ key: ip })).success) return errorResponse(429, "too many requests", { "Retry-After": "60" });
+  }
+  const raw = await request.text();
+  if (new TextEncoder().encode(raw).length > EVENTS_BODY_BYTES) return errorResponse(413, "request body too large");
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return errorResponse(400, "the request body is not valid JSON");
+  }
+  const batch = parseBatch(parsed);
+  if (!batch) return errorResponse(400, "not a usage batch");
+  ctx.waitUntil(forward(env, batch).catch(() => undefined));
+  return json({ accepted: batch.events.length }, 202);
+}
+
 export default {
-  async fetch(request: Request, env: Env): Promise<Response> {
+  async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
+
+    if (url.pathname === "/events") return events(request, env, ctx);
 
     if (url.pathname === "/") {
       return new Response(
