@@ -5,7 +5,7 @@ const { app, BrowserWindow, dialog, ipcMain, safeStorage, shell, systemPreferenc
 const { provision, skillsDir, whisper } = require("./runtime.cjs");
 const { transcribe } = require("./dictation.cjs");
 const sales = require("./sales.cjs");
-const { lore, loreStream, openable, readState, readSales, readViews, searchMemories, readMemory, renameMemory, editMemory, captureMemories, previewPage, setPrice, setFreeCopies, newCollection, addToCollection, renameCollection, priceCollection, removeFromCollection, deleteCollection, setFeed, feedOff, candidates, decide, extrasCandidates, decideExtras, approveExtras, reportFeedback, listStore, cardStatus, connectCards, switchCards, listingStatus, sourceCatalog, sourceChoices, connectSource, signIn, readSource, removeSource, useRuntime } = require("./state.cjs");
+const { lore, loreStream, openable, readState, readSales, readViews, searchMemories, readMemory, renameMemory, editMemory, captureMemories, previewPage, setPrice, setFreeCopies, newCollection, addToCollection, sellPieces, renameCollection, priceCollection, removeFromCollection, deleteCollection, setFeed, feedOff, candidates, decide, extrasCandidates, decideExtras, approveExtras, reportFeedback, listStore, cardStatus, connectCards, switchCards, listingStatus, sourceCatalog, sourceChoices, connectSource, signIn, readSource, removeSource, useRuntime } = require("./state.cjs");
 
 if (process.env.LORE_DESKTOP_USER_DATA) app.setPath("userData", process.env.LORE_DESKTOP_USER_DATA);
 
@@ -160,6 +160,10 @@ function registerIpc(loreHome) {
   ipcMain.handle("collection:add", (_event, id, input) => {
     if (!input || typeof input !== "object") throw new Error("Invalid collection input");
     return addToCollection(loreHome, id, input);
+  });
+  ipcMain.handle("sell:pieces", (_event, input) => {
+    if (!input || typeof input !== "object") throw new Error("Invalid sale input");
+    return sellPieces(loreHome, input);
   });
   ipcMain.handle("collection:rename", (_event, id, title) => {
     if (typeof title !== "string") throw new Error("Invalid title");

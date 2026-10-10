@@ -45,6 +45,8 @@ contextBridge.exposeInMainWorld("lore", {
   setPrice: (amount) => ipcRenderer.invoke("pricing:set", amount),
   /** @param {number} count */
   setFreeCopies: (count) => ipcRenderer.invoke("pricing:free-copies", count),
+  /** Pasted text and files, each put on sale as its own piece. @param {{items?: Array<{title: string, content: string}>, files?: string[]}} input */
+  sellPieces: (input) => ipcRenderer.invoke("sell:pieces", input),
   /** @param {string} [title] */
   newCollection: (title) => ipcRenderer.invoke("collection:new", title),
   /** @param {number} id @param {{items?: Array<{title: string, content: string}>, files?: string[]}} input */

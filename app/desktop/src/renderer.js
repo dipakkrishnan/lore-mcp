@@ -13,7 +13,6 @@ const content = $("#content");
 const account = $("#account");
 const taskBack = /** @type {HTMLButtonElement} */ ($("#task-back"));
 const taskRestart = /** @type {HTMLButtonElement} */ ($("#task-restart"));
-const addMemoryBtn = /** @type {HTMLButtonElement} */ ($("#add-memory"));
 const feedbackBtn = /** @type {HTMLButtonElement} */ ($("#feedback-open"));
 const captureArea = $("#capture");
 const composer = /** @type {HTMLFormElement} */ ($("#composer"));
@@ -137,7 +136,7 @@ const EXPLORERS = { "eip155:8453": "https://basescan.org", "eip155:84532": "http
 const REAL_MONEY = "I'm ready to switch my store to real money.";
 const SETUP_INTENT = "Let's set up my Lore.";
 const STORE_INTENT = "Help me open my store.";
-const REDEPLOY_PRICE = "I changed my publication price. Redeploy my store so buyers pay the new amount.";
+const REDEPLOY_PRICE = "I changed my piece price. Redeploy my store so buyers pay the new amount.";
 // Six decimals, not the default two: a price can run below a cent, and rounding
 // $0.000001 up to $0.01 would misstate what a buyer pays. Six is the CLI's floor.
 const money = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 6 });
@@ -505,7 +504,7 @@ function price(value) {
 function offers(s) {
   /** @type {Array<[string, string]>} */
   const list = [];
-  if (typeof s.pricing.publication_usd === "number") list.push([price(s.pricing.publication_usd), "a publication"]);
+  if (typeof s.pricing.publication_usd === "number") list.push([price(s.pricing.publication_usd), "a piece"]);
   if (s.pricing.answer_enabled) list.push([price(s.pricing.answer_usd), "an answer"]);
   return list;
 }
@@ -563,7 +562,7 @@ function pushDetail(items, index) {
   const previous = items.slice(index + 1).find((other) => other.kind === "push" && other.status === "succeeded" && typeof other.count === "number");
   const delta = previous?.count == null ? 0 : item.count - previous.count;
   const change = delta > 0 ? `, ${delta} more than before` : delta < 0 ? `, ${-delta} fewer than before` : "";
-  return `${item.count} publication${item.count === 1 ? "" : "s"} on your store${change}`;
+  return `${item.count} piece${item.count === 1 ? "" : "s"} on your store${change}`;
 }
 
 /** @param {Snapshot["node"]["live"]["state"]} state */
@@ -633,17 +632,18 @@ function needsYou(s) {
     node.append(lead, action);
     rows.push(node);
   };
-  if (!s.library.sources.some((source) => source.connector)) add("Bring in what you've written", "Notes, posts, or AI conversations from apps you already use.", button("Connect", "secondary", () => show("connectors")));
-  if (!s.setup.sources_configured) {
-    if (s.library.sources.some((source) => !source.owned)) add("Connect your agents", "Let Lore read what Claude Code and Codex already remember.", button("Start", "secondary", startSetup));
-  } else if (!s.setup.blueprint_configured) add("Shape your Lore", "Review one proposal based on what your agents already know.", button("Start", "secondary", startSetup));
-  else if (!s.setup.profile_configured) add("Set the rhythm", "Choose which model writes new memories, and how often.", button("Start", "secondary", startSetup));
+  // Setup asks one thing at a time: the first of these that applies is the next step.
+  const next = (/** @type {string} */ label, /** @type {string} */ detail, /** @type {HTMLElement} */ action) => { if (!rows.length) add(label, detail, action); };
+  if (!s.library.sources.some((source) => source.connector)) next("Bring in what you've written", "Notes, posts, or AI conversations from apps you already use.", button("Connect", "secondary", () => show("connectors")));
+  // Connecting agents lives in Connectors, not on Today.
+  if (s.setup.sources_configured && !s.setup.blueprint_configured) next("Shape your Lore", "Review one proposal based on what your agents already know.", button("Start", "secondary", startSetup));
+  else if (s.setup.sources_configured && !s.setup.profile_configured) next("Set the rhythm", "Choose which model writes new memories, and how often.", button("Start", "secondary", startSetup));
   // The store rung waits for approved work, whatever rung setup is on: the
   // payout address is asked last, once there is something worth being paid for.
-  if (s.publications.counts.active && !s.node.url && !pushOffer) add("Open your store", `${s.publications.counts.active === 1 ? "Your approved piece is" : `Your ${s.publications.counts.active} approved pieces are`} ready to sell. Pick a price and where payments go.`, button("Open", "secondary", () => void startDeploy()));
+  if (s.publications.counts.active && !s.node.url && !pushOffer) next("Open your store", `${s.publications.counts.active === 1 ? "Your approved piece is" : `Your ${s.publications.counts.active} approved pieces are`} ready to sell. Pick a price and where payments go.`, button("Open", "secondary", () => void startDeploy()));
   const publishing = candidates.length || extraDrafts.length || taskItems.some((item) => item.kind === "publish");
-  if (!publishing) add("Sell something you wrote", "Paste a post, a postmortem or notes. Lore drafts the piece and shows you its page.", button("Paste", "secondary", openPasteSheet));
-  if (s.library.counts.private && !publishing) add("Publish something", "Lore drafts up to three things to sell; you approve each one.", button("Publish", "secondary", () => void startPublish()));
+  if (!publishing) next("Sell something you wrote", "Drop a file or paste a post. Sell it on its own, or a few together.", button("Sell", "secondary", () => openSellSheet()));
+  if (s.library.counts.private && !publishing) next("Publish something", "Lore drafts up to three things to sell; you approve each one.", button("Publish", "secondary", () => void startPublish()));
   // Approved work a buyer cannot see yet, or a price they are not yet paying, is actionable whatever rung setup is on.
   const stale = stalePrice(s);
   if (stale !== null && !pushing) add("Your new price isn't live yet", `Your store still charges ${price(stale)}. Update it to start charging ${price(s.pricing.publication_usd)}.`, button("Update store", "secondary", () => void startDeploy(REDEPLOY_PRICE)));
@@ -742,8 +742,8 @@ function priceRow(s) {
   const item = el("div", "price-row");
   const open = el("button", "price-open");
   open.type = "button";
-  open.title = "Change what a buyer pays per publication";
-  if (typeof s.pricing.publication_usd === "number") open.append(document.createTextNode(`${price(s.pricing.publication_usd)} `), el("span", "", ["a publication", freeCopies(s.pricing.free_copies)].filter(Boolean).join(" · ")));
+  open.title = "Change what a buyer pays per piece";
+  if (typeof s.pricing.publication_usd === "number") open.append(document.createTextNode(`${price(s.pricing.publication_usd)} `), el("span", "", ["a piece", freeCopies(s.pricing.free_copies)].filter(Boolean).join(" · ")));
   else open.append("Not set");
   open.addEventListener("click", () => { editingPrice = true; render(); });
   item.append(open);
@@ -756,7 +756,7 @@ function priceField(value) {
   const input = el("input");
   input.type = "text";
   input.inputMode = "decimal";
-  input.setAttribute("aria-label", "Price per publication in US dollars");
+  input.setAttribute("aria-label", "Price per piece in US dollars");
   input.value = value;
   input.placeholder = "0.01";
   field.append(el("span", "price-prefix", "$"), input);
@@ -790,7 +790,7 @@ function priceEditor(s) {
   cancel.disabled = savingPrice;
   save.disabled = savingPrice;
   actions.append(cancel, save);
-  form.append(field, el("span", "", "a publication"));
+  form.append(field, el("span", "", "a piece"));
   /** @type {HTMLInputElement | null} */
   let copies = null;
   if (typeof s.pricing.free_copies === "number") {
@@ -908,7 +908,7 @@ function renderStore(s) {
   const aside = el("div", "section-aside");
   const adds = waiting.filter((item) => item.state === "approved").length;
   const onStore = adds === 0 ? "all on your store" : adds < approved.length ? `${adds} not on your store yet` : approved.length === 1 ? "not on your store yet" : "none on your store yet";
-  if (approved.length) aside.append(el("span", "hint", `${approved.length} ${approved.length === 1 ? "publication" : "publications"}${live.state === "online" ? ` · ${onStore}` : ""}`));
+  if (approved.length) aside.append(el("span", "hint", `${approved.length} ${approved.length === 1 ? "piece" : "pieces"}${live.state === "online" ? ` · ${onStore}` : ""}`));
   if (waiting.length) {
     const push = button(pushing ? "Updating…" : "Update store", "quiet", pushNow);
     push.disabled = pushing;
@@ -936,21 +936,21 @@ function feedCard(feed) {
   const lead = el("div", "lead");
   const text = el("div", "t");
   if (on) {
-    lead.append(el("span", "dot ok"));
-    text.append(el("b", "sans", `Feed on · ${price(feed.price_usd)} for ${feed.days} days`), el("span", "hint", "Agents that subscribe can read everything you sell, old and new, until their pass runs out."));
+    lead.append(el("span", storeOpen() ? "dot ok" : "dot"));
+    text.append(el("b", "sans", `Subscriptions on · ${price(feed.price_usd)} a month`), el("span", "hint", "Agents that subscribe can read everything you sell, old and new, until their subscription runs out."));
   } else {
-    text.append(el("b", "sans", "Let agents subscribe to everything you sell"), el("span", "hint", `${price(feed.suggested_usd)} for ${feed.days} days, old pieces and new. You can change the price after.`));
+    text.append(el("b", "sans", "Paid subscription"), el("span", "hint", `Let agents subscribe to everything you sell. ${price(feed.suggested_usd)} a month, old pieces and new. You can change the price after.`));
   }
   lead.append(text);
   box.append(lead);
   if (editingFeedPrice) {
     const form = /** @type {HTMLFormElement} */ (el("form", "price-edit"));
     const [field, input] = priceField(String(on ? feed.price_usd : feed.suggested_usd));
-    input.setAttribute("aria-label", `Feed price for ${feed.days} days in US dollars`);
+    input.setAttribute("aria-label", "Subscription price per month in US dollars");
     const save = el("button", "btn primary sm", savingFeed ? "Saving…" : "Save");
     save.type = "submit";
     save.disabled = savingFeed;
-    form.append(field, el("span", "", `for ${feed.days} days`), save, button("Cancel", "quiet", () => { editingFeedPrice = false; render(); }));
+    form.append(field, el("span", "", "a month"), save, button("Cancel", "quiet", () => { editingFeedPrice = false; render(); }));
     form.addEventListener("submit", (event) => {
       event.preventDefault();
       const amount = parsePrice(input.value);
@@ -965,7 +965,7 @@ function feedCard(feed) {
   if (on) {
     actions.append(button("Change price", "quiet", () => { editingFeedPrice = true; render(); }), button(savingFeed ? "Turning off…" : "Turn off", "secondary", () => void saveFeed(0)));
   } else {
-    actions.append(button(savingFeed ? "Turning on…" : "Turn on feed", "primary", () => void saveFeed(null)));
+    actions.append(button(savingFeed ? "Turning on…" : "Turn on subscriptions", "primary", () => void saveFeed(null)));
   }
   for (const control of actions.querySelectorAll("button")) /** @type {HTMLButtonElement} */ (control).disabled = savingFeed;
   box.append(actions);
@@ -982,8 +982,8 @@ async function saveFeed(amount) {
     editingFeedPrice = false;
     const feed = snapshot?.feed;
     const live = storeOpen();
-    if (amount === 0) tell("Feed off. Passes already bought keep working until they run out.");
-    else tell(live ? `Feed on at ${price(feed?.price_usd ?? amount ?? 0)} for ${feed?.days ?? 30} days.` : "Feed on. Agents can subscribe once your store is open.", false, live ? undefined : { label: "Open your store", run: () => void startDeploy() });
+    if (amount === 0) tell("Subscriptions off. Subscriptions already bought keep working until they run out.");
+    else tell(live ? `Subscriptions on at ${price(feed?.price_usd ?? amount ?? 0)} a month.` : "Subscriptions on. Agents can subscribe once your store is open.", false, live ? undefined : { label: "Open your store", run: () => void startDeploy() });
   }
   render();
 }
@@ -1774,7 +1774,7 @@ function renderConnectors(s) {
 /** FAQ: what Lore does, then how the money works, in the order a first-time owner asks. Every
  * answer states the mechanism as it is; no earnings figure the ledger cannot show. @param {Snapshot} s */
 function renderFaq(s) {
-  const prices = typeof s.pricing.publication_usd === "number" ? `Yours is ${price(s.pricing.publication_usd)} a publication, set on For Sale.` : "You set what a publication costs on For Sale, before your store opens.";
+  const prices = typeof s.pricing.publication_usd === "number" ? `Yours is ${price(s.pricing.publication_usd)} a piece, set on For Sale.` : "You set what a piece costs on For Sale, before your store opens.";
   /** @param {string} question @param {string | HTMLElement} answer */
   const qa = (question, answer) => row(question, answer, undefined, true);
   const buyerGuide = el("span");
@@ -1837,7 +1837,8 @@ function renderSettings(s) {
         ? [row("Test payments", "Your store takes play money while it's on the test network. Switch when you want real buyers paying real money.", cell(pill("Test"), button("Switch to real payments", "secondary", () => void startDeploy(REAL_MONEY))), false)]
         : []),
       ...marketplaceRow(s)
-    ]))
+    ])),
+    section("Help", card([row("Help & FAQ", "What Lore does, who buys, and how the money reaches you.", cell(button("Open FAQ", "secondary", () => show("faq"))), false)]))
   ];
 }
 
@@ -1856,7 +1857,6 @@ function render() {
   title.textContent = heading;
   taskBack.hidden = !detail;
   taskRestart.hidden = !detail || detailRecord?.state !== "stopped";
-  addMemoryBtn.hidden = Boolean(detail) || view !== "memories";
   captureArea.hidden = view !== "today";
   log.hidden = !detail;
   syncComposer();
@@ -2413,7 +2413,7 @@ function renderRequest(event) {
       go.textContent = "Done";
     });
   } else if (event.type === "price") {
-    box.append(el("p", "q", "What should a buyer pay per publication?"), el("p", "hint", event.reason));
+    box.append(el("p", "q", "What should a buyer pay per piece?"), el("p", "hint", event.reason));
     const [field, amount] = priceField(String(event.amount));
     const actions = el("div", "actions");
     const later = el("button", "btn secondary sm", "Not now");
@@ -2852,6 +2852,151 @@ function openPasteSheet() {
   const dialog = sheet("Sell something you wrote", mark(), form);
 }
 
+/** One thing the sell sheet will sell: pasted text, or a file's path. @typedef {{title: string, text?: string, path?: string}} SellPiece */
+/** While the sell sheet is open, files dropped anywhere in the app go into it. @type {((paths: string[]) => void) | null} */
+let addToSell = null;
+
+/** A file's name without its extension, for the piece it becomes. @param {string} path */
+function fileTitle(path) {
+  return (path.split("/").pop() ?? path).replace(/\.[^.]+$/, "").slice(0, 80);
+}
+
+/** A paste's first line without a leading #, so a heading titles its piece. @param {string} text */
+function textTitle(text) {
+  const line = text.split("\n").find((part) => part.trim()) ?? "";
+  return line.trim().replace(/^#+\s*/, "").slice(0, 80) || "Untitled piece";
+}
+
+/** What the CLI sells: pasted text as items, files by path. @param {SellPiece[]} pieces */
+function saleInput(pieces) {
+  return {
+    items: pieces.flatMap((piece) => piece.text === undefined ? [] : [{ title: piece.title, content: piece.text }]),
+    files: pieces.flatMap((piece) => piece.path ? [piece.path] : [])
+  };
+}
+
+/** A piece sold on its own, at the store's price; $1 until a store price is set. */
+function pieceListPrice() {
+  const usd = snapshot?.pricing.publication_usd;
+  return typeof usd === "number" ? usd : 1;
+}
+
+/** Sell something: files and pasted writing, reviewed here before anything goes on sale or stays private.
+ * @param {string[]} [paths] Files dropped on the app, already in the sheet. */
+function openSellSheet(paths = []) {
+  /** @type {SellPiece[]} */
+  const pieces = [];
+  const form = el("div", "feedback-form");
+  const zone = el("div", "drop-zone sell-drop");
+  zone.append(el("b", "", "Drop files here"), el("span", "hint", "Each file becomes one piece."));
+  const problem = problemLine();
+  const review = el("div", "sell-review");
+
+  /** @param {string[]} files */
+  const addFiles = (files) => {
+    for (const path of files) {
+      if (pieces.some((piece) => piece.path === path)) continue;
+      if (GUARDED.test(path)) { problem.textContent = `${path.split("/").pop()} looks like a credential or hidden file, so Lore won't sell it.`; continue; }
+      pieces.push({ title: fileTitle(path), path });
+    }
+    paint();
+  };
+  const choose = button("Choose files", "secondary", async () => addFiles(await window.lore.pickFiles()));
+  const from = el("button", "link-btn", "From an app you use");
+  from.type = "button";
+  from.addEventListener("click", () => { closeSheet(); show("connectors"); });
+  const pick = el("div", "actions");
+  pick.append(from, choose);
+  form.append(zone, pick);
+
+  const text = /** @type {HTMLTextAreaElement} */ (draftField(form, "Or paste your writing", ""));
+  text.rows = 4;
+  const addText = button("Add text", "secondary", () => {
+    const content = text.value.trim();
+    if (!content) { problem.textContent = "Paste something first."; return; }
+    pieces.push({ title: textTitle(content), text: content });
+    text.value = "";
+    problem.textContent = "";
+    paint();
+  });
+  const addRow = el("div", "actions");
+  addRow.append(addText);
+  form.append(addRow, problem);
+
+  /** Runs one change; a failure is said in the sheet, where the owner can correct it. @param {() => Promise<unknown>} work */
+  const attempt = async (work) => {
+    problem.textContent = "";
+    try {
+      await work();
+      return true;
+    } catch (error) {
+      problem.textContent = reason(error, "Lore could not do that.");
+      return false;
+    }
+  };
+  const sellApart = async () => {
+    if (!await attempt(() => window.lore.sellPieces(saleInput(pieces)))) return;
+    closeSheet();
+    await load();
+    tell(pieces.length === 1 ? "On sale: 1 piece." : `On sale: ${pieces.length} pieces.`);
+    show("store");
+  };
+  const sellTogether = async (/** @type {number} */ amount) => {
+    const input = saleInput(pieces);
+    const title = input.files.length ? "Untitled collection" : input.items[0]?.title ?? "Untitled collection";
+    /** @type {NewCollection | null} */
+    let made = null;
+    const done = await attempt(async () => {
+      made = await window.lore.newCollection(title);
+      await window.lore.addToCollection(/** @type {NewCollection} */ (made).id, input);
+      await window.lore.priceCollection(/** @type {NewCollection} */ (made).id, amount);
+    });
+    if (done && made) {
+      closeSheet();
+      await load();
+      showCollection(/** @type {NewCollection} */ (made).id);
+      tell(`Sold together at ${price(amount)}.`);
+    }
+  };
+  const keepPrivate = () => {
+    const texts = pieces.flatMap((piece) => piece.text === undefined ? [] : [piece.text]);
+    closeSheet();
+    attach(saleInput(pieces).files);
+    startCapture(texts.join("\n\n"));
+  };
+
+  const paint = () => {
+    review.replaceChildren();
+    if (!pieces.length) return;
+    const list = el("div", "sell-list");
+    for (const piece of pieces) list.append(el("span", "", piece.title));
+    const actions = el("div", "actions");
+    const keep = button("Keep private", "quiet", keepPrivate);
+    if (pieces.length === 1) {
+      review.append(list, el("p", "hint", `Sold on its own at ${price(pieceListPrice())}`));
+      actions.append(keep, button("Put on sale", "primary", () => void sellApart()));
+    } else {
+      const [field, amount] = priceField(String(Math.max(1, Math.round(0.8 * pieces.length * pieceListPrice()))));
+      amount.setAttribute("aria-label", "Price for all of them together, in US dollars");
+      const together = el("div", "sell-price");
+      together.append(el("b", "sans", "Sell these together?"), field, el("span", "hint", "for all of them"));
+      review.append(list, together);
+      actions.append(keep, button("Sell one by one", "secondary", () => void sellApart()), button("Sell together", "primary", () => {
+        const value = parsePrice(amount.value);
+        if (value === null) { problem.textContent = `${ABOVE_ZERO}.`; return; }
+        void sellTogether(value);
+      }));
+    }
+    review.append(actions);
+  };
+
+  const node = sheet("Sell something", mark(), form, review);
+  node.classList.add("sell");
+  addToSell = addFiles;
+  node.addEventListener("close", () => { addToSell = null; });
+  addFiles(paths);
+}
+
 function seamCard() {
   const box = el("div", "card lead request");
   const store = Boolean(snapshot?.node.url);
@@ -2871,7 +3016,7 @@ async function pushNow() {
   render();
   const offer = pushOffer;
   if (await act(window.lore.push, "Lore couldn't update your store. Try Update store again in a minute.")) {
-    const live = snapshot ? `${snapshot.publications.counts.active} ${snapshot.publications.counts.active === 1 ? "publication" : "publications"}` : "publications";
+    const live = snapshot ? `${snapshot.publications.counts.active} ${snapshot.publications.counts.active === 1 ? "piece" : "pieces"}` : "pieces";
     pushedNote = `Your store is updated · ${live} for sale`;
   } else {
     pushOffer = offer;
@@ -3196,18 +3341,22 @@ function attach(paths) {
   renderAttachments();
 }
 $("#attach").addEventListener("click", async () => attach(await window.lore.pickFiles()));
-for (const type of ["dragenter", "dragover"]) {
-  document.addEventListener(type, (event) => { event.preventDefault(); (view === "collection" ? document.querySelector(".drop-zone") ?? composer : composer).classList.add("dropping"); });
+/** Where a drag lights up: the open sell sheet's drop area, a collection's, or else the composer. */
+function dropTarget() {
+  return document.querySelector(".sell .sell-drop") ?? (view === "collection" ? document.querySelector(".drop-zone") : null) ?? composer;
 }
-document.addEventListener("dragleave", (event) => { if (!event.relatedTarget) { composer.classList.remove("dropping"); document.querySelector(".drop-zone")?.classList.remove("dropping"); } });
+for (const type of ["dragenter", "dragover"]) {
+  document.addEventListener(type, (event) => { event.preventDefault(); dropTarget().classList.add("dropping"); });
+}
+document.addEventListener("dragleave", (event) => { if (!event.relatedTarget) for (const node of document.querySelectorAll(".dropping")) node.classList.remove("dropping"); });
 document.addEventListener("drop", (event) => {
   event.preventDefault();
-  composer.classList.remove("dropping");
-  document.querySelector(".drop-zone")?.classList.remove("dropping");
-  // Open on a collection, a drop goes into it, not into a memory.
-  if (view === "collection") return void addToCollection({ files: [...(event.dataTransfer?.files ?? [])].map((file) => window.lore.pathFor(file)).filter(Boolean) });
-  attach([...(event.dataTransfer?.files ?? [])].map((file) => window.lore.pathFor(file)).filter(Boolean));
-  if (attachments.length) show("today");
+  for (const node of document.querySelectorAll(".dropping")) node.classList.remove("dropping");
+  const paths = [...(event.dataTransfer?.files ?? [])].map((file) => window.lore.pathFor(file)).filter(Boolean);
+  // A sell sheet already open takes the drop; on a collection it goes into that collection; anywhere else it starts a sale.
+  if (addToSell) return void addToSell(paths);
+  if (view === "collection") return void addToCollection({ files: paths });
+  if (paths.length) openSellSheet(paths);
 });
 
 taskBack.addEventListener("click", closeTask);
@@ -3220,30 +3369,8 @@ function startCapture(text = "") {
   if (composer.hidden || input.disabled) { if (text) tell("Finish what Lore is asking first. What you typed is waiting in the composer."); return; }
   input.focus();
 }
-addMemoryBtn.addEventListener("click", () => startCapture());
 
-/* New: one place to start anything the owner makes. */
-const newOpen = /** @type {HTMLButtonElement} */ ($("#new-open"));
-const newMenu = $("#new-menu");
-function closeNewMenu() {
-  newMenu.hidden = true;
-  newOpen.setAttribute("aria-expanded", "false");
-}
-newOpen.addEventListener("click", (event) => {
-  event.stopPropagation();
-  const opening = newMenu.hidden;
-  newMenu.hidden = !opening;
-  newOpen.setAttribute("aria-expanded", String(opening));
-  if (opening) /** @type {HTMLElement | null} */ (newMenu.querySelector("button"))?.focus();
-});
-for (const item of newMenu.querySelectorAll("button")) {
-  item.addEventListener("click", () => {
-    closeNewMenu();
-    if (/** @type {HTMLElement} */ (item).dataset.new === "collection") void newCollection();
-    else startCapture();
-  });
-}
-
+$("#sell-open").addEventListener("click", () => openSellSheet());
 /* Find or capture: one gesture for both, so the owner never has to know whether a memory exists before reaching for it. */
 /** @type {Array<{node: HTMLElement, verb: string, run: () => void}>} */
 let paletteRows = [];
@@ -3405,6 +3532,7 @@ function showPeek(anchor, memory) {
 mainEl.addEventListener("scroll", hidePeek, { passive: true });
 mainEl.addEventListener("scroll", () => mainEl.classList.toggle("scrolled", mainEl.scrollTop > 0), { passive: true });
 feedbackBtn.addEventListener("click", openFeedbackDialog);
+$("#help-open").addEventListener("click", () => show("faq"));
 for (const nav of navButtons) nav.addEventListener("click", () => {
   const next = /** @type {View} */ (nav.dataset.view);
   if (next === "today" && detailTask) closeTask();
@@ -3418,12 +3546,10 @@ welcomeRetry.addEventListener("click", () => {
 document.addEventListener("keydown", (event) => {
   if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") { event.preventDefault(); openPalette(); }
   if (event.key === "Escape" && accountMenuOpen) { accountMenuOpen = false; renderAccount(); }
-  if (event.key === "Escape" && !newMenu.hidden) { closeNewMenu(); newOpen.focus(); }
   if (event.key === "Escape") hidePeek();
 });
 document.addEventListener("click", (event) => {
   if (accountMenuOpen && !account.contains(/** @type {Node} */ (event.target))) { accountMenuOpen = false; renderAccount(); }
-  if (!newMenu.hidden && !newOpen.parentElement?.contains(/** @type {Node} */ (event.target))) closeNewMenu();
 });
 
 for (const node of document.querySelectorAll("[data-login]")) {
