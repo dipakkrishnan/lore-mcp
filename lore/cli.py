@@ -469,9 +469,31 @@ def parser() -> argparse.ArgumentParser:
     return root
 
 
+def _parse(argv: list[str] | None) -> argparse.Namespace:
+    """Parse a command line the same way on every supported Python."""
+    root = parser()
+    args, extra = root.parse_known_args(argv)
+    # Older argparse spends `sources connect`'s optional locator on nothing as
+    # soon as an option follows the app, so `obsidian --json -- <path>` leaves
+    # the path here as a leftover instead of in `args.locator`.
+    if (
+        extra
+        and args.command == "sources"
+        and args.sources_command == "connect"
+        and not args.locator
+    ):
+        rest = extra[1:] if extra[0] == "--" else extra
+        # Without `--`, a leftover that looks like an option is a typo, not a path.
+        if len(rest) == 1 and (extra[0] == "--" or not rest[0].startswith("-")):
+            args.locator, extra = rest[0], []
+    if extra:
+        root.error(f"unrecognized arguments: {' '.join(extra)}")
+    return args
+
+
 def main(argv: list[str] | None = None) -> int:
     """Parse and run one Lore command."""
-    args = parser().parse_args(argv)
+    args = _parse(argv)
     if not args.command:
         if sys.stdin.isatty() and sys.stdout.isatty():
             return dashboard()
