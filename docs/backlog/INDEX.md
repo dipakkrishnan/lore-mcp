@@ -126,6 +126,7 @@ obsolete), then `priority` (P0 → P3).
 | [APP-111](./desktop-app/APP-111-show-a-memorys-metadata-as-properties-on-the-sheet.md) | Show a memory's metadata as properties on the sheet | P3 | S | desktop-app | in-review | APP-096, APP-037, APP-075, APP-043, APP-108 | — | — | — |
 | [APP-110](./desktop-app/APP-110-preview-a-memory-on-hover-without-leaving-the-list.md) | Preview a memory on hover without leaving the list | P3 | S | desktop-app | in-review | APP-092, APP-096, APP-108, APP-023 | — | — | — |
 | [APP-191](./desktop-app/APP-191-export-the-sales-table-to-csv.md) | Export the sales table to CSV | P3 | S | desktop-app | in-review | MON-018, APP-185 | — | — | — |
+| [XC-006](./cross-cutting/XC-006-ship-the-owner-skills-as-agent-plugins.md) | Ship the owner skill pack as agent plugins with a marketplace entry | P3 | M | cross-cutting | in-review | XC-005, ONB-001 | — | — | — |
 | [APP-010](./desktop-app/APP-010-constrain-native-read-to-owner-selected-files.md) | Constrain native read to owner-selected files | P1 | M | desktop-app | ready | APP-003, APP-005, APP-009 | — | — | — |
 | [APP-024](./desktop-app/APP-024-start-recording-from-the-dictation-button.md) | Start recording from the dictation button | P1 | M | desktop-app | ready | APP-003, APP-005, APP-009, APP-010, APP-020 | — | — | — |
 | [APP-036](./desktop-app/APP-036-guide-cloudflare-and-wallet-setup-inside-desktop.md) | Guide Cloudflare and wallet setup inside Desktop | P1 | M | desktop-app | ready | APP-004, APP-005, APP-006, APP-030, MON-006, XC-005 | — | — | — |
@@ -162,7 +163,6 @@ obsolete), then `priority` (P0 → P3).
 | [APP-187](./desktop-app/APP-187-count-only-live-pieces-in-for-sale.md) | Count only live pieces in the For Sale tab | P2 | XS | desktop-app | ready | APP-093, APP-091 | — | — | — |
 | [APP-188](./desktop-app/APP-188-order-settings-by-what-a-seller-changes-most.md) | Order Settings by what a seller changes most | P2 | S | desktop-app | ready | APP-136, APP-119, APP-184 | — | — | — |
 | [APP-189](./desktop-app/APP-189-show-the-price-on-approval-cards-and-preview-without-edit.md) | Show the price on approval cards and Preview without Edit | P2 | XS | desktop-app | ready | APP-136, APP-134, MON-041 | — | — | — |
-| [XC-006](./cross-cutting/XC-006-ship-the-owner-skills-as-agent-plugins.md) | Ship the owner skill pack as agent plugins with a marketplace entry | P3 | M | cross-cutting | ready | XC-005, ONB-001 | — | — | — |
 | [APP-058](./desktop-app/APP-058-measure-the-alpha-activation-funnel.md) | Measure the alpha activation funnel | P1 | S | desktop-app | in-progress | APP-001, APP-041, XC-030, XC-029, CLI-004 | XC-029, CLI-004 | — | — |
 | [MON-029](./monetization/MON-029-cache-store-pages-at-the-edge.md) | Serve store pages from Cloudflare's edge cache without running the Worker | P1 | S | monetization | in-progress | XC-040, MON-018, MON-034 | — | — | — |
 | [XC-019](./cross-cutting/XC-019-say-what-changed-behind-a-flagged-publication.md) | Say what changed behind a flagged publication | P1 | M | cross-cutting | in-progress | MON-004, APP-006, APP-011, STO-001, XC-035 | — | — | — |
