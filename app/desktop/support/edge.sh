@@ -8,6 +8,8 @@ repo_root="$(cd "$desktop_dir/../.." && pwd)"
 root="$(mktemp -d "${TMPDIR:-/tmp}/lore-edge.XXXXXX")"
 mkdir -p "$root/home" "$root/user-data"
 export LORE_HOME="$root/home" LORE_DESKTOP_USER_DATA="$root/user-data" LORE_SKIP_SCHEDULE=1 LORE_EDGE_OUT="$root"
+# Usage events from a walk go nowhere: a closed local port, refused at once.
+export LORE_USAGE_URL="http://127.0.0.1:9/events"
 # A fresh home stays empty: that persona checks what an owner sees before anything is kept. So
 # does the connectors one: a seller with no agents, whose first memories come from their apps.
 [[ "$scenario" == "fresh" || "$scenario" == "connectors" ]] || (

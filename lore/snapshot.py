@@ -214,6 +214,7 @@ def build() -> dict[str, object]:
         answer_enabled = store.setting("answer_enabled", False) is True
         free_copies = store.setting(FREE_COPIES_SETTING, FREE_COPIES)
         telemetry_enabled = store.setting("telemetry_enabled", True) is not False
+        telemetry_noticed = store.setting("telemetry_noticed", False) is True
         node_url = store.setting("node_url", None)
         # Reading concedes jobs whose liveness claim expired, so an interrupted
         # run turns visibly incomplete on the next refresh without a scheduler.
@@ -245,6 +246,7 @@ def build() -> dict[str, object]:
             "profile_configured": automation.profile_path().is_file(),
             "schedule": automation.schedule_state(),
             "telemetry_enabled": telemetry_enabled,
+            "telemetry_noticed": telemetry_noticed,
         },
         # Whether this build can send feedback at all. The Desktop app hides
         # its Report Feedback button when it cannot, so a release with no
