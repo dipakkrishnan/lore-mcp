@@ -375,7 +375,7 @@ def parser() -> argparse.ArgumentParser:
     )
     extras_draft.add_argument(
         "file",
-        help="JSON array of {publication_id, sample, useful_if, not_useful_if}; "
+        help="JSON array of {publication_id, teaser, sample, useful_if, not_useful_if}; "
         "use - for stdin",
     )
     extras_commands.add_parser(
@@ -1731,6 +1731,8 @@ def extras_review() -> int:
                 try:
                     edited = PublicationExtras(
                         publication_id=extras.publication_id,
+                        teaser=ask("Description (enter keeps current)")
+                        or extras.teaser,
                         sample=ask("Free sample (enter keeps current)")
                         or extras.sample,
                         useful_if=ask("Useful if (enter keeps current)")

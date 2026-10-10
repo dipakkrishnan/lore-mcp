@@ -201,6 +201,8 @@ type PublicationCandidate = {
 /** New free parts for a piece already on sale; its link, price and paid content stay. */
 type PublicationExtras = {
   publication_id: number;
+  /** Empty keeps the piece's description. */
+  teaser?: string;
   sample: string;
   useful_if: string;
   not_useful_if: string;

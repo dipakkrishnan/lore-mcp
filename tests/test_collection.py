@@ -60,6 +60,30 @@ class CollectionTest(OwnerTestCase):
             piece = store.get_publication(sold[0]["public_id"])
         self.assertEqual(piece.teaser, "Tariffs")
 
+    def test_a_sold_piece_takes_a_drafted_description(self) -> None:
+        from lore.store import PublicationExtras
+
+        with Store() as store:
+            piece = store.sell_piece("Tariffs", "who pays the tariff")
+            store.set_extras(
+                PublicationExtras(
+                    publication_id=piece,
+                    teaser="Who really pays",
+                    sample="Not who you think.",
+                )
+            )
+            self.assertEqual(store.active_publication(piece).teaser, "Who really pays")
+            store.set_extras(
+                PublicationExtras(publication_id=piece, sample="Still not.")
+            )
+            self.assertEqual(store.active_publication(piece).teaser, "Who really pays")
+            with self.assertRaisesRegex(ValueError, "description can't"):
+                store.with_extras(
+                    PublicationExtras(
+                        publication_id=piece, teaser="who pays the tariff"
+                    )
+                )
+
     def test_the_same_text_dropped_twice_is_one_piece(self) -> None:
         with Store() as store:
             collection = store.new_collection()

@@ -651,7 +651,7 @@ test("new free parts for a live piece are staged by the agent and decided only b
     encoding: "utf8"
   });
   const card = { title: "Price low", teaser: "How to set a first price.", content: "Price low first.", kind: /** @type {const} */ ("claim"), topic: "pricing", provenance: [1] };
-  const extras = { publication_id: 1, sample: "We started at a dollar.", useful_if: "you price an API", not_useful_if: "" };
+  const extras = { publication_id: 1, teaser: "", sample: "We started at a dollar.", useful_if: "you price an API", not_useful_if: "" };
   try {
     await lore(directory, ["capture", "apply", "-"], JSON.stringify([{ title: "Pricing", content: "Price low first.", project: "pricing" }]));
     assert.equal(piped(["publication", "extras", "draft", "-"], JSON.stringify([extras])).status, 1, "nothing is on sale yet");

@@ -2648,7 +2648,8 @@ function approvals() {
 function extrasHeading(drafts) {
   const lines = drafts.some(({ extras }) => extras.useful_if || extras.not_useful_if);
   const samples = drafts.some(({ extras }) => extras.sample);
-  const what = [lines ? "who-it's-for lines" : "", samples ? "samples" : ""].filter(Boolean).join(" and ") || "free parts";
+  const described = drafts.some(({ extras }) => extras.teaser);
+  const what = [described ? "descriptions" : "", lines ? "who-it's-for lines" : "", samples ? "samples" : ""].filter(Boolean).join(", ").replace(/, ([^,]*)$/, " and $1") || "free parts";
   const fresh = drafts.every(({ piece }) => !piece.useful_if && !piece.not_useful_if && !piece.sample);
   return `${fresh ? "Add" : "Update"} ${what} ${fresh ? "to" : "on"} ${plural(drafts.length, "piece")} already for sale`;
 }
@@ -2786,16 +2787,17 @@ function approvalForm(candidate) {
   return card.memory;
 }
 
-/** New free parts for a piece already on sale: only these three fields change. @param {ExtrasCandidate} draft */
+/** New free parts for a piece already on sale: only these fields change. @param {ExtrasCandidate} draft */
 function extrasForm({ extras, piece }) {
   /** @type {Record<string, HTMLInputElement | HTMLTextAreaElement>} */
   const field = {};
-  const edited = () => ({ ...extras, useful_if: field.usefulIf.value, not_useful_if: field.notUsefulIf.value, sample: field.sample.value });
-  const card = readFirst(piece.title, () => void previewPage({ ...piece, ...edited(), content: "", provenance: [] }), (fields) => {
+  const edited = () => ({ ...extras, teaser: field.teaser.value, useful_if: field.usefulIf.value, not_useful_if: field.notUsefulIf.value, sample: field.sample.value });
+  const card = readFirst(piece.title, () => void previewPage({ ...piece, ...edited(), teaser: field.teaser.value || piece.teaser, content: "", provenance: [] }), (fields) => {
+    field.teaser = draftField(fields, "Description, what buyers read before they pay", extras.teaser || piece.teaser);
     field.usefulIf = draftField(fields, "Good for", extras.useful_if);
     field.notUsefulIf = draftField(fields, "Not for", extras.not_useful_if);
     field.sample = draftField(fields, "Sample, anyone can read it on the piece's page", extras.sample);
-    return () => readLines([["Good for", field.usefulIf.value], ["Not for", field.notUsefulIf.value]], field.sample.value);
+    return () => readLines([["Description", field.teaser.value], ["Good for", field.usefulIf.value], ["Not for", field.notUsefulIf.value]], field.sample.value);
   });
   const approveEdited = () => window.lore.decideExtras({ original: extras, extras: edited(), approve: true });
   extrasApprovals.set(card.memory, () => ({ original: extras, extras: edited() }));
@@ -2881,6 +2883,19 @@ function pieceListPrice() {
   return typeof usd === "number" ? usd : 1;
 }
 
+/** @typedef {{publication_id: number, title: string}} SoldPiece */
+const DESCRIBING = "Lore is writing their descriptions; approve them on Today.";
+
+/** A piece sold from the sheet goes up with only its title, so Lore always drafts its description, sample and
+ * who it's for, in the background. They wait on Today as free-parts cards; nothing changes until the owner approves.
+ * @param {SoldPiece[]} sold */
+function describe(sold) {
+  if (!sold.length) return;
+  const list = sold.map((piece) => `${piece.publication_id} "${piece.title}"`).join(", ");
+  const text = `I just put ${sold.length === 1 ? "this piece" : "these pieces"} on sale with only a title: ${list}. Draft each one's description, sample, good for and not for, and stage them for me to approve.`;
+  void window.lore.prompt({ text, task: "publish" }).then(load, () => tell("Lore couldn't start writing descriptions. Ask it on Today.", true));
+}
+
 /** Sell something: files and pasted writing, reviewed here before anything goes on sale or stays private.
  * @param {string[]} [paths] Files dropped on the app, already in the sheet. */
 function openSellSheet(paths = []) {
@@ -2935,27 +2950,33 @@ function openSellSheet(paths = []) {
     }
   };
   const sellApart = async () => {
-    if (!await attempt(() => window.lore.sellPieces(saleInput(pieces)))) return;
+    /** @type {SoldPiece[]} */
+    let sold = [];
+    if (!await attempt(async () => { sold = (await window.lore.sellPieces(saleInput(pieces))).added; })) return;
     closeSheet();
     await load();
-    tell(pieces.length === 1 ? "On sale: 1 piece." : `On sale: ${pieces.length} pieces.`);
+    tell(`${pieces.length === 1 ? "On sale: 1 piece." : `On sale: ${pieces.length} pieces.`} ${DESCRIBING}`);
     show("store");
+    describe(sold);
   };
   const sellTogether = async (/** @type {number} */ amount) => {
     const input = saleInput(pieces);
     const title = input.files.length ? "Untitled collection" : input.items[0]?.title ?? "Untitled collection";
     /** @type {NewCollection | null} */
     let made = null;
+    /** @type {SoldPiece[]} */
+    let sold = [];
     const done = await attempt(async () => {
       made = await window.lore.newCollection(title);
-      await window.lore.addToCollection(/** @type {NewCollection} */ (made).id, input);
+      sold = (await window.lore.addToCollection(/** @type {NewCollection} */ (made).id, input)).added;
       await window.lore.priceCollection(/** @type {NewCollection} */ (made).id, amount);
     });
     if (done && made) {
       closeSheet();
       await load();
       showCollection(/** @type {NewCollection} */ (made).id);
-      tell(`Sold together at ${price(amount)}.`);
+      tell(`Sold together at ${price(amount)}. ${DESCRIBING}`);
+      describe(sold);
     }
   };
   const keepPrivate = () => {

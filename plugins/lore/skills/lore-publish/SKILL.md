@@ -165,17 +165,21 @@ say that the payment flow will ask whether to keep the exact publication through
 
 ## Free parts for a piece already on sale
 
-To add or rewrite the `sample`, `useful_if` and `not_useful_if` of a piece
-that is already approved (pieces published before these fields existed have
-none), don't draft a new publication: that would mint a new link. Read the
-piece with `lore publication list` (its `id` is printed under it), then stage
-new free parts by id. The three given values replace the piece's current ones,
-so carry over any you want to keep; the same limits and the no-whole-paid-text
-rule apply.
+To add or rewrite the `teaser`, `sample`, `useful_if` and `not_useful_if` of
+a piece that is already approved, don't draft a new publication: that would
+mint a new link. Read the piece with `lore publication list` (its `id` is
+printed under it), then stage new free parts by id. The given `sample`,
+`useful_if` and `not_useful_if` replace the piece's current ones, so carry over
+any you want to keep; an empty `teaser` keeps the current one. The same limits
+and the no-whole-paid-text rule apply.
+
+A piece the owner sold straight from a drop or a paste has only its title as
+its teaser and no other free parts. When asked to describe such pieces, write
+all four for each one in a single draft.
 
 ```sh
 lore publication extras draft - <<'LORE_PUBLISH'
-[{"publication_id": 3, "sample": "...", "useful_if": "...", "not_useful_if": "..."}]
+[{"publication_id": 3, "teaser": "...", "sample": "...", "useful_if": "...", "not_useful_if": "..."}]
 LORE_PUBLISH
 ```
 

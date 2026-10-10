@@ -638,7 +638,7 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         await js(`window.__lore.signIn()`);
         check("the update waits with the drafts", await waitFor(`document.querySelector("#content").textContent.includes("already for sale")`));
         const card = `document.querySelector("#content .extras-batch .memory")`;
-        check("…showing only the free parts", await js(`${card}.querySelectorAll("textarea, input").length === 3`));
+        check("…showing only the free parts, description first", await js(`${card}.querySelectorAll("textarea, input").length === 4`));
         await js(`${card}.scrollIntoView({ block: "center" })`);
         await shot("extras-card");
         await js(`[...${card}.querySelectorAll("button")].find((b) => b.textContent === "Preview page").click()`);
@@ -649,7 +649,7 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         check("Preview shows the new sample on the piece's page", page.includes("We had two weeks and a deck we were proud of."));
         check("the preview carries no paid text", !page.includes("Three demos, seven trials"));
         preview?.close();
-        await js(`{ const t = ${card}.querySelectorAll("textarea")[1]; t.value = "you sell to developers"; t.dispatchEvent(new Event("input")); }`);
+        await js(`{ const t = ${card}.querySelectorAll("textarea")[2]; t.value = "you sell to developers"; t.dispatchEvent(new Event("input")); }`);
         await js(`[...${card}.querySelectorAll("button")].find((b) => b.textContent === "Approve").click()`);
         check("approving consumes the card", await waitFor(`window.lore.extras().then((left) => !left.length)`));
         check("the new drafts are untouched", await js(`window.lore.candidates().then((left) => left.length)`) === 2);
@@ -727,6 +727,7 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         await waitFor(`window.lore.snapshot().then((s) => s.publications.counts.active >= ${onSaleBefore} + 2)`);
         check("Sell one by one puts both on sale", (await snap("s.publications.counts.active")) === onSaleBefore + 2, `before ${onSaleBefore}, after ${await snap("s.publications.counts.active")}`);
         check("…and says so", await waitFor(`document.querySelector("#status").textContent.includes("On sale: 2 pieces.")`));
+        check("…and that their descriptions are being written", await js(`document.querySelector("#status").textContent.includes("writing their descriptions")`));
         // Sell together: a new collection, titled by its first text, priced at the prefilled amount, and opened.
         await js(`window.__lore.show("today")`);
         await js(`document.querySelector("#sell-open").click()`);
@@ -785,8 +786,8 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         await sleep(200);
         await shot("today-extras-batch");
         await js(`[...[...${batch}.querySelectorAll(".memory")][1].querySelectorAll("button")].find((b) => b.textContent === "Edit").click()`);
-        check("Edit swaps in the three free fields", await js(`(() => { const m = [...${batch}.querySelectorAll(".memory")][1]; return !m.querySelector(".fields").hidden && m.querySelector(".read").hidden && m.querySelectorAll(".fields textarea").length === 3; })()`));
-        await js(`{ const t = [...${batch}.querySelectorAll(".memory")][1].querySelectorAll("textarea")[1]; t.value = "you have no buyers yet"; t.dispatchEvent(new Event("input")); }`);
+        check("Edit swaps in the four free fields", await js(`(() => { const m = [...${batch}.querySelectorAll(".memory")][1]; return !m.querySelector(".fields").hidden && m.querySelector(".read").hidden && m.querySelectorAll(".fields textarea").length === 4; })()`));
+        await js(`{ const t = [...${batch}.querySelectorAll(".memory")][1].querySelectorAll("textarea")[2]; t.value = "you have no buyers yet"; t.dispatchEvent(new Event("input")); }`);
         await shot("today-extras-editing");
         await js(`[...${batch}.querySelectorAll("button")].find((b) => b.textContent === "Approve all 2").click()`);
         check("Approve all asks once before acting", await js(`${batch}.textContent.includes("Approve all 2?")`) && await js(`window.lore.extras().then((left) => left.length)`) === 2);

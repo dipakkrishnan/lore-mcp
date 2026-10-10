@@ -124,6 +124,9 @@ class PublicationExtras(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, str_strip_whitespace=True)
 
     publication_id: StrictInt
+    # Empty keeps the piece's description; a piece sold from a drop starts
+    # with only its title there, so this is how it gets a real one.
+    teaser: str = Field(default="", max_length=FIT_LIMIT)
     sample: str = Field(default="", max_length=SAMPLE_LIMIT)
     useful_if: str = Field(default="", max_length=FIT_LIMIT)
     not_useful_if: str = Field(default="", max_length=FIT_LIMIT)
@@ -1115,17 +1118,19 @@ class Store:
         publication = self.active_publication(extras.publication_id)
         if extras.sample and publication.content in extras.sample:
             raise ValueError("the free sample can't contain the whole paid content")
-        return publication.model_copy(
-            update=extras.model_dump(exclude={"publication_id"})
-        )
+        if extras.teaser and publication.content in extras.teaser:
+            raise ValueError("the description can't contain the whole paid content")
+        exclude = {"publication_id"} | (set() if extras.teaser else {"teaser"})
+        return publication.model_copy(update=extras.model_dump(exclude=exclude))
 
     def set_extras(self, extras: PublicationExtras) -> None:
         """Replace a live piece's free parts in place; nothing else about it changes."""
         publication = self.with_extras(extras)
         self.db.execute(
-            "UPDATE publications SET sample=?,useful_if=?,not_useful_if=?,updated_at=? "
-            "WHERE id=?",
+            "UPDATE publications SET teaser=?,sample=?,useful_if=?,not_useful_if=?,"
+            "updated_at=? WHERE id=?",
             (
+                publication.teaser,
                 publication.sample,
                 publication.useful_if,
                 publication.not_useful_if,
