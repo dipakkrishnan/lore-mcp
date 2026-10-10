@@ -1,0 +1,21 @@
+name: Python floor
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  cli-floor:
+    name: CLI tests on the lowest supported Python
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v7
+      # The version is `requires-python`'s floor in pyproject.toml (CLI-012);
+      # tests/test_cli.py fails if the two drift apart.
+      - run: uv run --locked --python 3.10 python -VV
+      - run: uv run --locked --python 3.10 python -m unittest discover -s tests -p test_cli.py -v

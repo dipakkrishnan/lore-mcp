@@ -4,13 +4,13 @@ title: Measure the alpha activation funnel
 priority: P1
 effort: S
 component: desktop-app
-status: in-review
+status: in-progress
 related: [APP-001, APP-041, XC-030, XC-029, CLI-004]
 blockers: [XC-029, CLI-004]
 dependencies: []
 github_issue: null
 created: 2026-09-03
-updated: 2026-09-07
+updated: 2026-10-09
 ---
 
 ## Problem
@@ -47,6 +47,14 @@ launch.
       custom analytics service or in-app dashboard.
 
 ## Notes
+
+Oct 9 2026: built as `lore/usage.py` plus the relay's `/events` route, which
+forwards to PostHog instead of a new Analytics Engine collector (the Zed
+pattern: proxy through our own server so the sink can change). Each event is
+sent once per install (apart from daily `app.opened` and `cli.failed`), so
+no event discloses a count. Remaining: create the PostHog project, set the
+`POSTHOG_KEY` secret, and deploy the relay.
+
 
 This is deliberately crude alpha instrumentation. Add richer funnels or
 experimentation only after real usage creates a concrete question the milestone

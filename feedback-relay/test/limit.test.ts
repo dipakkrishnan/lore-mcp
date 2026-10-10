@@ -18,9 +18,12 @@ function fakeEnv(overrides: Partial<Env> = {}): Env {
     // so this fake satisfies Env's generated type without a cast.
     LORE_GITHUB_API: "https://api.github.com",
     LORE_FEEDBACK_GITHUB_TOKEN: "test-token",
+    POSTHOG_KEY: "",
     // Absent under `wrangler dev` and in most tests — see src/limit.ts.
     FEEDBACK_RATE_LIMIT: undefined as unknown as RateLimit,
     GLOBAL_RATE_LIMIT: undefined as unknown as RateLimit,
+    EVENTS_RATE_LIMIT: undefined as unknown as RateLimit,
+    POSTHOG_HOST: "https://us.i.posthog.com",
     FEEDBACK_QUOTA: undefined as unknown as Env["FEEDBACK_QUOTA"],
     ...overrides
   };

@@ -1,0 +1,56 @@
+{
+  "description": "The only usage events Lore sends. lore/usage.py and feedback-relay/src/events.ts both check against this list; the relay drops anything else.",
+  "events": {
+    "app.opened": null,
+    "signin.completed": null,
+    "source.connected": {
+      "prop": "connector",
+      "values": [
+        "obsidian",
+        "chatgpt",
+        "claude",
+        "substack",
+        "medium",
+        "bluesky",
+        "blog",
+        "granola",
+        "notion",
+        "readwise",
+        "folder",
+        "feed",
+        "agents"
+      ]
+    },
+    "memory.saved": null,
+    "piece.approved": null,
+    "store.opened": null,
+    "store.listed": null,
+    "sale.seen": {
+      "prop": "via",
+      "values": [
+        "card",
+        "agent"
+      ]
+    },
+    "cli.failed": {
+      "prop": "command",
+      "values": [
+        "setup",
+        "sync",
+        "sources",
+        "capture",
+        "publication",
+        "collection",
+        "sell",
+        "feed",
+        "price",
+        "push",
+        "node",
+        "marketplace",
+        "cards",
+        "report-feedback",
+        "other"
+      ]
+    }
+  }
+}
