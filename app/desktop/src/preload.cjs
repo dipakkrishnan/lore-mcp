@@ -46,6 +46,11 @@ contextBridge.exposeInMainWorld("lore", {
   /** @param {number} count */
   setFreeCopies: (count) => ipcRenderer.invoke("pricing:free-copies", count),
   revealHome: () => ipcRenderer.invoke("home:reveal"),
+  /** @param {"noticed" | "app.opened"} name */
+  usage: (name) => ipcRenderer.invoke("usage:record", name),
+  /** @param {boolean} on */
+  setTelemetry: (on) => ipcRenderer.invoke("telemetry:set", on),
+  usageLog: () => ipcRenderer.invoke("telemetry:log"),
   sales: () => ipcRenderer.invoke("store:sales"),
   views: () => ipcRenderer.invoke("store:views"),
   /** @param {{title: string, email: string, description: string}} input */

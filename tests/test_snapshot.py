@@ -192,6 +192,7 @@ class DesktopSnapshotTest(LoreTestCase):
                     "hour": None,
                 },
                 "telemetry_enabled": True,
+                "telemetry_noticed": False,
             },
         )
         self.assertEqual(state["library"]["counts"], {"private": 6})
