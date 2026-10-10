@@ -51,15 +51,7 @@ class Collections:
             return store.new_collection(title)
 
     def add(self, collection_id: int, drop: Drop) -> list[dict[str, object]]:
-        texts = [(item.title, item.content) for item in drop.items]
-        texts += [self._read(path) for path in self._files(drop.files)]
-        entries = [
-            CaptureEntry(title=title or _first_line(content), content=content)
-            for title, content in texts
-            if content.strip()
-        ]
-        if not entries:
-            raise ValueError("there was no text to add")
+        entries = self.entries(drop)
         with Store() as store:
             pieces = [
                 store.add_to_collection(collection_id, entry.title, entry.content)
@@ -72,6 +64,30 @@ class Collections:
             {"publication_id": p.id, "public_id": p.public_id, "title": p.title}
             for p in pieces
         ]
+
+    def sell(self, drop: Drop) -> list[dict[str, object]]:
+        """Put each dropped item on sale on its own, at the store's price."""
+        entries = self.entries(drop)
+        with Store() as store:
+            ids = [store.sell_piece(e.title, e.content) for e in entries]
+            pieces = [store.active_publication(i) for i in ids]
+        self._push()
+        return [
+            {"publication_id": p.id, "public_id": p.public_id, "title": p.title}
+            for p in pieces
+        ]
+
+    def entries(self, drop: Drop) -> list[CaptureEntry]:
+        texts = [(item.title, item.content) for item in drop.items]
+        texts += [self._read(path) for path in self._files(drop.files)]
+        entries = [
+            CaptureEntry(title=title or _first_line(content), content=content)
+            for title, content in texts
+            if content.strip()
+        ]
+        if not entries:
+            raise ValueError("there was no text to add")
+        return entries
 
     def rename(self, collection_id: int, title: str) -> Collection:
         with Store() as store:

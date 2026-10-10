@@ -201,6 +201,8 @@ type PublicationCandidate = {
 /** New free parts for a piece already on sale; its link, price and paid content stay. */
 type PublicationExtras = {
   publication_id: number;
+  /** Empty keeps the piece's description. */
+  teaser?: string;
   sample: string;
   useful_if: string;
   not_useful_if: string;
@@ -265,6 +267,7 @@ interface Window {
     schedule(): Promise<void>;
     setPrice(amount: number): Promise<void>;
     setFreeCopies(count: number): Promise<void>;
+    sellPieces(input: { items?: Array<{ title: string; content: string }>; files?: string[] }): Promise<{ added: Array<{ publication_id: number; public_id: string; title: string }> }>;
     newCollection(title?: string): Promise<NewCollection>;
     addToCollection(id: number, input: { items?: Array<{ title: string; content: string }>; files?: string[] }): Promise<{ added: Array<{ publication_id: number; public_id: string; title: string }> }>;
     renameCollection(id: number, title: string): Promise<void>;

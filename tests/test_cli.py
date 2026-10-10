@@ -2021,7 +2021,7 @@ class PublicationExtrasTest(LoreTestCase):
                 provenance=[self.seed_memory("Other lesson")],
             )
         self.drafted({}, {"publication_id": other, "useful_if": "skip me"})
-        answers = ["e", "", "you price an API", "", "a", "r"]
+        answers = ["e", "", "", "you price an API", "", "a", "r"]
         with (
             patch.object(cli, "_interactive", return_value=True),
             patch.object(cli, "ask", side_effect=answers),

@@ -375,7 +375,7 @@ def parser() -> argparse.ArgumentParser:
     )
     extras_draft.add_argument(
         "file",
-        help="JSON array of {publication_id, sample, useful_if, not_useful_if}; "
+        help="JSON array of {publication_id, teaser, sample, useful_if, not_useful_if}; "
         "use - for stdin",
     )
     extras_commands.add_parser(
@@ -436,6 +436,13 @@ def parser() -> argparse.ArgumentParser:
         "delete", help="delete it; its pieces stay on sale one by one"
     )
     collection_delete.add_argument("id", type=int)
+
+    sell = commands.add_parser(
+        "sell", help="put pasted text and files on sale, each as its own piece"
+    )
+    sell.add_argument(
+        "file", help='JSON {"items": [{title, content}], "files": [paths]}; - for stdin'
+    )
 
     feed = commands.add_parser(
         "feed", help="let agents subscribe to everything in the store for 30 days"
@@ -642,6 +649,13 @@ def main(argv: list[str] | None = None) -> int:
             if args.publication_command == "reapprove":
                 return publication_reapprove(args.id)
             return publication_list()
+        if args.command == "sell":
+            _owner_action("putting pieces on sale")
+            text = sys.stdin.read() if args.file == "-" else Path(args.file).read_text()
+            collections = Collections(lambda: push(str(home() / "node")))
+            sold = collections.sell(Drop.model_validate_json(text))
+            print(json.dumps({"added": sold}, separators=(",", ":")))
+            return 0
         if args.command == "feed":
             return feed_command(args)
         if args.command == "collection":
@@ -1717,6 +1731,8 @@ def extras_review() -> int:
                 try:
                     edited = PublicationExtras(
                         publication_id=extras.publication_id,
+                        teaser=ask("Description (enter keeps current)")
+                        or extras.teaser,
                         sample=ask("Free sample (enter keeps current)")
                         or extras.sample,
                         useful_if=ask("Useful if (enter keeps current)")

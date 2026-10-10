@@ -124,6 +124,9 @@ class PublicationExtras(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, str_strip_whitespace=True)
 
     publication_id: StrictInt
+    # Empty keeps the piece's description; a piece sold from a drop starts
+    # with only its title there, so this is how it gets a real one.
+    teaser: str = Field(default="", max_length=FIT_LIMIT)
     sample: str = Field(default="", max_length=SAMPLE_LIMIT)
     useful_if: str = Field(default="", max_length=FIT_LIMIT)
     not_useful_if: str = Field(default="", max_length=FIT_LIMIT)
@@ -1115,17 +1118,19 @@ class Store:
         publication = self.active_publication(extras.publication_id)
         if extras.sample and publication.content in extras.sample:
             raise ValueError("the free sample can't contain the whole paid content")
-        return publication.model_copy(
-            update=extras.model_dump(exclude={"publication_id"})
-        )
+        if extras.teaser and publication.content in extras.teaser:
+            raise ValueError("the description can't contain the whole paid content")
+        exclude = {"publication_id"} | (set() if extras.teaser else {"teaser"})
+        return publication.model_copy(update=extras.model_dump(exclude=exclude))
 
     def set_extras(self, extras: PublicationExtras) -> None:
         """Replace a live piece's free parts in place; nothing else about it changes."""
         publication = self.with_extras(extras)
         self.db.execute(
-            "UPDATE publications SET sample=?,useful_if=?,not_useful_if=?,updated_at=? "
-            "WHERE id=?",
+            "UPDATE publications SET teaser=?,sample=?,useful_if=?,not_useful_if=?,"
+            "updated_at=? WHERE id=?",
             (
+                publication.teaser,
                 publication.sample,
                 publication.useful_if,
                 publication.not_useful_if,
@@ -1241,28 +1246,8 @@ class Store:
         ).fetchone()
         if already:
             return next(p for p in collection.pieces if p.id == already["id"])
-        fingerprint = hashlib.sha256(content.encode()).hexdigest()
-        source_key = f"collection:{collection.public_id}:{fingerprint}"
-        self.put(
-            source="collection",
-            origin="attended",
-            source_path=collection.title,
-            source_key=source_key,
-            fingerprint=fingerprint,
-            title=title,
-            content=content,
-            project=collection.title,
-        )
-        memory = self.db.execute(
-            "SELECT id FROM memories WHERE source_key=?", (source_key,)
-        ).fetchone()
-        publication_id = self.add_publication(
-            title=title,
-            content=content,
-            kind=PublicationKind.CONTENT,
-            topic=collection.title,
-            teaser=title,
-            provenance=[memory["id"]],
+        publication_id = self._sell_text(
+            title, content, collection.title, f"collection:{collection.public_id}"
         )
         self.db.execute(
             "INSERT INTO collection_pieces(collection_id,publication_id,position) "
@@ -1275,6 +1260,40 @@ class Store:
             piece
             for piece in self.collection(collection_id).pieces
             if piece.id == publication_id
+        )
+
+    def sell_piece(self, title: str, content: str, topic: str = "") -> int:
+        """Keep the text as a private memory and put it on sale on its own."""
+        already = self.db.execute(
+            "SELECT id FROM publications WHERE content=? AND active=1", (content,)
+        ).fetchone()
+        if already:
+            return int(already["id"])
+        return self._sell_text(title, content, topic or title, "sell")
+
+    def _sell_text(self, title: str, content: str, topic: str, origin: str) -> int:
+        fingerprint = hashlib.sha256(content.encode()).hexdigest()
+        source_key = f"{origin}:{fingerprint}"
+        self.put(
+            source="collection",
+            origin="attended",
+            source_path=topic,
+            source_key=source_key,
+            fingerprint=fingerprint,
+            title=title,
+            content=content,
+            project=topic,
+        )
+        memory = self.db.execute(
+            "SELECT id FROM memories WHERE source_key=?", (source_key,)
+        ).fetchone()
+        return self.add_publication(
+            title=title,
+            content=content,
+            kind=PublicationKind.CONTENT,
+            topic=topic,
+            teaser=title,
+            provenance=[memory["id"]],
         )
 
     def rename_collection(self, collection_id: int, title: str) -> Collection:

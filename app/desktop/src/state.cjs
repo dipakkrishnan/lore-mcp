@@ -197,16 +197,29 @@ async function newCollection(loreHome, title) {
   return JSON.parse(await lore(loreHome, ["collection", "new", ...(named ? ["--title", named] : [])], ""));
 }
 
+/** Pasted text and dropped files, checked and trimmed before they reach the CLI.
+ * @param {{items?: Array<{title: string, content: string}>, files?: string[]}} input */
+function pieceInput(input) {
+  const items = (input.items ?? []).map((item) => ({ title: String(item.title ?? "").trim(), content: String(item.content ?? "").trim() }));
+  const files = (input.files ?? []).filter((path) => typeof path === "string" && path.startsWith("/"));
+  if (items.some((item) => !item.content)) throw new Error("There's nothing to add in that text");
+  if (!items.length && !files.length) throw new Error("Drop a file or paste some text first");
+  return { items, files };
+}
+
 /** Pasted text and dropped files, each kept as one piece of the collection. Over stdin, never argv.
  * @param {string} loreHome @param {unknown} id @param {{items?: Array<{title: string, content: string}>, files?: string[]}} input
  * @returns {Promise<{added: Array<{publication_id: number, public_id: string, title: string}>}>} */
 async function addToCollection(loreHome, id, input) {
   const which = collectionId(id);
-  const items = (input.items ?? []).map((item) => ({ title: String(item.title ?? "").trim(), content: String(item.content ?? "").trim() }));
-  const files = (input.files ?? []).filter((path) => typeof path === "string" && path.startsWith("/"));
-  if (items.some((item) => !item.content)) throw new Error("There's nothing to add in that text");
-  if (!items.length && !files.length) throw new Error("Drop a file or paste some text first");
-  return JSON.parse(await lore(loreHome, ["collection", "add", which, "-"], JSON.stringify({ items, files })));
+  return JSON.parse(await lore(loreHome, ["collection", "add", which, "-"], JSON.stringify(pieceInput(input))));
+}
+
+/** Pasted text and dropped files, each put on sale as its own piece. Attended: the owner's click. Over stdin, never argv.
+ * @param {string} loreHome @param {{items?: Array<{title: string, content: string}>, files?: string[]}} input
+ * @returns {Promise<{added: Array<{publication_id: number, public_id: string, title: string}>}>} */
+async function sellPieces(loreHome, input) {
+  return JSON.parse(await lore(loreHome, ["sell", "-"], JSON.stringify(pieceInput(input))));
 }
 
 /** @param {string} loreHome @param {unknown} id @param {string} title */
@@ -404,6 +417,7 @@ module.exports = {
   setFreeCopies,
   newCollection,
   addToCollection,
+  sellPieces,
   renameCollection,
   priceCollection,
   removeFromCollection,
