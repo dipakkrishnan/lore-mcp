@@ -1,0 +1,25 @@
+{
+  "recorded_at": "2026-09-30T12:17:07+00:00",
+  "lore_version": "0.1.0",
+  "locator": "https://tidewell-notes.pages.dev",
+  "requests": [
+    {
+      "n": 1,
+      "url_or_tool": "https://tidewell-notes.pages.dev",
+      "arguments": null,
+      "file": "01-index.html",
+      "sha256_raw": "120ef1de9ec88028e6a257695cc4e8c01bef118c1e9a4963ee18f9bef0ea9609",
+      "bytes_raw": 1275,
+      "scrub_hits": {}
+    },
+    {
+      "n": 2,
+      "url_or_tool": "https://tidewell-notes.pages.dev/feed.xml",
+      "arguments": null,
+      "file": "02-feed.xml",
+      "sha256_raw": "3935b38499a49829afc6a9cde1e07abcae6a94de981738ef1a5f7a03bf715e01",
+      "bytes_raw": 5022,
+      "scrub_hits": {}
+    }
+  ]
+}

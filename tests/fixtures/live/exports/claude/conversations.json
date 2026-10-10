@@ -1,0 +1,196 @@
+[
+  {
+    "uuid": "claude-churn",
+    "name": "Why one-van shops churn",
+    "created_at": "2026-06-02T14:00:00.000000Z",
+    "updated_at": "2026-06-02T14:04:00.000000Z",
+    "account": {
+      "uuid": "acct-tidewell-seed"
+    },
+    "chat_messages": [
+      {
+        "uuid": "m1",
+        "sender": "human",
+        "text": "Most of the groomers who cancel Tidewell have one van, and they cancel in the month they get busy. Why would getting busier make someone leave? canary-claude-01",
+        "content": [
+          {
+            "type": "text",
+            "text": "Most of the groomers who cancel Tidewell have one van, and they cancel in the month they get busy. Why would getting busier make someone leave? canary-claude-01"
+          }
+        ],
+        "created_at": "2026-06-02T14:00:00.000000Z",
+        "updated_at": "2026-06-02T14:00:00.000000Z",
+        "attachments": [],
+        "files": []
+      },
+      {
+        "uuid": "m2",
+        "sender": "assistant",
+        "text": "A one-van shop that gets busy is usually at capacity, so the tool stops adding value while it still costs money. Two-van shops need shared scheduling and stay.",
+        "content": [
+          {
+            "type": "text",
+            "text": "A one-van shop that gets busy is usually at capacity, so the tool stops adding value while it still costs money. Two-van shops need shared scheduling and stay."
+          }
+        ],
+        "created_at": "2026-06-02T14:01:00.000000Z",
+        "updated_at": "2026-06-02T14:01:00.000000Z",
+        "attachments": [],
+        "files": []
+      },
+      {
+        "uuid": "m3",
+        "sender": "human",
+        "text": "That matches what I see: two-van shops stay because the second van needs the calendar. What would you measure to confirm it before I change the pricing?",
+        "content": [
+          {
+            "type": "text",
+            "text": "That matches what I see: two-van shops stay because the second van needs the calendar. What would you measure to confirm it before I change the pricing?"
+          }
+        ],
+        "created_at": "2026-06-02T14:03:00.000000Z",
+        "updated_at": "2026-06-02T14:03:00.000000Z",
+        "attachments": [],
+        "files": []
+      },
+      {
+        "uuid": "m4",
+        "sender": "assistant",
+        "text": "Compare churn by van count, and look at the month-over-month booking growth just before each cancellation.",
+        "content": [
+          {
+            "type": "text",
+            "text": "Compare churn by van count, and look at the month-over-month booking growth just before each cancellation."
+          }
+        ],
+        "created_at": "2026-06-02T14:04:00.000000Z",
+        "updated_at": "2026-06-02T14:04:00.000000Z",
+        "attachments": [],
+        "files": []
+      }
+    ]
+  },
+  {
+    "uuid": "claude-calendar",
+    "name": "Calendar sync, later",
+    "created_at": "2026-06-15T10:30:00.000000Z",
+    "updated_at": "2026-06-15T10:31:00.000000Z",
+    "account": {
+      "uuid": "acct-tidewell-seed"
+    },
+    "chat_messages": [
+      {
+        "uuid": "m1",
+        "sender": "human",
+        "text": "Three customers asked for calendar sync this month; should I build it now? I have forty-one groomers and the first forty never asked for it. canary-claude-02",
+        "content": [
+          {
+            "type": "text",
+            "text": "Three customers asked for calendar sync this month; should I build it now? I have forty-one groomers and the first forty never asked for it. canary-claude-02"
+          }
+        ],
+        "created_at": "2026-06-15T10:30:00.000000Z",
+        "updated_at": "2026-06-15T10:30:00.000000Z",
+        "attachments": [],
+        "files": []
+      },
+      {
+        "uuid": "m2",
+        "sender": "assistant",
+        "text": "Three requests out of forty-one is a signal worth logging, not a reason to build. Wait until the requests come from the customers you most want to keep.",
+        "content": [
+          {
+            "type": "text",
+            "text": "Three requests out of forty-one is a signal worth logging, not a reason to build. Wait until the requests come from the customers you most want to keep."
+          }
+        ],
+        "created_at": "2026-06-15T10:31:00.000000Z",
+        "updated_at": "2026-06-15T10:31:00.000000Z",
+        "attachments": [],
+        "files": []
+      }
+    ]
+  },
+  {
+    "uuid": "claude-content-only",
+    "name": "Content-only message",
+    "created_at": "2026-07-08T16:45:00.000000Z",
+    "updated_at": "2026-07-08T16:46:00.000000Z",
+    "account": {
+      "uuid": "acct-tidewell-seed"
+    },
+    "chat_messages": [
+      {
+        "uuid": "m1",
+        "sender": "human",
+        "text": "",
+        "content": [
+          {
+            "type": "text",
+            "text": "This owner message only exists in the content array, never in the text field, canary-claude-03 and it is well over forty characters long."
+          }
+        ],
+        "created_at": "2026-07-08T16:45:00.000000Z",
+        "updated_at": "2026-07-08T16:45:00.000000Z",
+        "attachments": [],
+        "files": []
+      },
+      {
+        "uuid": "m2",
+        "sender": "assistant",
+        "text": "Understood.",
+        "content": [
+          {
+            "type": "text",
+            "text": "Understood."
+          }
+        ],
+        "created_at": "2026-07-08T16:46:00.000000Z",
+        "updated_at": "2026-07-08T16:46:00.000000Z",
+        "attachments": [],
+        "files": []
+      }
+    ]
+  },
+  {
+    "uuid": "claude-short",
+    "name": "Short one",
+    "created_at": "2026-08-20T09:00:00.000000Z",
+    "updated_at": "2026-08-20T09:00:30.000000Z",
+    "account": {
+      "uuid": "acct-tidewell-seed"
+    },
+    "chat_messages": [
+      {
+        "uuid": "m1",
+        "sender": "human",
+        "text": "hello? canary-claude-04",
+        "content": [
+          {
+            "type": "text",
+            "text": "hello? canary-claude-04"
+          }
+        ],
+        "created_at": "2026-08-20T09:00:00.000000Z",
+        "updated_at": "2026-08-20T09:00:00.000000Z",
+        "attachments": [],
+        "files": []
+      },
+      {
+        "uuid": "m2",
+        "sender": "assistant",
+        "text": "Hello.",
+        "content": [
+          {
+            "type": "text",
+            "text": "Hello."
+          }
+        ],
+        "created_at": "2026-08-20T09:00:30.000000Z",
+        "updated_at": "2026-08-20T09:00:30.000000Z",
+        "attachments": [],
+        "files": []
+      }
+    ]
+  }
+]

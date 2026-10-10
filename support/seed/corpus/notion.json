@@ -1,0 +1,192 @@
+{
+  "workspace": "Tidewell",
+  "top_level": [
+    {
+      "id": "nt-00",
+      "title": "Tidewell HQ",
+      "canary": null,
+      "created_by": "hand",
+      "blocks": [
+        {
+          "type": "paragraph",
+          "text": "Tidewell seed workspace home."
+        }
+      ]
+    },
+    {
+      "id": "nt-07",
+      "title": "Payroll (restricted)",
+      "canary": "canary-notion-07",
+      "created_by": "hand",
+      "grant_to_lore": false,
+      "blocks": [
+        {
+          "type": "paragraph",
+          "text": "Payroll notes for the fictional Tidewell seed: contract hours for Marcus and the monthly retainer, kept out of the Lore grant on purpose."
+        },
+        {
+          "type": "paragraph",
+          "text": "Internal tag: canary-notion-07 (tidewell-seed)."
+        }
+      ]
+    }
+  ],
+  "children_of": "nt-00",
+  "pages": [
+    {
+      "id": "nt-01",
+      "title": "No-show deposit policy",
+      "canary": "canary-notion-01",
+      "blocks": [
+        {
+          "type": "heading_2",
+          "text": "Policy"
+        },
+        {
+          "type": "paragraph",
+          "text": "A 25 % no-show deposit cut no-shows from 18 % to 4 % in six weeks. Charge it at booking, credit it against the final bill, refund it if the groomer cancels."
+        },
+        {
+          "type": "bulleted_list_item",
+          "text": "New customers only; regulars are exempt after their second visit."
+        },
+        {
+          "type": "bulleted_list_item",
+          "text": "Refunds are automatic and never need a support ticket."
+        },
+        {
+          "type": "paragraph",
+          "text": "Internal tag: canary-notion-01 (tidewell-seed)."
+        }
+      ]
+    },
+    {
+      "id": "nt-02",
+      "title": "Churn notes: one-van shops",
+      "canary": "canary-notion-02",
+      "blocks": [
+        {
+          "type": "paragraph",
+          "text": "One-van shops churn the month they get busy; two-van shops stay because the second van needs the calendar."
+        },
+        {
+          "type": "paragraph",
+          "text": "Next step: compare cancellations by van count over the last six months and list the shops that added a second van."
+        },
+        {
+          "type": "paragraph",
+          "text": "Internal tag: canary-notion-02 (tidewell-seed)."
+        }
+      ]
+    },
+    {
+      "id": "nt-03",
+      "title": "Cedar Hollow partnership",
+      "canary": "canary-notion-03",
+      "private_data": "fake-phone",
+      "blocks": [
+        {
+          "type": "paragraph",
+          "text": "Vet clinics refer groomers if you give them a printable card with the clinic's own name on it. Contact: Dr. Imani Okafor-Reyes."
+        },
+        {
+          "type": "paragraph",
+          "text": "Clinic front desk: +1 (555) 013-4477"
+        },
+        {
+          "type": "paragraph",
+          "text": "Internal tag: canary-notion-03 (tidewell-seed)."
+        }
+      ]
+    },
+    {
+      "id": "nt-04",
+      "title": "<Roadmap> 🗺️ & priorities",
+      "canary": "canary-notion-04",
+      "blocks": [
+        {
+          "type": "heading_1",
+          "text": "Roadmap"
+        },
+        {
+          "type": "heading_2",
+          "text": "Now"
+        },
+        {
+          "type": "to_do",
+          "text": "Warn groomers about the seven-day first payout",
+          "checked": true
+        },
+        {
+          "type": "to_do",
+          "text": "Printable vet clinic card",
+          "checked": false
+        },
+        {
+          "type": "heading_2",
+          "text": "Later"
+        },
+        {
+          "type": "code",
+          "language": "python",
+          "text": "def cluster(stops):\n    return sorted(stops, key=lambda s: s.neighbourhood)"
+        },
+        {
+          "type": "paragraph",
+          "text": "Internal tag: canary-notion-04 (tidewell-seed)."
+        }
+      ]
+    },
+    {
+      "id": "nt-05",
+      "title": "Pricing history",
+      "canary": "canary-notion-05",
+      "blocks": [
+        {
+          "type": "bulleted_list_item",
+          "text": "2026-03-12: first paying groomer at $29 a month."
+        },
+        {
+          "type": "bulleted_list_item",
+          "text": "2026-08-01: price raised to $39 a month, with grandfathering for everyone already paying."
+        },
+        {
+          "type": "paragraph",
+          "text": "Internal tag: canary-notion-05 (tidewell-seed)."
+        },
+        {
+          "type": "database",
+          "title": "Groomers",
+          "properties": {
+            "Name": "title",
+            "Vans": "number",
+            "Plan": "select"
+          },
+          "rows": [
+            {
+              "Name": "Suds & Buds Mobile Grooming",
+              "Vans": 1,
+              "Plan": "Grandfathered"
+            },
+            {
+              "Name": "Paws on Wheels",
+              "Vans": 2,
+              "Plan": "Standard"
+            },
+            {
+              "Name": "Tail Trail Grooming",
+              "Vans": 1,
+              "Plan": "Standard"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "nt-06",
+      "title": "Empty page",
+      "canary": null,
+      "blocks": []
+    }
+  ]
+}
