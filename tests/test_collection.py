@@ -96,6 +96,54 @@ class CollectionTest(LoreTestCase):
         self.assertNotIn("'Unpriced'", sql)
         self.assertIn(f"'{piece}',1);", sql)
 
+    def assertNothingOnSale(self, store: Store, piece_public_id: str) -> None:
+        self.assertEqual(store.list_publications(active_only=True), [])
+        self.assertEqual(store.unpriced_pieces(), set())
+        with self.assertRaises(ValueError):
+            store.get_publication(piece_public_id)
+
+    def test_deleting_an_unpriced_collection_does_not_publish_its_pieces(
+        self,
+    ) -> None:
+        with Store() as store:
+            collection = store.new_collection()
+            piece = store.add_to_collection(collection.id, "A", "private notes")
+            store.delete_collection(collection.id)
+            self.assertEqual(store.collections(), [])
+            self.assertNothingOnSale(store, piece.public_id)
+
+    def test_deleting_a_collection_priced_back_to_zero_does_not_publish_it(
+        self,
+    ) -> None:
+        with Store() as store:
+            collection = store.new_collection()
+            piece = store.add_to_collection(collection.id, "A", "private notes")
+            store.price_collection(collection.id, 5)
+            store.price_collection(collection.id, 0)
+            store.delete_collection(collection.id)
+            self.assertNothingOnSale(store, piece.public_id)
+
+    def test_deleting_a_priced_collection_leaves_its_pieces_on_sale(self) -> None:
+        with Store() as store:
+            collection = store.new_collection()
+            piece = store.add_to_collection(collection.id, "A", "for sale")
+            store.price_collection(collection.id, 5)
+            store.delete_collection(collection.id)
+            self.assertEqual(store.get_publication(piece.public_id).content, "for sale")
+
+    def test_deleting_a_missing_collection_raises(self) -> None:
+        with Store() as store:
+            with self.assertRaises(ValueError):
+                store.delete_collection(999)
+
+    def test_a_price_that_rounds_to_zero_is_refused(self) -> None:
+        with Store() as store:
+            collection = store.new_collection()
+            store.price_collection(collection.id, 4)
+            with self.assertRaises(ValueError):
+                store.price_collection(collection.id, 1e-9)
+            self.assertEqual(store.collection(collection.id).price_usd, 4)
+
     def test_changes_need_the_owner(self) -> None:
         with captured(), patch("sys.stdin", io.StringIO("")):
             self.assertNotEqual(cli.main(["collection", "new"]), 0)

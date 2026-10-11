@@ -15,12 +15,11 @@ Three planes, three different trust boundaries:
 | Plane | What it is | Where the data goes | Consent |
 |---|---|---|---|
 | **Node (owner)** | The deployed x402 Worker, `lore/node/` | The owner's own Cloudflare account, via Workers' built-in observability. Never the maintainers'. | None needed — it is the owner's own infrastructure, same as any other Cloudflare Worker they run. |
-| **Desktop (funnel)** | The Electron app's activation milestones | A maintainer-run collector Worker, `collector/` (not yet built — `XC-029`) | **Opt-out, on by default**, disclosed in Settings and at first launch, with an off switch (`CLI-004`). |
+| **Desktop (funnel)** | Milestones the app and `lore` observe (`APP-058`) | The feedback relay's `/events` route, which re-checks every event and passes it to PostHog | **Opt-out, on by default**, disclosed before the first event and in Settings, with an off switch (`CLI-004`). |
 | **QA node (maintainer)** | The standing `lore-qa` deployment, `MON-008` | The same maintainer collector, over OTLP | N/A — maintainer-owned infrastructure and synthetic fixture data only. |
 
-`PRIVACY.md` describes only shipped behavior. The desktop funnel below is a
-proposal, not enabled telemetry: its collector, disclosure, and off switch
-must ship together before any desktop event is sent.
+`PRIVACY.md` describes only shipped behavior. The desktop funnel shipped with
+its disclosure, off switch and local log together (`APP-058`).
 
 ## Top-down: the metric tree
 
@@ -55,20 +54,24 @@ answers.
   nested `lore.sale` span inside `sales.ts`'s existing `recorded()` wrapper;
   and `answer.ts`'s background job wraps in `lore.answer.job`, promoting the
   `AnswerTelemetry` the answer tier already computes and persists to D1.
-- **Desktop plane (not yet built — `APP-058`/`XC-029`/`CLI-004`) — the OTel
-  data model and OTLP wire format, not the SDK.** The Python package has
-  exactly two runtime dependencies (`pydantic`, `windup`); the OTel Python SDK
-  is not a proportionate addition, and the Electron renderer cannot make
-  network calls at all (`connect-src 'none'` in `app/desktop/src/index.html`).
-  The plan is for the Electron **main** process to emit OTLP/HTTP+JSON log
-  records with an `event.name` attribute — the current OTel spelling for a
-  discrete event — using Electron's own `net.request`, no dependency added.
-- **The collector (not yet built — `XC-029`).** A maintainer-owned Worker,
-  sibling to `bridge/` and `site/`, accepting OTLP/HTTP+JSON and
-  **re-validating every record against the same allowlist server-side**
-  before writing to Workers Analytics Engine. Server-side validation is the
-  point: an old or tampered client cannot widen the schema. The QA node's
-  traces point here too (`MON-021`); owner nodes never do.
+- **Desktop plane (`APP-058`) — one sender, one list, no SDK.** Every event
+  is sent by `lore/usage.py`, so the CLI and the app share it: the app asks
+  `lore telemetry record <event>` for the two things only it sees (the app
+  opening, a sign-in), and Python records the rest where they happen. The
+  closed list is `contracts/usage_events.json`: a name and at most one coded
+  property per event. Milestones are sent once per install, `app.opened` once
+  a day, `cli.failed` each time with only the command's name. Nothing is sent
+  before the notice (`telemetry_noticed`) or with telemetry off, and every
+  event sent is appended to `~/.lore/usage.log`. Sending is a 2-second,
+  best-effort POST that never fails a command.
+- **The relay, not a new collector.** `feedback-relay/` gains `/events`,
+  which re-checks every event against the same contract and drops anything
+  else, then forwards what is left to PostHog's batch API with no person
+  profile and no IP. Server-side checking is the point: an old or altered
+  client cannot widen what is kept. Swapping PostHog for another sink is a
+  change to the relay only. Without the `POSTHOG_KEY` secret it accepts and
+  keeps nothing. `XC-029`'s Analytics Engine collector is superseded for the
+  desktop plane; QA traces (`MON-021`) still need a destination.
 
 ## The attribute allowlist (implemented)
 

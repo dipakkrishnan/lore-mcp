@@ -1,5 +1,6 @@
 const { randomUUID } = require("node:crypto");
 const { existsSync } = require("node:fs");
+const { appendFile } = require("node:fs/promises");
 const { join } = require("node:path");
 const { app, BrowserWindow, dialog, ipcMain, safeStorage, shell, systemPreferences } = require("electron");
 const { provision, skillsDir, whisper } = require("./runtime.cjs");
@@ -9,7 +10,11 @@ const { lore, loreStream, openable, readState, readSales, readViews, searchMemor
 
 if (process.env.LORE_DESKTOP_USER_DATA) app.setPath("userData", process.env.LORE_DESKTOP_USER_DATA);
 
+// Every `lore` this app runs reports usage under the app's version, not the CLI's.
+process.env.LORE_APP_VERSION = app.getVersion();
 const TASKS = new Set(["capture", "setup", "publish", "deploy"]);
+/** What the renderer may report: that the usage notice was on screen, and that the app opened. */
+const USAGE = new Set(["noticed", "app.opened"]);
 const LOGINS = new Set(["anthropic:oauth", "anthropic:api_key", "openai-codex:oauth", "openai:api_key"]);
 
 /** @type {LoreAgentInstance | undefined} */
@@ -77,7 +82,20 @@ function registerIpc(loreHome) {
   ipcMain.handle("auth:login", (_event, input) => {
     if (!input || !LOGINS.has(`${input.providerId}:${input.type}`)) throw new Error("Unsupported sign-in");
     if (input.secret !== undefined && typeof input.secret !== "string") throw new Error("Invalid key");
-    return ready().login(input.providerId, input.type, input.secret);
+    return ready().login(input.providerId, input.type, input.secret).then((auth) => {
+      void lore(loreHome, ["telemetry", "record", "signin.completed"]).catch(() => undefined);
+      return auth;
+    });
+  });
+  ipcMain.handle("usage:record", (_event, name) => {
+    if (!USAGE.has(name)) throw new Error("Unknown usage event");
+    return lore(loreHome, name === "noticed" ? ["telemetry", "noticed"] : ["telemetry", "record", name]).then(() => undefined);
+  });
+  ipcMain.handle("telemetry:set", (_event, on) => lore(loreHome, ["telemetry", on === true ? "on" : "off"]).then(() => undefined));
+  ipcMain.handle("telemetry:log", async () => {
+    const log = join(loreHome, "usage.log");
+    await appendFile(log, "");
+    return shell.openPath(log);
   });
   ipcMain.handle("auth:logout", (_event, providerId) => {
     if (typeof providerId !== "string") throw new Error("Invalid provider");

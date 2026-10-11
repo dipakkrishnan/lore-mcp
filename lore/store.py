@@ -1296,10 +1296,13 @@ class Store:
     def price_collection(self, collection_id: int, price_usd: float) -> Collection:
         if not price_usd >= 0 or price_usd == float("inf"):
             raise ValueError("a price has to be a number, zero or more")
+        rounded = round(price_usd, 6)
+        if price_usd > 0 and rounded <= 0:
+            raise ValueError("that price is too small; the smallest is $0.000001")
         self.collection(collection_id)
         self.db.execute(
             "UPDATE collections SET price_usd=? WHERE id=?",
-            (round(price_usd, 6), collection_id),
+            (rounded, collection_id),
         )
         self._touch_collection(collection_id)
         return self.collection(collection_id)
@@ -1316,10 +1319,17 @@ class Store:
         self._touch_collection(collection_id)
 
     def delete_collection(self, collection_id: int) -> None:
-        """Remove the collection; its pieces stay on sale one by one."""
-        cursor = self.db.execute("DELETE FROM collections WHERE id=?", (collection_id,))
-        if not cursor.rowcount:
-            raise ValueError(f"collection not found: {collection_id}")
+        """Remove the collection. A priced collection's pieces stay on sale one
+        by one; an unpriced one was never on sale, so its pieces are revoked
+        rather than published by the delete."""
+        collection = self.collection(collection_id)
+        if collection.price_usd <= 0:
+            for piece in collection.pieces:
+                self.db.execute(
+                    "UPDATE publications SET active=0,updated_at=? WHERE id=?",
+                    (datetime.now(timezone.utc).isoformat(), piece.id),
+                )
+        self.db.execute("DELETE FROM collections WHERE id=?", (collection_id,))
         self.db.commit()
 
     def unpriced_pieces(self) -> set[int]:
