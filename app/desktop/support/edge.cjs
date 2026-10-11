@@ -643,6 +643,12 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         const rowOf = (label) => `[...document.querySelectorAll("#content .row")].find((r) => r.querySelector(".t b")?.textContent === ${JSON.stringify(label)})`;
         await js(`window.__lore.signIn()`);
         await waitFor(`document.querySelector("#content").textContent.includes("Approve what to sell")`);
+        const clearOfTitlebar = `(() => { const bar = document.querySelector(".titlebar"); bar.style.pointerEvents = "none"; const hits = []; for (let y = 1; y < 28; y += 3) for (let x = 1; x < innerWidth; x += 8) hits.push(document.elementFromPoint(x, y)?.closest("button, a, input, textarea, select, [tabindex]:not(#main)")); bar.style.pointerEvents = ""; return hits.every((hit) => !hit); })()`;
+        check("the window drags from a strip across its whole top", await js(`(() => { const bar = document.querySelector(".titlebar"); const r = bar.getBoundingClientRect(); return getComputedStyle(bar).webkitAppRegion === "drag" && r.top === 0 && r.left === 0 && r.width === innerWidth && r.height === 28; })()`));
+        check("nothing clickable sits under the drag strip", await js(clearOfTitlebar));
+        await js(`document.querySelector("#main").scrollTop = 400`);
+        await sleep(100);
+        check("nothing clickable scrolls under the drag strip", await js(clearOfTitlebar));
         await js(`[...document.querySelectorAll("#content .memory")].at(-2)?.scrollIntoView({ block: "start" })`);
         await sleep(200);
         await shot("today-approvals");
