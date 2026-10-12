@@ -1,15 +1,20 @@
 const { randomUUID } = require("node:crypto");
 const { existsSync } = require("node:fs");
+const { appendFile } = require("node:fs/promises");
 const { join } = require("node:path");
 const { app, BrowserWindow, dialog, ipcMain, safeStorage, shell, systemPreferences } = require("electron");
 const { provision, skillsDir, whisper } = require("./runtime.cjs");
 const { transcribe } = require("./dictation.cjs");
 const sales = require("./sales.cjs");
-const { lore, loreStream, openable, readState, readSales, readViews, searchMemories, readMemory, renameMemory, editMemory, captureMemories, previewPage, setPrice, candidates, decide, extrasCandidates, decideExtras, reportFeedback, listStore, cardStatus, connectCards, switchCards, listingStatus, sourceCatalog, sourceChoices, connectSource, signIn, readSource, removeSource, useRuntime } = require("./state.cjs");
+const { lore, loreStream, openable, readState, readSales, readViews, searchMemories, readMemory, renameMemory, editMemory, captureMemories, previewPage, setPrice, setFreeCopies, candidates, decide, extrasCandidates, decideExtras, approveExtras, reportFeedback, listStore, cardStatus, connectCards, switchCards, listingStatus, sourceCatalog, sourceChoices, connectSource, signIn, readSource, removeSource, useRuntime } = require("./state.cjs");
 
 if (process.env.LORE_DESKTOP_USER_DATA) app.setPath("userData", process.env.LORE_DESKTOP_USER_DATA);
 
+// Every `lore` this app runs reports usage under the app's version, not the CLI's.
+process.env.LORE_APP_VERSION = app.getVersion();
 const TASKS = new Set(["capture", "setup", "publish", "deploy"]);
+/** What the renderer may report: that the usage notice was on screen, and that the app opened. */
+const USAGE = new Set(["noticed", "app.opened"]);
 const LOGINS = new Set(["anthropic:oauth", "anthropic:api_key", "openai-codex:oauth", "openai:api_key"]);
 
 /** @type {LoreAgentInstance | undefined} */
@@ -77,7 +82,20 @@ function registerIpc(loreHome) {
   ipcMain.handle("auth:login", (_event, input) => {
     if (!input || !LOGINS.has(`${input.providerId}:${input.type}`)) throw new Error("Unsupported sign-in");
     if (input.secret !== undefined && typeof input.secret !== "string") throw new Error("Invalid key");
-    return ready().login(input.providerId, input.type, input.secret);
+    return ready().login(input.providerId, input.type, input.secret).then((auth) => {
+      void lore(loreHome, ["telemetry", "record", "signin.completed"]).catch(() => undefined);
+      return auth;
+    });
+  });
+  ipcMain.handle("usage:record", (_event, name) => {
+    if (!USAGE.has(name)) throw new Error("Unknown usage event");
+    return lore(loreHome, name === "noticed" ? ["telemetry", "noticed"] : ["telemetry", "record", name]).then(() => undefined);
+  });
+  ipcMain.handle("telemetry:set", (_event, on) => lore(loreHome, ["telemetry", on === true ? "on" : "off"]).then(() => undefined));
+  ipcMain.handle("telemetry:log", async () => {
+    const log = join(loreHome, "usage.log");
+    await appendFile(log, "");
+    return shell.openPath(log);
   });
   ipcMain.handle("auth:logout", (_event, providerId) => {
     if (typeof providerId !== "string") throw new Error("Invalid provider");
@@ -131,6 +149,19 @@ function registerIpc(loreHome) {
     }
     return decideExtras(loreHome, input.original, input.extras, input.approve);
   });
+  ipcMain.handle("publication:approve-extras", async (_event, decisions) => {
+    if (!Array.isArray(decisions) || !decisions.length || !decisions.every((d) => d && typeof d.original === "object" && d.original && typeof d.extras === "object" && d.extras)) {
+      throw new Error("Invalid decisions");
+    }
+    await approveExtras(loreHome, decisions);
+    if (!window?.isFocused()) {
+      sales.notify({ title: "Your store is updated", body: `${decisions.length} pieces have their new pages.` }, () => {
+        if (!window) createWindow();
+        window?.show();
+        window?.focus();
+      });
+    }
+  });
   ipcMain.handle("publication:revoke", async (_event, id) => {
     if (!Number.isInteger(id) || id < 1) throw new Error("Invalid publication");
     await lore(loreHome, ["publication", "revoke", String(id)], "");
@@ -142,6 +173,8 @@ function registerIpc(loreHome) {
   ipcMain.handle("store:views", () => readViews(loreHome));
   ipcMain.handle("schedule:install", () => lore(loreHome, ["profile", join(loreHome, "automation", "profile.json")]));
   ipcMain.handle("pricing:set", (_event, amount) => setPrice(loreHome, amount));
+  ipcMain.handle("pricing:free-copies", (_event, count) => setFreeCopies(loreHome, count));
+  ipcMain.handle("home:reveal", () => shell.openPath(loreHome));
   ipcMain.handle("feedback:report", (_event, input) => {
     if (!input || typeof input.title !== "string" || typeof input.email !== "string" || typeof input.description !== "string") {
       throw new Error("Invalid feedback report");

@@ -20,11 +20,28 @@ install can be told apart. That id is not derived from anything else on the
 machine and carries no memory content, file paths, or wallet addresses. A
 copy of everything sent is kept at `~/.lore/feedback/`.
 
-## Desktop telemetry
+## Anonymous usage events
 
-The desktop app does not currently send activation events to the maintainers.
-A proposed milestone funnel and its disclosure and opt-out controls are tracked
-in `docs/telemetry.md`; they are not implemented or enabled in this release.
+Lore sends a few anonymous usage events so the maintainers can see where it
+helps and where people get stuck. It is on unless you turn it off, and nothing
+is sent until Lore has told you about it: on the welcome screen, in a notice
+the first time you open an updated app, or once in the terminal.
+
+- **What is sent:** an event name from a fixed list (for example "app opened",
+  "store opened", "first piece approved"), at most one coded value (such as
+  which app you connected, or "card" or "agent" for a first sale), the Lore
+  version, the time, and the same random install id described above.
+- **What is never sent:** your memories, pieces, titles, prompts, file paths,
+  URLs, prices, amounts, wallet or payment details, or how many of anything
+  you have. Most events are sent only the first time they happen; "app
+  opened" at most once a day; a failed command says only which command.
+- **Where it goes:** to the maintainers' relay (`relay.yourlore.dev`), which
+  drops anything not on the fixed list (`contracts/usage_events.json`) and
+  passes the rest to PostHog, an analytics service, with no person profile
+  and no IP address.
+- **See and stop it:** every event sent is also written to
+  `~/.lore/usage.log`. Turn it off in Settings → Anonymous usage, or with
+  `lore telemetry off`.
 
 ## A deployed node's own observability
 

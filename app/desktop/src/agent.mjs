@@ -283,7 +283,7 @@ function appendTaskRecord(manager, kind, state, phase = TASKS[kind].phase) {
 /** @param {TaskState | undefined} state @param {AgentTask} task @param {boolean} completed @returns {[TaskState, string] | null} */
 export function closingRecord(state, task, completed) {
   if (state !== "working") return null;
-  return completed || task === "publish" ? ["done", "Finished"] : ["stopped", "Ready to resume"];
+  return completed || task === "publish" ? ["done", "Finished"] : ["stopped", "Reply to keep going"];
 }
 
 /** What a turn's owner-history job row should say when it ends. A turn that neither threw nor was confirmed complete did not "succeed" — the outcome is unknown, same as a row conceded by reap_jobs — so it must never report the status Recent runs renders as "Done" alongside a summary that says it stopped before finishing. @param {boolean} completed @returns {[string, string]} */
@@ -301,7 +301,7 @@ function repairInterrupted(manager, task) {
     manager.appendMessage({ role: "toolResult", toolCallId: block.id, toolName: block.name, content: [{ type: "text", text: CLOSED }], isError: true, timestamp: Date.now() });
     interrupted = true;
   }
-  if (interrupted) appendTaskRecord(manager, task, "stopped", "Ready to resume");
+  if (interrupted) appendTaskRecord(manager, task, "stopped", "Reply to keep going");
   return manager;
 }
 
@@ -444,7 +444,7 @@ export class LoreAgent {
 
   tasks() {
     return LoreAgent.tasks(this.options.loreHome).map((record) =>
-      this.#sessions.has(record.kind) ? record : { ...record, state: /** @type {TaskState} */ ("stopped"), phase: "Ready to resume" }
+      this.#sessions.has(record.kind) ? record : { ...record, state: /** @type {TaskState} */ ("stopped"), phase: "Reply to keep going" }
     );
   }
 
@@ -616,7 +616,7 @@ export class LoreAgent {
     });
     session.subscribe((event) => {
       if (event.type === "tool_execution_start" && event.toolName !== "ask_user") {
-        this.options.emit({ type: "live", task, text: task === "deploy" ? "Setting up your store…" : event.toolName === "read" ? "Reading…" : "Looking through your Lore…" });
+        this.options.emit({ type: "live", task, text: task === "deploy" ? "Setting up your store…" : event.toolName === "read" ? "Reading…" : "Looking through your Lore…", status: true });
       }
       if (event.type === "message_update" && event.assistantMessageEvent.type === "text_delta") {
         this.options.emit({ type: "live", task, text: spoken(event.assistantMessageEvent.partial.content) });
