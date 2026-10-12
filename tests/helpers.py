@@ -35,6 +35,8 @@ class LoreTestCase(unittest.TestCase):
         os.environ["LORE_HOME"] = str(self.lore_home)
         os.environ["CLAUDE_HOME"] = str(self.claude_home)
         os.environ["CODEX_HOME"] = str(self.codex_home)
+        # Usage events go nowhere from a test: a closed local port, refused at once.
+        os.environ["LORE_USAGE_URL"] = "http://127.0.0.1:9/events"
         self.addCleanup(self.tmp.cleanup)
 
     def seed_memory(self, title: str, status: str = "private") -> int:
