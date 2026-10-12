@@ -35,13 +35,15 @@ calls, each on a seller's connected account:
 
 Webhook signature checks use `STRIPE_WEBHOOK_SECRET`, not the key.
 
-Seller tokens are an HMAC keyed on `STRIPE_SECRET_KEY` (`signer()` in
-`checkout/src/index.ts`), so swapping or rolling the key logs every
-connected seller's app out of `/accounts/status`, `/accounts/bind` and
-`/onboard`. Before the swap, key tokens on their own `ACCOUNT_TOKEN_SECRET`
-Worker secret. If any seller has connected by then, set it to the current
-`lore-accounts:<key>` input for one release, or have the app re-open
-accounts on a 403.
+Seller tokens are an HMAC keyed on their own `ACCOUNT_TOKEN_SECRET` Worker
+secret (`signer()` in `checkout/src/index.ts`), not on `STRIPE_SECRET_KEY`,
+so swapping or rolling the Stripe key no longer logs sellers out of
+`/accounts/status`, `/accounts/bind` and `/onboard`. No seller had connected
+when this changed, so there was nothing to migrate.
+
+`GET /health` proves a key works after a swap: it lists one v2 account
+(`GET /v2/core/accounts?limit=1`, a read the account permissions above
+already cover) and answers only `{"ok":true}`, or `{"ok":false}` with a 502.
 
 Steps:
 1. In the sandbox, create a restricted key with the fewest permissions
@@ -54,13 +56,14 @@ Steps:
    else.
 3. Record the final list here, create the same restricted key in live, set
    it with `wrangler secret put STRIPE_SECRET_KEY` from a terminal outside
-   any agent session, then roll the full secret key in the dashboard.
+   any agent session, check `curl https://checkout.yourlore.dev/health`
+   answers `{"ok":true}`, then roll the full secret key in the dashboard.
 
 ## Acceptance criteria
 
 - [ ] The permission list is recorded here, found by running the sandbox
       path against a restricted key.
-- [ ] Seller tokens no longer depend on the Stripe key, and a connected
+- [x] Seller tokens no longer depend on the Stripe key, and a connected
       seller's app still reads its status after the swap.
 - [ ] The live Worker runs on the restricted key, and the full secret key
       is rolled.

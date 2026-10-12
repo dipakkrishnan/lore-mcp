@@ -43,3 +43,11 @@ has no refund action anywhere.
 Raised 2026-09-29. Depends on card checkout (XC-039, PR #345). Check
 Stripe's current dispute fee, and how Link's one-time virtual cards behave in
 disputes.
+
+2026-10-06, first slice for launch: `lore support <email>` sets a support
+email that every store page ends with ("Questions, or want a refund? Email
+the seller at …"). Lore promises no
+refund terms on a seller's behalf: the seller is the merchant, so refunds
+and disputes are theirs (XC-041 seller terms must say so). Refunds are
+issued by hand from the seller's Stripe dashboard; Checkout text and
+the desktop Refund button remain open.
