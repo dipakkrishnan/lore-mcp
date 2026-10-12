@@ -10,7 +10,7 @@ blockers: []
 dependencies: []
 github_issue: null
 created: 2026-08-02
-updated: 2026-08-28
+updated: 2026-10-06
 ---
 
 ## Problem
@@ -60,3 +60,9 @@ Answer pricing is already a separate global setting with per-job cost
 telemetry; it is not blocked on this publication-pricing decision. Current
 recommendation: keep the single global publication price until observed use
 proves otherwise.
+
+2026-10-06: a seller asked for this directly. The wanted shape is an optional
+per-piece price, with the store price shown at the top of For Sale as the
+default, and an easy way to set it when listing a piece. The desktop side is
+APP-192, which is blocked on this item's payment-seam work. Dynamic,
+demand-based pricing is a separate later idea (MON-043).

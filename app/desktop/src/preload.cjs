@@ -35,12 +35,22 @@ contextBridge.exposeInMainWorld("lore", {
   extras: () => ipcRenderer.invoke("publication:extras"),
   /** @param {{original: PublicationExtras, extras: PublicationExtras, approve: boolean}} input */
   decideExtras: (input) => ipcRenderer.invoke("publication:decide-extras", input),
+  /** @param {Array<{original: PublicationExtras, extras: PublicationExtras}>} decisions */
+  approveExtras: (decisions) => ipcRenderer.invoke("publication:approve-extras", decisions),
   /** @param {number} id */
   revoke: (id) => ipcRenderer.invoke("publication:revoke", id),
   push: () => ipcRenderer.invoke("store:push"),
   schedule: () => ipcRenderer.invoke("schedule:install"),
   /** @param {number} amount */
   setPrice: (amount) => ipcRenderer.invoke("pricing:set", amount),
+  /** @param {number} count */
+  setFreeCopies: (count) => ipcRenderer.invoke("pricing:free-copies", count),
+  revealHome: () => ipcRenderer.invoke("home:reveal"),
+  /** @param {"noticed" | "app.opened"} name */
+  usage: (name) => ipcRenderer.invoke("usage:record", name),
+  /** @param {boolean} on */
+  setTelemetry: (on) => ipcRenderer.invoke("telemetry:set", on),
+  usageLog: () => ipcRenderer.invoke("telemetry:log"),
   sales: () => ipcRenderer.invoke("store:sales"),
   views: () => ipcRenderer.invoke("store:views"),
   /** @param {{title: string, email: string, description: string}} input */

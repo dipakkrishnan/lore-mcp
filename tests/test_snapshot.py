@@ -192,6 +192,7 @@ class DesktopSnapshotTest(LoreTestCase):
                     "hour": None,
                 },
                 "telemetry_enabled": True,
+                "telemetry_noticed": False,
             },
         )
         self.assertEqual(state["library"]["counts"], {"private": 6})
@@ -234,7 +235,12 @@ class DesktopSnapshotTest(LoreTestCase):
         )
         self.assertEqual(
             state["pricing"],
-            {"publication_usd": 0.01, "answer_usd": 0.1, "answer_enabled": True},
+            {
+                "publication_usd": 0.01,
+                "answer_usd": 0.1,
+                "answer_enabled": True,
+                "free_copies": 3,
+            },
         )
         self.assertEqual(state["node"]["live"]["state"], "online")
         self.assertEqual(state["node"]["live"]["network"], "eip155:8453")

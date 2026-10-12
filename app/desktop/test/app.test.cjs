@@ -40,6 +40,21 @@ test("reads only the fixed APP-001 snapshot", async () => {
   }
 });
 
+test("free copies save through the CLI, refused before it unless a whole number, and read back in the snapshot", async () => {
+  const { setFreeCopies } = require("../src/state.cjs");
+  const directory = await mkdtemp(join(tmpdir(), "lore-desktop-"));
+  try {
+    assert.equal((await readState(directory)).pricing.free_copies, 3);
+    for (const bad of [-1, 1.5, "4", Number.NaN]) await assert.rejects(setFreeCopies(directory, bad), { message: /whole number/ });
+    await setFreeCopies(directory, 0);
+    assert.equal((await readState(directory)).pricing.free_copies, 0);
+    await setFreeCopies(directory, 5);
+    assert.equal((await readState(directory)).pricing.free_copies, 5);
+  } finally {
+    await rm(directory, { recursive: true });
+  }
+});
+
 test("the agent may open only the pages the payments skill sends an owner to", () => {
   const { openable } = require("../src/state.cjs");
   assert.ok(openable("https://www.coinbase.com/"));
@@ -283,7 +298,7 @@ test("sessions persist per task, come back as a thread, and a cut-off tool call 
     assert.equal(messages.length, 9);
     assert.deepEqual({ role: messages[8].role, toolCallId: messages[8].toolCallId, isError: messages[8].isError }, { role: "toolResult", toolCallId: "call-2", isError: true });
     assert.deepEqual(LoreAgent.tasks(home).map(({ kind, state, phase }) => ({ kind, state, phase })), [
-      { kind: "setup", state: "stopped", phase: "Ready to resume" }
+      { kind: "setup", state: "stopped", phase: "Reply to keep going" }
     ]);
     assert.equal(SessionManager.create(home).buildSessionContext().messages.length, 0);
     assert.equal(LoreAgent.sessionFor(home, "capture").buildSessionContext().messages.length, 0);
@@ -489,8 +504,8 @@ test("typed task records survive relaunch and only unfinished known tasks are li
 test("an early-ended turn stays resumable until the owner starts over", async () => {
   const { LoreAgent, closingRecord, latestTaskRecord } = await import("../src/agent.mjs");
   const { SessionManager } = await import("@earendil-works/pi-coding-agent");
-  assert.deepEqual(closingRecord("working", "setup", false), ["stopped", "Ready to resume"]);
-  assert.deepEqual(closingRecord("working", "capture", false), ["stopped", "Ready to resume"]);
+  assert.deepEqual(closingRecord("working", "setup", false), ["stopped", "Reply to keep going"]);
+  assert.deepEqual(closingRecord("working", "capture", false), ["stopped", "Reply to keep going"]);
   assert.deepEqual(closingRecord("working", "setup", true), ["done", "Finished"]);
   assert.deepEqual(closingRecord("working", "publish", false), ["done", "Finished"]);
   assert.equal(closingRecord("needs_you", "setup", false), null);
@@ -506,7 +521,7 @@ test("an early-ended turn stays resumable until the owner starts over", async ()
     assert.equal((await readFile(live.getSessionFile(), "utf8")).split("\n").filter(Boolean).length, before, "listing must not write");
     const events = [];
     const idle = new LoreAgent(/** @type {LoreAgentOptions} */ ({ loreHome: home, emit: (event) => events.push(event) }), /** @type {never} */ (null), /** @type {never} */ (null), /** @type {never} */ (null));
-    assert.deepEqual(idle.tasks().map(({ state, phase }) => ({ state, phase })), [{ state: "stopped", phase: "Ready to resume" }]);
+    assert.deepEqual(idle.tasks().map(({ state, phase }) => ({ state, phase })), [{ state: "stopped", phase: "Reply to keep going" }]);
     const resumedFile = LoreAgent.sessionFor(home, "setup").getSessionFile();
     assert.equal(resumedFile, live.getSessionFile(), "a resumable session continues the same file");
     const durable = join(home, "durable.txt");
@@ -541,7 +556,7 @@ test("a capture that saves closes as done even when the agent never calls finish
   // A capture that saved (savedCompletion true) closes the same way finish_task does.
   assert.deepEqual(closingRecord("working", "capture", true), ["done", "Finished"]);
   // Without a save or finish_task, it stays resumable, exactly as before.
-  assert.deepEqual(closingRecord("working", "capture", false), ["stopped", "Ready to resume"]);
+  assert.deepEqual(closingRecord("working", "capture", false), ["stopped", "Reply to keep going"]);
   // The job row: done only when the save is known to have finished; otherwise the
   // outcome is unknown ("incomplete", Recent runs' "Unfinished"), never a quiet
   // "succeeded" paired with a summary that says the opposite.
@@ -985,4 +1000,35 @@ test("a damaged sales marker reads as a first read, and the next write repairs i
   } finally {
     await rm(directory, { recursive: true });
   }
+});
+
+test("packaging refuses while a copy runs from the output bundle", async () => {
+  const { spawn } = require("node:child_process");
+  const bundle = await mkdtemp(join(tmpdir(), "lore-guard-"));
+  const binary = join(bundle, "Contents/MacOS/Lore");
+  await mkdir(dirname(binary), { recursive: true });
+  await writeFile(binary, "#!/bin/bash\nsleep 30\n", { mode: 0o755 });
+  const guard = () => spawnSync(join(__dirname, "../support/guard-running.sh"), { env: { ...process.env, LORE_GUARD_BUNDLE: bundle }, encoding: "utf8" });
+  assert.equal(guard().status, 0, "nothing running: packaging proceeds");
+  const running = spawn(binary, { stdio: "ignore" });
+  try {
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    const refused = guard();
+    assert.equal(refused.status, 1);
+    assert.match(refused.stderr, /Quit it first/);
+  } finally {
+    running.kill();
+    await rm(bundle, { recursive: true, force: true });
+  }
+});
+
+test("a module mismatch from an updated app tells the owner to relaunch", async () => {
+  const source = await readFile(join(__dirname, "../src/renderer.js"), "utf8");
+  const body = source.match(/function reason\(error, fallback\) \{[\s\S]*?\n\}\n/)?.[0];
+  assert.ok(body);
+  const reason = new Function(`${body}; return reason;`)();
+  const mismatch = new Error("Error invoking remote method 'send': Error: The requested module './text.js' does not provide an export named 'getSystemMessageText'");
+  assert.match(reason(mismatch, "x"), /Quit Lore and open it again/);
+  assert.equal(reason(new Error("Stripe is down"), "x"), "Stripe is down");
+  assert.equal(reason("nope", "fallback"), "fallback");
 });

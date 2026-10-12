@@ -250,7 +250,11 @@ class FolderReader(Reader):
 
     def _included(self, path: Path) -> bool:
         if not self.source.owned:
-            return not (self.source.origin == "automation" and path.name == "INDEX.md")
+            # Indexes only point at the memories beside them.
+            index = {"automation": "INDEX.md", "claude": "MEMORY.md"}.get(
+                self.source.name
+            )
+            return path.name != index
         parts = path.relative_to(Path(self.source.locator)).parts[:-1]
         return not any(part.lower() in self.skipped for part in parts)
 
@@ -1106,10 +1110,14 @@ class HostedReader(Reader):
                 # One page the owner can't share (Notion's restricted pages) skips, not stops, the read.
                 self.errors += 1
                 continue
+            text = self.app.text(answer).strip()
+            if not text:
+                # Nothing of the owner's own writing, like a Notion database's view list.
+                continue
             into.append(
                 Item(
                     entry.title,
-                    self.app.text(answer).strip(),
+                    text,
                     f"{self.source.locator}#{entry.key}",
                     entry.dated,
                     key=entry.key,
@@ -1263,6 +1271,28 @@ class ReaderHighlights(BaseModel):
     results: list[ReaderHighlight] = []
 
 
+NOTION_METADATA = re.compile(
+    r"<(ancestor-path|properties|iconMetadata|discussions)\b[^>]*>.*?</\1>", re.DOTALL
+)
+
+
+def notion_writing(page: str) -> str:
+    """A Notion page's own writing, without the fetch tool's preamble or the page's metadata.
+
+    Also cleans a page read before this existed, whose tags were stripped but
+    whose preamble and metadata JSON were kept.
+    """
+    found = re.search(r"<content>(.*?)</content>", page, re.DOTALL)
+    body = found.group(1) if found else NOTION_METADATA.sub("", page)
+    body = re.sub(r"</?[a-z-]+(?:\s[^>]*)?/?>", "", body)
+    lines = body.strip().splitlines()
+    if lines and lines[0].startswith('Here is the result of "fetch"'):
+        lines = lines[1:]
+    while lines and re.fullmatch(r"\s*(\{.*\}\s*(null)?|null)?\s*", lines[0]):
+        lines = lines[1:]
+    return re.sub(r"\n{3,}", "\n\n", "\n".join(lines)).strip()
+
+
 class Notion(Hosted):
     id = "notion"
     name = "Notion"
@@ -1294,9 +1324,12 @@ class Notion(Hosted):
         return {"id": key}
 
     def text(self, answer: str) -> str:
-        # Notion wraps a page's markdown in its own tags.
-        return re.sub(
-            r"</?[a-z-]+(?:\s[^>]*)?>", "", NotionPage.model_validate_json(answer).text
+        page = NotionPage.model_validate_json(answer).text
+        # A database answers with its views and data sources, not writing.
+        return (
+            ""
+            if page.startswith("The title of this Database is")
+            else notion_writing(page)
         )
 
 
