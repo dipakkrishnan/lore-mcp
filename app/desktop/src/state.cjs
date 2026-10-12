@@ -184,6 +184,59 @@ async function setFreeCopies(loreHome, count) {
   await lore(loreHome, ["free-copies", String(count)], "");
 }
 
+/** @param {unknown} id */
+function collectionId(id) {
+  if (!Number.isInteger(id) || /** @type {number} */ (id) < 1) throw new Error("Invalid collection");
+  return String(id);
+}
+
+/** A collection exists the moment it's asked for; naming it can wait. Attended: it's the owner's click.
+ * @param {string} loreHome @param {string} [title] @returns {Promise<NewCollection>} */
+async function newCollection(loreHome, title) {
+  const named = typeof title === "string" ? title.trim() : "";
+  return JSON.parse(await lore(loreHome, ["collection", "new", ...(named ? ["--title", named] : [])], ""));
+}
+
+/** Pasted text and dropped files, each kept as one piece of the collection. Over stdin, never argv.
+ * @param {string} loreHome @param {unknown} id @param {{items?: Array<{title: string, content: string}>, files?: string[]}} input
+ * @returns {Promise<{added: Array<{publication_id: number, public_id: string, title: string}>}>} */
+async function addToCollection(loreHome, id, input) {
+  const which = collectionId(id);
+  const items = (input.items ?? []).map((item) => ({ title: String(item.title ?? "").trim(), content: String(item.content ?? "").trim() }));
+  const files = (input.files ?? []).filter((path) => typeof path === "string" && path.startsWith("/"));
+  if (items.some((item) => !item.content)) throw new Error("There's nothing to add in that text");
+  if (!items.length && !files.length) throw new Error("Drop a file or paste some text first");
+  return JSON.parse(await lore(loreHome, ["collection", "add", which, "-"], JSON.stringify({ items, files })));
+}
+
+/** @param {string} loreHome @param {unknown} id @param {string} title */
+async function renameCollection(loreHome, id, title) {
+  const which = collectionId(id);
+  const trimmed = title.trim();
+  if (!trimmed) throw new Error("A collection needs a name");
+  await lore(loreHome, ["collection", "rename", which, "--", trimmed], "");
+}
+
+/** Zero takes it off sale; anything above puts it on sale at that price.
+ * @param {string} loreHome @param {unknown} id @param {unknown} amount */
+async function priceCollection(loreHome, id, amount) {
+  const which = collectionId(id);
+  if (typeof amount !== "number" || !Number.isFinite(amount) || amount < 0) throw new Error("A price has to be a number, zero or more");
+  await lore(loreHome, ["collection", "price", which, String(amount)], "");
+}
+
+/** Takes one piece out of the collection and off sale. @param {string} loreHome @param {unknown} id @param {unknown} piece */
+async function removeFromCollection(loreHome, id, piece) {
+  const which = collectionId(id);
+  if (!Number.isInteger(piece) || /** @type {number} */ (piece) < 1) throw new Error("Invalid piece");
+  await lore(loreHome, ["collection", "remove", which, String(piece)], "");
+}
+
+/** @param {string} loreHome @param {unknown} id */
+async function deleteCollection(loreHome, id) {
+  await lore(loreHome, ["collection", "delete", collectionId(id)], "");
+}
+
 /** @param {string} loreHome @returns {Promise<PublicationCandidate[]>} */
 async function candidates(loreHome) {
   return JSON.parse(await lore(loreHome, ["publication", "candidates"]));
@@ -338,6 +391,12 @@ module.exports = {
   previewPage,
   setPrice,
   setFreeCopies,
+  newCollection,
+  addToCollection,
+  renameCollection,
+  priceCollection,
+  removeFromCollection,
+  deleteCollection,
   candidates,
   decide,
   extrasCandidates,

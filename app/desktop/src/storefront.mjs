@@ -1,10 +1,13 @@
 // @ts-nocheck
 // Generated from lore/node/src/storefront.ts by `npm run preview` in lore/node. Do not edit.
 
+// src/collections.ts
+var toolName = (collection) => `collection_${collection.id}`;
+
 // src/storefront.ts
 var MARKETPLACE = "https://yourlore.dev/marketplace";
 var BUYER_SKILL = "https://github.com/dipakkrishnan/lore-mcp/tree/main/plugins/lore/skills/lore-buy";
-var KINDS = { claim: "Note", content: "Write-up" };
+var KINDS = { claim: "Note", content: "Write-up", collection: "Collection" };
 var day = new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" });
 var escape = (text) => text.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
 var jsonLd = (data) => JSON.stringify(data).replace(/</g, "\\u003c");
@@ -107,14 +110,25 @@ function offer(store, piece) {
 }
 var notice = (store) => store.test ? `<p class="notice">This is a test store. Payments use play money, so nothing here is really for sale yet.</p>` : "";
 var listed = (store) => store.name ? `<a class="listed" href="${MARKETPLACE}">${MARK}Listed on Lore marketplace</a>` : "";
-function agentsNote(store, id) {
-  const call = id ? `<p>Then buy this piece:</p><code class="endpoint">${escape(`get {"id": "${id}"}`)}</code>` : "";
+function agentsNote(store, id, collection) {
+  const [what, tool] = collection ? ["the whole collection", `${toolName(collection)} {}`] : ["this piece", `get {"id": "${id}"}`];
+  const call = id ? `<p>Then buy ${what}:</p><code class="endpoint">${escape(tool)}</code>` : "";
   const free2 = store.freeCopies ? `the first ${store.freeCopies} copies of each piece are free, then ` : "";
-  return `<section class="agents"><h2>For agents</h2><p>Connect over MCP:</p><code class="endpoint">${escape(store.origin)}/mcp</code>${call}<p>Reading the catalog with <code>discover</code> is free; ${free2}each <code>get</code> pays the seller ${money(store.priceUsd)} in USDC.</p></section>${listed(store)}`;
+  const pays = collection ? `one call pays the seller ${money(collection.price_usd)} in USDC for every piece in it` : `${free2}each <code>get</code> pays the seller ${money(store.priceUsd)} in USDC`;
+  return `<section class="agents"><h2>For agents</h2><p>Connect over MCP:</p><code class="endpoint">${escape(store.origin)}/mcp</code>${call}<p>Reading the catalog with <code>discover</code> is free; ${pays}.</p></section>${listed(store)}`;
 }
-function storefront(catalog, store) {
+var worth = (collection, store) => money(collection.pieces.length * store.priceUsd);
+var count = (n) => `${n} ${n === 1 ? "piece" : "pieces"}`;
+function shelf(sets, store) {
+  if (!sets.length) return "";
+  const cards = sets.map(
+    (set) => `<li><a class="card" href="/p/${escape(set.id)}"><h3>${escape(set.title)}</h3><div class="meta"><span>Collection</span><span>${count(set.pieces.length)}</span><span>Worth ${worth(set, store)} separately</span><span class="price">${money(set.price_usd)}</span><span class="go">View \u2192</span></div></a></li>`
+  ).join("");
+  return `<section id="collections"><h2>Collections <small>${sets.length}</small></h2><ul class="cards">${cards}</ul></section>`;
+}
+function storefront(catalog, store, sets = []) {
   const topics = Object.entries(catalog.topics);
-  const count = catalog.publication_count;
+  const count2 = catalog.publication_count;
   const chips = topics.length > 1 ? `<ul class="chips">${topics.map(([topic, entries], section) => `<li><a class="chip" href="#${anchor(section)}">${escape(label(topic))} \xB7 ${entries.length}</a></li>`).join("")}</ul>` : "";
   const sections = topics.map(
     ([topic, entries], section) => `<section id="${anchor(section)}"><h2>${escape(label(topic))} <small>${entries.length}</small></h2><ul class="cards">${entries.map(
@@ -122,27 +136,30 @@ function storefront(catalog, store) {
     ).join("")}</ul></section>`
   ).join("");
   const name = seller(store);
-  const lede = count ? `${count} ${count === 1 ? "piece" : "pieces"} of firsthand experience, ${money(store.priceUsd)} each. Descriptions are free to read; every payment goes straight to the seller.` : "Nothing for sale yet.";
+  const lede = count2 ? `${count2} ${count2 === 1 ? "piece" : "pieces"} of firsthand experience, ${money(store.priceUsd)} each. Descriptions are free to read; every payment goes straight to the seller.` : "Nothing for sale yet.";
   const data = {
     "@context": "https://schema.org",
     "@type": "ItemList",
     name,
     url: `${store.origin}/`,
-    numberOfItems: count,
+    numberOfItems: count2,
     itemListElement: pieces(catalog).map((piece, index) => ({
       "@type": "ListItem",
       position: index + 1,
       item: { "@type": "Product", name: piece.teaser, category: label(piece.topic), url: `${store.origin}/p/${piece.id}`, offers: offer(store, piece) }
     }))
   };
-  const body = `<h1>${escape(name)}</h1><p class="lede">${lede}</p>${notice(store)}${chips}${sections || '<p class="empty">Nothing for sale yet. Check back soon.</p>'}${agentsNote(store)}`;
-  return page(`${name} \xB7 Lore`, `${count} firsthand ${count === 1 ? "piece" : "pieces"} for sale on Lore.`, `${store.origin}/`, body + foot(store), data);
+  const body = `<h1>${escape(name)}</h1><p class="lede">${lede}</p>${notice(store)}${chips}${shelf(sets, store)}${sections || '<p class="empty">Nothing for sale yet. Check back soon.</p>'}${agentsNote(store)}`;
+  return page(`${name} \xB7 Lore`, `${count2} firsthand ${count2 === 1 ? "piece" : "pieces"} for sale on Lore.`, `${store.origin}/`, body + foot(store), data);
 }
 var clip = (text, length) => {
   const flat = text.replace(/\s+/g, " ").trim();
   return flat.length > length ? `${flat.slice(0, length - 1).trimEnd()}\u2026` : flat;
 };
-var paragraphs = (text) => text.split(/\n\s*\n/).map((paragraph) => `<p>${escape(paragraph.trim()).replace(/\n/g, "<br>")}</p>`).join("");
+var paragraphs = (text) => text.split(/\n\s*\n/).map((paragraph) => {
+  const heading = paragraph.trim().match(/^## (.+)$/);
+  return heading ? `<h2>${escape(heading[1])}</h2>` : `<p>${escape(paragraph.trim()).replace(/\n/g, "<br>")}</p>`;
+}).join("");
 function fit(piece) {
   const rows = [
     piece.useful_if && `<li class="yes"><span class="sign">\u2713</span><span>Useful if ${escape(piece.useful_if)}</span></li>`,
@@ -163,10 +180,10 @@ function free(piece, store, left) {
 <p class="small">${left} of ${store.freeCopies} free copies left. The seller gives the first ${store.freeCopies} away; after that it's ${money(store.priceUsd)}.</p>
 ${share(`${store.origin}/p/${piece.id}`)}</section>`;
 }
-function buy(piece, store, left) {
+function buy(piece, store, left, what = "this piece") {
   if (left > 0) return free(piece, store, left);
   const url = `${store.origin}/p/${piece.id}`;
-  const prompt = `Buy this piece from Lore for me: ${url}`;
+  const prompt = `Buy ${what} from Lore for me: ${url}`;
   const settle = store.test ? "This store takes play money, so buying here is only a rehearsal." : "Every payment goes straight to the seller; Lore never holds it.";
   const agent = store.checkout ? `<h2 class="or">Or buy it with your AI agent</h2>` : `<h2>Buy it with your AI agent</h2>`;
   return `<section class="buy"><p class="amount">${money(store.priceUsd)}</p>${card(piece, store)}${agent}
@@ -195,6 +212,25 @@ ${agentsNote(store, piece.id)}`;
   const description = clip(piece.sample || piece.useful_if && `Useful if ${piece.useful_if}` || `A firsthand piece by ${name}, for sale on Lore.`, 200);
   return page(`${piece.teaser} \xB7 ${name}`, description, `${store.origin}/p/${piece.id}`, body + foot(store), data);
 }
+function collectionPage(set, entries, store, single, problem = "") {
+  const name = seller(store);
+  const url = `${store.origin}/p/${set.id}`;
+  const cards = entries.map((entry) => `<li><a class="card" href="/p/${escape(entry.id)}"><h3>${escape(entry.teaser)}</h3><div class="meta"><span>${KINDS[entry.kind] ?? escape(entry.kind)}</span><span>${date(entry.updated_at)}</span></div></a></li>`).join("");
+  const data = {
+    "@context": "https://schema.org",
+    "@type": "Product",
+    name: set.title,
+    url,
+    brand: person(store),
+    offers: store.test ? void 0 : { "@type": "Offer", price: String(set.price_usd), priceCurrency: "USD", availability: "https://schema.org/InStock", url, seller: person(store) }
+  };
+  const body = `<a class="back" href="/">\u2190 ${escape(name)}</a>
+${notice(store)}${problem ? `<p class="notice">${escape(problem)}</p>` : ""}<h1 class="teaser">${escape(set.title)}</h1>
+<div class="meta"><span>Collection</span><span>${count(entries.length)}</span><span>Worth ${money(entries.length * single)} separately</span><span>By ${escape(name)}</span></div>
+<ul class="cards">${cards}</ul>${buy(set, store, 0, "this collection")}
+${agentsNote(store, set.id, set)}`;
+  return page(`${set.title} \xB7 ${name}`, `A collection of ${count(entries.length)} by ${name}, for sale on Lore.`, url, body + foot(store), data);
+}
 function unlockedPage(piece, store, unlocked, free2 = false) {
   const name = seller(store);
   const thanks = free2 ? "This copy is free, from the seller." : "Thanks for buying.";
@@ -213,6 +249,7 @@ function notFound(store) {
   return page(`Not found \xB7 ${seller(store)}`, "Not for sale here.", `${store.origin}/`, body + foot(store), { "@context": "https://schema.org", "@type": "WebPage" });
 }
 export {
+  collectionPage,
   notFound,
   pieces,
   publicationPage,
