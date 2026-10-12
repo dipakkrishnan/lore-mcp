@@ -250,14 +250,14 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         check("Needs you names the pending removal", await js(`document.querySelector("#content").textContent.includes("1 taken down, still on your store.")`));
         // Fix 9: a memory typed on Today joins the unfinished capture thread instead of an empty one.
         await js(`window.__lore.show("today")`);
-        await js(`window.__lore.event({ type: "task", task: { version: 1, kind: "capture", title: "Capture", state: "stopped", phase: "Ready to resume", updatedAt: new Date().toISOString() } })`);
+        await js(`window.__lore.event({ type: "task", task: { version: 1, kind: "capture", title: "Capture", state: "stopped", phase: "Reply to keep going", updatedAt: new Date().toISOString() } })`);
         await sleep(300);
-        check("unfinished capture is listed", await js(`document.querySelector("#content").textContent.includes("Ready to resume")`));
-        check("a stopped task offers Resume beside Start over", /Resume\|Start over/.test(await js(`[...document.querySelectorAll("#content .row .btn")].map((b) => b.textContent).join("|")`)));
+        check("unfinished capture is listed", await js(`document.querySelector("#content").textContent.includes("Reply to keep going")`));
+        check("an unfinished thread is one row to open, waiting for the owner, with no Resume", await js(`(() => { const row = [...document.querySelectorAll("#content .row")].find((r) => r.textContent.includes("Reply to keep going")); return Boolean(row) && row.textContent.includes("Waiting for you") && !row.querySelector(".btn"); })()`));
         await js(`const i = document.querySelector("#capture-input"); i.value = "Something I learned"; document.querySelector("#composer").requestSubmit();`);
         await sleep(800);
         const eyebrow = await js(`document.querySelector("#eyebrow").textContent`);
-        check("root capture joins the unfinished thread", /Ready to resume/.test(eyebrow), eyebrow);
+        check("root capture joins the unfinished thread", /Reply to keep going/.test(eyebrow), eyebrow);
         await shot("root-capture-joined");
         await js(`window.__lore.openTask("deploy")`);
         const deployLog = await js(`document.querySelector("#log").textContent`);
@@ -643,6 +643,12 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         const rowOf = (label) => `[...document.querySelectorAll("#content .row")].find((r) => r.querySelector(".t b")?.textContent === ${JSON.stringify(label)})`;
         await js(`window.__lore.signIn()`);
         await waitFor(`document.querySelector("#content").textContent.includes("Approve what to sell")`);
+        const clearOfTitlebar = `(() => { const bar = document.querySelector(".titlebar"); bar.style.pointerEvents = "none"; const hits = []; for (let y = 1; y < 28; y += 3) for (let x = 1; x < innerWidth; x += 8) hits.push(document.elementFromPoint(x, y)?.closest("button, a, input, textarea, select, [tabindex]:not(#main)")); bar.style.pointerEvents = ""; return hits.every((hit) => !hit); })()`;
+        check("the window drags from a strip across its whole top", await js(`(() => { const bar = document.querySelector(".titlebar"); const r = bar.getBoundingClientRect(); return getComputedStyle(bar).webkitAppRegion === "drag" && r.top === 0 && r.left === 0 && r.width === innerWidth && r.height === 28; })()`));
+        check("nothing clickable sits under the drag strip", await js(clearOfTitlebar));
+        await js(`document.querySelector("#main").scrollTop = 400`);
+        await sleep(100);
+        check("nothing clickable scrolls under the drag strip", await js(clearOfTitlebar));
         await js(`[...document.querySelectorAll("#content .memory")].at(-2)?.scrollIntoView({ block: "start" })`);
         await sleep(200);
         await shot("today-approvals");
@@ -697,6 +703,14 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         check("…and says how the store update went, once it has", await waitFor(`/have their new pages|go live with your next store update/.test(document.body.textContent) && !document.body.textContent.includes("updating your store. It takes")`));
         check("…and leaves the new drafts alone", await js(`window.lore.candidates().then((left) => left.length)`) === 2);
         await shot("today-extras-approved");
+        // APP-058: someone signed in before usage events existed hears about them once, then can turn them off.
+        check("the usage notice is said once, before anything is sent", await js(`window.lore.snapshot().then((s) => s.setup.telemetry_noticed === true)`));
+        await js(`window.__lore.show("settings")`);
+        const usage = `[...document.querySelectorAll("#content .row")].find((r) => r.textContent.includes("Anonymous usage"))`;
+        check("Settings shows the usage switch, on", await waitFor(`${usage}?.textContent.includes("On")`));
+        await js(`[...${usage}.querySelectorAll("button")].find((b) => b.textContent === "Turn off").click()`);
+        check("…and turns it off", await waitFor(`window.lore.snapshot().then((s) => s.setup.telemetry_enabled === false)`));
+        await shot("settings-usage-off");
       } else if (scenario === "sales") {
         // MON-037: a new sale is a Mac notification and shows on Today; old sales never are.
         const { existsSync, readFileSync } = require("node:fs");
@@ -871,6 +885,11 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         await shot("seller-approved-offer");
         await js(`[...document.querySelectorAll("#content .request button")].find((b) => b.textContent === "Not now").click()`);
         check("the offer can be left for later", !(await js(`[...document.querySelectorAll("#content .request .q")].some((q) => q.textContent === "Open your store?")`)));
+        await js(`document.querySelector("#main").scrollTop = 1e6; window.__lore.show("settings")`);
+        await sleep(200);
+        check("each tab opens at its top, not where the last one was scrolled", await js(`document.querySelector("#main").scrollTop`) === 0);
+        await js(`window.__lore.show("today")`);
+        await sleep(200);
 
         // Ledger: with no store there is nothing to read, and the section says so without a probe.
         await js(`window.__lore.show("store")`);

@@ -13,7 +13,6 @@ const content = $("#content");
 const account = $("#account");
 const taskBack = /** @type {HTMLButtonElement} */ ($("#task-back"));
 const taskRestart = /** @type {HTMLButtonElement} */ ($("#task-restart"));
-const taskResume = /** @type {HTMLButtonElement} */ ($("#task-resume"));
 const addMemoryBtn = /** @type {HTMLButtonElement} */ ($("#add-memory"));
 const feedbackBtn = /** @type {HTMLButtonElement} */ ($("#feedback-open"));
 const captureArea = $("#capture");
@@ -144,7 +143,7 @@ waiting.append(el("span", "dot"), waitingText, button("Open", "secondary", () =>
 waiting.hidden = true;
 composer.insertAdjacentElement("afterend", waiting);
 const THINKING = { setup: "Thinking…", publish: "Drafting…", capture: "Reading this…", deploy: "Setting up your store…" };
-const TASK_STATES = { needs_you: "Needs you", working: "Working", stopped: "Stopped", done: "Done" };
+const TASK_STATES = { needs_you: "Needs you", working: "Working", stopped: "Waiting for you", done: "Done" };
 
 /**
  * @template {keyof HTMLElementTagNameMap} K
@@ -641,8 +640,9 @@ function needsYou(s) {
   return rows;
 }
 
+/** Unfinished threads, without the store's once the store is open: nothing is left to finish there. */
 function displayTasks() {
-  return taskItems.slice(0, 3);
+  return taskItems.filter((item) => !(item.kind === "deploy" && snapshot?.node.url)).slice(0, 3);
 }
 
 function draftsPhase() {
@@ -681,7 +681,6 @@ function renderToday(s) {
       open.append(text, chip(TASK_STATES[item.state], item.state === "working" ? "ok" : ""));
       open.addEventListener("click", () => void openTask(item.kind, item));
       row.append(open);
-      if (item.state === "stopped") row.append(button("Resume", "secondary", () => void resumeTask(item.kind)), button("Start over", "quiet", () => void startOver(item.kind)));
       return row;
     }))));
   }
@@ -906,6 +905,7 @@ function renderStore(s) {
   /** @type {HTMLElement[]} */
   const parts = [bar];
   if (pushOffer) parts.push(seamCard());
+  if (pushedNote) parts.push(pushReceipt(s));
   parts.push(section("For sale", approved.length
     ? card(approved.map((item) => row(item.title, sold(item), controls(item))))
     : emptyState("Nothing for sale yet.", button("Draft your first piece", "quiet", () => show("memories"))),
@@ -1499,6 +1499,7 @@ function renderSettings(s) {
       return node;
     }))),
     section("What Lore keeps", card([
+      usageRow(s),
       row("Lore's shape", "What it keeps, what it ignores, what it may sell. Set in a short conversation.", cell(pill(s.setup.blueprint_configured ? "Set" : "Not set", s.setup.blueprint_configured ? "ok" : ""), ...(s.setup.blueprint_configured ? [] : [button("Start", "secondary", startSetup)])), false),
       row("Where it lives", `Your memories are kept on this Mac. ${provider()[0]} reads them when it works with you here. Buyers only ever get what you approve for sale.`, cell(path, button("Show in Finder", "quiet", () => void window.lore.revealHome())), false)
     ])),
@@ -1532,7 +1533,6 @@ function render() {
   title.textContent = heading;
   taskBack.hidden = !detail;
   taskRestart.hidden = !detail || detailRecord?.state !== "stopped";
-  taskResume.hidden = taskRestart.hidden;
   addMemoryBtn.hidden = Boolean(detail) || view !== "memories";
   captureArea.hidden = view !== "today";
   log.hidden = !detail;
@@ -1603,7 +1603,10 @@ function show(next) {
   // Leaving For Sale abandons a half-typed price rather than keeping the field
   // open behind the owner's back.
   if (next !== "store") editingPrice = false;
+  // A store update said once, where it happened; it doesn't follow the owner around.
+  pushedNote = false;
   render();
+  mainEl.scrollTop = 0;
   mainEl.focus({ preventScroll: true });
 }
 
@@ -2227,6 +2230,7 @@ function sellAction(source) {
 
 /** @param {AgentTask} kind @param {TaskRecord} [record] @param {TaskRecord} [fallback] Used only when neither `record` nor a live entry in `taskItems` exists, so the header reflects the caller's best-known status instead of fabricating "Working". */
 async function openTask(kind, record, fallback) {
+  pushedNote = false;
   task = kind;
   detailTask = kind;
   detailRecord = record ?? taskItems.find((item) => item.kind === kind) ?? fallback ?? null;
@@ -2255,12 +2259,6 @@ async function startOver(kind) {
   const opening = kind === "setup" ? SETUP_INTENT : kind === "deploy" ? STORE_INTENT : null;
   if (opening) await send(opening);
   else input.focus({ preventScroll: true });
-}
-
-/** @param {AgentTask} kind */
-async function resumeTask(kind) {
-  await openTask(kind);
-  await send("Let's pick up where we left off.");
 }
 
 function closeTask() {
@@ -2586,7 +2584,9 @@ async function decide(original, approve, candidate = original) {
 /** Apply one card, then offer the push once the last card is answered. @param {() => Promise<void>} action @param {boolean} approve */
 async function settle(action, approve) {
   if ((await act(action, approve ? "Approved. It goes live with your next store update." : undefined)) && approve) approvedThisPass = true;
-  if (candidates.length || extraDrafts.length || !approvedThisPass) return;
+  if (candidates.length || extraDrafts.length) return;
+  // The thread's last word was "ready for your approval below"; with every card skipped, close it.
+  if (!approvedThisPass) return void (detailTask && say("Skipped. Nothing new is for sale."));
   approvedThisPass = false;
   if (snapshot?.node.url) return void (await goLive());
   pushOffer = "What you approved goes on sale once it's open. Pick a price and where payments go.";
@@ -2669,12 +2669,38 @@ async function signOut(providerId) {
   enter();
 }
 
+/** The usage switch, with the local log of exactly what was sent. @param {Snapshot} s */
+function usageRow(s) {
+  const on = s.setup.telemetry_enabled !== false;
+  const toggle = button(on ? "Turn off" : "Turn on", "secondary", () => void act(() => window.lore.setTelemetry(!on)));
+  return row(
+    "Anonymous usage",
+    `${USAGE_NOTICE} They show where Lore helps and where people get stuck.`,
+    cell(pill(on ? "On" : "Off", on ? "ok" : ""), button("See what's sent", "quiet", () => void window.lore.usageLog()), toggle)
+  );
+}
+
 function enter() {
   const signedIn = Boolean(auth?.credentials.length);
   welcome.hidden = signedIn;
   appShell.hidden = !signedIn;
   document.body.dataset.state = signedIn ? "app" : "welcome";
-  if (signedIn) { render(); void load(); }
+  // The welcome screen says it, so signing in already counts as seen.
+  if (!signedIn) void window.lore.usage("noticed").catch(() => undefined);
+  if (signedIn) { render(); void load().then(noticeUsage); }
+}
+
+const USAGE_NOTICE = "Lore sends anonymous usage events, like \"store opened\" or \"first piece approved\", never your writing.";
+
+/** Someone who signed in before usage events existed hears about them once, here, before any is sent. */
+async function noticeUsage() {
+  const setup = snapshot?.setup;
+  if (!setup || setup.telemetry_enabled === false) return;
+  if (!setup.telemetry_noticed) {
+    tell(USAGE_NOTICE, false, { label: "Settings", run: () => show("settings") });
+    await window.lore.usage("noticed").catch(() => undefined);
+  }
+  void window.lore.usage("app.opened").catch(() => undefined);
 }
 
 /** @param {AgentEvent} event */
@@ -2884,7 +2910,6 @@ document.addEventListener("drop", (event) => {
 
 taskBack.addEventListener("click", closeTask);
 taskRestart.addEventListener("click", () => { if (detailTask) void startOver(detailTask); });
-taskResume.addEventListener("click", () => { if (detailTask) void resumeTask(detailTask); });
 /** Land on Today with the composer ready, carrying anything the owner already typed. @param {string} [text] */
 function startCapture(text = "") {
   if (detailTask) closeTask();

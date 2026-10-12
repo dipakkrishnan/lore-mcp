@@ -298,7 +298,7 @@ test("sessions persist per task, come back as a thread, and a cut-off tool call 
     assert.equal(messages.length, 9);
     assert.deepEqual({ role: messages[8].role, toolCallId: messages[8].toolCallId, isError: messages[8].isError }, { role: "toolResult", toolCallId: "call-2", isError: true });
     assert.deepEqual(LoreAgent.tasks(home).map(({ kind, state, phase }) => ({ kind, state, phase })), [
-      { kind: "setup", state: "stopped", phase: "Ready to resume" }
+      { kind: "setup", state: "stopped", phase: "Reply to keep going" }
     ]);
     assert.equal(SessionManager.create(home).buildSessionContext().messages.length, 0);
     assert.equal(LoreAgent.sessionFor(home, "capture").buildSessionContext().messages.length, 0);
@@ -504,8 +504,8 @@ test("typed task records survive relaunch and only unfinished known tasks are li
 test("an early-ended turn stays resumable until the owner starts over", async () => {
   const { LoreAgent, closingRecord, latestTaskRecord } = await import("../src/agent.mjs");
   const { SessionManager } = await import("@earendil-works/pi-coding-agent");
-  assert.deepEqual(closingRecord("working", "setup", false), ["stopped", "Ready to resume"]);
-  assert.deepEqual(closingRecord("working", "capture", false), ["stopped", "Ready to resume"]);
+  assert.deepEqual(closingRecord("working", "setup", false), ["stopped", "Reply to keep going"]);
+  assert.deepEqual(closingRecord("working", "capture", false), ["stopped", "Reply to keep going"]);
   assert.deepEqual(closingRecord("working", "setup", true), ["done", "Finished"]);
   assert.deepEqual(closingRecord("working", "publish", false), ["done", "Finished"]);
   assert.equal(closingRecord("needs_you", "setup", false), null);
@@ -521,7 +521,7 @@ test("an early-ended turn stays resumable until the owner starts over", async ()
     assert.equal((await readFile(live.getSessionFile(), "utf8")).split("\n").filter(Boolean).length, before, "listing must not write");
     const events = [];
     const idle = new LoreAgent(/** @type {LoreAgentOptions} */ ({ loreHome: home, emit: (event) => events.push(event) }), /** @type {never} */ (null), /** @type {never} */ (null), /** @type {never} */ (null));
-    assert.deepEqual(idle.tasks().map(({ state, phase }) => ({ state, phase })), [{ state: "stopped", phase: "Ready to resume" }]);
+    assert.deepEqual(idle.tasks().map(({ state, phase }) => ({ state, phase })), [{ state: "stopped", phase: "Reply to keep going" }]);
     const resumedFile = LoreAgent.sessionFor(home, "setup").getSessionFile();
     assert.equal(resumedFile, live.getSessionFile(), "a resumable session continues the same file");
     const durable = join(home, "durable.txt");
@@ -556,7 +556,7 @@ test("a capture that saves closes as done even when the agent never calls finish
   // A capture that saved (savedCompletion true) closes the same way finish_task does.
   assert.deepEqual(closingRecord("working", "capture", true), ["done", "Finished"]);
   // Without a save or finish_task, it stays resumable, exactly as before.
-  assert.deepEqual(closingRecord("working", "capture", false), ["stopped", "Ready to resume"]);
+  assert.deepEqual(closingRecord("working", "capture", false), ["stopped", "Reply to keep going"]);
   // The job row: done only when the save is known to have finished; otherwise the
   // outcome is unknown ("incomplete", Recent runs' "Unfinished"), never a quiet
   // "succeeded" paired with a summary that says the opposite.
