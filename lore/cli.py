@@ -20,13 +20,17 @@ from . import deploy as deploy_module
 from . import feedback as feedback_module
 from . import marketplace as marketplace_module
 from . import sources as sources_module
+from . import usage
 from .paths import home
 from .sources import Registry, available_sources
 from .store import (
+    FREE_COPIES,
+    FREE_COPIES_SETTING,
     JOB_FINAL_STATUSES,
     JOB_KINDS,
     JOB_SUMMARIES,
     STATUSES,
+    SUPPORT_EMAIL_SETTING,
     AnswerSettings,
     JobKind,
     Publication,
@@ -57,9 +61,6 @@ STRIPE_ACCOUNT_SETTING = "stripe_account"
 STRIPE_PENDING_SETTING = "stripe_account_pending"
 STRIPE_TOKEN_SETTING = "stripe_account_token"
 CARD_MINIMUM_USD = 0.5
-# Copies of each piece given away before it costs anything (MON-040).
-FREE_COPIES_SETTING = "free_copies"
-FREE_COPIES = 3
 STRIPE_ACCOUNT_ID = re.compile(r"acct_[A-Za-z0-9]+")
 
 PUBLICATION_CANDIDATES: TypeAdapter[list[PublicationInput]] = TypeAdapter(
@@ -89,6 +90,11 @@ class ExtrasDecision(BaseModel):
     extras: PublicationExtras
     original: PublicationExtras | None = None
     approve: bool
+
+
+EXTRAS_DECISIONS: TypeAdapter[ExtrasDecision | list[ExtrasDecision]] = TypeAdapter(
+    ExtrasDecision | Annotated[list[ExtrasDecision], Field(min_length=1)]
+)
 
 
 def parser() -> argparse.ArgumentParser:
@@ -277,6 +283,12 @@ def parser() -> argparse.ArgumentParser:
     free_copies.add_argument(
         "count", nargs="?", type=int, help="free copies per piece; use 0 for none"
     )
+    support = commands.add_parser(
+        "support", help="show or set the email buyers write to for help or a refund"
+    )
+    support.add_argument(
+        "email", nargs="?", help="an email address, or `off` to remove it"
+    )
     answer = commands.add_parser(
         "answer", help="enable or disable the paid answer tier"
     )
@@ -296,6 +308,14 @@ def parser() -> argparse.ArgumentParser:
     telemetry_commands.add_parser("on", help="re-enable milestone telemetry")
     telemetry_commands.add_parser("off", help="disable milestone telemetry")
     telemetry_commands.add_parser("status", help="print whether telemetry is enabled")
+    telemetry_commands.add_parser(
+        "noticed", help="record that the owner has seen the usage notice"
+    )
+    telemetry_record = telemetry_commands.add_parser(
+        "record", help="send one usage event the desktop app observed"
+    )
+    telemetry_record.add_argument("name", choices=sorted(usage.EVENTS))
+    telemetry_record.add_argument("value", nargs="?", default="")
     serve = commands.add_parser("serve", help="run the Lore MCP server")
     serve.add_argument("--transport", choices=["stdio", "http"], default="stdio")
     serve.add_argument("--host", default="127.0.0.1")
@@ -458,9 +478,33 @@ def parser() -> argparse.ArgumentParser:
     return root
 
 
+def _parse(argv: list[str] | None) -> argparse.Namespace:
+    """Parse a command line the same way on every supported Python."""
+    root = parser()
+    args, extra = root.parse_known_args(argv)
+    # Older argparse spends `sources connect`'s optional locator on nothing as
+    # soon as an option follows the app, so `obsidian --json -- <path>` leaves
+    # the path here as a leftover instead of in `args.locator`.
+    if (
+        extra
+        and args.command == "sources"
+        and args.sources_command == "connect"
+        and not args.locator
+    ):
+        rest = extra[1:] if extra[0] == "--" else extra
+        # Without `--`, a leftover that looks like an option is a typo, not a path.
+        if len(rest) == 1 and (extra[0] == "--" or not rest[0].startswith("-")):
+            args.locator, extra = rest[0], []
+    if extra:
+        root.error(f"unrecognized arguments: {' '.join(extra)}")
+    return args
+
+
 def main(argv: list[str] | None = None) -> int:
     """Parse and run one Lore command."""
-    args = parser().parse_args(argv)
+    args = _parse(argv)
+    if _interactive() and args.command not in (None, "telemetry"):
+        _usage_notice()
     if not args.command:
         if sys.stdin.isatty() and sys.stdout.isatty():
             return dashboard()
@@ -506,10 +550,18 @@ def main(argv: list[str] | None = None) -> int:
             return price(args.amount)
         if args.command == "free-copies":
             return free_copies(args.count)
+        if args.command == "support":
+            return support_email(args.email)
         if args.command == "answer":
             if args.answer_command == "on":
                 return answer_enable(args.file, args.price)
             return answer_disable()
+        if args.command == "telemetry" and args.telemetry_command == "noticed":
+            usage.notice_shown()
+            return 0
+        if args.command == "telemetry" and args.telemetry_command == "record":
+            usage.record(args.name, args.value)
+            return 0
         if args.command == "telemetry":
             if args.telemetry_command == "on":
                 return telemetry_set(True)
@@ -532,7 +584,10 @@ def main(argv: list[str] | None = None) -> int:
             return serve(serve_args)
         if args.command == "node":
             if args.node_command == "deploy":
-                return deploy_module.deploy(args.wallet, args.network)
+                deployed = deploy_module.deploy(args.wallet, args.network)
+                if deployed == 0:
+                    usage.record("store.opened")
+                return deployed
             if args.node_command == "secret":
                 _owner_action("storing a node secret")
                 return deploy_module.secret(args.name, sys.stdin.read().strip())
@@ -587,6 +642,8 @@ def main(argv: list[str] | None = None) -> int:
         return 130
     except (OSError, ValueError) as error:
         print(f"lore: {error}", file=sys.stderr)
+        command = args.command if args.command in usage.COMMANDS else "other"
+        usage.record("cli.failed", command)
         return 1
     return 0
 
@@ -714,6 +771,8 @@ def setup(yes: bool = False) -> int:
     total = sum(item["added"] + item["updated"] for item in report.values())
     heading("Ready")
     success(f"Imported {total} candidate memories")
+    if enabled:
+        usage.record("source.connected", "agents")
     print('Next, tell Claude or Codex: "Onboard me to Lore."')
     return 0
 
@@ -799,6 +858,8 @@ def source_command(args: argparse.Namespace) -> int:
                     show=_approve,
                 )
                 payload, lines = added, [_source_line(added)]
+                if args.connector in usage.CONNECTORS:
+                    usage.record("source.connected", args.connector)
             elif command == "choices":
                 connector = sources_module.Connector.named(args.connector)
                 choices = [choice.model_dump() for choice in connector.choices()]
@@ -911,6 +972,7 @@ def capture_apply(file: str) -> int:
     """Validate and save memories the owner corrected in an attended agent session."""
     text = sys.stdin.read() if file == "-" else Path(file).read_text(encoding="utf-8")
     results = capture_module.save(json.loads(text))
+    usage.record("memory.saved")
     print(json.dumps(results, indent=2))
     return 0
 
@@ -1048,6 +1110,12 @@ def edit_memory(
 
 def sales(as_json: bool) -> int:
     rows = deploy_module.sales()
+    for via in {
+        "card" if r.network == "stripe" else "agent"
+        for r in rows
+        if r.network != deploy_module.FREE_NETWORK
+    }:
+        usage.record("sale.seen", via)
     if as_json:
         print(deploy_module.SALES.dump_json(rows).decode())
         return 0
@@ -1176,6 +1244,30 @@ def price(amount: float | None) -> int:
     return 0
 
 
+def support_email(email: str | None) -> int:
+    """Show or update the support line every store page ends with."""
+    with Store() as store:
+        if email is None:
+            current = store.setting(SUPPORT_EMAIL_SETTING, "")
+            print(current or "No support email; store pages show no refund line")
+            return 0
+        email = "" if email == "off" else email.strip()
+        if email and not re.fullmatch(
+            r"[^@\s<>\"']+@[^@\s<>\"']+\.[^@\s<>\"']+", email
+        ):
+            raise ValueError("that doesn't look like an email address")
+        store.set_setting(SUPPORT_EMAIL_SETTING, email)
+        node_url = store.setting("node_url", None)
+    success(
+        f"Buyers write to {email} for help or a refund"
+        if email
+        else "Removed the support line"
+    )
+    if node_url:
+        muted("Your store picks this up on the next `lore push`.")
+    return 0
+
+
 def free_copies(count: int | None) -> int:
     """Show or update how many copies of each piece are given away free."""
     with Store() as store:
@@ -1277,6 +1369,20 @@ def profile(path: str, schedule: bool = True) -> int:
         return 1
     success(f"Configured {str(executor).title()} local schedule")
     return 0
+
+
+def _usage_notice() -> None:
+    """Say once, before the first event, what is sent and how to stop it."""
+    with Store() as store:
+        if store.setting(usage.NOTICED_SETTING, False) is True:
+            return
+    print(
+        "Lore sends anonymous usage events, like 'store opened' or 'first piece "
+        "approved', never your writing. See them in ~/.lore/usage.log; turn "
+        "them off with `lore telemetry off`.",
+        file=sys.stderr,
+    )
+    usage.notice_shown()
 
 
 def _interactive() -> bool:
@@ -1392,6 +1498,7 @@ def _save(store: Store, publication: Publication) -> None:
     store.add_publication(
         **publication.model_dump(include=set(PublicationInput.model_fields))
     )
+    usage.record("piece.approved")
 
 
 def publication_apply(path: str) -> int:
@@ -1469,10 +1576,42 @@ def publication_apply(path: str) -> int:
     return 0
 
 
+def _title_words(title: str) -> set[str]:
+    return set(re.findall(r"[a-z0-9]+", title.lower()))
+
+
+def _repeats(
+    candidate: PublicationInput, for_sale: list[Publication]
+) -> Publication | None:
+    """The piece for sale a draft repeats: drawn from the same memory, saying the same thing."""
+    words = _title_words(candidate.title)
+    for piece in for_sale:
+        shared = _title_words(piece.title)
+        if set(candidate.provenance) & set(piece.provenance) and len(
+            words & shared
+        ) >= 0.6 * len(words | shared):
+            return piece
+    return None
+
+
 def publication_draft(file: str) -> int:
     """Validate agent-drafted candidates and stage them for the owner's approval."""
     text = sys.stdin.read() if file == "-" else Path(file).read_text(encoding="utf-8")
-    candidates = _validated_candidates(text)
+    with Store() as store:
+        for_sale = store.list_publications(active_only=True)
+    candidates = []
+    for candidate in _validated_candidates(text):
+        if repeated := _repeats(candidate, for_sale):
+            warn(
+                f"Skipped “{candidate.title}”: it repeats “{repeated.title}”, "
+                "already for sale. Draft something that piece doesn't cover."
+            )
+        else:
+            candidates.append(candidate)
+    if not candidates:
+        raise ValueError(
+            "every draft repeats a piece already for sale; draft something new"
+        )
     _stage(candidates)
     success(
         f"Drafted {len(candidates)} candidate{'s' if len(candidates) != 1 else ''} "
@@ -1604,23 +1743,27 @@ def extras_review() -> int:
 
 
 def extras_decide() -> int:
-    """Apply one free-parts card the owner answered in the Lore desktop app."""
-    decision = ExtrasDecision.model_validate_json(
+    """Apply the free-parts cards the owner answered in the Lore desktop app:
+    one card, or a whole batch at once, which pushes the store only once."""
+    decided = EXTRAS_DECISIONS.validate_json(
         _desktop_decision("approving a piece's free parts")
     )
-    original = decision.original or decision.extras
+    decisions = decided if isinstance(decided, list) else [decided]
     staged = _staged_extras()
-    if original not in staged:
-        raise ValueError("those free parts are not drafted; nothing saved")
-    if decision.extras.publication_id != original.publication_id:
-        raise ValueError("only a draft's wording can be edited")
-    if decision.approve:
-        with Store() as store:
-            store.set_extras(decision.extras)
-    staged.remove(original)
+    for decision in decisions:
+        original = decision.original or decision.extras
+        if original not in staged:
+            raise ValueError("those free parts are not drafted; nothing saved")
+        if decision.extras.publication_id != original.publication_id:
+            raise ValueError("only a draft's wording can be edited")
+        staged.remove(original)
+    approved = [decision.extras for decision in decisions if decision.approve]
+    with Store() as store:
+        for extras in approved:
+            store.set_extras(extras)
     _write_staged(_extras_path(), PUBLICATION_EXTRAS, staged)
-    print(json.dumps({"approved": decision.approve, "remaining": len(staged)}))
-    if decision.approve:
+    print(json.dumps({"approved": len(approved), "remaining": len(staged)}))
+    if approved:
         _push_after_approval()
     return 0
 
@@ -1722,6 +1865,8 @@ def _push_sql(
     listed_name: str,
     stripe_account: str = "",
     free_copies: int = FREE_COPIES,
+    support_email: str = "",
+    price_usd: float = 0,
 ) -> str:
     """Render the full-replace SQL for the edge database.
 
@@ -1771,6 +1916,9 @@ def _push_sql(
         "listed_name": listed_name,
         "stripe_account": stripe_account,
         "free_copies": str(free_copies),
+        "support_email": support_email,
+        # The store charges this from its next push, so a new price needs no redeploy.
+        **({"price_usd": f"{price_usd:.6f}"} if price_usd > 0 else {}),
     }
     statements.extend(
         [
@@ -1826,7 +1974,17 @@ def _push(worker: Path, local: bool, job_id: int) -> int:
         listed_name = str(store.setting(marketplace_module.NAME_SETTING, ""))
         stripe_account = str(store.setting(STRIPE_ACCOUNT_SETTING, ""))
         free = int(str(store.setting(FREE_COPIES_SETTING, FREE_COPIES)))
-    script = _push_sql(active, answer_settings, listed_name, stripe_account, free)
+        support = str(store.setting(SUPPORT_EMAIL_SETTING, ""))
+        price_usd = store.setting("price_usd", 0)
+    script = _push_sql(
+        active,
+        answer_settings,
+        listed_name,
+        stripe_account,
+        free,
+        support,
+        float(price_usd) if isinstance(price_usd, (int, float)) else 0,
+    )
     with tempfile.NamedTemporaryFile("w", suffix=".sql", delete=False) as handle:
         handle.write(script)
         script_path = handle.name
@@ -2002,6 +2160,8 @@ def marketplace(args: argparse.Namespace) -> int:
     else:
         _owner_action("changing your marketplace listing")
         listing = market.delist() if command == "delist" else market.list(args.name)
+        if command == "list":
+            usage.record("store.listed")
     if args.json:
         print(listing.model_dump_json(exclude_none=True))
     elif listing.state == "listed":

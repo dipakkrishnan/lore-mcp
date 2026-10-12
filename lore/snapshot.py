@@ -12,7 +12,7 @@ from pydantic import BaseModel, ConfigDict, TypeAdapter
 
 from . import automation, blueprint, feedback, sources
 from .paths import claude_home, home
-from .store import JOB_SUMMARIES, Store
+from .store import FREE_COPIES, FREE_COPIES_SETTING, JOB_SUMMARIES, Store
 
 
 class ManifestEntry(BaseModel):
@@ -212,7 +212,9 @@ def build() -> dict[str, object]:
         publication_price = store.setting("price_usd", None)
         answer_price = store.setting("answer_price_usd", 0.0)
         answer_enabled = store.setting("answer_enabled", False) is True
+        free_copies = store.setting(FREE_COPIES_SETTING, FREE_COPIES)
         telemetry_enabled = store.setting("telemetry_enabled", True) is not False
+        telemetry_noticed = store.setting("telemetry_noticed", False) is True
         node_url = store.setting("node_url", None)
         # Reading concedes jobs whose liveness claim expired, so an interrupted
         # run turns visibly incomplete on the next refresh without a scheduler.
@@ -244,6 +246,7 @@ def build() -> dict[str, object]:
             "profile_configured": automation.profile_path().is_file(),
             "schedule": automation.schedule_state(),
             "telemetry_enabled": telemetry_enabled,
+            "telemetry_noticed": telemetry_noticed,
         },
         # Whether this build can send feedback at all. The Desktop app hides
         # its Report Feedback button when it cannot, so a release with no
@@ -264,6 +267,7 @@ def build() -> dict[str, object]:
             "publication_usd": publication_price,
             "answer_usd": answer_price if answer_enabled else None,
             "answer_enabled": answer_enabled,
+            "free_copies": free_copies,
         },
         "node": {
             "url": node_url if isinstance(node_url, str) else None,
