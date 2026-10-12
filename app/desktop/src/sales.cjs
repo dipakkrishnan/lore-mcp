@@ -35,12 +35,20 @@ const how = (sale) => (sale.network === "stripe" ? "by card" : "by an agent");
 function announcements(fresh) {
   if (fresh.length > ONE_EACH) {
     const total = fresh.reduce((sum, sale) => sum + sale.price_usd, 0);
-    return [{ title: `You sold ${fresh.length} pieces`, body: dollars(total) }];
+    const free = fresh.filter((sale) => sale.network === "free").length;
+    const paid = fresh.length - free;
+    const read = `${free} free ${free === 1 ? "copy" : "copies"} read`;
+    if (!paid) return [{ title: `${read[0].toUpperCase()}${read.slice(1)}`, body: "Free copies of your pieces" }];
+    return [{ title: `You sold ${paid} ${paid === 1 ? "piece" : "pieces"}`, body: `${dollars(total)}${free ? ` · ${read}` : ""}` }];
   }
-  return fresh.map((sale) => ({
-    title: sale.kind === "answer" ? "You sold an answer" : "You sold a piece",
-    body: `${sale.title} · ${dollars(sale.price_usd)} ${how(sale)}`
-  }));
+  return fresh.map((sale) =>
+    sale.network === "free"
+      ? { title: "Someone read a free copy", body: sale.title }
+      : {
+          title: sale.kind === "answer" ? "You sold an answer" : "You sold a piece",
+          body: `${sale.title} · ${dollars(sale.price_usd)} ${how(sale)}`
+        }
+  );
 }
 
 /** Post one Mac notification: Notification Center's own banner, with Lore's icon. @param {{title: string, body: string}} words @param {() => void} onClick */

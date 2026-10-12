@@ -22,6 +22,7 @@ price applies everywhere (MON-028).
 ```sh
 npm ci
 echo "STRIPE_SECRET_KEY=sk_test_…" > .dev.vars   # a Stripe test key; never a live one
+echo "ACCOUNT_TOKEN_SECRET=$(openssl rand -hex 32)" >> .dev.vars
 npm test        # stubbed Stripe; no network
 npm run dev
 ```
@@ -35,8 +36,15 @@ once, never committed, and never pasted into a chat:
 ```sh
 npx wrangler secret put STRIPE_SECRET_KEY       # Lore's live secret key
 npx wrangler secret put STRIPE_WEBHOOK_SECRET   # signing secret of the live Connect webhook
+npx wrangler secret put ACCOUNT_TOKEN_SECRET    # `openssl rand -hex 32`; signs seller tokens
 npx wrangler deploy
 ```
+
+Seller tokens are signed with `ACCOUNT_TOKEN_SECRET`, not the Stripe key, so
+the Stripe key can be swapped or rolled without logging sellers out. Changing
+`ACCOUNT_TOKEN_SECRET` does log them out. After any key change,
+`curl https://checkout.yourlore.dev/health` answers `{"ok":true}` when Stripe
+takes the key and `{"ok":false}` (502) when it doesn't.
 
 The live webhook is a **Connect** endpoint at
 `https://checkout.yourlore.dev/webhooks` for `checkout.session.completed` and

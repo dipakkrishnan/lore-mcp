@@ -22,6 +22,9 @@ type Snapshot = {
     sources_configured: boolean;
     blueprint_configured: boolean;
     profile_configured: boolean;
+    // Anonymous usage events (APP-058): on unless turned off, sent only once the notice was shown.
+    telemetry_enabled?: boolean;
+    telemetry_noticed?: boolean;
     // What the saved rhythm asks for and whether the scheduler holds it; null
     // with no profile. Optional: an installed CLI older than this app omits it.
     schedule?: { installed: boolean; executor: "claude" | "codex" | null; cadence: "daily" | "weekly" | null; hour: number | null } | null;
@@ -43,6 +46,8 @@ type Snapshot = {
     publication_usd: number | null;
     answer_usd: number | null;
     answer_enabled: boolean;
+    // Absent from a CLI older than MON-040's free copies.
+    free_copies?: number;
   };
   node: {
     url: string | null;
@@ -236,10 +241,16 @@ interface Window {
     decide(input: { original: PublicationCandidate; candidate: PublicationCandidate; approve: boolean }): Promise<void>;
     extras(): Promise<ExtrasCandidate[]>;
     decideExtras(input: { original: PublicationExtras; extras: PublicationExtras; approve: boolean }): Promise<void>;
+    approveExtras(decisions: Array<{ original: PublicationExtras; extras: PublicationExtras }>): Promise<void>;
     revoke(id: number): Promise<void>;
     push(): Promise<void>;
     schedule(): Promise<void>;
     setPrice(amount: number): Promise<void>;
+    setFreeCopies(count: number): Promise<void>;
+    revealHome(): Promise<string>;
+    usage(name: "noticed" | "app.opened"): Promise<void>;
+    setTelemetry(on: boolean): Promise<void>;
+    usageLog(): Promise<string>;
     sales(): Promise<Sale[]>;
     views(): Promise<Record<string, number>>;
     reportFeedback(input: { title: string; email: string; description: string }): Promise<FeedbackReceipt>;
@@ -298,7 +309,7 @@ type AgentRequest =
 type AgentEvent =
   | AgentRequest
   | { type: "dismiss"; id: string }
-  | { type: "live"; task: AgentTask | null; text: string }
+  | { type: "live"; task: AgentTask | null; text: string; status?: boolean }
   | { type: "blueprint-progress"; task: AgentTask | null; fields: Partial<BlueprintFields> & { evidence?: string } }
   | { type: "working"; active: boolean; task: AgentTask }
   | { type: "changed" }

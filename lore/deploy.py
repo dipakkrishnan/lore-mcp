@@ -43,6 +43,8 @@ PRICE_DECLARATION = "export const PRICE_USD = 0.01;"
 # `*`, not a column list: a node deployed before `refund_owed` existed still
 # reads, and the field defaults to nothing owed.
 SALES_QUERY = "SELECT * FROM sales ORDER BY sold_at DESC, id DESC"
+# A free first copy (MON-040): a $0 ledger row, never earnings and never owed back.
+FREE_NETWORK = "free"
 
 
 class Sale(BaseModel):
@@ -207,7 +209,12 @@ def _detail(result: subprocess.CompletedProcess[str]) -> str:
         parts = (error["text"], *(note["text"] for note in error.get("notes", [])))
         return re.sub(r"\s*\([^)]*\)", "", " ".join(parts))
     except (ValueError, KeyError, TypeError):
-        return f"{result.stderr or ''}{result.stdout or ''}".strip()[-2000:]
+        output = re.sub(
+            r"\x1b\[[0-9;]*m", "", f"{result.stderr or ''}{result.stdout or ''}"
+        )
+        # Wrangler ends a refusal with its help text and a bug-report footer; its ✘ line says why.
+        refusal = re.search(r"✘ \[ERROR\] (.+)", output)
+        return refusal.group(1).strip() if refusal else output.strip()[-2000:]
 
 
 def _timeout_detail(error: subprocess.TimeoutExpired) -> str:

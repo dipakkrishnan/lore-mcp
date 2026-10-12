@@ -7,19 +7,21 @@ so with an exit code and a message rather than a traceback.
 
 from __future__ import annotations
 
+import argparse
 import json
 import os
+import re
 import sqlite3
 import subprocess
 import sys
 import tempfile
 import unittest
-from contextlib import contextmanager
+from contextlib import contextmanager, redirect_stderr
 from datetime import datetime, timedelta, timezone
 from io import StringIO
 from pathlib import Path
 from typing import Iterator
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from helpers import LoreTestCase, blueprint_input, captured
 
@@ -182,6 +184,13 @@ class MainDispatchTest(LoreTestCase):
         with patch("lore.deploy.sales", return_value=owed), captured() as output:
             self.assertEqual(cli.main(["node", "sales"]), 0)
         self.assertIn("(refund owed to 0xpayer)", output.getvalue())
+        free = row | {"price_usd": 0, "network": "free", "payer": "", "tx": "free_1"}
+        rows = [deploy_module.Sale(**free), deploy_module.Sale(**row)]
+        with patch("lore.deploy.sales", return_value=rows), captured() as output:
+            self.assertEqual(cli.main(["node", "sales"]), 0)
+        self.assertIn("1 sale · $0.01 · 1 free copy", output.getvalue())
+        self.assertIn("2026-09-02    free  A", output.getvalue())
+        self.assertNotIn("refund owed", output.getvalue())
 
     def test_node_views_prints_counts_as_json(self) -> None:
         rows = [deploy_module.PageViews(item_id="0000000000000000fcdb4b42", views=7)]
@@ -390,6 +399,104 @@ class SourcesCommandTest(LoreTestCase):
                     self.assertEqual(cli.main(argv), 2)
                 self.assertEqual(len(stderr.getvalue().splitlines()), 1)
                 self.assertTrue(stderr.getvalue().startswith("lore: "))
+
+    @contextmanager
+    def connecting(self) -> Iterator[MagicMock]:
+        """Stand in for the registry, so a case sees only what the parser sent."""
+        connected = {
+            "name": "obsidian-1",
+            "label": "Obsidian",
+            "state": "connected",
+            "imported": 0,
+            "enabled": True,
+        }
+        with patch.object(
+            sources_module.Registry, "connect", return_value=connected
+        ) as connect:
+            yield connect
+
+    def test_connect_takes_its_locator_after_options_and_a_double_dash(self) -> None:
+        # The desktop app sends the fourth shape. Older argparse gives up on the
+        # optional locator as soon as an option follows the app, so each of
+        # these has to hold on the lowest Python `pyproject.toml` allows.
+        for tail, locator, replacing in (
+            (["/vault"], "/vault", None),
+            (["--", "/vault"], "/vault", None),
+            (["--json", "--", "/vault"], "/vault", None),
+            (["--replace", "old", "--json", "--", "/vault"], "/vault", "old"),
+            (["--json", "/vault"], "/vault", None),
+            (["--json", "--", "-vault"], "-vault", None),
+            (["--json"], "", None),
+        ):
+            with self.subTest(tail=tail), self.connecting() as connect, captured():
+                self.assertEqual(cli.main(["sources", "connect", "obsidian", *tail]), 0)
+                connect.assert_called_once()
+                self.assertEqual(connect.call_args.args, ("obsidian", locator))
+                self.assertEqual(connect.call_args.kwargs["replacing"], replacing)
+
+    def test_connect_recovers_a_locator_the_parser_left_over(self) -> None:
+        # What older argparse hands back, replayed so the recovery is exercised
+        # on every Python rather than only on the ones that need it.
+        for extra in (["--", "/vault"], ["/vault"], ["--", "-vault"]):
+            stranded = argparse.Namespace(
+                command="sources",
+                sources_command="connect",
+                connector="obsidian",
+                locator="",
+                replace=None,
+                json=True,
+            )
+            with (
+                self.subTest(extra=extra),
+                patch.object(
+                    argparse.ArgumentParser,
+                    "parse_known_args",
+                    return_value=(stranded, list(extra)),
+                ),
+                self.connecting() as connect,
+                captured(),
+            ):
+                self.assertEqual(cli.main(["ignored"]), 0)
+                self.assertEqual(connect.call_args.args, ("obsidian", extra[-1]))
+
+    def test_connect_still_refuses_what_is_not_one_locator(self) -> None:
+        for argv in (
+            ["sources", "connect", "obsidian", "--bogus"],
+            ["sources", "connect", "obsidian", "--json", "--bogus"],
+            ["sources", "connect", "obsidian", "--", "/vault", "/other"],
+            ["sources", "connect", "obsidian", "/vault", "--json", "--", "/other"],
+            ["sources", "list", "extra"],
+            ["status", "--", "extra"],
+        ):
+            with (
+                self.subTest(argv=argv),
+                self.connecting() as connect,
+                captured(),
+                patch.object(sys, "stderr", StringIO()),
+            ):
+                with self.assertRaises(SystemExit) as refused:
+                    cli.main(argv)
+                self.assertEqual(refused.exception.code, 2)
+                # An empty locator means the current folder to a folder reader.
+                connect.assert_not_called()
+
+
+class SupportedPythonTest(unittest.TestCase):
+    def test_ci_runs_this_file_on_the_lowest_python_the_package_allows(self) -> None:
+        # `python-floor.yml` is what makes the cases above mean "every supported
+        # Python"; it only does while it names the floor `pyproject.toml` declares.
+        root = Path(__file__).resolve().parents[1]
+        declared = re.search(
+            r'^requires-python = ">=(\d+\.\d+)"$',
+            (root / "pyproject.toml").read_text(encoding="utf-8"),
+            re.MULTILINE,
+        )
+        assert declared is not None
+        workflow = (root / ".github/workflows/python-floor.yml").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn(f"--python {declared.group(1)} ", workflow)
+        self.assertIn("-p test_cli.py", workflow)
 
 
 class SyncTest(LoreTestCase):
@@ -847,6 +954,39 @@ class PriceTest(LoreTestCase):
         with captured() as output:
             self.assertEqual(cli.price(0), 0)
         self.assertIn("Publications are free", output.getvalue())
+
+    def test_free_copies_default_to_three_and_zero_turns_them_off(self) -> None:
+        with captured() as output:
+            self.assertEqual(cli.main(["free-copies"]), 0)
+        self.assertIn("3 free copies per piece", output.getvalue())
+        with captured() as output:
+            self.assertEqual(cli.main(["free-copies", "1"]), 0)
+        self.assertIn("The first 1 copy of each piece is free", output.getvalue())
+        with Store() as store:
+            self.assertEqual(store.setting(cli.FREE_COPIES_SETTING), 1)
+        with captured() as output:
+            self.assertEqual(cli.free_copies(0), 0)
+        self.assertIn("No free copies", output.getvalue())
+        with self.assertRaisesRegex(ValueError, "zero or more"):
+            cli.free_copies(-1)
+
+    def test_support_email_is_set_shown_and_turned_off(self) -> None:
+        with captured() as output:
+            self.assertEqual(cli.main(["support"]), 0)
+        self.assertIn("No support email", output.getvalue())
+        with captured() as output:
+            self.assertEqual(cli.main(["support", "help@example.com"]), 0)
+        self.assertIn("Buyers write to help@example.com", output.getvalue())
+        with Store() as store:
+            self.assertEqual(
+                store.setting(cli.SUPPORT_EMAIL_SETTING), "help@example.com"
+            )
+        with self.assertRaisesRegex(ValueError, "email address"):
+            cli.support_email("<script>@x")
+        with captured():
+            self.assertEqual(cli.support_email("off"), 0)
+        with Store() as store:
+            self.assertEqual(store.setting(cli.SUPPORT_EMAIL_SETTING), "")
 
     def test_prices_that_cannot_be_charged_are_refused(self) -> None:
         for amount in (float("nan"), float("inf"), -1.0):
@@ -1485,6 +1625,34 @@ class PublicationApplyTest(LoreTestCase):
         with Store() as store:
             self.assertEqual(store.list_publications(), [])
 
+    def test_a_draft_that_repeats_a_piece_for_sale_is_skipped(self) -> None:
+        with Store() as store:
+            store.add_publication(
+                title="Prove the real request path before calling a product ready",
+                content="a bounded claim",
+                topic="pricing",
+                provenance=[self.memory_id],
+            )
+        batch = self.candidates(
+            {"title": "Prove the real request path before calling it ready"},
+            {"title": "Unit tests miss the install path"},
+        )
+        with captured(), redirect_stderr(StringIO()) as out:
+            self.assertEqual(cli.publication_draft(batch), 0)
+        staged = json.loads(self.staged_path.read_text(encoding="utf-8"))
+        self.assertEqual(
+            [c["title"] for c in staged], ["Unit tests miss the install path"]
+        )
+        self.assertIn("already for sale", out.getvalue())
+        with self.assertRaisesRegex(ValueError, "already for sale"):
+            cli.publication_draft(
+                self.candidates(
+                    {
+                        "title": "Prove the real request path before calling a product ready"
+                    }
+                )
+            )
+
     def test_nothing_is_staged_until_something_is_drafted(self) -> None:
         with captured() as out:
             self.assertEqual(cli.publication_candidates(), 0)
@@ -1495,7 +1663,7 @@ class PublicationApplyTest(LoreTestCase):
         with desktop_stdin(json.dumps({"candidate": first, "approve": True})):
             with captured() as out:
                 self.assertEqual(cli.publication_decide(), 0)
-        self.assertEqual(json.loads(out.getvalue()), {"approved": True, "remaining": 1})
+        self.assertEqual(json.loads(out.getvalue()), {"approved": 1, "remaining": 1})
         with desktop_stdin(json.dumps({"candidate": second, "approve": False})):
             with captured():
                 self.assertEqual(cli.publication_decide(), 0)
@@ -1741,7 +1909,7 @@ class PublicationExtrasTest(LoreTestCase):
         ):
             self.assertEqual(cli.extras_decide(), 0)
         push.assert_called_once_with(str(cli.home() / "node"))
-        self.assertEqual(json.loads(out.getvalue()), {"approved": True, "remaining": 1})
+        self.assertEqual(json.loads(out.getvalue()), {"approved": 1, "remaining": 1})
         piece = self.live()
         self.assertEqual(
             (piece.public_id, piece.sample, piece.content),
@@ -1758,6 +1926,55 @@ class PublicationExtrasTest(LoreTestCase):
         self.assertFalse(cli._extras_path().exists())
         with Store() as store:
             self.assertEqual(len(store.list_publications()), 1)
+
+    def test_a_batch_saves_every_card_then_pushes_once(self) -> None:
+        with Store() as store:
+            other = store.add_publication(
+                title="Other",
+                content="other paid text",
+                topic="pricing",
+                provenance=[self.seed_memory("Other lesson")],
+            )
+            store.set_setting("node_url", "https://node.example/mcp")
+        first, second, third = self.drafted(
+            {},
+            {"publication_id": other, "useful_if": "you sell to developers"},
+            {"useful_if": "never approved"},
+        )
+        batch = [
+            {
+                "original": first,
+                "extras": first | {"sample": "Edited."},
+                "approve": True,
+            },
+            {"extras": second, "approve": True},
+        ]
+        with (
+            desktop_stdin(json.dumps(batch)),
+            patch.object(cli, "push", return_value=0) as push,
+            captured() as out,
+        ):
+            self.assertEqual(cli.extras_decide(), 0)
+        push.assert_called_once_with(str(cli.home() / "node"))
+        self.assertEqual(json.loads(out.getvalue()), {"approved": 2, "remaining": 1})
+        self.assertEqual(self.live().sample, "Edited.")
+        with Store() as store:
+            self.assertEqual(
+                store.active_publication(other).useful_if, "you sell to developers"
+            )
+        self.assertEqual(json.loads(cli._extras_path().read_text()), [third])
+
+    def test_one_bad_card_in_a_batch_saves_none(self) -> None:
+        (first,) = self.drafted()
+        batch = [
+            {"extras": first, "approve": True},
+            {"extras": first | {"sample": "never drafted"}, "approve": True},
+        ]
+        with desktop_stdin(json.dumps(batch)):
+            with self.assertRaisesRegex(ValueError, "not drafted"):
+                cli.extras_decide()
+        self.assertEqual(self.live().sample, "")
+        self.assertEqual(json.loads(cli._extras_path().read_text()), [first])
 
     def test_a_card_must_be_drafted_and_keep_its_piece(self) -> None:
         with Store() as store:
@@ -1825,7 +2042,9 @@ class PublicationExtrasTest(LoreTestCase):
 class PublicationCommandTest(LoreTestCase):
     def setUp(self) -> None:
         super().setUp()
-        self.enterContext(patch.object(cli, "_interactive", return_value=True))
+        interactive = patch.object(cli, "_interactive", return_value=True)
+        interactive.start()
+        self.addCleanup(interactive.stop)
         self.memory_id = self.seed_memory("Pricing lesson")
 
     def publish(
@@ -2042,7 +2261,9 @@ class PushTest(LoreTestCase):
 
     def setUp(self) -> None:
         super().setUp()
-        self.enterContext(patch.object(cli, "_interactive", return_value=True))
+        interactive = patch.object(cli, "_interactive", return_value=True)
+        interactive.start()
+        self.addCleanup(interactive.stop)
         self.memory_id = self.seed_memory("Pricing lesson")
         self.worker = self.lore_home / "node"
         self.worker.mkdir(parents=True)
@@ -2095,6 +2316,20 @@ class PushTest(LoreTestCase):
         # The local integer id never leaves this machine — the edge is keyed
         # on the opaque public id, so revocations leave no visible gap.
         self.assertNotIn(f"({kept},", sql)
+
+    def test_push_sql_carries_the_support_email(self) -> None:
+        with Store() as store:
+            sql = cli._push_sql(
+                [], store.answer_settings(), "", support_email="help@example.com"
+            )
+        self.assertIn("VALUES ('support_email','help@example.com');", sql)
+
+    def test_push_sql_carries_the_price_so_it_needs_no_redeploy(self) -> None:
+        with Store() as store:
+            answer = store.answer_settings()
+        sql = cli._push_sql([], answer, "", price_usd=1.0)
+        self.assertIn("VALUES ('price_usd','1.000000');", sql)
+        self.assertNotIn("'price_usd'", cli._push_sql([], answer, ""))
 
     def test_push_sql_escapes_quotes_rather_than_breaking_the_script(self) -> None:
         # An apostrophe in an owner's own prose would otherwise truncate the
@@ -2151,6 +2386,12 @@ class PushTest(LoreTestCase):
             sql = cli._push_sql([], store.answer_settings(), "Ada", "acct_1Seller")
         self.assertIn("('stripe_account','acct_1Seller')", sql)
         self.assertIn("('listed_name','Ada')", sql)
+
+    def test_push_ships_the_free_copies_setting(self) -> None:
+        self.assertIn("('free_copies','3')", self.push_sql([]))
+        with Store() as store:
+            sql = cli._push_sql([], store.answer_settings(), "", "", 0)
+        self.assertIn("('free_copies','0')", sql)
 
     def test_push_ships_the_answer_settings_alongside_publications(self) -> None:
         with Store() as store:

@@ -3,6 +3,7 @@ import { McpAgent } from "agents/mcp";
 import { withX402 } from "agents/x402";
 import { z } from "zod";
 import {
+  type AnswerSettings,
   ESTIMATE_SECONDS,
   RETENTION_DISCLOSURE,
   createTicket,
@@ -13,6 +14,7 @@ import {
   validPublicId
 } from "./answer-state.js";
 import { runAnswer } from "./answer.js";
+import { FREE_LINK, freeFirst, freeLeft, giveCopy } from "./free.js";
 import { TESTNET, facilitator, network, networkLabel } from "./network.js";
 import { PRICE_USD } from "./price.js";
 import { type Copy, ensureReceiptSchema, keepCopy, keptCopy } from "./receipts.js";
@@ -24,6 +26,7 @@ import { countView } from "./views.js";
 import { payTo } from "./wallet.js";
 
 const ANSWER_DISABLED = { error: "the answer tier is not enabled on this node" };
+const ATTRIBUTION = "Content is owner-approved; preserve attribution when synthesizing.";
 
 function asText(payload: unknown, isError = false) {
   return {
@@ -67,8 +70,9 @@ export class LorePaidMCP extends McpAgent<Env> {
             ...(await manifest(this.env)),
             network: network(this.env),
             payout: payTo(this.env),
-            price_usd: PRICE_USD,
+            price_usd: priceOf(settings),
             listed: settings.listedName !== "",
+            ...(settings.freeCopies ? { free_copies: settings.freeCopies } : {}),
             ...(settings.listedName ? { name: settings.listedName } : {}),
             ...(settings.enabled
               ? {
@@ -76,17 +80,26 @@ export class LorePaidMCP extends McpAgent<Env> {
                   answer_retention_disclosure: RETENTION_DISCLOSURE
                 }
               : {}),
-            disclosure: "Choose any advertised ids; get buys one publication per call."
+            disclosure:
+              "Choose any advertised ids; get buys one publication per call." +
+              (settings.freeCopies ? ` The first ${settings.freeCopies} copies of each are free, while they last.` : "")
           });
         })
     );
 
+    const publication = (id: string) =>
+      this.env.LORE_DB.prepare(
+        `SELECT public_id AS id, title, content, topic, kind, updated_at
+         FROM publications WHERE public_id = ?1`
+      )
+        .bind(id)
+        .first<{ id: string; title: string }>();
     const get = this.server.paidTool(
       "get",
       "Fetch one owner-approved publication by its id from the discover catalog. " +
         "Each call buys exactly one publication. Damaged ids are rejected before " +
         "payment, and an id that is no longer for sale returns an error and is never charged.",
-      PRICE_USD,
+      priceOf(settings),
       {
         id: z.string().trim().refine(validPublicId, {
           message: "invalid publication id; run discover again"
@@ -95,12 +108,7 @@ export class LorePaidMCP extends McpAgent<Env> {
       {},
       async ({ id }) =>
         withSpan("lore.get", async (setAttributes) => {
-          const row = await this.env.LORE_DB.prepare(
-            `SELECT public_id AS id, title, content, topic, kind, updated_at
-             FROM publications WHERE public_id = ?1`
-          )
-            .bind(id)
-            .first();
+          const row = await publication(id);
           setAttributes(() =>
             toolSpanAttributes({ tool: "get", outcome: row ? "ok" : "not_found", paid: true, itemId: id })
           );
@@ -108,17 +116,24 @@ export class LorePaidMCP extends McpAgent<Env> {
             row
               ? {
                   publication: row,
-                  disclosure: "Content is owner-approved; preserve attribution when synthesizing."
+                  disclosure: ATTRIBUTION
                 }
               : { error: `publication not found: ${id}` },
             !row
           );
         })
     );
-    recorded(this.env.LORE_DB, get, "publication", PRICE_USD, (payload) => {
+    recorded(this.env.LORE_DB, get, "publication", priceOf(settings), (payload) => {
       const { publication } = payload as { publication: { id: string; title: string } };
       return { item: publication.id, title: publication.title };
     });
+    freeFirst(this.env.LORE_DB, get, publication, (row) =>
+      asText({
+        publication: row,
+        free_copy: true,
+        disclosure: `A free copy: the seller gives the first few away, so nothing was charged. ${ATTRIBUTION}`
+      })
+    );
 
     const question = {
       question: z.string().trim().min(1).max(4000)
@@ -254,19 +269,60 @@ async function keep(env: Env, session: string, sale: Settled): Promise<void> {
 
 async function receiptPage(env: Env, store: Store, account: string, session: string, id: string, found: Piece | undefined): Promise<Response> {
   // A kept copy opens whatever happened since: an edit, a takedown, or cards turned off.
-  const kept = SESSION.test(session) ? await keptCopy(env.LORE_DB, session, id) : null;
+  const free = FREE_LINK.test(session);
+  const kept = SESSION.test(session) || free ? await keptCopy(env.LORE_DB, session, id) : null;
   const sale = kept || !found ? null : await settled(env, account, session, id, store.origin, found);
   // The buyer has paid; a bookkeeping failure must never cost them the piece.
   if (sale) await keep(env, session, sale).catch(() => console.error("receiptPage(): failed to keep a paid card session"));
   const copy = kept ?? sale?.copy;
   if (copy) {
     const piece = found ?? { id, teaser: copy.teaser, kind: copy.kind, updated_at: copy.updated_at, topic: "", section: 0 };
-    return html(unlockedPage(piece, store, copy), 200, PRIVATE);
+    return html(unlockedPage(piece, store, copy, free), 200, PRIVATE);
   }
   if (!found) return html(notFound(store), 404, PRIVATE);
-  const problem = "We couldn't find a finished card payment for this piece. If you just paid, wait a minute and reload this page.";
+  const problem = free
+    ? "This link doesn't open a free copy here."
+    : "We couldn't find a finished card payment for this piece. If you just paid, wait a minute and reload this page.";
   return html(publicationPage(found, store, problem), 200, PRIVATE);
 }
+
+const FREE_COOKIE = /(?:^|;\s*)lore_free=(free_[0-9a-f]{32})/;
+
+/** A reader taking a free copy, kept under a link of its own like a card receipt. A browser that
+ * already took one is sent back to it instead of spending another. */
+async function readFree(request: Request, env: Env, store: Store, id: string, found: Piece | undefined): Promise<Response> {
+  const db = env.LORE_DB;
+  await Promise.all([ensureReceiptSchema(db), ensureRefundColumn(db)]);
+  const cookie = request.headers.get("cookie")?.match(FREE_COOKIE)?.[1];
+  const mine = cookie && (await keptCopy(db, cookie, id)) ? cookie : null;
+  const current = mine || !found
+    ? null
+    : await db.prepare("SELECT title, content FROM publications WHERE public_id = ?1").bind(id).first<{ title: string; content: string }>();
+  const copy = found && current && { piece_id: id, teaser: found.teaser, kind: found.kind, updated_at: found.updated_at, ...current };
+  const link = mine ?? (copy ? await giveCopy(db, copy, store.freeCopies ?? 0) : null);
+  if (link) {
+    const cookie = `lore_free=${link}; Path=/p/${id}; Max-Age=31536000; Secure; HttpOnly; SameSite=Lax`;
+    return new Response(null, { status: 303, headers: { location: `/p/${id}?session_id=${link}`, "set-cookie": cookie, ...PRIVATE } });
+  }
+  if (!found) return html(notFound(store), 404, PRIVATE);
+  return html(publicationPage(found, store, "There are no free copies of this piece left."), 200, PRIVATE);
+}
+
+function storeFor(env: Env, url: URL, settings: AnswerSettings): Store {
+  return {
+    name: settings.listedName,
+    priceUsd: priceOf(settings),
+    origin: url.origin,
+    test: network(env) === TESTNET,
+    freeCopies: settings.freeCopies,
+    support: settings.supportEmail,
+    ...(takesCards(settings) ? { checkout: env.CHECKOUT_URL } : {})
+  };
+}
+
+const takesCards = (settings: AnswerSettings) => STRIPE_ACCOUNT.test(settings.stripeAccount) && priceOf(settings) >= CARD_MINIMUM_USD;
+/** What a piece costs: the owner's pushed price, so a new price needs no redeploy; the deployed one until a push carries it. */
+const priceOf = (settings: AnswerSettings) => settings.publicationPriceUsd || PRICE_USD;
 
 /** Lore's checkout saying a card payment finished, so the sale counts even if the buyer never returns. The
  * notice only names a session: it is checked with checkout before anything is written. */
@@ -290,14 +346,7 @@ export default {
     const page = url.pathname === "/" || /^\/p(\/|$)/.test(url.pathname);
     if (page && (request.method === "GET" || request.method === "HEAD")) {
       const [catalog, settings] = await Promise.all([manifest(env), readAnswerSettings(env.LORE_DB)]);
-      const cards = STRIPE_ACCOUNT.test(settings.stripeAccount) && PRICE_USD >= CARD_MINIMUM_USD;
-      const store: Store = {
-        name: settings.listedName,
-        priceUsd: PRICE_USD,
-        origin: url.origin,
-        test: network(env) === TESTNET,
-        ...(cards ? { checkout: env.CHECKOUT_URL } : {})
-      };
+      const store = storeFor(env, url, settings);
       const [, id, format] = url.pathname.match(/^\/p\/([0-9a-f]{24})(\.json|\/)?$/) ?? [];
       const found = pieces(catalog).find((piece) => piece.id === id);
       if (format === ".json") {
@@ -305,8 +354,8 @@ export default {
         const listing = found && {
           id: found.id,
           teaser: found.teaser,
-          price_usd: PRICE_USD,
-          stripe_account: cards ? settings.stripeAccount : "",
+          price_usd: priceOf(settings),
+          stripe_account: takesCards(settings) ? settings.stripeAccount : "",
           test: store.test
         };
         return Response.json(listing ?? { error: "not for sale here" }, { status: listing ? 200 : 404, headers: PUBLIC });
@@ -318,13 +367,17 @@ export default {
       }
       // Counted after the response; a buyer reopening their receipt returned above and is never a view.
       if (found && request.method === "GET") ctx.waitUntil(countView(env.LORE_DB, found.id).catch(() => undefined));
-      const body = url.pathname === "/" ? storefront(catalog, store) : found ? publicationPage(found, store) : notFound(store);
+      const left = found ? await freeLeft(env.LORE_DB, found.id, settings.freeCopies) : 0;
+      const body = url.pathname === "/" ? storefront(catalog, store) : found ? publicationPage(found, store, "", left) : notFound(store);
       return html(request.method === "HEAD" ? null : body, url.pathname === "/" || found ? 200 : 404, PUBLIC);
     }
-    const paid = url.pathname.match(/^\/p\/([0-9a-f]{24})\/paid$/)?.[1];
-    if (paid && request.method === "POST") {
+    const [, posted, action] = url.pathname.match(/^\/p\/([0-9a-f]{24})\/(paid|free)$/) ?? [];
+    if (posted && request.method === "POST") {
       const [catalog, settings] = await Promise.all([manifest(env), readAnswerSettings(env.LORE_DB)]);
-      return paidNotice(request, env, settings.stripeAccount, url.origin, paid, pieces(catalog).find((piece) => piece.id === paid));
+      const found = pieces(catalog).find((piece) => piece.id === posted);
+      return action === "free"
+        ? readFree(request, env, storeFor(env, url, settings), posted, found)
+        : paidNotice(request, env, settings.stripeAccount, url.origin, posted, found);
     }
     const response = await mcp.fetch(request, env, ctx);
     if (response.webSocket || response.headers.has("cache-control")) return response;
