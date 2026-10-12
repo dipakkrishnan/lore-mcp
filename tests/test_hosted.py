@@ -6,11 +6,13 @@ a fake keyring: nothing here touches the network or the owner's Keychain.
 
 from __future__ import annotations
 
+import io
 import json
 import threading
 import unittest
 import urllib.request
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, redirect_stderr
+from http.client import HTTPConnection
 from typing import AsyncIterator
 from unittest.mock import patch
 
@@ -24,7 +26,7 @@ from mcp import Client
 from mcp.client.auth import OAuthFlowError
 from mcp.server.mcpserver import MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
-from mcp.shared.auth import OAuthToken
+from mcp.shared.auth import OAuthClientInformationFull, OAuthToken
 
 from lore import sources as sources_module
 from lore.signin import Keychain, Loopback
@@ -367,6 +369,128 @@ class SignInTest(unittest.TestCase):
         answer = self.answer("error=access_denied&state=xyz")
         self.assertIsInstance(answer, OAuthFlowError)
         self.assertIn("access_denied", str(answer))
+
+    def test_the_keychain_keeps_the_apps_registration_apart_from_its_tokens(
+        self,
+    ) -> None:
+        server = "https://mcp.example/mcp"
+        keychain = Keychain(server)
+        registered = OAuthClientInformationFull(client_id="lore-1", client_name="Lore")
+        self.assertIsNone(anyio.run(keychain.get_client_info))
+
+        anyio.run(keychain.set_client_info, registered)
+        self.assertEqual(list(self.keyring.saved), [("Lore", f"{server} client")])
+        self.assertEqual(anyio.run(keychain.get_client_info), registered)
+        self.assertIsNone(anyio.run(keychain.get_tokens))
+
+        # Signing in again starts from a registration made for a port long gone.
+        keychain.forget()
+        self.assertEqual(self.keyring.saved, {})
+
+    def test_one_apps_sign_in_is_not_anothers(self) -> None:
+        granola = Keychain("https://mcp.granola.ai/mcp")
+        notion = Keychain("https://mcp.notion.com/mcp")
+        token = OAuthToken(access_token="a", token_type="Bearer")
+        anyio.run(granola.set_tokens, token)
+        self.assertIsNone(anyio.run(notion.get_tokens))
+        notion.forget()
+        self.assertEqual(anyio.run(granola.get_tokens), token)
+
+    def land(
+        self, *paths: str, wait: float = 5.0
+    ) -> tuple[object, list[tuple[int, str, str]]]:
+        """Ask the loopback for each path in turn, as one browser would, and say how
+        the sign-in ended and what each request got back. A landing that never ends
+        fails the test instead of hanging it."""
+        ended: list[object] = []
+        pages: list[tuple[int, str, str]] = []
+        with patch.object(Loopback, "wait", wait), Loopback() as landing:
+
+            def listen() -> None:
+                try:
+                    ended.append(anyio.run(landing.callback))
+                except OAuthFlowError as error:
+                    ended.append(error)
+
+            def browse() -> None:
+                for path in paths:
+                    # Not urlopen: a proxy in the environment must not carry this off the machine.
+                    link = HTTPConnection("127.0.0.1", landing.server_port, timeout=5)
+                    try:
+                        link.request("GET", path)
+                        got = link.getresponse()
+                        kind = got.getheader("Content-Type", "")
+                        pages.append((got.status, kind, got.read().decode()))
+                    finally:
+                        link.close()
+
+            threads = [
+                threading.Thread(target=work, daemon=True) for work in (listen, browse)
+            ]
+            for thread in threads:
+                thread.start()
+            for thread in threads:
+                thread.join(10)
+            self.assertFalse(
+                any(thread.is_alive() for thread in threads),
+                "the landing never finished",
+            )
+        self.assertEqual(len(pages), len(paths), "a request went unanswered")
+        return ended[0], pages
+
+    def test_a_browser_asking_for_something_else_first_does_not_end_the_wait(
+        self,
+    ) -> None:
+        answer, pages = self.land(
+            "/favicon.ico", "/?code=wrong&state=xyz", "/callback?code=abc&state=xyz"
+        )
+        self.assertEqual((answer.code, answer.state), ("abc", "xyz"))  # type: ignore[attr-defined]
+        for status, _, page in pages[:2]:
+            self.assertNotEqual(status, 200)
+            self.assertNotIn("Lore is connected", page)
+        self.assertEqual(pages[2][0], 200)
+
+    def test_the_landing_page_tells_the_owner_whether_lore_got_in(self) -> None:
+        _, [(status, kind, let_in)] = self.land("/callback?code=abc&state=xyz")
+        self.assertEqual((status, kind), (200, "text/html; charset=utf-8"))
+        self.assertIn("Lore is connected. You can close this tab.", let_in)
+        self.assertNotIn("not let in", let_in)
+
+        _, [(status, kind, kept_out)] = self.land("/callback?error=access_denied")
+        self.assertEqual((status, kind), (200, "text/html; charset=utf-8"))
+        self.assertIn("Lore was not let in. You can close this tab.", kept_out)
+        self.assertNotIn("is connected", kept_out)
+
+    def test_the_landing_hands_back_what_the_app_sent_decoded(self) -> None:
+        answer, _ = self.land(
+            "/callback?code=a%2Fb%3D&state=xyz&iss=https%3A%2F%2Fauth.example"
+        )
+        self.assertEqual(
+            (answer.code, answer.state, answer.iss),  # type: ignore[attr-defined]
+            ("a/b=", "xyz", "https://auth.example"),
+        )
+
+    def test_nobody_landing_is_a_failed_sign_in_not_an_endless_wait(self) -> None:
+        answer, _ = self.land(wait=0.05)
+        self.assertIsInstance(answer, OAuthFlowError)
+
+    def test_the_landing_listens_only_on_this_machine(self) -> None:
+        with Loopback() as landing:
+            host, port = landing.server_address[:2]
+            self.assertEqual(host, "127.0.0.1")
+            self.assertGreater(port, 0)
+            self.assertEqual(landing.redirect, f"http://127.0.0.1:{port}/callback")
+
+    def test_the_code_in_the_callback_address_is_never_printed(self) -> None:
+        # The stock handler logs every request line, and this one carries the code.
+        printed = io.StringIO()
+        with redirect_stderr(printed):
+            answer, _ = self.land(
+                "/elsewhere?code=s3cret-code", "/callback?code=s3cret-code&state=xyz"
+            )
+        self.assertEqual(answer.code, "s3cret-code")  # type: ignore[attr-defined]
+        self.assertNotIn("s3cret-code", printed.getvalue())
+        self.assertNotIn("GET /", printed.getvalue())
 
 
 if __name__ == "__main__":
