@@ -1499,6 +1499,7 @@ function renderSettings(s) {
       return node;
     }))),
     section("What Lore keeps", card([
+      usageRow(s),
       row("Lore's shape", "What it keeps, what it ignores, what it may sell. Set in a short conversation.", cell(pill(s.setup.blueprint_configured ? "Set" : "Not set", s.setup.blueprint_configured ? "ok" : ""), ...(s.setup.blueprint_configured ? [] : [button("Start", "secondary", startSetup)])), false),
       row("Where it lives", `Your memories are kept on this Mac. ${provider()[0]} reads them when it works with you here. Buyers only ever get what you approve for sale.`, cell(path, button("Show in Finder", "quiet", () => void window.lore.revealHome())), false)
     ])),
@@ -2668,12 +2669,38 @@ async function signOut(providerId) {
   enter();
 }
 
+/** The usage switch, with the local log of exactly what was sent. @param {Snapshot} s */
+function usageRow(s) {
+  const on = s.setup.telemetry_enabled !== false;
+  const toggle = button(on ? "Turn off" : "Turn on", "secondary", () => void act(() => window.lore.setTelemetry(!on)));
+  return row(
+    "Anonymous usage",
+    `${USAGE_NOTICE} They show where Lore helps and where people get stuck.`,
+    cell(pill(on ? "On" : "Off", on ? "ok" : ""), button("See what's sent", "quiet", () => void window.lore.usageLog()), toggle)
+  );
+}
+
 function enter() {
   const signedIn = Boolean(auth?.credentials.length);
   welcome.hidden = signedIn;
   appShell.hidden = !signedIn;
   document.body.dataset.state = signedIn ? "app" : "welcome";
-  if (signedIn) { render(); void load(); }
+  // The welcome screen says it, so signing in already counts as seen.
+  if (!signedIn) void window.lore.usage("noticed").catch(() => undefined);
+  if (signedIn) { render(); void load().then(noticeUsage); }
+}
+
+const USAGE_NOTICE = "Lore sends anonymous usage events, like \"store opened\" or \"first piece approved\", never your writing.";
+
+/** Someone who signed in before usage events existed hears about them once, here, before any is sent. */
+async function noticeUsage() {
+  const setup = snapshot?.setup;
+  if (!setup || setup.telemetry_enabled === false) return;
+  if (!setup.telemetry_noticed) {
+    tell(USAGE_NOTICE, false, { label: "Settings", run: () => show("settings") });
+    await window.lore.usage("noticed").catch(() => undefined);
+  }
+  void window.lore.usage("app.opened").catch(() => undefined);
 }
 
 /** @param {AgentEvent} event */
