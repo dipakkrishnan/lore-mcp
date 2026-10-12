@@ -9,9 +9,14 @@
 // sets SMOKE_EXPECT_TOPIC/SMOKE_EXPECT_TEASER so this checks that exact
 // publication came back out of discover(), not just that some row exists. A
 // manual run against a real deployed node leaves those unset and skips it.
+//
+// test/request-path.test.ts makes the same checks in workerd with no node
+// running, on every `npm test`; the tool list and entry keys both of them
+// expect live in ./surface.ts.
 import assert from "node:assert/strict";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
+import { TOOL_NAMES, entryKeysProblem } from "./surface.js";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
@@ -28,18 +33,16 @@ await client.connect(
 
 try {
   const tools = await client.listTools();
-  assert.deepEqual(
-    tools.tools.map(({ name }) => name).sort(),
-    ["answer", "discover", "get", "result"]
-  );
+  assert.deepEqual(tools.tools.map(({ name }) => name).sort(), [...TOOL_NAMES]);
 
   const discover = await client.callTool({
     name: "discover",
     arguments: {}
   });
   assert.equal(discover.isError, undefined);
-  // The manifest must advertise without disclosing: teasers and topics are the
-  // only text, and the payload shape matches the stdio server's discover.
+  // The manifest must advertise without disclosing: an entry carries its
+  // teaser, plus a sample and who-it's-for lines when the owner wrote them,
+  // and the payload shape matches the stdio server's discover.
   const payload: unknown = JSON.parse((discover.content as { text: string }[])[0].text);
   assert.ok(isRecord(payload));
   assert.equal(payload.manifest_version, 1);
@@ -49,10 +52,7 @@ try {
     assert.ok(Array.isArray(entries));
     for (const entry of entries) {
       assert.ok(isRecord(entry));
-      assert.deepEqual(
-        Object.keys(entry).sort(),
-        ["id", "kind", "teaser", "updated_at"]
-      );
+      assert.equal(entryKeysProblem(Object.keys(entry)), null);
     }
   }
 
