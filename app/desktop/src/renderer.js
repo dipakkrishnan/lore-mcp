@@ -2687,8 +2687,6 @@ function enter() {
   welcome.hidden = signedIn;
   appShell.hidden = !signedIn;
   document.body.dataset.state = signedIn ? "app" : "welcome";
-  // The welcome screen says it, so signing in already counts as seen.
-  if (!signedIn) void window.lore.usage("noticed").catch(() => undefined);
   if (signedIn) { render(); void load().then(noticeUsage); }
 }
 
