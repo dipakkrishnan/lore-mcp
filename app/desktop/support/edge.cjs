@@ -780,6 +780,7 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         for (let i = 0; i < 60 && !notes.length; i++) await sleep(250);
         check("a finished reading is one Mac notification", notes.length === 1 && notes[0].words.title === "Lore turned 2 Granola meetings into 2 memories" && notes[0].words.body === "1 looks worth selling.", JSON.stringify(notes.map((n) => n.words)));
         check("…and a red 2 on the dock while the owner is elsewhere", badges.at(-1) === 2, JSON.stringify(badges));
+        check("…and the notice that it was reading goes away", await waitFor(`!document.querySelector("#status").textContent.includes("Lore is turning them into memories now.")`), await js(`document.querySelector("#status").textContent`));
         notes[0].handlers.click();
         check("clicking it lands on Today's new memories", await waitFor(`document.querySelector("#content").textContent.includes("Lore read your Granola meetings")`));
         const card = `[...document.querySelectorAll("#content .section")].find((s) => s.textContent.includes("New memories"))`;
