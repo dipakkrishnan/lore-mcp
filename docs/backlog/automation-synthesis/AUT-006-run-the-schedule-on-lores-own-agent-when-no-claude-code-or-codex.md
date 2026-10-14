@@ -1,16 +1,16 @@
 ---
 id: AUT-006
 title: Run the schedule on Lore's own agent when there is no Claude Code or Codex
-priority: P2
+priority: P1
 effort: M
 component: automation-synthesis
-status: ideation
-related: [AUT-005, AUT-001, AUT-003]
+status: ready
+related: [AUT-005, AUT-001, AUT-003, AUT-008, APP-200]
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-10-13
-updated: 2026-10-13
+updated: 2026-10-14
 ---
 
 ## Problem
@@ -42,3 +42,7 @@ when neither command-line tool is installed.
 This is not small, so it was left out of AUT-005. It needs a timer inside the
 app, a way to catch up after Lore was closed, and a new executor in the
 profile schema and in onboarding.
+
+Oct 14: promoted to ready. It is the base for the evening check-in (AUT-008)
+and the Automations tab (APP-200), which both need the app to run routines
+itself.
