@@ -7,6 +7,7 @@ const { provision, skillsDir, whisper } = require("./runtime.cjs");
 const { transcribe } = require("./dictation.cjs");
 const sales = require("./sales.cjs");
 const { Updates } = require("./updates.cjs");
+const reading = require("./reading.cjs");
 const { lore, loreStream, openable, readState, readSales, readViews, searchMemories, readMemory, renameMemory, editMemory, captureMemories, previewPage, setPrice, setFreeCopies, candidates, decide, extrasCandidates, decideExtras, approveExtras, reportFeedback, listStore, cardStatus, connectCards, switchCards, listingStatus, sourceCatalog, sourceChoices, connectSource, signIn, readSource, removeSource, useRuntime } = require("./state.cjs");
 
 if (process.env.LORE_DESKTOP_USER_DATA) app.setPath("userData", process.env.LORE_DESKTOP_USER_DATA);
@@ -33,6 +34,8 @@ let window;
 const pending = new Map();
 /** The connect or sign-in in flight, if any; closing its sheet stops it. @type {AbortController | undefined} */
 let connecting;
+/** What Lore read from connected apps, kept until the owner clears it, with the dock's red number. */
+const newMemories = new reading.Ready(join(app.getPath("userData"), "memories-ready.json"), (count) => app.setBadgeCount(count));
 /** @param {AgentEvent} event */
 function emit(event) {
   window?.webContents.send("agent:event", event);
@@ -209,10 +212,21 @@ function registerIpc(loreHome) {
       if (connecting === current) connecting = undefined;
     }
   }
-  ipcMain.handle("sources:connect", (_event, input) => connect((signal) => connectSource(loreHome, input, signal)));
-  ipcMain.handle("sources:sign-in", (_event, app) => connect((signal) => signIn(loreHome, app, (url) => void shell.openExternal(url), signal)));
+  /** Whatever a connect or read brought in from an app, Lore reads through in the background. @template {{name: string, connector?: string | null, added?: number}} T @param {T} read */
+  function readThrough(read) {
+    if (read.added) void sourceCatalog(loreHome).then((apps) => {
+      const next = reading.worthReading(read, apps);
+      if (next) agent?.synthesize(next);
+    }, () => undefined);
+    return read;
+  }
+  ipcMain.handle("sources:connect", (_event, input) => connect((signal) => connectSource(loreHome, input, signal)).then(readThrough));
+  ipcMain.handle("sources:sign-in", (_event, app) => connect((signal) => signIn(loreHome, app, (url) => void shell.openExternal(url), signal)).then(readThrough));
   ipcMain.handle("sources:cancel", () => connecting?.abort());
-  ipcMain.handle("sources:read", (_event, name) => readSource(loreHome, name));
+  ipcMain.handle("sources:read", async (_event, name) => (await readSource(loreHome, name)).map(readThrough));
+  ipcMain.handle("ready:runs", () => newMemories.runs());
+  ipcMain.handle("ready:seen", () => newMemories.seen());
+  ipcMain.handle("ready:clear", () => newMemories.clear());
   ipcMain.handle("sources:remove", (_event, name, keep) => removeSource(loreHome, name, keep === true));
   // The Files and Folders pane, where the owner grants the read a folder needs.
   ipcMain.handle("settings:privacy", () => shell.openExternal("x-apple.systempreferences:com.apple.preference.security?Privacy_FilesAndFolders"));
@@ -264,6 +278,7 @@ app.whenReady().then(async () => {
   updates.start();
   await boot(loreHome);
   watchSales(loreHome);
+  void newMemories.show();
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
   });
@@ -399,6 +414,21 @@ async function start(loreHome) {
       return answer === "stuck" ? "The owner got stuck on that page; ask what happened." : "The owner chose not to open it right now.";
     },
     drafts: async () => (await candidates(loreHome)).length + (await extrasCandidates(loreHome)).length,
+    memoriesReady: async (read, report) => {
+      await lore(loreHome, ["sync", "--source", "automation"]);
+      const stored = JSON.parse(await lore(loreHome, ["search", "--source", "automation", "--limit", "0", "--json"]));
+      const run = reading.landed(read, report, stored, join(loreHome, "memories"));
+      emit({ type: "changed" });
+      if (!run.memories.length) return;
+      await newMemories.add(run);
+      emit({ type: "ready" });
+      sales.notify(reading.announcement(run), () => {
+        if (!window) createWindow();
+        window?.show();
+        window?.focus();
+        emit({ type: "show", view: "today" });
+      });
+    },
     job: {
       // This process is the one that owes the row a close, so it claims the row
       // with its own pid. The long ceiling only bounds pid reuse; it is not a

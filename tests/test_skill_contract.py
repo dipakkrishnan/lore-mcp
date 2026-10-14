@@ -37,6 +37,7 @@ EXTERNAL_SKILLS = {
     "lore-enable-payments",
     "lore-onboard",
     "lore-publish",
+    "lore-synthesize",
 }
 
 # A `lore <command> [subcommand]` invocation, anchored to the start of a shell line or
@@ -375,6 +376,23 @@ class SkillContractTest(unittest.TestCase):
             "never edit `lore.db`",
             "lore-publish",
             "capture never creates a publication itself",
+        ):
+            with self.subTest(boundary=boundary):
+                self.assertIn(boundary, skill)
+
+    def test_the_reading_skill_keeps_work_private_and_never_sells(self) -> None:
+        """AUT-005: it runs with nobody watching, so its boundaries are the only guard."""
+        skill = " ".join(
+            (OWNER_SKILLS / "lore-synthesize/SKILL.md").read_text().lower().split()
+        )
+        for boundary in (
+            "run `lore memory rules`",
+            "never ask the owner anything",
+            "when unsure, it is work",
+            "never suggest anything under `work/`",
+            "no company, people, client, or product names",
+            "`memories_ready`",
+            "never publish",
         ):
             with self.subTest(boundary=boundary):
                 self.assertIn(boundary, skill)

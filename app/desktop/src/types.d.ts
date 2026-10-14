@@ -108,6 +108,8 @@ type SourceEntry = {
   label: string;
   enabled: boolean;
   imported: number;
+  /** What this connect brought in that Lore did not have; absent from a CLI older than AUT-005. */
+  added?: number;
   kind?: SourceKind;
   locator?: string;
   owned?: boolean;
@@ -126,7 +128,19 @@ type SourceKind = "folder" | "export" | "feed" | "mcp";
 
 type SourceApp = { id: string; name: string; what: string; unit: string; item: string; kind: SourceKind; refresh: boolean; placeholder: string; guide?: string };
 
-type SourceRead = { name: string; added: number; updated: number; unchanged: number; errors: number; state: SourceState };
+type SourceRead = { name: string; label?: string; connector?: string | null; added: number; updated: number; unchanged: number; errors: number; state: SourceState };
+
+/** New items a connected app brought in, waiting to be read through: "23 new Granola meetings". */
+type Reading = { name: string; label: string; item: string; added: number };
+
+/** What a reading hands back: how many items it read, and each topic file it wrote. */
+type ReadingReport = { read: number; memories: Array<{ file: string; worth_selling: boolean; why: string }> };
+
+/** One memory a reading wrote, as Today lists it. Work is never offered for sale. */
+type ReadyMemory = { id: number; title: string; sell: boolean; work: boolean; why: string };
+
+/** One finished reading, kept on Today until the owner clears it; `seen` once they have looked. */
+type ReadyRun = { label: string; item: string; read: number; memories: ReadyMemory[]; at: string; seen: boolean };
 
 type SourceRemoval = { name: string; removed: boolean; memories: { kept: number; deleted?: number } };
 
@@ -152,6 +166,7 @@ type Memory = {
   content: string;
   project: string;
   source: string;
+  source_path: string;
   status: string;
   updated_at: string;
 };
@@ -197,7 +212,7 @@ type ExtrasCandidate = {
   piece: { title: string; teaser: string; kind: "claim" | "content"; topic: string; sample: string; useful_if: string; not_useful_if: string };
 };
 
-type AgentTask = "capture" | "setup" | "publish" | "deploy";
+type AgentTask = "capture" | "setup" | "publish" | "deploy" | "synthesize";
 type TaskState = "needs_you" | "working" | "stopped" | "done";
 
 type TaskRecord = {
@@ -271,6 +286,9 @@ interface Window {
     cancelConnect(): Promise<void>;
     readSource(name: string): Promise<SourceRead[]>;
     removeSource(name: string, keep: boolean): Promise<SourceRemoval>;
+    readyRuns(): Promise<ReadyRun[]>;
+    seenMemories(): Promise<void>;
+    clearMemories(): Promise<void>;
     openPrivacySettings(): Promise<void>;
     pathFor(file: File): string;
     onAgentEvent(listener: (event: AgentEvent) => void): () => void;
@@ -327,7 +345,8 @@ type AgentEvent =
   | { type: "auth"; message?: string; event?: import("@earendil-works/pi-ai").AuthEvent }
   | { type: "progress"; text?: string; done?: boolean; error?: string }
   | { type: "sold" }
-  | { type: "show"; view: "store" }
+  | { type: "show"; view: "store" | "today" }
+  | { type: "ready" }
   | { type: "update"; update: AppUpdate };
 
 type LoreAgentInstance = {
@@ -340,6 +359,7 @@ type LoreAgentInstance = {
   login(providerId: string, type: "oauth" | "api_key", secret?: string): Promise<AgentStatus>;
   logout(providerId: string): Promise<AgentStatus>;
   dispose(): void;
+  synthesize(reading: Reading): void;
 };
 
 type LoreAgentOptions = {
@@ -357,6 +377,8 @@ type LoreAgentOptions = {
   openUrl(page: { title: string; url: string; note: string }): Promise<string>;
   /** How many staged drafts still wait on the owner's cards. */
   drafts?(): Promise<number>;
+  /** A reading finished and handed back what it wrote; Lore saves it and tells the owner. */
+  memoriesReady?(reading: Reading, report: ReadingReport): Promise<void>;
   authPrompt(prompt: import("@earendil-works/pi-ai").AuthPrompt): Promise<string>;
   authEvent(event: import("@earendil-works/pi-ai").AuthEvent): void;
   // Durable owner-run history. Injected rather than imported so the agent stays

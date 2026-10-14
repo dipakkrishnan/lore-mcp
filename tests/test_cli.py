@@ -355,6 +355,8 @@ class SourcesCommandTest(LoreTestCase):
             [
                 {
                     "name": added["name"],
+                    "label": "Notes",
+                    "connector": None,
                     "added": 0,
                     "updated": 0,
                     "unchanged": 3,

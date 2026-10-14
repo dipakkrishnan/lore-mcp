@@ -50,6 +50,8 @@ let view = "today";
 let task = "capture";
 /** @type {TaskRecord[]} */
 let taskItems = [];
+/** What Lore read from connected apps, newest first, until the owner clears it. @type {ReadyRun[]} */
+let readyRuns = [];
 /** @type {AgentTask | null} */
 let detailTask = null;
 /** @type {TaskRecord | null} */
@@ -138,7 +140,7 @@ const REDEPLOY_PRICE = "I changed my publication price. Redeploy my store so buy
 const money = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 6 });
 const shortDate = new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric" });
 const longDate = new Intl.DateTimeFormat("en-US", { weekday: "long", month: "long", day: "numeric" });
-const TASK_TITLES = { capture: "Capture a memory", setup: "Set up your Lore", publish: "Publish from your Lore", deploy: "Open your store" };
+const TASK_TITLES = { capture: "Capture a memory", setup: "Set up your Lore", publish: "Publish from your Lore", deploy: "Open your store", synthesize: "Read what came in" };
 /** Stands in for the composer while a card in another thread holds the turn; its button opens that thread. @type {AgentTask | null} */
 let waitingTask = null;
 const waiting = el("div", "card pad lead composer-wait");
@@ -146,7 +148,7 @@ const waitingText = el("span");
 waiting.append(el("span", "dot"), waitingText, button("Open", "secondary", () => { if (waitingTask) void openTask(waitingTask); }));
 waiting.hidden = true;
 composer.insertAdjacentElement("afterend", waiting);
-const THINKING = { setup: "Thinking…", publish: "Drafting…", capture: "Reading this…", deploy: "Setting up your store…" };
+const THINKING = { setup: "Thinking…", publish: "Drafting…", capture: "Reading this…", deploy: "Setting up your store…", synthesize: "Reading…" };
 const TASK_STATES = { needs_you: "Needs you", working: "Working", stopped: "Waiting for you", done: "Done" };
 
 /**
@@ -230,8 +232,8 @@ async function publishMemory(memory, from) {
   await send(`Help me publish something from my Lore, starting from "${memory.title}".`, from, memory.id);
 }
 
-/** @param {number | string} id @param {string} title @param {string} detail */
-function memoryRow(id, title, detail) {
+/** @param {number | string} id @param {string} title @param {string} detail @param {boolean} [sell] Whether it offers Draft for sale. */
+function memoryRow(id, title, detail, sell = true) {
   const node = el("div", "row");
   const open = el("button", "task-link");
   open.type = "button";
@@ -240,7 +242,7 @@ function memoryRow(id, title, detail) {
   open.append(text);
   open.addEventListener("click", () => openMemory(Number(id)));
   peekable(open, Number(id));
-  node.append(open, button("Draft for sale", "quiet", () => void publishMemory({ id: Number(id), title })));
+  node.append(open, ...(sell ? [button("Draft for sale", "quiet", () => void publishMemory({ id: Number(id), title }))] : []));
   return node;
 }
 
@@ -644,9 +646,34 @@ function needsYou(s) {
   return rows;
 }
 
-/** Unfinished threads, without the store's once the store is open: nothing is left to finish there. */
+/** Unfinished threads, without the store's once the store is open: nothing is left to finish there. A reading is no thread. */
 function displayTasks() {
-  return taskItems.filter((item) => !(item.kind === "deploy" && snapshot?.node.url)).slice(0, 3);
+  return taskItems.filter((item) => item.kind !== "synthesize" && !(item.kind === "deploy" && snapshot?.node.url)).slice(0, 3);
+}
+
+/** A reading under way, as one quiet row. @param {TaskRecord} item */
+function readingRow(item) {
+  return card([row(`${item.phase}…`, "Lore will tell you when your memories are ready.", chip("Working", "ok"), false)]);
+}
+
+/** What Lore made of a connected app's newest items: each new memory, and a draft one press away for the ones worth selling. @param {ReadyRun[]} runs */
+function memoriesReady(runs) {
+  const memories = runs.flatMap((run) => run.memories);
+  const selling = memories.filter((memory) => memory.sell).length;
+  const [latest] = runs;
+  const heading = runs.every((run) => run.label === latest.label) ? `Lore read your ${latest.label} ${many(latest.item)}` : "Lore read what you brought in";
+  const detail = [`${plural(memories.length, "new memory")}, only on this Mac`, selling ? `${selling} ${selling === 1 ? "looks" : "look"} worth selling` : ""].filter(Boolean).join(" · ");
+  const clear = button("Clear", "quiet", () => void window.lore.clearMemories().then(() => { readyRuns = []; render(); }));
+  const rows = memories.map((memory) => memoryRow(memory.id, memory.title, memory.sell ? `Worth selling · ${memory.why}` : memory.work ? "Work · stays private" : "Private", memory.sell));
+  noticeReady();
+  return section("New memories", card([row(heading, detail, cell(clear), false), ...rows]));
+}
+
+/** The owner is looking at the new memories, so the dock stops counting them. */
+function noticeReady() {
+  if (view !== "today" || detailTask || !document.hasFocus() || readyRuns.every((run) => run.seen)) return;
+  readyRuns = readyRuns.map((run) => ({ ...run, seen: true }));
+  void window.lore.seenMemories();
 }
 
 function draftsPhase() {
@@ -671,6 +698,9 @@ function renderToday(s) {
     if ((detailTask === "setup" || detailTask === "deploy") && detailRecord?.state === "done") parts.push(nextRung(s));
     return parts;
   }
+  const reading = taskItems.find((item) => item.kind === "synthesize" && item.state === "working");
+  if (reading) parts.push(readingRow(reading));
+  if (readyRuns.length) parts.push(memoriesReady(readyRuns));
   const attention = needsYou(s);
   if (attention.length) parts.push(section("Needs you", card(attention)));
   if (Array.isArray(sales) && sales.length) parts.push(earned(sales));
@@ -1195,6 +1225,9 @@ const CONNECTION_STATES = {
   off: { ok: false, label: "Off", line: () => "Not reading." }
 };
 
+/** Said once an app brings something new in: Lore reads it through in the background. */
+const READING = "Lore is turning them into memories now.";
+
 /** An app Lore signs in to fails one way as far as the owner can act on it: sign in again. */
 const SIGNED_OUT = { ok: false, label: "Signed out", line: (/** @type {SourceApp} */ app) => `${app.name} didn't answer. Sign in again.` };
 
@@ -1305,7 +1338,7 @@ async function connectIn(dialog, problem, app, work) {
     const added = await work();
     dialog.removeEventListener("close", stop);
     dialog.close();
-    tell(`${app.name} is connected. ${stateOf(app, added).line(app, added)}`, false, added.imported ? sellAction(added) : undefined);
+    tell(`${app.name} is connected. ${stateOf(app, added).line(app, added)}${added.added ? ` ${READING}` : ""}`, false, added.imported ? sellAction(added) : undefined);
     return true;
   } catch (error) {
     if (dialog.isConnected) problem.textContent = reason(error, `${app.name} didn't answer. Try again.`);
@@ -1413,7 +1446,7 @@ function openConnection(app, source) {
           : [button("Read again", "secondary", () => void act(async () => {
             const [read] = await window.lore.readSource(source.name);
             dialog.close();
-            tell(read?.added ? `${plural(read.added, `new ${app.item}`)}.` : "Nothing new.");
+            tell(read?.added ? `${plural(read.added, `new ${app.item}`)}. ${READING}` : "Nothing new.");
           }))]),
     app.kind === "mcp"
       ? button("Sign in again", signedOut ? "secondary" : "quiet", () => openSignIn(app))
@@ -1649,7 +1682,7 @@ function openPriceEditor() {
 async function load() {
   if (!snapshot) content.replaceChildren(el("p", "hint", "Loading…"));
   try {
-    [snapshot, candidates, extraDrafts, taskItems, apps] = await Promise.all([window.lore.snapshot(), window.lore.candidates().catch(() => []), window.lore.extras().catch(() => []), window.lore.tasks().catch(() => []), apps.length ? apps : window.lore.sourceCatalog().catch(() => [])]);
+    [snapshot, candidates, extraDrafts, taskItems, apps, readyRuns] = await Promise.all([window.lore.snapshot(), window.lore.candidates().catch(() => []), window.lore.extras().catch(() => []), window.lore.tasks().catch(() => []), apps.length ? apps : window.lore.sourceCatalog().catch(() => []), window.lore.readyRuns().catch(() => readyRuns)]);
     if (detailTask) detailRecord = taskItems.find((item) => item.kind === detailTask) ?? detailRecord;
     peeked.clear();
     render();
@@ -2748,7 +2781,11 @@ function onEvent(event) {
   }
   else if (event.type === "changed") void load();
   else if (event.type === "sold") void loadSales();
-  else if (event.type === "show") show(event.view);
+  else if (event.type === "ready") void load();
+  else if (event.type === "show") {
+    if (event.view === "today" && detailTask) closeTask();
+    show(event.view);
+  }
   else if (event.type === "update") showUpdate(event.update);
   else if (event.type === "message") { if (event.task === task) say(event.text); }
   else if (event.type === "saved") { if (event.task === task) { lines.push({ text: "", owner: false, saved: event.memories }); renderLog(); } }
@@ -2763,6 +2800,7 @@ function onEvent(event) {
     });
   }
   else if (event.type === "task") {
+    if (event.task.kind === "synthesize" && event.task.state !== "working") drop((item) => item.text.endsWith(READING));
     if (detailTask === event.task.kind) detailRecord = event.task;
     taskItems = event.task.state === "done"
       ? taskItems.filter((item) => item.kind !== event.task.kind)
