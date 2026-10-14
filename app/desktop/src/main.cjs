@@ -2,10 +2,11 @@ const { randomUUID } = require("node:crypto");
 const { existsSync } = require("node:fs");
 const { appendFile } = require("node:fs/promises");
 const { join } = require("node:path");
-const { app, BrowserWindow, dialog, ipcMain, safeStorage, shell, systemPreferences } = require("electron");
+const { app, autoUpdater, BrowserWindow, dialog, ipcMain, safeStorage, shell, systemPreferences } = require("electron");
 const { provision, skillsDir, whisper } = require("./runtime.cjs");
 const { transcribe } = require("./dictation.cjs");
 const sales = require("./sales.cjs");
+const { Updates } = require("./updates.cjs");
 const { lore, loreStream, openable, readState, readSales, readViews, searchMemories, readMemory, renameMemory, editMemory, captureMemories, previewPage, setPrice, setFreeCopies, candidates, decide, extrasCandidates, decideExtras, approveExtras, reportFeedback, listStore, cardStatus, connectCards, switchCards, listingStatus, sourceCatalog, sourceChoices, connectSource, signIn, readSource, removeSource, useRuntime } = require("./state.cjs");
 
 if (process.env.LORE_DESKTOP_USER_DATA) app.setPath("userData", process.env.LORE_DESKTOP_USER_DATA);
@@ -36,6 +37,7 @@ let connecting;
 function emit(event) {
   window?.webContents.send("agent:event", event);
 }
+const updates = new Updates({ app, autoUpdater, dialog, shell }, (update) => emit({ type: "update", update }));
 
 /** @param {AgentRequest["type"]} type @param {Record<string, unknown>} payload @param {AbortSignal} [signal] */
 function request(type, payload, signal) {
@@ -56,6 +58,9 @@ function request(type, payload, signal) {
 function registerIpc(loreHome) {
   ipcMain.handle("snapshot:read", () => readState(loreHome));
   ipcMain.handle("dictation:permission", () => systemPreferences.askForMediaAccess("microphone"));
+  ipcMain.handle("update:status", () => updates.update);
+  ipcMain.handle("update:check", () => updates.check());
+  ipcMain.handle("update:install", () => updates.install());
   ipcMain.handle("dictation:transcribe", (_event, /** @type {ArrayBuffer} */ wav) => transcribe({ ...whisper, dir: app.getPath("temp") }, Buffer.from(wav)));
   ipcMain.handle("setup:retry", () => (agent ? undefined : boot(loreHome)));
   ipcMain.handle("agent:status", () => agent?.status() ?? { credentials: [] });
@@ -256,6 +261,7 @@ app.whenReady().then(async () => {
   registerIpc(loreHome);
   createWindow();
   await new Promise((loaded) => window?.webContents.once("did-finish-load", () => loaded(undefined)));
+  updates.start();
   await boot(loreHome);
   watchSales(loreHome);
   app.on("activate", () => {

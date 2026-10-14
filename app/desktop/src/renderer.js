@@ -16,6 +16,7 @@ const taskBack = /** @type {HTMLButtonElement} */ ($("#task-back"));
 const taskRestart = /** @type {HTMLButtonElement} */ ($("#task-restart"));
 const addMemoryBtn = /** @type {HTMLButtonElement} */ ($("#add-memory"));
 const feedbackBtn = /** @type {HTMLButtonElement} */ ($("#feedback-open"));
+const updateBtn = /** @type {HTMLButtonElement} */ ($("#update"));
 const captureArea = $("#capture");
 const composer = /** @type {HTMLFormElement} */ ($("#composer"));
 const input = /** @type {HTMLTextAreaElement} */ ($("#capture-input"));
@@ -86,6 +87,8 @@ let sales = null;
 /** Page views per piece, by public id; empty until read. @type {Record<string, number>} */
 let views = {};
 let salesAsked = false;
+/** This copy's version and whether a newer one is on its way, from the main process. @type {AppUpdate | null} */
+let appUpdate = null;
 /** The task whose turn is open, while one is. @type {AgentTask | null} */
 let busy = null;
 /** The card awaiting the owner. A memory card also carries `current`, its entries as edited, so the composer can send a spoken or typed correction with them; `pinned` cards stay in view as the thread re-renders. @type {{id: string, task: AgentTask | null, box: HTMLElement, pinned: boolean, current?: () => ProposedMemory[]} | null} */
@@ -1516,8 +1519,32 @@ function renderSettings(s) {
         ? [row("Test payments", "Your store takes play money while it's on the test network. Switch when you want real buyers paying real money.", cell(pill("Test"), button("Switch to real payments", "secondary", () => void startDeploy(REAL_MONEY))), false)]
         : []),
       ...marketplaceRow(s)
-    ]))
+    ])),
+    ...(appUpdate ? [section("Updates", card([updateRow(appUpdate)]))] : [])
   ];
+}
+
+/** Settings → Updates: the version on this Mac, and the one thing to do about a newer one. @param {AppUpdate} u */
+function updateRow(u) {
+  const check = () => void window.lore.checkUpdate();
+  const install = () => void window.lore.installUpdate();
+  const [detail, ...trailing] = {
+    current: ["Lore keeps itself up to date.", pill("Up to date", "ok"), button("Check for updates", "quiet", check)],
+    checking: ["Lore keeps itself up to date.", pill("Checking", "wait")],
+    downloading: ["A new version is downloading. Lore asks before it restarts.", pill("Downloading", "wait")],
+    ready: ["A new version is ready.", button("Restart to update", "primary", install)],
+    offline: ["Lore couldn't check for a new version just now. It will try again later.", button("Check again", "secondary", check)],
+    outside: ["Move Lore to Applications so it can update itself.", button("Move to Applications", "secondary", install)]
+  }[u.state];
+  return row(`Lore ${u.version}`, detail, cell(...trailing), false);
+}
+
+/** The button at the top of the window, shown only when there is a newer Lore to move to. @param {AppUpdate} next */
+function showUpdate(next) {
+  appUpdate = next;
+  updateBtn.hidden = !(next.state === "ready" || (next.state === "outside" && next.newer));
+  updateBtn.title = next.state === "ready" ? "Lore restarts with the new version" : "Move Lore to Applications to update";
+  if (view === "settings") render();
 }
 
 const renderers = { today: renderToday, memories: renderMemories, store: renderStore, connectors: renderConnectors, faq: renderFaq, settings: renderSettings };
@@ -2722,6 +2749,7 @@ function onEvent(event) {
   else if (event.type === "changed") void load();
   else if (event.type === "sold") void loadSales();
   else if (event.type === "show") show(event.view);
+  else if (event.type === "update") showUpdate(event.update);
   else if (event.type === "message") { if (event.task === task) say(event.text); }
   else if (event.type === "saved") { if (event.task === task) { lines.push({ text: "", owner: false, saved: event.memories }); renderLog(); } }
   else if (event.type === "stopped") { say(event.text, false, true); input.focus({ preventScroll: true }); }
@@ -2768,6 +2796,8 @@ function onEvent(event) {
 }
 
 window.lore.onAgentEvent(onEvent);
+void window.lore.update().then(showUpdate);
+updateBtn.addEventListener("click", () => void window.lore.installUpdate());
 
 composer.addEventListener("submit", async (event) => {
   event.preventDefault();

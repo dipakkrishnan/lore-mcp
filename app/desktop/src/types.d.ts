@@ -82,6 +82,9 @@ type JobItem = {
 /** The newest sale already announced, kept across launches; empty fields mean the ledger was read empty. */
 type SeenSale = { sold_at: string; key: string };
 
+/** Where this copy of Lore stands against the latest release. `outside`: not in Applications, so it can't replace itself. */
+type AppUpdate = { version: string; state: "current" | "checking" | "downloading" | "ready" | "offline" | "outside"; newer?: boolean };
+
 type Sale = {
   kind: "publication" | "answer";
   item_id: string;
@@ -273,6 +276,9 @@ interface Window {
     onAgentEvent(listener: (event: AgentEvent) => void): () => void;
     microphone(): Promise<boolean>;
     transcribe(wav: ArrayBuffer): Promise<string>;
+    update(): Promise<AppUpdate>;
+    checkUpdate(): Promise<void>;
+    installUpdate(): Promise<void>;
   };
 }
 
@@ -321,7 +327,8 @@ type AgentEvent =
   | { type: "auth"; message?: string; event?: import("@earendil-works/pi-ai").AuthEvent }
   | { type: "progress"; text?: string; done?: boolean; error?: string }
   | { type: "sold" }
-  | { type: "show"; view: "store" };
+  | { type: "show"; view: "store" }
+  | { type: "update"; update: AppUpdate };
 
 type LoreAgentInstance = {
   readonly activeTask: AgentTask | null;

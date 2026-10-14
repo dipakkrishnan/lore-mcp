@@ -28,6 +28,47 @@ test("announces only sales after the last one seen, one by one or as one lot", (
   assert.deepEqual(announcements([...many.slice(0, 3), free]), [{ title: "You sold 3 pieces", body: "$9.00 · 1 free copy read" }]);
 });
 
+test("an update downloads quietly, shows only when ready, and a copy outside Applications asks to move or links the download", async () => {
+  const { EventEmitter } = require("node:events");
+  const { Updates, DOWNLOAD } = require("../src/updates.cjs");
+  /** @param {{inApplications: boolean, answer: number, status?: number}} mac */
+  const updater = ({ inApplications, answer, status }) => {
+    const calls = /** @type {string[]} */ ([]);
+    const autoUpdater = Object.assign(new EventEmitter(), { checkForUpdates: () => calls.push("check"), quitAndInstall: () => calls.push("install") });
+    const app = { getVersion: () => "0.1.12", isPackaged: true, isInApplicationsFolder: () => inApplications, moveToApplicationsFolder: () => (calls.push("move"), true) };
+    const dialog = { showMessageBox: async (/** @type {{buttons: string[]}} */ box) => (calls.push(box.buttons[1]), { response: answer }) };
+    const shell = { openExternal: async (/** @type {string} */ url) => void calls.push(url) };
+    const seen = /** @type {unknown[]} */ ([]);
+    /** @param {string} url */
+    const get = async (url) => (calls.push(url), status === undefined ? Promise.reject(new Error("offline")) : { status });
+    return { updates: new Updates({ app, autoUpdater, dialog, shell }, (update) => seen.push(update.state), get), autoUpdater, calls, seen };
+  };
+
+  const inside = updater({ inApplications: true, answer: 0 });
+  for (const step of ["checking-for-update", "update-not-available", "checking-for-update", "error"]) inside.autoUpdater.emit(step);
+  assert.deepEqual(inside.seen, ["checking", "current", "checking", "offline"], "offline only says so; nothing to click");
+  for (const step of ["update-available", "update-downloaded", "error"]) inside.autoUpdater.emit(step);
+  assert.equal(inside.updates.update.state, "ready", "a ready update stays ready through a later failed check");
+  assert.equal(inside.updates.update.version, "0.1.12");
+  await inside.updates.install();
+  assert.deepEqual(inside.calls, ["install"]);
+
+  const kept = updater({ inApplications: false, answer: 1, status: 200 });
+  kept.updates.start();
+  await new Promise((done) => setImmediate(done));
+  assert.deepEqual(kept.updates.update, { version: "0.1.12", state: "outside", newer: true });
+  assert.ok(kept.calls.includes(`https://update.electronjs.org/dipakkrishnan/lore-mcp/${process.platform}-${process.arch}/0.1.12`));
+  kept.calls.length = 0;
+  await kept.updates.install();
+  assert.deepEqual(kept.calls, ["Download it instead", DOWNLOAD], "declining the move opens the latest download");
+
+  const moved = updater({ inApplications: false, answer: 0 });
+  moved.updates.start();
+  await new Promise((done) => setImmediate(done));
+  assert.deepEqual(moved.calls.filter((call) => !call.startsWith("https://")), ["Not now", "move"]);
+  assert.equal(moved.updates.update.newer, false, "unable to check reads as nothing newer");
+});
+
 test("reads only the fixed APP-001 snapshot", async () => {
   const directory = await mkdtemp(join(tmpdir(), "lore-desktop-"));
   try {
