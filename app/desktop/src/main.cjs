@@ -9,6 +9,8 @@ const sales = require("./sales.cjs");
 const { lore, loreStream, openable, readState, readSales, readViews, searchMemories, readMemory, renameMemory, editMemory, captureMemories, previewPage, setPrice, setFreeCopies, candidates, decide, extrasCandidates, decideExtras, approveExtras, reportFeedback, listStore, cardStatus, connectCards, switchCards, listingStatus, sourceCatalog, sourceChoices, connectSource, signIn, readSource, removeSource, useRuntime } = require("./state.cjs");
 
 if (process.env.LORE_DESKTOP_USER_DATA) app.setPath("userData", process.env.LORE_DESKTOP_USER_DATA);
+// Two copies sharing one credentials file each refresh the sign-in, and the provider refuses the second.
+if (!app.requestSingleInstanceLock()) app.exit();
 
 // Every `lore` this app runs reports usage under the app's version, not the CLI's.
 process.env.LORE_APP_VERSION = app.getVersion();
@@ -421,6 +423,13 @@ app.on("before-quit", () => {
   agent?.dispose();
   for (const waiter of pending.values()) waiter.reject(new Error("Lore closed"));
   pending.clear();
+});
+
+app.on("second-instance", () => {
+  if (!window) createWindow();
+  if (window?.isMinimized()) window.restore();
+  window?.show();
+  window?.focus();
 });
 
 app.on("window-all-closed", () => {

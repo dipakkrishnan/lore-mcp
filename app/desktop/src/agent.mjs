@@ -42,6 +42,9 @@ const OWNER_DIRS = {
   deploy: [".wrangler", "Library/Preferences/.wrangler", "Library/Caches/.wrangler", ".npm"]
 };
 const CAPPED = "That reply took more steps than Lore allows at once, so it paused. Say continue to keep going.";
+const NO_ANSWER = "Lore's model did not answer. Try again.";
+/** @type {Record<string, string>} */
+const SIGN_INS = { anthropic: "Claude", "openai-codex": "ChatGPT" };
 /** Owner turns carry what the app knows and the owner never typed; thread history cuts each turn off here. */
 const ASIDE = "\n\n(For you only, not said by the owner: ";
 /** OpenAI tags each text block as a preview ("commentary") or the reply ("final_answer"); other providers leave it out. @param {import("@earendil-works/pi-ai").TextContent} block */
@@ -69,6 +72,8 @@ export function draftsAside(waiting) {
   return `${ASIDE}${state}.)`;
 }
 const KEY_REJECTED = /\b401\b|authentication_error|invalid[_ -](?:x-)?api[_ -]?key|incorrect api key/i;
+/** pi-ai hands back only the message; a refused refresh (not a dropped connection) means the sign-in is gone. Group 1 is the provider. */
+const SIGN_IN_EXPIRED = /^OAuth refresh failed for ([\w-]+):[^]*\b(?:invalid_grant|refresh_token_(?:expired|reused|invalidated))\b/;
 /** Attended tools whose result is a plain-English sentence, not JSON — history() must not run these through toolResultJson. */
 const PLAIN_TEXT_TOOLS = new Set(["cloudflare_login", "open_url"]);
 
@@ -312,6 +317,8 @@ export class LoreAgent {
   #completed = false;
   #turns = 0;
   #capped = false;
+  /** The provider that refused this turn's sign-in, if one did. @type {string | null} */
+  #expired = null;
   /** What this turn spent, summed across assistant messages, for owner history. */
   #costUsd = 0;
   /** @type {AgentTask | null} */
@@ -470,8 +477,13 @@ export class LoreAgent {
       },
       notify: (event) => this.options.authEvent(event)
     };
-    await this.models.login(providerId, type, interaction);
+    await this.models.login(providerId, type, interaction).catch((/** @type {Error} */ error) => {
+      console.error(error);
+      throw new Error("Sign-in didn't complete. Try again.");
+    });
     if (type === "api_key") await this.#proveKey(providerId);
+    // A thread left on a model that just lost its sign-in picks up whichever one the owner signed in with.
+    this.dispose();
     return this.status();
   }
 
@@ -482,7 +494,10 @@ export class LoreAgent {
       ? await this.models.completeSimple(model, { messages: [{ role: "user", content: "ok", timestamp: Date.now() }] }, { maxTokens: 1 }).catch((/** @type {Error} */ error) => ({ stopReason: "error", errorMessage: error.message }))
       : { stopReason: "error", errorMessage: "" };
     if (reply.stopReason !== "error") return;
-    if (!KEY_REJECTED.test(reply.errorMessage ?? "")) throw new Error(reply.errorMessage || "Lore could not check that key right now. Try again.");
+    if (!KEY_REJECTED.test(reply.errorMessage ?? "")) {
+      console.error(reply.errorMessage);
+      throw new Error("Lore could not check that key right now. Try again.");
+    }
     await this.options.credentials.delete(providerId);
     throw new Error("That key was not accepted. Check it and try again.");
   }
@@ -508,6 +523,7 @@ export class LoreAgent {
     this.#completed = false;
     this.#turns = 0;
     this.#capped = false;
+    this.#expired = null;
     this.#costUsd = 0;
     this.options.emit({ type: "working", active: true, task });
     // Durable history for the one task that produces memories. The row carries
@@ -533,6 +549,7 @@ export class LoreAgent {
       if (source !== undefined) body += sourceAside(source);
       if (task === "publish" && this.options.drafts) body += draftsAside(await this.options.drafts());
       await session.prompt(resumed ? body : `/skill:${SKILLS[task]}\n\n${body}`);
+      if (this.#expired) await this.#signInAgain(session, task, this.#expired);
       const closing = closingRecord(latestTaskRecord(session.sessionManager, task)?.state, task, this.#completed);
       if (closing) this.#record(session, task, closing[0], closing[1]);
       outcome = jobOutcome(this.#completed);
@@ -636,7 +653,9 @@ export class LoreAgent {
       // what it spent getting there.
       this.#costUsd += event.message.usage?.cost?.total ?? 0;
       if (event.message.stopReason === "error" || event.message.stopReason === "aborted") {
-        this.options.emit({ type: "message", task, text: this.#capped ? CAPPED : event.message.errorMessage || "Lore's model did not answer." });
+        if (event.message.errorMessage) console.error(event.message.errorMessage);
+        this.#expired = event.message.errorMessage?.match(SIGN_IN_EXPIRED)?.[1] ?? null;
+        if (!this.#expired) this.options.emit({ type: "message", task, text: this.#capped ? CAPPED : NO_ANSWER });
         return;
       }
       if (++this.#turns >= MAX_TURNS && !this.#capped) {
@@ -648,6 +667,13 @@ export class LoreAgent {
     });
     this.#sessions.set(task, session);
     return [session, resumed];
+  }
+
+  /** The provider refused the stored sign-in, so it is dropped and the owner signs in again; replying afterwards picks the thread back up. @param {import("@earendil-works/pi-coding-agent").AgentSession} session @param {AgentTask} task @param {string} providerId */
+  async #signInAgain(session, task, providerId) {
+    await this.options.credentials.delete(providerId);
+    this.#record(session, task, "needs_you", "Reply to keep going");
+    this.options.emit({ type: "signed-out", text: `Your ${SIGN_INS[providerId] ?? "AI"} sign-in expired. Sign in again to keep going.` });
   }
 
   /** Hold the running task at needs_you while the owner acts, then hand it back to the agent. @template T @param {string | undefined} phase @param {() => Promise<T>} act @param {string} [after] */

@@ -2725,6 +2725,14 @@ function onEvent(event) {
   else if (event.type === "message") { if (event.task === task) say(event.text); }
   else if (event.type === "saved") { if (event.task === task) { lines.push({ text: "", owner: false, saved: event.memories }); renderLog(); } }
   else if (event.type === "stopped") { say(event.text, false, true); input.focus({ preventScroll: true }); }
+  else if (event.type === "signed-out") {
+    void window.lore.agentStatus().then((result) => {
+      auth = result;
+      enter();
+      if (welcome.hidden) tell(event.text, true);
+      else welcomeNote.textContent = event.text;
+    });
+  }
   else if (event.type === "task") {
     if (detailTask === event.task.kind) detailRecord = event.task;
     taskItems = event.task.state === "done"

@@ -316,6 +316,7 @@ type AgentEvent =
   | { type: "message"; task: AgentTask | null; text: string }
   | { type: "saved"; task: AgentTask | null; memories: SavedMemory[] }
   | { type: "stopped"; text: string }
+  | { type: "signed-out"; text: string }
   | { type: "task"; task: TaskRecord }
   | { type: "auth"; message?: string; event?: import("@earendil-works/pi-ai").AuthEvent }
   | { type: "progress"; text?: string; done?: boolean; error?: string }
