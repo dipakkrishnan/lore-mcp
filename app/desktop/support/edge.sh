@@ -1,6 +1,6 @@
 #!/bin/bash
 # Seed a scratch Lore home with two memories and two drafts, then drive the renderer as one persona.
-# Scenarios: seller | provision | store | jobs | fresh | feedback | listing | obsidian | connectors | faq | sell | cards | sales | extras | settings
+# Scenarios: seller | provision | store | jobs | fresh | feedback | listing | obsidian | connectors | reading | faq | sell | cards | sales | extras | settings
 set -euo pipefail
 scenario="${1:-seller}"
 desktop_dir="$(cd "$(dirname "$0")/.." && pwd)"
@@ -12,7 +12,7 @@ export LORE_HOME="$root/home" LORE_DESKTOP_USER_DATA="$root/user-data" LORE_SKIP
 export LORE_USAGE_URL="http://127.0.0.1:9/events"
 # A fresh home stays empty: that persona checks what an owner sees before anything is kept. So
 # does the connectors one: a seller with no agents, whose first memories come from their apps.
-[[ "$scenario" == "fresh" || "$scenario" == "connectors" ]] || (
+[[ "$scenario" == "fresh" || "$scenario" == "connectors" || "$scenario" == "reading" ]] || (
   cd "$repo_root"
   echo '[{"title":"Hire management before rapid growth","content":"Add the management layer before the next ten engineers join, not after.","project":"team scaling"},{"title":"Price the first tier low","content":"A low first price gets the first ten buyers; raise it once there are receipts.","project":"pricing"}]' | uv run lore capture apply - >/dev/null
   echo '[{"title":"Hire management before rapid growth","teaser":"When to add managers in a fast-growing team.","content":"Add the management layer before the next ten engineers join, not after.","kind":"claim","topic":"team scaling","provenance":[1]},{"title":"Price the first tier low","teaser":"How to set a first price.","content":"A low first price gets the first ten buyers; raise it once there are receipts.","kind":"claim","topic":"pricing","provenance":[2]}]' | uv run lore publication draft - >/dev/null
@@ -122,7 +122,7 @@ if [[ "$scenario" == "obsidian" ]]; then
   printf '{"vaults":{"e1":{"path":"%s","ts":1,"open":true}}}' "$root/Edge Vault" > "$root/obsidian/obsidian.json"
   export OBSIDIAN_HOME="$root/obsidian"
 fi
-if [[ "$scenario" == "connectors" ]]; then
+if [[ "$scenario" == "connectors" || "$scenario" == "reading" ]]; then
   # One app of each shape the catalog knows: a vault to choose (and a stale one to fail on), a
   # newsletter to address, an export to import.
   mkdir -p "$root/obsidian" "$root/Edge Vault"

@@ -18,14 +18,20 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import { Type } from "@earendil-works/pi-ai";
 import { SandboxManager } from "@anthropic-ai/sandbox-runtime";
+import { many, plural } from "./reading.cjs";
 
-const SKILLS = { capture: "lore-capture", setup: "lore-onboard", publish: "lore-publish", deploy: "lore-enable-payments" };
+const SKILLS = { capture: "lore-capture", setup: "lore-onboard", publish: "lore-publish", deploy: "lore-enable-payments", synthesize: "lore-synthesize" };
 const TASKS = {
   capture: { title: "Capture a memory", phase: "Review the capture" },
   setup: { title: "Set up your Lore", phase: "Shape your Lore" },
   publish: { title: "Publish from your Lore", phase: "Draft publications" },
-  deploy: { title: "Open your store", phase: "Price, sign-in, payout" }
+  deploy: { title: "Open your store", phase: "Price, sign-in, payout" },
+  synthesize: { title: "Read what came in", phase: "Reading" }
 };
+/** Tasks that run between the owner's turns, never as a thread: each starts cold, asks nothing, and gives way to the owner. @type {ReadonlySet<AgentTask>} */
+const QUIET = new Set(["synthesize"]);
+const OWNER_TOOLS = ["read", "write", "edit", "bash", "ask_user", "propose_memories", "propose_blueprint", "propose_price", "cloudflare_login", "open_url", "finish_task"];
+const QUIET_TOOLS = ["read", "write", "edit", "bash", "memories_ready"];
 const TASK_STATES = new Set(["needs_you", "working", "stopped", "done"]);
 const PERSONAS = ["storyteller", "schoolteacher", "professor", "executive", "sage"];
 const AXES = ["chronological", "theme", "project", "knowledge"];
@@ -42,6 +48,9 @@ const OWNER_DIRS = {
   deploy: [".wrangler", "Library/Preferences/.wrangler", "Library/Caches/.wrangler", ".npm"]
 };
 const CAPPED = "That reply took more steps than Lore allows at once, so it paused. Say continue to keep going.";
+const NO_ANSWER = "Lore's model did not answer. Try again.";
+/** @type {Record<string, string>} */
+const SIGN_INS = { anthropic: "Claude", "openai-codex": "ChatGPT" };
 /** Owner turns carry what the app knows and the owner never typed; thread history cuts each turn off here. */
 const ASIDE = "\n\n(For you only, not said by the owner: ";
 /** OpenAI tags each text block as a preview ("commentary") or the reply ("final_answer"); other providers leave it out. @param {import("@earendil-works/pi-ai").TextContent} block */
@@ -63,12 +72,18 @@ const spoken = (content) => {
 const memoryAside = (id) => `${ASIDE}start from the memory with id ${id}. Call it by its title, never by its number.)`;
 /** A connected app to start from, by the source name its memories carry. @param {string} name */
 const sourceAside = (name) => `${ASIDE}start from the memories whose source is ${JSON.stringify(name)}.)`;
+/** What a quiet reading is told: what came in and from where, and where the library lives. @param {Reading} reading @param {string} loreHome */
+export function readingPrompt(reading, loreHome) {
+  return `Lore just brought in ${plural(reading.added, `new ${reading.label} ${reading.item}`)}. Turn what earns a place into memories.${ASIDE}their source is ${JSON.stringify(reading.name)}, so read the newest ${reading.added}; the memories folder is ${JSON.stringify(resolve(loreHome, "memories"))}.)`;
+}
 /** Drafts are approved or skipped on cards the agent never sees, so every publish turn says where they stand. @param {number} waiting */
 export function draftsAside(waiting) {
   const state = waiting === 0 ? "no drafts are waiting on the owner; anything you staged before was approved or skipped on its card" : `${waiting} draft${waiting === 1 ? " is" : "s are"} still waiting on the owner's card`;
   return `${ASIDE}${state}.)`;
 }
 const KEY_REJECTED = /\b401\b|authentication_error|invalid[_ -](?:x-)?api[_ -]?key|incorrect api key/i;
+/** pi-ai hands back only the message; a refused refresh (not a dropped connection) means the sign-in is gone. Group 1 is the provider. */
+const SIGN_IN_EXPIRED = /^OAuth refresh failed for ([\w-]+):[^]*\b(?:invalid_grant|refresh_token_(?:expired|reused|invalidated))\b/;
 /** Attended tools whose result is a plain-English sentence, not JSON — history() must not run these through toolResultJson. */
 const PLAIN_TEXT_TOOLS = new Set(["cloudflare_login", "open_url"]);
 
@@ -283,7 +298,7 @@ function appendTaskRecord(manager, kind, state, phase = TASKS[kind].phase) {
 /** @param {TaskState | undefined} state @param {AgentTask} task @param {boolean} completed @returns {[TaskState, string] | null} */
 export function closingRecord(state, task, completed) {
   if (state !== "working") return null;
-  return completed || task === "publish" ? ["done", "Finished"] : ["stopped", "Reply to keep going"];
+  return completed || task === "publish" || QUIET.has(task) ? ["done", "Finished"] : ["stopped", "Reply to keep going"];
 }
 
 /** What a turn's owner-history job row should say when it ends. A turn that neither threw nor was confirmed complete did not "succeed" — the outcome is unknown, same as a row conceded by reap_jobs — so it must never report the status Recent runs renders as "Done" alongside a summary that says it stopped before finishing. @param {boolean} completed @returns {[string, string]} */
@@ -312,10 +327,21 @@ export class LoreAgent {
   #completed = false;
   #turns = 0;
   #capped = false;
+  /** The provider that refused this turn's sign-in, if one did. @type {string | null} */
+  #expired = null;
   /** What this turn spent, summed across assistant messages, for owner history. */
   #costUsd = 0;
   /** @type {AgentTask | null} */
   #activeTask = null;
+  /** Readings waiting for a free moment, one per source. @type {Map<string, Reading>} */
+  #waiting = new Map();
+  /** The reading under way; cleared when it gives way to the owner. @type {Reading | null} */
+  #reading = null;
+  /** @type {ReadingReport | null} */
+  #report = null;
+  #quietTurn = Promise.resolve();
+  /** An owner's turn is waiting for a reading to stop, so no reading may start. */
+  #yielding = false;
 
   /**
    * @param {LoreAgentOptions} options
@@ -366,6 +392,7 @@ export class LoreAgent {
   /** @param {string} loreHome @param {AgentTask} task */
   static sessionFor(loreHome, task) {
     const dir = resolve(loreHome, ".pi", "sessions", task);
+    if (QUIET.has(task)) return SessionManager.create(loreHome, dir);
     const recent = SessionManager.continueRecent(loreHome, dir);
     const record = latestTaskRecord(recent, task);
     const file = recent.getSessionFile();
@@ -443,8 +470,8 @@ export class LoreAgent {
   }
 
   tasks() {
-    return LoreAgent.tasks(this.options.loreHome).map((record) =>
-      this.#sessions.has(record.kind) ? record : { ...record, state: /** @type {TaskState} */ ("stopped"), phase: "Reply to keep going" }
+    return LoreAgent.tasks(this.options.loreHome).flatMap((record) =>
+      this.#sessions.has(record.kind) ? [record] : QUIET.has(record.kind) ? [] : [{ ...record, state: /** @type {TaskState} */ ("stopped"), phase: "Reply to keep going" }]
     );
   }
 
@@ -470,8 +497,13 @@ export class LoreAgent {
       },
       notify: (event) => this.options.authEvent(event)
     };
-    await this.models.login(providerId, type, interaction);
+    await this.models.login(providerId, type, interaction).catch((/** @type {Error} */ error) => {
+      console.error(error);
+      throw new Error("Sign-in didn't complete. Try again.");
+    });
     if (type === "api_key") await this.#proveKey(providerId);
+    // A thread left on a model that just lost its sign-in picks up whichever one the owner signed in with.
+    this.dispose();
     return this.status();
   }
 
@@ -482,7 +514,10 @@ export class LoreAgent {
       ? await this.models.completeSimple(model, { messages: [{ role: "user", content: "ok", timestamp: Date.now() }] }, { maxTokens: 1 }).catch((/** @type {Error} */ error) => ({ stopReason: "error", errorMessage: error.message }))
       : { stopReason: "error", errorMessage: "" };
     if (reply.stopReason !== "error") return;
-    if (!KEY_REJECTED.test(reply.errorMessage ?? "")) throw new Error(reply.errorMessage || "Lore could not check that key right now. Try again.");
+    if (!KEY_REJECTED.test(reply.errorMessage ?? "")) {
+      console.error(reply.errorMessage);
+      throw new Error("Lore could not check that key right now. Try again.");
+    }
     await this.options.credentials.delete(providerId);
     throw new Error("That key was not accepted. Check it and try again.");
   }
@@ -499,17 +534,67 @@ export class LoreAgent {
     return this.#activeTask;
   }
 
-  /** @param {string} text @param {AgentTask} task @param {AgentTask} [from] Continue from the latest `from` thread instead of starting cold. @param {number} [memory] A memory to start from, named by id to the agent only. @param {string} [source] A connected app's memories to start from. */
+  /** The owner's turn; a reading under way stops for it and starts again after. @param {string} text @param {AgentTask} task @param {AgentTask} [from] Continue from the latest `from` thread instead of starting cold. @param {number} [memory] A memory to start from, named by id to the agent only. @param {string} [source] A connected app's memories to start from. */
   async prompt(text, task, from, memory, source) {
+    if (this.#busy && this.#activeTask && QUIET.has(this.#activeTask)) {
+      await this.#yield(this.#activeTask);
+      this.#yielding = false;
+    }
+    try {
+      return await this.#turn(text, task, from, memory, source);
+    } finally {
+      void this.#next();
+    }
+  }
+
+  /** Read through what a connected app just brought in, quietly, once nothing else is running. @param {Reading} reading */
+  synthesize(reading) {
+    this.#queue(reading);
+    void this.#next();
+  }
+
+  /** Reads of one source that wait together are read together. @param {Reading} reading */
+  #queue(reading) {
+    const waiting = this.#waiting.get(reading.name);
+    this.#waiting.set(reading.name, waiting ? { ...reading, added: waiting.added + reading.added } : reading);
+  }
+
+  async #next() {
+    const [reading] = this.#waiting.values();
+    if (this.#busy || this.#yielding || !reading) return;
+    this.#waiting.delete(reading.name);
+    this.#reading = reading;
+    this.#report = null;
+    this.#quietTurn = this.#turn(readingPrompt(reading, this.options.loreHome), "synthesize", undefined, undefined, undefined, `Reading your ${reading.label} ${many(reading.item)}`).catch(() => {});
+    await this.#quietTurn;
+    const report = this.#reading === reading ? this.#report : null;
+    this.#reading = null;
+    if (report) await this.options.memoriesReady?.(reading, report).catch(() => {});
+    void this.#next();
+  }
+
+  /** Stop the reading under way and put it back in line. @param {AgentTask} task */
+  async #yield(task) {
+    this.#yielding = true;
+    if (this.#reading) this.#queue(this.#reading);
+    this.#reading = null;
+    await this.#sessions.get(task)?.abort();
+    await this.#quietTurn;
+  }
+
+  /** @param {string} text @param {AgentTask} task @param {AgentTask} [from] @param {number} [memory] @param {string} [source] @param {string} [phase] What the task's row says while it works. */
+  async #turn(text, task, from, memory, source, phase) {
     if (this.#busy) throw new Error("Lore is already working");
     if (!text.trim()) throw new Error("Nothing to capture");
+    const quiet = QUIET.has(task);
     this.#busy = true;
     this.#activeTask = task;
     this.#completed = false;
     this.#turns = 0;
     this.#capped = false;
+    this.#expired = null;
     this.#costUsd = 0;
-    this.options.emit({ type: "working", active: true, task });
+    if (!quiet) this.options.emit({ type: "working", active: true, task });
     // Durable history for the one task that produces memories. The row carries
     // this process's pid, so a turn may run for hours and stay Running for
     // exactly as long as the process that owes it a close is alive — and if the
@@ -522,17 +607,19 @@ export class LoreAgent {
     let outcome = ["failed", "failed"];
     try {
       const open = this.#sessions.get(task);
-      if (open && (from || latestTaskRecord(open.sessionManager, task)?.state === "done")) {
+      if (open && (from || quiet || latestTaskRecord(open.sessionManager, task)?.state === "done")) {
         open.dispose();
         this.#sessions.delete(task);
       }
       const existing = this.#sessions.get(task);
       const [session, resumed] = existing ? [existing, true] : await this.#newSession(task, from);
-      this.#record(session, task, "working");
+      this.#record(session, task, "working", phase);
       let body = memory === undefined ? text : `${text}${memoryAside(memory)}`;
       if (source !== undefined) body += sourceAside(source);
       if (task === "publish" && this.options.drafts) body += draftsAside(await this.options.drafts());
-      await session.prompt(resumed ? body : `/skill:${SKILLS[task]}\n\n${body}`);
+      // A reading told to give way before it began has nothing to stop.
+      if (!quiet || !this.#yielding) await session.prompt(resumed ? body : `/skill:${SKILLS[task]}\n\n${body}`);
+      if (this.#expired) await this.#signInAgain(session, task, this.#expired);
       const closing = closingRecord(latestTaskRecord(session.sessionManager, task)?.state, task, this.#completed);
       if (closing) this.#record(session, task, closing[0], closing[1]);
       outcome = jobOutcome(this.#completed);
@@ -550,7 +637,7 @@ export class LoreAgent {
         this.#costUsd += named.cost;
         await this.options.job?.finish(jobId, outcome[0], outcome[1], named.title, this.#costUsd || null).catch(() => {});
       }
-      this.options.emit({ type: "working", active: false, task });
+      if (!quiet) this.options.emit({ type: "working", active: false, task });
     }
   }
 
@@ -562,7 +649,7 @@ export class LoreAgent {
 
   /** @param {AgentTask} task */
   restart(task) {
-    if (this.#busy) throw new Error("Lore is still working");
+    if (this.#busy && !(this.#activeTask && QUIET.has(this.#activeTask))) throw new Error("Lore is still working");
     const open = this.#sessions.get(task);
     const manager = open?.sessionManager ?? SessionManager.continueRecent(this.options.loreHome, resolve(this.options.loreHome, ".pi", "sessions", task));
     const current = latestTaskRecord(manager, task);
@@ -588,7 +675,7 @@ export class LoreAgent {
       resourceLoader: this.resources,
       settingsManager: this.settings,
       sessionManager,
-      tools: ["read", "write", "edit", "bash", "ask_user", "propose_memories", "propose_blueprint", "propose_price", "cloudflare_login", "open_url", "finish_task"],
+      tools: QUIET.has(task) ? QUIET_TOOLS : OWNER_TOOLS,
       customTools: [
         createBashTool(this.options.loreHome, {
           operations: createSandboxedBashOperations(this.options.loreHome, task, this.options.binDir),
@@ -611,7 +698,8 @@ export class LoreAgent {
         this.#priceTool(),
         this.#cloudflareTool(),
         this.#openTool(),
-        this.#finishTool()
+        this.#finishTool(),
+        this.#readyTool()
       ]
     });
     session.subscribe((event) => {
@@ -636,7 +724,9 @@ export class LoreAgent {
       // what it spent getting there.
       this.#costUsd += event.message.usage?.cost?.total ?? 0;
       if (event.message.stopReason === "error" || event.message.stopReason === "aborted") {
-        this.options.emit({ type: "message", task, text: this.#capped ? CAPPED : event.message.errorMessage || "Lore's model did not answer." });
+        if (event.message.errorMessage) console.error(event.message.errorMessage);
+        this.#expired = event.message.errorMessage?.match(SIGN_IN_EXPIRED)?.[1] ?? null;
+        if (!this.#expired) this.options.emit({ type: "message", task, text: this.#capped ? CAPPED : NO_ANSWER });
         return;
       }
       if (++this.#turns >= MAX_TURNS && !this.#capped) {
@@ -648,6 +738,13 @@ export class LoreAgent {
     });
     this.#sessions.set(task, session);
     return [session, resumed];
+  }
+
+  /** The provider refused the stored sign-in, so it is dropped and the owner signs in again; replying afterwards picks the thread back up. @param {import("@earendil-works/pi-coding-agent").AgentSession} session @param {AgentTask} task @param {string} providerId */
+  async #signInAgain(session, task, providerId) {
+    await this.options.credentials.delete(providerId);
+    this.#record(session, task, "needs_you", "Reply to keep going");
+    this.options.emit({ type: "signed-out", text: `Your ${SIGN_INS[providerId] ?? "AI"} sign-in expired. Sign in again to keep going.` });
   }
 
   /** Hold the running task at needs_you while the owner acts, then hand it back to the agent. @template T @param {string | undefined} phase @param {() => Promise<T>} act @param {string} [after] */
@@ -782,6 +879,26 @@ export class LoreAgent {
       execute: async (_id, page) => {
         const text = await this.#attended(page.title, () => this.options.openUrl(page));
         return { content: [{ type: "text", text }], details: {} };
+      }
+    });
+  }
+
+  #readyTool() {
+    const memory = Type.Object({
+      file: Type.String({ minLength: 1, maxLength: 300 }),
+      worth_selling: Type.Boolean(),
+      why: Type.String({ maxLength: 200 })
+    });
+    return defineTool({
+      name: "memories_ready",
+      executionMode: "sequential",
+      label: "Hand back the memories",
+      description: "Call once, after writing: how many items you read, and each topic file you created or changed by its path inside the memories folder, whether it looks worth selling, and why in a few words. Lore saves them and tells the owner; an empty list means nothing new.",
+      parameters: Type.Object({ read: Type.Integer({ minimum: 0 }), memories: Type.Array(memory, { maxItems: 20 }) }),
+      execute: async (_id, report) => {
+        this.#report = report;
+        this.#completed = true;
+        return { content: [{ type: "text", text: "Handed back" }], details: {} };
       }
     });
   }

@@ -29,6 +29,10 @@ let stripeCleared = false;
 let stripeChecking = false;
 /** MON-037: every Mac notification Lore posted, in order. */
 const notes = [];
+/** AUT-005: what the dock's badge was set to, and every reading Lore started. @type {number[]} */
+const badges = [];
+/** @type {Reading[]} */
+const readings = [];
 if (scenario === "listing") {
   require("electron").shell.openExternal = async (url) => { opened.push(url); };
   require(join(src, "main.cjs"));
@@ -81,6 +85,34 @@ if (scenario === "listing") {
   });
   newsletter.listen(0, "127.0.0.1", () => {
     process.env.LORE_EDGE_NEWSLETTER = `http://127.0.0.1:${newsletter.address().port}/`;
+    require(join(src, "main.cjs"));
+  });
+} else if (scenario === "reading") {
+  // AUT-005: everything around a reading is real except the model. The stand-in writes what a
+  // reading of the two stand-in Granola meetings would, then hands it back as the agent would.
+  require(join(src, "sales.cjs")).notify = (words, onClick) => { notes.push({ words, handlers: { click: onClick } }); };
+  const setBadgeCount = app.setBadgeCount.bind(app);
+  app.setBadgeCount = (count) => { badges.push(count); return setBadgeCount(count); };
+  void import(require("node:url").pathToFileURL(join(src, "agent.mjs")).href).then(({ LoreAgent }) => {
+    LoreAgent.prototype.synthesize = function (/** @type {Reading} */ reading) {
+      readings.push(reading);
+      const folder = join(process.env.LORE_HOME ?? "", "memories");
+      mkdirSync(join(folder, "work"), { recursive: true });
+      writeFileSync(join(folder, "first-price-after-ten-buyers.md"), "# Raise the first price only after ten buyers pay\n\nA receipt beats a survey: hold the first tier until ten buyers have paid, then raise it. From a pricing review, January 2026.\n");
+      writeFileSync(join(folder, "work/ops-management-before-hiring.md"), "# Add the ops management layer before the next ten hires\n\nWork: the team's own hiring plan, from an internal ops sync.\n\nAdd the management layer before the next ten engineers join, not after.\n");
+      // After the connect's own refresh, which reads tasks from disk where this stand-in keeps none.
+      setTimeout(() => this.options.emit({ type: "task", task: { version: 1, kind: "synthesize", title: "Read what came in", state: "working", phase: `Reading your ${reading.label} meetings`, updatedAt: new Date().toISOString() } }), 1500);
+      setTimeout(() => {
+        this.options.emit({ type: "task", task: { version: 1, kind: "synthesize", title: "Read what came in", state: "done", phase: "Finished", updatedAt: new Date().toISOString() } });
+        void this.options.memoriesReady?.(reading, {
+          read: reading.added,
+          memories: [
+            { file: "first-price-after-ten-buyers.md", worth_selling: true, why: "a measured pricing rule" },
+            { file: "work/ops-management-before-hiring.md", worth_selling: true, why: "names the team's plan" }
+          ]
+        });
+      }, 6000);
+    };
     require(join(src, "main.cjs"));
   });
 } else {
@@ -644,6 +676,11 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         const rowOf = (label) => `[...document.querySelectorAll("#content .row")].find((r) => r.querySelector(".t b")?.textContent === ${JSON.stringify(label)})`;
         await js(`window.__lore.signIn()`);
         await waitFor(`document.querySelector("#content").textContent.includes("Approve what to sell")`);
+        // APP-126: a downloaded update shows one button by the Lore name, and nothing before it is ready.
+        check("no update button until one is ready", await js(`document.querySelector("#update").hidden`));
+        await js(`window.__lore.event({ type: "update", update: { version: "0.1.13", state: "ready" } })`);
+        check("a ready update shows Update by the Lore name, on one line", await js(`(() => { const b = document.querySelector("#update"); return !b.hidden && b.textContent === "Update" && b.closest(".brand") !== null && b.getBoundingClientRect().height === 24; })()`));
+        await shot("update-ready");
         const clearOfTitlebar = `(() => { const bar = document.querySelector(".titlebar"); bar.style.pointerEvents = "none"; const hits = []; for (let y = 1; y < 28; y += 3) for (let x = 1; x < innerWidth; x += 8) hits.push(document.elementFromPoint(x, y)?.closest("button, a, input, textarea, select, [tabindex]:not(#main)")); bar.style.pointerEvents = ""; return hits.every((hit) => !hit); })()`;
         check("the window drags from a strip across its whole top", await js(`(() => { const bar = document.querySelector(".titlebar"); const r = bar.getBoundingClientRect(); return getComputedStyle(bar).webkitAppRegion === "drag" && r.top === 0 && r.left === 0 && r.width === innerWidth && r.height === 28; })()`));
         check("nothing clickable sits under the drag strip", await js(clearOfTitlebar));
@@ -679,6 +716,16 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         await shot("store-price-editor-saved");
         await js(`window.__lore.show("settings")`);
         await waitFor(`${rowOf("Price")}?.textContent.includes("first 5 copies free")`);
+        check("Settings shows the version and the same restart", await js(`${rowOf("Lore 0.1.13")}?.textContent.includes("Restart to update")`));
+        await js(`window.__lore.event({ type: "update", update: { version: "0.1.13", state: "offline" } })`);
+        check("unable to check says so in Settings only", await js(`document.querySelector("#update").hidden && ${rowOf("Lore 0.1.13")}.textContent.includes("couldn't check")`));
+        await js(`window.__lore.event({ type: "update", update: { version: "0.1.13", state: "outside", newer: true } })`);
+        check("a copy outside Applications offers the move, and Update", await js(`!document.querySelector("#update").hidden && ${rowOf("Lore 0.1.13")}.textContent.includes("Move to Applications")`));
+        await sleep(800);
+        await js(`document.querySelector("#main").scrollTop = 1e6`);
+        await sleep(300);
+        await shot("settings-updates");
+        await js(`window.__lore.event({ type: "update", update: { version: "0.1.13", state: "current" } })`);
 
         await js(`window.__lore.show("today")`);
         await waitFor(`document.querySelector("#content").textContent.includes("already for sale")`);
@@ -712,6 +759,48 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         await js(`[...${usage}.querySelectorAll("button")].find((b) => b.textContent === "Turn off").click()`);
         check("…and turns it off", await waitFor(`window.lore.snapshot().then((s) => s.setup.telemetry_enabled === false)`));
         await shot("settings-usage-off");
+      } else if (scenario === "reading") {
+        // AUT-005: connect Granola, and Lore reads the meetings through without being asked.
+        await waitFor(`document.body.dataset.state === "welcome" && !document.querySelector("#welcome").classList.contains("provisioning")`);
+        await js(`window.__lore.signIn()`);
+        await waitFor(`document.querySelector("#content .strip")`);
+        await js(`window.__lore.show("connectors")`);
+        const granola = `[...[...document.querySelectorAll("#content section")].find((s) => s.textContent.includes("Where memories come from")).querySelectorAll(".row")].find((r) => r.querySelector("b").textContent === "Granola")`;
+        await waitFor(granola);
+        await js(`${granola}.querySelector("button").click()`);
+        await waitFor(`document.querySelector("dialog.sheet[open] .btn.primary")?.textContent === "Sign in to Granola"`);
+        await js(`document.querySelector("dialog.sheet[open] .btn.primary").click()`);
+        check("connecting says Lore is turning the meetings into memories", await waitFor(`document.querySelector("#status").textContent.includes("Lore is turning them into memories now.")`), await js(`document.querySelector("#status").textContent`));
+        for (let i = 0; i < 40 && !readings.length; i++) await sleep(250);
+        check("…and starts one reading of what came in", readings.length === 1 && readings[0].label === "Granola" && readings[0].item === "meeting" && readings[0].added === 2, JSON.stringify(readings));
+        await js(`window.__lore.show("today")`);
+        check("Today shows the reading as one quiet row", await waitFor(`document.querySelector("#content").textContent.includes("Reading your Granola meetings…")`));
+        check("…and the owner can still type", await js(`!document.querySelector("#capture-input").disabled`));
+        await shot("reading-today-working");
+        await js(`window.__lore.show("connectors")`);
+        for (let i = 0; i < 60 && !notes.length; i++) await sleep(250);
+        check("a finished reading is one Mac notification", notes.length === 1 && notes[0].words.title === "Lore turned 2 Granola meetings into 2 memories" && notes[0].words.body === "1 looks worth selling.", JSON.stringify(notes.map((n) => n.words)));
+        check("…and a red 2 on the dock while the owner is elsewhere", badges.at(-1) === 2, JSON.stringify(badges));
+        check("…and the notice that it was reading goes away", await waitFor(`!document.querySelector("#status").textContent.includes("Lore is turning them into memories now.")`), await js(`document.querySelector("#status").textContent`));
+        notes[0].handlers.click();
+        check("clicking it lands on Today's new memories", await waitFor(`document.querySelector("#content").textContent.includes("Lore read your Granola meetings")`));
+        const card = `[...document.querySelectorAll("#content .section")].find((s) => s.textContent.includes("New memories"))`;
+        const cardText = await js(`${card}.textContent`);
+        check("…each by title, only on this Mac", /2 new memories, only on this Mac · 1 looks worth selling/.test(cardText) && cardText.includes("Raise the first price only after ten buyers pay") && cardText.includes("Add the ops management layer before the next ten hires"), cardText);
+        check("…work stays private and is never offered for sale", cardText.includes("Work · stays private") && await js(`[...${card}.querySelectorAll(".row")].filter((r) => [...r.querySelectorAll("button")].some((b) => b.textContent === "Draft for sale")).map((r) => r.querySelector("b").textContent).join("|")`) === "Raise the first price only after ten buyers pay");
+        check("…in plain words", !/synthes|agent|pipeline|mcp/i.test(cardText), cardText);
+        check("seeing it clears the dock", await (async () => { for (let i = 0; i < 40 && badges.at(-1) !== 0; i++) await sleep(100); return badges.at(-1) === 0; })(), JSON.stringify(badges));
+        await shot("reading-today-ready");
+        await js(`window.__lore.show("memories")`);
+        check("the memories are in Memories, labelled work and personal", await waitFor(`document.querySelector("#content").textContent.includes("Raise the first price only after ten buyers pay")`) && await js(`[...document.querySelectorAll("#content .row")].find((r) => r.textContent.includes("ops management"))?.textContent.includes("work")`));
+        await js(`window.__lore.show("today")`);
+        await js(`[...${card}.querySelectorAll("button")].find((b) => b.textContent === "Draft for sale").click()`);
+        check("Draft for sale opens the publish thread from that memory", await waitFor(`document.querySelector("#title").textContent === "Publish from your Lore"`) && await waitFor(`document.querySelector("#log").textContent.includes("Raise the first price only after ten buyers pay")`));
+        await js(`document.querySelector("#task-back").click()`);
+        await waitFor(`${card}`);
+        await js(`[...${card}.querySelectorAll("button")].find((b) => b.textContent === "Clear").click()`);
+        check("Clear takes the card off Today", await waitFor(`!document.querySelector("#content").textContent.includes("New memories")`));
+        check("…and a relaunch would not bring it back", await js(`window.lore.readyRuns().then((runs) => runs.length)`) === 0);
       } else if (scenario === "sales") {
         // MON-037: a new sale is a Mac notification and shows on Today; old sales never are.
         const { existsSync, readFileSync } = require("node:fs");
@@ -984,7 +1073,7 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
 
         // Cross-view: notices stay while the owner moves around, then the same tell() lands in the log inside a thread.
         await js(`window.__lore.show("today")`);
-        check("notice persists across views", await js(`document.querySelectorAll("#status .notice").length`) === 1);
+        check("notice persists across views", await js(`document.querySelectorAll("#status .notice.attention").length`) === 1);
       }
     } catch (error) {
       results.push(`ERROR ${error.stack}`);

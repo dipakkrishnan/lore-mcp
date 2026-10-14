@@ -1509,7 +1509,8 @@ class Registry:
         current = next((r for r in self.owned if r.name == source.name), None)
         # Signing in again to the same place is a read, not a no-op.
         if current is not None and current.locator == source.locator and not asked:
-            return next(e for e in self.entries() if e["name"] == source.name)
+            entry = next(e for e in self.entries() if e["name"] == source.name)
+            return {**entry, "added": 0}
         if replacing is not None and replacing != source.name:
             old = next((r for r in self.owned if r.name == replacing), None)
             if old is None or old.connector != source.connector:
@@ -1522,9 +1523,10 @@ class Registry:
         self.store.set_setting(
             "owner_sources", self.source_records.dump_python(self.owned, mode="json")
         )
-        self._import(source, reader)
+        added = self._import(source, reader)["added"]
         self._save_reads()
-        return next(entry for entry in self.entries() if entry["name"] == source.name)
+        entry = next(entry for entry in self.entries() if entry["name"] == source.name)
+        return {**entry, "added": added}
 
     def connect(
         self,
@@ -1558,6 +1560,8 @@ class Registry:
         return [
             {
                 "name": name,
+                "label": known[name].label,
+                "connector": known[name].connector,
                 **{key: value for key, value in report[name].items() if key != "found"},
                 "state": self.reads[name].state.value,
             }
@@ -1690,6 +1694,11 @@ def _project(source: Source, path: Path) -> str:
         return relative.parts[0] if len(relative.parts) > 1 else ""
     if source.connector:
         return Connector.named(source.connector).name
+    if (
+        source.origin == "automation"
+        and path.relative_to(source.locator).parts[0] == "work"
+    ):
+        return "work"
     return "personal"
 
 

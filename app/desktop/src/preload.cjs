@@ -76,12 +76,18 @@ contextBridge.exposeInMainWorld("lore", {
   readSource: (name) => ipcRenderer.invoke("sources:read", name),
   /** @param {string} name @param {boolean} keep */
   removeSource: (name, keep) => ipcRenderer.invoke("sources:remove", name, keep),
+  readyRuns: () => ipcRenderer.invoke("ready:runs"),
+  seenMemories: () => ipcRenderer.invoke("ready:seen"),
+  clearMemories: () => ipcRenderer.invoke("ready:clear"),
   openPrivacySettings: () => ipcRenderer.invoke("settings:privacy"),
   /** @param {File} file */
   pathFor: (file) => webUtils.getPathForFile(file),
   microphone: () => ipcRenderer.invoke("dictation:permission"),
   /** @param {ArrayBuffer} wav */
   transcribe: (wav) => ipcRenderer.invoke("dictation:transcribe", wav),
+  update: () => ipcRenderer.invoke("update:status"),
+  checkUpdate: () => ipcRenderer.invoke("update:check"),
+  installUpdate: () => ipcRenderer.invoke("update:install"),
   /** @param {(event: AgentEvent) => void} listener */
   onAgentEvent: (listener) => {
     /** @param {import("electron").IpcRendererEvent} _event @param {AgentEvent} value */

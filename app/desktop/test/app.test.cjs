@@ -28,6 +28,47 @@ test("announces only sales after the last one seen, one by one or as one lot", (
   assert.deepEqual(announcements([...many.slice(0, 3), free]), [{ title: "You sold 3 pieces", body: "$9.00 · 1 free copy read" }]);
 });
 
+test("an update downloads quietly, shows only when ready, and a copy outside Applications asks to move or links the download", async () => {
+  const { EventEmitter } = require("node:events");
+  const { Updates, DOWNLOAD } = require("../src/updates.cjs");
+  /** @param {{inApplications: boolean, answer: number, status?: number}} mac */
+  const updater = ({ inApplications, answer, status }) => {
+    const calls = /** @type {string[]} */ ([]);
+    const autoUpdater = Object.assign(new EventEmitter(), { checkForUpdates: () => calls.push("check"), quitAndInstall: () => calls.push("install") });
+    const app = { getVersion: () => "0.1.12", isPackaged: true, isInApplicationsFolder: () => inApplications, moveToApplicationsFolder: () => (calls.push("move"), true) };
+    const dialog = { showMessageBox: async (/** @type {{buttons: string[]}} */ box) => (calls.push(box.buttons[1]), { response: answer }) };
+    const shell = { openExternal: async (/** @type {string} */ url) => void calls.push(url) };
+    const seen = /** @type {unknown[]} */ ([]);
+    /** @param {string} url */
+    const get = async (url) => (calls.push(url), status === undefined ? Promise.reject(new Error("offline")) : { status });
+    return { updates: new Updates({ app, autoUpdater, dialog, shell }, (update) => seen.push(update.state), get), autoUpdater, calls, seen };
+  };
+
+  const inside = updater({ inApplications: true, answer: 0 });
+  for (const step of ["checking-for-update", "update-not-available", "checking-for-update", "error"]) inside.autoUpdater.emit(step);
+  assert.deepEqual(inside.seen, ["checking", "current", "checking", "offline"], "offline only says so; nothing to click");
+  for (const step of ["update-available", "update-downloaded", "error"]) inside.autoUpdater.emit(step);
+  assert.equal(inside.updates.update.state, "ready", "a ready update stays ready through a later failed check");
+  assert.equal(inside.updates.update.version, "0.1.12");
+  await inside.updates.install();
+  assert.deepEqual(inside.calls, ["install"]);
+
+  const kept = updater({ inApplications: false, answer: 1, status: 200 });
+  kept.updates.start();
+  await new Promise((done) => setImmediate(done));
+  assert.deepEqual(kept.updates.update, { version: "0.1.12", state: "outside", newer: true });
+  assert.ok(kept.calls.includes(`https://update.electronjs.org/dipakkrishnan/lore-mcp/${process.platform}-${process.arch}/0.1.12`));
+  kept.calls.length = 0;
+  await kept.updates.install();
+  assert.deepEqual(kept.calls, ["Download it instead", DOWNLOAD], "declining the move opens the latest download");
+
+  const moved = updater({ inApplications: false, answer: 0 });
+  moved.updates.start();
+  await new Promise((done) => setImmediate(done));
+  assert.deepEqual(moved.calls.filter((call) => !call.startsWith("https://")), ["Not now", "move"]);
+  assert.equal(moved.updates.update.newer, false, "unable to check reads as nothing newer");
+});
+
 test("reads only the fixed APP-001 snapshot", async () => {
   const directory = await mkdtemp(join(tmpdir(), "lore-desktop-"));
   try {
@@ -470,10 +511,63 @@ test("API-key proof deletes rejected keys, not keys it could not check", async (
     /** @type {never} */ (null),
     /** @type {never} */ (null)
   );
-  await assert.rejects(agent.login("anthropic", "api_key", "key"), /fetch failed/);
+  await assert.rejects(agent.login("anthropic", "api_key", "key"), /^Error: Lore could not check that key right now\. Try again\.$/);
   assert.deepEqual(deleted, []);
   await assert.rejects(agent.login("anthropic", "api_key", "key"), /not accepted/);
   assert.deepEqual(deleted, ["anthropic"]);
+});
+
+test("a refused sign-in refresh asks the owner to sign in again; no model error ever reaches the thread", async (t) => {
+  const { LoreAgent, latestTaskRecord } = await import("../src/agent.mjs");
+  const { DefaultResourceLoader, ModelRuntime, SessionManager, SettingsManager } = await import("@earendil-works/pi-coding-agent");
+  const logged = [];
+  t.mock.method(console, "error", (detail) => logged.push(String(detail)));
+  const refusals = {
+    expired: async () => new Response('{"error": "invalid_grant", "error_description": "Refresh token expired"}', { status: 400 }),
+    offline: async () => { throw new TypeError("fetch failed"); }
+  };
+  for (const [refusal, fetch] of Object.entries(refusals)) {
+    t.mock.method(globalThis, "fetch", fetch);
+    const home = await mkdtemp(join(tmpdir(), "lore-desktop-"));
+    /** @type {Record<string, import("@earendil-works/pi-ai").Credential>} */
+    const stored = { anthropic: { type: "oauth", access: "old", refresh: "old", expires: Date.now() - 1000 } };
+    const credentials = {
+      read: async (id) => stored[id],
+      list: async () => Object.keys(stored).map((providerId) => ({ providerId, type: stored[providerId].type })),
+      modify: async (id, change) => (await change(stored[id])) ?? stored[id],
+      delete: async (id) => { delete stored[id]; }
+    };
+    const events = [];
+    try {
+      // Pi retries a dropped connection with backoff; once is the same answer, faster.
+      const settings = SettingsManager.inMemory({ retry: { enabled: false } });
+      const resources = new DefaultResourceLoader({ cwd: home, agentDir: join(home, ".pi"), settingsManager: settings, noExtensions: true, noSkills: true, noPromptTemplates: true, noThemes: true, noContextFiles: true });
+      await resources.reload();
+      const agent = new LoreAgent(
+        /** @type {LoreAgentOptions} */ ({ loreHome: home, credentials, emit: (event) => events.push(event) }),
+        await ModelRuntime.create({ credentials: /** @type {never} */ (credentials) }),
+        settings,
+        resources
+      );
+      await agent.prompt("Let's set up my Lore", "setup");
+      const said = events.filter((event) => event.type === "message").map((event) => event.text);
+      const state = latestTaskRecord(SessionManager.continueRecent(home, join(home, ".pi", "sessions", "setup")), "setup").state;
+      if (refusal === "expired") {
+        assert.deepEqual(said, []);
+        assert.deepEqual(events.filter((event) => event.type === "signed-out"), [{ type: "signed-out", text: "Your Claude sign-in expired. Sign in again to keep going." }]);
+        assert.deepEqual(stored, {}, "the refused sign-in is dropped");
+        assert.equal(state, "needs_you");
+      } else {
+        assert.deepEqual(said, ["Lore's model did not answer. Try again."]);
+        assert.equal(events.some((event) => event.type === "signed-out"), false);
+        assert.equal(stored.anthropic?.refresh, "old", "a dropped connection keeps the sign-in");
+        assert.equal(state, "stopped");
+      }
+      assert.match(logged.at(-1), /^OAuth refresh failed for anthropic/, "the detail goes to the log");
+    } finally {
+      await rm(home, { recursive: true });
+    }
+  }
 });
 
 test("typed task records survive relaunch and only unfinished known tasks are listed", async () => {
@@ -1031,4 +1125,161 @@ test("a module mismatch from an updated app tells the owner to relaunch", async 
   assert.match(reason(mismatch, "x"), /Quit Lore and open it again/);
   assert.equal(reason(new Error("Stripe is down"), "x"), "Stripe is down");
   assert.equal(reason("nope", "fallback"), "fallback");
+});
+
+/** A LoreAgent whose model is pi's scripted stand-in, so a whole turn runs without a provider. @param {Partial<LoreAgentOptions>} options */
+async function scriptedAgent(options) {
+  const { fauxProvider, InMemoryCredentialStore } = await import("@earendil-works/pi-ai");
+  const { DefaultResourceLoader, ModelRuntime, SettingsManager } = await import("@earendil-works/pi-coding-agent");
+  const { LoreAgent } = await import("../src/agent.mjs");
+  const loreHome = await mkdtemp(join(tmpdir(), "lore-reading-"));
+  const models = await ModelRuntime.create({ credentials: new InMemoryCredentialStore(), refreshOnCreate: false });
+  const faux = fauxProvider();
+  models.registerNativeProvider(faux.provider);
+  const settings = SettingsManager.inMemory();
+  const resources = new DefaultResourceLoader({ cwd: loreHome, agentDir: join(loreHome, ".pi"), settingsManager: settings, additionalSkillPaths: [join(__dirname, "../../../plugins/lore/skills")], noExtensions: true, noSkills: true, noPromptTemplates: true, noThemes: true, noContextFiles: true, systemPrompt: "You are a scripted stand-in for Lore's desktop agent." });
+  await resources.reload();
+  /** @type {AgentEvent[]} */
+  const events = [];
+  const agent = new LoreAgent(/** @type {LoreAgentOptions} */ ({ loreHome, skillsDir: "", emit: (event) => events.push(event), ...options }), models, settings, resources);
+  return { agent, faux, events, loreHome };
+}
+
+/** Wait until `done` holds, or fail after a few seconds. @param {() => boolean} done */
+async function until(done) {
+  for (let tries = 0; tries < 200 && !done(); tries++) await new Promise((resolve) => setTimeout(resolve, 20));
+  assert.ok(done(), "timed out");
+}
+
+test("an app that brings something new in is read through once; one that brings nothing is not", () => {
+  const { worthReading } = require("../src/reading.cjs");
+  const apps = [{ id: "granola", name: "Granola", item: "meeting" }, { id: "medium", name: "Medium", item: "story" }];
+  assert.deepEqual(worthReading({ name: "granola-1", connector: "granola", added: 23 }, apps), { name: "granola-1", label: "Granola", item: "meeting", added: 23 });
+  assert.equal(worthReading({ name: "granola-1", connector: "granola", added: 0 }, apps), null);
+  assert.equal(worthReading({ name: "granola-1", connector: "granola" }, apps), null, "a CLI older than AUT-005 says nothing came in");
+  assert.equal(worthReading({ name: "codex", connector: null, added: 3 }, apps), null, "the agents' own memories are the schedule's");
+});
+
+test("a reading runs quietly, says what it is doing on Today, and hands back what it wrote", async () => {
+  const { fauxAssistantMessage, fauxToolCall } = await import("@earendil-works/pi-ai");
+  /** @type {Array<[Reading, ReadingReport]>} */
+  const handed = [];
+  const { agent, faux, events, loreHome } = await scriptedAgent({ memoriesReady: async (reading, report) => { handed.push([reading, report]); } });
+  /** @type {string[]} */
+  const asked = [];
+  const report = { read: 23, memories: [{ file: "receipts-beat-surveys.md", worth_selling: true, why: "measured on ten buyers" }] };
+  faux.setResponses([
+    (context) => {
+      const first = context.messages.find((message) => message.role === "user");
+      asked.push(typeof first.content === "string" ? first.content : first.content.map((block) => (block.type === "text" ? block.text : "")).join(""));
+      return fauxAssistantMessage(fauxToolCall("memories_ready", report), { stopReason: "toolUse" });
+    },
+    fauxAssistantMessage("Done.")
+  ]);
+  try {
+    agent.synthesize({ name: "granola-1", label: "Granola", item: "meeting", added: 23 });
+    await until(() => handed.length === 1);
+    assert.deepEqual(handed, [[{ name: "granola-1", label: "Granola", item: "meeting", added: 23 }, report]]);
+    assert.match(asked[0], /lore-synthesize/);
+    assert.match(asked[0], /23 new Granola meetings/);
+    assert.match(asked[0], /"granola-1"/);
+    assert.ok(asked[0].includes(JSON.stringify(join(loreHome, "memories"))));
+    assert.ok(!events.some((event) => event.type === "working"), "the owner's composer never locks for a reading");
+    const records = events.flatMap((event) => (event.type === "task" ? [event.task] : []));
+    assert.deepEqual(records.map((record) => [record.kind, record.state, record.phase]), [["synthesize", "working", "Reading your Granola meetings"], ["synthesize", "done", "Finished"]]);
+    assert.deepEqual(agent.tasks(), [], "a finished reading is no unfinished thread");
+  } finally {
+    await rm(loreHome, { recursive: true, force: true });
+  }
+});
+
+test("the owner's turn stops a reading, and the reading starts over once the owner is done", async () => {
+  const { fauxAssistantMessage, fauxToolCall } = await import("@earendil-works/pi-ai");
+  /** @type {Array<ReadingReport & {added: number}>} */
+  const handed = [];
+  const { agent, faux, loreHome } = await scriptedAgent({ memoriesReady: async (reading, report) => { handed.push({ ...report, added: reading.added }); } });
+  let reading = 0;
+  faux.setResponses([
+    // The first reading runs until it is told to stop.
+    (_context, options) => new Promise((resolve) => {
+      reading++;
+      options?.signal?.addEventListener("abort", () => resolve(fauxAssistantMessage("", { stopReason: "aborted" })), { once: true });
+    }),
+    fauxAssistantMessage("Kept that."),
+    fauxAssistantMessage(fauxToolCall("memories_ready", { read: 5, memories: [] }), { stopReason: "toolUse" }),
+    fauxAssistantMessage("Done.")
+  ]);
+  try {
+    agent.synthesize({ name: "granola-1", label: "Granola", item: "meeting", added: 3 });
+    await until(() => reading === 1);
+    // Two more meetings arrive while the first three are being read: one reading covers all five.
+    agent.synthesize({ name: "granola-1", label: "Granola", item: "meeting", added: 2 });
+    await agent.prompt("I learned to hire managers before scaling.", "capture");
+    await until(() => handed.length === 1);
+    assert.deepEqual(handed, [{ read: 5, memories: [], added: 5 }], "the stopped reading never handed anything back");
+    assert.equal(faux.getPendingResponseCount(), 0);
+  } finally {
+    await rm(loreHome, { recursive: true, force: true });
+  }
+});
+
+test("a reading lands as Today lists it: only stored memories, work never for sale, and plain words", async () => {
+  const { landed, announcement } = require("../src/reading.cjs");
+  const folder = "/Users/owner/.lore/memories";
+  /** @param {number} id @param {string} file @param {string} [status] */
+  const memory = (id, file, status = "private") => ({ id, title: `Topic ${id}`, content: "", project: "", source: "automation", source_path: `${folder}/${file}`, status, updated_at: "" });
+  const stored = [memory(1, "receipts.md"), memory(2, "work/launch-review.md"), memory(3, "dropped.md", "discarded")];
+  const run = landed(
+    { name: "granola-1", label: "Granola", item: "meeting", added: 23 },
+    {
+      read: 23,
+      memories: [
+        { file: "receipts.md", worth_selling: true, why: "ten paying buyers" },
+        { file: "work/launch-review.md", worth_selling: true, why: "names the client" },
+        { file: "receipts.md", worth_selling: true, why: "again" },
+        { file: "dropped.md", worth_selling: false, why: "" },
+        { file: "never-synced.md", worth_selling: false, why: "" },
+        { file: "../../.ssh/config", worth_selling: false, why: "" }
+      ]
+    },
+    stored,
+    folder
+  );
+  assert.deepEqual(run.memories, [
+    { id: 1, title: "Topic 1", sell: true, work: false, why: "ten paying buyers" },
+    { id: 2, title: "Topic 2", sell: false, work: true, why: "names the client" }
+  ]);
+  assert.equal(run.seen, false);
+  assert.deepEqual(announcement(run), { title: "Lore turned 23 Granola meetings into 2 memories", body: "1 looks worth selling." });
+  assert.deepEqual(announcement({ ...run, read: 1, memories: [run.memories[1]] }), { title: "Lore turned 1 Granola meeting into 1 memory", body: "They stay private on this Mac." });
+});
+
+test("the dock counts new memories until the owner has seen them, and Clear empties Today", async () => {
+  const { Ready } = require("../src/reading.cjs");
+  const directory = await mkdtemp(join(tmpdir(), "lore-ready-"));
+  /** @type {number[]} */
+  const badges = [];
+  const ready = new Ready(join(directory, "memories-ready.json"), (count) => badges.push(count));
+  /** @param {number} count @returns {ReadyRun} */
+  const run = (count) => ({ label: "Granola", item: "meeting", read: 9, memories: Array.from({ length: count }, (_, id) => ({ id, title: "t", sell: false, work: false, why: "" })), at: "", seen: false });
+  try {
+    assert.deepEqual(await ready.runs(), [], "nothing read yet");
+    await ready.add(run(6));
+    await ready.add(run(2));
+    assert.deepEqual(badges, [6, 8]);
+    await ready.seen();
+    assert.equal(badges.at(-1), 0);
+    await ready.add(run(3));
+    assert.equal(badges.at(-1), 3, "only what arrived since the owner looked");
+    assert.deepEqual((await ready.runs()).map((kept) => kept.memories.length), [3, 2, 6]);
+    await new Ready(join(directory, "memories-ready.json"), (count) => badges.push(count)).show();
+    assert.equal(badges.at(-1), 3, "a relaunch puts the badge back");
+    await ready.clear();
+    assert.deepEqual([await ready.runs(), badges.at(-1)], [[], 0]);
+    await writeFile(join(directory, "memories-ready.json"), "{damaged");
+    assert.deepEqual(await ready.runs(), []);
+    await assert.rejects(access(join(directory, "memories-ready.json.tmp")));
+  } finally {
+    await rm(directory, { recursive: true });
+  }
 });
