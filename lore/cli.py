@@ -222,6 +222,7 @@ def parser() -> argparse.ArgumentParser:
         help="read content from stdin instead of the positional argument",
     )
     memory_edit.add_argument("--json", action="store_true")
+    memory_commands.add_parser("rules", help="print what earns a place in memory")
 
     profile = commands.add_parser(
         "profile", help="save an agent-written synthesis profile"
@@ -528,6 +529,11 @@ def main(argv: list[str] | None = None) -> int:
                 " ".join(args.query), args.status, args.limit, args.json, args.source
             )
         if args.command == "memory":
+            if args.memory_command == "rules":
+                from .automation import RULES
+
+                print(RULES, end="")
+                return 0
             if args.memory_command == "rename":
                 return rename_memory(args.id, args.title, args.json)
             if args.memory_command == "edit":

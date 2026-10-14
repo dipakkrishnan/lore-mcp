@@ -16,9 +16,9 @@ from pathlib import Path
 from unittest.mock import patch
 
 import tomllib
-from helpers import LoreTestCase, automation_profile
+from helpers import LoreTestCase, automation_profile, captured
 
-from lore import automation
+from lore import automation, cli
 from lore import store as store_module
 
 
@@ -150,6 +150,31 @@ class PromptTest(LoreTestCase):
         ):
             with self.subTest(marker=marker):
                 self.assertNotIn(marker, prompt)
+
+    def test_both_writers_hold_the_library_to_one_set_of_rules(self) -> None:
+        # AUT-005: the scheduled prompt and the desktop's reading of a connected app
+        # (through `lore memory rules`) must never drift apart.
+        prompt = automation.build_prompt(automation_profile())
+        self.assertIn(automation.RULES, prompt)
+        with captured() as output:
+            self.assertEqual(cli.main(["memory", "rules"]), 0)
+        self.assertEqual(output.getvalue(), automation.RULES)
+        for rule in (
+            "## What earns a place in memory",
+            "When unsure, it is work.",
+            "Write work under `work/`",
+            "never suggest it for publishing",
+            "no\n  company, people, client, or product names",
+            '"Worth publishing" note',
+        ):
+            with self.subTest(rule=rule):
+                self.assertIn(rule, automation.RULES)
+
+    def test_the_scheduled_prompt_reads_connected_apps_too(self) -> None:
+        self.assertIn(
+            "what the owner's\nconnected apps brought in",
+            automation.build_prompt(automation_profile()),
+        )
 
     def test_the_saved_prompt_matches_the_built_one(self) -> None:
         profile = automation.save_profile(automation_profile())

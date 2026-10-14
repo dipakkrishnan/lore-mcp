@@ -11,6 +11,8 @@ obsolete), then `priority` (P0 → P3).
 | ID | Title | Priority | Effort | Component | Status | Related | Blockers | Dependencies | Issue |
 |---|---|---|---|---|---|---|---|---|---|
 | [XC-035](./cross-cutting/XC-035-show-a-diff-for-flagged-publications-in-desktop.md) | Show a diff for flagged publications in Desktop | P1 | M | cross-cutting | ideation | XC-019, MON-004, APP-006, APP-011 | XC-019 | — | — |
+| [AUT-006](./automation-synthesis/AUT-006-run-the-schedule-on-lores-own-agent-when-no-claude-code-or-codex.md) | Run the schedule on Lore's own agent when there is no Claude Code or Codex | P2 | M | automation-synthesis | ideation | AUT-005, AUT-001, AUT-003 | — | — | — |
+| [AUT-007](./automation-synthesis/AUT-007-resume-a-reading-lore-closed-partway-through.md) | Resume a reading that Lore was closed partway through | P2 | S | automation-synthesis | ideation | AUT-005, AUT-006 | — | — | — |
 | [MON-043](./monetization/MON-043-price-pieces-by-demand.md) | Price pieces by demand | P3 | XL | monetization | ideation | APP-192, MON-018, MON-028 | MON-009 | — | — |
 | [APP-046](./desktop-app/APP-046-render-capture-proposals-as-an-editable-memory-card.md) | Render capture proposals as an editable memory card | P0 | S | desktop-app | in-review | APP-003, APP-009, APP-016, APP-045 | — | — | — |
 | [APP-047](./desktop-app/APP-047-give-publication-drafts-one-home.md) | Give publication drafts one home and keep cards in their own thread | P0 | S | desktop-app | in-review | APP-020, APP-023, APP-032, APP-046 | — | — | — |
@@ -67,6 +69,7 @@ obsolete), then `priority` (P0 → P3).
 | [APP-193](./desktop-app/APP-193-say-when-the-ai-session-has-expired-and-offer-to-sign-back-in.md) | Say when the AI session has expired and offer to sign back in | P1 | S | desktop-app | in-review | APP-181, APP-183 | — | — | — |
 | [APP-194](./desktop-app/APP-194-drop-resume-and-never-draft-a-piece-already-for-sale.md) | Drop Resume and never draft a piece already for sale | P1 | S | desktop-app | in-review | APP-186, APP-139 | — | — | — |
 | [STO-005](./store-import/STO-005-import-only-the-owners-writing-from-notion-and-claude-code.md) | Import only the owner's writing from Notion and Claude Code | P1 | S | store-import | in-review | STO-004 | — | — | — |
+| [AUT-005](./automation-synthesis/AUT-005-turn-a-newly-connected-app-into-memories-and-tell-the-owner.md) | Turn a newly connected app into memories and tell the owner | P1 | M | automation-synthesis | in-review | AUT-002, AUT-006, AUT-007, APP-042, MON-037 | — | — | — |
 | [APP-140](./desktop-app/APP-140-show-a-typing-bubble-while-lore-works.md) | Show a typing bubble while Lore works | P2 | S | desktop-app | in-review | APP-137 | — | — | — |
 | [APP-041](./desktop-app/APP-041-desktop-onboarding-flow-for-a-new-user.md) | Guide a new desktop user through an onboarding flow | P2 | M | desktop-app | in-review | ONB-001, ONB-003, APP-030, APP-036 | — | — | [#176](https://github.com/dipakkrishnan/lore-mcp/issues/176) |
 | [APP-042](./desktop-app/APP-042-select-memories-to-combine-and-synthesize.md) | Let a desktop owner select memories to combine and synthesize | P2 | M | desktop-app | in-review | AUT-002, APP-014, APP-011 | — | — | [#173](https://github.com/dipakkrishnan/lore-mcp/issues/173) |
