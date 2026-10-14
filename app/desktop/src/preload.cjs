@@ -82,6 +82,9 @@ contextBridge.exposeInMainWorld("lore", {
   microphone: () => ipcRenderer.invoke("dictation:permission"),
   /** @param {ArrayBuffer} wav */
   transcribe: (wav) => ipcRenderer.invoke("dictation:transcribe", wav),
+  update: () => ipcRenderer.invoke("update:status"),
+  checkUpdate: () => ipcRenderer.invoke("update:check"),
+  installUpdate: () => ipcRenderer.invoke("update:install"),
   /** @param {(event: AgentEvent) => void} listener */
   onAgentEvent: (listener) => {
     /** @param {import("electron").IpcRendererEvent} _event @param {AgentEvent} value */

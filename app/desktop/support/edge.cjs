@@ -643,6 +643,11 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         const rowOf = (label) => `[...document.querySelectorAll("#content .row")].find((r) => r.querySelector(".t b")?.textContent === ${JSON.stringify(label)})`;
         await js(`window.__lore.signIn()`);
         await waitFor(`document.querySelector("#content").textContent.includes("Approve what to sell")`);
+        // APP-126: a downloaded update shows one button by the Lore name, and nothing before it is ready.
+        check("no update button until one is ready", await js(`document.querySelector("#update").hidden`));
+        await js(`window.__lore.event({ type: "update", update: { version: "0.1.13", state: "ready" } })`);
+        check("a ready update shows Update by the Lore name, on one line", await js(`(() => { const b = document.querySelector("#update"); return !b.hidden && b.textContent === "Update" && b.closest(".brand") !== null && b.getBoundingClientRect().height === 24; })()`));
+        await shot("update-ready");
         const clearOfTitlebar = `(() => { const bar = document.querySelector(".titlebar"); bar.style.pointerEvents = "none"; const hits = []; for (let y = 1; y < 28; y += 3) for (let x = 1; x < innerWidth; x += 8) hits.push(document.elementFromPoint(x, y)?.closest("button, a, input, textarea, select, [tabindex]:not(#main)")); bar.style.pointerEvents = ""; return hits.every((hit) => !hit); })()`;
         check("the window drags from a strip across its whole top", await js(`(() => { const bar = document.querySelector(".titlebar"); const r = bar.getBoundingClientRect(); return getComputedStyle(bar).webkitAppRegion === "drag" && r.top === 0 && r.left === 0 && r.width === innerWidth && r.height === 28; })()`));
         check("nothing clickable sits under the drag strip", await js(clearOfTitlebar));
@@ -678,6 +683,16 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         await shot("store-price-editor-saved");
         await js(`window.__lore.show("settings")`);
         await waitFor(`${rowOf("Price")}?.textContent.includes("first 5 copies free")`);
+        check("Settings shows the version and the same restart", await js(`${rowOf("Lore 0.1.13")}?.textContent.includes("Restart to update")`));
+        await js(`window.__lore.event({ type: "update", update: { version: "0.1.13", state: "offline" } })`);
+        check("unable to check says so in Settings only", await js(`document.querySelector("#update").hidden && ${rowOf("Lore 0.1.13")}.textContent.includes("couldn't check")`));
+        await js(`window.__lore.event({ type: "update", update: { version: "0.1.13", state: "outside", newer: true } })`);
+        check("a copy outside Applications offers the move, and Update", await js(`!document.querySelector("#update").hidden && ${rowOf("Lore 0.1.13")}.textContent.includes("Move to Applications")`));
+        await sleep(800);
+        await js(`document.querySelector("#main").scrollTop = 1e6`);
+        await sleep(300);
+        await shot("settings-updates");
+        await js(`window.__lore.event({ type: "update", update: { version: "0.1.13", state: "current" } })`);
 
         await js(`window.__lore.show("today")`);
         await waitFor(`document.querySelector("#content").textContent.includes("already for sale")`);
