@@ -21,7 +21,7 @@ from helpers import LoreTestCase, captured
 from lore import cli
 from lore import sources as sources_module
 from lore.sources import FeedReader, Source
-from lore.store import Store
+from lore.store import Memory, Store
 
 FIXTURES = Path(__file__).parent / "fixtures/feeds"
 
@@ -365,6 +365,160 @@ class FeedImportTest(LoreTestCase):
                 with self.subTest(app=app, typed=typed):
                     with self.assertRaisesRegex(sources_module.SourceError, "^Enter"):
                         registry.connect(app, typed)
+
+
+class TasteFeedTest(LoreTestCase):
+    """Letterboxd and Goodreads, against trimmed, renamed copies of their real feeds."""
+
+    def connect(self, app: str, typed: str) -> dict[str, object]:
+        with Store() as store:
+            return sources_module.Registry(store).connect(app, typed)
+
+    def memories(self) -> dict[str, Memory]:
+        with Store() as store:
+            return {memory.title: memory for memory in store.search("")}
+
+    def test_a_username_a_profile_and_a_feed_are_one_source(self) -> None:
+        for app, spellings in (
+            (
+                "letterboxd",
+                (
+                    "critic",
+                    "@Critic",
+                    "https://letterboxd.com/critic/",
+                    "letterboxd.com/critic/films/diary/",
+                    "https://letterboxd.com/critic/rss/",
+                ),
+            ),
+            (
+                "goodreads",
+                (
+                    "12345",
+                    "https://www.goodreads.com/user/show/12345-reader",
+                    "goodreads.com/review/list/12345-reader?shelf=read",
+                    "https://www.goodreads.com/review/list_rss/12345?shelf=read",
+                ),
+            ),
+        ):
+            sources = {
+                Source.owner(typed, kind="feed", connector=app).reader().name()
+                for typed in spellings
+            }
+            with self.subTest(app=app):
+                self.assertEqual(len(sources), 1)
+
+    def test_a_private_goodreads_feed_keeps_its_key(self) -> None:
+        source = Source.owner(
+            "https://www.goodreads.com/review/list_rss/12345?key=abc&shelf=read",
+            kind="feed",
+            connector="goodreads",
+        )
+        self.assertEqual(
+            source.locator,
+            "https://www.goodreads.com/review/list_rss/12345?shelf=read&key=abc",
+        )
+
+    def test_letterboxd_keeps_ratings_reviews_and_lists_and_skips_bare_watches(
+        self,
+    ) -> None:
+        with serving({"letterboxd.com/critic/rss/": "letterboxd.xml"}):
+            entry = self.connect("letterboxd", "critic")
+        self.assertEqual((entry["label"], entry["imported"]), ("critic", 5))
+        memories = self.memories()
+        self.assertNotIn("The Night That Binds Us (2026)", memories)
+        rocky = memories["I Play Rocky (2026)"]
+        self.assertTrue(
+            rocky.content.startswith(
+                "Watched I Play Rocky (2026) on 2026-10-14. Rated it 2.5 out of 5.\n\n"
+                "a backstage movie"
+            )
+        )
+        self.assertEqual(rocky.updated_at, "2026-10-14")
+        self.assertEqual(rocky.project, "Letterboxd")
+        self.assertIn(
+            "Rewatched Two Cigarettes, Three Nights (2026) on 2026-10-13. Rated it 4 out of 5.",
+            memories["Two Cigarettes, Three Nights (2026)"].content,
+        )
+        self.assertEqual(
+            memories["Digger (2026)"].content,
+            "Watched Digger (2026) on 2026-09-29. Rated it 3.5 out of 5.",
+        )
+        self.assertIn(
+            "a making-of that earns its place",
+            memories["Making Marie Antoinette (2026)"].content,
+        )
+        self.assertIn("The Prestige", memories["NOLAN FILMS: RANKED"].content)
+
+    def test_goodreads_keeps_ratings_and_reviews_and_skips_a_bare_shelving(
+        self,
+    ) -> None:
+        with serving({"list_rss/12345?shelf=read": "goodreads.xml"}):
+            entry = self.connect(
+                "goodreads", "https://www.goodreads.com/user/show/12345-reader"
+            )
+        self.assertEqual((entry["label"], entry["imported"]), ("Reader", 3))
+        memories = self.memories()
+        self.assertNotIn("The Count of Monte Cristo", memories)
+        ships = memories["The Long Ships"]
+        self.assertEqual(
+            ships.content,
+            "Read The Long Ships by Frans G. Bengtsson, finished 2026-08-18. "
+            "Rated it 5 out of 5.\n\nHistorical fiction that makes the economics of "
+            "raiding make sense: a crew plunders because the farm cannot carry them "
+            "through winter.\n\nThe galley-slave years are the best part of the book.",
+        )
+        self.assertEqual(ships.updated_at, "2026-08-18")
+        self.assertTrue(
+            memories[
+                "We Die Alone: A WWII Epic of Escape and Endurance"
+            ].content.endswith("Rated it 4 out of 5.")
+        )
+        self.assertNotIn("Rated", memories["High Output Management"].content)
+
+    def test_a_refresh_keeps_only_the_new_entries(self) -> None:
+        recorded = (FIXTURES / "letterboxd.xml").read_text()
+        first = recorded.index("<item>")
+        newer = Path(self.tmp.name) / "letterboxd.xml"
+        newer.write_text(
+            recorded[:first] + "<item> <title>Late Shift, 2026 - ★★★</title>"
+            " <link>https://letterboxd.com/critic/film/late-shift/</link>"
+            ' <guid isPermaLink="false">letterboxd-watch-1538000000</guid>'
+            " <pubDate>Fri, 16 Oct 2026 05:13:43 +1300</pubDate>"
+            " <letterboxd:watchedDate>2026-10-15</letterboxd:watchedDate>"
+            " <letterboxd:rewatch>No</letterboxd:rewatch>"
+            " <letterboxd:filmTitle>Late Shift</letterboxd:filmTitle>"
+            " <letterboxd:filmYear>2026</letterboxd:filmYear>"
+            " <letterboxd:memberRating>3.0</letterboxd:memberRating>"
+            " <description><![CDATA[ <p>Watched on Thursday October 15, 2026.</p> ]]>"
+            "</description> </item>\n" + recorded[first:]
+        )
+        with serving({"": "letterboxd.xml"}), Store() as store:
+            registry = sources_module.Registry(store)
+            name = str(registry.connect("letterboxd", "critic")["name"])
+            with patch.object(
+                FeedReader, "fetch", lambda self, url: newer.read_bytes()
+            ):
+                report = registry.read([name])[0]
+        self.assertEqual((report["added"], report["unchanged"]), (1, 5))
+
+    def test_another_kind_of_address_is_refused_in_plain_words(self) -> None:
+        for app, typed, said in (
+            (
+                "letterboxd",
+                "https://notes.example.com",
+                "Enter your Letterboxd username, like yourname",
+            ),
+            (
+                "goodreads",
+                "https://www.goodreads.com/otis",
+                "Paste the link to your Goodreads profile",
+            ),
+            ("goodreads", "a reader", "Paste the link to your Goodreads profile"),
+        ):
+            with self.subTest(app=app, typed=typed):
+                with self.assertRaises(sources_module.SourceError) as refused:
+                    self.connect(app, typed)
+                self.assertEqual(str(refused.exception), said)
 
 
 class FeedCommandTest(LoreTestCase):
