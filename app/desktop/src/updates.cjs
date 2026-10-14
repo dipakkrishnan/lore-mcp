@@ -60,7 +60,11 @@ class Updates {
       defaultId: 0,
       cancelId: 1
     });
-    return response === 0 && this.app.moveToApplicationsFolder();
+    try {
+      return response === 0 && this.app.moveToApplicationsFolder();
+    } catch {
+      return false;
+    }
   }
 
   /** @param {Omit<AppUpdate, "version">} next */
