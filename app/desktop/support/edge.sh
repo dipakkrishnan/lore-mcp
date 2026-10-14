@@ -82,6 +82,9 @@ with Store() as store:
   (cd "$desktop_dir" && node --input-type=module -e "import { resolve } from 'node:path'; import { SessionManager } from '@earendil-works/pi-coding-agent';
 const session = SessionManager.create(process.env.LORE_HOME, resolve(process.env.LORE_HOME, '.pi/sessions/deploy'));
 session.appendMessage({ role: 'user', content: 'OLD COMPLETED DEPLOY', timestamp: 1 });
+// pi keeps a session in memory until the model has answered in it, so without a reply this thread never reaches disk.
+const usage = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } };
+session.appendMessage({ role: 'assistant', content: [{ type: 'text', text: 'Your store is open.' }], api: 'anthropic-messages', provider: 'anthropic', model: 'edge-seed', usage, stopReason: 'stop', timestamp: 2 });
 session.appendCustomEntry('lore.task', { version: 1, kind: 'deploy', title: 'Open your store', state: 'done', phase: 'Finished' });")
 fi
 if [[ "$scenario" == "extras" ]]; then
