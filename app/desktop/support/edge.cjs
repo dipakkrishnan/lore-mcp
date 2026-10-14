@@ -983,7 +983,7 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
 
         // Cross-view: notices stay while the owner moves around, then the same tell() lands in the log inside a thread.
         await js(`window.__lore.show("today")`);
-        check("notice persists across views", await js(`document.querySelectorAll("#status .notice").length`) === 1);
+        check("notice persists across views", await js(`document.querySelectorAll("#status .notice.attention").length`) === 1);
       }
     } catch (error) {
       results.push(`ERROR ${error.stack}`);

@@ -3,6 +3,7 @@ const $ = (selector) => /** @type {HTMLElement} */ (document.querySelector(selec
 const welcome = $("#welcome");
 const appShell = $("#app");
 const welcomeNote = $("#welcome-note");
+const welcomeBack = $("#welcome-back");
 const welcomeRetry = /** @type {HTMLButtonElement} */ ($("#welcome-retry"));
 const redirectForm = /** @type {HTMLFormElement} */ ($("#redirect-form"));
 const keyForm = /** @type {HTMLFormElement} */ ($("#key-form"));
@@ -2645,6 +2646,7 @@ async function signIn(providerId, type, secret) {
   try {
     auth = await window.lore.login({ providerId, type, secret });
     welcomeNote.textContent = "";
+    welcomeBack.hidden = true;
     enter();
   } catch (error) {
     welcomeNote.textContent = reason(error, "Sign-in didn't complete.");
@@ -2685,8 +2687,6 @@ function enter() {
   welcome.hidden = signedIn;
   appShell.hidden = !signedIn;
   document.body.dataset.state = signedIn ? "app" : "welcome";
-  // The welcome screen says it, so signing in already counts as seen.
-  if (!signedIn) void window.lore.usage("noticed").catch(() => undefined);
   if (signedIn) { render(); void load().then(noticeUsage); }
 }
 
@@ -2725,6 +2725,15 @@ function onEvent(event) {
   else if (event.type === "message") { if (event.task === task) say(event.text); }
   else if (event.type === "saved") { if (event.task === task) { lines.push({ text: "", owner: false, saved: event.memories }); renderLog(); } }
   else if (event.type === "stopped") { say(event.text, false, true); input.focus({ preventScroll: true }); }
+  else if (event.type === "signed-out") {
+    void window.lore.agentStatus().then((result) => {
+      auth = result;
+      enter();
+      if (welcome.hidden) tell(event.text, true);
+      else welcomeBack.textContent = `${event.text} Your memories are all still here.`;
+      welcomeBack.hidden = welcome.hidden;
+    });
+  }
   else if (event.type === "task") {
     if (detailTask === event.task.kind) detailRecord = event.task;
     taskItems = event.task.state === "done"

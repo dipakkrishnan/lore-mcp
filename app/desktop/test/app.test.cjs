@@ -470,10 +470,63 @@ test("API-key proof deletes rejected keys, not keys it could not check", async (
     /** @type {never} */ (null),
     /** @type {never} */ (null)
   );
-  await assert.rejects(agent.login("anthropic", "api_key", "key"), /fetch failed/);
+  await assert.rejects(agent.login("anthropic", "api_key", "key"), /^Error: Lore could not check that key right now\. Try again\.$/);
   assert.deepEqual(deleted, []);
   await assert.rejects(agent.login("anthropic", "api_key", "key"), /not accepted/);
   assert.deepEqual(deleted, ["anthropic"]);
+});
+
+test("a refused sign-in refresh asks the owner to sign in again; no model error ever reaches the thread", async (t) => {
+  const { LoreAgent, latestTaskRecord } = await import("../src/agent.mjs");
+  const { DefaultResourceLoader, ModelRuntime, SessionManager, SettingsManager } = await import("@earendil-works/pi-coding-agent");
+  const logged = [];
+  t.mock.method(console, "error", (detail) => logged.push(String(detail)));
+  const refusals = {
+    expired: async () => new Response('{"error": "invalid_grant", "error_description": "Refresh token expired"}', { status: 400 }),
+    offline: async () => { throw new TypeError("fetch failed"); }
+  };
+  for (const [refusal, fetch] of Object.entries(refusals)) {
+    t.mock.method(globalThis, "fetch", fetch);
+    const home = await mkdtemp(join(tmpdir(), "lore-desktop-"));
+    /** @type {Record<string, import("@earendil-works/pi-ai").Credential>} */
+    const stored = { anthropic: { type: "oauth", access: "old", refresh: "old", expires: Date.now() - 1000 } };
+    const credentials = {
+      read: async (id) => stored[id],
+      list: async () => Object.keys(stored).map((providerId) => ({ providerId, type: stored[providerId].type })),
+      modify: async (id, change) => (await change(stored[id])) ?? stored[id],
+      delete: async (id) => { delete stored[id]; }
+    };
+    const events = [];
+    try {
+      // Pi retries a dropped connection with backoff; once is the same answer, faster.
+      const settings = SettingsManager.inMemory({ retry: { enabled: false } });
+      const resources = new DefaultResourceLoader({ cwd: home, agentDir: join(home, ".pi"), settingsManager: settings, noExtensions: true, noSkills: true, noPromptTemplates: true, noThemes: true, noContextFiles: true });
+      await resources.reload();
+      const agent = new LoreAgent(
+        /** @type {LoreAgentOptions} */ ({ loreHome: home, credentials, emit: (event) => events.push(event) }),
+        await ModelRuntime.create({ credentials: /** @type {never} */ (credentials) }),
+        settings,
+        resources
+      );
+      await agent.prompt("Let's set up my Lore", "setup");
+      const said = events.filter((event) => event.type === "message").map((event) => event.text);
+      const state = latestTaskRecord(SessionManager.continueRecent(home, join(home, ".pi", "sessions", "setup")), "setup").state;
+      if (refusal === "expired") {
+        assert.deepEqual(said, []);
+        assert.deepEqual(events.filter((event) => event.type === "signed-out"), [{ type: "signed-out", text: "Your Claude sign-in expired. Sign in again to keep going." }]);
+        assert.deepEqual(stored, {}, "the refused sign-in is dropped");
+        assert.equal(state, "needs_you");
+      } else {
+        assert.deepEqual(said, ["Lore's model did not answer. Try again."]);
+        assert.equal(events.some((event) => event.type === "signed-out"), false);
+        assert.equal(stored.anthropic?.refresh, "old", "a dropped connection keeps the sign-in");
+        assert.equal(state, "stopped");
+      }
+      assert.match(logged.at(-1), /^OAuth refresh failed for anthropic/, "the detail goes to the log");
+    } finally {
+      await rm(home, { recursive: true });
+    }
+  }
 });
 
 test("typed task records survive relaunch and only unfinished known tasks are listed", async () => {
