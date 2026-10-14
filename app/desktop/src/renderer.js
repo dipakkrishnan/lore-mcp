@@ -3,6 +3,7 @@ const $ = (selector) => /** @type {HTMLElement} */ (document.querySelector(selec
 const welcome = $("#welcome");
 const appShell = $("#app");
 const welcomeNote = $("#welcome-note");
+const welcomeBack = $("#welcome-back");
 const welcomeRetry = /** @type {HTMLButtonElement} */ ($("#welcome-retry"));
 const redirectForm = /** @type {HTMLFormElement} */ ($("#redirect-form"));
 const keyForm = /** @type {HTMLFormElement} */ ($("#key-form"));
@@ -2645,6 +2646,7 @@ async function signIn(providerId, type, secret) {
   try {
     auth = await window.lore.login({ providerId, type, secret });
     welcomeNote.textContent = "";
+    welcomeBack.hidden = true;
     enter();
   } catch (error) {
     welcomeNote.textContent = reason(error, "Sign-in didn't complete.");
@@ -2730,7 +2732,8 @@ function onEvent(event) {
       auth = result;
       enter();
       if (welcome.hidden) tell(event.text, true);
-      else welcomeNote.textContent = event.text;
+      else welcomeBack.textContent = `${event.text} Your memories are all still here.`;
+      welcomeBack.hidden = welcome.hidden;
     });
   }
   else if (event.type === "task") {
