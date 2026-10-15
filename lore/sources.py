@@ -644,7 +644,7 @@ class FeedReader(Reader):
     # Mastodon is the whole of what this importer promises.
     pages = 5
     limit = 40
-    guesses = ("/feed", "/rss/", "/atom.xml", "/feed.json")
+    guesses: tuple[str, ...] = ("/feed", "/rss/", "/atom.xml", "/feed.json")
     # The app that writes the feed, for a reader that reads only that app's.
     generator: ClassVar[str] = ""
     # What a paid post arrives as: the free opening, then the prompt Substack
@@ -757,11 +757,15 @@ class FeedReader(Reader):
         if self.generator and _field(channel, "generator") != self.generator:
             return None
         self.label = _field(channel, "title") or self.label
-        return [
-            self._item(e, index)
-            for index, e in enumerate(channel)
-            if e.tag.rpartition("}")[2] in ("item", "entry")
-        ]
+        posts = []
+        for index, e in enumerate(channel):
+            if e.tag.rpartition("}")[2] not in ("item", "entry"):
+                continue
+            try:
+                posts.append(self._item(e, index))
+            except ValueError:
+                self.errors += 1
+        return posts
 
     def _json_feed(self, body: bytes) -> list[Item] | None:
         try:
@@ -909,6 +913,9 @@ class BlueskyFeed(FeedReader):
 class TasteFeed(FeedReader):
     """A diary of things rated and reviewed: an entry with neither is empty."""
 
+    # The feed lives at one fixed address, so there is nowhere else to guess.
+    guesses = ()
+
     def _taste(
         self, entry: Element, title: str, done: str, rating: str, review: str
     ) -> Item:
@@ -927,6 +934,12 @@ class TasteFeed(FeedReader):
 
 class LetterboxdFeed(TasteFeed):
     watched = re.compile(r"^Watched on \w+ \w+ \d+, \d{4}\.$", re.MULTILINE)
+    # Letterboxd's own pages, which sit where a username would.
+    reserved = frozenset(
+        "about activity actor apps cinematography composer contact director editor "
+        "festivals film films journal legal list lists members patron people pro "
+        "producer reviews search settings showdown studio tag writer".split()
+    )
 
     @classmethod
     def locate(cls, locator: str) -> tuple[str, str]:
@@ -934,6 +947,11 @@ class LetterboxdFeed(TasteFeed):
         user = typed.strip("@/").split("/")[0].lower()
         if not re.fullmatch(r"\w+", user):
             raise SourceError("Enter your Letterboxd username, like yourname")
+        if user in cls.reserved:
+            raise SourceError(
+                "That's a Letterboxd page, not a profile. "
+                "Paste your profile link, like letterboxd.com/yourname"
+            )
         return f"https://letterboxd.com/{user}/rss/", user
 
     def _item(self, entry: Element, index: int) -> Item:
@@ -956,8 +974,8 @@ class LetterboxdFeed(TasteFeed):
 
 class GoodreadsFeed(TasteFeed):
     profile = re.compile(
-        r"(?:(?:https?://)?(?:www\.)?goodreads\.com/"
-        r"(?:user/show|review/list(?:_rss)?)/)?(\d+)\b[^?]*(?:\?(.*))?"
+        r"(\d+)|(?:https?://)?(?:www\.|m\.)?goodreads\.com/"
+        r"(?:user/show|review/list(?:_rss)?)/(\d+)(?:-[^/?#]*)?/?(?:\?(.*))?"
     )
 
     @classmethod
@@ -966,9 +984,15 @@ class GoodreadsFeed(TasteFeed):
         if not found:
             raise SourceError("Paste the link to your Goodreads profile")
         # A private profile's feed only opens with the key Goodreads put in its link.
-        key = parse_qs(found.group(2) or "").get("key")
+        key = parse_qs(found.group(3) or "").get("key")
         query = urlencode({"shelf": "read"} | ({"key": key[0]} if key else {}))
-        return f"https://www.goodreads.com/review/list_rss/{found.group(1)}?{query}", ""
+        user = found.group(1) or found.group(2)
+        return f"https://www.goodreads.com/review/list_rss/{user}?{query}", ""
+
+    def name(self) -> str:
+        # The key only opens the feed; with or without it, the user is one place.
+        user = urlsplit(self.source.locator).path.rsplit("/", 1)[-1]
+        return f"{self.source.connector}-{user}"
 
     def _item(self, entry: Element, index: int) -> Item:
         self.label = _field(entry, "user_name") or self.label
