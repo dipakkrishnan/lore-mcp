@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import csv
 import hashlib
+import io
 import json
 import os
 import re
@@ -15,7 +17,7 @@ from enum import Enum
 from functools import cached_property
 from html.parser import HTMLParser
 from http.client import HTTPException
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import (
     AsyncIterator,
     Awaitable,
@@ -581,6 +583,171 @@ class Claude(Connector):
     reader = ClaudeExport
     guide = (
         "In Claude, open Settings → Privacy → Export data. "
+        "A download link arrives by email. "
+        "It's a .zip file; choose it as it is."
+    )
+
+
+class MapsPlace(BaseModel):
+    """One GeoJSON feature from Maps (your places), in either spelling Google has used."""
+
+    name: str = Field(
+        default="",
+        validation_alias=AliasChoices(
+            AliasPath("properties", "location", "name"),
+            AliasPath("properties", "Location", "Business Name"),
+            AliasPath("properties", "Title"),
+        ),
+    )
+    address: str = Field(
+        default="",
+        validation_alias=AliasChoices(
+            AliasPath("properties", "location", "address"),
+            AliasPath("properties", "Location", "Address"),
+        ),
+    )
+    url: str = Field(
+        default="",
+        validation_alias=AliasChoices(
+            AliasPath("properties", "google_maps_url"),
+            AliasPath("properties", "Google Maps URL"),
+        ),
+    )
+    at: str = Field(
+        default="",
+        validation_alias=AliasChoices(
+            AliasPath("properties", "date"), AliasPath("properties", "Published")
+        ),
+    )
+    rating: int = Field(
+        default=0,
+        validation_alias=AliasChoices(
+            AliasPath("properties", "five_star_rating_published"),
+            AliasPath("properties", "Star Rating"),
+        ),
+    )
+    review: str = Field(
+        default="",
+        validation_alias=AliasChoices(
+            AliasPath("properties", "review_text_published"),
+            AliasPath("properties", "Review Comment"),
+        ),
+    )
+
+    @property
+    def place(self) -> str:
+        return ", ".join(filter(None, [self.name, self.address])) or self.url
+
+
+class MapsPlaces(BaseModel):
+    features: list[MapsPlace]
+
+
+class TakeoutExport(ExportReader):
+    """Google Maps from a Takeout archive or its unzipped folder: each saved list,
+    the starred places, and each review. Every other product in it is ignored."""
+
+    product = "google-maps"
+    reviews = "Reviews.json"
+    starred = "Saved Places.json"
+
+    @cached_property
+    def files(self) -> dict[PurePosixPath, bytes] | None:
+        path = Path(self.source.locator)
+        try:
+            if zipfile.is_zipfile(path):
+                with zipfile.ZipFile(path) as archive:
+                    return {
+                        member: archive.read(name)
+                        for name in archive.namelist()
+                        if self._maps(member := PurePosixPath(name))
+                    }
+            return {
+                PurePosixPath(found.relative_to(path)): found.read_bytes()
+                for found in sorted(path.rglob("*"))
+                if found.is_file()
+                and self._maps(PurePosixPath(found.relative_to(path)))
+            }
+        except (OSError, zipfile.BadZipFile):
+            return None
+
+    def _maps(self, path: PurePosixPath) -> bool:
+        return path.name in (self.reviews, self.starred) or (
+            path.suffix == ".csv" and path.parent.name == "Saved"
+        )
+
+    def probe(self) -> State:
+        self.label = "Google Maps"
+        return State.CONNECTED if self.files else State.UNREACHABLE
+
+    @property
+    def trouble(self) -> str:
+        return "That file isn't a Google Takeout export with Google Maps in it."
+
+    def items(self) -> Iterator[Item]:
+        for path, body in (self.files or {}).items():
+            try:
+                if path.suffix == ".csv":
+                    yield self._list(path, body.decode("utf-8-sig"))
+                elif path.name == self.starred:
+                    yield self._starred(MapsPlaces.model_validate_json(body))
+                else:
+                    yield from map(
+                        self._review, MapsPlaces.model_validate_json(body).features
+                    )
+            except (ValueError, UnicodeError):
+                self.errors += 1
+
+    def _list(self, path: PurePosixPath, text: str) -> Item:
+        places = [
+            " — ".join(
+                filter(None, (row.get(f) or "" for f in ("Title", "Note", "Comment")))
+            )
+            for row in csv.DictReader(io.StringIO(text))
+            if row.get("Title")
+        ]
+        return Item(
+            path.stem,
+            "\n".join(f"- {place}" for place in places),
+            f"{self.source.locator}#{path.stem}",
+            None,
+            key=f"list:{path.stem}",
+        )
+
+    def _starred(self, starred: MapsPlaces) -> Item:
+        return Item(
+            "Starred places",
+            "\n".join(f"- {place.place}" for place in starred.features),
+            f"{self.source.locator}#starred",
+            None,
+            key="starred",
+        )
+
+    def _review(self, review: MapsPlace) -> Item:
+        dated = _date(review.at)
+        said = f"Reviewed {review.place}" + (f" on {dated}" if dated else "") + "."
+        if review.rating:
+            said += f" Rated it {review.rating} out of 5."
+        return Item(
+            review.name or review.place,
+            "\n\n".join(filter(None, [said, review.review.strip()])),
+            review.url or f"{self.source.locator}#{review.place}",
+            dated,
+            excluded=not (review.rating or review.review.strip()),
+            key=f"review:{review.url or review.place}",
+        )
+
+
+class GoogleMaps(Connector):
+    id = "google-maps"
+    name = "Google Maps"
+    what = "Your saved lists, starred places and reviews, from an export file"
+    unit = "export"
+    item = "entry"
+    reader = TakeoutExport
+    guide = (
+        "At takeout.google.com, choose Deselect all, then tick only "
+        '"Saved" and "Maps (your places)". '
         "A download link arrives by email. "
         "It's a .zip file; choose it as it is."
     )
