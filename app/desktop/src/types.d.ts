@@ -27,10 +27,9 @@ type Snapshot = {
     telemetry_noticed?: boolean;
     // Whether the owner was told, once, that Lore's own routines are on (AUT-009).
     automations_noticed?: boolean;
-    // Who reads the connected apps and when, and whether the scheduler holds it; Lore itself
-    // when no profile names an agent. Optional: an installed CLI older than this app omits it.
-    // With Lore itself as the runner (AUT-006), also when it last read and whether it missed an hour while closed.
-    schedule?: { installed: boolean; executor: "claude" | "codex" | "lore" | null; cadence: "daily" | "weekly" | null; hour: number | null; last_run?: string | null; missed?: boolean; paused?: boolean } | null;
+    // When Lore reads the connected apps, when it last did, and whether it missed an hour while closed (AUT-006).
+    // Optional: an installed CLI older than this app omits it.
+    schedule?: { paused: boolean; cadence: Routine["cadence"]; hour: number; day: number; last_run: string | null; missed: boolean } | null;
   };
   // Whether this build has a feedback relay pinned in. Optional: an
   // installed CLI older than this app omits it, and no relay is the safe
@@ -148,7 +147,7 @@ type ReadyMemory = { id: number; title: string; sell: boolean; work: boolean; wh
 type ReadyRun = { title: string; read: number; memories: ReadyMemory[]; at: string; seen: boolean };
 
 /** Something Lore does on its own at a set hour, as `lore automation list` describes it. `due`: the app owes it a run now. */
-type Routine = { id: string; kind: "read" | "checkin" | "ask"; name: string; runner: "claude" | "codex" | "lore"; built_in?: boolean; cadence: "daily" | "weekdays" | "weekly"; hour: number; day?: number; paused?: boolean; last_run: string | null; result: string; next_run: string; due: boolean };
+type Routine = { id: string; kind: "read" | "checkin" | "ask"; name: string; built_in?: boolean; cadence: "daily" | "weekdays" | "weekly"; hour: number; day?: number; paused?: boolean; last_run: string | null; result: string; next_run: string; due: boolean };
 
 /** When a routine runs: every day, every weekday, or once a week on `day` (0 is Monday). */
 type RoutineTime = { cadence: Routine["cadence"]; hour: number; day: number };
@@ -290,7 +289,6 @@ interface Window {
     approveExtras(decisions: Array<{ original: PublicationExtras; extras: PublicationExtras }>): Promise<void>;
     revoke(id: number): Promise<void>;
     push(): Promise<void>;
-    schedule(): Promise<void>;
     setPrice(amount: number): Promise<void>;
     setFreeCopies(count: number): Promise<void>;
     revealHome(): Promise<string>;

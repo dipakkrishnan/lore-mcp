@@ -40,7 +40,6 @@ contextBridge.exposeInMainWorld("lore", {
   /** @param {number} id */
   revoke: (id) => ipcRenderer.invoke("publication:revoke", id),
   push: () => ipcRenderer.invoke("store:push"),
-  schedule: () => ipcRenderer.invoke("schedule:install"),
   /** @param {number} amount */
   setPrice: (amount) => ipcRenderer.invoke("pricing:set", amount),
   /** @param {number} count */

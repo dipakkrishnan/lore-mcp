@@ -47,7 +47,6 @@ const MAX_TURNS = 60;
 const SANDBOX_TMPDIR = "/tmp/claude";
 /** @type {Partial<Record<AgentTask, string[]>>} Home-relative directories outside Lore that a task's commands must write. */
 const OWNER_DIRS = {
-  setup: [".codex/automations", "Library/LaunchAgents"],
   deploy: [".wrangler", "Library/Preferences/.wrangler", "Library/Caches/.wrangler", ".npm"]
 };
 const CAPPED = "That reply took more steps than Lore allows at once, so it paused. Say continue to keep going.";

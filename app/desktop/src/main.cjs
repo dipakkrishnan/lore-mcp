@@ -188,7 +188,6 @@ function registerIpc(loreHome, schedule) {
   });
   ipcMain.handle("store:sales", () => readSales(loreHome));
   ipcMain.handle("store:views", () => readViews(loreHome));
-  ipcMain.handle("schedule:install", () => lore(loreHome, ["profile", join(loreHome, "automation", "profile.json")]));
   ipcMain.handle("pricing:set", (_event, amount) => setPrice(loreHome, amount));
   ipcMain.handle("pricing:free-copies", (_event, count) => setFreeCopies(loreHome, count));
   ipcMain.handle("home:reveal", () => shell.openPath(loreHome));
@@ -235,7 +234,7 @@ function registerIpc(loreHome, schedule) {
   ipcMain.handle("routines:list", () => listRoutines(loreHome));
   ipcMain.handle("routines:noticed", () => lore(loreHome, ["automation", "noticed"]).then(() => undefined));
   ipcMain.handle("routines:run", async (_event, id) => {
-    const routine = (await listRoutines(loreHome)).find((each) => each.id === id && each.runner === "lore");
+    const routine = (await listRoutines(loreHome)).find((each) => each.id === id);
     if (!routine) throw new Error("Lore does not run that one");
     await schedule.runNow(routine);
   });

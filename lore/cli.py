@@ -6,7 +6,6 @@ import json
 import math
 import os
 import re
-import shutil
 import sys
 import urllib.parse
 from pathlib import Path
@@ -559,6 +558,13 @@ def main(argv: list[str] | None = None) -> int:
             return dashboard()
         args = parser().parse_args(["status"])
     try:
+        # Whichever the app asks first on launch, every routine is Lore's (AUT-010).
+        if args.command in ("automation", "desktop-state") and os.environ.get(
+            "LORE_APP_VERSION"
+        ):
+            from .automation import Routines
+
+            Routines().take_over()
         if args.command == "setup":
             return setup(args.yes)
         if args.command == "sync":
@@ -1453,17 +1459,15 @@ def profile(path: str, schedule: bool = True) -> int:
     schedule = schedule and os.environ.get("LORE_SKIP_SCHEDULE") != "1"
     text = sys.stdin.read() if path == "-" else Path(path).read_text(encoding="utf-8")
     data = json.loads(text)
-    # In the app, an owner with neither Claude Code nor Codex has Lore read for them.
-    if (
-        isinstance(data, dict)
-        and not data.get("executor")
-        and os.environ.get("LORE_APP_VERSION")
-        and not (shutil.which("claude") or shutil.which("codex"))
-    ):
+    # In the app, Lore runs every routine itself (AUT-010).
+    if isinstance(data, dict) and os.environ.get("LORE_APP_VERSION"):
         data["executor"] = automation.Agent.LORE
     data = automation.save_profile(data)
     automation.Routines().adopt()
     success(f"Saved profile to {automation.profile_path()}")
+    if data.get("executor") == automation.Agent.LORE:
+        success("Lore will read on this rhythm while the app is open")
+        return 0
     if not schedule:
         muted("Existing schedules were not changed.")
         return 0
@@ -1478,9 +1482,6 @@ def profile(path: str, schedule: bool = True) -> int:
         # "executor" value raises before install() is ever called.
         warn(automation.schedule_failure(str(data.get("executor", "")), error))
         return 1
-    if executor == automation.Agent.LORE:
-        success("Lore will read on this rhythm while the app is open")
-        return 0
     success(f"Configured {str(executor).title()} local schedule")
     return 0
 

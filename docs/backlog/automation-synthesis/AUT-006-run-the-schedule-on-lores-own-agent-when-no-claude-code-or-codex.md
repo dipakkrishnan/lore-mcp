@@ -10,7 +10,7 @@ blockers: []
 dependencies: []
 github_issue: null
 created: 2026-10-13
-updated: 2026-10-14
+updated: 2026-10-15
 ---
 
 ## Problem
@@ -70,3 +70,6 @@ read no longer writes a stale copy over a change made meanwhile.
 `install` for Lore calls `remove_all()` instead of building a throwaway task.
 In the app, a profile saved with no executor on a Mac with neither `claude`
 nor `codex` gets `lore`, and the onboarding skill sets it without asking.
+
+Oct 15: superseded in part by AUT-010. In the app, Lore is the only runner; an
+agent named in the profile is taken over on launch.
