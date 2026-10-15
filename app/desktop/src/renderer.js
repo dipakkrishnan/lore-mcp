@@ -1728,21 +1728,23 @@ function routineRow(routine) {
   toggle.setAttribute("aria-checked", String(!routine.paused));
   toggle.setAttribute("aria-label", `${routine.paused ? "Resume" : "Pause"} ${routine.name}`);
   toggle.addEventListener("click", () => void changeRoutine(routine, routine.paused ? "resume" : "pause"));
-  const menu = el("details", "row-menu");
-  const summary = el("summary", "icon-btn", "⋯");
-  summary.setAttribute("aria-label", `More for ${routine.name}`);
+  // A popover closes itself on a click elsewhere or Escape, and sits above every card.
+  const menu = el("button", "icon-btn", "⋯");
+  menu.type = "button";
+  menu.setAttribute("aria-label", `More for ${routine.name}`);
   const items = el("div", "row-menu-items");
+  items.popover = "auto";
+  menu.popoverTargetElement = items;
   const item = (/** @type {string} */ label, /** @type {() => void} */ pick) => {
     const node = el("button", "", label);
     node.type = "button";
-    node.addEventListener("click", () => { menu.open = false; pick(); });
+    node.addEventListener("click", () => { items.hidePopover(); pick(); });
     items.append(node);
   };
   item("Run now", () => void runRoutineNow(routine));
   item("Change time", () => openRoutineTime(routine));
   if (!routine.built_in) item("Remove", () => void changeRoutine(routine, "remove"));
-  menu.append(summary, items);
-  return row(routine.name, `${runsWhen({ cadence: routine.cadence, hour: routine.hour, day: routine.day ?? 0 })} · ${last}`, cell(toggle, menu), false);
+  return row(routine.name, `${runsWhen({ cadence: routine.cadence, hour: routine.hour, day: routine.day ?? 0 })} · ${last}`, cell(toggle, menu, items), false);
 }
 
 /** @param {Routine} routine @param {"pause" | "resume" | "remove" | "time"} action @param {RoutineTime} [time] */
