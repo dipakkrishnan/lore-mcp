@@ -222,6 +222,7 @@ def parser() -> argparse.ArgumentParser:
         help="read content from stdin instead of the positional argument",
     )
     memory_edit.add_argument("--json", action="store_true")
+    memory_commands.add_parser("rules", help="print what earns a place in memory")
 
     profile = commands.add_parser(
         "profile", help="save an agent-written synthesis profile"
@@ -232,6 +233,53 @@ def parser() -> argparse.ArgumentParser:
         action="store_true",
         help="write the profile without installing schedules",
     )
+
+    routines = commands.add_parser(
+        "automation", help="the routines the Lore app runs on its own"
+    )
+    routine_commands = routines.add_subparsers(dest="automation_command", required=True)
+    routine_list = routine_commands.add_parser(
+        "list", help="show each routine, when it runs next, and what it last found"
+    )
+    routine_list.add_argument("--json", action="store_true")
+    routine_commands.add_parser(
+        "noticed", help="record that the owner was told Lore's own routines are on"
+    )
+    routine_run = routine_commands.add_parser("run", help="run one routine now")
+    routine_run.add_argument("id")
+    routine_run.add_argument("--json", action="store_true")
+    routine_result = routine_commands.add_parser(
+        "result", help="say what a run came to, once the app knows"
+    )
+    routine_result.add_argument("id")
+    routine_result.add_argument("text")
+    routine_result.add_argument(
+        "--mark", type=int, help="the newest item the run's model judged"
+    )
+    for name, words in (
+        ("pause", "stop running"),
+        ("resume", "start running again"),
+        ("remove", "delete one of your own"),
+    ):
+        toggle = routine_commands.add_parser(name, help=f"{words} a routine")
+        toggle.add_argument("id")
+        toggle.add_argument("--json", action="store_true")
+    routine_time = routine_commands.add_parser("time", help="change when one runs")
+    routine_time.add_argument("id")
+    routine_add = routine_commands.add_parser(
+        "add", help="have Lore do something of yours at a set time"
+    )
+    routine_add.add_argument("text", help="what to do, in a sentence")
+    routine_add.add_argument(
+        "--title", default="", help="a name; the sentence by default"
+    )
+    for timed in (routine_time, routine_add):
+        timed.add_argument("--hour", type=int, required=True)
+        timed.add_argument(
+            "--cadence", choices=("daily", "weekdays", "weekly"), required=True
+        )
+        timed.add_argument("--day", type=int, default=0, help="0 is Monday")
+        timed.add_argument("--json", action="store_true")
 
     capture = commands.add_parser(
         "capture", help="save owner-approved private memories"
@@ -510,6 +558,13 @@ def main(argv: list[str] | None = None) -> int:
             return dashboard()
         args = parser().parse_args(["status"])
     try:
+        # Whichever the app asks first on launch, every routine is Lore's (AUT-010).
+        if args.command in ("automation", "desktop-state") and os.environ.get(
+            "LORE_APP_VERSION"
+        ):
+            from .automation import Routines
+
+            Routines().take_over()
         if args.command == "setup":
             return setup(args.yes)
         if args.command == "sync":
@@ -528,6 +583,11 @@ def main(argv: list[str] | None = None) -> int:
                 " ".join(args.query), args.status, args.limit, args.json, args.source
             )
         if args.command == "memory":
+            if args.memory_command == "rules":
+                from .automation import RULES
+
+                print(RULES, end="")
+                return 0
             if args.memory_command == "rename":
                 return rename_memory(args.id, args.title, args.json)
             if args.memory_command == "edit":
@@ -535,6 +595,8 @@ def main(argv: list[str] | None = None) -> int:
             return show_memory(args.id, args.json)
         if args.command == "profile":
             return profile(args.path, not args.no_schedule)
+        if args.command == "automation":
+            return automation_command(args)
         if args.command == "capture":
             return capture_apply(args.file)
         if args.command == "status":
@@ -925,6 +987,52 @@ def _source_line(entry: dict[str, object]) -> str:
         f"  {marker} {str(entry['label']):<14} {entry['state']} "
         f"· {entry['imported']} imported"
     )
+
+
+def automation_command(args: argparse.Namespace) -> int:
+    """List, run, pause or retime the app's routines; the app reads each as JSON."""
+    from .automation import NOTICED, Routines
+
+    command = args.automation_command
+    if command == "noticed":
+        with Store() as store:
+            store.set_setting(NOTICED, True)
+        return 0
+    routines = Routines()
+    if command == "result":
+        routines.record(args.id, args.text, args.mark)
+        return 0
+    if command == "run":
+        payload: object = routines.run(args.id)
+        lines = [f"Ran {args.id}: {routines.saved[args.id].result}"]
+    elif command == "remove":
+        routines.remove(args.id)
+        payload, lines = {"removed": args.id}, [f"Removed {args.id}."]
+    elif command == "add":
+        payload = added = routines.add(
+            args.text, args.cadence, args.hour, args.day, args.title
+        )
+        lines = [f"Added {added['id']}: {added['name']}"]
+    elif command in ("pause", "resume", "time"):
+        changes: dict[str, object] = (
+            {"paused": command == "pause"}
+            if command != "time"
+            else {"hour": args.hour, "cadence": args.cadence, "day": args.day}
+        )
+        payload = changed = routines.change(args.id, **changes)
+        lines = [f"{changed['name']}: {'paused' if changed['paused'] else 'on'}"]
+    else:
+        payload = listed = routines.list()
+        lines = [
+            f"  {routine['name']:<24} next {str(routine['next_run'])[:16]} · "
+            f"{routine['result'] or 'not run yet'}"
+            for routine in listed
+        ] or ["No routines yet."]
+    if args.json:
+        print(json.dumps(payload, separators=(",", ":"), allow_nan=False))
+    else:
+        print("\n".join(lines))
+    return 0
 
 
 def job(args: argparse.Namespace) -> int:
@@ -1351,8 +1459,15 @@ def profile(path: str, schedule: bool = True) -> int:
     schedule = schedule and os.environ.get("LORE_SKIP_SCHEDULE") != "1"
     text = sys.stdin.read() if path == "-" else Path(path).read_text(encoding="utf-8")
     data = json.loads(text)
+    # In the app, Lore runs every routine itself (AUT-010).
+    if isinstance(data, dict) and os.environ.get("LORE_APP_VERSION"):
+        data["executor"] = automation.Agent.LORE
     data = automation.save_profile(data)
+    automation.Routines().adopt()
     success(f"Saved profile to {automation.profile_path()}")
+    if data.get("executor") == automation.Agent.LORE:
+        success("Lore will read on this rhythm while the app is open")
+        return 0
     if not schedule:
         muted("Existing schedules were not changed.")
         return 0

@@ -24,5 +24,8 @@ cp app/desktop/out/make/zip/darwin/arm64/Lore-darwin-arm64-*.zip Lore-macOS-arm6
 gh release upload <tag> Lore-macOS-arm64.zip --clobber
 ```
 
+Keep that name: the app updates itself through update.electronjs.org, which
+picks the mac asset by `-macOS`/`-darwin` and `-arm64` in its name (APP-126).
+
 The zip is far over Cloudflare's 25 MiB asset cap, so the binary lives on
 GitHub Releases; the Worker serves only this page.

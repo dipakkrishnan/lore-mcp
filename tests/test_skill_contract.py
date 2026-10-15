@@ -35,9 +35,11 @@ OWNER_SKILL_GLOB = "lore-*"
 EXTERNAL_SKILLS = {
     "lore-buy",
     "lore-capture",
+    "lore-check-in",
     "lore-enable-payments",
     "lore-onboard",
     "lore-publish",
+    "lore-synthesize",
 }
 
 # A `lore <command> [subcommand]` invocation, anchored to the start of a shell line or
@@ -406,6 +408,41 @@ class SkillContractTest(unittest.TestCase):
             "never edit `lore.db`",
             "lore-publish",
             "capture never creates a publication itself",
+        ):
+            with self.subTest(boundary=boundary):
+                self.assertIn(boundary, skill)
+
+    def test_the_reading_skill_keeps_work_private_and_never_sells(self) -> None:
+        """AUT-005: it runs with nobody watching, so its boundaries are the only guard."""
+        skill = " ".join(
+            (OWNER_SKILLS / "lore-synthesize/SKILL.md").read_text().lower().split()
+        )
+        for boundary in (
+            "run `lore memory rules`",
+            "never ask the owner anything",
+            "when unsure, it is work",
+            "never suggest anything under `work/`",
+            "no company, people, client, or product names",
+            "`memories_ready`",
+            "never publish",
+        ):
+            with self.subTest(boundary=boundary):
+                self.assertIn(boundary, skill)
+
+    def test_the_check_in_skill_defaults_to_silence_and_saves_nothing(self) -> None:
+        """AUT-008: a check-in that nags gets turned off, so silence is the default."""
+        skill = " ".join(
+            (OWNER_SKILLS / "lore-check-in/SKILL.md").read_text().lower().split()
+        )
+        for boundary in (
+            "silence is the normal outcome",
+            "the library does not already explain",
+            "one to three questions, each about one specific item",
+            "never ask the owner anything",
+            "`check_in` once",
+            "the app, not you, decides whether anything is posted",
+            "only after they approve them",
+            "never save a memory, draft a publication",
         ):
             with self.subTest(boundary=boundary):
                 self.assertIn(boundary, skill)

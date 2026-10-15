@@ -1,6 +1,6 @@
 #!/bin/bash
 # Seed a scratch Lore home with two memories and two drafts, then drive the renderer as one persona.
-# Scenarios: seller | provision | store | jobs | fresh | feedback | listing | obsidian | connectors | faq | sell | cards | sales | extras | settings
+# Scenarios: seller | provision | store | jobs | fresh | feedback | listing | obsidian | connectors | reading | schedule | checkin | quiet | automations | faq | sell | cards | sales | extras | settings
 set -euo pipefail
 scenario="${1:-seller}"
 desktop_dir="$(cd "$(dirname "$0")/.." && pwd)"
@@ -12,7 +12,7 @@ export LORE_HOME="$root/home" LORE_DESKTOP_USER_DATA="$root/user-data" LORE_SKIP
 export LORE_USAGE_URL="http://127.0.0.1:9/events"
 # A fresh home stays empty: that persona checks what an owner sees before anything is kept. So
 # does the connectors one: a seller with no agents, whose first memories come from their apps.
-[[ "$scenario" == "fresh" || "$scenario" == "connectors" ]] || (
+[[ "$scenario" == "fresh" || "$scenario" == "connectors" || "$scenario" == "reading" ]] || (
   cd "$repo_root"
   echo '[{"title":"Hire management before rapid growth","content":"Add the management layer before the next ten engineers join, not after.","project":"team scaling"},{"title":"Price the first tier low","content":"A low first price gets the first ten buyers; raise it once there are receipts.","project":"pricing"}]' | uv run lore capture apply - >/dev/null
   echo '[{"title":"Hire management before rapid growth","teaser":"When to add managers in a fast-growing team.","content":"Add the management layer before the next ten engineers join, not after.","kind":"claim","topic":"team scaling","provenance":[1]},{"title":"Price the first tier low","teaser":"How to set a first price.","content":"A low first price gets the first ten buyers; raise it once there are receipts.","kind":"claim","topic":"pricing","provenance":[2]}]' | uv run lore publication draft - >/dev/null
@@ -37,7 +37,10 @@ with Store() as store:
  # conceded on the very next read. The long deadline keeps it Running.
  store.start_job('deploy', timeout_minutes=720)
 from lore import automation
-automation.save_profile({'executor': 'codex', 'cadence': 'daily', 'hour': 21})")
+automation.save_profile({'executor': 'codex', 'cadence': 'weekly', 'hour': 21})")
+  # AUT-010: the owner moved their Codex task to Sundays in Codex itself.
+  mkdir -p "$root/codex/automations/lore-memory-synthesis"
+  echo 'rrule = "FREQ=WEEKLY;BYDAY=SU;BYHOUR=21;BYMINUTE=0"' > "$root/codex/automations/lore-memory-synthesis/automation.toml"
 fi
 if [[ "$scenario" == "sales" ]]; then
   # MON-037: a store with one piece for sale and one card sale already in its ledger. The node's
@@ -119,7 +122,43 @@ if [[ "$scenario" == "obsidian" ]]; then
   printf '{"vaults":{"e1":{"path":"%s","ts":1,"open":true}}}' "$root/Edge Vault" > "$root/obsidian/obsidian.json"
   export OBSIDIAN_HOME="$root/obsidian"
 fi
-if [[ "$scenario" == "connectors" ]]; then
+if [[ "$scenario" == "schedule" ]]; then
+  # AUT-006: a seller with no Claude Code or Codex, whose rhythm Lore keeps. A vault connected two days
+  # ago has a note written since, and Lore was closed at every 9 AM in between.
+  mkdir -p "$root/Edge Vault"
+  printf '# One\n\nA first lesson long enough to be worth keeping.\n' > "$root/Edge Vault/one.md"
+  export OBSIDIAN_HOME="$root/obsidian" CLAUDE_HOME="$root/claude" CODEX_HOME="$root/codex"
+  (cd "$repo_root" && uv run lore sources connect obsidian --json -- "$root/Edge Vault" >/dev/null)
+  printf '# Two\n\nA second lesson, written after the vault was connected.\n' > "$root/Edge Vault/two.md"
+  (cd "$repo_root" && uv run python -c "
+from datetime import datetime, timedelta, timezone
+from lore import automation
+automation.save_profile({'executor': 'lore', 'cadence': 'daily', 'hour': 9})
+automation.Routines(clock=lambda: datetime.now(timezone.utc) - timedelta(days=2)).adopt()")
+fi
+if [[ "$scenario" == "automations" ]]; then
+  # APP-200: Lore keeps the reading rhythm, and the owner has one routine of their own.
+  export CLAUDE_HOME="$root/claude" CODEX_HOME="$root/codex"
+  (cd "$repo_root" && echo '{"executor": "lore", "cadence": "daily", "hour": 9}' | uv run lore profile - >/dev/null)
+  (cd "$repo_root" && uv run lore automation add --cadence weekly --hour 18 --day 6 -- "Every Sunday, remember what I read this week" >/dev/null)
+fi
+if [[ "$scenario" == "checkin" || "$scenario" == "quiet" ]]; then
+  # AUT-008: a connected vault, and an evening check-in turned on two days ago whose hour passed an hour ago, while
+  # Lore was closed. The note read in since is its one new item; the stand-in model either finds it worth asking
+  # about (checkin) or not (quiet). The check-in itself reads nothing.
+  mkdir -p "$root/Edge Vault"
+  printf '# One\n\nA first lesson long enough to be worth keeping.\n' > "$root/Edge Vault/one.md"
+  export CLAUDE_HOME="$root/claude" CODEX_HOME="$root/codex"
+  (cd "$repo_root" && uv run lore sources connect obsidian --json -- "$root/Edge Vault" >/dev/null)
+  (cd "$repo_root" && uv run python -c "
+from datetime import datetime, timedelta, timezone
+from lore import automation
+now = datetime.now(timezone.utc)
+automation.Routines(clock=lambda: now - timedelta(days=2)).change('checkin', paused=False, cadence='daily', hour=(now - timedelta(hours=1)).astimezone().hour)")
+  printf '# Pushed back on the Acme pricing call\n\nHeld the price; no reason written down.\n' > "$root/Edge Vault/two.md"
+  (cd "$repo_root" && uv run lore sources read >/dev/null)
+fi
+if [[ "$scenario" == "connectors" || "$scenario" == "reading" ]]; then
   # One app of each shape the catalog knows: a vault to choose (and a stale one to fail on), a
   # newsletter to address, an export to import.
   mkdir -p "$root/obsidian" "$root/Edge Vault"
