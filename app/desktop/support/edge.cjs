@@ -550,8 +550,16 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         const nav = await js(`[...document.querySelectorAll("nav button")].map((b) => b.dataset.view).join()`);
         check("the sidebar lists only the five main places", nav === "today,memories,store,connectors,automations", nav);
         check("…and no lone feedback link outside the account menu", await js(`document.querySelector("#account-menu").contains(document.querySelector("#feedback-open")) && !document.querySelector("aside > .feedback-open")`));
+        // APP-202: a new owner finds the FAQ from Today until a paid sale or until they close the line.
+        check("Today offers a new owner How it works", await js(`document.querySelector("#content .how-it-works")?.textContent.includes("How it works") === true`));
+        await js(`[...document.querySelectorAll("#content .how-it-works button")].find((b) => b.textContent === "How it works").click()`);
+        check("…which opens the FAQ", await waitFor(`document.querySelector("#title").textContent === "FAQ"`));
+        await js(`window.__lore.show("today")`);
+        await js(`document.querySelector("#content .how-it-works .dismiss").click()`);
+        await js(`window.__lore.show("memories"); window.__lore.show("today")`);
+        check("…and once closed it stays closed", await js(`document.querySelector("#content .strip") !== null && document.querySelector("#content .how-it-works") === null`));
         await js(`document.querySelector("#account").click()`);
-        const menu = await js(`[...document.querySelectorAll("#account-menu button:not([hidden]), #account-menu p")].map((b) => b.textContent).join("|")`);
+        const menu =await js(`[...document.querySelectorAll("#account-menu button:not([hidden]), #account-menu p")].map((b) => b.textContent).join("|")`);
         check("the account row opens a menu: Settings, Help & FAQ, feedback when it can be sent, then who is signed in", /^Settings⌘,\|Help & FAQ\|(Report feedback\|)?Signed in with Claude\|Sign out of Claude$/.test(menu), menu);
         check("…with focus on its first item, and the row saying it is open", await js(`document.activeElement === document.querySelector("#account-menu [data-view=settings]") && document.querySelector("#account").getAttribute("aria-expanded") === "true"`));
         await shot("account-menu");
