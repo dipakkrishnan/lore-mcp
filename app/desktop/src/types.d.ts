@@ -25,8 +25,10 @@ type Snapshot = {
     // Anonymous usage events (APP-058): on unless turned off, sent only once the notice was shown.
     telemetry_enabled?: boolean;
     telemetry_noticed?: boolean;
-    // What the saved rhythm asks for and whether the scheduler holds it; null
-    // with no profile. Optional: an installed CLI older than this app omits it.
+    // Whether the owner was told, once, that Lore's own routines are on (AUT-009).
+    automations_noticed?: boolean;
+    // Who reads the connected apps and when, and whether the scheduler holds it; Lore itself
+    // when no profile names an agent. Optional: an installed CLI older than this app omits it.
     // With Lore itself as the runner (AUT-006), also when it last read and whether it missed an hour while closed.
     schedule?: { installed: boolean; executor: "claude" | "codex" | "lore" | null; cadence: "daily" | "weekly" | null; hour: number | null; last_run?: string | null; missed?: boolean; paused?: boolean } | null;
   };
@@ -317,6 +319,7 @@ interface Window {
     clearMemories(): Promise<void>;
     checkIn(): Promise<CheckIn | null>;
     routines(): Promise<Routine[]>;
+    noticedRoutines(): Promise<void>;
     runRoutine(id: string): Promise<void>;
     changeRoutine(id: string, action: "pause" | "resume" | "remove" | "time", when?: RoutineTime): Promise<void>;
     addRoutine(text: string, when: RoutineTime, title?: string): Promise<Routine>;

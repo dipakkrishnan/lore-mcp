@@ -81,6 +81,7 @@ contextBridge.exposeInMainWorld("lore", {
   clearMemories: () => ipcRenderer.invoke("ready:clear"),
   checkIn: () => ipcRenderer.invoke("checkin:waiting"),
   routines: () => ipcRenderer.invoke("routines:list"),
+  noticedRoutines: () => ipcRenderer.invoke("routines:noticed"),
   /** @param {string} id */
   runRoutine: (id) => ipcRenderer.invoke("routines:run", id),
   /** @param {string} id @param {string} action @param {RoutineTime} [when] */

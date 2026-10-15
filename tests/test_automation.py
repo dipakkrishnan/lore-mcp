@@ -370,9 +370,7 @@ class LoreScheduleTest(LoreTestCase):
         with self.assertRaisesRegex(ValueError, "does not run"):
             self.routines(local(20, 12)).run("synthesis")
         automation.save_profile(automation_profile(executor=""))
-        self.assertEqual(
-            [r["id"] for r in self.routines(local(20, 12)).list()], ["checkin"]
-        )
+        self.assertEqual(self.routines(local(20, 12)).get("synthesis").runner, "lore")
 
     def test_the_schedule_state_says_when_lore_missed_a_run(self) -> None:
         automation.save_profile(automation_profile(executor="lore", cadence="daily"))
@@ -408,7 +406,7 @@ class LoreScheduleTest(LoreTestCase):
             self.routines(local(14, 8)).run("synthesis")
         self.assertEqual(stat.S_IMODE(path.stat().st_mode), 0o600)
 
-    def test_listing_writes_nothing_and_a_rhythm_counts_from_when_it_was_set(
+    def test_looking_writes_nothing_and_a_rhythm_counts_from_when_it_was_set(
         self,
     ) -> None:
         automation.save_profile(automation_profile(executor="lore", cadence="daily"))
@@ -453,6 +451,77 @@ class LoreScheduleTest(LoreTestCase):
         self.assertEqual(saved["executor"], "lore")
 
 
+def checkin(routines: automation.Routines) -> dict[str, object]:
+    return next(r for r in routines.list() if r["id"] == "checkin")
+
+
+class OnByDefaultTest(LoreTestCase):
+    """AUT-009: Lore's own routines are on from the start, until the owner pauses one."""
+
+    def test_with_no_profile_lore_reads_each_morning_and_checks_in_at_six(
+        self,
+    ) -> None:
+        reading, check_in = automation.Routines(clock=lambda: local(14, 8)).list()
+        self.assertEqual(
+            (reading["runner"], reading["cadence"], reading["hour"], reading["paused"]),
+            ("lore", "daily", 9, False),
+        )
+        self.assertEqual(
+            (check_in["runner"], check_in["cadence"], check_in["hour"]),
+            ("lore", "weekdays", 18),
+        )
+        self.assertFalse(check_in["paused"])
+        later = automation.Routines(clock=lambda: local(14, 10)).list()
+        self.assertEqual([r["due"] for r in later], [True, False])
+        state = automation.schedule_state()
+        self.assertEqual((state["executor"], state["hour"]), ("lore", 9))
+
+    def test_an_agent_keeps_reading_and_the_check_in_is_on(self) -> None:
+        automation.save_profile(automation_profile(executor="codex"))
+        reading, check_in = automation.Routines(clock=lambda: local(14, 8)).list()
+        self.assertEqual((reading["runner"], reading["due"]), ("codex", False))
+        self.assertFalse(check_in["paused"])
+        self.assertTrue(
+            checkin(automation.Routines(clock=lambda: local(14, 19)))["due"]
+        )
+
+    def test_a_pause_kept_by_an_earlier_build_stays(self) -> None:
+        path = self.lore_home / "automation/routines.json"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        since = local(1, 8).isoformat()
+        path.write_text(
+            json.dumps(
+                {
+                    "synthesis": {"since": since, "paused": True},
+                    "checkin": {"since": since, "paused": True, "hour": 20},
+                }
+            )
+        )
+        listed = automation.Routines(clock=lambda: local(14, 21)).list()
+        self.assertEqual([(r["paused"], r["due"]) for r in listed], [(True, False)] * 2)
+        self.assertEqual(listed[1]["hour"], 20)
+
+    def test_turning_on_by_default_never_runs_one_at_once(self) -> None:
+        # Upgraded at 7 PM on a weekday, long after both hours had passed.
+        upgraded = automation.Routines(clock=lambda: local(14, 19)).list()
+        self.assertEqual([r["due"] for r in upgraded], [False, False])
+        self.assertEqual(
+            [r["next_run"] for r in upgraded],
+            [local(15, 9).isoformat(), local(15, 18).isoformat()],
+        )
+        relaunched = automation.Routines(clock=lambda: local(14, 23)).list()
+        self.assertEqual([r["due"] for r in relaunched], [False, False])
+
+    def test_being_told_is_remembered(self) -> None:
+        def told() -> object:
+            with store_module.Store() as store:
+                return store.setting(automation.NOTICED, False)
+
+        self.assertFalse(told())
+        self.assertEqual(cli.main(["automation", "noticed"]), 0)
+        self.assertTrue(told())
+
+
 class CheckInTest(LoreTestCase):
     """AUT-008: the evening check-in is one of Lore's own routines."""
 
@@ -465,7 +534,7 @@ class CheckInTest(LoreTestCase):
     def test_it_runs_at_six_on_weekdays_once_turned_on(self) -> None:
         # The 16th is a Friday: after six, the next one is Monday, not the weekend.
         self.on(local(16, 9))
-        [routine] = automation.Routines(clock=lambda: local(16, 17)).list()
+        routine = checkin(automation.Routines(clock=lambda: local(16, 17)))
         self.assertEqual(
             (routine["id"], routine["kind"], routine["runner"], routine["cadence"]),
             ("checkin", "checkin", "lore", "weekdays"),
@@ -476,21 +545,27 @@ class CheckInTest(LoreTestCase):
         )
         self.assertFalse(routine["paused"])
 
-    def test_it_is_on_only_for_lore_as_the_runner_or_when_the_owner_says(
-        self,
-    ) -> None:
-        for executor in ("claude", "codex", ""):
-            with self.subTest(executor=executor):
-                automation.save_profile(automation_profile(executor=executor))
-                listed = automation.Routines(clock=lambda: local(20, 19)).list()
-                checkin = next(r for r in listed if r["id"] == "checkin")
-                self.assertEqual((checkin["paused"], checkin["due"]), (True, False))
+    def test_it_is_on_whoever_reads_until_the_owner_pauses_it(self) -> None:
         path = self.lore_home / "profile-input.json"
-        path.write_text(json.dumps(automation_profile(executor="lore")))
-        with patch("lore.automation.remove_task"), captured():
-            self.assertEqual(cli.main(["profile", str(path)]), 0)
-        listed = automation.Routines().list()
-        self.assertFalse(next(r for r in listed if r["id"] == "checkin")["paused"])
+        path.parent.mkdir(parents=True, exist_ok=True)
+        for executor in ("claude", "codex", "lore"):
+            with self.subTest(executor=executor):
+                path.write_text(json.dumps(automation_profile(executor=executor)))
+                with (
+                    patch("lore.automation.remove_task"),
+                    patch("lore.automation.install_task", return_value=Path("t")),
+                    captured(),
+                ):
+                    self.assertEqual(cli.main(["profile", str(path)]), 0)
+                self.assertFalse(checkin(automation.Routines())["paused"])
+        automation.Routines().change("checkin", paused=True)
+        with (
+            patch("lore.automation.remove_task"),
+            patch("lore.automation.install_task", return_value=Path("t")),
+            captured(),
+        ):
+            cli.main(["profile", str(path)])
+        self.assertTrue(checkin(automation.Routines())["paused"])
 
     def test_it_reads_nothing_and_asks_only_about_what_came_in_since_it_judged(
         self,
@@ -533,7 +608,7 @@ class CheckInTest(LoreTestCase):
         # Closed at 6 PM, opened at 9 AM the next morning.
         ran = automation.Routines(clock=lambda: local(15, 9)).run("checkin")
         self.assertEqual(ran, {"routine": ran["routine"], "items": [], "missed": True})
-        [routine] = automation.Routines(clock=lambda: local(15, 9)).list()
+        routine = checkin(automation.Routines(clock=lambda: local(15, 9)))
         self.assertEqual(routine["result"], "Skipped: Lore wasn't open at 6 PM")
         self.assertFalse(routine["due"])
         # Opened an hour after six, it still asks.
@@ -544,17 +619,17 @@ class CheckInTest(LoreTestCase):
         self.on(local(12, 9))
         with captured():
             self.assertEqual(cli.main(["automation", "pause", "checkin"]), 0)
-        [routine] = automation.Routines(clock=lambda: local(16, 20)).list()
+        routine = checkin(automation.Routines(clock=lambda: local(16, 20)))
         self.assertEqual((routine["paused"], routine["due"]), (True, False))
         # Paused for days and resumed at 8 PM: the next is tomorrow's six, not now.
-        [routine] = self.on(local(16, 20)).list()
+        routine = checkin(self.on(local(16, 20)))
         self.assertEqual(
             (routine["due"], routine["next_run"]), (False, local(19, 18).isoformat())
         )
         # Moved from six to nine in the morning, at noon: tomorrow at nine.
         routines = automation.Routines(clock=lambda: local(19, 12))
         routines.change("checkin", hour=9, cadence="daily")
-        [routine] = routines.list()
+        routine = checkin(routines)
         self.assertEqual(
             (routine["due"], routine["next_run"]), (False, local(20, 9).isoformat())
         )

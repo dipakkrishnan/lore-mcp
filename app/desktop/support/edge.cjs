@@ -196,8 +196,8 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         // A "changed" event is what makes the renderer re-read the snapshot;
         // switching views alone re-renders what it already had.
         await js(`window.__lore.event({ type: "changed" })`);
-        await sleep(800);
-        check("an owner with no runs yet sees no Recent runs section", await js(`![...document.querySelectorAll("#content .section")].some((s) => s.textContent.includes("Recent runs"))`));
+        // The re-read runs the CLI several times; on a busy Mac it takes longer than any fixed pause.
+        check("an owner with no runs yet sees no Recent runs section", await waitFor(`![...document.querySelectorAll("#content .section")].some((s) => s.textContent.includes("Recent runs"))`));
         check("the rest of Today still renders", await js(`document.querySelector("#content .strip") !== null`));
         await js(`[...document.querySelectorAll("#content .section")].find((s) => s.textContent.includes("Recent runs"))?.scrollIntoView()`);
         await sleep(300);
@@ -315,6 +315,16 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         await waitFor(`document.body.dataset.state === "welcome" && !document.querySelector("#welcome").classList.contains("provisioning")`);
         await js(`window.__lore.signIn()`);
         await waitFor(`document.querySelector("#content .strip")`);
+        // AUT-009: with no profile, Lore's own routines are on from the start, and the owner is told once.
+        const told = `[...document.querySelectorAll("#status .notice")].filter((n) => n.textContent.includes("Change this in Automations"))`;
+        check("the first launch says once that Lore reads and checks in on its own", await waitFor(`${told}.length === 1`) && (await js(`${told}[0].textContent`)).startsWith("Lore reads your connected apps every day at 9 AM and checks in at 6 PM when something's worth asking."), await js(`document.querySelector("#status").textContent`));
+        check("…alongside the usage notice, not in place of it", await waitFor(`document.querySelector("#status").textContent.includes("anonymous usage events")`) && await js(`${told}.length === 1`));
+        check("…and remembers having said it", await waitFor(`window.lore.snapshot().then((s) => s.setup.automations_noticed === true)`));
+        await shot("automations-on-notice");
+        await js(`[...${told}[0].querySelectorAll("button")].find((b) => b.textContent === "Automations").click()`);
+        await sleep(500);
+        check("its Automations button shows both of Lore's own on", await js(`document.querySelector("#title").textContent`) === "Automations" && await js(`[...document.querySelectorAll("#content .switch")].map((s) => s.getAttribute("aria-label") + "=" + s.getAttribute("aria-checked")).join("|")`) === "Pause Read connected apps=true|Pause Evening check-in=true", await js(`document.querySelector("#content").textContent`));
+        await shot("automations-on-by-default");
         await js(`window.__lore.show("memories")`);
         await sleep(400);
         const memories = await js(`document.querySelector("#content .empty")?.textContent ?? ""`);
@@ -334,6 +344,14 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         await js(`[...document.querySelectorAll("#content .empty button")].find((b) => b.textContent === "Draft your first piece").click()`);
         await sleep(300);
         check("Draft your first piece opens Memories", await js(`document.querySelector("#title").textContent`) === "Memories");
+        // Opened again: a new page on the same Lore home.
+        const reloaded = new Promise((done) => window.webContents.once("did-finish-load", done));
+        window.webContents.reload();
+        await reloaded;
+        await js(`window.__lore.signIn()`);
+        await waitFor(`document.querySelector("#content .strip")`);
+        await sleep(1500);
+        check("opened again, it says nothing more about it", !(await js(`document.querySelector("#status").textContent.includes("Change this in Automations")`)), await js(`document.querySelector("#status").textContent`));
       } else if (scenario === "obsidian") {
         // APP-124: an app by name, one Connect, the vault offered rather than asked for.
         await waitFor(`document.body.dataset.state === "welcome" && !document.querySelector("#welcome").classList.contains("provisioning")`);
@@ -431,7 +449,8 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         await js(clickOn("Substack"));
         await waitFor(`document.querySelector("dialog.sheet[open]")`);
         const manage = await js(`document.querySelector("dialog.sheet[open]").textContent`);
-        check("with no schedule, a newsletter says it is read again only by hand", /new posts only when you choose Read again/.test(manage) && !/on its own/.test(manage), manage);
+        // AUT-009: with no agent, Lore keeps the reading schedule itself from the start.
+        check("with no agent, a newsletter says Lore reads it on the schedule", /new posts each time your schedule runs/.test(manage), manage);
         check("Manage offers the same next step", manage.includes(sell), manage);
         await js(`document.querySelector("dialog.sheet[open] .icon-btn").click()`);
         await sleep(200);
@@ -645,7 +664,7 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         })()`);
         check("editing a field mid-request leaves Send disabled", midFlight.disabled === true, JSON.stringify(midFlight));
         await send();
-        check("the report lands", await waitFor(`document.querySelector("#status .notice")?.textContent.includes("Filed as")`));
+        check("the report lands", await waitFor(`document.querySelector("#status").textContent.includes("Filed as")`));
         await sleep(1800);
         check("one owner action filed exactly one issue", relayReports.length === 1, `relay saw ${relayReports.length}`);
         await shot("feedback-filed");

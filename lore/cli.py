@@ -243,6 +243,9 @@ def parser() -> argparse.ArgumentParser:
         "list", help="show each routine, when it runs next, and what it last found"
     )
     routine_list.add_argument("--json", action="store_true")
+    routine_commands.add_parser(
+        "noticed", help="record that the owner was told Lore's own routines are on"
+    )
     routine_run = routine_commands.add_parser("run", help="run one routine now")
     routine_run.add_argument("id")
     routine_run.add_argument("--json", action="store_true")
@@ -982,10 +985,14 @@ def _source_line(entry: dict[str, object]) -> str:
 
 def automation_command(args: argparse.Namespace) -> int:
     """List, run, pause or retime the app's routines; the app reads each as JSON."""
-    from .automation import Routines
+    from .automation import NOTICED, Routines
 
-    routines = Routines()
     command = args.automation_command
+    if command == "noticed":
+        with Store() as store:
+            store.set_setting(NOTICED, True)
+        return 0
+    routines = Routines()
     if command == "result":
         routines.record(args.id, args.text, args.mark)
         return 0

@@ -33,6 +33,8 @@ from .store import STATUSES
 PROFILE = "automation/profile.json"
 PROMPT = "automation/synthesis-prompt.md"
 ROUTINES = "automation/routines.json"
+# Set once the owner has been told Lore's own routines are on.
+NOTICED = "automations_noticed"
 # Fields that belong in profile.json. The onboarding checkpoint reuses this file to
 # carry its own state; persist only these so that state never leaks into the profile
 # the synthesis prompt reads.
@@ -330,33 +332,30 @@ def install(profile: dict[str, object]) -> Path:
     return installed
 
 
-def schedule_state() -> dict[str, object] | None:
-    """What the saved profile asks for, and whether the scheduler holds it.
+def schedule_state() -> dict[str, object]:
+    """Who reads the connected apps and when, and whether that is really running.
 
     A saved profile is not a running schedule: the install can fail, a sandbox
     can skip it, and launchd can lose it. This asks the scheduler itself, so
     the desktop reports execution rather than configuration (APP-084).
     """
-    path = profile_path()
-    if not path.is_file():
-        return None
+    reading = Routines().get(ReadApps.id)
+    if reading.runner == Agent.LORE:
+        # Held by the app, so it is never "installed" anywhere else; what is
+        # honest to say is when it last ran and whether a run was missed.
+        routine = reading.listed()
+        return {
+            "installed": not routine["paused"],
+            "paused": routine["paused"],
+            "executor": Agent.LORE,
+            "cadence": routine["cadence"],
+            "hour": routine["hour"],
+            "last_run": routine["last_run"],
+            "missed": routine["due"],
+        }
     try:
-        profile = json.loads(path.read_text(encoding="utf-8"))
-        if profile.get("executor") == Agent.LORE:
-            # Held by the app, so it is never "installed" anywhere else; what is
-            # honest to say is when it last ran and whether a run was missed.
-            routine = Routines().get(ReadApps.id).listed()
-            return {
-                "installed": not routine["paused"],
-                "paused": routine["paused"],
-                "executor": Agent.LORE,
-                "cadence": routine["cadence"],
-                "hour": routine["hour"],
-                "last_run": routine["last_run"],
-                "missed": routine["due"],
-            }
-        task = task_for(profile)
-    except (OSError, ValueError):
+        task = task_for(reading.routines.profile)
+    except ValueError:
         return {"installed": False, "executor": None, "cadence": None, "hour": None}
     state: dict[str, object] = {
         "installed": task_status(task, codex_home=codex_home()),
@@ -365,7 +364,7 @@ def schedule_state() -> dict[str, object] | None:
         "hour": task.hour,
     }
     # Taken down on purpose from Automations, not lost by the scheduler.
-    if Routines().get(ReadApps.id).paused:
+    if reading.paused:
         state["paused"] = True
     return state
 
@@ -399,7 +398,7 @@ class Saved(BaseModel):
     cadence: Literal["daily", "weekdays", "weekly"] | None = None
     hour: Annotated[int, Field(ge=0, le=23)] | None = None
     day: Annotated[int, Field(ge=0, le=6)] | None = None
-    # The owner's choice; until they make one, a routine keeps its kind's default.
+    # Only ever the owner's choice: every routine is on until they pause it.
     paused: bool | None = None
     # The newest item a run had judged, so the next asks only about what came after.
     mark: int | None = None
@@ -437,6 +436,10 @@ class Routine:
     def rhythm(self) -> tuple[str, int, int]:
         """How often, at what hour, and on which day of a weekly rhythm."""
         raise NotImplementedError
+
+    def set_up(self) -> None:
+        """On from now: it waits for its next hour rather than running at once."""
+        self.routines.save(self.routine_id, since=self.routines.clock())
 
     def run(self) -> dict[str, object]:
         raise NotImplementedError
@@ -486,7 +489,8 @@ class Routine:
 
 
 class ReadApps(Routine):
-    """Read every connected app on the profile's rhythm (AUT-006)."""
+    """Read every connected app on the profile's rhythm (AUT-006), by the agent the
+    profile names, or by Lore itself when it names none."""
 
     id = "synthesis"
     kind = "read"
@@ -494,12 +498,14 @@ class ReadApps(Routine):
 
     @property
     def runner(self) -> str:
-        return str(self.routines.profile.get("executor") or "")
+        return str(self.routines.profile.get("executor") or Agent.LORE)
 
     def rhythm(self) -> tuple[str, int, int]:
         profile = self.routines.profile
-        cadence, hour = profile.get("cadence", "daily"), profile.get("hour", 21)
-        return str(cadence), int(str(hour)), 0
+        # An agent reads at night as it always has; Lore reads in the morning, while
+        # it is likely open, so the evening check-in has the day's items to look at.
+        hour = profile.get("hour", 9 if self.runner == Agent.LORE else 21)
+        return str(profile.get("cadence", "daily")), int(str(hour)), 0
 
     def change(self, **changes: object) -> None:
         """Its rhythm lives in the profile, every day or every Monday, as the agents
@@ -543,8 +549,7 @@ class CheckIn(Routine):
     """AUT-008: at the end of a weekday, ask about what came in only if it is worth it.
 
     It reads nothing itself: it looks at what a reading, a connect or a Read again
-    brought in since it last judged. On until paused when Lore is the runner, and
-    off until turned on when Claude Code or Codex is.
+    brought in since it last judged, so it is on whoever does the reading.
     """
 
     id = "checkin"
@@ -553,12 +558,6 @@ class CheckIn(Routine):
     # Due later than this after its hour, Lore was closed or asleep: asking then
     # would come out of nowhere, so the run is recorded as missed instead.
     late = timedelta(hours=3)
-
-    @property
-    def paused(self) -> bool:
-        if self.saved and self.saved.paused is not None:
-            return self.saved.paused
-        return self.routines.profile.get("executor") != Agent.LORE
 
     def rhythm(self) -> tuple[str, int, int]:
         saved = self.saved or Saved(since=self.routines.clock(), cadence="weekdays")
@@ -572,6 +571,12 @@ class CheckIn(Routine):
         if self.saved is None or self.saved.mark is None:
             changes["mark"] = self.routines.newest()
         super().change(**changes)
+
+    def set_up(self) -> None:
+        """On from now, asking only about what comes in after this."""
+        self.routines.save(
+            self.id, since=self.routines.clock(), mark=self.routines.newest()
+        )
 
     def run(self) -> dict[str, object]:
         """Every private item brought in since the last judged run, for the app's
@@ -623,7 +628,7 @@ class Routines:
 
     The app asks for this list and runs what is due; it keeps no copy. A routine
     whose hour passed while Lore was closed is due once, however many it missed.
-    Listing only reads: a record is written when a routine is set up or runs.
+    Lore's own are on until the owner pauses them; the first listing sets them up.
     """
 
     records = TypeAdapter(dict[str, Saved])
@@ -653,9 +658,10 @@ class Routines:
     def list(self) -> list[dict[str, object]]:
         """Every routine someone runs, Lore's own first, with when it runs next and
         whether the app owes it a run."""
+        self.begin()
         own = (k.id for k in Routine.__subclasses__() if k.id)
-        routines = map(self.get, dict.fromkeys([*own, *self.saved]))
-        return [routine.listed() for routine in routines if routine.runner]
+        ids = dict.fromkeys([*own, *self.saved])
+        return [self.get(routine_id).listed() for routine_id in ids]
 
     def add(
         self, prompt: str, cadence: str, hour: int, day: int = 0, title: str = ""
@@ -691,10 +697,16 @@ class Routines:
 
     def adopt(self) -> None:
         """The owner just saved their rhythm: it counts from now, so nothing runs at
-        once. With Lore as the runner, its check-in starts from what is here now."""
+        once."""
         self.save(ReadApps.id, since=self.clock(), paused=False)
-        if self.profile.get("executor") == Agent.LORE and CheckIn.id not in self.saved:
-            self.save(CheckIn.id, mark=self.newest())
+        self.begin()
+
+    def begin(self) -> None:
+        """Set up any of Lore's own not yet kept: on from now, so turning one on by
+        default never runs it at once. A record already kept, pause and all, stays."""
+        for kind in Routine.__subclasses__():
+            if kind.id and kind.id not in self.saved:
+                kind(self, kind.id, None).set_up()
 
     def newest(self) -> int:
         from .store import Store

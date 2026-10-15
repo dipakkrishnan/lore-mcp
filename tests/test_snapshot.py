@@ -184,15 +184,19 @@ class DesktopSnapshotTest(LoreTestCase):
                 "sources_configured": True,
                 "blueprint_configured": True,
                 "profile_configured": True,
-                # An empty profile names no executor, so nothing can be scheduled.
+                # An empty profile names no agent, so Lore reads, each morning.
                 "schedule": {
-                    "installed": False,
-                    "executor": None,
-                    "cadence": None,
-                    "hour": None,
+                    "installed": True,
+                    "paused": False,
+                    "executor": "lore",
+                    "cadence": "daily",
+                    "hour": 9,
+                    "last_run": None,
+                    "missed": False,
                 },
                 "telemetry_enabled": True,
                 "telemetry_noticed": False,
+                "automations_noticed": False,
             },
         )
         self.assertEqual(state["library"]["counts"], {"private": 6})
@@ -252,7 +256,7 @@ class DesktopSnapshotTest(LoreTestCase):
     def test_the_schedule_is_reported_from_the_scheduler_not_the_profile(
         self,
     ) -> None:
-        self.assertIsNone(snapshot.build()["setup"]["schedule"])
+        self.assertEqual(snapshot.build()["setup"]["schedule"]["executor"], "lore")
         automation.save_profile(
             {"executor": "claude", "cadence": "weekly", "hour": 21, "model": "opus"}
         )
