@@ -76,9 +76,9 @@ function registerIpc(loreHome) {
     if (!input || typeof input.text !== "string" || input.text.length > 100_000 || !TASKS.has(input.task) || (input.from !== undefined && !TASKS.has(input.from)) || (input.memory !== undefined && !Number.isInteger(input.memory)) || (input.source !== undefined && typeof input.source !== "string")) {
       throw new Error("Invalid prompt");
     }
-    // The owner's first word to a check-in answers it: the agent is told what was asked, once.
-    const asked = input.task === "evening" ? checkIns.answer() : Promise.resolve(null);
-    return asked.then((checkIn) => ready().prompt(input.text, input.task, input.from, input.memory, input.source, checkIn));
+    // The owner's first word to a check-in answers it, once the turn went through; one that failed leaves it waiting.
+    const turn = ready().prompt(input.text, input.task, input.from, input.memory, input.source);
+    return input.task === "evening" ? turn.then(() => checkIns.answer()) : turn;
   });
   ipcMain.handle("agent:history", (_event, task) => {
     if (!TASKS.has(task)) throw new Error("Invalid task");
@@ -229,7 +229,7 @@ function registerIpc(loreHome) {
   ipcMain.handle("ready:seen", () => newMemories.seen());
   ipcMain.handle("ready:clear", () => newMemories.clear());
   ipcMain.handle("checkin:waiting", () => checkIns.waiting());
-  ipcMain.handle("checkin:dismiss", () => checkIns.expire());
+  ipcMain.handle("checkin:dismiss", () => checkIns.expire().then(closeCheckIn));
   ipcMain.handle("sources:remove", (_event, name, keep) => removeSource(loreHome, name, keep === true));
   // The Files and Folders pane, where the owner grants the read a folder needs.
   ipcMain.handle("settings:privacy", () => shell.openExternal("x-apple.systempreferences:com.apple.preference.security?Privacy_FilesAndFolders"));
@@ -273,16 +273,35 @@ function reveal(event) {
 /** What the app does with each kind of routine's run, by the `kind` the CLI names. A new kind is one entry here.
  * @type {Record<Routine["kind"], (loreHome: string, ran: RoutineRun) => void | Promise<void>>} */
 const AFTER_RUN = {
-  read: (loreHome, ran) => queueReadings(loreHome, ran.reads),
-  // The check-in first retires one the owner never answered, then, after those readings, looks over today's items
-  // only if there are any; a day with none costs no model at all.
-  checkin: async (loreHome, { reads, items = [] }) => {
-    await queueReadings(loreHome, reads);
-    await checkIns.expire();
-    if (items.length && agent) agent.checkIn({ items });
-    else await lore(loreHome, ["automation", "result", "checkin", "Nothing new to ask about"]);
+  read: (loreHome, ran) => queueReadings(loreHome, ran.reads ?? []),
+  // The check-in retires one from an earlier day the owner never answered, and asks at most once a day. It looks over
+  // what came in only if anything did; a day with nothing costs no model at all. A missed one the CLI already recorded.
+  checkin: async (loreHome, { items = [], mark, missed }) => {
+    if (missed) return;
+    await checkIns.retire().then(closeCheckIn);
+    if (await checkIns.askedToday()) return;
+    if (!items.length) await recordCheckIn(loreHome, NOTHING_TO_ASK, mark);
+    else if (agent) agent.checkIn({ items, mark });
+    else await recordCheckIn(loreHome, COULD_NOT_LOOK);
   }
 };
+
+const NOTHING_TO_ASK = "Nothing new to ask about";
+const COULD_NOT_LOOK = "Couldn't look over today. Lore will try again next time";
+
+/** What the check-in came to; with `mark`, the newest item its model judged, so the next one starts after it.
+ * @param {string} loreHome @param {string} result @param {number} [mark] */
+function recordCheckIn(loreHome, result, mark) {
+  return lore(loreHome, ["automation", "result", "checkin", result, ...(mark === undefined ? [] : ["--mark", String(mark)])]);
+}
+
+/** A check-in that went unanswered takes its thread off Today with it. @param {boolean} expired */
+function closeCheckIn(expired) {
+  if (!expired) return;
+  try {
+    agent?.restart("evening");
+  } catch {}
+}
 
 /** Run one routine through the CLI, then do what its kind asks with what it brought. @param {string} loreHome @param {Routine} routine */
 async function runNow(loreHome, routine) {
@@ -469,14 +488,14 @@ async function start(loreHome) {
     },
     drafts: async () => (await candidates(loreHome)).length + (await extrasCandidates(loreHome)).length,
     checkedIn: async (job, verdict) => {
+      if (!verdict) return void (await recordCheckIn(loreHome, COULD_NOT_LOOK));
       // The model only says whether it would reach out; posting is the app's call, and at most once a day.
       const posting = await checkIns.consider(verdict, job.items);
-      await lore(loreHome, ["automation", "result", "checkin", posting ? `Asked about ${reading.plural(posting.questions.length, "thing")}` : "Nothing worth asking"]);
+      await recordCheckIn(loreHome, posting ? `Asked about ${reading.plural(posting.questions.length, "thing")}` : NOTHING_TO_ASK, job.mark);
       if (!posting) return;
-      // A thread left from an earlier check-in closes, so the new questions start their own.
-      try {
-        agent?.restart("evening");
-      } catch {}
+      // The questions open a thread of their own, as Lore's first message, never an older day's.
+      const { asked, note } = checkin.opening(posting);
+      agent?.ask("evening", asked, note);
       emit({ type: "changed" });
       sales.notify(checkin.announcement(posting), () => reveal({ type: "thread", task: "evening" }));
     },

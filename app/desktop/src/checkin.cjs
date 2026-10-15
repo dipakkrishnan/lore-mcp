@@ -21,6 +21,16 @@ function announcement(checkIn) {
   return { title: "Five minutes on today?", body: checkIn.questions[0].question };
 }
 
+/** How the check-in's thread opens: Lore's questions, as its first message, and what the agent alone is told about them.
+ * @param {CheckIn} checkIn @returns {{asked: string, note: string}} */
+function opening(checkIn) {
+  const about = checkIn.questions.map((each) => `${JSON.stringify(each.title)} (id ${each.memory})`).join(", ");
+  return {
+    asked: checkIn.questions.map((each) => each.question).join("\n\n"),
+    note: `Lore's evening check-in asked the owner the questions that follow, about ${about}. Turn what the owner says into memories through propose_memories; nothing is saved until they keep it.`
+  };
+}
+
 /** The latest check-in, kept on disk: waiting for the owner, answered, or expired. Only a waiting one counts on the dock. */
 class CheckIns {
   /** @param {string} file @param {(count: number) => void} badge */
@@ -60,17 +70,22 @@ class CheckIns {
     return asking;
   }
 
-  /** The owner's first reply: hands back what was asked, once. */
+  /** The owner's first reply went through, so the card and the dock let it go. */
   async answer() {
     const checkIn = await this.waiting();
     if (checkIn) await this.#save({ ...checkIn, state: "answered" });
-    return checkIn;
   }
 
-  /** Not today, or the next run came first: it goes, rather than piling up. */
+  /** Not today: it goes, rather than piling up. Hands back whether one was waiting. */
   async expire() {
     const checkIn = await this.waiting();
     if (checkIn) await this.#save({ ...checkIn, state: "expired" });
+    return Boolean(checkIn);
+  }
+
+  /** A day later the next run retires one the owner never answered; today's stays. @param {Date} [now] */
+  async retire(now = new Date()) {
+    return !(await this.askedToday(now)) && this.expire();
   }
 
   /** Put the badge back after a relaunch. */
@@ -86,4 +101,4 @@ class CheckIns {
   }
 }
 
-module.exports = { worthAsking, announcement, CheckIns };
+module.exports = { worthAsking, announcement, opening, CheckIns };

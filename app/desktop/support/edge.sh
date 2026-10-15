@@ -134,17 +134,20 @@ automation.save_profile({'executor': 'lore', 'cadence': 'daily', 'hour': 9})
 automation.Routines(clock=lambda: datetime.now(timezone.utc) - timedelta(days=2)).adopt()")
 fi
 if [[ "$scenario" == "checkin" || "$scenario" == "quiet" ]]; then
-  # AUT-008: a connected vault, and an evening check-in Lore missed while closed. The note written since
-  # is today's one new item; the stand-in model either finds it worth asking about (checkin) or not (quiet).
+  # AUT-008: a connected vault, and an evening check-in turned on two days ago whose hour passed an hour ago, while
+  # Lore was closed. The note read in since is its one new item; the stand-in model either finds it worth asking
+  # about (checkin) or not (quiet). The check-in itself reads nothing.
   mkdir -p "$root/Edge Vault"
   printf '# One\n\nA first lesson long enough to be worth keeping.\n' > "$root/Edge Vault/one.md"
   export CLAUDE_HOME="$root/claude" CODEX_HOME="$root/codex"
   (cd "$repo_root" && uv run lore sources connect obsidian --json -- "$root/Edge Vault" >/dev/null)
-  printf '# Pushed back on the Acme pricing call\n\nHeld the price; no reason written down.\n' > "$root/Edge Vault/two.md"
   (cd "$repo_root" && uv run python -c "
 from datetime import datetime, timedelta, timezone
 from lore import automation
-automation.Routines(clock=lambda: datetime.now(timezone.utc) - timedelta(days=2)).change('checkin', cadence='daily', hour=9)")
+now = datetime.now(timezone.utc)
+automation.Routines(clock=lambda: now - timedelta(days=2)).change('checkin', paused=False, cadence='daily', hour=(now - timedelta(hours=1)).astimezone().hour)")
+  printf '# Pushed back on the Acme pricing call\n\nHeld the price; no reason written down.\n' > "$root/Edge Vault/two.md"
+  (cd "$repo_root" && uv run lore sources read >/dev/null)
 fi
 if [[ "$scenario" == "connectors" || "$scenario" == "reading" ]]; then
   # One app of each shape the catalog knows: a vault to choose (and a stale one to fail on), a

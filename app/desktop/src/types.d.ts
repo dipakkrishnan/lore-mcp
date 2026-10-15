@@ -146,15 +146,16 @@ type ReadyRun = { label: string; item: string; read: number; memories: ReadyMemo
 /** Something Lore does on its own at a set hour, as `lore automation list` describes it. `due`: the app owes it a run now. */
 type Routine = { id: string; kind: "read" | "checkin"; name: string; runner: "claude" | "codex" | "lore"; cadence: string; hour: number; paused?: boolean; last_run: string | null; result: string; next_run: string; due: boolean };
 
-/** What running a routine did: the routine as it now stands, and what each connected app brought in.
- * The check-in also gets every item brought in since it last ran. */
-type RoutineRun = { routine: Routine; reads: SourceRead[]; items?: CheckInItem[] };
+/** What running a routine did: the routine as it now stands, and what its kind brought. Reading apps hands back what
+ * each app brought in; the check-in, what came in since it last judged (`mark`: the newest), or `missed` when it ran
+ * too late to ask. */
+type RoutineRun = { routine: Routine; reads?: SourceRead[]; items?: CheckInItem[]; mark?: number; missed?: boolean };
 
-/** One item Lore brought in today, as the check-in judges it. */
+/** One item Lore brought in since the last check-in, as the check-in judges it. */
 type CheckInItem = { id: number; title: string; source: string };
 
-/** What the evening check-in looks over. */
-type CheckInJob = { items: CheckInItem[] };
+/** What the evening check-in looks over, and the newest item among them. */
+type CheckInJob = { items: CheckInItem[]; mark?: number };
 
 /** The model's structured answer; the app, not the model, decides whether anything is posted. */
 type CheckInVerdict = { reach_out: boolean; why: string; questions: Array<{ question: string; memory: number }> };
@@ -375,10 +376,11 @@ type AgentEvent =
 type LoreAgentInstance = {
   readonly activeTask: AgentTask | null;
   status(): Promise<AgentStatus>;
-  prompt(text: string, task: AgentTask, from?: AgentTask, memory?: number, source?: string, asked?: CheckIn | null): Promise<void>;
+  prompt(text: string, task: AgentTask, from?: AgentTask, memory?: number, source?: string): Promise<void>;
   history(task: AgentTask): Line[];
   tasks(): TaskRecord[];
   restart(task: AgentTask): void;
+  ask(task: AgentTask, text: string, note: string): void;
   login(providerId: string, type: "oauth" | "api_key", secret?: string): Promise<AgentStatus>;
   logout(providerId: string): Promise<AgentStatus>;
   dispose(): void;
@@ -403,7 +405,8 @@ type LoreAgentOptions = {
   drafts?(): Promise<number>;
   /** A reading finished and handed back what it wrote; Lore saves it and tells the owner. */
   memoriesReady?(reading: Reading, report: ReadingReport): Promise<void>;
-  checkedIn?(job: CheckInJob, verdict: CheckInVerdict): Promise<void>;
+  /** The check-in's verdict, or null when its model did not answer. */
+  checkedIn?(job: CheckInJob, verdict: CheckInVerdict | null): Promise<void>;
   authPrompt(prompt: import("@earendil-works/pi-ai").AuthPrompt): Promise<string>;
   authEvent(event: import("@earendil-works/pi-ai").AuthEvent): void;
   // Durable owner-run history. Injected rather than imported so the agent stays

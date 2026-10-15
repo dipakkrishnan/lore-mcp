@@ -327,7 +327,7 @@ class LoreScheduleTest(LoreTestCase):
         automation.save_profile(automation_profile(executor="lore", cadence="daily"))
         # Set at 8 AM: the first run waits for 9 AM rather than starting at once.
         self.routines(local(14, 8)).adopt()
-        [routine] = self.routines(local(14, 8)).list()
+        routine = self.routines(local(14, 8)).get("synthesis").listed()
         self.assertEqual(
             (routine["id"], routine["kind"], routine["runner"], routine["due"]),
             ("synthesis", "read", "lore", False),
@@ -365,7 +365,7 @@ class LoreScheduleTest(LoreTestCase):
     def test_only_the_apps_own_routines_are_due_or_runnable(self) -> None:
         automation.save_profile(automation_profile(executor="codex"))
         self.routines(local(12, 1)).adopt()
-        [routine] = self.routines(local(20, 12)).list()
+        routine = self.routines(local(20, 12)).get("synthesis").listed()
         self.assertEqual((routine["runner"], routine["due"]), ("codex", False))
         with self.assertRaisesRegex(ValueError, "does not run"):
             self.routines(local(20, 12)).run("synthesis")
@@ -411,14 +411,14 @@ class LoreScheduleTest(LoreTestCase):
         self,
     ) -> None:
         automation.save_profile(automation_profile(executor="lore", cadence="daily"))
-        [routine] = self.routines(local(17, 12)).list()
+        routine = self.routines(local(17, 12)).get("synthesis").listed()
         self.assertFalse(routine["due"], "a rhythm never set up owes nothing")
         self.assertFalse((self.lore_home / "automation/routines.json").exists())
         path = self.lore_home / "profile-input.json"
         path.write_text(json.dumps(automation_profile(executor="lore", hour=9)))
         with patch("lore.automation.remove_task"), captured():
             self.assertEqual(cli.main(["profile", str(path)]), 0)
-        [routine] = automation.Routines().list()
+        routine = automation.Routines().get("synthesis").listed()
         self.assertFalse(routine["due"], "saving the profile never runs it at once")
 
     def test_a_long_run_never_writes_back_a_change_made_meanwhile(self) -> None:
@@ -455,13 +455,19 @@ class LoreScheduleTest(LoreTestCase):
 class CheckInTest(LoreTestCase):
     """AUT-008: the evening check-in is one of Lore's own routines."""
 
-    def test_it_runs_at_six_on_weekdays_with_no_profile_needed(self) -> None:
+    def on(self, now: datetime, **changes: object) -> automation.Routines:
+        """The owner turns the check-in on at `now`."""
+        routines = automation.Routines(clock=lambda: now)
+        routines.change("checkin", paused=False, **changes)
+        return routines
+
+    def test_it_runs_at_six_on_weekdays_once_turned_on(self) -> None:
         # The 16th is a Friday: after six, the next one is Monday, not the weekend.
-        routines = automation.Routines(clock=lambda: local(16, 17))
-        [routine] = routines.list()
+        self.on(local(16, 9))
+        [routine] = automation.Routines(clock=lambda: local(16, 17)).list()
         self.assertEqual(
-            (routine["id"], routine["name"], routine["runner"], routine["cadence"]),
-            ("checkin", "Evening check-in", "lore", "weekdays"),
+            (routine["id"], routine["kind"], routine["runner"], routine["cadence"]),
+            ("checkin", "checkin", "lore", "weekdays"),
         )
         self.assertEqual(routine["next_run"], local(16, 18).isoformat())
         self.assertEqual(
@@ -469,77 +475,124 @@ class CheckInTest(LoreTestCase):
         )
         self.assertFalse(routine["paused"])
 
-    def test_it_asks_only_about_what_came_in_since_it_last_ran(self) -> None:
-        self.seed_memory("Old meeting from before the check-in existed")
-        automation.Routines().list()
-        with patch("lore.sources.Registry.read", return_value=[]):
-            first = automation.Routines().run("checkin")
-            self.assertEqual(first["items"], [])
-            fresh = self.seed_memory("Pricing call with Acme")
-            discarded = self.seed_memory("A meeting the owner threw away", "discarded")
-            with store_module.Store() as store:
-                store.put(
-                    source="automation",
-                    origin="automation",
-                    source_path="memories/pricing.md",
-                    source_key="automation:pricing",
-                    fingerprint="p",
-                    title="Lore's own topic file",
-                    content="Written by a reading, not brought in.",
-                )
-            second = automation.Routines().run("checkin")
-            self.assertEqual(
-                second["items"],
-                [{"id": fresh, "title": "Pricing call with Acme", "source": "test"}],
-            )
-            self.assertNotIn(discarded, [item["id"] for item in second["items"]])
-            self.assertEqual(automation.Routines().run("checkin")["items"], [])
-        with patch("lore.sources.Registry.read", return_value=[]):
-            automation.save_profile(automation_profile(executor="lore"))
-            self.assertNotIn("items", automation.Routines().run("synthesis"))
+    def test_it_is_on_only_for_lore_as_the_runner_or_when_the_owner_says(
+        self,
+    ) -> None:
+        for executor in ("claude", "codex", ""):
+            with self.subTest(executor=executor):
+                automation.save_profile(automation_profile(executor=executor))
+                listed = automation.Routines(clock=lambda: local(20, 19)).list()
+                checkin = next(r for r in listed if r["id"] == "checkin")
+                self.assertEqual((checkin["paused"], checkin["due"]), (True, False))
+        path = self.lore_home / "profile-input.json"
+        path.write_text(json.dumps(automation_profile(executor="lore")))
+        with patch("lore.automation.remove_task"), captured():
+            self.assertEqual(cli.main(["profile", str(path)]), 0)
+        listed = automation.Routines().list()
+        self.assertFalse(next(r for r in listed if r["id"] == "checkin")["paused"])
 
-    def test_pausing_and_retiming_are_remembered_and_checked(self) -> None:
-        late = local(19, 20)
-        automation.Routines(clock=lambda: local(19, 10)).list()
+    def test_it_reads_nothing_and_asks_only_about_what_came_in_since_it_judged(
+        self,
+    ) -> None:
+        self.seed_memory("Old meeting from before the check-in existed")
+        self.on(local(14, 9))
+        fresh = self.seed_memory("Pricing call with Acme")
+        discarded = self.seed_memory("A meeting the owner threw away", "discarded")
+        with store_module.Store() as store:
+            for origin in ("automation", "attended"):
+                store.put(
+                    source=origin,
+                    origin=origin,
+                    source_path=f"memories/{origin}.md",
+                    source_key=f"{origin}:pricing",
+                    fingerprint=origin,
+                    title=f"Not brought in: {origin}",
+                    content="Lore's own writing, or the owner's own capture.",
+                )
+        with patch("lore.sources.Registry.read") as read:
+            ran = automation.Routines(clock=lambda: local(14, 18)).run("checkin")
+        read.assert_not_called()
+        self.assertEqual(
+            ran["items"],
+            [{"id": fresh, "title": "Pricing call with Acme", "source": "test"}],
+        )
+        self.assertNotIn(discarded, [item["id"] for item in ran["items"]])
+        # Until the app says its model judged them, the same items are owed again.
+        again = automation.Routines(clock=lambda: local(15, 18)).run("checkin")
+        self.assertEqual(again["items"], ran["items"])
+        automation.Routines().record("checkin", "Nothing new to ask about", ran["mark"])
+        later = automation.Routines(clock=lambda: local(16, 18)).run("checkin")
+        self.assertEqual(later["items"], [])
+
+    def test_a_check_in_missed_by_hours_is_recorded_and_never_asks_late(
+        self,
+    ) -> None:
+        self.on(local(14, 9))
+        self.seed_memory("Pricing call with Acme")
+        # Closed at 6 PM, opened at 9 AM the next morning.
+        ran = automation.Routines(clock=lambda: local(15, 9)).run("checkin")
+        self.assertEqual(ran, {"routine": ran["routine"], "items": [], "missed": True})
+        [routine] = automation.Routines(clock=lambda: local(15, 9)).list()
+        self.assertEqual(routine["result"], "Skipped: Lore wasn't open at 6 PM")
+        self.assertFalse(routine["due"])
+        # Opened an hour after six, it still asks.
+        ran = automation.Routines(clock=lambda: local(15, 19)).run("checkin")
+        self.assertEqual(len(ran["items"]), 1)
+
+    def test_a_change_counts_the_next_run_from_when_it_was_made(self) -> None:
+        self.on(local(12, 9))
         with captured():
             self.assertEqual(cli.main(["automation", "pause", "checkin"]), 0)
-        [routine] = automation.Routines(clock=lambda: late).list()
+        [routine] = automation.Routines(clock=lambda: local(16, 20)).list()
         self.assertEqual((routine["paused"], routine["due"]), (True, False))
-        with captured():
-            self.assertEqual(
-                cli.main(
-                    [
-                        "automation",
-                        "time",
-                        "checkin",
-                        "--hour",
-                        "7",
-                        "--cadence",
-                        "daily",
-                    ]
-                ),
-                0,
-            )
-            self.assertEqual(cli.main(["automation", "resume", "checkin"]), 0)
-        [routine] = automation.Routines(clock=lambda: late).list()
+        # Paused for days and resumed at 8 PM: the next is tomorrow's six, not now.
+        [routine] = self.on(local(16, 20)).list()
         self.assertEqual(
-            (routine["hour"], routine["cadence"], routine["paused"]),
-            (7, "daily", False),
+            (routine["due"], routine["next_run"]), (False, local(19, 18).isoformat())
+        )
+        # Moved from six to nine in the morning, at noon: tomorrow at nine.
+        routines = automation.Routines(clock=lambda: local(19, 12))
+        routines.change("checkin", hour=9, cadence="daily")
+        [routine] = routines.list()
+        self.assertEqual(
+            (routine["due"], routine["next_run"]), (False, local(20, 9).isoformat())
         )
         with self.assertRaises(ValueError):
             automation.Routines().change("checkin", hour=24)
-        with self.assertRaisesRegex(ValueError, "does not run"):
+        with self.assertRaisesRegex(ValueError, "set in your profile"):
             automation.Routines().change("synthesis", paused=True)
 
     def test_what_a_check_in_came_to_is_recorded_in_one_short_line(self) -> None:
-        automation.Routines().list()
         self.assertEqual(
-            cli.main(["automation", "result", "checkin", "Asked about\n1 thing"]), 0
+            cli.main(
+                [
+                    "automation",
+                    "result",
+                    "checkin",
+                    "Asked about\n1 thing",
+                    "--mark",
+                    "7",
+                ]
+            ),
+            0,
         )
-        [routine] = automation.Routines().list()
-        self.assertEqual(routine["result"], "Asked about 1 thing")
+        saved = automation.Routines().saved["checkin"]
+        self.assertEqual((saved.result, saved.mark), ("Asked about 1 thing", 7))
         with self.assertRaisesRegex(ValueError, "does not run"):
             automation.Routines().record("nonsense", "x")
+
+    def test_a_long_run_never_overwrites_a_pause_made_meanwhile(self) -> None:
+        automation.save_profile(automation_profile(executor="lore"))
+        automation.Routines(clock=lambda: local(14, 8)).adopt()
+        run = automation.Routines(clock=lambda: local(14, 12))
+
+        def meanwhile() -> list[object]:
+            automation.Routines().change("checkin", paused=True)
+            return []
+
+        with patch("lore.sources.Registry.read", side_effect=meanwhile):
+            run.run("synthesis")
+        self.assertTrue(automation.Routines().saved["checkin"].paused)
 
 
 class ScheduleFailureTest(LoreTestCase):

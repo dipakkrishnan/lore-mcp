@@ -54,7 +54,8 @@ let taskItems = [];
 let readyRuns = [];
 /** The evening check-in waiting for the owner; null on every day Lore found nothing worth asking. @type {CheckIn | null} */
 let checkIn = null;
-/** How many loads have started; only the newest one's answer is shown. */
+/** How many loads have started, bumped too by what the owner dismisses here; only the newest load's answer is shown,
+ * so one that started before a "Not today" never brings the card back. */
 let loads = 0;
 /** @type {AgentTask | null} */
 let detailTask = null;
@@ -652,18 +653,21 @@ function needsYou(s) {
   return rows;
 }
 
-/** Unfinished threads, without the store's once the store is open: nothing is left to finish there. Quiet work is no thread. */
+/** Unfinished threads, without the store's once the store is open: nothing is left to finish there. Quiet work is no
+ * thread, and a check-in waiting on its card is not one yet. */
 function displayTasks() {
-  return taskItems.filter((item) => !QUIET_TASKS.has(item.kind) && !(item.kind === "deploy" && snapshot?.node.url)).slice(0, 3);
+  return taskItems.filter((item) => !QUIET_TASKS.has(item.kind) && !(item.kind === "deploy" && snapshot?.node.url) && !(item.kind === "evening" && checkIn)).slice(0, 3);
 }
-
-/** What Lore asked, as it reads in the thread. @param {CheckIn} asked */
-const askedText = (asked) => asked.questions.map((each) => each.question).join("\n\n");
 
 /** The evening check-in leads Today: the questions Lore would like five minutes on, and a way to say not today. @param {CheckIn} asked */
 function checkInCard(asked) {
   const answer = button("Answer", "primary", () => void openTask("evening"));
-  const later = button("Not today", "quiet", () => void window.lore.dismissCheckIn().then(() => { checkIn = null; render(); }));
+  const later = button("Not today", "quiet", () => {
+    loads++;
+    checkIn = null;
+    render();
+    void window.lore.dismissCheckIn();
+  });
   const [first, ...rest] = asked.questions;
   return section("Check in", card([
     row(first.question, "Five minutes? Lore saves only what you approve.", cell(later, answer), false),
@@ -720,7 +724,7 @@ function renderToday(s) {
     if ((detailTask === "setup" || detailTask === "deploy") && detailRecord?.state === "done") parts.push(nextRung(s));
     return parts;
   }
-  const reading =taskItems.find((item) => item.kind === "synthesize" && item.state === "working");
+  const reading = taskItems.find((item) => item.kind === "synthesize" && item.state === "working");
   if (reading) parts.push(readingRow(reading));
   if (readyRuns.length) parts.push(memoriesReady(readyRuns));
   const attention = needsYou(s);
@@ -2330,11 +2334,6 @@ async function openTask(kind, record, fallback) {
   // a thread that already finished (and so dropped out of taskItems), and history()
   // reads the session file directly, returning [] when there is truly nothing there.
   lines.splice(0, lines.length, ...(await window.lore.history(kind).catch(() => [])));
-  // A check-in's thread opens with Lore's questions already asked.
-  if (kind === "evening" && checkIn && !lines.length) {
-    lines.push({ text: askedText(checkIn), owner: false });
-    detailRecord ??= { version: 1, kind, title: TASK_TITLES.evening, state: "needs_you", phase: "Five minutes on today", updatedAt: checkIn.at };
-  }
   liveText = liveStatus = "";
   resetBlueprintGhost();
   show("today");

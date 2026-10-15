@@ -1377,46 +1377,79 @@ test("a check-in that finds something asks once, about real items only, and is r
     assert.equal((await checkIns.waiting())?.questions[0].question, question, "Today shows it");
     const again = await checkIns.consider({ reach_out: true, why: "", questions: [{ question: "Another?", memory: 13 }] }, TODAY);
     assert.equal(again, null, "at most one a day");
-    await checkIns.expire();
-    assert.equal(await checkIns.waiting(), null, "the next run retires an unanswered one");
+    assert.equal(await checkIns.expire(), true, "Not today retires it");
+    assert.equal(await checkIns.waiting(), null);
     assert.equal(badges.at(-1), 0);
-    assert.equal(await checkIns.answer(), null, "an expired check-in cannot be answered");
+    await checkIns.answer();
+    assert.equal((await checkIns.latest())?.state, "expired", "an expired check-in cannot be answered");
   } finally {
     await rm(directory, { recursive: true });
   }
 });
 
-test("answering a check-in tells the agent what was asked, once, and the thread shows the questions again", async () => {
+test("a posted check-in opens its own thread with the questions as Lore's first words; the owner's answer clears it once it goes through", async () => {
   const { fauxAssistantMessage } = await import("@earendil-works/pi-ai");
   const { LoreAgent } = await import("../src/agent.mjs");
-  const { CheckIns } = require("../src/checkin.cjs");
+  const { CheckIns, opening } = require("../src/checkin.cjs");
   const directory = await mkdtemp(join(tmpdir(), "lore-check-in-"));
   /** @type {number[]} */
   const badges = [];
   const checkIns = new CheckIns(join(directory, "check-in.json"), (count) => badges.push(count));
   const question = "You pushed back on the pricing call with Acme. What made you hold firm?";
-  await checkIns.consider({ reach_out: true, why: "a decision", questions: [{ question, memory: 12 }] }, TODAY);
   const { agent, faux, loreHome } = await scriptedAgent({});
   /** @type {string[]} */
   const told = [];
   faux.setResponses([
     (context) => {
-      const first = context.messages.find((message) => message.role === "user");
-      told.push(typeof first.content === "string" ? first.content : first.content.map((block) => (block.type === "text" ? block.text : "")).join(""));
+      told.push(context.messages.map((message) => (typeof message.content === "string" ? message.content : message.content.map((block) => (block.type === "text" ? block.text : "")).join(""))).join("\n---\n"));
       return fauxAssistantMessage("Thanks. Here is what I would keep.");
     }
   ]);
   try {
-    await agent.prompt("They wanted a discount we never give first-year customers.", "evening", undefined, undefined, undefined, await checkIns.answer());
+    // Yesterday's thread, still open on screen, is not where today's questions go.
+    agent.ask("evening", "Yesterday's question?", "about yesterday");
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    const posted = /** @type {CheckIn} */ (await checkIns.consider({ reach_out: true, why: "a decision", questions: [{ question, memory: 12 }] }, TODAY));
+    const { asked, note } = opening(posted);
+    agent.ask("evening", asked, note);
+    assert.deepEqual(LoreAgent.history(loreHome, "evening"), [{ text: question, owner: false }], "the thread opens with today's question, and only it");
+    assert.deepEqual(agent.tasks().map((record) => [record.kind, record.state, record.phase]), [["evening", "stopped", "Five minutes on today"]]);
+    await agent.prompt("They wanted a discount we never give first-year customers.", "evening");
+    await checkIns.answer();
     assert.deepEqual(badges, [1, 0], "answering clears the dock");
-    assert.equal(await checkIns.answer(), null, "the questions go to the agent once");
-    assert.match(told[0], /lore-capture/);
-    assert.ok(told[0].includes(question) && told[0].includes("(id 12)"));
+    assert.equal(await checkIns.waiting(), null);
+    assert.match(told[0], /lore-capture/, "the owner's first word still starts the capture skill");
+    assert.ok(told[0].includes(question) && told[0].includes("(id 12)"), "the agent knows what was asked, about which item");
     assert.deepEqual(LoreAgent.history(loreHome, "evening").map((line) => [line.owner, line.text]), [
       [false, question],
       [true, "They wanted a discount we never give first-year customers."],
       [false, "Thanks. Here is what I would keep."]
     ]);
+  } finally {
+    await rm(loreHome, { recursive: true, force: true });
+    await rm(directory, { recursive: true });
+  }
+});
+
+test("a check-in whose model fails says so, and one from an earlier day is retired while today's stays", async () => {
+  const { fauxAssistantMessage } = await import("@earendil-works/pi-ai");
+  const { CheckIns } = require("../src/checkin.cjs");
+  /** @type {Array<CheckInVerdict | null>} */
+  const verdicts = [];
+  const { agent, faux, loreHome } = await scriptedAgent({ checkedIn: async (_job, verdict) => { verdicts.push(verdict); } });
+  faux.setResponses([fauxAssistantMessage("", { stopReason: "error", errorMessage: "overloaded" })]);
+  const directory = await mkdtemp(join(tmpdir(), "lore-check-in-"));
+  const checkIns = new CheckIns(join(directory, "check-in.json"), () => {});
+  try {
+    agent.checkIn({ items: TODAY, mark: 13 });
+    await until(() => verdicts.length === 1);
+    assert.equal(verdicts[0], null, "no verdict, so the app records that it could not look");
+    await checkIns.consider({ reach_out: true, why: "", questions: [{ question: "Why?", memory: 12 }] }, TODAY);
+    assert.equal(await checkIns.retire(), false, "Run now later today keeps today's questions");
+    assert.ok(await checkIns.waiting());
+    const tomorrow = new Date(Date.now() + 24 * 60 * 60_000);
+    assert.equal(await checkIns.retire(tomorrow), true, "the next day's run retires it");
+    assert.equal(await checkIns.waiting(), null);
   } finally {
     await rm(loreHome, { recursive: true, force: true });
     await rm(directory, { recursive: true });

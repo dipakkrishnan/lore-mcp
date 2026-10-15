@@ -710,12 +710,13 @@ class Store:
     def brought_in_after(
         self, memory_id: int, limit: int = 30
     ) -> list[dict[str, object]]:
-        """Private items imported after `memory_id`, newest first; never Lore's own writing."""
+        """Private items an app or agent brought in after `memory_id`, newest first:
+        never Lore's own writing, nor what the owner captured themselves."""
         return [
             dict(row)
             for row in self.db.execute(
                 "SELECT id,title,source FROM memories WHERE status='private' "
-                "AND origin!='automation' AND id>? ORDER BY id DESC LIMIT ?",
+                "AND origin='native' AND id>? ORDER BY id DESC LIMIT ?",
                 (memory_id, limit),
             )
         ]

@@ -82,14 +82,7 @@ export function readingPrompt(reading, loreHome) {
 /** What the evening check-in is told: today's items, by id, for it to judge. @param {CheckInJob} job */
 export function checkInPrompt(job) {
   const items = job.items.map((item) => `- ${item.id}: ${JSON.stringify(item.title)} from ${JSON.stringify(item.source)}`).join("\n");
-  return `Lore brought in ${plural(job.items.length, "item")} today. Decide whether any is worth asking the owner about.${ASIDE}the items, by id:\n${items})`;
-}
-const ASKED = "this answers Lore's evening check-in, which asked:\n\n";
-const ASKED_END = "\n\nThose questions are about";
-/** The owner's first reply to a check-in carries what was asked, so the agent knows and the thread can show it again. @param {CheckIn} checkIn */
-export function checkInAside(checkIn) {
-  const about = checkIn.questions.map((asked) => `${JSON.stringify(asked.title)} (id ${asked.memory})`).join(", ");
-  return `${ASIDE}${ASKED}${checkIn.questions.map((asked) => asked.question).join("\n\n")}${ASKED_END} ${about}. Turn what the owner says into memories through propose_memories; nothing is saved until they keep it.)`;
+  return `Lore brought in ${plural(job.items.length, "item")} since the last check-in. Decide whether any is worth asking the owner about.${ASIDE}the items, by id:\n${items})`;
 }
 /** Drafts are approved or skipped on cards the agent never sees, so every publish turn says where they stand. @param {number} waiting */
 export function draftsAside(waiting) {
@@ -452,9 +445,7 @@ export class LoreAgent {
     for (const message of messages) {
       if (message.role === "user") {
         const text = typeof message.content === "string" ? message.content : message.content.map((block) => (block.type === "text" ? block.text : "")).join("");
-        const [said, aside = ""] = text.replace(/^\/skill:\S+\n\n/, "").split(ASIDE);
-        if (aside.startsWith(ASKED)) lines.push({ text: aside.slice(ASKED.length).split(ASKED_END)[0], owner: false });
-        lines.push({ text: said, owner: true });
+        lines.push({ text: text.replace(/^\/skill:\S+\n\n/, "").split(ASIDE)[0], owner: true });
       } else if (message.role === "assistant") {
         const text = spoken(message.content);
         if (text) lines.push({ text, owner: false });
@@ -494,7 +485,7 @@ export class LoreAgent {
 
   tasks() {
     return LoreAgent.tasks(this.options.loreHome).flatMap((record) =>
-      this.#sessions.has(record.kind) ? [record] : QUIET.has(record.kind) ? [] : [{ ...record, state: /** @type {TaskState} */ ("stopped"), phase: "Reply to keep going" }]
+      this.#sessions.has(record.kind) ? [record] : QUIET.has(record.kind) ? [] : record.state === "stopped" ? [record] : [{ ...record, state: /** @type {TaskState} */ ("stopped"), phase: "Reply to keep going" }]
     );
   }
 
@@ -557,14 +548,14 @@ export class LoreAgent {
     return this.#activeTask;
   }
 
-  /** The owner's turn; a reading under way stops for it and starts again after. @param {string} text @param {AgentTask} task @param {AgentTask} [from] Continue from the latest `from` thread instead of starting cold. @param {number} [memory] A memory to start from, named by id to the agent only. @param {string} [source] A connected app's memories to start from. @param {CheckIn | null} [asked] What a check-in asked, on the owner's first reply to it. */
-  async prompt(text, task, from, memory, source, asked) {
+  /** The owner's turn; a reading under way stops for it and starts again after. @param {string} text @param {AgentTask} task @param {AgentTask} [from] Continue from the latest `from` thread instead of starting cold. @param {number} [memory] A memory to start from, named by id to the agent only. @param {string} [source] A connected app's memories to start from. */
+  async prompt(text, task, from, memory, source) {
     if (this.#busy && this.#activeTask && QUIET.has(this.#activeTask)) {
       await this.#yield(this.#activeTask);
       this.#yielding = false;
     }
     try {
-      return await this.#turn(asked ? `${text}${checkInAside(asked)}` : text, task, from, memory, source);
+      return await this.#turn(text, task, from, memory, source);
     } finally {
       void this.#next();
     }
@@ -612,9 +603,10 @@ export class LoreAgent {
     this.#verdict = null;
     this.#quietTurn = this.#turn(checkInPrompt(job), "checkin", undefined, undefined, undefined, TASKS.checkin.phase).catch(() => {});
     await this.#quietTurn;
-    const verdict = this.#looking === job ? this.#verdict : null;
+    // One that gave way to the owner is back in line; any other hands back its verdict, or null when the model failed.
+    const handed = this.#looking === job;
     this.#looking = null;
-    if (verdict) await this.options.checkedIn?.(job, verdict).catch(() => {});
+    if (handed) await this.options.checkedIn?.(job, this.#verdict).catch(() => {});
     void this.#next();
   }
 
@@ -707,13 +699,27 @@ export class LoreAgent {
     this.options.emit({ type: "task", task: record });
   }
 
+  /** Start a new `task` thread that opens with Lore asking `text`, so it never continues an older one; `note` is
+   * for the agent alone, never shown to the owner. @param {AgentTask} task @param {string} text @param {string} note */
+  ask(task, text, note) {
+    if (this.#activeTask === task) return;
+    this.#sessions.get(task)?.dispose();
+    this.#sessions.delete(task);
+    const manager = SessionManager.create(this.options.loreHome, resolve(this.options.loreHome, ".pi", "sessions", task));
+    manager.appendCustomMessageEntry("lore.note", note, false);
+    const usage = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } };
+    manager.appendMessage({ role: "assistant", content: [{ type: "text", text }], api: "lore", provider: "lore", model: "lore", usage, stopReason: "stop", timestamp: Date.now() });
+    this.options.emit({ type: "task", task: appendTaskRecord(manager, task, "stopped") });
+  }
+
   /** @param {AgentTask} task @param {AgentTask} [from] @returns {Promise<[import("@earendil-works/pi-coding-agent").AgentSession, boolean]>} */
   async #newSession(task, from) {
     const { scopedModels } = await resolveModelScopeWithDiagnostics(MODELS, this.models);
     const model = scopedModels.at(0)?.model ?? (await this.models.getAvailable()).at(0);
     if (!model) throw new Error("Sign in with Claude, ChatGPT, or an API key first");
     const sessionManager = from ? LoreAgent.forkSession(this.options.loreHome, from, task) : LoreAgent.sessionFor(this.options.loreHome, task);
-    const resumed = !from && sessionManager.buildSessionContext().messages.length > 0;
+    // A thread Lore opened by asking still needs its skill on the owner's first word.
+    const resumed = !from && sessionManager.buildSessionContext().messages.some((message) => message.role === "user");
     const { session } = await createAgentSession({
       cwd: this.options.loreHome,
       agentDir: resolve(this.options.loreHome, ".pi"),

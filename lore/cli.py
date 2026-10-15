@@ -251,6 +251,9 @@ def parser() -> argparse.ArgumentParser:
     )
     routine_result.add_argument("id")
     routine_result.add_argument("text")
+    routine_result.add_argument(
+        "--mark", type=int, help="the newest item the run's model judged"
+    )
     for name, words in (("pause", "stop running"), ("resume", "start running again")):
         toggle = routine_commands.add_parser(name, help=f"{words} a routine")
         toggle.add_argument("id")
@@ -971,7 +974,7 @@ def automation_command(args: argparse.Namespace) -> int:
     routines = Routines()
     command = args.automation_command
     if command == "result":
-        routines.record(args.id, args.text)
+        routines.record(args.id, args.text, args.mark)
         return 0
     if command == "run":
         payload: object = routines.run(args.id)

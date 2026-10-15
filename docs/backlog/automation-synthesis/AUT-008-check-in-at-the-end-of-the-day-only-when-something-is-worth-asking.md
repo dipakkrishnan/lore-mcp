@@ -68,26 +68,40 @@ The "worth asking" judgment is a prompt-plus-rules step, like
 Calendar context would sharpen the questions; see CAP-035.
 
 Oct 14, done:
-- The check-in is one of Lore's own routines in `automation.Routines`
-  (default weekdays at 6 PM, on with no profile needed).
-- `lore automation run checkin` reads every connected app and hands back the
-  items imported since the last check-in. It tracks the newest memory id it
-  has seen, not `created_at`, because imports are dated by their source. With
-  no items, no model runs and nothing is posted.
-- Otherwise the quiet `checkin` task (skill `lore-check-in`, tools read/bash/
+- The check-in is one of Lore's own routines, `automation.CheckIn` (weekdays
+  at 6 PM). It is on when the profile's runner is Lore (`lore profile` sets it
+  up); with Claude Code, Codex or no profile it is listed paused until the
+  owner turns it on, so no one gets a 6 PM job they did not ask for.
+- `lore automation run checkin` reads nothing. It hands back the private
+  items an app or agent brought in (`origin='native'`, so never Lore's own
+  writing nor the owner's captures) since the last run its model judged, and
+  that run's newest id as `mark`. It tracks memory ids, not `created_at`,
+  because imports are dated by their source. The app passes `mark` back with
+  the result only once the model judged them, so items the model never saw
+  are asked about next time.
+- Due more than three hours after its hour (Lore was closed or asleep), it
+  records "Skipped: Lore wasn't open at 6 PM" and asks nothing.
+- With items, the quiet `checkin` task (skill `lore-check-in`, tools read/bash/
   `check_in`) runs after any readings and returns `{reach_out, why,
   questions}`. `checkin.cjs` posts only when `reach_out` is true, keeping at
-  most three non-blank questions about items Lore actually brought in today,
-  and at most once a day.
+  most three non-blank questions about items Lore actually brought in, and at
+  most once a day. With no items no model runs ("Nothing new to ask about");
+  a model that fails, or no agent yet, records "Couldn't look over today".
 - A post means one notification ("Five minutes on today?" plus the first
-  question), a dock badge of 1, and a Check in card that leads Today. The card
-  and the notification open the `evening` thread with the questions shown.
-- The owner's first reply carries the questions to the agent (lore-capture),
-  so answers are saved only through propose_memories approval.
-- Not today, or the next run, expires an unanswered check-in.
+  question), a dock badge of 1, and a Check in card that leads Today. It also
+  starts a new `evening` thread whose first message is Lore's questions
+  (`LoreAgent.ask`), with a note only the agent sees naming the items. The
+  card and the notification open that thread, never an older day's.
+- The owner's first reply runs lore-capture, so answers are saved only
+  through propose_memories approval. The check-in counts as answered once
+  that turn goes through; one that fails leaves it waiting.
+- Not today expires it and closes its thread. The next day's run retires an
+  unanswered one the same way; a run later the same day leaves it be.
 - Pause and retime: `lore automation pause|resume|time checkin`, saved in
-  routines.json. The buttons are in APP-200.
+  routines.json. A change counts the next run from when it was made. The
+  buttons are in APP-200.
 - Not built: "after three ignored check-ins in a row, ask once whether to
   keep checking in". It was in the approach but not in the acceptance
   criteria; follow-up.
-- Edge walks: `support/edge.sh checkin` and `support/edge.sh quiet`.
+- Edge walks: `support/edge.sh checkin` (two days, two threads) and
+  `support/edge.sh quiet` (silent, then missed by hours).
