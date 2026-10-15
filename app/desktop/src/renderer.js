@@ -1007,7 +1007,7 @@ function provider(credential = auth?.credentials[0] ?? null) {
   return credential ? PROVIDERS[credential.providerId] ?? [credential.providerId, ""] : ["Your AI provider", ""];
 }
 
-const EXECUTORS = { claude: "Claude", codex: "Codex" };
+const EXECUTORS = { claude: "Claude", codex: "Codex", lore: "Lore" };
 
 /** The rhythm as the owner would say it: "Every day at 9 PM". @param {NonNullable<Snapshot["setup"]["schedule"]>} schedule */
 function rhythm(schedule) {
@@ -1043,6 +1043,10 @@ function scheduleRow(s) {
     return row(label, "New memories are written from what your agents learned.", cell(pill(s.setup.profile_configured ? "Set" : "Not set", s.setup.profile_configured ? "ok" : ""), ...(s.setup.profile_configured ? [] : [button("Start", "secondary", startSetup)])), false);
   }
   if (!schedule?.executor) return row(label, "Your rhythm is saved, but no model was chosen to run it.", cell(pill("Not scheduled", "attention"), button("Start", "secondary", startSetup)), false);
+  if (schedule.executor === "lore") {
+    const last = schedule.missed ? "Lore was closed at that hour, so it's reading now." : schedule.last_run ? `Last read ${when(schedule.last_run)}.` : "Hasn't run yet.";
+    return row(label, `${rhythm(schedule)}, while Lore is open. ${last}`, cell(pill("Scheduled", "ok")), false);
+  }
   const who = `${rhythm(schedule)} with ${EXECUTORS[schedule.executor]}`;
   if (schedule.installed) return row(label, `${who}. ${lastSynthesis(s)}`, cell(pill("Scheduled", "ok")), false);
   return row(label, `Set for ${who.charAt(0).toLowerCase()}${who.slice(1)}, but nothing on this Mac is running it.`, cell(pill("Not scheduled", "attention"), button("Schedule", "secondary", () => void act(window.lore.schedule))), false);

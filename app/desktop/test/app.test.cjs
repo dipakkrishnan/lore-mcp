@@ -1283,3 +1283,37 @@ test("the dock counts new memories until the owner has seen them, and Clear empt
     await rm(directory, { recursive: true });
   }
 });
+
+test("Lore runs what is due once, then looks again at the next hour it keeps, or within the hour", async (t) => {
+  const { Schedule, LOOK_EVERY_MS } = require("../src/routines.cjs");
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const now = Date.parse("2026-10-14T12:00:00Z");
+  /** @param {Partial<Routine>} fields @returns {Routine} */
+  const routine = (fields) => ({ id: "synthesis", kind: "read", name: "Read connected apps", runner: "lore", cadence: "daily", hour: 9, last_run: null, result: "", next_run: "2026-10-15T09:00:00Z", due: false, ...fields });
+  let routines = [routine({ due: true }), routine({ id: "theirs", runner: "codex", next_run: "2026-10-14T12:05:00Z" })];
+  /** @type {string[]} */
+  const ran = [];
+  let looks = 0;
+  const schedule = new Schedule(async () => { looks++; return routines; }, async (due) => {
+    ran.push(due.id);
+    routines = routines.map((each) => (each.id === due.id ? { ...each, due: false, next_run: "2026-10-14T12:30:00Z" } : each));
+  }, () => now);
+  // A launch and a wake at the same moment are one look, so a missed hour runs once.
+  await Promise.all([schedule.check(), schedule.check()]);
+  assert.deepEqual(ran, ["synthesis"], "only the routine Lore runs, and only once");
+  assert.equal(looks, 2, "once to run what was due, once more to see what is next");
+  t.mock.timers.tick(30 * 60_000 - 1);
+  assert.equal(looks, 2, "another app's earlier hour is not Lore's to wait for");
+  // The timer's own look is under way, so this waits for it rather than starting another.
+  t.mock.timers.tick(1);
+  await schedule.check();
+  assert.equal(looks, 3);
+  routines = [];
+  await schedule.check();
+  t.mock.timers.tick(LOOK_EVERY_MS - 1);
+  assert.equal(looks, 4, "with nothing to keep, Lore still looks within the hour");
+  t.mock.timers.tick(1);
+  await schedule.check();
+  assert.equal(looks, 5);
+  schedule.stop();
+});

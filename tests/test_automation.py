@@ -12,6 +12,7 @@ import os
 import stat
 import sys
 import unittest
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest.mock import patch
 
@@ -284,6 +285,169 @@ class InstallTest(LoreTestCase):
         self.assertEqual(task.cadence, "daily")
         self.assertEqual(task.hour, 21)
         self.assertEqual(task.model, "")
+
+
+def local(day: int, hour: int, minute: int = 0) -> datetime:
+    """A moment on this Mac's clock in October 2026; the 12th is a Monday."""
+    return datetime(2026, 10, day, hour, minute).astimezone()
+
+
+class LoreScheduleTest(LoreTestCase):
+    """AUT-006: the app runs the schedule itself while it is open."""
+
+    def routines(self, now: datetime) -> automation.Routines:
+        return automation.Routines(clock=lambda: now)
+
+    def test_a_rhythm_names_its_next_hour_and_weekly_is_monday(self) -> None:
+        self.assertEqual(automation.next_run("daily", 21, local(14, 20)), local(14, 21))
+        self.assertEqual(automation.next_run("daily", 21, local(14, 21)), local(15, 21))
+        self.assertEqual(automation.next_run("weekly", 9, local(14, 8)), local(19, 9))
+        self.assertEqual(automation.next_run("weekly", 9, local(12, 8)), local(12, 9))
+
+    def test_lore_retires_both_agents_schedules_and_installs_nothing(self) -> None:
+        path = self.lore_home / "profile-input.json"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(automation_profile(executor="lore")))
+        with (
+            patch("lore.automation.remove_task") as remove,
+            patch("lore.automation.install_task") as install,
+            captured() as output,
+        ):
+            self.assertEqual(cli.main(["profile", str(path)]), 0)
+        install.assert_not_called()
+        self.assertEqual(
+            {call.args[0].agent for call in remove.call_args_list},
+            {automation.Agent.CLAUDE, automation.Agent.CODEX},
+        )
+        self.assertIn("while the app is open", output.getvalue())
+        with self.assertRaisesRegex(ValueError, "no task to install"):
+            automation.task_for({"executor": "lore"})
+
+    def test_a_missed_hour_runs_once_at_the_next_launch(self) -> None:
+        automation.save_profile(automation_profile(executor="lore", cadence="daily"))
+        # Set at 8 AM: the first run waits for 9 AM rather than starting at once.
+        self.routines(local(14, 8)).adopt()
+        [routine] = self.routines(local(14, 8)).list()
+        self.assertEqual(
+            (routine["id"], routine["kind"], routine["runner"], routine["due"]),
+            ("synthesis", "read", "lore", False),
+        )
+        self.assertEqual(routine["next_run"], local(14, 9).isoformat())
+        # Lore was closed for three mornings; the launch after owes one run, not three.
+        later = self.routines(local(17, 12))
+        [routine] = later.list()
+        self.assertTrue(routine["due"])
+        self.assertEqual(routine["next_run"], local(18, 9).isoformat())
+        with patch("lore.sources.Registry.read", return_value=[]):
+            later.run("synthesis")
+        [routine] = self.routines(local(17, 12, 1)).list()
+        self.assertFalse(routine["due"])
+        self.assertEqual(routine["last_run"], local(17, 12).isoformat())
+        self.assertEqual(routine["result"], "Nothing new")
+
+    def test_a_run_reads_every_connected_app_and_says_what_came(self) -> None:
+        automation.save_profile(automation_profile(executor="lore"))
+        reads = [
+            {"name": "granola-1", "connector": "granola", "added": 2},
+            {"name": "obsidian-1", "connector": "obsidian", "added": 1},
+            {"name": "medium-1", "connector": "medium", "added": 0},
+            {"name": "codex", "connector": None, "added": 4},
+        ]
+        with patch("lore.sources.Registry.read", return_value=reads) as read:
+            ran = self.routines(local(14, 12)).run("synthesis")
+        read.assert_called_once_with()
+        self.assertEqual(ran["reads"], reads)
+        self.assertEqual(
+            self.routines(local(14, 12)).list()[0]["result"],
+            "2 new meetings · 1 new note",
+        )
+
+    def test_only_the_apps_own_routines_are_due_or_runnable(self) -> None:
+        automation.save_profile(automation_profile(executor="codex"))
+        self.routines(local(12, 1)).adopt()
+        [routine] = self.routines(local(20, 12)).list()
+        self.assertEqual((routine["runner"], routine["due"]), ("codex", False))
+        with self.assertRaisesRegex(ValueError, "does not run"):
+            self.routines(local(20, 12)).run("synthesis")
+        automation.save_profile(automation_profile(executor=""))
+        self.assertEqual(self.routines(local(20, 12)).list(), [])
+
+    def test_the_schedule_state_says_when_lore_missed_a_run(self) -> None:
+        automation.save_profile(automation_profile(executor="lore", cadence="daily"))
+        stamped = datetime.now(timezone.utc) - timedelta(days=2)
+        self.routines(stamped).adopt()
+        state = automation.schedule_state()
+        self.assertEqual(
+            state,
+            {
+                "installed": True,
+                "executor": "lore",
+                "cadence": "daily",
+                "hour": 9,
+                "last_run": None,
+                "missed": True,
+            },
+        )
+        with patch("lore.sources.Registry.read", return_value=[]):
+            automation.Routines().run("synthesis")
+        state = automation.schedule_state()
+        assert state is not None
+        self.assertFalse(state["missed"])
+        self.assertIsNotNone(state["last_run"])
+
+    def test_a_damaged_routines_file_reads_as_none_run_yet(self) -> None:
+        automation.save_profile(automation_profile(executor="lore"))
+        path = self.lore_home / "automation/routines.json"
+        path.write_text("{damaged")
+        [routine] = self.routines(local(14, 8)).list()
+        self.assertIsNone(routine["last_run"])
+        with patch("lore.sources.Registry.read", return_value=[]):
+            self.routines(local(14, 8)).run("synthesis")
+        self.assertEqual(stat.S_IMODE(path.stat().st_mode), 0o600)
+
+    def test_listing_writes_nothing_and_a_rhythm_counts_from_when_it_was_set(
+        self,
+    ) -> None:
+        automation.save_profile(automation_profile(executor="lore", cadence="daily"))
+        [routine] = self.routines(local(17, 12)).list()
+        self.assertFalse(routine["due"], "a rhythm never set up owes nothing")
+        self.assertFalse((self.lore_home / "automation/routines.json").exists())
+        path = self.lore_home / "profile-input.json"
+        path.write_text(json.dumps(automation_profile(executor="lore", hour=9)))
+        with patch("lore.automation.remove_task"), captured():
+            self.assertEqual(cli.main(["profile", str(path)]), 0)
+        [routine] = automation.Routines().list()
+        self.assertFalse(routine["due"], "saving the profile never runs it at once")
+
+    def test_a_long_run_never_writes_back_a_change_made_meanwhile(self) -> None:
+        automation.save_profile(automation_profile(executor="lore"))
+        self.routines(local(14, 8)).adopt()
+
+        def meanwhile() -> list[object]:
+            automation.Routines().save("elsewhere", result="kept")
+            return []
+
+        with patch("lore.sources.Registry.read", side_effect=meanwhile):
+            self.routines(local(14, 12)).run("synthesis")
+        saved = automation.Routines().saved
+        self.assertEqual(saved["elsewhere"].result, "kept")
+        self.assertEqual(saved["synthesis"].result, "Nothing new")
+
+    def test_in_the_app_an_owner_with_no_agent_cli_gets_lore_as_the_runner(
+        self,
+    ) -> None:
+        path = self.lore_home / "profile-input.json"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(automation_profile(executor="")))
+        with (
+            patch.dict(os.environ, {"LORE_APP_VERSION": "0.1.15"}),
+            patch("lore.cli.shutil.which", return_value=None),
+            patch("lore.automation.remove_task"),
+            captured(),
+        ):
+            self.assertEqual(cli.main(["profile", str(path)]), 0)
+        saved = json.loads(automation.profile_path().read_text())
+        self.assertEqual(saved["executor"], "lore")
 
 
 class ScheduleFailureTest(LoreTestCase):

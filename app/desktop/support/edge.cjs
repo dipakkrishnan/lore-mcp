@@ -87,9 +87,10 @@ if (scenario === "listing") {
     process.env.LORE_EDGE_NEWSLETTER = `http://127.0.0.1:${newsletter.address().port}/`;
     require(join(src, "main.cjs"));
   });
-} else if (scenario === "reading") {
+} else if (scenario === "reading" || scenario === "schedule") {
   // AUT-005: everything around a reading is real except the model. The stand-in writes what a
   // reading of the two stand-in Granola meetings would, then hands it back as the agent would.
+  // AUT-006 reuses it: what Lore's own schedule brings in lands the same way.
   require(join(src, "sales.cjs")).notify = (words, onClick) => { notes.push({ words, handlers: { click: onClick } }); };
   const setBadgeCount = app.setBadgeCount.bind(app);
   app.setBadgeCount = (count) => { badges.push(count); return setBadgeCount(count); };
@@ -800,6 +801,28 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         await js(`[...${card}.querySelectorAll("button")].find((b) => b.textContent === "Clear").click()`);
         check("Clear takes the card off Today", await waitFor(`!document.querySelector("#content").textContent.includes("New memories")`));
         check("…and a relaunch would not bring it back", await js(`window.lore.readyRuns().then((runs) => runs.length)`) === 0);
+      } else if (scenario === "schedule") {
+        // AUT-006: Lore was closed at its reading hour, so opening it reads once, unasked, and says so as a connect does.
+        await waitFor(`document.body.dataset.state === "welcome" && !document.querySelector("#welcome").classList.contains("provisioning")`);
+        await js(`window.__lore.signIn()`);
+        for (let i = 0; i < 60 && !readings.length; i++) await sleep(250);
+        check("the launch catches up on the missed hour with one reading", readings.length === 1 && readings[0].label === "Obsidian" && readings[0].added === 1, JSON.stringify(readings));
+        for (let i = 0; i < 60 && !notes.length; i++) await sleep(250);
+        check("…which lands as the same Mac notification", notes.length === 1 && notes[0].words.title === "Lore turned 1 Obsidian note into 2 memories", JSON.stringify(notes.map((n) => n.words)));
+        check("…and the same red number on the dock", badges.at(-1) === 2, JSON.stringify(badges));
+        await js(`window.__lore.show("today")`);
+        check("…and the same New memories card on Today", await waitFor(`document.querySelector("#content").textContent.includes("Lore read your Obsidian notes")`));
+        await shot("schedule-today-ready");
+        const routines = JSON.parse(execFileSync("uv", ["run", "lore", "automation", "list", "--json"], { cwd: join(__dirname, "../../.."), env: process.env, encoding: "utf8" }));
+        check("the CLI remembers the run and its result, so it is not owed again", routines.length === 1 && routines[0].due === false && routines[0].result === "1 new note" && routines[0].last_run, JSON.stringify(routines));
+        await js(`window.__lore.event({ type: "changed" })`);
+        await js(`window.__lore.show("connectors")`);
+        const rhythm = `[...document.querySelectorAll("#content .row")].find((r) => r.textContent.includes("How often Lore reads them"))?.textContent ?? ""`;
+        check("Connectors says Lore keeps the rhythm while it is open", await waitFor(`(${rhythm}).includes("Every day at 9 AM, while Lore is open. Last read")`), await js(rhythm));
+        check("…in plain words", !/cron|executor|schedul(e|ing) task/i.test(await js(rhythm)), await js(rhythm));
+        await js(`[...document.querySelectorAll("#content .row")].find((r) => r.textContent.includes("How often Lore reads them")).scrollIntoView()`);
+        await sleep(300);
+        await shot("schedule-connectors");
       } else if (scenario === "sales") {
         // MON-037: a new sale is a Mac notification and shows on Today; old sales never are.
         const { existsSync, readFileSync } = require("node:fs");

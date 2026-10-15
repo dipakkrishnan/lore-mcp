@@ -1,6 +1,6 @@
 #!/bin/bash
 # Seed a scratch Lore home with two memories and two drafts, then drive the renderer as one persona.
-# Scenarios: seller | provision | store | jobs | fresh | feedback | listing | obsidian | connectors | reading | faq | sell | cards | sales | extras | settings
+# Scenarios: seller | provision | store | jobs | fresh | feedback | listing | obsidian | connectors | reading | schedule | faq | sell | cards | sales | extras | settings
 set -euo pipefail
 scenario="${1:-seller}"
 desktop_dir="$(cd "$(dirname "$0")/.." && pwd)"
@@ -118,6 +118,20 @@ if [[ "$scenario" == "obsidian" ]]; then
   printf '# Two\n\nA second lesson long enough to be worth keeping.\n' > "$root/Edge Vault/two.md"
   printf '{"vaults":{"e1":{"path":"%s","ts":1,"open":true}}}' "$root/Edge Vault" > "$root/obsidian/obsidian.json"
   export OBSIDIAN_HOME="$root/obsidian"
+fi
+if [[ "$scenario" == "schedule" ]]; then
+  # AUT-006: a seller with no Claude Code or Codex, whose rhythm Lore keeps. A vault connected two days
+  # ago has a note written since, and Lore was closed at every 9 AM in between.
+  mkdir -p "$root/Edge Vault"
+  printf '# One\n\nA first lesson long enough to be worth keeping.\n' > "$root/Edge Vault/one.md"
+  export OBSIDIAN_HOME="$root/obsidian" CLAUDE_HOME="$root/claude" CODEX_HOME="$root/codex"
+  (cd "$repo_root" && uv run lore sources connect obsidian --json -- "$root/Edge Vault" >/dev/null)
+  printf '# Two\n\nA second lesson, written after the vault was connected.\n' > "$root/Edge Vault/two.md"
+  (cd "$repo_root" && uv run python -c "
+from datetime import datetime, timedelta, timezone
+from lore import automation
+automation.save_profile({'executor': 'lore', 'cadence': 'daily', 'hour': 9})
+automation.Routines(clock=lambda: datetime.now(timezone.utc) - timedelta(days=2)).adopt()")
 fi
 if [[ "$scenario" == "connectors" || "$scenario" == "reading" ]]; then
   # One app of each shape the catalog knows: a vault to choose (and a stale one to fail on), a

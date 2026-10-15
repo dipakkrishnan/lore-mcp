@@ -27,7 +27,8 @@ type Snapshot = {
     telemetry_noticed?: boolean;
     // What the saved rhythm asks for and whether the scheduler holds it; null
     // with no profile. Optional: an installed CLI older than this app omits it.
-    schedule?: { installed: boolean; executor: "claude" | "codex" | null; cadence: "daily" | "weekly" | null; hour: number | null } | null;
+    // With Lore itself as the runner (AUT-006), also when it last read and whether it missed an hour while closed.
+    schedule?: { installed: boolean; executor: "claude" | "codex" | "lore" | null; cadence: "daily" | "weekly" | null; hour: number | null; last_run?: string | null; missed?: boolean } | null;
   };
   // Whether this build has a feedback relay pinned in. Optional: an
   // installed CLI older than this app omits it, and no relay is the safe
@@ -141,6 +142,12 @@ type ReadyMemory = { id: number; title: string; sell: boolean; work: boolean; wh
 
 /** One finished reading, kept on Today until the owner clears it; `seen` once they have looked. */
 type ReadyRun = { label: string; item: string; read: number; memories: ReadyMemory[]; at: string; seen: boolean };
+
+/** Something Lore does on its own at a set hour, as `lore automation list` describes it. `due`: the app owes it a run now. */
+type Routine = { id: string; kind: "read"; name: string; runner: "claude" | "codex" | "lore"; cadence: string; hour: number; last_run: string | null; result: string; next_run: string; due: boolean };
+
+/** What running a routine did: the routine as it now stands, and what each connected app brought in. */
+type RoutineRun = { routine: Routine; reads: SourceRead[] };
 
 type SourceRemoval = { name: string; removed: boolean; memories: { kept: number; deleted?: number } };
 
