@@ -6,6 +6,7 @@ import json
 import math
 import os
 import re
+import shutil
 import sys
 import urllib.parse
 from pathlib import Path
@@ -1393,7 +1394,16 @@ def profile(path: str, schedule: bool = True) -> int:
     schedule = schedule and os.environ.get("LORE_SKIP_SCHEDULE") != "1"
     text = sys.stdin.read() if path == "-" else Path(path).read_text(encoding="utf-8")
     data = json.loads(text)
+    # In the app, an owner with neither Claude Code nor Codex has Lore read for them.
+    if (
+        isinstance(data, dict)
+        and not data.get("executor")
+        and os.environ.get("LORE_APP_VERSION")
+        and not (shutil.which("claude") or shutil.which("codex"))
+    ):
+        data["executor"] = automation.Agent.LORE
     data = automation.save_profile(data)
+    automation.Routines().adopt()
     success(f"Saved profile to {automation.profile_path()}")
     if not schedule:
         muted("Existing schedules were not changed.")

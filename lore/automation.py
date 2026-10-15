@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import fcntl
 import json
 import os
 import shlex
@@ -8,8 +9,9 @@ from collections.abc import Callable
 from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 from enum import Enum
+from functools import cached_property
 from pathlib import Path
-from typing import Annotated, Literal
+from typing import Annotated, ClassVar, Literal
 
 from pydantic import (
     BaseModel,
@@ -306,13 +308,18 @@ def task_for(profile: dict[str, object]) -> Task:
     return task
 
 
+def remove_all() -> None:
+    """Take down both agents' synthesis tasks; one that is not installed is skipped."""
+    for agent in (Agent.CLAUDE, Agent.CODEX):
+        task = Task(AUTOMATION_ID, "", agent, prompt_path(), home(), "daily", 21)
+        remove_task(task, codex_home=codex_home())
+
+
 def install(profile: dict[str, object]) -> Path:
     """Install the selected executor's recurring synthesis task."""
     if profile.get("executor") == Agent.LORE:
         # The app reads on this schedule itself, so neither agent may also run it.
-        task = task_for({**profile, "executor": Agent.CLAUDE})
-        for agent in (Agent.CLAUDE, Agent.CODEX):
-            remove_task(replace(task, agent=agent), codex_home=codex_home())
+        remove_all()
         return profile_path()
     task = task_for(profile)
     other = Agent.CLAUDE if task.agent == Agent.CODEX else Agent.CODEX
@@ -337,7 +344,7 @@ def schedule_state() -> dict[str, object] | None:
         if profile.get("executor") == Agent.LORE:
             # Held by the app, so it is never "installed" anywhere else; what is
             # honest to say is when it last ran and whether a run was missed.
-            routine = Routines().synthesis()
+            routine = Routines().get(ReadApps.id).listed()
             return {
                 "installed": True,
                 "executor": Agent.LORE,
@@ -370,66 +377,86 @@ def next_run(cadence: str, hour: int, after: datetime) -> datetime:
     return moment.astimezone()
 
 
-class Routine(BaseModel):
+class Saved(BaseModel):
     """What Lore remembers about one routine between runs."""
 
     model_config = ConfigDict(extra="ignore")
 
-    # When Lore first saw the routine, so a new one waits for its first hour
-    # instead of running the moment it is set.
+    # When it was set up: the next run counts from here or the last run, whichever
+    # is later, so a routine waits for its hour instead of running at once.
     since: datetime
     last_run: datetime | None = None
     result: str = ""
 
 
-class Routines:
-    """The routines the Lore app runs on its own, in `automation/routines.json`.
+class Routine:
+    """One thing the Lore app does on its own at a set hour.
 
-    The app asks for this list and runs what is due; it keeps no copy. A routine
-    whose hour passed while Lore was closed is due once, however many it missed.
+    Each kind is one subclass: it names its `id`, says who runs it and when, and does
+    the run. The app reads `kind` to know what to do with what a run hands back.
     """
 
-    records = TypeAdapter(dict[str, Routine])
+    id: ClassVar[str] = ""
+    kind: ClassVar[str]
+    name = ""
 
-    def __init__(
-        self, clock: Callable[[], datetime] = lambda: datetime.now(timezone.utc)
-    ) -> None:
-        self.clock = clock
-        self.path = home() / ROUTINES
-        try:
-            self.saved = self.records.validate_json(self.path.read_bytes())
-        except (OSError, ValidationError):
-            self.saved = {}
+    def __init__(self, routines: Routines, routine_id: str, saved: Saved | None):
+        self.routines = routines
+        self.routine_id = routine_id
+        self.saved = saved
 
-    def synthesis(self) -> dict[str, object]:
-        """The profile's schedule, as a routine: its hour lives in the profile alone."""
-        profile = json.loads(profile_path().read_text(encoding="utf-8"))
-        return self._listed(
-            "synthesis",
-            "Read connected apps",
-            str(profile.get("executor") or ""),
-            str(profile.get("cadence", "daily")),
-            int(profile.get("hour", 21)),
-        )
+    @property
+    def runner(self) -> str:
+        return Agent.LORE
 
-    def list(self) -> list[dict[str, object]]:
-        """Every routine, with when it runs next and whether the app owes it a run."""
-        try:
-            routines = [self.synthesis()]
-        except (OSError, ValueError):
-            routines = []
-        return [routine for routine in routines if routine["runner"]]
+    def rhythm(self) -> tuple[str, int]:
+        raise NotImplementedError
 
-    def run(self, routine_id: str) -> dict[str, object]:
-        """Run one of the app's routines now: read every connected app, and say what came."""
+    def run(self) -> dict[str, object]:
+        raise NotImplementedError
+
+    def listed(self) -> dict[str, object]:
+        """When it runs next, and whether the app owes it a run now."""
+        now = self.routines.clock()
+        cadence, hour = self.rhythm()
+        saved = self.saved
+        # Never set up: nothing is owed until it is.
+        anchor = max(saved.since, saved.last_run or saved.since) if saved else now
+        upcoming = next_run(cadence, hour, anchor)
+        due = upcoming <= now
+        return {
+            "id": self.routine_id,
+            "kind": self.kind,
+            "name": self.name,
+            "runner": self.runner,
+            "cadence": cadence,
+            "hour": hour,
+            "last_run": saved and saved.last_run and saved.last_run.isoformat(),
+            "result": saved.result if saved else "",
+            "next_run": (next_run(cadence, hour, now) if due else upcoming).isoformat(),
+            "due": due and self.runner == Agent.LORE,
+        }
+
+
+class ReadApps(Routine):
+    """Read every connected app on the profile's rhythm (AUT-006)."""
+
+    id = "synthesis"
+    kind = "read"
+    name = "Read connected apps"
+
+    @property
+    def runner(self) -> str:
+        return str(self.routines.profile.get("executor") or "")
+
+    def rhythm(self) -> tuple[str, int]:
+        profile = self.routines.profile
+        return str(profile.get("cadence", "daily")), int(str(profile.get("hour", 21)))
+
+    def run(self) -> dict[str, object]:
         from .sources import Connector, Registry
         from .store import Store
 
-        routine = next((r for r in self.list() if r["id"] == routine_id), None)
-        if routine is None or routine["runner"] != Agent.LORE:
-            raise ValueError(f"Lore does not run a routine called {routine_id}")
-        # Marked before the read, so a run that dies partway is not run again at once.
-        self._save(routine_id, last_run=self.clock())
         with Store() as store:
             reads = Registry(store).read()
         found: dict[str, int] = {}
@@ -441,36 +468,83 @@ class Routines:
             f"{count} new {noun if count == 1 else _many(noun)}"
             for noun, count in found.items()
         )
-        self._save(routine_id, result=result or "Nothing new")
-        return {"routine": self.synthesis(), "reads": reads}
+        self.routines.save(self.id, result=result or "Nothing new")
+        return {"reads": reads}
 
-    def _listed(
-        self, routine_id: str, name: str, runner: str, cadence: str, hour: int
-    ) -> dict[str, object]:
-        saved = self.saved.get(routine_id) or self._save(routine_id)
-        now = self.clock()
-        upcoming = next_run(cadence, hour, saved.last_run or saved.since)
-        due = upcoming <= now
-        return {
-            "id": routine_id,
-            "name": name,
-            "runner": runner,
-            "cadence": cadence,
-            "hour": hour,
-            "last_run": saved.last_run and saved.last_run.isoformat(),
-            "result": saved.result,
-            "next_run": (next_run(cadence, hour, now) if due else upcoming).isoformat(),
-            "due": due and runner == Agent.LORE,
-        }
 
-    def _save(self, routine_id: str, **changes: object) -> Routine:
-        current = self.saved.get(routine_id) or Routine(since=self.clock())
-        self.saved[routine_id] = current.model_copy(update=changes)
+class Routines:
+    """The routines the Lore app runs on its own, in `automation/routines.json`.
+
+    The app asks for this list and runs what is due; it keeps no copy. A routine
+    whose hour passed while Lore was closed is due once, however many it missed.
+    Listing only reads: a record is written when a routine is set up or runs.
+    """
+
+    records = TypeAdapter(dict[str, Saved])
+
+    def __init__(
+        self, clock: Callable[[], datetime] = lambda: datetime.now(timezone.utc)
+    ) -> None:
+        self.clock = clock
+        self.path = home() / ROUTINES
+        self.saved = self._read()
+
+    @cached_property
+    def profile(self) -> dict[str, object]:
+        try:
+            return dict(json.loads(profile_path().read_text(encoding="utf-8")))
+        except (OSError, ValueError):
+            return {}
+
+    def get(self, routine_id: str) -> Routine:
+        kind = next((k for k in Routine.__subclasses__() if k.id == routine_id), None)
+        if kind is None:
+            raise ValueError(f"Lore does not run a routine called {routine_id}")
+        return kind(self, routine_id, self.saved.get(routine_id))
+
+    def list(self) -> list[dict[str, object]]:
+        """Every routine someone runs, with when it runs next and whether the app owes
+        it a run."""
+        built_in = (self.get(k.id) for k in Routine.__subclasses__() if k.id)
+        return [routine.listed() for routine in built_in if routine.runner]
+
+    def adopt(self) -> None:
+        """The owner just saved their rhythm: it counts from now, so nothing runs at once."""
+        self.save(ReadApps.id, since=self.clock())
+
+    def run(self, routine_id: str) -> dict[str, object]:
+        """Run one of the app's routines now, and hand back what it brought."""
+        routine = self.get(routine_id)
+        if routine.runner != Agent.LORE:
+            raise ValueError(f"Lore does not run a routine called {routine_id}")
+        # Marked before the run, so a run that dies partway is not run again at once.
+        self.save(routine_id, last_run=self.clock())
+        ran = routine.run()
+        return {"routine": self.get(routine_id).listed(), **ran}
+
+    def save(self, routine_id: str, **changes: object) -> Saved:
+        """Change one routine's record and no other, starting from what is on disk now
+        and under a lock, so a long run never writes a stale copy over a change made
+        meanwhile."""
         self.path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
-        self.path.touch(mode=0o600, exist_ok=True)
-        self.path.chmod(0o600)
-        self.path.write_bytes(self.records.dump_json(self.saved, indent=2))
+        lock = self.path.with_suffix(".lock")
+        lock.touch(mode=0o600, exist_ok=True)
+        with lock.open() as held:
+            fcntl.flock(held, fcntl.LOCK_EX)
+            self.saved = self._read()
+            current = self.saved.get(routine_id) or Saved(since=self.clock())
+            self.saved[routine_id] = current.model_copy(update=changes)
+            written = self.path.with_suffix(".tmp")
+            written.touch(mode=0o600, exist_ok=True)
+            written.write_bytes(self.records.dump_json(self.saved, indent=2))
+            written.replace(self.path)
         return self.saved[routine_id]
+
+    def _read(self) -> dict[str, Saved]:
+        try:
+            return self.records.validate_json(self.path.read_bytes())
+        except (OSError, ValidationError):
+            return {}
 
 
 def _many(noun: str) -> str:

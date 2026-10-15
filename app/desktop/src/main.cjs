@@ -247,6 +247,21 @@ function readThrough(loreHome, read) {
   return read;
 }
 
+/** What the app does with each kind of routine's run, by the `kind` the CLI names. A new kind is one entry here.
+ * @type {Record<Routine["kind"], (loreHome: string, ran: RoutineRun) => void | Promise<void>>} */
+const AFTER_RUN = {
+  read: (loreHome, ran) => {
+    for (const read of ran.reads) readThrough(loreHome, read);
+  }
+};
+
+/** Run one routine through the CLI, then do what its kind asks with what it brought. @param {string} loreHome @param {Routine} routine */
+async function runNow(loreHome, routine) {
+  const ran = await runRoutine(loreHome, routine.id);
+  await AFTER_RUN[ran.routine.kind](loreHome, ran);
+  emit({ type: "changed" });
+}
+
 function createWindow() {
   window = new BrowserWindow({
     width: 1040,
@@ -285,11 +300,7 @@ app.whenReady().then(async () => {
   watchSales(loreHome);
   void newMemories.show();
   // The owner's rhythm, kept by Lore while it is open; an hour missed while it was closed runs now, once.
-  const schedule = new Schedule(() => listRoutines(loreHome), async (routine) => {
-    const { reads } = await runRoutine(loreHome, routine.id);
-    for (const read of reads) readThrough(loreHome, read);
-    emit({ type: "changed" });
-  });
+  const schedule = new Schedule(() => listRoutines(loreHome), (routine) => runNow(loreHome, routine));
   void schedule.check();
   powerMonitor.on("resume", () => void schedule.check());
   app.on("activate", () => {

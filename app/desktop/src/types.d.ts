@@ -144,12 +144,12 @@ type ReadyMemory = { id: number; title: string; sell: boolean; work: boolean; wh
 type ReadyRun = { label: string; item: string; read: number; memories: ReadyMemory[]; at: string; seen: boolean };
 
 /** Something Lore does on its own at a set hour, as `lore automation list` describes it. `due`: the app owes it a run now. */
-type Routine = { id: string; name: string; runner: "claude" | "codex" | "lore"; cadence: string; hour: number; last_run: string | null; result: string; next_run: string; due: boolean };
+type Routine = { id: string; kind: "read"; name: string; runner: "claude" | "codex" | "lore"; cadence: string; hour: number; last_run: string | null; result: string; next_run: string; due: boolean };
 
 /** What running a routine did: the routine as it now stands, and what each connected app brought in. */
 type RoutineRun = { routine: Routine; reads: SourceRead[] };
 
-type SourceRemoval ={ name: string; removed: boolean; memories: { kept: number; deleted?: number } };
+type SourceRemoval = { name: string; removed: boolean; memories: { kept: number; deleted?: number } };
 
 type FeedbackReceipt = {
   url: string;

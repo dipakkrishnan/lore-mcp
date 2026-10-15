@@ -176,8 +176,9 @@ real, current, checkable state, not one present-tense and one hypothetical.
 In the Lore desktop app, also offer `"executor": "lore"`: the app reads the owner's
 connected apps on this rhythm while it is open, and once at the next launch if it was
 closed at that hour. When neither `claude` nor `codex` was found, it is the only
-runnable choice, so recommend it and say so plainly: "Lore reads your apps itself while
-it's open."
+runnable choice: set it without asking and say so plainly: "Lore reads your apps itself
+while it's open." In the app, a profile saved with no executor on such a Mac gets
+`lore` too.
 
 ## 4. Save and schedule
 

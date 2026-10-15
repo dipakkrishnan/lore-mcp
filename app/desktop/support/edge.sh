@@ -131,7 +131,7 @@ if [[ "$scenario" == "schedule" ]]; then
 from datetime import datetime, timedelta, timezone
 from lore import automation
 automation.save_profile({'executor': 'lore', 'cadence': 'daily', 'hour': 9})
-automation.Routines(clock=lambda: datetime.now(timezone.utc) - timedelta(days=2)).list()")
+automation.Routines(clock=lambda: datetime.now(timezone.utc) - timedelta(days=2)).adopt()")
 fi
 if [[ "$scenario" == "connectors" || "$scenario" == "reading" ]]; then
   # One app of each shape the catalog knows: a vault to choose (and a stale one to fail on), a

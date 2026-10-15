@@ -59,3 +59,14 @@ reads go through AUT-005's `readThrough`. `schedule_state` for Lore reports
 `last_run` and `missed`. The app runs the schedule only when the profile
 names Lore; with no profile nothing is scheduled, as before. Edge scenario:
 `support/edge.sh schedule`.
+
+Oct 14, review fixes: each kind of routine is one `automation.Routine` subclass
+(`ReadApps` here) that owns its rhythm and its run; the CLI lists its `kind`
+and the app's `AFTER_RUN` map does what that kind asks. Listing only reads.
+`lore profile` writes the record (`Routines.adopt`), so a rhythm counts from
+when it was saved and never runs at once. `Routines.save` re-reads
+routines.json under an `fcntl` lock and changes only its own record, so a long
+read no longer writes a stale copy over a change made meanwhile.
+`install` for Lore calls `remove_all()` instead of building a throwaway task.
+In the app, a profile saved with no executor on a Mac with neither `claude`
+nor `codex` gets `lore`, and the onboarding skill sets it without asking.

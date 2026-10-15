@@ -1289,7 +1289,7 @@ test("Lore runs what is due once, then looks again at the next hour it keeps, or
   t.mock.timers.enable({ apis: ["setTimeout"] });
   const now = Date.parse("2026-10-14T12:00:00Z");
   /** @param {Partial<Routine>} fields @returns {Routine} */
-  const routine = (fields) => ({ id: "synthesis", name: "Read connected apps", runner: "lore", cadence: "daily", hour: 9, last_run: null, result: "", next_run: "2026-10-15T09:00:00Z", due: false, ...fields });
+  const routine = (fields) => ({ id: "synthesis", kind: "read", name: "Read connected apps", runner: "lore", cadence: "daily", hour: 9, last_run: null, result: "", next_run: "2026-10-15T09:00:00Z", due: false, ...fields });
   let routines = [routine({ due: true }), routine({ id: "theirs", runner: "codex", next_run: "2026-10-14T12:05:00Z" })];
   /** @type {string[]} */
   const ran = [];
