@@ -495,6 +495,15 @@ class TakeOverTest(LoreTestCase):
         log = (self.lore_home / "automation/moved.log").read_text()
         self.assertEqual(log.count("moved from claude"), 1)
 
+    def test_the_first_launch_after_the_move_skips_and_owes_nothing(self) -> None:
+        # Moved at 7 PM on a weekday, after both the 6 PM check-in and any reading.
+        automation.save_profile(automation_profile(cadence="daily", hour=9))
+        launched = automation.Routines(clock=lambda: local(14, 19))
+        launched.take_over()
+        listed = launched.list()
+        self.assertEqual([(r["due"], r["result"]) for r in listed], [(False, "")] * 2)
+        self.assertEqual(listed[1]["next_run"], local(15, 18).isoformat())
+
     def test_only_the_app_moves_it(self) -> None:
         automation.save_profile(automation_profile())
         with patch("lore.automation.remove_task") as remove, captured():
@@ -663,7 +672,10 @@ class CheckInTest(LoreTestCase):
         ran = automation.Routines(clock=lambda: local(15, 9)).run("checkin")
         self.assertEqual(ran, {"routine": ran["routine"], "items": [], "missed": True})
         routine = checkin(automation.Routines(clock=lambda: local(15, 9)))
-        self.assertEqual(routine["result"], "Skipped: Lore wasn't open at 6 PM")
+        # Named by the slot it skipped, the 14th, not the morning it noticed.
+        self.assertEqual(
+            routine["result"], "Skipped Wednesday: Lore wasn't open at 6 PM"
+        )
         self.assertFalse(routine["due"])
         # Opened an hour after six, it still asks.
         ran = automation.Routines(clock=lambda: local(15, 19)).run("checkin")

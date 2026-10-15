@@ -1007,7 +1007,8 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
           require("electron").powerMonitor.emit("resume");
           for (let i = 0; i < 40 && !checkin().result.startsWith("Skipped"); i++) await sleep(250);
           const clock = `${late % 12 || 12} ${late < 12 ? "AM" : "PM"}`;
-          check("a check-in missed by hours is recorded as missed, and never asks late", checkin().result === `Skipped: Lore wasn't open at ${clock}` && checkIns.length === 1 && !notes.some(asking), `${checkin().result} · ${checkIns.length} looks`);
+          const skipped = new Date(Date.now() - 5 * 60 * 60_000).toLocaleDateString("en-US", { weekday: "long" });
+          check("a check-in missed by hours is recorded as missed, and never asks late", checkin().result === `Skipped ${skipped}: Lore wasn't open at ${clock}` && checkIns.length === 1 && !notes.some(asking), `${checkin().result} · ${checkIns.length} looks`);
         } else {
           const note = notes.find(asking);
           check("a day worth asking about is one notification naming the thing", notes.filter(asking).length === 1 && note?.words.body === "You held the price on the Acme call. What made you hold firm?", JSON.stringify(notes.map((n) => n.words)));

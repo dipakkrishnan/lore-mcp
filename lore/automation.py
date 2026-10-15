@@ -548,7 +548,7 @@ class CheckIn(Routine):
             hour = self.rhythm()[1]
             self.routines.save(
                 self.id,
-                result=f"Skipped: Lore wasn't open at {hour % 12 or 12} "
+                result=f"Skipped {latest:%A}: Lore wasn't open at {hour % 12 or 12} "
                 f"{'AM' if hour < 12 else 'PM'}",
             )
             return {"items": [], "missed": True}
