@@ -396,7 +396,9 @@ class TasteFeedTest(LoreTestCase):
                     "12345",
                     "https://www.goodreads.com/user/show/12345-reader",
                     "goodreads.com/review/list/12345-reader?shelf=read",
+                    "https://m.goodreads.com/user/show/12345-reader",
                     "https://www.goodreads.com/review/list_rss/12345?shelf=read",
+                    "https://www.goodreads.com/review/list_rss/12345?key=abc&shelf=read",
                 ),
             ),
         ):
@@ -417,6 +419,49 @@ class TasteFeedTest(LoreTestCase):
             source.locator,
             "https://www.goodreads.com/review/list_rss/12345?shelf=read&key=abc",
         )
+
+    def test_a_goodreads_feed_with_and_without_its_key_is_one_source(self) -> None:
+        with serving({"list_rss/12345": "goodreads.xml"}), Store() as store:
+            registry = sources_module.Registry(store)
+            registry.connect("goodreads", "12345")
+            registry.connect(
+                "goodreads",
+                "https://www.goodreads.com/review/list_rss/12345?key=abc&shelf=read",
+            )
+            self.assertEqual(
+                [s.locator for s in registry.owned if s.connector == "goodreads"],
+                ["https://www.goodreads.com/review/list_rss/12345?shelf=read&key=abc"],
+            )
+        self.assertEqual(len(self.memories()), 3)
+
+    def test_a_fixed_feed_that_misses_is_not_guessed_around(self) -> None:
+        asked: list[str] = []
+
+        def fetch(reader: FeedReader, url: str) -> bytes:
+            asked.append(url)
+            return (FIXTURES / "bare.html").read_bytes()
+
+        for app, typed in (("letterboxd", "critic"), ("goodreads", "12345")):
+            asked.clear()
+            with self.subTest(app=app), patch.object(FeedReader, "fetch", fetch):
+                reader = Source.owner(typed, kind="feed", connector=app).reader()
+                self.assertEqual(reader.probe().value, "unreachable")
+                self.assertEqual(len(asked), 1)
+
+    def test_one_unreadable_rating_skips_only_that_entry(self) -> None:
+        recorded = (FIXTURES / "goodreads.xml").read_bytes()
+        broken = recorded.replace(b"<user_rating>5<", b"<user_rating>five<")
+        with patch.object(FeedReader, "fetch", lambda self, url: broken):
+            reader = Source.owner("12345", kind="feed", connector="goodreads").reader()
+            self.assertEqual(reader.probe().value, "connected")
+            self.assertEqual(
+                [item.title for item in reader.items() if not item.excluded],
+                [
+                    "We Die Alone: A WWII Epic of Escape and Endurance",
+                    "High Output Management",
+                ],
+            )
+        self.assertEqual(reader.errors, 1)
 
     def test_letterboxd_keeps_ratings_reviews_and_lists_and_skips_bare_watches(
         self,
@@ -514,6 +559,29 @@ class TasteFeedTest(LoreTestCase):
                 "Paste the link to your Goodreads profile",
             ),
             ("goodreads", "a reader", "Paste the link to your Goodreads profile"),
+            (
+                "goodreads",
+                "2024 books I liked",
+                "Paste the link to your Goodreads profile",
+            ),
+            (
+                "goodreads",
+                "https://www.goodreads.com/book/show/12345-a-book",
+                "Paste the link to your Goodreads profile",
+            ),
+            *(
+                (
+                    "letterboxd",
+                    typed,
+                    "That's a Letterboxd page, not a profile. "
+                    "Paste your profile link, like letterboxd.com/yourname",
+                )
+                for typed in (
+                    "https://letterboxd.com/film/dune/",
+                    "letterboxd.com/journal/",
+                    "Lists",
+                )
+            ),
         ):
             with self.subTest(app=app, typed=typed):
                 with self.assertRaises(sources_module.SourceError) as refused:
