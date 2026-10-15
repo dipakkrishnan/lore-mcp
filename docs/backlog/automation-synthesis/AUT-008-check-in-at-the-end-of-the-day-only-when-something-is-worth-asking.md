@@ -4,7 +4,7 @@ title: Check in at the end of the day, only when something is worth asking about
 priority: P1
 effort: M
 component: automation-synthesis
-status: ready
+status: completed
 related: [AUT-005, AUT-006, APP-200, CAP-001]
 blockers: [AUT-006]
 dependencies: []
@@ -48,16 +48,16 @@ after a week, and then turned off.
 
 ## Acceptance criteria
 
-- [ ] A day with no new items, or only items the library already covers,
+- [x] A day with no new items, or only items the library already covers,
       produces no notification, no badge and no card.
-- [ ] A day with a worthwhile item produces exactly one notification naming
+- [x] A day with a worthwhile item produces exactly one notification naming
       it, a dock badge, and a Today card that opens a seeded thread.
-- [ ] Answers become private memories only after the owner approves them.
-- [ ] One check-in a day at most, and an unanswered one is replaced, not
+- [x] Answers become private memories only after the owner approves them.
+- [x] One check-in a day at most, and an unanswered one is replaced, not
       stacked.
-- [ ] The routine can be paused, retimed or turned off (APP-200), and turning
+- [x] The routine can be paused, retimed or turned off (APP-200), and turning
       it off is remembered.
-- [ ] The decision to stay silent is covered by tests with a stand-in model
+- [x] The decision to stay silent is covered by tests with a stand-in model
       for both outcomes.
 
 ## Notes
@@ -66,3 +66,28 @@ The "worth asking" judgment is a prompt-plus-rules step, like
 `automation.RULES`, with a structured answer (`reach_out: bool`, `questions`,
 `why`) so the app, not the model, decides whether anything is posted.
 Calendar context would sharpen the questions; see CAP-035.
+
+Oct 14, done:
+- The check-in is one of Lore's own routines in `automation.Routines`
+  (default weekdays at 6 PM, on with no profile needed).
+- `lore automation run checkin` reads every connected app and hands back the
+  items imported since the last check-in. It tracks the newest memory id it
+  has seen, not `created_at`, because imports are dated by their source. With
+  no items, no model runs and nothing is posted.
+- Otherwise the quiet `checkin` task (skill `lore-check-in`, tools read/bash/
+  `check_in`) runs after any readings and returns `{reach_out, why,
+  questions}`. `checkin.cjs` posts only when `reach_out` is true, keeping at
+  most three non-blank questions about items Lore actually brought in today,
+  and at most once a day.
+- A post means one notification ("Five minutes on today?" plus the first
+  question), a dock badge of 1, and a Check in card that leads Today. The card
+  and the notification open the `evening` thread with the questions shown.
+- The owner's first reply carries the questions to the agent (lore-capture),
+  so answers are saved only through propose_memories approval.
+- Not today, or the next run, expires an unanswered check-in.
+- Pause and retime: `lore automation pause|resume|time checkin`, saved in
+  routines.json. The buttons are in APP-200.
+- Not built: "after three ignored check-ins in a row, ask once whether to
+  keep checking in". It was in the approach but not in the acceptance
+  criteria; follow-up.
+- Edge walks: `support/edge.sh checkin` and `support/edge.sh quiet`.

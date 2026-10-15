@@ -79,6 +79,8 @@ contextBridge.exposeInMainWorld("lore", {
   readyRuns: () => ipcRenderer.invoke("ready:runs"),
   seenMemories: () => ipcRenderer.invoke("ready:seen"),
   clearMemories: () => ipcRenderer.invoke("ready:clear"),
+  checkIn: () => ipcRenderer.invoke("checkin:waiting"),
+  dismissCheckIn: () => ipcRenderer.invoke("checkin:dismiss"),
   openPrivacySettings: () => ipcRenderer.invoke("settings:privacy"),
   /** @param {File} file */
   pathFor: (file) => webUtils.getPathForFile(file),

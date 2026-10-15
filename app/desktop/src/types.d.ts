@@ -144,10 +144,23 @@ type ReadyMemory = { id: number; title: string; sell: boolean; work: boolean; wh
 type ReadyRun = { label: string; item: string; read: number; memories: ReadyMemory[]; at: string; seen: boolean };
 
 /** Something Lore does on its own at a set hour, as `lore automation list` describes it. `due`: the app owes it a run now. */
-type Routine = { id: string; kind: "read"; name: string; runner: "claude" | "codex" | "lore"; cadence: string; hour: number; last_run: string | null; result: string; next_run: string; due: boolean };
+type Routine = { id: string; kind: "read" | "checkin"; name: string; runner: "claude" | "codex" | "lore"; cadence: string; hour: number; paused?: boolean; last_run: string | null; result: string; next_run: string; due: boolean };
 
-/** What running a routine did: the routine as it now stands, and what each connected app brought in. */
-type RoutineRun = { routine: Routine; reads: SourceRead[] };
+/** What running a routine did: the routine as it now stands, and what each connected app brought in.
+ * The check-in also gets every item brought in since it last ran. */
+type RoutineRun = { routine: Routine; reads: SourceRead[]; items?: CheckInItem[] };
+
+/** One item Lore brought in today, as the check-in judges it. */
+type CheckInItem = { id: number; title: string; source: string };
+
+/** What the evening check-in looks over. */
+type CheckInJob = { items: CheckInItem[] };
+
+/** The model's structured answer; the app, not the model, decides whether anything is posted. */
+type CheckInVerdict = { reach_out: boolean; why: string; questions: Array<{ question: string; memory: number }> };
+
+/** A posted check-in: its questions, each tied to an item, and whether it waits, was answered, or expired. */
+type CheckIn = { questions: Array<{ question: string; memory: number; title: string }>; why: string; at: string; state: "waiting" | "answered" | "expired" };
 
 type SourceRemoval = { name: string; removed: boolean; memories: { kept: number; deleted?: number } };
 
@@ -219,7 +232,7 @@ type ExtrasCandidate = {
   piece: { title: string; teaser: string; kind: "claim" | "content"; topic: string; sample: string; useful_if: string; not_useful_if: string };
 };
 
-type AgentTask = "capture" | "setup" | "publish" | "deploy" | "synthesize";
+type AgentTask = "capture" | "setup" | "publish" | "deploy" | "synthesize" | "checkin" | "evening";
 type TaskState = "needs_you" | "working" | "stopped" | "done";
 
 type TaskRecord = {
@@ -296,6 +309,8 @@ interface Window {
     readyRuns(): Promise<ReadyRun[]>;
     seenMemories(): Promise<void>;
     clearMemories(): Promise<void>;
+    checkIn(): Promise<CheckIn | null>;
+    dismissCheckIn(): Promise<void>;
     openPrivacySettings(): Promise<void>;
     pathFor(file: File): string;
     onAgentEvent(listener: (event: AgentEvent) => void): () => void;
@@ -353,13 +368,14 @@ type AgentEvent =
   | { type: "progress"; text?: string; done?: boolean; error?: string }
   | { type: "sold" }
   | { type: "show"; view: "store" | "today" }
+  | { type: "thread"; task: AgentTask }
   | { type: "ready" }
   | { type: "update"; update: AppUpdate };
 
 type LoreAgentInstance = {
   readonly activeTask: AgentTask | null;
   status(): Promise<AgentStatus>;
-  prompt(text: string, task: AgentTask, from?: AgentTask, memory?: number, source?: string): Promise<void>;
+  prompt(text: string, task: AgentTask, from?: AgentTask, memory?: number, source?: string, asked?: CheckIn | null): Promise<void>;
   history(task: AgentTask): Line[];
   tasks(): TaskRecord[];
   restart(task: AgentTask): void;
@@ -367,6 +383,7 @@ type LoreAgentInstance = {
   logout(providerId: string): Promise<AgentStatus>;
   dispose(): void;
   synthesize(reading: Reading): void;
+  checkIn(job: CheckInJob): void;
 };
 
 type LoreAgentOptions = {
@@ -386,6 +403,7 @@ type LoreAgentOptions = {
   drafts?(): Promise<number>;
   /** A reading finished and handed back what it wrote; Lore saves it and tells the owner. */
   memoriesReady?(reading: Reading, report: ReadingReport): Promise<void>;
+  checkedIn?(job: CheckInJob, verdict: CheckInVerdict): Promise<void>;
   authPrompt(prompt: import("@earendil-works/pi-ai").AuthPrompt): Promise<string>;
   authEvent(event: import("@earendil-works/pi-ai").AuthEvent): void;
   // Durable owner-run history. Injected rather than imported so the agent stays

@@ -52,6 +52,10 @@ let task = "capture";
 let taskItems = [];
 /** What Lore read from connected apps, newest first, until the owner clears it. @type {ReadyRun[]} */
 let readyRuns = [];
+/** The evening check-in waiting for the owner; null on every day Lore found nothing worth asking. @type {CheckIn | null} */
+let checkIn = null;
+/** How many loads have started; only the newest one's answer is shown. */
+let loads = 0;
 /** @type {AgentTask | null} */
 let detailTask = null;
 /** @type {TaskRecord | null} */
@@ -140,7 +144,7 @@ const REDEPLOY_PRICE = "I changed my publication price. Redeploy my store so buy
 const money = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 6 });
 const shortDate = new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric" });
 const longDate = new Intl.DateTimeFormat("en-US", { weekday: "long", month: "long", day: "numeric" });
-const TASK_TITLES = { capture: "Capture a memory", setup: "Set up your Lore", publish: "Publish from your Lore", deploy: "Open your store", synthesize: "Read what came in" };
+const TASK_TITLES = { capture: "Capture a memory", setup: "Set up your Lore", publish: "Publish from your Lore", deploy: "Open your store", synthesize: "Read what came in", checkin: "Look over today", evening: "Evening check-in" };
 /** Stands in for the composer while a card in another thread holds the turn; its button opens that thread. @type {AgentTask | null} */
 let waitingTask = null;
 const waiting = el("div", "card pad lead composer-wait");
@@ -148,7 +152,9 @@ const waitingText = el("span");
 waiting.append(el("span", "dot"), waitingText, button("Open", "secondary", () => { if (waitingTask) void openTask(waitingTask); }));
 waiting.hidden = true;
 composer.insertAdjacentElement("afterend", waiting);
-const THINKING = { setup: "Thinking…", publish: "Drafting…", capture: "Reading this…", deploy: "Setting up your store…", synthesize: "Reading…" };
+/** Lore's own work between the owner's turns: never a thread on Today. @type {ReadonlySet<AgentTask>} */
+const QUIET_TASKS = new Set(["synthesize", "checkin"]);
+const THINKING = { setup: "Thinking…", publish: "Drafting…", capture: "Reading this…", deploy: "Setting up your store…", synthesize: "Reading…", checkin: "Reading…", evening: "Reading this…" };
 const TASK_STATES = { needs_you: "Needs you", working: "Working", stopped: "Waiting for you", done: "Done" };
 
 /**
@@ -646,9 +652,23 @@ function needsYou(s) {
   return rows;
 }
 
-/** Unfinished threads, without the store's once the store is open: nothing is left to finish there. A reading is no thread. */
+/** Unfinished threads, without the store's once the store is open: nothing is left to finish there. Quiet work is no thread. */
 function displayTasks() {
-  return taskItems.filter((item) => item.kind !== "synthesize" && !(item.kind === "deploy" && snapshot?.node.url)).slice(0, 3);
+  return taskItems.filter((item) => !QUIET_TASKS.has(item.kind) && !(item.kind === "deploy" && snapshot?.node.url)).slice(0, 3);
+}
+
+/** What Lore asked, as it reads in the thread. @param {CheckIn} asked */
+const askedText = (asked) => asked.questions.map((each) => each.question).join("\n\n");
+
+/** The evening check-in leads Today: the questions Lore would like five minutes on, and a way to say not today. @param {CheckIn} asked */
+function checkInCard(asked) {
+  const answer = button("Answer", "primary", () => void openTask("evening"));
+  const later = button("Not today", "quiet", () => void window.lore.dismissCheckIn().then(() => { checkIn = null; render(); }));
+  const [first, ...rest] = asked.questions;
+  return section("Check in", card([
+    row(first.question, "Five minutes? Lore saves only what you approve.", cell(later, answer), false),
+    ...rest.map((each) => row(each.question, `About ${each.title}`, cell(), false))
+  ]));
 }
 
 /** A reading under way, as one quiet row. @param {TaskRecord} item */
@@ -688,6 +708,8 @@ const DRAFTING = new Set(["publish", "capture"]);
 function renderToday(s) {
   /** @type {HTMLElement[]} */
   const parts = [];
+  // A check-in leads Today, on the rare day there is one.
+  if (checkIn && !detailTask) parts.push(checkInCard(checkIn));
   // Drafts and the push after approving show on Today and in the threads that draft.
   if (!detailTask || DRAFTING.has(detailTask)) {
     if (candidates.length || extraDrafts.length) parts.push(section("Approve what to sell", approvals(), el("span", "hint", "Buyers only ever get what you approve here.")));
@@ -698,7 +720,7 @@ function renderToday(s) {
     if ((detailTask === "setup" || detailTask === "deploy") && detailRecord?.state === "done") parts.push(nextRung(s));
     return parts;
   }
-  const reading = taskItems.find((item) => item.kind === "synthesize" && item.state === "working");
+  const reading =taskItems.find((item) => item.kind === "synthesize" && item.state === "working");
   if (reading) parts.push(readingRow(reading));
   if (readyRuns.length) parts.push(memoriesReady(readyRuns));
   const attention = needsYou(s);
@@ -1685,14 +1707,19 @@ function openPriceEditor() {
 
 async function load() {
   if (!snapshot) content.replaceChildren(el("p", "hint", "Loading…"));
+  // Loads overlap (a "changed" then a "ready" a moment later); one that started earlier but finished later is stale.
+  const ticket = ++loads;
   try {
-    [snapshot, candidates, extraDrafts, taskItems, apps, readyRuns] = await Promise.all([window.lore.snapshot(), window.lore.candidates().catch(() => []), window.lore.extras().catch(() => []), window.lore.tasks().catch(() => []), apps.length ? apps : window.lore.sourceCatalog().catch(() => []), window.lore.readyRuns().catch(() => readyRuns)]);
+    const loaded = await Promise.all([window.lore.snapshot(), window.lore.candidates().catch(() => []), window.lore.extras().catch(() => []), window.lore.tasks().catch(() => []), apps.length ? apps : window.lore.sourceCatalog().catch(() => []), window.lore.readyRuns().catch(() => readyRuns), window.lore.checkIn().catch(() => null)]);
+    if (ticket !== loads) return;
+    [snapshot, candidates, extraDrafts, taskItems, apps, readyRuns, checkIn] = loaded;
     if (detailTask) detailRecord = taskItems.find((item) => item.kind === detailTask) ?? detailRecord;
     peeked.clear();
     render();
     // Today's earnings need the ledger once; after that a new sale or For Sale reads it again.
     if (!salesAsked && snapshot.node.url) void loadSales();
   } catch {
+    if (ticket !== loads) return;
     const error = el("section", "card error");
     error.setAttribute("role", "alert");
     error.append(el("h2", "", "Lore could not load"), el("p", "hint", "Your data was not changed. Check that Lore is installed, then try again."), button("Try again", "secondary", load));
@@ -2303,6 +2330,11 @@ async function openTask(kind, record, fallback) {
   // a thread that already finished (and so dropped out of taskItems), and history()
   // reads the session file directly, returning [] when there is truly nothing there.
   lines.splice(0, lines.length, ...(await window.lore.history(kind).catch(() => [])));
+  // A check-in's thread opens with Lore's questions already asked.
+  if (kind === "evening" && checkIn && !lines.length) {
+    lines.push({ text: askedText(checkIn), owner: false });
+    detailRecord ??= { version: 1, kind, title: TASK_TITLES.evening, state: "needs_you", phase: "Five minutes on today", updatedAt: checkIn.at };
+  }
   liveText = liveStatus = "";
   resetBlueprintGhost();
   show("today");
@@ -2790,6 +2822,7 @@ function onEvent(event) {
     if (event.view === "today" && detailTask) closeTask();
     show(event.view);
   }
+  else if (event.type === "thread") void openTask(event.task);
   else if (event.type === "update") showUpdate(event.update);
   else if (event.type === "message") { if (event.task === task) say(event.text); }
   else if (event.type === "saved") { if (event.task === task) { lines.push({ text: "", owner: false, saved: event.memories }); renderLog(); } }

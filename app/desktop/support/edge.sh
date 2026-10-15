@@ -1,6 +1,6 @@
 #!/bin/bash
 # Seed a scratch Lore home with two memories and two drafts, then drive the renderer as one persona.
-# Scenarios: seller | provision | store | jobs | fresh | feedback | listing | obsidian | connectors | reading | schedule | faq | sell | cards | sales | extras | settings
+# Scenarios: seller | provision | store | jobs | fresh | feedback | listing | obsidian | connectors | reading | schedule | checkin | quiet | faq | sell | cards | sales | extras | settings
 set -euo pipefail
 scenario="${1:-seller}"
 desktop_dir="$(cd "$(dirname "$0")/.." && pwd)"
@@ -132,6 +132,19 @@ from datetime import datetime, timedelta, timezone
 from lore import automation
 automation.save_profile({'executor': 'lore', 'cadence': 'daily', 'hour': 9})
 automation.Routines(clock=lambda: datetime.now(timezone.utc) - timedelta(days=2)).adopt()")
+fi
+if [[ "$scenario" == "checkin" || "$scenario" == "quiet" ]]; then
+  # AUT-008: a connected vault, and an evening check-in Lore missed while closed. The note written since
+  # is today's one new item; the stand-in model either finds it worth asking about (checkin) or not (quiet).
+  mkdir -p "$root/Edge Vault"
+  printf '# One\n\nA first lesson long enough to be worth keeping.\n' > "$root/Edge Vault/one.md"
+  export CLAUDE_HOME="$root/claude" CODEX_HOME="$root/codex"
+  (cd "$repo_root" && uv run lore sources connect obsidian --json -- "$root/Edge Vault" >/dev/null)
+  printf '# Pushed back on the Acme pricing call\n\nHeld the price; no reason written down.\n' > "$root/Edge Vault/two.md"
+  (cd "$repo_root" && uv run python -c "
+from datetime import datetime, timedelta, timezone
+from lore import automation
+automation.Routines(clock=lambda: datetime.now(timezone.utc) - timedelta(days=2)).change('checkin', cadence='daily', hour=9)")
 fi
 if [[ "$scenario" == "connectors" || "$scenario" == "reading" ]]; then
   # One app of each shape the catalog knows: a vault to choose (and a stale one to fail on), a

@@ -95,4 +95,23 @@ function unseen(runs) {
   return runs.filter((run) => !run.seen).reduce((count, run) => count + run.memories.length, 0);
 }
 
-module.exports = { many, plural, worthReading, landed, announcement, Ready };
+/** The dock's one red number, summed from each thing that counts toward it: new memories, a check-in waiting. */
+class Badge {
+  /** @type {Map<string, number>} */
+  #counts = new Map();
+
+  /** @param {(count: number) => void} set */
+  constructor(set) {
+    this.set = set;
+  }
+
+  /** @param {string} name @returns {(count: number) => void} */
+  part(name) {
+    return (count) => {
+      this.#counts.set(name, count);
+      this.set([...this.#counts.values()].reduce((sum, each) => sum + each, 0));
+    };
+  }
+}
+
+module.exports = { many, plural, worthReading, landed, announcement, Ready, Badge };

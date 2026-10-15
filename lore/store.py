@@ -701,6 +701,25 @@ class Store:
             )
         }
 
+    def newest_memory_id(self) -> int:
+        """The newest memory's id: an import gets a higher one, whatever date it carries."""
+        return int(
+            self.db.execute("SELECT coalesce(max(id),0) FROM memories").fetchone()[0]
+        )
+
+    def brought_in_after(
+        self, memory_id: int, limit: int = 30
+    ) -> list[dict[str, object]]:
+        """Private items imported after `memory_id`, newest first; never Lore's own writing."""
+        return [
+            dict(row)
+            for row in self.db.execute(
+                "SELECT id,title,source FROM memories WHERE status='private' "
+                "AND origin!='automation' AND id>? ORDER BY id DESC LIMIT ?",
+                (memory_id, limit),
+            )
+        ]
+
     def source_keys(self, source: str) -> set[str]:
         """The item keys one source has already kept, without the source's prefix."""
         return {

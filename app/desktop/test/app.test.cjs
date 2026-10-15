@@ -1317,3 +1317,140 @@ test("Lore runs what is due once, then looks again at the next hour it keeps, or
   assert.equal(looks, 5);
   schedule.stop();
 });
+
+/** AUT-008: a check-in run end to end with a stand-in model, through the same rules the app posts by.
+ * @param {CheckInVerdict} verdict @param {CheckInItem[]} items */
+async function checkInWith(verdict, items) {
+  const { fauxAssistantMessage, fauxToolCall } = await import("@earendil-works/pi-ai");
+  const { CheckIns } = require("../src/checkin.cjs");
+  /** @type {number[]} */
+  const badges = [];
+  /** @type {Array<CheckIn | null>} */
+  const posted = [];
+  /** @type {string[]} */
+  const asked = [];
+  const directory = await mkdtemp(join(tmpdir(), "lore-check-in-"));
+  const checkIns = new CheckIns(join(directory, "check-in.json"), (count) => badges.push(count));
+  const { agent, faux, events, loreHome } = await scriptedAgent({ checkedIn: async (job, said) => { posted.push(await checkIns.consider(said, job.items)); } });
+  faux.setResponses([
+    (context) => {
+      const first = context.messages.find((message) => message.role === "user");
+      asked.push(typeof first.content === "string" ? first.content : first.content.map((block) => (block.type === "text" ? block.text : "")).join(""));
+      return fauxAssistantMessage(fauxToolCall("check_in", verdict), { stopReason: "toolUse" });
+    },
+    fauxAssistantMessage("Done.")
+  ]);
+  agent.checkIn({ items });
+  await until(() => posted.length === 1);
+  await rm(loreHome, { recursive: true, force: true });
+  return { posted: posted[0], badges, asked: asked[0], events, checkIns, directory };
+}
+
+const TODAY = [{ id: 12, title: "Pricing call with Acme", source: "granola-1" }, { id: 13, title: "Weekly standup", source: "granola-1" }];
+
+test("a check-in stays silent when nothing today is worth asking: no notification, no badge, no card", async () => {
+  const { posted, badges, asked, events, checkIns, directory } = await checkInWith({ reach_out: false, why: "routine meetings, already covered", questions: [] }, TODAY);
+  try {
+    assert.equal(posted, null);
+    assert.deepEqual(badges, [], "the dock is never touched");
+    assert.equal(await checkIns.waiting(), null, "Today has no card to show");
+    assert.match(asked, /lore-check-in/);
+    assert.match(asked, /12: "Pricing call with Acme" from "granola-1"/);
+    assert.ok(!events.some((event) => event.type === "working"), "it never locks the owner's composer");
+  } finally {
+    await rm(directory, { recursive: true });
+  }
+});
+
+test("a check-in that finds something asks once, about real items only, and is replaced rather than stacked", async () => {
+  const { announcement } = require("../src/checkin.cjs");
+  const question = "You pushed back on the pricing call with Acme. What made you hold firm?";
+  const { posted, badges, checkIns, directory } = await checkInWith({
+    reach_out: true,
+    why: "a decision with no reason given",
+    questions: [{ question, memory: 12 }, { question: "What about the item Lore never brought in?", memory: 99 }, { question: "  ", memory: 13 }]
+  }, TODAY);
+  try {
+    assert.deepEqual(posted?.questions, [{ question, memory: 12, title: "Pricing call with Acme" }], "only questions about today's items");
+    assert.deepEqual(announcement(/** @type {CheckIn} */ (posted)), { title: "Five minutes on today?", body: question }, "one notification naming the thing");
+    assert.deepEqual(badges, [1]);
+    assert.equal((await checkIns.waiting())?.questions[0].question, question, "Today shows it");
+    const again = await checkIns.consider({ reach_out: true, why: "", questions: [{ question: "Another?", memory: 13 }] }, TODAY);
+    assert.equal(again, null, "at most one a day");
+    await checkIns.expire();
+    assert.equal(await checkIns.waiting(), null, "the next run retires an unanswered one");
+    assert.equal(badges.at(-1), 0);
+    assert.equal(await checkIns.answer(), null, "an expired check-in cannot be answered");
+  } finally {
+    await rm(directory, { recursive: true });
+  }
+});
+
+test("answering a check-in tells the agent what was asked, once, and the thread shows the questions again", async () => {
+  const { fauxAssistantMessage } = await import("@earendil-works/pi-ai");
+  const { LoreAgent } = await import("../src/agent.mjs");
+  const { CheckIns } = require("../src/checkin.cjs");
+  const directory = await mkdtemp(join(tmpdir(), "lore-check-in-"));
+  /** @type {number[]} */
+  const badges = [];
+  const checkIns = new CheckIns(join(directory, "check-in.json"), (count) => badges.push(count));
+  const question = "You pushed back on the pricing call with Acme. What made you hold firm?";
+  await checkIns.consider({ reach_out: true, why: "a decision", questions: [{ question, memory: 12 }] }, TODAY);
+  const { agent, faux, loreHome } = await scriptedAgent({});
+  /** @type {string[]} */
+  const told = [];
+  faux.setResponses([
+    (context) => {
+      const first = context.messages.find((message) => message.role === "user");
+      told.push(typeof first.content === "string" ? first.content : first.content.map((block) => (block.type === "text" ? block.text : "")).join(""));
+      return fauxAssistantMessage("Thanks. Here is what I would keep.");
+    }
+  ]);
+  try {
+    await agent.prompt("They wanted a discount we never give first-year customers.", "evening", undefined, undefined, undefined, await checkIns.answer());
+    assert.deepEqual(badges, [1, 0], "answering clears the dock");
+    assert.equal(await checkIns.answer(), null, "the questions go to the agent once");
+    assert.match(told[0], /lore-capture/);
+    assert.ok(told[0].includes(question) && told[0].includes("(id 12)"));
+    assert.deepEqual(LoreAgent.history(loreHome, "evening").map((line) => [line.owner, line.text]), [
+      [false, question],
+      [true, "They wanted a discount we never give first-year customers."],
+      [false, "Thanks. Here is what I would keep."]
+    ]);
+  } finally {
+    await rm(loreHome, { recursive: true, force: true });
+    await rm(directory, { recursive: true });
+  }
+});
+
+test("the check-in waits for what is still being read, and gives way to the owner like a reading", async () => {
+  const { fauxAssistantMessage, fauxToolCall } = await import("@earendil-works/pi-ai");
+  /** @type {string[]} */
+  const order = [];
+  const { agent, faux, loreHome } = await scriptedAgent({
+    memoriesReady: async () => { order.push("read"); },
+    checkedIn: async (job) => { order.push(`checked ${job.items.length}`); }
+  });
+  faux.setResponses([
+    fauxAssistantMessage(fauxToolCall("memories_ready", { read: 2, memories: [] }), { stopReason: "toolUse" }),
+    fauxAssistantMessage("Done."),
+    (_context, options) => new Promise((resolve) => {
+      order.push("looking");
+      options?.signal?.addEventListener("abort", () => resolve(fauxAssistantMessage("", { stopReason: "aborted" })), { once: true });
+    }),
+    fauxAssistantMessage("Kept that."),
+    fauxAssistantMessage(fauxToolCall("check_in", { reach_out: false, why: "nothing new", questions: [] }), { stopReason: "toolUse" }),
+    fauxAssistantMessage("Done.")
+  ]);
+  try {
+    agent.synthesize({ name: "granola-1", label: "Granola", item: "meeting", added: 2 });
+    agent.checkIn({ items: TODAY });
+    await until(() => order.includes("looking"));
+    await agent.prompt("I learned to hire managers before scaling.", "capture");
+    await until(() => order.length === 3);
+    assert.deepEqual(order, ["read", "looking", "checked 2"]);
+    assert.ok(!agent.tasks().some((record) => record.kind === "checkin"), "the check-in is no thread");
+  } finally {
+    await rm(loreHome, { recursive: true, force: true });
+  }
+});

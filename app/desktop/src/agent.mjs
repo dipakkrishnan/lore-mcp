@@ -20,18 +20,21 @@ import { Type } from "@earendil-works/pi-ai";
 import { SandboxManager } from "@anthropic-ai/sandbox-runtime";
 import { many, plural } from "./reading.cjs";
 
-const SKILLS = { capture: "lore-capture", setup: "lore-onboard", publish: "lore-publish", deploy: "lore-enable-payments", synthesize: "lore-synthesize" };
+const SKILLS = { capture: "lore-capture", setup: "lore-onboard", publish: "lore-publish", deploy: "lore-enable-payments", synthesize: "lore-synthesize", checkin: "lore-check-in", evening: "lore-capture" };
 const TASKS = {
   capture: { title: "Capture a memory", phase: "Review the capture" },
   setup: { title: "Set up your Lore", phase: "Shape your Lore" },
   publish: { title: "Publish from your Lore", phase: "Draft publications" },
   deploy: { title: "Open your store", phase: "Price, sign-in, payout" },
-  synthesize: { title: "Read what came in", phase: "Reading" }
+  synthesize: { title: "Read what came in", phase: "Reading" },
+  checkin: { title: "Look over today", phase: "Looking over today" },
+  evening: { title: "Evening check-in", phase: "Five minutes on today" }
 };
 /** Tasks that run between the owner's turns, never as a thread: each starts cold, asks nothing, and gives way to the owner. @type {ReadonlySet<AgentTask>} */
-const QUIET = new Set(["synthesize"]);
+const QUIET = new Set(["synthesize", "checkin"]);
 const OWNER_TOOLS = ["read", "write", "edit", "bash", "ask_user", "propose_memories", "propose_blueprint", "propose_price", "cloudflare_login", "open_url", "finish_task"];
-const QUIET_TOOLS = ["read", "write", "edit", "bash", "memories_ready"];
+/** @type {Partial<Record<AgentTask, string[]>>} */
+const QUIET_TOOLS = { synthesize: ["read", "write", "edit", "bash", "memories_ready"], checkin: ["read", "bash", "check_in"] };
 const TASK_STATES = new Set(["needs_you", "working", "stopped", "done"]);
 const PERSONAS = ["storyteller", "schoolteacher", "professor", "executive", "sage"];
 const AXES = ["chronological", "theme", "project", "knowledge"];
@@ -75,6 +78,18 @@ const sourceAside = (name) => `${ASIDE}start from the memories whose source is $
 /** What a quiet reading is told: what came in and from where, and where the library lives. @param {Reading} reading @param {string} loreHome */
 export function readingPrompt(reading, loreHome) {
   return `Lore just brought in ${plural(reading.added, `new ${reading.label} ${reading.item}`)}. Turn what earns a place into memories.${ASIDE}their source is ${JSON.stringify(reading.name)}, so read the newest ${reading.added}; the memories folder is ${JSON.stringify(resolve(loreHome, "memories"))}.)`;
+}
+/** What the evening check-in is told: today's items, by id, for it to judge. @param {CheckInJob} job */
+export function checkInPrompt(job) {
+  const items = job.items.map((item) => `- ${item.id}: ${JSON.stringify(item.title)} from ${JSON.stringify(item.source)}`).join("\n");
+  return `Lore brought in ${plural(job.items.length, "item")} today. Decide whether any is worth asking the owner about.${ASIDE}the items, by id:\n${items})`;
+}
+const ASKED = "this answers Lore's evening check-in, which asked:\n\n";
+const ASKED_END = "\n\nThose questions are about";
+/** The owner's first reply to a check-in carries what was asked, so the agent knows and the thread can show it again. @param {CheckIn} checkIn */
+export function checkInAside(checkIn) {
+  const about = checkIn.questions.map((asked) => `${JSON.stringify(asked.title)} (id ${asked.memory})`).join(", ");
+  return `${ASIDE}${ASKED}${checkIn.questions.map((asked) => asked.question).join("\n\n")}${ASKED_END} ${about}. Turn what the owner says into memories through propose_memories; nothing is saved until they keep it.)`;
 }
 /** Drafts are approved or skipped on cards the agent never sees, so every publish turn says where they stand. @param {number} waiting */
 export function draftsAside(waiting) {
@@ -339,6 +354,12 @@ export class LoreAgent {
   #reading = null;
   /** @type {ReadingReport | null} */
   #report = null;
+  /** The evening check-in waiting for a free moment, after any reading. @type {CheckInJob | null} */
+  #checkIn = null;
+  /** The check-in under way; cleared when it gives way to the owner. @type {CheckInJob | null} */
+  #looking = null;
+  /** @type {CheckInVerdict | null} */
+  #verdict = null;
   #quietTurn = Promise.resolve();
   /** An owner's turn is waiting for a reading to stop, so no reading may start. */
   #yielding = false;
@@ -431,7 +452,9 @@ export class LoreAgent {
     for (const message of messages) {
       if (message.role === "user") {
         const text = typeof message.content === "string" ? message.content : message.content.map((block) => (block.type === "text" ? block.text : "")).join("");
-        lines.push({ text: text.replace(/^\/skill:\S+\n\n/, "").split(ASIDE)[0], owner: true });
+        const [said, aside = ""] = text.replace(/^\/skill:\S+\n\n/, "").split(ASIDE);
+        if (aside.startsWith(ASKED)) lines.push({ text: aside.slice(ASKED.length).split(ASKED_END)[0], owner: false });
+        lines.push({ text: said, owner: true });
       } else if (message.role === "assistant") {
         const text = spoken(message.content);
         if (text) lines.push({ text, owner: false });
@@ -534,14 +557,14 @@ export class LoreAgent {
     return this.#activeTask;
   }
 
-  /** The owner's turn; a reading under way stops for it and starts again after. @param {string} text @param {AgentTask} task @param {AgentTask} [from] Continue from the latest `from` thread instead of starting cold. @param {number} [memory] A memory to start from, named by id to the agent only. @param {string} [source] A connected app's memories to start from. */
-  async prompt(text, task, from, memory, source) {
+  /** The owner's turn; a reading under way stops for it and starts again after. @param {string} text @param {AgentTask} task @param {AgentTask} [from] Continue from the latest `from` thread instead of starting cold. @param {number} [memory] A memory to start from, named by id to the agent only. @param {string} [source] A connected app's memories to start from. @param {CheckIn | null} [asked] What a check-in asked, on the owner's first reply to it. */
+  async prompt(text, task, from, memory, source, asked) {
     if (this.#busy && this.#activeTask && QUIET.has(this.#activeTask)) {
       await this.#yield(this.#activeTask);
       this.#yielding = false;
     }
     try {
-      return await this.#turn(text, task, from, memory, source);
+      return await this.#turn(asked ? `${text}${checkInAside(asked)}` : text, task, from, memory, source);
     } finally {
       void this.#next();
     }
@@ -553,6 +576,12 @@ export class LoreAgent {
     void this.#next();
   }
 
+  /** Look over today's items once the readings are done, and say whether any is worth asking about. @param {CheckInJob} job */
+  checkIn(job) {
+    this.#checkIn = job;
+    void this.#next();
+  }
+
   /** Reads of one source that wait together are read together. @param {Reading} reading */
   #queue(reading) {
     const waiting = this.#waiting.get(reading.name);
@@ -561,7 +590,8 @@ export class LoreAgent {
 
   async #next() {
     const [reading] = this.#waiting.values();
-    if (this.#busy || this.#yielding || !reading) return;
+    if (this.#busy || this.#yielding) return;
+    if (!reading) return this.#lookOver();
     this.#waiting.delete(reading.name);
     this.#reading = reading;
     this.#report = null;
@@ -573,11 +603,28 @@ export class LoreAgent {
     void this.#next();
   }
 
-  /** Stop the reading under way and put it back in line. @param {AgentTask} task */
+  /** The check-in, once nothing is left to read: the model's verdict goes to the app, which decides whether to ask. */
+  async #lookOver() {
+    const job = this.#checkIn;
+    if (!job) return;
+    this.#checkIn = null;
+    this.#looking = job;
+    this.#verdict = null;
+    this.#quietTurn = this.#turn(checkInPrompt(job), "checkin", undefined, undefined, undefined, TASKS.checkin.phase).catch(() => {});
+    await this.#quietTurn;
+    const verdict = this.#looking === job ? this.#verdict : null;
+    this.#looking = null;
+    if (verdict) await this.options.checkedIn?.(job, verdict).catch(() => {});
+    void this.#next();
+  }
+
+  /** Stop the quiet work under way and put it back in line. @param {AgentTask} task */
   async #yield(task) {
     this.#yielding = true;
     if (this.#reading) this.#queue(this.#reading);
+    if (this.#looking) this.#checkIn ??= this.#looking;
     this.#reading = null;
+    this.#looking = null;
     await this.#sessions.get(task)?.abort();
     await this.#quietTurn;
   }
@@ -675,7 +722,7 @@ export class LoreAgent {
       resourceLoader: this.resources,
       settingsManager: this.settings,
       sessionManager,
-      tools: QUIET.has(task) ? QUIET_TOOLS : OWNER_TOOLS,
+      tools: QUIET_TOOLS[task] ?? OWNER_TOOLS,
       customTools: [
         createBashTool(this.options.loreHome, {
           operations: createSandboxedBashOperations(this.options.loreHome, task, this.options.binDir),
@@ -699,7 +746,8 @@ export class LoreAgent {
         this.#cloudflareTool(),
         this.#openTool(),
         this.#finishTool(),
-        this.#readyTool()
+        this.#readyTool(),
+        this.#checkInTool()
       ]
     });
     session.subscribe((event) => {
@@ -897,6 +945,25 @@ export class LoreAgent {
       parameters: Type.Object({ read: Type.Integer({ minimum: 0 }), memories: Type.Array(memory, { maxItems: 20 }) }),
       execute: async (_id, report) => {
         this.#report = report;
+        this.#completed = true;
+        return { content: [{ type: "text", text: "Handed back" }], details: {} };
+      }
+    });
+  }
+
+  #checkInTool() {
+    const asked = Type.Object({
+      question: Type.String({ minLength: 1, maxLength: 200 }),
+      memory: Type.Integer({ minimum: 1 })
+    });
+    return defineTool({
+      name: "check_in",
+      executionMode: "sequential",
+      label: "Say whether to check in",
+      description: "Call once: whether anything today is worth asking the owner about, why in a few words, and up to three questions, each with the id of the item it is about. Lore decides whether to ask; false means nothing is posted.",
+      parameters: Type.Object({ reach_out: Type.Boolean(), why: Type.String({ maxLength: 200 }), questions: Type.Array(asked, { maxItems: 3 }) }),
+      execute: async (_id, verdict) => {
+        this.#verdict = verdict;
         this.#completed = true;
         return { content: [{ type: "text", text: "Handed back" }], details: {} };
       }

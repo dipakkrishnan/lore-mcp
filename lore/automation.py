@@ -367,12 +367,14 @@ def schedule_state() -> dict[str, object] | None:
 def next_run(cadence: str, hour: int, after: datetime) -> datetime:
     """The first moment after `after` that a rhythm names, on this Mac's clock.
 
-    Weekly is Monday, as the agents' schedules have it. Worked in local wall time,
-    so 9 PM stays 9 PM across a daylight-saving change.
+    Weekly is Monday, as the agents' schedules have it; weekdays skip Saturday and
+    Sunday. Worked in local wall time, so 9 PM stays 9 PM across a daylight-saving
+    change.
     """
     start = after.astimezone().replace(tzinfo=None)
     moment = start.replace(hour=hour, minute=0, second=0, microsecond=0)
-    while moment <= start or (cadence == "weekly" and moment.weekday() != 0):
+    days = {"weekly": {0}, "weekdays": {0, 1, 2, 3, 4}}.get(cadence, set(range(7)))
+    while moment <= start or moment.weekday() not in days:
         moment += timedelta(days=1)
     return moment.astimezone()
 
@@ -387,6 +389,12 @@ class Saved(BaseModel):
     since: datetime
     last_run: datetime | None = None
     result: str = ""
+    # The owner's own rhythm for a routine whose hour is not the profile's.
+    cadence: Literal["daily", "weekdays", "weekly"] | None = None
+    hour: Annotated[int, Field(ge=0, le=23)] | None = None
+    paused: bool = False
+    # The newest item a run had seen, so the next asks only about what came after.
+    mark: int | None = None
 
 
 class Routine:
@@ -431,10 +439,11 @@ class Routine:
             "runner": self.runner,
             "cadence": cadence,
             "hour": hour,
+            "paused": bool(saved and saved.paused),
             "last_run": saved and saved.last_run and saved.last_run.isoformat(),
             "result": saved.result if saved else "",
             "next_run": (next_run(cadence, hour, now) if due else upcoming).isoformat(),
-            "due": due and self.runner == Agent.LORE,
+            "due": due and self.runner == Agent.LORE and not (saved and saved.paused),
         }
 
 
@@ -472,6 +481,32 @@ class ReadApps(Routine):
         return {"reads": reads}
 
 
+class CheckIn(Routine):
+    """AUT-008: at the end of a weekday, ask about today only if something is worth it."""
+
+    id = "checkin"
+    kind = "checkin"
+    name = "Evening check-in"
+
+    def rhythm(self) -> tuple[str, int]:
+        saved = self.saved or Saved(since=self.routines.clock())
+        return saved.cadence or "weekdays", 18 if saved.hour is None else saved.hour
+
+    def run(self) -> dict[str, object]:
+        """Read every connected app, and hand back every item brought in since the
+        check-in last ran, the material it asks about; with none, no model runs."""
+        from .store import Store
+
+        with Store() as store:
+            # A first run asks only about what it brings in itself, never the whole past.
+            mark = self.saved.mark if self.saved else None
+            floor = store.newest_memory_id() if mark is None else mark
+            ran = ReadApps.run(self)  # type: ignore[arg-type]
+            ran["items"] = store.brought_in_after(floor)
+            self.routines.save(self.id, mark=store.newest_memory_id())
+        return ran
+
+
 class Routines:
     """The routines the Lore app runs on its own, in `automation/routines.json`.
 
@@ -507,6 +542,20 @@ class Routines:
         it a run."""
         built_in = (self.get(k.id) for k in Routine.__subclasses__() if k.id)
         return [routine.listed() for routine in built_in if routine.runner]
+
+    def change(self, routine_id: str, **changes: object) -> dict[str, object]:
+        """Pause, resume or retime a routine; the change outlasts any restart."""
+        routine = self.get(routine_id)
+        if routine.kind != CheckIn.kind:
+            raise ValueError(f"Lore does not run a routine called {routine_id}")
+        Saved.model_validate({"since": self.clock(), **changes})
+        self.save(routine_id, **changes)
+        return self.get(routine_id).listed()
+
+    def record(self, routine_id: str, result: str) -> None:
+        """What a run came to, once the app knows: the check-in asks or stays quiet."""
+        self.get(routine_id)
+        self.save(routine_id, result=" ".join(result.split())[:120])
 
     def adopt(self) -> None:
         """The owner just saved their rhythm: it counts from now, so nothing runs at once."""
