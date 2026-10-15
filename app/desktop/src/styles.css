@@ -323,6 +323,23 @@ a.link-btn.glyph { width: 22px; padding: 0; justify-content: center; color: var(
 .choice .hint { flex: 1; min-width: 0; text-align: right; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .problem { font-size: 13px; color: var(--attention-ink); }
 .problem:empty { display: none; }
+/* APP-200: Automations. A switch to pause, a menu for the rest, and a blue dot on the tab for something unseen. */
+nav .new-dot { margin-left: auto; width: 8px; height: 8px; border-radius: 50%; background: #2f6fde; }
+nav .new-dot[hidden] { display: none; }
+.switch { position: relative; width: 34px; height: 20px; border-radius: 999px; background: var(--line-strong); flex-shrink: 0; transition: background 0.15s; }
+.switch::after { content: ""; position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; border-radius: 50%; background: var(--surface); box-shadow: 0 1px 2px rgba(29, 31, 28, 0.2); transition: transform 0.15s; }
+.switch[aria-checked="true"] { background: var(--accent); }
+.switch[aria-checked="true"]::after { transform: translateX(14px); }
+.row-menu { position: relative; }
+.row-menu summary { list-style: none; cursor: pointer; }
+.row-menu summary::-webkit-details-marker { display: none; }
+.row-menu-items { position: absolute; right: 0; top: calc(100% + 4px); min-width: 150px; background: var(--surface); border: 1px solid var(--line-strong); border-radius: var(--radius-sm); box-shadow: 0 8px 24px rgba(29, 31, 28, 0.14); padding: 4px; display: flex; flex-direction: column; z-index: 3; }
+.row-menu-items button { text-align: left; padding: 8px 10px; border-radius: 6px; font-size: 13px; }
+.row-menu-items button:hover { background: var(--hover); }
+.time-fields { display: flex; flex-wrap: wrap; gap: 8px; }
+.time-fields select { height: 32px; padding: 0 8px; border: 1px solid var(--line-strong); border-radius: var(--radius-sm); background: var(--surface); color: var(--ink); font: inherit; font-size: 13px; }
+.time-fields select[hidden] { display: none; }
+.sheet-panel textarea { width: 100%; padding: 10px 12px; border: 1px solid var(--line-strong); border-radius: var(--radius-sm); background: var(--surface); color: var(--ink); font: inherit; resize: vertical; }
 .sheet .actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 8px; }
 .row .v { display: flex; align-items: center; gap: 10px; flex-shrink: 0; max-width: 60%; font-size: 13px; color: var(--ink-soft); }
 .row .v .mono { min-width: 0; overflow-wrap: anywhere; }

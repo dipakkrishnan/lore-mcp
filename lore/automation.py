@@ -3,6 +3,7 @@ from __future__ import annotations
 import fcntl
 import json
 import os
+import secrets
 import shlex
 import sys
 from collections.abc import Callable
@@ -346,7 +347,8 @@ def schedule_state() -> dict[str, object] | None:
             # honest to say is when it last ran and whether a run was missed.
             routine = Routines().get(ReadApps.id).listed()
             return {
-                "installed": True,
+                "installed": not routine["paused"],
+                "paused": routine["paused"],
                 "executor": Agent.LORE,
                 "cadence": routine["cadence"],
                 "hour": routine["hour"],
@@ -356,24 +358,29 @@ def schedule_state() -> dict[str, object] | None:
         task = task_for(profile)
     except (OSError, ValueError):
         return {"installed": False, "executor": None, "cadence": None, "hour": None}
-    return {
+    state: dict[str, object] = {
         "installed": task_status(task, codex_home=codex_home()),
         "executor": task.agent,
         "cadence": task.cadence,
         "hour": task.hour,
     }
+    # Taken down on purpose from Automations, not lost by the scheduler.
+    saved = Routines().saved.get("synthesis")
+    if saved and saved.paused:
+        state["paused"] = True
+    return state
 
 
-def next_run(cadence: str, hour: int, after: datetime) -> datetime:
+def next_run(cadence: str, hour: int, after: datetime, day: int = 0) -> datetime:
     """The first moment after `after` that a rhythm names, on this Mac's clock.
 
-    Weekly is Monday, as the agents' schedules have it; weekdays skip Saturday and
-    Sunday. Worked in local wall time, so 9 PM stays 9 PM across a daylight-saving
-    change.
+    Weekly is on `day` (0 is Monday, as the agents' schedules have it); weekdays
+    skip Saturday and Sunday. Worked in local wall time, so 9 PM stays 9 PM across
+    a daylight-saving change.
     """
     start = after.astimezone().replace(tzinfo=None)
     moment = start.replace(hour=hour, minute=0, second=0, microsecond=0)
-    days = {"weekly": {0}, "weekdays": {0, 1, 2, 3, 4}}.get(cadence, set(range(7)))
+    days = {"weekly": {day}, "weekdays": {0, 1, 2, 3, 4}}.get(cadence, set(range(7)))
     while moment <= start or moment.weekday() not in days:
         moment += timedelta(days=1)
     return moment.astimezone()
@@ -389,6 +396,8 @@ class Saved(BaseModel):
     since: datetime
     last_run: datetime | None = None
     result: str = ""
+    # Whether the last run brought something the owner has not seen.
+    found: bool = False
     # The owner's own rhythm for a routine whose hour is not the profile's.
     cadence: Literal["daily", "weekdays", "weekly"] | None = None
     hour: Annotated[int, Field(ge=0, le=23)] | None = None
@@ -396,6 +405,12 @@ class Saved(BaseModel):
     paused: bool | None = None
     # The newest item a run had judged, so the next asks only about what came after.
     mark: int | None = None
+    # What the owner asked for, in their words, for a routine they added.
+    prompt: Annotated[str, Field(max_length=500)] = ""
+
+
+# Lore's own routines: listed first, paused but never removed.
+BUILT_IN = ("synthesis", "checkin")
 
 
 class Routine:

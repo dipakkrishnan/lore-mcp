@@ -89,7 +89,7 @@ if (scenario === "listing") {
     process.env.LORE_EDGE_NEWSLETTER = `http://127.0.0.1:${newsletter.address().port}/`;
     require(join(src, "main.cjs"));
   });
-} else if (["reading", "schedule", "checkin", "quiet"].includes(scenario)) {
+} else if (["reading", "schedule", "checkin", "quiet", "automations"].includes(scenario)) {
   // AUT-005: everything around a reading is real except the model. The stand-in writes what a
   // reading of the two stand-in Granola meetings would, then hands it back as the agent would.
   // AUT-006 reuses it: what Lore's own schedule brings in lands the same way. AUT-008's check-in
@@ -836,6 +836,61 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         await js(`[...document.querySelectorAll("#content .row")].find((r) => r.textContent.includes("How often Lore reads them")).scrollIntoView()`);
         await sleep(300);
         await shot("schedule-connectors");
+      } else if (scenario === "automations") {
+        // APP-200: every routine in one list, Lore's own first; pause, retime, run now, add and remove, all kept by the CLI.
+        const listed = () => JSON.parse(execFileSync("uv", ["run", "lore", "automation", "list", "--json"], { cwd: join(__dirname, "../../.."), env: process.env, encoding: "utf8" }));
+        const mine = () => listed().find((/** @type {Routine} */ routine) => !routine.built_in);
+        await waitFor(`document.body.dataset.state === "welcome" && !document.querySelector("#welcome").classList.contains("provisioning")`);
+        await js(`window.__lore.signIn()`);
+        await waitFor(`document.querySelector("#content .strip")`);
+        await js(`document.querySelector("nav [data-view=automations]").click()`);
+        const rowOf = (/** @type {string} */ name) => `[...document.querySelectorAll("#content .row")].find((r) => r.querySelector("b")?.textContent === ${JSON.stringify(name)})`;
+        const SUNDAY = "Every Sunday, remember what I read this week";
+        check("the tab lists Lore's own first, then the owner's", await waitFor(`${rowOf(SUNDAY)}`) && await js(`[...document.querySelectorAll("#content .row b")].map((b) => b.textContent).join("|")`) === `Read connected apps|Evening check-in|${SUNDAY}`, await js(`[...document.querySelectorAll("#content .row b")].map((b) => b.textContent).join("|")`));
+        const text = await js(`document.querySelector("#content").textContent`);
+        check("…each with when it runs and what it last did", /Every day at 9 AM · Next \w+ \d+ · Hasn.t run yet/.test(text) && text.includes("Every weekday at 6 PM") && text.includes("Every Sunday at 6 PM"), text);
+        check("…in plain words", !/cron|executor|schedul|routine|prompt/i.test(text), text);
+        const menuOf = (/** @type {string} */ name) => `[...${rowOf(name)}.querySelectorAll(".row-menu-items button")].map((b) => b.textContent).join("|")`;
+        check("Lore's own can be paused but not removed", await js(menuOf("Evening check-in")) === "Run now|Change time" && await js(menuOf(SUNDAY)) === "Run now|Change time|Remove", `${await js(menuOf("Evening check-in"))} / ${await js(menuOf(SUNDAY))}`);
+        await shot("automations");
+        await js(`${rowOf("Evening check-in")}.querySelector(".switch").click()`);
+        check("the switch pauses it, and the CLI keeps that", await waitFor(`${rowOf("Evening check-in")}?.querySelector(".switch").getAttribute("aria-checked") === "false"`) && listed().find((/** @type {Routine} */ r) => r.id === "checkin").paused === true);
+        check("…so it shows paused after a fresh read", await js(`window.lore.routines().then((all) => all.find((r) => r.id === "checkin").paused)`) === true && (await js(`${rowOf("Evening check-in")}.textContent`)).includes("Paused"));
+        await js(`${rowOf(SUNDAY)}.querySelector("details").open = true`);
+        await js(`[...${rowOf(SUNDAY)}.querySelectorAll(".row-menu-items button")].find((b) => b.textContent === "Change time").click()`);
+        await waitFor(`document.querySelector("dialog.sheet[open] .time-fields")`);
+        await js(`{ const [cadence, , hour] = document.querySelectorAll("dialog.sheet[open] select"); cadence.value = "daily"; cadence.dispatchEvent(new Event("change")); hour.value = "7"; }`);
+        check("Change time hides the day for a daily rhythm", await js(`document.querySelectorAll("dialog.sheet[open] select")[1].hidden`));
+        await js(`document.querySelector("dialog.sheet[open] .btn.primary").click()`);
+        check("…and saves the new time", await waitFor(`${rowOf(SUNDAY)}?.textContent.includes("Every day at 7 AM")`) && mine().hour === 7 && mine().cadence === "daily", JSON.stringify(mine()));
+        await js(`${rowOf(SUNDAY)}.querySelector("details").open = true`);
+        await js(`[...${rowOf(SUNDAY)}.querySelectorAll(".row-menu-items button")].find((b) => b.textContent === "Run now").click()`);
+        for (let i = 0; i < 40 && !readings.length; i++) await sleep(250);
+        check("Run now hands the owner's sentence to Lore's quiet reading", readings.length === 1 && readings[0].ask === SUNDAY, JSON.stringify(readings));
+        for (let i = 0; i < 60 && !notes.length; i++) await sleep(250);
+        check("…which writes private memories and says so", notes.length === 1 && notes[0].words.title === `“${SUNDAY}” wrote 2 memories`, JSON.stringify(notes.map((n) => n.words)));
+        check("…and records what it found", await (async () => { for (let i = 0; i < 20 && mine().result !== "2 new memories"; i++) await sleep(250); return mine().result === "2 new memories" && mine().found; })(), JSON.stringify(mine()));
+        await js(`window.__lore.show("memories")`);
+        await js(`window.__lore.event({ type: "changed" })`);
+        check("a blue dot on the tab says something is unseen", await waitFor(`!document.querySelector("[data-dot=automations]").hidden`));
+        await js(`document.querySelector("nav [data-view=automations]").click()`);
+        check("…until the owner looks", await waitFor(`document.querySelector("[data-dot=automations]").hidden`));
+        await js(`[...document.querySelectorAll("#content .btn")].find((b) => b.textContent === "New automation").click()`);
+        await waitFor(`document.querySelector("dialog.sheet[open] textarea")`);
+        await js(`document.querySelector("dialog.sheet[open] textarea").value = "Each Friday, pick one memory worth selling"`);
+        await shot("automations-new");
+        await js(`document.querySelector("dialog.sheet[open] .btn.primary").click()`);
+        check("New automation adds one from a plain sentence and a time", await waitFor(`${rowOf("Each Friday, pick one memory worth selling")}`) && (await js(`${rowOf("Each Friday, pick one memory worth selling")}.textContent`)).includes("Every Sunday at 6 PM"));
+        await js(`${rowOf(SUNDAY)}.querySelector("details").open = true`);
+        await js(`[...${rowOf(SUNDAY)}.querySelectorAll(".row-menu-items button")].find((b) => b.textContent === "Remove").click()`);
+        check("Remove takes the owner's own away for good", await waitFor(`!${rowOf(SUNDAY)}`) && !listed().some((/** @type {Routine} */ r) => r.name === SUNDAY));
+        await js(`${rowOf("Read connected apps")}.querySelector(".switch").click()`);
+        await js(`window.__lore.show("connectors")`);
+        const rhythm = `[...document.querySelectorAll("#content .row")].find((r) => r.textContent.includes("How often Lore reads them"))?.textContent ?? ""`;
+        check("pausing the reading shows on Connectors too", await waitFor(`(${rhythm}).includes("paused")`), await js(rhythm));
+        await js(`window.__lore.show("automations")`);
+        await sleep(400);
+        await shot("automations-after");
       } else if (scenario === "checkin" || scenario === "quiet") {
         // AUT-008: the check-in whose hour passed an hour ago runs at launch, on what was read in since it last judged.
         const repo = join(__dirname, "../../..");

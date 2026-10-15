@@ -1487,3 +1487,35 @@ test("the check-in waits for what is still being read, and gives way to the owne
     await rm(loreHome, { recursive: true, force: true });
   }
 });
+
+test("routines are added, paused, retimed and removed through the CLI, refused before it when malformed, and kept across a restart", async () => {
+  const { listRoutines, changeRoutine, addRoutine } = require("../src/state.cjs");
+  for (const [text, when] of [["", { cadence: "daily", hour: 9, day: 0 }], ["x".repeat(501), { cadence: "daily", hour: 9, day: 0 }], ["Fine", { cadence: "hourly", hour: 9, day: 0 }], ["Fine", { cadence: "daily", hour: 9.5, day: 0 }]]) {
+    await assert.rejects(addRoutine("/nonexistent", text, when), /in a sentence|when it runs/);
+  }
+  await assert.rejects(changeRoutine("/nonexistent", "../x", "pause"), /Unknown routine/);
+  await assert.rejects(changeRoutine("/nonexistent", "checkin", "delete"), /Unknown change/);
+  const directory = await mkdtemp(join(tmpdir(), "lore-routines-"));
+  try {
+    const added = await addRoutine(directory, "-Every Sunday, remember what I read this week", { cadence: "weekly", hour: 18, day: 6 });
+    assert.equal(added.name, "-Every Sunday, remember what I read this week", "a sentence that starts with a dash stays words");
+    await changeRoutine(directory, "checkin", "pause");
+    await changeRoutine(directory, added.id, "time", { cadence: "daily", hour: 7, day: 0 });
+    const kept = await listRoutines(directory);
+    assert.deepEqual(kept.map((routine) => [routine.id, routine.built_in, routine.paused, routine.cadence, routine.hour]), [["checkin", true, true, "weekdays", 18], [added.id, false, false, "daily", 7]]);
+    await assert.rejects(changeRoutine(directory, "checkin", "remove"), /paused, not removed/);
+    await changeRoutine(directory, added.id, "remove");
+    assert.deepEqual((await listRoutines(directory)).map((routine) => routine.id), ["checkin"]);
+  } finally {
+    await rm(directory, { recursive: true });
+  }
+});
+
+test("an owner's routine runs their sentence as a quiet reading and is announced by it", async () => {
+  const { readingPrompt } = await import("../src/agent.mjs");
+  const { announcement } = require("../src/reading.cjs");
+  const prompt = readingPrompt({ name: "r-1", label: "Every Sunday, remember what I read", item: "", added: 0, ask: "Every Sunday, remember what I read" }, "/Users/owner/.lore");
+  assert.match(prompt, /asked Lore to do this on a schedule: "Every Sunday, remember what I read"/);
+  assert.match(prompt, /owner's own routine, not a connected app/);
+  assert.deepEqual(announcement({ label: "Every Sunday, remember what I read", item: "", read: 0, memories: [{ id: 1, title: "t", sell: false, work: false, why: "" }], at: "", seen: false }), { title: "“Every Sunday, remember what I read” wrote 1 memory", body: "They stay private on this Mac." });
+});

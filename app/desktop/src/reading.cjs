@@ -41,7 +41,8 @@ function landed(reading, report, stored, folder) {
 function announcement(run) {
   const selling = run.memories.filter((memory) => memory.sell).length;
   return {
-    title: `Lore turned ${plural(run.read, `${run.label} ${run.item}`)} into ${plural(run.memories.length, "memory")}`,
+    // An owner's own routine has no app or items behind it, only their sentence.
+    title: run.item ? `Lore turned ${plural(run.read, `${run.label} ${run.item}`)} into ${plural(run.memories.length, "memory")}` : `“${run.label}” wrote ${plural(run.memories.length, "memory")}`,
     body: selling ? `${selling} ${selling === 1 ? "looks" : "look"} worth selling.` : "They stay private on this Mac."
   };
 }

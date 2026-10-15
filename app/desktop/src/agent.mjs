@@ -77,7 +77,8 @@ const memoryAside = (id) => `${ASIDE}start from the memory with id ${id}. Call i
 const sourceAside = (name) => `${ASIDE}start from the memories whose source is ${JSON.stringify(name)}.)`;
 /** What a quiet reading is told: what came in and from where, and where the library lives. @param {Reading} reading @param {string} loreHome */
 export function readingPrompt(reading, loreHome) {
-  return `Lore just brought in ${plural(reading.added, `new ${reading.label} ${reading.item}`)}. Turn what earns a place into memories.${ASIDE}their source is ${JSON.stringify(reading.name)}, so read the newest ${reading.added}; the memories folder is ${JSON.stringify(resolve(loreHome, "memories"))}.)`;
+  if (reading.ask) return `The owner asked Lore to do this on a schedule: ${JSON.stringify(reading.ask)}. Do it from their Lore, and turn what earns a place into memories.${ASIDE}this is the owner's own routine, not a connected app, so there is no source to read; the memories folder is ${JSON.stringify(resolve(loreHome, "memories"))}.)`;
+  return`Lore just brought in ${plural(reading.added, `new ${reading.label} ${reading.item}`)}. Turn what earns a place into memories.${ASIDE}their source is ${JSON.stringify(reading.name)}, so read the newest ${reading.added}; the memories folder is ${JSON.stringify(resolve(loreHome, "memories"))}.)`;
 }
 /** What the evening check-in is told: today's items, by id, for it to judge. @param {CheckInJob} job */
 export function checkInPrompt(job) {

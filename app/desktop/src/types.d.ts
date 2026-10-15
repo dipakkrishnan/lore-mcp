@@ -28,7 +28,7 @@ type Snapshot = {
     // What the saved rhythm asks for and whether the scheduler holds it; null
     // with no profile. Optional: an installed CLI older than this app omits it.
     // With Lore itself as the runner (AUT-006), also when it last read and whether it missed an hour while closed.
-    schedule?: { installed: boolean; executor: "claude" | "codex" | "lore" | null; cadence: "daily" | "weekly" | null; hour: number | null; last_run?: string | null; missed?: boolean } | null;
+    schedule?: { installed: boolean; executor: "claude" | "codex" | "lore" | null; cadence: "daily" | "weekly" | null; hour: number | null; last_run?: string | null; missed?: boolean; paused?: boolean } | null;
   };
   // Whether this build has a feedback relay pinned in. Optional: an
   // installed CLI older than this app omits it, and no relay is the safe
@@ -132,7 +132,7 @@ type SourceApp = { id: string; name: string; what: string; unit: string; item: s
 type SourceRead = { name: string; label?: string; connector?: string | null; added: number; updated: number; unchanged: number; errors: number; state: SourceState };
 
 /** New items a connected app brought in, waiting to be read through: "23 new Granola meetings". */
-type Reading = { name: string; label: string; item: string; added: number };
+type Reading = { name: string; label: string; item: string; added: number; ask?: string };
 
 /** What a reading hands back: how many items it read, and each topic file it wrote. */
 type ReadingReport = { read: number; memories: Array<{ file: string; worth_selling: boolean; why: string }> };
@@ -311,6 +311,10 @@ interface Window {
     seenMemories(): Promise<void>;
     clearMemories(): Promise<void>;
     checkIn(): Promise<CheckIn | null>;
+    routines(): Promise<Routine[]>;
+    runRoutine(id: string): Promise<void>;
+    changeRoutine(id: string, action: "pause" | "resume" | "remove" | "time", when?: RoutineTime): Promise<void>;
+    addRoutine(text: string, when: RoutineTime): Promise<Routine>;
     dismissCheckIn(): Promise<void>;
     openPrivacySettings(): Promise<void>;
     pathFor(file: File): string;

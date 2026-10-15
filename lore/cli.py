@@ -260,11 +260,17 @@ def parser() -> argparse.ArgumentParser:
         toggle.add_argument("--json", action="store_true")
     routine_time = routine_commands.add_parser("time", help="change when one runs")
     routine_time.add_argument("id")
-    routine_time.add_argument("--hour", type=int, required=True)
-    routine_time.add_argument(
-        "--cadence", choices=("daily", "weekdays", "weekly"), required=True
+    routine_add = routine_commands.add_parser(
+        "add", help="have Lore do something of yours at a set time"
     )
-    routine_time.add_argument("--json", action="store_true")
+    routine_add.add_argument("text", help="what to do, in a sentence")
+    for timed in (routine_time, routine_add):
+        timed.add_argument("--hour", type=int, required=True)
+        timed.add_argument(
+            "--cadence", choices=("daily", "weekdays", "weekly"), required=True
+        )
+        timed.add_argument("--day", type=int, default=0, help="0 is Monday")
+        timed.add_argument("--json", action="store_true")
 
     capture = commands.add_parser(
         "capture", help="save owner-approved private memories"
@@ -979,11 +985,17 @@ def automation_command(args: argparse.Namespace) -> int:
     if command == "run":
         payload: object = routines.run(args.id)
         lines = [f"Ran {args.id}: {routines.saved[args.id].result}"]
+    elif command == "remove":
+        routines.remove(args.id)
+        payload, lines = {"removed": args.id}, [f"Removed {args.id}."]
+    elif command == "add":
+        payload = added = routines.add(args.text, args.cadence, args.hour, args.day)
+        lines = [f"Added {added['id']}: {added['name']}"]
     elif command in ("pause", "resume", "time"):
         changes: dict[str, object] = (
             {"paused": command == "pause"}
             if command != "time"
-            else {"hour": args.hour, "cadence": args.cadence}
+            else {"hour": args.hour, "cadence": args.cadence, "day": args.day}
         )
         payload = changed = routines.change(args.id, **changes)
         lines = [f"{changed['name']}: {'paused' if changed['paused'] else 'on'}"]
