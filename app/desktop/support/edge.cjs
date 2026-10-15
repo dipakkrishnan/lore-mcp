@@ -33,6 +33,8 @@ const notes = [];
 const badges = [];
 /** @type {Reading[]} */
 const readings = [];
+/** AUT-008: every check-in Lore looked over. @type {CheckInJob[]} */
+const checkIns = [];
 if (scenario === "listing") {
   require("electron").shell.openExternal = async (url) => { opened.push(url); };
   require(join(src, "main.cjs"));
@@ -87,10 +89,11 @@ if (scenario === "listing") {
     process.env.LORE_EDGE_NEWSLETTER = `http://127.0.0.1:${newsletter.address().port}/`;
     require(join(src, "main.cjs"));
   });
-} else if (scenario === "reading" || scenario === "schedule") {
+} else if (["reading", "schedule", "checkin", "quiet"].includes(scenario)) {
   // AUT-005: everything around a reading is real except the model. The stand-in writes what a
   // reading of the two stand-in Granola meetings would, then hands it back as the agent would.
-  // AUT-006 reuses it: what Lore's own schedule brings in lands the same way.
+  // AUT-006 reuses it: what Lore's own schedule brings in lands the same way. AUT-008's check-in
+  // stand-in answers as a model would: something worth asking about, or (quiet) nothing.
   require(join(src, "sales.cjs")).notify = (words, onClick) => { notes.push({ words, handlers: { click: onClick } }); };
   const setBadgeCount = app.setBadgeCount.bind(app);
   app.setBadgeCount = (count) => { badges.push(count); return setBadgeCount(count); };
@@ -113,6 +116,15 @@ if (scenario === "listing") {
           ]
         });
       }, 6000);
+    };
+    LoreAgent.prototype.checkIn = function (/** @type {CheckInJob} */ job) {
+      checkIns.push(job);
+      const [item] = job.items;
+      const question = checkIns.length === 1 ? "You held the price on the Acme call. What made you hold firm?" : "What made you walk away from the Globex renewal?";
+      const verdict = scenario === "quiet"
+        ? { reach_out: false, why: "nothing the library doesn't already explain", questions: [] }
+        : { reach_out: true, why: "a decision with no reason given", questions: [{ question, memory: item.id }] };
+      setTimeout(() => void this.options.checkedIn?.(job, verdict), 7000);
     };
     require(join(src, "main.cjs"));
   });
@@ -783,7 +795,7 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         check("…and a red 2 on the dock while the owner is elsewhere", badges.at(-1) === 2, JSON.stringify(badges));
         check("…and the notice that it was reading goes away", await waitFor(`!document.querySelector("#status").textContent.includes("Lore is turning them into memories now.")`), await js(`document.querySelector("#status").textContent`));
         notes[0].handlers.click();
-        check("clicking it lands on Today's new memories", await waitFor(`document.querySelector("#content").textContent.includes("Lore read your Granola meetings")`));
+        check("clicking it lands on Today's new memories", await waitFor(`document.querySelector("#content").textContent.includes("Lore read your Granola meetings")`), await js(`document.querySelector("#title").textContent + " | " + document.querySelector("#content").textContent.slice(0, 200)`));
         const card = `[...document.querySelectorAll("#content .section")].find((s) => s.textContent.includes("New memories"))`;
         const cardText = await js(`${card}.textContent`);
         check("…each by title, only on this Mac", /2 new memories, only on this Mac · 1 looks worth selling/.test(cardText) && cardText.includes("Raise the first price only after ten buyers pay") && cardText.includes("Add the ops management layer before the next ten hires"), cardText);
@@ -814,7 +826,8 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         check("…and the same New memories card on Today", await waitFor(`document.querySelector("#content").textContent.includes("Lore read your Obsidian notes")`));
         await shot("schedule-today-ready");
         const routines = JSON.parse(execFileSync("uv", ["run", "lore", "automation", "list", "--json"], { cwd: join(__dirname, "../../.."), env: process.env, encoding: "utf8" }));
-        check("the CLI remembers the run and its result, so it is not owed again", routines.length === 1 && routines[0].due === false && routines[0].result === "1 new note" && routines[0].last_run, JSON.stringify(routines));
+        const synthesis = routines.find((routine) => routine.id === "synthesis");
+        check("the CLI remembers the run and its result, so it is not owed again", synthesis?.due === false && synthesis.result === "1 new note" && synthesis.last_run, JSON.stringify(routines));
         await js(`window.__lore.event({ type: "changed" })`);
         await js(`window.__lore.show("connectors")`);
         const rhythm = `[...document.querySelectorAll("#content .row")].find((r) => r.textContent.includes("How often Lore reads them"))?.textContent ?? ""`;
@@ -823,6 +836,74 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         await js(`[...document.querySelectorAll("#content .row")].find((r) => r.textContent.includes("How often Lore reads them")).scrollIntoView()`);
         await sleep(300);
         await shot("schedule-connectors");
+      } else if (scenario === "checkin" || scenario === "quiet") {
+        // AUT-008: the check-in whose hour passed an hour ago runs at launch, on what was read in since it last judged.
+        const repo = join(__dirname, "../../..");
+        const loreCli = (/** @type {string[]} */ args) => execFileSync("uv", ["run", "lore", ...args], { cwd: repo, env: process.env, encoding: "utf8" });
+        const python = (/** @type {string} */ code) => execFileSync("uv", ["run", "python", "-c", `from datetime import datetime, timedelta, timezone\nfrom lore import automation\nnow = datetime.now(timezone.utc)\n${code}`], { cwd: repo, env: process.env, encoding: "utf8" });
+        const checkin = () => JSON.parse(loreCli(["automation", "list", "--json"])).find((/** @type {Routine} */ routine) => routine.id === "checkin");
+        /** The next day, an hour after the check-in's hour: yesterday's run and anything it posted are a day old. */
+        const nextDay = () => {
+          python("automation.Routines().save('checkin', last_run=now - timedelta(days=1), since=now - timedelta(days=2))");
+          const file = join(process.env.LORE_DESKTOP_USER_DATA ?? "", "check-in.json");
+          const posted = JSON.parse(require("node:fs").readFileSync(file, "utf8"));
+          writeFileSync(file, JSON.stringify({ ...posted, at: new Date(Date.now() - 24 * 60 * 60_000).toISOString() }));
+        };
+        await waitFor(`document.body.dataset.state === "welcome" && !document.querySelector("#welcome").classList.contains("provisioning")`);
+        await js(`window.__lore.signIn()`);
+        for (let i = 0; i < 60 && !checkIns.length; i++) await sleep(250);
+        check("the launch looks over the one item read in since, and reads nothing itself", checkIns.length === 1 && checkIns[0].items.length === 1 && checkIns[0].items[0].title === "Pushed back on the Acme pricing call" && !readings.length, JSON.stringify({ checkIns, readings }));
+        const card = `[...document.querySelectorAll("#content .section")].find((s) => s.querySelector("h2, .eyebrow, header")?.textContent.trim().toLowerCase() === "check in")`;
+        const asking = (/** @type {{words: {title: string}}} */ note) => note.words.title === "Five minutes on today?";
+        await js(`window.__lore.show("today")`);
+        for (let i = 0; i < 60 && !checkin().result; i++) await sleep(250);
+        await js(`window.__lore.event({ type: "changed" })`);
+        await sleep(800);
+        if (scenario === "quiet") {
+          check("a quiet day posts no check-in notification", !notes.some(asking), JSON.stringify(notes.map((n) => n.words)));
+          check("…puts nothing on Today", !(await js(`Boolean(${card})`)) && !(await js(`document.querySelector("#content").textContent.includes("Five minutes")`)));
+          check("…and leaves the dock alone", !badges.some((count) => count > 0), JSON.stringify(badges));
+          check("…and says so in the routine's last result", checkin().result === "Nothing new to ask about", checkin().result);
+          await shot("checkin-quiet-today");
+          // Closed at the check-in's hour and opened five hours later: it is recorded as missed and asks nothing.
+          const late = new Date(Date.now() - 5 * 60 * 60_000).getHours();
+          python(`automation.Routines().save('checkin', hour=${late}, last_run=now - timedelta(days=1), since=now - timedelta(days=2))`);
+          require("electron").powerMonitor.emit("resume");
+          for (let i = 0; i < 40 && !checkin().result.startsWith("Skipped"); i++) await sleep(250);
+          const clock = `${late % 12 || 12} ${late < 12 ? "AM" : "PM"}`;
+          check("a check-in missed by hours is recorded as missed, and never asks late", checkin().result === `Skipped: Lore wasn't open at ${clock}` && checkIns.length === 1 && !notes.some(asking), `${checkin().result} · ${checkIns.length} looks`);
+        } else {
+          const note = notes.find(asking);
+          check("a day worth asking about is one notification naming the thing", notes.filter(asking).length === 1 && note?.words.body === "You held the price on the Acme call. What made you hold firm?", JSON.stringify(notes.map((n) => n.words)));
+          check("…a Check in card leads Today", await waitFor(`${card} && document.querySelector("#content .section") === ${card}`), await js(`[...document.querySelectorAll("#content .section")].map((s) => s.textContent.slice(0, 40)).join(" | ")`));
+          check("…and the dock keeps a red 1 for it", badges.at(-1) === 1, JSON.stringify(badges));
+          check("…recorded as the routine's last result", checkin().result === "Asked about 1 thing", checkin().result);
+          check("…and the thread is not listed twice", !(await js(`document.querySelector("#content").textContent.includes("Unfinished")`)));
+          await shot("checkin-today");
+          note?.handlers.click();
+          check("the notification opens a thread with the question already asked", await waitFor(`document.querySelector("#title").textContent === "Evening check-in"`) && await waitFor(`document.querySelector("#log").textContent.includes("What made you hold firm?")`));
+          check("…and the owner can answer straight away", await js(`!document.querySelector("#capture-input").disabled`) && (await js(`document.querySelector("#eyebrow")?.textContent ?? ""`)) === "Waiting for you · Five minutes on today", await js(`document.querySelector("#eyebrow")?.textContent ?? ""`));
+          await shot("checkin-thread");
+          await js(`document.querySelector("#task-back").click()`);
+          await waitFor(card);
+          // The next evening brings in something new; yesterday's unanswered questions give way to today's.
+          nextDay();
+          writeFileSync(join(S, "Edge Vault", "three.md"), "# Dropped the Globex renewal\n\nWalked away from the renewal; no reason written down.\n");
+          loreCli(["sources", "read"]);
+          require("electron").powerMonitor.emit("resume");
+          for (let i = 0; i < 80 && notes.filter(asking).length < 2; i++) await sleep(250);
+          const second = notes.filter(asking)[1];
+          check("the next day's check-in asks about the next day's item", checkIns.length === 2 && checkIns[1].items.map((item) => item.title).join() === "Dropped the Globex renewal" && second?.words.body === "What made you walk away from the Globex renewal?", JSON.stringify({ items: checkIns[1]?.items, note: second?.words }));
+          second?.handlers.click();
+          const log = `document.querySelector("#log").textContent`;
+          check("…and its notification opens a new thread with only that day's question", await waitFor(`${log}.includes("walk away from the Globex renewal?")`) && !(await js(`${log}.includes("What made you hold firm?") || ${log}.includes("Started over")`)), await js(log));
+          await shot("checkin-thread-day-two");
+          await js(`document.querySelector("#task-back").click()`);
+          await waitFor(card);
+          await js(`[...${card}.querySelectorAll("button")].find((b) => b.textContent === "Not today").click()`);
+          check("Not today takes the card away and clears the dock", await waitFor(`!(${card})`) && await (async () => { for (let i = 0; i < 40 && badges.at(-1) !== 0; i++) await sleep(100); return badges.at(-1) === 0; })(), JSON.stringify(badges));
+          check("…for good, and its thread with it", await js(`window.lore.checkIn()`) === null && !(await js(`window.lore.tasks().then((all) => all.some((t) => t.kind === "evening"))`)));
+        }
       } else if (scenario === "sales") {
         // MON-037: a new sale is a Mac notification and shows on Today; old sales never are.
         const { existsSync, readFileSync } = require("node:fs");

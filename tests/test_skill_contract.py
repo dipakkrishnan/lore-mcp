@@ -34,6 +34,7 @@ OWNER_SKILL_GLOB = "lore-*"
 EXTERNAL_SKILLS = {
     "lore-buy",
     "lore-capture",
+    "lore-check-in",
     "lore-enable-payments",
     "lore-onboard",
     "lore-publish",
@@ -393,6 +394,24 @@ class SkillContractTest(unittest.TestCase):
             "no company, people, client, or product names",
             "`memories_ready`",
             "never publish",
+        ):
+            with self.subTest(boundary=boundary):
+                self.assertIn(boundary, skill)
+
+    def test_the_check_in_skill_defaults_to_silence_and_saves_nothing(self) -> None:
+        """AUT-008: a check-in that nags gets turned off, so silence is the default."""
+        skill = " ".join(
+            (OWNER_SKILLS / "lore-check-in/SKILL.md").read_text().lower().split()
+        )
+        for boundary in (
+            "silence is the normal outcome",
+            "the library does not already explain",
+            "one to three questions, each about one specific item",
+            "never ask the owner anything",
+            "`check_in` once",
+            "the app, not you, decides whether anything is posted",
+            "only after they approve them",
+            "never save a memory, draft a publication",
         ):
             with self.subTest(boundary=boundary):
                 self.assertIn(boundary, skill)

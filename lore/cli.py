@@ -246,6 +246,25 @@ def parser() -> argparse.ArgumentParser:
     routine_run = routine_commands.add_parser("run", help="run one routine now")
     routine_run.add_argument("id")
     routine_run.add_argument("--json", action="store_true")
+    routine_result = routine_commands.add_parser(
+        "result", help="say what a run came to, once the app knows"
+    )
+    routine_result.add_argument("id")
+    routine_result.add_argument("text")
+    routine_result.add_argument(
+        "--mark", type=int, help="the newest item the run's model judged"
+    )
+    for name, words in (("pause", "stop running"), ("resume", "start running again")):
+        toggle = routine_commands.add_parser(name, help=f"{words} a routine")
+        toggle.add_argument("id")
+        toggle.add_argument("--json", action="store_true")
+    routine_time = routine_commands.add_parser("time", help="change when one runs")
+    routine_time.add_argument("id")
+    routine_time.add_argument("--hour", type=int, required=True)
+    routine_time.add_argument(
+        "--cadence", choices=("daily", "weekdays", "weekly"), required=True
+    )
+    routine_time.add_argument("--json", action="store_true")
 
     capture = commands.add_parser(
         "capture", help="save owner-approved private memories"
@@ -949,13 +968,25 @@ def _source_line(entry: dict[str, object]) -> str:
 
 
 def automation_command(args: argparse.Namespace) -> int:
-    """List the app's routines, or run one; the app reads both as JSON."""
+    """List, run, pause or retime the app's routines; the app reads each as JSON."""
     from .automation import Routines
 
     routines = Routines()
-    if args.automation_command == "run":
+    command = args.automation_command
+    if command == "result":
+        routines.record(args.id, args.text, args.mark)
+        return 0
+    if command == "run":
         payload: object = routines.run(args.id)
         lines = [f"Ran {args.id}: {routines.saved[args.id].result}"]
+    elif command in ("pause", "resume", "time"):
+        changes: dict[str, object] = (
+            {"paused": command == "pause"}
+            if command != "time"
+            else {"hour": args.hour, "cadence": args.cadence}
+        )
+        payload = changed = routines.change(args.id, **changes)
+        lines = [f"{changed['name']}: {'paused' if changed['paused'] else 'on'}"]
     else:
         payload = listed = routines.list()
         lines = [
