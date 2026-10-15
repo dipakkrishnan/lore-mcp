@@ -37,11 +37,13 @@ const mainEl = $("#main");
 const header = /** @type {HTMLElement} */ (mainEl.querySelector("header"));
 const navButtons = /** @type {HTMLButtonElement[]} */ ([...document.querySelectorAll("nav button")]);
 
-/** @typedef {"today" | "memories" | "store" | "connectors" | "faq" | "settings"} View */
+/** @typedef {"today" | "memories" | "store" | "connectors" | "automations" | "faq" | "settings"} View */
 /** @type {Snapshot | null} */
 let snapshot = null;
 /** The apps Lore can connect, read once from the CLI's catalog. @type {SourceApp[]} */
 let apps = [];
+/** What Lore does on its own, as the CLI lists it. @type {Routine[]} */
+let routines = [];
 /** @type {AgentStatus | null} */
 let auth = null;
 /** @type {View} */
@@ -685,7 +687,7 @@ function memoriesReady(runs) {
   const memories = runs.flatMap((run) => run.memories);
   const selling = memories.filter((memory) => memory.sell).length;
   const [latest] = runs;
-  const heading = runs.every((run) => run.label === latest.label) ? `Lore read your ${latest.label} ${many(latest.item)}` : "Lore read what you brought in";
+  const heading = runs.every((run) => run.title === latest.title) ? latest.title : "Lore read what you brought in";
   const detail = [`${plural(memories.length, "new memory")}, only on this Mac`, selling ? `${selling} ${selling === 1 ? "looks" : "look"} worth selling` : ""].filter(Boolean).join(" · ");
   const clear = button("Clear", "quiet", () => void window.lore.clearMemories().then(() => { readyRuns = []; render(); }));
   const rows = memories.map((memory) => memoryRow(memory.id, memory.title, memory.sell ? `Worth selling · ${memory.why}` : memory.work ? "Work · stays private" : "Private", memory.sell));
@@ -1033,7 +1035,8 @@ function provider(credential = auth?.credentials[0] ?? null) {
   return credential ? PROVIDERS[credential.providerId] ?? [credential.providerId, ""] : ["Your AI provider", ""];
 }
 
-const EXECUTORS = { claude: "Claude", codex: "Codex", lore: "Lore" };
+/** Who runs a rhythm, by name. */
+const RUNNERS = { claude: "Claude Code", codex: "Codex", lore: "Lore" };
 
 /** The rhythm as the owner would say it: "Every day at 9 PM". @param {NonNullable<Snapshot["setup"]["schedule"]>} schedule */
 function rhythm(schedule) {
@@ -1069,11 +1072,12 @@ function scheduleRow(s) {
     return row(label, "New memories are written from what your agents learned.", cell(pill(s.setup.profile_configured ? "Set" : "Not set", s.setup.profile_configured ? "ok" : ""), ...(s.setup.profile_configured ? [] : [button("Start", "secondary", startSetup)])), false);
   }
   if (!schedule?.executor) return row(label, "Your rhythm is saved, but no model was chosen to run it.", cell(pill("Not scheduled", "attention"), button("Start", "secondary", startSetup)), false);
+  if (schedule.paused) return row(label, `${rhythm(schedule)}, paused.`, cell(pill("Paused"), button("Automations", "secondary", () => show("automations"))), false);
   if (schedule.executor === "lore") {
     const last = schedule.missed ? "Lore was closed at that hour, so it's reading now." : schedule.last_run ? `Last read ${when(schedule.last_run)}.` : "Hasn't run yet.";
     return row(label, `${rhythm(schedule)}, while Lore is open. ${last}`, cell(pill("Scheduled", "ok")), false);
   }
-  const who = `${rhythm(schedule)} with ${EXECUTORS[schedule.executor]}`;
+  const who = `${rhythm(schedule)} with ${RUNNERS[schedule.executor]}`;
   if (schedule.installed) return row(label, `${who}. ${lastSynthesis(s)}`, cell(pill("Scheduled", "ok")), false);
   return row(label, `Set for ${who.charAt(0).toLowerCase()}${who.slice(1)}, but nothing on this Mac is running it.`, cell(pill("Not scheduled", "attention"), button("Schedule", "secondary", () => void act(window.lore.schedule))), false);
 }
@@ -1610,12 +1614,147 @@ function showUpdate(next) {
   if (view === "settings") render();
 }
 
-const renderers = { today: renderToday, memories: renderMemories, store: renderStore, connectors: renderConnectors, faq: renderFaq, settings: renderSettings };
+const DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
+/** Whether each kind of routine keeps a rhythm of Lore's own (any weekday or day of the week), or the agents' rhythm
+ * for reading apps: every day, or every Monday. */
+const OWN_RHYTHM = { read: false, checkin: true, ask: true };
+
+/** "6 PM". @param {number} hour */
+const clock = (hour) => `${hour % 12 || 12} ${hour < 12 ? "AM" : "PM"}`;
+
+/** When a routine runs, as the owner would say it. @param {RoutineTime} time */
+function runsWhen({ cadence, hour, day }) {
+  const days = cadence === "weekly" ? DAYS[day] ?? DAYS[0] : cadence === "weekdays" ? "weekday" : "day";
+  return `Every ${days} at ${clock(hour)}`;
+}
+
+/** One routine: what it is, when, what it last found; a switch to pause it, and a menu for the rest. @param {Routine} routine */
+function routineRow(routine) {
+  const by = routine.runner === "lore" ? "" : ` · by ${RUNNERS[routine.runner]}`;
+  const ran = routine.last_run ? `Last ran ${when(routine.last_run)}${routine.result ? ` · ${routine.result}` : ""}` : "Hasn't run yet";
+  const last = routine.paused ? "Paused" : `Next ${when(routine.next_run)} · ${ran}`;
+  const toggle = el("button", "switch");
+  toggle.type = "button";
+  toggle.setAttribute("role", "switch");
+  toggle.setAttribute("aria-checked", String(!routine.paused));
+  toggle.setAttribute("aria-label", `${routine.paused ? "Resume" : "Pause"} ${routine.name}`);
+  toggle.addEventListener("click", () => void changeRoutine(routine, routine.paused ? "resume" : "pause"));
+  const menu = el("details", "row-menu");
+  const summary = el("summary", "icon-btn", "⋯");
+  summary.setAttribute("aria-label", `More for ${routine.name}`);
+  const items = el("div", "row-menu-items");
+  const item = (/** @type {string} */ label, /** @type {() => void} */ pick) => {
+    const node = el("button", "", label);
+    node.type = "button";
+    node.addEventListener("click", () => { menu.open = false; pick(); });
+    items.append(node);
+  };
+  if (routine.runner === "lore") item("Run now", () => void runRoutineNow(routine));
+  item("Change time", () => openRoutineTime(routine));
+  if (!routine.built_in) item("Remove", () => void changeRoutine(routine, "remove"));
+  menu.append(summary, items);
+  return row(routine.name, `${runsWhen({ cadence: routine.cadence, hour: routine.hour, day: routine.day ?? 0 })}${by} · ${last}`, cell(toggle, menu), false);
+}
+
+/** @param {Routine} routine @param {"pause" | "resume" | "remove" | "time"} action @param {RoutineTime} [time] */
+async function changeRoutine(routine, action, time) {
+  try {
+    await window.lore.changeRoutine(routine.id, action, time);
+    if (action === "remove") tell(`Removed “${routine.name}”.`);
+  } catch (error) {
+    tell(reason(error, "Lore couldn't change that. Try again."), true);
+  }
+  await load();
+}
+
+/** @param {Routine} routine */
+async function runRoutineNow(routine) {
+  tell(`Running “${routine.name}” now. Lore will tell you what it finds.`);
+  try {
+    await window.lore.runRoutine(routine.id);
+  } catch (error) {
+    tell(reason(error, "Lore couldn't run that. Try again."), true);
+  }
+  await load();
+}
+
+/** When-to-run fields, filled from `time`. Reading your apps on an agent's schedule runs only daily or weekly, on Mondays.
+ * @param {RoutineTime} time @param {boolean} [simple] @returns {[HTMLElement, () => RoutineTime]} */
+function timeFields(time, simple = false) {
+  const box = el("div", "time-fields");
+  /** @param {string} label @param {Array<[string, string]>} options @param {string} value */
+  const select = (label, options, value) => {
+    const node = el("select");
+    node.setAttribute("aria-label", label);
+    for (const [key, text] of options) {
+      const option = el("option", "", text);
+      option.value = key;
+      option.selected = key === value;
+      node.append(option);
+    }
+    box.append(node);
+    return node;
+  };
+  const cadences = /** @type {Array<[string, string]>} */ ([["daily", "Every day"], ...(simple ? [] : [["weekdays", "Every weekday"]]), ["weekly", "Every week"]]);
+  const cadence = select("How often", cadences, time.cadence);
+  const day = select("Which day", DAYS.map((name, index) => [String(index), `on ${name}`]), String(time.day));
+  const hour = select("What time", Array.from({ length: 24 }, (_, index) => [String(index), `at ${clock(index)}`]), String(time.hour));
+  const showDay = () => { day.hidden = simple || cadence.value !== "weekly"; };
+  cadence.addEventListener("change", showDay);
+  showDay();
+  return [box, () => ({ cadence: /** @type {Routine["cadence"]} */ (cadence.value), hour: Number(hour.value), day: simple ? 0 : Number(day.value) })];
+}
+
+/** @param {Routine} routine */
+function openRoutineTime(routine) {
+  const [fields, chosen] = timeFields({ cadence: routine.cadence, hour: routine.hour, day: routine.day ?? 0 }, !OWN_RHYTHM[routine.kind]);
+  const actions = el("div", "actions");
+  const dialog = sheet(`When “${routine.name}” runs`, mark(), fields, actions);
+  actions.append(button("Save", "primary", () => { dialog.close(); void changeRoutine(routine, "time", chosen()); }));
+}
+
+/** A plain sentence and a time: Lore runs it on its own agent, under the rules its own reading keeps. */
+function openNewRoutine() {
+  const text = el("textarea");
+  text.rows = 3;
+  text.maxLength = 500;
+  text.placeholder = "Every Sunday, remember what I read this week";
+  text.setAttribute("aria-label", "What should Lore do?");
+  const [fields, chosen] = timeFields({ cadence: "weekly", hour: 18, day: 6 });
+  const problem = problemLine();
+  const actions = el("div", "actions");
+  const dialog = sheet("New automation", mark(), el("p", "", "What should Lore do, and when?"), text, fields, el("p", "hint", "What it finds becomes private memories on this Mac. Nothing is ever published."), problem, actions);
+  const add = button("Add", "primary", async () => {
+    add.disabled = true;
+    try {
+      await window.lore.addRoutine(text.value, chosen());
+      dialog.close();
+      await load();
+    } catch (error) {
+      problem.textContent = reason(error, "Lore couldn't add that. Try again.");
+      add.disabled = false;
+    }
+  });
+  actions.append(add);
+  text.focus();
+}
+
+/** APP-200: everything Lore does on its own, and when. */
+function renderAutomations() {
+  const own = routines.filter((routine) => routine.built_in);
+  const mine = routines.filter((routine) => !routine.built_in);
+  return [
+    section("Lore's own", card(own.map(routineRow)), el("span", "hint", "Pause any of these; they can't be removed.")),
+    section("Yours", card(mine.length ? mine.map(routineRow) : [row("Nothing of yours yet", "Tell Lore something to do at a set time, in a sentence.", undefined, false)]), button("New automation", "secondary", openNewRoutine))
+  ];
+}
+
+const renderers = { today: renderToday, memories: renderMemories, store: renderStore, connectors: renderConnectors, automations: renderAutomations, faq: renderFaq, settings: renderSettings };
 
 function render() {
   hidePeek();
   const detail = view === "today" ? detailTask : null;
-  const heading = detail ? detailRecord?.title ?? TASK_TITLES[detail] : { today: greeting(), memories: "Memories", store: "For Sale", connectors: "Connectors", faq: "FAQ", settings: "Settings" }[view];
+  const heading = detail ? detailRecord?.title ?? TASK_TITLES[detail] : { today: greeting(), memories: "Memories", store: "For Sale", connectors: "Connectors", automations: "Automations", faq: "FAQ", settings: "Settings" }[view];
   const pendingDrafts = detail === "publish" && (candidates.length || extraDrafts.length);
   eyebrow.textContent = detail
     ? pendingDrafts ? `Needs you · ${draftsPhase()}` : `${TASK_STATES[detailRecord?.state ?? "working"]} · ${detailRecord?.phase ?? "Starting"}`
@@ -1714,9 +1853,9 @@ async function load() {
   // Loads overlap (a "changed" then a "ready" a moment later); one that started earlier but finished later is stale.
   const ticket = ++loads;
   try {
-    const loaded = await Promise.all([window.lore.snapshot(), window.lore.candidates().catch(() => []), window.lore.extras().catch(() => []), window.lore.tasks().catch(() => []), apps.length ? apps : window.lore.sourceCatalog().catch(() => []), window.lore.readyRuns().catch(() => readyRuns), window.lore.checkIn().catch(() => null)]);
+    const loaded = await Promise.all([window.lore.snapshot(), window.lore.candidates().catch(() => []), window.lore.extras().catch(() => []), window.lore.tasks().catch(() => []), apps.length ? apps : window.lore.sourceCatalog().catch(() => []), window.lore.readyRuns().catch(() => readyRuns), window.lore.checkIn().catch(() => null), window.lore.routines().catch(() => routines)]);
     if (ticket !== loads) return;
-    [snapshot, candidates, extraDrafts, taskItems, apps, readyRuns, checkIn] = loaded;
+    [snapshot, candidates, extraDrafts, taskItems, apps, readyRuns, checkIn, routines] = loaded;
     if (detailTask) detailRecord = taskItems.find((item) => item.kind === detailTask) ?? detailRecord;
     peeked.clear();
     render();

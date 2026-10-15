@@ -1,6 +1,6 @@
 #!/bin/bash
 # Seed a scratch Lore home with two memories and two drafts, then drive the renderer as one persona.
-# Scenarios: seller | provision | store | jobs | fresh | feedback | listing | obsidian | connectors | reading | schedule | checkin | quiet | faq | sell | cards | sales | extras | settings
+# Scenarios: seller | provision | store | jobs | fresh | feedback | listing | obsidian | connectors | reading | schedule | checkin | quiet | automations | faq | sell | cards | sales | extras | settings
 set -euo pipefail
 scenario="${1:-seller}"
 desktop_dir="$(cd "$(dirname "$0")/.." && pwd)"
@@ -132,6 +132,12 @@ from datetime import datetime, timedelta, timezone
 from lore import automation
 automation.save_profile({'executor': 'lore', 'cadence': 'daily', 'hour': 9})
 automation.Routines(clock=lambda: datetime.now(timezone.utc) - timedelta(days=2)).adopt()")
+fi
+if [[ "$scenario" == "automations" ]]; then
+  # APP-200: Lore keeps the reading rhythm, and the owner has one routine of their own.
+  export CLAUDE_HOME="$root/claude" CODEX_HOME="$root/codex"
+  (cd "$repo_root" && echo '{"executor": "lore", "cadence": "daily", "hour": 9}' | uv run lore profile - >/dev/null)
+  (cd "$repo_root" && uv run lore automation add --cadence weekly --hour 18 --day 6 -- "Every Sunday, remember what I read this week" >/dev/null)
 fi
 if [[ "$scenario" == "checkin" || "$scenario" == "quiet" ]]; then
   # AUT-008: a connected vault, and an evening check-in turned on two days ago whose hour passed an hour ago, while

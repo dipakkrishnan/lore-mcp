@@ -10,7 +10,7 @@ const { Updates } = require("./updates.cjs");
 const reading = require("./reading.cjs");
 const checkin = require("./checkin.cjs");
 const { Schedule } = require("./routines.cjs");
-const { lore, listRoutines, runRoutine, loreStream, openable, readState, readSales, readViews, searchMemories, readMemory, renameMemory, editMemory, captureMemories, previewPage, setPrice, setFreeCopies, candidates, decide, extrasCandidates, decideExtras, approveExtras, reportFeedback, listStore, cardStatus, connectCards, switchCards, listingStatus, sourceCatalog, sourceChoices, connectSource, signIn, readSource, removeSource, useRuntime } = require("./state.cjs");
+const { lore, listRoutines, runRoutine, changeRoutine, addRoutine, loreStream, openable, readState, readSales, readViews, searchMemories, readMemory, renameMemory, editMemory, captureMemories, previewPage, setPrice, setFreeCopies, candidates, decide, extrasCandidates, decideExtras, approveExtras, reportFeedback, listStore, cardStatus, connectCards, switchCards, listingStatus, sourceCatalog, sourceChoices, connectSource, signIn, readSource, removeSource, useRuntime } = require("./state.cjs");
 
 if (process.env.LORE_DESKTOP_USER_DATA) app.setPath("userData", process.env.LORE_DESKTOP_USER_DATA);
 // Two copies sharing one credentials file each refresh the sign-in, and the provider refuses the second.
@@ -62,8 +62,8 @@ function request(type, payload, signal) {
   });
 }
 
-/** @param {string} loreHome */
-function registerIpc(loreHome) {
+/** @param {string} loreHome @param {InstanceType<typeof Schedule>} schedule */
+function registerIpc(loreHome, schedule) {
   ipcMain.handle("snapshot:read", () => readState(loreHome));
   ipcMain.handle("dictation:permission", () => systemPreferences.askForMediaAccess("microphone"));
   ipcMain.handle("update:status", () => updates.update);
@@ -230,6 +230,23 @@ function registerIpc(loreHome) {
   ipcMain.handle("ready:clear", () => newMemories.clear());
   ipcMain.handle("checkin:waiting", () => checkIns.waiting());
   ipcMain.handle("checkin:dismiss", () => checkIns.expire().then(closeCheckIn));
+  // APP-200: the Automations tab reads and changes routines through the CLI, then the clock looks again. Run now waits
+  // its turn behind any run under way, so the owner's and the clock's never overlap.
+  ipcMain.handle("routines:list", () => listRoutines(loreHome));
+  ipcMain.handle("routines:run", async (_event, id) => {
+    const routine = (await listRoutines(loreHome)).find((each) => each.id === id && each.runner === "lore");
+    if (!routine) throw new Error("Lore does not run that one");
+    await schedule.runNow(routine);
+  });
+  ipcMain.handle("routines:change", async (_event, id, action, when) => {
+    await changeRoutine(loreHome, id, action, when);
+    void schedule.check();
+  });
+  ipcMain.handle("routines:add", async (_event, text, when) => {
+    const added = await addRoutine(loreHome, text, when);
+    void schedule.check();
+    return added;
+  });
   ipcMain.handle("sources:remove", (_event, name, keep) => removeSource(loreHome, name, keep === true));
   // The Files and Folders pane, where the owner grants the read a folder needs.
   ipcMain.handle("settings:privacy", () => shell.openExternal("x-apple.systempreferences:com.apple.preference.security?Privacy_FilesAndFolders"));
@@ -283,7 +300,9 @@ const AFTER_RUN = {
     if (!items.length) await recordCheckIn(loreHome, NOTHING_TO_ASK, mark);
     else if (agent) agent.checkIn({ items, mark });
     else await recordCheckIn(loreHome, COULD_NOT_LOOK);
-  }
+  },
+  // One of the owner's own: their sentence, read through quietly like a connected app, into private memories.
+  ask: (_loreHome, { routine, ask = "" }) => agent?.synthesize(reading.asking(routine, ask))
 };
 
 const NOTHING_TO_ASK = "Nothing new to ask about";
@@ -340,7 +359,9 @@ function createWindow() {
 
 app.whenReady().then(async () => {
   const loreHome = process.env.LORE_HOME || join(app.getPath("home"), ".lore");
-  registerIpc(loreHome);
+  // The owner's rhythm, kept by Lore while it is open; an hour missed while it was closed runs once, after setup.
+  const schedule = new Schedule(() => listRoutines(loreHome), (routine) => runNow(loreHome, routine));
+  registerIpc(loreHome, schedule);
   createWindow();
   await new Promise((loaded) => window?.webContents.once("did-finish-load", () => loaded(undefined)));
   updates.start();
@@ -348,8 +369,6 @@ app.whenReady().then(async () => {
   watchSales(loreHome);
   void newMemories.show();
   void checkIns.show();
-  // The owner's rhythm, kept by Lore while it is open; an hour missed while it was closed runs now, once.
-  const schedule = new Schedule(() => listRoutines(loreHome), (routine) => runNow(loreHome, routine));
   void schedule.check();
   powerMonitor.on("resume", () => void schedule.check());
   app.on("activate", () => {
@@ -503,8 +522,10 @@ async function start(loreHome) {
       await lore(loreHome, ["sync", "--source", "automation"]);
       const stored = JSON.parse(await lore(loreHome, ["search", "--source", "automation", "--limit", "0", "--json"]));
       const run = reading.landed(read, report, stored, join(loreHome, "memories"));
+      const wrote = run.memories.length;
+      if (read.ask) await lore(loreHome, ["automation", "result", read.name, wrote ? reading.plural(wrote, "new memory") : "Nothing new"]);
       emit({ type: "changed" });
-      if (!run.memories.length) return;
+      if (!wrote) return;
       await newMemories.add(run);
       emit({ type: "ready" });
       sales.notify(reading.announcement(run), () => {

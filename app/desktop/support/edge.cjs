@@ -89,7 +89,7 @@ if (scenario === "listing") {
     process.env.LORE_EDGE_NEWSLETTER = `http://127.0.0.1:${newsletter.address().port}/`;
     require(join(src, "main.cjs"));
   });
-} else if (["reading", "schedule", "checkin", "quiet"].includes(scenario)) {
+} else if (["reading", "schedule", "checkin", "quiet", "automations"].includes(scenario)) {
   // AUT-005: everything around a reading is real except the model. The stand-in writes what a
   // reading of the two stand-in Granola meetings would, then hands it back as the agent would.
   // AUT-006 reuses it: what Lore's own schedule brings in lands the same way. AUT-008's check-in
@@ -105,7 +105,7 @@ if (scenario === "listing") {
       writeFileSync(join(folder, "first-price-after-ten-buyers.md"), "# Raise the first price only after ten buyers pay\n\nA receipt beats a survey: hold the first tier until ten buyers have paid, then raise it. From a pricing review, January 2026.\n");
       writeFileSync(join(folder, "work/ops-management-before-hiring.md"), "# Add the ops management layer before the next ten hires\n\nWork: the team's own hiring plan, from an internal ops sync.\n\nAdd the management layer before the next ten engineers join, not after.\n");
       // After the connect's own refresh, which reads tasks from disk where this stand-in keeps none.
-      setTimeout(() => this.options.emit({ type: "task", task: { version: 1, kind: "synthesize", title: "Read what came in", state: "working", phase: `Reading your ${reading.label} meetings`, updatedAt: new Date().toISOString() } }), 1500);
+      setTimeout(() => this.options.emit({ type: "task", task: { version: 1, kind: "synthesize", title: "Read what came in", state: "working", phase: reading.phase, updatedAt: new Date().toISOString() } }), 1500);
       setTimeout(() => {
         this.options.emit({ type: "task", task: { version: 1, kind: "synthesize", title: "Read what came in", state: "done", phase: "Finished", updatedAt: new Date().toISOString() } });
         void this.options.memoriesReady?.(reading, {
@@ -791,7 +791,7 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         await shot("reading-today-working");
         await js(`window.__lore.show("connectors")`);
         for (let i = 0; i < 60 && !notes.length; i++) await sleep(250);
-        check("a finished reading is one Mac notification", notes.length === 1 && notes[0].words.title === "Lore turned 2 Granola meetings into 2 memories" && notes[0].words.body === "1 looks worth selling.", JSON.stringify(notes.map((n) => n.words)));
+        check("a finished reading is one Mac notification", notes.length === 1 && notes[0].words.title === "Lore read your Granola meetings" && notes[0].words.body === "2 new memories. 1 looks worth selling.", JSON.stringify(notes.map((n) => n.words)));
         check("…and a red 2 on the dock while the owner is elsewhere", badges.at(-1) === 2, JSON.stringify(badges));
         check("…and the notice that it was reading goes away", await waitFor(`!document.querySelector("#status").textContent.includes("Lore is turning them into memories now.")`), await js(`document.querySelector("#status").textContent`));
         notes[0].handlers.click();
@@ -820,7 +820,7 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         for (let i = 0; i < 60 && !readings.length; i++) await sleep(250);
         check("the launch catches up on the missed hour with one reading", readings.length === 1 && readings[0].label === "Obsidian" && readings[0].added === 1, JSON.stringify(readings));
         for (let i = 0; i < 60 && !notes.length; i++) await sleep(250);
-        check("…which lands as the same Mac notification", notes.length === 1 && notes[0].words.title === "Lore turned 1 Obsidian note into 2 memories", JSON.stringify(notes.map((n) => n.words)));
+        check("…which lands as the same Mac notification", notes.length === 1 && notes[0].words.title === "Lore read your Obsidian notes" && notes[0].words.body === "2 new memories. 1 looks worth selling.", JSON.stringify(notes.map((n) => n.words)));
         check("…and the same red number on the dock", badges.at(-1) === 2, JSON.stringify(badges));
         await js(`window.__lore.show("today")`);
         check("…and the same New memories card on Today", await waitFor(`document.querySelector("#content").textContent.includes("Lore read your Obsidian notes")`));
@@ -836,6 +836,85 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         await js(`[...document.querySelectorAll("#content .row")].find((r) => r.textContent.includes("How often Lore reads them")).scrollIntoView()`);
         await sleep(300);
         await shot("schedule-connectors");
+      } else if (scenario === "automations") {
+        // APP-200: every routine in one list, Lore's own first; pause, retime, run now, add and remove, all kept by the CLI.
+        const listed = () => JSON.parse(execFileSync("uv", ["run", "lore", "automation", "list", "--json"], { cwd: join(__dirname, "../../.."), env: process.env, encoding: "utf8" }));
+        const mine = () => listed().find((/** @type {Routine} */ routine) => !routine.built_in);
+        await waitFor(`document.body.dataset.state === "welcome" && !document.querySelector("#welcome").classList.contains("provisioning")`);
+        await js(`window.__lore.signIn()`);
+        await waitFor(`document.querySelector("#content .strip")`);
+        await js(`document.querySelector("nav [data-view=automations]").click()`);
+        const rowOf = (/** @type {string} */ name) => `[...document.querySelectorAll("#content .row")].find((r) => r.querySelector("b")?.textContent === ${JSON.stringify(name)})`;
+        const SUNDAY = "Every Sunday, remember what I read this week";
+        check("the tab lists Lore's own first, then the owner's", await waitFor(`${rowOf(SUNDAY)}`) && await js(`[...document.querySelectorAll("#content .row b")].map((b) => b.textContent).join("|")`) === `Read connected apps|Evening check-in|${SUNDAY}`, await js(`[...document.querySelectorAll("#content .row b")].map((b) => b.textContent).join("|")`));
+        const text = await js(`document.querySelector("#content").textContent`);
+        check("…each with when it runs and what it last did", /Every day at 9 AM · Next \w+ \d+ · Hasn.t run yet/.test(text) && text.includes("Every weekday at 6 PM") && text.includes("Every Sunday at 6 PM"), text);
+        check("…in plain words", !/cron|executor|schedul|routine|prompt/i.test(text), text);
+        const menuOf = (/** @type {string} */ name) => `[...${rowOf(name)}.querySelectorAll(".row-menu-items button")].map((b) => b.textContent).join("|")`;
+        check("Lore's own can be paused but not removed", await js(menuOf("Evening check-in")) === "Run now|Change time" && await js(menuOf(SUNDAY)) === "Run now|Change time|Remove", `${await js(menuOf("Evening check-in"))} / ${await js(menuOf(SUNDAY))}`);
+        await shot("automations");
+        await js(`${rowOf("Evening check-in")}.querySelector(".switch").click()`);
+        check("the switch pauses it, and the CLI keeps that", await waitFor(`${rowOf("Evening check-in")}?.querySelector(".switch").getAttribute("aria-checked") === "false"`) && listed().find((/** @type {Routine} */ r) => r.id === "checkin").paused === true);
+        check("…so it shows paused after a fresh read", await js(`window.lore.routines().then((all) => all.find((r) => r.id === "checkin").paused)`) === true && (await js(`${rowOf("Evening check-in")}.textContent`)).includes("Paused"));
+        await js(`${rowOf(SUNDAY)}.querySelector("details").open = true`);
+        await js(`[...${rowOf(SUNDAY)}.querySelectorAll(".row-menu-items button")].find((b) => b.textContent === "Change time").click()`);
+        await waitFor(`document.querySelector("dialog.sheet[open] .time-fields")`);
+        await js(`{ const [cadence, , hour] = document.querySelectorAll("dialog.sheet[open] select"); cadence.value = "daily"; cadence.dispatchEvent(new Event("change")); hour.value = "7"; }`);
+        check("Change time hides the day for a daily rhythm", await js(`document.querySelectorAll("dialog.sheet[open] select")[1].hidden`));
+        await js(`document.querySelector("dialog.sheet[open] .btn.primary").click()`);
+        check("…and saves the new time", await waitFor(`${rowOf(SUNDAY)}?.textContent.includes("Every day at 7 AM")`) && mine().hour === 7 && mine().cadence === "daily", JSON.stringify(mine()));
+        await js(`${rowOf(SUNDAY)}.querySelector("details").open = true`);
+        await js(`[...${rowOf(SUNDAY)}.querySelectorAll(".row-menu-items button")].find((b) => b.textContent === "Run now").click()`);
+        for (let i = 0; i < 40 && !readings.length; i++) await sleep(250);
+        check("Run now hands the owner's sentence to Lore's quiet reading", readings.length === 1 && readings[0].ask === SUNDAY, JSON.stringify(readings));
+        for (let i = 0; i < 60 && !notes.length; i++) await sleep(250);
+        check("…which writes private memories and says so, named by its sentence", notes.length === 1 && notes[0].words.title === `“${SUNDAY}”` && notes[0].words.body === "2 new memories. 1 looks worth selling.", JSON.stringify(notes.map((n) => n.words)));
+        check("…and records what it found", await (async () => { for (let i = 0; i < 20 && mine().result !== "2 new memories"; i++) await sleep(250); return mine().result === "2 new memories"; })(), JSON.stringify(mine()));
+        await js(`window.__lore.show("today")`);
+        const heading = `[...document.querySelectorAll("#content .section")].find((s) => s.textContent.includes("New memories"))?.querySelector(".row b")?.textContent ?? ""`;
+        check("Today names it by its sentence alone", await waitFor(`(${heading}) === ${JSON.stringify(`“${SUNDAY}”`)}`), await js(heading));
+        await js(`[...document.querySelectorAll("#content .section")].find((s) => s.textContent.includes("New memories"))?.scrollIntoView()`);
+        await sleep(300);
+        await shot("automations-today-owner-routine");
+        await js(`document.querySelector("nav [data-view=automations]").click()`);
+        check("the tab carries no dot of its own", await js(`!document.querySelector("nav [data-view=automations] .new-dot")`));
+        // Paused for days, then resumed: it waits for its next hour instead of running at once.
+        const repo = join(__dirname, "../../..");
+        const python = (/** @type {string} */ code) => execFileSync("uv", ["run", "python", "-c", `from datetime import datetime, timedelta, timezone\nfrom lore import automation\nnow = datetime.now(timezone.utc)\n${code}`], { cwd: repo, env: process.env, encoding: "utf8" });
+        const checkInOf = () => listed().find((/** @type {Routine} */ r) => r.id === "checkin");
+        python("automation.Routines().save('checkin', last_run=now - timedelta(days=4), since=now - timedelta(days=4))");
+        await js(`window.__lore.event({ type: "changed" })`);
+        await waitFor(`${rowOf("Evening check-in")}?.querySelector(".switch").getAttribute("aria-checked") === "false"`);
+        await js(`${rowOf("Evening check-in")}.querySelector(".switch").click()`);
+        await waitFor(`${rowOf("Evening check-in")}?.querySelector(".switch").getAttribute("aria-checked") === "true"`);
+        await sleep(2500);
+        check("resuming a check-in paused for days never runs it at once", !checkInOf().due && !checkInOf().paused && Date.parse(checkInOf().next_run) > Date.now() && checkInOf().last_run.startsWith(new Date(Date.now() - 4 * 86400_000).toISOString().slice(0, 10)), JSON.stringify(checkInOf()));
+        // Moved to an hour that already passed today: it waits for tomorrow's.
+        const earlier = (new Date().getHours() + 23) % 24;
+        await js(`${rowOf("Evening check-in")}.querySelector("details").open = true`);
+        await js(`[...${rowOf("Evening check-in")}.querySelectorAll(".row-menu-items button")].find((b) => b.textContent === "Change time").click()`);
+        await waitFor(`document.querySelector("dialog.sheet[open] .time-fields")`);
+        await js(`{ const [cadence, , hour] = document.querySelectorAll("dialog.sheet[open] select"); cadence.value = "daily"; cadence.dispatchEvent(new Event("change")); hour.value = "${earlier}"; }`);
+        await js(`document.querySelector("dialog.sheet[open] .btn.primary").click()`);
+        await waitFor(`${rowOf("Evening check-in")}?.textContent.includes("Every day at")`);
+        await sleep(2500);
+        check("…and moving it to an hour already past waits for tomorrow", checkInOf().hour === earlier && !checkInOf().due && Date.parse(checkInOf().next_run) - Date.now() > 20 * 60 * 60_000 && checkInOf().last_run.startsWith(new Date(Date.now() - 4 * 86400_000).toISOString().slice(0, 10)), JSON.stringify(checkInOf()));
+        await js(`[...document.querySelectorAll("#content .btn")].find((b) => b.textContent === "New automation").click()`);
+        await waitFor(`document.querySelector("dialog.sheet[open] textarea")`);
+        await js(`document.querySelector("dialog.sheet[open] textarea").value = "Each Friday, pick one memory worth selling"`);
+        await shot("automations-new");
+        await js(`document.querySelector("dialog.sheet[open] .btn.primary").click()`);
+        check("New automation adds one from a plain sentence and a time", await waitFor(`${rowOf("Each Friday, pick one memory worth selling")}`) && (await js(`${rowOf("Each Friday, pick one memory worth selling")}.textContent`)).includes("Every Sunday at 6 PM"));
+        await js(`${rowOf(SUNDAY)}.querySelector("details").open = true`);
+        await js(`[...${rowOf(SUNDAY)}.querySelectorAll(".row-menu-items button")].find((b) => b.textContent === "Remove").click()`);
+        check("Remove takes the owner's own away for good", await waitFor(`!${rowOf(SUNDAY)}`) && !listed().some((/** @type {Routine} */ r) => r.name === SUNDAY));
+        await js(`${rowOf("Read connected apps")}.querySelector(".switch").click()`);
+        await js(`window.__lore.show("connectors")`);
+        const rhythm = `[...document.querySelectorAll("#content .row")].find((r) => r.textContent.includes("How often Lore reads them"))?.textContent ?? ""`;
+        check("pausing the reading shows on Connectors too", await waitFor(`(${rhythm}).includes("paused")`), await js(rhythm));
+        await js(`window.__lore.show("automations")`);
+        await sleep(400);
+        await shot("automations-after");
       } else if (scenario === "checkin" || scenario === "quiet") {
         // AUT-008: the check-in whose hour passed an hour ago runs at launch, on what was read in since it last judged.
         const repo = join(__dirname, "../../..");
@@ -886,6 +965,17 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
           await shot("checkin-thread");
           await js(`document.querySelector("#task-back").click()`);
           await waitFor(card);
+          // Run now later the same day leaves today's questions where they are.
+          await js(`document.querySelector("nav [data-view=automations]").click()`);
+          const checkInRow = `[...document.querySelectorAll("#content .row")].find((r) => r.querySelector("b")?.textContent === "Evening check-in")`;
+          await waitFor(checkInRow);
+          const before = checkin().last_run;
+          await js(`${checkInRow}.querySelector("details").open = true`);
+          await js(`[...${checkInRow}.querySelectorAll(".row-menu-items button")].find((b) => b.textContent === "Run now").click()`);
+          for (let i = 0; i < 40 && checkin().last_run === before; i++) await sleep(250);
+          await sleep(1500);
+          await js(`window.__lore.show("today")`);
+          check("Run now on the same day keeps today's card, its questions and the dock's 1", await waitFor(card) && badges.at(-1) === 1 && (await js(`window.lore.checkIn()`))?.questions[0].question === "You held the price on the Acme call. What made you hold firm?" && checkin().result === "Asked about 1 thing" && checkIns.length === 1 && checkin().last_run !== before, `${JSON.stringify(badges)} · ${checkin().result} · ${checkIns.length} looks`);
           // The next evening brings in something new; yesterday's unanswered questions give way to today's.
           nextDay();
           writeFileSync(join(S, "Edge Vault", "three.md"), "# Dropped the Globex renewal\n\nWalked away from the renewal; no reason written down.\n");

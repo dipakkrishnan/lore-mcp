@@ -3,6 +3,7 @@ from __future__ import annotations
 import fcntl
 import json
 import os
+import secrets
 import shlex
 import sys
 from collections.abc import Callable
@@ -346,7 +347,8 @@ def schedule_state() -> dict[str, object] | None:
             # honest to say is when it last ran and whether a run was missed.
             routine = Routines().get(ReadApps.id).listed()
             return {
-                "installed": True,
+                "installed": not routine["paused"],
+                "paused": routine["paused"],
                 "executor": Agent.LORE,
                 "cadence": routine["cadence"],
                 "hour": routine["hour"],
@@ -356,24 +358,28 @@ def schedule_state() -> dict[str, object] | None:
         task = task_for(profile)
     except (OSError, ValueError):
         return {"installed": False, "executor": None, "cadence": None, "hour": None}
-    return {
+    state: dict[str, object] = {
         "installed": task_status(task, codex_home=codex_home()),
         "executor": task.agent,
         "cadence": task.cadence,
         "hour": task.hour,
     }
+    # Taken down on purpose from Automations, not lost by the scheduler.
+    if Routines().get(ReadApps.id).paused:
+        state["paused"] = True
+    return state
 
 
-def next_run(cadence: str, hour: int, after: datetime) -> datetime:
+def next_run(cadence: str, hour: int, after: datetime, day: int = 0) -> datetime:
     """The first moment after `after` that a rhythm names, on this Mac's clock.
 
-    Weekly is Monday, as the agents' schedules have it; weekdays skip Saturday and
-    Sunday. Worked in local wall time, so 9 PM stays 9 PM across a daylight-saving
-    change.
+    Weekly is on `day` (0 is Monday, as the agents' schedules have it); weekdays
+    skip Saturday and Sunday. Worked in local wall time, so 9 PM stays 9 PM across
+    a daylight-saving change.
     """
     start = after.astimezone().replace(tzinfo=None)
     moment = start.replace(hour=hour, minute=0, second=0, microsecond=0)
-    days = {"weekly": {0}, "weekdays": {0, 1, 2, 3, 4}}.get(cadence, set(range(7)))
+    days = {"weekly": {day}, "weekdays": {0, 1, 2, 3, 4}}.get(cadence, set(range(7)))
     while moment <= start or moment.weekday() not in days:
         moment += timedelta(days=1)
     return moment.astimezone()
@@ -392,17 +398,21 @@ class Saved(BaseModel):
     # The owner's own rhythm for a routine whose hour is not the profile's.
     cadence: Literal["daily", "weekdays", "weekly"] | None = None
     hour: Annotated[int, Field(ge=0, le=23)] | None = None
+    day: Annotated[int, Field(ge=0, le=6)] | None = None
     # The owner's choice; until they make one, a routine keeps its kind's default.
     paused: bool | None = None
     # The newest item a run had judged, so the next asks only about what came after.
     mark: int | None = None
+    # What the owner asked for, in their words, for a routine they added.
+    prompt: Annotated[str, Field(max_length=500)] = ""
 
 
 class Routine:
     """One thing the Lore app does on its own at a set hour.
 
-    Each kind is one subclass: it names its `id`, says who runs it and when, and does
-    the run. The app reads `kind` to know what to do with what a run hands back.
+    Each kind is one subclass: it says who runs it and when, and does the run. One
+    of Lore's own names its `id` and can be paused but not removed; any other record
+    is the owner's own. The app reads `kind` to know what to do with a run.
     """
 
     id: ClassVar[str] = ""
@@ -422,7 +432,8 @@ class Routine:
     def paused(self) -> bool:
         return bool(self.saved and self.saved.paused)
 
-    def rhythm(self) -> tuple[str, int]:
+    def rhythm(self) -> tuple[str, int, int]:
+        """How often, at what hour, and on which day of a weekly rhythm."""
         raise NotImplementedError
 
     def run(self) -> dict[str, object]:
@@ -438,18 +449,18 @@ class Routine:
         """The hour it is owed for (in the future when nothing is owed), and the
         latest hour that has passed since then."""
         now = self.routines.clock()
-        cadence, hour = self.rhythm()
+        cadence, hour, day = self.rhythm()
         saved = self.saved
         # Never set up: nothing is owed until it is.
         anchor = max(saved.since, saved.last_run or saved.since) if saved else now
-        owed = latest = next_run(cadence, hour, anchor)
-        while (later := next_run(cadence, hour, latest)) <= now:
+        owed = latest = next_run(cadence, hour, anchor, day)
+        while (later := next_run(cadence, hour, latest, day)) <= now:
             latest = later
         return owed, latest
 
     def listed(self) -> dict[str, object]:
         """When it runs next, and whether the app owes it a run now."""
-        cadence, hour = self.rhythm()
+        cadence, hour, day = self.rhythm()
         owed, latest = self.slots()
         due = owed <= self.routines.clock()
         saved = self.saved or Saved(since=owed)
@@ -458,12 +469,16 @@ class Routine:
             "kind": self.kind,
             "name": self.name,
             "runner": self.runner,
+            "built_in": bool(self.id),
             "cadence": cadence,
             "hour": hour,
+            "day": day,
             "paused": self.paused,
             "last_run": saved.last_run and saved.last_run.isoformat(),
             "result": saved.result,
-            "next_run": (next_run(cadence, hour, latest) if due else owed).isoformat(),
+            "next_run": (
+                next_run(cadence, hour, latest, day) if due else owed
+            ).isoformat(),
             "due": due and self.runner == Agent.LORE and not self.paused,
         }
 
@@ -479,12 +494,29 @@ class ReadApps(Routine):
     def runner(self) -> str:
         return str(self.routines.profile.get("executor") or "")
 
-    def rhythm(self) -> tuple[str, int]:
+    def rhythm(self) -> tuple[str, int, int]:
         profile = self.routines.profile
-        return str(profile.get("cadence", "daily")), int(str(profile.get("hour", 21)))
+        cadence, hour = profile.get("cadence", "daily"), profile.get("hour", 21)
+        return str(cadence), int(str(hour)), 0
 
     def change(self, **changes: object) -> None:
-        raise ValueError("How often Lore reads your apps is set in your profile")
+        """Its rhythm lives in the profile, every day or every Monday, as the agents
+        schedule it; an agent's task is taken down while paused and put back after."""
+        profile = self.routines.profile
+        if "hour" in changes:
+            if changes.get("cadence") not in ("daily", "weekly"):
+                raise ValueError("Reading your apps runs every day or every week")
+            hour, cadence = changes.pop("hour"), changes.pop("cadence")
+            profile = save_profile({**profile, "hour": hour, "cadence": cadence})
+            self.routines.profile = profile
+            changes.pop("day", None)
+        super().change(**changes)
+        if self.runner == Agent.LORE or os.environ.get("LORE_SKIP_SCHEDULE") == "1":
+            return
+        if changes.get("paused", self.paused):
+            remove_all()
+        else:
+            install(profile)
 
     def run(self) -> dict[str, object]:
         from .sources import Connector, Registry
@@ -526,10 +558,13 @@ class CheckIn(Routine):
             return self.saved.paused
         return self.routines.profile.get("executor") != Agent.LORE
 
-    def rhythm(self) -> tuple[str, int]:
-        saved = self.saved
-        hour = 18 if saved is None or saved.hour is None else saved.hour
-        return (saved and saved.cadence) or "weekdays", hour
+    def rhythm(self) -> tuple[str, int, int]:
+        saved = self.saved or Saved(since=self.routines.clock(), cadence="weekdays")
+        return (
+            saved.cadence or "weekdays",
+            18 if saved.hour is None else saved.hour,
+            saved.day or 0,
+        )
 
     def change(self, **changes: object) -> None:
         if self.saved is None or self.saved.mark is None:
@@ -559,6 +594,28 @@ class CheckIn(Routine):
             }
 
 
+class Ask(Routine):
+    """One of the owner's own (APP-200): their sentence, run at their time on Lore's
+    agent under the rules its reading keeps, into private memories only."""
+
+    kind = "ask"
+
+    def __init__(self, routines: Routines, routine_id: str, saved: Saved | None):
+        super().__init__(routines, routine_id, saved)
+        self.name = saved.prompt if saved else ""
+
+    def rhythm(self) -> tuple[str, int, int]:
+        saved = self.saved or Saved(since=self.routines.clock())
+        return (
+            saved.cadence or "daily",
+            9 if saved.hour is None else saved.hour,
+            saved.day or 0,
+        )
+
+    def run(self) -> dict[str, object]:
+        return {"ask": self.name}
+
+
 class Routines:
     """The routines the Lore app runs on its own, in `automation/routines.json`.
 
@@ -584,16 +641,37 @@ class Routines:
             return {}
 
     def get(self, routine_id: str) -> Routine:
-        kind = next((k for k in Routine.__subclasses__() if k.id == routine_id), None)
+        saved = self.saved.get(routine_id)
+        own = Ask if saved else None
+        kind = next((k for k in Routine.__subclasses__() if k.id == routine_id), own)
         if kind is None:
             raise ValueError(f"Lore does not run a routine called {routine_id}")
-        return kind(self, routine_id, self.saved.get(routine_id))
+        return kind(self, routine_id, saved)
 
     def list(self) -> list[dict[str, object]]:
-        """Every routine someone runs, with when it runs next and whether the app owes
-        it a run."""
-        built_in = (self.get(k.id) for k in Routine.__subclasses__() if k.id)
-        return [routine.listed() for routine in built_in if routine.runner]
+        """Every routine someone runs, Lore's own first, with when it runs next and
+        whether the app owes it a run."""
+        own = (k.id for k in Routine.__subclasses__() if k.id)
+        routines = map(self.get, dict.fromkeys([*own, *self.saved]))
+        return [routine.listed() for routine in routines if routine.runner]
+
+    def add(
+        self, prompt: str, cadence: str, hour: int, day: int = 0
+    ) -> dict[str, object]:
+        """A routine of the owner's own: a sentence Lore runs at its time."""
+        prompt = " ".join(prompt.split())
+        if not prompt:
+            raise ValueError("Say what Lore should do")
+        fields = {"prompt": prompt, "cadence": cadence, "hour": hour, "day": day}
+        Saved.model_validate({"since": self.clock(), **fields})
+        routine_id = f"r-{secrets.token_hex(4)}"
+        self.save(routine_id, **fields)
+        return self.get(routine_id).listed()
+
+    def remove(self, routine_id: str) -> None:
+        if self.get(routine_id).id:
+            raise ValueError("Lore's own routines can be paused, not removed")
+        self._edit(lambda saved: saved.pop(routine_id))
 
     def change(self, routine_id: str, **changes: object) -> dict[str, object]:
         """Pause, resume or retime a routine; the change outlasts any restart."""
@@ -610,7 +688,7 @@ class Routines:
     def adopt(self) -> None:
         """The owner just saved their rhythm: it counts from now, so nothing runs at
         once. With Lore as the runner, its check-in starts from what is here now."""
-        self.save(ReadApps.id, since=self.clock())
+        self.save(ReadApps.id, since=self.clock(), paused=False)
         if self.profile.get("executor") == Agent.LORE and CheckIn.id not in self.saved:
             self.save(CheckIn.id, mark=self.newest())
 
@@ -631,22 +709,29 @@ class Routines:
         return {"routine": self.get(routine_id).listed(), **ran}
 
     def save(self, routine_id: str, **changes: object) -> Saved:
-        """Change one routine's record and no other, starting from what is on disk now
-        and under a lock, so a long run never writes a stale copy over a change made
-        meanwhile."""
+        """Change one routine's record and no other."""
+
+        def update(saved: dict[str, Saved]) -> None:
+            current = saved.get(routine_id) or Saved(since=self.clock())
+            saved[routine_id] = current.model_copy(update=changes)
+
+        self._edit(update)
+        return self.saved[routine_id]
+
+    def _edit(self, change: Callable[[dict[str, Saved]], object]) -> None:
+        """Change the records starting from what is on disk now and under a lock, so
+        a long run never writes a stale copy over a change made meanwhile."""
         self.path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
         lock = self.path.with_suffix(".lock")
         lock.touch(mode=0o600, exist_ok=True)
         with lock.open() as held:
             fcntl.flock(held, fcntl.LOCK_EX)
             self.saved = self._read()
-            current = self.saved.get(routine_id) or Saved(since=self.clock())
-            self.saved[routine_id] = current.model_copy(update=changes)
+            change(self.saved)
             written = self.path.with_suffix(".tmp")
             written.touch(mode=0o600, exist_ok=True)
             written.write_bytes(self.records.dump_json(self.saved, indent=2))
             written.replace(self.path)
-        return self.saved[routine_id]
 
     def _read(self) -> dict[str, Saved]:
         try:

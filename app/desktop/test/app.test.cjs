@@ -1154,7 +1154,7 @@ async function until(done) {
 test("an app that brings something new in is read through once; one that brings nothing is not", () => {
   const { worthReading } = require("../src/reading.cjs");
   const apps = [{ id: "granola", name: "Granola", item: "meeting" }, { id: "medium", name: "Medium", item: "story" }];
-  assert.deepEqual(worthReading({ name: "granola-1", connector: "granola", added: 23 }, apps), { name: "granola-1", label: "Granola", item: "meeting", added: 23 });
+  assert.deepEqual(worthReading({ name: "granola-1", connector: "granola", added: 23 }, apps), { name: "granola-1", label: "Granola", item: "meeting", added: 23, title: "Lore read your Granola meetings", phase: "Reading your Granola meetings" }, "worded once, for Today and the notification");
   assert.equal(worthReading({ name: "granola-1", connector: "granola", added: 0 }, apps), null);
   assert.equal(worthReading({ name: "granola-1", connector: "granola" }, apps), null, "a CLI older than AUT-005 says nothing came in");
   assert.equal(worthReading({ name: "codex", connector: null, added: 3 }, apps), null, "the agents' own memories are the schedule's");
@@ -1177,9 +1177,9 @@ test("a reading runs quietly, says what it is doing on Today, and hands back wha
     fauxAssistantMessage("Done.")
   ]);
   try {
-    agent.synthesize({ name: "granola-1", label: "Granola", item: "meeting", added: 23 });
+    agent.synthesize({ name: "granola-1", label: "Granola", item: "meeting", added: 23, title: "Lore read your Granola meetings", phase: "Reading your Granola meetings" });
     await until(() => handed.length === 1);
-    assert.deepEqual(handed, [[{ name: "granola-1", label: "Granola", item: "meeting", added: 23 }, report]]);
+    assert.deepEqual(handed, [[{ name: "granola-1", label: "Granola", item: "meeting", added: 23, title: "Lore read your Granola meetings", phase: "Reading your Granola meetings" }, report]]);
     assert.match(asked[0], /lore-synthesize/);
     assert.match(asked[0], /23 new Granola meetings/);
     assert.match(asked[0], /"granola-1"/);
@@ -1230,7 +1230,7 @@ test("a reading lands as Today lists it: only stored memories, work never for sa
   const memory = (id, file, status = "private") => ({ id, title: `Topic ${id}`, content: "", project: "", source: "automation", source_path: `${folder}/${file}`, status, updated_at: "" });
   const stored = [memory(1, "receipts.md"), memory(2, "work/launch-review.md"), memory(3, "dropped.md", "discarded")];
   const run = landed(
-    { name: "granola-1", label: "Granola", item: "meeting", added: 23 },
+    { name: "granola-1", label: "Granola", item: "meeting", added: 23, title: "Lore read your Granola meetings", phase: "Reading your Granola meetings" },
     {
       read: 23,
       memories: [
@@ -1250,8 +1250,8 @@ test("a reading lands as Today lists it: only stored memories, work never for sa
     { id: 2, title: "Topic 2", sell: false, work: true, why: "names the client" }
   ]);
   assert.equal(run.seen, false);
-  assert.deepEqual(announcement(run), { title: "Lore turned 23 Granola meetings into 2 memories", body: "1 looks worth selling." });
-  assert.deepEqual(announcement({ ...run, read: 1, memories: [run.memories[1]] }), { title: "Lore turned 1 Granola meeting into 1 memory", body: "They stay private on this Mac." });
+  assert.deepEqual(announcement(run), { title: "Lore read your Granola meetings", body: "2 new memories. 1 looks worth selling." });
+  assert.deepEqual(announcement({ ...run, read: 1, memories: [run.memories[1]] }), { title: "Lore read your Granola meetings", body: "1 new memory. They stay private on this Mac." });
 });
 
 test("the dock counts new memories until the owner has seen them, and Clear empties Today", async () => {
@@ -1261,7 +1261,7 @@ test("the dock counts new memories until the owner has seen them, and Clear empt
   const badges = [];
   const ready = new Ready(join(directory, "memories-ready.json"), (count) => badges.push(count));
   /** @param {number} count @returns {ReadyRun} */
-  const run = (count) => ({ label: "Granola", item: "meeting", read: 9, memories: Array.from({ length: count }, (_, id) => ({ id, title: "t", sell: false, work: false, why: "" })), at: "", seen: false });
+  const run = (count) => ({ title: "Lore read your Granola meetings", read: 9, memories: Array.from({ length: count }, (_, id) => ({ id, title: "t", sell: false, work: false, why: "" })), at: "", seen: false });
   try {
     assert.deepEqual(await ready.runs(), [], "nothing read yet");
     await ready.add(run(6));
@@ -1276,6 +1276,8 @@ test("the dock counts new memories until the owner has seen them, and Clear empt
     assert.equal(badges.at(-1), 3, "a relaunch puts the badge back");
     await ready.clear();
     assert.deepEqual([await ready.runs(), badges.at(-1)], [[], 0]);
+    await writeFile(join(directory, "memories-ready.json"), JSON.stringify([{ label: "Granola", item: "meeting", read: 2, memories: [], at: "", seen: true }]));
+    assert.equal((await ready.runs())[0].title, "Lore read your Granola meetings", "a run kept by 0.1.14 is titled as it was then");
     await writeFile(join(directory, "memories-ready.json"), "{damaged");
     assert.deepEqual(await ready.runs(), []);
     await assert.rejects(access(join(directory, "memories-ready.json.tmp")));
@@ -1486,4 +1488,65 @@ test("the check-in waits for what is still being read, and gives way to the owne
   } finally {
     await rm(loreHome, { recursive: true, force: true });
   }
+});
+
+test("routines are added, paused, retimed and removed through the CLI, refused before it when malformed, and kept across a restart", async () => {
+  const { listRoutines, changeRoutine, addRoutine } = require("../src/state.cjs");
+  for (const [text, when] of [["", { cadence: "daily", hour: 9, day: 0 }], ["x".repeat(501), { cadence: "daily", hour: 9, day: 0 }], ["Fine", { cadence: "hourly", hour: 9, day: 0 }], ["Fine", { cadence: "daily", hour: 9.5, day: 0 }]]) {
+    await assert.rejects(addRoutine("/nonexistent", text, when), /in a sentence|when it runs/);
+  }
+  await assert.rejects(changeRoutine("/nonexistent", "../x", "pause"), /Unknown routine/);
+  await assert.rejects(changeRoutine("/nonexistent", "checkin", "delete"), /Unknown change/);
+  const directory = await mkdtemp(join(tmpdir(), "lore-routines-"));
+  try {
+    const added = await addRoutine(directory, "-Every Sunday, remember what I read this week", { cadence: "weekly", hour: 18, day: 6 });
+    assert.equal(added.name, "-Every Sunday, remember what I read this week", "a sentence that starts with a dash stays words");
+    await changeRoutine(directory, "checkin", "pause");
+    await changeRoutine(directory, added.id, "time", { cadence: "daily", hour: 7, day: 0 });
+    const kept = await listRoutines(directory);
+    assert.deepEqual(kept.map((routine) => [routine.id, routine.built_in, routine.paused, routine.cadence, routine.hour]), [["checkin", true, true, "weekdays", 18], [added.id, false, false, "daily", 7]]);
+    await assert.rejects(changeRoutine(directory, "checkin", "remove"), /paused, not removed/);
+    await changeRoutine(directory, added.id, "remove");
+    assert.deepEqual((await listRoutines(directory)).map((routine) => routine.id), ["checkin"]);
+  } finally {
+    await rm(directory, { recursive: true });
+  }
+});
+
+test("an owner's routine runs their sentence as a quiet reading and is announced by it", async () => {
+  const { readingPrompt } = await import("../src/agent.mjs");
+  const { announcement, asking, landed } = require("../src/reading.cjs");
+  const reading = asking({ id: "r-1", name: "Every Sunday, remember what I read" }, "Every Sunday, remember what I read");
+  assert.deepEqual([reading.title, reading.phase], ["“Every Sunday, remember what I read”", "Working on “Every Sunday, remember what I read”"], "its sentence names it, with nothing tacked on");
+  const prompt = readingPrompt(reading, "/Users/owner/.lore");
+  assert.match(prompt, /asked Lore to do this on a schedule: "Every Sunday, remember what I read"/);
+  assert.match(prompt, /owner's own routine, not a connected app/);
+  const folder = "/Users/owner/.lore/memories";
+  const run = landed(reading, { read: 0, memories: [{ file: "t.md", worth_selling: false, why: "" }] }, [{ id: 1, title: "t", content: "", project: "", source: "automation", source_path: `${folder}/t.md`, status: "private", updated_at: "" }], folder);
+  assert.deepEqual(announcement(run), { title: "“Every Sunday, remember what I read”", body: "1 new memory. They stay private on this Mac." });
+});
+
+test("Run now waits for a scheduled run under way, so the two never overlap", async () => {
+  const { Schedule } = require("../src/routines.cjs");
+  /** @type {string[]} */
+  const order = [];
+  /** @type {() => void} */
+  let finish = () => {};
+  const routine = /** @type {Routine} */ ({ id: "synthesis", kind: "read", name: "Read connected apps", runner: "lore", cadence: "daily", hour: 9, last_run: null, result: "", next_run: "2026-10-15T09:00:00Z", due: true });
+  const schedule = new Schedule(async () => [routine], async (due) => {
+    order.push(`start ${due.id}`);
+    if (due.id === "synthesis") await new Promise((done) => { finish = () => done(undefined); });
+    order.push(`end ${due.id}`);
+  });
+  const checking = schedule.check();
+  await until(() => order.length === 1);
+  const pressed = schedule.runNow({ ...routine, id: "checkin", kind: "checkin" });
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  assert.deepEqual(order, ["start synthesis"], "the owner's run waits");
+  finish();
+  await pressed;
+  assert.deepEqual(order.slice(0, 4), ["start synthesis", "end synthesis", "start checkin", "end checkin"]);
+  schedule.stop();
+  await checking;
+  schedule.stop();
 });

@@ -9,6 +9,8 @@ class Schedule {
   #timer;
   /** @type {Promise<void> | null} */
   #checking = null;
+  /** The run under way, whether the clock or the owner asked for it; the next waits for it. @type {Promise<unknown>} */
+  #running = Promise.resolve();
 
   /** @param {() => Promise<Routine[]>} list @param {(routine: Routine) => Promise<void>} run @param {() => number} [now] */
   constructor(list, run, now = Date.now) {
@@ -25,6 +27,13 @@ class Schedule {
     return this.#checking;
   }
 
+  /** Run one routine after any run under way. @param {Routine} routine */
+  runNow(routine) {
+    const turn = this.#running.then(() => this.run(routine));
+    this.#running = turn.catch(() => {});
+    return turn;
+  }
+
   stop() {
     clearTimeout(this.#timer);
   }
@@ -35,7 +44,7 @@ class Schedule {
     try {
       let routines = await this.list();
       const due = routines.filter((routine) => routine.due);
-      for (const routine of due) await this.run(routine).catch((error) => console.error(error));
+      for (const routine of due) await this.runNow(routine).catch((error) => console.error(error));
       if (due.length) routines = await this.list();
       const next = Math.min(...routines.filter((routine) => routine.runner === "lore").map((routine) => Date.parse(routine.next_run)).filter(Number.isFinite));
       wait = Math.max(1000, Math.min(LOOK_EVERY_MS, next - this.now()));

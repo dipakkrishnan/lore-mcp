@@ -18,7 +18,7 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import { Type } from "@earendil-works/pi-ai";
 import { SandboxManager } from "@anthropic-ai/sandbox-runtime";
-import { many, plural } from "./reading.cjs";
+import { plural } from "./reading.cjs";
 
 const SKILLS = { capture: "lore-capture", setup: "lore-onboard", publish: "lore-publish", deploy: "lore-enable-payments", synthesize: "lore-synthesize", checkin: "lore-check-in", evening: "lore-capture" };
 const TASKS = {
@@ -77,6 +77,7 @@ const memoryAside = (id) => `${ASIDE}start from the memory with id ${id}. Call i
 const sourceAside = (name) => `${ASIDE}start from the memories whose source is ${JSON.stringify(name)}.)`;
 /** What a quiet reading is told: what came in and from where, and where the library lives. @param {Reading} reading @param {string} loreHome */
 export function readingPrompt(reading, loreHome) {
+  if (reading.ask) return `The owner asked Lore to do this on a schedule: ${JSON.stringify(reading.ask)}. Do it from their Lore, and turn what earns a place into memories.${ASIDE}this is the owner's own routine, not a connected app, so there is no source to read; the memories folder is ${JSON.stringify(resolve(loreHome, "memories"))}.)`;
   return `Lore just brought in ${plural(reading.added, `new ${reading.label} ${reading.item}`)}. Turn what earns a place into memories.${ASIDE}their source is ${JSON.stringify(reading.name)}, so read the newest ${reading.added}; the memories folder is ${JSON.stringify(resolve(loreHome, "memories"))}.)`;
 }
 /** What the evening check-in is told: today's items, by id, for it to judge. @param {CheckInJob} job */
@@ -586,7 +587,7 @@ export class LoreAgent {
     this.#waiting.delete(reading.name);
     this.#reading = reading;
     this.#report = null;
-    this.#quietTurn = this.#turn(readingPrompt(reading, this.options.loreHome), "synthesize", undefined, undefined, undefined, `Reading your ${reading.label} ${many(reading.item)}`).catch(() => {});
+    this.#quietTurn = this.#turn(readingPrompt(reading, this.options.loreHome), "synthesize", undefined, undefined, undefined, reading.phase).catch(() => {});
     await this.#quietTurn;
     const report = this.#reading === reading ? this.#report : null;
     this.#reading = null;
