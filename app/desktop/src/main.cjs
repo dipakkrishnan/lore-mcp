@@ -236,7 +236,15 @@ function registerIpc(loreHome, schedule) {
   ipcMain.handle("routines:run", async (_event, id) => {
     const routine = (await listRoutines(loreHome)).find((each) => each.id === id);
     if (!routine) throw new Error("Lore does not run that one");
+    const before = await told();
     await schedule.runNow(routine);
+    await agent?.settled();
+    const done = /** @type {Routine} */ ((await listRoutines(loreHome)).find((each) => each.id === id));
+    // The owner asked, so they hear it finished: here if they are away, unless the run already told them what it found.
+    if (!window?.isFocused() && (await told()) === before) {
+      sales.notify({ title: `“${done.name}” is done`, body: done.result || "Nothing new" }, () => reveal({ type: "show", view: "automations" }));
+    }
+    return done;
   });
   ipcMain.handle("routines:change", async (_event, id, action, when) => {
     await changeRoutine(loreHome, id, action, when);
@@ -277,6 +285,11 @@ async function queueReadings(loreHome, reads) {
     const next = reading.worthReading(read, apps);
     if (next) agent?.synthesize(next);
   }
+}
+
+/** What Lore last told the owner about, so a run can tell whether it already did. */
+async function told() {
+  return JSON.stringify([(await newMemories.runs())[0], (await checkIns.latest())?.at]);
 }
 
 /** Bring the window forward, then show what the notification was about. @param {AgentEvent} event */

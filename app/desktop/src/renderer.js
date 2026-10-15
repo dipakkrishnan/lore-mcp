@@ -47,6 +47,8 @@ let snapshot = null;
 let apps = [];
 /** What Lore does on its own, as the CLI lists it. @type {Routine[]} */
 let routines = [];
+/** The routines the owner started that are still going. @type {Set<string>} */
+const running = new Set();
 /** @type {AgentStatus | null} */
 let auth = null;
 /** @type {View} */
@@ -1719,7 +1721,7 @@ function runsWhen({ cadence, hour, day }) {
 /** One routine: what it is, when, what it last found; a switch to pause it, and a menu for the rest. @param {Routine} routine */
 function routineRow(routine) {
   const ran = routine.last_run ? `Last ran ${when(routine.last_run)}${routine.result ? ` · ${routine.result}` : ""}` : "Hasn't run yet";
-  const last = routine.paused ? "Paused" : `Next ${when(routine.next_run)} · ${ran}`;
+  const last = running.has(routine.id) ? "Running now…" : routine.paused ? "Paused" : `Next ${when(routine.next_run)} · ${ran}`;
   const toggle = el("button", "switch");
   toggle.type = "button";
   toggle.setAttribute("role", "switch");
@@ -1756,11 +1758,15 @@ async function changeRoutine(routine, action, time) {
 
 /** @param {Routine} routine */
 async function runRoutineNow(routine) {
-  tell(`Running “${routine.name}” now. Lore will tell you what it finds.`);
+  running.add(routine.id);
+  render();
   try {
-    await window.lore.runRoutine(routine.id);
+    const done = await window.lore.runRoutine(routine.id);
+    tell(`“${done.name}” is done · ${done.result || "Nothing new"}`);
   } catch (error) {
     tell(reason(error, "Lore couldn't run that. Try again."), true);
+  } finally {
+    running.delete(routine.id);
   }
   await load();
 }

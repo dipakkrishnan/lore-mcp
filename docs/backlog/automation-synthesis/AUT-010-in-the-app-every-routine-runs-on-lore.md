@@ -19,7 +19,7 @@ In the app, reading connected apps could still run on Claude Code or Codex.
 Their scheduled task showed in Automations as "by Codex", was paused by
 uninstalling it and resumed by reinstalling it, could run only every day or
 every Monday, and had no Run now. The owner's own Mac was in that state: a
-Codex task every Sunday at 9 PM. Dipak: "If they use the app, why are Claude
+Codex task every Monday at 9 PM. Dipak: "If they use the app, why are Claude
 Code / Codex part of this? Should just be the Lore path."
 
 ## Proposed approach
@@ -61,8 +61,8 @@ Oct 15, done:
   `desktop-state` when `LORE_APP_VERSION` is set, so whichever the app asks
   first on launch does the move. A terminal `lore automation list` changes
   nothing.
-- Codex's weekly day is Monday as windup installs it, but the owner could move
-  it in Codex (Dipak's was moved to Sunday). `codex_day()` reads `BYDAY` from
+- Codex's weekly day is Monday as windup installs it, and the owner could move
+  it in Codex (Dipak's stayed on Monday). `codex_day()` reads `BYDAY` from
   the installed task so the move keeps that day. The profile now has a `day`
   (0 is Monday), and `cadence` accepts `weekdays`.
 - Removed from the app path: `Routine.runner` and the runner field, the

@@ -348,7 +348,7 @@ class LoreScheduleTest(LoreTestCase):
             {"name": "granola-1", "connector": "granola", "added": 2},
             {"name": "obsidian-1", "connector": "obsidian", "added": 1},
             {"name": "medium-1", "connector": "medium", "added": 0},
-            {"name": "codex", "connector": None, "added": 4},
+            {"name": "codex", "label": "Codex", "connector": None, "added": 4},
         ]
         with patch("lore.sources.Registry.read", return_value=reads) as read:
             ran = self.routines(local(14, 12)).run("synthesis")
@@ -356,7 +356,7 @@ class LoreScheduleTest(LoreTestCase):
         self.assertEqual(ran["reads"], reads)
         self.assertEqual(
             self.routines(local(14, 12)).get("synthesis").listed()["result"],
-            "2 new meetings · 1 new note",
+            "2 new meetings · 1 new note · 4 from Codex",
         )
 
     def test_the_schedule_state_says_when_lore_missed_a_run(self) -> None:
@@ -638,15 +638,19 @@ class CheckInTest(LoreTestCase):
         fresh = self.seed_memory("Pricing call with Acme")
         discarded = self.seed_memory("A meeting the owner threw away", "discarded")
         with store_module.Store() as store:
-            for origin in ("automation", "attended"):
+            for source, origin in (
+                ("automation", "automation"),
+                ("attended", "attended"),
+                ("claude", "native"),
+            ):
                 store.put(
-                    source=origin,
+                    source=source,
                     origin=origin,
-                    source_path=f"memories/{origin}.md",
-                    source_key=f"{origin}:pricing",
-                    fingerprint=origin,
-                    title=f"Not brought in: {origin}",
-                    content="Lore's own writing, or the owner's own capture.",
+                    source_path=f"memories/{source}.md",
+                    source_key=f"{source}:pricing",
+                    fingerprint=source,
+                    title=f"Not brought in: {source}",
+                    content="Lore's own writing, the owner's own capture, or an agent's notes.",
                 )
         with patch("lore.sources.Registry.read") as read:
             ran = automation.Routines(clock=lambda: local(14, 18)).run("checkin")

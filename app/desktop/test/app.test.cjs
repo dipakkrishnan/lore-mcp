@@ -1492,6 +1492,32 @@ test("the check-in waits for what is still being read, and gives way to the owne
   }
 });
 
+test("a run the owner started is done only once its reading and check-in are", async () => {
+  const { fauxAssistantMessage, fauxToolCall } = await import("@earendil-works/pi-ai");
+  /** @type {string[]} */
+  const order = [];
+  const { agent, faux, loreHome } = await scriptedAgent({
+    memoriesReady: async () => { order.push("read"); },
+    checkedIn: async () => { order.push("checked"); }
+  });
+  faux.setResponses([
+    fauxAssistantMessage(fauxToolCall("memories_ready", { read: 2, memories: [] }), { stopReason: "toolUse" }),
+    fauxAssistantMessage("Done."),
+    fauxAssistantMessage(fauxToolCall("check_in", { reach_out: false, why: "nothing new", questions: [] }), { stopReason: "toolUse" }),
+    fauxAssistantMessage("Done.")
+  ]);
+  try {
+    await agent.settled();
+    assert.deepEqual(order, [], "with nothing in line it is done at once");
+    agent.synthesize({ name: "granola-1", label: "Granola", item: "meeting", added: 2 });
+    agent.checkIn({ items: TODAY });
+    await agent.settled();
+    assert.deepEqual(order, ["read", "checked"]);
+  } finally {
+    await rm(loreHome, { recursive: true, force: true });
+  }
+});
+
 test("routines are added, paused, retimed and removed through the CLI, refused before it when malformed, and kept across a restart", async () => {
   const { listRoutines, changeRoutine, addRoutine } = require("../src/state.cjs");
   for (const [text, when] of [["", { cadence: "daily", hour: 9, day: 0 }], ["x".repeat(501), { cadence: "daily", hour: 9, day: 0 }], ["Fine", { cadence: "hourly", hour: 9, day: 0 }], ["Fine", { cadence: "daily", hour: 9.5, day: 0 }]]) {

@@ -494,12 +494,18 @@ class ReadApps(Routine):
             reads = Registry(store).read()
         found: dict[str, int] = {}
         for read in reads:
-            if read["connector"] and read["added"]:
-                noun = Connector.named(str(read["connector"])).item
-                found[noun] = found.get(noun, 0) + int(str(read["added"]))
+            if not read["added"]:
+                continue
+            # An agent's own folder has notes, not items an app names.
+            what = (
+                f"new {Connector.named(str(read['connector'])).item}"
+                if read["connector"]
+                else f"from {read['label']}"
+            )
+            found[what] = found.get(what, 0) + int(str(read["added"]))
         result = " · ".join(
-            f"{count} new {noun if count == 1 else _many(noun)}"
-            for noun, count in found.items()
+            f"{count} {what if count == 1 or what.startswith('from') else _many(what)}"
+            for what, count in found.items()
         )
         self.routines.save(self.id, result=result or "Nothing new")
         return {"reads": reads}
@@ -541,6 +547,7 @@ class CheckIn(Routine):
     def run(self) -> dict[str, object]:
         """Every private item brought in since the last judged run, for the app's
         model to judge; it moves the mark only once it has."""
+        from .sources import available_sources
         from .store import Store
 
         owed, latest = self.slots()
@@ -552,11 +559,13 @@ class CheckIn(Routine):
                 f"{'AM' if hour < 12 else 'PM'}",
             )
             return {"items": [], "missed": True}
+        # An agent's notes to itself are its own business, not something to ask the owner about.
+        agents = {source.name for source in available_sources()}
         with Store() as store:
             mark = self.saved.mark if self.saved else None
             floor = store.newest_memory_id() if mark is None else mark
             return {
-                "items": store.brought_in_after(floor),
+                "items": store.brought_in_after(floor, skip=agents),
                 "mark": store.newest_memory_id(),
             }
 

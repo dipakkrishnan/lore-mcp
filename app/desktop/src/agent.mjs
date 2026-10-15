@@ -354,6 +354,8 @@ export class LoreAgent {
   /** @type {CheckInVerdict | null} */
   #verdict = null;
   #quietTurn = Promise.resolve();
+  /** Who is waiting for the quiet work to run out. @type {Array<() => void>} */
+  #settling = [];
   /** An owner's turn is waiting for a reading to stop, so no reading may start. */
   #yielding = false;
 
@@ -573,6 +575,14 @@ export class LoreAgent {
     void this.#next();
   }
 
+  /** Once every reading and check-in in line is done, so a run the owner started can say it finished. @returns {Promise<void>} */
+  settled() {
+    return new Promise((resolve) => {
+      this.#settling.push(resolve);
+      void this.#next();
+    });
+  }
+
   /** Reads of one source that wait together are read together. @param {Reading} reading */
   #queue(reading) {
     const waiting = this.#waiting.get(reading.name);
@@ -597,7 +607,7 @@ export class LoreAgent {
   /** The check-in, once nothing is left to read: the model's verdict goes to the app, which decides whether to ask. */
   async #lookOver() {
     const job = this.#checkIn;
-    if (!job) return;
+    if (!job) return void this.#settling.splice(0).forEach((resolve) => resolve());
     this.#checkIn = null;
     this.#looking = job;
     this.#verdict = null;
