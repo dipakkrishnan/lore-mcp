@@ -318,7 +318,7 @@ interface Window {
     checkIn(): Promise<CheckIn | null>;
     routines(): Promise<Routine[]>;
     noticedRoutines(): Promise<void>;
-    runRoutine(id: string): Promise<void>;
+    runRoutine(id: string): Promise<Routine>;
     changeRoutine(id: string, action: "pause" | "resume" | "remove" | "time", when?: RoutineTime): Promise<void>;
     addRoutine(text: string, when: RoutineTime, title?: string): Promise<Routine>;
     dismissCheckIn(): Promise<void>;
@@ -378,7 +378,7 @@ type AgentEvent =
   | { type: "auth"; message?: string; event?: import("@earendil-works/pi-ai").AuthEvent }
   | { type: "progress"; text?: string; done?: boolean; error?: string }
   | { type: "sold" }
-  | { type: "show"; view: "store" | "today" }
+  | { type: "show"; view: "store" | "today" | "automations" }
   | { type: "thread"; task: AgentTask }
   | { type: "ready" }
   | { type: "update"; update: AppUpdate };
@@ -396,6 +396,7 @@ type LoreAgentInstance = {
   dispose(): void;
   synthesize(reading: Reading): void;
   checkIn(job: CheckInJob): void;
+  settled(): Promise<void>;
 };
 
 type LoreAgentOptions = {

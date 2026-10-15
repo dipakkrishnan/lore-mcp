@@ -7,6 +7,7 @@ import os
 import re
 import secrets
 import sqlite3
+from collections.abc import Collection
 from datetime import datetime, timedelta, timezone
 from enum import Enum
 from pathlib import Path
@@ -708,16 +709,18 @@ class Store:
         )
 
     def brought_in_after(
-        self, memory_id: int, limit: int = 30
+        self, memory_id: int, limit: int = 30, skip: Collection[str] = ()
     ) -> list[dict[str, object]]:
         """Private items an app or agent brought in after `memory_id`, newest first:
-        never Lore's own writing, nor what the owner captured themselves."""
+        never Lore's own writing, nor what the owner captured themselves, nor `skip`'s sources."""
+        holes = ",".join("?" * len(skip))
         return [
             dict(row)
             for row in self.db.execute(
                 "SELECT id,title,source FROM memories WHERE status='private' "
-                "AND origin='native' AND id>? ORDER BY id DESC LIMIT ?",
-                (memory_id, limit),
+                f"AND origin='native' AND id>? AND source NOT IN ({holes}) "
+                "ORDER BY id DESC LIMIT ?",
+                (memory_id, *skip, limit),
             )
         ]
 

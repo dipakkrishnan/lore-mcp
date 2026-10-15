@@ -98,6 +98,11 @@ if (scenario === "listing") {
   const setBadgeCount = app.setBadgeCount.bind(app);
   app.setBadgeCount = (count) => { badges.push(count); return setBadgeCount(count); };
   void import(require("node:url").pathToFileURL(join(src, "agent.mjs")).href).then(({ LoreAgent }) => {
+    /** The stand-in's work still under way, as the real agent's settled() would wait for it. @type {Promise<unknown>} */
+    let quiet = Promise.resolve();
+    /** @param {number} ms @param {() => unknown} work */
+    const later = (ms, work) => { quiet = Promise.all([quiet, new Promise((done) => setTimeout(done, ms)).then(work)]); };
+    LoreAgent.prototype.settled = () => quiet.then(() => undefined);
     LoreAgent.prototype.synthesize = function (/** @type {Reading} */ reading) {
       readings.push(reading);
       const folder = join(process.env.LORE_HOME ?? "", "memories");
@@ -106,16 +111,16 @@ if (scenario === "listing") {
       writeFileSync(join(folder, "work/ops-management-before-hiring.md"), "# Add the ops management layer before the next ten hires\n\nWork: the team's own hiring plan, from an internal ops sync.\n\nAdd the management layer before the next ten engineers join, not after.\n");
       // After the connect's own refresh, which reads tasks from disk where this stand-in keeps none.
       setTimeout(() => this.options.emit({ type: "task", task: { version: 1, kind: "synthesize", title: "Read what came in", state: "working", phase: reading.phase, updatedAt: new Date().toISOString() } }), 1500);
-      setTimeout(() => {
+      later(6000, () => {
         this.options.emit({ type: "task", task: { version: 1, kind: "synthesize", title: "Read what came in", state: "done", phase: "Finished", updatedAt: new Date().toISOString() } });
-        void this.options.memoriesReady?.(reading, {
+        return this.options.memoriesReady?.(reading, {
           read: reading.added,
           memories: [
             { file: "first-price-after-ten-buyers.md", worth_selling: true, why: "a measured pricing rule" },
             { file: "work/ops-management-before-hiring.md", worth_selling: true, why: "names the team's plan" }
           ]
         });
-      }, 6000);
+      });
     };
     LoreAgent.prototype.checkIn = function (/** @type {CheckInJob} */ job) {
       checkIns.push(job);
@@ -124,7 +129,7 @@ if (scenario === "listing") {
       const verdict = scenario === "quiet"
         ? { reach_out: false, why: "nothing the library doesn't already explain", questions: [] }
         : { reach_out: true, why: "a decision with no reason given", questions: [{ question, memory: item.id }] };
-      setTimeout(() => void this.options.checkedIn?.(job, verdict), 7000);
+      later(7000, () => this.options.checkedIn?.(job, verdict));
     };
     require(join(src, "main.cjs"));
   });
@@ -912,9 +917,11 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         await js(`[...${rowOf(SUNDAY)}.querySelectorAll(".row-menu-items button")].find((b) => b.textContent === "Run now").click()`);
         for (let i = 0; i < 40 && !readings.length; i++) await sleep(250);
         check("Run now hands the owner's sentence to Lore's quiet reading", readings.length === 1 && readings[0].ask === SUNDAY, JSON.stringify(readings));
+        check("…and its row says it is running until the reading is done", (await js(`${rowOf(SUNDAY)}.textContent`)).includes("Running now…"), await js(`${rowOf(SUNDAY)}.textContent`));
         for (let i = 0; i < 60 && !notes.length; i++) await sleep(250);
         check("…which writes private memories and says so, named by its sentence", notes.length === 1 && notes[0].words.title === `“${SUNDAY}”` && notes[0].words.body === "2 new memories. 1 looks worth selling.", JSON.stringify(notes.map((n) => n.words)));
         check("…and records what it found", await (async () => { for (let i = 0; i < 20 && mine().result !== "2 new memories"; i++) await sleep(250); return mine().result === "2 new memories"; })(), JSON.stringify(mine()));
+        check("…then says it is done, once, without a second banner", await waitFor(`document.body.textContent.includes(${JSON.stringify(`“${SUNDAY}” is done · 2 new memories`)})`) && notes.length === 1, JSON.stringify(notes.map((n) => n.words)));
         await js(`window.__lore.show("today")`);
         const heading = `[...document.querySelectorAll("#content .section")].find((s) => s.textContent.includes("New memories"))?.querySelector(".row b")?.textContent ?? ""`;
         check("Today names it by its sentence alone", await waitFor(`(${heading}) === ${JSON.stringify(`“${SUNDAY}”`)}`), await js(heading));
@@ -923,6 +930,15 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         await shot("automations-today-owner-routine");
         await js(`document.querySelector("nav [data-view=automations]").click()`);
         check("the tab carries no dot of its own", await js(`!document.querySelector("nav [data-view=automations] .new-dot")`));
+        // The owner pressed Run now and went elsewhere: a run that finds nothing still says it finished.
+        const told = notes.length;
+        window.hide();
+        await js(`${rowOf("Read connected apps")}.querySelector("details").open = true`);
+        await js(`[...${rowOf("Read connected apps")}.querySelectorAll(".row-menu-items button")].find((b) => b.textContent === "Run now").click()`);
+        for (let i = 0; i < 40 && notes.length === told; i++) await sleep(250);
+        const away = notes.slice(told).map((n) => n.words);
+        check("Run now away from Lore ends with one banner saying it is done", away.length === 1 && away[0].title === "“Read connected apps” is done" && away[0].body === "Nothing new", JSON.stringify(away));
+        window.show();
         // Paused for days, then resumed: it waits for its next hour instead of running at once.
         const repo = join(__dirname, "../../..");
         const python = (/** @type {string} */ code) => execFileSync("uv", ["run", "python", "-c", `from datetime import datetime, timedelta, timezone\nfrom lore import automation\nnow = datetime.now(timezone.utc)\n${code}`], { cwd: repo, env: process.env, encoding: "utf8" });
