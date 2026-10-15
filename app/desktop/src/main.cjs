@@ -2,13 +2,14 @@ const { randomUUID } = require("node:crypto");
 const { existsSync } = require("node:fs");
 const { appendFile } = require("node:fs/promises");
 const { join } = require("node:path");
-const { app, autoUpdater, BrowserWindow, dialog, ipcMain, safeStorage, shell, systemPreferences } = require("electron");
+const { app, autoUpdater, BrowserWindow, dialog, ipcMain, powerMonitor, safeStorage, shell, systemPreferences } = require("electron");
 const { provision, skillsDir, whisper } = require("./runtime.cjs");
 const { transcribe } = require("./dictation.cjs");
 const sales = require("./sales.cjs");
 const { Updates } = require("./updates.cjs");
 const reading = require("./reading.cjs");
-const { lore, loreStream, openable, readState, readSales, readViews, searchMemories, readMemory, renameMemory, editMemory, captureMemories, previewPage, setPrice, setFreeCopies, candidates, decide, extrasCandidates, decideExtras, approveExtras, reportFeedback, listStore, cardStatus, connectCards, switchCards, listingStatus, sourceCatalog, sourceChoices, connectSource, signIn, readSource, removeSource, useRuntime } = require("./state.cjs");
+const { Schedule } = require("./routines.cjs");
+const { lore, listRoutines, runRoutine, loreStream, openable, readState, readSales, readViews, searchMemories, readMemory, renameMemory, editMemory, captureMemories, previewPage, setPrice, setFreeCopies, candidates, decide, extrasCandidates, decideExtras, approveExtras, reportFeedback, listStore, cardStatus, connectCards, switchCards, listingStatus, sourceCatalog, sourceChoices, connectSource, signIn, readSource, removeSource, useRuntime } = require("./state.cjs");
 
 if (process.env.LORE_DESKTOP_USER_DATA) app.setPath("userData", process.env.LORE_DESKTOP_USER_DATA);
 // Two copies sharing one credentials file each refresh the sign-in, and the provider refuses the second.
@@ -212,18 +213,12 @@ function registerIpc(loreHome) {
       if (connecting === current) connecting = undefined;
     }
   }
-  /** Whatever a connect or read brought in from an app, Lore reads through in the background. @template {{name: string, connector?: string | null, added?: number}} T @param {T} read */
-  function readThrough(read) {
-    if (read.added) void sourceCatalog(loreHome).then((apps) => {
-      const next = reading.worthReading(read, apps);
-      if (next) agent?.synthesize(next);
-    }, () => undefined);
-    return read;
-  }
-  ipcMain.handle("sources:connect", (_event, input) => connect((signal) => connectSource(loreHome, input, signal)).then(readThrough));
-  ipcMain.handle("sources:sign-in", (_event, app) => connect((signal) => signIn(loreHome, app, (url) => void shell.openExternal(url), signal)).then(readThrough));
+  /** @template {{name: string, connector?: string | null, added?: number}} T @param {T} read */
+  const through = (read) => readThrough(loreHome, read);
+  ipcMain.handle("sources:connect", (_event, input) => connect((signal) => connectSource(loreHome, input, signal)).then(through));
+  ipcMain.handle("sources:sign-in", (_event, app) => connect((signal) => signIn(loreHome, app, (url) => void shell.openExternal(url), signal)).then(through));
   ipcMain.handle("sources:cancel", () => connecting?.abort());
-  ipcMain.handle("sources:read", async (_event, name) => (await readSource(loreHome, name)).map(readThrough));
+  ipcMain.handle("sources:read", async (_event, name) => (await readSource(loreHome, name)).map(through));
   ipcMain.handle("ready:runs", () => newMemories.runs());
   ipcMain.handle("ready:seen", () => newMemories.seen());
   ipcMain.handle("ready:clear", () => newMemories.clear());
@@ -240,6 +235,16 @@ function registerIpc(loreHome) {
     const { filePaths } = await dialog.showOpenDialog(window, { properties: ["openFile", "multiSelections"] });
     return filePaths;
   });
+}
+
+/** Whatever a connect, a read or a routine brought in from an app, Lore reads through in the background.
+ * @template {{name: string, connector?: string | null, added?: number}} T @param {string} loreHome @param {T} read */
+function readThrough(loreHome, read) {
+  if (read.added) void sourceCatalog(loreHome).then((apps) => {
+    const next = reading.worthReading(read, apps);
+    if (next) agent?.synthesize(next);
+  }, () => undefined);
+  return read;
 }
 
 function createWindow() {
@@ -279,6 +284,14 @@ app.whenReady().then(async () => {
   await boot(loreHome);
   watchSales(loreHome);
   void newMemories.show();
+  // The owner's rhythm, kept by Lore while it is open; an hour missed while it was closed runs now, once.
+  const schedule = new Schedule(() => listRoutines(loreHome), async (routine) => {
+    const { reads } = await runRoutine(loreHome, routine.id);
+    for (const read of reads) readThrough(loreHome, read);
+    emit({ type: "changed" });
+  });
+  void schedule.check();
+  powerMonitor.on("resume", () => void schedule.check());
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
   });

@@ -234,6 +234,18 @@ def parser() -> argparse.ArgumentParser:
         help="write the profile without installing schedules",
     )
 
+    routines = commands.add_parser(
+        "automation", help="the routines the Lore app runs on its own"
+    )
+    routine_commands = routines.add_subparsers(dest="automation_command", required=True)
+    routine_list = routine_commands.add_parser(
+        "list", help="show each routine, when it runs next, and what it last found"
+    )
+    routine_list.add_argument("--json", action="store_true")
+    routine_run = routine_commands.add_parser("run", help="run one routine now")
+    routine_run.add_argument("id")
+    routine_run.add_argument("--json", action="store_true")
+
     capture = commands.add_parser(
         "capture", help="save owner-approved private memories"
     )
@@ -541,6 +553,8 @@ def main(argv: list[str] | None = None) -> int:
             return show_memory(args.id, args.json)
         if args.command == "profile":
             return profile(args.path, not args.no_schedule)
+        if args.command == "automation":
+            return automation_command(args)
         if args.command == "capture":
             return capture_apply(args.file)
         if args.command == "status":
@@ -931,6 +945,28 @@ def _source_line(entry: dict[str, object]) -> str:
         f"  {marker} {str(entry['label']):<14} {entry['state']} "
         f"· {entry['imported']} imported"
     )
+
+
+def automation_command(args: argparse.Namespace) -> int:
+    """List the app's routines, or run one; the app reads both as JSON."""
+    from .automation import Routines
+
+    routines = Routines()
+    if args.automation_command == "run":
+        payload: object = routines.run(args.id)
+        lines = [f"Ran {args.id}: {routines.saved[args.id].result}"]
+    else:
+        payload = listed = routines.list()
+        lines = [
+            f"  {routine['name']:<24} next {str(routine['next_run'])[:16]} · "
+            f"{routine['result'] or 'not run yet'}"
+            for routine in listed
+        ] or ["No routines yet."]
+    if args.json:
+        print(json.dumps(payload, separators=(",", ":"), allow_nan=False))
+    else:
+        print("\n".join(lines))
+    return 0
 
 
 def job(args: argparse.Namespace) -> int:
@@ -1373,6 +1409,9 @@ def profile(path: str, schedule: bool = True) -> int:
         # "executor" value raises before install() is ever called.
         warn(automation.schedule_failure(str(data.get("executor", "")), error))
         return 1
+    if executor == automation.Agent.LORE:
+        success("Lore will read on this rhythm while the app is open")
+        return 0
     success(f"Configured {str(executor).title()} local schedule")
     return 0
 

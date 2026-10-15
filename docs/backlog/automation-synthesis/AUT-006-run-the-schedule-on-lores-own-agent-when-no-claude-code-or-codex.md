@@ -4,7 +4,7 @@ title: Run the schedule on Lore's own agent when there is no Claude Code or Code
 priority: P1
 effort: M
 component: automation-synthesis
-status: ready
+status: completed
 related: [AUT-005, AUT-001, AUT-003, AUT-008, APP-200]
 blockers: []
 dependencies: []
@@ -31,10 +31,10 @@ when neither command-line tool is installed.
 
 ## Acceptance criteria
 
-- [ ] A profile can name the app as its executor, and `schedule_state` reports
+- [x] A profile can name the app as its executor, and `schedule_state` reports
       it honestly, including when the app is closed.
-- [ ] A run that was due while Lore was closed happens once at the next launch.
-- [ ] New items from a scheduled read land as AUT-005's Today card and
+- [x] A run that was due while Lore was closed happens once at the next launch.
+- [x] New items from a scheduled read land as AUT-005's Today card and
       notification.
 
 ## Notes
@@ -46,3 +46,16 @@ profile schema and in onboarding.
 Oct 14: promoted to ready. It is the base for the evening check-in (AUT-008)
 and the Automations tab (APP-200), which both need the app to run routines
 itself.
+
+Oct 14, done: `"executor": "lore"` in the profile. `lore profile` installs no
+task for it and retires both agents' tasks. `automation.Routines` keeps
+`~/.lore/automation/routines.json` (when each routine was first seen, last
+run, result); `lore automation list|run --json` is all the app reads, so it
+keeps no copy. A routine is due when its next hour after the last run (or
+after it was first seen) has passed, so any number of missed hours is one
+catch-up run. The app's `Schedule` (routines.cjs) runs what is due on launch
+and on wake, then sleeps until the next hour, waking at least hourly. A run's
+reads go through AUT-005's `readThrough`. `schedule_state` for Lore reports
+`last_run` and `missed`. The app runs the schedule only when the profile
+names Lore; with no profile nothing is scheduled, as before. Edge scenario:
+`support/edge.sh schedule`.

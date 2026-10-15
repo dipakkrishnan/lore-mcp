@@ -322,8 +322,21 @@ async function removeSource(loreHome, name, keep) {
   return JSON.parse(await lore(loreHome, ["sources", "remove", sourceName(name), keep ? "--keep" : "--delete", "--json"]));
 }
 
+/** The routines Lore runs on its own, as the CLI keeps them. @param {string} loreHome @returns {Promise<Routine[]>} */
+async function listRoutines(loreHome) {
+  return JSON.parse(await lore(loreHome, ["automation", "list", "--json"]));
+}
+
+/** @param {string} loreHome @param {unknown} id @returns {Promise<RoutineRun>} */
+async function runRoutine(loreHome, id) {
+  if (typeof id !== "string" || !/^[a-z0-9][a-z0-9-]*$/.test(id)) throw new Error("Unknown routine");
+  return JSON.parse(await lore(loreHome, ["automation", "run", id, "--json"]));
+}
+
 module.exports = {
   lore,
+  listRoutines,
+  runRoutine,
   loreStream,
   stream,
   openable,

@@ -4,12 +4,21 @@ import json
 import os
 import shlex
 import sys
+from collections.abc import Callable
 from dataclasses import replace
+from datetime import datetime, timedelta, timezone
 from enum import Enum
 from pathlib import Path
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    TypeAdapter,
+    ValidationError,
+    field_validator,
+)
 from windup import Task
 from windup import install as install_task
 from windup import remove as remove_task
@@ -20,6 +29,7 @@ from .store import STATUSES
 
 PROFILE = "automation/profile.json"
 PROMPT = "automation/synthesis-prompt.md"
+ROUTINES = "automation/routines.json"
 # Fields that belong in profile.json. The onboarding checkpoint reuses this file to
 # carry its own state; persist only these so that state never leaks into the profile
 # the synthesis prompt reads.
@@ -27,10 +37,12 @@ AUTOMATION_ID = "lore-memory-synthesis"
 
 
 class Agent(str, Enum):
-    """Supported synthesis agents."""
+    """Supported synthesis agents. Lore itself is the desktop app, which runs the
+    schedule while it is open and catches up once when it next opens."""
 
     CLAUDE = "claude"
     CODEX = "codex"
+    LORE = "lore"
 
     def __str__(self) -> str:
         return self.value
@@ -245,6 +257,8 @@ def task_for(profile: dict[str, object]) -> Task:
     if not name:
         raise ValueError("profile has no executor; set one, or save with --no-schedule")
     executor = Agent(name)
+    if executor == Agent.LORE:
+        raise ValueError("Lore runs its own schedule; there is no task to install")
     hour = profile.get("hour", 21)
     if isinstance(hour, bool) or not isinstance(hour, int) or not 0 <= hour <= 23:
         raise ValueError("profile hour must be an integer from 0 through 23")
@@ -294,6 +308,12 @@ def task_for(profile: dict[str, object]) -> Task:
 
 def install(profile: dict[str, object]) -> Path:
     """Install the selected executor's recurring synthesis task."""
+    if profile.get("executor") == Agent.LORE:
+        # The app reads on this schedule itself, so neither agent may also run it.
+        task = task_for({**profile, "executor": Agent.CLAUDE})
+        for agent in (Agent.CLAUDE, Agent.CODEX):
+            remove_task(replace(task, agent=agent), codex_home=codex_home())
+        return profile_path()
     task = task_for(profile)
     other = Agent.CLAUDE if task.agent == Agent.CODEX else Agent.CODEX
     # Keep the current schedule alive unless its replacement installs successfully.
@@ -314,6 +334,18 @@ def schedule_state() -> dict[str, object] | None:
         return None
     try:
         profile = json.loads(path.read_text(encoding="utf-8"))
+        if profile.get("executor") == Agent.LORE:
+            # Held by the app, so it is never "installed" anywhere else; what is
+            # honest to say is when it last ran and whether a run was missed.
+            routine = Routines().synthesis()
+            return {
+                "installed": True,
+                "executor": Agent.LORE,
+                "cadence": routine["cadence"],
+                "hour": routine["hour"],
+                "last_run": routine["last_run"],
+                "missed": routine["due"],
+            }
         task = task_for(profile)
     except (OSError, ValueError):
         return {"installed": False, "executor": None, "cadence": None, "hour": None}
@@ -323,6 +355,126 @@ def schedule_state() -> dict[str, object] | None:
         "cadence": task.cadence,
         "hour": task.hour,
     }
+
+
+def next_run(cadence: str, hour: int, after: datetime) -> datetime:
+    """The first moment after `after` that a rhythm names, on this Mac's clock.
+
+    Weekly is Monday, as the agents' schedules have it. Worked in local wall time,
+    so 9 PM stays 9 PM across a daylight-saving change.
+    """
+    start = after.astimezone().replace(tzinfo=None)
+    moment = start.replace(hour=hour, minute=0, second=0, microsecond=0)
+    while moment <= start or (cadence == "weekly" and moment.weekday() != 0):
+        moment += timedelta(days=1)
+    return moment.astimezone()
+
+
+class Routine(BaseModel):
+    """What Lore remembers about one routine between runs."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    # When Lore first saw the routine, so a new one waits for its first hour
+    # instead of running the moment it is set.
+    since: datetime
+    last_run: datetime | None = None
+    result: str = ""
+
+
+class Routines:
+    """The routines the Lore app runs on its own, in `automation/routines.json`.
+
+    The app asks for this list and runs what is due; it keeps no copy. A routine
+    whose hour passed while Lore was closed is due once, however many it missed.
+    """
+
+    records = TypeAdapter(dict[str, Routine])
+
+    def __init__(
+        self, clock: Callable[[], datetime] = lambda: datetime.now(timezone.utc)
+    ) -> None:
+        self.clock = clock
+        self.path = home() / ROUTINES
+        try:
+            self.saved = self.records.validate_json(self.path.read_bytes())
+        except (OSError, ValidationError):
+            self.saved = {}
+
+    def synthesis(self) -> dict[str, object]:
+        """The profile's schedule, as a routine: its hour lives in the profile alone."""
+        profile = json.loads(profile_path().read_text(encoding="utf-8"))
+        return self._listed(
+            "synthesis",
+            "Read connected apps",
+            str(profile.get("executor") or ""),
+            str(profile.get("cadence", "daily")),
+            int(profile.get("hour", 21)),
+        )
+
+    def list(self) -> list[dict[str, object]]:
+        """Every routine, with when it runs next and whether the app owes it a run."""
+        try:
+            routines = [self.synthesis()]
+        except (OSError, ValueError):
+            routines = []
+        return [routine for routine in routines if routine["runner"]]
+
+    def run(self, routine_id: str) -> dict[str, object]:
+        """Run one of the app's routines now: read every connected app, and say what came."""
+        from .sources import Connector, Registry
+        from .store import Store
+
+        routine = next((r for r in self.list() if r["id"] == routine_id), None)
+        if routine is None or routine["runner"] != Agent.LORE:
+            raise ValueError(f"Lore does not run a routine called {routine_id}")
+        # Marked before the read, so a run that dies partway is not run again at once.
+        self._save(routine_id, last_run=self.clock())
+        with Store() as store:
+            reads = Registry(store).read()
+        found: dict[str, int] = {}
+        for read in reads:
+            if read["connector"] and read["added"]:
+                noun = Connector.named(str(read["connector"])).item
+                found[noun] = found.get(noun, 0) + int(str(read["added"]))
+        result = " · ".join(
+            f"{count} new {noun if count == 1 else _many(noun)}"
+            for noun, count in found.items()
+        )
+        self._save(routine_id, result=result or "Nothing new")
+        return {"routine": self.synthesis(), "reads": reads}
+
+    def _listed(
+        self, routine_id: str, name: str, runner: str, cadence: str, hour: int
+    ) -> dict[str, object]:
+        saved = self.saved.get(routine_id) or self._save(routine_id)
+        now = self.clock()
+        upcoming = next_run(cadence, hour, saved.last_run or saved.since)
+        due = upcoming <= now
+        return {
+            "id": routine_id,
+            "name": name,
+            "runner": runner,
+            "cadence": cadence,
+            "hour": hour,
+            "last_run": saved.last_run and saved.last_run.isoformat(),
+            "result": saved.result,
+            "next_run": (next_run(cadence, hour, now) if due else upcoming).isoformat(),
+            "due": due and runner == Agent.LORE,
+        }
+
+    def _save(self, routine_id: str, **changes: object) -> Routine:
+        current = self.saved.get(routine_id) or Routine(since=self.clock())
+        self.saved[routine_id] = current.model_copy(update=changes)
+        self.path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+        self.path.touch(mode=0o600, exist_ok=True)
+        self.path.chmod(0o600)
+        self.path.write_bytes(self.records.dump_json(self.saved, indent=2))
+        return self.saved[routine_id]
+
+
+def _many(noun: str) -> str:
+    return f"{noun[:-1]}ies" if noun.endswith("y") else f"{noun}s"
 
 
 # The local scheduler reports failures as prose — sometimes its own wording, sometimes
