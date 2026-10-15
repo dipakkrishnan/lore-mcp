@@ -28,6 +28,47 @@ test("announces only sales after the last one seen, one by one or as one lot", (
   assert.deepEqual(announcements([...many.slice(0, 3), free]), [{ title: "You sold 3 pieces", body: "$9.00 · 1 free copy read" }]);
 });
 
+test("an update downloads quietly, shows only when ready, and a copy outside Applications asks to move or links the download", async () => {
+  const { EventEmitter } = require("node:events");
+  const { Updates, DOWNLOAD } = require("../src/updates.cjs");
+  /** @param {{inApplications: boolean, answer: number, status?: number}} mac */
+  const updater = ({ inApplications, answer, status }) => {
+    const calls = /** @type {string[]} */ ([]);
+    const autoUpdater = Object.assign(new EventEmitter(), { checkForUpdates: () => calls.push("check"), quitAndInstall: () => calls.push("install") });
+    const app = { getVersion: () => "0.1.12", isPackaged: true, isInApplicationsFolder: () => inApplications, moveToApplicationsFolder: () => (calls.push("move"), true) };
+    const dialog = { showMessageBox: async (/** @type {{buttons: string[]}} */ box) => (calls.push(box.buttons[1]), { response: answer }) };
+    const shell = { openExternal: async (/** @type {string} */ url) => void calls.push(url) };
+    const seen = /** @type {unknown[]} */ ([]);
+    /** @param {string} url */
+    const get = async (url) => (calls.push(url), status === undefined ? Promise.reject(new Error("offline")) : { status });
+    return { updates: new Updates({ app, autoUpdater, dialog, shell }, (update) => seen.push(update.state), get), autoUpdater, calls, seen };
+  };
+
+  const inside = updater({ inApplications: true, answer: 0 });
+  for (const step of ["checking-for-update", "update-not-available", "checking-for-update", "error"]) inside.autoUpdater.emit(step);
+  assert.deepEqual(inside.seen, ["checking", "current", "checking", "offline"], "offline only says so; nothing to click");
+  for (const step of ["update-available", "update-downloaded", "error"]) inside.autoUpdater.emit(step);
+  assert.equal(inside.updates.update.state, "ready", "a ready update stays ready through a later failed check");
+  assert.equal(inside.updates.update.version, "0.1.12");
+  await inside.updates.install();
+  assert.deepEqual(inside.calls, ["install"]);
+
+  const kept = updater({ inApplications: false, answer: 1, status: 200 });
+  kept.updates.start();
+  await new Promise((done) => setImmediate(done));
+  assert.deepEqual(kept.updates.update, { version: "0.1.12", state: "outside", newer: true });
+  assert.ok(kept.calls.includes(`https://update.electronjs.org/dipakkrishnan/lore-mcp/${process.platform}-${process.arch}/0.1.12`));
+  kept.calls.length = 0;
+  await kept.updates.install();
+  assert.deepEqual(kept.calls, ["Download it instead", DOWNLOAD], "declining the move opens the latest download");
+
+  const moved = updater({ inApplications: false, answer: 0 });
+  moved.updates.start();
+  await new Promise((done) => setImmediate(done));
+  assert.deepEqual(moved.calls.filter((call) => !call.startsWith("https://")), ["Not now", "move"]);
+  assert.equal(moved.updates.update.newer, false, "unable to check reads as nothing newer");
+});
+
 test("reads only the fixed APP-001 snapshot", async () => {
   const directory = await mkdtemp(join(tmpdir(), "lore-desktop-"));
   try {
@@ -106,7 +147,8 @@ test("desktop Bash is confined to Lore", { skip: process.platform !== "darwin" }
     await run("deploy", "true");
     assert.deepEqual(SandboxManager.getNetworkRestrictionConfig().allowedHosts, ["*"]);
     await run("setup", "true");
-    assert.ok(SandboxManager.getFsWriteConfig().allowOnly.includes(join(homedir(), ".codex/automations")));
+    // AUT-010: in the app Lore keeps the rhythm, so setup never writes an agent's scheduler.
+    assert.ok(!SandboxManager.getFsWriteConfig().allowOnly.includes(join(homedir(), ".codex/automations")));
     await run("capture", "true");
     assert.deepEqual(SandboxManager.getNetworkRestrictionConfig().allowedHosts, []);
   } finally {
@@ -122,7 +164,7 @@ test("desktop Bash reads the agents' memories, never their credential files", as
   const home = await mkdtemp(join(tmpdir(), "lore-policy-"));
   try {
     const { allowRead } = bashSandboxPolicy(home, "setup").filesystem;
-    for (const dir of [".claude/projects", ".codex/memories", ".codex/automations"]) assert.ok(allowRead.includes(join(homedir(), dir)), dir);
+    for (const dir of [".claude/projects", ".codex/memories"]) assert.ok(allowRead.includes(join(homedir(), dir)), dir);
     for (const dir of [".claude", ".codex"]) assert.ok(!allowRead.includes(join(homedir(), dir)), `${dir} root, which holds auth.json and credentials`);
   } finally {
     await rm(home, { recursive: true });
@@ -470,10 +512,63 @@ test("API-key proof deletes rejected keys, not keys it could not check", async (
     /** @type {never} */ (null),
     /** @type {never} */ (null)
   );
-  await assert.rejects(agent.login("anthropic", "api_key", "key"), /fetch failed/);
+  await assert.rejects(agent.login("anthropic", "api_key", "key"), /^Error: Lore could not check that key right now\. Try again\.$/);
   assert.deepEqual(deleted, []);
   await assert.rejects(agent.login("anthropic", "api_key", "key"), /not accepted/);
   assert.deepEqual(deleted, ["anthropic"]);
+});
+
+test("a refused sign-in refresh asks the owner to sign in again; no model error ever reaches the thread", async (t) => {
+  const { LoreAgent, latestTaskRecord } = await import("../src/agent.mjs");
+  const { DefaultResourceLoader, ModelRuntime, SessionManager, SettingsManager } = await import("@earendil-works/pi-coding-agent");
+  const logged = [];
+  t.mock.method(console, "error", (detail) => logged.push(String(detail)));
+  const refusals = {
+    expired: async () => new Response('{"error": "invalid_grant", "error_description": "Refresh token expired"}', { status: 400 }),
+    offline: async () => { throw new TypeError("fetch failed"); }
+  };
+  for (const [refusal, fetch] of Object.entries(refusals)) {
+    t.mock.method(globalThis, "fetch", fetch);
+    const home = await mkdtemp(join(tmpdir(), "lore-desktop-"));
+    /** @type {Record<string, import("@earendil-works/pi-ai").Credential>} */
+    const stored = { anthropic: { type: "oauth", access: "old", refresh: "old", expires: Date.now() - 1000 } };
+    const credentials = {
+      read: async (id) => stored[id],
+      list: async () => Object.keys(stored).map((providerId) => ({ providerId, type: stored[providerId].type })),
+      modify: async (id, change) => (await change(stored[id])) ?? stored[id],
+      delete: async (id) => { delete stored[id]; }
+    };
+    const events = [];
+    try {
+      // Pi retries a dropped connection with backoff; once is the same answer, faster.
+      const settings = SettingsManager.inMemory({ retry: { enabled: false } });
+      const resources = new DefaultResourceLoader({ cwd: home, agentDir: join(home, ".pi"), settingsManager: settings, noExtensions: true, noSkills: true, noPromptTemplates: true, noThemes: true, noContextFiles: true });
+      await resources.reload();
+      const agent = new LoreAgent(
+        /** @type {LoreAgentOptions} */ ({ loreHome: home, credentials, emit: (event) => events.push(event) }),
+        await ModelRuntime.create({ credentials: /** @type {never} */ (credentials) }),
+        settings,
+        resources
+      );
+      await agent.prompt("Let's set up my Lore", "setup");
+      const said = events.filter((event) => event.type === "message").map((event) => event.text);
+      const state = latestTaskRecord(SessionManager.continueRecent(home, join(home, ".pi", "sessions", "setup")), "setup").state;
+      if (refusal === "expired") {
+        assert.deepEqual(said, []);
+        assert.deepEqual(events.filter((event) => event.type === "signed-out"), [{ type: "signed-out", text: "Your Claude sign-in expired. Sign in again to keep going." }]);
+        assert.deepEqual(stored, {}, "the refused sign-in is dropped");
+        assert.equal(state, "needs_you");
+      } else {
+        assert.deepEqual(said, ["Lore's model did not answer. Try again."]);
+        assert.equal(events.some((event) => event.type === "signed-out"), false);
+        assert.equal(stored.anthropic?.refresh, "old", "a dropped connection keeps the sign-in");
+        assert.equal(state, "stopped");
+      }
+      assert.match(logged.at(-1), /^OAuth refresh failed for anthropic/, "the detail goes to the log");
+    } finally {
+      await rm(home, { recursive: true });
+    }
+  }
 });
 
 test("typed task records survive relaunch and only unfinished known tasks are listed", async () => {
@@ -854,7 +949,8 @@ test("a CLI refusal explained over several lines reaches the owner as its Reason
     await mkdir(join(home, "automation"), { recursive: true });
     await writeFile(join(home, "automation", "profile.json"), JSON.stringify({ executor: "", cadence: "daily", hour: 21 }));
     await assert.rejects(schedule(), (error) => /^'' is not a valid Agent$/.test(error.message));
-    assert.deepEqual((await readState(home)).setup.schedule, { installed: false, executor: null, cadence: null, hour: null });
+    // With no model named, Lore reads on the saved rhythm itself (AUT-009).
+    assert.equal((await readState(home)).setup.schedule?.hour, 21);
   } finally {
     await rm(home, { recursive: true });
   }
@@ -894,7 +990,7 @@ test("connecting an app validates before any CLI call, then round-trips through 
   await writeFile(join(vault, "note.md"), "# Note\n\nA lesson long enough to be worth keeping.");
   process.env.OBSIDIAN_HOME = obsidian;
   try {
-    assert.deepEqual((await sourceCatalog(directory)).map((app) => [app.id, app.kind]), [["obsidian", "folder"], ["chatgpt", "export"], ["claude", "export"], ["substack", "feed"], ["medium", "feed"], ["bluesky", "feed"], ["blog", "feed"], ["granola", "mcp"], ["notion", "mcp"], ["readwise", "mcp"]]);
+    assert.deepEqual((await sourceCatalog(directory)).map((app) => [app.id, app.kind]), [["obsidian", "folder"], ["chatgpt", "export"], ["claude", "export"], ["substack", "feed"], ["medium", "feed"], ["bluesky", "feed"], ["blog", "feed"], ["letterboxd", "feed"], ["goodreads", "feed"], ["granola", "mcp"], ["notion", "mcp"], ["readwise", "mcp"]]);
     assert.deepEqual(await sourceChoices(directory, "obsidian"), [{ label: "Personal", locator: vault, open: true }]);
     await assert.rejects(connectSource(directory, { connector: "evernote", locator: vault }), { message: /unknown app/ });
     // Closing the sheet aborts the read, and nothing is connected.
@@ -1031,4 +1127,454 @@ test("a module mismatch from an updated app tells the owner to relaunch", async 
   assert.match(reason(mismatch, "x"), /Quit Lore and open it again/);
   assert.equal(reason(new Error("Stripe is down"), "x"), "Stripe is down");
   assert.equal(reason("nope", "fallback"), "fallback");
+});
+
+/** A LoreAgent whose model is pi's scripted stand-in, so a whole turn runs without a provider. @param {Partial<LoreAgentOptions>} options */
+async function scriptedAgent(options) {
+  const { fauxProvider, InMemoryCredentialStore } = await import("@earendil-works/pi-ai");
+  const { DefaultResourceLoader, ModelRuntime, SettingsManager } = await import("@earendil-works/pi-coding-agent");
+  const { LoreAgent } = await import("../src/agent.mjs");
+  const loreHome = await mkdtemp(join(tmpdir(), "lore-reading-"));
+  const models = await ModelRuntime.create({ credentials: new InMemoryCredentialStore(), refreshOnCreate: false });
+  const faux = fauxProvider();
+  models.registerNativeProvider(faux.provider);
+  const settings = SettingsManager.inMemory();
+  const resources = new DefaultResourceLoader({ cwd: loreHome, agentDir: join(loreHome, ".pi"), settingsManager: settings, additionalSkillPaths: [join(__dirname, "../../../plugins/lore/skills")], noExtensions: true, noSkills: true, noPromptTemplates: true, noThemes: true, noContextFiles: true, systemPrompt: "You are a scripted stand-in for Lore's desktop agent." });
+  await resources.reload();
+  /** @type {AgentEvent[]} */
+  const events = [];
+  const agent = new LoreAgent(/** @type {LoreAgentOptions} */ ({ loreHome, skillsDir: "", emit: (event) => events.push(event), ...options }), models, settings, resources);
+  return { agent, faux, events, loreHome };
+}
+
+/** Wait until `done` holds, or fail after a few seconds. @param {() => boolean} done */
+async function until(done) {
+  for (let tries = 0; tries < 200 && !done(); tries++) await new Promise((resolve) => setTimeout(resolve, 20));
+  assert.ok(done(), "timed out");
+}
+
+test("an app that brings something new in is read through once; one that brings nothing is not", () => {
+  const { worthReading } = require("../src/reading.cjs");
+  const apps = [{ id: "granola", name: "Granola", item: "meeting" }, { id: "medium", name: "Medium", item: "story" }];
+  assert.deepEqual(worthReading({ name: "granola-1", connector: "granola", added: 23 }, apps), { name: "granola-1", label: "Granola", item: "meeting", added: 23, title: "Lore read your Granola meetings", phase: "Reading your Granola meetings" }, "worded once, for Today and the notification");
+  assert.equal(worthReading({ name: "granola-1", connector: "granola", added: 0 }, apps), null);
+  assert.equal(worthReading({ name: "granola-1", connector: "granola" }, apps), null, "a CLI older than AUT-005 says nothing came in");
+  assert.equal(worthReading({ name: "codex", connector: null, added: 3 }, apps), null, "the agents' own memories are the schedule's");
+});
+
+test("a reading runs quietly, says what it is doing on Today, and hands back what it wrote", async () => {
+  const { fauxAssistantMessage, fauxToolCall } = await import("@earendil-works/pi-ai");
+  /** @type {Array<[Reading, ReadingReport]>} */
+  const handed = [];
+  const { agent, faux, events, loreHome } = await scriptedAgent({ memoriesReady: async (reading, report) => { handed.push([reading, report]); } });
+  /** @type {string[]} */
+  const asked = [];
+  const report = { read: 23, memories: [{ file: "receipts-beat-surveys.md", worth_selling: true, why: "measured on ten buyers" }] };
+  faux.setResponses([
+    (context) => {
+      const first = context.messages.find((message) => message.role === "user");
+      asked.push(typeof first.content === "string" ? first.content : first.content.map((block) => (block.type === "text" ? block.text : "")).join(""));
+      return fauxAssistantMessage(fauxToolCall("memories_ready", report), { stopReason: "toolUse" });
+    },
+    fauxAssistantMessage("Done.")
+  ]);
+  try {
+    agent.synthesize({ name: "granola-1", label: "Granola", item: "meeting", added: 23, title: "Lore read your Granola meetings", phase: "Reading your Granola meetings" });
+    await until(() => handed.length === 1);
+    assert.deepEqual(handed, [[{ name: "granola-1", label: "Granola", item: "meeting", added: 23, title: "Lore read your Granola meetings", phase: "Reading your Granola meetings" }, report]]);
+    assert.match(asked[0], /lore-synthesize/);
+    assert.match(asked[0], /23 new Granola meetings/);
+    assert.match(asked[0], /"granola-1"/);
+    assert.ok(asked[0].includes(JSON.stringify(join(loreHome, "memories"))));
+    assert.ok(!events.some((event) => event.type === "working"), "the owner's composer never locks for a reading");
+    const records = events.flatMap((event) => (event.type === "task" ? [event.task] : []));
+    assert.deepEqual(records.map((record) => [record.kind, record.state, record.phase]), [["synthesize", "working", "Reading your Granola meetings"], ["synthesize", "done", "Finished"]]);
+    assert.deepEqual(agent.tasks(), [], "a finished reading is no unfinished thread");
+  } finally {
+    await rm(loreHome, { recursive: true, force: true });
+  }
+});
+
+test("the owner's turn stops a reading, and the reading starts over once the owner is done", async () => {
+  const { fauxAssistantMessage, fauxToolCall } = await import("@earendil-works/pi-ai");
+  /** @type {Array<ReadingReport & {added: number}>} */
+  const handed = [];
+  const { agent, faux, loreHome } = await scriptedAgent({ memoriesReady: async (reading, report) => { handed.push({ ...report, added: reading.added }); } });
+  let reading = 0;
+  faux.setResponses([
+    // The first reading runs until it is told to stop.
+    (_context, options) => new Promise((resolve) => {
+      reading++;
+      options?.signal?.addEventListener("abort", () => resolve(fauxAssistantMessage("", { stopReason: "aborted" })), { once: true });
+    }),
+    fauxAssistantMessage("Kept that."),
+    fauxAssistantMessage(fauxToolCall("memories_ready", { read: 5, memories: [] }), { stopReason: "toolUse" }),
+    fauxAssistantMessage("Done.")
+  ]);
+  try {
+    agent.synthesize({ name: "granola-1", label: "Granola", item: "meeting", added: 3 });
+    await until(() => reading === 1);
+    // Two more meetings arrive while the first three are being read: one reading covers all five.
+    agent.synthesize({ name: "granola-1", label: "Granola", item: "meeting", added: 2 });
+    await agent.prompt("I learned to hire managers before scaling.", "capture");
+    await until(() => handed.length === 1);
+    assert.deepEqual(handed, [{ read: 5, memories: [], added: 5 }], "the stopped reading never handed anything back");
+    assert.equal(faux.getPendingResponseCount(), 0);
+  } finally {
+    await rm(loreHome, { recursive: true, force: true });
+  }
+});
+
+test("a reading lands as Today lists it: only stored memories, work never for sale, and plain words", async () => {
+  const { landed, announcement } = require("../src/reading.cjs");
+  const folder = "/Users/owner/.lore/memories";
+  /** @param {number} id @param {string} file @param {string} [status] */
+  const memory = (id, file, status = "private") => ({ id, title: `Topic ${id}`, content: "", project: "", source: "automation", source_path: `${folder}/${file}`, status, updated_at: "" });
+  const stored = [memory(1, "receipts.md"), memory(2, "work/launch-review.md"), memory(3, "dropped.md", "discarded")];
+  const run = landed(
+    { name: "granola-1", label: "Granola", item: "meeting", added: 23, title: "Lore read your Granola meetings", phase: "Reading your Granola meetings" },
+    {
+      read: 23,
+      memories: [
+        { file: "receipts.md", worth_selling: true, why: "ten paying buyers" },
+        { file: "work/launch-review.md", worth_selling: true, why: "names the client" },
+        { file: "receipts.md", worth_selling: true, why: "again" },
+        { file: "dropped.md", worth_selling: false, why: "" },
+        { file: "never-synced.md", worth_selling: false, why: "" },
+        { file: "../../.ssh/config", worth_selling: false, why: "" }
+      ]
+    },
+    stored,
+    folder
+  );
+  assert.deepEqual(run.memories, [
+    { id: 1, title: "Topic 1", sell: true, work: false, why: "ten paying buyers" },
+    { id: 2, title: "Topic 2", sell: false, work: true, why: "names the client" }
+  ]);
+  assert.equal(run.seen, false);
+  assert.deepEqual(announcement(run), { title: "Lore read your Granola meetings", body: "2 new memories. 1 looks worth selling." });
+  assert.deepEqual(announcement({ ...run, read: 1, memories: [run.memories[1]] }), { title: "Lore read your Granola meetings", body: "1 new memory. They stay private on this Mac." });
+});
+
+test("the dock counts new memories until the owner has seen them, and Clear empties Today", async () => {
+  const { Ready } = require("../src/reading.cjs");
+  const directory = await mkdtemp(join(tmpdir(), "lore-ready-"));
+  /** @type {number[]} */
+  const badges = [];
+  const ready = new Ready(join(directory, "memories-ready.json"), (count) => badges.push(count));
+  /** @param {number} count @returns {ReadyRun} */
+  const run = (count) => ({ title: "Lore read your Granola meetings", read: 9, memories: Array.from({ length: count }, (_, id) => ({ id, title: "t", sell: false, work: false, why: "" })), at: "", seen: false });
+  try {
+    assert.deepEqual(await ready.runs(), [], "nothing read yet");
+    await ready.add(run(6));
+    await ready.add(run(2));
+    assert.deepEqual(badges, [6, 8]);
+    await ready.seen();
+    assert.equal(badges.at(-1), 0);
+    await ready.add(run(3));
+    assert.equal(badges.at(-1), 3, "only what arrived since the owner looked");
+    assert.deepEqual((await ready.runs()).map((kept) => kept.memories.length), [3, 2, 6]);
+    await new Ready(join(directory, "memories-ready.json"), (count) => badges.push(count)).show();
+    assert.equal(badges.at(-1), 3, "a relaunch puts the badge back");
+    await ready.clear();
+    assert.deepEqual([await ready.runs(), badges.at(-1)], [[], 0]);
+    await writeFile(join(directory, "memories-ready.json"), JSON.stringify([{ label: "Granola", item: "meeting", read: 2, memories: [], at: "", seen: true }]));
+    assert.equal((await ready.runs())[0].title, "Lore read your Granola meetings", "a run kept by 0.1.14 is titled as it was then");
+    await writeFile(join(directory, "memories-ready.json"), "{damaged");
+    assert.deepEqual(await ready.runs(), []);
+    await assert.rejects(access(join(directory, "memories-ready.json.tmp")));
+  } finally {
+    await rm(directory, { recursive: true });
+  }
+});
+
+test("Lore runs what is due once, then looks again at the next hour it keeps, or within the hour", async (t) => {
+  const { Schedule, LOOK_EVERY_MS } = require("../src/routines.cjs");
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const now = Date.parse("2026-10-14T12:00:00Z");
+  /** @param {Partial<Routine>} fields @returns {Routine} */
+  const routine = (fields) => ({ id: "synthesis", kind: "read", name: "Read connected apps", cadence: "daily", hour: 9, last_run: null, result: "", next_run: "2026-10-15T09:00:00Z", due: false, ...fields });
+  let routines = [routine({ due: true }), routine({ id: "theirs", next_run: "2026-10-14T13:00:00Z" })];
+  /** @type {string[]} */
+  const ran = [];
+  let looks = 0;
+  const schedule = new Schedule(async () => { looks++; return routines; }, async (due) => {
+    ran.push(due.id);
+    routines = routines.map((each) => (each.id === due.id ? { ...each, due: false, next_run: "2026-10-14T12:30:00Z" } : each));
+  }, () => now);
+  // A launch and a wake at the same moment are one look, so a missed hour runs once.
+  await Promise.all([schedule.check(), schedule.check()]);
+  assert.deepEqual(ran, ["synthesis"], "only what is due, and only once");
+  assert.equal(looks, 2, "once to run what was due, once more to see what is next");
+  t.mock.timers.tick(30 * 60_000 - 1);
+  assert.equal(looks, 2, "it waits for the soonest hour any routine names");
+  // The timer's own look is under way, so this waits for it rather than starting another.
+  t.mock.timers.tick(1);
+  await schedule.check();
+  assert.equal(looks, 3);
+  routines = [];
+  await schedule.check();
+  t.mock.timers.tick(LOOK_EVERY_MS - 1);
+  assert.equal(looks, 4, "with nothing to keep, Lore still looks within the hour");
+  t.mock.timers.tick(1);
+  await schedule.check();
+  assert.equal(looks, 5);
+  schedule.stop();
+});
+
+/** AUT-008: a check-in run end to end with a stand-in model, through the same rules the app posts by.
+ * @param {CheckInVerdict} verdict @param {CheckInItem[]} items */
+async function checkInWith(verdict, items) {
+  const { fauxAssistantMessage, fauxToolCall } = await import("@earendil-works/pi-ai");
+  const { CheckIns } = require("../src/checkin.cjs");
+  /** @type {number[]} */
+  const badges = [];
+  /** @type {Array<CheckIn | null>} */
+  const posted = [];
+  /** @type {string[]} */
+  const asked = [];
+  const directory = await mkdtemp(join(tmpdir(), "lore-check-in-"));
+  const checkIns = new CheckIns(join(directory, "check-in.json"), (count) => badges.push(count));
+  const { agent, faux, events, loreHome } = await scriptedAgent({ checkedIn: async (job, said) => { posted.push(await checkIns.consider(said, job.items)); } });
+  faux.setResponses([
+    (context) => {
+      const first = context.messages.find((message) => message.role === "user");
+      asked.push(typeof first.content === "string" ? first.content : first.content.map((block) => (block.type === "text" ? block.text : "")).join(""));
+      return fauxAssistantMessage(fauxToolCall("check_in", verdict), { stopReason: "toolUse" });
+    },
+    fauxAssistantMessage("Done.")
+  ]);
+  agent.checkIn({ items });
+  await until(() => posted.length === 1);
+  await rm(loreHome, { recursive: true, force: true });
+  return { posted: posted[0], badges, asked: asked[0], events, checkIns, directory };
+}
+
+const TODAY = [{ id: 12, title: "Pricing call with Acme", source: "granola-1" }, { id: 13, title: "Weekly standup", source: "granola-1" }];
+
+test("a check-in stays silent when nothing today is worth asking: no notification, no badge, no card", async () => {
+  const { posted, badges, asked, events, checkIns, directory } = await checkInWith({ reach_out: false, why: "routine meetings, already covered", questions: [] }, TODAY);
+  try {
+    assert.equal(posted, null);
+    assert.deepEqual(badges, [], "the dock is never touched");
+    assert.equal(await checkIns.waiting(), null, "Today has no card to show");
+    assert.match(asked, /lore-check-in/);
+    assert.match(asked, /12: "Pricing call with Acme" from "granola-1"/);
+    assert.ok(!events.some((event) => event.type === "working"), "it never locks the owner's composer");
+  } finally {
+    await rm(directory, { recursive: true });
+  }
+});
+
+test("a check-in that finds something asks once, about real items only, and is replaced rather than stacked", async () => {
+  const { announcement } = require("../src/checkin.cjs");
+  const question = "You pushed back on the pricing call with Acme. What made you hold firm?";
+  const { posted, badges, checkIns, directory } = await checkInWith({
+    reach_out: true,
+    why: "a decision with no reason given",
+    questions: [{ question, memory: 12 }, { question: "What about the item Lore never brought in?", memory: 99 }, { question: "  ", memory: 13 }]
+  }, TODAY);
+  try {
+    assert.deepEqual(posted?.questions, [{ question, memory: 12, title: "Pricing call with Acme" }], "only questions about today's items");
+    assert.deepEqual(announcement(/** @type {CheckIn} */ (posted)), { title: "Five minutes on today?", body: question }, "one notification naming the thing");
+    assert.deepEqual(badges, [1]);
+    assert.equal((await checkIns.waiting())?.questions[0].question, question, "Today shows it");
+    const again = await checkIns.consider({ reach_out: true, why: "", questions: [{ question: "Another?", memory: 13 }] }, TODAY);
+    assert.equal(again, null, "at most one a day");
+    assert.equal(await checkIns.expire(), true, "Not today retires it");
+    assert.equal(await checkIns.waiting(), null);
+    assert.equal(badges.at(-1), 0);
+    await checkIns.answer();
+    assert.equal((await checkIns.latest())?.state, "expired", "an expired check-in cannot be answered");
+  } finally {
+    await rm(directory, { recursive: true });
+  }
+});
+
+test("a posted check-in opens its own thread with the questions as Lore's first words; the owner's answer clears it once it goes through", async () => {
+  const { fauxAssistantMessage } = await import("@earendil-works/pi-ai");
+  const { LoreAgent } = await import("../src/agent.mjs");
+  const { CheckIns, opening } = require("../src/checkin.cjs");
+  const directory = await mkdtemp(join(tmpdir(), "lore-check-in-"));
+  /** @type {number[]} */
+  const badges = [];
+  const checkIns = new CheckIns(join(directory, "check-in.json"), (count) => badges.push(count));
+  const question = "You pushed back on the pricing call with Acme. What made you hold firm?";
+  const { agent, faux, loreHome } = await scriptedAgent({});
+  /** @type {string[]} */
+  const told = [];
+  faux.setResponses([
+    (context) => {
+      told.push(context.messages.map((message) => (typeof message.content === "string" ? message.content : message.content.map((block) => (block.type === "text" ? block.text : "")).join(""))).join("\n---\n"));
+      return fauxAssistantMessage("Thanks. Here is what I would keep.");
+    }
+  ]);
+  try {
+    // Yesterday's thread, still open on screen, is not where today's questions go.
+    agent.ask("evening", "Yesterday's question?", "about yesterday");
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    const posted = /** @type {CheckIn} */ (await checkIns.consider({ reach_out: true, why: "a decision", questions: [{ question, memory: 12 }] }, TODAY));
+    const { asked, note } = opening(posted);
+    agent.ask("evening", asked, note);
+    assert.deepEqual(LoreAgent.history(loreHome, "evening"), [{ text: question, owner: false }], "the thread opens with today's question, and only it");
+    assert.deepEqual(agent.tasks().map((record) => [record.kind, record.state, record.phase]), [["evening", "stopped", "Five minutes on today"]]);
+    await agent.prompt("They wanted a discount we never give first-year customers.", "evening");
+    await checkIns.answer();
+    assert.deepEqual(badges, [1, 0], "answering clears the dock");
+    assert.equal(await checkIns.waiting(), null);
+    assert.match(told[0], /lore-capture/, "the owner's first word still starts the capture skill");
+    assert.ok(told[0].includes(question) && told[0].includes("(id 12)"), "the agent knows what was asked, about which item");
+    assert.deepEqual(LoreAgent.history(loreHome, "evening").map((line) => [line.owner, line.text]), [
+      [false, question],
+      [true, "They wanted a discount we never give first-year customers."],
+      [false, "Thanks. Here is what I would keep."]
+    ]);
+  } finally {
+    await rm(loreHome, { recursive: true, force: true });
+    await rm(directory, { recursive: true });
+  }
+});
+
+test("a check-in whose model fails says so, and one from an earlier day is retired while today's stays", async () => {
+  const { fauxAssistantMessage } = await import("@earendil-works/pi-ai");
+  const { CheckIns } = require("../src/checkin.cjs");
+  /** @type {Array<CheckInVerdict | null>} */
+  const verdicts = [];
+  const { agent, faux, loreHome } = await scriptedAgent({ checkedIn: async (_job, verdict) => { verdicts.push(verdict); } });
+  faux.setResponses([fauxAssistantMessage("", { stopReason: "error", errorMessage: "overloaded" })]);
+  const directory = await mkdtemp(join(tmpdir(), "lore-check-in-"));
+  const checkIns = new CheckIns(join(directory, "check-in.json"), () => {});
+  try {
+    agent.checkIn({ items: TODAY, mark: 13 });
+    await until(() => verdicts.length === 1);
+    assert.equal(verdicts[0], null, "no verdict, so the app records that it could not look");
+    await checkIns.consider({ reach_out: true, why: "", questions: [{ question: "Why?", memory: 12 }] }, TODAY);
+    assert.equal(await checkIns.retire(), false, "Run now later today keeps today's questions");
+    assert.ok(await checkIns.waiting());
+    const tomorrow = new Date(Date.now() + 24 * 60 * 60_000);
+    assert.equal(await checkIns.retire(tomorrow), true, "the next day's run retires it");
+    assert.equal(await checkIns.waiting(), null);
+  } finally {
+    await rm(loreHome, { recursive: true, force: true });
+    await rm(directory, { recursive: true });
+  }
+});
+
+test("the check-in waits for what is still being read, and gives way to the owner like a reading", async () => {
+  const { fauxAssistantMessage, fauxToolCall } = await import("@earendil-works/pi-ai");
+  /** @type {string[]} */
+  const order = [];
+  const { agent, faux, loreHome } = await scriptedAgent({
+    memoriesReady: async () => { order.push("read"); },
+    checkedIn: async (job) => { order.push(`checked ${job.items.length}`); }
+  });
+  faux.setResponses([
+    fauxAssistantMessage(fauxToolCall("memories_ready", { read: 2, memories: [] }), { stopReason: "toolUse" }),
+    fauxAssistantMessage("Done."),
+    (_context, options) => new Promise((resolve) => {
+      order.push("looking");
+      options?.signal?.addEventListener("abort", () => resolve(fauxAssistantMessage("", { stopReason: "aborted" })), { once: true });
+    }),
+    fauxAssistantMessage("Kept that."),
+    fauxAssistantMessage(fauxToolCall("check_in", { reach_out: false, why: "nothing new", questions: [] }), { stopReason: "toolUse" }),
+    fauxAssistantMessage("Done.")
+  ]);
+  try {
+    agent.synthesize({ name: "granola-1", label: "Granola", item: "meeting", added: 2 });
+    agent.checkIn({ items: TODAY });
+    await until(() => order.includes("looking"));
+    await agent.prompt("I learned to hire managers before scaling.", "capture");
+    await until(() => order.length === 3);
+    assert.deepEqual(order, ["read", "looking", "checked 2"]);
+    assert.ok(!agent.tasks().some((record) => record.kind === "checkin"), "the check-in is no thread");
+  } finally {
+    await rm(loreHome, { recursive: true, force: true });
+  }
+});
+
+test("a run the owner started is done only once its reading and check-in are", async () => {
+  const { fauxAssistantMessage, fauxToolCall } = await import("@earendil-works/pi-ai");
+  /** @type {string[]} */
+  const order = [];
+  const { agent, faux, loreHome } = await scriptedAgent({
+    memoriesReady: async () => { order.push("read"); },
+    checkedIn: async () => { order.push("checked"); }
+  });
+  faux.setResponses([
+    fauxAssistantMessage(fauxToolCall("memories_ready", { read: 2, memories: [] }), { stopReason: "toolUse" }),
+    fauxAssistantMessage("Done."),
+    fauxAssistantMessage(fauxToolCall("check_in", { reach_out: false, why: "nothing new", questions: [] }), { stopReason: "toolUse" }),
+    fauxAssistantMessage("Done.")
+  ]);
+  try {
+    await agent.settled();
+    assert.deepEqual(order, [], "with nothing in line it is done at once");
+    agent.synthesize({ name: "granola-1", label: "Granola", item: "meeting", added: 2 });
+    agent.checkIn({ items: TODAY });
+    await agent.settled();
+    assert.deepEqual(order, ["read", "checked"]);
+  } finally {
+    await rm(loreHome, { recursive: true, force: true });
+  }
+});
+
+test("routines are added, paused, retimed and removed through the CLI, refused before it when malformed, and kept across a restart", async () => {
+  const { listRoutines, changeRoutine, addRoutine } = require("../src/state.cjs");
+  for (const [text, when] of [["", { cadence: "daily", hour: 9, day: 0 }], ["x".repeat(501), { cadence: "daily", hour: 9, day: 0 }], ["Fine", { cadence: "hourly", hour: 9, day: 0 }], ["Fine", { cadence: "daily", hour: 9.5, day: 0 }]]) {
+    await assert.rejects(addRoutine("/nonexistent", text, when), /in a sentence|when it runs/);
+  }
+  await assert.rejects(changeRoutine("/nonexistent", "../x", "pause"), /Unknown routine/);
+  await assert.rejects(changeRoutine("/nonexistent", "checkin", "delete"), /Unknown change/);
+  const directory = await mkdtemp(join(tmpdir(), "lore-routines-"));
+  try {
+    const added = await addRoutine(directory, "-Every Sunday, remember what I read this week", { cadence: "weekly", hour: 18, day: 6 });
+    assert.equal(added.name, "-Every Sunday, remember what I read this week", "a sentence that starts with a dash stays words");
+    await changeRoutine(directory, "checkin", "pause");
+    await changeRoutine(directory, added.id, "time", { cadence: "daily", hour: 7, day: 0 });
+    const kept = await listRoutines(directory);
+    assert.deepEqual(kept.map((routine) => [routine.id, routine.built_in, routine.paused, routine.cadence, routine.hour]), [["synthesis", true, false, "daily", 9], ["checkin", true, true, "weekdays", 18], [added.id, false, false, "daily", 7]]);
+    await assert.rejects(changeRoutine(directory, "checkin", "remove"), /paused, not removed/);
+    await changeRoutine(directory, added.id, "remove");
+    assert.deepEqual((await listRoutines(directory)).map((routine) => routine.id), ["synthesis", "checkin"]);
+  } finally {
+    await rm(directory, { recursive: true });
+  }
+});
+
+test("an owner's routine runs their sentence as a quiet reading and is announced by it", async () => {
+  const { readingPrompt } = await import("../src/agent.mjs");
+  const { announcement, asking, landed } = require("../src/reading.cjs");
+  const reading = asking({ id: "r-1", name: "Every Sunday, remember what I read" }, "Every Sunday, remember what I read");
+  assert.deepEqual([reading.title, reading.phase], ["“Every Sunday, remember what I read”", "Working on “Every Sunday, remember what I read”"], "its sentence names it, with nothing tacked on");
+  const prompt = readingPrompt(reading, "/Users/owner/.lore");
+  assert.match(prompt, /asked Lore to do this on a schedule: "Every Sunday, remember what I read"/);
+  assert.match(prompt, /owner's own routine, not a connected app/);
+  const folder = "/Users/owner/.lore/memories";
+  const run = landed(reading, { read: 0, memories: [{ file: "t.md", worth_selling: false, why: "" }] }, [{ id: 1, title: "t", content: "", project: "", source: "automation", source_path: `${folder}/t.md`, status: "private", updated_at: "" }], folder);
+  assert.deepEqual(announcement(run), { title: "“Every Sunday, remember what I read”", body: "1 new memory. They stay private on this Mac." });
+});
+
+test("Run now waits for a scheduled run under way, so the two never overlap", async () => {
+  const { Schedule } = require("../src/routines.cjs");
+  /** @type {string[]} */
+  const order = [];
+  /** @type {() => void} */
+  let finish = () => {};
+  const routine = /** @type {Routine} */ ({ id: "synthesis", kind: "read", name: "Read connected apps", cadence: "daily", hour: 9, last_run: null, result: "", next_run: "2026-10-15T09:00:00Z", due: true });
+  const schedule = new Schedule(async () => [routine], async (due) => {
+    order.push(`start ${due.id}`);
+    if (due.id === "synthesis") await new Promise((done) => { finish = () => done(undefined); });
+    order.push(`end ${due.id}`);
+  });
+  const checking = schedule.check();
+  await until(() => order.length === 1);
+  const pressed = schedule.runNow({ ...routine, id: "checkin", kind: "checkin" });
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  assert.deepEqual(order, ["start synthesis"], "the owner's run waits");
+  finish();
+  await pressed;
+  assert.deepEqual(order.slice(0, 4), ["start synthesis", "end synthesis", "start checkin", "end checkin"]);
+  schedule.stop();
+  await checking;
+  schedule.stop();
 });

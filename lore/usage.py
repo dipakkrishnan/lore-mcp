@@ -37,6 +37,8 @@ CONNECTORS = (
     "medium",
     "bluesky",
     "blog",
+    "letterboxd",
+    "goodreads",
     "granola",
     "notion",
     "readwise",

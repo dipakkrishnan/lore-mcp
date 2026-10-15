@@ -173,6 +173,12 @@ this machine, so Claude is the runnable choice for scheduled synthesis" — rath
 future-tense placeholder like "when it becomes available". Both options should describe
 real, current, checkable state, not one present-tense and one hypothetical.
 
+**Lore desktop:** Lore runs the rhythm, so never ask who runs it and never offer Claude
+or Codex for it; set `"executor": "lore"` and ask only how often and at what hour.
+`"cadence"` is `"daily"`, `"weekdays"` or `"weekly"`; for weekly, also ask the day and
+save it as `"day"` (0 is Monday, 6 is Sunday). Say it plainly: "Lore reads your apps
+every Sunday at 9 PM while it's open, and once when it next opens if it was closed."
+
 ## 4. Save and schedule
 
 ```sh
@@ -185,7 +191,9 @@ LORE_PROFILE
 Validates the profile, writes `profile.json` plus the executor prompt (0600), and installs
 one recurring local task. Codex uses its local automation definition. Claude uses a
 macOS LaunchAgent to run `claude -p`; cloud routines cannot read the owner's local Lore
-library. Use `--no-schedule` for a profile without automation.
+library. With `"executor": "lore"` nothing is installed: the app keeps the rhythm, and
+in the app every profile is saved that way. Use `--no-schedule` for a profile without
+automation.
 
 ## 5. Cold start
 

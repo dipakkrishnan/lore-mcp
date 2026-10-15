@@ -1,0 +1,187 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom" >
+  <channel>
+    <xhtml:meta xmlns:xhtml="http://www.w3.org/1999/xhtml" name="robots" content="noindex" />
+    <title>Reader 's bookshelf: read</title>
+    <copyright><![CDATA[Copyright (C) 2026 Goodreads LLC. All rights reserved.]]>
+    </copyright>
+    <link><![CDATA[https://www.goodreads.com/review/list_rss/12345?shelf=read]]></link>
+    <atom:link href="https://www.goodreads.com/review/list_rss/12345?shelf=read" rel="self" type="application/rss+xml" />
+    <description><![CDATA[Reader 's bookshelf: read]]></description>
+    <language>en-US</language>
+    <lastBuildDate>Fri, 11 Sep 2026 10:07:58 -0700</lastBuildDate>
+    <ttl>60</ttl>
+    <image>
+      <title>Reader 's bookshelf: read</title>
+      <link><![CDATA[https://www.goodreads.com/review/list_rss/12345?shelf=read]]></link>
+      <width>144</width>
+      <height>41</height>
+      <url>https://www.goodreads.com/images/layout/goodreads_logo_144.jpg</url>
+    </image>
+
+  <item>
+    <guid><![CDATA[https://www.goodreads.com/review/show/3634418775?utm_medium=api&utm_source=rss]]></guid>
+    <pubDate><![CDATA[Fri, 11 Sep 2026 10:07:58 -0700]]></pubDate>
+    <title>The Long Ships</title>
+    <link><![CDATA[https://www.goodreads.com/review/show/3634418775?utm_medium=api&utm_source=rss]]></link>
+    <book_id>10081041</book_id>
+    <book_image_url><![CDATA[https://i.gr-assets.com/images/S/compressed.photo.goodreads.com/books/1328302275l/10081041._SX50_.jpg]]></book_image_url>
+    <book_small_image_url><![CDATA[https://i.gr-assets.com/images/S/compressed.photo.goodreads.com/books/1328302275l/10081041._SX50_.jpg]]></book_small_image_url>
+    <book_medium_image_url><![CDATA[https://i.gr-assets.com/images/S/compressed.photo.goodreads.com/books/1328302275l/10081041._SX98_.jpg]]></book_medium_image_url>
+    <book_large_image_url><![CDATA[https://i.gr-assets.com/images/S/compressed.photo.goodreads.com/books/1328302275l/10081041.jpg]]></book_large_image_url>
+    <book_description><![CDATA[A boy is taken from his Danish home by Vikings and made to row.<br />--nyrb.com]]></book_description>
+    <book id="10081041">
+      <num_pages>528</num_pages>
+    </book>
+    <author_name>Frans G. Bengtsson</author_name>
+    <isbn>159017416X</isbn>
+    <user_name>Reader </user_name>
+    <user_rating>5</user_rating>
+    <user_read_at><![CDATA[Tue, 18 Aug 2026 00:00:00 +0000]]></user_read_at>
+    <user_date_added><![CDATA[Fri, 11 Sep 2026 10:07:58 -0700]]></user_date_added>
+    <user_date_created><![CDATA[Sun, 08 Nov 2020 06:32:35 -0800]]></user_date_created>
+    <user_shelves><![CDATA[adventure, historical-fiction, history]]></user_shelves>
+    <user_review><![CDATA[Historical fiction that makes the economics of raiding make sense: a crew plunders because the farm cannot carry them through winter.<br /><br />The galley-slave years are the best part of the book.]]></user_review>
+    <average_rating>4.38</average_rating>
+    <book_published>1941</book_published>
+    <description>
+      <![CDATA[
+      <a href="https://www.goodreads.com/book/show/10081041.The_Long_Ships?utm_medium=api&amp;utm_source=rss"><img alt="The Long Ships" src="https://i.gr-assets.com/images/S/compressed.photo.goodreads.com/books/1328302275l/10081041._SX50_.jpg" /></a><br/>
+                                      author: Frans G. Bengtsson<br/>
+                                      name: Reader <br/>
+                                      average rating: 4.38<br/>
+                                      book published: 1941<br/>
+                                      rating: 5<br/>
+                                      read at: 2026/08/18<br/>
+                                      date added: 2026/09/11<br/>
+                                      shelves: adventure, historical-fiction, history<br/>
+                                      review: <br/>Historical fiction that makes the economics of raiding make sense: a crew plunders because the farm cannot carry them through winter.<br /><br />The galley-slave years are the best part of the book.<br/>
+                                      ]]>
+    </description>
+  </item>
+
+  <item>
+    <guid><![CDATA[https://www.goodreads.com/review/show/8823456367?utm_medium=api&utm_source=rss]]></guid>
+    <pubDate><![CDATA[Fri, 11 Sep 2026 09:44:16 -0700]]></pubDate>
+    <title><![CDATA[We Die Alone: A WWII Epic of Escape and Endurance]]></title>
+    <link><![CDATA[https://www.goodreads.com/review/show/8823456367?utm_medium=api&utm_source=rss]]></link>
+    <book_id>22921276</book_id>
+    <book_image_url><![CDATA[https://i.gr-assets.com/images/S/compressed.photo.goodreads.com/books/1408816275l/22921276._SY75_.jpg]]></book_image_url>
+    <book_small_image_url><![CDATA[https://i.gr-assets.com/images/S/compressed.photo.goodreads.com/books/1408816275l/22921276._SY75_.jpg]]></book_small_image_url>
+    <book_medium_image_url><![CDATA[https://i.gr-assets.com/images/S/compressed.photo.goodreads.com/books/1408816275l/22921276._SX98_.jpg]]></book_medium_image_url>
+    <book_large_image_url><![CDATA[https://i.gr-assets.com/images/S/compressed.photo.goodreads.com/books/1408816275l/22921276.jpg]]></book_large_image_url>
+    <book_description><![CDATA[A commando escapes across Arctic Norway.]]></book_description>
+    <book id="22921276">
+      <num_pages>257</num_pages>
+    </book>
+    <author_name>David Howarth</author_name>
+    <isbn></isbn>
+    <user_name>Reader </user_name>
+    <user_rating>4</user_rating>
+    <user_read_at><![CDATA[Mon, 7 Sep 2026 00:00:00 +0000]]></user_read_at>
+    <user_date_added><![CDATA[Fri, 11 Sep 2026 09:44:16 -0700]]></user_date_added>
+    <user_date_created><![CDATA[Sun, 02 Aug 2026 01:53:27 -0700]]></user_date_created>
+    <user_shelves><![CDATA[history]]></user_shelves>
+    <user_review></user_review>
+    <average_rating>4.40</average_rating>
+    <book_published>1955</book_published>
+    <description>
+      <![CDATA[
+      <a href="https://www.goodreads.com/book/show/22921276?utm_medium=api&amp;utm_source=rss"><img alt="We Die Alone" src="https://i.gr-assets.com/images/S/compressed.photo.goodreads.com/books/1408816275l/22921276._SY75_.jpg" /></a><br/>
+                                      author: David Howarth<br/>
+                                      name: Reader <br/>
+                                      average rating: 4.40<br/>
+                                      book published: 1955<br/>
+                                      rating: 4<br/>
+                                      read at: 2026/09/07<br/>
+                                      date added: 2026/09/11<br/>
+                                      shelves: history<br/>
+                                      review: <br/><br/>
+                                      ]]>
+    </description>
+  </item>
+
+  <item>
+    <guid><![CDATA[https://www.goodreads.com/review/show/1592735146?utm_medium=api&utm_source=rss]]></guid>
+    <pubDate><![CDATA[Sat, 18 Mar 2017 11:02:41 -0700]]></pubDate>
+    <title>High Output Management</title>
+    <link><![CDATA[https://www.goodreads.com/review/show/1592735146?utm_medium=api&utm_source=rss]]></link>
+    <book_id>324750</book_id>
+    <book_image_url><![CDATA[https://i.gr-assets.com/images/S/compressed.photo.goodreads.com/books/1442706327l/324750._SY75_.jpg]]></book_image_url>
+    <book_small_image_url><![CDATA[https://i.gr-assets.com/images/S/compressed.photo.goodreads.com/books/1442706327l/324750._SY75_.jpg]]></book_small_image_url>
+    <book_medium_image_url><![CDATA[https://i.gr-assets.com/images/S/compressed.photo.goodreads.com/books/1442706327l/324750._SX98_.jpg]]></book_medium_image_url>
+    <book_large_image_url><![CDATA[https://i.gr-assets.com/images/S/compressed.photo.goodreads.com/books/1442706327l/324750.jpg]]></book_large_image_url>
+    <book_description><![CDATA[How a manager's output is the output of the team.]]></book_description>
+    <book id="324750">
+      <num_pages>272</num_pages>
+    </book>
+    <author_name>Andrew S. Grove</author_name>
+    <isbn>0679762884</isbn>
+    <user_name>Reader </user_name>
+    <user_rating>0</user_rating>
+    <user_read_at><![CDATA[Sat, 18 Mar 2017 00:00:00 +0000]]></user_read_at>
+    <user_date_added><![CDATA[Sat, 18 Mar 2017 11:02:41 -0700]]></user_date_added>
+    <user_date_created><![CDATA[Sat, 18 Mar 2017 11:02:41 -0700]]></user_date_created>
+    <user_shelves><![CDATA[management]]></user_shelves>
+    <user_review><![CDATA[The one-on-one chapter is the whole book for a new manager: the report sets the agenda, and the hour is theirs.]]></user_review>
+    <average_rating>4.27</average_rating>
+    <book_published>1983</book_published>
+    <description>
+      <![CDATA[
+      <a href="https://www.goodreads.com/book/show/324750?utm_medium=api&amp;utm_source=rss"><img alt="High Output Management" src="https://i.gr-assets.com/images/S/compressed.photo.goodreads.com/books/1442706327l/324750._SY75_.jpg" /></a><br/>
+                                      author: Andrew S. Grove<br/>
+                                      name: Reader <br/>
+                                      average rating: 4.27<br/>
+                                      book published: 1983<br/>
+                                      rating: 0<br/>
+                                      read at: 2017/03/18<br/>
+                                      date added: 2017/03/18<br/>
+                                      shelves: management<br/>
+                                      review: <br/>The one-on-one chapter is the whole book for a new manager: the report sets the agenda, and the hour is theirs.<br/>
+                                      ]]>
+    </description>
+  </item>
+
+  <item>
+    <guid><![CDATA[https://www.goodreads.com/review/show/1440118870?utm_medium=api&utm_source=rss]]></guid>
+    <pubDate><![CDATA[Wed, 20 Oct 2010 08:15:00 -0700]]></pubDate>
+    <title>The Count of Monte Cristo</title>
+    <link><![CDATA[https://www.goodreads.com/review/show/1440118870?utm_medium=api&utm_source=rss]]></link>
+    <book_id>7126</book_id>
+    <book_image_url><![CDATA[https://i.gr-assets.com/images/S/compressed.photo.goodreads.com/books/1724863997l/7126._SY75_.jpg]]></book_image_url>
+    <book_small_image_url><![CDATA[https://i.gr-assets.com/images/S/compressed.photo.goodreads.com/books/1724863997l/7126._SY75_.jpg]]></book_small_image_url>
+    <book_medium_image_url><![CDATA[https://i.gr-assets.com/images/S/compressed.photo.goodreads.com/books/1724863997l/7126._SX98_.jpg]]></book_medium_image_url>
+    <book_large_image_url><![CDATA[https://i.gr-assets.com/images/S/compressed.photo.goodreads.com/books/1724863997l/7126._SY475_.jpg]]></book_large_image_url>
+    <book_description><![CDATA[A sailor is imprisoned on the day of his wedding.]]></book_description>
+    <book id="7126">
+      <num_pages>1276</num_pages>
+    </book>
+    <author_name>Alexandre Dumas</author_name>
+    <isbn>0140449264</isbn>
+    <user_name>Reader </user_name>
+    <user_rating>0</user_rating>
+    <user_read_at></user_read_at>
+    <user_date_added><![CDATA[Wed, 20 Oct 2010 08:15:00 -0700]]></user_date_added>
+    <user_date_created><![CDATA[Wed, 20 Oct 2010 08:15:00 -0700]]></user_date_created>
+    <user_shelves></user_shelves>
+    <user_review></user_review>
+    <average_rating>4.31</average_rating>
+    <book_published>1846</book_published>
+    <description>
+      <![CDATA[
+      <a href="https://www.goodreads.com/book/show/7126.The_Count_of_Monte_Cristo?utm_medium=api&amp;utm_source=rss"><img alt="The Count of Monte Cristo" src="https://i.gr-assets.com/images/S/compressed.photo.goodreads.com/books/1724863997l/7126._SY75_.jpg" /></a><br/>
+                                      author: Alexandre Dumas<br/>
+                                      name: Reader <br/>
+                                      average rating: 4.31<br/>
+                                      book published: 1846<br/>
+                                      rating: 0<br/>
+                                      read at: <br/>
+                                      date added: 2010/10/20<br/>
+                                      shelves: <br/>
+                                      review: <br/><br/>
+                                      ]]>
+    </description>
+  </item>
+
+  </channel>
+</rss>

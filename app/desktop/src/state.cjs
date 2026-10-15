@@ -322,8 +322,50 @@ async function removeSource(loreHome, name, keep) {
   return JSON.parse(await lore(loreHome, ["sources", "remove", sourceName(name), keep ? "--keep" : "--delete", "--json"]));
 }
 
+/** The routines Lore runs on its own, as the CLI keeps them. @param {string} loreHome @returns {Promise<Routine[]>} */
+async function listRoutines(loreHome) {
+  return JSON.parse(await lore(loreHome, ["automation", "list", "--json"]));
+}
+
+/** @param {unknown} id */
+function routineId(id) {
+  if (typeof id !== "string" || !/^[a-z0-9][a-z0-9-]*$/.test(id)) throw new Error("Unknown routine");
+  return id;
+}
+
+/** When a routine runs, as the CLI's flags say it. @param {unknown} when @returns {string[]} */
+function rhythmArgs(when) {
+  const { cadence, hour, day = 0 } = /** @type {{cadence?: unknown, hour?: unknown, day?: unknown}} */ (when ?? {});
+  if (!["daily", "weekdays", "weekly"].includes(/** @type {string} */ (cadence)) || !Number.isInteger(hour) || !Number.isInteger(day)) throw new Error("Choose when it runs");
+  return ["--cadence", String(cadence), "--hour", String(hour), "--day", String(day)];
+}
+
+/** @param {string} loreHome @param {unknown} id @returns {Promise<RoutineRun>} */
+async function runRoutine(loreHome, id) {
+  return JSON.parse(await lore(loreHome, ["automation", "run", routineId(id), "--json"]));
+}
+
+/** Pause, resume, retime or remove a routine; the CLI refuses removing one of Lore's own.
+ * @param {string} loreHome @param {unknown} id @param {unknown} action @param {unknown} [when] */
+async function changeRoutine(loreHome, id, action, when) {
+  if (action === "time") return lore(loreHome, ["automation", "time", routineId(id), ...rhythmArgs(when), "--json"]);
+  if (action !== "pause" && action !== "resume" && action !== "remove") throw new Error("Unknown change");
+  return lore(loreHome, ["automation", action, routineId(id), "--json"]);
+}
+
+/** One of the owner's own: a sentence, after `--` so one starting with a dash stays words. @param {string} loreHome @param {unknown} text @param {unknown} when @param {unknown} [title] A name; the sentence by default. @returns {Promise<Routine>} */
+async function addRoutine(loreHome, text, when, title = "") {
+  if (typeof text !== "string" || !text.trim() || text.length > 500) throw new Error("Say what Lore should do, in a sentence");
+  const named = typeof title === "string" && title.trim() ? ["--title", title.trim().slice(0, 120)] : [];
+  return JSON.parse(await lore(loreHome, ["automation", "add", ...rhythmArgs(when), ...named, "--json", "--", text.trim()]));
+}
+
 module.exports = {
   lore,
+  listRoutines,
+  runRoutine,
+  changeRoutine,
+  addRoutine,
   loreStream,
   stream,
   openable,

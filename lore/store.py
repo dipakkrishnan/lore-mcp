@@ -8,6 +8,7 @@ import re
 import secrets
 import sqlite3
 import time
+from collections.abc import Collection
 from datetime import datetime, timedelta, timezone
 from enum import Enum
 from pathlib import Path
@@ -725,6 +726,28 @@ class Store:
                 "SELECT source,count(*) count FROM memories GROUP BY source"
             )
         }
+
+    def newest_memory_id(self) -> int:
+        """The newest memory's id: an import gets a higher one, whatever date it carries."""
+        return int(
+            self.db.execute("SELECT coalesce(max(id),0) FROM memories").fetchone()[0]
+        )
+
+    def brought_in_after(
+        self, memory_id: int, limit: int = 30, skip: Collection[str] = ()
+    ) -> list[dict[str, object]]:
+        """Private items an app or agent brought in after `memory_id`, newest first:
+        never Lore's own writing, nor what the owner captured themselves, nor `skip`'s sources."""
+        holes = ",".join("?" * len(skip))
+        return [
+            dict(row)
+            for row in self.db.execute(
+                "SELECT id,title,source FROM memories WHERE status='private' "
+                f"AND origin='native' AND id>? AND source NOT IN ({holes}) "
+                "ORDER BY id DESC LIMIT ?",
+                (memory_id, *skip, limit),
+            )
+        ]
 
     def source_keys(self, source: str) -> set[str]:
         """The item keys one source has already kept, without the source's prefix."""

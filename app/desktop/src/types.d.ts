@@ -25,9 +25,11 @@ type Snapshot = {
     // Anonymous usage events (APP-058): on unless turned off, sent only once the notice was shown.
     telemetry_enabled?: boolean;
     telemetry_noticed?: boolean;
-    // What the saved rhythm asks for and whether the scheduler holds it; null
-    // with no profile. Optional: an installed CLI older than this app omits it.
-    schedule?: { installed: boolean; executor: "claude" | "codex" | null; cadence: "daily" | "weekly" | null; hour: number | null } | null;
+    // Whether the owner was told, once, that Lore's own routines are on (AUT-009).
+    automations_noticed?: boolean;
+    // When Lore reads the connected apps, when it last did, and whether it missed an hour while closed (AUT-006).
+    // Optional: an installed CLI older than this app omits it.
+    schedule?: { paused: boolean; cadence: Routine["cadence"]; hour: number; day: number; last_run: string | null; missed: boolean } | null;
   };
   // Whether this build has a feedback relay pinned in. Optional: an
   // installed CLI older than this app omits it, and no relay is the safe
@@ -82,6 +84,9 @@ type JobItem = {
 /** The newest sale already announced, kept across launches; empty fields mean the ledger was read empty. */
 type SeenSale = { sold_at: string; key: string };
 
+/** Where this copy of Lore stands against the latest release. `outside`: not in Applications, so it can't replace itself. */
+type AppUpdate = { version: string; state: "current" | "checking" | "downloading" | "ready" | "offline" | "outside"; newer?: boolean };
+
 type Sale = {
   kind: "publication" | "answer";
   item_id: string;
@@ -105,6 +110,8 @@ type SourceEntry = {
   label: string;
   enabled: boolean;
   imported: number;
+  /** What this connect brought in that Lore did not have; absent from a CLI older than AUT-005. */
+  added?: number;
   kind?: SourceKind;
   locator?: string;
   owned?: boolean;
@@ -123,7 +130,44 @@ type SourceKind = "folder" | "export" | "feed" | "mcp";
 
 type SourceApp = { id: string; name: string; what: string; unit: string; item: string; kind: SourceKind; refresh: boolean; placeholder: string; guide?: string };
 
-type SourceRead = { name: string; added: number; updated: number; unchanged: number; errors: number; state: SourceState };
+type SourceRead = { name: string; label?: string; connector?: string | null; added: number; updated: number; unchanged: number; errors: number; state: SourceState };
+
+/** New items a connected app brought in, waiting to be read through: "23 new Granola meetings". */
+/** `title` and `phase` are worded once: what Today and the notification call it, and its row while it reads. One of the
+ * owner's own routines carries their sentence as `ask`, and no app or items. */
+type Reading = { name: string; label: string; item: string; added: number; title: string; phase: string; ask?: string };
+
+/** What a reading hands back: how many items it read, and each topic file it wrote. */
+type ReadingReport = { read: number; memories: Array<{ file: string; worth_selling: boolean; why: string }> };
+
+/** One memory a reading wrote, as Today lists it. Work is never offered for sale. */
+type ReadyMemory = { id: number; title: string; sell: boolean; work: boolean; why: string };
+
+/** One finished reading, kept on Today until the owner clears it; `seen` once they have looked. */
+type ReadyRun = { title: string; read: number; memories: ReadyMemory[]; at: string; seen: boolean };
+
+/** Something Lore does on its own at a set hour, as `lore automation list` describes it. `due`: the app owes it a run now. */
+type Routine = { id: string; kind: "read" | "checkin" | "ask"; name: string; built_in?: boolean; cadence: "daily" | "weekdays" | "weekly"; hour: number; day?: number; paused?: boolean; last_run: string | null; result: string; next_run: string; due: boolean };
+
+/** When a routine runs: every day, every weekday, or once a week on `day` (0 is Monday). */
+type RoutineTime = { cadence: Routine["cadence"]; hour: number; day: number };
+
+/** What running a routine did: the routine as it now stands, and what its kind brought. Reading apps hands back what
+ * each app brought in; the check-in, what came in since it last judged (`mark`: the newest), or `missed` when it ran
+ * too late to ask; one of the owner's own, its sentence as `ask`. */
+type RoutineRun = { routine: Routine; reads?: SourceRead[]; items?: CheckInItem[]; mark?: number; missed?: boolean; ask?: string };
+
+/** One item Lore brought in since the last check-in, as the check-in judges it. */
+type CheckInItem = { id: number; title: string; source: string };
+
+/** What the evening check-in looks over, and the newest item among them. */
+type CheckInJob = { items: CheckInItem[]; mark?: number };
+
+/** The model's structured answer; the app, not the model, decides whether anything is posted. */
+type CheckInVerdict = { reach_out: boolean; why: string; questions: Array<{ question: string; memory: number }> };
+
+/** A posted check-in: its questions, each tied to an item, and whether it waits, was answered, or expired. */
+type CheckIn = { questions: Array<{ question: string; memory: number; title: string }>; why: string; at: string; state: "waiting" | "answered" | "expired" };
 
 type SourceRemoval = { name: string; removed: boolean; memories: { kept: number; deleted?: number } };
 
@@ -149,6 +193,7 @@ type Memory = {
   content: string;
   project: string;
   source: string;
+  source_path: string;
   status: string;
   updated_at: string;
 };
@@ -194,7 +239,7 @@ type ExtrasCandidate = {
   piece: { title: string; teaser: string; kind: "claim" | "content"; topic: string; sample: string; useful_if: string; not_useful_if: string };
 };
 
-type AgentTask = "capture" | "setup" | "publish" | "deploy";
+type AgentTask = "capture" | "setup" | "publish" | "deploy" | "synthesize" | "checkin" | "evening";
 type TaskState = "needs_you" | "working" | "stopped" | "done";
 
 type TaskRecord = {
@@ -244,7 +289,6 @@ interface Window {
     approveExtras(decisions: Array<{ original: PublicationExtras; extras: PublicationExtras }>): Promise<void>;
     revoke(id: number): Promise<void>;
     push(): Promise<void>;
-    schedule(): Promise<void>;
     setPrice(amount: number): Promise<void>;
     setFreeCopies(count: number): Promise<void>;
     revealHome(): Promise<string>;
@@ -268,11 +312,24 @@ interface Window {
     cancelConnect(): Promise<void>;
     readSource(name: string): Promise<SourceRead[]>;
     removeSource(name: string, keep: boolean): Promise<SourceRemoval>;
+    readyRuns(): Promise<ReadyRun[]>;
+    seenMemories(): Promise<void>;
+    clearMemories(): Promise<void>;
+    checkIn(): Promise<CheckIn | null>;
+    routines(): Promise<Routine[]>;
+    noticedRoutines(): Promise<void>;
+    runRoutine(id: string): Promise<Routine>;
+    changeRoutine(id: string, action: "pause" | "resume" | "remove" | "time", when?: RoutineTime): Promise<void>;
+    addRoutine(text: string, when: RoutineTime, title?: string): Promise<Routine>;
+    dismissCheckIn(): Promise<void>;
     openPrivacySettings(): Promise<void>;
     pathFor(file: File): string;
     onAgentEvent(listener: (event: AgentEvent) => void): () => void;
     microphone(): Promise<boolean>;
     transcribe(wav: ArrayBuffer): Promise<string>;
+    update(): Promise<AppUpdate>;
+    checkUpdate(): Promise<void>;
+    installUpdate(): Promise<void>;
   };
 }
 
@@ -316,11 +373,15 @@ type AgentEvent =
   | { type: "message"; task: AgentTask | null; text: string }
   | { type: "saved"; task: AgentTask | null; memories: SavedMemory[] }
   | { type: "stopped"; text: string }
+  | { type: "signed-out"; text: string }
   | { type: "task"; task: TaskRecord }
   | { type: "auth"; message?: string; event?: import("@earendil-works/pi-ai").AuthEvent }
   | { type: "progress"; text?: string; done?: boolean; error?: string }
   | { type: "sold" }
-  | { type: "show"; view: "store" };
+  | { type: "show"; view: "store" | "today" | "automations" }
+  | { type: "thread"; task: AgentTask }
+  | { type: "ready" }
+  | { type: "update"; update: AppUpdate };
 
 type LoreAgentInstance = {
   readonly activeTask: AgentTask | null;
@@ -329,9 +390,13 @@ type LoreAgentInstance = {
   history(task: AgentTask): Line[];
   tasks(): TaskRecord[];
   restart(task: AgentTask): void;
+  ask(task: AgentTask, text: string, note: string): void;
   login(providerId: string, type: "oauth" | "api_key", secret?: string): Promise<AgentStatus>;
   logout(providerId: string): Promise<AgentStatus>;
   dispose(): void;
+  synthesize(reading: Reading): void;
+  checkIn(job: CheckInJob): void;
+  settled(): Promise<void>;
 };
 
 type LoreAgentOptions = {
@@ -349,6 +414,10 @@ type LoreAgentOptions = {
   openUrl(page: { title: string; url: string; note: string }): Promise<string>;
   /** How many staged drafts still wait on the owner's cards. */
   drafts?(): Promise<number>;
+  /** A reading finished and handed back what it wrote; Lore saves it and tells the owner. */
+  memoriesReady?(reading: Reading, report: ReadingReport): Promise<void>;
+  /** The check-in's verdict, or null when its model did not answer. */
+  checkedIn?(job: CheckInJob, verdict: CheckInVerdict | null): Promise<void>;
   authPrompt(prompt: import("@earendil-works/pi-ai").AuthPrompt): Promise<string>;
   authEvent(event: import("@earendil-works/pi-ai").AuthEvent): void;
   // Durable owner-run history. Injected rather than imported so the agent stays
