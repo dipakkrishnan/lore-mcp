@@ -665,7 +665,7 @@ class Routines:
         prompt = " ".join(prompt.split())
         if not prompt:
             raise ValueError("Say what Lore should do")
-        fields = {"prompt": prompt, "title": " ".join(title.split())}
+        fields: dict[str, object] = {"prompt": prompt, "title": " ".join(title.split())}
         fields |= {"cadence": cadence, "hour": hour, "day": day}
         Saved.model_validate({"since": self.clock(), **fields})
         routine_id = f"r-{secrets.token_hex(4)}"

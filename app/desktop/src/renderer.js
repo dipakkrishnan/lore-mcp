@@ -1409,7 +1409,7 @@ class FormSheet {
     this.refresh();
     document.body.append(this.dialog);
     this.dialog.showModal();
-    /** @type {HTMLElement | null} */ (this.body.querySelector("input, textarea") ?? this.form.querySelector(".btn.primary:not(:disabled)") ?? this.form.querySelector(".actions .btn"))?.focus();
+    /** @type {HTMLElement | null} */ (this.body.querySelector("input:not([type=radio]), textarea") ?? this.form.querySelector(".btn.primary:not(:disabled)") ?? this.form.querySelector(".actions .btn:not(:disabled)") ?? this.form.querySelector(".form-foot .btn:not(:disabled)"))?.focus();
     return this;
   }
 

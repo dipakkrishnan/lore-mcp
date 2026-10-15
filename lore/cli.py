@@ -268,7 +268,9 @@ def parser() -> argparse.ArgumentParser:
         "add", help="have Lore do something of yours at a set time"
     )
     routine_add.add_argument("text", help="what to do, in a sentence")
-    routine_add.add_argument("--title", default="", help="a name; the sentence by default")
+    routine_add.add_argument(
+        "--title", default="", help="a name; the sentence by default"
+    )
     for timed in (routine_time, routine_add):
         timed.add_argument("--hour", type=int, required=True)
         timed.add_argument(
