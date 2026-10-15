@@ -16,6 +16,9 @@ const taskBack = /** @type {HTMLButtonElement} */ ($("#task-back"));
 const taskRestart = /** @type {HTMLButtonElement} */ ($("#task-restart"));
 const addMemoryBtn = /** @type {HTMLButtonElement} */ ($("#add-memory"));
 const feedbackBtn = /** @type {HTMLButtonElement} */ ($("#feedback-open"));
+const accountMenu = $("#account-menu");
+const accountLine = $("#account-line");
+const signOutBtn = /** @type {HTMLButtonElement} */ ($("#sign-out"));
 const updateBtn = /** @type {HTMLButtonElement} */ ($("#update"));
 const captureArea = $("#capture");
 const composer = /** @type {HTMLFormElement} */ ($("#composer"));
@@ -87,10 +90,6 @@ let pushing = false;
 let switchingCards = false;
 /** @type {string | false} */
 let pushedNote = false;
-/** Whether the For Sale price row is open as an editor. */
-let editingPrice = false;
-let savingPrice = false;
-let accountMenuOpen = false;
 /** The node's ledger, read each time For Sale opens: rows, the reason it could not be read, or null while it loads. @type {Sale[] | Error | null} */
 let sales = null;
 /** Page views per piece, by public id; empty until read. @type {Record<string, number>} */
@@ -393,79 +392,26 @@ function closeSheet() {
 }
 
 function openFeedbackDialog() {
-  closeSheet();
-  const sheet = el("dialog", "sheet narrow");
-  sheet.setAttribute("aria-label", "Report Feedback");
-  const panel = el("div", "card sheet-panel");
-  const head = el("div", "sheet-head");
-  head.append(el("b", "", "Report Feedback"));
-  const close = el("button", "icon-btn", "×");
-  close.type = "button";
-  close.setAttribute("aria-label", "Close");
-  // This dialog, not whichever one is open: a report can still be in flight
-  // when the owner opens something else, and closeSheet() would close that.
-  close.addEventListener("click", () => sheet.close());
-  head.append(close);
-
-  const form = el("form", "feedback-form");
-  const titleField = /** @type {HTMLInputElement} */ (draftField(form, "Title", "", true));
-  const emailField = /** @type {HTMLInputElement} */ (draftField(form, "Email (optional)", "", true));
-  const descriptionField = draftField(form, "Description", "");
-  form.append(el("p", "hint", "This becomes a public GitHub issue; anything you write here, and your email if you give one, is visible there."));
-  const actions = el("div", "actions");
-  const cancel = el("button", "btn secondary sm", "Cancel");
-  cancel.type = "button";
-  cancel.addEventListener("click", () => sheet.close());
-  const send = el("button", "btn primary sm", "Send");
-  send.type = "submit";
-  send.disabled = true;
-  actions.append(cancel, send);
-  form.append(actions);
-
-  // One report per Send, however the owner gets there. Without `sending` in
-  // this predicate, the input listener re-enables Send the moment both
-  // fields are non-empty again — including mid-request — and a second click
-  // files a second public issue from one owner action.
-  let sending = false;
-  const canSend = () => !sending && Boolean(titleField.value.trim() && descriptionField.value.trim());
-  form.addEventListener("input", () => { send.disabled = !canSend(); });
-  form.addEventListener("submit", (event) => {
-    event.preventDefault();
-    if (canSend()) void submit();
-  });
-
-  async function submit() {
-    sending = true;
-    cancel.disabled = send.disabled = true;
-    send.textContent = "Sending…";
-    try {
-      const receipt = await window.lore.reportFeedback({
-        title: titleField.value,
-        email: emailField.value,
-        description: descriptionField.value
-      });
-      sheet.close();
+  const form = new FormSheet("Report feedback");
+  form.form.classList.add("feedback-form");
+  const titleField = form.title("Title");
+  const descriptionField = form.prompt("Description", "What happened, and what did you expect?");
+  const email = form.field("Email", { type: "email", placeholder: "Optional", ariaLabel: "Email (optional)" });
+  form.group("", [email.row]);
+  form.text("This becomes a public GitHub issue; anything you write here, and your email if you give one, is visible there.", "hint");
+  form.button("Cancel", "secondary", () => form.close());
+  // One report per Send, however the owner gets there: the sheet holds Send while one is out, and closes only
+  // itself when it lands, never a sheet the owner opened since.
+  form.open({
+    primary: "Send",
+    working: "Sending…",
+    valid: () => Boolean(titleField.value.trim() && descriptionField.value.trim()),
+    failed: "Lore could not send that.",
+    submit: async () => {
+      const receipt = await window.lore.reportFeedback({ title: titleField.value, email: email.control.value, description: descriptionField.value });
       tell(`Filed as ${receipt.url}`);
-    } catch (error) {
-      tell(reason(error, "Lore could not send that."), true);
-      sending = false;
-      // Escape or the backdrop can dismiss this dialog while the request is
-      // out, and the close handler below detaches it. Restoring the buttons
-      // is then pointless, so check first, as approvalForm() does.
-      if (sheet.isConnected) {
-        cancel.disabled = false;
-        send.disabled = !canSend();
-        send.textContent = "Send";
-      }
     }
-  }
-
-  panel.append(head, form);
-  sheet.append(panel);
-  sheet.addEventListener("click", (event) => { if (event.target === sheet) sheet.close(); });
-  sheet.addEventListener("close", () => sheet.remove());
-  document.body.append(sheet);
-  sheet.showModal();
+  });
   titleField.focus();
 }
 
@@ -795,7 +741,7 @@ function priceRow(s) {
   open.title = "Change what a buyer pays per publication";
   if (typeof s.pricing.publication_usd === "number") open.append(document.createTextNode(`${price(s.pricing.publication_usd)} `), el("span", "", ["a publication", freeCopies(s.pricing.free_copies)].filter(Boolean).join(" · ")));
   else open.append("Not set");
-  open.addEventListener("click", () => { editingPrice = true; render(); });
+  open.addEventListener("click", openPriceSheet);
   item.append(open);
   return item;
 }
@@ -827,70 +773,44 @@ function stalePrice(s) {
   return typeof live === "number" && typeof s.pricing.publication_usd === "number" && live !== s.pricing.publication_usd ? live : null;
 }
 
-/** @param {Snapshot} s */
-function priceEditor(s) {
-  const form = /** @type {HTMLFormElement} */ (el("form", "price-edit"));
-  const [field, input] = priceField(typeof s.pricing.publication_usd === "number" ? String(s.pricing.publication_usd) : "");
-  const actions = el("div", "actions");
-  const cancel = el("button", "btn quiet sm", "Cancel");
-  cancel.type = "button";
-  cancel.addEventListener("click", () => { editingPrice = false; render(); });
-  const save = el("button", "btn primary sm", savingPrice ? "Saving…" : "Save");
-  save.type = "submit";
-  cancel.disabled = savingPrice;
-  save.disabled = savingPrice;
-  actions.append(cancel, save);
-  form.append(field, el("span", "", "a publication"));
-  /** @type {HTMLInputElement | null} */
-  let copies = null;
-  if (typeof s.pricing.free_copies === "number") {
-    const box = el("div", "price-field copies");
-    copies = el("input");
-    copies.type = "text";
-    copies.inputMode = "numeric";
-    copies.setAttribute("aria-label", "Free copies of each piece");
-    copies.value = String(s.pricing.free_copies);
-    box.append(copies);
-    form.append(box, el("span", "", "free copies"));
-  }
-  form.append(actions);
-  form.addEventListener("submit", (submitEvent) => {
-    submitEvent.preventDefault();
-    void savePrice(input.value, copies?.value);
+/** The one editor for what a buyer pays: the price per piece and, from a CLI that has them, its free copies. */
+function openPriceSheet() {
+  const pricing = snapshot?.pricing;
+  const form = new FormSheet("Price");
+  const amount = form.field("Price per piece", { inputMode: "decimal", placeholder: "0.01", ariaLabel: "Price per publication in US dollars", value: typeof pricing?.publication_usd === "number" ? String(pricing.publication_usd) : "" }, "$");
+  const copies = typeof pricing?.free_copies === "number" ? form.field("Free copies", { inputMode: "numeric", ariaLabel: "Free copies of each piece", value: String(pricing.free_copies) }) : null;
+  form.group("", [amount.row, ...(copies ? [copies.row] : [])]);
+  form.note("Buyers pay this for each piece, by card or through their AI agent.");
+  form.button("Cancel", "secondary", () => form.close());
+  form.open({
+    primary: "Save",
+    working: "Saving…",
+    valid: () => Boolean(amount.control.value.trim() && (!copies || copies.control.value.trim())),
+    submit: () => savePrice(amount.control.value, copies?.control.value)
   });
-  queueMicrotask(() => input.focus());
-  return form;
+  amount.control.select();
 }
 
 const WHOLE_COPIES = "Free copies has to be a whole number, zero or more";
 
-/** @param {string} raw @param {string} [rawCopies] Absent when the CLI predates free copies. */
+/** Save what the price sheet says; a refusal is thrown, so the sheet says it in place. @param {string} raw
+ * @param {string} [rawCopies] Absent when the CLI predates free copies. */
 async function savePrice(raw, rawCopies) {
   const amount = parsePrice(raw);
-  if (amount === null) {
-    tell(`${ABOVE_ZERO}. Free is a real choice, but you make it when you open your store.`, true);
-    return;
-  }
+  if (amount === null) throw new Error(`${ABOVE_ZERO}. Free is a real choice, but you make it when you open your store.`);
   const copies = rawCopies === undefined ? null : Number(rawCopies.trim());
-  if (copies !== null && (!rawCopies?.trim() || !Number.isInteger(copies) || copies < 0)) {
-    tell(`${WHOLE_COPIES}.`, true);
-    return;
-  }
+  if (copies !== null && (!rawCopies?.trim() || !Number.isInteger(copies) || copies < 0)) throw new Error(`${WHOLE_COPIES}.`);
   const before = snapshot?.pricing;
   const newCopies = copies !== null && copies !== before?.free_copies;
-  savingPrice = true;
-  render();
-  const saved = await act(async () => {
+  pushOffer = false;
+  pushedNote = false;
+  try {
     if (amount !== before?.publication_usd) await window.lore.setPrice(amount);
     if (newCopies && copies !== null) await window.lore.setFreeCopies(copies);
-  });
-  if (saved) {
-    editingPrice = false;
-    drop((item) => item.text.startsWith(ABOVE_ZERO) || item.text.startsWith(WHOLE_COPIES));
+  } finally {
+    await load();
   }
-  savingPrice = false;
-  render();
-  if (saved && (newCopies || amount !== before?.publication_usd)) await goLive();
+  if (newCopies || amount !== before?.publication_usd) void goLive();
 }
 
 /** @param {Snapshot} s */
@@ -910,7 +830,7 @@ function renderStore(s) {
   }
   lead.append(text);
   const prices = el("div", "prices");
-  prices.append(editingPrice ? priceEditor(s) : priceRow(s));
+  prices.append(priceRow(s));
   if (s.pricing.answer_enabled) {
     const answers = el("div");
     answers.append(document.createTextNode(`${price(s.pricing.answer_usd)} `), el("span", "", "an answer"));
@@ -1329,29 +1249,203 @@ function sourceRows(s) {
   return rows;
 }
 
-/** A narrow modal: a title, the app's mark, and whatever follows. It opens on the first thing to
- * fill in or do, not on ×. @param {string} title @param {HTMLElement} mark @param {HTMLElement[]} body */
-function sheet(title, mark, ...body) {
-  closeSheet();
-  const node = el("dialog", "sheet narrow");
-  node.setAttribute("aria-label", title);
-  const panel = el("div", "card sheet-panel");
-  const head = el("div", "sheet-head");
-  const text = el("div", "t");
-  text.append(el("b", "", title));
-  const close = el("button", "icon-btn", "×");
-  close.type = "button";
-  close.setAttribute("aria-label", "Close");
-  close.addEventListener("click", () => node.close());
-  head.append(mark, text, close);
-  panel.append(head, ...body);
-  node.append(panel);
-  node.addEventListener("click", (event) => { if (event.target === node) node.close(); });
-  node.addEventListener("close", () => node.remove());
-  document.body.append(node);
-  node.showModal();
-  /** @type {HTMLElement | null} */ (panel.querySelector("input") ?? panel.querySelector(".btn.primary:not(:disabled), .btn.secondary") ?? panel.querySelector(".actions .btn"))?.focus();
-  return node;
+const CHEVRON = `<svg class="form-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 10l4-4 4 4M8 14l4 4 4-4"></path></svg>`;
+
+/** APP-201: the one sheet for setting a value anywhere in the app. An optional borderless title, a prompt that grows
+ * as it fills, grouped rows of label and control, and a footer whose primary waits until the form is valid. A native
+ * modal, so Escape closes it and focus stays inside; ⌘↩ submits from any field. */
+class FormSheet {
+  /** @param {string} heading @param {HTMLElement} [icon] */
+  constructor(heading, icon) {
+    closeSheet();
+    this.dialog = el("dialog", "sheet form-sheet");
+    this.dialog.setAttribute("aria-label", heading);
+    this.form = el("form", "form-panel");
+    // Lore says what is wrong with a field in its own words, in the sheet; the browser's bubbles would say it twice.
+    this.form.noValidate = true;
+    const head = el("header", "form-head");
+    const close = el("button", "icon-btn", "×");
+    close.type = "button";
+    close.setAttribute("aria-label", "Close");
+    close.addEventListener("click", () => this.close());
+    head.append(...(icon ? [icon] : []), el("h2", "", heading), close);
+    this.body = el("div", "form-body");
+    this.problem = problemLine();
+    this.aside = el("div", "form-aside");
+    this.actions = el("div", "actions");
+    const foot = el("footer", "form-foot");
+    foot.append(this.aside, this.actions);
+    this.form.append(head, this.body, foot);
+    this.dialog.append(this.form);
+    /** @type {HTMLButtonElement | null} */
+    this.primary = null;
+    this.valid = () => true;
+    /** @type {() => unknown} */
+    this.submit = () => undefined;
+    this.failed = "";
+    /** @type {string | undefined} */
+    this.working = undefined;
+    this.busy = false;
+    this.form.addEventListener("input", () => this.refresh());
+    // ⌘↩ anywhere, and ↩ in a one-line field, as a native form would.
+    this.form.addEventListener("keydown", (event) => {
+      if (event.key !== "Enter" || event.defaultPrevented) return;
+      if (!(event.metaKey || event.ctrlKey || event.target instanceof HTMLInputElement)) return;
+      event.preventDefault();
+      this.form.requestSubmit();
+    });
+    this.form.addEventListener("submit", (event) => { event.preventDefault(); void this.run(); });
+    // The form fills the dialog, so a click that lands on the dialog itself came from the backdrop.
+    this.dialog.addEventListener("click", (event) => { if (event.target === this.dialog) this.close(); });
+    this.dialog.addEventListener("close", () => this.dialog.remove());
+  }
+
+  /** A large borderless name; Enter moves on to the prompt. @param {string} placeholder */
+  title(placeholder) {
+    const field = this.watch(el("input", "form-title"));
+    field.type = "text";
+    field.placeholder = placeholder;
+    field.setAttribute("aria-label", placeholder);
+    field.addEventListener("keydown", (event) => {
+      if (event.key !== "Enter" || event.metaKey || event.ctrlKey) return;
+      event.preventDefault();
+      /** @type {HTMLElement | null} */ (this.body.querySelector("textarea"))?.focus();
+    });
+    this.body.append(field);
+    return field;
+  }
+
+  /** @param {string} label @param {string} [placeholder] */
+  prompt(label, placeholder = label) {
+    const area = this.watch(el("textarea", "form-prompt"));
+    area.placeholder = placeholder;
+    area.setAttribute("aria-label", label);
+    this.body.append(area);
+    return area;
+  }
+
+  /** A line of explanation above the rows. @param {string} text @param {string} [className] */
+  text(text, className = "form-lead") {
+    const node = el("p", className, text);
+    this.body.append(node);
+    return node;
+  }
+
+  /** Rows inside one rounded container, under a muted heading. @param {string} heading @param {HTMLElement[]} rows */
+  group(heading, rows) {
+    const node = el("section", "form-group");
+    if (heading) node.append(el("h3", "", heading));
+    const list = el("div", "form-rows");
+    list.append(...rows);
+    node.append(list);
+    this.body.append(node);
+    return node;
+  }
+
+  /** @param {string} label @param {...HTMLElement} controls */
+  row(label, ...controls) {
+    const node = el("label", "form-row");
+    node.append(el("span", "form-label", label), ...controls);
+    return node;
+  }
+
+  /** The value and a chevron, with the real select laid over the whole row, so the keyboard and screen readers get
+   * the platform's own. @param {string} label @param {Array<[string, string]>} options @param {string} value */
+  select(label, options, value) {
+    const control = this.watch(el("select"));
+    control.setAttribute("aria-label", label);
+    for (const [key, text] of options) {
+      const option = el("option", "", text);
+      option.value = key;
+      control.append(option);
+    }
+    control.value = value;
+    const shown = el("span", "form-value");
+    const show = () => { shown.textContent = control.selectedOptions[0]?.textContent ?? ""; };
+    control.addEventListener("change", show);
+    show();
+    const node = this.row(label, shown, control);
+    node.classList.add("pick");
+    shown.insertAdjacentHTML("afterend", CHEVRON);
+    return { row: node, control };
+  }
+
+  /** A row edited in place on its right.
+   * @param {string} label @param {{type?: string, placeholder?: string, inputMode?: string, value?: string, ariaLabel?: string}} props @param {string} [prefix] */
+  field(label, { type = "text", placeholder = "", inputMode = "", value = "", ariaLabel = label }, prefix = "") {
+    /** @type {HTMLInputElement} */
+    const control = this.watch(el("input"));
+    Object.assign(control, { type, placeholder, inputMode, value });
+    control.setAttribute("aria-label", ariaLabel);
+    const entry = el("span", "form-entry");
+    if (prefix) entry.append(el("span", "form-prefix", prefix));
+    entry.append(control);
+    return { row: this.row(label, entry), control };
+  }
+
+  /** Muted words beside the buttons. @param {string} text */
+  note(text) {
+    this.aside.append(el("p", "hint", text));
+  }
+
+  /** A button that is not the primary: quiet ones sit left, by the note. @param {string} label @param {"secondary" | "quiet"} kind @param {() => void} run */
+  button(label, kind, run) {
+    const node = button(label, kind, run);
+    (kind === "quiet" ? this.aside : this.actions).append(node);
+    return node;
+  }
+
+  /** Show it, with `primary` waiting on `valid` and doing `submit`. The sheet closes once `submit` settles, unless it
+   * answers false; what it throws is said in the sheet, under the rows.
+   * @param {{primary?: string, working?: string, valid?: () => boolean, submit?: () => unknown, failed?: string}} [spec] */
+  open({ primary, working, valid = () => true, submit = () => undefined, failed = "Lore couldn't do that. Try again." } = {}) {
+    Object.assign(this, { valid, submit, failed, working });
+    this.body.append(this.problem);
+    if (primary) {
+      this.primary = el("button", "btn primary sm", primary);
+      this.primary.type = "submit";
+      this.actions.append(this.primary);
+    }
+    this.refresh();
+    document.body.append(this.dialog);
+    this.dialog.showModal();
+    /** @type {HTMLElement | null} */ (this.body.querySelector("input, textarea") ?? this.form.querySelector(".btn.primary:not(:disabled)") ?? this.form.querySelector(".actions .btn"))?.focus();
+    return this;
+  }
+
+  close() {
+    this.dialog.close();
+  }
+
+  refresh() {
+    if (this.primary) this.primary.disabled = this.busy || !this.valid();
+  }
+
+  async run() {
+    const primary = this.primary;
+    if (!primary || primary.hidden || this.busy || !this.valid()) return;
+    const label = primary.textContent;
+    this.busy = true;
+    this.refresh();
+    this.problem.textContent = "";
+    if (this.working) primary.textContent = this.working;
+    try {
+      if (await this.submit() !== false) this.close();
+    } catch (error) {
+      if (this.dialog.isConnected) this.problem.textContent = reason(error, this.failed);
+    }
+    this.busy = false;
+    primary.textContent = label;
+    this.refresh();
+  }
+
+  /** A control that re-checks the form as it changes, even from an event that does not bubble.
+   * @template {HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement} T @param {T} control */
+  watch(control) {
+    control.addEventListener("input", () => this.refresh());
+    control.addEventListener("change", () => this.refresh());
+    return control;
+  }
 }
 
 /** A quiet line in a sheet for what went wrong there, so the owner corrects it in place. */
@@ -1362,9 +1456,9 @@ function problemLine() {
 }
 
 /** Connect from a sheet: it closes once the app is read, says in place why not, and closing it first
- * stops the connect. @param {HTMLDialogElement} dialog @param {HTMLElement} problem @param {SourceApp} app
+ * stops the connect. @param {FormSheet} form @param {SourceApp} app
  * @param {() => Promise<SourceEntry>} work @returns {Promise<boolean>} Whether it connected. */
-async function connectIn(dialog, problem, app, work) {
+async function connectIn({ dialog, problem }, app, work) {
   const stop = () => void window.lore.cancelConnect();
   dialog.addEventListener("close", stop);
   problem.textContent = "";
@@ -1390,55 +1484,50 @@ async function openConnect(app, current) {
   if (app.kind === "mcp") return openSignIn(app);
   const { name, unit, kind } = app;
   let locator = "";
-  const list = el("div", "choices");
-  const lead = el("p", "", `Choose a ${unit}.`);
-  const actions = el("div", "actions");
-  const problem = problemLine();
-  const connect = button(kind === "export" ? "Import" : `Connect ${name}`, "primary", async () => {
-    if (!locator) return;
-    connect.disabled = true;
-    connect.disabled = await connectIn(dialog, problem, app, () => window.lore.connectSource({ connector: app.id, locator, ...(current ? { replace: current.name } : {}) }));
-  });
-  connect.disabled = true;
-  /** @param {SourceChoice} choice @param {boolean} checked */
-  function option(choice, checked) {
-    const label = el("label", "choice");
-    const radio = el("input");
-    radio.type = "radio";
-    radio.name = "choice";
-    radio.checked = checked;
-    radio.addEventListener("change", () => { locator = choice.locator; connect.disabled = false; });
-    label.append(radio, el("b", "", choice.label), el("span", "hint mono", choice.locator));
-    list.append(label);
-    if (checked) radio.dispatchEvent(new Event("change"));
-  }
-  if (kind === "feed") {
-    lead.textContent = `Where is your ${unit}?`;
-    const field = el("input");
-    field.type = "url";
-    field.placeholder = app.placeholder;
-    field.setAttribute("aria-label", `${name} address`);
-    field.addEventListener("input", () => { locator = field.value.trim(); connect.disabled = !locator; });
-    field.addEventListener("keydown", (event) => { if (event.key === "Enter") connect.click(); });
-    list.append(field);
-  } else {
-    /** @type {SourceChoice[]} */
-    let choices = [];
+  /** What Lore is to read: the choice picked, or the address typed. */
+  let chosen = () => locator;
+  /** @type {SourceChoice[]} */
+  let choices = [];
+  if (kind !== "feed") {
     try {
       choices = await window.lore.sourceChoices(app.id);
     } catch (error) {
       tell(reason(error, "Lore could not look for that."), true);
       return;
     }
-    for (const choice of choices) option(choice, false);
-    if (!choices.length) lead.textContent = kind === "folder" ? `No ${many(unit)} found on this Mac.` : `Choose the ${unit} you downloaded.`;
-    const pick = kind === "folder" ? () => window.lore.pickFolder() : () => window.lore.pickFiles().then((paths) => paths[0] ?? null);
-    actions.append(button(kind === "folder" ? "Choose a folder…" : "Choose a file…", "quiet", () => void pick().then((path) => {
-      if (path) option({ label: path.split("/").at(-1) ?? path, locator: path, open: false }, true);
-    })));
   }
-  actions.append(connect);
-  const dialog = sheet(name, logo(app), lead, ...(app.guide ? [el("p", "hint", app.guide)] : []), list, el("p", "hint", "Read only. Stays on this Mac."), problem, actions);
+  const form = new FormSheet(name, logo(app));
+  const lead = form.text(kind === "feed" ? `Where is your ${unit}?` : choices.length ? `Choose a ${unit}.` : kind === "folder" ? `No ${many(unit)} found on this Mac.` : `Choose the ${unit} you downloaded.`);
+  if (app.guide) form.text(app.guide, "hint");
+  const rows = /** @type {HTMLElement} */ (form.group("", []).querySelector(".form-rows"));
+  /** @param {SourceChoice} choice @param {boolean} checked */
+  function option(choice, checked) {
+    const radio = el("input");
+    radio.type = "radio";
+    radio.name = "choice";
+    radio.addEventListener("change", () => { locator = choice.locator; form.refresh(); });
+    const row = form.row(choice.label, el("span", "hint mono", choice.locator), radio);
+    row.classList.add("form-option");
+    rows.append(row);
+    if (checked) { radio.checked = true; radio.dispatchEvent(new Event("change")); }
+  }
+  if (kind === "feed") {
+    const { row, control } = form.field("Address", { type: "url", placeholder: app.placeholder, ariaLabel: `${name} address` });
+    chosen = () => control.value.trim();
+    rows.append(row);
+  } else {
+    for (const choice of choices) option(choice, false);
+    const pick = kind === "folder" ? () => window.lore.pickFolder() : () => window.lore.pickFiles().then((paths) => paths[0] ?? null);
+    form.button(kind === "folder" ? "Choose a folder…" : "Choose a file…", "quiet", () => void pick().then((path) => {
+      if (path) option({ label: path.split("/").at(-1) ?? path, locator: path, open: false }, true);
+    }));
+  }
+  form.note("Read only. Stays on this Mac.");
+  form.open({
+    primary: kind === "export" ? "Import" : `Connect ${name}`,
+    valid: () => Boolean(chosen()),
+    submit: () => connectIn(form, app, () => window.lore.connectSource({ connector: app.id, locator: chosen(), ...(current ? { replace: current.name } : {}) }))
+  });
 }
 
 /** Sign in to an app that runs its own server: its own page, in the browser, lets Lore in, and Lore
@@ -1446,20 +1535,24 @@ async function openConnect(app, current) {
 function openSignIn(app) {
   const { name } = app;
   const invite = `Lore opens ${name} in your browser. Approve there, and Lore brings in ${app.what.toLowerCase()}.`;
-  const lead = el("p", "", invite);
-  const actions = el("div", "actions");
-  const problem = problemLine();
-  const start = button(`Sign in to ${name}`, "primary", () => void begin());
-  async function begin() {
-    lead.textContent = "Waiting for you to approve in your browser…";
-    actions.replaceChildren(button("Cancel", "quiet", () => dialog.close()));
-    if (await connectIn(dialog, problem, app, () => window.lore.signIn(app.id))) return;
-    lead.textContent = invite;
-    actions.replaceChildren(start);
-    start.focus();
-  }
-  actions.append(start);
-  const dialog = sheet(name, logo(app), lead, el("p", "hint", "Read only. Stays on this Mac."), problem, actions);
+  const form = new FormSheet(name, logo(app));
+  const lead = form.text(invite);
+  form.note("Read only. Stays on this Mac.");
+  form.open({
+    primary: `Sign in to ${name}`,
+    submit: async () => {
+      const start = /** @type {HTMLButtonElement} */ (form.primary);
+      lead.textContent = "Waiting for you to approve in your browser…";
+      start.hidden = true;
+      const cancel = form.button("Cancel", "secondary", () => form.close());
+      if (await connectIn(form, app, () => window.lore.signIn(app.id))) return true;
+      lead.textContent = invite;
+      cancel.remove();
+      start.hidden = false;
+      start.focus();
+      return false;
+    }
+  });
 }
 
 /** What a connected app reads, where it stands, and what can be done to it. @param {SourceApp} app @param {SourceEntry} source */
@@ -1467,38 +1560,32 @@ function openConnection(app, source) {
   const { name, unit } = app;
   const state = stateOf(app, source);
   const sell = sellAction(source);
-  const actions = el("div", "actions");
   const signedOut = state === SIGNED_OUT;
-  const resting = [
-    ...(source.imported ? [button(sell.label, "secondary", sell.run)] : []),
-    ...(signedOut
-      ? []
-      : source.state === "needs_permission"
-        ? [button("Open System Settings", "secondary", () => void window.lore.openPrivacySettings())]
-        : source.refresh === false
-          ? []
-          : [button("Read again", "secondary", () => void act(async () => {
-            const [read] = await window.lore.readSource(source.name);
-            dialog.close();
-            tell(read?.added ? `${plural(read.added, `new ${app.item}`)}. ${READING}` : "Nothing new.");
-          }))]),
-    app.kind === "mcp"
-      ? button("Sign in again", signedOut ? "secondary" : "quiet", () => openSignIn(app))
-      : button(`Change ${unit}`, "quiet", () => void openConnect(app, source)),
-    button("Disconnect", "quiet", ask)
-  ];
+  const form = new FormSheet(name, logo(app));
+  form.text(source.label === name ? state.line(app, source) : `${source.label} · ${state.line(app, source)}`);
+  if (app.kind !== "mcp") form.text(source.locator ?? "", "hint mono");
+  const standing = source.refresh === false ? `Read once. Change ${unit} to bring in a newer one.` : snapshot?.setup.schedule?.installed ? `Lore looks for new ${many(app.item)} each time your schedule runs.` : `Lore looks for new ${many(app.item)} only when you choose Read again.`;
+  form.text(standing, "hint");
+  form.button("Disconnect", "quiet", ask);
+  if (app.kind === "mcp") form.button("Sign in again", signedOut ? "secondary" : "quiet", () => openSignIn(app));
+  else form.button(`Change ${unit}`, "quiet", () => void openConnect(app, source));
+  if (source.imported) form.button(sell.label, "secondary", sell.run);
+  if (!signedOut && source.state === "needs_permission") form.button("Open System Settings", "secondary", () => void window.lore.openPrivacySettings());
+  else if (!signedOut && source.refresh !== false) form.button("Read again", "secondary", () => void act(async () => {
+    const [read] = await window.lore.readSource(source.name);
+    form.close();
+    tell(read?.added ? `${plural(read.added, `new ${app.item}`)}. ${READING}` : "Nothing new.");
+  }));
+  form.open();
   function ask() {
     const kept = source.imported ? ` The ${plural(source.imported, "memory")} it brought in ${source.imported === 1 ? "stays" : "stay"} in your library.` : "";
     const which = source.label || name;
-    const confirm = el("div", "actions");
-    const purge = button("Delete them too", "quiet", () => void remove(false));
-    purge.classList.add("destructive");
-    confirm.append(
-      ...(source.imported ? [purge] : []),
-      button("Cancel", "quiet", () => openConnection(app, source)),
-      button("Disconnect", "secondary", () => void remove(true))
-    );
-    sheet(`Disconnect ${which}?`, logo(app), el("p", "", `Lore stops reading ${which}.${kept}`), confirm);
+    const confirm = new FormSheet(`Disconnect ${which}?`, logo(app));
+    confirm.text(`Lore stops reading ${which}.${kept}`);
+    if (source.imported) confirm.button("Delete them too", "quiet", () => void remove(false)).classList.add("destructive");
+    confirm.button("Cancel", "secondary", () => openConnection(app, source));
+    confirm.button("Disconnect", "secondary", () => void remove(true));
+    confirm.open();
   }
   /** @param {boolean} keep */
   async function remove(keep) {
@@ -1508,9 +1595,6 @@ function openConnection(app, source) {
       tell(memories.deleted ? `Disconnected. ${plural(memories.deleted, "memory")} deleted.` : `Disconnected. ${plural(memories.kept, "memory")} kept.`);
     });
   }
-  actions.replaceChildren(...resting);
-  const standing = source.refresh === false ? `Read once. Change ${unit} to bring in a newer one.` : snapshot?.setup.schedule?.installed ? `Lore looks for new ${many(app.item)} each time your schedule runs.` : `Lore looks for new ${many(app.item)} only when you choose Read again.`;
-  const dialog = sheet(name, logo(app), el("p", "", source.label === name ? state.line(app, source) : `${source.label} · ${state.line(app, source)}`), ...(app.kind === "mcp" ? [] : [el("p", "hint mono", source.locator ?? "")]), el("p", "hint", standing), actions);
 }
 
 /** Connectors: where memories come from, and how often Lore reads them. First class: the way
@@ -1678,64 +1762,50 @@ async function runRoutineNow(routine) {
   await load();
 }
 
-/** When-to-run fields, filled from `time`. Reading your apps on an agent's schedule runs only daily or weekly, on Mondays.
- * @param {RoutineTime} time @param {boolean} [simple] @returns {[HTMLElement, () => RoutineTime]} */
-function timeFields(time, simple = false) {
-  const box = el("div", "time-fields");
-  /** @param {string} label @param {Array<[string, string]>} options @param {string} value */
-  const select = (label, options, value) => {
-    const node = el("select");
-    node.setAttribute("aria-label", label);
-    for (const [key, text] of options) {
-      const option = el("option", "", text);
-      option.value = key;
-      option.selected = key === value;
-      node.append(option);
-    }
-    box.append(node);
-    return node;
-  };
-  const cadences = /** @type {Array<[string, string]>} */ ([["daily", "Every day"], ...(simple ? [] : [["weekdays", "Every weekday"]]), ["weekly", "Every week"]]);
-  const cadence = select("How often", cadences, time.cadence);
-  const day = select("Which day", DAYS.map((name, index) => [String(index), `on ${name}`]), String(time.day));
-  const hour = select("What time", Array.from({ length: 24 }, (_, index) => [String(index), `at ${clock(index)}`]), String(time.hour));
-  const showDay = () => { day.hidden = simple || cadence.value !== "weekly"; };
-  cadence.addEventListener("change", showDay);
+/** The Schedule group: Repeat, On (only for a weekly rhythm) and At, filled from `time`. Reading your apps on an agent's
+ * schedule runs only daily or weekly, on Mondays. @param {FormSheet} form @param {RoutineTime} time @param {boolean} [simple]
+ * @returns {() => RoutineTime} */
+function scheduleRows(form, time, simple = false) {
+  const cadences = /** @type {Array<[string, string]>} */ ([["daily", "Every day"], ...(simple ? [] : [["weekdays", "Weekdays"]]), ["weekly", "Every week"]]);
+  const cadence = form.select("Repeat", cadences, time.cadence);
+  const day = form.select("On", DAYS.map((name, index) => [String(index), name]), String(time.day));
+  const hour = form.select("At", Array.from({ length: 24 }, (_, index) => [String(index), clock(index)]), String(time.hour));
+  const showDay = () => { day.row.hidden = simple || cadence.control.value !== "weekly"; };
+  cadence.control.addEventListener("change", showDay);
   showDay();
-  return [box, () => ({ cadence: /** @type {Routine["cadence"]} */ (cadence.value), hour: Number(hour.value), day: simple ? 0 : Number(day.value) })];
+  form.group("Schedule", [cadence.row, day.row, hour.row]);
+  return () => ({ cadence: /** @type {Routine["cadence"]} */ (cadence.control.value), hour: Number(hour.control.value), day: simple ? 0 : Number(day.control.value) });
 }
+
+const ROUTINE_NOTE = "Runs on this Mac while Lore is open. What it finds stays private.";
 
 /** @param {Routine} routine */
 function openRoutineTime(routine) {
-  const [fields, chosen] = timeFields({ cadence: routine.cadence, hour: routine.hour, day: routine.day ?? 0 }, !OWN_RHYTHM[routine.kind]);
-  const actions = el("div", "actions");
-  const dialog = sheet(`When “${routine.name}” runs`, mark(), fields, actions);
-  actions.append(button("Save", "primary", () => { dialog.close(); void changeRoutine(routine, "time", chosen()); }));
+  const form = new FormSheet("Change time");
+  form.text(routine.name);
+  const chosen = scheduleRows(form, { cadence: routine.cadence, hour: routine.hour, day: routine.day ?? 0 }, !OWN_RHYTHM[routine.kind]);
+  form.button("Cancel", "secondary", () => form.close());
+  form.open({ primary: "Save", submit: () => void changeRoutine(routine, "time", chosen()) });
 }
 
 /** A plain sentence and a time: Lore runs it on its own agent, under the rules its own reading keeps. */
 function openNewRoutine() {
-  const text = el("textarea");
-  text.rows = 3;
+  const form = new FormSheet("New automation");
+  const name = form.title("Title (optional)");
+  const text = form.prompt("Describe what Lore should do", "Describe what Lore should do.\nFor example: every Sunday, remember what I read this week.");
   text.maxLength = 500;
-  text.placeholder = "Every Sunday, remember what I read this week";
-  text.setAttribute("aria-label", "What should Lore do?");
-  const [fields, chosen] = timeFields({ cadence: "weekly", hour: 18, day: 6 });
-  const problem = problemLine();
-  const actions = el("div", "actions");
-  const dialog = sheet("New automation", mark(), el("p", "", "What should Lore do, and when?"), text, fields, el("p", "hint", "What it finds becomes private memories on this Mac. Nothing is ever published."), problem, actions);
-  const add = button("Add", "primary", async () => {
-    add.disabled = true;
-    try {
-      await window.lore.addRoutine(text.value, chosen());
-      dialog.close();
+  const chosen = scheduleRows(form, { cadence: "weekly", hour: 18, day: 6 });
+  form.note(ROUTINE_NOTE);
+  form.button("Cancel", "secondary", () => form.close());
+  form.open({
+    primary: "Create",
+    valid: () => Boolean(text.value.trim()),
+    failed: "Lore couldn't add that. Try again.",
+    submit: async () => {
+      await window.lore.addRoutine(text.value, chosen(), name.value.trim());
       await load();
-    } catch (error) {
-      problem.textContent = reason(error, "Lore couldn't add that. Try again.");
-      add.disabled = false;
     }
   });
-  actions.append(add);
   text.focus();
 }
 
@@ -1782,57 +1852,26 @@ function render() {
   renderAccount();
 }
 
+/** The account row at the foot of the sidebar: who is signed in, and the menu that holds Settings, help and feedback. */
 function renderAccount() {
-  account.replaceChildren();
   const credential = auth?.credentials[0];
-  if (!credential) return;
   const [name, icon] = provider(credential);
-  const trigger = el("button", "account-trigger");
-  trigger.type = "button";
-  trigger.setAttribute("aria-haspopup", "menu");
-  trigger.setAttribute("aria-expanded", String(accountMenuOpen));
-  const who = el("div", "who");
-  who.append(el("b", "", "Signed in"));
-  const line = el("span");
-  if (icon) {
-    const img = el("img");
-    img.src = icon;
-    img.alt = "";
-    line.append(img);
-  }
-  const store = snapshot ? nodeLabel(snapshot.node.live.state) : "";
-  line.append(document.createTextNode(`${name}${snapshot?.node.url ? ` · ${store}` : ""}`));
-  who.append(line);
-  trigger.append(mark(), who);
-  trigger.addEventListener("click", (event) => {
-    event.stopPropagation();
-    accountMenuOpen = !accountMenuOpen;
-    renderAccount();
-  });
-  account.append(trigger);
-  if (accountMenuOpen) {
-    const menu = el("div", "account-menu");
-    menu.setAttribute("role", "menu");
-    const item = (/** @type {string} */ label, /** @type {() => void} */ onPick) => {
-      const node = el("button", "", label);
-      node.type = "button";
-      node.setAttribute("role", "menuitem");
-      node.addEventListener("click", () => { accountMenuOpen = false; onPick(); });
-      return node;
-    };
-    menu.append(item("Open Settings", () => show("settings")), item(`Sign out of ${name}`, () => void signOut(credential.providerId)));
-    account.append(menu);
-    /** @type {HTMLElement | null} */ (menu.querySelector("button"))?.focus({ preventScroll: true });
-  }
+  const avatar = el("span", "avatar");
+  if (icon) avatar.append(Object.assign(el("img"), { src: icon, alt: "" }));
+  const who = el("span", "who");
+  const store = snapshot?.node.url ? ` · ${nodeLabel(snapshot.node.live.state)}` : "";
+  who.append(el("b", "", credential ? "Signed in" : "Not signed in"), el("span", "", credential ? `${name}${store}` : ""));
+  account.replaceChildren(avatar, who);
+  account.insertAdjacentHTML("beforeend", CHEVRON);
+  accountLine.textContent = credential ? `Signed in with ${name}` : "Not signed in";
+  signOutBtn.hidden = !credential;
+  signOutBtn.textContent = `Sign out of ${name}`;
 }
 
 /** @param {View} next */
 function show(next) {
   view = next;
   if (next === "store") void loadSales();
-  // Leaving For Sale abandons a half-typed price rather than keeping the field
-  // open behind the owner's back.
-  if (next !== "store") editingPrice = false;
   // A store update said once, where it happened; it doesn't follow the owner around.
   pushedNote = false;
   render();
@@ -1840,12 +1879,12 @@ function show(next) {
   mainEl.focus({ preventScroll: true });
 }
 
-/** Every "change the price" affordance lands on the one editor, on For Sale. */
+/** Every "change the price" affordance lands on For Sale, with the one price sheet open over it. */
 function openPriceEditor() {
-  editingPrice = true;
   detailTask = null;
   detailRecord = null;
   show("store");
+  openPriceSheet();
 }
 
 async function load() {
@@ -2738,28 +2777,23 @@ async function previewPage(candidate) {
 
 /** Paste writing to sell: Lore keeps it privately, then drafts a piece from it. */
 function openPasteSheet() {
-  const form = el("div", "feedback-form");
-  const title = draftField(form, "What it's about (optional)", "", true);
-  const text = /** @type {HTMLTextAreaElement} */ (draftField(form, "Your writing: a post, a postmortem, or notes", ""));
-  text.rows = 8;
-  const problem = problemLine();
-  const draft = button("Draft it for sale", "primary", async () => {
-    const content = text.value.trim();
-    if (!content) { problem.textContent = "Paste something first."; return; }
-    draft.disabled = true;
-    try {
+  const form = new FormSheet("Sell something you wrote");
+  const title = form.title("What it's about (optional)");
+  const text = form.prompt("Your writing", "Paste a post, a postmortem, or notes");
+  text.classList.add("tall");
+  form.note("Saved privately to your Lore. Nothing is public until you approve a draft.");
+  form.button("Cancel", "secondary", () => form.close());
+  form.open({
+    primary: "Draft it for sale",
+    valid: () => Boolean(text.value.trim()),
+    failed: "Lore could not save that.",
+    submit: async () => {
+      const content = text.value.trim();
       const [saved] = await window.lore.pasteMemory({ title: title.value.trim() || content.split("\n")[0].slice(0, 80), content });
-      dialog.close();
+      form.close();
       await publishMemory(saved);
-    } catch (error) {
-      problem.textContent = reason(error, "Lore could not save that.");
-      draft.disabled = false;
     }
   });
-  const actions = el("div", "actions");
-  actions.append(button("Cancel", "secondary", () => dialog.close()), draft);
-  form.append(el("p", "hint", "Saved privately to your Lore. Nothing is public until you approve a draft."), problem, actions);
-  const dialog = sheet("Sell something you wrote", mark(), form);
 }
 
 function seamCard() {
@@ -3332,7 +3366,22 @@ function showPeek(anchor, memory) {
 }
 mainEl.addEventListener("scroll", hidePeek, { passive: true });
 mainEl.addEventListener("scroll", () => mainEl.classList.toggle("scrolled", mainEl.scrollTop > 0), { passive: true });
+// The account menu is a native popover: Escape and a click elsewhere close it, and its trigger says whether it is open.
+for (const item of accountMenu.querySelectorAll("button")) item.addEventListener("click", () => accountMenu.hidePopover());
+for (const item of /** @type {NodeListOf<HTMLButtonElement>} */ (accountMenu.querySelectorAll("[data-view]"))) item.addEventListener("click", () => show(/** @type {View} */ (item.dataset.view)));
 feedbackBtn.addEventListener("click", openFeedbackDialog);
+signOutBtn.addEventListener("click", () => { const id = auth?.credentials[0]?.providerId; if (id) void signOut(id); });
+accountMenu.addEventListener("toggle", (event) => {
+  account.setAttribute("aria-expanded", String(/** @type {ToggleEvent} */ (event).newState === "open"));
+  if (/** @type {ToggleEvent} */ (event).newState === "open") /** @type {HTMLElement | null} */ (accountMenu.querySelector("button:not([hidden])"))?.focus();
+});
+accountMenu.addEventListener("keydown", (event) => {
+  if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
+  event.preventDefault();
+  const items = [...accountMenu.querySelectorAll("button:not([hidden])")].map((item) => /** @type {HTMLElement} */ (item));
+  const at = items.indexOf(/** @type {HTMLElement} */ (document.activeElement));
+  items[(at + (event.key === "ArrowDown" ? 1 : -1) + items.length) % items.length]?.focus();
+});
 for (const nav of navButtons) nav.addEventListener("click", () => {
   const next = /** @type {View} */ (nav.dataset.view);
   if (next === "today" && detailTask) closeTask();
@@ -3345,11 +3394,8 @@ welcomeRetry.addEventListener("click", () => {
 });
 document.addEventListener("keydown", (event) => {
   if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") { event.preventDefault(); openPalette(); }
-  if (event.key === "Escape" && accountMenuOpen) { accountMenuOpen = false; renderAccount(); }
+  if ((event.metaKey || event.ctrlKey) && event.key === ",") { event.preventDefault(); palette.close(); closeSheet(); show("settings"); }
   if (event.key === "Escape") hidePeek();
-});
-document.addEventListener("click", (event) => {
-  if (accountMenuOpen && !account.contains(/** @type {Node} */ (event.target))) { accountMenuOpen = false; renderAccount(); }
 });
 
 for (const node of document.querySelectorAll("[data-login]")) {

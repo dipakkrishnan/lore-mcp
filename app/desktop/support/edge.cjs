@@ -234,12 +234,14 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         await shot("settings-store");
         // APP-019: one editor on For Sale; a saved price the node does not charge yet is standing state on For Sale and Today.
         await js(`[...document.querySelectorAll("#content button")].find((b) => /^(Set a price|Change)$/.test(b.textContent)).click()`);
-        await waitFor(`document.querySelector("#content .price-edit input")`);
-        check("Settings' Change price lands on the For Sale editor", await js(`document.querySelector("#title").textContent === "For Sale" && document.activeElement === document.querySelector("#content .price-edit input")`));
-        await js(`{ const field = document.querySelector("#content .price-edit input"); field.value = "0"; field.form.requestSubmit(); }`);
+        const priceInput = `document.querySelector("dialog.form-sheet[open] input[aria-label='Price per publication in US dollars']")`;
+        await waitFor(priceInput);
+        check("Settings' Change price lands on For Sale with the price sheet open on its field", await js(`document.querySelector("#title").textContent === "For Sale" && document.querySelector("dialog.form-sheet[open]")?.getAttribute("aria-label") === "Price" && document.activeElement === ${priceInput}`));
+        await js(`{ const field = ${priceInput}; field.value = "0"; field.form.requestSubmit(); }`);
         await sleep(300);
-        check("zero is refused with the editor still open", await js(`document.querySelector("#status .notice.attention")?.textContent.includes("above zero") && Boolean(document.querySelector("#content .price-edit"))`));
-        await js(`{ const field = document.querySelector("#content .price-edit input"); field.value = "0.75"; field.form.requestSubmit(); }`);
+        check("zero is refused in the sheet, which stays open", await js(`document.querySelector("dialog.form-sheet[open] .problem")?.textContent.includes("above zero") && Boolean(${priceInput})`));
+        await js(`{ const field = ${priceInput}; field.value = "0.75"; field.form.requestSubmit(); }`);
+        check("a saved price closes the sheet", await waitFor(`!document.querySelector("dialog.form-sheet[open]")`));
         await waitFor(`document.querySelector("#content").textContent.includes("Your store still charges $0.02.")`);
         check("a saved price the node does not charge yet says so on For Sale", await js(`document.querySelector("#content .store-bar").textContent.includes("$0.75") && document.querySelector("#content .store-bar").textContent.includes("Your store still charges $0.02.")`));
         await shot("store-stale-price");
@@ -347,10 +349,10 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         check("the row carries the app's own mark", await js(`[...document.querySelectorAll("#content .row")].find((r) => r.textContent.includes("Obsidian"))?.querySelector("img.logo")?.getAttribute("src")`) === "assets/obsidian.svg");
         await shot("settings-obsidian-offered");
         await js(rowButton);
-        check("Connect lists the vault by name; nothing to type or browse", await waitFor(`document.querySelector("dialog.sheet[open] .choice")?.textContent.includes("Edge Vault")`));
+        check("Connect lists the vault by name; nothing to type or browse", await waitFor(`document.querySelector("dialog.sheet[open] .form-option")?.textContent.includes("Edge Vault")`));
         check("Connect waits for a choice", await js(`document.querySelector("dialog.sheet[open] .btn.primary").disabled`));
         await shot("obsidian-choose");
-        await js(`document.querySelector("dialog.sheet[open] .choice input").click()`);
+        await js(`document.querySelector("dialog.sheet[open] .form-option input").click()`);
         await js(`document.querySelector("dialog.sheet[open] .btn.primary").click()`);
         check("the row turns Connected and says what was kept", await waitFor(`/Connected/.test(${rowText}) && /2 notes kept/.test(${rowText})`));
         check("the sheet closed on its own", await js(`document.querySelector("dialog.sheet[open]") === null`));
@@ -397,15 +399,15 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
 
         // Obsidian: choose among vaults; a change to a vault that is gone leaves the working one alone.
         await js(clickOn("Obsidian"));
-        check("Obsidian offers every vault it knows", await waitFor(`document.querySelectorAll("dialog.sheet[open] .choice").length === 2`));
-        await js(`[...document.querySelectorAll("dialog.sheet[open] .choice")].find((c) => c.textContent.includes("Edge Vault")).querySelector("input").click()`);
+        check("Obsidian offers every vault it knows", await waitFor(`document.querySelectorAll("dialog.sheet[open] .form-option").length === 2`));
+        await js(`[...document.querySelectorAll("dialog.sheet[open] .form-option")].find((c) => c.textContent.includes("Edge Vault")).querySelector("input").click()`);
         await js(`${primary}.click()`);
         check("a vault connects and says what it kept", await waitFor(`/Connected/.test(${textOf("Obsidian")}) && /2 notes kept/.test(${textOf("Obsidian")})`), await js(textOf("Obsidian")));
         await js(clickOn("Obsidian"));
         await waitFor(`document.querySelector("dialog.sheet[open]")`);
         await js(`[...document.querySelectorAll("dialog.sheet[open] button")].find((b) => b.textContent === "Change vault").click()`);
-        await waitFor(`document.querySelectorAll("dialog.sheet[open] .choice").length === 2`);
-        await js(`[...document.querySelectorAll("dialog.sheet[open] .choice")].find((c) => c.textContent.includes("Stale Vault")).querySelector("input").click()`);
+        await waitFor(`document.querySelectorAll("dialog.sheet[open] .form-option").length === 2`);
+        await js(`[...document.querySelectorAll("dialog.sheet[open] .form-option")].find((c) => c.textContent.includes("Stale Vault")).querySelector("input").click()`);
         await js(`${primary}.click()`);
         const problem = `(document.querySelector("dialog.sheet[open] .problem")?.textContent ?? "")`;
         check("a change to a vault that is gone is refused in the sheet, by name, and the sheet stays open", await waitFor(`/can't reach Stale Vault/.test(${problem}) && !${primary}.disabled`) && await js(`!document.querySelector("#status .notice.attention")`), await js(problem));
@@ -515,7 +517,7 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         check("…and says where to get it", await js(`document.querySelector("dialog.sheet[open]").textContent.includes("Settings → Data controls → Export data")`));
         await shot("export-how-to");
         await js(`[...document.querySelectorAll("dialog.sheet[open] button")].find((b) => b.textContent === "Choose a file…").click()`);
-        check("the chosen file is offered, selected", await waitFor(`${primary}.disabled === false && document.querySelector("dialog.sheet[open] .choice input").checked`));
+        check("the chosen file is offered, selected", await waitFor(`${primary}.disabled === false && document.querySelector("dialog.sheet[open] .form-option input").checked`));
         await js(`${primary}.click()`);
         check("an export imports and says what it kept", await waitFor(`/^ChatGPT2 conversations kept/.test(${textOf("ChatGPT")})`), await js(textOf("ChatGPT")));
         await js(clickOn("ChatGPT"));
@@ -544,6 +546,22 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         await waitFor(`document.body.dataset.state === "welcome" && !document.querySelector("#welcome").classList.contains("provisioning")`);
         await js(`window.__lore.signIn()`);
         await waitFor(`document.querySelector("#content .strip")`);
+        // APP-201: the sidebar holds the five places; Settings, help and feedback live in the account menu.
+        const nav = await js(`[...document.querySelectorAll("nav button")].map((b) => b.dataset.view).join()`);
+        check("the sidebar lists only the five main places", nav === "today,memories,store,connectors,automations", nav);
+        check("…and no lone feedback link outside the account menu", await js(`document.querySelector("#account-menu").contains(document.querySelector("#feedback-open")) && !document.querySelector("aside > .feedback-open")`));
+        await js(`document.querySelector("#account").click()`);
+        const menu = await js(`[...document.querySelectorAll("#account-menu button:not([hidden]), #account-menu p")].map((b) => b.textContent).join("|")`);
+        check("the account row opens a menu: Settings, Help & FAQ, feedback when it can be sent, then who is signed in", /^Settings⌘,\|Help & FAQ\|(Report feedback\|)?Signed in with Claude\|Sign out of Claude$/.test(menu), menu);
+        check("…with focus on its first item, and the row saying it is open", await js(`document.activeElement === document.querySelector("#account-menu [data-view=settings]") && document.querySelector("#account").getAttribute("aria-expanded") === "true"`));
+        await shot("account-menu");
+        await key("keyDown", "Escape");
+        await sleep(150);
+        check("Escape closes it", await js(`!document.querySelector("#account-menu").matches(":popover-open") && document.querySelector("#account").getAttribute("aria-expanded") === "false"`));
+        await js(`document.dispatchEvent(new KeyboardEvent("keydown", { key: ",", metaKey: true, bubbles: true }))`);
+        check("⌘, opens Settings", await waitFor(`document.querySelector("#title").textContent === "Settings"`));
+        await js(`document.querySelector("#account").click(); document.querySelector("#account-menu [data-view=faq]").click()`);
+        check("Help & FAQ lands on the FAQ, and the menu closes", await waitFor(`document.querySelector("#title").textContent === "FAQ"`) && await js(`!document.querySelector("#account-menu").matches(":popover-open")`));
         await js(`window.__lore.show("faq")`);
         await waitFor(`document.querySelector("#title").textContent === "FAQ"`);
         const faq = await js(`document.querySelector("#content").textContent`);
@@ -600,7 +618,10 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         })()`);
         const send = () => js(`document.querySelector("dialog.sheet .feedback-form").requestSubmit()`);
 
+        await js(`document.querySelector("#account").click()`);
+        check("Report feedback sits in the account menu, which opens from the account row", await waitFor(`document.querySelector("#account-menu").matches(":popover-open") && document.querySelector("#account-menu").contains(document.querySelector("#feedback-open"))`));
         await js(`document.querySelector("#feedback-open").click()`);
+        check("…and the menu closes as the sheet opens", await js(`!document.querySelector("#account-menu").matches(":popover-open")`));
         check("the dialog opens", await waitFor(`!!document.querySelector("dialog.sheet .feedback-form")`));
         check("Send enables once both required fields are filled", await fill("Something to report"));
         await send();
@@ -624,7 +645,7 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         // The second reproduction: the success path used to call closeSheet(),
         // which closes whichever sheet is open — including one opened, and
         // edited, while the report was still out.
-        await js(`document.querySelector("#feedback-open").click()`);
+        await js(`document.querySelector("#account").click(); document.querySelector("#feedback-open").click()`);
         await waitFor(`!!document.querySelector("dialog.sheet .feedback-form")`);
         await fill("A second report");
         await send();
@@ -634,7 +655,7 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         await js(`document.querySelector("#content .task-link").click()`);
         check("another sheet opens while the report is in flight", await waitFor(`!!document.querySelector("dialog.sheet .btn.quiet")`));
         await sleep(2500);
-        check("the in-flight report did not close the sheet opened after it", await js(`(() => { const open = [...document.querySelectorAll("dialog.sheet")]; return open.length === 1 && open[0].open === true && !open[0].classList.contains("narrow"); })()`));
+        check("the in-flight report did not close the sheet opened after it", await js(`(() => { const open = [...document.querySelectorAll("dialog.sheet")]; return open.length === 1 && open[0].open === true && !open[0].classList.contains("form-sheet"); })()`));
         check("the second report filed once", relayReports.length === 2, `relay saw ${relayReports.length}`);
         await shot("feedback-other-sheet-survives");
       } else if (scenario === "sell") {
@@ -720,9 +741,10 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         check("paid answers get their own row", await js(`${rowOf("Paid answers")}?.textContent.includes("$0.10 per answer")`));
         check("the home folder is one click from Finder", await js(`${rowOf("Where it lives")}?.textContent.includes("Show in Finder")`));
         await js(`${rowOf("Price")}.querySelector("button").click()`);
-        await waitFor(`Boolean(document.querySelector("#content .price-edit"))`);
-        check("Change opens one editor for price and free copies", await js(`document.querySelectorAll("#content .price-edit input").length === 2 && document.querySelector("#title").textContent === "For Sale"`));
-        await js(`{ const [amount, copies] = document.querySelectorAll("#content .price-edit input"); amount.value = "0.75"; copies.value = "5"; amount.form.requestSubmit(); }`);
+        await waitFor(`Boolean(document.querySelector("dialog.form-sheet[open]"))`);
+        check("Change opens one sheet for price and free copies", await js(`[...document.querySelectorAll("dialog.form-sheet[open] .form-row")].map((r) => r.querySelector(".form-label").textContent).join("|") === "Price per piece|Free copies" && document.querySelectorAll("dialog.form-sheet[open] input").length === 2 && document.querySelector("#title").textContent === "For Sale"`));
+        await shot("store-price-sheet");
+        await js(`{ const [amount, copies] = document.querySelectorAll("dialog.form-sheet[open] input"); amount.value = "0.75"; copies.value = "5"; amount.form.requestSubmit(); }`);
         check("both save through the CLI", await waitFor(`window.lore.snapshot().then((s) => s.pricing.publication_usd === 0.75 && s.pricing.free_copies === 5)`));
         check("…and a live store is updated without being asked", await waitFor(`!document.querySelector("#status").textContent.includes("next push") && (document.querySelector("#content").textContent.includes("Your store is updated") || [...document.querySelectorAll("#content button")].some((b) => b.textContent === "Update store"))`));
         await shot("store-price-editor-saved");
@@ -858,9 +880,9 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         check("…so it shows paused after a fresh read", await js(`window.lore.routines().then((all) => all.find((r) => r.id === "checkin").paused)`) === true && (await js(`${rowOf("Evening check-in")}.textContent`)).includes("Paused"));
         await js(`${rowOf(SUNDAY)}.querySelector("details").open = true`);
         await js(`[...${rowOf(SUNDAY)}.querySelectorAll(".row-menu-items button")].find((b) => b.textContent === "Change time").click()`);
-        await waitFor(`document.querySelector("dialog.sheet[open] .time-fields")`);
+        await waitFor(`Boolean(document.querySelector("dialog.form-sheet[open] select"))`);
         await js(`{ const [cadence, , hour] = document.querySelectorAll("dialog.sheet[open] select"); cadence.value = "daily"; cadence.dispatchEvent(new Event("change")); hour.value = "7"; }`);
-        check("Change time hides the day for a daily rhythm", await js(`document.querySelectorAll("dialog.sheet[open] select")[1].hidden`));
+        check("Change time hides the day for a daily rhythm, and the row shows the choice", await js(`(() => { const [cadence, day] = document.querySelectorAll("dialog.sheet[open] select"); return day.closest(".form-row").hidden && cadence.closest(".form-row").querySelector(".form-value").textContent === "Every day"; })()`));
         await js(`document.querySelector("dialog.sheet[open] .btn.primary").click()`);
         check("…and saves the new time", await waitFor(`${rowOf(SUNDAY)}?.textContent.includes("Every day at 7 AM")`) && mine().hour === 7 && mine().cadence === "daily", JSON.stringify(mine()));
         await js(`${rowOf(SUNDAY)}.querySelector("details").open = true`);
@@ -893,7 +915,7 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         const earlier = (new Date().getHours() + 23) % 24;
         await js(`${rowOf("Evening check-in")}.querySelector("details").open = true`);
         await js(`[...${rowOf("Evening check-in")}.querySelectorAll(".row-menu-items button")].find((b) => b.textContent === "Change time").click()`);
-        await waitFor(`document.querySelector("dialog.sheet[open] .time-fields")`);
+        await waitFor(`Boolean(document.querySelector("dialog.form-sheet[open] select"))`);
         await js(`{ const [cadence, , hour] = document.querySelectorAll("dialog.sheet[open] select"); cadence.value = "daily"; cadence.dispatchEvent(new Event("change")); hour.value = "${earlier}"; }`);
         await js(`document.querySelector("dialog.sheet[open] .btn.primary").click()`);
         await waitFor(`${rowOf("Evening check-in")}?.textContent.includes("Every day at")`);
@@ -901,10 +923,22 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         check("…and moving it to an hour already past waits for tomorrow", checkInOf().hour === earlier && !checkInOf().due && Date.parse(checkInOf().next_run) - Date.now() > 20 * 60 * 60_000 && checkInOf().last_run.startsWith(new Date(Date.now() - 4 * 86400_000).toISOString().slice(0, 10)), JSON.stringify(checkInOf()));
         await js(`[...document.querySelectorAll("#content .btn")].find((b) => b.textContent === "New automation").click()`);
         await waitFor(`document.querySelector("dialog.sheet[open] textarea")`);
-        await js(`document.querySelector("dialog.sheet[open] textarea").value = "Each Friday, pick one memory worth selling"`);
+        const sheetRows = `[...document.querySelectorAll("dialog.form-sheet[open] .form-row:not([hidden])")].map((r) => r.querySelector(".form-label").textContent + "=" + r.querySelector(".form-value").textContent).join("|")`;
+        check("New automation opens on its prompt, with Create held until there is one", await js(`document.activeElement === document.querySelector("dialog.sheet[open] textarea") && document.querySelector("dialog.sheet[open] .btn.primary").textContent === "Create" && document.querySelector("dialog.sheet[open] .btn.primary").disabled`));
+        check("…a Schedule of Repeat, On and At, defaulting to Sunday at 6 PM", await js(sheetRows) === "Repeat=Every week|On=Sunday|At=6 PM", await js(sheetRows));
+        check("…offering only what Lore runs", await js(`[...document.querySelector("dialog.sheet[open] select").options].map((o) => o.value).join()`) === "daily,weekdays,weekly");
+        await shot("automations-new-empty");
+        await js(`{ const t = document.querySelector("dialog.sheet[open] textarea"); t.value = "Each Friday, pick one memory worth selling"; t.dispatchEvent(new Event("input", { bubbles: true })); }`);
         await shot("automations-new");
         await js(`document.querySelector("dialog.sheet[open] .btn.primary").click()`);
         check("New automation adds one from a plain sentence and a time", await waitFor(`${rowOf("Each Friday, pick one memory worth selling")}`) && (await js(`${rowOf("Each Friday, pick one memory worth selling")}.textContent`)).includes("Every Sunday at 6 PM"));
+        // A title names it; the sentence is still what Lore does. ⌘↩ creates it from the prompt.
+        await js(`[...document.querySelectorAll("#content .btn")].find((b) => b.textContent === "New automation").click()`);
+        await waitFor(`document.querySelector("dialog.sheet[open] textarea")`);
+        await js(`{ const f = document.querySelector("dialog.sheet[open]"); f.querySelector(".form-title").value = "Morning notes"; const t = f.querySelector("textarea"); t.value = "Remember what I wrote this morning"; t.dispatchEvent(new Event("input", { bubbles: true })); const [cadence, day, hour] = f.querySelectorAll("select"); day.value = "4"; day.dispatchEvent(new Event("change")); hour.value = "8"; hour.dispatchEvent(new Event("change")); t.focus(); }`);
+        check("…the weekly day shows what was picked", await js(sheetRows) === "Repeat=Every week|On=Friday|At=8 AM", await js(sheetRows));
+        await js(`document.querySelector("dialog.sheet[open] textarea").dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", metaKey: true, bubbles: true }))`);
+        check("…and ⌘↩ adds it under its own title", await waitFor(`${rowOf("Morning notes")}`) && (await js(`${rowOf("Morning notes")}.textContent`)).includes("Every Friday at 8 AM") && listed().some((/** @type {Routine} */ r) => r.name === "Morning notes"));
         await js(`${rowOf(SUNDAY)}.querySelector("details").open = true`);
         await js(`[...${rowOf(SUNDAY)}.querySelectorAll(".row-menu-items button")].find((b) => b.textContent === "Remove").click()`);
         check("Remove takes the owner's own away for good", await waitFor(`!${rowOf(SUNDAY)}`) && !listed().some((/** @type {Routine} */ r) => r.name === SUNDAY));

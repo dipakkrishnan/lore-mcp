@@ -319,7 +319,7 @@ interface Window {
     routines(): Promise<Routine[]>;
     runRoutine(id: string): Promise<void>;
     changeRoutine(id: string, action: "pause" | "resume" | "remove" | "time", when?: RoutineTime): Promise<void>;
-    addRoutine(text: string, when: RoutineTime): Promise<Routine>;
+    addRoutine(text: string, when: RoutineTime, title?: string): Promise<Routine>;
     dismissCheckIn(): Promise<void>;
     openPrivacySettings(): Promise<void>;
     pathFor(file: File): string;

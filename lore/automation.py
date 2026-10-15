@@ -405,6 +405,8 @@ class Saved(BaseModel):
     mark: int | None = None
     # What the owner asked for, in their words, for a routine they added.
     prompt: Annotated[str, Field(max_length=500)] = ""
+    # What the owner called it, when they gave it a name of its own.
+    title: Annotated[str, Field(max_length=120)] = ""
 
 
 class Routine:
@@ -602,7 +604,7 @@ class Ask(Routine):
 
     def __init__(self, routines: Routines, routine_id: str, saved: Saved | None):
         super().__init__(routines, routine_id, saved)
-        self.name = saved.prompt if saved else ""
+        self.name = (saved.title or saved.prompt) if saved else ""
 
     def rhythm(self) -> tuple[str, int, int]:
         saved = self.saved or Saved(since=self.routines.clock())
@@ -613,7 +615,7 @@ class Ask(Routine):
         )
 
     def run(self) -> dict[str, object]:
-        return {"ask": self.name}
+        return {"ask": self.saved.prompt if self.saved else ""}
 
 
 class Routines:
@@ -656,13 +658,15 @@ class Routines:
         return [routine.listed() for routine in routines if routine.runner]
 
     def add(
-        self, prompt: str, cadence: str, hour: int, day: int = 0
+        self, prompt: str, cadence: str, hour: int, day: int = 0, title: str = ""
     ) -> dict[str, object]:
-        """A routine of the owner's own: a sentence Lore runs at its time."""
+        """A routine of the owner's own: a sentence Lore runs at its time, named by
+        `title` or, without one, by the sentence."""
         prompt = " ".join(prompt.split())
         if not prompt:
             raise ValueError("Say what Lore should do")
-        fields = {"prompt": prompt, "cadence": cadence, "hour": hour, "day": day}
+        fields = {"prompt": prompt, "title": " ".join(title.split())}
+        fields |= {"cadence": cadence, "hour": hour, "day": day}
         Saved.model_validate({"since": self.clock(), **fields})
         routine_id = f"r-{secrets.token_hex(4)}"
         self.save(routine_id, **fields)

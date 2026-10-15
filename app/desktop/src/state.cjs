@@ -353,10 +353,11 @@ async function changeRoutine(loreHome, id, action, when) {
   return lore(loreHome, ["automation", action, routineId(id), "--json"]);
 }
 
-/** One of the owner's own: a sentence, after `--` so one starting with a dash stays words. @param {string} loreHome @param {unknown} text @param {unknown} when @returns {Promise<Routine>} */
-async function addRoutine(loreHome, text, when) {
+/** One of the owner's own: a sentence, after `--` so one starting with a dash stays words. @param {string} loreHome @param {unknown} text @param {unknown} when @param {unknown} [title] A name; the sentence by default. @returns {Promise<Routine>} */
+async function addRoutine(loreHome, text, when, title = "") {
   if (typeof text !== "string" || !text.trim() || text.length > 500) throw new Error("Say what Lore should do, in a sentence");
-  return JSON.parse(await lore(loreHome, ["automation", "add", ...rhythmArgs(when), "--json", "--", text.trim()]));
+  const named = typeof title === "string" && title.trim() ? ["--title", title.trim().slice(0, 120)] : [];
+  return JSON.parse(await lore(loreHome, ["automation", "add", ...rhythmArgs(when), ...named, "--json", "--", text.trim()]));
 }
 
 module.exports = {

@@ -653,6 +653,31 @@ class AutomationsTest(LoreTestCase):
         with self.assertRaises(ValueError):
             automation.Routines().add("Fine", "daily", 24)
 
+    def test_an_owners_routine_goes_by_its_title_and_still_runs_its_sentence(
+        self,
+    ) -> None:
+        with captured() as output:
+            cli.main(
+                [
+                    "automation",
+                    "add",
+                    "--cadence",
+                    "weekdays",
+                    "--hour",
+                    "8",
+                    "--title",
+                    "  Morning   reading ",
+                    "--json",
+                    "--",
+                    "Remember what I read",
+                ]
+            )
+        added = json.loads(output.getvalue())
+        self.assertEqual(added["name"], "Morning reading")
+        with patch("lore.sources.Registry.read"):
+            ran = automation.Routines().run(added["id"])
+        self.assertEqual(ran["ask"], "Remember what I read")
+
     def test_pausing_an_agents_schedule_takes_it_down_and_resuming_puts_it_back(
         self,
     ) -> None:
