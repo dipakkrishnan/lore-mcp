@@ -662,6 +662,7 @@ function renderToday(s) {
   const parts = [];
   // A check-in leads Today, on the rare day there is one.
   if (checkIn && !detailTask) parts.push(checkInCard(checkIn));
+  if (!detailTask && howItWorks.shown()) parts.push(howItWorks.line());
   // Drafts and the push after approving show on Today and in the threads that draft.
   if (!detailTask || DRAFTING.has(detailTask)) {
     if (candidates.length || extraDrafts.length) parts.push(section("Approve what to sell", approvals(), el("span", "hint", "Buyers only ever get what you approve here.")));
@@ -712,6 +713,37 @@ function renderToday(s) {
   parts.push(strip);
   return parts;
 }
+
+/** Today's way into the FAQ for a new owner, until their first paid sale or until they close it. */
+class HowItWorks {
+  key = "lore.how-it-works.closed";
+
+  shown() {
+    const paid = Array.isArray(sales) && sales.some((sale) => sale.network !== "free");
+    try {
+      return !paid && !localStorage.getItem(this.key);
+    } catch {
+      return !paid;
+    }
+  }
+
+  line() {
+    const node = el("div", "how-it-works");
+    const close = el("button", "dismiss", "×");
+    close.type = "button";
+    close.setAttribute("aria-label", "Dismiss");
+    close.addEventListener("click", () => {
+      try {
+        localStorage.setItem(this.key, "1");
+      } catch {}
+      node.remove();
+    });
+    node.append(el("span", "", "New to Lore?"), button("How it works", "quiet", () => show("faq")), close);
+    return node;
+  }
+}
+
+const howItWorks = new HowItWorks();
 
 /** @param {Snapshot} s */
 function memoriesCountLabel(s) {
