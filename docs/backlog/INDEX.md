@@ -166,7 +166,6 @@ obsolete), then `priority` (P0 → P3).
 | [APP-187](./desktop-app/APP-187-count-only-live-pieces-in-for-sale.md) | Count only live pieces in the For Sale tab | P2 | XS | desktop-app | ready | APP-093, APP-091 | — | — | — |
 | [APP-188](./desktop-app/APP-188-order-settings-by-what-a-seller-changes-most.md) | Order Settings by what a seller changes most | P2 | S | desktop-app | ready | APP-136, APP-119, APP-184 | — | — | — |
 | [APP-189](./desktop-app/APP-189-show-the-price-on-approval-cards-and-preview-without-edit.md) | Show the price on approval cards and Preview without Edit | P2 | XS | desktop-app | ready | APP-136, APP-134, MON-041 | — | — | — |
-| [CAP-032](./capture/CAP-032-connect-letterboxd-and-goodreads-through-their-feeds.md) | Connect Letterboxd and Goodreads through their public feeds | P2 | S | capture | ready | CAP-005, CAP-008, CAP-033, CAP-034 | — | — | — |
 | [CAP-033](./capture/CAP-033-read-google-maps-saved-lists-from-a-takeout-export.md) | Read Google Maps saved lists and starred places from a Takeout export | P2 | S | capture | ready | CAP-006, CAP-032 | — | — | — |
 | [XC-006](./cross-cutting/XC-006-ship-the-owner-skills-as-agent-plugins.md) | Ship the owner skill pack as agent plugins with a marketplace entry | P3 | M | cross-cutting | ready | XC-005, ONB-001 | — | — | — |
 | [APP-058](./desktop-app/APP-058-measure-the-alpha-activation-funnel.md) | Measure the alpha activation funnel | P1 | S | desktop-app | in-progress | APP-001, APP-041, XC-030, XC-029, CLI-004 | XC-029, CLI-004 | — | — |
@@ -253,6 +252,7 @@ obsolete), then `priority` (P0 → P3).
 | [CAP-008](./capture/CAP-008-connect-medium-bluesky-and-any-blog-feed.md) | Connect Medium, Bluesky and any blog feed | P1 | S | capture | completed | CAP-005, CAP-003, STO-003 | — | "CAP-005 for FeedReader" | — |
 | [XC-037](./cross-cutting/XC-037-a-buyer-skill-any-agent-can-follow.md) | A buyer skill any agent can follow | P1 | S | cross-cutting | completed | XC-033, XC-034 | — | — | — |
 | [APP-128](./desktop-app/APP-128-dogfood-fixes-errors-in-the-sheet-cancellable-connect-own-words-only.md) | Dogfood fixes: errors in the sheet, cancellable connect, own words only | P1 | M | desktop-app | completed | CAP-009, APP-125, APP-127, APP-118, CAP-005, CAP-006 | — | — | — |
+| [CAP-032](./capture/CAP-032-connect-letterboxd-and-goodreads-through-their-feeds.md) | Connect Letterboxd and Goodreads through their public feeds | P2 | S | capture | completed | CAP-005, CAP-008, CAP-033, CAP-034 | — | — | — |
 | [XC-013](./cross-cutting/XC-013-test-the-worker-request-path-not-just-its-leaf-modules.md) | Test the Worker's request path, not just its leaf modules | P2 | M | cross-cutting | completed | XC-003, XC-004, MCP-001, MON-002, MON-003, MON-006 | — | — | — |
 | [XC-038](./cross-cutting/XC-038-delete-stale-docs-and-one-off-test-tooling.md) | Delete stale docs and one-off test tooling | P2 | S | cross-cutting | completed | — | — | — | — |
 | [APP-012](./desktop-app/APP-012-give-sections-a-readable-vertical-rhythm.md) | Give sections a readable vertical rhythm | P2 | S | desktop-app | completed | APP-009, APP-011 | — | — | — |

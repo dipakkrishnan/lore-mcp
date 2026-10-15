@@ -26,7 +26,7 @@ from typing import (
     TypeVar,
 )
 from urllib.error import HTTPError
-from urllib.parse import quote, urljoin, urlsplit
+from urllib.parse import parse_qs, quote, urlencode, urljoin, urlsplit
 from xml.etree.ElementTree import Element, ParseError
 
 import anyio
@@ -644,7 +644,7 @@ class FeedReader(Reader):
     # Mastodon is the whole of what this importer promises.
     pages = 5
     limit = 40
-    guesses = ("/feed", "/rss/", "/atom.xml", "/feed.json")
+    guesses: tuple[str, ...] = ("/feed", "/rss/", "/atom.xml", "/feed.json")
     # The app that writes the feed, for a reader that reads only that app's.
     generator: ClassVar[str] = ""
     # What a paid post arrives as: the free opening, then the prompt Substack
@@ -757,11 +757,15 @@ class FeedReader(Reader):
         if self.generator and _field(channel, "generator") != self.generator:
             return None
         self.label = _field(channel, "title") or self.label
-        return [
-            self._item(e, index)
-            for index, e in enumerate(channel)
-            if e.tag.rpartition("}")[2] in ("item", "entry")
-        ]
+        posts = []
+        for index, e in enumerate(channel):
+            if e.tag.rpartition("}")[2] not in ("item", "entry"):
+                continue
+            try:
+                posts.append(self._item(e, index))
+            except ValueError:
+                self.errors += 1
+        return posts
 
     def _json_feed(self, body: bytes) -> list[Item] | None:
         try:
@@ -906,6 +910,105 @@ class BlueskyFeed(FeedReader):
         return super().locate(f"@{handle}")
 
 
+class TasteFeed(FeedReader):
+    """A diary of things rated and reviewed: an entry with neither is empty."""
+
+    # The feed lives at one fixed address, so there is nowhere else to guess.
+    guesses = ()
+
+    def _taste(
+        self, entry: Element, title: str, done: str, rating: str, review: str
+    ) -> Item:
+        score = float(rating or 0)
+        said = f"{done}." + (f" Rated it {score:g} out of 5." if score else "")
+        link = _field(entry, "link")
+        return Item(
+            title,
+            "\n\n".join(filter(None, [said, review])),
+            link,
+            _date(_field(entry, "pubDate")),
+            excluded=not (score or review),
+            key=_field(entry, "guid") or link,
+        )
+
+
+class LetterboxdFeed(TasteFeed):
+    watched = re.compile(r"^Watched on \w+ \w+ \d+, \d{4}\.$", re.MULTILINE)
+    # Letterboxd's own pages, which sit where a username would.
+    reserved = frozenset(
+        "about activity actor apps cinematography composer contact director editor "
+        "festivals film films journal legal list lists members patron people pro "
+        "producer reviews search settings showdown studio tag writer".split()
+    )
+
+    @classmethod
+    def locate(cls, locator: str) -> tuple[str, str]:
+        typed = re.sub(r"^(https?://)?(www\.)?letterboxd\.com/", "", locator.strip())
+        user = typed.strip("@/").split("/")[0].lower()
+        if not re.fullmatch(r"\w+", user):
+            raise SourceError("Enter your Letterboxd username, like yourname")
+        if user in cls.reserved:
+            raise SourceError(
+                "That's a Letterboxd page, not a profile. "
+                "Paste your profile link, like letterboxd.com/yourname"
+            )
+        return f"https://letterboxd.com/{user}/rss/", user
+
+    def _item(self, entry: Element, index: int) -> Item:
+        film = _field(entry, "filmTitle")
+        # A list the owner made has no film of its own, and reads as a post.
+        if not film:
+            return super()._item(entry, index)
+        title = f"{film} ({_field(entry, 'filmYear')})"
+        watched = _field(entry, "watchedDate")
+        rewatch = _field(entry, "rewatch") == "Yes"
+        item = self._taste(
+            entry,
+            title,
+            f"{'Rewatched' if rewatch else 'Watched'} {title} on {watched}",
+            _field(entry, "memberRating"),
+            self.watched.sub("", _Html(_field(entry, "description")).text()).strip(),
+        )
+        return replace(item, dated=watched or item.dated)
+
+
+class GoodreadsFeed(TasteFeed):
+    profile = re.compile(
+        r"(\d+)|(?:https?://)?(?:www\.|m\.)?goodreads\.com/"
+        r"(?:user/show|review/list(?:_rss)?)/(\d+)(?:-[^/?#]*)?/?(?:\?(.*))?"
+    )
+
+    @classmethod
+    def locate(cls, locator: str) -> tuple[str, str]:
+        found = cls.profile.fullmatch(locator.strip())
+        if not found:
+            raise SourceError("Paste the link to your Goodreads profile")
+        # A private profile's feed only opens with the key Goodreads put in its link.
+        key = parse_qs(found.group(3) or "").get("key")
+        query = urlencode({"shelf": "read"} | ({"key": key[0]} if key else {}))
+        user = found.group(1) or found.group(2)
+        return f"https://www.goodreads.com/review/list_rss/{user}?{query}", ""
+
+    def name(self) -> str:
+        # The key only opens the feed; with or without it, the user is one place.
+        user = urlsplit(self.source.locator).path.rsplit("/", 1)[-1]
+        return f"{self.source.connector}-{user}"
+
+    def _item(self, entry: Element, index: int) -> Item:
+        self.label = _field(entry, "user_name") or self.label
+        book = _field(entry, "title")
+        read = _date(_field(entry, "user_read_at"))
+        item = self._taste(
+            entry,
+            book,
+            f"Read {book} by {_field(entry, 'author_name')}"
+            + (f", finished {read}" if read else ""),
+            _field(entry, "user_rating"),
+            _Html(_field(entry, "user_review")).text(),
+        )
+        return replace(item, dated=read or item.dated)
+
+
 class Substack(Connector):
     id = "substack"
     name = "Substack"
@@ -948,6 +1051,30 @@ class Blog(Connector):
     item = "post"
     reader = SiteFeed
     placeholder = "https://yourblog.com"
+
+
+class Letterboxd(Connector):
+    """Letterboxd's feed holds the fifty most recent diary entries, and the lists."""
+
+    id = "letterboxd"
+    name = "Letterboxd"
+    what = "Your films, with your ratings and reviews"
+    unit = "profile"
+    item = "film"
+    reader = LetterboxdFeed
+    placeholder = "yourname"
+
+
+class Goodreads(Connector):
+    """The read shelf's feed holds the hundred books most recently shelved."""
+
+    id = "goodreads"
+    name = "Goodreads"
+    what = "Your books, with your ratings and reviews"
+    unit = "profile"
+    item = "book"
+    reader = GoodreadsFeed
+    placeholder = "https://www.goodreads.com/user/show/12345-you"
 
 
 @dataclass(frozen=True)
