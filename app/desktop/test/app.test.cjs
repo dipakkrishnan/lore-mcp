@@ -147,7 +147,8 @@ test("desktop Bash is confined to Lore", { skip: process.platform !== "darwin" }
     await run("deploy", "true");
     assert.deepEqual(SandboxManager.getNetworkRestrictionConfig().allowedHosts, ["*"]);
     await run("setup", "true");
-    assert.ok(SandboxManager.getFsWriteConfig().allowOnly.includes(join(homedir(), ".codex/automations")));
+    // AUT-010: in the app Lore keeps the rhythm, so setup never writes an agent's scheduler.
+    assert.ok(!SandboxManager.getFsWriteConfig().allowOnly.includes(join(homedir(), ".codex/automations")));
     await run("capture", "true");
     assert.deepEqual(SandboxManager.getNetworkRestrictionConfig().allowedHosts, []);
   } finally {
@@ -163,7 +164,7 @@ test("desktop Bash reads the agents' memories, never their credential files", as
   const home = await mkdtemp(join(tmpdir(), "lore-policy-"));
   try {
     const { allowRead } = bashSandboxPolicy(home, "setup").filesystem;
-    for (const dir of [".claude/projects", ".codex/memories", ".codex/automations"]) assert.ok(allowRead.includes(join(homedir(), dir)), dir);
+    for (const dir of [".claude/projects", ".codex/memories"]) assert.ok(allowRead.includes(join(homedir(), dir)), dir);
     for (const dir of [".claude", ".codex"]) assert.ok(!allowRead.includes(join(homedir(), dir)), `${dir} root, which holds auth.json and credentials`);
   } finally {
     await rm(home, { recursive: true });
@@ -949,7 +950,7 @@ test("a CLI refusal explained over several lines reaches the owner as its Reason
     await writeFile(join(home, "automation", "profile.json"), JSON.stringify({ executor: "", cadence: "daily", hour: 21 }));
     await assert.rejects(schedule(), (error) => /^'' is not a valid Agent$/.test(error.message));
     // With no model named, Lore reads on the saved rhythm itself (AUT-009).
-    assert.equal((await readState(home)).setup.schedule?.executor, "lore");
+    assert.equal((await readState(home)).setup.schedule?.hour, 21);
   } finally {
     await rm(home, { recursive: true });
   }
@@ -1292,8 +1293,8 @@ test("Lore runs what is due once, then looks again at the next hour it keeps, or
   t.mock.timers.enable({ apis: ["setTimeout"] });
   const now = Date.parse("2026-10-14T12:00:00Z");
   /** @param {Partial<Routine>} fields @returns {Routine} */
-  const routine = (fields) => ({ id: "synthesis", kind: "read", name: "Read connected apps", runner: "lore", cadence: "daily", hour: 9, last_run: null, result: "", next_run: "2026-10-15T09:00:00Z", due: false, ...fields });
-  let routines = [routine({ due: true }), routine({ id: "theirs", runner: "codex", next_run: "2026-10-14T12:05:00Z" })];
+  const routine = (fields) => ({ id: "synthesis", kind: "read", name: "Read connected apps", cadence: "daily", hour: 9, last_run: null, result: "", next_run: "2026-10-15T09:00:00Z", due: false, ...fields });
+  let routines = [routine({ due: true }), routine({ id: "theirs", next_run: "2026-10-14T13:00:00Z" })];
   /** @type {string[]} */
   const ran = [];
   let looks = 0;
@@ -1303,10 +1304,10 @@ test("Lore runs what is due once, then looks again at the next hour it keeps, or
   }, () => now);
   // A launch and a wake at the same moment are one look, so a missed hour runs once.
   await Promise.all([schedule.check(), schedule.check()]);
-  assert.deepEqual(ran, ["synthesis"], "only the routine Lore runs, and only once");
+  assert.deepEqual(ran, ["synthesis"], "only what is due, and only once");
   assert.equal(looks, 2, "once to run what was due, once more to see what is next");
   t.mock.timers.tick(30 * 60_000 - 1);
-  assert.equal(looks, 2, "another app's earlier hour is not Lore's to wait for");
+  assert.equal(looks, 2, "it waits for the soonest hour any routine names");
   // The timer's own look is under way, so this waits for it rather than starting another.
   t.mock.timers.tick(1);
   await schedule.check();
@@ -1533,7 +1534,7 @@ test("Run now waits for a scheduled run under way, so the two never overlap", as
   const order = [];
   /** @type {() => void} */
   let finish = () => {};
-  const routine = /** @type {Routine} */ ({ id: "synthesis", kind: "read", name: "Read connected apps", runner: "lore", cadence: "daily", hour: 9, last_run: null, result: "", next_run: "2026-10-15T09:00:00Z", due: true });
+  const routine = /** @type {Routine} */ ({ id: "synthesis", kind: "read", name: "Read connected apps", cadence: "daily", hour: 9, last_run: null, result: "", next_run: "2026-10-15T09:00:00Z", due: true });
   const schedule = new Schedule(async () => [routine], async (due) => {
     order.push(`start ${due.id}`);
     if (due.id === "synthesis") await new Promise((done) => { finish = () => done(undefined); });

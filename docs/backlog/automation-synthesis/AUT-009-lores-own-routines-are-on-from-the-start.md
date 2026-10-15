@@ -10,7 +10,7 @@ blockers: []
 dependencies: []
 github_issue: null
 created: 2026-10-14
-updated: 2026-10-14
+updated: 2026-10-15
 ---
 
 ## Problem
@@ -63,3 +63,6 @@ Oct 14, done:
 - `lore profile` with an empty executor still reports that no agent schedule
   was installed, though Lore now reads for it; the guided setup always names
   one.
+
+Oct 15: AUT-010 supersedes "A profile naming Claude Code or Codex keeps that
+agent reading". In the app, Lore takes that reading over on launch.

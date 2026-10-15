@@ -3,6 +3,7 @@ from __future__ import annotations
 import fcntl
 import json
 import os
+import re
 import secrets
 import shlex
 import sys
@@ -25,7 +26,6 @@ from pydantic import (
 from windup import Task
 from windup import install as install_task
 from windup import remove as remove_task
-from windup import status as task_status
 
 from .paths import claude_home, codex_home, home
 from .store import STATUSES
@@ -42,8 +42,9 @@ AUTOMATION_ID = "lore-memory-synthesis"
 
 
 class Agent(str, Enum):
-    """Supported synthesis agents. Lore itself is the desktop app, which runs the
-    schedule while it is open and catches up once when it next opens."""
+    """Who runs the synthesis. Claude and Codex serve an owner without the app, from
+    the terminal; in the app, Lore runs every routine itself while it is open and
+    catches up once when it next opens (AUT-010)."""
 
     CLAUDE = "claude"
     CODEX = "codex"
@@ -66,8 +67,10 @@ class AutomationProfile(BaseModel):
     boundaries: str | None = None
     executor: Agent | Literal[""] | None = None
     model: str | None = None
-    cadence: Literal["daily", "weekly"] | None = None
+    cadence: Literal["daily", "weekdays", "weekly"] | None = None
     hour: Annotated[int, Field(strict=True, ge=0, le=23)] | None = None
+    # The day of a weekly rhythm, 0 for Monday.
+    day: Annotated[int, Field(strict=True, ge=0, le=6)] | None = None
 
     @field_validator(
         "role",
@@ -319,11 +322,7 @@ def remove_all() -> None:
 
 
 def install(profile: dict[str, object]) -> Path:
-    """Install the selected executor's recurring synthesis task."""
-    if profile.get("executor") == Agent.LORE:
-        # The app reads on this schedule itself, so neither agent may also run it.
-        remove_all()
-        return profile_path()
+    """Install the selected agent's recurring synthesis task."""
     task = task_for(profile)
     other = Agent.CLAUDE if task.agent == Agent.CODEX else Agent.CODEX
     # Keep the current schedule alive unless its replacement installs successfully.
@@ -333,40 +332,22 @@ def install(profile: dict[str, object]) -> Path:
 
 
 def schedule_state() -> dict[str, object]:
-    """Who reads the connected apps and when, and whether that is really running.
+    """When Lore reads the connected apps, and whether it missed an hour while closed."""
+    routine = Routines().get(ReadApps.id).listed()
+    state = {key: routine[key] for key in ("paused", "cadence", "hour", "day")}
+    return state | {"last_run": routine["last_run"], "missed": routine["due"]}
 
-    A saved profile is not a running schedule: the install can fail, a sandbox
-    can skip it, and launchd can lose it. This asks the scheduler itself, so
-    the desktop reports execution rather than configuration (APP-084).
-    """
-    reading = Routines().get(ReadApps.id)
-    if reading.runner == Agent.LORE:
-        # Held by the app, so it is never "installed" anywhere else; what is
-        # honest to say is when it last ran and whether a run was missed.
-        routine = reading.listed()
-        return {
-            "installed": not routine["paused"],
-            "paused": routine["paused"],
-            "executor": Agent.LORE,
-            "cadence": routine["cadence"],
-            "hour": routine["hour"],
-            "last_run": routine["last_run"],
-            "missed": routine["due"],
-        }
+
+def codex_day() -> int:
+    """The day the owner's weekly Codex task runs, which they may have moved in Codex;
+    Monday, as it is installed."""
+    days = ("MO", "TU", "WE", "TH", "FR", "SA", "SU")
+    path = codex_home() / "automations" / AUTOMATION_ID / "automation.toml"
     try:
-        task = task_for(reading.routines.profile)
-    except ValueError:
-        return {"installed": False, "executor": None, "cadence": None, "hour": None}
-    state: dict[str, object] = {
-        "installed": task_status(task, codex_home=codex_home()),
-        "executor": task.agent,
-        "cadence": task.cadence,
-        "hour": task.hour,
-    }
-    # Taken down on purpose from Automations, not lost by the scheduler.
-    if reading.paused:
-        state["paused"] = True
-    return state
+        found = re.search(rf"BYDAY=({'|'.join(days)})\b", path.read_text())
+    except OSError:
+        found = None
+    return days.index(found[1]) if found else 0
 
 
 def next_run(cadence: str, hour: int, after: datetime, day: int = 0) -> datetime:
@@ -426,10 +407,6 @@ class Routine:
         self.saved = saved
 
     @property
-    def runner(self) -> str:
-        return Agent.LORE
-
-    @property
     def paused(self) -> bool:
         return bool(self.saved and self.saved.paused)
 
@@ -473,7 +450,6 @@ class Routine:
             "id": self.routine_id,
             "kind": self.kind,
             "name": self.name,
-            "runner": self.runner,
             "built_in": bool(self.id),
             "cadence": cadence,
             "hour": hour,
@@ -484,47 +460,31 @@ class Routine:
             "next_run": (
                 next_run(cadence, hour, latest, day) if due else owed
             ).isoformat(),
-            "due": due and self.runner == Agent.LORE and not self.paused,
+            "due": due and not self.paused,
         }
 
 
 class ReadApps(Routine):
-    """Read every connected app on the profile's rhythm (AUT-006), by the agent the
-    profile names, or by Lore itself when it names none."""
+    """Read every connected app on the profile's rhythm (AUT-006)."""
 
     id = "synthesis"
     kind = "read"
     name = "Read connected apps"
 
-    @property
-    def runner(self) -> str:
-        return str(self.routines.profile.get("executor") or Agent.LORE)
-
     def rhythm(self) -> tuple[str, int, int]:
         profile = self.routines.profile
-        # An agent reads at night as it always has; Lore reads in the morning, while
-        # it is likely open, so the evening check-in has the day's items to look at.
-        hour = profile.get("hour", 9 if self.runner == Agent.LORE else 21)
-        return str(profile.get("cadence", "daily")), int(str(hour)), 0
+        # In the morning, while Lore is likely open, so the evening check-in has the
+        # day's items to look at.
+        hour, day = profile.get("hour", 9), profile.get("day", 0)
+        return str(profile.get("cadence", "daily")), int(str(hour)), int(str(day))
 
     def change(self, **changes: object) -> None:
-        """Its rhythm lives in the profile, every day or every Monday, as the agents
-        schedule it; an agent's task is taken down while paused and put back after."""
-        profile = self.routines.profile
-        if "hour" in changes:
-            if changes.get("cadence") not in ("daily", "weekly"):
-                raise ValueError("Reading your apps runs every day or every week")
-            hour, cadence = changes.pop("hour"), changes.pop("cadence")
-            profile = save_profile({**profile, "hour": hour, "cadence": cadence})
-            self.routines.profile = profile
-            changes.pop("day", None)
+        """Its rhythm lives in the profile, where the onboarding sets it."""
+        keys = ("cadence", "hour", "day")
+        rhythm = {key: changes.pop(key) for key in keys if key in changes}
+        if rhythm:
+            self.routines.profile = save_profile({**self.routines.profile, **rhythm})
         super().change(**changes)
-        if self.runner == Agent.LORE or os.environ.get("LORE_SKIP_SCHEDULE") == "1":
-            return
-        if changes.get("paused", self.paused):
-            remove_all()
-        else:
-            install(profile)
 
     def run(self) -> dict[str, object]:
         from .sources import Connector, Registry
@@ -701,6 +661,33 @@ class Routines:
         self.save(ReadApps.id, since=self.clock(), paused=False)
         self.begin()
 
+    def take_over(self) -> None:
+        """AUT-010: in the app, Lore runs every routine. A reading Claude Code or Codex
+        ran becomes Lore's at the owner's rhythm, pause and all, and that agent's task
+        comes down. It counts from now, so nothing runs at once; once, since the
+        profile then names Lore."""
+        agents = (Agent.CLAUDE, Agent.CODEX)
+
+        def move(saved: dict[str, Saved]) -> None:
+            # Again under the lock: the app's other look at launch may have moved it.
+            del self.profile
+            agent = self.profile.get("executor")
+            if agent not in agents:
+                return
+            if os.environ.get("LORE_SKIP_SCHEDULE") != "1":
+                remove_all()
+            day = self.profile.get("day", codex_day() if agent == Agent.CODEX else 0)
+            moved = {**self.profile, "executor": Agent.LORE, "day": day}
+            self.profile = save_profile(moved)
+            now = self.clock()
+            reading = saved.get(ReadApps.id) or Saved(since=now)
+            saved[ReadApps.id] = reading.model_copy(update={"since": now})
+            with (home() / "automation/moved.log").open("a", encoding="utf-8") as log:
+                log.write(f"{now.isoformat()} reading moved from {agent} to Lore\n")
+
+        if self.profile.get("executor") in agents:
+            self._edit(move)
+
     def begin(self) -> None:
         """Set up any of Lore's own not yet kept: on from now, so turning one on by
         default never runs it at once. A record already kept, pause and all, stays."""
@@ -717,8 +704,6 @@ class Routines:
     def run(self, routine_id: str) -> dict[str, object]:
         """Run one of the app's routines now, and hand back what it brought."""
         routine = self.get(routine_id)
-        if routine.runner != Agent.LORE:
-            raise ValueError(f"Lore does not run a routine called {routine_id}")
         # Marked before the run, so a run that dies partway is not run again at once.
         self.save(routine_id, last_run=self.clock())
         ran = routine.run()

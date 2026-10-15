@@ -304,7 +304,7 @@ class LoreScheduleTest(LoreTestCase):
         self.assertEqual(automation.next_run("weekly", 9, local(14, 8)), local(19, 9))
         self.assertEqual(automation.next_run("weekly", 9, local(12, 8)), local(12, 9))
 
-    def test_lore_retires_both_agents_schedules_and_installs_nothing(self) -> None:
+    def test_lore_installs_and_removes_nothing(self) -> None:
         path = self.lore_home / "profile-input.json"
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(json.dumps(automation_profile(executor="lore")))
@@ -315,10 +315,7 @@ class LoreScheduleTest(LoreTestCase):
         ):
             self.assertEqual(cli.main(["profile", str(path)]), 0)
         install.assert_not_called()
-        self.assertEqual(
-            {call.args[0].agent for call in remove.call_args_list},
-            {automation.Agent.CLAUDE, automation.Agent.CODEX},
-        )
+        remove.assert_not_called()
         self.assertIn("while the app is open", output.getvalue())
         with self.assertRaisesRegex(ValueError, "no task to install"):
             automation.task_for({"executor": "lore"})
@@ -329,8 +326,8 @@ class LoreScheduleTest(LoreTestCase):
         self.routines(local(14, 8)).adopt()
         routine = self.routines(local(14, 8)).get("synthesis").listed()
         self.assertEqual(
-            (routine["id"], routine["kind"], routine["runner"], routine["due"]),
-            ("synthesis", "read", "lore", False),
+            (routine["id"], routine["kind"], routine["due"]),
+            ("synthesis", "read", False),
         )
         self.assertEqual(routine["next_run"], local(14, 9).isoformat())
         # Lore was closed for three mornings; the launch after owes one run, not three.
@@ -362,16 +359,6 @@ class LoreScheduleTest(LoreTestCase):
             "2 new meetings · 1 new note",
         )
 
-    def test_only_the_apps_own_routines_are_due_or_runnable(self) -> None:
-        automation.save_profile(automation_profile(executor="codex"))
-        self.routines(local(12, 1)).adopt()
-        routine = self.routines(local(20, 12)).get("synthesis").listed()
-        self.assertEqual((routine["runner"], routine["due"]), ("codex", False))
-        with self.assertRaisesRegex(ValueError, "does not run"):
-            self.routines(local(20, 12)).run("synthesis")
-        automation.save_profile(automation_profile(executor=""))
-        self.assertEqual(self.routines(local(20, 12)).get("synthesis").runner, "lore")
-
     def test_the_schedule_state_says_when_lore_missed_a_run(self) -> None:
         automation.save_profile(automation_profile(executor="lore", cadence="daily"))
         stamped = datetime.now(timezone.utc) - timedelta(days=2)
@@ -380,11 +367,10 @@ class LoreScheduleTest(LoreTestCase):
         self.assertEqual(
             state,
             {
-                "installed": True,
                 "paused": False,
-                "executor": "lore",
                 "cadence": "daily",
                 "hour": 9,
+                "day": 0,
                 "last_run": None,
                 "missed": True,
             },
@@ -434,21 +420,102 @@ class LoreScheduleTest(LoreTestCase):
         self.assertEqual(saved["elsewhere"].result, "kept")
         self.assertEqual(saved["synthesis"].result, "Nothing new")
 
-    def test_in_the_app_an_owner_with_no_agent_cli_gets_lore_as_the_runner(
+    def test_in_the_app_lore_runs_the_rhythm_whatever_the_profile_names(
         self,
     ) -> None:
         path = self.lore_home / "profile-input.json"
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps(automation_profile(executor="")))
-        with (
-            patch.dict(os.environ, {"LORE_APP_VERSION": "0.1.15"}),
-            patch("lore.cli.shutil.which", return_value=None),
-            patch("lore.automation.remove_task"),
-            captured(),
-        ):
-            self.assertEqual(cli.main(["profile", str(path)]), 0)
-        saved = json.loads(automation.profile_path().read_text())
-        self.assertEqual(saved["executor"], "lore")
+        for executor in ("", "codex", "claude"):
+            with self.subTest(executor=executor):
+                profile = automation_profile(executor=executor, cadence="weekdays")
+                path.write_text(json.dumps(profile))
+                with (
+                    patch.dict(os.environ, {"LORE_APP_VERSION": "0.1.15"}),
+                    patch("lore.automation.remove_task") as remove,
+                    patch("lore.automation.install_task") as install,
+                    captured(),
+                ):
+                    self.assertEqual(cli.main(["profile", str(path)]), 0)
+                install.assert_not_called()
+                remove.assert_not_called()
+                saved = json.loads(automation.profile_path().read_text())
+                self.assertEqual(saved["executor"], "lore")
+                self.assertEqual(saved["cadence"], "weekdays")
+
+
+class TakeOverTest(LoreTestCase):
+    """AUT-010: in the app, a reading Claude Code or Codex ran becomes Lore's."""
+
+    def codex_task(self, rule: str) -> None:
+        path = self.codex_home / "automations/lore-memory-synthesis"
+        path.mkdir(parents=True)
+        (path / "automation.toml").write_text(f'rrule = "{rule}"\n')
+
+    def test_a_codex_reading_keeps_its_rhythm_and_pause_and_its_task_comes_down(
+        self,
+    ) -> None:
+        automation.save_profile(automation_profile(cadence="weekly", hour=21))
+        self.codex_task("FREQ=WEEKLY;BYDAY=SU;BYHOUR=21;BYMINUTE=0")
+        automation.Routines(clock=lambda: local(1, 8)).change("synthesis", paused=True)
+        with patch("lore.automation.remove_task") as remove:
+            automation.Routines(clock=lambda: local(15, 22)).take_over()
+        self.assertEqual(
+            {call.args[0].agent for call in remove.call_args_list},
+            {automation.Agent.CLAUDE, automation.Agent.CODEX},
+        )
+        profile = json.loads(automation.profile_path().read_text())
+        self.assertEqual(
+            (profile["executor"], profile["cadence"], profile["hour"], profile["day"]),
+            ("lore", "weekly", 21, 6),
+        )
+        reading = automation.Routines(clock=lambda: local(15, 22)).list()[0]
+        self.assertEqual(
+            (reading["cadence"], reading["hour"], reading["day"], reading["paused"]),
+            ("weekly", 21, 6, True),
+        )
+        self.assertIn(
+            "from codex to Lore", (self.lore_home / "automation/moved.log").read_text()
+        )
+
+    def test_nothing_runs_at_once_and_it_happens_once(self) -> None:
+        # A Claude reading at 9 AM daily, last run days ago: owed, were it not Lore's now.
+        automation.save_profile(automation_profile(executor="claude", cadence="daily"))
+        automation.Routines(clock=lambda: local(1, 8)).adopt()
+        with patch("lore.automation.remove_task") as remove:
+            automation.Routines(clock=lambda: local(14, 12)).take_over()
+            automation.Routines(clock=lambda: local(14, 12)).take_over()
+        self.assertEqual(
+            remove.call_count, 2, "one take-over removes both agents' tasks"
+        )
+        reading = automation.Routines(clock=lambda: local(14, 13)).list()[0]
+        self.assertEqual(
+            (reading["due"], reading["next_run"], reading["day"]),
+            (False, local(15, 9).isoformat(), 0),
+        )
+        log = (self.lore_home / "automation/moved.log").read_text()
+        self.assertEqual(log.count("moved from claude"), 1)
+
+    def test_only_the_app_moves_it(self) -> None:
+        automation.save_profile(automation_profile())
+        with patch("lore.automation.remove_task") as remove, captured():
+            cli.main(["automation", "list", "--json"])
+            remove.assert_not_called()
+            with patch.dict(os.environ, {"LORE_APP_VERSION": "0.1.15"}):
+                cli.main(["desktop-state"])
+        remove.assert_called()
+        self.assertEqual(automation.Routines().profile["executor"], "lore")
+
+    def test_a_lore_reading_is_left_alone(self) -> None:
+        automation.save_profile(automation_profile(executor="lore"))
+        with patch("lore.automation.remove_task") as remove:
+            automation.Routines().take_over()
+        remove.assert_not_called()
+        self.assertFalse((self.lore_home / "automation/moved.log").exists())
+
+    def test_a_task_never_moved_off_monday_stays_on_monday(self) -> None:
+        self.assertEqual(automation.codex_day(), 0)
+        self.codex_task("FREQ=WEEKLY;BYDAY=MO;BYHOUR=21;BYMINUTE=0")
+        self.assertEqual(automation.codex_day(), 0)
 
 
 def checkin(routines: automation.Routines) -> dict[str, object]:
@@ -463,27 +530,14 @@ class OnByDefaultTest(LoreTestCase):
     ) -> None:
         reading, check_in = automation.Routines(clock=lambda: local(14, 8)).list()
         self.assertEqual(
-            (reading["runner"], reading["cadence"], reading["hour"], reading["paused"]),
-            ("lore", "daily", 9, False),
+            (reading["cadence"], reading["hour"], reading["paused"]),
+            ("daily", 9, False),
         )
-        self.assertEqual(
-            (check_in["runner"], check_in["cadence"], check_in["hour"]),
-            ("lore", "weekdays", 18),
-        )
+        self.assertEqual((check_in["cadence"], check_in["hour"]), ("weekdays", 18))
         self.assertFalse(check_in["paused"])
         later = automation.Routines(clock=lambda: local(14, 10)).list()
         self.assertEqual([r["due"] for r in later], [True, False])
-        state = automation.schedule_state()
-        self.assertEqual((state["executor"], state["hour"]), ("lore", 9))
-
-    def test_an_agent_keeps_reading_and_the_check_in_is_on(self) -> None:
-        automation.save_profile(automation_profile(executor="codex"))
-        reading, check_in = automation.Routines(clock=lambda: local(14, 8)).list()
-        self.assertEqual((reading["runner"], reading["due"]), ("codex", False))
-        self.assertFalse(check_in["paused"])
-        self.assertTrue(
-            checkin(automation.Routines(clock=lambda: local(14, 19)))["due"]
-        )
+        self.assertEqual(automation.schedule_state()["hour"], 9)
 
     def test_a_pause_kept_by_an_earlier_build_stays(self) -> None:
         path = self.lore_home / "automation/routines.json"
@@ -536,8 +590,8 @@ class CheckInTest(LoreTestCase):
         self.on(local(16, 9))
         routine = checkin(automation.Routines(clock=lambda: local(16, 17)))
         self.assertEqual(
-            (routine["id"], routine["kind"], routine["runner"], routine["cadence"]),
-            ("checkin", "checkin", "lore", "weekdays"),
+            (routine["id"], routine["kind"], routine["cadence"]),
+            ("checkin", "checkin", "weekdays"),
         )
         self.assertEqual(routine["next_run"], local(16, 18).isoformat())
         self.assertEqual(
@@ -753,53 +807,33 @@ class AutomationsTest(LoreTestCase):
             ran = automation.Routines().run(added["id"])
         self.assertEqual(ran["ask"], "Remember what I read")
 
-    def test_pausing_an_agents_schedule_takes_it_down_and_resuming_puts_it_back(
-        self,
-    ) -> None:
-        automation.save_profile(automation_profile(executor="codex", cadence="daily"))
-        with (
-            patch("lore.automation.remove_task") as remove,
-            patch("lore.automation.install_task", return_value=Path("t")) as install,
-        ):
+    def test_reading_takes_any_rhythm_and_keeps_it_in_the_profile(self) -> None:
+        automation.save_profile(automation_profile(executor="lore", cadence="daily"))
+        with patch("lore.automation.remove_task") as remove:
             paused = automation.Routines().change("synthesis", paused=True)
-            self.assertEqual(remove.call_args.args[0].agent, automation.Agent.CODEX)
-            install.assert_not_called()
             self.assertEqual((paused["paused"], paused["due"]), (True, False))
+            self.assertTrue(automation.schedule_state()["paused"])
             automation.Routines().change("synthesis", paused=False)
-            install.assert_called_once()
             retimed = automation.Routines().change(
-                "synthesis", hour=7, cadence="weekly"
+                "synthesis", hour=7, cadence="weekdays", day=0
             )
-        self.assertEqual((retimed["hour"], retimed["cadence"]), (7, "weekly"))
-        self.assertEqual(json.loads(automation.profile_path().read_text())["hour"], 7)
-        self.assertEqual(install.call_args.args[0].hour, 7)
-        with self.assertRaisesRegex(ValueError, "every day or every week"):
-            automation.Routines().change("synthesis", hour=7, cadence="weekdays")
-
-    def test_a_paused_lore_schedule_says_so(self) -> None:
-        automation.save_profile(automation_profile(executor="lore"))
-        automation.Routines().change("synthesis", paused=True)
-        state = automation.schedule_state()
-        assert state is not None
-        self.assertEqual((state["installed"], state["paused"]), (False, True))
+            weekly = automation.Routines().change(
+                "synthesis", hour=20, cadence="weekly", day=6
+            )
+        remove.assert_not_called()
+        self.assertEqual((retimed["hour"], retimed["cadence"]), (7, "weekdays"))
+        self.assertEqual((weekly["cadence"], weekly["day"]), ("weekly", 6))
+        profile = json.loads(automation.profile_path().read_text())
+        self.assertEqual((profile["hour"], profile["day"]), (20, 6))
 
     def test_saving_the_profile_again_turns_a_paused_reading_back_on(self) -> None:
-        automation.save_profile(automation_profile(executor="codex"))
-        with patch("lore.automation.remove_task"):
-            automation.Routines().change("synthesis", paused=True)
-        self.assertTrue((automation.schedule_state() or {}).get("paused"))
+        automation.save_profile(automation_profile(executor="lore"))
+        automation.Routines().change("synthesis", paused=True)
         path = self.lore_home / "profile-input.json"
-        path.write_text(json.dumps(automation_profile(executor="codex")))
-        with (
-            patch("lore.automation.remove_task"),
-            patch("lore.automation.install_task", return_value=Path("t")),
-            patch("lore.automation.task_status", return_value=True),
-            captured(),
-        ):
+        path.write_text(json.dumps(automation_profile(executor="lore")))
+        with captured():
             self.assertEqual(cli.main(["profile", str(path)]), 0)
-            state = automation.schedule_state() or {}
-        self.assertEqual((state["installed"], state.get("paused")), (True, None))
-        self.assertFalse(automation.Routines().get("synthesis").listed()["paused"])
+        self.assertFalse(automation.schedule_state()["paused"])
 
     def test_resuming_or_retiming_an_owners_routine_never_runs_it_at_once(
         self,

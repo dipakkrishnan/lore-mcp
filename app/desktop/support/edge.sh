@@ -37,7 +37,10 @@ with Store() as store:
  # conceded on the very next read. The long deadline keeps it Running.
  store.start_job('deploy', timeout_minutes=720)
 from lore import automation
-automation.save_profile({'executor': 'codex', 'cadence': 'daily', 'hour': 21})")
+automation.save_profile({'executor': 'codex', 'cadence': 'weekly', 'hour': 21})")
+  # AUT-010: the owner moved their Codex task to Sundays in Codex itself.
+  mkdir -p "$root/codex/automations/lore-memory-synthesis"
+  echo 'rrule = "FREQ=WEEKLY;BYDAY=SU;BYHOUR=21;BYMINUTE=0"' > "$root/codex/automations/lore-memory-synthesis/automation.toml"
 fi
 if [[ "$scenario" == "sales" ]]; then
   # MON-037: a store with one piece for sale and one card sale already in its ledger. The node's

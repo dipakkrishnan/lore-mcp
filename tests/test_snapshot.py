@@ -186,11 +186,10 @@ class DesktopSnapshotTest(LoreTestCase):
                 "profile_configured": True,
                 # An empty profile names no agent, so Lore reads, each morning.
                 "schedule": {
-                    "installed": True,
                     "paused": False,
-                    "executor": "lore",
                     "cadence": "daily",
                     "hour": 9,
+                    "day": 0,
                     "last_run": None,
                     "missed": False,
                 },
@@ -253,27 +252,14 @@ class DesktopSnapshotTest(LoreTestCase):
         self.assertEqual(state["node"]["live"]["price_usd"], 0.02)
         self.assertEqual(state["node"]["live"]["payout"], "0x" + "a" * 40)
 
-    def test_the_schedule_is_reported_from_the_scheduler_not_the_profile(
-        self,
-    ) -> None:
-        self.assertEqual(snapshot.build()["setup"]["schedule"]["executor"], "lore")
-        automation.save_profile(
-            {"executor": "claude", "cadence": "weekly", "hour": 21, "model": "opus"}
+    def test_the_schedule_is_the_profiles_rhythm_kept_by_lore(self) -> None:
+        automation.save_profile({"cadence": "weekly", "hour": 21, "day": 6})
+        state = snapshot.build()["setup"]
+        self.assertTrue(state["profile_configured"])
+        self.assertEqual(
+            {key: state["schedule"][key] for key in ("cadence", "hour", "day")},
+            {"cadence": "weekly", "hour": 21, "day": 6},
         )
-        for installed in (False, True):
-            with patch("lore.automation.task_status", return_value=installed) as ask:
-                state = snapshot.build()["setup"]
-            self.assertTrue(state["profile_configured"])
-            self.assertEqual(
-                state["schedule"],
-                {
-                    "installed": installed,
-                    "executor": "claude",
-                    "cadence": "weekly",
-                    "hour": 21,
-                },
-            )
-            self.assertEqual(ask.call_args.args[0].agent, automation.Agent.CLAUDE)
 
     def test_telemetry_enabled_defaults_true_and_reflects_the_setting(self) -> None:
         self.assertTrue(snapshot.build()["setup"]["telemetry_enabled"])

@@ -586,7 +586,7 @@ function needsYou(s) {
   if (!s.setup.sources_configured) {
     if (s.library.sources.some((source) => !source.owned)) add("Connect your agents", "Let Lore read what Claude Code and Codex already remember.", button("Start", "secondary", startSetup));
   } else if (!s.setup.blueprint_configured) add("Shape your Lore", "Review one proposal based on what your agents already know.", button("Start", "secondary", startSetup));
-  else if (!s.setup.profile_configured) add("Set the rhythm", "Choose which model writes new memories, and how often.", button("Start", "secondary", startSetup));
+  else if (!s.setup.profile_configured) add("Set the rhythm", "Choose how often Lore writes new memories.", button("Start", "secondary", startSetup));
   // The store rung waits for approved work, whatever rung setup is on: the
   // payout address is asked last, once there is something worth being paid for.
   if (s.publications.counts.active && !s.node.url && !pushOffer) add("Open your store", `${s.publications.counts.active === 1 ? "Your approved piece is" : `Your ${s.publications.counts.active} approved pieces are`} ready to sell. Pick a price and where payments go.`, button("Open", "secondary", () => void startDeploy()));
@@ -987,23 +987,6 @@ function provider(credential = auth?.credentials[0] ?? null) {
   return credential ? PROVIDERS[credential.providerId] ?? [credential.providerId, ""] : ["Your AI provider", ""];
 }
 
-/** Who runs a rhythm, by name. */
-const RUNNERS = { claude: "Claude Code", codex: "Codex", lore: "Lore" };
-
-/** The rhythm as the owner would say it: "Every day at 9 PM". @param {NonNullable<Snapshot["setup"]["schedule"]>} schedule */
-function rhythm(schedule) {
-  const hour = schedule.hour ?? 9;
-  return `Every ${schedule.cadence === "weekly" ? "Monday" : "day"} at ${hour % 12 || 12} ${hour < 12 ? "AM" : "PM"}`;
-}
-
-/** What the last synthesis run did, from the same history Today shows. @param {Snapshot} s */
-function lastSynthesis(s) {
-  const run = s.jobs?.items.find((item) => item.kind === "synthesis");
-  if (!run) return "Hasn't run yet.";
-  const date = when(run.started_at);
-  return run.status === "running" ? "Running now." : run.status === "succeeded" ? `Last ran ${date}.` : run.status === "failed" ? `Last run failed, ${date}.` : `Last run, ${date}, never finished.`;
-}
-
 /** A Settings row's trailing cell. @param {(string | HTMLElement)[]} parts */
 function cell(...parts) {
   const node = el("div", "v");
@@ -1016,20 +999,14 @@ function pill(label, tone = "") {
   return el("span", `status-pill ${tone}`.trim(), label);
 }
 
-/** Settings → How often Lore reads them: the scheduler's answer, not the profile's. A saved rhythm that nothing runs says so and offers the fix. @param {Snapshot} s */
+/** Settings → How often Lore reads them: the rhythm Lore keeps while it is open. @param {Snapshot} s */
 function scheduleRow(s) {
   const label = "How often Lore reads them";
   const schedule = s.setup.schedule;
   if (!schedule) return row(label, "New memories are written from what your agents learned.", cell(pill("Not set"), button("Start", "secondary", startSetup)), false);
-  if (!schedule.executor) return row(label, "Your rhythm is saved, but no model was chosen to run it.", cell(pill("Not scheduled", "attention"), button("Start", "secondary", startSetup)), false);
-  if (schedule.paused) return row(label, `${rhythm(schedule)}, paused.`, cell(pill("Paused"), button("Automations", "secondary", () => show("automations"))), false);
-  if (schedule.executor === "lore") {
-    const last = schedule.missed ? "Lore was closed at that hour, so it's reading now." : schedule.last_run ? `Last read ${when(schedule.last_run)}.` : "Hasn't run yet.";
-    return row(label, `${rhythm(schedule)}, while Lore is open. ${last}`, cell(pill("Scheduled", "ok")), false);
-  }
-  const who = `${rhythm(schedule)} with ${RUNNERS[schedule.executor]}`;
-  if (schedule.installed) return row(label, `${who}. ${lastSynthesis(s)}`, cell(pill("Scheduled", "ok")), false);
-  return row(label, `Set for ${who.charAt(0).toLowerCase()}${who.slice(1)}, but nothing on this Mac is running it.`, cell(pill("Not scheduled", "attention"), button("Schedule", "secondary", () => void act(window.lore.schedule))), false);
+  if (schedule.paused) return row(label, `${runsWhen(schedule)}, paused.`, cell(pill("Paused"), button("Automations", "secondary", () => show("automations"))), false);
+  const last = schedule.missed ? "Lore was closed at that hour, so it's reading now." : schedule.last_run ? `Last read ${when(schedule.last_run)}.` : "Hasn't run yet.";
+  return row(label, `${runsWhen(schedule)}, while Lore is open. ${last}`, cell(pill("Scheduled", "ok")), false);
 }
 
 /** Card payments, read from Lore and, while an account waits on Stripe, from Stripe. @type {CardStatus | null | Error} */
@@ -1594,7 +1571,7 @@ function openConnection(app, source) {
   const form = new FormSheet(name, logo(app));
   form.text(source.label === name ? state.line(app, source) : `${source.label} · ${state.line(app, source)}`);
   if (app.kind !== "mcp") form.text(source.locator ?? "", "hint mono");
-  const standing = source.refresh === false ? `Read once. Change ${unit} to bring in a newer one.` : snapshot?.setup.schedule?.installed ? `Lore looks for new ${many(app.item)} each time your schedule runs.` : `Lore looks for new ${many(app.item)} only when you choose Read again.`;
+  const standing = source.refresh === false ? `Read once. Change ${unit} to bring in a newer one.` : snapshot?.setup.schedule && !snapshot.setup.schedule.paused ?`Lore looks for new ${many(app.item)} each time your schedule runs.` : `Lore looks for new ${many(app.item)} only when you choose Read again.`;
   form.text(standing, "hint");
   form.button("Disconnect", "quiet", ask);
   if (app.kind === "mcp") form.button("Sign in again", signedOut ? "secondary" : "quiet", () => openSignIn(app));
@@ -1729,9 +1706,6 @@ function showUpdate(next) {
 }
 
 const DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
-/** Whether each kind of routine keeps a rhythm of Lore's own (any weekday or day of the week), or the agents' rhythm
- * for reading apps: every day, or every Monday. */
-const OWN_RHYTHM = { read: false, checkin: true, ask: true };
 
 /** "6 PM". @param {number} hour */
 const clock = (hour) => `${hour % 12 || 12} ${hour < 12 ? "AM" : "PM"}`;
@@ -1744,7 +1718,6 @@ function runsWhen({ cadence, hour, day }) {
 
 /** One routine: what it is, when, what it last found; a switch to pause it, and a menu for the rest. @param {Routine} routine */
 function routineRow(routine) {
-  const by = routine.runner === "lore" ? "" : ` · by ${RUNNERS[routine.runner]}`;
   const ran = routine.last_run ? `Last ran ${when(routine.last_run)}${routine.result ? ` · ${routine.result}` : ""}` : "Hasn't run yet";
   const last = routine.paused ? "Paused" : `Next ${when(routine.next_run)} · ${ran}`;
   const toggle = el("button", "switch");
@@ -1763,11 +1736,11 @@ function routineRow(routine) {
     node.addEventListener("click", () => { menu.open = false; pick(); });
     items.append(node);
   };
-  if (routine.runner === "lore") item("Run now", () => void runRoutineNow(routine));
+  item("Run now", () => void runRoutineNow(routine));
   item("Change time", () => openRoutineTime(routine));
   if (!routine.built_in) item("Remove", () => void changeRoutine(routine, "remove"));
   menu.append(summary, items);
-  return row(routine.name, `${runsWhen({ cadence: routine.cadence, hour: routine.hour, day: routine.day ?? 0 })}${by} · ${last}`, cell(toggle, menu), false);
+  return row(routine.name, `${runsWhen({ cadence: routine.cadence, hour: routine.hour, day: routine.day ?? 0 })} · ${last}`, cell(toggle, menu), false);
 }
 
 /** @param {Routine} routine @param {"pause" | "resume" | "remove" | "time"} action @param {RoutineTime} [time] */
@@ -1792,19 +1765,17 @@ async function runRoutineNow(routine) {
   await load();
 }
 
-/** The Schedule group: Repeat, On (only for a weekly rhythm) and At, filled from `time`. Reading your apps on an agent's
- * schedule runs only daily or weekly, on Mondays. @param {FormSheet} form @param {RoutineTime} time @param {boolean} [simple]
+/** The Schedule group: Repeat, On (only for a weekly rhythm) and At, filled from `time`. @param {FormSheet} form @param {RoutineTime} time
  * @returns {() => RoutineTime} */
-function scheduleRows(form, time, simple = false) {
-  const cadences = /** @type {Array<[string, string]>} */ ([["daily", "Every day"], ...(simple ? [] : [["weekdays", "Weekdays"]]), ["weekly", "Every week"]]);
-  const cadence = form.select("Repeat", cadences, time.cadence);
+function scheduleRows(form, time) {
+  const cadence = form.select("Repeat", [["daily", "Every day"], ["weekdays", "Weekdays"], ["weekly", "Every week"]], time.cadence);
   const day = form.select("On", DAYS.map((name, index) => [String(index), name]), String(time.day));
   const hour = form.select("At", Array.from({ length: 24 }, (_, index) => [String(index), clock(index)]), String(time.hour));
-  const showDay = () => { day.row.hidden = simple || cadence.control.value !== "weekly"; };
+  const showDay = () => { day.row.hidden = cadence.control.value !== "weekly"; };
   cadence.control.addEventListener("change", showDay);
   showDay();
   form.group("Schedule", [cadence.row, day.row, hour.row]);
-  return () => ({ cadence: /** @type {Routine["cadence"]} */ (cadence.control.value), hour: Number(hour.control.value), day: simple ? 0 : Number(day.control.value) });
+  return () => ({ cadence: /** @type {Routine["cadence"]} */ (cadence.control.value), hour: Number(hour.control.value), day: Number(day.control.value) });
 }
 
 const ROUTINE_NOTE = "Runs on this Mac while Lore is open. What it finds stays private.";
@@ -1813,7 +1784,7 @@ const ROUTINE_NOTE = "Runs on this Mac while Lore is open. What it finds stays p
 function openRoutineTime(routine) {
   const form = new FormSheet("Change time");
   form.text(routine.name);
-  const chosen = scheduleRows(form, { cadence: routine.cadence, hour: routine.hour, day: routine.day ?? 0 }, !OWN_RHYTHM[routine.kind]);
+  const chosen = scheduleRows(form, { cadence: routine.cadence, hour: routine.hour, day: routine.day ?? 0 });
   form.button("Cancel", "secondary", () => form.close());
   form.open({ primary: "Save", submit: () => void changeRoutine(routine, "time", chosen()) });
 }
