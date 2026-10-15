@@ -40,7 +40,6 @@ contextBridge.exposeInMainWorld("lore", {
   /** @param {number} id */
   revoke: (id) => ipcRenderer.invoke("publication:revoke", id),
   push: () => ipcRenderer.invoke("store:push"),
-  schedule: () => ipcRenderer.invoke("schedule:install"),
   /** @param {number} amount */
   setPrice: (amount) => ipcRenderer.invoke("pricing:set", amount),
   /** @param {number} count */
@@ -76,12 +75,28 @@ contextBridge.exposeInMainWorld("lore", {
   readSource: (name) => ipcRenderer.invoke("sources:read", name),
   /** @param {string} name @param {boolean} keep */
   removeSource: (name, keep) => ipcRenderer.invoke("sources:remove", name, keep),
+  readyRuns: () => ipcRenderer.invoke("ready:runs"),
+  seenMemories: () => ipcRenderer.invoke("ready:seen"),
+  clearMemories: () => ipcRenderer.invoke("ready:clear"),
+  checkIn: () => ipcRenderer.invoke("checkin:waiting"),
+  routines: () => ipcRenderer.invoke("routines:list"),
+  noticedRoutines: () => ipcRenderer.invoke("routines:noticed"),
+  /** @param {string} id */
+  runRoutine: (id) => ipcRenderer.invoke("routines:run", id),
+  /** @param {string} id @param {string} action @param {RoutineTime} [when] */
+  changeRoutine: (id, action, when) => ipcRenderer.invoke("routines:change", id, action, when),
+  /** @param {string} text @param {RoutineTime} when @param {string} [title] */
+  addRoutine: (text, when, title) => ipcRenderer.invoke("routines:add", text, when, title),
+  dismissCheckIn: () => ipcRenderer.invoke("checkin:dismiss"),
   openPrivacySettings: () => ipcRenderer.invoke("settings:privacy"),
   /** @param {File} file */
   pathFor: (file) => webUtils.getPathForFile(file),
   microphone: () => ipcRenderer.invoke("dictation:permission"),
   /** @param {ArrayBuffer} wav */
   transcribe: (wav) => ipcRenderer.invoke("dictation:transcribe", wav),
+  update: () => ipcRenderer.invoke("update:status"),
+  checkUpdate: () => ipcRenderer.invoke("update:check"),
+  installUpdate: () => ipcRenderer.invoke("update:install"),
   /** @param {(event: AgentEvent) => void} listener */
   onAgentEvent: (listener) => {
     /** @param {import("electron").IpcRendererEvent} _event @param {AgentEvent} value */

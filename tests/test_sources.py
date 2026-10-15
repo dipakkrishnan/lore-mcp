@@ -176,6 +176,19 @@ class ScanTest(LoreTestCase):
         self.assertEqual(report["automation"]["unchanged"], 1)
         self.assertEqual(report["automation"]["added"], 0)
 
+    def test_a_topic_written_under_work_is_labelled_work_and_the_rest_personal(
+        self,
+    ) -> None:
+        # AUT-005: the library keeps the owner's job apart, and the Memories tab says so.
+        root = self.lore_home / "memories"
+        (root / "work").mkdir(parents=True)
+        (root / "work/launch-review.md").write_text("# Launch review\n\nwork lesson")
+        (root / "receipts.md").write_text("# Receipts beat surveys\n\nown lesson")
+        with Store() as store:
+            Registry(store).scan({"automation"})
+            self.assertEqual(store.search("work lesson")[0].project, "work")
+            self.assertEqual(store.search("own lesson")[0].project, "personal")
+
     def test_an_empty_file_is_found_but_never_stored(self) -> None:
         root = self.lore_home / "memories"
         root.mkdir(parents=True)
@@ -316,6 +329,8 @@ class OwnerFolderTest(LoreTestCase):
         with Store() as store:
             first = sources_module.Registry(store).add(str(root))
             again = sources_module.Registry(store).add(str(root) + "/", label="Second")
+            # The same place read once: the second add brings nothing new in.
+            self.assertEqual((first.pop("added"), again.pop("added")), (1, 0))
             self.assertEqual(first, again)
             self.assertEqual(len(owned(store)), 1)
             self.assertEqual(store.counts()["private"], 1)
@@ -407,6 +422,8 @@ class OwnerFolderTest(LoreTestCase):
                 [
                     {
                         "name": "codex",
+                        "label": "Codex",
+                        "connector": None,
                         "added": 1,
                         "updated": 0,
                         "unchanged": 0,
@@ -493,6 +510,27 @@ class ConnectorTest(LoreTestCase):
         )
         return root
 
+    def test_a_connect_and_a_read_say_how_much_came_in_and_from_which_app(
+        self,
+    ) -> None:
+        # AUT-005: the desktop reads new items through only when something came in.
+        root = self.vault("Personal")
+        with Store() as store:
+            registry = Registry(store)
+            entry = registry.connect("obsidian", str(root))
+            self.assertEqual(entry["added"], 1)
+            self.assertEqual(registry.connect("obsidian", str(root))["added"], 0)
+            (root / "more.md").write_text(
+                "# More\n\nAnother lesson long enough to be worth keeping."
+            )
+            [read] = registry.read([str(entry["name"])])
+            self.assertEqual(
+                (read["added"], read["connector"], read["label"]),
+                (1, "obsidian", "Personal"),
+            )
+            [again] = registry.read([str(entry["name"])])
+            self.assertEqual(again["added"], 0)
+
     def test_changing_the_vault_reads_the_new_one_before_retiring_the_old(
         self,
     ) -> None:
@@ -524,6 +562,8 @@ class ConnectorTest(LoreTestCase):
                 "medium",
                 "bluesky",
                 "blog",
+                "letterboxd",
+                "goodreads",
                 "granola",
                 "notion",
                 "readwise",
