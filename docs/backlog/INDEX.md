@@ -260,6 +260,7 @@ obsolete), then `priority` (P0 → P3).
 | [AUT-010](./automation-synthesis/AUT-010-in-the-app-every-routine-runs-on-lore.md) | In the app, every routine runs on Lore | P1 | S | automation-synthesis | completed | AUT-006, AUT-009, AUT-004, APP-200 | — | — | — |
 | [AUT-011](./automation-synthesis/AUT-011-run-now-says-when-it-is-done.md) | Run now says when it is done | P1 | S | automation-synthesis | completed | AUT-008, AUT-010, APP-200 | — | — | — |
 | [APP-203](./desktop-app/APP-203-a-row-menu-is-never-cut-off.md) | A row menu is never cut off | P1 | XS | desktop-app | completed | APP-200, APP-201 | — | — | — |
+| [APP-204](./desktop-app/APP-204-a-row-menu-closes-on-a-click-elsewhere.md) | A row menu closes on a click elsewhere | P1 | XS | desktop-app | completed | APP-200, APP-203 | — | — | — |
 | [CAP-032](./capture/CAP-032-connect-letterboxd-and-goodreads-through-their-feeds.md) | Connect Letterboxd and Goodreads through their public feeds | P2 | S | capture | completed | CAP-005, CAP-008, CAP-033, CAP-034 | — | — | — |
 | [XC-013](./cross-cutting/XC-013-test-the-worker-request-path-not-just-its-leaf-modules.md) | Test the Worker's request path, not just its leaf modules | P2 | M | cross-cutting | completed | XC-003, XC-004, MCP-001, MON-002, MON-003, MON-006 | — | — | — |
 | [XC-038](./cross-cutting/XC-038-delete-stale-docs-and-one-off-test-tooling.md) | Delete stale docs and one-off test tooling | P2 | S | cross-cutting | completed | — | — | — | — |
