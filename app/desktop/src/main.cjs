@@ -242,8 +242,8 @@ function registerIpc(loreHome, schedule) {
     await changeRoutine(loreHome, id, action, when);
     void schedule.check();
   });
-  ipcMain.handle("routines:add", async (_event, text, when) => {
-    const added = await addRoutine(loreHome, text, when);
+  ipcMain.handle("routines:add", async (_event, text, when, title) => {
+    const added = await addRoutine(loreHome, text, when, title);
     void schedule.check();
     return added;
   });

@@ -268,6 +268,9 @@ def parser() -> argparse.ArgumentParser:
         "add", help="have Lore do something of yours at a set time"
     )
     routine_add.add_argument("text", help="what to do, in a sentence")
+    routine_add.add_argument(
+        "--title", default="", help="a name; the sentence by default"
+    )
     for timed in (routine_time, routine_add):
         timed.add_argument("--hour", type=int, required=True)
         timed.add_argument(
@@ -993,7 +996,9 @@ def automation_command(args: argparse.Namespace) -> int:
         routines.remove(args.id)
         payload, lines = {"removed": args.id}, [f"Removed {args.id}."]
     elif command == "add":
-        payload = added = routines.add(args.text, args.cadence, args.hour, args.day)
+        payload = added = routines.add(
+            args.text, args.cadence, args.hour, args.day, args.title
+        )
         lines = [f"Added {added['id']}: {added['name']}"]
     elif command in ("pause", "resume", "time"):
         changes: dict[str, object] = (
