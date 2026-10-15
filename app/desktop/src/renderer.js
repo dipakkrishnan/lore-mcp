@@ -687,7 +687,7 @@ function memoriesReady(runs) {
   const memories = runs.flatMap((run) => run.memories);
   const selling = memories.filter((memory) => memory.sell).length;
   const [latest] = runs;
-  const heading = runs.every((run) => run.label === latest.label) ? `Lore read your ${latest.label} ${many(latest.item)}` : "Lore read what you brought in";
+  const heading = runs.every((run) => run.title === latest.title) ? latest.title : "Lore read what you brought in";
   const detail = [`${plural(memories.length, "new memory")}, only on this Mac`, selling ? `${selling} ${selling === 1 ? "looks" : "look"} worth selling` : ""].filter(Boolean).join(" · ");
   const clear = button("Clear", "quiet", () => void window.lore.clearMemories().then(() => { readyRuns = []; render(); }));
   const rows = memories.map((memory) => memoryRow(memory.id, memory.title, memory.sell ? `Worth selling · ${memory.why}` : memory.work ? "Work · stays private" : "Private", memory.sell));
@@ -1035,7 +1035,8 @@ function provider(credential = auth?.credentials[0] ?? null) {
   return credential ? PROVIDERS[credential.providerId] ?? [credential.providerId, ""] : ["Your AI provider", ""];
 }
 
-const EXECUTORS = { claude: "Claude", codex: "Codex", lore: "Lore" };
+/** Who runs a rhythm, by name. */
+const RUNNERS = { claude: "Claude Code", codex: "Codex", lore: "Lore" };
 
 /** The rhythm as the owner would say it: "Every day at 9 PM". @param {NonNullable<Snapshot["setup"]["schedule"]>} schedule */
 function rhythm(schedule) {
@@ -1076,7 +1077,7 @@ function scheduleRow(s) {
     const last = schedule.missed ? "Lore was closed at that hour, so it's reading now." : schedule.last_run ? `Last read ${when(schedule.last_run)}.` : "Hasn't run yet.";
     return row(label, `${rhythm(schedule)}, while Lore is open. ${last}`, cell(pill("Scheduled", "ok")), false);
   }
-  const who = `${rhythm(schedule)} with ${EXECUTORS[schedule.executor]}`;
+  const who = `${rhythm(schedule)} with ${RUNNERS[schedule.executor]}`;
   if (schedule.installed) return row(label, `${who}. ${lastSynthesis(s)}`, cell(pill("Scheduled", "ok")), false);
   return row(label, `Set for ${who.charAt(0).toLowerCase()}${who.slice(1)}, but nothing on this Mac is running it.`, cell(pill("Not scheduled", "attention"), button("Schedule", "secondary", () => void act(window.lore.schedule))), false);
 }
@@ -1614,7 +1615,9 @@ function showUpdate(next) {
 }
 
 const DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
-const RUNNERS = { claude: "Claude Code", codex: "Codex" };
+/** Whether each kind of routine keeps a rhythm of Lore's own (any weekday or day of the week), or the agents' rhythm
+ * for reading apps: every day, or every Monday. */
+const OWN_RHYTHM = { read: false, checkin: true, ask: true };
 
 /** "6 PM". @param {number} hour */
 const clock = (hour) => `${hour % 12 || 12} ${hour < 12 ? "AM" : "PM"}`;
@@ -1623,25 +1626,6 @@ const clock = (hour) => `${hour % 12 || 12} ${hour < 12 ? "AM" : "PM"}`;
 function runsWhen({ cadence, hour, day }) {
   const days = cadence === "weekly" ? DAYS[day] ?? DAYS[0] : cadence === "weekdays" ? "weekday" : "day";
   return `Every ${days} at ${clock(hour)}`;
-}
-
-/** The newest run of each routine the owner last looked at, kept per Mac; a routine that found something since earns the tab its dot. */
-const AUTOMATIONS_SEEN = "lore.automations.seen";
-function automationsSeen() {
-  try {
-    return localStorage.getItem(AUTOMATIONS_SEEN) ?? "";
-  } catch {
-    return "";
-  }
-}
-function unseenRoutines() {
-  const seen = automationsSeen();
-  return routines.some((routine) => routine.found && routine.last_run && routine.last_run > seen);
-}
-function seeRoutines() {
-  try {
-    localStorage.setItem(AUTOMATIONS_SEEN, new Date().toISOString());
-  } catch {}
 }
 
 /** One routine: what it is, when, what it last found; a switch to pause it, and a menu for the rest. @param {Routine} routine */
@@ -1723,7 +1707,7 @@ function timeFields(time, simple = false) {
 
 /** @param {Routine} routine */
 function openRoutineTime(routine) {
-  const [fields, chosen] = timeFields({ cadence: routine.cadence, hour: routine.hour, day: routine.day ?? 0 }, routine.id === "synthesis");
+  const [fields, chosen] = timeFields({ cadence: routine.cadence, hour: routine.hour, day: routine.day ?? 0 }, !OWN_RHYTHM[routine.kind]);
   const actions = el("div", "actions");
   const dialog = sheet(`When “${routine.name}” runs`, mark(), fields, actions);
   actions.append(button("Save", "primary", () => { dialog.close(); void changeRoutine(routine, "time", chosen()); }));
@@ -1788,7 +1772,6 @@ function render() {
   $("[data-count=memories]").textContent = String(snapshot.library.counts.private);
   $("[data-count=store]").textContent = String(snapshot.publications.counts.active);
   $("[data-count=connectors]").textContent = String(snapshot.library.sources.filter((source) => source.enabled).length);
-  $("[data-dot=automations]").hidden = view === "automations" || !unseenRoutines();
   // Hidden until a build has a feedback relay to send to, so a release
   // never offers a Send it cannot honor. Starts hidden in index.html.
   feedbackBtn.hidden = !snapshot.feedback?.available;
@@ -1847,7 +1830,6 @@ function renderAccount() {
 function show(next) {
   view = next;
   if (next === "store") void loadSales();
-  if (next === "automations") seeRoutines();
   // Leaving For Sale abandons a half-typed price rather than keeping the field
   // open behind the owner's back.
   if (next !== "store") editingPrice = false;

@@ -254,7 +254,11 @@ def parser() -> argparse.ArgumentParser:
     routine_result.add_argument(
         "--mark", type=int, help="the newest item the run's model judged"
     )
-    for name, words in (("pause", "stop running"), ("resume", "start running again")):
+    for name, words in (
+        ("pause", "stop running"),
+        ("resume", "start running again"),
+        ("remove", "delete one of your own"),
+    ):
         toggle = routine_commands.add_parser(name, help=f"{words} a routine")
         toggle.add_argument("id")
         toggle.add_argument("--json", action="store_true")

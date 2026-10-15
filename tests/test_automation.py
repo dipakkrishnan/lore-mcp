@@ -560,8 +560,6 @@ class CheckInTest(LoreTestCase):
         )
         with self.assertRaises(ValueError):
             automation.Routines().change("checkin", hour=24)
-        with self.assertRaisesRegex(ValueError, "set in your profile"):
-            automation.Routines().change("synthesis", paused=True)
 
     def test_what_a_check_in_came_to_is_recorded_in_one_short_line(self) -> None:
         self.assertEqual(
@@ -643,10 +641,10 @@ class AutomationsTest(LoreTestCase):
             ran = automation.Routines().run(added["id"])
         read.assert_not_called()
         self.assertEqual(ran["ask"], "-Summarize what I learned")
-        automation.Routines().record(added["id"], "2 new memories", found=True)
-        routine = automation.Routines()._find(added["id"])
+        automation.Routines().record(added["id"], "2 new memories")
+        routine = automation.Routines().get(added["id"]).listed()
         self.assertEqual(
-            (routine["result"], routine["found"]), ("2 new memories", True)
+            (routine["kind"], routine["result"]), ("ask", "2 new memories")
         )
         self.assertIsNotNone(routine["last_run"])
         for bad in ("   ", "x" * 501):
@@ -684,6 +682,47 @@ class AutomationsTest(LoreTestCase):
         state = automation.schedule_state()
         assert state is not None
         self.assertEqual((state["installed"], state["paused"]), (False, True))
+
+    def test_saving_the_profile_again_turns_a_paused_reading_back_on(self) -> None:
+        automation.save_profile(automation_profile(executor="codex"))
+        with patch("lore.automation.remove_task"):
+            automation.Routines().change("synthesis", paused=True)
+        self.assertTrue((automation.schedule_state() or {}).get("paused"))
+        path = self.lore_home / "profile-input.json"
+        path.write_text(json.dumps(automation_profile(executor="codex")))
+        with (
+            patch("lore.automation.remove_task"),
+            patch("lore.automation.install_task", return_value=Path("t")),
+            patch("lore.automation.task_status", return_value=True),
+            captured(),
+        ):
+            self.assertEqual(cli.main(["profile", str(path)]), 0)
+            state = automation.schedule_state() or {}
+        self.assertEqual((state["installed"], state.get("paused")), (True, None))
+        self.assertFalse(automation.Routines().get("synthesis").listed()["paused"])
+
+    def test_resuming_or_retiming_an_owners_routine_never_runs_it_at_once(
+        self,
+    ) -> None:
+        added = automation.Routines(clock=lambda: local(5, 8)).add(
+            "Tidy up", "daily", 9
+        )
+        routines = automation.Routines(clock=lambda: local(5, 8))
+        routines.change(str(added["id"]), paused=True)
+        # Paused for days, resumed at 10 AM: tomorrow at nine, not now.
+        resumed = automation.Routines(clock=lambda: local(14, 10)).change(
+            str(added["id"]), paused=False
+        )
+        self.assertEqual(
+            (resumed["due"], resumed["next_run"]), (False, local(15, 9).isoformat())
+        )
+        # Moved from nine at night to nine in the morning, at noon: not now either.
+        moved = automation.Routines(clock=lambda: local(15, 12)).change(
+            str(added["id"]), hour=9, cadence="daily", day=0
+        )
+        self.assertEqual(
+            (moved["due"], moved["next_run"]), (False, local(16, 9).isoformat())
+        )
 
 
 class ScheduleFailureTest(LoreTestCase):

@@ -71,9 +71,21 @@ Oct 14, done:
 - An owner's routine runs its sentence as a quiet `lore-synthesize` turn, so
   it follows the same rules and the same memory sync. It lands on Today and as
   a notification like any reading, and is never published.
-- The blue dot comes from each routine's `found` flag and a per-Mac "last
-  looked" time kept in localStorage.
+- No blue dot: Ready's seen state and the dock badge already say what is
+  unseen, so a third signal was dropped in review.
 - Not built: "Each Friday, suggest one piece worth selling" as a third
   built-in. It needs its own output shape (a draft offer, not memories), so it
   is a follow-up. An owner can add it as their own sentence today.
 - Edge walk: `support/edge.sh automations`.
+
+Oct 14, review fixes: an owner's routine is `automation.Ask`, a third
+`Routine` subclass; the CLI lists each routine's `kind`, and the app's
+`AFTER_RUN` map and `OWN_RHYTHM` (which times the owner may pick) dispatch on
+it, with no special case by id. Run now goes through `Schedule.runNow`, so it
+waits behind a scheduled run instead of overlapping it. Resuming or retiming
+counts the next run from the change, never runs at once. A reading carries
+its `title` and `phase`, worded once, so an owner's routine reads as
+“Every Sunday, …” on Today, in its row and in the notification (which is now
+the title plus "2 new memories."). Saving the profile again (`lore profile`)
+turns a paused reading back on. Edge walk `automations` proves resume and
+retime, and `checkin` proves Run now keeps today's card.

@@ -132,7 +132,9 @@ type SourceApp = { id: string; name: string; what: string; unit: string; item: s
 type SourceRead = { name: string; label?: string; connector?: string | null; added: number; updated: number; unchanged: number; errors: number; state: SourceState };
 
 /** New items a connected app brought in, waiting to be read through: "23 new Granola meetings". */
-type Reading = { name: string; label: string; item: string; added: number; ask?: string };
+/** `title` and `phase` are worded once: what Today and the notification call it, and its row while it reads. One of the
+ * owner's own routines carries their sentence as `ask`, and no app or items. */
+type Reading = { name: string; label: string; item: string; added: number; title: string; phase: string; ask?: string };
 
 /** What a reading hands back: how many items it read, and each topic file it wrote. */
 type ReadingReport = { read: number; memories: Array<{ file: string; worth_selling: boolean; why: string }> };
@@ -141,15 +143,18 @@ type ReadingReport = { read: number; memories: Array<{ file: string; worth_selli
 type ReadyMemory = { id: number; title: string; sell: boolean; work: boolean; why: string };
 
 /** One finished reading, kept on Today until the owner clears it; `seen` once they have looked. */
-type ReadyRun = { label: string; item: string; read: number; memories: ReadyMemory[]; at: string; seen: boolean };
+type ReadyRun = { title: string; read: number; memories: ReadyMemory[]; at: string; seen: boolean };
 
 /** Something Lore does on its own at a set hour, as `lore automation list` describes it. `due`: the app owes it a run now. */
-type Routine = { id: string; kind: "read" | "checkin"; name: string; runner: "claude" | "codex" | "lore"; cadence: string; hour: number; paused?: boolean; last_run: string | null; result: string; next_run: string; due: boolean };
+type Routine = { id: string; kind: "read" | "checkin" | "ask"; name: string; runner: "claude" | "codex" | "lore"; built_in?: boolean; cadence: "daily" | "weekdays" | "weekly"; hour: number; day?: number; paused?: boolean; last_run: string | null; result: string; next_run: string; due: boolean };
+
+/** When a routine runs: every day, every weekday, or once a week on `day` (0 is Monday). */
+type RoutineTime = { cadence: Routine["cadence"]; hour: number; day: number };
 
 /** What running a routine did: the routine as it now stands, and what its kind brought. Reading apps hands back what
  * each app brought in; the check-in, what came in since it last judged (`mark`: the newest), or `missed` when it ran
- * too late to ask. */
-type RoutineRun = { routine: Routine; reads?: SourceRead[]; items?: CheckInItem[]; mark?: number; missed?: boolean };
+ * too late to ask; one of the owner's own, its sentence as `ask`. */
+type RoutineRun = { routine: Routine; reads?: SourceRead[]; items?: CheckInItem[]; mark?: number; missed?: boolean; ask?: string };
 
 /** One item Lore brought in since the last check-in, as the check-in judges it. */
 type CheckInItem = { id: number; title: string; source: string };

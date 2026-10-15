@@ -105,7 +105,7 @@ if (scenario === "listing") {
       writeFileSync(join(folder, "first-price-after-ten-buyers.md"), "# Raise the first price only after ten buyers pay\n\nA receipt beats a survey: hold the first tier until ten buyers have paid, then raise it. From a pricing review, January 2026.\n");
       writeFileSync(join(folder, "work/ops-management-before-hiring.md"), "# Add the ops management layer before the next ten hires\n\nWork: the team's own hiring plan, from an internal ops sync.\n\nAdd the management layer before the next ten engineers join, not after.\n");
       // After the connect's own refresh, which reads tasks from disk where this stand-in keeps none.
-      setTimeout(() => this.options.emit({ type: "task", task: { version: 1, kind: "synthesize", title: "Read what came in", state: "working", phase: `Reading your ${reading.label} meetings`, updatedAt: new Date().toISOString() } }), 1500);
+      setTimeout(() => this.options.emit({ type: "task", task: { version: 1, kind: "synthesize", title: "Read what came in", state: "working", phase: reading.phase, updatedAt: new Date().toISOString() } }), 1500);
       setTimeout(() => {
         this.options.emit({ type: "task", task: { version: 1, kind: "synthesize", title: "Read what came in", state: "done", phase: "Finished", updatedAt: new Date().toISOString() } });
         void this.options.memoriesReady?.(reading, {
@@ -791,7 +791,7 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         await shot("reading-today-working");
         await js(`window.__lore.show("connectors")`);
         for (let i = 0; i < 60 && !notes.length; i++) await sleep(250);
-        check("a finished reading is one Mac notification", notes.length === 1 && notes[0].words.title === "Lore turned 2 Granola meetings into 2 memories" && notes[0].words.body === "1 looks worth selling.", JSON.stringify(notes.map((n) => n.words)));
+        check("a finished reading is one Mac notification", notes.length === 1 && notes[0].words.title === "Lore read your Granola meetings" && notes[0].words.body === "2 new memories. 1 looks worth selling.", JSON.stringify(notes.map((n) => n.words)));
         check("…and a red 2 on the dock while the owner is elsewhere", badges.at(-1) === 2, JSON.stringify(badges));
         check("…and the notice that it was reading goes away", await waitFor(`!document.querySelector("#status").textContent.includes("Lore is turning them into memories now.")`), await js(`document.querySelector("#status").textContent`));
         notes[0].handlers.click();
@@ -820,7 +820,7 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         for (let i = 0; i < 60 && !readings.length; i++) await sleep(250);
         check("the launch catches up on the missed hour with one reading", readings.length === 1 && readings[0].label === "Obsidian" && readings[0].added === 1, JSON.stringify(readings));
         for (let i = 0; i < 60 && !notes.length; i++) await sleep(250);
-        check("…which lands as the same Mac notification", notes.length === 1 && notes[0].words.title === "Lore turned 1 Obsidian note into 2 memories", JSON.stringify(notes.map((n) => n.words)));
+        check("…which lands as the same Mac notification", notes.length === 1 && notes[0].words.title === "Lore read your Obsidian notes" && notes[0].words.body === "2 new memories. 1 looks worth selling.", JSON.stringify(notes.map((n) => n.words)));
         check("…and the same red number on the dock", badges.at(-1) === 2, JSON.stringify(badges));
         await js(`window.__lore.show("today")`);
         check("…and the same New memories card on Today", await waitFor(`document.querySelector("#content").textContent.includes("Lore read your Obsidian notes")`));
@@ -868,13 +868,37 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         for (let i = 0; i < 40 && !readings.length; i++) await sleep(250);
         check("Run now hands the owner's sentence to Lore's quiet reading", readings.length === 1 && readings[0].ask === SUNDAY, JSON.stringify(readings));
         for (let i = 0; i < 60 && !notes.length; i++) await sleep(250);
-        check("…which writes private memories and says so", notes.length === 1 && notes[0].words.title === `“${SUNDAY}” wrote 2 memories`, JSON.stringify(notes.map((n) => n.words)));
-        check("…and records what it found", await (async () => { for (let i = 0; i < 20 && mine().result !== "2 new memories"; i++) await sleep(250); return mine().result === "2 new memories" && mine().found; })(), JSON.stringify(mine()));
-        await js(`window.__lore.show("memories")`);
-        await js(`window.__lore.event({ type: "changed" })`);
-        check("a blue dot on the tab says something is unseen", await waitFor(`!document.querySelector("[data-dot=automations]").hidden`));
+        check("…which writes private memories and says so, named by its sentence", notes.length === 1 && notes[0].words.title === `“${SUNDAY}”` && notes[0].words.body === "2 new memories. 1 looks worth selling.", JSON.stringify(notes.map((n) => n.words)));
+        check("…and records what it found", await (async () => { for (let i = 0; i < 20 && mine().result !== "2 new memories"; i++) await sleep(250); return mine().result === "2 new memories"; })(), JSON.stringify(mine()));
+        await js(`window.__lore.show("today")`);
+        const heading = `[...document.querySelectorAll("#content .section")].find((s) => s.textContent.includes("New memories"))?.querySelector(".row b")?.textContent ?? ""`;
+        check("Today names it by its sentence alone", await waitFor(`(${heading}) === ${JSON.stringify(`“${SUNDAY}”`)}`), await js(heading));
+        await js(`[...document.querySelectorAll("#content .section")].find((s) => s.textContent.includes("New memories"))?.scrollIntoView()`);
+        await sleep(300);
+        await shot("automations-today-owner-routine");
         await js(`document.querySelector("nav [data-view=automations]").click()`);
-        check("…until the owner looks", await waitFor(`document.querySelector("[data-dot=automations]").hidden`));
+        check("the tab carries no dot of its own", await js(`!document.querySelector("nav [data-view=automations] .new-dot")`));
+        // Paused for days, then resumed: it waits for its next hour instead of running at once.
+        const repo = join(__dirname, "../../..");
+        const python = (/** @type {string} */ code) => execFileSync("uv", ["run", "python", "-c", `from datetime import datetime, timedelta, timezone\nfrom lore import automation\nnow = datetime.now(timezone.utc)\n${code}`], { cwd: repo, env: process.env, encoding: "utf8" });
+        const checkInOf = () => listed().find((/** @type {Routine} */ r) => r.id === "checkin");
+        python("automation.Routines().save('checkin', last_run=now - timedelta(days=4), since=now - timedelta(days=4))");
+        await js(`window.__lore.event({ type: "changed" })`);
+        await waitFor(`${rowOf("Evening check-in")}?.querySelector(".switch").getAttribute("aria-checked") === "false"`);
+        await js(`${rowOf("Evening check-in")}.querySelector(".switch").click()`);
+        await waitFor(`${rowOf("Evening check-in")}?.querySelector(".switch").getAttribute("aria-checked") === "true"`);
+        await sleep(2500);
+        check("resuming a check-in paused for days never runs it at once", !checkInOf().due && !checkInOf().paused && Date.parse(checkInOf().next_run) > Date.now() && checkInOf().last_run.startsWith(new Date(Date.now() - 4 * 86400_000).toISOString().slice(0, 10)), JSON.stringify(checkInOf()));
+        // Moved to an hour that already passed today: it waits for tomorrow's.
+        const earlier = (new Date().getHours() + 23) % 24;
+        await js(`${rowOf("Evening check-in")}.querySelector("details").open = true`);
+        await js(`[...${rowOf("Evening check-in")}.querySelectorAll(".row-menu-items button")].find((b) => b.textContent === "Change time").click()`);
+        await waitFor(`document.querySelector("dialog.sheet[open] .time-fields")`);
+        await js(`{ const [cadence, , hour] = document.querySelectorAll("dialog.sheet[open] select"); cadence.value = "daily"; cadence.dispatchEvent(new Event("change")); hour.value = "${earlier}"; }`);
+        await js(`document.querySelector("dialog.sheet[open] .btn.primary").click()`);
+        await waitFor(`${rowOf("Evening check-in")}?.textContent.includes("Every day at")`);
+        await sleep(2500);
+        check("…and moving it to an hour already past waits for tomorrow", checkInOf().hour === earlier && !checkInOf().due && Date.parse(checkInOf().next_run) - Date.now() > 20 * 60 * 60_000 && checkInOf().last_run.startsWith(new Date(Date.now() - 4 * 86400_000).toISOString().slice(0, 10)), JSON.stringify(checkInOf()));
         await js(`[...document.querySelectorAll("#content .btn")].find((b) => b.textContent === "New automation").click()`);
         await waitFor(`document.querySelector("dialog.sheet[open] textarea")`);
         await js(`document.querySelector("dialog.sheet[open] textarea").value = "Each Friday, pick one memory worth selling"`);
@@ -941,6 +965,17 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
           await shot("checkin-thread");
           await js(`document.querySelector("#task-back").click()`);
           await waitFor(card);
+          // Run now later the same day leaves today's questions where they are.
+          await js(`document.querySelector("nav [data-view=automations]").click()`);
+          const checkInRow = `[...document.querySelectorAll("#content .row")].find((r) => r.querySelector("b")?.textContent === "Evening check-in")`;
+          await waitFor(checkInRow);
+          const before = checkin().last_run;
+          await js(`${checkInRow}.querySelector("details").open = true`);
+          await js(`[...${checkInRow}.querySelectorAll(".row-menu-items button")].find((b) => b.textContent === "Run now").click()`);
+          for (let i = 0; i < 40 && checkin().last_run === before; i++) await sleep(250);
+          await sleep(1500);
+          await js(`window.__lore.show("today")`);
+          check("Run now on the same day keeps today's card, its questions and the dock's 1", await waitFor(card) && badges.at(-1) === 1 && (await js(`window.lore.checkIn()`))?.questions[0].question === "You held the price on the Acme call. What made you hold firm?" && checkin().result === "Asked about 1 thing" && checkIns.length === 1 && checkin().last_run !== before, `${JSON.stringify(badges)} · ${checkin().result} · ${checkIns.length} looks`);
           // The next evening brings in something new; yesterday's unanswered questions give way to today's.
           nextDay();
           writeFileSync(join(S, "Edge Vault", "three.md"), "# Dropped the Globex renewal\n\nWalked away from the renewal; no reason written down.\n");
