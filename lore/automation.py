@@ -1,15 +1,27 @@
 from __future__ import annotations
 
+import fcntl
 import json
 import os
+import secrets
 import shlex
 import sys
+from collections.abc import Callable
 from dataclasses import replace
+from datetime import datetime, timedelta, timezone
 from enum import Enum
+from functools import cached_property
 from pathlib import Path
-from typing import Annotated, Literal
+from typing import Annotated, ClassVar, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    TypeAdapter,
+    ValidationError,
+    field_validator,
+)
 from windup import Task
 from windup import install as install_task
 from windup import remove as remove_task
@@ -20,6 +32,7 @@ from .store import STATUSES
 
 PROFILE = "automation/profile.json"
 PROMPT = "automation/synthesis-prompt.md"
+ROUTINES = "automation/routines.json"
 # Fields that belong in profile.json. The onboarding checkpoint reuses this file to
 # carry its own state; persist only these so that state never leaks into the profile
 # the synthesis prompt reads.
@@ -27,10 +40,12 @@ AUTOMATION_ID = "lore-memory-synthesis"
 
 
 class Agent(str, Enum):
-    """Supported synthesis agents."""
+    """Supported synthesis agents. Lore itself is the desktop app, which runs the
+    schedule while it is open and catches up once when it next opens."""
 
     CLAUDE = "claude"
     CODEX = "codex"
+    LORE = "lore"
 
     def __str__(self) -> str:
         return self.value
@@ -245,6 +260,8 @@ def task_for(profile: dict[str, object]) -> Task:
     if not name:
         raise ValueError("profile has no executor; set one, or save with --no-schedule")
     executor = Agent(name)
+    if executor == Agent.LORE:
+        raise ValueError("Lore runs its own schedule; there is no task to install")
     hour = profile.get("hour", 21)
     if isinstance(hour, bool) or not isinstance(hour, int) or not 0 <= hour <= 23:
         raise ValueError("profile hour must be an integer from 0 through 23")
@@ -292,8 +309,19 @@ def task_for(profile: dict[str, object]) -> Task:
     return task
 
 
+def remove_all() -> None:
+    """Take down both agents' synthesis tasks; one that is not installed is skipped."""
+    for agent in (Agent.CLAUDE, Agent.CODEX):
+        task = Task(AUTOMATION_ID, "", agent, prompt_path(), home(), "daily", 21)
+        remove_task(task, codex_home=codex_home())
+
+
 def install(profile: dict[str, object]) -> Path:
     """Install the selected executor's recurring synthesis task."""
+    if profile.get("executor") == Agent.LORE:
+        # The app reads on this schedule itself, so neither agent may also run it.
+        remove_all()
+        return profile_path()
     task = task_for(profile)
     other = Agent.CLAUDE if task.agent == Agent.CODEX else Agent.CODEX
     # Keep the current schedule alive unless its replacement installs successfully.
@@ -314,15 +342,410 @@ def schedule_state() -> dict[str, object] | None:
         return None
     try:
         profile = json.loads(path.read_text(encoding="utf-8"))
+        if profile.get("executor") == Agent.LORE:
+            # Held by the app, so it is never "installed" anywhere else; what is
+            # honest to say is when it last ran and whether a run was missed.
+            routine = Routines().get(ReadApps.id).listed()
+            return {
+                "installed": not routine["paused"],
+                "paused": routine["paused"],
+                "executor": Agent.LORE,
+                "cadence": routine["cadence"],
+                "hour": routine["hour"],
+                "last_run": routine["last_run"],
+                "missed": routine["due"],
+            }
         task = task_for(profile)
     except (OSError, ValueError):
         return {"installed": False, "executor": None, "cadence": None, "hour": None}
-    return {
+    state: dict[str, object] = {
         "installed": task_status(task, codex_home=codex_home()),
         "executor": task.agent,
         "cadence": task.cadence,
         "hour": task.hour,
     }
+    # Taken down on purpose from Automations, not lost by the scheduler.
+    if Routines().get(ReadApps.id).paused:
+        state["paused"] = True
+    return state
+
+
+def next_run(cadence: str, hour: int, after: datetime, day: int = 0) -> datetime:
+    """The first moment after `after` that a rhythm names, on this Mac's clock.
+
+    Weekly is on `day` (0 is Monday, as the agents' schedules have it); weekdays
+    skip Saturday and Sunday. Worked in local wall time, so 9 PM stays 9 PM across
+    a daylight-saving change.
+    """
+    start = after.astimezone().replace(tzinfo=None)
+    moment = start.replace(hour=hour, minute=0, second=0, microsecond=0)
+    days = {"weekly": {day}, "weekdays": {0, 1, 2, 3, 4}}.get(cadence, set(range(7)))
+    while moment <= start or moment.weekday() not in days:
+        moment += timedelta(days=1)
+    return moment.astimezone()
+
+
+class Saved(BaseModel):
+    """What Lore remembers about one routine between runs."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    # When it was set up, resumed or retimed: the next run counts from here or the
+    # last run, whichever is later, so a change never runs a routine at once.
+    since: datetime
+    last_run: datetime | None = None
+    result: str = ""
+    # The owner's own rhythm for a routine whose hour is not the profile's.
+    cadence: Literal["daily", "weekdays", "weekly"] | None = None
+    hour: Annotated[int, Field(ge=0, le=23)] | None = None
+    day: Annotated[int, Field(ge=0, le=6)] | None = None
+    # The owner's choice; until they make one, a routine keeps its kind's default.
+    paused: bool | None = None
+    # The newest item a run had judged, so the next asks only about what came after.
+    mark: int | None = None
+    # What the owner asked for, in their words, for a routine they added.
+    prompt: Annotated[str, Field(max_length=500)] = ""
+    # What the owner called it, when they gave it a name of its own.
+    title: Annotated[str, Field(max_length=120)] = ""
+
+
+class Routine:
+    """One thing the Lore app does on its own at a set hour.
+
+    Each kind is one subclass: it says who runs it and when, and does the run. One
+    of Lore's own names its `id` and can be paused but not removed; any other record
+    is the owner's own. The app reads `kind` to know what to do with a run.
+    """
+
+    id: ClassVar[str] = ""
+    kind: ClassVar[str]
+    name = ""
+
+    def __init__(self, routines: Routines, routine_id: str, saved: Saved | None):
+        self.routines = routines
+        self.routine_id = routine_id
+        self.saved = saved
+
+    @property
+    def runner(self) -> str:
+        return Agent.LORE
+
+    @property
+    def paused(self) -> bool:
+        return bool(self.saved and self.saved.paused)
+
+    def rhythm(self) -> tuple[str, int, int]:
+        """How often, at what hour, and on which day of a weekly rhythm."""
+        raise NotImplementedError
+
+    def run(self) -> dict[str, object]:
+        raise NotImplementedError
+
+    def change(self, **changes: object) -> None:
+        """Pause, resume or retime it; the next run counts from now."""
+        now = self.routines.clock()
+        Saved.model_validate({"since": now, **changes})
+        self.routines.save(self.routine_id, since=now, **changes)
+
+    def slots(self) -> tuple[datetime, datetime]:
+        """The hour it is owed for (in the future when nothing is owed), and the
+        latest hour that has passed since then."""
+        now = self.routines.clock()
+        cadence, hour, day = self.rhythm()
+        saved = self.saved
+        # Never set up: nothing is owed until it is.
+        anchor = max(saved.since, saved.last_run or saved.since) if saved else now
+        owed = latest = next_run(cadence, hour, anchor, day)
+        while (later := next_run(cadence, hour, latest, day)) <= now:
+            latest = later
+        return owed, latest
+
+    def listed(self) -> dict[str, object]:
+        """When it runs next, and whether the app owes it a run now."""
+        cadence, hour, day = self.rhythm()
+        owed, latest = self.slots()
+        due = owed <= self.routines.clock()
+        saved = self.saved or Saved(since=owed)
+        return {
+            "id": self.routine_id,
+            "kind": self.kind,
+            "name": self.name,
+            "runner": self.runner,
+            "built_in": bool(self.id),
+            "cadence": cadence,
+            "hour": hour,
+            "day": day,
+            "paused": self.paused,
+            "last_run": saved.last_run and saved.last_run.isoformat(),
+            "result": saved.result,
+            "next_run": (
+                next_run(cadence, hour, latest, day) if due else owed
+            ).isoformat(),
+            "due": due and self.runner == Agent.LORE and not self.paused,
+        }
+
+
+class ReadApps(Routine):
+    """Read every connected app on the profile's rhythm (AUT-006)."""
+
+    id = "synthesis"
+    kind = "read"
+    name = "Read connected apps"
+
+    @property
+    def runner(self) -> str:
+        return str(self.routines.profile.get("executor") or "")
+
+    def rhythm(self) -> tuple[str, int, int]:
+        profile = self.routines.profile
+        cadence, hour = profile.get("cadence", "daily"), profile.get("hour", 21)
+        return str(cadence), int(str(hour)), 0
+
+    def change(self, **changes: object) -> None:
+        """Its rhythm lives in the profile, every day or every Monday, as the agents
+        schedule it; an agent's task is taken down while paused and put back after."""
+        profile = self.routines.profile
+        if "hour" in changes:
+            if changes.get("cadence") not in ("daily", "weekly"):
+                raise ValueError("Reading your apps runs every day or every week")
+            hour, cadence = changes.pop("hour"), changes.pop("cadence")
+            profile = save_profile({**profile, "hour": hour, "cadence": cadence})
+            self.routines.profile = profile
+            changes.pop("day", None)
+        super().change(**changes)
+        if self.runner == Agent.LORE or os.environ.get("LORE_SKIP_SCHEDULE") == "1":
+            return
+        if changes.get("paused", self.paused):
+            remove_all()
+        else:
+            install(profile)
+
+    def run(self) -> dict[str, object]:
+        from .sources import Connector, Registry
+        from .store import Store
+
+        with Store() as store:
+            reads = Registry(store).read()
+        found: dict[str, int] = {}
+        for read in reads:
+            if read["connector"] and read["added"]:
+                noun = Connector.named(str(read["connector"])).item
+                found[noun] = found.get(noun, 0) + int(str(read["added"]))
+        result = " · ".join(
+            f"{count} new {noun if count == 1 else _many(noun)}"
+            for noun, count in found.items()
+        )
+        self.routines.save(self.id, result=result or "Nothing new")
+        return {"reads": reads}
+
+
+class CheckIn(Routine):
+    """AUT-008: at the end of a weekday, ask about what came in only if it is worth it.
+
+    It reads nothing itself: it looks at what a reading, a connect or a Read again
+    brought in since it last judged. On until paused when Lore is the runner, and
+    off until turned on when Claude Code or Codex is.
+    """
+
+    id = "checkin"
+    kind = "checkin"
+    name = "Evening check-in"
+    # Due later than this after its hour, Lore was closed or asleep: asking then
+    # would come out of nowhere, so the run is recorded as missed instead.
+    late = timedelta(hours=3)
+
+    @property
+    def paused(self) -> bool:
+        if self.saved and self.saved.paused is not None:
+            return self.saved.paused
+        return self.routines.profile.get("executor") != Agent.LORE
+
+    def rhythm(self) -> tuple[str, int, int]:
+        saved = self.saved or Saved(since=self.routines.clock(), cadence="weekdays")
+        return (
+            saved.cadence or "weekdays",
+            18 if saved.hour is None else saved.hour,
+            saved.day or 0,
+        )
+
+    def change(self, **changes: object) -> None:
+        if self.saved is None or self.saved.mark is None:
+            changes["mark"] = self.routines.newest()
+        super().change(**changes)
+
+    def run(self) -> dict[str, object]:
+        """Every private item brought in since the last judged run, for the app's
+        model to judge; it moves the mark only once it has."""
+        from .store import Store
+
+        owed, latest = self.slots()
+        if owed <= self.routines.clock() and self.routines.clock() - latest > self.late:
+            hour = self.rhythm()[1]
+            self.routines.save(
+                self.id,
+                result=f"Skipped: Lore wasn't open at {hour % 12 or 12} "
+                f"{'AM' if hour < 12 else 'PM'}",
+            )
+            return {"items": [], "missed": True}
+        with Store() as store:
+            mark = self.saved.mark if self.saved else None
+            floor = store.newest_memory_id() if mark is None else mark
+            return {
+                "items": store.brought_in_after(floor),
+                "mark": store.newest_memory_id(),
+            }
+
+
+class Ask(Routine):
+    """One of the owner's own (APP-200): their sentence, run at their time on Lore's
+    agent under the rules its reading keeps, into private memories only."""
+
+    kind = "ask"
+
+    def __init__(self, routines: Routines, routine_id: str, saved: Saved | None):
+        super().__init__(routines, routine_id, saved)
+        self.name = (saved.title or saved.prompt) if saved else ""
+
+    def rhythm(self) -> tuple[str, int, int]:
+        saved = self.saved or Saved(since=self.routines.clock())
+        return (
+            saved.cadence or "daily",
+            9 if saved.hour is None else saved.hour,
+            saved.day or 0,
+        )
+
+    def run(self) -> dict[str, object]:
+        return {"ask": self.saved.prompt if self.saved else ""}
+
+
+class Routines:
+    """The routines the Lore app runs on its own, in `automation/routines.json`.
+
+    The app asks for this list and runs what is due; it keeps no copy. A routine
+    whose hour passed while Lore was closed is due once, however many it missed.
+    Listing only reads: a record is written when a routine is set up or runs.
+    """
+
+    records = TypeAdapter(dict[str, Saved])
+
+    def __init__(
+        self, clock: Callable[[], datetime] = lambda: datetime.now(timezone.utc)
+    ) -> None:
+        self.clock = clock
+        self.path = home() / ROUTINES
+        self.saved = self._read()
+
+    @cached_property
+    def profile(self) -> dict[str, object]:
+        try:
+            return dict(json.loads(profile_path().read_text(encoding="utf-8")))
+        except (OSError, ValueError):
+            return {}
+
+    def get(self, routine_id: str) -> Routine:
+        saved = self.saved.get(routine_id)
+        own = Ask if saved else None
+        kind = next((k for k in Routine.__subclasses__() if k.id == routine_id), own)
+        if kind is None:
+            raise ValueError(f"Lore does not run a routine called {routine_id}")
+        return kind(self, routine_id, saved)
+
+    def list(self) -> list[dict[str, object]]:
+        """Every routine someone runs, Lore's own first, with when it runs next and
+        whether the app owes it a run."""
+        own = (k.id for k in Routine.__subclasses__() if k.id)
+        routines = map(self.get, dict.fromkeys([*own, *self.saved]))
+        return [routine.listed() for routine in routines if routine.runner]
+
+    def add(
+        self, prompt: str, cadence: str, hour: int, day: int = 0, title: str = ""
+    ) -> dict[str, object]:
+        """A routine of the owner's own: a sentence Lore runs at its time, named by
+        `title` or, without one, by the sentence."""
+        prompt = " ".join(prompt.split())
+        if not prompt:
+            raise ValueError("Say what Lore should do")
+        fields: dict[str, object] = {"prompt": prompt, "title": " ".join(title.split())}
+        fields |= {"cadence": cadence, "hour": hour, "day": day}
+        Saved.model_validate({"since": self.clock(), **fields})
+        routine_id = f"r-{secrets.token_hex(4)}"
+        self.save(routine_id, **fields)
+        return self.get(routine_id).listed()
+
+    def remove(self, routine_id: str) -> None:
+        if self.get(routine_id).id:
+            raise ValueError("Lore's own routines can be paused, not removed")
+        self._edit(lambda saved: saved.pop(routine_id))
+
+    def change(self, routine_id: str, **changes: object) -> dict[str, object]:
+        """Pause, resume or retime a routine; the change outlasts any restart."""
+        self.get(routine_id).change(**changes)
+        return self.get(routine_id).listed()
+
+    def record(self, routine_id: str, result: str, mark: int | None = None) -> None:
+        """What a run came to, once the app knows, and with `mark` the newest item
+        its model judged."""
+        self.get(routine_id)
+        judged = {} if mark is None else {"mark": mark}
+        self.save(routine_id, result=" ".join(result.split())[:120], **judged)
+
+    def adopt(self) -> None:
+        """The owner just saved their rhythm: it counts from now, so nothing runs at
+        once. With Lore as the runner, its check-in starts from what is here now."""
+        self.save(ReadApps.id, since=self.clock(), paused=False)
+        if self.profile.get("executor") == Agent.LORE and CheckIn.id not in self.saved:
+            self.save(CheckIn.id, mark=self.newest())
+
+    def newest(self) -> int:
+        from .store import Store
+
+        with Store() as store:
+            return store.newest_memory_id()
+
+    def run(self, routine_id: str) -> dict[str, object]:
+        """Run one of the app's routines now, and hand back what it brought."""
+        routine = self.get(routine_id)
+        if routine.runner != Agent.LORE:
+            raise ValueError(f"Lore does not run a routine called {routine_id}")
+        # Marked before the run, so a run that dies partway is not run again at once.
+        self.save(routine_id, last_run=self.clock())
+        ran = routine.run()
+        return {"routine": self.get(routine_id).listed(), **ran}
+
+    def save(self, routine_id: str, **changes: object) -> Saved:
+        """Change one routine's record and no other."""
+
+        def update(saved: dict[str, Saved]) -> None:
+            current = saved.get(routine_id) or Saved(since=self.clock())
+            saved[routine_id] = current.model_copy(update=changes)
+
+        self._edit(update)
+        return self.saved[routine_id]
+
+    def _edit(self, change: Callable[[dict[str, Saved]], object]) -> None:
+        """Change the records starting from what is on disk now and under a lock, so
+        a long run never writes a stale copy over a change made meanwhile."""
+        self.path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+        lock = self.path.with_suffix(".lock")
+        lock.touch(mode=0o600, exist_ok=True)
+        with lock.open() as held:
+            fcntl.flock(held, fcntl.LOCK_EX)
+            self.saved = self._read()
+            change(self.saved)
+            written = self.path.with_suffix(".tmp")
+            written.touch(mode=0o600, exist_ok=True)
+            written.write_bytes(self.records.dump_json(self.saved, indent=2))
+            written.replace(self.path)
+
+    def _read(self) -> dict[str, Saved]:
+        try:
+            return self.records.validate_json(self.path.read_bytes())
+        except (OSError, ValidationError):
+            return {}
+
+
+def _many(noun: str) -> str:
+    return f"{noun[:-1]}ies" if noun.endswith("y") else f"{noun}s"
 
 
 # The local scheduler reports failures as prose — sometimes its own wording, sometimes

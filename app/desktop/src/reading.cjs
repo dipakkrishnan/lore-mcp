@@ -14,10 +14,19 @@ const many = (noun) => `${noun.replace(/y$/, "ie")}s`;
 const plural = (count, noun) => `${count} ${count === 1 ? noun : many(noun)}`;
 
 /** New items from an app the catalog knows, or null: nothing new, or a built-in agent source, which the schedule reads.
+ * Worded once here: what Today and the notification call it, and what its row says while it reads.
  * @param {{name: string, connector?: string | null, added?: number}} read @param {SourceApp[]} apps @returns {Reading | null} */
 function worthReading(read, apps) {
   const app = apps.find((candidate) => candidate.id === read.connector);
-  return app && read.added ? { name: read.name, label: app.name, item: app.item, added: read.added } : null;
+  if (!app || !read.added) return null;
+  const what = `your ${app.name} ${many(app.item)}`;
+  return { name: read.name, label: app.name, item: app.item, added: read.added, title: `Lore read ${what}`, phase: `Reading ${what}` };
+}
+
+/** One of the owner's own routines, read through like an app: their sentence is all there is to call it.
+ * @param {Pick<Routine, "id" | "name">} routine @param {string} ask @returns {Reading} */
+function asking(routine, ask) {
+  return { name: routine.id, label: routine.name, item: "", added: 0, ask, title: `“${routine.name}”`, phase: `Working on “${routine.name}”` };
 }
 
 /** What a reading wrote, as the store keeps it. A file outside the memories folder, or one the store did not take, is
@@ -34,15 +43,15 @@ function landed(reading, report, stored, folder) {
     const kept = path.startsWith(work);
     memories.set(memory.id, { id: memory.id, title: memory.title, sell: entry.worth_selling && !kept, work: kept, why: entry.why });
   }
-  return { label: reading.label, item: reading.item, read: report.read || reading.added, memories: [...memories.values()], at: new Date().toISOString(), seen: false };
+  return { title: reading.title, read: report.read || reading.added, memories: [...memories.values()], at: new Date().toISOString(), seen: false };
 }
 
 /** The Mac notification for a finished reading. @param {ReadyRun} run @returns {{title: string, body: string}} */
 function announcement(run) {
   const selling = run.memories.filter((memory) => memory.sell).length;
   return {
-    title: `Lore turned ${plural(run.read, `${run.label} ${run.item}`)} into ${plural(run.memories.length, "memory")}`,
-    body: selling ? `${selling} ${selling === 1 ? "looks" : "look"} worth selling.` : "They stay private on this Mac."
+    title: run.title,
+    body: `${plural(run.memories.length, "new memory")}. ${selling ? `${selling} ${selling === 1 ? "looks" : "look"} worth selling.` : "They stay private on this Mac."}`
   };
 }
 
@@ -54,11 +63,11 @@ class Ready {
     this.badge = badge;
   }
 
-  /** Newest first; a missing or damaged file reads as none. @returns {Promise<ReadyRun[]>} */
+  /** Newest first; a missing or damaged file reads as none, and a run kept by 0.1.14 is titled as it was then. @returns {Promise<ReadyRun[]>} */
   async runs() {
     try {
       const runs = JSON.parse(await readFile(this.file, "utf8"));
-      return Array.isArray(runs) ? runs : [];
+      return Array.isArray(runs) ? runs.map((run) => (run.title ? run : { ...run, title: `Lore read your ${run.label} ${many(run.item)}` })) : [];
     } catch {
       return [];
     }
@@ -95,4 +104,23 @@ function unseen(runs) {
   return runs.filter((run) => !run.seen).reduce((count, run) => count + run.memories.length, 0);
 }
 
-module.exports = { many, plural, worthReading, landed, announcement, Ready };
+/** The dock's one red number, summed from each thing that counts toward it: new memories, a check-in waiting. */
+class Badge {
+  /** @type {Map<string, number>} */
+  #counts = new Map();
+
+  /** @param {(count: number) => void} set */
+  constructor(set) {
+    this.set = set;
+  }
+
+  /** @param {string} name @returns {(count: number) => void} */
+  part(name) {
+    return (count) => {
+      this.#counts.set(name, count);
+      this.set([...this.#counts.values()].reduce((sum, each) => sum + each, 0));
+    };
+  }
+}
+
+module.exports = { many, plural, worthReading, asking, landed, announcement, Ready, Badge };

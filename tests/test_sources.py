@@ -562,6 +562,8 @@ class ConnectorTest(LoreTestCase):
                 "medium",
                 "bluesky",
                 "blog",
+                "letterboxd",
+                "goodreads",
                 "granola",
                 "notion",
                 "readwise",

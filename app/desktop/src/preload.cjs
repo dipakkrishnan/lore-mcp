@@ -79,6 +79,15 @@ contextBridge.exposeInMainWorld("lore", {
   readyRuns: () => ipcRenderer.invoke("ready:runs"),
   seenMemories: () => ipcRenderer.invoke("ready:seen"),
   clearMemories: () => ipcRenderer.invoke("ready:clear"),
+  checkIn: () => ipcRenderer.invoke("checkin:waiting"),
+  routines: () => ipcRenderer.invoke("routines:list"),
+  /** @param {string} id */
+  runRoutine: (id) => ipcRenderer.invoke("routines:run", id),
+  /** @param {string} id @param {string} action @param {RoutineTime} [when] */
+  changeRoutine: (id, action, when) => ipcRenderer.invoke("routines:change", id, action, when),
+  /** @param {string} text @param {RoutineTime} when @param {string} [title] */
+  addRoutine: (text, when, title) => ipcRenderer.invoke("routines:add", text, when, title),
+  dismissCheckIn: () => ipcRenderer.invoke("checkin:dismiss"),
   openPrivacySettings: () => ipcRenderer.invoke("settings:privacy"),
   /** @param {File} file */
   pathFor: (file) => webUtils.getPathForFile(file),
