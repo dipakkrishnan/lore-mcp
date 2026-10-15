@@ -948,7 +948,8 @@ test("a CLI refusal explained over several lines reaches the owner as its Reason
     await mkdir(join(home, "automation"), { recursive: true });
     await writeFile(join(home, "automation", "profile.json"), JSON.stringify({ executor: "", cadence: "daily", hour: 21 }));
     await assert.rejects(schedule(), (error) => /^'' is not a valid Agent$/.test(error.message));
-    assert.deepEqual((await readState(home)).setup.schedule, { installed: false, executor: null, cadence: null, hour: null });
+    // With no model named, Lore reads on the saved rhythm itself (AUT-009).
+    assert.equal((await readState(home)).setup.schedule?.executor, "lore");
   } finally {
     await rm(home, { recursive: true });
   }
@@ -1504,10 +1505,10 @@ test("routines are added, paused, retimed and removed through the CLI, refused b
     await changeRoutine(directory, "checkin", "pause");
     await changeRoutine(directory, added.id, "time", { cadence: "daily", hour: 7, day: 0 });
     const kept = await listRoutines(directory);
-    assert.deepEqual(kept.map((routine) => [routine.id, routine.built_in, routine.paused, routine.cadence, routine.hour]), [["checkin", true, true, "weekdays", 18], [added.id, false, false, "daily", 7]]);
+    assert.deepEqual(kept.map((routine) => [routine.id, routine.built_in, routine.paused, routine.cadence, routine.hour]), [["synthesis", true, false, "daily", 9], ["checkin", true, true, "weekdays", 18], [added.id, false, false, "daily", 7]]);
     await assert.rejects(changeRoutine(directory, "checkin", "remove"), /paused, not removed/);
     await changeRoutine(directory, added.id, "remove");
-    assert.deepEqual((await listRoutines(directory)).map((routine) => routine.id), ["checkin"]);
+    assert.deepEqual((await listRoutines(directory)).map((routine) => routine.id), ["synthesis", "checkin"]);
   } finally {
     await rm(directory, { recursive: true });
   }

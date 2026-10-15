@@ -72,6 +72,7 @@ Oct 14, done:
   at 6 PM). It is on when the profile's runner is Lore (`lore profile` sets it
   up); with Claude Code, Codex or no profile it is listed paused until the
   owner turns it on, so no one gets a 6 PM job they did not ask for.
+  Superseded by AUT-009: it is on for everyone until paused.
 - `lore automation run checkin` reads nothing. It hands back the private
   items an app or agent brought in (`origin='native'`, so never Lore's own
   writing nor the owner's captures) since the last run its model judged, and

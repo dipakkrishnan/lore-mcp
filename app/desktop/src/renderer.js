@@ -992,7 +992,7 @@ const RUNNERS = { claude: "Claude Code", codex: "Codex", lore: "Lore" };
 
 /** The rhythm as the owner would say it: "Every day at 9 PM". @param {NonNullable<Snapshot["setup"]["schedule"]>} schedule */
 function rhythm(schedule) {
-  const hour = schedule.hour ?? 21;
+  const hour = schedule.hour ?? 9;
   return `Every ${schedule.cadence === "weekly" ? "Monday" : "day"} at ${hour % 12 || 12} ${hour < 12 ? "AM" : "PM"}`;
 }
 
@@ -1020,10 +1020,8 @@ function pill(label, tone = "") {
 function scheduleRow(s) {
   const label = "How often Lore reads them";
   const schedule = s.setup.schedule;
-  if (!s.setup.profile_configured || schedule === undefined) {
-    return row(label, "New memories are written from what your agents learned.", cell(pill(s.setup.profile_configured ? "Set" : "Not set", s.setup.profile_configured ? "ok" : ""), ...(s.setup.profile_configured ? [] : [button("Start", "secondary", startSetup)])), false);
-  }
-  if (!schedule?.executor) return row(label, "Your rhythm is saved, but no model was chosen to run it.", cell(pill("Not scheduled", "attention"), button("Start", "secondary", startSetup)), false);
+  if (!schedule) return row(label, "New memories are written from what your agents learned.", cell(pill("Not set"), button("Start", "secondary", startSetup)), false);
+  if (!schedule.executor) return row(label, "Your rhythm is saved, but no model was chosen to run it.", cell(pill("Not scheduled", "attention"), button("Start", "secondary", startSetup)), false);
   if (schedule.paused) return row(label, `${rhythm(schedule)}, paused.`, cell(pill("Paused"), button("Automations", "secondary", () => show("automations"))), false);
   if (schedule.executor === "lore") {
     const last = schedule.missed ? "Lore was closed at that hour, so it's reading now." : schedule.last_run ? `Last read ${when(schedule.last_run)}.` : "Hasn't run yet.";
@@ -1955,7 +1953,8 @@ const notices = [];
 /** Something Lore did or could not do, said where the owner is: in the open thread, or as a notice above the page when the log is hidden, scrolled into view. A newer success replaces an older one. @param {string} text @param {boolean} [attention] @param {NoticeAction} [action] The one next step, on the notice. */
 function tell(text, attention = false, action) {
   if (!log.hidden) { say(text, false, attention); return; }
-  if (!attention) drop((item) => !item.attention);
+  // A one-time notice with its next step stays until the owner dismisses it.
+  if (!attention) drop((item) => !item.attention && !item.action);
   notices.push({ text, attention, action });
   if (notices.length > 3) notices.shift();
   renderNotices();
@@ -2987,7 +2986,22 @@ function enter() {
   welcome.hidden = signedIn;
   appShell.hidden = !signedIn;
   document.body.dataset.state = signedIn ? "app" : "welcome";
-  if (signedIn) { render(); void load().then(noticeUsage); }
+  // One after the other: each remembers itself through the CLI, and two first writes at once can collide.
+  if (signedIn) { render(); void load().then(noticeAutomations).then(noticeUsage); }
+}
+
+/** Lore's own routines are on from the start (AUT-009): the owner hears so once, with where to change it. */
+async function noticeAutomations() {
+  if (snapshot?.setup.automations_noticed !== false || !routines.length) return;
+  const on = (/** @type {Routine["kind"]} */ kind) => routines.find((routine) => routine.kind === kind && !routine.paused);
+  const reading = on("read");
+  const checkin = on("checkin");
+  const parts = [
+    reading && `reads your connected apps ${runsWhen({ cadence: reading.cadence, hour: reading.hour, day: reading.day ?? 0 }).replace("Every", "every")}`,
+    checkin && `checks in at ${clock(checkin.hour)} when something's worth asking`
+  ].filter(Boolean);
+  if (parts.length) tell(`Lore ${parts.join(" and ")}. Change this in Automations.`, false, { label: "Automations", run: () => show("automations") });
+  await window.lore.noticedRoutines().catch(() => undefined);
 }
 
 const USAGE_NOTICE = "Lore sends anonymous usage events, like \"store opened\" or \"first piece approved\", never your writing.";

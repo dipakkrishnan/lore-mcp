@@ -233,6 +233,7 @@ function registerIpc(loreHome, schedule) {
   // APP-200: the Automations tab reads and changes routines through the CLI, then the clock looks again. Run now waits
   // its turn behind any run under way, so the owner's and the clock's never overlap.
   ipcMain.handle("routines:list", () => listRoutines(loreHome));
+  ipcMain.handle("routines:noticed", () => lore(loreHome, ["automation", "noticed"]).then(() => undefined));
   ipcMain.handle("routines:run", async (_event, id) => {
     const routine = (await listRoutines(loreHome)).find((each) => each.id === id && each.runner === "lore");
     if (!routine) throw new Error("Lore does not run that one");
