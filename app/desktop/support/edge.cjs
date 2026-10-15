@@ -903,6 +903,12 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         const menuOf = (/** @type {string} */ name) => `[...${rowOf(name)}.querySelectorAll(".row-menu-items button")].map((b) => b.textContent).join("|")`;
         check("Lore's own can be paused but not removed", await js(menuOf("Evening check-in")) === "Run now|Change time" && await js(menuOf(SUNDAY)) === "Run now|Change time|Remove", `${await js(menuOf("Evening check-in"))} / ${await js(menuOf(SUNDAY))}`);
         await shot("automations");
+        // The last row's menu opens past the card's bottom edge, every item whole and clickable.
+        await js(`${rowOf("Evening check-in")}.querySelector("details").open = true`);
+        const reachable = `[...${rowOf("Evening check-in")}.querySelectorAll(".row-menu-items button")].every((b) => { const r = b.getBoundingClientRect(); return document.elementFromPoint(r.left + r.width / 2, r.bottom - 3) === b; })`;
+        check("the last row's menu is not cut off by its card", await js(reachable));
+        await shot("automations-last-menu");
+        await js(`${rowOf("Evening check-in")}.querySelector("details").open = false`);
         await js(`${rowOf("Evening check-in")}.querySelector(".switch").click()`);
         check("the switch pauses it, and the CLI keeps that", await waitFor(`${rowOf("Evening check-in")}?.querySelector(".switch").getAttribute("aria-checked") === "false"`) && listed().find((/** @type {Routine} */ r) => r.id === "checkin").paused === true);
         check("…so it shows paused after a fresh read", await js(`window.lore.routines().then((all) => all.find((r) => r.id === "checkin").paused)`) === true && (await js(`${rowOf("Evening check-in")}.textContent`)).includes("Paused"));
