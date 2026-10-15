@@ -1947,15 +1947,14 @@ function say(text, owner = false, stopped = false) {
 }
 
 /** @typedef {{label: string, run: () => void}} NoticeAction */
-/** @type {Array<{text: string, attention: boolean, action?: NoticeAction}>} */
+/** @type {Array<{text: string, attention: boolean, action?: NoticeAction, once?: boolean}>} */
 const notices = [];
 
-/** Something Lore did or could not do, said where the owner is: in the open thread, or as a notice above the page when the log is hidden, scrolled into view. A newer success replaces an older one. @param {string} text @param {boolean} [attention] @param {NoticeAction} [action] The one next step, on the notice. */
-function tell(text, attention = false, action) {
+/** Something Lore did or could not do, said where the owner is: in the open thread, or as a notice above the page when the log is hidden, scrolled into view. A newer success replaces an older one, except one said `once`, which stays until dismissed. @param {string} text @param {boolean} [attention] @param {NoticeAction} [action] The one next step, on the notice. @param {boolean} [once] */
+function tell(text, attention = false, action, once = false) {
   if (!log.hidden) { say(text, false, attention); return; }
-  // A one-time notice with its next step stays until the owner dismisses it.
-  if (!attention) drop((item) => !item.attention && !item.action);
-  notices.push({ text, attention, action });
+  if (!attention) drop((item) => !item.attention && !item.once);
+  notices.push({ text, attention, action, once });
   if (notices.length > 3) notices.shift();
   renderNotices();
   status.scrollIntoView({ block: "nearest" });
@@ -3000,7 +2999,7 @@ async function noticeAutomations() {
     reading && `reads your connected apps ${runsWhen({ cadence: reading.cadence, hour: reading.hour, day: reading.day ?? 0 }).replace("Every", "every")}`,
     checkin && `checks in at ${clock(checkin.hour)} when something's worth asking`
   ].filter(Boolean);
-  if (parts.length) tell(`Lore ${parts.join(" and ")}. Change this in Automations.`, false, { label: "Automations", run: () => show("automations") });
+  if (parts.length) tell(`Lore ${parts.join(" and ")}. Change this in Automations.`, false, { label: "Automations", run: () => show("automations") }, true);
   await window.lore.noticedRoutines().catch(() => undefined);
 }
 
@@ -3011,7 +3010,7 @@ async function noticeUsage() {
   const setup = snapshot?.setup;
   if (!setup || setup.telemetry_enabled === false) return;
   if (!setup.telemetry_noticed) {
-    tell(USAGE_NOTICE, false, { label: "Settings", run: () => show("settings") });
+    tell(USAGE_NOTICE, false, { label: "Settings", run: () => show("settings") }, true);
     await window.lore.usage("noticed").catch(() => undefined);
   }
   void window.lore.usage("app.opened").catch(() => undefined);

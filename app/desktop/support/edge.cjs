@@ -196,8 +196,8 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         // A "changed" event is what makes the renderer re-read the snapshot;
         // switching views alone re-renders what it already had.
         await js(`window.__lore.event({ type: "changed" })`);
-        await sleep(800);
-        check("an owner with no runs yet sees no Recent runs section", await js(`![...document.querySelectorAll("#content .section")].some((s) => s.textContent.includes("Recent runs"))`));
+        // The re-read runs the CLI several times; on a busy Mac it takes longer than any fixed pause.
+        check("an owner with no runs yet sees no Recent runs section", await waitFor(`![...document.querySelectorAll("#content .section")].some((s) => s.textContent.includes("Recent runs"))`));
         check("the rest of Today still renders", await js(`document.querySelector("#content .strip") !== null`));
         await js(`[...document.querySelectorAll("#content .section")].find((s) => s.textContent.includes("Recent runs"))?.scrollIntoView()`);
         await sleep(300);
@@ -449,7 +449,8 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         await js(clickOn("Substack"));
         await waitFor(`document.querySelector("dialog.sheet[open]")`);
         const manage = await js(`document.querySelector("dialog.sheet[open]").textContent`);
-        check("with no schedule, a newsletter says it is read again only by hand", /new posts only when you choose Read again/.test(manage) && !/on its own/.test(manage), manage);
+        // AUT-009: with no agent, Lore keeps the reading schedule itself from the start.
+        check("with no agent, a newsletter says Lore reads it on the schedule", /new posts each time your schedule runs/.test(manage), manage);
         check("Manage offers the same next step", manage.includes(sell), manage);
         await js(`document.querySelector("dialog.sheet[open] .icon-btn").click()`);
         await sleep(200);
@@ -663,7 +664,7 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         })()`);
         check("editing a field mid-request leaves Send disabled", midFlight.disabled === true, JSON.stringify(midFlight));
         await send();
-        check("the report lands", await waitFor(`document.querySelector("#status .notice")?.textContent.includes("Filed as")`));
+        check("the report lands", await waitFor(`document.querySelector("#status").textContent.includes("Filed as")`));
         await sleep(1800);
         check("one owner action filed exactly one issue", relayReports.length === 1, `relay saw ${relayReports.length}`);
         await shot("feedback-filed");
