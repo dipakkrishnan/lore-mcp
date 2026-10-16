@@ -434,8 +434,8 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         await shot("today-bring-in");
         await js(`[...document.querySelectorAll("#content .row")].find((r) => r.textContent.includes("Bring in what you've written")).querySelector("button").click()`);
         check("…and its button opens Connectors", await waitFor(`document.querySelector("#title").textContent === "Connectors"`));
-        // Only the rows under "Where memories come from": Account also says Claude.
-        const sourceRows = `[...[...document.querySelectorAll("#content section")].find((s) => s.textContent.includes("Where memories come from")).querySelectorAll(".row")]`;
+        // Only the rows under "Your apps": Account also says Claude.
+        const sourceRows = `[...[...document.querySelectorAll("#content section")].find((s) => s.querySelector("h2")?.textContent === "Your apps").querySelectorAll(".row")]`;
         const rowOf = (name) => `${sourceRows}.find((r) => r.querySelector("b").textContent === ${JSON.stringify(name)})`;
         const textOf = (name) => `(${rowOf(name)}?.textContent ?? "")`;
         const clickOn = (name) => `${rowOf(name)}.querySelector("button").click()`;
@@ -994,7 +994,7 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         await js(`window.__lore.signIn()`);
         await waitFor(`document.querySelector("#content .strip")`);
         await js(`window.__lore.show("connectors")`);
-        const granola = `[...[...document.querySelectorAll("#content section")].find((s) => s.textContent.includes("Where memories come from")).querySelectorAll(".row")].find((r) => r.querySelector("b").textContent === "Granola")`;
+        const granola = `[...[...document.querySelectorAll("#content section")].find((s) => s.querySelector("h2")?.textContent === "Your apps").querySelectorAll(".row")].find((r) => r.querySelector("b").textContent === "Granola")`;
         await waitFor(granola);
         await js(`${granola}.querySelector("button").click()`);
         await waitFor(`document.querySelector("dialog.sheet[open] .btn.primary")?.textContent === "Sign in to Granola"`);

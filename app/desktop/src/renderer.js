@@ -1255,7 +1255,7 @@ function verb(app) {
 /** Connectors: the agents, then every app in the catalog, connected or on offer. @param {Snapshot} s */
 function sourceRows(s) {
   const rows = s.library.sources.filter((source) => !source.connector).map((source) => {
-    const node = row(source.label, source.enabled ? `${plural(source.imported, "memory")} imported` : "Not connected", cell(pill(source.enabled ? "Connected" : "Off", source.enabled ? "ok" : "")), false);
+    const node = row(source.label, source.enabled ? `${plural(source.imported, "memory")} imported` : "Your coding sessions", cell(pill(source.enabled ? "Connected" : "Off", source.enabled ? "ok" : "")), false);
     node.prepend(brand(AGENT_MARKS[source.name] ?? source.name, source.label));
     return node;
   });
@@ -1709,7 +1709,8 @@ function agentLine(source) {
 /** Each personal agent the owner connected, and the way to connect one more. @param {Snapshot} s */
 function agentTiles(s) {
   const rows = s.library.sources.filter((source) => source.connector === "agent").map((source) => {
-    const node = row(source.label, agentLine(source), cell(pill("Live", "ok"), button("Manage", "quiet", () => openAgent(source))), false);
+    const line = agentLine(source);
+    const node = row(source.label, line, cell(line === "Nothing saved yet" ? pill("Waiting", "wait") : pill("Live", "ok"), button("Manage", "quiet", () => openAgent(source))), false);
     node.prepend(agentMark(source.app, source.label));
     return node;
   });
