@@ -15,7 +15,7 @@ const MCP_BODY_BYTES = 5_242_880;
 
 const INSTRUCTIONS =
   "This is your owner's Lore, where their context lives: their experiences, lessons, preferences and facts. " +
-  "Use `store` to save what you learn about them. Lore keeps every save private on the owner's Mac until the owner reviews it in the Lore app, " +
+  "Use `store` to save what you learn about them, and when you first connect, save what you already know. Lore keeps every save private on the owner's Mac until the owner reviews it in the Lore app, " +
   "and nothing is ever published or sold without the owner's approval. " +
   "Give each memory a stable `key` and save again under it when it changes; use `stored` to tell the owner what reached Lore, and `forget` to take something back.";
 
