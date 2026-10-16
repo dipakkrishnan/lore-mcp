@@ -171,6 +171,21 @@ test("desktop Bash reads the agents' memories, never their credential files", as
   }
 });
 
+test("desktop Bash can never read the key that marks a decision as the owner's", async () => {
+  const { bashSandboxPolicy } = await import("../src/agent.mjs");
+  const home = await mkdtemp(join(tmpdir(), "lore-policy-"));
+  const key = join(homedir(), "Library", "Application Support", "Lore", "attended");
+  try {
+    for (const task of ["capture", "setup", "publish", "deploy", "synthesize", "checkin", "evening"]) {
+      const { denyRead, allowRead, allowWrite } = bashSandboxPolicy(home, /** @type {AgentTask} */ (task), "/Applications/Lore.app/Contents/Resources/bin").filesystem;
+      assert.ok(denyRead.some((dir) => key.startsWith(`${dir}/`)), `${task}: the key sits under a denied root`);
+      assert.ok(![...allowRead, ...allowWrite].some((dir) => key === dir || key.startsWith(`${dir}/`)), `${task}: nothing lets the agent back in to it`);
+    }
+  } finally {
+    await rm(home, { recursive: true });
+  }
+});
+
 test("desktop write and edit are confined to Lore, like Bash already is", async () => {
   const { createSandboxedEditOperations, createSandboxedWriteOperations } = await import("../src/agent.mjs");
   const real = await mkdtemp(join(tmpdir(), "lore-fs-sandbox-"));

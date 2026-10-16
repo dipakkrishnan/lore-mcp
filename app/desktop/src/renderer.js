@@ -1787,8 +1787,8 @@ class AgentSetup {
     form.text(first ? `Add Lore to ${where}` : `${who}'s old key no longer works. Give it this one.`);
     const list = el("ol", "agent-steps");
     const steps = app === "grok"
-      ? ["In Grok, open Settings, then Plugins.", "Add a custom connector named “Lore”, with the address and key below.", "Paste the instructions into a chat with Grok, so it knows what to save."]
-      : [`In ${where}'s settings, find where to add a connector.`, "Add one named “Lore”, with the address and key below.", `Paste the instructions into ${where}, so it knows what to save.`];
+      ? ["In Grok, open Settings, then Plugins.", "Add a custom connector named “Lore”, with the address and key below.", "Add the instructions to Grok's custom instructions, or as a skill, so it remembers what to save in every chat and in its routines."]
+      : [`In ${where}'s settings, find where to add a connector.`, "Add one named “Lore”, with the address and key below.", `Add the instructions where ${where} keeps standing instructions, like custom instructions or a skill, so it remembers what to save in every chat.`];
     for (const step of steps) list.append(el("li", "", step));
     form.body.append(list);
     /** @param {string} label @param {string} shown @param {string} text */

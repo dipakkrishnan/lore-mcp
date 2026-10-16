@@ -875,6 +875,7 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         // No store online: the sheet puts it online first, the way the store always goes online, then picks up.
         await js(`${agentRow("Connect an agent")}.querySelector("button").click()`);
         await waitFor(`${primary}?.textContent === "Put your store online"`);
+        await sleep(400);
         check("with no store online, the first step says why it goes online, plainly", await js(`${sheet}.includes("Your agents save to your own store, so it needs to be online. Nothing goes on sale until you approve it.")`), await js(sheet));
         await shot("agents-store-first");
         await js(`${primary}.click()`);
@@ -892,6 +893,7 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         check("connecting Grok shows its steps in the same sheet", await waitFor(`${sheet}.includes("Add Lore to Grok")`, 80), await js(sheet));
         const setup = await js(sheet);
         check("…Grok's own: Settings, Plugins, a custom connector named Lore", /Settings, then Plugins/.test(setup) && /custom connector named “Lore”/.test(setup), setup);
+        check("…with the instructions kept where Grok remembers them, not in one chat", setup.includes("Add the instructions to Grok's custom instructions, or as a skill, so it remembers what to save in every chat") && !/into a chat/.test(setup), setup);
         check("…the key is shown once, and said plainly", /This key is shown only once/.test(setup) && !/\bmcp\b|token|mainnet/i.test(setup), setup);
         check("…and it waits for Grok's first save", setup.includes("Waiting for Grok's first save…"), setup);
         const copyOf = async (label) => {
@@ -908,7 +910,7 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         check("…and the instructions, with Grok's name, the address and the key filled in", instructions.includes("You are Grok, one of my personal agents") && instructions.includes(agentUrl) && instructions.includes(header) && !/\{(name|mcp_url|header)\}/.test(instructions), instructions.slice(0, 200));
         check("…and the Copy button says it copied", await js(`[...document.querySelectorAll("dialog.sheet[open] .copy-row button")].some((b) => b.textContent === "Copied")`));
         await press("Copy all");
-        await sleep(200);
+        await sleep(400);
         check("Copy all gives all three at once", copied.at(-1) === `Address: ${agentUrl}\nKey: ${header}\n\n${instructions}`);
         await shot("agents-setup");
 
@@ -980,6 +982,7 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         await js(`{ const f = document.querySelector("dialog.sheet[open] .form-entry input"); f.value = "Work Claude"; f.dispatchEvent(new Event("input")); }`);
         await js(`${primary}.click()`);
         check("Claude gets general steps under the owner's name for it", await waitFor(`${sheet}.includes("Add Lore to Claude") && ${sheet}.includes("In Claude's settings, find where to add a connector.") && ${sheet}.includes("Waiting for Work Claude's first save…")`, 80), await js(sheet));
+        check("…keeping the instructions where Claude remembers them", (await js(sheet)).includes("Add the instructions where Claude keeps standing instructions, like custom instructions or a skill, so it remembers what to save in every chat."), await js(sheet));
         check("…and is told plainly that a sign-in is coming", /can only connect through a sign-in, which Lore doesn't offer yet\. It's coming\./.test(await js(sheet)) && !/\bmcp\b|oauth|token/i.test(await js(sheet)), await js(sheet));
         check("…and its instructions use that name", (await copyOf("Instructions")).includes("You are Work Claude"));
         await sleep(300);
