@@ -8,7 +8,7 @@ import { fromB64url, hex, seal } from "./seal.js";
  * `publications` and `node_settings`, so these tables survive it.
  */
 
-export const LIMITS = { items: 20, keys: 50, waiting: 2_000, retention: 30 * 86_400_000 };
+export const LIMITS = { items: 20, keys: 50, waiting: 2_000, retention: 30 * 86_400_000, history: 90 * 86_400_000 };
 
 export const WINDOWS = [
   { span: "hour", size: 3_600_000, limit: 100, label: "100 writes an hour" },
@@ -147,7 +147,10 @@ export class Inbox {
     const db = this.db;
     const time = Date.now();
     const at = iso(time);
-    await db.prepare("DELETE FROM inbox WHERE sealed IS NOT NULL AND saved_at <= ?").bind(iso(time - LIMITS.retention)).run();
+    await db
+      .prepare("DELETE FROM inbox WHERE (sealed IS NOT NULL AND saved_at <= ?1) OR (sealed IS NULL AND coalesce(received_at, saved_at) <= ?2)")
+      .bind(iso(time - LIMITS.retention), iso(time - LIMITS.history))
+      .run();
     const refused = await this.windows(time, writes.length);
     if (refused) return refused;
 

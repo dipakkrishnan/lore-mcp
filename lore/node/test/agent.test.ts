@@ -293,4 +293,17 @@ describe("retention", () => {
     await agent.store(memory({ title: "new" }));
     expect((await mac.opened(id)).map((item) => item.plain.title)).toEqual(["new"]);
   });
+
+  it("forgets what the Mac received after 90 days, keeping newer records", async () => {
+    const { id, agent } = await setup();
+    await agent.store(memory({ key: "old" }));
+    await agent.store(memory({ key: "recent" }));
+    await mac.confirm(await mac.collect(id));
+    await env.LORE_DB.prepare("UPDATE inbox SET received_at = ? WHERE rowid = (SELECT min(rowid) FROM inbox WHERE agent = ?)")
+      .bind(new Date(Date.now() - 91 * 86_400_000).toISOString(), id)
+      .run();
+    await agent.store(memory({ key: "next" }));
+    const { body } = await agent.tool("stored", { keys: ["old", "recent"] });
+    expect((body.keys as { state: string }[]).map((key) => key.state)).toEqual(["unknown", "received"]);
+  });
 });

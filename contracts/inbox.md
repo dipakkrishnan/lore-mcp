@@ -100,7 +100,7 @@ ciphertext could leak.
 | Writes per agent | 100 an hour, 1,000 a day (windows in `inbox_windows`) |
 | Waiting items per node | 2,000 |
 
-A waiting payload older than 30 days is dropped at the next write.
+A waiting payload older than 30 days is dropped at the next write. A row with no payload left (received, or a dropped forget) is deleted 90 days after it was received or saved, after which `stored` reports its key as `unknown`.
 
 ## Replacement and forgetting
 
