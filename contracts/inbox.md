@@ -62,7 +62,10 @@ before this version.
 - Parse with `^lore_agent_([0-9a-f]{16})_([A-Za-z0-9_-]{43})$`.
 - The Mac mints the token locally and inserts only `sha256(secret)` into
   `agents`. The node compares hashes in constant time.
-- The token goes in `Authorization: Bearer <token>`.
+- The token goes in `Authorization: Bearer <token>`, or in the address as
+  `<node_url>/agent/<token>` for connectors that take only a URL (Grok's
+  custom connector). The address is then the secret; it reaches only the
+  owner's own Cloudflare logs.
 - Revoking sets `revoked_at`. Rotating replaces `token_hash` on the same row,
   so the agent id and the memories' provenance stay put.
 
@@ -117,7 +120,7 @@ A waiting payload older than 30 days is dropped at the next write. A row with no
 - Each saved item counts as one write against the quota, and so does each
   forget.
 
-## Agent MCP: `POST <node_url>/agent`
+## Agent MCP: `POST <node_url>/agent` or `POST <node_url>/agent/<token>`
 
 A request without a valid token gets `401` and
 `WWW-Authenticate: Bearer resource_metadata="<node_url>/.well-known/oauth-protected-resource"`.

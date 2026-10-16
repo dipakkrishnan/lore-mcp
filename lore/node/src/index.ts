@@ -2,7 +2,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { McpAgent } from "agents/mcp";
 import { withX402 } from "agents/x402";
 import { z } from "zod";
-import { serveAgent } from "./agent.js";
+import { isAgentPath, serveAgent } from "./agent.js";
 import {
   type AnswerSettings,
   ESTIMATE_SECONDS,
@@ -380,7 +380,7 @@ export default {
         ? readFree(request, env, storeFor(env, url, settings), posted, found)
         : paidNotice(request, env, settings.stripeAccount, url.origin, posted, found);
     }
-    const response = url.pathname === "/agent" ? await serveAgent(request, env) : await mcp.fetch(request, env, ctx);
+    const response = isAgentPath(url.pathname) ? await serveAgent(request, env) : await mcp.fetch(request, env, ctx);
     if (response.webSocket || response.headers.has("cache-control")) return response;
     const uncached = new Response(response.body, response);
     uncached.headers.set("cache-control", "no-store");

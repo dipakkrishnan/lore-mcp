@@ -10,6 +10,7 @@ import { Inbox, LIMITS, failed } from "./inbox.js";
  */
 
 const TOKEN = /^lore_agent_([0-9a-f]{16})_([A-Za-z0-9_-]{43})$/;
+const PATH = /^\/agent(?:\/([^/]+))?$/;
 const MCP_BODY_BYTES = 5_242_880;
 
 const INSTRUCTIONS =
@@ -78,9 +79,15 @@ function server(inbox: Inbox): McpServer {
   return server;
 }
 
+export function isAgentPath(pathname: string): boolean {
+  return PATH.test(pathname);
+}
+
 export async function serveAgent(request: Request, env: Env): Promise<Response> {
-  const origin = new URL(request.url).origin;
-  const [, id, secret] = TOKEN.exec(request.headers.get("authorization")?.replace(/^Bearer /i, "") ?? "") ?? [];
+  const url = new URL(request.url);
+  const presented = PATH.exec(url.pathname)?.[1] ?? request.headers.get("authorization")?.replace(/^Bearer /i, "") ?? "";
+  const origin = url.origin;
+  const [, id, secret] = TOKEN.exec(presented) ?? [];
   const inbox = id ? await Inbox.open(env.LORE_DB, id, secret) : null;
   if (!inbox) {
     return Response.json(

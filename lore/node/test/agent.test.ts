@@ -44,6 +44,20 @@ describe("/agent", () => {
     await response.text();
   });
 
+  it("takes the key in the address, so a connector needs only the URL", async () => {
+    const { token } = await mac.mint();
+    const client = await connect(`https://worker.test/agent/${token}`);
+    const { tools } = await client.listTools();
+    expect(tools.map((tool) => tool.name)).toContain("store");
+    await client.close();
+    const wrong = await post(`/agent/${token.slice(0, -1)}${token.endsWith("A") ? "B" : "A"}`);
+    expect(wrong.status).toBe(401);
+    await wrong.text();
+    const deeper = await post(`/agent/${token}/x`);
+    expect(deeper.status).not.toBe(200);
+    await deeper.text();
+  });
+
   it("serves the three write tools and says nothing is published without the owner", async () => {
     const { agent } = await setup();
     const { tools } = await agent.client.listTools();
