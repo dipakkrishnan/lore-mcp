@@ -84,6 +84,12 @@ export function checkInPrompt(job) {
   const items = job.items.map((item) => `- ${item.id}: ${JSON.stringify(item.title)} from ${JSON.stringify(item.source)}`).join("\n");
   return `Lore brought in ${plural(job.items.length, "item")} since the last check-in. Decide whether any is worth asking the owner about.${ASIDE}the items, by id:\n${items})`;
 }
+/** The skills this agent loads. lore-store is for the owner's remote agents, through a `store` tool this one never has:
+ * here it would only compete with lore-capture whenever the owner says "save that to Lore".
+ * @param {{skills: import("@earendil-works/pi-coding-agent").Skill[], diagnostics: import("@earendil-works/pi-coding-agent").ResourceDiagnostic[]}} loaded */
+export function ownSkills({ skills, diagnostics }) {
+  return { skills: skills.filter((skill) => skill.name !== "lore-store"), diagnostics };
+}
 /** Drafts are approved or skipped on cards the agent never sees, so every publish turn says where they stand. @param {number} waiting */
 export function draftsAside(waiting) {
   const state = waiting === 0 ? "no drafts are waiting on the owner; anything you staged before was approved or skipped on its card" : `${waiting} draft${waiting === 1 ? " is" : "s are"} still waiting on the owner's card`;
@@ -382,6 +388,7 @@ export class LoreAgent {
       agentDir: resolve(options.loreHome, ".pi"),
       settingsManager: settings,
       additionalSkillPaths: [options.skillsDir],
+      skillsOverride: ownSkills,
       noExtensions: true,
       noSkills: true,
       noPromptTemplates: true,

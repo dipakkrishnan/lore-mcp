@@ -1934,6 +1934,9 @@ def _project(source: Source, path: Path) -> str:
     if source.name == "codex":
         relative = path.relative_to(Path(source.locator))
         return relative.parts[0] if len(relative.parts) > 1 else ""
+    if source.kind == "agent":
+        # Each agent is its own source, so what it saved says which agent, by name.
+        return source.label
     if source.connector:
         return Connector.named(source.connector).name
     if (

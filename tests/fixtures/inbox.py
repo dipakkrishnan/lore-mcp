@@ -11,6 +11,9 @@ runs the same pieces as processes, from the repository root:
 
 with `$LORE_HOME/node/node_modules/.bin/wrangler` a shim that `cd`s to the repository
 and execs the second line with `"$@"`, and `node_url` set to `http://127.0.0.1:N/mcp`.
+The CLI keeps the owner's inbox keys in a file rather than the Keychain with
+`PYTHONPATH=<repo> PYTHON_KEYRING_BACKEND=tests.fixtures.inbox.Keyring` and
+`LORE_EDGE_KEYRING=$root/keyring.json`.
 """
 
 from __future__ import annotations
@@ -39,6 +42,8 @@ from cryptography.hazmat.primitives.asymmetric.x25519 import (
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from cryptography.hazmat.primitives.hashes import SHA256
 from cryptography.hazmat.primitives.kdf.hkdf import HKDF
+from keyring.backend import KeyringBackend
+from keyring.errors import PasswordDeleteError
 
 TOKEN = re.compile(r"^lore_agent_([0-9a-f]{16})_([A-Za-z0-9_-]{43})$")
 KINDS = ("experience", "lesson", "preference", "fact", "reference")
@@ -75,6 +80,34 @@ def seal(
     return encode(
         mine + nonce + AESGCM(key).encrypt(nonce, plaintext, item_id.encode())
     )
+
+
+class Keyring(KeyringBackend):
+    """A Keychain kept in one JSON file, so processes the harness starts share what
+    the first one saved and the owner's own Keychain is never touched."""
+
+    priority = 1  # type: ignore[assignment]
+
+    @property
+    def path(self) -> Path:
+        return Path(os.environ["LORE_EDGE_KEYRING"])
+
+    def get_password(self, service: str, username: str) -> str | None:
+        return self._saved().get(f"{service} {username}")
+
+    def set_password(self, service: str, username: str, password: str) -> None:
+        self.path.write_text(
+            json.dumps(self._saved() | {f"{service} {username}": password})
+        )
+
+    def delete_password(self, service: str, username: str) -> None:
+        saved = self._saved()
+        if saved.pop(f"{service} {username}", None) is None:
+            raise PasswordDeleteError(username)
+        self.path.write_text(json.dumps(saved))
+
+    def _saved(self) -> dict[str, str]:
+        return json.loads(self.path.read_text()) if self.path.exists() else {}
 
 
 class Rejected(Exception):

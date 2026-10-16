@@ -45,6 +45,12 @@ const navButtons = /** @type {HTMLButtonElement[]} */ ([...document.querySelecto
 let snapshot = null;
 /** The apps Lore can connect, read once from the CLI's catalog. @type {SourceApp[]} */
 let apps = [];
+/** What the owner's personal agents have saved, as their store counts it; null until Connectors asks. @type {AgentEntry[] | null} */
+let agents = null;
+/** Connecting an agent put the store online first; once it is, the sheet picks up where it left off. */
+let agentAfterStore = false;
+/** The setup sheet waiting on an agent's first save, told whatever Lore brings in from the owner's agents. @type {((reads: SourceRead[]) => void) | null} */
+let agentWaiting = null;
 /** What Lore does on its own, as the CLI lists it. @type {Routine[]} */
 let routines = [];
 /** The routines the owner started that are still going. @type {Set<string>} */
@@ -142,6 +148,7 @@ const EXPLORERS = { "eip155:8453": "https://basescan.org", "eip155:84532": "http
 const REAL_MONEY = "I'm ready to switch my store to real money.";
 const SETUP_INTENT = "Let's set up my Lore.";
 const STORE_INTENT = "Help me open my store.";
+const AGENT_STORE_INTENT = "Put my store online so my personal agents can save to it. Nothing goes on sale until I approve it.";
 const REDEPLOY_PRICE = "I changed my publication price. Redeploy my store so buyers pay the new amount.";
 // Six decimals, not the default two: a price can run below a cent, and rounding
 // $0.000001 up to $0.01 would misstate what a buyer pays. Six is the CLI's floor.
@@ -300,9 +307,7 @@ async function openMemory(id) {
   const head = el("div", "sheet-head");
   const text = el("div", "t");
   const titleLabel = el("b", "", memory.title);
-  const from = snapshot?.library.sources.find((source) => source.name === memory.source);
-  const origin = apps.find((app) => app.id === from?.connector)?.name ?? from?.label;
-  text.append(titleLabel, el("span", "", [...new Set([memory.project, origin, when(memory.updated_at)])].filter(Boolean).join(" · ")));
+  text.append(titleLabel, el("span", "", [...new Set([...origin(memory), when(memory.updated_at)])].filter(Boolean).join(" · ")));
   const close = el("button", "icon-btn", "×");
   close.type = "button";
   close.setAttribute("aria-label", "Close");
@@ -387,6 +392,14 @@ async function openMemory(id) {
   document.body.append(sheet);
   sheet.showModal();
   close.focus();
+}
+
+/** Where a memory came from, as its sheet says it: one of the owner's agents by its name, any other app by the app's.
+ * @param {Memory} memory @returns {string[]} */
+function origin(memory) {
+  const from = snapshot?.library.sources.find((source) => source.name === memory.source);
+  if (from?.connector === "agent") return [`From ${from.label}`];
+  return [memory.project, apps.find((app) => app.id === from?.connector)?.name ?? from?.label ?? ""];
 }
 
 function closeSheet() {
@@ -632,13 +645,13 @@ function readingRow(item) {
 
 /** What Lore made of a connected app's newest items: each new memory, and a draft one press away for the ones worth selling. @param {ReadyRun[]} runs */
 function memoriesReady(runs) {
-  const memories = runs.flatMap((run) => run.memories);
+  const memories = runs.flatMap((run) => run.memories.map((memory) => ({ ...memory, from: run.from })));
   const selling = memories.filter((memory) => memory.sell).length;
   const [latest] = runs;
   const heading = runs.every((run) => run.title === latest.title) ? latest.title : "Lore read what you brought in";
   const detail = [`${plural(memories.length, "new memory")}, only on this Mac`, selling ? `${selling} ${selling === 1 ? "looks" : "look"} worth selling` : ""].filter(Boolean).join(" · ");
   const clear = button("Clear", "quiet", () => void window.lore.clearMemories().then(() => { readyRuns = []; render(); }));
-  const rows = memories.map((memory) => memoryRow(memory.id, memory.title, memory.sell ? `Worth selling · ${memory.why}` : memory.work ? "Work · stays private" : "Private", memory.sell));
+  const rows = memories.map((memory) => memoryRow(memory.id, memory.title, [memory.from && `From ${memory.from}`, memory.sell ? `Worth selling · ${memory.why}` : memory.work ? "Work · stays private" : "Private"].filter(Boolean).join(" · "), memory.sell));
   noticeReady();
   return section("New memories", card([row(heading, detail, cell(clear), false), ...rows]));
 }
@@ -760,7 +773,9 @@ function privateMemories(s) {
 
 /** @param {Snapshot} s */
 function renderMemories(s) {
-  const items = privateMemories(s).map((item) => memoryRow(item.id, item.title, [item.project_label, when(item.updated_at)].filter(Boolean).join(" · ")));
+  // An agent's memories carry its name as their project, and say so as where they came from.
+  const named = new Set(s.library.sources.filter((source) => source.connector === "agent").map((source) => source.label));
+  const items = privateMemories(s).map((item) => memoryRow(item.id, item.title, [named.has(item.project_label) ? `From ${item.project_label}` : item.project_label, when(item.updated_at)].filter(Boolean).join(" · ")));
   const body = items.length ? card(items) : emptyState("Nothing kept yet. Say what you learned and Lore will keep it.", button("Add your first memory", "quiet", () => startCapture()));
   return [section("", body)];
 }
@@ -1241,6 +1256,8 @@ function sourceRows(s) {
     return node;
   });
   for (const app of apps) {
+    // The owner's personal agents have a group of their own.
+    if (app.id === "agent") continue;
     const connected = s.library.sources.filter((source) => source.connector === app.id);
     for (const source of connected) {
       const state = stateOf(app, source);
@@ -1407,7 +1424,21 @@ class FormSheet {
   /** Show it, with `primary` waiting on `valid` and doing `submit`. The sheet closes once `submit` settles, unless it
    * answers false; what it throws is said in the sheet, under the rows.
    * @param {{primary?: string, working?: string, valid?: () => boolean, submit?: () => unknown, failed?: string}} [spec] */
-  open({ primary, working, valid = () => true, submit = () => undefined, failed = "Lore couldn't do that. Try again." } = {}) {
+  open(spec) {
+    this.arm(spec);
+    return this.show();
+  }
+
+  show() {
+    document.body.append(this.dialog);
+    this.dialog.showModal();
+    this.focus();
+    return this;
+  }
+
+  /** The footer's primary and what it does, as `open` takes them; a sheet that goes through steps arms each one.
+   * @param {{primary?: string, working?: string, valid?: () => boolean, submit?: () => unknown, failed?: string}} [spec] */
+  arm({ primary, working, valid = () => true, submit = () => undefined, failed = "Lore couldn't do that. Try again." } = {}) {
     Object.assign(this, { valid, submit, failed, working });
     this.body.append(this.problem);
     if (primary) {
@@ -1416,10 +1447,19 @@ class FormSheet {
       this.actions.append(this.primary);
     }
     this.refresh();
-    document.body.append(this.dialog);
-    this.dialog.showModal();
+  }
+
+  /** Clear the sheet for its next step, in place. */
+  reset() {
+    this.body.replaceChildren();
+    this.aside.replaceChildren();
+    this.actions.replaceChildren();
+    this.primary = null;
+    this.problem.textContent = "";
+  }
+
+  focus() {
     /** @type {HTMLElement | null} */ (this.body.querySelector("input:not([type=radio]), textarea") ?? this.form.querySelector(".btn.primary:not(:disabled)") ?? this.form.querySelector(".actions .btn:not(:disabled)") ?? this.form.querySelector(".form-foot .btn:not(:disabled)"))?.focus();
-    return this;
   }
 
   close() {
@@ -1606,10 +1646,230 @@ function openConnection(app, source) {
   }
 }
 
-/** Connectors: where memories come from, and how often Lore reads them. First class: the way
- * context gets into Lore, not a preference. @param {Snapshot} s */
+/** Connectors: the owner's own agents, then where memories come from, and how often Lore reads them. First class: the
+ * way context gets into Lore, not a preference. @param {Snapshot} s */
 function renderConnectors(s) {
-  return [section("Where memories come from", card([...sourceRows(s), scheduleRow(s)]))];
+  return [section("Your agents", card(agentRows(s))), section("Where memories come from", card([...sourceRows(s), scheduleRow(s)]))];
+}
+
+/** The apps a personal agent can be, by what the owner calls them, each with its mark. @type {Array<[AgentApp, string]>} */
+const AGENT_APPS = [["grok", "Grok"], ["muse", "Muse"], ["chatgpt", "ChatGPT"], ["claude", "Claude"], ["other", "Other"]];
+/** @type {Record<AgentApp, string>} */
+const PERSONAL_MARKS = { grok: "grok", muse: "muse", chatgpt: "chatgpt", claude: "claude", other: "agent" };
+const STORE_FIRST = "Your agents save to your own store, so it needs to be online. Nothing goes on sale until you approve it.";
+const SIGN_IN_SOON = "Some apps can only connect through a sign-in, which Lore doesn't offer yet. It's coming.";
+/** While the setup sheet waits on a first save, it asks the store this often, not once a minute. */
+const FIRST_SAVE_EVERY_MS = 10_000;
+
+/** @param {AgentApp | null | undefined} app @param {string} name */
+function agentMark(app, name) {
+  return brand(PERSONAL_MARKS[app ?? "other"] ?? "agent", name);
+}
+
+/** @param {string} iso */
+function day(iso) {
+  const date = new Date(iso);
+  const days = Math.round((new Date().setHours(0, 0, 0, 0) - new Date(date).setHours(0, 0, 0, 0)) / 86_400_000);
+  return days === 0 ? "today" : days === 1 ? "yesterday" : when(iso);
+}
+
+/** What an agent has saved, as its store counts it, or what Lore kept of it while the store has not answered. @param {SourceEntry} source */
+function agentLine(source) {
+  const entry = agents?.find((agent) => agent.source === source.name);
+  if (!entry) return source.imported ? `${plural(source.imported, "memory")} kept` : "Nothing saved yet";
+  return entry.saved ? `Saved ${entry.saved}${entry.last_saved_at ? ` · last ${day(entry.last_saved_at)}` : ""}` : "Nothing saved yet";
+}
+
+/** Each personal agent the owner connected, and the way to connect one more. @param {Snapshot} s */
+function agentRows(s) {
+  const rows = s.library.sources.filter((source) => source.connector === "agent").map((source) => {
+    const node = row(source.label, agentLine(source), cell(button("Manage", "quiet", () => openAgent(source))), false);
+    node.prepend(agentMark(source.app, source.label));
+    return node;
+  });
+  const offer = row(rows.length ? "Connect another agent" : "Connect an agent", "Grok, Muse, ChatGPT or Claude saves what it learns about you, privately.", cell(button("Connect", "secondary", () => new AgentSetup().open())), false);
+  offer.prepend(agentMark("other", "Agent"));
+  return [...rows, offer];
+}
+
+async function loadAgents() {
+  if (!snapshot?.library.sources.some((source) => source.connector === "agent")) return;
+  agents = await window.lore.agents().catch(() => agents);
+  if (view === "connectors") render();
+}
+
+/** A quiet line inside a sheet, the way the app's notices look, for what the owner should keep in mind. @param {string} text */
+function inlineNotice(text) {
+  const box = el("div", "notice info inline-notice");
+  box.insertAdjacentHTML("afterbegin", INFO_ICON);
+  box.append(el("span", "", text));
+  return box;
+}
+
+/** A Copy button that says it copied. @param {() => string} text */
+function copyButton(text) {
+  const node = button("Copy", "quiet", () => void window.lore.copy(text()).then(() => {
+    node.textContent = "Copied";
+    setTimeout(() => { node.textContent = "Copy"; }, 1500);
+  }));
+  return node;
+}
+
+/** APP-207: connecting one of the owner's personal agents, in one sheet: their store online first if it isn't yet,
+ * then which agent, then what to paste into it, shown once, then its first save. */
+class AgentSetup {
+  constructor() {
+    this.form = new FormSheet("Connect an agent", agentMark("other", "Agent"));
+  }
+
+  open() {
+    if (snapshot?.node.url) this.pick();
+    else this.store();
+  }
+
+  /** The store goes online the way it always does, in its own thread; the sheet comes back once it is. */
+  store() {
+    this.form.text(STORE_FIRST);
+    this.form.open({
+      primary: "Put your store online",
+      submit: () => {
+        agentAfterStore = true;
+        void startDeploy(AGENT_STORE_INTENT);
+      }
+    });
+  }
+
+  pick() {
+    const { form } = this;
+    form.text("Which agent should save to Lore?");
+    const rows = /** @type {HTMLElement} */ (form.group("", []).querySelector(".form-rows"));
+    /** @type {[AgentApp, string] | null} */
+    let chosen = null;
+    const name = form.field("Name", { placeholder: "What you call it", ariaLabel: "What you call it" });
+    for (const [app, label] of AGENT_APPS) {
+      const radio = el("input");
+      radio.type = "radio";
+      radio.name = "agent";
+      radio.addEventListener("change", () => {
+        chosen = [app, app === "other" ? "My agent" : label];
+        name.control.placeholder = chosen[1];
+        form.refresh();
+      });
+      const option = form.row(label, radio);
+      option.classList.add("form-option");
+      option.prepend(agentMark(app, label));
+      rows.append(option);
+    }
+    form.group("", [name.row]);
+    form.note("What it saves stays private on this Mac.");
+    form.open({
+      primary: "Connect",
+      working: "Connecting…",
+      valid: () => Boolean(chosen),
+      failed: "Lore couldn't connect it. Try again.",
+      submit: async () => {
+        if (!chosen) return false;
+        const handed = await window.lore.connectAgent({ app: chosen[0], name: name.control.value.trim() || chosen[1] });
+        void load().then(loadAgents);
+        this.steps(handed, true);
+        return false;
+      }
+    });
+  }
+
+  /** What to paste into the agent, with its key shown this once; a first connect then waits for the first save.
+   * @param {AgentKey} handed @param {boolean} first */
+  steps(handed, first) {
+    const { form } = this;
+    const { name: who, app } = handed.agent;
+    const where = app === "other" ? who : AGENT_APPS.find(([id]) => id === app)?.[1] ?? who;
+    form.reset();
+    form.text(first ? `Add Lore to ${where}` : `${who}'s old key no longer works. Give it this one.`);
+    const list = el("ol", "agent-steps");
+    const steps = app === "grok"
+      ? ["In Grok, open Settings, then Plugins.", "Add a custom connector named “Lore”, with the address and key below.", "Paste the instructions into a chat with Grok, so it knows what to save."]
+      : [`In ${where}'s settings, find where to add a connector.`, "Add one named “Lore”, with the address and key below.", `Paste the instructions into ${where}, so it knows what to save.`];
+    for (const step of steps) list.append(el("li", "", step));
+    form.body.append(list);
+    /** @param {string} label @param {string} shown @param {string} text */
+    const copyRow = (label, shown, text) => {
+      const node = form.row(label, el("span", "hint mono", shown), copyButton(() => text));
+      node.classList.add("copy-row");
+      return node;
+    };
+    form.group("", [copyRow("Address", handed.mcp_url, handed.mcp_url), copyRow("Key", handed.header, handed.header), copyRow("Instructions", "What to save, and when", handed.prompt)]);
+    form.body.append(inlineNotice(`This key is shown only once. If it's lost, get a new one from Manage.`));
+    if (app !== "grok") form.body.append(inlineNotice(SIGN_IN_SOON));
+    if (first) this.wait(handed.source, who);
+    form.button("Copy all", "secondary", () => void window.lore.copy(`Address: ${handed.mcp_url}\nKey: ${handed.header}\n\n${handed.prompt}`));
+    form.arm({ primary: "Done" });
+    form.focus();
+  }
+
+  /** Waits, in the sheet, for the agent's first save to reach Lore. @param {string} source @param {string} who */
+  wait(source, who) {
+    const line = el("p", "agent-wait");
+    line.append(el("span", "dot off"), el("span", "", `Waiting for ${who}'s first save…`));
+    this.form.body.append(line);
+    const poll = setInterval(() => void window.lore.checkAgents(), FIRST_SAVE_EVERY_MS);
+    /** @param {SourceRead[]} reads */
+    const heard = (reads) => {
+      if (!reads.some((read) => read.name === source && (read.added || read.updated))) return;
+      line.replaceChildren(el("span", "dot ok"), el("span", "", `${who} saved its first memory`));
+      stop();
+    };
+    const stop = () => {
+      clearInterval(poll);
+      if (agentWaiting === heard) agentWaiting = null;
+    };
+    agentWaiting = heard;
+    this.form.dialog.addEventListener("close", stop);
+  }
+}
+
+/** What one personal agent saved, and what can be done to it. @param {SourceEntry} source */
+function openAgent(source) {
+  const name = source.label;
+  const form = new FormSheet(name, agentMark(source.app, name));
+  form.text(agentLine(source));
+  form.text(`Lore brings in what ${name} saves while Lore is open. It stays private on this Mac.`, "hint");
+  form.button("Disconnect", "quiet", ask);
+  form.button("Get a new key", "secondary", rekey);
+  form.open();
+  function rekey() {
+    const confirm = new FormSheet(`Get a new key for ${name}?`, agentMark(source.app, name));
+    confirm.text(`The key ${name} has now stops working at once. You give it the new one the same way.`);
+    confirm.button("Cancel", "secondary", () => openAgent(source));
+    confirm.open({
+      primary: "Get a new key",
+      working: "Getting a key…",
+      failed: "Lore couldn't reach your store. Try again.",
+      submit: async () => {
+        const handed = await window.lore.agentKey(source.name);
+        const setup = new AgentSetup();
+        setup.steps(handed, false);
+        setup.form.show();
+        return false;
+      }
+    });
+  }
+  function ask() {
+    const kept = source.imported ? ` The ${plural(source.imported, "memory")} it saved ${source.imported === 1 ? "stays" : "stay"} in your library.` : "";
+    const confirm = new FormSheet(`Disconnect ${name}?`, agentMark(source.app, name));
+    confirm.text(`${name}'s key stops working, so it can't save to Lore anymore.${kept}`);
+    if (source.imported) confirm.button("Delete them too", "quiet", () => void remove(false)).classList.add("destructive");
+    confirm.button("Cancel", "secondary", () => openAgent(source));
+    confirm.button("Disconnect", "secondary", () => void remove(true));
+    confirm.open();
+  }
+  /** @param {boolean} keep */
+  async function remove(keep) {
+    await act(async () => {
+      const { memories } = await window.lore.disconnectAgent(source.name, keep);
+      closeSheet();
+      tell(memories.deleted ? `Disconnected ${name}. ${plural(memories.deleted, "memory")} deleted.` : `Disconnected ${name}. ${plural(memories.kept, "memory")} kept.`);
+    });
+  }
 }
 
 /** FAQ: what Lore does, then how the money works, in the order a first-time owner asks. Every
@@ -1881,6 +2141,7 @@ function renderAccount() {
 function show(next) {
   view = next;
   if (next === "store") void loadSales();
+  if (next === "connectors") void loadAgents();
   // A store update said once, where it happened; it doesn't follow the owner around.
   pushedNote = false;
   render();
@@ -1909,6 +2170,13 @@ async function load() {
     render();
     // Today's earnings need the ledger once; after that a new sale or For Sale reads it again.
     if (!salesAsked && snapshot.node.url) void loadSales();
+    if (agentAfterStore && snapshot.node.url && !taskItems.some((item) => item.kind === "deploy" && item.state === "working")) {
+      agentAfterStore = false;
+      // Back where the owner started, with the sheet at its next step.
+      if (detailTask === "deploy") closeTask();
+      show("connectors");
+      new AgentSetup().open();
+    }
   } catch {
     if (ticket !== loads) return;
     const error = el("section", "card error");
@@ -3013,6 +3281,10 @@ function onEvent(event) {
   }
   else if (event.type === "changed") void load();
   else if (event.type === "sold") void loadSales();
+  else if (event.type === "agents") {
+    agentWaiting?.(event.reads);
+    void load().then(loadAgents);
+  }
   else if (event.type === "ready") void load();
   else if (event.type === "show") {
     if (event.view === "today" && detailTask) closeTask();
@@ -3373,7 +3645,7 @@ function showPeek(anchor, memory) {
   peek = el("div", "card peek");
   peek.setAttribute("role", "tooltip");
   const text = memory.content.replace(FRONTMATTER, "").replace(/\s+/g, " ").trim();
-  peek.append(el("b", "", memory.title), el("span", "", [memory.project, when(memory.updated_at)].filter(Boolean).join(" · ")), el("p", "", text.slice(0, 400)));
+  peek.append(el("b", "", memory.title), el("span", "", [origin(memory)[0], when(memory.updated_at)].filter(Boolean).join(" · ")), el("p", "", text.slice(0, 400)));
   peek.addEventListener("mouseenter", () => window.clearTimeout(peekTimer));
   peek.addEventListener("mouseleave", hidePeek);
   peek.addEventListener("click", () => void openMemory(memory.id));

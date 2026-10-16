@@ -75,6 +75,16 @@ contextBridge.exposeInMainWorld("lore", {
   readSource: (name) => ipcRenderer.invoke("sources:read", name),
   /** @param {string} name @param {boolean} keep */
   removeSource: (name, keep) => ipcRenderer.invoke("sources:remove", name, keep),
+  agents: () => ipcRenderer.invoke("agents:list"),
+  /** @param {{app: AgentApp, name: string}} input */
+  connectAgent: (input) => ipcRenderer.invoke("agents:connect", input),
+  /** @param {string} source */
+  agentKey: (source) => ipcRenderer.invoke("agents:key", source),
+  /** @param {string} source @param {boolean} keep */
+  disconnectAgent: (source, keep) => ipcRenderer.invoke("agents:disconnect", source, keep),
+  checkAgents: () => ipcRenderer.invoke("agents:check"),
+  /** @param {string} text */
+  copy: (text) => ipcRenderer.invoke("clipboard:write", text),
   readyRuns: () => ipcRenderer.invoke("ready:runs"),
   seenMemories: () => ipcRenderer.invoke("ready:seen"),
   clearMemories: () => ipcRenderer.invoke("ready:clear"),

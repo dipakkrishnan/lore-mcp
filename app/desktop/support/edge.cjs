@@ -35,6 +35,9 @@ const badges = [];
 const readings = [];
 /** AUT-008: every check-in Lore looked over. @type {CheckInJob[]} */
 const checkIns = [];
+/** APP-207: what the owner copied, and every turn the owner started. */
+const copied = [];
+const prompts = [];
 if (scenario === "listing") {
   require("electron").shell.openExternal = async (url) => { opened.push(url); };
   require(join(src, "main.cjs"));
@@ -130,6 +133,36 @@ if (scenario === "listing") {
         ? { reach_out: false, why: "nothing the library doesn't already explain", questions: [] }
         : { reach_out: true, why: "a decision with no reason given", questions: [{ question, memory: item.id }] };
       later(7000, () => this.options.checkedIn?.(job, verdict));
+    };
+    require(join(src, "main.cjs"));
+  });
+} else if (scenario === "agents") {
+  // APP-207: everything around an agent's save is real (the CLI, the stand-in node's D1 and /agent) except the
+  // model and the deploy. The deploy stand-in leaves what a real one does: the node's wrangler, and the store's address.
+  require(join(src, "sales.cjs")).notify = (words, onClick) => { notes.push({ words, handlers: { click: onClick } }); };
+  require("electron").clipboard.writeText = (text) => { copied.push(text); };
+  const setBadgeCount = app.setBadgeCount.bind(app);
+  app.setBadgeCount = (count) => { badges.push(count); return setBadgeCount(count); };
+  const repo = process.env.LORE_EDGE_REPO ?? "";
+  void import(require("node:url").pathToFileURL(join(src, "agent.mjs")).href).then(({ LoreAgent }) => {
+    const at = () => new Date().toISOString();
+    LoreAgent.prototype.prompt = async function (/** @type {string} */ text, /** @type {AgentTask} */ task) {
+      prompts.push({ text, task });
+      if (task !== "deploy") return;
+      this.options.emit({ type: "task", task: { version: 1, kind: "deploy", title: "Open your store", state: "working", phase: "Setting up your store", updatedAt: at() } });
+      const wrangler = join(process.env.LORE_HOME ?? "", "node/node_modules/.bin/wrangler");
+      mkdirSync(dirname(wrangler), { recursive: true });
+      writeFileSync(wrangler, `#!/bin/sh\ncd "${repo}" && exec uv run python -m tests.fixtures.inbox wrangler "$@"\n`, { mode: 0o755 });
+      const url = `${process.env.LORE_EDGE_AGENT_URL}/mcp`;
+      execFileSync("uv", ["run", "python", "-c", `import time\nfrom lore.store import Store\nwith Store() as s:\n s.set_setting('node_url', '${url}')\n s.set_setting('node_live', {'url': '${url}', 'checked_at': time.time(), 'live': {'state': 'online', 'network': 'eip155:84532', 'price_usd': 1.0, 'payout': '0x' + 'a' * 40}, 'ids': []})`], { cwd: repo, env: process.env });
+      this.options.emit({ type: "task", task: { version: 1, kind: "deploy", title: "Open your store", state: "done", phase: "Finished", updatedAt: at() } });
+    };
+    LoreAgent.prototype.synthesize = function (/** @type {Reading} */ reading) {
+      readings.push(reading);
+      const folder = join(process.env.LORE_HOME ?? "", "memories");
+      mkdirSync(folder, { recursive: true });
+      writeFileSync(join(folder, "pricing-sync-by-reach.md"), "# Price a sync placement by its reach\n\nCharge by the audience the placement reaches, not by the hours it took. From what Grok saved, October 2026.\n");
+      setTimeout(() => void this.options.memoriesReady?.(reading, { read: reading.added, memories: [{ file: "pricing-sync-by-reach.md", worth_selling: true, why: "a pricing rule from real placements" }] }), 1500);
     };
     require(join(src, "main.cjs"));
   });
@@ -821,6 +854,138 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         await js(`[...${usage}.querySelectorAll("button")].find((b) => b.textContent === "Turn off").click()`);
         check("…and turns it off", await waitFor(`window.lore.snapshot().then((s) => s.setup.telemetry_enabled === false)`));
         await shot("settings-usage-off");
+      } else if (scenario === "agents") {
+        // APP-207: connect Grok with no store online yet, hear its first save, and manage it from Connectors.
+        const agentUrl = `${process.env.LORE_EDGE_AGENT_URL}/agent`;
+        /** One JSON-RPC call to the stand-in node's /agent, as Grok makes it. @param {string} key @param {string} method @param {object} [params] */
+        const call = (key, method, params = {}) => fetch(agentUrl, { method: "POST", headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }) });
+        const sheet = `(document.querySelector("dialog.sheet[open]")?.textContent ?? "")`;
+        const primary = `document.querySelector("dialog.sheet[open] .btn.primary")`;
+        const press = (label) => js(`[...document.querySelectorAll("dialog.sheet[open] button")].find((b) => b.textContent === ${JSON.stringify(label)}).click()`);
+        const agentsSection = `[...document.querySelectorAll("#content section")].find((s) => s.querySelector("h2")?.textContent === "Your agents")`;
+        const agentRow = (name) => `[...(${agentsSection}?.querySelectorAll(".row") ?? [])].find((r) => r.querySelector("b").textContent === ${JSON.stringify(name)})`;
+        await waitFor(`document.body.dataset.state === "welcome" && !document.querySelector("#welcome").classList.contains("provisioning")`);
+        await js(`window.__lore.signIn()`);
+        await waitFor(`document.querySelector("#content .strip")`);
+        await js(`window.__lore.show("connectors")`);
+        check("Connectors has a group for the owner's agents, offering to connect one", await waitFor(`${agentRow("Connect an agent")}?.querySelector("img.logo")`));
+        check("…and the catalog offers no generic Personal agent", !(await js(`[...document.querySelectorAll("#content .row b")].some((b) => b.textContent === "Personal agent")`)));
+        await shot("agents-offer");
+
+        // No store online: the sheet puts it online first, the way the store always goes online, then picks up.
+        await js(`${agentRow("Connect an agent")}.querySelector("button").click()`);
+        await waitFor(`${primary}?.textContent === "Put your store online"`);
+        check("with no store online, the first step says why it goes online, plainly", await js(`${sheet}.includes("Your agents save to your own store, so it needs to be online. Nothing goes on sale until you approve it.")`), await js(sheet));
+        await shot("agents-store-first");
+        await js(`${primary}.click()`);
+        const deploying = await waitFor(`document.querySelector("#title").textContent === "Open your store"`);
+        for (let i = 0; i < 40 && !prompts.length; i++) await sleep(100);
+        check("…and puts it online through the store's own deploy", deploying && prompts.some((p) => p.task === "deploy" && /personal agents/.test(p.text)), JSON.stringify(prompts));
+        check("once the store is online, the sheet continues to the setup", await waitFor(`${sheet}.includes("Which agent should save to Lore?")`, 80), await js(sheet));
+        const picks = await js(`[...document.querySelectorAll("dialog.sheet[open] .form-option")].map((o) => o.textContent)`);
+        check("…offering each of the five, each with its mark", JSON.stringify(picks) === JSON.stringify(["Grok", "Muse", "ChatGPT", "Claude", "Other"]) && await js(`[...document.querySelectorAll("dialog.sheet[open] .form-option")].every((o) => o.querySelector("img.logo"))`), JSON.stringify(picks));
+        check("Connect waits for a choice", await js(`${primary}.disabled`));
+        await js(`[...document.querySelectorAll("dialog.sheet[open] .form-option")].find((o) => o.textContent === "Grok").querySelector("input").click()`);
+        await sleep(400);
+        await shot("agents-pick");
+        await js(`${primary}.click()`);
+        check("connecting Grok shows its steps in the same sheet", await waitFor(`${sheet}.includes("Add Lore to Grok")`, 80), await js(sheet));
+        const setup = await js(sheet);
+        check("…Grok's own: Settings, Plugins, a custom connector named Lore", /Settings, then Plugins/.test(setup) && /custom connector named “Lore”/.test(setup), setup);
+        check("…the key is shown once, and said plainly", /This key is shown only once/.test(setup) && !/\bmcp\b|token|mainnet/i.test(setup), setup);
+        check("…and it waits for Grok's first save", setup.includes("Waiting for Grok's first save…"), setup);
+        const copyOf = async (label) => {
+          const before = copied.length;
+          await js(`[...document.querySelectorAll("dialog.sheet[open] .copy-row")].find((r) => r.querySelector(".form-label").textContent === ${JSON.stringify(label)}).querySelector("button").click()`);
+          for (let i = 0; i < 20 && copied.length === before; i++) await sleep(50);
+          return copied.at(-1) ?? "";
+        };
+        const address = await copyOf("Address");
+        const header = await copyOf("Key");
+        const instructions = await copyOf("Instructions");
+        check("Copy gives the store's own agent address", address === agentUrl, address);
+        check("…the key, as the header the agent sends", /^Authorization: Bearer lore_agent_[0-9a-f]{16}_[A-Za-z0-9_-]{43}$/.test(header), header);
+        check("…and the instructions, with Grok's name, the address and the key filled in", instructions.includes("You are Grok, one of my personal agents") && instructions.includes(agentUrl) && instructions.includes(header) && !/\{(name|mcp_url|header)\}/.test(instructions), instructions.slice(0, 200));
+        check("…and the Copy button says it copied", await js(`[...document.querySelectorAll("dialog.sheet[open] .copy-row button")].some((b) => b.textContent === "Copied")`));
+        await press("Copy all");
+        await sleep(200);
+        check("Copy all gives all three at once", copied.at(-1) === `Address: ${agentUrl}\nKey: ${header}\n\n${instructions}`);
+        await shot("agents-setup");
+
+        // Grok saves, with the key it was given, and the sheet hears it.
+        const key = header.replace("Authorization: Bearer ", "");
+        const stored = await (await call(key, "tools/call", { name: "store", arguments: { items: [{ title: "How I price sync placements", content: "I charge by the audience the placement reaches, not by the hours it took.", key: "sync-pricing", kind: "preference" }] } })).json();
+        check("a save with that key reaches the store", stored.result?.isError === false, JSON.stringify(stored));
+        check("…and the sheet says Grok saved its first memory", await waitFor(`${sheet}.includes("Grok saved its first memory")`, 80), await js(sheet));
+        await shot("agents-first-save");
+        check("…read through once, named for Grok", readings.length === 1 && readings[0].title === "Grok saved 1 thing to Lore" && readings[0].label === "Grok", JSON.stringify(readings));
+        await press("Done");
+        for (let i = 0; i < 60 && !notes.length; i++) await sleep(250);
+        check("its memories are one Mac notification that names Grok", notes.length === 1 && notes[0].words.title === "Grok saved 1 thing to Lore" && notes[0].words.body === "1 new memory. 1 looks worth selling.", JSON.stringify(notes.map((n) => n.words)));
+        check("…and a red 1 on the dock", badges.at(-1) === 1, JSON.stringify(badges));
+        check("Grok's row says what it saved, and when", await waitFor(`/Saved 1 · last today/.test(${agentRow("Grok")}?.textContent ?? "")`), await js(`${agentRow("Grok")}?.textContent ?? ""`));
+        check("…with Grok's mark, and the offer to connect another", await js(`${agentRow("Grok")}.querySelector("img.logo").src.endsWith("assets/grok.svg") && Boolean(${agentRow("Connect another agent")})`));
+        await shot("agents-connected");
+        app.emit("browser-window-focus");
+        await sleep(3000);
+        check("coming back to the app finds nothing more, and says nothing again", notes.length === 1 && readings.length === 1, String(notes.length));
+
+        notes[0].handlers.click();
+        const card = `[...document.querySelectorAll("#content .section")].find((s) => s.textContent.includes("New memories"))`;
+        check("clicking it lands on Today's new memories, named for Grok", await waitFor(`${card}?.textContent.includes("Grok saved 1 thing to Lore")`));
+        const cardText = await js(`${card}.textContent`);
+        check("…each memory says it came from Grok", cardText.includes("Price a sync placement by its reach") && cardText.includes("From Grok · Worth selling"), cardText);
+        await shot("agents-today");
+        await js(`window.__lore.show("memories")`);
+        const saved = `[...document.querySelectorAll("#content .row")].find((r) => r.textContent.includes("How I price sync placements"))`;
+        check("what Grok saved is in Memories, from Grok", await waitFor(`/From Grok/.test(${saved}?.textContent ?? "")`), await js(`${saved}?.textContent ?? ""`));
+        await js(`${saved}.querySelector(".task-link").click()`);
+        check("…and its sheet says so", await waitFor(`/From Grok/.test(document.querySelector("dialog.sheet[open] .sheet-head")?.textContent ?? "")`), await js(sheet));
+        await shot("agents-memory-from");
+        await js(`document.querySelector("dialog.sheet[open] .icon-btn").click()`);
+
+        // Manage: a new key stops the old one, and Disconnect stops the agent and keeps what it saved.
+        await js(`window.__lore.show("connectors")`);
+        await waitFor(agentRow("Grok"));
+        await js(`${agentRow("Grok")}.querySelector("button").click()`);
+        check("Manage offers a new key and Disconnect", await waitFor(`${sheet}.includes("Get a new key") && ${sheet}.includes("Disconnect")`));
+        await press("Get a new key");
+        await waitFor(`${primary}?.textContent === "Get a new key"`);
+        check("…and says the old key stops at once", /stops working at once/.test(await js(sheet)), await js(sheet));
+        await js(`${primary}.click()`);
+        check("a new key shows the setup again", await waitFor(`${sheet}.includes("Grok's old key no longer works")`, 80) && !(await js(`${sheet}.includes("Waiting for")`)), await js(sheet));
+        const fresh = (await copyOf("Key")).replace("Authorization: Bearer ", "");
+        check("…with a different key", fresh !== key && fresh.startsWith(key.slice(0, "lore_agent_".length + 16)), fresh);
+        check("…the old one no longer works", (await call(key, "tools/list")).status === 401);
+        check("…and the new one does", (await call(fresh, "tools/list")).status === 200);
+        await shot("agents-new-key");
+        await press("Done");
+        await sleep(300);
+        await js(`${agentRow("Grok")}.querySelector("button").click()`);
+        await waitFor(`${sheet}.includes("Disconnect")`);
+        await press("Disconnect");
+        await waitFor(`${sheet}.includes("Disconnect Grok?")`);
+        check("Disconnect offers to keep or delete what Grok saved", /The 1 memory it saved stays in your library/.test(await js(sheet)) && await js(`[...document.querySelectorAll("dialog.sheet[open] button")].some((b) => b.textContent === "Delete them too")`), await js(sheet));
+        await shot("agents-disconnect");
+        await press("Disconnect");
+        check("disconnecting keeps its memory and says so", await waitFor(`document.querySelector("#status").textContent.includes("Disconnected Grok. 1 memory kept.")`, 80), await js(`document.querySelector("#status").textContent`));
+        check("…takes Grok off Connectors", await waitFor(`!${agentRow("Grok")} && Boolean(${agentRow("Connect an agent")})`));
+        check("…and its key stops working", (await call(fresh, "tools/list")).status === 401);
+        await shot("agents-disconnected");
+
+        // Any other app gets honest, general steps, and is told some apps need a sign-in Lore doesn't offer yet.
+        await js(`${agentRow("Connect an agent")}.querySelector("button").click()`);
+        await waitFor(`${sheet}.includes("Which agent should save to Lore?")`);
+        await js(`[...document.querySelectorAll("dialog.sheet[open] .form-option")].find((o) => o.textContent === "Claude").querySelector("input").click()`);
+        await js(`{ const f = document.querySelector("dialog.sheet[open] .form-entry input"); f.value = "Work Claude"; f.dispatchEvent(new Event("input")); }`);
+        await js(`${primary}.click()`);
+        check("Claude gets general steps under the owner's name for it", await waitFor(`${sheet}.includes("Add Lore to Claude") && ${sheet}.includes("In Claude's settings, find where to add a connector.") && ${sheet}.includes("Waiting for Work Claude's first save…")`, 80), await js(sheet));
+        check("…and is told plainly that a sign-in is coming", /can only connect through a sign-in, which Lore doesn't offer yet\. It's coming\./.test(await js(sheet)) && !/\bmcp\b|oauth|token/i.test(await js(sheet)), await js(sheet));
+        check("…and its instructions use that name", (await copyOf("Instructions")).includes("You are Work Claude"));
+        await sleep(300);
+        await shot("agents-claude-setup");
+        await press("Done");
+        check("…and it joins the agents with Claude's mark", await waitFor(`${agentRow("Work Claude")}?.querySelector("img.logo")?.src.endsWith("assets/claude.svg") && /Nothing saved yet/.test(${agentRow("Work Claude")}.textContent)`), await js(`${agentRow("Work Claude")}?.textContent ?? ""`));
       } else if (scenario === "reading") {
         // AUT-005: connect Granola, and Lore reads the meetings through without being asked.
         await waitFor(`document.body.dataset.state === "welcome" && !document.querySelector("#welcome").classList.contains("provisioning")`);
