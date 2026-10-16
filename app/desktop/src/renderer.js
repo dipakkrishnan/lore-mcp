@@ -133,6 +133,10 @@ function resetBlueprintGhost() {
 const RING = `<svg viewBox="0 0 26 26" fill="none"><rect x="4.5" y="5" width="17" height="16" rx="3.2" fill="currentColor"></rect><path d="M3 11.2L4.5 10.6C8 9.2 10.5 12.2 13 10.9S18.5 9.6 21.5 11.2L23 12" stroke="var(--accent)" stroke-width="1.7"></path><path d="M3 16.9L4.5 16.3C8 15 10.5 17.8 13 16.6S18.5 15 21.5 16.8L23 17.7" stroke="var(--accent)" stroke-width="1.7"></path></svg>`;
 const RENAME_ICON = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7V4h16v3M9 20h6M12 4v16"></path></svg>`;
 const EDIT_ICON = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L8 18l-4 1 1-4z"></path></svg>`;
+const COPY_ICON = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="8" y="8" width="12" height="12" rx="2.5"></rect><path d="M16 8V6.5A2.5 2.5 0 0 0 13.5 4h-7A2.5 2.5 0 0 0 4 6.5v7A2.5 2.5 0 0 0 6.5 16H8"></path></svg>`;
+const CHECK_ICON = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"></path></svg>`;
+const LOCK_ICON = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="11" width="14" height="9" rx="2"></rect><path d="M8 11V8a4 4 0 0 1 8 0v3"></path></svg>`;
+const CHEVRON_ICON = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6l6 6-6 6"></path></svg>`;
 const INFO_ICON = `<svg class="notice-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="9"></circle><path d="M12 11v5M12 8h.01"></path></svg>`;
 const ALERT_ICON = `<svg class="notice-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4l9 16H3z"></path><path d="M12 10v4M12 17h.01"></path></svg>`;
 const SALE_ICON = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 12l-8 8-9-9V3h8z"></path><circle cx="7.5" cy="7.5" r="1.5"></circle></svg>`;
@@ -1450,6 +1454,14 @@ class FormSheet {
   }
 
   /** Clear the sheet for its next step, in place. */
+  /** A new heading and mark for a sheet that moves on to its next step. @param {string} text @param {HTMLElement} icon */
+  heading(text, icon) {
+    const head = /** @type {HTMLElement} */ (this.form.querySelector(".form-head"));
+    head.querySelector("img.logo, .mark")?.replaceWith(icon);
+    /** @type {HTMLElement} */ (head.querySelector("h2")).textContent = text;
+    this.dialog.setAttribute("aria-label", text);
+  }
+
   reset() {
     this.body.replaceChildren();
     this.aside.replaceChildren();
@@ -1653,11 +1665,10 @@ function renderConnectors(s) {
 }
 
 /** The apps a personal agent can be, by what the owner calls them, each with its mark. @type {Array<[AgentApp, string]>} */
-const AGENT_APPS = [["grok", "Grok"], ["muse", "Muse"], ["chatgpt", "ChatGPT"], ["claude", "Claude"], ["other", "Other"]];
+const AGENT_APPS = [["grok", "Grok Bot"], ["muse", "Muse"], ["chatgpt", "ChatGPT"], ["claude", "Claude"], ["other", "Other"]];
 /** @type {Record<AgentApp, string>} */
 const PERSONAL_MARKS = { grok: "grok", muse: "muse", chatgpt: "chatgpt", claude: "claude", other: "agent" };
 const STORE_FIRST = "Your agents save to your own store, so it needs to be online. Nothing goes on sale until you approve it.";
-const GROK_ROUTINE = "Every evening, save what you learned about me today to Lore.";
 const SIGN_IN_SOON = "Some apps can only connect through a sign-in, which Lore doesn't offer yet. It's coming.";
 /** While the setup sheet waits on a first save, it asks the store this often, not once a minute. */
 const FIRST_SAVE_EVERY_MS = 10_000;
@@ -1714,6 +1725,36 @@ function copyButton(text) {
     setTimeout(() => { node.textContent = "Copy"; }, 1500);
   }));
   return node;
+}
+
+/** Where Grok Bot takes a custom connector, as a path. */
+function grokPath() {
+  const path = el("div", "agent-path");
+  ["Grok Bot", "Connect apps", "Custom connector"].forEach((part, i) => {
+    if (i) path.insertAdjacentHTML("beforeend", CHEVRON_ICON);
+    path.append(el("span", "", part));
+  });
+  return path;
+}
+
+/** The one link an agent needs, its key masked, copied whole. @param {AgentKey} handed */
+function privateLink(handed) {
+  const link = el("button", "agent-link");
+  link.type = "button";
+  link.setAttribute("aria-label", "Copy link");
+  const shown = el("span", "agent-link-text");
+  shown.append(handed.mcp_url.replace(/^https?:\/\//, "") + "/", el("span", "agent-link-key", "••••••••••••"));
+  const glyph = el("span", "agent-link-icon");
+  glyph.innerHTML = COPY_ICON;
+  const word = el("span", "agent-link-word", "Copy");
+  link.append(shown, glyph, word);
+  link.addEventListener("click", () => void window.lore.copy(handed.connector_url).then(() => {
+    link.classList.add("copied");
+    glyph.innerHTML = CHECK_ICON;
+    word.textContent = "Copied";
+    setTimeout(() => { link.classList.remove("copied"); glyph.innerHTML = COPY_ICON; word.textContent = "Copy"; }, 1500);
+  }));
+  return link;
 }
 
 /** APP-207: connecting one of the owner's personal agents, in one sheet: their store online first if it isn't yet,
@@ -1785,20 +1826,22 @@ class AgentSetup {
     const { name: who, app } = handed.agent;
     const where = app === "other" ? who : AGENT_APPS.find(([id]) => id === app)?.[1] ?? who;
     form.reset();
-    form.text(first ? `Add Lore to ${where}` : `${who}'s old key no longer works. Give it this one.`);
+    form.heading(first ? `Connect ${where}` : `A new link for ${who}`, agentMark(app, where));
     /** @param {string} label @param {string} shown @param {string} text */
     const copyRow = (label, shown, text) => {
       const node = form.row(label, el("span", "hint mono", shown), copyButton(() => text));
       node.classList.add("copy-row");
       return node;
     };
-    const list = el("ol", "agent-steps");
-    form.body.append(list);
     if (app === "grok") {
-      for (const step of ["In Grok, open Connectors, choose New Connector, then Custom.", "Name it “Lore” and paste the address below. That's all Grok needs."]) list.append(el("li", "", step));
-      form.group("", [copyRow("Address", `${handed.mcp_url}/…`, handed.connector_url), copyRow("Every evening", "Optional: what to tell your Bot", GROK_ROUTINE)]);
-      form.body.append(inlineNotice("The address is the key, so keep it private. It's shown only once; if it's lost, get a new one from Manage."));
+      form.body.append(grokPath(), privateLink(handed));
+      const hint = el("span", "form-hint quiet-hint");
+      hint.innerHTML = LOCK_ICON;
+      hint.append(el("span", "", first ? "Private link, shown once" : "The old link stopped working"));
+      form.aside.append(hint);
     } else {
+      const list = el("ol", "agent-steps");
+      form.body.append(list);
       for (const step of [`In ${where}'s settings, find where to add a connector.`, "Add one named “Lore”, with the address and key below.", `Add the instructions where ${where} keeps standing instructions, like custom instructions or a skill, so it remembers what to save in every chat.`]) list.append(el("li", "", step));
       form.group("", [copyRow("Address", handed.mcp_url, handed.mcp_url), copyRow("Key", handed.header, handed.header), copyRow("Instructions", "What to save, and when", handed.prompt)]);
       form.body.append(inlineNotice(`This key is shown only once. If it's lost, get a new one from Manage.`));
