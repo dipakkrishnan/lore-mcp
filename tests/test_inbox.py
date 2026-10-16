@@ -320,3 +320,11 @@ class FakeWranglerTest(LoreTestCase):
         self.assertIsNone(
             Endpoint(d1).agent("Bearer lore_agent_" + "0" * 16 + "_" + "a" * 43)
         )
+
+
+class NoKeyringTest(LoreTestCase):
+    def test_a_push_without_any_keyring_publishes_no_inbox_keys(self) -> None:
+        from keyring.errors import NoKeyringError
+
+        with patch("keyring.get_password", side_effect=NoKeyringError("none")):
+            self.assertEqual(Inbox().settings(), {})

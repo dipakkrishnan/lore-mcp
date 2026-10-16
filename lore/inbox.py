@@ -23,6 +23,7 @@ from cryptography.hazmat.primitives.asymmetric.x25519 import (
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from cryptography.hazmat.primitives.hashes import SHA256
 from cryptography.hazmat.primitives.kdf.hkdf import HKDF
+from keyring.errors import KeyringError
 from pydantic import BaseModel, StringConstraints, TypeAdapter, ValidationError
 
 from . import deploy
@@ -140,7 +141,11 @@ class Inbox:
 
     @cached_property
     def keys(self) -> Keys | None:
-        return self.credentials.load()
+        try:
+            return self.credentials.load()
+        except KeyringError:
+            # No keyring at all, as on a server: no agent was ever connected here.
+            return None
 
     def settings(self) -> dict[str, str]:
         """What every push writes into `node_settings`, so the node seals to this Mac."""
