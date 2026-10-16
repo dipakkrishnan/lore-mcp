@@ -66,7 +66,8 @@ class ConnectTest(AgentCase):
         handed = self.connect()
         agent = handed["agent"]
         self.assertEqual(
-            set(handed), {"source", "agent", "mcp_url", "key", "header", "prompt"}
+            set(handed),
+            {"source", "agent", "mcp_url", "connector_url", "key", "header", "prompt"},
         )
         self.assertEqual(set(agent), AGENT_KEYS)
         self.assertEqual(handed["source"], f"agent-{agent['id']}")
@@ -75,6 +76,9 @@ class ConnectTest(AgentCase):
         )
         self.assertEqual(handed["mcp_url"], f"{self.node.url}/agent")
         self.assertEqual(handed["header"], f"Authorization: Bearer {handed['key']}")
+        self.assertEqual(
+            handed["connector_url"], f"{self.node.url}/agent/{handed['key']}"
+        )
         self.assertIn(f"URL: {self.node.url}/agent", handed["prompt"])
         self.assertIn(handed["header"], handed["prompt"])
         self.assertIn("You are Grok", handed["prompt"])
@@ -298,7 +302,8 @@ class ReadTest(AgentCase):
     def test_rotate_keeps_the_agent_and_stops_the_old_key(self) -> None:
         rotated = self.json("agents", "key", self.source)
         self.assertEqual(
-            set(rotated), {"source", "agent", "mcp_url", "key", "header", "prompt"}
+            set(rotated),
+            {"source", "agent", "mcp_url", "connector_url", "key", "header", "prompt"},
         )
         self.assertEqual(
             (rotated["source"], rotated["agent"]["id"]),

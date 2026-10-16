@@ -102,6 +102,7 @@ class Agents:
             "source": source,
             "agent": minted.agent.model_dump(),
             "mcp_url": mcp_url,
+            "connector_url": f"{mcp_url}/{minted.token}",
             "key": minted.token,
             "header": prompt.header,
             "prompt": prompt.render(),
