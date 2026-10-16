@@ -978,16 +978,15 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         await js(`${agentRow("Connect an agent")}.querySelector("button").click()`);
         await waitFor(`${sheet}.includes("Which agent should save to Lore?")`);
         await js(`[...document.querySelectorAll("dialog.sheet[open] .form-option")].find((o) => o.textContent === "Claude").querySelector("input").click()`);
-        await js(`{ const f = document.querySelector("dialog.sheet[open] .form-entry input"); f.value = "Work Claude"; f.dispatchEvent(new Event("input")); }`);
         await js(`${primary}.click()`);
-        check("Claude gets general steps under the owner's name for it", await waitFor(`document.querySelector("dialog.sheet[open] .form-head h2")?.textContent === "Connect Claude" && ${sheet}.includes("In Claude's settings, find where to add a connector.") && ${sheet}.includes("Waiting for Work Claude's first save…")`, 80), await js(sheet));
+        check("Claude gets general steps, under its own name", await waitFor(`document.querySelector("dialog.sheet[open] .form-head h2")?.textContent === "Connect Claude" && ${sheet}.includes("In Claude's settings, find where to add a connector.") && ${sheet}.includes("Waiting for Claude's first save…")`, 80), await js(sheet));
         check("…keeping the instructions where Claude remembers them", (await js(sheet)).includes("Add the instructions where Claude keeps standing instructions, like custom instructions or a skill, so it remembers what to save in every chat."), await js(sheet));
         check("…and is told plainly that a sign-in is coming", /can only connect through a sign-in, which Lore doesn't offer yet\. It's coming\./.test(await js(sheet)) && !/\bmcp\b|oauth|token/i.test(await js(sheet)), await js(sheet));
-        check("…and its instructions use that name", (await copyOf("Instructions")).includes("You are Work Claude"));
+        check("…and its instructions use that name", (await copyOf("Instructions")).includes("You are Claude"));
         await sleep(300);
         await shot("agents-claude-setup");
         await press("Done");
-        check("…and it joins the agents with Claude's mark", await waitFor(`${agentRow("Work Claude")}?.querySelector("img.logo")?.src.endsWith("assets/claude.svg") && /Nothing saved yet/.test(${agentRow("Work Claude")}.textContent)`), await js(`${agentRow("Work Claude")}?.textContent ?? ""`));
+        check("…and it joins the agents with Claude's mark", await waitFor(`${agentRow("Claude")}?.querySelector("img.logo")?.src.endsWith("assets/claude.svg") && /Nothing saved yet/.test(${agentRow("Claude")}.textContent)`), await js(`${agentRow("Claude")}?.textContent ?? ""`));
       } else if (scenario === "reading") {
         // AUT-005: connect Granola, and Lore reads the meetings through without being asked.
         await waitFor(`document.body.dataset.state === "welcome" && !document.querySelector("#welcome").classList.contains("provisioning")`);

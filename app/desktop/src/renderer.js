@@ -1812,14 +1812,12 @@ class AgentSetup {
     const rows = /** @type {HTMLElement} */ (form.group("", []).querySelector(".form-rows"));
     /** @type {[AgentApp, string] | null} */
     let chosen = null;
-    const name = form.field("Name", { placeholder: "What you call it", ariaLabel: "What you call it" });
     for (const [app, label] of AGENT_APPS) {
       const radio = el("input");
       radio.type = "radio";
       radio.name = "agent";
       radio.addEventListener("change", () => {
         chosen = [app, app === "other" ? "My agent" : label];
-        name.control.placeholder = chosen[1];
         form.refresh();
       });
       const option = form.row(label, radio);
@@ -1827,7 +1825,6 @@ class AgentSetup {
       option.prepend(agentMark(app, label));
       rows.append(option);
     }
-    form.group("", [name.row]);
     form.note("What it saves stays private on this Mac.");
     form.open({
       primary: "Connect",
@@ -1836,7 +1833,7 @@ class AgentSetup {
       failed: "Lore couldn't connect it. Try again.",
       submit: async () => {
         if (!chosen) return false;
-        const handed = await window.lore.connectAgent({ app: chosen[0], name: name.control.value.trim() || chosen[1] });
+        const handed = await window.lore.connectAgent({ app: chosen[0], name: chosen[1] });
         void load().then(loadAgents);
         this.steps(handed, true);
         return false;
