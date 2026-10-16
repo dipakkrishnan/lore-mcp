@@ -365,11 +365,15 @@ class ReadTest(AgentCase):
                         self.assertEqual(cli.main([*argv, "--json"]), 1)
                     said = "".join(call.args[0] for call in err.write.call_args_list)
                     self.assertIn(f"{what} needs an attended terminal", said)
-                    self.assertEqual(len(self.d1.commands), commands, "the store is never asked")
+                    self.assertEqual(
+                        len(self.d1.commands), commands, "the store is never asked"
+                    )
             # What an agent saved, and what waits, are anyone's to read.
             self.assertEqual(len(self.json("agents", "list")["agents"]), 1)
             self.assertEqual(self.json("agents", "waiting")["waiting"], 0)
-        self.assertIsNotNone(self.endpoint.agent(f"Bearer {self.key}"), "its key still works")
+        self.assertIsNotNone(
+            self.endpoint.agent(f"Bearer {self.key}"), "its key still works"
+        )
 
     def test_list_and_waiting_shapes(self) -> None:
         self.save(self.key, {"title": "A", "content": "a"})
