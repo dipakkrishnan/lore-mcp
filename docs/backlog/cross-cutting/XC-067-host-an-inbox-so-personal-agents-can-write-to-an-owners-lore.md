@@ -102,3 +102,29 @@ Rate Limiting bindings cover IP-level abuse.
   Object quota, checkout's HMAC seller token (which is stateless and can't
   be revoked, so it is not reused here), and `lore/signin.py` Keychain
   storage.
+- Built (Oct 16) as `inbox/`: `src/index.ts` (routes and the owner API),
+  `src/inbox.ts` (the `Inbox` Durable Object: owner row, agents, items,
+  quota windows; every token check and quota lives here), `src/mcp.ts`
+  (stateless MCP over the SDK 1.30 `WebStandardStreamableHTTPServerTransport`,
+  a fresh server per request), `src/seal.ts`, `src/token.ts`,
+  `src/limits.ts` (zod schemas). CI: `inbox-*` jobs in `tests.yml`, and
+  `deploy-inbox.yml` from the protected `inbox` environment. Not deployed.
+- MCP library: `agents` 0.23's stateless `createMcpHandler` takes only an SDK
+  v2 server factory, and passing it an SDK 1.30 server gives the deprecated,
+  sessionful handler. So the inbox uses the SDK's own web-standard transport
+  in stateless JSON mode, and does not depend on `agents`.
+- No `nodejs_compat`: the bundle needs no Node built-ins.
+- Things the contract leaves open, and what was built:
+  - A forget that matches a waiting item drops it only when no earlier
+    version under that key reached the Mac. If one did, the waiting payload
+    becomes a sealed forget, so the Mac still removes the memory it has.
+    Dropping it outright, as the contract says, would leave that older
+    memory on the Mac.
+  - A collected forget keeps the state `forgotten`, not `received`, so
+    `stored` can still tell the agent its forget landed.
+  - A payload dropped after 30 days takes its row with it, so `stored`
+    reports that key as `unknown`, or as its previous state.
+  - "Writes" are counted per item, and a forget counts as one. A refused
+    call spends no quota.
+  - `sha256(secret)` hashes the 43-character secret string.
+  - Rotating a removed agent's key returns 409.

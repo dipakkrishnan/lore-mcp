@@ -1,0 +1,24 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "lore-inbox",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-06-11",
+  "account_id": "3227ac150184b0a79178897877781e2b",
+  "routes": [{ "pattern": "inbox.yourlore.dev", "custom_domain": true }],
+  "observability": { "enabled": true },
+  // One SQLite-backed Inbox per owner, addressed by idFromName(owner id). It
+  // is the only authority for tokens and quotas.
+  "durable_objects": {
+    "bindings": [{ "class_name": "Inbox", "name": "INBOX" }]
+  },
+  "migrations": [{ "new_sqlite_classes": ["Inbox"], "tag": "v1" }],
+  // Per client IP on POST /owners. Per Cloudflare location, so a pre-filter
+  // against sign-up floods, not an aggregate bound (see feedback-relay).
+  "ratelimits": [
+    {
+      "name": "OWNERS_RATE_LIMIT",
+      "namespace_id": "2001",
+      "simple": { "limit": 5, "period": 60 }
+    }
+  ]
+}
