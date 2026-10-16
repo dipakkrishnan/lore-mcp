@@ -88,6 +88,7 @@ Every route except `POST /owners` needs the owner token. Errors are
 | `POST /owners` | `{"public_key": b64url(32 bytes)}` | `201 {"owner", "token"}`. Rate-limited per IP. |
 | `GET /owners/me` | | `200 {"owner", "waiting", "agents": [Agent]}` |
 | `POST /owners/me/agents` | `{"name", "app"}` | `201 {"agent": Agent, "token", "mcp_url"}`. The token is shown only once. |
+| `POST /owners/me/agents/:id/key` | | `200 {"token"}`. Issues a new token for the same agent, and the old token stops working at once. |
 | `DELETE /owners/me/agents/:id` | | `204`. The agent's token stops working at once. Its waiting items are kept until they are collected. |
 | `GET /owners/me/items?agent=<id>&limit=<1-200, default 100>` | | `200 {"items": [{"id", "agent", "state": "waiting"\|"forgotten", "sealed", "saved_at"}]}`, oldest first |
 | `POST /owners/me/items/received` | `{"ids": [...]}` (at most 200) | `204`. Drops each item's payload; the row becomes `received`. Unknown ids are ignored. |
