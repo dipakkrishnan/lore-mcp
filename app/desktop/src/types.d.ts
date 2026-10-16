@@ -175,7 +175,7 @@ type CheckIn = { questions: Array<{ question: string; memory: number; title: str
 type AgentApp = "grok" | "muse" | "chatgpt" | "claude" | "other";
 
 /** What `lore agents connect` and `lore agents key` hand back: the agent, and what to paste into it, shown once. */
-type AgentKey = { source: string; agent: { id: string; name: string; app: AgentApp }; mcp_url: string; key: string; header: string; prompt: string };
+type AgentKey = { source: string; agent: { id: string; name: string; app: AgentApp }; mcp_url: string; connector_url: string; key: string; header: string; prompt: string };
 
 /** One connected personal agent, as `lore agents list` reads it from the store. */
 type AgentEntry = { source: string; name: string; app: AgentApp; saved: number; waiting: number; last_saved_at: string | null; memories: number; revoked: boolean };

@@ -892,9 +892,9 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         await js(`${primary}.click()`);
         check("connecting Grok shows its steps in the same sheet", await waitFor(`${sheet}.includes("Add Lore to Grok")`, 80), await js(sheet));
         const setup = await js(sheet);
-        check("…Grok's own: Settings, Plugins, a custom connector named Lore", /Settings, then Plugins/.test(setup) && /custom connector named “Lore”/.test(setup), setup);
-        check("…with the instructions kept where Grok remembers them, not in one chat", setup.includes("Add the instructions to Grok's custom instructions, or as a skill, so it remembers what to save in every chat") && !/into a chat/.test(setup), setup);
-        check("…the key is shown once, and said plainly", /This key is shown only once/.test(setup) && !/\bmcp\b|token|mainnet/i.test(setup), setup);
+        check("…Grok's own: Connectors, New Connector, Custom, and nothing but the address", /open Connectors, choose New Connector, then Custom/.test(setup) && setup.includes("That's all Grok needs"), setup);
+        check("…no key header and no instructions to paste for Grok", !(await js(`[...document.querySelectorAll("dialog.sheet[open] .copy-row .form-label")].some((l) => ["Key", "Instructions"].includes(l.textContent))`)), setup);
+        check("…the address is the key, shown once, and said plainly", /The address is the key, so keep it private/.test(setup) && /shown only once/.test(setup) && !/\bmcp\b|token|mainnet/i.test(setup), setup);
         check("…and it waits for Grok's first save", setup.includes("Waiting for Grok's first save…"), setup);
         const copyOf = async (label) => {
           const before = copied.length;
@@ -903,19 +903,14 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
           return copied.at(-1) ?? "";
         };
         const address = await copyOf("Address");
-        const header = await copyOf("Key");
-        const instructions = await copyOf("Instructions");
-        check("Copy gives the store's own agent address", address === agentUrl, address);
-        check("…the key, as the header the agent sends", /^Authorization: Bearer lore_agent_[0-9a-f]{16}_[A-Za-z0-9_-]{43}$/.test(header), header);
-        check("…and the instructions, with Grok's name, the address and the key filled in", instructions.includes("You are Grok, one of my personal agents") && instructions.includes(agentUrl) && instructions.includes(header) && !/\{(name|mcp_url|header)\}/.test(instructions), instructions.slice(0, 200));
+        const routine = await copyOf("Every evening");
+        check("Copy gives one address with the key in it", new RegExp(`^${agentUrl.replace(/[.*+?^${}()|[\]\\/]/g, "\\$&")}/lore_agent_[0-9a-f]{16}_[A-Za-z0-9_-]{43}$`).test(address), address);
+        check("…and the evening sentence to tell the Bot", routine === "Every evening, save what you learned about me today to Lore.", routine);
         check("…and the Copy button says it copied", await js(`[...document.querySelectorAll("dialog.sheet[open] .copy-row button")].some((b) => b.textContent === "Copied")`));
-        await press("Copy all");
-        await sleep(400);
-        check("Copy all gives all three at once", copied.at(-1) === `Address: ${agentUrl}\nKey: ${header}\n\n${instructions}`);
         await shot("agents-setup");
 
         // Grok saves, with the key it was given, and the sheet hears it.
-        const key = header.replace("Authorization: Bearer ", "");
+        const key = address.slice(agentUrl.length + 1);
         const stored = await (await call(key, "tools/call", { name: "store", arguments: { items: [{ title: "How I price sync placements", content: "I charge by the audience the placement reaches, not by the hours it took.", key: "sync-pricing", kind: "preference" }] } })).json();
         check("a save with that key reaches the store", stored.result?.isError === false, JSON.stringify(stored));
         check("…and the sheet says Grok saved its first memory", await waitFor(`${sheet}.includes("Grok saved its first memory")`, 80), await js(sheet));
@@ -956,7 +951,7 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         check("…and says the old key stops at once", /stops working at once/.test(await js(sheet)), await js(sheet));
         await js(`${primary}.click()`);
         check("a new key shows the setup again", await waitFor(`${sheet}.includes("Grok's old key no longer works")`, 80) && !(await js(`${sheet}.includes("Waiting for")`)), await js(sheet));
-        const fresh = (await copyOf("Key")).replace("Authorization: Bearer ", "");
+        const fresh = (await copyOf("Address")).slice(agentUrl.length + 1);
         check("…with a different key", fresh !== key && fresh.startsWith(key.slice(0, "lore_agent_".length + 16)), fresh);
         check("…the old one no longer works", (await call(key, "tools/list")).status === 401);
         check("…and the new one does", (await call(fresh, "tools/list")).status === 200);

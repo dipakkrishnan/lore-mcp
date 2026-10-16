@@ -1657,6 +1657,7 @@ const AGENT_APPS = [["grok", "Grok"], ["muse", "Muse"], ["chatgpt", "ChatGPT"], 
 /** @type {Record<AgentApp, string>} */
 const PERSONAL_MARKS = { grok: "grok", muse: "muse", chatgpt: "chatgpt", claude: "claude", other: "agent" };
 const STORE_FIRST = "Your agents save to your own store, so it needs to be online. Nothing goes on sale until you approve it.";
+const GROK_ROUTINE = "Every evening, save what you learned about me today to Lore.";
 const SIGN_IN_SOON = "Some apps can only connect through a sign-in, which Lore doesn't offer yet. It's coming.";
 /** While the setup sheet waits on a first save, it asks the store this often, not once a minute. */
 const FIRST_SAVE_EVERY_MS = 10_000;
@@ -1785,23 +1786,26 @@ class AgentSetup {
     const where = app === "other" ? who : AGENT_APPS.find(([id]) => id === app)?.[1] ?? who;
     form.reset();
     form.text(first ? `Add Lore to ${where}` : `${who}'s old key no longer works. Give it this one.`);
-    const list = el("ol", "agent-steps");
-    const steps = app === "grok"
-      ? ["In Grok, open Settings, then Plugins.", "Add a custom connector named “Lore”, with the address and key below.", "Add the instructions to Grok's custom instructions, or as a skill, so it remembers what to save in every chat and in its routines."]
-      : [`In ${where}'s settings, find where to add a connector.`, "Add one named “Lore”, with the address and key below.", `Add the instructions where ${where} keeps standing instructions, like custom instructions or a skill, so it remembers what to save in every chat.`];
-    for (const step of steps) list.append(el("li", "", step));
-    form.body.append(list);
     /** @param {string} label @param {string} shown @param {string} text */
     const copyRow = (label, shown, text) => {
       const node = form.row(label, el("span", "hint mono", shown), copyButton(() => text));
       node.classList.add("copy-row");
       return node;
     };
-    form.group("", [copyRow("Address", handed.mcp_url, handed.mcp_url), copyRow("Key", handed.header, handed.header), copyRow("Instructions", "What to save, and when", handed.prompt)]);
-    form.body.append(inlineNotice(`This key is shown only once. If it's lost, get a new one from Manage.`));
-    if (app !== "grok") form.body.append(inlineNotice(SIGN_IN_SOON));
+    const list = el("ol", "agent-steps");
+    form.body.append(list);
+    if (app === "grok") {
+      for (const step of ["In Grok, open Connectors, choose New Connector, then Custom.", "Name it “Lore” and paste the address below. That's all Grok needs."]) list.append(el("li", "", step));
+      form.group("", [copyRow("Address", `${handed.mcp_url}/…`, handed.connector_url), copyRow("Every evening", "Optional: what to tell your Bot", GROK_ROUTINE)]);
+      form.body.append(inlineNotice("The address is the key, so keep it private. It's shown only once; if it's lost, get a new one from Manage."));
+    } else {
+      for (const step of [`In ${where}'s settings, find where to add a connector.`, "Add one named “Lore”, with the address and key below.", `Add the instructions where ${where} keeps standing instructions, like custom instructions or a skill, so it remembers what to save in every chat.`]) list.append(el("li", "", step));
+      form.group("", [copyRow("Address", handed.mcp_url, handed.mcp_url), copyRow("Key", handed.header, handed.header), copyRow("Instructions", "What to save, and when", handed.prompt)]);
+      form.body.append(inlineNotice(`This key is shown only once. If it's lost, get a new one from Manage.`));
+      form.body.append(inlineNotice(SIGN_IN_SOON));
+      form.button("Copy all", "secondary", () => void window.lore.copy(`Address: ${handed.mcp_url}\nKey: ${handed.header}\n\n${handed.prompt}`));
+    }
     if (first) this.wait(handed.source, who);
-    form.button("Copy all", "secondary", () => void window.lore.copy(`Address: ${handed.mcp_url}\nKey: ${handed.header}\n\n${handed.prompt}`));
     form.arm({ primary: "Done" });
     form.focus();
   }
