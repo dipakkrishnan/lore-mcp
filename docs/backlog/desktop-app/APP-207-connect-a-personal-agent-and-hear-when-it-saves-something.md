@@ -25,6 +25,10 @@ turns saves into memories, and memories into pieces for sale, never closes.
 - **Connectors tab.** Add a "Your agents" group. Each connected agent is a
   row with its logo, "Saved 12 · last today", and Manage (Get a new key,
   Disconnect: keep or delete memories). "Connect an agent" opens a sheet:
+  - With no store online yet, the first step is putting it online: the same
+    Cloudflare sign-in and deploy the store already uses, framed as "Your
+    agents write to your own store, so it needs to be online." Nothing is
+    for sale until the owner approves a piece.
   - Pick Grok, Muse, ChatGPT, Claude or Other.
   - The sheet shows the steps for that app (Grok Bot: Settings → Plugins →
     add a custom connector), with copy buttons for the address, the key
@@ -44,6 +48,7 @@ turns saves into memories, and memories into pieces for sale, never closes.
 
 ## Acceptance criteria
 
+- [ ] With no store online, Connect an agent puts it online first, then continues to the setup without starting over.
 - [ ] Connect an agent → the sheet shows a working address, key and instructions that can be copied, for each of the five choices.
 - [ ] A save made with that key reaches the app within a minute while it is open, becomes memories, posts one notification, and raises the badge.
 - [ ] Manage → Get a new key revokes the old key; Disconnect revokes it and keeps or deletes its memories as chosen.

@@ -7,7 +7,7 @@ component: cross-cutting
 status: in-progress
 related: [CAP-036, CAP-037, APP-207, XC-068, MON-046, XC-044, CAP-009]
 blockers: []
-dependencies: [the owner has a deployed node; owners without one wait for hosted nodes (DOC-003, issue #369)]
+dependencies: [the owner has a deployed node (APP-207 deploys one first when missing)]
 github_issue: https://github.com/dipakkrishnan/lore-mcp/issues/467
 created: 2026-10-16
 updated: 2026-10-16
@@ -49,8 +49,10 @@ between. The full wire contract is `contracts/inbox.md`.
   out. The write endpoint is separate and authenticated, and saves are
   sealed, so the shared D1 only ever holds ciphertext. The node-based design
   also needs no Lore owner identity at all: keys are minted on the Mac.
-- Owners without a node get one through hosted nodes (DOC-003). That is the
-  same Worker code on Lore's account, so this design carries over.
+- Every owner runs their own node, which is the decentralized point
+  (Dipak, Oct 16). An owner without a node is walked through putting their
+  store online as the first step of connecting an agent (APP-207); they
+  don't wait for hosted nodes.
 - Grok Bot's connector form takes a URL and headers and doesn't do OAuth in
   the current beta, so a bearer agent key is enough for the first demo.
   OAuth for grok.com, Claude, ChatGPT and Muse is XC-068.
