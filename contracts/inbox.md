@@ -61,7 +61,8 @@ before this version.
 - `secret` is 32 random bytes, base64url without padding (43 characters).
 - Parse with `^lore_agent_([0-9a-f]{16})_([A-Za-z0-9_-]{43})$`.
 - The Mac mints the token locally and inserts only `sha256(secret)` into
-  `agents`. The node compares hashes in constant time.
+  `agents`. The hash is the lowercase hex SHA-256 of the 43-character secret
+  string's UTF-8 bytes. The node compares hashes in constant time.
 - The token goes in `Authorization: Bearer <token>`.
 - Revoking sets `revoked_at`. Rotating replaces `token_hash` on the same row,
   so the agent id and the memories' provenance stay put.
@@ -138,6 +139,6 @@ published or sold without the owner's approval.
 - **Mint:** insert into `agents`.
 - **Rotate:** update `token_hash`.
 - **Revoke:** set `revoked_at`.
-- **Waiting:** `SELECT agent, count(*) FROM inbox WHERE state IN ('waiting','forgotten') GROUP BY agent`. It is batched into the same wrangler call as the sales check where possible.
-- **Collect:** `SELECT id, agent, state, sealed, saved_at FROM inbox WHERE agent = ? AND state IN ('waiting','forgotten') ORDER BY saved_at LIMIT 200`.
+- **Waiting:** `SELECT agent, count(*) FROM inbox WHERE state IN ('waiting','forgotten') AND sealed IS NOT NULL GROUP BY agent`. It is batched into the same wrangler call as the sales check where possible.
+- **Collect:** `SELECT id, agent, state, sealed, saved_at FROM inbox WHERE agent = ? AND state IN ('waiting','forgotten') AND sealed IS NOT NULL ORDER BY saved_at LIMIT 200`.
 - **Confirm:** for each collected `(id, saved_at)`, run `UPDATE inbox SET state = CASE state WHEN 'forgotten' THEN 'forgotten' ELSE 'received' END, sealed = NULL, received_at = ? WHERE id = ? AND saved_at = ?`. It runs only after the import commits. Matching `saved_at` means an agent's re-save between the collect and the confirm survives for the next collection, rather than being dropped unseen.
