@@ -16,6 +16,9 @@ from io import StringIO
 from pathlib import Path
 from typing import Iterator
 
+from keyring.backend import KeyringBackend
+from keyring.errors import PasswordDeleteError
+
 from lore.store import Store
 
 
@@ -55,6 +58,25 @@ class LoreTestCase(unittest.TestCase):
             if status != "private":
                 store.set_status(memory.id, status)
             return memory.id
+
+
+class FakeKeyring(KeyringBackend):
+    """The Keychain, in memory: a test never reads or writes the owner's own."""
+
+    priority = 1  # type: ignore[assignment]
+
+    def __init__(self) -> None:
+        self.saved: dict[tuple[str, str], str] = {}
+
+    def get_password(self, service: str, username: str) -> str | None:
+        return self.saved.get((service, username))
+
+    def set_password(self, service: str, username: str, password: str) -> None:
+        self.saved[(service, username)] = password
+
+    def delete_password(self, service: str, username: str) -> None:
+        if self.saved.pop((service, username), None) is None:
+            raise PasswordDeleteError(username)
 
 
 @contextmanager

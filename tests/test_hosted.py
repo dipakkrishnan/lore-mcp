@@ -19,9 +19,7 @@ from unittest.mock import patch
 import anyio
 import keyring
 from fixtures.granola import Granola
-from helpers import LoreTestCase
-from keyring.backend import KeyringBackend
-from keyring.errors import PasswordDeleteError
+from helpers import FakeKeyring, LoreTestCase
 from mcp import Client
 from mcp.client.auth import OAuthFlowError
 from mcp.server.mcpserver import MCPServer
@@ -32,23 +30,6 @@ from lore import sources as sources_module
 from lore.signin import Keychain, Loopback
 from lore.sources import HostedReader, Notion, Readwise, Registry, SourceError
 from lore.store import Store
-
-
-class FakeKeyring(KeyringBackend):
-    priority = 1  # type: ignore[assignment]
-
-    def __init__(self) -> None:
-        self.saved: dict[tuple[str, str], str] = {}
-
-    def get_password(self, service: str, username: str) -> str | None:
-        return self.saved.get((service, username))
-
-    def set_password(self, service: str, username: str, password: str) -> None:
-        self.saved[(service, username)] = password
-
-    def delete_password(self, service: str, username: str) -> None:
-        if self.saved.pop((service, username), None) is None:
-            raise PasswordDeleteError(username)
 
 
 def serving(stub: MCPServer):  # type: ignore[no-untyped-def]

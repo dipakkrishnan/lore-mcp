@@ -360,6 +360,7 @@ class SourcesCommandTest(LoreTestCase):
                     "added": 0,
                     "updated": 0,
                     "unchanged": 3,
+                    "removed": 0,
                     "errors": 0,
                     "state": "connected",
                 }
