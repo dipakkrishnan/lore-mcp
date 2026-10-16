@@ -270,7 +270,7 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         await js(`[...document.querySelectorAll("#content button")].find((b) => /^(Set a price|Change)$/.test(b.textContent)).click()`);
         const priceInput = `document.querySelector("dialog.form-sheet[open] input[aria-label='Price per publication in US dollars']")`;
         await waitFor(priceInput);
-        check("Settings' Change price lands on For Sale with the price sheet open on its field", await js(`document.querySelector("#title").textContent === "For Sale" && document.querySelector("dialog.form-sheet[open]")?.getAttribute("aria-label") === "Price" && document.activeElement === ${priceInput}`));
+        check("Settings' Change price lands on Inventory with the price sheet open on its field", await js(`document.querySelector("#title").textContent === "Inventory" && document.querySelector("dialog.form-sheet[open]")?.getAttribute("aria-label") === "Price" && document.activeElement === ${priceInput}`));
         await js(`{ const field = ${priceInput}; field.value = "0"; field.form.requestSubmit(); }`);
         await sleep(300);
         check("zero is refused in the sheet, which stays open", await js(`document.querySelector("dialog.form-sheet[open] .problem")?.textContent.includes("above zero") && Boolean(${priceInput})`));
@@ -300,11 +300,11 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         check("the Sales section sums the ledger", store.includes("2 sales · $0.02 · last Sep 2"), store.slice(-200));
         check("each sale links to its transaction", await js(`[...document.querySelectorAll("#content a.link-btn.glyph")].map((a) => a.href).join(" ")`) === "https://sepolia.basescan.org/tx/0xfeed https://sepolia.basescan.org/tx/0xbeef");
         check("no hash is spelled out in the row", !store.includes("0xfeed"));
-        check("the approved publication counts its sales", store.includes("· 1 sold"));
+        check("the approved publication counts its sales", store.includes("1 sold"));
         check("the For Sale bar links to payouts", await js(`[...document.querySelectorAll("#content .store-bar a.link-btn")].some((a) => a.textContent === "Payouts ↗")`));
         await shot("store-sales");
         check("For Sale bar offers Update store while an approved item is not live", await js(`[...document.querySelectorAll("#content .store-bar button")].some((b) => b.textContent === "Update store")`));
-        check("the heading says the one item is not live, once", await js(`document.querySelector("#content").textContent.includes("1 publication · not on your store yet") && !document.querySelector("#content").textContent.includes("Not live yet")`));
+        check("the one item not on the store says so on its row, once", await js(`(document.querySelector("#content").textContent.match(/Not on your store yet/g) ?? []).length === 1 && !document.querySelector("#content").textContent.includes("Not live yet")`));
         await shot("store-unpushed");
         await js(`window.__lore.show("today")`);
         await sleep(400);
@@ -323,7 +323,9 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         check("a take-down whose push failed reads plainly", revokeNotice.includes("Your store stops selling it as soon as it updates.") && !/wrangler|--worker-dir|\/Users\/|\/var\//.test(revokeNotice), revokeNotice);
         execFileSync("uv", ["run", "python", "-c", `import time\nfrom lore.store import Store\nwith Store() as s:\n s.set_setting('node_live', {'url': 'https://store.example/mcp', 'checked_at': time.time(), 'live': {'state': 'online', 'network': 'eip155:84532', 'payout': '0x' + 'a' * 40}, 'ids': ['${publicId}']})`], { cwd: join(__dirname, "../../.."), env: process.env });
         await js(`window.__lore.event({ type: "changed" })`);
-        check("a taken-down item the node still serves says so", await waitFor(`document.querySelector("#content").textContent.includes("Still on your store")`));
+        await waitFor(`[...document.querySelectorAll(".shelf")].some((t) => t.textContent.startsWith("Taken down"))`);
+        await js(`[...document.querySelectorAll(".shelf")].find((t) => t.textContent.startsWith("Taken down")).click()`);
+        check("a taken-down item the node still serves says so, under Taken down", await waitFor(`document.querySelector("#content").textContent.includes("Still on your store")`));
         check("…and For Sale offers the update that removes it", await js(`[...document.querySelectorAll("#content .store-bar button")].some((b) => b.textContent === "Update store")`));
         await shot("store-removal-pending");
         await js(`window.__lore.show("today")`);
@@ -362,22 +364,22 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         await js(`window.__lore.show("memories")`);
         await sleep(400);
         const memories = await js(`document.querySelector("#content .empty")?.textContent ?? ""`);
-        check("empty Memories says what to do and offers to do it", memories.startsWith("Nothing kept yet. Say what you learned and Lore will keep it.") && await js(`document.querySelector("#content .empty button")?.textContent`) === "Add your first memory", memories);
+        check("empty Inventory says what to do and offers to do it", memories.startsWith("Nothing kept yet. Say what you learned, or connect an agent, and Lore will keep it.") && await js(`document.querySelector("#content .empty button")?.textContent`) === "Add your first memory", memories);
         await shot("memories-empty");
         await js(`document.querySelector("#content .empty button").click()`);
         await sleep(300);
-        check("Add your first memory lands on Today with the composer focused", await js(`document.querySelector("#title").textContent !== "Memories" && document.activeElement === document.querySelector("#capture-input")`));
+        check("Add your first memory lands on Today with the composer focused", await js(`document.querySelector("#title").textContent !== "Inventory" && document.activeElement === document.querySelector("#capture-input")`));
         await js(`window.__lore.show("store")`);
         await sleep(600);
         check("no store: the bar offers to open one", await js(`[...document.querySelectorAll("#content .store-bar button")].some((b) => b.textContent === "Open your store")`));
         const forSale = await js(`[...document.querySelectorAll("#content .empty")].map((n) => n.textContent).join("|")`);
-        check("nothing for sale: one sentence and a way to draft", /Nothing for sale yet\./.test(forSale) && await js(`[...document.querySelectorAll("#content .empty button")].some((b) => b.textContent === "Draft your first piece")`), forSale);
+        check("nothing on sale: one sentence and a way to what's private", /Nothing on sale yet\./.test(forSale) && await js(`[...document.querySelectorAll("#content .empty button")].some((b) => b.textContent === "See what's private")`), forSale);
         check("no sales: left alone, no action", await js(`[...document.querySelectorAll("#content .empty")].find((n) => n.textContent.includes("No sales yet")).querySelector("button") === null`));
         check("every empty-state action is a real button, reachable by keyboard", await js(`[...document.querySelectorAll("#content .empty button, #content .store-bar button")].every((b) => b.tabIndex >= 0)`));
         await shot("store-empty");
-        await js(`[...document.querySelectorAll("#content .empty button")].find((b) => b.textContent === "Draft your first piece").click()`);
+        await js(`[...document.querySelectorAll("#content .empty button")].find((b) => b.textContent === "See what's private").click()`);
         await sleep(300);
-        check("Draft your first piece opens Memories", await js(`document.querySelector("#title").textContent`) === "Memories");
+        check("See what's private opens Inventory's Private tab", await js(`document.querySelector(".shelf[aria-selected=true]")?.textContent.startsWith("Private")`));
         // Opened again: a new page on the same Lore home.
         const reloaded = new Promise((done) => window.webContents.once("did-finish-load", done));
         window.webContents.reload();
@@ -599,9 +601,9 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         await waitFor(`document.body.dataset.state === "welcome" && !document.querySelector("#welcome").classList.contains("provisioning")`);
         await js(`window.__lore.signIn()`);
         await waitFor(`document.querySelector("#content .strip")`);
-        // APP-201: the sidebar holds the five places; Settings, help and feedback live in the account menu.
+        // APP-201: the sidebar holds the main places; Settings, help and feedback live in the account menu.
         const nav = await js(`[...document.querySelectorAll("nav button")].map((b) => b.dataset.view).join()`);
-        check("the sidebar lists only the five main places", nav === "today,memories,store,connectors,automations", nav);
+        check("the sidebar lists only the four main places", nav === "today,inventory,connectors,automations", nav);
         check("…and no lone feedback link outside the account menu", await js(`document.querySelector("#account-menu").contains(document.querySelector("#feedback-open")) && !document.querySelector("aside > .feedback-open")`));
         // APP-202: a new owner finds the FAQ from Today until a paid sale or until they close the line.
         check("Today offers a new owner How it works", await js(`document.querySelector("#content .how-it-works")?.textContent.includes("How it works") === true`));
@@ -803,7 +805,7 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         check("the home folder is one click from Finder", await js(`${rowOf("Where it lives")}?.textContent.includes("Show in Finder")`));
         await js(`${rowOf("Price")}.querySelector("button").click()`);
         await waitFor(`Boolean(document.querySelector("dialog.form-sheet[open]"))`);
-        check("Change opens one sheet for price and free copies", await js(`[...document.querySelectorAll("dialog.form-sheet[open] .form-row")].map((r) => r.querySelector(".form-label").textContent).join("|") === "Price per piece|Free copies" && document.querySelectorAll("dialog.form-sheet[open] input").length === 2 && document.querySelector("#title").textContent === "For Sale"`));
+        check("Change opens one sheet for price and free copies", await js(`[...document.querySelectorAll("dialog.form-sheet[open] .form-row")].map((r) => r.querySelector(".form-label").textContent).join("|") === "Price per piece|Free copies" && document.querySelectorAll("dialog.form-sheet[open] input").length === 2 && document.querySelector("#title").textContent === "Inventory"`));
         await shot("store-price-sheet");
         await js(`{ const [amount, copies] = document.querySelectorAll("dialog.form-sheet[open] input"); amount.value = "0.75"; copies.value = "5"; amount.form.requestSubmit(); }`);
         check("both save through the CLI", await waitFor(`window.lore.snapshot().then((s) => s.pricing.publication_usd === 0.75 && s.pricing.free_copies === 5)`));
@@ -1020,7 +1022,7 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         check("seeing it clears the dock", await (async () => { for (let i = 0; i < 40 && badges.at(-1) !== 0; i++) await sleep(100); return badges.at(-1) === 0; })(), JSON.stringify(badges));
         await shot("reading-today-ready");
         await js(`window.__lore.show("memories")`);
-        check("the memories are in Memories, labelled work and personal", await waitFor(`document.querySelector("#content").textContent.includes("Raise the first price only after ten buyers pay")`) && await js(`[...document.querySelectorAll("#content .row")].find((r) => r.textContent.includes("ops management"))?.textContent.includes("work")`));
+        check("the memories are in Inventory, grouped under work and personal", await waitFor(`document.querySelector("#content").textContent.includes("Raise the first price only after ten buyers pay")`) && await js(`[...document.querySelectorAll("#content .row")].find((r) => r.textContent.includes("ops management"))?.closest(".inv-group")?.querySelector(".inv-group-head b")?.textContent === "work"`));
         await js(`window.__lore.show("today")`);
         await js(`[...${card}.querySelectorAll("button")].find((b) => b.textContent === "Draft for sale").click()`);
         check("Draft for sale opens the publish thread from that memory", await waitFor(`document.querySelector("#title").textContent === "Publish from your Lore"`) && await waitFor(`document.querySelector("#log").textContent.includes("Raise the first price only after ten buyers pay")`));
@@ -1278,7 +1280,7 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         await sleep(2000);
         check("a sale is announced once", notes.length === 2, String(notes.length));
         notes[1].handlers.click();
-        check("clicking it opens For Sale", await waitFor(`document.querySelector("#title").textContent === "For Sale"`));
+        check("clicking it opens Inventory, on sale", await waitFor(`document.querySelector("#title").textContent === "Inventory" && document.querySelector(".shelf[aria-selected=true]")?.textContent.startsWith("On sale")`));
         check("For Sale shows each piece's page views and how each sale was paid", await waitFor(`document.querySelector("#content").textContent.includes("42 views") && document.querySelector("#content").textContent.includes("by an agent")`));
         await shot("sales-for-sale");
       } else if (scenario === "cards") {
@@ -1504,7 +1506,7 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         await shot("palette-capture");
         await key("keyDown", "Return");
         await sleep(300);
-        check("Enter lands on Today with the text in the composer, focused", await js(`document.querySelector("#title").textContent !== "Memories" && document.querySelector("#capture-input").value === "Something Lore has never heard" && document.activeElement === document.querySelector("#capture-input")`));
+        check("Enter lands on Today with the text in the composer, focused", await js(`document.querySelector("#title").textContent !== "Inventory" && document.querySelector("#capture-input").value === "Something Lore has never heard" && document.activeElement === document.querySelector("#capture-input")`));
         await js(`document.querySelector("#capture-input").value = ""; window.__lore.show("memories")`);
         await waitFor(`document.querySelectorAll("#content .task-link").length >= 1`);
         await js(`document.querySelector("#content .task-link").click()`);
