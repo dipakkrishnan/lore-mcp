@@ -304,6 +304,28 @@ class LoreScheduleTest(LoreTestCase):
         self.assertEqual(automation.next_run("weekly", 9, local(14, 8)), local(19, 9))
         self.assertEqual(automation.next_run("weekly", 9, local(12, 8)), local(12, 9))
 
+    def test_each_says_what_it_does_and_only_the_owners_own_can_be_reworded(
+        self,
+    ) -> None:
+        routines = self.routines(local(14, 8))
+        added = routines.add("Each Friday, pick one worth selling", "weekly", 9, 4)
+        listed = {routine["id"]: routine for routine in routines.list()}
+        self.assertIn("connected", str(listed["synthesis"]["about"]))
+        self.assertEqual(
+            listed[added["id"]]["about"], "Each Friday, pick one worth selling"
+        )
+        edited = routines.edit(
+            added["id"], "  Each   Friday, pick two ", "Friday picks"
+        )
+        self.assertEqual(
+            (edited["name"], edited["about"], edited["cadence"], edited["day"]),
+            ("Friday picks", "Each Friday, pick two", "weekly", 4),
+        )
+        with self.assertRaisesRegex(ValueError, "not reworded"):
+            routines.edit("synthesis", "something else")
+        with self.assertRaisesRegex(ValueError, "Say what Lore should do"):
+            routines.edit(added["id"], "   ")
+
     def test_lore_installs_and_removes_nothing(self) -> None:
         path = self.lore_home / "profile-input.json"
         path.parent.mkdir(parents=True, exist_ok=True)

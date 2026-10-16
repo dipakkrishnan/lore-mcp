@@ -317,9 +317,54 @@ async function readSource(loreHome, name) {
   return JSON.parse(await lore(loreHome, ["sources", "read", sourceName(name), "--json"]));
 }
 
+/** Turn an agent's own history on this Mac, like Codex's, on or off. @param {string} loreHome @param {unknown} name @param {boolean} on @returns {Promise<SourceEntry>} */
+async function switchSource(loreHome, name, on) {
+  return JSON.parse(await lore(loreHome, ["sources", on ? "enable" : "disable", sourceName(name), "--json"], ""));
+}
+
 /** @param {string} loreHome @param {unknown} name @param {boolean} keep @returns {Promise<SourceRemoval>} */
 async function removeSource(loreHome, name, keep) {
   return JSON.parse(await lore(loreHome, ["sources", "remove", sourceName(name), keep ? "--keep" : "--delete", "--json"]));
+}
+
+/** What a personal agent can be (CAP-036). */
+const AGENT_APPS = new Set(["grok", "muse", "chatgpt", "claude", "other"]);
+
+/** @param {unknown} name */
+function agentSource(name) {
+  if (typeof name !== "string" || !/^agent-[0-9a-f]{16}$/.test(name)) throw new Error("Unknown agent");
+  return name;
+}
+
+/** The owner's personal agents and what each has saved, as their store counts it. @param {string} loreHome @returns {Promise<AgentEntry[]>} */
+async function listAgents(loreHome) {
+  return JSON.parse(await lore(loreHome, ["agents", "list", "--json"])).agents;
+}
+
+/** A key for a new personal agent, and what to paste into it. The name follows `--` so one that starts with a dash
+ * stays a name. @param {string} loreHome @param {{app?: unknown, name?: unknown}} input @returns {Promise<AgentKey>} */
+async function connectAgent(loreHome, input) {
+  const app = /** @type {string} */ (input?.app);
+  if (!AGENT_APPS.has(app)) throw new Error("Choose an agent");
+  const name = typeof input.name === "string" ? input.name.trim() : "";
+  if (!name || name.length > 40) throw new Error("An agent's name is 1 to 40 characters");
+  // Attended: a key opens the owner's store, so only the owner hands one out, here or at a terminal.
+  return JSON.parse(await lore(loreHome, ["agents", "connect", "--app", app, "--json", "--", name], ""));
+}
+
+/** A new key for an agent; the one it had stops working at once. @param {string} loreHome @param {unknown} source @returns {Promise<AgentKey>} */
+async function agentKey(loreHome, source) {
+  return JSON.parse(await lore(loreHome, ["agents", "key", agentSource(source), "--json"], ""));
+}
+
+/** Stop an agent's key, keeping or deleting what it saved. @param {string} loreHome @param {unknown} source @param {boolean} keep @returns {Promise<SourceRemoval>} */
+async function disconnectAgent(loreHome, source, keep) {
+  return JSON.parse(await lore(loreHome, ["agents", "revoke", agentSource(source), keep ? "--keep" : "--delete", "--json"], ""));
+}
+
+/** Which agents saved something Lore hasn't brought in yet. @param {string} loreHome @returns {Promise<{waiting: number, sources: string[]}>} */
+async function agentsWaiting(loreHome) {
+  return JSON.parse(await lore(loreHome, ["agents", "waiting", "--json"]));
 }
 
 /** The routines Lore runs on its own, as the CLI keeps them. @param {string} loreHome @returns {Promise<Routine[]>} */
@@ -353,6 +398,13 @@ async function changeRoutine(loreHome, id, action, when) {
   return lore(loreHome, ["automation", action, routineId(id), "--json"]);
 }
 
+/** Reword one of the owner's own. @param {string} loreHome @param {string} id @param {unknown} text @param {unknown} [title] @returns {Promise<Routine>} */
+async function editRoutine(loreHome, id, text, title = "") {
+  if (typeof text !== "string" || !text.trim() || text.length > 500) throw new Error("Say what Lore should do, in a sentence");
+  const named = typeof title === "string" && title.trim() ? ["--title", title.trim().slice(0, 120)] : [];
+  return JSON.parse(await lore(loreHome, ["automation", "edit", routineId(id), ...named, "--json", "--", text.trim()]));
+}
+
 /** One of the owner's own: a sentence, after `--` so one starting with a dash stays words. @param {string} loreHome @param {unknown} text @param {unknown} when @param {unknown} [title] A name; the sentence by default. @returns {Promise<Routine>} */
 async function addRoutine(loreHome, text, when, title = "") {
   if (typeof text !== "string" || !text.trim() || text.length > 500) throw new Error("Say what Lore should do, in a sentence");
@@ -366,6 +418,8 @@ module.exports = {
   runRoutine,
   changeRoutine,
   addRoutine,
+  editRoutine,
+  switchSource,
   loreStream,
   stream,
   openable,
@@ -397,5 +451,10 @@ module.exports = {
   signIn,
   readSource,
   removeSource,
+  listAgents,
+  connectAgent,
+  agentKey,
+  disconnectAgent,
+  agentsWaiting,
   useRuntime
 };
