@@ -903,7 +903,7 @@ function saleItem(item) {
   const count = Array.isArray(sales) ? sales.filter((sale) => sale.item_id === item.public_id && sale.network !== "free").length : 0;
   const seen = views[item.public_id] ?? 0;
   const detail = [seen ? `${seen} ${seen === 1 ? "view" : "views"}` : "", count ? `${count} sold` : ""].filter(Boolean).join(" · ") || "No views yet";
-  const badge = item.live === false ? chip("Not on your store yet") : chip("On sale", "ok");
+  const badge = item.live === false ? chip("Not on your store yet") : el("span");
   const trailing = el("div", "v");
   const ask = button("Take down", "quiet", () => {
     trailing.replaceChildren(
@@ -958,9 +958,7 @@ function renderInventory(s) {
     return grouped(groups);
   };
   const privateGroups = () => groupBy(kept, (item) => item.project_label, (item) => {
-    const node = memoryRow(item.id, item.title, [agentNames.has(item.project_label) ? `From ${item.project_label}` : "", when(item.updated_at)].filter(Boolean).join(" · "));
-    node.querySelector(".v, .btn")?.before(chip("Private"));
-    return node;
+    return memoryRow(item.id, item.title, [agentNames.has(item.project_label) ? `From ${item.project_label}` : "", when(item.updated_at)].filter(Boolean).join(" · "));
   });
   const saleGroups = () => groupBy(onSale, (item) => item.topic, saleItem);
   const downGroups = () => groupBy(down, (item) => item.topic, (item) => row(item.title, item.topic, item.live === true ? chip("Still on your store", "attention") : chip("Taken down")));
