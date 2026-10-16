@@ -1,6 +1,6 @@
 #!/bin/bash
 # Seed a scratch Lore home with two memories and two drafts, then drive the renderer as one persona.
-# Scenarios: seller | provision | store | jobs | fresh | feedback | listing | obsidian | connectors | reading | schedule | checkin | quiet | automations | faq | sell | cards | sales | extras | settings
+# Scenarios: seller | provision | store | jobs | fresh | feedback | listing | obsidian | connectors | reading | schedule | checkin | quiet | automations | faq | sell | cards | sales | extras | settings | agents
 set -euo pipefail
 scenario="${1:-seller}"
 desktop_dir="$(cd "$(dirname "$0")/.." && pwd)"
@@ -11,8 +11,9 @@ export LORE_HOME="$root/home" LORE_DESKTOP_USER_DATA="$root/user-data" LORE_SKIP
 # Usage events from a walk go nowhere: a closed local port, refused at once.
 export LORE_USAGE_URL="http://127.0.0.1:9/events"
 # A fresh home stays empty: that persona checks what an owner sees before anything is kept. So
-# does the connectors one: a seller with no agents, whose first memories come from their apps.
-[[ "$scenario" == "fresh" || "$scenario" == "connectors" || "$scenario" == "reading" ]] || (
+# does the connectors one: a seller with no agents, whose first memories come from their apps. And the agents one: an
+# owner whose first memories are what their personal agent saves.
+[[ "$scenario" == "fresh" || "$scenario" == "connectors" || "$scenario" == "reading" || "$scenario" == "agents" ]] || (
   cd "$repo_root"
   echo '[{"title":"Hire management before rapid growth","content":"Add the management layer before the next ten engineers join, not after.","project":"team scaling"},{"title":"Price the first tier low","content":"A low first price gets the first ten buyers; raise it once there are receipts.","project":"pricing"}]' | uv run lore capture apply - >/dev/null
   echo '[{"title":"Hire management before rapid growth","teaser":"When to add managers in a fast-growing team.","content":"Add the management layer before the next ten engineers join, not after.","kind":"claim","topic":"team scaling","provenance":[1]},{"title":"Price the first tier low","teaser":"How to set a first price.","content":"A low first price gets the first ten buyers; raise it once there are receipts.","kind":"claim","topic":"pricing","provenance":[2]}]' | uv run lore publication draft - >/dev/null
@@ -178,6 +179,22 @@ if [[ "$scenario" == "connectors" || "$scenario" == "reading" ]]; then
   export LORE_EDGE_GRANOLA_PID=$! LORE_GRANOLA_SERVER="http://127.0.0.1:$port/mcp" PYTHON_KEYRING_BACKEND=keyring.backends.null.Keyring
   trap 'kill "$LORE_EDGE_GRANOLA_PID" 2>/dev/null || true' EXIT
   for _ in $(seq 1 60); do curl -s -o /dev/null "http://127.0.0.1:$port/mcp" && break; sleep 0.5; done
+fi
+if [[ "$scenario" == "agents" ]]; then
+  # APP-207: the owner's node stood in for by tests/fixtures/inbox.py: its D1 a SQLite file, its /agent a local server,
+  # and a keyring kept in a file, so the owner's Keychain is never touched. No store is online yet: the walk puts it
+  # online through a stand-in deploy, which leaves the node's wrangler (the fixture's) and its address behind.
+  export CLAUDE_HOME="$root/claude" CODEX_HOME="$root/codex" OBSIDIAN_HOME="$root/obsidian"
+  # Claude Code is on this Mac, with one project's memory notes, and not yet connected.
+  mkdir -p "$root/claude/projects/demo/memory"
+  printf '# Ship the smallest change that proves it\n\nOne working path beats three half-built ones; cut scope until the first user can finish.\n' > "$root/claude/projects/demo/memory/scope.md"
+  export LORE_EDGE_D1="$root/d1.sqlite" LORE_EDGE_KEYRING="$root/keyring.json" LORE_EDGE_REPO="$repo_root"
+  export PYTHONPATH="$repo_root" PYTHON_KEYRING_BACKEND=tests.fixtures.inbox.Keyring
+  port="$(python3 -c 'import socket; s = socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1])')"
+  (cd "$repo_root" && exec uv run python -m tests.fixtures.inbox serve --port "$port" >"$root/agent.log" 2>&1) &
+  export LORE_EDGE_AGENT_PID=$! LORE_EDGE_AGENT_URL="http://127.0.0.1:$port"
+  trap 'kill "$LORE_EDGE_AGENT_PID" 2>/dev/null || true' EXIT
+  for _ in $(seq 1 60); do curl -s -o /dev/null "$LORE_EDGE_AGENT_URL/agent" && break; sleep 0.5; done
 fi
 echo "Screenshots land in $root"
 "$desktop_dir/node_modules/.bin/electron" "$desktop_dir/support/edge.cjs" "$scenario" 2>/dev/null | grep -E "^(PASS|FAIL|ERROR)"

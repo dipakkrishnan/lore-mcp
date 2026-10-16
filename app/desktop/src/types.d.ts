@@ -116,6 +116,8 @@ type SourceEntry = {
   locator?: string;
   owned?: boolean;
   connector?: string | null;
+  /** Which app one of the owner's personal agents is (APP-207). */
+  app?: AgentApp | null;
   refresh?: boolean;
   state?: SourceState;
   last_read_at?: string | null;
@@ -126,7 +128,7 @@ type SourceChoice = { label: string; locator: string; open: boolean };
 
 /** An app as the CLI's catalog offers it: what to call it, what Lore reads there, what the owner picks. */
 /** How Lore reads a place: a folder, an export file, a feed, or an app's own server it signs in to. */
-type SourceKind = "folder" | "export" | "feed" | "mcp";
+type SourceKind = "folder" | "export" | "feed" | "mcp" | "agent";
 
 type SourceApp = { id: string; name: string; what: string; unit: string; item: string; kind: SourceKind; refresh: boolean; placeholder: string; guide?: string };
 
@@ -134,8 +136,8 @@ type SourceRead = { name: string; label?: string; connector?: string | null; add
 
 /** New items a connected app brought in, waiting to be read through: "23 new Granola meetings". */
 /** `title` and `phase` are worded once: what Today and the notification call it, and its row while it reads. One of the
- * owner's own routines carries their sentence as `ask`, and no app or items. */
-type Reading = { name: string; label: string; item: string; added: number; title: string; phase: string; ask?: string };
+ * owner's own routines carries their sentence as `ask`, and no app or items; one of their personal agents, its name as `from`. */
+type Reading = { name: string; label: string; item: string; added: number; title: string; phase: string; ask?: string; from?: string };
 
 /** What a reading hands back: how many items it read, and each topic file it wrote. */
 type ReadingReport = { read: number; memories: Array<{ file: string; worth_selling: boolean; why: string }> };
@@ -144,10 +146,10 @@ type ReadingReport = { read: number; memories: Array<{ file: string; worth_selli
 type ReadyMemory = { id: number; title: string; sell: boolean; work: boolean; why: string };
 
 /** One finished reading, kept on Today until the owner clears it; `seen` once they have looked. */
-type ReadyRun = { title: string; read: number; memories: ReadyMemory[]; at: string; seen: boolean };
+type ReadyRun = { title: string; read: number; memories: ReadyMemory[]; at: string; seen: boolean; from?: string };
 
 /** Something Lore does on its own at a set hour, as `lore automation list` describes it. `due`: the app owes it a run now. */
-type Routine = { id: string; kind: "read" | "checkin" | "ask"; name: string; built_in?: boolean; cadence: "daily" | "weekdays" | "weekly"; hour: number; day?: number; paused?: boolean; last_run: string | null; result: string; next_run: string; due: boolean };
+type Routine = { id: string; kind: "read" | "checkin" | "ask"; name: string; about: string; built_in?: boolean; cadence: "daily" | "weekdays" | "weekly"; hour: number; day?: number; paused?: boolean; last_run: string | null; result: string; next_run: string; due: boolean };
 
 /** When a routine runs: every day, every weekday, or once a week on `day` (0 is Monday). */
 type RoutineTime = { cadence: Routine["cadence"]; hour: number; day: number };
@@ -168,6 +170,15 @@ type CheckInVerdict = { reach_out: boolean; why: string; questions: Array<{ ques
 
 /** A posted check-in: its questions, each tied to an item, and whether it waits, was answered, or expired. */
 type CheckIn = { questions: Array<{ question: string; memory: number; title: string }>; why: string; at: string; state: "waiting" | "answered" | "expired" };
+
+/** The apps a personal agent can be (CAP-036). */
+type AgentApp = "grok" | "muse" | "chatgpt" | "claude" | "other";
+
+/** What `lore agents connect` and `lore agents key` hand back: the agent, and what to paste into it, shown once. */
+type AgentKey = { source: string; agent: { id: string; name: string; app: AgentApp }; mcp_url: string; connector_url: string; key: string; header: string; prompt: string };
+
+/** One connected personal agent, as `lore agents list` reads it from the store. */
+type AgentEntry = { source: string; name: string; app: AgentApp; saved: number; waiting: number; last_saved_at: string | null; memories: number; revoked: boolean };
 
 type SourceRemoval = { name: string; removed: boolean; memories: { kept: number; deleted?: number } };
 
@@ -312,6 +323,13 @@ interface Window {
     cancelConnect(): Promise<void>;
     readSource(name: string): Promise<SourceRead[]>;
     removeSource(name: string, keep: boolean): Promise<SourceRemoval>;
+    switchSource(name: string, on: boolean): Promise<SourceEntry>;
+    agents(): Promise<AgentEntry[]>;
+    connectAgent(input: { app: AgentApp; name: string }): Promise<AgentKey>;
+    agentKey(source: string): Promise<AgentKey>;
+    disconnectAgent(source: string, keep: boolean): Promise<SourceRemoval>;
+    checkAgents(): Promise<void>;
+    copy(text: string): Promise<void>;
     readyRuns(): Promise<ReadyRun[]>;
     seenMemories(): Promise<void>;
     clearMemories(): Promise<void>;
@@ -321,6 +339,7 @@ interface Window {
     runRoutine(id: string): Promise<Routine>;
     changeRoutine(id: string, action: "pause" | "resume" | "remove" | "time", when?: RoutineTime): Promise<void>;
     addRoutine(text: string, when: RoutineTime, title?: string): Promise<Routine>;
+    editRoutine(id: string, text: string, title?: string): Promise<Routine>;
     dismissCheckIn(): Promise<void>;
     openPrivacySettings(): Promise<void>;
     pathFor(file: File): string;
@@ -381,6 +400,8 @@ type AgentEvent =
   | { type: "show"; view: "store" | "today" | "automations" }
   | { type: "thread"; task: AgentTask }
   | { type: "ready" }
+  /** What the owner's personal agents saved that Lore just brought in (APP-207). */
+  | { type: "agents"; reads: SourceRead[] }
   | { type: "update"; update: AppUpdate };
 
 type LoreAgentInstance = {

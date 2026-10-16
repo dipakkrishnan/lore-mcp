@@ -764,17 +764,26 @@ class Store:
         A memory a publication derives from is kept whatever the owner chose:
         deleting it would leave an approved publication citing nothing.
         """
-        cursor = self.db.execute(
-            """DELETE FROM memories WHERE source=? AND id NOT IN (
-                   SELECT j.value FROM publications p, json_each(p.provenance) j
-               )""",
-            (source,),
-        )
+        cursor = self._delete_uncited("source=?", source)
         kept = self.db.execute(
             "SELECT count(*) kept FROM memories WHERE source=?", (source,)
         ).fetchone()["kept"]
         self.db.commit()
         return {"deleted": cursor.rowcount, "kept": kept}
+
+    def forget(self, source_key: str) -> int:
+        """Delete the memory a source took back, unless a publication cites it."""
+        deleted = self._delete_uncited("source_key=?", source_key).rowcount
+        self.db.commit()
+        return deleted
+
+    def _delete_uncited(self, where: str, value: str) -> sqlite3.Cursor:
+        return self.db.execute(
+            f"""DELETE FROM memories WHERE {where} AND id NOT IN (
+                   SELECT j.value FROM publications p, json_each(p.provenance) j
+               )""",
+            (value,),
+        )
 
     def memory_inventory(self) -> list[dict[str, object]]:
         rows = self.db.execute(

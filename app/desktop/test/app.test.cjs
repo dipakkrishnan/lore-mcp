@@ -171,6 +171,21 @@ test("desktop Bash reads the agents' memories, never their credential files", as
   }
 });
 
+test("desktop Bash can never read the key that marks a decision as the owner's", async () => {
+  const { bashSandboxPolicy } = await import("../src/agent.mjs");
+  const home = await mkdtemp(join(tmpdir(), "lore-policy-"));
+  const key = join(homedir(), "Library", "Application Support", "Lore", "attended");
+  try {
+    for (const task of ["capture", "setup", "publish", "deploy", "synthesize", "checkin", "evening"]) {
+      const { denyRead, allowRead, allowWrite } = bashSandboxPolicy(home, /** @type {AgentTask} */ (task), "/Applications/Lore.app/Contents/Resources/bin").filesystem;
+      assert.ok(denyRead.some((dir) => key.startsWith(`${dir}/`)), `${task}: the key sits under a denied root`);
+      assert.ok(![...allowRead, ...allowWrite].some((dir) => key === dir || key.startsWith(`${dir}/`)), `${task}: nothing lets the agent back in to it`);
+    }
+  } finally {
+    await rm(home, { recursive: true });
+  }
+});
+
 test("desktop write and edit are confined to Lore, like Bash already is", async () => {
   const { createSandboxedEditOperations, createSandboxedWriteOperations } = await import("../src/agent.mjs");
   const real = await mkdtemp(join(tmpdir(), "lore-fs-sandbox-"));
@@ -990,7 +1005,7 @@ test("connecting an app validates before any CLI call, then round-trips through 
   await writeFile(join(vault, "note.md"), "# Note\n\nA lesson long enough to be worth keeping.");
   process.env.OBSIDIAN_HOME = obsidian;
   try {
-    assert.deepEqual((await sourceCatalog(directory)).map((app) => [app.id, app.kind]), [["obsidian", "folder"], ["chatgpt", "export"], ["claude", "export"], ["substack", "feed"], ["medium", "feed"], ["bluesky", "feed"], ["blog", "feed"], ["letterboxd", "feed"], ["goodreads", "feed"], ["granola", "mcp"], ["notion", "mcp"], ["readwise", "mcp"]]);
+    assert.deepEqual((await sourceCatalog(directory)).map((app) => [app.id, app.kind]), [["obsidian", "folder"], ["chatgpt", "export"], ["claude", "export"], ["substack", "feed"], ["medium", "feed"], ["bluesky", "feed"], ["blog", "feed"], ["letterboxd", "feed"], ["goodreads", "feed"], ["granola", "mcp"], ["notion", "mcp"], ["readwise", "mcp"], ["agent", "agent"]]);
     assert.deepEqual(await sourceChoices(directory, "obsidian"), [{ label: "Personal", locator: vault, open: true }]);
     await assert.rejects(connectSource(directory, { connector: "evernote", locator: vault }), { message: /unknown app/ });
     // Closing the sheet aborts the read, and nothing is connected.
@@ -1577,4 +1592,107 @@ test("Run now waits for a scheduled run under way, so the two never overlap", as
   schedule.stop();
   await checking;
   schedule.stop();
+});
+
+test("what the owner's agents saved comes in once per check, and a check never overlaps another", async () => {
+  const { Watch } = require("../src/agents.cjs");
+  /** @param {string} name @param {number} added @returns {SourceRead} */
+  const read = (name, added) => ({ name, label: "Grok", connector: "agent", added, updated: 0, unchanged: 0, errors: 0, state: "connected" });
+  let ready = false;
+  let asked = 0;
+  /** @type {() => Promise<{waiting: number, sources: string[]}>} */
+  let waiting = async () => ({ waiting: 2, sources: ["agent-a", "agent-b"] });
+  /** @type {SourceRead[][]} */
+  const landed = [];
+  const watch = new Watch({
+    ready: () => ready,
+    waiting: () => { asked++; return waiting(); },
+    read: async (name) => [read(name, 1)],
+    landed: (reads) => { landed.push(reads); }
+  });
+  await watch.check();
+  assert.equal(asked, 0, "with no store, the CLI is never asked");
+  ready = true;
+  await Promise.all([watch.check(), watch.check()]);
+  assert.equal(asked, 1, "a check under way is the one a second caller gets");
+  assert.deepEqual(landed, [[read("agent-a", 1), read("agent-b", 1)]], "both agents' saves, read through once");
+  waiting = async () => { throw new Error("You are not authenticated"); };
+  await watch.check();
+  assert.equal(landed.length, 1, "signed out of Cloudflare: quiet, and nothing lands");
+  waiting = async () => ({ waiting: 0, sources: [] });
+  await watch.check();
+  assert.equal(landed.length, 1, "nothing waiting is nothing to read");
+  waiting = async () => ({ waiting: 1, sources: ["agent-a"] });
+  await watch.check();
+  assert.equal(asked, 4, "a failed check is retried at the next one");
+  assert.equal(landed.length, 2);
+});
+
+test("one agent whose read fails leaves the others' saves to land", async () => {
+  const { Watch } = require("../src/agents.cjs");
+  /** @type {SourceRead[][]} */
+  const landed = [];
+  const watch = new Watch({
+    ready: () => true,
+    waiting: async () => ({ waiting: 2, sources: ["agent-a", "agent-b"] }),
+    read: async (name) => {
+      if (name === "agent-a") throw new Error("collecting saves failed");
+      return [{ name, label: "Muse", connector: "agent", added: 2, updated: 0, unchanged: 0, errors: 0, state: "connected" }];
+    },
+    landed: (reads) => { landed.push(reads); }
+  });
+  await watch.check();
+  assert.deepEqual(landed.map((reads) => reads.map((each) => each.name)), [["agent-b"]]);
+});
+
+test("an agent's saves are read through like any app's, named for the agent, and say where they came from", () => {
+  const { worthReading, landed, announcement } = require("../src/reading.cjs");
+  const apps = /** @type {SourceApp[]} */ ([{ id: "agent", name: "Personal agent", item: "save" }, { id: "granola", name: "Granola", item: "meeting" }]);
+  const reading = worthReading({ name: "agent-1a2b3c4d5e6f7a8b", label: "Grok", connector: "agent", added: 3 }, apps);
+  assert.deepEqual(reading, { name: "agent-1a2b3c4d5e6f7a8b", label: "Grok", item: "save", added: 3, title: "Grok saved 3 things to Lore", phase: "Reading what Grok saved", from: "Grok" });
+  assert.equal(worthReading({ name: "agent-1a2b3c4d5e6f7a8b", label: "Grok", connector: "agent", added: 0 }, apps), null, "a re-save that only updated is not a new reading");
+  assert.equal(worthReading({ name: "agent-1a2b3c4d5e6f7a8b", label: "", connector: "agent", added: 1 }, apps)?.title, "Personal agent saved 1 thing to Lore");
+  const folder = "/Users/owner/.lore/memories";
+  const run = landed(/** @type {Reading} */ (reading), { read: 3, memories: [{ file: "pricing.md", worth_selling: true, why: "a measured rule" }] }, [{ id: 7, title: "How I price sync", content: "", project: "", source: "automation", source_path: `${folder}/pricing.md`, status: "private", updated_at: "" }], folder);
+  assert.equal(run.from, "Grok", "Today says which agent it came from");
+  assert.deepEqual(announcement(run), { title: "Grok saved 3 things to Lore", body: "1 new memory. 1 looks worth selling." });
+  const granola = worthReading({ name: "granola-1", connector: "granola", added: 2 }, apps);
+  assert.equal("from" in landed(/** @type {Reading} */ (granola), { read: 2, memories: [] }, [], folder), false, "an app's run names no agent");
+});
+
+test("connecting a personal agent validates what it is and what it is called before any CLI call", async () => {
+  const { connectAgent, agentKey, disconnectAgent } = require("../src/state.cjs");
+  for (const app of ["", "gemini", null]) await assert.rejects(connectAgent("/nonexistent", { app, name: "Grok" }), { message: /Choose an agent/ });
+  for (const name of ["", "   ", "x".repeat(41), 7]) await assert.rejects(connectAgent("/nonexistent", { app: "grok", name }), { message: /1 to 40 characters/ });
+  for (const source of ["agent-1", "granola-1", "agent-1A2B3C4D5E6F7A8B", null]) {
+    await assert.rejects(agentKey("/nonexistent", source), { message: /Unknown agent/ });
+    await assert.rejects(disconnectAgent("/nonexistent", source, true), { message: /Unknown agent/ });
+  }
+});
+
+test("with no store online, connecting an agent says so and mints nothing", async () => {
+  const { connectAgent, listAgents, agentsWaiting } = require("../src/state.cjs");
+  const loreHome = await mkdtemp(join(tmpdir(), "lore-agents-"));
+  try {
+    await assert.rejects(connectAgent(loreHome, { app: "grok", name: "Grok" }), { message: /put your store online first/ });
+    assert.deepEqual(await listAgents(loreHome), []);
+    assert.deepEqual(await agentsWaiting(loreHome), { waiting: 0, sources: [] }, "no agent, so nobody is asked");
+  } finally {
+    await rm(loreHome, { recursive: true });
+  }
+});
+
+test("the desktop agent never loads the skill meant for the owner's remote agents", async () => {
+  const { DefaultResourceLoader, SettingsManager } = await import("@earendil-works/pi-coding-agent");
+  const { ownSkills } = await import("../src/agent.mjs");
+  const loreHome = await mkdtemp(join(tmpdir(), "lore-skills-"));
+  try {
+    const resources = new DefaultResourceLoader({ cwd: loreHome, agentDir: join(loreHome, ".pi"), settingsManager: SettingsManager.inMemory(), additionalSkillPaths: [join(__dirname, "../../../plugins/lore/skills")], skillsOverride: ownSkills, noExtensions: true, noSkills: true, noPromptTemplates: true, noThemes: true, noContextFiles: true });
+    await resources.reload();
+    const names = resources.getSkills().skills.map((skill) => skill.name);
+    assert.ok(names.includes("lore-capture") && names.includes("lore-synthesize"), names.join());
+    assert.ok(!names.includes("lore-store"), names.join());
+  } finally {
+    await rm(loreHome, { recursive: true });
+  }
 });
