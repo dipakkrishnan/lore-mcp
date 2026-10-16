@@ -184,7 +184,9 @@ class ReadTest(AgentCase):
             memory = next(m for m in store.search("Pricing") if m.source == self.source)
             self.assertEqual(memory.status, "private")
             self.assertTrue(memory.updated_at.startswith("2026-10-01"))
-            self.assertEqual(memory.project, "Grok", "by the agent's name, not the app's")
+            self.assertEqual(
+                memory.project, "Grok", "by the agent's name, not the app's"
+            )
         states = [
             r[0]
             for r in sqlite3.connect(self.d1.path).execute("SELECT state FROM inbox")
