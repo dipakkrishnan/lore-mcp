@@ -4,7 +4,7 @@ title: Let personal agents write to an owner's own node
 priority: P0
 effort: L
 component: cross-cutting
-status: in-progress
+status: in-review
 related: [CAP-036, CAP-037, APP-207, XC-068, MON-046, XC-044, CAP-009]
 blockers: []
 dependencies: [the owner has a deployed node (APP-207 deploys one first when missing)]
@@ -56,3 +56,30 @@ between. The full wire contract is `contracts/inbox.md`.
 - Grok Bot's connector form takes a URL and headers and doesn't do OAuth in
   the current beta, so a bearer agent key is enough for the first demo.
   OAuth for grok.com, Claude, ChatGPT and Muse is XC-068.
+- Built (Oct 16) in `lore/node`:
+  - `src/agent.ts` holds the `/agent` endpoint, the agent key check and the
+    `store`, `stored` and `forget` tools. It serves stateless MCP through
+    the SDK 1.30 `WebStandardStreamableHTTPServerTransport`, with a fresh
+    server per request.
+  - `src/inbox.ts` is the D1 side: tables created lazily, keys read from
+    `node_settings`, quotas, replacement and forgetting.
+  - `src/seal.ts` does the sealing.
+  - The fetch router sends `/agent` there; the buyer `/mcp` and x402 are
+    untouched.
+  - The tests are `test/agent.test.ts`, `test/seal.test.ts` and
+    `test/inbox.ts`; the last one plays the Mac's side through D1.
+- MCP library: `agents` 0.23's stateless `createMcpHandler` takes only an SDK
+  v2 server factory, so `/agent` uses the SDK's own web-standard transport.
+- Atomicity: the window updates, the item writes and the agent's counters go
+  in one D1 batch. The batch ends with a guard that fails a NOT NULL insert
+  when any window or the waiting cap is over, which rolls the batch back.
+  So concurrent writes can't pass the limits (tested with six calls at
+  once), and a refused call spends nothing.
+- Lengths count code points, as the Python side does.
+- A forget that drops a waiting item leaves the row as `forgotten` with no
+  payload, so `stored` can still report it. Like a received forget, that row
+  has `state = 'forgotten'` and `sealed IS NULL`. The Mac's collect and
+  waiting queries must also filter on `sealed IS NOT NULL`. The contract's
+  versions don't, and would return these rows forever.
+- A payload dropped after 30 days takes its row with it, so `stored`
+  reports that key as `unknown`, or as its previous state.
