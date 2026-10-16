@@ -1661,7 +1661,21 @@ function openConnection(app, source) {
 /** Connectors: the owner's own agents, then where memories come from, and how often Lore reads them. First class: the
  * way context gets into Lore, not a preference. @param {Snapshot} s */
 function renderConnectors(s) {
-  return [section("Your agents", card(agentRows(s))), section("Where memories come from", card([...sourceRows(s), scheduleRow(s)]))];
+  return [section("Your agents", agentTiles(s)), section("Your apps", tiles(sourceRows(s))), section("", card([scheduleRow(s)]))];
+}
+
+/** Rows as a grid of tiles, each opened by a click anywhere on it. @param {HTMLElement[]} rows */
+function tiles(rows) {
+  const grid = el("div", "tiles");
+  for (const node of rows) {
+    node.classList.add("tile");
+    node.addEventListener("click", (event) => {
+      if (event.target instanceof Element && event.target.closest("button")) return;
+      node.querySelector("button")?.click();
+    });
+    grid.append(node);
+  }
+  return grid;
 }
 
 /** The apps a personal agent can be, by what the owner calls them, each with its mark. @type {Array<[AgentApp, string]>} */
@@ -1693,15 +1707,25 @@ function agentLine(source) {
 }
 
 /** Each personal agent the owner connected, and the way to connect one more. @param {Snapshot} s */
-function agentRows(s) {
+function agentTiles(s) {
   const rows = s.library.sources.filter((source) => source.connector === "agent").map((source) => {
-    const node = row(source.label, agentLine(source), cell(button("Manage", "quiet", () => openAgent(source))), false);
+    const node = row(source.label, agentLine(source), cell(pill("Live", "ok"), button("Manage", "quiet", () => openAgent(source))), false);
     node.prepend(agentMark(source.app, source.label));
     return node;
   });
-  const offer = row(rows.length ? "Connect another agent" : "Connect an agent", "Grok, Muse, ChatGPT or Claude saves what it learns about you, privately.", cell(button("Connect", "secondary", () => new AgentSetup().open())), false);
-  offer.prepend(agentMark("other", "Agent"));
-  return [...rows, offer];
+  const connect = () => new AgentSetup().open();
+  if (rows.length) {
+    const more = row("Connect another agent", "Grok Bot, Muse, ChatGPT or Claude", cell(button("Connect", "secondary", connect)), false);
+    more.prepend(agentMark("other", "Agent"));
+    more.classList.add("tile-add");
+    return tiles([...rows, more]);
+  }
+  const hero = row("Connect an agent", "Grok Bot, Muse, ChatGPT or Claude saves what it learns about you. It stays private until you approve a piece.", cell(button("Connect an agent", "primary", connect)), false);
+  const stack = el("div", "mark-stack");
+  for (const [app, name] of AGENT_APPS.filter(([id]) => id !== "other")) stack.append(agentMark(app, name));
+  hero.prepend(stack);
+  hero.classList.add("agent-hero");
+  return hero;
 }
 
 async function loadAgents() {
