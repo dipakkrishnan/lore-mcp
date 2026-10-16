@@ -185,6 +185,9 @@ if [[ "$scenario" == "agents" ]]; then
   # and a keyring kept in a file, so the owner's Keychain is never touched. No store is online yet: the walk puts it
   # online through a stand-in deploy, which leaves the node's wrangler (the fixture's) and its address behind.
   export CLAUDE_HOME="$root/claude" CODEX_HOME="$root/codex" OBSIDIAN_HOME="$root/obsidian"
+  # Claude Code is on this Mac, with one project's memory notes, and not yet connected.
+  mkdir -p "$root/claude/projects/demo/memory"
+  printf '# Ship the smallest change that proves it\n\nOne working path beats three half-built ones; cut scope until the first user can finish.\n' > "$root/claude/projects/demo/memory/scope.md"
   export LORE_EDGE_D1="$root/d1.sqlite" LORE_EDGE_KEYRING="$root/keyring.json" LORE_EDGE_REPO="$repo_root"
   export PYTHONPATH="$repo_root" PYTHON_KEYRING_BACKEND=tests.fixtures.inbox.Keyring
   port="$(python3 -c 'import socket; s = socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1])')"

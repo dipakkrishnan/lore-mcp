@@ -989,6 +989,20 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         await shot("agents-claude-setup");
         await press("Done");
         check("…and it joins the agents with Claude's mark", await waitFor(`${agentRow("Claude")}?.querySelector("img.logo")?.src.endsWith("assets/claude.svg") && /Nothing saved yet/.test(${agentRow("Claude")}.textContent)`), await js(`${agentRow("Claude")}?.textContent ?? ""`));
+
+        // Claude Code's own memory on this Mac connects from its tile, and turns off from it again.
+        const histories = `[...document.querySelectorAll("#content section")].find((s) => s.querySelector("h2")?.textContent === "Your apps")`;
+        const claudeCode = `[...(${histories}?.querySelectorAll(".row") ?? [])].find((r) => r.querySelector("b").textContent === "Claude Code")`;
+        check("Claude Code is offered, with a way to connect it", await waitFor(`${claudeCode}?.querySelector("button")?.textContent === "Connect"`), await js(`${claudeCode}?.textContent ?? ""`));
+        await js(`${claudeCode}.click()`);
+        check("…a click on its tile says what Lore will read, plainly", await waitFor(`${sheet}.includes("Lore reads the memory notes Claude Code keeps for each of your projects on this Mac")`), await js(sheet));
+        await shot("agents-history-connect");
+        await js(`${primary}.click()`);
+        check("…and Connect turns it on and brings in what it remembers", await waitFor(`/Connected/.test(${claudeCode}?.textContent ?? "") && /1 memory imported/.test(${claudeCode}.textContent)`, 120), await js(`${claudeCode}?.textContent ?? ""`));
+        await js(`${claudeCode}.click()`);
+        await waitFor(`${primary}?.textContent === "Turn off"`);
+        await js(`${primary}.click()`);
+        check("…Turn off keeps what it brought in and says so", await waitFor(`document.querySelector("#status").textContent.includes("Turned off Claude Code. What it brought in stays.") && ${claudeCode}?.querySelector("button")?.textContent === "Connect"`, 80), await js(`document.querySelector("#status").textContent`));
       } else if (scenario === "reading") {
         // AUT-005: connect Granola, and Lore reads the meetings through without being asked.
         await waitFor(`document.body.dataset.state === "welcome" && !document.querySelector("#welcome").classList.contains("provisioning")`);
@@ -1144,8 +1158,21 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         check("…the weekly day shows what was picked", await js(sheetRows) === "Repeat=Every week|On=Friday|At=8 AM", await js(sheetRows));
         await js(`document.querySelector("dialog.sheet[open] textarea").dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", metaKey: true, bubbles: true }))`);
         check("…and ⌘↩ adds it under its own title", await waitFor(`${rowOf("Morning notes")}`) && (await js(`${rowOf("Morning notes")}.textContent`)).includes("Every Friday at 8 AM") && listed().some((/** @type {Routine} */ r) => r.name === "Morning notes"));
-        await js(`${rowOf(SUNDAY)}.querySelector(".routine-act[aria-label='Remove']").click()`);
-        check("Remove takes the owner's own away for good", await waitFor(`!${rowOf(SUNDAY)}`) && !listed().some((/** @type {Routine} */ r) => r.name === SUNDAY));
+        // An automation opens to what it does: Lore's own say so; the owner's own can be reworded.
+        const openSheet = `(document.querySelector("dialog.sheet[open]")?.textContent ?? "")`;
+        const savePrimary = `document.querySelector("dialog.sheet[open] .btn.primary")`;
+        await js(`${rowOf("Evening check-in")}.click()`);
+        check("clicking one of Lore's own opens what it does, with Run now and Save", await waitFor(`${openSheet}.includes("asks you up to three questions")`) && !(await js(`Boolean(document.querySelector("dialog.sheet[open] textarea"))`)) && await js(`[...document.querySelectorAll("dialog.sheet[open] .btn")].map((b) => b.textContent).join("|")`) === "Run now|Save", await js(sheet));
+        await js(`document.querySelector("dialog.sheet[open] .icon-btn").click()`);
+        await js(`${rowOf(SUNDAY)}.click()`);
+        await waitFor(`document.querySelector("dialog.sheet[open] textarea")?.value === ${JSON.stringify(SUNDAY)}`);
+        await shot("automations-open");
+        await js(`{ const t = document.querySelector("dialog.sheet[open] textarea"); t.value = "Every Sunday, remember what I read and watched this week"; t.dispatchEvent(new Event("input", { bubbles: true })); }`);
+        await js(`${savePrimary}.click()`);
+        const REWORDED = "Every Sunday, remember what I read and watched this week";
+        check("…and one of the owner's own can be reworded, kept by the CLI", await waitFor(`${rowOf(REWORDED)}`) && listed().some((/** @type {Routine} */ r) => r.about === REWORDED));
+        await js(`${rowOf(REWORDED)}.querySelector(".routine-act[aria-label='Remove']").click()`);
+        check("Remove takes the owner's own away for good", await waitFor(`!${rowOf(REWORDED)}`) && !listed().some((/** @type {Routine} */ r) => r.about === REWORDED));
         await js(`${rowOf("Read connected apps")}.querySelector(".switch").click()`);
         await js(`window.__lore.show("connectors")`);
         const rhythm = `[...document.querySelectorAll("#content .row")].find((r) => r.textContent.includes("How often Lore reads them"))?.textContent ?? ""`;
