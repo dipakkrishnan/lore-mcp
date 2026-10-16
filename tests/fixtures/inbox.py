@@ -478,7 +478,8 @@ class Handler(BaseHTTPRequestHandler):
         self._send(405 if self.path == "/agent" else 404, {"error": "POST to /agent"})
 
     def do_POST(self) -> None:
-        if self.path != "/agent":
+        route, _, key = self.path.removeprefix("/").partition("/")
+        if route != "agent" or "/" in key:
             self._send(404, {"error": "not found"})
             return
         length = int(self.headers.get("Content-Length") or 0)
@@ -487,7 +488,9 @@ class Handler(BaseHTTPRequestHandler):
         except ValueError:
             self._send(400, {"error": "body must be JSON"})
             return
-        agent = self.server.endpoint.agent(self.headers.get("Authorization", ""))
+        agent = self.server.endpoint.agent(
+            f"Bearer {key}" if key else self.headers.get("Authorization", "")
+        )
         if agent is None:
             metadata = f"{self.server.url}/.well-known/oauth-protected-resource"
             self._send(
