@@ -40,7 +40,8 @@ const mainEl = $("#main");
 const header = /** @type {HTMLElement} */ (mainEl.querySelector("header"));
 const navButtons = /** @type {HTMLButtonElement[]} */ ([...document.querySelectorAll("nav button")]);
 
-/** @typedef {"today" | "memories" | "store" | "connectors" | "automations" | "faq" | "settings"} View */
+/** @typedef {"today" | "inventory" | "connectors" | "automations" | "faq" | "settings"} View */
+/** @typedef {"all" | "private" | "sale" | "down"} Shelf */
 /** @type {Snapshot | null} */
 let snapshot = null;
 /** The apps Lore can connect, read once from the CLI's catalog. @type {SourceApp[]} */
@@ -59,6 +60,8 @@ const running = new Set();
 let auth = null;
 /** @type {View} */
 let view = "today";
+/** Which of Inventory's tabs is open. @type {Shelf} */
+let shelf = "all";
 /** @type {AgentTask} */
 let task = "capture";
 /** @type {TaskRecord[]} */
@@ -764,24 +767,15 @@ class HowItWorks {
 
 const howItWorks = new HowItWorks();
 
-/** @param {Snapshot} s */
-function memoriesCountLabel(s) {
-  const count = privateMemories(s).length;
-  return `${count} ${count === 1 ? "memory" : "memories"} · only on this Mac`;
+/** "12 private · 3 on sale" @param {Snapshot} s */
+function inventoryCountLabel(s) {
+  const onSale = s.publications.counts.active;
+  return [`${privateMemories(s).length} private`, onSale ? `${onSale} on sale` : ""].filter(Boolean).join(" · ");
 }
 
 /** @param {Snapshot} s */
 function privateMemories(s) {
   return s.library.items.filter((item) => item.status === "private");
-}
-
-/** @param {Snapshot} s */
-function renderMemories(s) {
-  // An agent's memories carry its name as their project, and say so as where they came from.
-  const named = new Set(s.library.sources.filter((source) => source.connector === "agent").map((source) => source.label));
-  const items = privateMemories(s).map((item) => memoryRow(item.id, item.title, [named.has(item.project_label) ? `From ${item.project_label}` : item.project_label, when(item.updated_at)].filter(Boolean).join(" · ")));
-  const body = items.length ? card(items) : emptyState("Nothing kept yet. Say what you learned and Lore will keep it.", button("Add your first memory", "quiet", () => startCapture()));
-  return [section("", body)];
 }
 
 /** The publication price as it reads when nobody is editing it. @param {Snapshot} s */
@@ -866,8 +860,8 @@ async function savePrice(raw, rawCopies) {
   if (newCopies || amount !== before?.publication_usd) void goLive();
 }
 
-/** @param {Snapshot} s */
-function renderStore(s) {
+/** The store at a glance: whether it's live, its address, what a piece costs, and a pending update. @param {Snapshot} s */
+function storeBar(s) {
   const live = s.node.live;
   const bar = el("div", "card store-bar");
   const lead = el("div", "lead");
@@ -901,52 +895,100 @@ function renderStore(s) {
     push.disabled = pushing;
     bar.append(push);
   }
-  const approved = s.publications.items.filter((item) => item.state === "approved");
-  const waiting = unpushed(s);
-  const revoked = s.publications.items.filter((item) => item.state === "revoked");
-  /** @param {PublicationItem} item */
-  const sold = (item) => {
-    const count = Array.isArray(sales) ? sales.filter((sale) => sale.item_id === item.public_id && sale.network !== "free").length : 0;
-    const seen = views[item.public_id] ?? 0;
-    return [item.topic, seen ? `${seen} ${seen === 1 ? "view" : "views"}` : "", count ? `${count} sold` : ""].filter(Boolean).join(" · ");
-  };
-  // One chip per row only when rows differ; a list all in one state says it once in the heading.
-  const mixed = approved.some((item) => item.live !== approved[0].live);
-  /** @param {PublicationItem} item */
-  const state = (item) => mixed ? [item.live === true ? chip("Live", "ok") : item.live === false ? chip("Not live yet") : chip("Approved")] : [];
-  /** @param {PublicationItem} item */
-  const controls = (item) => {
-    const trailing = el("div", "v");
-    const ask = button("Take down", "secondary", () => {
-      trailing.replaceChildren(
-        el("span", "hint", "No one can buy it after this. Anyone who already did keeps their copy."),
-        button("Keep", "secondary", () => trailing.replaceChildren(...state(item), ask)),
-        // The CLI's reason for a push that did not land names commands and paths; the list below shows whether the store still has it.
-        button("Take down", "primary", () => void act(() => window.lore.revoke(item.id), "Taken down. Your store stops selling it as soon as it updates."))
-      );
-    });
-    trailing.append(...state(item), ask);
-    return trailing;
-  };
-  const aside = el("div", "section-aside");
-  const adds = waiting.filter((item) => item.state === "approved").length;
-  const onStore = adds === 0 ? "all on your store" : adds < approved.length ? `${adds} not on your store yet` : approved.length === 1 ? "not on your store yet" : "none on your store yet";
-  if (approved.length) aside.append(el("span", "hint", `${approved.length} ${approved.length === 1 ? "publication" : "publications"}${live.state === "online" ? ` · ${onStore}` : ""}`));
-  if (waiting.length) {
-    const push = button(pushing ? "Updating…" : "Update store", "quiet", pushNow);
-    push.disabled = pushing;
-    aside.append(push);
+  return bar;
+}
+
+/** One piece on sale: what it's about, how it's doing, and taking it down. @param {PublicationItem} item */
+function saleItem(item) {
+  const count = Array.isArray(sales) ? sales.filter((sale) => sale.item_id === item.public_id && sale.network !== "free").length : 0;
+  const seen = views[item.public_id] ?? 0;
+  const detail = [seen ? `${seen} ${seen === 1 ? "view" : "views"}` : "", count ? `${count} sold` : ""].filter(Boolean).join(" · ") || "No views yet";
+  const badge = item.live === false ? chip("Not on your store yet") : chip("On sale", "ok");
+  const trailing = el("div", "v");
+  const ask = button("Take down", "quiet", () => {
+    trailing.replaceChildren(
+      el("span", "hint", "No one can buy it after this. Anyone who already did keeps their copy."),
+      button("Keep", "secondary", () => trailing.replaceChildren(badge, ask)),
+      button("Take down", "primary", () => void act(() => window.lore.revoke(item.id), "Taken down. Your store stops selling it as soon as it updates."))
+    );
+    trailing.classList.add("asking");
+  });
+  trailing.append(badge, ask);
+  return row(item.title, detail, trailing);
+}
+
+/** Inventory: everything Lore keeps, private or on sale, in groups by what it's about. @param {Snapshot} s */
+function renderInventory(s) {
+  const agentNames = new Set(s.library.sources.filter((source) => source.connector === "agent").map((source) => source.label));
+  const agentApp = (/** @type {string} */ label) => s.library.sources.find((source) => source.connector === "agent" && source.label === label)?.app;
+  const kept = privateMemories(s);
+  const onSale = s.publications.items.filter((item) => item.state === "approved");
+  const down = s.publications.items.filter((item) => item.state === "revoked");
+  if (shelf === "down" && !down.length) shelf = "all";
+
+  const tabs = el("div", "shelves");
+  tabs.setAttribute("role", "tablist");
+  /** @type {[Shelf, string, number][]} */
+  const shelves = [["all", "All", kept.length + onSale.length], ["private", "Private", kept.length], ["sale", "On sale", onSale.length]];
+  if (down.length) shelves.push(["down", "Taken down", down.length]);
+  for (const [id, label, count] of shelves) {
+    const tab = el("button", "shelf");
+    tab.type = "button";
+    tab.setAttribute("role", "tab");
+    tab.setAttribute("aria-selected", String(shelf === id));
+    tab.append(label, el("span", "shelf-count", String(count)));
+    tab.addEventListener("click", () => { shelf = id; render(); });
+    tabs.append(tab);
   }
+
+  /** Rows under one heading, each group a card headed by what it's about. @param {Map<string, HTMLElement[]>} groups */
+  const grouped = (groups) => [...groups].sort(([a], [b]) => a.localeCompare(b)).map(([name, rows]) => {
+    const box = el("div", "card rows inv-group");
+    const head = el("div", "inv-group-head");
+    const app = agentApp(name);
+    head.append(app ? agentMark(app, name) : el("span", "logo initial", (name || "·")[0].toUpperCase()), el("b", "", name || "Unsorted"), el("span", "shelf-count", String(rows.length)));
+    box.append(head, ...rows);
+    return box;
+  });
+  /** @template T @param {T[]} items @param {(item: T) => string} key @param {(item: T) => HTMLElement} make */
+  const groupBy = (items, key, make) => {
+    /** @type {Map<string, HTMLElement[]>} */
+    const groups = new Map();
+    for (const item of items) groups.set(key(item), [...(groups.get(key(item)) ?? []), make(item)]);
+    return grouped(groups);
+  };
+  const privateGroups = () => groupBy(kept, (item) => item.project_label, (item) => {
+    const node = memoryRow(item.id, item.title, [agentNames.has(item.project_label) ? `From ${item.project_label}` : "", when(item.updated_at)].filter(Boolean).join(" · "));
+    node.querySelector(".v, .btn")?.before(chip("Private"));
+    return node;
+  });
+  const saleGroups = () => groupBy(onSale, (item) => item.topic, saleItem);
+  const downGroups = () => groupBy(down, (item) => item.topic, (item) => row(item.title, item.topic, item.live === true ? chip("Still on your store", "attention") : chip("Taken down")));
+  const stack = (/** @type {HTMLElement[]} */ cards) => {
+    const node = el("div", "inv-stack");
+    node.append(...cards);
+    return node;
+  };
+
   /** @type {HTMLElement[]} */
-  const parts = [bar];
+  const parts = [storeBar(s)];
   if (pushOffer) parts.push(seamCard());
   if (pushedNote) parts.push(pushReceipt(s));
-  parts.push(section("For sale", approved.length
-    ? card(approved.map((item) => row(item.title, sold(item), controls(item))))
-    : emptyState("Nothing for sale yet.", button("Draft your first piece", "quiet", () => show("memories"))),
-    aside));
-  if (revoked.length) parts.push(section("Taken down", card(revoked.map((item) => row(item.title, item.topic, item.live === true ? chip("Still on your store", "attention") : chip("Taken down"))))));
-  parts.push(renderSales());
+  parts.push(tabs);
+  const nothingKept = emptyState("Nothing kept yet. Say what you learned, or connect an agent, and Lore will keep it.", button("Add your first memory", "quiet", () => startCapture()));
+  const nothingOnSale = emptyState("Nothing on sale yet.", button("See what's private", "quiet", () => { shelf = "private"; render(); }));
+  if (shelf === "all") {
+    if (!kept.length && !onSale.length) parts.push(nothingKept);
+    if (onSale.length) parts.push(section("On sale", stack(saleGroups())));
+    if (kept.length) parts.push(section("Private", stack(privateGroups())));
+  } else if (shelf === "private") {
+    parts.push(kept.length ? stack(privateGroups()) : nothingKept);
+  } else if (shelf === "sale") {
+    parts.push(onSale.length ? stack(saleGroups()) : nothingOnSale);
+  } else {
+    parts.push(stack(downGroups()));
+  }
+  if (shelf === "all" || shelf === "sale") parts.push(renderSales());
   return parts;
 }
 
@@ -2157,28 +2199,27 @@ function renderAutomations() {
   ];
 }
 
-const renderers = { today: renderToday, memories: renderMemories, store: renderStore, connectors: renderConnectors, automations: renderAutomations, faq: renderFaq, settings: renderSettings };
+const renderers = { today: renderToday, inventory: renderInventory, connectors: renderConnectors, automations: renderAutomations, faq: renderFaq, settings: renderSettings };
 
 function render() {
   hidePeek();
   const detail = view === "today" ? detailTask : null;
-  const heading = detail ? detailRecord?.title ?? TASK_TITLES[detail] : { today: greeting(), memories: "Memories", store: "For Sale", connectors: "Connectors", automations: "Automations", faq: "FAQ", settings: "Settings" }[view];
+  const heading = detail ? detailRecord?.title ?? TASK_TITLES[detail] : { today: greeting(), inventory: "Inventory", connectors: "Connectors", automations: "Automations", faq: "FAQ", settings: "Settings" }[view];
   const pendingDrafts = detail === "publish" && (candidates.length || extraDrafts.length);
   eyebrow.textContent = detail
     ? pendingDrafts ? `Needs you · ${draftsPhase()}` : `${TASK_STATES[detailRecord?.state ?? "working"]} · ${detailRecord?.phase ?? "Starting"}`
     : view === "today" ? longDate.format(new Date())
-    : view === "memories" && snapshot ? memoriesCountLabel(snapshot) : "";
+    : view === "inventory" && snapshot ? inventoryCountLabel(snapshot) : "";
   title.textContent = heading;
   taskBack.hidden = !detail;
   taskRestart.hidden = !detail || detailRecord?.state !== "stopped";
-  addMemoryBtn.hidden = Boolean(detail) || view !== "memories";
+  addMemoryBtn.hidden = Boolean(detail) || view !== "inventory";
   captureArea.hidden = view !== "today";
   log.hidden = !detail;
   syncComposer();
   for (const nav of navButtons) nav.setAttribute("aria-pressed", String(nav.dataset.view === view));
   if (!snapshot) return;
-  $("[data-count=memories]").textContent = String(snapshot.library.counts.private);
-  $("[data-count=store]").textContent = String(snapshot.publications.counts.active);
+  $("[data-count=inventory]").textContent = String(snapshot.library.counts.private + snapshot.publications.counts.active);
   $("[data-count=connectors]").textContent = String(snapshot.library.sources.filter((source) => source.enabled).length);
   // Hidden until a build has a feedback relay to send to, so a release
   // never offers a Send it cannot honor. Starts hidden in index.html.
@@ -2206,10 +2247,11 @@ function renderAccount() {
   signOutBtn.textContent = `Sign out of ${name}`;
 }
 
-/** @param {View} next */
+/** Memories and For Sale became Inventory's tabs; anything that still asks for them lands there. @param {View | "memories" | "store"} next */
 function show(next) {
-  view = next;
-  if (next === "store") void loadSales();
+  if (next === "memories" || next === "store") shelf = next === "store" ? "sale" : "private";
+  view = next === "memories" || next === "store" ? "inventory" : next;
+  if (view === "inventory") void loadSales();
   if (next === "connectors") void loadAgents();
   // A store update said once, where it happened; it doesn't follow the owner around.
   pushedNote = false;
