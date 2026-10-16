@@ -4,7 +4,7 @@ title: Give personal agents a lore-store skill and a setup prompt
 priority: P0
 effort: S
 component: capture
-status: in-progress
+status: in-review
 related: [XC-067, CAP-036, APP-207, CAP-001]
 blockers: []
 dependencies: []
@@ -50,3 +50,16 @@ block. It tells the agent to:
 - Muse may build its own client against an HTTP API and keep keys in its
   credential store. The block includes the URL and header in a form that
   works for that too.
+- Built (Oct 16): `plugins/lore/skills/lore-store/` (SKILL.md and
+  `agents/openai.yaml`). Its body has `{name}`, `{mcp_url}` and `{header}`,
+  which `SetupPrompt` fills in for `lore agents connect` and `lore agents
+  key`. The wheel carries the skill through the `lore/store_skill.md`
+  symlink (package-data), so an installed CLI renders it without the
+  repository. The desktop's skills folder stays free of symlinks.
+- It is not installed for agents on this Mac: `install.sh` skips it, and
+  the repo's `.claude`/`.agents` folders don't link it. Local agents write
+  to Lore directly, and `lore-capture` covers "remember this". The contract
+  test keeps the remote skill out of those places. The plugins still ship
+  the whole skills folder, so its description applies only when the agent
+  has Lore's `store` tool.
+

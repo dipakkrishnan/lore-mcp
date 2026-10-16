@@ -54,11 +54,12 @@ from pydantic import (
 from pydantic.dataclasses import dataclass
 
 from . import __version__
+from .inbox import AgentApp, Forget, Inbox, InboxError, Opened
 from .paths import claude_home, codex_home, home, obsidian_home
 from .signin import Keychain, Loopback
 from .store import Store
 
-Kind = Literal["folder", "export", "feed", "mcp"]
+Kind = Literal["folder", "export", "feed", "mcp", "agent"]
 
 
 class State(Enum):
@@ -82,6 +83,8 @@ class Item:
     dated: str | None
     excluded: bool = False
     key: str | None = None
+    # The place took it back, so the memory made from it goes too.
+    forgotten: bool = False
 
 
 @dataclass(frozen=True)
@@ -95,6 +98,8 @@ class Source:
     owned: bool = False
     since: str | None = None
     connector: str | None = None
+    # Which personal agent writes to it, vouched for by its inbox key.
+    app: AgentApp | None = None
 
     def reader(self) -> Reader:
         if self.connector:
@@ -113,10 +118,11 @@ class Source:
         since: str | None = None,
         kind: str = "folder",
         connector: str | None = None,
+        app: str | None = None,
     ) -> Source:
-        app = Connector.named(connector) if connector is not None else None
-        if app is not None and app.reader.kind != kind:
-            raise SourceError(f"{connector} reads a {app.reader.kind}, not a {kind}")
+        named = Connector.named(connector) if connector is not None else None
+        if named is not None and named.reader.kind != kind:
+            raise SourceError(f"{connector} reads a {named.reader.kind}, not a {kind}")
         try:
             source = cls(
                 "",
@@ -126,6 +132,7 @@ class Source:
                 owned=True,
                 since=_day(since),
                 connector=connector,
+                app=TypeAdapter(AgentApp | None).validate_python(app),
             )
         except ValidationError as error:
             raise SourceError(str(error)) from None
@@ -170,6 +177,10 @@ class Reader(ABC):
     @abstractmethod
     def items(self) -> Iterator[Item]:
         """Yield source items, counting unreadable records in errors."""
+
+    def settle(self) -> None:
+        """Tell the place what it handed over is safely kept; most places need nothing."""
+        return None
 
     @property
     def trouble(self) -> str:
@@ -1496,6 +1507,96 @@ class Readwise(Hosted):
         )
 
 
+class AgentReader(Reader):
+    """What one of the owner's personal agents saved to Lore's inbox, sealed to this Mac.
+    Each save is kept under the key the agent gave it, so saving again updates it."""
+
+    kind = "agent"
+    # An agent saves only what it judged worth keeping: one line can be a preference.
+    sentence = 1
+
+    def __init__(self, source: Source) -> None:
+        super().__init__(source)
+        self.inbox = Inbox()
+        self.collected: list[Opened] = []
+
+    @classmethod
+    def locate(cls, locator: str) -> tuple[str, str]:
+        return locator.strip(), ""
+
+    def name(self) -> str:
+        return f"agent-{self.source.locator}"
+
+    def sign_out(self) -> None:
+        # Disconnecting stops the agent's key at once, not at the next read.
+        self.inbox.revoke(self.source.locator)
+
+    @property
+    def trouble(self) -> str:
+        return "can't reach your store"
+
+    @cached_property
+    def waiting(self) -> list[Opened] | None:
+        try:
+            sealed = self.inbox.items(self.source.locator)
+        except InboxError:
+            self.failure = State.UNREACHABLE
+            return None
+        opened = []
+        for item in sealed:
+            try:
+                opened.append(self.inbox.open(item))
+            except InboxError:
+                self.errors += 1
+        return opened
+
+    def probe(self) -> State:
+        # The store answering is the read: an agent with nothing new is still connected.
+        return State.UNREACHABLE if self.waiting is None else State.CONNECTED
+
+    def items(self) -> Iterator[Item]:
+        for opened in self.waiting or []:
+            self.collected.append(opened)
+            save = opened.payload
+            where = f"{self.name()}#{opened.key}"
+            if isinstance(save, Forget):
+                yield Item("", "", where, None, key=opened.key, forgotten=True)
+                continue
+            yield Item(
+                save.title,
+                save.content,
+                where,
+                _date(save.occurred_at or opened.saved_at),
+                key=opened.key,
+            )
+
+    def settle(self) -> None:
+        if not self.collected:
+            return
+        try:
+            self.inbox.received(self.collected)
+        except InboxError:
+            # What isn't confirmed comes again, and its key makes that a no-op.
+            pass
+
+
+class PersonalAgent(Connector):
+    """Grok, Muse, ChatGPT or Claude, saving to the owner's inbox. Each agent the owner
+    connects is its own source, so every memory says which one saved it."""
+
+    id = "agent"
+    name = "Personal agent"
+    what = "What your agents save for you"
+    unit = "agent"
+    item = "save"
+    reader = AgentReader
+
+    def address(self, typed: str) -> str:
+        raise SourceError(
+            "Connect a personal agent with: lore agents connect <name> --app <app>"
+        )
+
+
 class _Html(HTMLParser):
     # The two things a feed importer wants out of HTML: a post's text with its
     # paragraphs intact, and the feeds a site page advertises.
@@ -1604,6 +1705,7 @@ class Registry:
                     "locator": source.locator,
                     "owned": source.owned,
                     "connector": source.connector,
+                    "app": source.app,
                     "refresh": source.reader().refresh,
                     "enabled": enabled,
                     "imported": counts.get(source.name, 0),
@@ -1621,12 +1723,13 @@ class Registry:
         kind: str = "folder",
         connector: str | None = None,
         *,
+        app: str | None = None,
         replacing: str | None = None,
         show: Callable[[str], None] | None = None,
     ) -> dict[str, object]:
         """Read a new source, and only then retire the one it replaces. With `show`, the
         owner is there to let Lore in wherever the place asks them to."""
-        source = Source.owner(locator, label, since, kind, connector)
+        source = Source.owner(locator, label, since, kind, connector, app)
         reader = source.reader()
         asked = show is not None and reader.sign_in(show)
         state = reader.probe()
@@ -1727,19 +1830,30 @@ class Registry:
         return report
 
     def _import(self, source: Source, reader: Reader) -> dict[str, int]:
-        stats = {"found": 0, "added": 0, "updated": 0, "unchanged": 0, "errors": 0}
+        stats = {
+            "found": 0,
+            "added": 0,
+            "updated": 0,
+            "unchanged": 0,
+            "removed": 0,
+            "errors": 0,
+        }
         reader.known = self.store.source_keys(source.name)
         state = reader.probe()
         for item in reader.items():
             stats["found"] += 1
+            path = Path(item.source_path)
+            key = f"{source.name}:{item.key or path.resolve()}"
+            if item.forgotten:
+                stats["removed"] += self.store.forget(key)
+                continue
             if not reader.keeps(item):
                 continue
-            path = Path(item.source_path)
             result = self.store.put(
                 source=source.name,
                 origin=source.origin,
                 source_path=item.source_path,
-                source_key=f"{source.name}:{item.key or path.resolve()}",
+                source_key=key,
                 fingerprint=hashlib.sha256(item.content.encode()).hexdigest(),
                 title=item.title,
                 content=item.content,
@@ -1747,6 +1861,7 @@ class Registry:
                 dated=item.dated,
             )
             stats[result] += 1
+        reader.settle()
         stats["found"] += reader.errors
         stats["errors"] = reader.errors
         self.reads[source.name] = LastRead(

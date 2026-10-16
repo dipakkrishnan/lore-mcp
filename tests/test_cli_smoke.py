@@ -90,6 +90,8 @@ class OwnerLifecycleTest(unittest.TestCase):
             "PATH": f"{tools}{os.pathsep}{os.environ.get('PATH', os.defpath)}",
             "LORE_SMOKE_PUSHED": str(self.pushed),
             "NO_COLOR": "1",
+            # A push reads the agent inbox keys; never from the developer's Keychain.
+            "PYTHON_KEYRING_BACKEND": "keyring.backends.null.Keyring",
         }
         self.env.pop("LORE_ATTENDED_KEY", None)
 

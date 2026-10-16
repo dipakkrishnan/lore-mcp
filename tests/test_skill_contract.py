@@ -38,8 +38,13 @@ EXTERNAL_SKILLS = {
     "lore-enable-payments",
     "lore-onboard",
     "lore-publish",
+    "lore-store",
     "lore-synthesize",
 }
+# Skills for the owner's remote agents (Grok, Muse, ChatGPT, Claude), which reach them
+# as a paste block from `lore agents connect`. Agents on this Mac write to Lore
+# directly, so these are never linked or installed where a local agent looks.
+REMOTE_SKILLS = {"lore-store"}
 
 # A `lore <command> [subcommand]` invocation, anchored to the start of a shell line or
 # an inline code span so that prose about "your lore" is never mistaken for a command.
@@ -178,6 +183,8 @@ class SkillContractTest(unittest.TestCase):
                 self.assertGreaterEqual(len(fields["short_description"]), 25)
                 self.assertLessEqual(len(fields["short_description"]), 64)
                 self.assertIn(f"${name}", fields["default_prompt"])
+                if name in REMOTE_SKILLS:
+                    continue
                 for host in (".agents", ".claude"):
                     linked = ROOT / host / "skills" / name
                     self.assertTrue(linked.is_dir())
@@ -201,6 +208,11 @@ class SkillContractTest(unittest.TestCase):
             with self.subTest(skill=skill.name):
                 # The installer ships a glob; a skill outside it is silently skipped.
                 self.assertTrue(skill.match(f"*/{OWNER_SKILL_GLOB}"))
+                if skill.name in REMOTE_SKILLS:
+                    self.assertIn(f'"$SKILL_NAME" != {skill.name}', installer)
+                    for host in (".agents", ".claude"):
+                        self.assertFalse((ROOT / host / "skills" / skill.name).exists())
+                    continue
                 linked = ROOT / ".claude/skills" / skill.name
                 self.assertTrue(
                     linked.is_dir(), f"{skill.name} is not linked for this repo"
@@ -415,6 +427,28 @@ class SkillContractTest(unittest.TestCase):
         ):
             with self.subTest(boundary=boundary):
                 self.assertIn(boundary, skill)
+
+    def test_the_store_skill_is_a_paste_block_that_never_sells(self) -> None:
+        """CAP-037: it is pasted into a remote agent, so it carries its own connection."""
+        text = (OWNER_SKILLS / "lore-store/SKILL.md").read_text(encoding="utf-8")
+        body = " ".join(text.split("---", 2)[2].lower().split())
+        for field in ("{name}", "{mcp_url}", "{header}"):
+            self.assertIn(field, body)
+        for promise in (
+            "nothing is ever sold or published without my approval in the lore app",
+            "never save",
+            "passwords",
+            "one short, stable `key`",
+            "save again under the same key",
+            "want me to save that to lore?",
+            "in one line",
+            "once a week",
+            "`store`",
+            "`stored`",
+            "`forget`",
+        ):
+            with self.subTest(promise=promise):
+                self.assertIn(promise, body)
 
 
 if __name__ == "__main__":

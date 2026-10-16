@@ -427,6 +427,7 @@ class OwnerFolderTest(LoreTestCase):
                         "added": 1,
                         "updated": 0,
                         "unchanged": 0,
+                        "removed": 0,
                         "errors": 0,
                         "state": "connected",
                     }
@@ -567,6 +568,7 @@ class ConnectorTest(LoreTestCase):
                 "granola",
                 "notion",
                 "readwise",
+                "agent",
             ],
         )
         self.assertEqual(
