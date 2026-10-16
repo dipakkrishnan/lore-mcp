@@ -483,7 +483,9 @@ async function boot(loreHome) {
 
 /** @param {string} loreHome */
 async function start(loreHome) {
-  const runtime = await provision(emit);
+  // From source, LORE_DESKTOP_BIN_DIR stands in for the bundled CLI, so the agent runs the checkout's, not whatever `lore` a shell profile finds first.
+  const dev = !app.isPackaged && process.env.LORE_DESKTOP_BIN_DIR;
+  const runtime = dev ? { bin: join(dev, "lore"), binDir: dev } : await provision(emit);
   if (runtime) useRuntime(runtime.bin);
   const [{ LoreAgent, validEntries }, { CredentialStore }] = await Promise.all([
     import("./agent.mjs"),
