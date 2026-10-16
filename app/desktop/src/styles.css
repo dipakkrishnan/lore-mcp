@@ -335,8 +335,9 @@ a.link-btn.glyph { width: 22px; padding: 0; justify-content: center; color: var(
 .how-it-works { display: flex; align-items: center; gap: 2px; font-size: 13px; color: var(--muted); }
 .how-it-works .dismiss { width: 22px; height: 22px; border-radius: 6px; font-size: 15px; line-height: 1; color: var(--muted); opacity: 0.6; }
 .how-it-works .dismiss:hover { opacity: 1; background: var(--hover); }
-.strip { display: flex; flex-wrap: wrap; gap: 8px 22px; font-size: 13px; color: var(--muted); padding-top: 8px; border-top: 1px solid var(--line); }
-.strip b { color: var(--ink); font-weight: 500; font-family: var(--mono); }
+.strip { display: flex; flex-wrap: wrap; gap: 8px 28px; font-size: 13px; color: var(--muted); padding-top: 14px; border-top: 1px solid var(--line-soft); }
+.strip > span { display: inline-flex; align-items: center; gap: 6px; }
+.strip b { color: var(--ink); font-weight: 600; font-variant-numeric: tabular-nums; }
 
 /* Store status */
 .store-bar { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 16px 20px; }
@@ -609,3 +610,19 @@ dialog.palette[open] { animation: rise 0.12s ease; }
 .routine-mark.add { background: transparent; border: 1px dashed var(--line-strong); color: var(--muted); }
 .routines .row.add-tile:hover .routine-mark.add { border-color: var(--accent); color: var(--accent); }
 .routines .row.add-tile .t span { font-size: 13px; color: var(--muted); }
+
+/* Today: lists read like Inventory's; a step is one quiet row that does its thing on a click. */
+.card.today-list { border-radius: var(--radius-lg); }
+.today-list .row { padding: 13px 18px; transition: background 0.12s; }
+.today-list .row .t b { font-family: var(--sans); font-size: 14px; font-weight: 500; }
+.today-list .row .t span { font-size: 12.5px; color: var(--muted); }
+.today-list .row > .logo { width: 18px; height: 18px; }
+.today-list .row.list-head { background: var(--bg-aside); }
+.today-list .row.list-head .t b { font-weight: 600; }
+.today-list .row:not(.list-head):hover { background: var(--hover); }
+.today-list .row:not(.list-head) .btn.quiet { opacity: 0; transition: opacity 0.12s; }
+.today-list .row:not(.list-head):hover .btn.quiet, .today-list .row:focus-within .btn.quiet { opacity: 1; }
+.steps .row.step { cursor: pointer; }
+.steps .row.step .btn.secondary { height: auto; padding: 0; border: 0; background: none; color: var(--accent); font-weight: 500; }
+.steps .row.step .btn.secondary::after { content: "→"; margin-left: 6px; display: inline-block; transition: transform 0.15s ease; }
+.steps .row.step:hover .btn.secondary::after { transform: translateX(3px); }

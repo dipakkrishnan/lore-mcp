@@ -595,13 +595,11 @@ function needsYou(s) {
   /** @type {HTMLElement[]} */
   const rows = [];
   const add = (/** @type {string} */ label, /** @type {string} */ detail, /** @type {HTMLElement} */ action) => {
-    const lead = el("div", "lead");
-    lead.append(el("span", "dot"));
-    const text = el("div", "t");
-    text.append(el("b", "sans", label), el("span", "", detail));
-    lead.append(text);
-    const node = el("div", "row");
-    node.append(lead, action);
+    const node = row(label, detail, action, false);
+    node.classList.add("step");
+    node.addEventListener("click", (event) => {
+      if (!(event.target instanceof Element && event.target.closest("button"))) /** @type {HTMLButtonElement} */ (action).click();
+    });
     rows.push(node);
   };
   if (!s.library.sources.some((source) => source.connector)) add("Bring in what you've written", "Notes, posts, or AI conversations from apps you already use.", button("Connect", "secondary", () => show("connectors")));
@@ -658,9 +656,19 @@ function memoriesReady(runs) {
   const heading = runs.every((run) => run.title === latest.title) ? latest.title : "Lore read what you brought in";
   const detail = [`${plural(memories.length, "new memory")}, only on this Mac`, selling ? `${selling} ${selling === 1 ? "looks" : "look"} worth selling` : ""].filter(Boolean).join(" · ");
   const clear = button("Clear", "quiet", () => void window.lore.clearMemories().then(() => { readyRuns = []; render(); }));
-  const rows = memories.map((memory) => memoryRow(memory.id, memory.title, [memory.from && `From ${memory.from}`, memory.sell ? `Worth selling · ${memory.why}` : memory.work ? "Work · stays private" : "Private"].filter(Boolean).join(" · "), memory.sell));
+  const app = (/** @type {string | undefined} */ from) => snapshot?.library.sources.find((source) => source.connector === "agent" && source.label === from)?.app;
+  const rows = memories.map((memory) => {
+    const node = memoryRow(memory.id, memory.title, [memory.from && `From ${memory.from}`, memory.sell ? `Worth selling · ${memory.why}` : memory.work ? "Work · stays private" : "Private"].filter(Boolean).join(" · "), memory.sell);
+    const agent = app(memory.from);
+    if (agent) node.prepend(agentMark(agent, memory.from ?? ""));
+    return node;
+  });
   noticeReady();
-  return section("New memories", card([row(heading, detail, cell(clear), false), ...rows]));
+  const head = row(heading, detail, cell(clear), false);
+  head.classList.add("list-head");
+  const list = card([head, ...rows]);
+  list.classList.add("today-list");
+  return section("New memories", list);
 }
 
 /** The owner is looking at the new memories, so the dock stops counting them. */
@@ -699,7 +707,11 @@ function renderToday(s) {
   if (reading) parts.push(readingRow(reading));
   if (readyRuns.length) parts.push(memoriesReady(readyRuns));
   const attention = needsYou(s);
-  if (attention.length) parts.push(section("Needs you", card(attention)));
+  if (attention.length) {
+    const steps = card(attention);
+    steps.classList.add("today-list", "steps");
+    parts.push(section("Needs you", steps));
+  }
   if (Array.isArray(sales) && sales.length) parts.push(earned(sales));
   const shown = displayTasks();
   if (shown.length) {
@@ -728,7 +740,7 @@ function renderToday(s) {
   for (const fact of facts) {
     if (!fact) continue;
     const item = el("span");
-    if (fact[0] === "Store") item.append(document.createTextNode("Store "), el("b", "", fact[1]));
+    if (fact[0] === "Store") item.append(el("span", `dot ${s.node.live.state === "online" ? "ok" : "off"}`), document.createTextNode(`Store ${fact[1]}`));
     else item.append(el("b", "", fact[0]), document.createTextNode(` ${fact[1]}`));
     strip.append(item);
   }
