@@ -317,6 +317,11 @@ async function readSource(loreHome, name) {
   return JSON.parse(await lore(loreHome, ["sources", "read", sourceName(name), "--json"]));
 }
 
+/** Turn an agent's own history on this Mac, like Codex's, on or off. @param {string} loreHome @param {unknown} name @param {boolean} on @returns {Promise<SourceEntry>} */
+async function switchSource(loreHome, name, on) {
+  return JSON.parse(await lore(loreHome, ["sources", on ? "enable" : "disable", sourceName(name), "--json"], ""));
+}
+
 /** @param {string} loreHome @param {unknown} name @param {boolean} keep @returns {Promise<SourceRemoval>} */
 async function removeSource(loreHome, name, keep) {
   return JSON.parse(await lore(loreHome, ["sources", "remove", sourceName(name), keep ? "--keep" : "--delete", "--json"]));
@@ -393,6 +398,13 @@ async function changeRoutine(loreHome, id, action, when) {
   return lore(loreHome, ["automation", action, routineId(id), "--json"]);
 }
 
+/** Reword one of the owner's own. @param {string} loreHome @param {string} id @param {unknown} text @param {unknown} [title] @returns {Promise<Routine>} */
+async function editRoutine(loreHome, id, text, title = "") {
+  if (typeof text !== "string" || !text.trim() || text.length > 500) throw new Error("Say what Lore should do, in a sentence");
+  const named = typeof title === "string" && title.trim() ? ["--title", title.trim().slice(0, 120)] : [];
+  return JSON.parse(await lore(loreHome, ["automation", "edit", routineId(id), ...named, "--json", "--", text.trim()]));
+}
+
 /** One of the owner's own: a sentence, after `--` so one starting with a dash stays words. @param {string} loreHome @param {unknown} text @param {unknown} when @param {unknown} [title] A name; the sentence by default. @returns {Promise<Routine>} */
 async function addRoutine(loreHome, text, when, title = "") {
   if (typeof text !== "string" || !text.trim() || text.length > 500) throw new Error("Say what Lore should do, in a sentence");
@@ -406,6 +418,8 @@ module.exports = {
   runRoutine,
   changeRoutine,
   addRoutine,
+  editRoutine,
+  switchSource,
   loreStream,
   stream,
   openable,

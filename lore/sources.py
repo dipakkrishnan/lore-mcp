@@ -1798,6 +1798,17 @@ class Registry:
             for name in chosen
         ]
 
+    def switch(self, name: str, on: bool) -> dict[str, object]:
+        """Turn one of the agents' own histories on this Mac on or off; what it
+        already brought in stays."""
+        if name not in {source.name for source in available_sources()}:
+            raise SourceError(f"unknown source: {name}")
+        self.enabled = self.enabled | {name} if on else self.enabled - {name}
+        self.store.set_setting("sources", sorted(self.enabled))
+        # Off and not on this Mac, it isn't listed at all.
+        listed = (entry for entry in self.entries() if entry["name"] == name)
+        return next(listed, {"name": name, "enabled": on})
+
     def remove(self, name: str, *, delete: bool) -> dict[str, object]:
         if name in {source.name for source in available_sources()}:
             raise SourceError(f"{name} is built in and cannot be removed")

@@ -400,6 +400,8 @@ class Routine:
     id: ClassVar[str] = ""
     kind: ClassVar[str]
     name = ""
+    # What it does, in a sentence the owner reads before changing it.
+    about = ""
 
     def __init__(self, routines: Routines, routine_id: str, saved: Saved | None):
         self.routines = routines
@@ -450,6 +452,7 @@ class Routine:
             "id": self.routine_id,
             "kind": self.kind,
             "name": self.name,
+            "about": self.about,
             "built_in": bool(self.id),
             "cadence": cadence,
             "hour": hour,
@@ -470,6 +473,9 @@ class ReadApps(Routine):
     id = "synthesis"
     kind = "read"
     name = "Read connected apps"
+    about = (
+        "Reads every app you've connected and turns what's new into private memories."
+    )
 
     def rhythm(self) -> tuple[str, int, int]:
         profile = self.routines.profile
@@ -521,6 +527,7 @@ class CheckIn(Routine):
     id = "checkin"
     kind = "checkin"
     name = "Evening check-in"
+    about = "Looks over what came in today and, only when something is worth it, asks you up to three questions about it."
     # Due later than this after its hour, Lore was closed or asleep: asking then
     # would come out of nowhere, so the run is recorded as missed instead.
     late = timedelta(hours=3)
@@ -579,6 +586,7 @@ class Ask(Routine):
     def __init__(self, routines: Routines, routine_id: str, saved: Saved | None):
         super().__init__(routines, routine_id, saved)
         self.name = (saved.title or saved.prompt) if saved else ""
+        self.about = saved.prompt if saved else ""
 
     def rhythm(self) -> tuple[str, int, int]:
         saved = self.saved or Saved(since=self.routines.clock())
@@ -644,6 +652,20 @@ class Routines:
         fields |= {"cadence": cadence, "hour": hour, "day": day}
         Saved.model_validate({"since": self.clock(), **fields})
         routine_id = f"r-{secrets.token_hex(4)}"
+        self.save(routine_id, **fields)
+        return self.get(routine_id).listed()
+
+    def edit(self, routine_id: str, prompt: str, title: str = "") -> dict[str, object]:
+        """Reword one of the owner's own: what Lore does, and what it's called."""
+        if self.get(routine_id).id:
+            raise ValueError(
+                "Lore's own routines can be retimed or paused, not reworded"
+            )
+        prompt = " ".join(prompt.split())
+        if not prompt:
+            raise ValueError("Say what Lore should do")
+        fields = {"prompt": prompt, "title": " ".join(title.split())}
+        Saved.model_validate({"since": self.clock(), **fields})
         self.save(routine_id, **fields)
         return self.get(routine_id).listed()
 

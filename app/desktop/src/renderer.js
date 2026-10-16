@@ -1295,7 +1295,8 @@ function verb(app) {
 /** Connectors: the agents, then every app in the catalog, connected or on offer. @param {Snapshot} s */
 function sourceRows(s) {
   const rows = s.library.sources.filter((source) => !source.connector).map((source) => {
-    const node = row(source.label, source.enabled ? `${plural(source.imported, "memory")} imported` : "Your coding sessions", cell(pill(source.enabled ? "Connected" : "Off", source.enabled ? "ok" : "")), false);
+    const action = source.enabled ? button("Manage", "quiet", () => openHistory(source)) : button("Connect", "secondary", () => openHistory(source));
+    const node = row(source.label, source.enabled ? `${plural(source.imported, "memory")} imported` : "What it remembers about your work", cell(...(source.enabled ? [pill("Connected", "ok")] : []), action), false);
     node.prepend(brand(AGENT_MARKS[source.name] ?? source.name, source.label));
     return node;
   });
@@ -1746,6 +1747,45 @@ function agentLine(source) {
   return entry.saved ? `Saved ${entry.saved}${entry.last_saved_at ? ` · last ${day(entry.last_saved_at)}` : ""}` : "Nothing saved yet";
 }
 
+/** What an agent's own history on this Mac is, in the owner's words. @type {Record<string, string>} */
+const HISTORIES = {
+  codex: "the memory notes Codex keeps on this Mac",
+  claude: "the memory notes Claude Code keeps for each of your projects on this Mac"
+};
+
+/** Codex's or Claude Code's own memory on this Mac: connect it, or turn it off and keep what it brought. @param {SourceEntry} source */
+function openHistory(source) {
+  const form = new FormSheet(source.enabled ? source.label : `Connect ${source.label}`, brand(AGENT_MARKS[source.name] ?? source.name, source.label));
+  const what = HISTORIES[source.name] ?? `what ${source.label} keeps on this Mac`;
+  if (source.enabled) {
+    form.text(`Lore reads ${what}. ${plural(source.imported, "memory")} so far.`);
+    form.note("Turning it off keeps what it already brought in.");
+    form.open({
+      primary: "Turn off",
+      working: "Turning off…",
+      failed: "Lore couldn't turn it off. Try again.",
+      submit: async () => {
+        await window.lore.switchSource(source.name, false);
+        tell(`Turned off ${source.label}. What it brought in stays.`);
+        await load();
+      }
+    });
+    return;
+  }
+  form.text(`Lore reads ${what} and turns what's new into private memories.`);
+  form.note("Read only. Stays on this Mac.");
+  form.open({
+    primary: "Connect",
+    working: "Connecting…",
+    failed: "Lore couldn't connect it. Try again.",
+    submit: async () => {
+      await window.lore.switchSource(source.name, true);
+      await load();
+      void window.lore.readSource(source.name).then(() => load()).catch(() => undefined);
+    }
+  });
+}
+
 /** Each personal agent the owner connected, and the way to connect one more. @param {Snapshot} s */
 function agentTiles(s) {
   const rows = s.library.sources.filter((source) => source.connector === "agent").map((source) => {
@@ -2130,7 +2170,46 @@ function routineRow(routine) {
   node.prepend(mark);
   node.classList.add("routine");
   if (routine.paused) node.classList.add("paused");
+  node.addEventListener("click", (event) => {
+    if (!(event.target instanceof Element && event.target.closest("button"))) openRoutine(routine);
+  });
   return node;
+}
+
+/** One routine, opened: what it does (the owner's own can be reworded), when, and Run now. @param {Routine} routine */
+function openRoutine(routine) {
+  const own = !routine.built_in;
+  const form = new FormSheet(routine.name);
+  const title = own ? form.title("Title (optional)") : null;
+  if (title) title.value = routine.name === routine.about ? "" : routine.name;
+  const text = own ? form.prompt("What Lore does", "Describe what Lore should do.") : null;
+  if (text) {
+    text.value = routine.about;
+    text.maxLength = 500;
+  } else {
+    form.text(routine.about);
+  }
+  const before = { cadence: routine.cadence, hour: routine.hour, day: routine.day ?? 0 };
+  const chosen = scheduleRows(form, before);
+  form.note(ROUTINE_NOTE);
+  if (own) form.button("Remove", "quiet", () => { form.close(); void changeRoutine(routine, "remove"); });
+  form.button("Run now", "secondary", () => { form.close(); void runRoutineNow(routine); });
+  form.open({
+    primary: "Save",
+    working: "Saving…",
+    valid: () => !text || Boolean(text.value.trim()),
+    failed: "Lore couldn't save that. Try again.",
+    submit: async () => {
+      const time = chosen();
+      if (text && title && (text.value.trim() !== routine.about || title.value.trim() !== (routine.name === routine.about ? "" : routine.name))) {
+        await window.lore.editRoutine(routine.id, text.value, title.value.trim());
+      }
+      if (time.cadence !== before.cadence || time.hour !== before.hour || (time.cadence === "weekly" && time.day !== before.day)) {
+        await window.lore.changeRoutine(routine.id, "time", time);
+      }
+      await load();
+    }
+  });
 }
 
 /** @param {Routine} routine @param {"pause" | "resume" | "remove" | "time"} action @param {RoutineTime} [time] */

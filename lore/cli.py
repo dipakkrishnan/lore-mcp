@@ -168,6 +168,12 @@ def parser() -> argparse.ArgumentParser:
     source_read = source_commands.add_parser("read", help="import from sources now")
     source_read.add_argument("name", nargs="*")
     source_read.add_argument("--json", action="store_true")
+    for name, words in (("enable", "start"), ("disable", "stop")):
+        switch = source_commands.add_parser(
+            name, help=f"{words} reading an agent's history on this Mac, like codex"
+        )
+        switch.add_argument("name")
+        switch.add_argument("--json", action="store_true")
     source_remove = source_commands.add_parser("remove", help="stop reading a source")
     source_remove.add_argument("name")
     memories = source_remove.add_mutually_exclusive_group(required=True)
@@ -294,6 +300,15 @@ def parser() -> argparse.ArgumentParser:
         toggle = routine_commands.add_parser(name, help=f"{words} a routine")
         toggle.add_argument("id")
         toggle.add_argument("--json", action="store_true")
+    routine_edit = routine_commands.add_parser(
+        "edit", help="reword one of your own: what it does and its name"
+    )
+    routine_edit.add_argument("id")
+    routine_edit.add_argument("text", help="what to do, in a sentence")
+    routine_edit.add_argument(
+        "--title", default="", help="a name; the sentence by default"
+    )
+    routine_edit.add_argument("--json", action="store_true")
     routine_time = routine_commands.add_parser("time", help="change when one runs")
     routine_time.add_argument("id")
     routine_add = routine_commands.add_parser(
@@ -975,6 +990,12 @@ def source_command(args: argparse.Namespace) -> int:
                         for read in reads
                     ],
                 )
+            elif command in ("enable", "disable"):
+                _owner_action(
+                    f"turning {args.name} {'on' if command == 'enable' else 'off'}"
+                )
+                switched = Registry(store).switch(args.name, command == "enable")
+                payload, lines = switched, [_source_line(switched)]
             elif command == "remove":
                 removed = Registry(store).remove(args.name, delete=args.delete)
                 kind = "deleted" if args.delete else "kept"
@@ -1094,6 +1115,9 @@ def automation_command(args: argparse.Namespace) -> int:
     elif command == "remove":
         routines.remove(args.id)
         payload, lines = {"removed": args.id}, [f"Removed {args.id}."]
+    elif command == "edit":
+        payload = edited = routines.edit(args.id, args.text, args.title)
+        lines = [f"Changed {edited['id']}: {edited['name']}"]
     elif command == "add":
         payload = added = routines.add(
             args.text, args.cadence, args.hour, args.day, args.title

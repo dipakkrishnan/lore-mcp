@@ -11,7 +11,7 @@ const reading = require("./reading.cjs");
 const checkin = require("./checkin.cjs");
 const { Schedule } = require("./routines.cjs");
 const { Watch, WATCH_EVERY_MS } = require("./agents.cjs");
-const { lore, listRoutines, runRoutine, changeRoutine, addRoutine, loreStream, openable, readState, readSales, readViews, searchMemories, readMemory, renameMemory, editMemory, captureMemories, previewPage, setPrice, setFreeCopies, candidates, decide, extrasCandidates, decideExtras, approveExtras, reportFeedback, listStore, cardStatus, connectCards, switchCards, listingStatus, sourceCatalog, sourceChoices, connectSource, signIn, readSource, removeSource, listAgents, connectAgent, agentKey, disconnectAgent, agentsWaiting, useRuntime } = require("./state.cjs");
+const { lore, listRoutines, runRoutine, changeRoutine, addRoutine, editRoutine, switchSource, loreStream, openable, readState, readSales, readViews, searchMemories, readMemory, renameMemory, editMemory, captureMemories, previewPage, setPrice, setFreeCopies, candidates, decide, extrasCandidates, decideExtras, approveExtras, reportFeedback, listStore, cardStatus, connectCards, switchCards, listingStatus, sourceCatalog, sourceChoices, connectSource, signIn, readSource, removeSource, listAgents, connectAgent, agentKey, disconnectAgent, agentsWaiting, useRuntime } = require("./state.cjs");
 
 if (process.env.LORE_DESKTOP_USER_DATA) app.setPath("userData", process.env.LORE_DESKTOP_USER_DATA);
 // Two copies sharing one credentials file each refresh the sign-in, and the provider refuses the second.
@@ -256,6 +256,8 @@ function registerIpc(loreHome, schedule, watch) {
     void schedule.check();
     return added;
   });
+  ipcMain.handle("routines:edit", (_event, id, text, title) => editRoutine(loreHome, id, text, title));
+  ipcMain.handle("sources:switch", (_event, name, on) => switchSource(loreHome, name, on === true));
   ipcMain.handle("sources:remove", (_event, name, keep) => removeSource(loreHome, name, keep === true));
   // APP-207: the owner's personal agents, each a key to their own store, and what they saved brought in on request.
   ipcMain.handle("agents:list", () => listAgents(loreHome));

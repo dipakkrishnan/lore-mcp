@@ -585,14 +585,12 @@ dialog.palette[open] { animation: rise 0.12s ease; }
 
 /* Automations: one list, each a card with its mark, a schedule chip, Run now and a switch. */
 .routines { display: flex; flex-direction: column; gap: 10px; }
-.routines .row.routine { gap: 16px; padding: 16px 18px; border: 1px solid var(--line); border-radius: var(--radius-lg); background: var(--surface); transition: border-color 0.15s, box-shadow 0.15s; }
+.routines .row.routine { cursor: pointer; gap: 16px; padding: 16px 18px; border: 1px solid var(--line); border-radius: var(--radius-lg); background: var(--surface); transition: border-color 0.15s, box-shadow 0.15s; }
 .routines .row.routine:hover { border-color: var(--line-strong); box-shadow: 0 6px 20px rgba(29, 31, 28, 0.06); }
 .routines .row.routine .t { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 6px; }
 .routines .row.routine .t b { font-size: 15px; font-weight: 600; }
-.routine-mark { display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; width: 40px; height: 40px; border-radius: 12px; background: var(--accent-soft); color: var(--accent); }
-.routine-mark svg { width: 20px; height: 20px; }
-.routine-mark.checkin { background: #ece8f6; color: #5a4a9c; }
-.routine-mark.ask { background: var(--attention-soft); color: var(--attention-ink); }
+.routine-mark { display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; width: 32px; height: 32px; border-radius: 9px; background: var(--bg-aside); border: 1px solid var(--line-soft); color: var(--muted); }
+.routine-mark svg { width: 16px; height: 16px; }
 .routine-line { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: 13px; color: var(--muted); }
 .routine-line .running { color: var(--accent); }
 .routine-act { display: inline-flex; align-items: center; justify-content: center; gap: 6px; width: 32px; height: 32px; border-radius: 999px; color: var(--muted); transition: background 0.12s, color 0.12s, opacity 0.12s; }

@@ -149,7 +149,7 @@ type ReadyMemory = { id: number; title: string; sell: boolean; work: boolean; wh
 type ReadyRun = { title: string; read: number; memories: ReadyMemory[]; at: string; seen: boolean; from?: string };
 
 /** Something Lore does on its own at a set hour, as `lore automation list` describes it. `due`: the app owes it a run now. */
-type Routine = { id: string; kind: "read" | "checkin" | "ask"; name: string; built_in?: boolean; cadence: "daily" | "weekdays" | "weekly"; hour: number; day?: number; paused?: boolean; last_run: string | null; result: string; next_run: string; due: boolean };
+type Routine = { id: string; kind: "read" | "checkin" | "ask"; name: string; about: string; built_in?: boolean; cadence: "daily" | "weekdays" | "weekly"; hour: number; day?: number; paused?: boolean; last_run: string | null; result: string; next_run: string; due: boolean };
 
 /** When a routine runs: every day, every weekday, or once a week on `day` (0 is Monday). */
 type RoutineTime = { cadence: Routine["cadence"]; hour: number; day: number };
@@ -323,6 +323,7 @@ interface Window {
     cancelConnect(): Promise<void>;
     readSource(name: string): Promise<SourceRead[]>;
     removeSource(name: string, keep: boolean): Promise<SourceRemoval>;
+    switchSource(name: string, on: boolean): Promise<SourceEntry>;
     agents(): Promise<AgentEntry[]>;
     connectAgent(input: { app: AgentApp; name: string }): Promise<AgentKey>;
     agentKey(source: string): Promise<AgentKey>;
@@ -338,6 +339,7 @@ interface Window {
     runRoutine(id: string): Promise<Routine>;
     changeRoutine(id: string, action: "pause" | "resume" | "remove" | "time", when?: RoutineTime): Promise<void>;
     addRoutine(text: string, when: RoutineTime, title?: string): Promise<Routine>;
+    editRoutine(id: string, text: string, title?: string): Promise<Routine>;
     dismissCheckIn(): Promise<void>;
     openPrivacySettings(): Promise<void>;
     pathFor(file: File): string;
