@@ -1518,7 +1518,7 @@ class AgentReader(Reader):
     def __init__(self, source: Source) -> None:
         super().__init__(source)
         self.inbox = Inbox()
-        self.collected: list[str] = []
+        self.collected: list[Opened] = []
 
     @classmethod
     def locate(cls, locator: str) -> tuple[str, str]:
@@ -1528,26 +1528,19 @@ class AgentReader(Reader):
         return f"agent-{self.source.locator}"
 
     def sign_out(self) -> None:
-        # Disconnecting stops the agent's key at once, not at the next read; an agent
-        # or owner the inbox no longer has holds no key that works.
-        try:
-            self.inbox.revoke(self.source.locator)
-        except InboxError as error:
-            if error.status not in (401, 404):
-                raise
+        # Disconnecting stops the agent's key at once, not at the next read.
+        self.inbox.revoke(self.source.locator)
 
     @property
     def trouble(self) -> str:
-        return "can't reach Lore's inbox"
+        return "can't reach your store"
 
     @cached_property
     def waiting(self) -> list[Opened] | None:
         try:
             sealed = self.inbox.items(self.source.locator)
-        except InboxError as error:
-            self.failure = (
-                State.NEEDS_PERMISSION if error.status == 401 else State.UNREACHABLE
-            )
+        except InboxError:
+            self.failure = State.UNREACHABLE
             return None
         opened = []
         for item in sealed:
@@ -1558,16 +1551,14 @@ class AgentReader(Reader):
         return opened
 
     def probe(self) -> State:
-        # The inbox answering is the read: an agent with nothing new is still connected.
-        if self.waiting is None:
-            return self.failure or State.UNREACHABLE
-        return State.CONNECTED
+        # The store answering is the read: an agent with nothing new is still connected.
+        return State.UNREACHABLE if self.waiting is None else State.CONNECTED
 
     def items(self) -> Iterator[Item]:
         for opened in self.waiting or []:
-            self.collected.append(opened.id)
+            self.collected.append(opened)
             save = opened.payload
-            where = f"{self.inbox.mcp_url}#{opened.key}"
+            where = f"{self.name()}#{opened.key}"
             if isinstance(save, Forget):
                 yield Item("", "", where, None, key=opened.key, forgotten=True)
                 continue

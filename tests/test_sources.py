@@ -568,6 +568,7 @@ class ConnectorTest(LoreTestCase):
                 "granola",
                 "notion",
                 "readwise",
+                "agent",
             ],
         )
         self.assertEqual(

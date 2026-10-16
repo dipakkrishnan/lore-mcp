@@ -1,17 +1,20 @@
-"""The owner's side of Lore's hosted inbox (XC-067, `contracts/inbox.md`): where the
-owner's personal agents save what they learn, sealed to a key only this Mac holds."""
+"""The owner's side of the agent inbox (XC-067, `contracts/inbox.md`): the owner's
+personal agents save into the owner's own node, sealed to a key only this Mac holds,
+and the Mac collects through wrangler the way it reads sales."""
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import re
+import secrets
 from base64 import urlsafe_b64decode, urlsafe_b64encode
+from datetime import datetime, timezone
 from functools import cached_property
 from importlib.resources import files
-from typing import Literal
+from typing import Annotated, Literal
 
-import httpx2
 from cryptography.exceptions import InvalidTag
 from cryptography.hazmat.primitives.asymmetric.x25519 import (
     X25519PrivateKey,
@@ -20,17 +23,38 @@ from cryptography.hazmat.primitives.asymmetric.x25519 import (
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from cryptography.hazmat.primitives.hashes import SHA256
 from cryptography.hazmat.primitives.kdf.hkdf import HKDF
-from pydantic import BaseModel
+from pydantic import BaseModel, StringConstraints, TypeAdapter, ValidationError
 
+from . import deploy
 from .signin import Keychain
 
 AgentApp = Literal["grok", "muse", "chatgpt", "claude", "other"]
+Name = Annotated[
+    str, StringConstraints(strip_whitespace=True, min_length=1, max_length=40)
+]
+
+SCHEMA = """CREATE TABLE IF NOT EXISTS agents (id TEXT PRIMARY KEY, name TEXT NOT NULL,
+app TEXT NOT NULL, token_hash TEXT NOT NULL, created_at TEXT NOT NULL, revoked_at TEXT,
+last_saved_at TEXT, saved INTEGER NOT NULL DEFAULT 0);
+CREATE TABLE IF NOT EXISTS inbox (id TEXT PRIMARY KEY, agent TEXT NOT NULL,
+key_hash TEXT NOT NULL,
+state TEXT NOT NULL CHECK (state IN ('waiting','forgotten','received')),
+sealed TEXT, saved_at TEXT NOT NULL, received_at TEXT);
+CREATE TABLE IF NOT EXISTS inbox_windows (agent TEXT NOT NULL, span TEXT NOT NULL,
+started TEXT NOT NULL, used INTEGER NOT NULL, PRIMARY KEY (agent, span));
+CREATE TABLE IF NOT EXISTS node_settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+"""
+# A received forget keeps its state, so what is still owed is what still has a payload.
+OWED = "state IN ('waiting','forgotten') AND sealed IS NOT NULL"
+AGENTS = (
+    "SELECT a.id, a.name, a.app, a.created_at, a.last_saved_at, a.saved, "
+    "a.revoked_at IS NOT NULL AS revoked, (SELECT count(*) FROM inbox i "
+    f"WHERE i.agent = a.id AND {OWED}) AS waiting FROM agents a"
+)
 
 
 class InboxError(ValueError):
-    def __init__(self, message: str, status: int | None = None) -> None:
-        super().__init__(message)
-        self.status = status
+    pass
 
 
 class Agent(BaseModel):
@@ -44,24 +68,8 @@ class Agent(BaseModel):
     revoked: bool = False
 
 
-class Owner(BaseModel):
-    owner: str
-    waiting: int = 0
-    agents: list[Agent] = []
-
-
-class Registered(BaseModel):
-    owner: str
-    token: str
-
-
 class Minted(BaseModel):
     agent: Agent
-    token: str
-    mcp_url: str
-
-
-class Rotated(BaseModel):
     token: str
 
 
@@ -71,10 +79,6 @@ class Sealed(BaseModel):
     state: Literal["waiting", "forgotten"]
     sealed: str
     saved_at: str
-
-
-class Waiting(BaseModel):
-    items: list[Sealed]
 
 
 class Save(BaseModel):
@@ -101,85 +105,132 @@ class Opened(BaseModel):
         return self.payload.key or self.id
 
 
-class Identity(BaseModel):
-    owner: str
-    token: str
+class Keys(BaseModel):
+    """The owner's half of the inbox: what opens a save, and what hashes its key."""
+
     private_key: str
+    salt: str
+
+    @property
+    def public_key(self) -> str:
+        private = X25519PrivateKey.from_private_bytes(_decode(self.private_key))
+        return _encode(private.public_key().public_bytes_raw())
 
 
 class Credentials(Keychain):
-    """The owner token and private key, in the Keychain beside every other sign-in."""
+    """The inbox keys, in the Keychain beside every other sign-in: nothing on disk."""
 
-    kinds = ("owner",)
+    kinds = ("keys",)
 
-    def load(self) -> Identity | None:
-        return self._load("owner", Identity)
+    def __init__(self) -> None:
+        super().__init__("inbox")
 
-    def save(self, identity: Identity) -> None:
-        self._save("owner", identity)
+    def load(self) -> Keys | None:
+        return self._load("keys", Keys)
+
+    def save(self, keys: Keys) -> None:
+        self._save("keys", keys)
 
 
 class Inbox:
-    default = "https://inbox.yourlore.dev"
     info = b"lore-inbox-v1"
-    timeout = 20.0
 
     def __init__(self) -> None:
-        self.base = os.environ.get("LORE_INBOX_URL", self.default).rstrip("/")
-        self.credentials = Credentials(self.base)
-
-    @property
-    def mcp_url(self) -> str:
-        return f"{self.base}/mcp"
+        self.credentials = Credentials()
 
     @cached_property
-    def identity(self) -> Identity | None:
+    def keys(self) -> Keys | None:
         return self.credentials.load()
 
-    def register(self) -> Identity:
-        """This Mac's owner identity, made on first use only."""
-        if self.identity:
-            return self.identity
-        private = X25519PrivateKey.generate()
-        public = _encode(private.public_key().public_bytes_raw())
-        made = Registered.model_validate(
-            self._send("POST", "/owners", {"public_key": public}, owner=False)
-        )
-        identity = Identity(
-            owner=made.owner,
-            token=made.token,
-            private_key=_encode(private.private_bytes_raw()),
-        )
-        self.credentials.save(identity)
-        self.identity = identity
-        return identity
-
-    def me(self) -> Owner:
-        return Owner.model_validate(self._send("GET", "/owners/me"))
+    def settings(self) -> dict[str, str]:
+        """What every push writes into `node_settings`, so the node seals to this Mac."""
+        if not self.keys:
+            return {}
+        return {"inbox_public_key": self.keys.public_key, "inbox_salt": self.keys.salt}
 
     def mint(self, name: str, app: str) -> Minted:
-        return Minted.model_validate(
-            self._send("POST", "/owners/me/agents", {"name": name, "app": app})
+        """A new agent and its key, of which the node learns only the hash. The first
+        mint also makes the owner's keys and the node's tables."""
+        try:
+            name = TypeAdapter(Name).validate_python(name)
+            app = TypeAdapter(AgentApp).validate_python(app)
+        except ValidationError:
+            raise InboxError(
+                "An agent's name is 1-40 characters, and its app one of "
+                "grok, muse, chatgpt, claude or other."
+            ) from None
+        if not self.keys:
+            private = X25519PrivateKey.generate()
+            keys = Keys(
+                private_key=_encode(private.private_bytes_raw()),
+                salt=_encode(os.urandom(32)),
+            )
+            self.credentials.save(keys)
+            self.keys = keys
+        agent, token, hashed = self._token()
+        settings = "".join(
+            "INSERT OR REPLACE INTO node_settings(key,value) "
+            f"VALUES ({_quote(key)},{_quote(value)});\n"
+            for key, value in self.settings().items()
         )
+        rows = self._run(
+            f"{SCHEMA}{settings}"
+            "INSERT INTO agents(id,name,app,token_hash,created_at) VALUES "
+            f"({_quote(agent)},{_quote(name)},{_quote(app)},{_quote(hashed)},"
+            f"{_quote(_now())});\n"
+            f"{AGENTS} WHERE a.id = {_quote(agent)};",
+            "connecting the agent failed",
+        )
+        return Minted(agent=Agent.model_validate(rows[0]), token=token)
 
-    def rotate(self, agent: str) -> str:
-        return Rotated.model_validate(
-            self._send("POST", f"/owners/me/agents/{agent}/key")
-        ).token
+    def rotate(self, agent: str) -> Minted:
+        """A new key for the same agent, so its memories keep their provenance."""
+        _, token, hashed = self._token(agent)
+        rows = self._run(
+            f"UPDATE agents SET token_hash = {_quote(hashed)} "
+            f"WHERE id = {_quote(agent)} AND revoked_at IS NULL;\n"
+            f"{AGENTS} WHERE a.id = {_quote(agent)} AND a.revoked_at IS NULL;",
+            "making a new key failed",
+        )
+        if not rows:
+            raise InboxError(f"no connected agent {agent}")
+        return Minted(agent=Agent.model_validate(rows[0]), token=token)
 
     def revoke(self, agent: str) -> None:
-        self._send("DELETE", f"/owners/me/agents/{agent}")
+        self._run(
+            f"UPDATE agents SET revoked_at = coalesce(revoked_at, {_quote(_now())}) "
+            f"WHERE id = {_quote(agent)};",
+            "disconnecting the agent failed",
+        )
 
-    def items(self, agent: str, limit: int = 200) -> list[Sealed]:
-        return Waiting.model_validate(
-            self._send(
-                "GET", "/owners/me/items", params={"agent": agent, "limit": limit}
+    def agents(self) -> list[Agent]:
+        return [
+            Agent.model_validate(row)
+            for row in self._run(f"{AGENTS};", "reading your agents failed")
+        ]
+
+    def waiting(self) -> dict[str, int]:
+        rows = self._run(
+            f"SELECT agent, count(*) AS waiting FROM inbox WHERE {OWED} GROUP BY agent;",
+            "checking for saves failed",
+        )
+        return {str(row["agent"]): int(str(row["waiting"])) for row in rows}
+
+    def items(self, agent: str) -> list[Sealed]:
+        return [
+            Sealed.model_validate(row)
+            for row in self._run(
+                "SELECT id, agent, state, sealed, saved_at FROM inbox "
+                f"WHERE agent = {_quote(agent)} AND {OWED} "
+                "ORDER BY saved_at LIMIT 200;",
+                "collecting saves failed",
             )
-        ).items
+        ]
 
     def open(self, item: Sealed) -> Opened:
-        identity = self._identity()
-        plain = self.unseal(identity.private_key, item.id, item.sealed)
+        if not self.keys:
+            raise InboxError("This Mac has no key to open saves with.")
+        plain = self.unseal(self.keys.private_key, item.id, item.sealed)
         try:
             return Opened.model_validate(
                 {"id": item.id, "saved_at": item.saved_at, "payload": json.loads(plain)}
@@ -187,13 +238,19 @@ class Inbox:
         except ValueError:
             raise InboxError(f"item {item.id} isn't a save Lore understands") from None
 
-    def received(self, ids: list[str]) -> None:
-        self._send("POST", "/owners/me/items/received", {"ids": ids})
-
-    def erase(self) -> None:
-        self._send("DELETE", "/owners/me")
-        self.credentials.forget()
-        self.identity = None
+    def received(self, items: list[Opened]) -> None:
+        """Drop the payloads the library now holds. Only the version collected goes:
+        a save made since then waits for the next collection."""
+        now = _quote(_now())
+        self._run(
+            "".join(
+                "UPDATE inbox SET state = CASE state WHEN 'forgotten' THEN 'forgotten' "
+                f"ELSE 'received' END, sealed = NULL, received_at = {now} "
+                f"WHERE id = {_quote(item.id)} AND saved_at = {_quote(item.saved_at)};\n"
+                for item in items
+            ),
+            "confirming saves failed",
+        )
 
     @classmethod
     def unseal(cls, private_key: str, item_id: str, sealed: str) -> bytes:
@@ -210,41 +267,19 @@ class Inbox:
                 f"item {item_id} doesn't open with this Mac's key"
             ) from None
 
-    def _identity(self) -> Identity:
-        if not self.identity:
-            raise InboxError("No personal agent is connected to Lore yet.", 401)
-        return self.identity
+    @staticmethod
+    def _token(agent: str | None = None) -> tuple[str, str, str]:
+        agent = agent or secrets.token_hex(8)
+        secret = secrets.token_urlsafe(32)
+        hashed = hashlib.sha256(secret.encode()).hexdigest()
+        return agent, f"lore_agent_{agent}_{secret}", hashed
 
-    def _send(
-        self,
-        method: str,
-        path: str,
-        body: object = None,
-        *,
-        params: dict[str, str | int] | None = None,
-        owner: bool = True,
-    ) -> object:
-        headers = {"Authorization": f"Bearer {self._identity().token}"} if owner else {}
+    @staticmethod
+    def _run(sql: str, fail: str) -> list[dict[str, object]]:
         try:
-            response = httpx2.request(
-                method,
-                self.base + path,
-                json=body,
-                params=params,
-                headers=headers,
-                timeout=self.timeout,
-            )
-        except httpx2.HTTPError:
-            raise InboxError("Lore's inbox can't be reached right now.") from None
-        if response.status_code == 401:
-            raise InboxError("Lore's inbox no longer knows this Mac.", 401)
-        if response.is_error:
-            try:
-                said = str(response.json()["error"])
-            except (ValueError, KeyError, TypeError):
-                said = f"Lore's inbox answered {response.status_code}"
-            raise InboxError(said, response.status_code)
-        return response.json() if response.content else None
+            return deploy._read(sql, fail)
+        except (OSError, ValueError) as error:
+            raise InboxError(str(error)) from None
 
 
 class SetupPrompt:
@@ -268,6 +303,15 @@ class SetupPrompt:
     def render(self) -> str:
         body = self.skill.read_text(encoding="utf-8").split("---", 2)[2].strip()
         return self.fields.sub(lambda found: self.values[found[1]], body)
+
+
+def _now() -> str:
+    moment = datetime.now(timezone.utc).isoformat(timespec="milliseconds")
+    return moment.replace("+00:00", "Z")
+
+
+def _quote(value: str) -> str:
+    return "'" + value.replace("'", "''") + "'"
 
 
 def _encode(raw: bytes) -> str:

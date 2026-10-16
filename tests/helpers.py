@@ -15,7 +15,11 @@ from contextlib import contextmanager, redirect_stdout
 from io import StringIO
 from pathlib import Path
 from typing import Iterator
+from unittest.mock import patch
 
+import httpx2
+import keyring
+from fixtures.inbox import D1, Endpoint, Node
 from keyring.backend import KeyringBackend
 from keyring.errors import PasswordDeleteError
 
@@ -41,6 +45,11 @@ class LoreTestCase(unittest.TestCase):
         # Usage events go nowhere from a test: a closed local port, refused at once.
         os.environ["LORE_USAGE_URL"] = "http://127.0.0.1:9/events"
         self.addCleanup(self.tmp.cleanup)
+        # Sign-ins and the agent inbox keys live in the Keychain; never the owner's own.
+        self.keyring = FakeKeyring()
+        previous = keyring.get_keyring()
+        keyring.set_keyring(self.keyring)
+        self.addCleanup(keyring.set_keyring, previous)
 
     def seed_memory(self, title: str, status: str = "private") -> int:
         """Insert one memory directly and return its id."""
@@ -77,6 +86,44 @@ class FakeKeyring(KeyringBackend):
     def delete_password(self, service: str, username: str) -> None:
         if self.saved.pop((service, username), None) is None:
             raise PasswordDeleteError(username)
+
+
+class NodeCase(LoreTestCase):
+    """A deployed node: a SQLite file for its D1, read through a stand-in wrangler as
+    sales are, and its `/agent` endpoint on a loopback port."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.d1 = D1(Path(self.tmp.name) / "d1.sqlite")
+        wrangler = self.lore_home / "node/node_modules/.bin/wrangler"
+        wrangler.parent.mkdir(parents=True)
+        wrangler.write_text("#!/bin/sh\n")
+        patcher = patch("lore.deploy.subprocess.run", side_effect=self.d1.wrangler)
+        self.wrangler = patcher.start()
+        self.addCleanup(patcher.stop)
+        self.endpoint = Endpoint(self.d1)
+        self.node = Node(self.endpoint).__enter__()
+        self.addCleanup(self.node.__exit__)
+        with Store() as store:
+            store.set_setting("node_url", f"{self.node.url}/mcp")
+
+    def call(self, token: str, tool: str, /, **arguments: object) -> dict:
+        """One tool call, as a personal agent makes it."""
+        answer = httpx2.post(
+            f"{self.node.url}/agent",
+            json={
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "tools/call",
+                "params": {"name": tool, "arguments": arguments},
+            },
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        answer.raise_for_status()
+        return answer.json()["result"]
+
+    def save(self, key: str, *items: dict) -> dict:
+        return self.call(key, "store", items=list(items))["structuredContent"]
 
 
 @contextmanager

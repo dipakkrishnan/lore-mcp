@@ -1,9 +1,9 @@
-"""The owner's personal agents (CAP-036): each one an inbox key and a source, read
-like every other source and shown with what it has saved."""
+"""The owner's personal agents (CAP-036): each one a key to the owner's own store and
+a source, read like every other source and shown with what it has saved."""
 
 from __future__ import annotations
 
-from .inbox import Agent, Inbox, SetupPrompt
+from .inbox import Inbox, Minted, SetupPrompt
 from .sources import Registry, SourceError
 from .store import Store
 
@@ -14,31 +14,40 @@ class Agents:
         self.registry = Registry(store)
         self.inbox = Inbox()
 
+    @property
+    def mcp_url(self) -> str:
+        node = str(self.store.setting("node_url", "") or "")
+        if not node:
+            raise SourceError(
+                "Your agents save to your store, so put your store online first."
+            )
+        return node.rstrip("/").removesuffix("/mcp") + "/agent"
+
     def connect(self, name: str, app: str) -> dict[str, object]:
         """A key for a new agent, and the block that tells it how to use it."""
-        self.inbox.register()
+        mcp_url = self.mcp_url
         minted = self.inbox.mint(name, app)
         try:
             added = self.registry.add(
-                minted.agent.id, name, kind="agent", connector="agent", app=app
+                minted.agent.id,
+                minted.agent.name,
+                kind="agent",
+                connector="agent",
+                app=app,
             )
         except SourceError:
             self.inbox.revoke(minted.agent.id)
             raise
-        return self._handed(
-            str(added["name"]), minted.agent, minted.token, minted.mcp_url
-        )
+        return self._handed(str(added["name"]), minted, mcp_url)
 
     def key(self, source: str) -> dict[str, object]:
         """A new key for an agent; the one it had stops working at once."""
-        agent = self._agent(source)
-        return self._handed(
-            source, agent, self.inbox.rotate(agent.id), self.inbox.mcp_url
-        )
+        mcp_url = self.mcp_url
+        return self._handed(source, self.inbox.rotate(self._id(source)), mcp_url)
 
     def entries(self) -> dict[str, list[dict[str, object]]]:
         local = self._local()
-        if not (local and self.inbox.identity):
+        if not local:
             return {"agents": []}
         counts = self.store.source_counts()
         return {
@@ -53,52 +62,47 @@ class Agents:
                     "memories": counts.get(source, 0),
                     "revoked": agent.revoked,
                 }
-                for agent in self.inbox.me().agents
+                for agent in self.inbox.agents()
                 if (source := f"agent-{agent.id}") in local
             ]
         }
 
     def revoke(self, source: str, *, delete: bool) -> dict[str, object]:
-        if source not in self._local():
-            raise SourceError(f"unknown agent: {source}")
-        # Keeping its memories keeps what it saved but Lore hasn't collected yet, too.
+        self._id(source)
+        # Keeping its memories keeps what it saved but Lore hasn't brought in, too.
         if not delete:
             self.registry.read([source])
         return self.registry.remove(source, delete=delete)
 
     def waiting(self) -> dict[str, object]:
-        """What the owner's agents saved that Lore hasn't brought in: one request,
-        and none at all before any agent is connected."""
+        """What the owner's agents saved that Lore hasn't brought in: one query, and
+        none at all before any agent is connected."""
         local = self._local()
-        if not (local and self.inbox.identity):
+        if not local:
             return {"waiting": 0, "sources": []}
         waiting = {
-            source: agent.waiting
-            for agent in self.inbox.me().agents
-            if (source := f"agent-{agent.id}") in local and agent.waiting
+            source: count
+            for agent, count in self.inbox.waiting().items()
+            if (source := f"agent-{agent}") in local and count
         }
         return {"waiting": sum(waiting.values()), "sources": list(waiting)}
 
     def _local(self) -> set[str]:
         return {source.name for source in self.registry.owned if source.kind == "agent"}
 
-    def _agent(self, source: str) -> Agent:
-        if source in self._local():
-            for agent in self.inbox.me().agents:
-                if f"agent-{agent.id}" == source:
-                    return agent
-        raise SourceError(f"unknown agent: {source}")
+    def _id(self, source: str) -> str:
+        if source not in self._local():
+            raise SourceError(f"unknown agent: {source}")
+        return source.removeprefix("agent-")
 
     @staticmethod
-    def _handed(
-        source: str, agent: Agent, token: str, mcp_url: str
-    ) -> dict[str, object]:
-        prompt = SetupPrompt(agent.name, mcp_url, token)
+    def _handed(source: str, minted: Minted, mcp_url: str) -> dict[str, object]:
+        prompt = SetupPrompt(minted.agent.name, mcp_url, minted.token)
         return {
             "source": source,
-            "agent": agent.model_dump(),
+            "agent": minted.agent.model_dump(),
             "mcp_url": mcp_url,
-            "key": token,
+            "key": minted.token,
             "header": prompt.header,
             "prompt": prompt.render(),
         }

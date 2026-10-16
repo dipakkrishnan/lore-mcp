@@ -22,7 +22,7 @@ from . import marketplace as marketplace_module
 from . import sources as sources_module
 from . import usage
 from .agents import Agents
-from .inbox import AgentApp, InboxError
+from .inbox import AgentApp, Inbox, InboxError
 from .paths import home
 from .sources import Registry, available_sources
 from .store import (
@@ -2060,6 +2060,7 @@ def _push_sql(
     free_copies: int = FREE_COPIES,
     support_email: str = "",
     price_usd: float = 0,
+    inbox: dict[str, str] | None = None,
 ) -> str:
     """Render the full-replace SQL for the edge database.
 
@@ -2112,6 +2113,8 @@ def _push_sql(
         "support_email": support_email,
         # The store charges this from its next push, so a new price needs no redeploy.
         **({"price_usd": f"{price_usd:.6f}"} if price_usd > 0 else {}),
+        # Every push, since it replaces this table: without them agents can't save.
+        **(inbox or {}),
     }
     statements.extend(
         [
@@ -2177,6 +2180,7 @@ def _push(worker: Path, local: bool, job_id: int) -> int:
         free,
         support,
         float(price_usd) if isinstance(price_usd, (int, float)) else 0,
+        Inbox().settings(),
     )
     with tempfile.NamedTemporaryFile("w", suffix=".sql", delete=False) as handle:
         handle.write(script)

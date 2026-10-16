@@ -17,9 +17,8 @@ from typing import AsyncIterator
 from unittest.mock import patch
 
 import anyio
-import keyring
 from fixtures.granola import Granola
-from helpers import FakeKeyring, LoreTestCase
+from helpers import LoreTestCase
 from mcp import Client
 from mcp.client.auth import OAuthFlowError
 from mcp.server.mcpserver import MCPServer
@@ -61,10 +60,6 @@ def failing(error: Exception):  # type: ignore[no-untyped-def]
 class HostedTest(LoreTestCase):
     def setUp(self) -> None:
         super().setUp()
-        self.keyring = FakeKeyring()
-        previous = keyring.get_keyring()
-        keyring.set_keyring(self.keyring)
-        self.addCleanup(keyring.set_keyring, previous)
         self.granola = Granola()
 
     def connect(self, **options: object) -> dict[str, object]:
@@ -306,13 +301,7 @@ class HostedAppsTest(unittest.TestCase):
         self.assertEqual(text, "> Depth is rare.\nSo protect mornings.")
 
 
-class SignInTest(unittest.TestCase):
-    def setUp(self) -> None:
-        self.keyring = FakeKeyring()
-        previous = keyring.get_keyring()
-        keyring.set_keyring(self.keyring)
-        self.addCleanup(keyring.set_keyring, previous)
-
+class SignInTest(LoreTestCase):
     def test_the_keychain_keeps_and_forgets_a_sign_in(self) -> None:
         keychain = Keychain("https://mcp.example/mcp")
         token = OAuthToken(access_token="a", token_type="Bearer", refresh_token="r")

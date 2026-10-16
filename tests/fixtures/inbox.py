@@ -1,7 +1,16 @@
-"""A stand-in for Lore's hosted inbox (XC-067), kept to `contracts/inbox.md`: the owner
-API, and the agent MCP at `/mcp` as stateless JSON-RPC over HTTP, sealing every save to
-the owner's key as the Worker does. Tests run it on a thread;
-`uv run python -m tests.fixtures.inbox --port N` serves it for the desktop's edge scenario.
+"""A stand-in for the owner's node on the agent write path (XC-067), kept to
+`contracts/inbox.md`: a local SQLite file plays the node's D1, a `wrangler` that runs
+`d1 execute` against it plays the owner's Cloudflare login, and a small server plays
+`<node_url>/agent`, sealing every save to the owner's key as the Worker does.
+
+Tests patch `lore.deploy.subprocess.run` with `D1.wrangler`. The desktop's edge harness
+runs the same pieces as processes, from the repository root:
+
+    LORE_EDGE_D1=$root/d1.sqlite uv run python -m tests.fixtures.inbox serve --port N
+    LORE_EDGE_D1=$root/d1.sqlite uv run python -m tests.fixtures.inbox wrangler d1 execute ...
+
+with `$LORE_HOME/node/node_modules/.bin/wrangler` a shim that `cd`s to the repository
+and execs the second line with `"$@"`, and `node_url` set to `http://127.0.0.1:N/mcp`.
 """
 
 from __future__ import annotations
@@ -9,18 +18,19 @@ from __future__ import annotations
 import argparse
 import hashlib
 import hmac
-import itertools
 import json
 import os
 import re
 import secrets
+import sqlite3
+import subprocess
+import sys
 import threading
 from base64 import urlsafe_b64decode, urlsafe_b64encode
-from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from typing import Callable
-from urllib.parse import parse_qs, urlsplit
+from pathlib import Path
+from typing import Callable, Iterator
 
 from cryptography.hazmat.primitives.asymmetric.x25519 import (
     X25519PrivateKey,
@@ -30,12 +40,15 @@ from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from cryptography.hazmat.primitives.hashes import SHA256
 from cryptography.hazmat.primitives.kdf.hkdf import HKDF
 
-TOKEN = re.compile(r"^lore_(owner|agent)_([0-9a-f]{32})_([A-Za-z0-9_-]{43})$")
-APPS = ("grok", "muse", "chatgpt", "claude", "other")
+TOKEN = re.compile(r"^lore_agent_([0-9a-f]{16})_([A-Za-z0-9_-]{43})$")
 KINDS = ("experience", "lesson", "preference", "fact", "reference")
+WINDOWS = {"hour": (timedelta(hours=1), 100), "day": (timedelta(days=1), 1000)}
+MOST_WAITING = 2000
+KEPT = timedelta(days=30)
+OWED = "state IN ('waiting','forgotten') AND sealed IS NOT NULL"
 INSTRUCTIONS = (
-    "Lore keeps every save private until the owner reviews it in the Lore app. "
-    "Nothing is ever published or sold without the owner's approval."
+    "Lore keeps every save private on the owner's Mac until the owner reviews it in "
+    "the Lore app. Nothing is ever published or sold without the owner's approval."
 )
 
 
@@ -45,10 +58,6 @@ def encode(raw: bytes) -> str:
 
 def decode(text: str) -> bytes:
     return urlsafe_b64decode(text + "=" * (-len(text) % 4))
-
-
-def digest(secret: str) -> str:
-    return hashlib.sha256(secret.encode()).hexdigest()
 
 
 def seal(
@@ -69,308 +78,290 @@ def seal(
 
 
 class Rejected(Exception):
-    def __init__(self, status: int, message: str) -> None:
-        super().__init__(message)
-        self.status = status
+    pass
 
 
-@dataclass
-class AgentRow:
-    id: str
-    name: str
-    app: str
-    token_hash: str
-    created_at: str
-    revoked_at: str | None = None
-    last_saved_at: str | None = None
-    saved: int = 0
-    writes: list[datetime] = field(default_factory=list)
+class D1:
+    """The node's database, as a SQLite file, answering in wrangler's `--json` shape."""
+
+    def __init__(self, path: Path) -> None:
+        self.path = path
+        self.commands: list[str] = []
+
+    def connect(self) -> sqlite3.Connection:
+        db = sqlite3.connect(self.path)
+        db.row_factory = sqlite3.Row
+        return db
+
+    def execute(self, sql: str) -> list[dict[str, object]]:
+        self.commands.append(sql)
+        db = self.connect()
+        try:
+            with db:
+                return [
+                    {"results": [dict(row) for row in db.execute(statement)]}
+                    for statement in self.statements(sql)
+                ]
+        finally:
+            db.close()
+
+    def wrangler(
+        self, args: tuple[str, ...], **_: object
+    ) -> subprocess.CompletedProcess[str]:
+        """`wrangler d1 execute`, for `subprocess.run`; anything else succeeds quietly."""
+        command = list(args)
+        if "execute" not in command:
+            return subprocess.CompletedProcess(args, 0, "", "")
+        sql = (
+            command[command.index("--command") + 1]
+            if "--command" in command
+            else Path(command[command.index("--file") + 1]).read_text(encoding="utf-8")
+        )
+        try:
+            answer = json.dumps(self.execute(sql))
+        except sqlite3.Error as error:
+            refusal = json.dumps({"error": {"text": str(error)}})
+            return subprocess.CompletedProcess(args, 1, refusal, "")
+        return subprocess.CompletedProcess(args, 0, answer, "")
+
+    @staticmethod
+    def statements(sql: str) -> Iterator[str]:
+        buffer = ""
+        for part in sql.split(";"):
+            buffer += part + ";"
+            if sqlite3.complete_statement(buffer):
+                if buffer.strip(" \n;"):
+                    yield buffer
+                buffer = ""
 
 
-@dataclass
-class ItemRow:
-    id: str
-    agent: str
-    key_hash: str
-    state: str
-    sealed: str | None
-    saved_at: str
-    order: int
-    received_at: str | None = None
+class Endpoint:
+    """The three tools at `/agent`, over the node's tables."""
 
-
-@dataclass
-class OwnerRow:
-    id: str
-    secret_hash: str
-    public_key: bytes
-    salt: bytes = field(default_factory=lambda: os.urandom(32))
-    agents: dict[str, AgentRow] = field(default_factory=dict)
-    items: dict[str, ItemRow] = field(default_factory=dict)
-
-
-class Inbox:
-    """Every owner's tables, as the Worker keeps one Durable Object per owner."""
-
-    hourly = 100
-    daily = 1000
-    most_waiting = 2000
-
-    def __init__(self, clock: Callable[[], datetime] | None = None) -> None:
-        self.owners: dict[str, OwnerRow] = {}
-        self.lock = threading.Lock()
+    def __init__(self, d1: D1, clock: Callable[[], datetime] | None = None) -> None:
+        self.d1 = d1
         self.clock = clock or (lambda: datetime.now(timezone.utc))
-        self.order = itertools.count()
 
-    def now(self) -> str:
-        return self.clock().isoformat(timespec="milliseconds").replace("+00:00", "Z")
-
-    # Owner API
-
-    def register(self, body: dict[str, object]) -> dict[str, object]:
+    def agent(self, authorization: str) -> str | None:
+        found = TOKEN.match(authorization.removeprefix("Bearer ").strip())
+        if not found:
+            return None
+        db = self.d1.connect()
         try:
-            public = decode(str(body["public_key"]))
-        except (KeyError, ValueError):
-            public = b""
-        if len(public) != 32:
-            raise Rejected(400, "public_key must be 32 bytes, base64url")
-        owner, secret = secrets.token_hex(16), secrets.token_urlsafe(32)
-        self.owners[owner] = OwnerRow(owner, digest(secret), public)
-        return {"owner": owner, "token": f"lore_owner_{owner}_{secret}"}
+            row = db.execute(
+                "SELECT token_hash FROM agents WHERE id=? AND revoked_at IS NULL",
+                (found.group(1),),
+            ).fetchone()
+        except sqlite3.Error:
+            row = None
+        finally:
+            db.close()
+        hashed = hashlib.sha256(found.group(2).encode()).hexdigest()
+        if row and hmac.compare_digest(row["token_hash"], hashed):
+            return found.group(1)
+        return None
 
-    def me(self, owner: OwnerRow) -> dict[str, object]:
-        return {
-            "owner": owner.id,
-            "waiting": len(self._waiting(owner)),
-            "agents": [self._agent(owner, agent) for agent in owner.agents.values()],
-        }
-
-    def mint(
-        self, owner: OwnerRow, body: dict[str, object], base: str
-    ) -> dict[str, object]:
-        name = str(body.get("name", "")).strip()
-        if not 1 <= len(name) <= 40:
-            raise Rejected(400, "name must be 1-40 characters")
-        if body.get("app") not in APPS:
-            raise Rejected(400, f"app must be one of {', '.join(APPS)}")
-        agent = AgentRow(secrets.token_hex(8), name, str(body["app"]), "", self.now())
-        owner.agents[agent.id] = agent
-        return {
-            "agent": self._agent(owner, agent),
-            "token": self._key(owner, agent),
-            "mcp_url": f"{base}/mcp",
-        }
-
-    def rotate(self, owner: OwnerRow, agent_id: str) -> dict[str, object]:
-        agent = self._named(owner, agent_id)
-        if agent.revoked_at:
-            raise Rejected(409, "that agent is disconnected")
-        return {"token": self._key(owner, agent)}
-
-    def revoke(self, owner: OwnerRow, agent_id: str) -> None:
-        agent = self._named(owner, agent_id)
-        agent.revoked_at = agent.revoked_at or self.now()
-
-    def items(self, owner: OwnerRow, query: dict[str, list[str]]) -> dict[str, object]:
+    def call(self, agent: str, tool: str, arguments: dict[str, object]) -> object:
+        db = self.d1.connect()
         try:
-            limit = int(query.get("limit", ["100"])[0])
-        except ValueError:
-            limit = 0
-        if not 1 <= limit <= 200:
-            raise Rejected(400, "limit must be 1-200")
-        agent = query.get("agent", [None])[0]
-        return {
-            "items": [
-                {
-                    "id": item.id,
-                    "agent": item.agent,
-                    "state": item.state,
-                    "sealed": item.sealed,
-                    "saved_at": item.saved_at,
-                }
-                for item in self._waiting(owner)
-                if agent is None or item.agent == agent
-            ][:limit]
-        }
+            with db:
+                settings = dict(
+                    tuple(row)
+                    for row in db.execute("SELECT key, value FROM node_settings")
+                )
+                if "inbox_public_key" not in settings:
+                    raise Rejected("Lore isn't ready for agents on this store yet")
+                public = decode(settings["inbox_public_key"])
+                salt = decode(settings["inbox_salt"])
+                db.execute(
+                    "DELETE FROM inbox WHERE sealed IS NOT NULL AND saved_at <= ?",
+                    (self._at(self.clock() - KEPT),),
+                )
+                work = getattr(self, f"_{tool}")
+                return work(db, agent, public, salt, arguments)
+        finally:
+            db.close()
 
-    def received(self, owner: OwnerRow, body: dict[str, object]) -> None:
-        ids = body.get("ids")
-        if not isinstance(ids, list) or len(ids) > 200:
-            raise Rejected(400, "ids must be a list of at most 200")
-        for item in (owner.items.get(str(i)) for i in ids):
-            if item and item.state in ("waiting", "forgotten"):
-                item.state, item.sealed, item.received_at = "received", None, self.now()
-
-    def erase(self, owner: OwnerRow) -> None:
-        del self.owners[owner.id]
-
-    # Agent tools
-
-    def store(
-        self, owner: OwnerRow, agent: AgentRow, arguments: dict[str, object]
+    def _store(
+        self,
+        db: sqlite3.Connection,
+        agent: str,
+        public: bytes,
+        salt: bytes,
+        arguments: dict[str, object],
     ) -> dict[str, object]:
         items = arguments.get("items")
         if not isinstance(items, list) or not 1 <= len(items) <= 20:
-            raise Rejected(400, "store takes 1-20 items")
+            raise Rejected("store takes 1-20 items")
         saves = [self._save(item) for item in items]
-        self._allow(owner, agent, len(saves))
+        self._allow(db, agent, len(saves))
         saved = []
         for save in saves:
-            row, replaced = self._put(owner, agent, save["key"], save)
-            saved.append(
-                {"id": row.id, "key": save["key"] or row.id, "replaced": replaced}
+            sent = save["key"]
+            pending = (
+                self._pending(db, agent, self._hash(salt, agent, sent))
+                if sent
+                else None
             )
-        return {
-            "saved": saved,
-            "note": "Saved privately for the owner. " + INSTRUCTIONS,
-        }
+            item = pending or secrets.token_hex(16)
+            key = sent or item
+            payload = json.dumps(save | {"key": key}).encode()
+            sealed, now = seal(public, item, payload), self._at(self.clock())
+            if pending:
+                db.execute(
+                    "UPDATE inbox SET state='waiting', sealed=?, saved_at=? WHERE id=?",
+                    (sealed, now, item),
+                )
+            else:
+                self._room(db)
+                db.execute(
+                    "INSERT INTO inbox(id,agent,key_hash,state,sealed,saved_at) "
+                    "VALUES (?,?,?,'waiting',?,?)",
+                    (item, agent, self._hash(salt, agent, key), sealed, now),
+                )
+            db.execute(
+                "UPDATE agents SET saved=saved+1, last_saved_at=? WHERE id=?",
+                (now, agent),
+            )
+            saved.append({"id": item, "key": key, "replaced": pending is not None})
+        return {"saved": saved, "note": f"Saved privately. {INSTRUCTIONS}"}
 
-    def stored(
-        self, owner: OwnerRow, agent: AgentRow, arguments: dict[str, object]
+    def _stored(
+        self,
+        db: sqlite3.Connection,
+        agent: str,
+        public: bytes,
+        salt: bytes,
+        arguments: dict[str, object],
     ) -> dict[str, object]:
         keys = arguments.get("keys") or []
         if not isinstance(keys, list) or len(keys) > 50:
-            raise Rejected(400, "stored takes at most 50 keys")
-        mine = sorted(
-            (i for i in owner.items.values() if i.agent == agent.id),
-            key=lambda i: i.order,
-        )
+            raise Rejected("stored takes at most 50 keys")
+        row = db.execute(
+            f"SELECT saved, last_saved_at, (SELECT count(*) FROM inbox WHERE agent=? "
+            f"AND {OWED}) waiting FROM agents WHERE id=?",
+            (agent, agent),
+        ).fetchone()
         found = []
         for key in keys:
-            latest = [i for i in mine if i.key_hash == self._hash(owner, agent, key)]
-            item = latest[-1] if latest else None
+            latest = db.execute(
+                "SELECT state, saved_at FROM inbox WHERE agent=? AND key_hash=? "
+                "ORDER BY saved_at DESC, rowid DESC LIMIT 1",
+                (agent, self._hash(salt, agent, str(key))),
+            ).fetchone()
             found.append(
                 {
                     "key": key,
-                    "state": item.state if item else "unknown",
-                    "saved_at": item.saved_at if item else None,
+                    "state": latest["state"] if latest else "unknown",
+                    "saved_at": latest["saved_at"] if latest else None,
                 }
             )
         return {
-            "saved": agent.saved,
-            "waiting": sum(i.state in ("waiting", "forgotten") for i in mine),
-            "last_saved_at": agent.last_saved_at,
+            "saved": row["saved"],
+            "waiting": row["waiting"],
+            "last_saved_at": row["last_saved_at"],
             "keys": found,
         }
 
-    def forget(
-        self, owner: OwnerRow, agent: AgentRow, arguments: dict[str, object]
+    def _forget(
+        self,
+        db: sqlite3.Connection,
+        agent: str,
+        public: bytes,
+        salt: bytes,
+        arguments: dict[str, object],
     ) -> dict[str, object]:
         key = str(arguments.get("key", "")).strip()
         if not 1 <= len(key) <= 120:
-            raise Rejected(400, "key must be 1-120 characters")
-        self._allow(owner, agent, 1)
-        found = self._pending(owner, agent, key)
-        if found:
-            del owner.items[found.id]
+            raise Rejected("key must be 1-120 characters")
+        self._allow(db, agent, 1)
+        hashed = self._hash(salt, agent, key)
+        pending = self._pending(db, agent, hashed)
+        arrived = db.execute(
+            "SELECT 1 FROM inbox WHERE agent=? AND key_hash=? AND state='received'",
+            (agent, hashed),
+        ).fetchone()
+        if pending and not arrived:
+            # Nothing under this key reached the Mac: the row stays, with no payload.
+            db.execute(
+                "UPDATE inbox SET state='forgotten', sealed=NULL, saved_at=? WHERE id=?",
+                (self._at(self.clock()), pending),
+            )
+            return {"forgotten": True}
+        item = pending or secrets.token_hex(16)
+        payload = json.dumps({"key": key, "forget": True}).encode()
+        sealed, now = seal(public, item, payload), self._at(self.clock())
+        if pending:
+            db.execute(
+                "UPDATE inbox SET state='forgotten', sealed=?, saved_at=? WHERE id=?",
+                (sealed, now, item),
+            )
         else:
-            item_id = secrets.token_hex(16)
-            payload = json.dumps({"key": key, "forget": True}).encode()
-            owner.items[item_id] = ItemRow(
-                item_id,
-                agent.id,
-                self._hash(owner, agent, key),
-                "forgotten",
-                seal(owner.public_key, item_id, payload),
-                self.now(),
-                next(self.order),
+            self._room(db)
+            db.execute(
+                "INSERT INTO inbox(id,agent,key_hash,state,sealed,saved_at) "
+                "VALUES (?,?,?,'forgotten',?,?)",
+                (item, agent, hashed, sealed, now),
             )
         return {"forgotten": True}
 
-    # Tokens
-
-    def owner(self, token: str) -> OwnerRow:
-        role, owner, secret = self._parse(token)
-        row = self.owners.get(owner)
-        if (
-            role != "owner"
-            or not row
-            or not hmac.compare_digest(row.secret_hash, digest(secret))
-        ):
-            raise Rejected(401, "unauthorized")
-        return row
-
-    def agent(self, token: str) -> tuple[OwnerRow, AgentRow]:
-        role, owner, secret = self._parse(token)
-        row = self.owners.get(owner)
-        hashed = digest(secret)
-        for agent in row.agents.values() if row and role == "agent" else []:
-            if not agent.revoked_at and hmac.compare_digest(agent.token_hash, hashed):
-                return row, agent
-        raise Rejected(401, "unauthorized")
+    @staticmethod
+    def _hash(salt: bytes, agent: str, key: str) -> str:
+        return hmac.new(salt, f"{agent}:{key}".encode(), "sha256").hexdigest()
 
     @staticmethod
-    def _parse(token: str) -> tuple[str, str, str]:
-        found = TOKEN.match(token.removeprefix("Bearer ").strip())
-        if not found:
-            raise Rejected(401, "unauthorized")
-        return found.group(1), found.group(2), found.group(3)
-
-    def _key(self, owner: OwnerRow, agent: AgentRow) -> str:
-        secret = secrets.token_urlsafe(32)
-        agent.token_hash = digest(secret)
-        return f"lore_agent_{owner.id}_{secret}"
-
-    # Rows
-
-    def _agent(self, owner: OwnerRow, agent: AgentRow) -> dict[str, object]:
-        return {
-            "id": agent.id,
-            "name": agent.name,
-            "app": agent.app,
-            "created_at": agent.created_at,
-            "last_saved_at": agent.last_saved_at,
-            "saved": agent.saved,
-            "waiting": sum(i.agent == agent.id for i in self._waiting(owner)),
-            "revoked": agent.revoked_at is not None,
-        }
+    def _pending(db: sqlite3.Connection, agent: str, hashed: str) -> str | None:
+        row = db.execute(
+            "SELECT id FROM inbox WHERE agent=? AND key_hash=? AND sealed IS NOT NULL",
+            (agent, hashed),
+        ).fetchone()
+        return row["id"] if row else None
 
     @staticmethod
-    def _named(owner: OwnerRow, agent_id: str) -> AgentRow:
-        if agent_id not in owner.agents:
-            raise Rejected(404, "no such agent")
-        return owner.agents[agent_id]
+    def _room(db: sqlite3.Connection) -> None:
+        waiting = db.execute(f"SELECT count(*) FROM inbox WHERE {OWED}").fetchone()[0]
+        if waiting >= MOST_WAITING:
+            raise Rejected(f"a store can have {MOST_WAITING} items waiting")
 
-    @staticmethod
-    def _waiting(owner: OwnerRow) -> list[ItemRow]:
-        return sorted(
-            (i for i in owner.items.values() if i.state in ("waiting", "forgotten")),
-            key=lambda i: i.order,
-        )
-
-    @staticmethod
-    def _hash(owner: OwnerRow, agent: AgentRow, key: str) -> str:
-        return hmac.new(owner.salt, f"{agent.id}:{key}".encode(), "sha256").hexdigest()
-
-    def _pending(self, owner: OwnerRow, agent: AgentRow, key: str) -> ItemRow | None:
-        hashed = self._hash(owner, agent, key)
-        return next(
-            (
-                i
-                for i in owner.items.values()
-                if i.agent == agent.id and i.state == "waiting" and i.key_hash == hashed
-            ),
-            None,
-        )
+    def _allow(self, db: sqlite3.Connection, agent: str, writes: int) -> None:
+        now = self.clock()
+        for span, (length, limit) in WINDOWS.items():
+            row = db.execute(
+                "SELECT started, used FROM inbox_windows WHERE agent=? AND span=?",
+                (agent, span),
+            ).fetchone()
+            fresh = row is None or now - self._parse(row["started"]) >= length
+            used = 0 if fresh else row["used"]
+            if used + writes > limit:
+                raise Rejected(f"an agent can make {limit} writes a {span}")
+            db.execute(
+                "INSERT OR REPLACE INTO inbox_windows(agent,span,started,used) "
+                "VALUES (?,?,?,?)",
+                (
+                    agent,
+                    span,
+                    self._at(now) if fresh else row["started"],
+                    used + writes,
+                ),
+            )
 
     @staticmethod
     def _save(item: object) -> dict[str, str | None]:
         if not isinstance(item, dict):
-            raise Rejected(400, "each item must be an object")
+            raise Rejected("each item must be an object")
         title, content = str(item.get("title", "")), str(item.get("content", ""))
-        topic, kind = item.get("topic"), item.get("kind")
-        key = item.get("key")
+        topic, kind, key = item.get("topic"), item.get("kind"), item.get("key")
         key = None if key is None else str(key).strip()
         if not 1 <= len(title) <= 200:
-            raise Rejected(400, "title must be 1-200 characters")
+            raise Rejected("title must be 1-200 characters")
         if not 1 <= len(content) <= 20_000:
-            raise Rejected(400, "content must be 1-20,000 characters")
+            raise Rejected("content must be 1-20,000 characters")
         if topic is not None and len(str(topic)) > 80:
-            raise Rejected(400, "topic must be at most 80 characters")
+            raise Rejected("topic must be at most 80 characters")
         if kind is not None and kind not in KINDS:
-            raise Rejected(400, f"kind must be one of {', '.join(KINDS)}")
+            raise Rejected(f"kind must be one of {', '.join(KINDS)}")
         if key is not None and not 1 <= len(key) <= 120:
-            raise Rejected(400, "key must be 1-120 characters")
+            raise Rejected("key must be 1-120 characters")
         occurred = item.get("occurred_at")
         return {
             "title": title,
@@ -381,58 +372,30 @@ class Inbox:
             "occurred_at": None if occurred is None else str(occurred),
         }
 
-    def _allow(self, owner: OwnerRow, agent: AgentRow, writes: int) -> None:
-        now = self.clock()
-        agent.writes = [w for w in agent.writes if now - w < timedelta(days=1)]
-        if (
-            sum(now - w < timedelta(hours=1) for w in agent.writes) + writes
-            > self.hourly
-        ):
-            raise Rejected(429, f"an agent can make {self.hourly} writes an hour")
-        if len(agent.writes) + writes > self.daily:
-            raise Rejected(429, f"an agent can make {self.daily} writes a day")
-        if len(self._waiting(owner)) + writes > self.most_waiting:
-            raise Rejected(429, f"an owner can have {self.most_waiting} items waiting")
-        agent.writes += [now] * writes
+    @staticmethod
+    def _at(moment: datetime) -> str:
+        return moment.isoformat(timespec="milliseconds").replace("+00:00", "Z")
 
-    def _put(
-        self,
-        owner: OwnerRow,
-        agent: AgentRow,
-        key: str | None,
-        save: dict[str, str | None],
-    ) -> tuple[ItemRow, bool]:
-        found = self._pending(owner, agent, key) if key else None
-        item_id = found.id if found else secrets.token_hex(16)
-        payload = json.dumps(save | {"key": key or item_id}).encode()
-        now = self.now()
-        item = ItemRow(
-            item_id,
-            agent.id,
-            self._hash(owner, agent, key or item_id),
-            "waiting",
-            seal(owner.public_key, item_id, payload),
-            now,
-            next(self.order),
-        )
-        owner.items[item_id] = item
-        agent.saved += 1
-        agent.last_saved_at = now
-        return item, found is not None
+    @staticmethod
+    def _parse(text: str) -> datetime:
+        return datetime.fromisoformat(text.replace("Z", "+00:00"))
 
 
-class Server(ThreadingHTTPServer):
+class Node(ThreadingHTTPServer):
+    """`<node_url>/agent`, on a loopback port."""
+
     daemon_threads = True
 
-    def __init__(self, port: int = 0, inbox: Inbox | None = None) -> None:
+    def __init__(self, endpoint: Endpoint, port: int = 0) -> None:
         super().__init__(("127.0.0.1", port), Handler)
-        self.inbox = inbox or Inbox()
+        self.endpoint = endpoint
+        self.lock = threading.Lock()
 
     @property
     def url(self) -> str:
         return f"http://127.0.0.1:{self.server_port}"
 
-    def __enter__(self) -> Server:
+    def __enter__(self) -> Node:
         threading.Thread(target=self.serve_forever, daemon=True).start()
         return self
 
@@ -442,7 +405,7 @@ class Server(ThreadingHTTPServer):
 
 
 class Handler(BaseHTTPRequestHandler):
-    server: Server
+    server: Node
     tools = {
         "store": {
             "type": "object",
@@ -479,78 +442,20 @@ class Handler(BaseHTTPRequestHandler):
     }
 
     def do_GET(self) -> None:
-        self._route("GET")
+        self._send(405 if self.path == "/agent" else 404, {"error": "POST to /agent"})
 
     def do_POST(self) -> None:
-        self._route("POST")
-
-    def do_DELETE(self) -> None:
-        self._route("DELETE")
-
-    def log_message(self, format: str, *args: object) -> None:
-        pass
-
-    def _route(self, method: str) -> None:
-        url = urlsplit(self.path)
+        if self.path != "/agent":
+            self._send(404, {"error": "not found"})
+            return
         length = int(self.headers.get("Content-Length") or 0)
-        raw = self.rfile.read(length) if length else b""
-        inbox = self.server.inbox
         try:
-            body = json.loads(raw) if raw else {}
+            message = json.loads(self.rfile.read(length) or b"{}")
         except ValueError:
             self._send(400, {"error": "body must be JSON"})
             return
-        token = self.headers.get("Authorization", "")
-        try:
-            with inbox.lock:
-                if url.path == "/mcp":
-                    self._mcp(method, token, body)
-                    return
-                if (method, url.path) == ("POST", "/owners"):
-                    self._send(201, inbox.register(body))
-                    return
-                owner = inbox.owner(token)
-                parts = url.path.strip("/").split("/")
-                if parts[:2] != ["owners", "me"]:
-                    raise Rejected(404, "not found")
-                rest = parts[2:]
-                if method == "GET" and not rest:
-                    self._send(200, inbox.me(owner))
-                elif method == "DELETE" and not rest:
-                    inbox.erase(owner)
-                    self._send(204)
-                elif method == "POST" and rest == ["agents"]:
-                    self._send(201, inbox.mint(owner, body, self.server.url))
-                elif (
-                    method == "POST"
-                    and len(rest) == 3
-                    and rest[0::2]
-                    == [
-                        "agents",
-                        "key",
-                    ]
-                ):
-                    self._send(200, inbox.rotate(owner, rest[1]))
-                elif method == "DELETE" and len(rest) == 2 and rest[0] == "agents":
-                    inbox.revoke(owner, rest[1])
-                    self._send(204)
-                elif method == "GET" and rest == ["items"]:
-                    self._send(200, inbox.items(owner, parse_qs(url.query)))
-                elif method == "POST" and rest == ["items", "received"]:
-                    inbox.received(owner, body)
-                    self._send(204)
-                else:
-                    raise Rejected(404, "not found")
-        except Rejected as error:
-            self._send(error.status, {"error": str(error)})
-
-    def _mcp(self, method: str, token: str, message: object) -> None:
-        if method != "POST":
-            self._send(405, {"error": "POST JSON-RPC to /mcp"})
-            return
-        try:
-            owner, agent = self.server.inbox.agent(token)
-        except Rejected:
+        agent = self.server.endpoint.agent(self.headers.get("Authorization", ""))
+        if agent is None:
             metadata = f"{self.server.url}/.well-known/oauth-protected-resource"
             self._send(
                 401,
@@ -561,37 +466,40 @@ class Handler(BaseHTTPRequestHandler):
         if not isinstance(message, dict) or "id" not in message:
             self._send(202)
             return
-        self._send(200, self._answer(owner, agent, message))
+        with self.server.lock:
+            self._send(200, self._answer(agent, message))
 
-    def _answer(
-        self, owner: OwnerRow, agent: AgentRow, message: dict[str, object]
-    ) -> dict[str, object]:
+    def log_message(self, format: str, *args: object) -> None:
+        pass
+
+    def _answer(self, agent: str, message: dict[str, object]) -> dict[str, object]:
         reply: dict[str, object] = {"jsonrpc": "2.0", "id": message["id"]}
         params = message.get("params")
         params = params if isinstance(params, dict) else {}
-        kind = message.get("method")
-        if kind == "initialize":
+        method = message.get("method")
+        if method == "initialize":
             reply["result"] = {
                 "protocolVersion": params.get("protocolVersion", "2025-06-18"),
                 "capabilities": {"tools": {}},
-                "serverInfo": {"name": "lore-inbox", "version": "0.1.0"},
+                "serverInfo": {"name": "lore-agent", "version": "0.1.0"},
                 "instructions": INSTRUCTIONS,
             }
-        elif kind == "ping":
+        elif method == "ping":
             reply["result"] = {}
-        elif kind == "tools/list":
+        elif method == "tools/list":
             reply["result"] = {
                 "tools": [
                     {"name": name, "inputSchema": schema}
                     for name, schema in self.tools.items()
                 ]
             }
-        elif kind == "tools/call" and params.get("name") in self.tools:
-            work = getattr(self.server.inbox, str(params["name"]))
+        elif method == "tools/call" and params.get("name") in self.tools:
             arguments = params.get("arguments")
             try:
-                result = work(
-                    owner, agent, arguments if isinstance(arguments, dict) else {}
+                result = self.server.endpoint.call(
+                    agent,
+                    str(params["name"]),
+                    arguments if isinstance(arguments, dict) else {},
                 )
                 reply["result"] = {
                     "content": [{"type": "text", "text": json.dumps(result)}],
@@ -604,7 +512,7 @@ class Handler(BaseHTTPRequestHandler):
                     "isError": True,
                 }
         else:
-            reply["error"] = {"code": -32601, "message": f"unknown method: {kind}"}
+            reply["error"] = {"code": -32601, "message": f"unknown method: {method}"}
         return reply
 
     def _send(
@@ -626,7 +534,15 @@ class Handler(BaseHTTPRequestHandler):
 
 if __name__ == "__main__":
     options = argparse.ArgumentParser(prog="python -m tests.fixtures.inbox")
+    options.add_argument("mode", choices=("serve", "wrangler"))
     options.add_argument("--port", type=int, default=8788)
-    server = Server(options.parse_args().port)
-    print(f"Lore inbox fake at {server.url}", flush=True)
-    server.serve_forever()
+    options.add_argument("--db", default=os.environ.get("LORE_EDGE_D1", "d1.sqlite"))
+    known, rest = options.parse_known_args()
+    d1 = D1(Path(known.db))
+    if known.mode == "wrangler":
+        answered = d1.wrangler(tuple(rest))
+        print(answered.stdout, end="")
+        sys.exit(answered.returncode)
+    node = Node(Endpoint(d1), known.port)
+    print(f"Lore agent endpoint at {node.url}/agent", flush=True)
+    node.serve_forever()
