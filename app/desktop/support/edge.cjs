@@ -248,7 +248,7 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         await shot("settings-taken-over");
         await js(`window.__lore.show("automations")`);
         const reading = `[...document.querySelectorAll("#content .row")].find((r) => r.querySelector("b")?.textContent === "Read connected apps")?.textContent ?? ""`;
-        check("…and Automations lists it like any other, with Run now", await waitFor(`(${reading}).includes("Every Sunday at 9 PM · Next")`) && !/Codex|Claude| by /.test(await js(reading)) && await js(`[...document.querySelectorAll("#content .row-menu-items button")].some((b) => b.textContent === "Run now")`), await js(reading));
+        check("…and Automations lists it like any other, with Run now", await waitFor(`(${reading}).includes("Every Sunday at 9 PM · Next")`) && !/Codex|Claude| by /.test(await js(reading)) && await js(`Boolean(document.querySelector("#content .routine-act[aria-label='Run now']"))`), await js(reading));
         await shot("automations-taken-over");
       } else if (scenario === "store") {
         await waitFor(`document.body.dataset.state === "welcome" && !document.querySelector("#welcome").classList.contains("provisioning")`);
@@ -1064,40 +1064,25 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         await js(`document.querySelector("nav [data-view=automations]").click()`);
         const rowOf = (/** @type {string} */ name) => `[...document.querySelectorAll("#content .row")].find((r) => r.querySelector("b")?.textContent === ${JSON.stringify(name)})`;
         const SUNDAY = "Every Sunday, remember what I read this week";
-        check("the tab lists Lore's own first, then the owner's", await waitFor(`${rowOf(SUNDAY)}`) && await js(`[...document.querySelectorAll("#content .row b")].map((b) => b.textContent).join("|")`) === `Read connected apps|Evening check-in|${SUNDAY}`, await js(`[...document.querySelectorAll("#content .row b")].map((b) => b.textContent).join("|")`));
+        check("the tab lists Lore's own first, then the owner's", await waitFor(`${rowOf(SUNDAY)}`) && await js(`[...document.querySelectorAll("#content .row b")].map((b) => b.textContent).join("|")`) === `Read connected apps|Evening check-in|${SUNDAY}|New automation`, await js(`[...document.querySelectorAll("#content .row b")].map((b) => b.textContent).join("|")`));
         const text = await js(`document.querySelector("#content").textContent`);
         check("…each with when it runs and what it last did", /Every day at 9 AM · Next \w+ \d+ · Hasn.t run yet/.test(text) && text.includes("Every weekday at 6 PM") && text.includes("Every Sunday at 6 PM"), text);
         check("…in plain words", !/cron|executor|schedul|routine|prompt/i.test(text), text);
-        const menuOf = (/** @type {string} */ name) => `[...${rowOf(name)}.querySelectorAll(".row-menu-items button")].map((b) => b.textContent).join("|")`;
-        check("Lore's own can be paused but not removed", await js(menuOf("Evening check-in")) === "Run now|Change time" && await js(menuOf(SUNDAY)) === "Run now|Change time|Remove", `${await js(menuOf("Evening check-in"))} / ${await js(menuOf(SUNDAY))}`);
+        const menuOf = (/** @type {string} */ name) => `[...${rowOf(name)}.querySelectorAll(".routine-act")].map((b) => b.getAttribute("aria-label")).join("|")`;
+        check("Lore's own can be paused but not removed", await js(menuOf("Evening check-in")) === "Change time|Run now" && await js(menuOf(SUNDAY)) === "Change time|Run now|Remove", `${await js(menuOf("Evening check-in"))} / ${await js(menuOf(SUNDAY))}`);
         await shot("automations");
-        // The last row's menu opens from its ⋯, past the card's bottom edge, every item whole and clickable.
-        const lastMenu = `${rowOf("Evening check-in")}.querySelector(".row-menu-items")`;
-        const opened = `${lastMenu}.matches(":popover-open")`;
-        await js(`${rowOf("Evening check-in")}.querySelector("[aria-label^='More for']").click()`);
-        const reachable = `[...${lastMenu}.querySelectorAll("button")].every((b) => { const r = b.getBoundingClientRect(); return document.elementFromPoint(r.left + r.width / 2, r.bottom - 3) === b; })`;
-        const beside = `(() => { const dots = ${rowOf("Evening check-in")}.querySelector("[aria-label^='More for']").getBoundingClientRect(), menu = ${lastMenu}.getBoundingClientRect(); return Math.abs(menu.right - dots.right) < 2 && menu.top >= dots.bottom; })()`;
-        check("the ⋯ opens the last row's menu just below it, not cut off by its card", await waitFor(opened) && await js(reachable) && await js(beside));
-        await shot("automations-last-menu");
-        // A click anywhere else closes it, and so does Escape.
-        for (const type of ["mouseDown", "mouseUp"]) window.webContents.sendInputEvent({ type, x: 300, y: 30, button: "left", clickCount: 1 });
-        check("a click outside the menu closes it", await waitFor(`!${opened}`));
-        await js(`${lastMenu}.showPopover()`);
-        await key("keyDown", "Escape");
-        await key("keyUp", "Escape");
-        check("…and so does Escape", await waitFor(`!${opened}`));
+        // Every action sits on its card: no menu to open, nothing to be cut off.
+        check("no row hides its actions behind a ⋯", await js(`!document.querySelector("#content [aria-label^='More for'], #content .row-menu-items")`));
         await js(`${rowOf("Evening check-in")}.querySelector(".switch").click()`);
         check("the switch pauses it, and the CLI keeps that", await waitFor(`${rowOf("Evening check-in")}?.querySelector(".switch").getAttribute("aria-checked") === "false"`) && listed().find((/** @type {Routine} */ r) => r.id === "checkin").paused === true);
         check("…so it shows paused after a fresh read", await js(`window.lore.routines().then((all) => all.find((r) => r.id === "checkin").paused)`) === true && (await js(`${rowOf("Evening check-in")}.textContent`)).includes("Paused"));
-        await js(`${rowOf(SUNDAY)}.querySelector(".row-menu-items").showPopover()`);
-        await js(`[...${rowOf(SUNDAY)}.querySelectorAll(".row-menu-items button")].find((b) => b.textContent === "Change time").click()`);
+        await js(`${rowOf(SUNDAY)}.querySelector(".routine-act[aria-label='Change time']").click()`);
         await waitFor(`Boolean(document.querySelector("dialog.form-sheet[open] select"))`);
         await js(`{ const [cadence, , hour] = document.querySelectorAll("dialog.sheet[open] select"); cadence.value = "daily"; cadence.dispatchEvent(new Event("change")); hour.value = "7"; }`);
         check("Change time hides the day for a daily rhythm, and the row shows the choice", await js(`(() => { const [cadence, day] = document.querySelectorAll("dialog.sheet[open] select"); return day.closest(".form-row").hidden && cadence.closest(".form-row").querySelector(".form-value").textContent === "Every day"; })()`));
         await js(`document.querySelector("dialog.sheet[open] .btn.primary").click()`);
         check("…and saves the new time", await waitFor(`${rowOf(SUNDAY)}?.textContent.includes("Every day at 7 AM")`) && mine().hour === 7 && mine().cadence === "daily", JSON.stringify(mine()));
-        await js(`${rowOf(SUNDAY)}.querySelector(".row-menu-items").showPopover()`);
-        await js(`[...${rowOf(SUNDAY)}.querySelectorAll(".row-menu-items button")].find((b) => b.textContent === "Run now").click()`);
+        await js(`${rowOf(SUNDAY)}.querySelector(".routine-act[aria-label='Run now']").click()`);
         for (let i = 0; i < 40 && !readings.length; i++) await sleep(250);
         check("Run now hands the owner's sentence to Lore's quiet reading", readings.length === 1 && readings[0].ask === SUNDAY, JSON.stringify(readings));
         check("…and its row says it is running until the reading is done", (await js(`${rowOf(SUNDAY)}.textContent`)).includes("Running now…"), await js(`${rowOf(SUNDAY)}.textContent`));
@@ -1116,8 +1101,7 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         // The owner pressed Run now and went elsewhere: a run that finds nothing still says it finished.
         const told = notes.length;
         window.hide();
-        await js(`${rowOf("Read connected apps")}.querySelector(".row-menu-items").showPopover()`);
-        await js(`[...${rowOf("Read connected apps")}.querySelectorAll(".row-menu-items button")].find((b) => b.textContent === "Run now").click()`);
+        await js(`${rowOf("Read connected apps")}.querySelector(".routine-act[aria-label='Run now']").click()`);
         for (let i = 0; i < 40 && notes.length === told; i++) await sleep(250);
         const away = notes.slice(told).map((n) => n.words);
         check("Run now away from Lore ends with one banner saying it is done", away.length === 1 && away[0].title === "“Read connected apps” is done" && away[0].body === "Nothing new", JSON.stringify(away));
@@ -1135,15 +1119,14 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         check("resuming a check-in paused for days never runs it at once", !checkInOf().due && !checkInOf().paused && Date.parse(checkInOf().next_run) > Date.now() && checkInOf().last_run.startsWith(new Date(Date.now() - 4 * 86400_000).toISOString().slice(0, 10)), JSON.stringify(checkInOf()));
         // Moved to an hour that already passed today: it waits for tomorrow's.
         const earlier = (new Date().getHours() + 23) % 24;
-        await js(`${rowOf("Evening check-in")}.querySelector(".row-menu-items").showPopover()`);
-        await js(`[...${rowOf("Evening check-in")}.querySelectorAll(".row-menu-items button")].find((b) => b.textContent === "Change time").click()`);
+        await js(`${rowOf("Evening check-in")}.querySelector(".routine-act[aria-label='Change time']").click()`);
         await waitFor(`Boolean(document.querySelector("dialog.form-sheet[open] select"))`);
         await js(`{ const [cadence, , hour] = document.querySelectorAll("dialog.sheet[open] select"); cadence.value = "daily"; cadence.dispatchEvent(new Event("change")); hour.value = "${earlier}"; }`);
         await js(`document.querySelector("dialog.sheet[open] .btn.primary").click()`);
         await waitFor(`${rowOf("Evening check-in")}?.textContent.includes("Every day at")`);
         await sleep(2500);
         check("…and moving it to an hour already past waits for tomorrow", checkInOf().hour === earlier && !checkInOf().due && Date.parse(checkInOf().next_run) - Date.now() > 20 * 60 * 60_000 && checkInOf().last_run.startsWith(new Date(Date.now() - 4 * 86400_000).toISOString().slice(0, 10)), JSON.stringify(checkInOf()));
-        await js(`[...document.querySelectorAll("#content .btn")].find((b) => b.textContent === "New automation").click()`);
+        await js(`document.querySelector("#content .add-tile").click()`);
         await waitFor(`document.querySelector("dialog.sheet[open] textarea")`);
         const sheetRows = `[...document.querySelectorAll("dialog.form-sheet[open] .form-row:not([hidden])")].map((r) => r.querySelector(".form-label").textContent + "=" + r.querySelector(".form-value").textContent).join("|")`;
         check("New automation opens on its prompt, with Create held until there is one", await js(`document.activeElement === document.querySelector("dialog.sheet[open] textarea") && document.querySelector("dialog.sheet[open] .btn.primary").textContent === "Create" && document.querySelector("dialog.sheet[open] .btn.primary").disabled`));
@@ -1155,14 +1138,13 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         await js(`document.querySelector("dialog.sheet[open] .btn.primary").click()`);
         check("New automation adds one from a plain sentence and a time", await waitFor(`${rowOf("Each Friday, pick one memory worth selling")}`) && (await js(`${rowOf("Each Friday, pick one memory worth selling")}.textContent`)).includes("Every Sunday at 6 PM"));
         // A title names it; the sentence is still what Lore does. ⌘↩ creates it from the prompt.
-        await js(`[...document.querySelectorAll("#content .btn")].find((b) => b.textContent === "New automation").click()`);
+        await js(`document.querySelector("#content .add-tile").click()`);
         await waitFor(`document.querySelector("dialog.sheet[open] textarea")`);
         await js(`{ const f = document.querySelector("dialog.sheet[open]"); f.querySelector(".form-title").value = "Morning notes"; const t = f.querySelector("textarea"); t.value = "Remember what I wrote this morning"; t.dispatchEvent(new Event("input", { bubbles: true })); const [cadence, day, hour] = f.querySelectorAll("select"); day.value = "4"; day.dispatchEvent(new Event("change")); hour.value = "8"; hour.dispatchEvent(new Event("change")); t.focus(); }`);
         check("…the weekly day shows what was picked", await js(sheetRows) === "Repeat=Every week|On=Friday|At=8 AM", await js(sheetRows));
         await js(`document.querySelector("dialog.sheet[open] textarea").dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", metaKey: true, bubbles: true }))`);
         check("…and ⌘↩ adds it under its own title", await waitFor(`${rowOf("Morning notes")}`) && (await js(`${rowOf("Morning notes")}.textContent`)).includes("Every Friday at 8 AM") && listed().some((/** @type {Routine} */ r) => r.name === "Morning notes"));
-        await js(`${rowOf(SUNDAY)}.querySelector(".row-menu-items").showPopover()`);
-        await js(`[...${rowOf(SUNDAY)}.querySelectorAll(".row-menu-items button")].find((b) => b.textContent === "Remove").click()`);
+        await js(`${rowOf(SUNDAY)}.querySelector(".routine-act[aria-label='Remove']").click()`);
         check("Remove takes the owner's own away for good", await waitFor(`!${rowOf(SUNDAY)}`) && !listed().some((/** @type {Routine} */ r) => r.name === SUNDAY));
         await js(`${rowOf("Read connected apps")}.querySelector(".switch").click()`);
         await js(`window.__lore.show("connectors")`);
@@ -1227,8 +1209,7 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
           const checkInRow = `[...document.querySelectorAll("#content .row")].find((r) => r.querySelector("b")?.textContent === "Evening check-in")`;
           await waitFor(checkInRow);
           const before = checkin().last_run;
-          await js(`${checkInRow}.querySelector(".row-menu-items").showPopover()`);
-          await js(`[...${checkInRow}.querySelectorAll(".row-menu-items button")].find((b) => b.textContent === "Run now").click()`);
+          await js(`${checkInRow}.querySelector(".routine-act[aria-label='Run now']").click()`);
           for (let i = 0; i < 40 && checkin().last_run === before; i++) await sleep(250);
           await sleep(1500);
           await js(`window.__lore.show("today")`);
