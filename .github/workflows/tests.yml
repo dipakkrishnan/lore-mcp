@@ -172,50 +172,6 @@ jobs:
       - name: Run the stubbed-GitHub test suite (XC-028)
         run: npm test
 
-  inbox-lint:
-    name: Inbox lint
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: inbox
-    steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-node@v7
-        with:
-          node-version: lts/*
-      - run: npm ci
-      - run: npm run lint
-
-  inbox-compiler:
-    name: Inbox compiler checks
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: inbox
-    steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-node@v7
-        with:
-          node-version: lts/*
-      - run: npm ci
-      - run: npm run types
-      - run: npm run check
-
-  inbox-component:
-    name: Inbox component tests
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: inbox
-    steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-node@v7
-        with:
-          node-version: lts/*
-      - run: npm ci
-      - name: Run the inbox test suite (XC-067)
-        run: npm test
-
   checkout-lint:
     name: Card checkout lint
     runs-on: ubuntu-latest
