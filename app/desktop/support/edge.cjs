@@ -1162,7 +1162,7 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         const openSheet = `(document.querySelector("dialog.sheet[open]")?.textContent ?? "")`;
         const savePrimary = `document.querySelector("dialog.sheet[open] .btn.primary")`;
         await js(`${rowOf("Evening check-in")}.click()`);
-        check("clicking one of Lore's own opens what it does, with Run now and Save", await waitFor(`${openSheet}.includes("asks you up to three questions")`) && !(await js(`Boolean(document.querySelector("dialog.sheet[open] textarea"))`)) && await js(`[...document.querySelectorAll("dialog.sheet[open] .btn")].map((b) => b.textContent).join("|")`) === "Run now|Save", await js(sheet));
+        check("clicking one of Lore's own opens what it does, with Run now and Save", await waitFor(`${openSheet}.includes("asks you up to three questions")`) && !(await js(`Boolean(document.querySelector("dialog.sheet[open] textarea"))`)) && await js(`[...document.querySelectorAll("dialog.sheet[open] .btn")].map((b) => b.textContent).join("|")`) === "Run now|Save", await js(openSheet));
         await js(`document.querySelector("dialog.sheet[open] .icon-btn").click()`);
         await js(`${rowOf(SUNDAY)}.click()`);
         await waitFor(`document.querySelector("dialog.sheet[open] textarea")?.value === ${JSON.stringify(SUNDAY)}`);
