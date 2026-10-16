@@ -997,6 +997,14 @@ def agents_command(args: argparse.Namespace) -> int:
     """Connect, list, re-key and disconnect the personal agents that save to Lore."""
     command = args.agents_command
     payload: Mapping[str, object]
+    # A key opens the owner's store to an agent, so only the owner hands one out or takes it back.
+    owner_only = {
+        "connect": "connecting an agent",
+        "key": "giving an agent a new key",
+        "revoke": "disconnecting an agent",
+    }
+    if command in owner_only:
+        _owner_action(owner_only[command])
     with Store() as store:
         try:
             agents = Agents(store)

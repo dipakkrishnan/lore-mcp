@@ -32,6 +32,13 @@ AGENT_KEYS = {
 
 
 class AgentCase(NodeCase):
+    def setUp(self) -> None:
+        super().setUp()
+        # The owner, at the desktop app: connecting, re-keying and disconnecting are theirs.
+        patcher = patch.object(cli, "_attended", return_value=True)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
     def lore(self, *argv: str) -> tuple[int, str]:
         with captured() as out:
             code = cli.main(list(argv))
@@ -339,6 +346,29 @@ class ReadTest(AgentCase):
         ):
             with self.subTest(argv=argv):
                 self.assertEqual(self.lore(*argv)[0], 2)
+
+    def test_only_the_owner_hands_out_or_takes_back_a_key(self) -> None:
+        source = self.handed["source"]
+        with (
+            patch.object(cli, "_attended", return_value=False),
+            patch.object(cli, "_interactive", return_value=False),
+        ):
+            for argv, what in (
+                (("agents", "connect", "Muse", "--app", "muse"), "connecting an agent"),
+                (("agents", "key", source), "giving an agent a new key"),
+                (("agents", "revoke", source, "--delete"), "disconnecting an agent"),
+            ):
+                with self.subTest(argv=argv):
+                    commands = len(self.d1.commands)
+                    with captured(), patch("sys.stderr") as err:
+                        self.assertEqual(cli.main([*argv, "--json"]), 1)
+                    said = "".join(call.args[0] for call in err.write.call_args_list)
+                    self.assertIn(f"{what} needs an attended terminal", said)
+                    self.assertEqual(len(self.d1.commands), commands, "the store is never asked")
+            # What an agent saved, and what waits, are anyone's to read.
+            self.assertEqual(len(self.json("agents", "list")["agents"]), 1)
+            self.assertEqual(self.json("agents", "waiting")["waiting"], 0)
+        self.assertIsNotNone(self.endpoint.agent(f"Bearer {self.key}"), "its key still works")
 
     def test_list_and_waiting_shapes(self) -> None:
         self.save(self.key, {"title": "A", "content": "a"})
