@@ -767,12 +767,6 @@ class HowItWorks {
 
 const howItWorks = new HowItWorks();
 
-/** "12 private · 3 on sale" @param {Snapshot} s */
-function inventoryCountLabel(s) {
-  const onSale = s.publications.counts.active;
-  return [`${privateMemories(s).length} private`, onSale ? `${onSale} on sale` : ""].filter(Boolean).join(" · ");
-}
-
 /** @param {Snapshot} s */
 function privateMemories(s) {
   return s.library.items.filter((item) => item.status === "private");
@@ -2308,8 +2302,7 @@ function render() {
   const pendingDrafts = detail === "publish" && (candidates.length || extraDrafts.length);
   eyebrow.textContent = detail
     ? pendingDrafts ? `Needs you · ${draftsPhase()}` : `${TASK_STATES[detailRecord?.state ?? "working"]} · ${detailRecord?.phase ?? "Starting"}`
-    : view === "today" ? longDate.format(new Date())
-    : view === "inventory" && snapshot ? inventoryCountLabel(snapshot) : "";
+    : view === "today" ? longDate.format(new Date()) : "";
   title.textContent = heading;
   taskBack.hidden = !detail;
   taskRestart.hidden = !detail || detailRecord?.state !== "stopped";
