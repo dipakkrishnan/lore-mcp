@@ -2087,33 +2087,50 @@ function runsWhen({ cadence, hour, day }) {
   return `Every ${days} at ${clock(hour)}`;
 }
 
-/** One routine: what it is, when, what it last found; a switch to pause it, and a menu for the rest. @param {Routine} routine */
+/** Each kind of routine's mark: reading apps, the evening check-in, and the owner's own sentence. */
+const ROUTINE_ICONS = {
+  read: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v11M7.5 9.5L12 14l4.5-4.5"></path><path d="M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3"></path></svg>`,
+  checkin: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 14.5A8 8 0 1 1 9.5 4a6.5 6.5 0 0 0 10.5 10.5z"></path></svg>`,
+  ask: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3.5l1.9 5.1 5.1 1.9-5.1 1.9-1.9 5.1-1.9-5.1L5 10.5l5.1-1.9z"></path><path d="M18.5 16.5l.7 1.8 1.8.7-1.8.7-.7 1.8-.7-1.8-1.8-.7 1.8-.7z"></path></svg>`
+};
+const CLOCK_ICON = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="8.5"></circle><path d="M12 7.5V12l3 2"></path></svg>`;
+const PLAY_ICON = `<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 5.5v13a1 1 0 0 0 1.5.86l10.5-6.5a1 1 0 0 0 0-1.72L9.5 4.64A1 1 0 0 0 8 5.5z"></path></svg>`;
+const TRASH_ICON = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12M9 7V4h6v3"></path></svg>`;
+
+/** A small labelled control on a routine. @param {string} label @param {string} icon @param {() => void} onClick @param {string} [text] */
+function routineAct(label, icon, onClick, text) {
+  const node = el("button", `routine-act${text ? " when-chip" : ""}`);
+  node.type = "button";
+  node.title = label;
+  node.setAttribute("aria-label", label);
+  node.innerHTML = icon;
+  if (text) node.append(text);
+  node.addEventListener("click", onClick);
+  return node;
+}
+
+/** One routine: what it is, when (a chip that changes it), what it last found; Run now, and a switch to pause it. @param {Routine} routine */
 function routineRow(routine) {
   const ran = routine.last_run ? `Last ran ${when(routine.last_run)}${routine.result ? ` · ${routine.result}` : ""}` : "Hasn't run yet";
-  const last = running.has(routine.id) ? "Running now…" : routine.paused ? "Paused" : `Next ${when(routine.next_run)} · ${ran}`;
+  const status = running.has(routine.id) ? "Running now…" : routine.paused ? "Paused" : `Next ${when(routine.next_run)} · ${ran}`;
   const toggle = el("button", "switch");
   toggle.type = "button";
   toggle.setAttribute("role", "switch");
   toggle.setAttribute("aria-checked", String(!routine.paused));
   toggle.setAttribute("aria-label", `${routine.paused ? "Resume" : "Pause"} ${routine.name}`);
   toggle.addEventListener("click", () => void changeRoutine(routine, routine.paused ? "resume" : "pause"));
-  // A popover closes itself on a click elsewhere or Escape, and sits above every card.
-  const menu = el("button", "icon-btn", "⋯");
-  menu.type = "button";
-  menu.setAttribute("aria-label", `More for ${routine.name}`);
-  const items = el("div", "row-menu-items");
-  items.popover = "auto";
-  menu.popoverTargetElement = items;
-  const item = (/** @type {string} */ label, /** @type {() => void} */ pick) => {
-    const node = el("button", "", label);
-    node.type = "button";
-    node.addEventListener("click", () => { items.hidePopover(); pick(); });
-    items.append(node);
-  };
-  item("Run now", () => void runRoutineNow(routine));
-  item("Change time", () => openRoutineTime(routine));
-  if (!routine.built_in) item("Remove", () => void changeRoutine(routine, "remove"));
-  return row(routine.name, `${runsWhen({ cadence: routine.cadence, hour: routine.hour, day: routine.day ?? 0 })} · ${last}`, cell(toggle, menu, items), false);
+  const detail = el("span", "routine-line");
+  detail.append(routineAct("Change time", CLOCK_ICON, () => openRoutineTime(routine), runsWhen({ cadence: routine.cadence, hour: routine.hour, day: routine.day ?? 0 })), " · ", el("span", running.has(routine.id) ? "running" : "", status));
+  const trailing = cell(routineAct("Run now", PLAY_ICON, () => void runRoutineNow(routine)));
+  if (!routine.built_in) trailing.append(routineAct("Remove", TRASH_ICON, () => void changeRoutine(routine, "remove")));
+  trailing.append(toggle);
+  const node = row(routine.name, detail, trailing, false);
+  const mark = el("span", `routine-mark ${routine.kind}`);
+  mark.innerHTML = ROUTINE_ICONS[routine.kind] ?? ROUTINE_ICONS.ask;
+  node.prepend(mark);
+  node.classList.add("routine");
+  if (routine.paused) node.classList.add("paused");
+  return node;
 }
 
 /** @param {Routine} routine @param {"pause" | "resume" | "remove" | "time"} action @param {RoutineTime} [time] */
@@ -2187,14 +2204,20 @@ function openNewRoutine() {
   text.focus();
 }
 
-/** APP-200: everything Lore does on its own, and when. */
+/** APP-200: everything Lore does on its own, and when: Lore's and the owner's alike, in one list. */
 function renderAutomations() {
-  const own = routines.filter((routine) => routine.built_in);
-  const mine = routines.filter((routine) => !routine.built_in);
-  return [
-    section("Lore's own", card(own.map(routineRow)), el("span", "hint", "Pause any of these; they can't be removed.")),
-    section("Yours", card(mine.length ? mine.map(routineRow) : [row("Nothing of yours yet", "Tell Lore something to do at a set time, in a sentence.", undefined, false)]), button("New automation", "secondary", openNewRoutine))
-  ];
+  const add = row("New automation", "Tell Lore what to do and when, in a sentence.", undefined, false);
+  const plus = el("span", "routine-mark add");
+  plus.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg>`;
+  add.prepend(plus);
+  add.classList.add("routine", "add-tile");
+  add.tabIndex = 0;
+  add.setAttribute("role", "button");
+  add.addEventListener("click", openNewRoutine);
+  add.addEventListener("keydown", (event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); openNewRoutine(); } });
+  const list = el("div", "routines");
+  list.append(...[...routines].sort((x, y) => Number(Boolean(y.built_in)) - Number(Boolean(x.built_in))).map(routineRow), add);
+  return [list];
 }
 
 const renderers = { today: renderToday, inventory: renderInventory, connectors: renderConnectors, automations: renderAutomations, faq: renderFaq, settings: renderSettings };
