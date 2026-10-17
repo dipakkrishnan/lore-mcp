@@ -65,7 +65,7 @@ class InstallTest(unittest.TestCase):
             )
             expected = {
                 path.name for path in (ROOT / "plugins/lore/skills").glob("lore-*")
-            }
+            } - {"lore-store"}
             for agent in (".agents", ".claude"):
                 installed = {path.name for path in (home / agent / "skills").iterdir()}
                 self.assertEqual(installed, expected)
@@ -118,7 +118,7 @@ class InstallTest(unittest.TestCase):
 
             expected = {
                 path.name for path in (ROOT / "plugins/lore/skills").glob("lore-*")
-            }
+            } - {"lore-store"}
             for agent in (".agents", ".claude"):
                 installed = {path.name for path in (home / agent / "skills").iterdir()}
                 self.assertEqual(installed, expected)
