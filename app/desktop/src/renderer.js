@@ -2609,7 +2609,9 @@ async function load() {
     const loaded = await Promise.all([window.lore.snapshot(), window.lore.candidates().catch(() => []), window.lore.extras().catch(() => []), window.lore.tasks().catch(() => []), apps.length ? apps : window.lore.sourceCatalog().catch(() => []), window.lore.readyRuns().catch(() => readyRuns), window.lore.checkIn().catch(() => null), window.lore.routines().catch(() => routines)]);
     if (ticket !== loads) return;
     [snapshot, candidates, extraDrafts, taskItems, apps, readyRuns, checkIn, routines] = loaded;
-    await unseen.load(Math.max(0, ...snapshot.library.items.map((item) => item.arrival))).catch(() => undefined);
+    let newest = 0;
+    for (const item of snapshot.library.items) newest = Math.max(newest, item.arrival);
+    await unseen.load(newest).catch(() => undefined);
     if (ticket !== loads) return;
     if (detailTask) detailRecord = taskItems.find((item) => item.kind === detailTask) ?? detailRecord;
     peeked.clear();

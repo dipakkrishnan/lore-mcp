@@ -211,6 +211,55 @@ class ArrivalTest(LoreTestCase):
             self.assertEqual(row["arrival"], 8)
 
 
+class ArrivalUpkeepTest(LoreTestCase):
+    def test_a_memory_an_older_lore_wrote_arrives_on_the_next_open(self) -> None:
+        self.seed_memory("First")
+        with Store() as store:
+            # As 0.1.15 writes one: it names no arrival.
+            store.db.execute(
+                """INSERT INTO memories(source,origin,source_path,source_key,
+                   fingerprint,title,content,status,created_at,updated_at)
+                   VALUES ('test','native','p','older','f','Older','c','private',
+                   '2026-10-01','2026-10-01')"""
+            )
+            store.db.commit()
+        with Store() as store:
+            arrivals = {r["title"]: r["arrival"] for r in store.memory_inventory()}
+        self.assertEqual(arrivals, {"First": 1, "Older": 2})
+        self.seed_memory("Next")
+        with Store() as store:
+            arrivals = {r["title"]: r["arrival"] for r in store.memory_inventory()}
+        self.assertEqual(arrivals["Next"], 3)
+
+    def test_the_index_follows_only_what_it_holds_and_old_triggers_are_replaced(
+        self,
+    ) -> None:
+        memory = self.seed_memory("Old title")
+        with Store() as store:
+            store.db.executescript(
+                """DROP TRIGGER memories_au;
+                CREATE TRIGGER memories_au AFTER UPDATE ON memories BEGIN
+                INSERT INTO memories_fts(memories_fts,rowid,title,content,project)
+                VALUES ('delete',old.id,old.title,old.content,old.project);
+                INSERT INTO memories_fts(rowid,title,content,project)
+                VALUES (new.id,new.title,new.content,new.project); END;"""
+            )
+        with Store() as store:
+            [sql] = store.db.execute(
+                "SELECT sql FROM sqlite_master WHERE name='memories_au'"
+            ).fetchone()
+            self.assertIn("UPDATE OF title,content,project", sql)
+            store.set_status(memory, "discarded")
+            store.set_title(memory, "New title")
+            self.assertEqual([m.id for m in store.search("New")], [memory])
+            store.set_content(memory, "A rewritten body")
+            self.assertEqual(store.search("deployment"), [])
+            self.assertEqual([m.id for m in store.search("rewritten")], [memory])
+            store.db.execute(
+                "INSERT INTO memories_fts(memories_fts) VALUES('integrity-check')"
+            )
+
+
 class RetentionTest(LoreTestCase):
     def test_disclosure_is_not_a_memory_status(self) -> None:
         # `external` and `pending` are gone: retention is the only thing a status

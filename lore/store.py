@@ -415,7 +415,10 @@ class Store:
                 INSERT INTO memories_fts(memories_fts,rowid,title,content,project)
                 VALUES ('delete',old.id,old.title,old.content,old.project);
             END;
-            CREATE TRIGGER IF NOT EXISTS memories_au AFTER UPDATE ON memories BEGIN
+            -- Only what the index holds re-indexes a memory: numbering its arrival or
+            -- changing its status leaves the index alone.
+            CREATE TRIGGER IF NOT EXISTS memories_au
+            AFTER UPDATE OF title,content,project ON memories BEGIN
                 INSERT INTO memories_fts(memories_fts,rowid,title,content,project)
                 VALUES ('delete',old.id,old.title,old.content,old.project);
                 INSERT INTO memories_fts(rowid,title,content,project)
@@ -546,6 +549,21 @@ class Store:
         memory_columns = {
             row["name"] for row in self.db.execute("PRAGMA table_info(memories)")
         }
+        # A database from before the update trigger named its columns re-indexed every
+        # memory on any update; replaced in place, the index itself is unchanged.
+        trigger = self.db.execute(
+            "SELECT sql FROM sqlite_master WHERE type='trigger' AND name='memories_au'"
+        ).fetchone()
+        if "UPDATE OF" not in trigger["sql"]:
+            self.db.execute("DROP TRIGGER memories_au")
+            self.db.execute(
+                "CREATE TRIGGER memories_au "
+                "AFTER UPDATE OF title,content,project ON memories BEGIN "
+                "INSERT INTO memories_fts(memories_fts,rowid,title,content,project) "
+                "VALUES ('delete',old.id,old.title,old.content,old.project); "
+                "INSERT INTO memories_fts(rowid,title,content,project) "
+                "VALUES (new.id,new.title,new.content,new.project); END"
+            )
         if "arrival" not in memory_columns:
             # Memories already here arrived in id order, and new ones arrive after
             # the newest of them.
@@ -558,6 +576,14 @@ class Store:
                 "SELECT max(id) FROM memories HAVING max(id) IS NOT NULL"
             )
             self.db.execute("DELETE FROM memory_arrivals")
+        # A Lore from before arrivals writes a memory with none; it arrives now.
+        for row in self.db.execute(
+            "SELECT id FROM memories WHERE arrival=0 ORDER BY id"
+        ).fetchall():
+            self.db.execute(
+                "UPDATE memories SET arrival=? WHERE id=? AND arrival=0",
+                (self._next_arrival(), row["id"]),
+            )
         job_columns = {
             row["name"] for row in self.db.execute("PRAGMA table_info(owner_jobs)")
         }
@@ -623,10 +649,7 @@ class Store:
             self._flag_publications_of(row["id"], now)
             result = "updated"
         else:
-            arrival = self.db.execute(
-                "INSERT INTO memory_arrivals DEFAULT VALUES"
-            ).lastrowid
-            self.db.execute("DELETE FROM memory_arrivals")
+            arrival = self._next_arrival()
             self.db.execute(
                 """INSERT INTO memories
                    (source,origin,source_path,source_key,fingerprint,title,content,
@@ -650,6 +673,14 @@ class Store:
             result = "added"
         self.db.commit()
         return result
+
+    def _next_arrival(self) -> int:
+        """The next arrival number, never handed out before."""
+        arrival = self.db.execute(
+            "INSERT INTO memory_arrivals DEFAULT VALUES"
+        ).lastrowid
+        self.db.execute("DELETE FROM memory_arrivals")
+        return int(arrival or 0)
 
     def set_status(self, memory_id: int, status: str) -> None:
         """Set a memory's retention status."""

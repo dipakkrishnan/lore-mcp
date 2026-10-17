@@ -314,11 +314,11 @@ async function told() {
   return JSON.stringify([(await newMemories.runs())[0], (await checkIns.latest())?.at]);
 }
 
-/** Bring the window forward, then show what the notification was about. A window opened for it hears that once its
- * page has loaded, so nothing is said before anyone listens. @param {AgentEvent} event */
+/** Bring the window forward, then show what the notification was about. A window opened for it, or one still loading,
+ * hears that once its page has loaded, so nothing is said before anyone listens. @param {AgentEvent} event */
 function reveal(event) {
-  if (window) emit(event);
-  else createWindow().webContents.once("did-finish-load", () => emit(event));
+  if (window && !window.webContents.isLoading()) emit(event);
+  else (window ?? createWindow()).webContents.once("did-finish-load", () => emit(event));
   window?.show();
   window?.focus();
 }

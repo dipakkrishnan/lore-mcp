@@ -77,3 +77,7 @@ links to one agent only when every memory under it came from that agent.
     would mean copying the table under its FTS index and triggers.
   - A notification that opens a new window sends its route once that window's
     page has loaded (`reveal`), so a closed window still lands filtered.
+  - Review round 3: a memory an older Lore wrote arrives with no number; the
+    store numbers it the next time it opens. The FTS update trigger now fires only
+    on title, content and project, so numbering arrivals never re-indexes. A
+    notification also waits for a window that is still loading.
