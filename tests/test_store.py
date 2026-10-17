@@ -176,6 +176,41 @@ class ContributorTest(LoreTestCase):
                 Contributor.model_validate(bad)
 
 
+class ArrivalTest(LoreTestCase):
+    """APP-212: the order memories arrived in, which an id can't be once one is deleted."""
+
+    def test_a_memory_saved_after_a_delete_arrives_after_everything(self) -> None:
+        first = self.seed_memory("First")
+        second = self.seed_memory("Second")
+        with Store() as store:
+            self.assertEqual(store.forget("Second"), 1)
+        again = self.seed_memory("Again")
+        self.assertEqual(again, second, "the store hands the id out again")
+        with Store() as store:
+            arrivals = {r["title"]: r["arrival"] for r in store.memory_inventory()}
+        self.assertEqual(arrivals["First"], first)
+        self.assertGreater(arrivals["Again"], second)
+
+    def test_a_database_from_before_arrivals_numbers_them_by_id(self) -> None:
+        titles = [f"Memory {n}" for n in range(1, 8)]
+        for title in titles:
+            self.seed_memory(title)
+        with Store() as store:
+            for title in titles[2:6]:
+                store.forget(title)
+            # As a database from before arrivals were kept.
+            store.db.execute("ALTER TABLE memories DROP COLUMN arrival")
+            store.db.execute("DROP TABLE memory_arrivals")
+            store.db.commit()
+        with Store() as store:
+            arrivals = sorted(int(r["arrival"]) for r in store.memory_inventory())
+            self.assertEqual(arrivals, [1, 2, 7])
+        added = self.seed_memory("After")
+        with Store() as store:
+            [row] = [r for r in store.memory_inventory() if r["id"] == added]
+            self.assertEqual(row["arrival"], 8)
+
+
 class RetentionTest(LoreTestCase):
     def test_disclosure_is_not_a_memory_status(self) -> None:
         # `external` and `pending` are gone: retention is the only thing a status

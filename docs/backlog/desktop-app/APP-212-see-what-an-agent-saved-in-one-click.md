@@ -69,3 +69,11 @@ links to one agent only when every memory under it came from that agent.
   - Edge (`agents`): each way in lands filtered with New marks, New clears on the
     next visit and is on disk for the next launch, and removing the chip shows
     everything; `reading` checks an app's header has no See them.
+  - Review round 2: memories are known by arrival, not id. `memories.id` has no
+    AUTOINCREMENT, so a deleted newest id comes back; a new `arrival` column is
+    numbered from a one-row AUTOINCREMENT table (`memory_arrivals`), which never
+    hands a number out twice. Older databases number arrivals by id and go on
+    from the newest. Chosen over rebuilding `memories` as AUTOINCREMENT, which
+    would mean copying the table under its FTS index and triggers.
+  - A notification that opens a new window sends its route once that window's
+    page has loaded (`reveal`), so a closed window still lands filtered.

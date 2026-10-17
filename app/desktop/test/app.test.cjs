@@ -1287,12 +1287,12 @@ test("the memories the owner has seen are kept across relaunches, from where Lor
   const { Seen, seenIds } = require("../src/reading.cjs");
   const directory = await mkdtemp(join(tmpdir(), "lore-seen-"));
   const file = join(directory, "memories-seen.json");
-  assert.deepEqual(await new Seen(file).read(12), { since: 12, ids: [] }, "a library from before is never all new at once");
+  assert.deepEqual(await new Seen(file).read(12), { since: 12, arrivals: [] }, "a library from before is never all new at once");
   const seen = new Seen(file);
   await Promise.all([seen.add([13, 14]), seen.add([15]), seen.add([3])]);
-  assert.deepEqual(await new Seen(file).read(99), { since: 12, ids: [13, 14, 15] }, "two reports at once both land; an old memory needs no record; a relaunch keeps since");
+  assert.deepEqual(await new Seen(file).read(99), { since: 12, arrivals: [13, 14, 15] }, "two reports at once both land; an old memory needs no record; a relaunch keeps since");
   await writeFile(file, "{not json");
-  assert.deepEqual(await new Seen(file).read(20), { since: 20, ids: [] }, "a damaged file starts over from now");
+  assert.deepEqual(await new Seen(file).read(20), { since: 20, arrivals: [] }, "a damaged file starts over from now");
   assert.deepEqual(seenIds([1, 2]), [1, 2]);
   for (const bad of [[], [0], [1.5], ["1"], null, "1", Array.from({ length: 501 }, (_, i) => i + 1)]) assert.throws(() => seenIds(bad), /Invalid memories/);
   await rm(directory, { recursive: true });

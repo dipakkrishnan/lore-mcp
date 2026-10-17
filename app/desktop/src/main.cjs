@@ -314,12 +314,13 @@ async function told() {
   return JSON.stringify([(await newMemories.runs())[0], (await checkIns.latest())?.at]);
 }
 
-/** Bring the window forward, then show what the notification was about. @param {AgentEvent} event */
+/** Bring the window forward, then show what the notification was about. A window opened for it hears that once its
+ * page has loaded, so nothing is said before anyone listens. @param {AgentEvent} event */
 function reveal(event) {
-  if (!window) createWindow();
+  if (window) emit(event);
+  else createWindow().webContents.once("did-finish-load", () => emit(event));
   window?.show();
   window?.focus();
-  emit(event);
 }
 
 /** What the app does with each kind of routine's run, by the `kind` the CLI names. A new kind is one entry here.
@@ -390,6 +391,7 @@ function createWindow() {
     pending.clear();
   });
   void window.loadFile(join(__dirname, "index.html"));
+  return window;
 }
 
 app.whenReady().then(async () => {

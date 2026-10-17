@@ -1069,7 +1069,7 @@ function renderInventory(s) {
     for (const item of items) groups.set(key(item), [...(groups.get(key(item)) ?? []), make(item)]);
     return grouped(groups);
   };
-  const privateGroups = () => groupBy(kept, (item) => item.project_label, (item) => unseen.watch(sourcedRow(item, [when(item.updated_at)]), item.id));
+  const privateGroups = () => groupBy(kept, (item) => item.project_label, (item) => unseen.watch(sourcedRow(item, [when(item.updated_at)]), item.arrival));
   const saleGroups = () => groupBy(onSale, (item) => item.topic, saleItem);
   const downGroups = () => groupBy(down, (item) => item.topic, (item) => row(item.title, item.topic, item.live === true ? chip("Still on your store", "attention") : chip("Taken down")));
   const stack = (/** @type {HTMLElement[]} */ cards) => {
@@ -1123,7 +1123,8 @@ function seeFrom(source) {
 }
 
 /** APP-212: which memories Inventory marks New: arrived since Lore began keeping track, and not on screen before this
- * visit. A row counts as seen once it has been on screen while Lore is in front; it keeps its mark until the next visit. */
+ * visit. A row counts as seen once it has been on screen while Lore is in front; it keeps its mark until the next visit.
+ * Memories are known here by arrival, never by id, which the store can hand out again after a delete. */
 class Unseen {
   since = Number.POSITIVE_INFINITY;
   /** @type {Set<number>} */
@@ -1153,7 +1154,7 @@ class Unseen {
   async load(newest) {
     const kept = await window.lore.memoriesSeen(newest);
     this.since = kept.since;
-    for (const id of kept.ids) this.seen.add(id);
+    for (const arrival of kept.arrivals) this.seen.add(arrival);
     if (!this.loaded) this.visit();
     this.loaded = true;
   }
@@ -2608,7 +2609,7 @@ async function load() {
     const loaded = await Promise.all([window.lore.snapshot(), window.lore.candidates().catch(() => []), window.lore.extras().catch(() => []), window.lore.tasks().catch(() => []), apps.length ? apps : window.lore.sourceCatalog().catch(() => []), window.lore.readyRuns().catch(() => readyRuns), window.lore.checkIn().catch(() => null), window.lore.routines().catch(() => routines)]);
     if (ticket !== loads) return;
     [snapshot, candidates, extraDrafts, taskItems, apps, readyRuns, checkIn, routines] = loaded;
-    await unseen.load(Math.max(0, ...snapshot.library.items.map((item) => item.id))).catch(() => undefined);
+    await unseen.load(Math.max(0, ...snapshot.library.items.map((item) => item.arrival))).catch(() => undefined);
     if (ticket !== loads) return;
     if (detailTask) detailRecord = taskItems.find((item) => item.kind === detailTask) ?? detailRecord;
     peeked.clear();

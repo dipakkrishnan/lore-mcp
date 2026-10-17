@@ -122,8 +122,9 @@ function seenIds(ids) {
   return ids;
 }
 
-/** APP-212: the memories the owner has had on screen, so "New" means arrived and not yet seen, across relaunches.
- * `since` is the newest memory when Lore began keeping this, so a library from before it is never all new at once. */
+/** APP-212: the memories the owner has had on screen, by arrival, so "New" means arrived and not yet seen, across
+ * relaunches. An arrival is never reused, as an id can be. `since` is the newest arrival when Lore began keeping this,
+ * so a library from before it is never all new at once. */
 class Seen {
   /** Every read and write waits its turn, so two reports never drop each other's ids. @type {Promise<unknown>} */
   #turn = Promise.resolve();
@@ -133,18 +134,18 @@ class Seen {
     this.file = file;
   }
 
-  /** @param {number} newest The newest memory now: where "since" starts, the first time. @returns {Promise<SeenMemories>} */
+  /** @param {number} newest The newest arrival now: where "since" starts, the first time. @returns {Promise<SeenMemories>} */
   read(newest) {
-    return this.#then(async () => (await this.#kept()) ?? this.#save({ since: newest, ids: [] }));
+    return this.#then(async () => (await this.#kept()) ?? this.#save({ since: newest, arrivals: [] }));
   }
 
-  /** @param {number[]} ids */
-  add(ids) {
+  /** @param {number[]} arrivals */
+  add(arrivals) {
     return this.#then(async () => {
-      const kept = (await this.#kept()) ?? { since: 0, ids: [] };
-      const all = new Set(kept.ids);
-      for (const id of ids) if (id > kept.since) all.add(id);
-      return this.#save({ since: kept.since, ids: [...all] });
+      const kept = (await this.#kept()) ?? { since: 0, arrivals: [] };
+      const all = new Set(kept.arrivals);
+      for (const arrival of arrivals) if (arrival > kept.since) all.add(arrival);
+      return this.#save({ since: kept.since, arrivals: [...all] });
     });
   }
 
@@ -159,7 +160,7 @@ class Seen {
   async #kept() {
     try {
       const kept = JSON.parse(await readFile(this.file, "utf8"));
-      return Number.isInteger(kept?.since) && Array.isArray(kept.ids) ? { since: kept.since, ids: kept.ids.filter(Number.isInteger) } : null;
+      return Number.isInteger(kept?.since) && Array.isArray(kept.arrivals) ? { since: kept.since, arrivals: kept.arrivals.filter(Number.isInteger) } : null;
     } catch {
       return null;
     }

@@ -92,8 +92,8 @@ contextBridge.exposeInMainWorld("lore", {
   clearMemories: () => ipcRenderer.invoke("ready:clear"),
   /** @param {number} newest */
   memoriesSeen: (newest) => ipcRenderer.invoke("memory:unseen", newest),
-  /** @param {number[]} ids */
-  markSeen: (ids) => ipcRenderer.invoke("memory:seen", ids),
+  /** @param {number[]} arrivals */
+  markSeen: (arrivals) => ipcRenderer.invoke("memory:seen", arrivals),
   checkIn: () => ipcRenderer.invoke("checkin:waiting"),
   routines: () => ipcRenderer.invoke("routines:list"),
   noticedRoutines: () => ipcRenderer.invoke("routines:noticed"),

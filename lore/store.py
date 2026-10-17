@@ -388,7 +388,15 @@ class Store:
                 status TEXT NOT NULL DEFAULT 'private'
                     CHECK(status IN ('private','discarded')),
                 created_at TEXT NOT NULL,
-                updated_at TEXT NOT NULL
+                updated_at TEXT NOT NULL,
+                arrival INTEGER NOT NULL DEFAULT 0
+            );
+            -- APP-212: the order memories arrived in. A memory's id can come back
+            -- after the newest one is deleted; AUTOINCREMENT never hands a number
+            -- out twice, so "arrived since" and "seen" stay true. One row at most,
+            -- only while a memory is being added.
+            CREATE TABLE IF NOT EXISTS memory_arrivals (
+                seq INTEGER PRIMARY KEY AUTOINCREMENT
             );
             CREATE TABLE IF NOT EXISTS settings (
                 key TEXT PRIMARY KEY,
@@ -535,6 +543,21 @@ class Store:
                 self.db.execute(
                     f"ALTER TABLE publications ADD COLUMN {column} TEXT NOT NULL DEFAULT ''"
                 )
+        memory_columns = {
+            row["name"] for row in self.db.execute("PRAGMA table_info(memories)")
+        }
+        if "arrival" not in memory_columns:
+            # Memories already here arrived in id order, and new ones arrive after
+            # the newest of them.
+            self.db.execute(
+                "ALTER TABLE memories ADD COLUMN arrival INTEGER NOT NULL DEFAULT 0"
+            )
+            self.db.execute("UPDATE memories SET arrival=id")
+            self.db.execute(
+                "INSERT INTO memory_arrivals(seq) "
+                "SELECT max(id) FROM memories HAVING max(id) IS NOT NULL"
+            )
+            self.db.execute("DELETE FROM memory_arrivals")
         job_columns = {
             row["name"] for row in self.db.execute("PRAGMA table_info(owner_jobs)")
         }
@@ -600,11 +623,15 @@ class Store:
             self._flag_publications_of(row["id"], now)
             result = "updated"
         else:
+            arrival = self.db.execute(
+                "INSERT INTO memory_arrivals DEFAULT VALUES"
+            ).lastrowid
+            self.db.execute("DELETE FROM memory_arrivals")
             self.db.execute(
                 """INSERT INTO memories
                    (source,origin,source_path,source_key,fingerprint,title,content,
-                    project,status,created_at,updated_at)
-                   VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
+                    project,status,created_at,updated_at,arrival)
+                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
                 (
                     source,
                     origin,
@@ -617,6 +644,7 @@ class Store:
                     "private",
                     dated or now,
                     dated or now,
+                    arrival,
                 ),
             )
             result = "added"
@@ -802,7 +830,7 @@ class Store:
         """Every memory's row, with who is on record as its `sources`, newest first. The
         source, origin and path are there for whoever names a memory with none on record."""
         rows = self.db.execute(
-            "SELECT id,title,project,status,updated_at,source,origin,source_path "
+            "SELECT id,title,project,status,updated_at,arrival,source,origin,source_path "
             "FROM memories ORDER BY updated_at DESC,id"
         ).fetchall()
         credited = self.contributors()

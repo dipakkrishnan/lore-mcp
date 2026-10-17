@@ -1,6 +1,6 @@
 // Walks the renderer through the edge audit's two personas against a seeded scratch home.
 // Usage: support/edge.sh <scenario>   (seeds LORE_HOME, then runs this under Electron)
-const { app } = require("electron");
+const { app, BrowserWindow } = require("electron");
 const { chmodSync, mkdirSync, writeFileSync } = require("node:fs");
 const { execFileSync } = require("node:child_process");
 const { dirname, join } = require("node:path");
@@ -206,7 +206,8 @@ if (scenario === "listing") {
       const [file, text] = [
         ["pricing-sync-by-reach.md", "# Price a sync placement by its reach\n\nCharge by the audience the placement reaches, not by the hours it took. From what Grok saved, October 2026.\n"],
         ["rush-fee-up-front.md", "# Quote a rush fee up front\n\nName the rush fee before the work starts, never after it ships. From what Grok saved, October 2026.\n"],
-        ["rerun-at-half.md", "# Bill a rerun at half the first fee\n\nA rerun costs half the first fee, because the work is already done. From what Grok saved, October 2026.\n"]
+        ["rerun-at-half.md", "# Bill a rerun at half the first fee\n\nA rerun costs half the first fee, because the work is already done. From what Grok saved, October 2026.\n"],
+        ["sign-off-in-writing.md", "# Get the final cut signed off in writing\n\nA written sign-off ends the revisions; a nod on a call starts more. From what Grok saved, October 2026.\n"]
       ][readings.length - 1];
       writeFileSync(join(folder, file), text);
       setTimeout(() => void readingHeld.then(() => this.options.memoriesReady?.(reading, { read: reading.added, memories: [{ file, worth_selling: true, why: "a pricing rule from real placements" }] })), 1500);
@@ -221,8 +222,12 @@ const sleep = (ms) => new Promise((done) => setTimeout(done, ms));
 const results = [];
 function check(name, ok, detail = "") { results.push(`${ok ? "PASS" : "FAIL"} ${name}${detail ? ` — ${detail}` : ""}`); }
 
+/** The walk runs once, in the first window; one opened later (a notification after the window closed) is driven by it. */
+let walking = false;
 app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {import("electron").BrowserWindow} */ window) => {
   if (window.getParentWindow()) return; // a page preview, not the app
+  if (walking) return;
+  walking = true;
   const js = (code) => window.webContents.executeJavaScript(code);
   const shot = (name) => window.webContents.capturePage().then((image) => writeFileSync(join(S, `${name}.png`), image.toPNG()));
   const waitFor = async (code, tries = 40) => { for (let i = 0; i < tries; i++) { if (await js(code)) return true; await sleep(250); } return false; };
@@ -1082,23 +1087,44 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         await shot("agents-see-them-inventory");
         // Seen means on screen: the last row is below the fold until the owner scrolls to it.
         await js(`${rowOf("Bill a rerun at half the first fee")}.scrollIntoView({ block: "center" })`);
-        const seenIds = await js(`window.lore.snapshot().then((s) => s.library.items.filter((i) => /rerun/i.test(i.title)).map((i) => i.id))`);
+        const seenIds = await js(`window.lore.snapshot().then((s) => s.library.items.filter((i) => /rerun/i.test(i.title)).map((i) => i.arrival))`);
         const seenFile = join(process.env.LORE_DESKTOP_USER_DATA ?? "", "memories-seen.json");
-        const kept = async () => (await new (require(join(src, "reading.cjs")).Seen)(seenFile).read(0)).ids;
+        const kept = async () => (await new (require(join(src, "reading.cjs")).Seen)(seenFile).read(0)).arrivals;
         check("once on screen, they are kept as seen on disk, for the next launch", await (async () => { for (let i = 0; i < 20; i++) { const ids = await kept(); if (seenIds.length === 2 && seenIds.every((id) => ids.includes(id))) return true; await sleep(250); } return false; })(), JSON.stringify([seenIds, await kept()]));
         await js(`window.__lore.show("connectors")`);
         await js(`window.__lore.show("memories")`);
         check("…and New clears on the next visit", await waitFor(`${rowOf("How I bill a rerun")} && !document.querySelector("#content .new-mark")`), await js(listed));
+        // The window closed, Grok saves once more, and its notification opens a new window on what it saved.
+        window.close();
+        for (let i = 0; i < 20 && !window.isDestroyed(); i++) await sleep(100);
+        check("a save lands while Lore's window is closed", await saveMore("How I sign off a cut"));
+        notes.at(-1)?.handlers.click();
+        let reopened = null;
+        for (let i = 0; i < 40 && !reopened; i++) {
+          reopened = BrowserWindow.getAllWindows().find((each) => !each.isDestroyed() && !each.getParentWindow()) ?? null;
+          await sleep(100);
+        }
+        check("clicking its notification opens a window", Boolean(reopened));
+        if (reopened) {
+          window = reopened;
+          await new Promise((loaded) => window.webContents.isLoading() ? window.webContents.once("did-finish-load", () => loaded(undefined)) : loaded(undefined));
+          window.webContents.debugger.attach();
+          await window.webContents.debugger.sendCommand("Emulation.setFocusEmulationEnabled", { enabled: true });
+          await js(`window.__lore.signIn()`);
+        }
+        check("…which lands on what Grok Bot saved, filtered, after the page has loaded", await waitFor(`document.querySelector("#title").textContent === "Inventory" && (${chip}) === "Grok Bot×"`), await js(`document.querySelector("#title").textContent + " | " + (${chip})`));
+        check("…with the new save and what Lore wrote from it marked New", await waitFor(`${isNew("How I sign off a cut")} && ${isNew("Get the final cut signed off in writing")}`) && !(await js(isNew("How I bill a rerun"))), await js(listed));
+        await shot("agents-reopened-see-them");
         await js(`window.__lore.show("connectors")`);
         await waitFor(agentRow("Grok Bot"));
         await js(`${agentRow("Grok Bot")}.querySelector("button:not(.inline)").click()`);
         await waitFor(`${sheet}.includes("Disconnect")`);
         await press("Disconnect");
         await waitFor(`${sheet}.includes("Disconnect Grok Bot?")`);
-        check("Disconnect offers to keep or delete what Grok Bot saved", /The 3 memories it saved stay in your library/.test(await js(sheet)) && await js(`[...document.querySelectorAll("dialog.sheet[open] button")].some((b) => b.textContent === "Delete them too")`), await js(sheet));
+        check("Disconnect offers to keep or delete what Grok Bot saved", /The 4 memories it saved stay in your library/.test(await js(sheet)) && await js(`[...document.querySelectorAll("dialog.sheet[open] button")].some((b) => b.textContent === "Delete them too")`), await js(sheet));
         await shot("agents-disconnect");
         await press("Disconnect");
-        check("disconnecting keeps its memory and says so", await waitFor(`document.querySelector("#status").textContent.includes("Disconnected Grok Bot. 3 memories kept.")`, 80), await js(`document.querySelector("#status").textContent`));
+        check("disconnecting keeps its memory and says so", await waitFor(`document.querySelector("#status").textContent.includes("Disconnected Grok Bot. 4 memories kept.")`, 80), await js(`document.querySelector("#status").textContent`));
         await js(`window.__lore.show("memories")`);
         check("…and what it saved still says Grok Bot, with its mark", await waitFor(`/From Grok Bot/.test(${saved}?.textContent ?? "") && ${saved}.querySelector(".mark-stack img.logo")?.src.endsWith("assets/grok.svg")`), await js(`${saved}?.textContent ?? ""`));
         await js(`window.__lore.show("connectors")`);

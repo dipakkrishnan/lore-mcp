@@ -12,6 +12,8 @@ type MemoryItem = {
   status: "private" | "discarded";
   updated_at: string;
   sources: MemorySource[];
+  /** When it arrived, as a number that only grows and is never reused, as an id can be (APP-212). */
+  arrival: number;
 };
 
 type PublicationItem = {
@@ -154,8 +156,9 @@ type ReadingReport = { read: number; memories: Array<{ file: string; worth_selli
 type ReadyMemory = { id: number; title: string; sell: boolean; work: boolean; why: string };
 
 /** One finished reading, kept on Today until the owner clears it; `seen` once they have looked. */
-/** Which memories the owner has had on screen (APP-212); anything newer than `since` and not in `ids` is New. */
-type SeenMemories = { since: number; ids: number[] };
+/** Which memories the owner has had on screen, by arrival (APP-212); one that arrived after `since` and is not in
+ * `arrivals` is New. */
+type SeenMemories = { since: number; arrivals: number[] };
 
 type ReadyRun = { title: string; read: number; memories: ReadyMemory[]; at: string; seen: boolean; from?: string; by?: Contributor };
 
@@ -346,7 +349,7 @@ interface Window {
     seenMemories(): Promise<void>;
     clearMemories(): Promise<void>;
     memoriesSeen(newest: number): Promise<SeenMemories>;
-    markSeen(ids: number[]): Promise<void>;
+    markSeen(arrivals: number[]): Promise<void>;
     checkIn(): Promise<CheckIn | null>;
     routines(): Promise<Routine[]>;
     noticedRoutines(): Promise<void>;
