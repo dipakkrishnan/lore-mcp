@@ -1,5 +1,5 @@
 import { Agent, type StreamFn } from "@earendil-works/pi-agent-core";
-import type { Provider } from "@earendil-works/pi-ai";
+import type { Provider, ToolChoice } from "@earendil-works/pi-ai";
 import { anthropicProvider } from "@earendil-works/pi-ai/providers/anthropic";
 import { openaiProvider } from "@earendil-works/pi-ai/providers/openai";
 import { answerSpanAttributes } from "./telemetry.js";
@@ -93,7 +93,9 @@ async function runAnswerJob(
         ...options,
         apiKey: selected.apiKey,
         maxTokens: 1024,
-        toolChoice: nextModel.provider === "anthropic" ? "any" : "required"
+        // Pi 1.x types ToolChoice as "auto" | "none", but its adapters still forward the string
+        // to the provider API verbatim — that is what forces every turn to call a tool.
+        toolChoice: (nextModel.provider === "anthropic" ? "any" : "required") as ToolChoice
       };
       return selected.provider.streamSimple(nextModel, context, requestOptions);
     };
@@ -105,7 +107,12 @@ async function runAnswerJob(
     const agent = new Agent({
       streamFn,
       toolExecution: "sequential",
-      shouldStopAfterTurn: () => Boolean(outcome) || turns >= MAX_MODEL_TURNS,
+      finishTurn: ({ message }) => {
+        // Error and aborted responses are hard exits in the loop; skip them like the old hook did.
+        if (message.stopReason === "error" || message.stopReason === "aborted") return;
+        // finishTurn runs before the turn_end listener below counts this turn.
+        return outcome || turns + 1 >= MAX_MODEL_TURNS ? { action: "end" } : undefined;
+      },
       initialState: {
         systemPrompt: systemPrompt(settings.proxy),
         model,
