@@ -47,7 +47,6 @@ const MAX_TURNS = 60;
 const SANDBOX_TMPDIR = "/tmp/claude";
 /** @type {Partial<Record<AgentTask, string[]>>} Home-relative directories outside Lore that a task's commands must write. */
 const OWNER_DIRS = {
-  setup: [".codex/automations", "Library/LaunchAgents"],
   deploy: [".wrangler", "Library/Preferences/.wrangler", "Library/Caches/.wrangler", ".npm"]
 };
 const CAPPED = "That reply took more steps than Lore allows at once, so it paused. Say continue to keep going.";
@@ -84,6 +83,12 @@ export function readingPrompt(reading, loreHome) {
 export function checkInPrompt(job) {
   const items = job.items.map((item) => `- ${item.id}: ${JSON.stringify(item.title)} from ${JSON.stringify(item.source)}`).join("\n");
   return `Lore brought in ${plural(job.items.length, "item")} since the last check-in. Decide whether any is worth asking the owner about.${ASIDE}the items, by id:\n${items})`;
+}
+/** The skills this agent loads. lore-store is for the owner's remote agents, through a `store` tool this one never has:
+ * here it would only compete with lore-capture whenever the owner says "save that to Lore".
+ * @param {{skills: import("@earendil-works/pi-coding-agent").Skill[], diagnostics: import("@earendil-works/pi-coding-agent").ResourceDiagnostic[]}} loaded */
+export function ownSkills({ skills, diagnostics }) {
+  return { skills: skills.filter((skill) => skill.name !== "lore-store"), diagnostics };
 }
 /** Drafts are approved or skipped on cards the agent never sees, so every publish turn says where they stand. @param {number} waiting */
 export function draftsAside(waiting) {
@@ -355,6 +360,8 @@ export class LoreAgent {
   /** @type {CheckInVerdict | null} */
   #verdict = null;
   #quietTurn = Promise.resolve();
+  /** Who is waiting for the quiet work to run out. @type {Array<() => void>} */
+  #settling = [];
   /** An owner's turn is waiting for a reading to stop, so no reading may start. */
   #yielding = false;
 
@@ -381,6 +388,7 @@ export class LoreAgent {
       agentDir: resolve(options.loreHome, ".pi"),
       settingsManager: settings,
       additionalSkillPaths: [options.skillsDir],
+      skillsOverride: ownSkills,
       noExtensions: true,
       noSkills: true,
       noPromptTemplates: true,
@@ -574,6 +582,14 @@ export class LoreAgent {
     void this.#next();
   }
 
+  /** Once every reading and check-in in line is done, so a run the owner started can say it finished. @returns {Promise<void>} */
+  settled() {
+    return new Promise((resolve) => {
+      this.#settling.push(resolve);
+      void this.#next();
+    });
+  }
+
   /** Reads of one source that wait together are read together. @param {Reading} reading */
   #queue(reading) {
     const waiting = this.#waiting.get(reading.name);
@@ -598,7 +614,7 @@ export class LoreAgent {
   /** The check-in, once nothing is left to read: the model's verdict goes to the app, which decides whether to ask. */
   async #lookOver() {
     const job = this.#checkIn;
-    if (!job) return;
+    if (!job) return void this.#settling.splice(0).forEach((resolve) => resolve());
     this.#checkIn = null;
     this.#looking = job;
     this.#verdict = null;

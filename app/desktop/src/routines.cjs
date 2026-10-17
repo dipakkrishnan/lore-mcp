@@ -19,7 +19,7 @@ class Schedule {
     this.now = now;
   }
 
-  /** Run what is due, one at a time, then wait for the next hour any routine Lore runs names. */
+  /** Run what is due, one at a time, then wait for the next hour any routine names. */
   check() {
     this.#checking ??= this.#check().finally(() => {
       this.#checking = null;
@@ -46,7 +46,7 @@ class Schedule {
       const due = routines.filter((routine) => routine.due);
       for (const routine of due) await this.runNow(routine).catch((error) => console.error(error));
       if (due.length) routines = await this.list();
-      const next = Math.min(...routines.filter((routine) => routine.runner === "lore").map((routine) => Date.parse(routine.next_run)).filter(Number.isFinite));
+      const next = Math.min(...routines.map((routine) => Date.parse(routine.next_run)).filter(Number.isFinite));
       wait = Math.max(1000, Math.min(LOOK_EVERY_MS, next - this.now()));
     } catch (error) {
       console.error(error);

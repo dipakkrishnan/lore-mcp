@@ -7,6 +7,7 @@ import os
 import re
 import secrets
 import sqlite3
+from collections.abc import Collection
 from datetime import datetime, timedelta, timezone
 from enum import Enum
 from pathlib import Path
@@ -708,16 +709,18 @@ class Store:
         )
 
     def brought_in_after(
-        self, memory_id: int, limit: int = 30
+        self, memory_id: int, limit: int = 30, skip: Collection[str] = ()
     ) -> list[dict[str, object]]:
         """Private items an app or agent brought in after `memory_id`, newest first:
-        never Lore's own writing, nor what the owner captured themselves."""
+        never Lore's own writing, nor what the owner captured themselves, nor `skip`'s sources."""
+        holes = ",".join("?" * len(skip))
         return [
             dict(row)
             for row in self.db.execute(
                 "SELECT id,title,source FROM memories WHERE status='private' "
-                "AND origin='native' AND id>? ORDER BY id DESC LIMIT ?",
-                (memory_id, limit),
+                f"AND origin='native' AND id>? AND source NOT IN ({holes}) "
+                "ORDER BY id DESC LIMIT ?",
+                (memory_id, *skip, limit),
             )
         ]
 
@@ -736,17 +739,26 @@ class Store:
         A memory a publication derives from is kept whatever the owner chose:
         deleting it would leave an approved publication citing nothing.
         """
-        cursor = self.db.execute(
-            """DELETE FROM memories WHERE source=? AND id NOT IN (
-                   SELECT j.value FROM publications p, json_each(p.provenance) j
-               )""",
-            (source,),
-        )
+        cursor = self._delete_uncited("source=?", source)
         kept = self.db.execute(
             "SELECT count(*) kept FROM memories WHERE source=?", (source,)
         ).fetchone()["kept"]
         self.db.commit()
         return {"deleted": cursor.rowcount, "kept": kept}
+
+    def forget(self, source_key: str) -> int:
+        """Delete the memory a source took back, unless a publication cites it."""
+        deleted = self._delete_uncited("source_key=?", source_key).rowcount
+        self.db.commit()
+        return deleted
+
+    def _delete_uncited(self, where: str, value: str) -> sqlite3.Cursor:
+        return self.db.execute(
+            f"""DELETE FROM memories WHERE {where} AND id NOT IN (
+                   SELECT j.value FROM publications p, json_each(p.provenance) j
+               )""",
+            (value,),
+        )
 
     def memory_inventory(self) -> list[dict[str, object]]:
         rows = self.db.execute(

@@ -173,12 +173,11 @@ this machine, so Claude is the runnable choice for scheduled synthesis" — rath
 future-tense placeholder like "when it becomes available". Both options should describe
 real, current, checkable state, not one present-tense and one hypothetical.
 
-In the Lore desktop app, also offer `"executor": "lore"`: the app reads the owner's
-connected apps on this rhythm while it is open, and once at the next launch if it was
-closed at that hour. When neither `claude` nor `codex` was found, it is the only
-runnable choice: set it without asking and say so plainly: "Lore reads your apps itself
-while it's open." In the app, a profile saved with no executor on such a Mac gets
-`lore` too.
+**Lore desktop:** Lore runs the rhythm, so never ask who runs it and never offer Claude
+or Codex for it; set `"executor": "lore"` and ask only how often and at what hour.
+`"cadence"` is `"daily"`, `"weekdays"` or `"weekly"`; for weekly, also ask the day and
+save it as `"day"` (0 is Monday, 6 is Sunday). Say it plainly: "Lore reads your apps
+every Sunday at 9 PM while it's open, and once when it next opens if it was closed."
 
 ## 4. Save and schedule
 
@@ -192,8 +191,9 @@ LORE_PROFILE
 Validates the profile, writes `profile.json` plus the executor prompt (0600), and installs
 one recurring local task. Codex uses its local automation definition. Claude uses a
 macOS LaunchAgent to run `claude -p`; cloud routines cannot read the owner's local Lore
-library. With `"executor": "lore"` nothing is installed: the app keeps the rhythm and
-retires either agent's task. Use `--no-schedule` for a profile without automation.
+library. With `"executor": "lore"` nothing is installed: the app keeps the rhythm, and
+in the app every profile is saved that way. Use `--no-schedule` for a profile without
+automation.
 
 ## 5. Cold start
 

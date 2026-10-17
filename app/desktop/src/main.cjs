@@ -2,7 +2,7 @@ const { randomUUID } = require("node:crypto");
 const { existsSync } = require("node:fs");
 const { appendFile } = require("node:fs/promises");
 const { join } = require("node:path");
-const { app, autoUpdater, BrowserWindow, dialog, ipcMain, powerMonitor, safeStorage, shell, systemPreferences } = require("electron");
+const { app, autoUpdater, BrowserWindow, clipboard, dialog, ipcMain, powerMonitor, safeStorage, shell, systemPreferences } = require("electron");
 const { provision, skillsDir, whisper } = require("./runtime.cjs");
 const { transcribe } = require("./dictation.cjs");
 const sales = require("./sales.cjs");
@@ -10,7 +10,8 @@ const { Updates } = require("./updates.cjs");
 const reading = require("./reading.cjs");
 const checkin = require("./checkin.cjs");
 const { Schedule } = require("./routines.cjs");
-const { lore, listRoutines, runRoutine, changeRoutine, addRoutine, loreStream, openable, readState, readSales, readViews, searchMemories, readMemory, renameMemory, editMemory, captureMemories, previewPage, setPrice, setFreeCopies, candidates, decide, extrasCandidates, decideExtras, approveExtras, reportFeedback, listStore, cardStatus, connectCards, switchCards, listingStatus, sourceCatalog, sourceChoices, connectSource, signIn, readSource, removeSource, useRuntime } = require("./state.cjs");
+const { Watch, WATCH_EVERY_MS } = require("./agents.cjs");
+const { lore, listRoutines, runRoutine, changeRoutine, addRoutine, editRoutine, switchSource, loreStream, openable, readState, readSales, readViews, searchMemories, readMemory, renameMemory, editMemory, captureMemories, previewPage, setPrice, setFreeCopies, candidates, decide, extrasCandidates, decideExtras, approveExtras, reportFeedback, listStore, cardStatus, connectCards, switchCards, listingStatus, sourceCatalog, sourceChoices, connectSource, signIn, readSource, removeSource, listAgents, connectAgent, agentKey, disconnectAgent, agentsWaiting, useRuntime } = require("./state.cjs");
 
 if (process.env.LORE_DESKTOP_USER_DATA) app.setPath("userData", process.env.LORE_DESKTOP_USER_DATA);
 // Two copies sharing one credentials file each refresh the sign-in, and the provider refuses the second.
@@ -62,8 +63,8 @@ function request(type, payload, signal) {
   });
 }
 
-/** @param {string} loreHome @param {InstanceType<typeof Schedule>} schedule */
-function registerIpc(loreHome, schedule) {
+/** @param {string} loreHome @param {InstanceType<typeof Schedule>} schedule @param {InstanceType<typeof Watch>} watch */
+function registerIpc(loreHome, schedule, watch) {
   ipcMain.handle("snapshot:read", () => readState(loreHome));
   ipcMain.handle("dictation:permission", () => systemPreferences.askForMediaAccess("microphone"));
   ipcMain.handle("update:status", () => updates.update);
@@ -188,7 +189,6 @@ function registerIpc(loreHome, schedule) {
   });
   ipcMain.handle("store:sales", () => readSales(loreHome));
   ipcMain.handle("store:views", () => readViews(loreHome));
-  ipcMain.handle("schedule:install", () => lore(loreHome, ["profile", join(loreHome, "automation", "profile.json")]));
   ipcMain.handle("pricing:set", (_event, amount) => setPrice(loreHome, amount));
   ipcMain.handle("pricing:free-copies", (_event, count) => setFreeCopies(loreHome, count));
   ipcMain.handle("home:reveal", () => shell.openPath(loreHome));
@@ -233,10 +233,19 @@ function registerIpc(loreHome, schedule) {
   // APP-200: the Automations tab reads and changes routines through the CLI, then the clock looks again. Run now waits
   // its turn behind any run under way, so the owner's and the clock's never overlap.
   ipcMain.handle("routines:list", () => listRoutines(loreHome));
+  ipcMain.handle("routines:noticed", () => lore(loreHome, ["automation", "noticed"]).then(() => undefined));
   ipcMain.handle("routines:run", async (_event, id) => {
-    const routine = (await listRoutines(loreHome)).find((each) => each.id === id && each.runner === "lore");
+    const routine = (await listRoutines(loreHome)).find((each) => each.id === id);
     if (!routine) throw new Error("Lore does not run that one");
+    const before = await told();
     await schedule.runNow(routine);
+    await agent?.settled();
+    const done = /** @type {Routine} */ ((await listRoutines(loreHome)).find((each) => each.id === id));
+    // The owner asked, so they hear it finished: here if they are away, unless the run already told them what it found.
+    if (!window?.isFocused() && (await told()) === before) {
+      sales.notify({ title: `“${done.name}” is done`, body: done.result || "Nothing new" }, () => reveal({ type: "show", view: "automations" }));
+    }
+    return done;
   });
   ipcMain.handle("routines:change", async (_event, id, action, when) => {
     await changeRoutine(loreHome, id, action, when);
@@ -247,7 +256,19 @@ function registerIpc(loreHome, schedule) {
     void schedule.check();
     return added;
   });
+  ipcMain.handle("routines:edit", (_event, id, text, title) => editRoutine(loreHome, id, text, title));
+  ipcMain.handle("sources:switch", (_event, name, on) => switchSource(loreHome, name, on === true));
   ipcMain.handle("sources:remove", (_event, name, keep) => removeSource(loreHome, name, keep === true));
+  // APP-207: the owner's personal agents, each a key to their own store, and what they saved brought in on request.
+  ipcMain.handle("agents:list", () => listAgents(loreHome));
+  ipcMain.handle("agents:connect", (_event, input) => connectAgent(loreHome, input));
+  ipcMain.handle("agents:key", (_event, source) => agentKey(loreHome, source));
+  ipcMain.handle("agents:disconnect", (_event, source, keep) => disconnectAgent(loreHome, source, keep === true));
+  ipcMain.handle("agents:check", () => watch.check());
+  ipcMain.handle("clipboard:write", (_event, text) => {
+    if (typeof text !== "string" || text.length > 100_000) throw new Error("Nothing to copy");
+    clipboard.writeText(text);
+  });
   // The Files and Folders pane, where the owner grants the read a folder needs.
   ipcMain.handle("settings:privacy", () => shell.openExternal("x-apple.systempreferences:com.apple.preference.security?Privacy_FilesAndFolders"));
   ipcMain.handle("folders:pick", async () => {
@@ -277,6 +298,11 @@ async function queueReadings(loreHome, reads) {
     const next = reading.worthReading(read, apps);
     if (next) agent?.synthesize(next);
   }
+}
+
+/** What Lore last told the owner about, so a run can tell whether it already did. */
+async function told() {
+  return JSON.stringify([(await newMemories.runs())[0], (await checkIns.latest())?.at]);
 }
 
 /** Bring the window forward, then show what the notification was about. @param {AgentEvent} event */
@@ -361,12 +387,22 @@ app.whenReady().then(async () => {
   const loreHome = process.env.LORE_HOME || join(app.getPath("home"), ".lore");
   // The owner's rhythm, kept by Lore while it is open; an hour missed while it was closed runs once, after setup.
   const schedule = new Schedule(() => listRoutines(loreHome), (routine) => runNow(loreHome, routine));
-  registerIpc(loreHome, schedule);
+  const watch = new Watch({
+    ready: () => hasStore(loreHome),
+    waiting: () => agentsWaiting(loreHome),
+    read: (name) => readSource(loreHome, name),
+    landed: async (reads) => {
+      await queueReadings(loreHome, reads);
+      emit({ type: "agents", reads });
+    }
+  });
+  registerIpc(loreHome, schedule, watch);
   createWindow();
   await new Promise((loaded) => window?.webContents.once("did-finish-load", () => loaded(undefined)));
   updates.start();
   await boot(loreHome);
   watchSales(loreHome);
+  watchAgents(watch);
   void newMemories.show();
   void checkIns.show();
   void schedule.check();
@@ -379,6 +415,19 @@ app.whenReady().then(async () => {
 /** Reading the ledger asks Cloudflare, so once a minute is plenty; coming back to the app checks at once. */
 const SALES_EVERY_MS = 60_000;
 
+/** Only a deployed store has a ledger or an inbox; until one exists Lore never asks. @param {string} loreHome */
+function hasStore(loreHome) {
+  return existsSync(join(loreHome, "node", "node_modules", ".bin", "wrangler"));
+}
+
+/** What the owner's agents saved comes in while Lore is open: once a minute, on coming back to the app, and now.
+ * @param {InstanceType<typeof Watch>} watch */
+function watchAgents(watch) {
+  setInterval(() => void watch.check(), WATCH_EVERY_MS);
+  app.on("browser-window-focus", () => void watch.check());
+  void watch.check();
+}
+
 /** A Mac notification for every new sale while Lore is open. The last one announced is kept on disk,
  * so a relaunch never repeats one and a first look at an old store doesn't replay its history.
  * @param {string} loreHome */
@@ -387,7 +436,7 @@ function watchSales(loreHome) {
   let checking = false;
   const check = async () => {
     // Only a deployed store has a ledger; skip the CLI entirely until one exists.
-    if (checking || !existsSync(join(loreHome, "node", "node_modules", ".bin", "wrangler"))) return;
+    if (checking || !hasStore(loreHome)) return;
     checking = true;
     try {
       const seen = await sales.readSeen(seenFile);
@@ -434,7 +483,9 @@ async function boot(loreHome) {
 
 /** @param {string} loreHome */
 async function start(loreHome) {
-  const runtime = await provision(emit);
+  // From source, LORE_DESKTOP_BIN_DIR stands in for the bundled CLI, so the agent runs the checkout's, not whatever `lore` a shell profile finds first.
+  const dev = !app.isPackaged && process.env.LORE_DESKTOP_BIN_DIR;
+  const runtime = dev ? { bin: join(dev, "lore"), binDir: dev } : await provision(emit);
   if (runtime) useRuntime(runtime.bin);
   const [{ LoreAgent, validEntries }, { CredentialStore }] = await Promise.all([
     import("./agent.mjs"),

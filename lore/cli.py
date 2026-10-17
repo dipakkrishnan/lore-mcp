@@ -6,11 +6,10 @@ import json
 import math
 import os
 import re
-import shutil
 import sys
 import urllib.parse
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Mapping, get_args
 
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter
 
@@ -22,6 +21,8 @@ from . import feedback as feedback_module
 from . import marketplace as marketplace_module
 from . import sources as sources_module
 from . import usage
+from .agents import Agents
+from .inbox import AgentApp, Inbox, InboxError
 from .paths import home
 from .sources import Registry, available_sources
 from .store import (
@@ -167,6 +168,12 @@ def parser() -> argparse.ArgumentParser:
     source_read = source_commands.add_parser("read", help="import from sources now")
     source_read.add_argument("name", nargs="*")
     source_read.add_argument("--json", action="store_true")
+    for name, words in (("enable", "start"), ("disable", "stop")):
+        switch = source_commands.add_parser(
+            name, help=f"{words} reading an agent's history on this Mac, like codex"
+        )
+        switch.add_argument("name")
+        switch.add_argument("--json", action="store_true")
     source_remove = source_commands.add_parser("remove", help="stop reading a source")
     source_remove.add_argument("name")
     memories = source_remove.add_mutually_exclusive_group(required=True)
@@ -177,6 +184,34 @@ def parser() -> argparse.ArgumentParser:
         "--delete", action="store_true", help="delete what it imported"
     )
     source_remove.add_argument("--json", action="store_true")
+
+    agents = commands.add_parser(
+        "agents", help="connect the personal agents that save to your Lore"
+    )
+    agent_commands = agents.add_subparsers(dest="agents_command", required=True)
+    agent_connect = agent_commands.add_parser(
+        "connect", help="give a personal agent a key to save with"
+    )
+    agent_connect.add_argument("name", help="what you call it, like Grok")
+    agent_connect.add_argument("--app", required=True, choices=get_args(AgentApp))
+    agent_connect.add_argument("--json", action="store_true")
+    agent_list = agent_commands.add_parser("list", help="show your connected agents")
+    agent_list.add_argument("--json", action="store_true")
+    agent_key = agent_commands.add_parser(
+        "key", help="give an agent a new key; its old one stops working"
+    )
+    agent_key.add_argument("source", help="the agent's source, like agent-1a2b")
+    agent_key.add_argument("--json", action="store_true")
+    agent_revoke = agent_commands.add_parser("revoke", help="disconnect an agent")
+    agent_revoke.add_argument("source", help="the agent's source, like agent-1a2b")
+    kept = agent_revoke.add_mutually_exclusive_group(required=True)
+    kept.add_argument("--keep", action="store_true", help="keep what it saved")
+    kept.add_argument("--delete", action="store_true", help="delete what it saved")
+    agent_revoke.add_argument("--json", action="store_true")
+    agent_waiting = agent_commands.add_parser(
+        "waiting", help="how many saves are waiting to be brought in"
+    )
+    agent_waiting.add_argument("--json", action="store_true")
 
     review = commands.add_parser("review", help="keep or discard memories")
     review.add_argument("query", nargs="*", help="words to narrow the review queue")
@@ -243,6 +278,9 @@ def parser() -> argparse.ArgumentParser:
         "list", help="show each routine, when it runs next, and what it last found"
     )
     routine_list.add_argument("--json", action="store_true")
+    routine_commands.add_parser(
+        "noticed", help="record that the owner was told Lore's own routines are on"
+    )
     routine_run = routine_commands.add_parser("run", help="run one routine now")
     routine_run.add_argument("id")
     routine_run.add_argument("--json", action="store_true")
@@ -262,6 +300,15 @@ def parser() -> argparse.ArgumentParser:
         toggle = routine_commands.add_parser(name, help=f"{words} a routine")
         toggle.add_argument("id")
         toggle.add_argument("--json", action="store_true")
+    routine_edit = routine_commands.add_parser(
+        "edit", help="reword one of your own: what it does and its name"
+    )
+    routine_edit.add_argument("id")
+    routine_edit.add_argument("text", help="what to do, in a sentence")
+    routine_edit.add_argument(
+        "--title", default="", help="a name; the sentence by default"
+    )
+    routine_edit.add_argument("--json", action="store_true")
     routine_time = routine_commands.add_parser("time", help="change when one runs")
     routine_time.add_argument("id")
     routine_add = routine_commands.add_parser(
@@ -556,6 +603,13 @@ def main(argv: list[str] | None = None) -> int:
             return dashboard()
         args = parser().parse_args(["status"])
     try:
+        # Whichever the app asks first on launch, every routine is Lore's (AUT-010).
+        if args.command in ("automation", "desktop-state") and os.environ.get(
+            "LORE_APP_VERSION"
+        ):
+            from .automation import Routines
+
+            Routines().take_over()
         if args.command == "setup":
             return setup(args.yes)
         if args.command == "sync":
@@ -565,6 +619,8 @@ def main(argv: list[str] | None = None) -> int:
             )
         if args.command == "sources":
             return source_command(args)
+        if args.command == "agents":
+            return agents_command(args)
         if args.command == "job":
             return job(args)
         if args.command == "review":
@@ -934,6 +990,12 @@ def source_command(args: argparse.Namespace) -> int:
                         for read in reads
                     ],
                 )
+            elif command in ("enable", "disable"):
+                _owner_action(
+                    f"turning {args.name} {'on' if command == 'enable' else 'off'}"
+                )
+                switched = Registry(store).switch(args.name, command == "enable")
+                payload, lines = switched, [_source_line(switched)]
             elif command == "remove":
                 removed = Registry(store).remove(args.name, delete=args.delete)
                 kind = "deleted" if args.delete else "kept"
@@ -942,6 +1004,60 @@ def source_command(args: argparse.Namespace) -> int:
                 listed = Registry(store).entries()
                 payload, lines = listed, [_source_line(entry) for entry in listed]
         except sources_module.SourceError as error:
+            print(f"lore: {error}", file=sys.stderr)
+            return 2
+    if args.json:
+        print(json.dumps(payload, separators=(",", ":"), allow_nan=False))
+        return 0
+    for line in lines:
+        print(line)
+    return 0
+
+
+def agents_command(args: argparse.Namespace) -> int:
+    """Connect, list, re-key and disconnect the personal agents that save to Lore."""
+    command = args.agents_command
+    payload: Mapping[str, object]
+    # A key opens the owner's store to an agent, so only the owner hands one out or takes it back.
+    owner_only = {
+        "connect": "connecting an agent",
+        "key": "giving an agent a new key",
+        "revoke": "disconnecting an agent",
+    }
+    if command in owner_only:
+        _owner_action(owner_only[command])
+    with Store() as store:
+        try:
+            agents = Agents(store)
+            if command in ("connect", "key"):
+                payload = (
+                    agents.connect(args.name, args.app)
+                    if command == "connect"
+                    else agents.key(args.source)
+                )
+                said = (
+                    f"Connected {args.name}. Paste this into it:"
+                    if command == "connect"
+                    else "Its old key no longer works. Paste this into it again:"
+                )
+                lines = [said, "", str(payload["prompt"])]
+            elif command == "revoke":
+                payload = agents.revoke(args.source, delete=args.delete)
+                kind = "deleted" if args.delete else "kept"
+                lines = [f"Disconnected {args.source}; memories {kind}."]
+            elif command == "waiting":
+                payload = agents.waiting()
+                lines = [f"{payload['waiting']} waiting to be brought in."]
+            else:
+                listed = agents.entries()
+                payload = listed
+                lines = [
+                    f"  {agent['name']:<14} {agent['app']:<8} {agent['saved']} saved "
+                    f"· {agent['waiting']} waiting · {agent['memories']} memories"
+                    + (" · disconnected" if agent["revoked"] else "")
+                    for agent in listed["agents"]
+                ] or ["No personal agents connected."]
+        except (sources_module.SourceError, InboxError) as error:
             print(f"lore: {error}", file=sys.stderr)
             return 2
     if args.json:
@@ -982,10 +1098,14 @@ def _source_line(entry: dict[str, object]) -> str:
 
 def automation_command(args: argparse.Namespace) -> int:
     """List, run, pause or retime the app's routines; the app reads each as JSON."""
-    from .automation import Routines
+    from .automation import NOTICED, Routines
 
-    routines = Routines()
     command = args.automation_command
+    if command == "noticed":
+        with Store() as store:
+            store.set_setting(NOTICED, True)
+        return 0
+    routines = Routines()
     if command == "result":
         routines.record(args.id, args.text, args.mark)
         return 0
@@ -995,6 +1115,9 @@ def automation_command(args: argparse.Namespace) -> int:
     elif command == "remove":
         routines.remove(args.id)
         payload, lines = {"removed": args.id}, [f"Removed {args.id}."]
+    elif command == "edit":
+        payload = edited = routines.edit(args.id, args.text, args.title)
+        lines = [f"Changed {edited['id']}: {edited['name']}"]
     elif command == "add":
         payload = added = routines.add(
             args.text, args.cadence, args.hour, args.day, args.title
@@ -1446,17 +1569,15 @@ def profile(path: str, schedule: bool = True) -> int:
     schedule = schedule and os.environ.get("LORE_SKIP_SCHEDULE") != "1"
     text = sys.stdin.read() if path == "-" else Path(path).read_text(encoding="utf-8")
     data = json.loads(text)
-    # In the app, an owner with neither Claude Code nor Codex has Lore read for them.
-    if (
-        isinstance(data, dict)
-        and not data.get("executor")
-        and os.environ.get("LORE_APP_VERSION")
-        and not (shutil.which("claude") or shutil.which("codex"))
-    ):
+    # In the app, Lore runs every routine itself (AUT-010).
+    if isinstance(data, dict) and os.environ.get("LORE_APP_VERSION"):
         data["executor"] = automation.Agent.LORE
     data = automation.save_profile(data)
     automation.Routines().adopt()
     success(f"Saved profile to {automation.profile_path()}")
+    if data.get("executor") == automation.Agent.LORE:
+        success("Lore will read on this rhythm while the app is open")
+        return 0
     if not schedule:
         muted("Existing schedules were not changed.")
         return 0
@@ -1471,9 +1592,6 @@ def profile(path: str, schedule: bool = True) -> int:
         # "executor" value raises before install() is ever called.
         warn(automation.schedule_failure(str(data.get("executor", "")), error))
         return 1
-    if executor == automation.Agent.LORE:
-        success("Lore will read on this rhythm while the app is open")
-        return 0
     success(f"Configured {str(executor).title()} local schedule")
     return 0
 
@@ -1974,6 +2092,7 @@ def _push_sql(
     free_copies: int = FREE_COPIES,
     support_email: str = "",
     price_usd: float = 0,
+    inbox: dict[str, str] | None = None,
 ) -> str:
     """Render the full-replace SQL for the edge database.
 
@@ -2026,6 +2145,8 @@ def _push_sql(
         "support_email": support_email,
         # The store charges this from its next push, so a new price needs no redeploy.
         **({"price_usd": f"{price_usd:.6f}"} if price_usd > 0 else {}),
+        # Every push, since it replaces this table: without them agents can't save.
+        **(inbox or {}),
     }
     statements.extend(
         [
@@ -2091,6 +2212,7 @@ def _push(worker: Path, local: bool, job_id: int) -> int:
         free,
         support,
         float(price_usd) if isinstance(price_usd, (int, float)) else 0,
+        Inbox().settings(),
     )
     with tempfile.NamedTemporaryFile("w", suffix=".sql", delete=False) as handle:
         handle.write(script)

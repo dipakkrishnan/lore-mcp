@@ -32,6 +32,20 @@ class SourceRegistryTest(LoreTestCase):
         self.assertEqual(by_name["automation"].origin, "automation")
         self.assertEqual(by_name["claude"].origin, "native")
 
+    def test_an_agents_history_switches_on_and_off_and_keeps_what_it_brought(
+        self,
+    ) -> None:
+        (self.claude_home / "projects").mkdir(parents=True, exist_ok=True)
+        with Store() as store:
+            on = Registry(store).switch("claude", True)
+            self.assertEqual((on["name"], on["enabled"]), ("claude", True))
+            self.assertEqual(store.setting("sources", []), ["claude"])
+            off = Registry(store).switch("claude", False)
+            self.assertFalse(off["enabled"])
+            self.assertEqual(store.setting("sources", []), [])
+            with self.assertRaisesRegex(sources_module.SourceError, "unknown source"):
+                Registry(store).switch("obsidian-1", True)
+
     def test_a_missing_root_reads_nothing_instead_of_raising(self) -> None:
         source = Source("ghost", "Ghost", str(self.lore_home / "nowhere"), "*.md")
         reader = source.reader()
@@ -427,6 +441,7 @@ class OwnerFolderTest(LoreTestCase):
                         "added": 1,
                         "updated": 0,
                         "unchanged": 0,
+                        "removed": 0,
                         "errors": 0,
                         "state": "connected",
                     }
@@ -567,6 +582,7 @@ class ConnectorTest(LoreTestCase):
                 "granola",
                 "notion",
                 "readwise",
+                "agent",
             ],
         )
         self.assertEqual(
