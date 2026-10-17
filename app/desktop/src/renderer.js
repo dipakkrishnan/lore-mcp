@@ -157,6 +157,7 @@ const SETUP_INTENT = "Let's set up my Lore.";
 const STORE_INTENT = "Help me open my store.";
 const AGENT_STORE_INTENT = "Put my store online so my personal agents can save to it. Nothing goes on sale until I approve it.";
 const REDEPLOY_PRICE = "I changed my publication price. Redeploy my store so buyers pay the new amount.";
+const STORE_FIX = "My store isn't responding. Find out why and bring it back online.";
 // Six decimals, not the default two: a price can run below a cent, and rounding
 // $0.000001 up to $0.01 would misstate what a buyer pays. Six is the CLI's floor.
 const money = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 6 });
@@ -599,11 +600,8 @@ function lineIcon(paths) {
 /** Each of Today's next steps by its mark. */
 const STEP_ICONS = {
   connect: lineIcon(`<path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1"></path><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"></path>`),
-  agents: lineIcon(`<path d="M12 3.5l1.9 5.1 5.1 1.9-5.1 1.9-1.9 5.1-1.9-5.1L5 10.5l5.1-1.9z"></path>`),
-  shape: lineIcon(`<path d="M12 3l9 5-9 5-9-5z"></path><path d="M3 13l9 5 9-5"></path>`),
-  rhythm: lineIcon(`<circle cx="12" cy="12" r="8.5"></circle><path d="M12 7.5V12l3 2"></path>`),
+  sell: lineIcon(`<path d="M12 3.5l1.9 5.1 5.1 1.9-5.1 1.9-1.9 5.1-1.9-5.1L5 10.5l5.1-1.9z"></path>`),
   store: lineIcon(`<path d="M4 9l1.5-5h13L20 9M4 9v11h16V9M4 9h16M9 20v-6h6v6"></path>`),
-  paste: lineIcon(`<rect x="6" y="4.5" width="12" height="16" rx="2"></rect><path d="M9.5 3.5h5v3h-5z"></path>`),
   publish: lineIcon(`<path d="M20 12l-8 8-9-9V3h8z"></path><circle cx="7.5" cy="7.5" r="1.5"></circle>`),
   update: lineIcon(`<path d="M12 15V4M7.5 8.5L12 4l4.5 4.5"></path><path d="M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3"></path>`),
   memory: lineIcon(`<path d="M7 3.5h7l4 4V20a.5.5 0 0 1-.5.5h-10A.5.5 0 0 1 7 20z"></path><path d="M14 3.5V8h4M10 12.5h5M10 16h5"></path>`)
@@ -617,32 +615,40 @@ function markTile(mark) {
   return node;
 }
 
-/** What wants the owner next, each a tile with its mark. @param {Snapshot} s */
-function needsYou(s) {
-  /** @type {HTMLElement[]} */
-  const rows = [];
-  const add = (/** @type {keyof typeof STEP_ICONS} */ mark, /** @type {string} */ label, /** @type {string} */ detail, /** @type {HTMLElement} */ action) => {
-    const node = row(label, detail, action, false);
-    node.prepend(markTile(STEP_ICONS[mark]));
-    rows.push(node);
-  };
-  if (!s.library.sources.some((source) => source.connector)) add("connect", "Bring in what you've written", "Notes, posts, or AI conversations from apps you already use.", button("Connect", "secondary", () => show("connectors")));
-  if (!s.setup.sources_configured) {
-    if (s.library.sources.some((source) => !source.owned)) add("agents", "Connect your agents", "Let Lore read what Claude Code and Codex already remember.", button("Start", "secondary", startSetup));
-  } else if (!s.setup.blueprint_configured) add("shape", "Shape your Lore", "Review one proposal based on what your agents already know.", button("Start", "secondary", startSetup));
-  else if (!s.setup.profile_configured) add("rhythm", "Set the rhythm", "Choose how often Lore writes new memories.", button("Start", "secondary", startSetup));
-  // The store rung waits for approved work, whatever rung setup is on: the
-  // payout address is asked last, once there is something worth being paid for.
-  if (s.publications.counts.active && !s.node.url && !pushOffer) add("store", "Open your store", `${s.publications.counts.active === 1 ? "Your approved piece is" : `Your ${s.publications.counts.active} approved pieces are`} ready to sell. Pick a price and where payments go.`, button("Open", "secondary", () => void startDeploy()));
-  const publishing = candidates.length || extraDrafts.length || taskItems.some((item) => item.kind === "publish");
-  if (!publishing) add("paste", "Sell something you wrote", "Paste a post, a postmortem or notes. Lore drafts the piece and shows you its page.", button("Paste", "secondary", openPasteSheet));
-  if (s.library.counts.private && !publishing) add("publish", "Publish something", "Lore drafts up to three things to sell; you approve each one.", button("Publish", "secondary", () => void startPublish()));
-  // Approved work a buyer cannot see yet, or a price they are not yet paying, is actionable whatever rung setup is on.
-  const stale = stalePrice(s);
-  if (stale !== null && !pushing) add("update", "Your new price isn't live yet", `Your store still charges ${price(stale)}. Update it to start charging ${price(s.pricing.publication_usd)}.`, button("Update store", "secondary", () => void startDeploy(REDEPLOY_PRICE)));
+/** The one thing to do next, by the first stage that applies: a store in trouble, changes not live yet, drafts to
+ * approve, memories with nothing to sell, then no agent or app at all. None while the store is being opened or updated.
+ * @param {Snapshot} s @returns {{ mark: keyof typeof STEP_ICONS, label: string, detail: string, action: string, run: () => void } | null} */
+function nextStep(s) {
+  if (pushOffer || pushing) return null;
+  if (s.node.url && s.node.live.state === "unreachable") return { mark: "store", label: "Your store isn't responding", detail: "Buyers and your agents can't reach it right now. Lore can find out why and bring it back.", action: "Fix it", run: () => void startDeploy(STORE_FIX) };
   const waiting = unpushed(s);
-  if (waiting.length && !pushOffer && !pushing) add("update", "Update your store", `${pendingLabel(waiting)}.`, button("Update store", "secondary", pushNow));
-  return rows;
+  const stale = stalePrice(s);
+  const changes = waiting.length + (stale === null ? 0 : 1);
+  if (changes) {
+    const detail = [pendingLabel(waiting), stale === null ? "" : `Your store still charges ${price(stale)}, not ${price(s.pricing.publication_usd)}`].filter(Boolean).join(" · ");
+    return { mark: "update", label: `${plural(changes, "change")} ${changes === 1 ? "isn't" : "aren't"} live yet`, detail, action: "Update store", run: waiting.length ? pushNow : () => void startDeploy(REDEPLOY_PRICE) };
+  }
+  const approved = s.publications.counts.active;
+  if (approved && !s.node.url) return { mark: "store", label: `${plural(approved, "approved piece")} ${approved === 1 ? "isn't" : "aren't"} on sale yet`, detail: "Open your store to sell it. Pick a price and where payments go.", action: "Open your store", run: () => void startDeploy() };
+  const staged = candidates.length + extraDrafts.length;
+  if (staged) return { mark: "publish", label: `${plural(staged, "draft")} ${staged === 1 ? "is" : "are"} waiting`, detail: "Buyers only ever get what you approve.", action: "Review", run: () => content.querySelector(".drafts")?.scrollIntoView({ behavior: "smooth", block: "start" }) };
+  const drafting = taskItems.some((item) => item.kind === "publish" && item.state !== "done");
+  if (s.library.counts.private && !approved && !drafting) return { mark: "sell", label: "Turn what you know into something to sell", detail: "Lore drafts up to three pieces from your memories. You approve each one.", action: "Start", run: () => void startPublish() };
+  if (!s.library.sources.some((source) => source.connector || source.enabled)) return { mark: "connect", label: "Connect the AI you talk to most", detail: "Grok Bot, Muse, ChatGPT or Claude saves what it learns about you. It stays private until you approve a piece.", action: "Connect", run: () => { show("connectors"); new AgentSetup().open(); } };
+  return null;
+}
+
+/** Today's next step as one card, opened by a click anywhere on it. @param {NonNullable<ReturnType<typeof nextStep>>} step */
+function nextStepCard(step) {
+  const node = row(step.label, step.detail, cell(button(step.action, "primary", step.run)), false);
+  node.prepend(markTile(STEP_ICONS[step.mark]));
+  node.classList.add("routine", "next-step");
+  node.addEventListener("click", (event) => {
+    if (!(event.target instanceof Element && event.target.closest("button"))) node.querySelector("button")?.click();
+  });
+  const list = el("div", "routines today-cards");
+  list.append(node);
+  return section("Next step", list);
 }
 
 /** Unfinished threads, without the store's once the store is open: nothing is left to finish there. Quiet work is no
@@ -710,31 +716,39 @@ function draftsPhase() {
 /** Threads whose agent can stage a publication draft. */
 const DRAFTING = new Set(["publish", "capture"]);
 
-/** @param {Snapshot} s */
+/** Drafts to approve, and the push after approving. @param {Snapshot} s */
+function drafts(s) {
+  /** @type {HTMLElement[]} */
+  const parts = [];
+  if (candidates.length || extraDrafts.length) {
+    const node = section("Approve what to sell", approvals(), el("span", "hint", "Buyers only ever get what you approve here."));
+    node.classList.add("drafts");
+    parts.push(node);
+  }
+  if (pushOffer || pushing) parts.push(seamCard());
+  if (pushedNote) parts.push(pushReceipt(s));
+  return parts;
+}
+
+/** What came in, and the one thing to do next. @param {Snapshot} s */
 function renderToday(s) {
   /** @type {HTMLElement[]} */
   const parts = [];
   // A check-in leads Today, on the rare day there is one.
-  if (checkIn && !detailTask) parts.push(checkInCard(checkIn));
-  if (!detailTask && howItWorks.shown()) parts.push(howItWorks.line());
-  // Drafts and the push after approving show on Today and in the threads that draft.
-  if (!detailTask || DRAFTING.has(detailTask)) {
-    if (candidates.length || extraDrafts.length) parts.push(section("Approve what to sell", approvals(), el("span", "hint", "Buyers only ever get what you approve here.")));
-    if (pushOffer || pushing) parts.push(seamCard());
-    if (pushedNote) parts.push(pushReceipt(s));
-  }
   if (detailTask) {
+    // Drafts and the push after approving show in the threads that draft, as on Today.
+    if (DRAFTING.has(detailTask)) parts.push(...drafts(s));
     if ((detailTask === "setup" || detailTask === "deploy") && detailRecord?.state === "done") parts.push(nextRung(s));
     return parts;
   }
+  // A check-in leads Today, on the rare day there is one.
+  if (checkIn) parts.push(checkInCard(checkIn));
+  if (!s.library.counts.private && howItWorks.shown()) parts.push(howItWorks.line());
   const reading = taskItems.find((item) => item.kind === "synthesize" && item.state === "working");
   if (reading) parts.push(readingRow(reading));
   if (readyRuns.length) parts.push(memoriesReady(readyRuns));
-  const attention = needsYou(s);
-  if (attention.length) {
-    parts.push(section("Needs you", tiles(attention)));
-  }
-  if (Array.isArray(sales) && sales.length) parts.push(earned(sales));
+  const step = nextStep(s);
+  if (step) parts.push(nextStepCard(step));
   const shown = displayTasks();
   if (shown.length) {
     const list = el("div", "routines today-cards");
@@ -751,8 +765,8 @@ function renderToday(s) {
     }
     parts.push(section("Unfinished", list));
   }
-  const runs = recentRuns(s);
-  if (runs) parts.push(runs);
+  parts.push(...drafts(s));
+  if (Array.isArray(sales) && sales.length) parts.push(earned(sales));
   const strip = el("div", "strip");
   /** @type {Array<[string, string] | null>} */
   const facts = [
@@ -772,7 +786,7 @@ function renderToday(s) {
   return parts;
 }
 
-/** Today's way into the FAQ for a new owner, until their first paid sale or until they close it. */
+/** Today's way into the FAQ for a new owner, until their first memory, their first paid sale, or until they close it. */
 class HowItWorks {
   key = "lore.how-it-works.closed";
 
@@ -2313,8 +2327,8 @@ function openNewRoutine() {
   text.focus();
 }
 
-/** APP-200: everything Lore does on its own, and when: Lore's and the owner's alike, in one list. */
-function renderAutomations() {
+/** APP-200: everything Lore does on its own, and when: Lore's and the owner's alike, in one list, then what ran lately. @param {Snapshot} s */
+function renderAutomations(s) {
   const add = row("New automation", "Tell Lore what to do and when, in a sentence.", undefined, false);
   const plus = el("span", "routine-mark add");
   plus.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg>`;
@@ -2326,7 +2340,8 @@ function renderAutomations() {
   add.addEventListener("keydown", (event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); openNewRoutine(); } });
   const list = el("div", "routines");
   list.append(...[...routines].sort((x, y) => Number(Boolean(y.built_in)) - Number(Boolean(x.built_in))).map(routineRow), add);
-  return [list];
+  const runs = recentRuns(s);
+  return runs ? [list, runs] : [list];
 }
 
 const renderers = { today: renderToday, inventory: renderInventory, connectors: renderConnectors, automations: renderAutomations, faq: renderFaq, settings: renderSettings };

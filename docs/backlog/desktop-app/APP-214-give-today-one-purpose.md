@@ -4,7 +4,7 @@ title: Give Today one purpose: what came in, and the one thing to do next
 priority: P0
 effort: M
 component: desktop-app
-status: ready
+status: in-review
 related: [APP-210, APP-212, APP-215]
 blockers: []
 dependencies: []
@@ -44,7 +44,13 @@ The coding-agent card leaves Today; those apps live in Connectors.
 
 ## Acceptance criteria
 
-- [ ] At most one next-step card on Today, picked by the first stage that applies.
-- [ ] No Today card mentions Claude Code or Codex.
-- [ ] With an agent connected, Today never asks to connect an agent.
-- [ ] Edge checks cover each stage.
+- [x] At most one next-step card on Today, picked by the first stage that applies.
+- [x] No Today card mentions Claude Code or Codex.
+- [x] With an agent connected, Today never asks to connect an agent.
+- [x] Edge checks cover each stage.
+
+## Notes
+
+Built on `app-214-today-one-purpose`: `nextStep(snapshot)` in the renderer, walked
+stage by stage by the new `today` edge scenario. Approved pieces with no store
+yet count as changes not live, offered as Open your store.
