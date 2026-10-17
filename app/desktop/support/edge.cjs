@@ -941,6 +941,8 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         await shot("agents-today");
         await js(`window.__lore.show("memories")`);
         const saved = `[...document.querySelectorAll("#content .row")].find((r) => r.textContent.includes("How I price sync placements"))`;
+        // APP-208: a date-only save shows the day it names, whatever the Mac's time zone.
+        check("a date-only save shows the day it names", await js(`when("2026-10-17")`) === "Oct 17" && await js(`when("2026-10-17T03:00:00Z")`) === await js(`new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric" }).format(new Date("2026-10-17T03:00:00Z"))`));
         check("what Grok Bot saved is in Memories, from Grok", await waitFor(`/From Grok Bot/.test(${saved}?.textContent ?? "")`), await js(`${saved}?.textContent ?? ""`));
         await js(`${saved}.querySelector(".task-link").click()`);
         check("…and its sheet says so", await waitFor(`/From Grok Bot/.test(document.querySelector("dialog.sheet[open] .sheet-head")?.textContent ?? "")`), await js(sheet));
@@ -1105,8 +1107,8 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         check("…and records what it found", await (async () => { for (let i = 0; i < 20 && mine().result !== "2 new memories"; i++) await sleep(250); return mine().result === "2 new memories"; })(), JSON.stringify(mine()));
         check("…then says it is done, once, without a second banner", await waitFor(`document.body.textContent.includes(${JSON.stringify(`“${SUNDAY}” is done · 2 new memories`)})`) && notes.length === 1, JSON.stringify(notes.map((n) => n.words)));
         await js(`window.__lore.show("today")`);
-        const heading = `[...document.querySelectorAll("#content .section")].find((s) => s.textContent.includes("New memories"))?.querySelector(".row b")?.textContent ?? ""`;
-        check("Today names it by its sentence alone", await waitFor(`(${heading}) === ${JSON.stringify(`“${SUNDAY}”`)}`), await js(heading));
+        const heading = `[...document.querySelectorAll("#content .section")].find((s) => s.textContent.includes("New memories"))?.querySelector(".list-aside span")?.textContent ?? ""`;
+        check("Today names it by its sentence alone", await waitFor(`(${heading}).startsWith(${JSON.stringify(`“${SUNDAY}” · `)})`), await js(heading));
         await js(`[...document.querySelectorAll("#content .section")].find((s) => s.textContent.includes("New memories"))?.scrollIntoView()`);
         await sleep(300);
         await shot("automations-today-owner-routine");

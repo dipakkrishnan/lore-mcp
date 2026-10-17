@@ -481,9 +481,10 @@ function offers(s) {
   return list;
 }
 
-/** @param {string} iso */
+/** A date with no time of day is that calendar day here, not midnight in London. @param {string} iso */
 function when(iso) {
-  const date = new Date(iso);
+  const day = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso);
+  const date = day ? new Date(Number(day[1]), Number(day[2]) - 1, Number(day[3])) : new Date(iso);
   return Number.isNaN(date.getTime()) ? "" : shortDate.format(date);
 }
 
@@ -590,34 +591,57 @@ function greeting() {
   return hour < 12 ? "Good morning." : hour < 18 ? "Good afternoon." : "Good evening.";
 }
 
-/** @param {Snapshot} s */
+/** A line icon from its strokes. @param {string} paths */
+function lineIcon(paths) {
+  return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths}</svg>`;
+}
+
+/** Each of Today's next steps by its mark. */
+const STEP_ICONS = {
+  connect: lineIcon(`<path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1"></path><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"></path>`),
+  agents: lineIcon(`<path d="M12 3.5l1.9 5.1 5.1 1.9-5.1 1.9-1.9 5.1-1.9-5.1L5 10.5l5.1-1.9z"></path>`),
+  shape: lineIcon(`<path d="M12 3l9 5-9 5-9-5z"></path><path d="M3 13l9 5 9-5"></path>`),
+  rhythm: lineIcon(`<circle cx="12" cy="12" r="8.5"></circle><path d="M12 7.5V12l3 2"></path>`),
+  store: lineIcon(`<path d="M4 9l1.5-5h13L20 9M4 9v11h16V9M4 9h16M9 20v-6h6v6"></path>`),
+  paste: lineIcon(`<rect x="6" y="4.5" width="12" height="16" rx="2"></rect><path d="M9.5 3.5h5v3h-5z"></path>`),
+  publish: lineIcon(`<path d="M20 12l-8 8-9-9V3h8z"></path><circle cx="7.5" cy="7.5" r="1.5"></circle>`),
+  update: lineIcon(`<path d="M12 15V4M7.5 8.5L12 4l4.5 4.5"></path><path d="M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3"></path>`),
+  memory: lineIcon(`<path d="M7 3.5h7l4 4V20a.5.5 0 0 1-.5.5h-10A.5.5 0 0 1 7 20z"></path><path d="M14 3.5V8h4M10 12.5h5M10 16h5"></path>`)
+};
+
+/** A small rounded tile holding a mark: a line icon, or an app's own logo. @param {string | HTMLElement} mark */
+function markTile(mark) {
+  const node = el("span", "routine-mark");
+  if (typeof mark === "string") node.innerHTML = mark;
+  else node.append(mark);
+  return node;
+}
+
+/** What wants the owner next, each a tile with its mark. @param {Snapshot} s */
 function needsYou(s) {
   /** @type {HTMLElement[]} */
   const rows = [];
-  const add = (/** @type {string} */ label, /** @type {string} */ detail, /** @type {HTMLElement} */ action) => {
+  const add = (/** @type {keyof typeof STEP_ICONS} */ mark, /** @type {string} */ label, /** @type {string} */ detail, /** @type {HTMLElement} */ action) => {
     const node = row(label, detail, action, false);
-    node.classList.add("step");
-    node.addEventListener("click", (event) => {
-      if (!(event.target instanceof Element && event.target.closest("button"))) /** @type {HTMLButtonElement} */ (action).click();
-    });
+    node.prepend(markTile(STEP_ICONS[mark]));
     rows.push(node);
   };
-  if (!s.library.sources.some((source) => source.connector)) add("Bring in what you've written", "Notes, posts, or AI conversations from apps you already use.", button("Connect", "secondary", () => show("connectors")));
+  if (!s.library.sources.some((source) => source.connector)) add("connect", "Bring in what you've written", "Notes, posts, or AI conversations from apps you already use.", button("Connect", "secondary", () => show("connectors")));
   if (!s.setup.sources_configured) {
-    if (s.library.sources.some((source) => !source.owned)) add("Connect your agents", "Let Lore read what Claude Code and Codex already remember.", button("Start", "secondary", startSetup));
-  } else if (!s.setup.blueprint_configured) add("Shape your Lore", "Review one proposal based on what your agents already know.", button("Start", "secondary", startSetup));
-  else if (!s.setup.profile_configured) add("Set the rhythm", "Choose how often Lore writes new memories.", button("Start", "secondary", startSetup));
+    if (s.library.sources.some((source) => !source.owned)) add("agents", "Connect your agents", "Let Lore read what Claude Code and Codex already remember.", button("Start", "secondary", startSetup));
+  } else if (!s.setup.blueprint_configured) add("shape", "Shape your Lore", "Review one proposal based on what your agents already know.", button("Start", "secondary", startSetup));
+  else if (!s.setup.profile_configured) add("rhythm", "Set the rhythm", "Choose how often Lore writes new memories.", button("Start", "secondary", startSetup));
   // The store rung waits for approved work, whatever rung setup is on: the
   // payout address is asked last, once there is something worth being paid for.
-  if (s.publications.counts.active && !s.node.url && !pushOffer) add("Open your store", `${s.publications.counts.active === 1 ? "Your approved piece is" : `Your ${s.publications.counts.active} approved pieces are`} ready to sell. Pick a price and where payments go.`, button("Open", "secondary", () => void startDeploy()));
+  if (s.publications.counts.active && !s.node.url && !pushOffer) add("store", "Open your store", `${s.publications.counts.active === 1 ? "Your approved piece is" : `Your ${s.publications.counts.active} approved pieces are`} ready to sell. Pick a price and where payments go.`, button("Open", "secondary", () => void startDeploy()));
   const publishing = candidates.length || extraDrafts.length || taskItems.some((item) => item.kind === "publish");
-  if (!publishing) add("Sell something you wrote", "Paste a post, a postmortem or notes. Lore drafts the piece and shows you its page.", button("Paste", "secondary", openPasteSheet));
-  if (s.library.counts.private && !publishing) add("Publish something", "Lore drafts up to three things to sell; you approve each one.", button("Publish", "secondary", () => void startPublish()));
+  if (!publishing) add("paste", "Sell something you wrote", "Paste a post, a postmortem or notes. Lore drafts the piece and shows you its page.", button("Paste", "secondary", openPasteSheet));
+  if (s.library.counts.private && !publishing) add("publish", "Publish something", "Lore drafts up to three things to sell; you approve each one.", button("Publish", "secondary", () => void startPublish()));
   // Approved work a buyer cannot see yet, or a price they are not yet paying, is actionable whatever rung setup is on.
   const stale = stalePrice(s);
-  if (stale !== null && !pushing) add("Your new price isn't live yet", `Your store still charges ${price(stale)}. Update it to start charging ${price(s.pricing.publication_usd)}.`, button("Update store", "secondary", () => void startDeploy(REDEPLOY_PRICE)));
+  if (stale !== null && !pushing) add("update", "Your new price isn't live yet", `Your store still charges ${price(stale)}. Update it to start charging ${price(s.pricing.publication_usd)}.`, button("Update store", "secondary", () => void startDeploy(REDEPLOY_PRICE)));
   const waiting = unpushed(s);
-  if (waiting.length && !pushOffer && !pushing) add("Update your store", `${pendingLabel(waiting)}.`, button("Update store", "secondary", pushNow));
+  if (waiting.length && !pushOffer && !pushing) add("update", "Update your store", `${pendingLabel(waiting)}.`, button("Update store", "secondary", pushNow));
   return rows;
 }
 
@@ -657,18 +681,18 @@ function memoriesReady(runs) {
   const detail = [`${plural(memories.length, "new memory")}, only on this Mac`, selling ? `${selling} ${selling === 1 ? "looks" : "look"} worth selling` : ""].filter(Boolean).join(" · ");
   const clear = button("Clear", "quiet", () => void window.lore.clearMemories().then(() => { readyRuns = []; render(); }));
   const app = (/** @type {string | undefined} */ from) => snapshot?.library.sources.find((source) => source.connector === "agent" && source.label === from)?.app;
-  const rows = memories.map((memory) => {
+  const list = el("div", "routines today-cards");
+  for (const memory of memories) {
     const node = memoryRow(memory.id, memory.title, [memory.from && `From ${memory.from}`, memory.sell ? `Worth selling · ${memory.why}` : memory.work ? "Work · stays private" : "Private"].filter(Boolean).join(" · "), memory.sell);
     const agent = app(memory.from);
-    if (agent) node.prepend(agentMark(agent, memory.from ?? ""));
-    return node;
-  });
+    node.prepend(markTile(agent ? agentMark(agent, memory.from ?? "") : STEP_ICONS.memory));
+    node.classList.add("routine");
+    list.append(node);
+  }
   noticeReady();
-  const head = row(heading, detail, cell(clear), false);
-  head.classList.add("list-head");
-  const list = card([head, ...rows]);
-  list.classList.add("today-list");
-  return section("New memories", list);
+  const aside = el("div", "list-aside");
+  aside.append(el("span", "", `${heading} · ${detail}`), clear);
+  return section("New memories", list, aside);
 }
 
 /** The owner is looking at the new memories, so the dock stops counting them. */
@@ -708,24 +732,24 @@ function renderToday(s) {
   if (readyRuns.length) parts.push(memoriesReady(readyRuns));
   const attention = needsYou(s);
   if (attention.length) {
-    const steps = card(attention);
-    steps.classList.add("today-list", "steps");
-    parts.push(section("Needs you", steps));
+    parts.push(section("Needs you", tiles(attention)));
   }
   if (Array.isArray(sales) && sales.length) parts.push(earned(sales));
   const shown = displayTasks();
   if (shown.length) {
-    parts.push(section("Unfinished", card(shown.map((item) => {
-      const row = el("div", "row");
+    const list = el("div", "routines today-cards");
+    for (const item of shown) {
+      const row = el("div", "row routine");
       const open = el("button", "task-link");
       open.type = "button";
       const text = el("div", "t");
       text.append(el("b", "", item.title), el("span", "", item.phase));
       open.append(text, chip(TASK_STATES[item.state], item.state === "working" ? "ok" : ""));
       open.addEventListener("click", () => void openTask(item.kind, item));
-      row.append(open);
-      return row;
-    }))));
+      row.append(markTile(ROUTINE_ICONS.ask), open);
+      list.append(row);
+    }
+    parts.push(section("Unfinished", list));
   }
   const runs = recentRuns(s);
   if (runs) parts.push(runs);
