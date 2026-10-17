@@ -67,3 +67,10 @@ you"; a capture of an imported file says the file's app.
     memory sheet; the old `origin()` guess is gone.
   - Edge: agents (Grok marks on Today, Inventory, preview, after disconnect),
     reading (Granola marks, "Written by Lore"), automations (clock and routine name).
+  - Review round 2: a file brought in is named by a digest of its path
+    (`file-<16 hex>`), never the path, and a memory whose source can't be named
+    falls back to "Written by Lore" alone, never failing the library. Marks are
+    an allowlist (`sources.marks()`), checked by `lore memory credit` (whose ids
+    must be strict positive integers) and by the renderer, which draws a fixed
+    mark for anything else. An Inventory group named for an agent or app is
+    headed by that one's own mark.

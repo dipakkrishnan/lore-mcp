@@ -15,7 +15,9 @@ from unittest.mock import patch
 
 from helpers import LoreTestCase
 
+from lore import capture as capture_module
 from lore import sources as sources_module
+from lore.snapshot import build
 from lore.sources import Connector, Obsidian, Registry, Source, State, available_sources
 from lore.store import Status, Store
 
@@ -674,20 +676,15 @@ class ProvenanceTest(LoreTestCase):
             [{"kind": "capture", "id": "you", "label": "you", "mark": "pen"}],
         )
         downloaded = "/Users/owner/Downloads/notes.pdf"
+        [file] = found[downloaded]
         self.assertEqual(
-            found[downloaded],
-            [
-                {
-                    "kind": "capture",
-                    "id": downloaded,
-                    "label": "notes.pdf",
-                    "mark": "file",
-                }
-            ],
+            (file["kind"], file["label"], file["mark"]),
+            ("capture", "notes.pdf", "file"),
         )
+        self.assertRegex(str(file["id"]), r"^file-[0-9a-f]{16}$")
         self.assertEqual(
             found[str(vault / "kept.md")],
-            [{"kind": "app", "id": "folder-1", "label": "Vault", "mark": "folder-1"}],
+            [{"kind": "app", "id": "folder-1", "label": "Vault", "mark": ""}],
         )
         self.assertEqual(
             found["saved"],
@@ -720,6 +717,34 @@ class ProvenanceTest(LoreTestCase):
             found["memory.md"],
             [{"kind": "app", "id": "claude", "label": "Claude Code", "mark": "claude"}],
         )
+
+
+class ProvenanceLimitsTest(ProvenanceTest):
+    """Whatever a memory holds, naming where it came from never fails the library."""
+
+    def test_a_capture_from_a_long_path_is_named_by_its_file(self) -> None:
+        path = "/Users/owner/" + "deeply/nested/" * 15 + "notes.md"
+        self.assertGreater(len(path), 200)
+        capture_module.save([{"title": "Long", "content": "a", "source_path": path}])
+        [item] = build()["library"]["items"]  # type: ignore[index]
+        [source] = item["sources"]
+        self.assertEqual((source["label"], source["mark"]), ("notes.md", "file"))
+        self.assertLessEqual(len(source["id"]), 200)
+
+    def test_one_memory_that_cannot_be_named_says_lore_and_the_rest_load(
+        self,
+    ) -> None:
+        self.put("agent-gone", "long", project="x" * 300)
+        self.put("agent-named", "fine", project="Grok Bot")
+        found = self.sources()
+        self.assertEqual(found["long"][0]["kind"], "lore")
+        self.assertEqual(found["fine"][0]["label"], "Grok Bot")
+
+    def test_marks_are_the_known_apps_agents_and_lores_own(self) -> None:
+        known = sources_module.marks()
+        self.assertTrue({"obsidian", "grok", "other", "claude", "codex"} <= known)
+        self.assertTrue({"clock", "pen", "file", "lore", ""} <= known)
+        self.assertNotIn("../../elsewhere", known)
 
 
 if __name__ == "__main__":

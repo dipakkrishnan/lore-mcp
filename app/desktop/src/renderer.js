@@ -617,7 +617,8 @@ function named(names) {
  * a page for a file they brought in, and Lore's own for what Lore wrote. @param {MemorySource} source */
 function sourceMark(source) {
   if (source.kind === "agent") return agentMark(/** @type {AgentApp} */ (source.mark), source.label);
-  if (source.kind === "app") return brand(AGENT_MARKS[source.mark] ?? source.mark, source.label);
+  // Only a mark Lore ships is drawn; anything else gets the same plain one.
+  if (source.kind === "app") return Object.hasOwn(AGENT_MARKS, source.mark) ? brand(AGENT_MARKS[source.mark], source.label) : apps.some((app) => app.id === source.mark) ? brand(source.mark, source.label) : STEP_ICONS.connect;
   if (source.kind === "routine") return CLOCK_ICON;
   if (source.kind === "capture") return source.mark === "file" ? STEP_ICONS.memory : EDIT_ICON;
   return RING;
@@ -1030,12 +1031,19 @@ function renderInventory(s) {
     tabs.append(tab);
   }
 
+  /** A group named for the agent or app its memories came from is headed by that one's own mark. @type {Map<string, MemorySource>} */
+  const known = new Map();
+  for (const item of kept) {
+    for (const source of item.sources) if ((source.kind === "agent" || source.kind === "app") && source.label === item.project_label) known.set(source.label, source);
+  }
   /** Rows under one heading, each group a card headed by what it's about. @param {Map<string, HTMLElement[]>} groups */
   const grouped = (groups) => [...groups].sort(([a], [b]) => a.localeCompare(b)).map(([name, rows]) => {
     const box = el("div", "card rows inv-group");
     const head = el("div", "inv-group-head");
     const app = agentApp(name);
-    head.append(app ? agentMark(app, name) : el("span", "logo initial", (name || "·")[0].toUpperCase()), el("b", "", name || "Unsorted"), el("span", "shelf-count", String(rows.length)));
+    const source = known.get(name);
+    const mark = source ? sourceMark(source) : app ? agentMark(app, name) : el("span", "logo initial", (name || "·")[0].toUpperCase());
+    head.append(typeof mark === "string" ? markTile(mark) : mark, el("b", "", name || "Unsorted"), el("span", "shelf-count", String(rows.length)));
     box.append(head, ...rows);
     return box;
   });
@@ -1817,7 +1825,7 @@ const FIRST_SAVE_EVERY_MS = 10_000;
 
 /** @param {AgentApp | null | undefined} app @param {string} name */
 function agentMark(app, name) {
-  return brand(PERSONAL_MARKS[app ?? "other"] ?? "agent", name);
+  return brand(app && Object.hasOwn(PERSONAL_MARKS, app) ? PERSONAL_MARKS[app] : "agent", name);
 }
 
 /** @param {string} iso */

@@ -1248,6 +1248,9 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         const older = `[...document.querySelectorAll("#content .row")].find((r) => r.textContent.includes("An older lesson Lore wrote"))`;
         check("one Lore wrote before it kept who from says so, never a guess", await js(`/Written by Lore · /.test(${older}?.textContent ?? "") && !/From /.test(${older}.textContent) && Boolean(${older}.querySelector(".mark-stack .routine-mark svg rect"))`), await js(`${older}?.textContent ?? ""`));
         check("…while the new ones say Granola", await js(`/From Granola · /.test([...document.querySelectorAll("#content .row")].find((r) => r.textContent.includes("Raise the first price"))?.textContent ?? "")`));
+        const granolaHead = `[...document.querySelectorAll("#content .inv-group-head")].find((h) => h.querySelector("b")?.textContent === "Granola")`;
+        check("Granola's group is headed by Granola's own mark, not a letter", await js(`${granolaHead}?.querySelector("img.logo")?.src.endsWith("assets/granola.svg") && !${granolaHead}.querySelector(".initial")`), await js(`${granolaHead}?.innerHTML ?? ""`));
+        check("a mark Lore doesn't ship is never drawn from a path", await js(`sourceMark({ kind: "app", id: "x", label: "X", mark: "../../elsewhere", at: null }) === STEP_ICONS.connect && sourceMark({ kind: "app", id: "x", label: "X", mark: "constructor", at: null }) === STEP_ICONS.connect`));
         await js(`${older}.scrollIntoView({ block: "center" })`);
         await sleep(300);
         await shot("reading-inventory-from");

@@ -24,6 +24,7 @@ from typing import (
     Iterator,
     Literal,
     TypeVar,
+    get_args,
 )
 from urllib.error import HTTPError
 from urllib.parse import parse_qs, quote, urlencode, urljoin, urlsplit
@@ -113,7 +114,9 @@ class Source:
             return Contributor(
                 kind="app", id=self.name, label=connector.name, mark=connector.id
             )
-        return Contributor(kind="app", id=self.name, label=self.label, mark=self.name)
+        # Claude Code and Codex have marks of their own; an owner's plain folder has none.
+        mark = self.name if self.name in BUILT_IN_MARKS else ""
+        return Contributor(kind="app", id=self.name, label=self.label, mark=mark)
 
     def reader(self) -> Reader:
         if self.connector:
@@ -152,6 +155,27 @@ class Source:
             raise SourceError(str(error)) from None
         locator, default = source.reader().locate(locator)
         return replace(source, label=label or default, locator=locator)
+
+
+BUILT_IN_MARKS = ("claude", "codex")
+# Lore's own writing, with nobody else on record.
+LORE: dict[str, object] = {
+    "kind": "lore",
+    "id": "lore",
+    "label": "Lore",
+    "mark": "lore",
+}
+
+
+def marks() -> set[str]:
+    """Every mark a contributor may name: an app's, an agent's, a built-in agent
+    history's, the routine's clock, the owner's pen or file, and Lore's own."""
+    return (
+        {app.id for app in Connector.catalog()}
+        | set(get_args(AgentApp))
+        | set(BUILT_IN_MARKS)
+        | {"clock", "pen", "file", "lore", ""}
+    )
 
 
 class Reader(ABC):
@@ -1902,8 +1926,14 @@ class Registry:
         brought it in. Lore's own writing with nobody on record says it was Lore's."""
         named = {source.name: source for source in self.sources}
         for row in rows:
-            if not row["sources"]:
-                row["sources"] = [{**self._brought(row, named), "at": None}]
+            if row["sources"]:
+                continue
+            try:
+                brought = self._brought(row, named)
+            except ValueError:
+                # One memory that can't be named never keeps the rest from loading.
+                brought = LORE
+            row["sources"] = [{**brought, "at": None}]
         return rows
 
     def _brought(
@@ -1911,7 +1941,7 @@ class Registry:
     ) -> dict[str, object]:
         source, project = str(row["source"]), str(row["project"])
         if source == "automation":
-            return {"kind": "lore", "id": "lore", "label": "Lore", "mark": "lore"}
+            return LORE
         if source == "capture":
             return self._captured(str(row["source_path"])).model_dump()
         if source in named:
@@ -1944,7 +1974,11 @@ class Registry:
                 Path(source.locator).expanduser()
             ):
                 return source.contributor()
-        return Contributor(kind="capture", id=path, label=file.name, mark="file")
+        # A path may be far longer than an id: the file is named by a digest of it.
+        digest = hashlib.sha256(path.encode()).hexdigest()[:16]
+        return Contributor(
+            kind="capture", id=f"file-{digest}", label=file.name[:200], mark="file"
+        )
 
     def _save_reads(self) -> None:
         self.store.set_setting(

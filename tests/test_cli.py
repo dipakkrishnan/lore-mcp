@@ -815,6 +815,17 @@ class CreditMemoryTest(LoreTestCase):
             {"ids": [], "by": {"kind": "app", "id": "a", "label": "A"}},
             {"ids": [0], "by": {"kind": "app", "id": "a", "label": "A"}},
             {"ids": [1], "by": {"kind": "robot", "id": "a", "label": "A"}},
+            {"ids": [True], "by": {"kind": "app", "id": "a", "label": "A"}},
+            {"ids": ["1"], "by": {"kind": "app", "id": "a", "label": "A"}},
+            {"ids": [1.0], "by": {"kind": "app", "id": "a", "label": "A"}},
+            {
+                "ids": [1],
+                "by": {"kind": "app", "id": "a", "label": "A", "mark": "../../x"},
+            },
+            {
+                "ids": [1],
+                "by": {"kind": "app", "id": "a", "label": "A", "mark": "nowhere"},
+            },
         ):
             with patch("sys.stdin", StringIO(json.dumps(bad))), captured():
                 self.assertEqual(cli.main(["memory", "credit", "-"]), 1)

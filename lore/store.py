@@ -82,7 +82,7 @@ class Contributor(BaseModel):
     kind: Literal["agent", "app", "routine", "capture"]
     id: str = Field(min_length=1, max_length=200)
     label: str = Field(min_length=1, max_length=200)
-    mark: str = Field(default="", max_length=40)
+    mark: str = Field(default="", max_length=40, pattern=r"^[a-z0-9-]*$")
 
 
 class PublicationKind(str, Enum):

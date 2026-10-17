@@ -11,7 +11,14 @@ import urllib.parse
 from pathlib import Path
 from typing import Annotated, Mapping, get_args
 
-from pydantic import BaseModel, ConfigDict, Field, TypeAdapter
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    StrictInt,
+    TypeAdapter,
+    field_validator,
+)
 
 from . import blueprint as blueprint_module
 from . import capture as capture_module
@@ -1282,8 +1289,15 @@ class Credit(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    ids: list[Annotated[int, Field(gt=0)]] = Field(min_length=1, max_length=500)
+    ids: list[Annotated[StrictInt, Field(gt=0)]] = Field(min_length=1, max_length=500)
     by: Contributor
+
+    @field_validator("by")
+    @classmethod
+    def mark_is_known(cls, by: Contributor) -> Contributor:
+        if by.mark not in sources_module.marks():
+            raise ValueError(f"unknown mark: {by.mark}")
+        return by
 
 
 def credit_memories(file: str) -> int:
