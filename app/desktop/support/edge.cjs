@@ -1105,8 +1105,8 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         check("…and records what it found", await (async () => { for (let i = 0; i < 20 && mine().result !== "2 new memories"; i++) await sleep(250); return mine().result === "2 new memories"; })(), JSON.stringify(mine()));
         check("…then says it is done, once, without a second banner", await waitFor(`document.body.textContent.includes(${JSON.stringify(`“${SUNDAY}” is done · 2 new memories`)})`) && notes.length === 1, JSON.stringify(notes.map((n) => n.words)));
         await js(`window.__lore.show("today")`);
-        const heading = `[...document.querySelectorAll("#content .section")].find((s) => s.textContent.includes("New memories"))?.querySelector(".row b")?.textContent ?? ""`;
-        check("Today names it by its sentence alone", await waitFor(`(${heading}) === ${JSON.stringify(`“${SUNDAY}”`)}`), await js(heading));
+        const heading = `[...document.querySelectorAll("#content .section")].find((s) => s.textContent.includes("New memories"))?.querySelector(".list-aside span")?.textContent ?? ""`;
+        check("Today names it by its sentence alone", await waitFor(`(${heading}).startsWith(${JSON.stringify(`“${SUNDAY}” · `)})`), await js(heading));
         await js(`[...document.querySelectorAll("#content .section")].find((s) => s.textContent.includes("New memories"))?.scrollIntoView()`);
         await sleep(300);
         await shot("automations-today-owner-routine");
