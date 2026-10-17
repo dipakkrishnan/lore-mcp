@@ -53,4 +53,12 @@ The coding-agent card leaves Today; those apps live in Connectors.
 
 Built on `app-214-today-one-purpose`: `nextStep(snapshot)` in the renderer, walked
 stage by stage by the new `today` edge scenario. Approved pieces with no store
-yet count as changes not live, offered as Open your store.
+yet count as changes not live, offered as Open your store. When drafts are
+waiting, the Approve what to sell section is itself the next step, in its place;
+no card points at it.
+
+The "Sell something you wrote" paste sheet lost its Today button with the old
+Needs you grid; its way in is now a secondary button in Inventory's header,
+beside + Add Memory. While a deploy or publish thread is at work Today shows no
+next step, and a step's action reopens a thread already under way rather than
+sending a second prompt.

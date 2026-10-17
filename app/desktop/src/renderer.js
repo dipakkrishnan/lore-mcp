@@ -15,6 +15,7 @@ const account = $("#account");
 const taskBack = /** @type {HTMLButtonElement} */ ($("#task-back"));
 const taskRestart = /** @type {HTMLButtonElement} */ ($("#task-restart"));
 const addMemoryBtn = /** @type {HTMLButtonElement} */ ($("#add-memory"));
+const sellWritingBtn = /** @type {HTMLButtonElement} */ ($("#sell-writing"));
 const feedbackBtn = /** @type {HTMLButtonElement} */ ($("#feedback-open"));
 const accountMenu = $("#account-menu");
 const accountLine = $("#account-line");
@@ -616,29 +617,41 @@ function markTile(mark) {
 }
 
 /** The one thing to do next, by the first stage that applies: a store in trouble, changes not live yet, drafts to
- * approve, memories with nothing to sell, then no agent or app at all. None while the store is being opened or updated.
- * @param {Snapshot} s @returns {{ mark: keyof typeof STEP_ICONS, label: string, detail: string, action: string, run: () => void } | null} */
+ * approve (the drafts themselves are the step), memories with nothing to sell, then no agent or app at all. None while
+ * the store is being opened, repaired or updated.
+ * @param {Snapshot} s @returns {{ mark: keyof typeof STEP_ICONS, label: string, detail: string, action: string, run: () => void } | "drafts" | null} */
 function nextStep(s) {
-  if (pushOffer || pushing) return null;
-  if (s.node.url && s.node.live.state === "unreachable") return { mark: "store", label: "Your store isn't responding", detail: "Buyers and your agents can't reach it right now. Lore can find out why and bring it back.", action: "Fix it", run: () => void startDeploy(STORE_FIX) };
+  if (pushOffer || pushing || underWay("deploy")) return null;
+  if (s.node.url && s.node.live.state === "unreachable") return { mark: "store", label: "Your store isn't responding", detail: "Buyers and your agents can't reach it right now. Lore can find out why and bring it back.", action: "Fix it", run: resume("deploy", () => startDeploy(STORE_FIX)) };
   const waiting = unpushed(s);
   const stale = stalePrice(s);
   const changes = waiting.length + (stale === null ? 0 : 1);
   if (changes) {
     const detail = [pendingLabel(waiting), stale === null ? "" : `Your store still charges ${price(stale)}, not ${price(s.pricing.publication_usd)}`].filter(Boolean).join(" · ");
-    return { mark: "update", label: `${plural(changes, "change")} ${changes === 1 ? "isn't" : "aren't"} live yet`, detail, action: "Update store", run: waiting.length ? pushNow : () => void startDeploy(REDEPLOY_PRICE) };
+    return { mark: "update", label: `${plural(changes, "change")} ${changes === 1 ? "isn't" : "aren't"} live yet`, detail, action: "Update store", run: waiting.length ? pushNow : resume("deploy", () => startDeploy(REDEPLOY_PRICE)) };
   }
   const approved = s.publications.counts.active;
-  if (approved && !s.node.url) return { mark: "store", label: `${plural(approved, "approved piece")} ${approved === 1 ? "isn't" : "aren't"} on sale yet`, detail: "Open your store to sell it. Pick a price and where payments go.", action: "Open your store", run: () => void startDeploy() };
-  const staged = candidates.length + extraDrafts.length;
-  if (staged) return { mark: "publish", label: `${plural(staged, "draft")} ${staged === 1 ? "is" : "are"} waiting`, detail: "Buyers only ever get what you approve.", action: "Review", run: () => content.querySelector(".drafts")?.scrollIntoView({ behavior: "smooth", block: "start" }) };
+  if (approved && !s.node.url) return { mark: "store", label: `${plural(approved, "approved piece")} ${approved === 1 ? "isn't" : "aren't"} on sale yet`, detail: "Open your store to sell it. Pick a price and where payments go.", action: "Open your store", run: resume("deploy", () => startDeploy()) };
+  if (candidates.length || extraDrafts.length) return "drafts";
   const drafting = taskItems.some((item) => item.kind === "publish" && item.state !== "done");
-  if (s.library.counts.private && !approved && !drafting) return { mark: "sell", label: "Turn what you know into something to sell", detail: "Lore drafts up to three pieces from your memories. You approve each one.", action: "Start", run: () => void startPublish() };
-  if (!s.library.sources.some((source) => source.connector || source.enabled)) return { mark: "connect", label: "Connect the AI you talk to most", detail: "Grok Bot, Muse, ChatGPT or Claude saves what it learns about you. It stays private until you approve a piece.", action: "Connect", run: () => { show("connectors"); new AgentSetup().open(); } };
+  // An open publish thread is the step itself, under Unfinished.
+  if (s.library.counts.private && !approved) return drafting ? null : { mark: "sell", label: "Turn what you know into something to sell", detail: "Lore drafts up to three pieces from your memories. You approve each one.", action: "Start", run: resume("publish", () => startPublish()) };
+  if (!s.library.sources.some((source) => source.connector || source.enabled)) return { mark: "connect", label: "Connect the AI you talk to most", detail: "Grok Bot, ChatGPT or Claude saves what it learns about you. It stays private until you approve a piece.", action: "Connect", run: () => { show("connectors"); new AgentSetup().open(); } };
   return null;
 }
 
-/** Today's next step as one card, opened by a click anywhere on it. @param {NonNullable<ReturnType<typeof nextStep>>} step */
+/** Whether the agent is at work on a thread of this kind. @param {AgentTask} kind */
+function underWay(kind) {
+  return busy === kind || taskItems.some((item) => item.kind === kind && item.state === "working");
+}
+
+/** A step's action: back into its thread while that thread is at work, so a second click never sends a second prompt.
+ * @param {AgentTask} kind @param {() => Promise<void>} start */
+function resume(kind, start) {
+  return () => void (underWay(kind) ? openTask(kind) : start());
+}
+
+/** Today's next step as one card, opened by a click anywhere on it. @param {Exclude<ReturnType<typeof nextStep>, "drafts" | null>} step */
 function nextStepCard(step) {
   const node = row(step.label, step.detail, cell(button(step.action, "primary", step.run)), false);
   node.prepend(markTile(STEP_ICONS[step.mark]));
@@ -720,11 +733,7 @@ const DRAFTING = new Set(["publish", "capture"]);
 function drafts(s) {
   /** @type {HTMLElement[]} */
   const parts = [];
-  if (candidates.length || extraDrafts.length) {
-    const node = section("Approve what to sell", approvals(), el("span", "hint", "Buyers only ever get what you approve here."));
-    node.classList.add("drafts");
-    parts.push(node);
-  }
+  if (candidates.length || extraDrafts.length) parts.push(section("Approve what to sell", approvals(), el("span", "hint", "Buyers only ever get what you approve here.")));
   if (pushOffer || pushing) parts.push(seamCard());
   if (pushedNote) parts.push(pushReceipt(s));
   return parts;
@@ -748,7 +757,8 @@ function renderToday(s) {
   if (reading) parts.push(readingRow(reading));
   if (readyRuns.length) parts.push(memoriesReady(readyRuns));
   const step = nextStep(s);
-  if (step) parts.push(nextStepCard(step));
+  if (step === "drafts") parts.push(...drafts(s));
+  else if (step) parts.push(nextStepCard(step));
   const shown = displayTasks();
   if (shown.length) {
     const list = el("div", "routines today-cards");
@@ -765,7 +775,7 @@ function renderToday(s) {
     }
     parts.push(section("Unfinished", list));
   }
-  parts.push(...drafts(s));
+  if (step !== "drafts") parts.push(...drafts(s));
   if (Array.isArray(sales) && sales.length) parts.push(earned(sales));
   const strip = el("div", "strip");
   /** @type {Array<[string, string] | null>} */
@@ -2358,6 +2368,7 @@ function render() {
   taskBack.hidden = !detail;
   taskRestart.hidden = !detail || detailRecord?.state !== "stopped";
   addMemoryBtn.hidden = Boolean(detail) || view !== "inventory";
+  sellWritingBtn.hidden = addMemoryBtn.hidden;
   captureArea.hidden = view !== "today";
   log.hidden = !detail;
   syncComposer();
@@ -3756,6 +3767,7 @@ function startCapture(text = "") {
   input.focus();
 }
 addMemoryBtn.addEventListener("click", () => startCapture());
+sellWritingBtn.addEventListener("click", openPasteSheet);
 
 /* Find or capture: one gesture for both, so the owner never has to know whether a memory exists before reaching for it. */
 /** @type {Array<{node: HTMLElement, verb: string, run: () => void}>} */
@@ -3976,7 +3988,7 @@ keyForm.addEventListener("submit", (event) => {
   void signIn(provider, "api_key", value);
 });
 
-Object.assign(window, { __lore: { show, openTask, paste: openPasteSheet, preview: renderRequest, event: onEvent, signIn: () => { previewSignIn = true; auth = { credentials: [{ providerId: "anthropic", type: "oauth" }] }; enter(); } } });
+Object.assign(window, { __lore: { show, openTask, preview: renderRequest, event: onEvent, signIn: () => { previewSignIn = true; auth = { credentials: [{ providerId: "anthropic", type: "oauth" }] }; enter(); } } });
 
 function boot() {
   if (previewSignIn) return;
