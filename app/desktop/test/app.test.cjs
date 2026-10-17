@@ -1582,6 +1582,9 @@ test("an owner's routine runs their sentence as a quiet reading and is announced
   assert.deepEqual(run.by, { kind: "routine", id: "r-1", label: "Every Sunday, remember what I read", mark: "clock" }, "what it wrote is on record as the routine's");
   const long = "Remember ".repeat(60);
   assert.equal(asking({ id: "r-2", name: long }, long).by.label, long.trim().slice(0, 200), "a routine named by a long prompt is cut to what the store keeps");
+  const emoji = `${"a".repeat(199)}🧠 keep the lesson`;
+  const cut = asking({ id: "r-3", name: emoji }, emoji).by.label;
+  assert.equal(cut, `${"a".repeat(199)}🧠`, "a cut never splits an emoji");
 });
 
 test("Run now waits for a scheduled run under way, so the two never overlap", async () => {

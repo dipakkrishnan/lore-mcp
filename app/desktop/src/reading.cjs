@@ -10,9 +10,9 @@ const KEPT = 5;
 /** How long a contributor's name may be, as the store keeps it (lore/store.py LABEL_LIMIT). */
 const LABEL_LIMIT = 200;
 
-/** Who wrote a reading's memories, its name cut to what the store keeps.
+/** Who wrote a reading's memories, its name cut to what the store keeps, by character so an emoji is never split.
  * @param {Contributor["kind"]} kind @param {string} id @param {string} label @param {string} mark @returns {Contributor} */
-const contributor = (kind, id, label, mark) => ({ kind, id, label: label.trim().slice(0, LABEL_LIMIT), mark });
+const contributor = (kind, id, label, mark) => ({ kind, id, label: Array.from(label.trim()).slice(0, LABEL_LIMIT).join(""), mark });
 
 /** @param {string} noun */
 const many = (noun) => `${noun.replace(/y$/, "ie")}s`;
