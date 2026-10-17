@@ -481,9 +481,10 @@ function offers(s) {
   return list;
 }
 
-/** @param {string} iso */
+/** A date with no time of day is that calendar day here, not midnight in London. @param {string} iso */
 function when(iso) {
-  const date = new Date(iso);
+  const day = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso);
+  const date = day ? new Date(Number(day[1]), Number(day[2]) - 1, Number(day[3])) : new Date(iso);
   return Number.isNaN(date.getTime()) ? "" : shortDate.format(date);
 }
 
