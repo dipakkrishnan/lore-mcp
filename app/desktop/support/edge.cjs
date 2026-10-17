@@ -38,6 +38,11 @@ const checkIns = [];
 /** APP-207: what the owner copied, and every turn the owner started. */
 const copied = [];
 const prompts = [];
+/** APP-214: every store push asked for, and how the walk ends a thread the stand-in agent left working. */
+const pushes = [];
+let finishThread = (/** @type {AgentTask} */ _kind) => {};
+/** APP-214: the next turn fails a moment in, the way agent.mjs reports a thrown turn. */
+let failNextTurn = false;
 if (scenario === "listing") {
   require("electron").shell.openExternal = async (url) => { opened.push(url); };
   require(join(src, "main.cjs"));
@@ -136,6 +141,39 @@ if (scenario === "listing") {
     };
     require(join(src, "main.cjs"));
   });
+} else if (scenario === "today") {
+  // APP-214: every next step is clicked for real; what it reaches is recorded instead of run. A push succeeds without a
+  // store, and a turn is the prompt it was sent, its thread working until the walk finishes it.
+  const { ipcMain } = require("electron");
+  const handle = ipcMain.handle.bind(ipcMain);
+  ipcMain.handle = (channel, listener) => handle(channel, channel === "store:push" ? async () => { pushes.push(Date.now()); } : listener);
+  void import(require("node:url").pathToFileURL(join(src, "agent.mjs")).href).then(({ LoreAgent }) => {
+    /** @type {Map<string, TaskRecord>} */
+    const threads = new Map();
+    LoreAgent.prototype.tasks = () => [...threads.values()];
+    LoreAgent.prototype.prompt = async function (/** @type {string} */ text, /** @type {AgentTask} */ task) {
+      prompts.push({ text, task });
+      const record = { version: 1, kind: task, title: { deploy: "Open your store", publish: "Publish from your Lore" }[task] ?? task, state: "working", phase: "Working", updatedAt: new Date().toISOString() };
+      threads.set(task, record);
+      this.options.emit({ type: "task", task: record });
+      if (failNextTurn) {
+        failNextTurn = false;
+        this.options.emit({ type: "working", active: true, task });
+        await new Promise((done) => setTimeout(done, 3000));
+        const stopped = { ...record, state: "stopped", phase: "Needs another try", updatedAt: new Date().toISOString() };
+        threads.set(task, stopped);
+        this.options.emit({ type: "task", task: stopped });
+        this.options.emit({ type: "working", active: false, task });
+        throw new Error("the model stopped answering");
+      }
+      finishThread = (/** @type {AgentTask} */ kind) => {
+        const done = { ...threads.get(kind), state: "done", phase: "Finished", updatedAt: new Date().toISOString() };
+        threads.set(kind, done);
+        this.options.emit({ type: "task", task: done });
+      };
+    };
+    require(join(src, "main.cjs"));
+  });
 } else if (scenario === "agents") {
   // APP-207: everything around an agent's save is real (the CLI, the stand-in node's D1 and /agent) except the
   // model and the deploy. The deploy stand-in leaves what a real one does: the node's wrangler, and the store's address.
@@ -203,11 +241,15 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         await shot("provision-recovered");
       } else if (scenario === "jobs") {
         // APP-007: owner-run history survives the live event that produced it,
-        // so Today must render every state it can be in — including a run that
-        // started and never reported finishing.
+        // so Automations must render every state it can be in — including a run
+        // that started and never reported finishing. APP-214: it lives there, not on Today.
         await waitFor(`document.body.dataset.state === "welcome" && !document.querySelector("#welcome").classList.contains("provisioning")`);
         await js(`window.__lore.signIn()`);
+        await waitFor(`document.querySelector("#content .strip")`);
+        check("Today carries no Recent runs", !(await js(`document.querySelector("#content").textContent.includes("Recent runs")`)));
+        await js(`window.__lore.show("automations")`);
         await waitFor(`document.querySelector("#content").textContent.includes("Recent runs")`);
+        check("Recent runs is Automations' last section, below the routines", await js(`(() => { const last = document.querySelector("#content").lastElementChild; return last.querySelector("h2")?.textContent === "Recent runs" && Boolean(last.previousElementSibling?.classList.contains("routines")); })()`));
         const runs = await js(`[...document.querySelectorAll("#content .section")].find((s) => s.textContent.includes("Recent runs")).textContent`);
         check("a finished capture reads as done, with what it cost", /Capture/.test(runs) && /Saved what you approved/.test(runs) && /\$0\.42/.test(runs), runs);
         check("a failed push says so", /Store update/.test(runs) && /Failed/.test(runs), runs);
@@ -219,13 +261,17 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         check("history carries no command or path", !/wrangler|npx|\/Users\//.test(runs), runs);
         await js(`[...document.querySelectorAll("#content .section")].find((s) => s.textContent.includes("Recent runs")).scrollIntoView()`);
         await sleep(300);
-        await shot("today-recent-runs");
+        await shot("automations-recent-runs");
+        // A run with a thread behind it opens that thread from Automations, on Today, as it did from Today.
+        await js(`[...document.querySelectorAll("#content .task-link")].find((b) => b.textContent.includes("Store deploy")).click()`);
+        check("a Recent runs row opens its thread, saying the run is still going", await waitFor(`document.querySelector("#title").textContent === "Store deploy" && document.querySelector("#eyebrow").textContent === "Working · Running" && !document.querySelector("#task-back").hidden`), `${await js(`document.querySelector("#title").textContent`)} | ${await js(`document.querySelector("#eyebrow").textContent`)}`);
+        await js(`document.querySelector("#task-back").click()`);
 
         // The record is read from the snapshot, not from agent memory, so it is
         // still here after a relaunch — which is the whole point of the table.
         await js(`window.__lore.show("memories")`);
         await sleep(300);
-        await js(`window.__lore.show("today")`);
+        await js(`window.__lore.show("automations")`);
         await waitFor(`document.querySelector("#content").textContent.includes("Recent runs")`);
         check("history survives leaving and returning", await js(`document.querySelector("#content").textContent.includes("Saved what you approved")`));
 
@@ -236,10 +282,8 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         await js(`window.__lore.event({ type: "changed" })`);
         // The re-read runs the CLI several times; on a busy Mac it takes longer than any fixed pause.
         check("an owner with no runs yet sees no Recent runs section", await waitFor(`![...document.querySelectorAll("#content .section")].some((s) => s.textContent.includes("Recent runs"))`));
-        check("the rest of Today still renders", await js(`document.querySelector("#content .strip") !== null`));
-        await js(`[...document.querySelectorAll("#content .section")].find((s) => s.textContent.includes("Recent runs"))?.scrollIntoView()`);
-        await sleep(300);
-        await shot("today-recent-runs-empty");
+        check("the rest of Automations still renders", await js(`document.querySelector("#content .routines") !== null`));
+        await shot("automations-recent-runs-empty");
 
         // AUT-010: a reading Codex ran, every Sunday at 9 PM, is Lore's from the first launch, with no agent named.
         await js(`window.__lore.show("connectors")`);
@@ -281,12 +325,13 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         await shot("store-stale-price");
         await js(`window.__lore.show("today")`);
         await sleep(400);
-        check("Today offers the update as standing state, in plain words", await js(`document.querySelector("#content").textContent.includes("Your store still charges $0.02. Update it to start charging $0.75.")`));
-        // Fix 5: approved work the node does not hold yet gets a standing Push, on For Sale and under Needs you.
+        const nextStep = `(document.querySelector("#content .next-step")?.textContent ?? "")`;
+        check("Today's next step is the update, in plain words", await js(`${nextStep}.includes("1 change isn't live yetYour store still charges $0.02, not $0.75Update store")`), await js(nextStep));
+        // Fix 5: approved work the node does not hold yet gets a standing Push, on For Sale and as Today's next step.
         await js(`window.__lore.show("today")`);
         await sleep(400);
         await js(`[...document.querySelectorAll("#content button")].find((b) => b.textContent === "Approve").click()`);
-        await waitFor(`document.querySelector("#content").textContent.includes("Update your store")`);
+        await waitFor(`document.querySelector("#content").textContent.includes("approved, not on your store yet")`);
         // The staged node answers the ledger query with two sales, one of them the publication just approved.
         const publicId = await js(`window.lore.snapshot().then((s) => s.publications.items.find((i) => i.state === "approved").public_id)`);
         const wrangler = join(process.env.LORE_HOME, "node/node_modules/.bin/wrangler");
@@ -308,7 +353,7 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         await shot("store-unpushed");
         await js(`window.__lore.show("today")`);
         await sleep(400);
-        check("Needs you carries the standing Push row", await js(`document.querySelector("#content").textContent.includes("1 approved, not on your store yet.")`));
+        check("Today's next step carries the standing Push", await js(`${nextStep}.includes("1 approved, not on your store yet")`), await js(nextStep));
         // APP-093: a take-down the node has not absorbed yet is pending state read from the snapshot, not a banner.
         // The fake wrangler makes the revoke's push "succeed", which drops the probe cache; re-seed it as a node that still lists the item.
         await js(`window.__lore.show("store")`);
@@ -330,7 +375,7 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         await shot("store-removal-pending");
         await js(`window.__lore.show("today")`);
         await sleep(400);
-        check("Needs you names the pending removal", await js(`document.querySelector("#content").textContent.includes("1 taken down, still on your store.")`));
+        check("Today's next step names the pending removal", await js(`${nextStep}.includes("1 taken down, still on your store")`), await js(nextStep));
         // Fix 9: a memory typed on Today joins the unfinished capture thread instead of an empty one.
         await js(`window.__lore.show("today")`);
         await js(`window.__lore.event({ type: "task", task: { version: 1, kind: "capture", title: "Capture", state: "stopped", phase: "Reply to keep going", updatedAt: new Date().toISOString() } })`);
@@ -429,13 +474,14 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         await waitFor(`document.body.dataset.state === "welcome" && !document.querySelector("#welcome").classList.contains("provisioning")`);
         await js(`window.__lore.signIn()`);
         await waitFor(`document.querySelector("#content .strip")`);
-        // APP-127: an owner with no apps connected is pointed at Connectors, and nothing to publish yet.
+        // APP-127, APP-214: an owner with nothing connected is pointed at Connectors, and nothing to publish yet.
         const firstToday = await js(`document.querySelector("#content").textContent`);
-        check("Today points a new owner at their apps, with nothing to publish yet", /Bring in what you've written/.test(firstToday) && !/Publish something/.test(firstToday), firstToday);
-        check("…and asks nothing about agents that are not on this Mac", !/Connect your agents/.test(firstToday), firstToday);
+        check("Today points a new owner at connecting their AI, with nothing to publish yet", /Connect the AI you talk to most/.test(firstToday) && !/something to sell/.test(firstToday), firstToday);
+        check("…and names no coding agents", !/Claude Code|Codex/.test(firstToday), firstToday);
         await shot("today-bring-in");
-        await js(`[...document.querySelectorAll("#content .row")].find((r) => r.textContent.includes("Bring in what you've written")).querySelector("button").click()`);
+        await js(`document.querySelector("#content .next-step button").click()`);
         check("…and its button opens Connectors", await waitFor(`document.querySelector("#title").textContent === "Connectors"`));
+        await js(`document.querySelector("dialog.sheet[open] .icon-btn")?.click()`);
         // Only the rows under "Your apps": Account also says Claude.
         const sourceRows = `[...[...document.querySelectorAll("#content section")].find((s) => s.querySelector("h2")?.textContent === "Your apps").querySelectorAll(".row")]`;
         const rowOf = (name) => `${sourceRows}.find((r) => r.querySelector("b").textContent === ${JSON.stringify(name)})`;
@@ -586,7 +632,7 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         await js(`window.__lore.show("today")`);
         await sleep(300);
         const today = await js(`document.querySelector("#content").textContent`);
-        check("with apps connected, Today offers to publish and stops asking to connect", /Publish something/.test(today) && !/Bring in what you've written/.test(today), today);
+        check("with apps connected, Today offers to publish and stops asking to connect", /Turn what you know into something to sell/.test(today) && !/Connect the AI you talk to most/.test(today), today);
         await shot("today-publish");
         await js(`window.__lore.show("connectors")`);
         await waitFor(textOf("ChatGPT"));
@@ -605,14 +651,8 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         const nav = await js(`[...document.querySelectorAll("nav button")].map((b) => b.dataset.view).join()`);
         check("the sidebar lists only the four main places", nav === "today,inventory,connectors,automations", nav);
         check("…and no lone feedback link outside the account menu", await js(`document.querySelector("#account-menu").contains(document.querySelector("#feedback-open")) && !document.querySelector("aside > .feedback-open")`));
-        // APP-202: a new owner finds the FAQ from Today until a paid sale or until they close the line.
-        check("Today offers a new owner How it works", await js(`document.querySelector("#content .how-it-works")?.textContent.includes("How it works") === true`));
-        await js(`[...document.querySelectorAll("#content .how-it-works button")].find((b) => b.textContent === "How it works").click()`);
-        check("…which opens the FAQ", await waitFor(`document.querySelector("#title").textContent === "FAQ"`));
-        await js(`window.__lore.show("today")`);
-        await js(`document.querySelector("#content .how-it-works .dismiss").click()`);
-        await js(`window.__lore.show("memories"); window.__lore.show("today")`);
-        check("…and once closed it stays closed", await js(`document.querySelector("#content .strip") !== null && document.querySelector("#content .how-it-works") === null`));
+        // APP-202, APP-214: How it works is for an owner with nothing kept yet (the today walk covers it); this one has memories.
+        check("an owner with memories is not offered How it works", await js(`document.querySelector("#content .strip") !== null && document.querySelector("#content .how-it-works") === null`));
         await js(`document.querySelector("#account").click()`);
         const menu =await js(`[...document.querySelectorAll("#account-menu button:not([hidden]), #account-menu p")].map((b) => b.textContent).join("|")`);
         check("the account row opens a menu: Settings, Help & FAQ, feedback when it can be sent, then who is signed in", /^Settings⌘,\|Help & FAQ\|(Report feedback\|)?Signed in with Claude\|Sign out of Claude$/.test(menu), menu);
@@ -735,8 +775,14 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         check("the preview window runs no script", preview?.webContents.getLastWebPreferences().javascript === false);
         if (preview) writeFileSync(join(S, "sell-preview.png"), (await preview.webContents.capturePage()).toPNG());
         preview?.close();
-        const opened = await js(`(() => { try { window.__lore.paste(); return "ok"; } catch (e) { return String(e && e.stack || e); } })()`);
-        check("Paste opens the sheet", opened === "ok", opened);
+        // APP-214: the way in is Inventory's header, beside Add Memory.
+        check("Today has no Sell something you wrote button; Inventory's header does", await js(`document.querySelector("#sell-writing").hidden`));
+        await js(`window.__lore.show("inventory")`);
+        check("…left of + Add Memory", await waitFor(`document.querySelector("#title").textContent === "Inventory" && !document.querySelector("#sell-writing").hidden && document.querySelector("#sell-writing").nextElementSibling === document.querySelector("#add-memory")`));
+        await sleep(400);
+        await shot("inventory-sell-writing");
+        await js(`document.querySelector("#sell-writing").click()`);
+        check("Sell something you wrote opens the sheet", await waitFor(`document.querySelector("dialog.sheet[open]")?.getAttribute("aria-label") === "Sell something you wrote"`), await js(`document.querySelector("dialog.sheet[open]")?.getAttribute("aria-label") ?? "none"`));
         await sleep(300);
         await js(`const t = document.querySelector("dialog.sheet[open] textarea"); t.value = "Our launch deck lost to four-minute demos.\\nTwelve cold sends, zero replies."; t.dispatchEvent(new Event("input"))`);
         await shot("sell-paste");
@@ -869,6 +915,9 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         await waitFor(`document.body.dataset.state === "welcome" && !document.querySelector("#welcome").classList.contains("provisioning")`);
         await js(`window.__lore.signIn()`);
         await waitFor(`document.querySelector("#content .strip")`);
+        // APP-214: Claude Code is on this Mac, but Today asks only for the owner's own AI, and never names coding agents.
+        const todayText = `document.querySelector("#content").textContent`;
+        check("Today's one next step is to connect the owner's AI", await waitFor(`(document.querySelector("#content .next-step")?.textContent ?? "").includes("Connect the AI you talk to most")`) && !/Claude Code|Codex/.test(await js(todayText)), await js(todayText));
         await js(`window.__lore.show("connectors")`);
         check("Connectors has a group for the owner's agents, offering to connect one", await waitFor(`${agentRow("Connect an agent")}?.querySelector("img.logo")`));
         check("…and the catalog offers no generic Personal agent", !(await js(`[...document.querySelectorAll("#content .row b")].some((b) => b.textContent === "Personal agent")`)));
@@ -898,6 +947,9 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         check("…one link and nothing else to paste: no key, no instructions, no numbered steps", await js(`document.querySelectorAll("dialog.sheet[open] .agent-link").length === 1 && !document.querySelector("dialog.sheet[open] .copy-row, dialog.sheet[open] .agent-steps")`), setup);
         check("…its key masked, and a quiet private-link line", /••••/.test(setup) && !/lore_agent_/.test(setup) && setup.includes("Private link, shown once") && !/\bmcp\b|token|mainnet/i.test(setup), setup);
         check("…and it waits for Grok Bot's first save", setup.includes("Waiting for Grok Bot's first save…"), setup);
+        // APP-214: connected, with nothing saved and nothing kept yet, Today (rendered as it stands) stops asking to connect.
+        const todayNow = `renderToday(snapshot).map((p) => p.textContent).join(" ")`;
+        check("as soon as Grok Bot is connected, before its first save, Today stops asking to connect an agent", await waitFor(`snapshot.library.counts.private === 0 && snapshot.library.sources.some((s) => s.connector === "agent") && !(${todayNow}).includes("Connect the AI you talk to most")`, 80), await js(todayNow));
         const copyLink = async () => {
           const before = copied.length;
           await js(`document.querySelector("dialog.sheet[open] .agent-link").click()`);
@@ -939,6 +991,9 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         const cardText = await js(`${card}.textContent`);
         check("…each memory says it came from Grok", cardText.includes("Price a sync placement by its reach") && cardText.includes("From Grok Bot · Worth selling"), cardText);
         await shot("agents-today");
+        check("with Grok Bot connected, Today never asks to connect an agent", !(await js(`${todayText}.includes("Connect the AI you talk to most")`)) && !/Claude Code|Codex/.test(await js(todayText)), await js(todayText));
+        const order = await js(`JSON.stringify([...document.querySelectorAll("#content .section-head h2")].map((h) => h.textContent))`);
+        check("…its new memories lead, and the next step follows them", /"New memories".*"Next step"/.test(order), order);
         await js(`window.__lore.show("memories")`);
         const saved = `[...document.querySelectorAll("#content .row")].find((r) => r.textContent.includes("How I price sync placements"))`;
         // APP-208: a date-only save shows the day it names, whatever the Mac's time zone.
@@ -1005,6 +1060,142 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         await waitFor(`${primary}?.textContent === "Turn off"`);
         await js(`${primary}.click()`);
         check("…Turn off keeps what it brought in and says so", await waitFor(`document.querySelector("#status").textContent.includes("Turned off Claude Code. What it brought in stays.") && ${claudeCode}?.querySelector("button")?.textContent === "Connect"`, 80), await js(`document.querySelector("#status").textContent`));
+      } else if (scenario === "today") {
+        // APP-214: Today's one next step, stage by stage, each seeded through the CLI and its store.
+        const repo = join(__dirname, "../../..");
+        const python = (code) => execFileSync("uv", ["run", "python", "-c", `import time\nfrom lore.store import Store\n${code}`], { cwd: repo, env: process.env });
+        const lore = (args, input) => execFileSync("uv", ["run", "lore", ...args], { cwd: repo, env: process.env, input });
+        // A probe answer that stays fresh for the whole walk: online holding `ids`, or not answering at all.
+        const probe = (state, ids) => python(`with Store() as s:\n s.set_setting('node_url', 'https://store.example/mcp')\n s.set_setting('node_live', {'url': 'https://store.example/mcp', 'checked_at': time.time() + 3600, 'live': {'state': '${state}', 'network': 'eip155:84532', 'price_usd': 0.02, 'payout': '0x' + 'a' * 40}, 'ids': ${ids}})`);
+        const steps = `document.querySelectorAll("#content .next-step")`;
+        const step = `(${steps}[0]?.textContent ?? "")`;
+        const today = `document.querySelector("#content").textContent`;
+        const headings = `[...document.querySelectorAll("#content .section > .section-head h2")].map((h) => h.textContent)`;
+        const reach = async (label) => {
+          await js(`window.__lore.event({ type: "changed" })`);
+          return waitFor(`${step}.includes(${JSON.stringify(label)})`, 80);
+        };
+        const action = async () => js(`${steps}[0]?.querySelector("button")?.textContent ?? ""`);
+        const title = () => js(`document.querySelector("#title").textContent`);
+        const back = () => js(`document.querySelector("#task-back").click()`);
+        /** Press the step's button, and wait for the prompt it sends, if any. */
+        const press = async () => {
+          const before = prompts.length;
+          await js(`${steps}[0].querySelector("button").click()`);
+          for (let i = 0; i < 40 && prompts.length === before; i++) await sleep(100);
+          return prompts.slice(before);
+        };
+        await waitFor(`document.body.dataset.state === "welcome" && !document.querySelector("#welcome").classList.contains("provisioning")`);
+        await js(`window.__lore.signIn()`);
+        await waitFor(`document.querySelector("#content .strip")`);
+        // Every render of Today is watched: never more than one next step, at any moment of the walk.
+        await js(`window.__steps = 0; new MutationObserver(() => { window.__steps = Math.max(window.__steps, ${steps}.length); }).observe(document.querySelector("#content"), { childList: true, subtree: true }); true`);
+
+        // e: nothing connected and nothing kept.
+        check("e: with no agent and no app, the one next step is to connect the AI the owner talks to most", await waitFor(`${step}.includes("Connect the AI you talk to most")`) && await action() === "Connect", await js(step));
+        check("…with no Needs you grid and no coding agents named", !(await js(`${headings}.includes("Needs you") || document.querySelector("#content .tiles") !== null`)) && !/Claude Code|Codex/.test(await js(today)), await js(today));
+        check("…and How it works offered while nothing is kept", await js(`document.querySelector("#content .how-it-works") !== null`));
+        await shot("today-e-connect");
+        await js(`[...document.querySelectorAll("#content .how-it-works button")].find((b) => b.textContent === "How it works").click()`);
+        check("…which opens the FAQ", await waitFor(`document.querySelector("#title").textContent === "FAQ"`));
+        await js(`window.__lore.show("today")`);
+        await js(`document.querySelector("#content .how-it-works .dismiss").click()`);
+        await js(`window.__lore.show("memories"); window.__lore.show("today")`);
+        check("…and once closed it stays closed", await js(`document.querySelector("#content .strip") !== null && document.querySelector("#content .how-it-works") === null`));
+        // Opened again, so the next stage shows that a first memory alone takes it away.
+        await js(`localStorage.removeItem("lore.how-it-works.closed"); window.__lore.show("today"); true`);
+        await js(`${steps}[0].querySelector("button").click()`);
+        check("…Connect opens Connectors with the Connect an agent sheet", await waitFor(`document.querySelector("#title").textContent === "Connectors" && document.querySelector("dialog.sheet[open]")?.getAttribute("aria-label") === "Connect an agent"`), await js(`document.querySelector("dialog.sheet[open]")?.getAttribute("aria-label") ?? "none"`));
+        await js(`document.querySelector("dialog.sheet[open] .icon-btn").click()`);
+        await js(`window.__lore.show("today")`);
+
+        // d: memories, nothing drafted or for sale.
+        lore(["capture", "apply", "-"], JSON.stringify([{ title: "Hire management before rapid growth", content: "Add the management layer before the next ten engineers join, not after.", project: "team scaling" }, { title: "Price the first tier low", content: "A low first price gets the first ten buyers; raise it once there are receipts.", project: "pricing" }]));
+        check("d: with memories and nothing to sell, the next step is to sell something", await reach("Turn what you know into something to sell") && await action() === "Start", await js(step));
+        check("…ahead of connecting an agent, and How it works is gone once something is kept", (await js(`${steps}.length`)) === 1 && await js(`document.querySelector("#content .how-it-works") === null`));
+        await shot("today-d-sell");
+        const started = await press();
+        check("…Start opens the publish thread with one prompt", await waitFor(`document.querySelector("#title").textContent === "Publish from your Lore"`) && started.length === 1 && started[0].task === "publish", JSON.stringify(started));
+        await back();
+        check("…and while it drafts, Today doesn't ask again: the thread is under Unfinished", await waitFor(`${steps}.length === 0 && ${headings}.includes("Unfinished")`), await js(today));
+        finishThread("publish");
+        check("…once it finishes with nothing drafted, the step comes back", await reach("Turn what you know into something to sell"), await js(step));
+
+        // c: drafts waiting.
+        lore(["publication", "draft", "-"], JSON.stringify([{ title: "Hire management before rapid growth", teaser: "When to add managers in a fast-growing team.", content: "Add the management layer before the next ten engineers join, not after.", kind: "claim", topic: "team scaling", provenance: [1] }, { title: "Price the first tier low", teaser: "How to set a first price.", content: "A low first price gets the first ten buyers; raise it once there are receipts.", kind: "claim", topic: "pricing", provenance: [2] }]));
+        await js(`window.__lore.event({ type: "changed" })`);
+        check("c: with drafts waiting, the drafts themselves are the next step, with no card pointing at them", await waitFor(`${headings}[0] === "Approve what to sell" && ${steps}.length === 0`, 80), await js(`JSON.stringify(${headings})`));
+        const order = await js(`JSON.stringify(${headings})`);
+        check("…in the next step's place, said once, with the stats line last", !order.includes("Next step") && (await js(today)).split("Buyers only ever get what you approve").length === 2 && await js(`document.querySelector("#content").lastElementChild.classList.contains("strip")`), order);
+        await shot("today-c-drafts");
+
+        // b2: a piece approved with no store yet.
+        python(`from lore.cli import _staged, _stage\nstaged = _staged()\nwith Store() as s:\n s.add_publication(**staged[0].model_dump())\n s.set_setting('price_usd', 0.02)\n_stage(staged[1:])`);
+        check("b2: an approved piece with no store is the next step, ahead of the draft still waiting", await reach("1 approved piece isn't on sale yet") && await action() === "Open your store", await js(step));
+        await shot("today-b2-open");
+        const opening = await press();
+        check("…Open your store opens the store's thread with one prompt", await waitFor(`document.querySelector("#title").textContent === "Open your store"`) && opening.length === 1 && opening[0].task === "deploy" && opening[0].text === "Help me open my store.", JSON.stringify(opening));
+        await back();
+        check("…and while the store opens, Today offers no next step", await waitFor(`${steps}.length === 0 && ${headings}.includes("Approve what to sell")`) && !(await js(`${today}.includes("Connect the AI you talk to most")`)), await js(today));
+        finishThread("deploy");
+
+        // b: the store is open but doesn't hold the piece yet, then a saved price it doesn't charge.
+        probe("online", "[]");
+        check("b: an approval the store doesn't hold yet is the next step, ahead of the draft still waiting", await reach("1 change isn't live yet") && await action() === "Update store" && (await js(step)).includes("1 approved, not on your store yet"), await js(step));
+        python(`with Store() as s:\n s.set_setting('price_usd', 0.75)`);
+        check("…a new price counts as a change too", await reach("2 changes aren't live yet") && (await js(step)).includes("Your store still charges $0.02, not $0.75"), await js(step));
+        await shot("today-b-update");
+        const asked = prompts.length;
+        await js(`${steps}[0].querySelector("button").click()`);
+        for (let i = 0; i < 40 && !pushes.length; i++) await sleep(100);
+        check("…Update store pushes first while a piece isn't on the store, and asks the agent nothing", pushes.length === 1 && prompts.length === asked, `${pushes.length} pushes, ${prompts.length - asked} prompts`);
+        const piece = await js(`window.lore.snapshot().then((s) => s.publications.items.find((i) => i.state === "approved").public_id)`);
+        probe("online", JSON.stringify([piece]));
+        check("…with only the price left, the step is that one change", await reach("1 change isn't live yet") && (await js(step)).includes("Your store still charges $0.02, not $0.75") && !(await js(step)).includes("approved, not on"), await js(step));
+        const repricing = await press();
+        check("…and Update store redeploys for the price, in the store's thread", await waitFor(`document.querySelector("#title").textContent === "Open your store"`) && repricing.length === 1 && repricing[0].task === "deploy" && /Redeploy my store/.test(repricing[0].text) && pushes.length === 1, JSON.stringify(repricing));
+        await back();
+        finishThread("deploy");
+
+        // a: the store stops answering.
+        probe("unreachable", "None");
+        check("a: a store that isn't answering comes first, with one way to fix it", await reach("Your store isn't responding") && await action() === "Fix it" && (await js(`${steps}.length`)) === 1, await js(step));
+        await shot("today-a-store");
+        await js(`window.__fix = ${steps}[0].querySelector("button"); true`);
+        const fixing = await press();
+        check("…Fix it opens the store's thread with one prompt", await waitFor(`document.querySelector("#title").textContent === "Open your store"`) && fixing.length === 1 && fixing[0].task === "deploy" && /isn't responding/.test(fixing[0].text), JSON.stringify(fixing));
+        await back();
+        check("…while the repair runs, Today offers no next step, though the store still isn't answering", await waitFor(`${steps}.length === 0 && document.querySelector("#content .strip").textContent.includes("Store offline")`), await js(today));
+        const repair = `[...document.querySelectorAll("#content .section")].find((s) => s.querySelector("h2")?.textContent === "Unfinished")?.querySelector(".task-link")`;
+        check("…the repair is listed under Unfinished, working", await waitFor(`(${repair}?.textContent ?? "") === "Open your storeWorkingWorking"`), await js(`${repair}?.textContent ?? "none"`));
+        const listed = prompts.length;
+        await js(`${repair}.click()`);
+        check("…and opens back into its thread, sending nothing", await waitFor(`document.querySelector("#title").textContent === "Open your store" && !document.querySelector("#task-back").hidden`) && prompts.length === listed, `${prompts.length - listed} more prompts`);
+        await back();
+        const sent = prompts.length;
+        await js(`window.__fix.click()`);
+        await sleep(1500);
+        check("…a second Fix it goes back into the repair under way and sends nothing more", prompts.length === sent && await title() === "Open your store", `${prompts.length - sent} more prompts, title ${await title()}`);
+        await back();
+        finishThread("deploy");
+        check("…and once the repair ends with the store still silent, Fix it is offered again", await reach("Your store isn't responding"), await js(step));
+        // A repair that fails while the owner is back on Today: the step returns from the turn's end alone, with no other event.
+        failNextTurn = true;
+        const failing = await press();
+        await back();
+        check("…a repair under way hides Fix it while it runs", failing.length === 1 && await waitFor(`${steps}.length === 0`), JSON.stringify(failing));
+        check("…and when the repair fails, Fix it comes back on its own", await waitFor(`${step}.includes("Your store isn't responding")`, 60), await js(today));
+
+        // f: everything live, nothing drafted, and an app connected: nothing to ask.
+        python(`from lore.cli import _staged, _stage\nwith Store() as s:\n for each in _staged(): s.add_publication(**each.model_dump())\n s.set_setting('price_usd', 0.02)\n_stage([])`);
+        lore(["sources", "connect", "obsidian", "--json", "--", join(S, "Edge Vault")]);
+        const ids = JSON.stringify(JSON.parse(await js(`window.lore.snapshot().then((s) => JSON.stringify(s.publications.items.map((i) => i.public_id)))`)));
+        probe("online", ids);
+        await js(`window.__lore.event({ type: "changed" })`);
+        check("f: with nothing waiting on the owner, Today shows no next step", await waitFor(`!${today}.includes("isn't responding") && ${steps}.length === 0 && document.querySelector("#content .strip").textContent.includes("2 for sale")`, 80), await js(today));
+        check("…and a connected app is enough not to be asked to connect", !(await js(`${today}.includes("Connect the AI you talk to most")`)));
+        await shot("today-f-nothing");
+        check("no moment of the walk showed more than one next step", (await js(`window.__steps`)) === 1, String(await js(`window.__steps`)));
       } else if (scenario === "reading") {
         // AUT-005: connect Granola, and Lore reads the meetings through without being asked.
         await waitFor(`document.body.dataset.state === "welcome" && !document.querySelector("#welcome").classList.contains("provisioning")`);

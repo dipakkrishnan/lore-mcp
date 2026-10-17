@@ -177,7 +177,7 @@ obsolete), then `priority` (P0 → P3).
 | [APP-210](./desktop-app/APP-210-today-in-the-same-tiles-and-cards-as-connectors.md) | Today in the same tiles and cards as Connectors and Automations | P1 | S | desktop-app | in-review | APP-207 | — | — | — |
 | [APP-212](./desktop-app/APP-212-see-what-an-agent-saved-in-one-click.md) | See what an agent saved in one click | P0 | M | desktop-app | ready | APP-207, APP-213, APP-215 | APP-213 | — | — |
 | [APP-213](./desktop-app/APP-213-show-where-every-memory-came-from.md) | Show where every memory came from | P1 | M | desktop-app | ready | APP-207, APP-210, APP-212 | — | — | — |
-| [APP-214](./desktop-app/APP-214-give-today-one-purpose.md) | Give Today one purpose: what came in, and the one thing to do next | P0 | M | desktop-app | ready | APP-210, APP-212, APP-215 | — | — | — |
+| [APP-214](./desktop-app/APP-214-give-today-one-purpose.md) | Give Today one purpose: what came in, and the one thing to do next | P0 | M | desktop-app | in-review | APP-210, APP-212, APP-215 | — | — | — |
 | [APP-215](./desktop-app/APP-215-first-run-connects-the-agent-then-apps.md) | First run: a short chat that connects the owner's agent, then their apps | P0 | L | desktop-app | ready | APP-207, APP-212, APP-214, XC-068 | APP-212, APP-214, APP-216, XC-069 | — | — |
 | [APP-216](./desktop-app/APP-216-find-and-open-the-owners-agent-apps.md) | Find the owner's agent apps on this Mac and open them | P0 | S | desktop-app | ready | APP-215, APP-207 | — | — | — |
 | [APP-217](./desktop-app/APP-217-connect-claude-and-chatgpt-by-private-link.md) | Connect Claude and ChatGPT by private link, and connect Grok Bot with one message | P0 | M | desktop-app | ready | APP-207, XC-067, XC-068, APP-215 | — | — | — |
