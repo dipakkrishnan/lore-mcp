@@ -113,6 +113,66 @@ class Ready {
   }
 }
 
+/** How many memories one report of what the owner saw may name. */
+const SEEN_AT_ONCE = 500;
+
+/** What the renderer says the owner saw, checked before it touches the file. @param {unknown} ids @returns {number[]} */
+function seenIds(ids) {
+  if (!Array.isArray(ids) || !ids.length || ids.length > SEEN_AT_ONCE || !ids.every((id) => Number.isInteger(id) && id > 0)) throw new Error("Invalid memories");
+  return ids;
+}
+
+/** APP-212: the memories the owner has had on screen, so "New" means arrived and not yet seen, across relaunches.
+ * `since` is the newest memory when Lore began keeping this, so a library from before it is never all new at once. */
+class Seen {
+  /** Every read and write waits its turn, so two reports never drop each other's ids. @type {Promise<unknown>} */
+  #turn = Promise.resolve();
+
+  /** @param {string} file */
+  constructor(file) {
+    this.file = file;
+  }
+
+  /** @param {number} newest The newest memory now: where "since" starts, the first time. @returns {Promise<SeenMemories>} */
+  read(newest) {
+    return this.#then(async () => (await this.#kept()) ?? this.#save({ since: newest, ids: [] }));
+  }
+
+  /** @param {number[]} ids */
+  add(ids) {
+    return this.#then(async () => {
+      const kept = (await this.#kept()) ?? { since: 0, ids: [] };
+      const all = new Set(kept.ids);
+      for (const id of ids) if (id > kept.since) all.add(id);
+      return this.#save({ since: kept.since, ids: [...all] });
+    });
+  }
+
+  /** @template T @param {() => Promise<T>} work */
+  #then(work) {
+    const next = this.#turn.then(work);
+    this.#turn = next.catch(() => undefined);
+    return next;
+  }
+
+  /** A missing or damaged file reads as none. @returns {Promise<SeenMemories | null>} */
+  async #kept() {
+    try {
+      const kept = JSON.parse(await readFile(this.file, "utf8"));
+      return Number.isInteger(kept?.since) && Array.isArray(kept.ids) ? { since: kept.since, ids: kept.ids.filter(Number.isInteger) } : null;
+    } catch {
+      return null;
+    }
+  }
+
+  /** Written beside the file, then renamed over it, like Ready's. @param {SeenMemories} seen */
+  async #save(seen) {
+    await writeFile(`${this.file}.tmp`, JSON.stringify(seen));
+    await rename(`${this.file}.tmp`, this.file);
+    return seen;
+  }
+}
+
 /** The red number: memories in runs the owner has not looked at. @param {ReadyRun[]} runs */
 function unseen(runs) {
   return runs.filter((run) => !run.seen).reduce((count, run) => count + run.memories.length, 0);
@@ -137,4 +197,4 @@ class Badge {
   }
 }
 
-module.exports = { many, plural, worthReading, asking, landed, announcement, Ready, Badge };
+module.exports = { many, plural, worthReading, asking, landed, announcement, Ready, Badge, Seen, seenIds };

@@ -35,6 +35,9 @@ const badges = [];
 const readings = [];
 /** AUT-008: every check-in Lore looked over. @type {CheckInJob[]} */
 const checkIns = [];
+/** APP-212: the agents walk holds its first reading back until it lets it land. */
+let releaseReading = () => {};
+let readingHeld = Promise.resolve();
 /** APP-207: what the owner copied, and every turn the owner started. */
 const copied = [];
 const prompts = [];
@@ -199,8 +202,14 @@ if (scenario === "listing") {
       readings.push(reading);
       const folder = join(process.env.LORE_HOME ?? "", "memories");
       mkdirSync(folder, { recursive: true });
-      writeFileSync(join(folder, "pricing-sync-by-reach.md"), "# Price a sync placement by its reach\n\nCharge by the audience the placement reaches, not by the hours it took. From what Grok saved, October 2026.\n");
-      setTimeout(() => void this.options.memoriesReady?.(reading, { read: reading.added, memories: [{ file: "pricing-sync-by-reach.md", worth_selling: true, why: "a pricing rule from real placements" }] }), 1500);
+      // One topic per reading, so each of the walk's saves brings something new.
+      const [file, text] = [
+        ["pricing-sync-by-reach.md", "# Price a sync placement by its reach\n\nCharge by the audience the placement reaches, not by the hours it took. From what Grok saved, October 2026.\n"],
+        ["rush-fee-up-front.md", "# Quote a rush fee up front\n\nName the rush fee before the work starts, never after it ships. From what Grok saved, October 2026.\n"],
+        ["rerun-at-half.md", "# Bill a rerun at half the first fee\n\nA rerun costs half the first fee, because the work is already done. From what Grok saved, October 2026.\n"]
+      ][readings.length - 1];
+      writeFileSync(join(folder, file), text);
+      setTimeout(() => void readingHeld.then(() => this.options.memoriesReady?.(reading, { read: reading.added, memories: [{ file, worth_selling: true, why: "a pricing rule from real placements" }] })), 1500);
     };
     require(join(src, "main.cjs"));
   });
@@ -970,12 +979,23 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
 
         // Grok saves, with the key it was given, and the sheet hears it.
         const key = address.slice(agentUrl.length + 1);
+        readingHeld = new Promise((done) => { releaseReading = () => done(undefined); });
         const stored = await (await call(key, "tools/call", { name: "store", arguments: { items: [{ title: "How I price sync placements", content: "I charge by the audience the placement reaches, not by the hours it took.", key: "sync-pricing", kind: "preference" }] } })).json();
         check("a save with that key reaches the store", stored.result?.isError === false, JSON.stringify(stored));
-        check("…and the sheet says Grok Bot saved its first memory", await waitFor(`${sheet}.includes("Grok Bot saved its first memory")`, 80), await js(sheet));
+        check("…and the sheet says what Grok Bot saved, one click from seeing it", await waitFor(`${sheet}.includes("Grok Bot saved 1 memory · See them →")`, 80), await js(sheet));
         await shot("agents-first-save");
         check("…read through once, named for Grok", readings.length === 1 && readings[0].title === "Grok Bot saved 1 thing to Lore" && readings[0].label === "Grok Bot", JSON.stringify(readings));
-        await press("Done");
+        // APP-212: each way in lands on Inventory, filtered to Grok Bot, with what the owner hasn't seen marked New.
+        const chip = `document.querySelector("#content .source-filter")?.textContent ?? ""`;
+        const rowOf = (title) => `[...document.querySelectorAll("#content .row")].find((r) => r.querySelector(".t b")?.textContent.startsWith(${JSON.stringify(title)}))`;
+        const isNew = (title) => `Boolean(${rowOf(title)}?.querySelector(".new-mark"))`;
+        const listed = `[...document.querySelectorAll("#content .row .t b")].map((b) => b.textContent).join("|")`;
+        await js(`[...document.querySelectorAll("dialog.sheet[open] button.inline")].find((b) => b.textContent === "See them →").click()`);
+        check("See them closes the sheet and lands on Inventory, filtered to Grok Bot", await waitFor(`document.querySelector("#title").textContent === "Inventory" && !document.querySelector("dialog.sheet[open]") && (${chip}) === "Grok Bot×"`), await js(chip));
+        check("…with what Grok Bot saved marked New", await waitFor(isNew("How I price sync placements")) && (await js(listed)) === "How I price sync placementsNew", await js(listed));
+        await shot("agents-see-them-sheet");
+        await js(`window.__lore.show("connectors")`);
+        releaseReading();
         for (let i = 0; i < 60 && !notes.length; i++) await sleep(250);
         check("its memories are one Mac notification that names Grok", notes.length === 1 && notes[0].words.title === "Grok Bot saved 1 thing to Lore" && notes[0].words.body === "1 new memory. 1 looks worth selling.", JSON.stringify(notes.map((n) => n.words)));
         check("…and a red 1 on the dock", badges.at(-1) === 1, JSON.stringify(badges));
@@ -987,8 +1007,12 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         check("coming back to the app finds nothing more, and says nothing again", notes.length === 1 && readings.length === 1, String(notes.length));
 
         notes[0].handlers.click();
+        check("clicking it lands on what Grok Bot saved, in Inventory", await waitFor(`document.querySelector("#title").textContent === "Inventory" && (${chip}) === "Grok Bot×"`), await js(chip));
+        check("…the memory Lore wrote from it marked New, what was seen already not", await waitFor(isNew("Price a sync placement by its reach")) && !(await js(isNew("How I price sync placements"))), await js(listed));
+        await shot("agents-see-them-notification");
+        await js(`window.__lore.show("today")`);
         const card = `[...document.querySelectorAll("#content .section")].find((s) => s.textContent.includes("New memories"))`;
-        check("clicking it lands on Today's new memories, named for Grok", await waitFor(`${card}?.textContent.includes("Grok Bot saved 1 thing to Lore")`));
+        check("Today's new memories are named for Grok", await waitFor(`${card}?.textContent.includes("Grok Bot saved 1 thing to Lore")`));
         const cardText = await js(`${card}.textContent`);
         check("…each memory says it came from Grok", cardText.includes("Price a sync placement by its reach") && cardText.includes("From Grok Bot · Worth selling"), cardText);
         check("…with Grok Bot's mark in its tile", await js(`${card}.querySelector(".row .mark-stack .routine-mark img.logo")?.src.endsWith("assets/grok.svg")`));
@@ -1018,7 +1042,7 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         // Manage: a new key stops the old one, and Disconnect stops the agent and keeps what it saved.
         await js(`window.__lore.show("connectors")`);
         await waitFor(agentRow("Grok Bot"));
-        await js(`${agentRow("Grok Bot")}.querySelector("button").click()`);
+        await js(`${agentRow("Grok Bot")}.querySelector("button:not(.inline)").click()`);
         check("Manage offers a new key and Disconnect", await waitFor(`${sheet}.includes("Get a new key") && ${sheet}.includes("Disconnect")`));
         await press("Get a new key");
         await waitFor(`${primary}?.textContent === "Get a new key"`);
@@ -1032,14 +1056,49 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         await shot("agents-new-key");
         await press("Done");
         await sleep(300);
-        await js(`${agentRow("Grok Bot")}.querySelector("button").click()`);
+        /** Grok saves one more thing, and Lore brings it in and reads it through. @param {string} title */
+        const saveMore = async (title) => {
+          const told = notes.length;
+          await call(fresh, "tools/call", { name: "store", arguments: { items: [{ title, content: `${title}, as I actually do it.`, kind: "preference" }] } });
+          app.emit("browser-window-focus");
+          for (let i = 0; i < 80 && notes.length === told; i++) await sleep(250);
+          return notes.length === told + 1;
+        };
+        check("another save lands while the owner is on Connectors", await saveMore("How I quote a rush job"));
+        const savedLink = `[...(${agentRow("Grok Bot")}?.querySelectorAll("button.inline") ?? [])].find((b) => b.textContent === "Saved 2")`;
+        check("Grok Bot's card says Saved 2, as a link", await waitFor(savedLink));
+        await js(`${savedLink}.click()`);
+        check("…which lands on what it saved, filtered to Grok Bot", await waitFor(`document.querySelector("#title").textContent === "Inventory" && (${chip}) === "Grok Bot×"`), await js(chip));
+        check("…the new save and what Lore wrote from it marked New, the rest not", await waitFor(`${isNew("How I quote a rush job")} && ${isNew("Quote a rush fee up front")}`) && !(await js(`${isNew("How I price sync placements")} || ${isNew("Price a sync placement by its reach")}`)), await js(listed));
+        await shot("agents-see-them-card");
+        await js(`window.__lore.show("today")`);
+        check("a third save lands while the owner is on Today", await saveMore("How I bill a rerun"));
+        const headerLink = `[...(${card}?.querySelectorAll(".list-aside button.inline") ?? [])].find((b) => b.textContent === "See them →")`;
+        check("Today's new memories, all from Grok Bot, link to what it saved", await waitFor(`${card}?.textContent.includes("Bill a rerun at half the first fee") && ${headerLink}`), await js(`${card}?.querySelector(".list-aside")?.textContent ?? ""`));
+        await shot("agents-today-see-them");
+        await js(`${headerLink}.click()`);
+        check("…which lands filtered to Grok Bot", await waitFor(`document.querySelector("#title").textContent === "Inventory" && (${chip}) === "Grok Bot×"`), await js(chip));
+        check("…the third save and what Lore wrote from it marked New, the rest not", await waitFor(`${isNew("How I bill a rerun")} && ${isNew("Bill a rerun at half the first fee")}`) && !(await js(`${isNew("How I quote a rush job")} || ${isNew("Quote a rush fee up front")}`)), await js(listed));
+        await shot("agents-see-them-inventory");
+        // Seen means on screen: the last row is below the fold until the owner scrolls to it.
+        await js(`${rowOf("Bill a rerun at half the first fee")}.scrollIntoView({ block: "center" })`);
+        const seenIds = await js(`window.lore.snapshot().then((s) => s.library.items.filter((i) => /rerun/i.test(i.title)).map((i) => i.id))`);
+        const seenFile = join(process.env.LORE_DESKTOP_USER_DATA ?? "", "memories-seen.json");
+        const kept = async () => (await new (require(join(src, "reading.cjs")).Seen)(seenFile).read(0)).ids;
+        check("once on screen, they are kept as seen on disk, for the next launch", await (async () => { for (let i = 0; i < 20; i++) { const ids = await kept(); if (seenIds.length === 2 && seenIds.every((id) => ids.includes(id))) return true; await sleep(250); } return false; })(), JSON.stringify([seenIds, await kept()]));
+        await js(`window.__lore.show("connectors")`);
+        await js(`window.__lore.show("memories")`);
+        check("…and New clears on the next visit", await waitFor(`${rowOf("How I bill a rerun")} && !document.querySelector("#content .new-mark")`), await js(listed));
+        await js(`window.__lore.show("connectors")`);
+        await waitFor(agentRow("Grok Bot"));
+        await js(`${agentRow("Grok Bot")}.querySelector("button:not(.inline)").click()`);
         await waitFor(`${sheet}.includes("Disconnect")`);
         await press("Disconnect");
         await waitFor(`${sheet}.includes("Disconnect Grok Bot?")`);
-        check("Disconnect offers to keep or delete what Grok Bot saved", /The 1 memory it saved stays in your library/.test(await js(sheet)) && await js(`[...document.querySelectorAll("dialog.sheet[open] button")].some((b) => b.textContent === "Delete them too")`), await js(sheet));
+        check("Disconnect offers to keep or delete what Grok Bot saved", /The 3 memories it saved stay in your library/.test(await js(sheet)) && await js(`[...document.querySelectorAll("dialog.sheet[open] button")].some((b) => b.textContent === "Delete them too")`), await js(sheet));
         await shot("agents-disconnect");
         await press("Disconnect");
-        check("disconnecting keeps its memory and says so", await waitFor(`document.querySelector("#status").textContent.includes("Disconnected Grok Bot. 1 memory kept.")`, 80), await js(`document.querySelector("#status").textContent`));
+        check("disconnecting keeps its memory and says so", await waitFor(`document.querySelector("#status").textContent.includes("Disconnected Grok Bot. 3 memories kept.")`, 80), await js(`document.querySelector("#status").textContent`));
         await js(`window.__lore.show("memories")`);
         check("…and what it saved still says Grok Bot, with its mark", await waitFor(`/From Grok Bot/.test(${saved}?.textContent ?? "") && ${saved}.querySelector(".mark-stack img.logo")?.src.endsWith("assets/grok.svg")`), await js(`${saved}?.textContent ?? ""`));
         await js(`window.__lore.show("connectors")`);
@@ -1070,6 +1129,13 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         await shot("agents-history-connect");
         await js(`${primary}.click()`);
         check("…and Connect turns it on and brings in what it remembers", await waitFor(`/Connected/.test(${claudeCode}?.textContent ?? "") && /1 memory imported/.test(${claudeCode}.textContent)`, 120), await js(`${claudeCode}?.textContent ?? ""`));
+        await js(`window.__lore.event({ type: "show", view: "inventory", source: { id: ${JSON.stringify(readings[0].by.id)}, label: "Grok Bot" } })`);
+        check("filtered to Grok Bot, Inventory shows only what it brought in", await waitFor(`(${chip}) === "Grok Bot×" && !${rowOf("Ship the smallest change that proves it")} && Boolean(${rowOf("How I bill a rerun")})`), await js(listed));
+        await shot("agents-filter-chip");
+        await js(`document.querySelector("#content .source-filter .dismiss").click()`);
+        check("…and removing the chip shows everything again", await waitFor(`!document.querySelector("#content .source-filter") && Boolean(${rowOf("Ship the smallest change that proves it")}) && Boolean(${rowOf("How I bill a rerun")})`), await js(listed));
+        await js(`window.__lore.show("connectors")`);
+        await waitFor(claudeCode);
         await js(`${claudeCode}.click()`);
         await waitFor(`${primary}?.textContent === "Turn off"`);
         await js(`${primary}.click()`);
@@ -1240,6 +1306,7 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         check("…each by title, only on this Mac", /2 new memories, only on this Mac · 1 looks worth selling/.test(cardText) && cardText.includes("Raise the first price only after ten buyers pay") && cardText.includes("Add the ops management layer before the next ten hires"), cardText);
         check("…work stays private and is never offered for sale", cardText.includes("Work · stays private") && await js(`[...${card}.querySelectorAll(".row")].filter((r) => [...r.querySelectorAll("button")].some((b) => b.textContent === "Draft for sale")).map((r) => r.querySelector("b").textContent).join("|")`) === "Raise the first price only after ten buyers pay");
         check("…in plain words", !/synthes|agent|pipeline|mcp/i.test(cardText), cardText);
+        check("…and, from an app rather than an agent, no See them in its header", !(await js(`Boolean(${card}.querySelector(".list-aside button.inline"))`)));
         check("…each from Granola, with its mark", (cardText.match(/From Granola · /g) ?? []).length === 2 && await js(`[...${card}.querySelectorAll(".row")].every((r) => r.querySelector(".mark-stack img.logo")?.src.endsWith("assets/granola.svg"))`), cardText);
         check("seeing it clears the dock", await (async () => { for (let i = 0; i < 40 && badges.at(-1) !== 0; i++) await sleep(100); return badges.at(-1) === 0; })(), JSON.stringify(badges));
         await shot("reading-today-ready");

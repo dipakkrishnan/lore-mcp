@@ -63,6 +63,8 @@ let auth = null;
 let view = "today";
 /** Which of Inventory's tabs is open. @type {Shelf} */
 let shelf = "all";
+/** Inventory shows only what this agent or app brought in, until the owner removes its chip (APP-212). @type {{id: string, label: string} | null} */
+let inventoryFrom = null;
 /** @type {AgentTask} */
 let task = "capture";
 /** @type {TaskRecord[]} */
@@ -751,7 +753,13 @@ function memoriesReady(runs) {
   }
   noticeReady();
   const aside = el("div", "list-aside");
-  aside.append(el("span", "", `${heading} · ${detail}`), clear);
+  aside.append(el("span", "", `${heading} · ${detail}`));
+  // One agent behind every memory here: one click to what it saved.
+  const by = runs[0].by;
+  if (by?.kind === "agent" && runs.every((run) => run.by?.id === by.id) && memories.every((memory) => sources(memory.id, memory.by)?.some((source) => source.id === by.id))) {
+    aside.append(inline("See them →", () => seeFrom({ id: by.id, label: by.label })));
+  }
+  aside.append(clear);
   return section("New memories", list, aside);
 }
 
@@ -1015,9 +1023,12 @@ function saleItem(item) {
 /** Inventory: everything Lore keeps, private or on sale, in groups by what it's about. @param {Snapshot} s */
 function renderInventory(s) {
   const agentApp = (/** @type {string} */ label) => s.library.sources.find((source) => source.connector === "agent" && source.label === label)?.app;
-  const kept = privateMemories(s);
-  const onSale = s.publications.items.filter((item) => item.state === "approved");
-  const down = s.publications.items.filter((item) => item.state === "revoked");
+  const from = inventoryFrom;
+  const kept = privateMemories(s).filter((item) => !from || item.sources.some((source) => source.id === from.id));
+  // A piece for sale says nothing of who brought its memories in, so filtering by one shows memories only.
+  const onSale = from ? [] : s.publications.items.filter((item) => item.state === "approved");
+  const down = from ? [] : s.publications.items.filter((item) => item.state === "revoked");
+  unseen.forget();
   if (shelf === "down" && !down.length) shelf = "all";
 
   const tabs = el("div", "shelves");
@@ -1058,7 +1069,7 @@ function renderInventory(s) {
     for (const item of items) groups.set(key(item), [...(groups.get(key(item)) ?? []), make(item)]);
     return grouped(groups);
   };
-  const privateGroups = () => groupBy(kept, (item) => item.project_label, (item) => sourcedRow(item, [when(item.updated_at)]));
+  const privateGroups = () => groupBy(kept, (item) => item.project_label, (item) => unseen.watch(sourcedRow(item, [when(item.updated_at)]), item.id));
   const saleGroups = () => groupBy(onSale, (item) => item.topic, saleItem);
   const downGroups = () => groupBy(down, (item) => item.topic, (item) => row(item.title, item.topic, item.live === true ? chip("Still on your store", "attention") : chip("Taken down")));
   const stack = (/** @type {HTMLElement[]} */ cards) => {
@@ -1071,7 +1082,21 @@ function renderInventory(s) {
   const parts = [storeBar(s)];
   if (pushOffer) parts.push(seamCard());
   if (pushedNote) parts.push(pushReceipt(s));
-  parts.push(tabs);
+  const filters = el("div", "inv-filters");
+  filters.append(tabs);
+  if (from) {
+    const only = el("span", "chip source-filter", from.label);
+    const all = el("button", "dismiss", "×");
+    all.type = "button";
+    all.setAttribute("aria-label", `Show everything, not only ${from.label}`);
+    all.addEventListener("click", () => {
+      inventoryFrom = null;
+      render();
+    });
+    only.append(all);
+    filters.append(only);
+  }
+  parts.push(filters);
   const nothingKept = emptyState("Nothing kept yet. Say what you learned, or connect an agent, and Lore will keep it.", button("Add your first memory", "quiet", () => startCapture()));
   const nothingOnSale = emptyState("Nothing on sale yet.", button("See what's private", "quiet", () => { shelf = "private"; render(); }));
   if (shelf === "all") {
@@ -1085,9 +1110,100 @@ function renderInventory(s) {
   } else {
     parts.push(stack(downGroups()));
   }
-  if (shelf === "all" || shelf === "sale") parts.push(renderSales());
+  if (!from && (shelf === "all" || shelf === "sale")) parts.push(renderSales());
   return parts;
 }
+
+/** Inventory, showing only what one agent or app brought in, with what the owner hasn't seen marked New.
+ * @param {{id: string, label: string}} source */
+function seeFrom(source) {
+  inventoryFrom = source;
+  if (detailTask) closeTask();
+  show("memories");
+}
+
+/** APP-212: which memories Inventory marks New: arrived since Lore began keeping track, and not on screen before this
+ * visit. A row counts as seen once it has been on screen while Lore is in front; it keeps its mark until the next visit. */
+class Unseen {
+  since = Number.POSITIVE_INFINITY;
+  /** @type {Set<number>} */
+  seen = new Set();
+  /** What had been seen when this visit began. @type {Set<number>} */
+  before = new Set();
+  loaded = false;
+  /** Rows on screen now, by memory. @type {Map<Element, number>} */
+  #showing = new Map();
+  /** @type {Set<number>} */
+  #telling = new Set();
+  #timer = 0;
+  #observer = new IntersectionObserver((entries) => {
+    for (const entry of entries) {
+      if (entry.isIntersecting) this.#showing.set(entry.target, Number(/** @type {HTMLElement} */ (entry.target).dataset.memory));
+      else this.#showing.delete(entry.target);
+    }
+    this.#look();
+  });
+
+  constructor() {
+    window.addEventListener("focus", () => this.#look());
+    document.addEventListener("visibilitychange", () => this.#look());
+  }
+
+  /** @param {number} newest The newest memory, where "since" starts the first time. */
+  async load(newest) {
+    const kept = await window.lore.memoriesSeen(newest);
+    this.since = kept.since;
+    for (const id of kept.ids) this.seen.add(id);
+    if (!this.loaded) this.visit();
+    this.loaded = true;
+  }
+
+  /** A new visit: what was seen before it loses its mark. */
+  visit() {
+    this.before = new Set(this.seen);
+  }
+
+  /** @param {number} id */
+  fresh(id) {
+    return id > this.since && !this.before.has(id);
+  }
+
+  /** Inventory is drawn again: the rows it drew before are gone. */
+  forget() {
+    this.#observer.disconnect();
+    this.#showing.clear();
+  }
+
+  /** Mark a row New while its memory is, and watch for it on screen. @param {HTMLElement} row @param {number} id */
+  watch(row, id) {
+    if (!this.fresh(id)) return row;
+    row.querySelector(".t b")?.append(el("span", "new-mark", "New"));
+    if (!this.seen.has(id)) {
+      row.dataset.memory = String(id);
+      this.#observer.observe(row);
+    }
+    return row;
+  }
+
+  #look() {
+    if (document.visibilityState !== "visible" || !document.hasFocus()) return;
+    for (const id of this.#showing.values()) {
+      if (this.seen.has(id)) continue;
+      this.seen.add(id);
+      this.#telling.add(id);
+    }
+    if (!this.#telling.size) return;
+    window.clearTimeout(this.#timer);
+    this.#timer = window.setTimeout(() => {
+      const ids = [...this.#telling].slice(0, 500);
+      for (const id of ids) this.#telling.delete(id);
+      void window.lore.markSeen(ids).catch(() => undefined);
+      if (this.#telling.size) this.#look();
+    }, 300);
+  }
+}
+
+const unseen = new Unseen();
 
 function renderSales() {
   if (sales instanceof Error) return section("Sales", emptyState(sales.message, button("Try again", "secondary", () => void loadSales())));
@@ -1811,7 +1927,8 @@ function tiles(rows) {
     node.classList.add("tile");
     node.addEventListener("click", (event) => {
       if (event.target instanceof Element && event.target.closest("button")) return;
-      node.querySelector("button")?.click();
+      // A link in its text goes where it says; the tile opens its own action.
+      /** @type {HTMLButtonElement | null} */ (node.querySelector("button:not(.inline)"))?.click();
     });
     grid.append(node);
   }
@@ -1844,6 +1961,16 @@ function agentLine(source) {
   const entry = agents?.find((agent) => agent.source === source.name);
   if (!entry) return source.imported ? `${plural(source.imported, "memory")} kept` : "Nothing saved yet";
   return entry.saved ? `Saved ${entry.saved}${entry.last_saved_at ? ` · last ${day(entry.last_saved_at)}` : ""}` : "Nothing saved yet";
+}
+
+/** An agent's line on its card, its "Saved N" one click from what it saved. @param {SourceEntry} source */
+function agentDetail(source) {
+  const line = agentLine(source);
+  const saved = agents?.find((agent) => agent.source === source.name)?.saved;
+  if (!saved) return line;
+  const node = el("span");
+  node.append(inline(`Saved ${saved}`, () => seeFrom({ id: source.name, label: source.label })), line.slice(`Saved ${saved}`.length));
+  return node;
 }
 
 /** What an agent's own history on this Mac is, in the owner's words. @type {Record<string, string>} */
@@ -1889,7 +2016,7 @@ function openHistory(source) {
 function agentTiles(s) {
   const rows = s.library.sources.filter((source) => source.connector === "agent").map((source) => {
     const line = agentLine(source);
-    const node = row(source.label, line, cell(line === "Nothing saved yet" ? pill("Waiting", "wait") : pill("Live", "ok"), button("Manage", "quiet", () => openAgent(source))), false);
+    const node = row(source.label, agentDetail(source), cell(line === "Nothing saved yet" ? pill("Waiting", "wait") : pill("Live", "ok"), button("Manage", "quiet", () => openAgent(source))), false);
     node.prepend(agentMark(source.app, source.label));
     return node;
   });
@@ -2062,8 +2189,12 @@ class AgentSetup {
     const poll = setInterval(() => void window.lore.checkAgents(), FIRST_SAVE_EVERY_MS);
     /** @param {SourceRead[]} reads */
     const heard = (reads) => {
-      if (!reads.some((read) => read.name === source && (read.added || read.updated))) return;
-      line.replaceChildren(el("span", "dot ok"), el("span", "", `${who} saved its first memory`));
+      const saved = reads.filter((read) => read.name === source).reduce((sum, read) => sum + read.added + read.updated, 0);
+      if (!saved) return;
+      line.replaceChildren(el("span", "dot ok"), el("span", "", `${who} saved ${plural(saved, "memory")} · `), inline("See them →", () => {
+        closeSheet();
+        seeFrom({ id: source, label: who });
+      }));
       stop();
     };
     const stop = () => {
@@ -2455,6 +2586,7 @@ function show(next) {
   if (next === "connectors") void loadAgents();
   // A store update said once, where it happened; it doesn't follow the owner around.
   pushedNote = false;
+  unseen.visit();
   render();
   mainEl.scrollTop = 0;
   mainEl.focus({ preventScroll: true });
@@ -2476,6 +2608,8 @@ async function load() {
     const loaded = await Promise.all([window.lore.snapshot(), window.lore.candidates().catch(() => []), window.lore.extras().catch(() => []), window.lore.tasks().catch(() => []), apps.length ? apps : window.lore.sourceCatalog().catch(() => []), window.lore.readyRuns().catch(() => readyRuns), window.lore.checkIn().catch(() => null), window.lore.routines().catch(() => routines)]);
     if (ticket !== loads) return;
     [snapshot, candidates, extraDrafts, taskItems, apps, readyRuns, checkIn, routines] = loaded;
+    await unseen.load(Math.max(0, ...snapshot.library.items.map((item) => item.id))).catch(() => undefined);
+    if (ticket !== loads) return;
     if (detailTask) detailRecord = taskItems.find((item) => item.kind === detailTask) ?? detailRecord;
     peeked.clear();
     render();
@@ -3600,8 +3734,11 @@ function onEvent(event) {
   }
   else if (event.type === "ready") void load();
   else if (event.type === "show") {
-    if (event.view === "today" && detailTask) closeTask();
-    show(event.view);
+    if (event.source) seeFrom(event.source);
+    else {
+      if (event.view === "today" && detailTask) closeTask();
+      show(event.view);
+    }
   }
   else if (event.type === "thread") void openTask(event.task);
   else if (event.type === "update") showUpdate(event.update);

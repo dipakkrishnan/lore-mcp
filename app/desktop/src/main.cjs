@@ -40,6 +40,8 @@ let connecting;
 /** What Lore read from connected apps, kept until the owner clears it, with the dock's red number. */
 const badge = new reading.Badge((count) => app.setBadgeCount(count));
 const newMemories = new reading.Ready(join(app.getPath("userData"), "memories-ready.json"), badge.part("memories"));
+/** Which memories the owner has had on screen, so Inventory marks the rest New (APP-212). */
+const seenMemories = new reading.Seen(join(app.getPath("userData"), "memories-seen.json"));
 /** The evening check-in waiting for the owner, if Lore found something worth asking (AUT-008). */
 const checkIns = new checkin.CheckIns(join(app.getPath("userData"), "check-in.json"), badge.part("checkin"));
 /** @param {AgentEvent} event */
@@ -228,6 +230,13 @@ function registerIpc(loreHome, schedule, watch) {
   ipcMain.handle("ready:runs", () => newMemories.runs());
   ipcMain.handle("ready:seen", () => newMemories.seen());
   ipcMain.handle("ready:clear", () => newMemories.clear());
+  ipcMain.handle("memory:unseen", (_event, newest) => {
+    if (!Number.isInteger(newest) || newest < 0) throw new Error("Invalid memory");
+    return seenMemories.read(newest);
+  });
+  ipcMain.handle("memory:seen", async (_event, ids) => {
+    await seenMemories.add(reading.seenIds(ids));
+  });
   ipcMain.handle("checkin:waiting", () => checkIns.waiting());
   ipcMain.handle("checkin:dismiss", () => checkIns.expire().then(closeCheckIn));
   // APP-200: the Automations tab reads and changes routines through the CLI, then the clock looks again. Run now waits
@@ -579,12 +588,9 @@ async function start(loreHome) {
       if (!wrote) return;
       await newMemories.add(run);
       emit({ type: "ready" });
-      sales.notify(reading.announcement(run), () => {
-        if (!window) createWindow();
-        window?.show();
-        window?.focus();
-        emit({ type: "show", view: "today" });
-      });
+      // An agent's save lands on what it saved, in Inventory; anything else on Today's new memories.
+      const agent = read.by.kind === "agent" ? { id: read.by.id, label: read.by.label } : undefined;
+      sales.notify(reading.announcement(run), () => reveal(agent ? { type: "show", view: "inventory", source: agent } : { type: "show", view: "today" }));
       // Who wrote them is a nicety, kept last: failing to record it never costs the owner their memories' card or banner.
       try {
         await creditMemories(loreHome, run.memories.map((memory) => memory.id), read.by);

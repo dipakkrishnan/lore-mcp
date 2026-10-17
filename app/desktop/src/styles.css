@@ -583,6 +583,13 @@ dialog.palette[open] { animation: rise 0.12s ease; }
 .shelf[aria-selected="true"] { background: var(--surface); color: var(--ink); box-shadow: 0 1px 3px rgba(29, 31, 28, 0.1); }
 .shelf-count { min-width: 20px; padding: 1px 7px; border-radius: 999px; background: var(--line-soft); font-size: 11px; font-weight: 600; color: var(--muted); text-align: center; font-variant-numeric: tabular-nums; }
 .inv-stack { display: flex; flex-direction: column; gap: 12px; }
+/* APP-212: what one agent brought in, as a chip beside the tabs, and what the owner hasn't seen yet. */
+.inv-filters { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+.chip.source-filter { height: 32px; gap: 6px; padding: 0 6px 0 14px; border-radius: 999px; background: var(--accent-soft); color: var(--accent); font-size: 13px; font-weight: 500; }
+.chip.source-filter .dismiss { width: 22px; height: 22px; border-radius: 999px; font-size: 15px; line-height: 1; color: inherit; opacity: 0.7; }
+.chip.source-filter .dismiss:hover { opacity: 1; background: var(--surface); }
+.list-aside button.inline { white-space: nowrap; }
+.new-mark { display: inline-block; margin-left: 8px; padding: 1px 7px; border-radius: 999px; background: var(--accent-soft); color: var(--accent); font-family: var(--sans); font-size: 11px; font-weight: 600; vertical-align: 2px; }
 .inv-group { border-radius: var(--radius-lg); }
 .inv-group-head { display: flex; align-items: center; gap: 10px; padding: 14px 18px 10px; }
 .inv-group-head .logo { width: 18px; height: 18px; }

@@ -4,7 +4,7 @@ title: See what an agent saved in one click
 priority: P0
 effort: M
 component: desktop-app
-status: ready
+status: in-review
 related: [APP-207, APP-213, APP-215]
 blockers: [APP-213]
 dependencies: []
@@ -48,3 +48,24 @@ links to one agent only when every memory under it came from that agent.
 - [ ] Memories not yet seen carry a quiet "New" mark that clears once seen.
 - [ ] Removing the chip shows everything again.
 - [ ] Edge checks cover each entry point.
+
+## Notes
+
+- Built (Oct 17), on APP-213's contributors:
+  - Main keeps `memories-seen.json` in userData (`reading.Seen`: `since`, the
+    newest memory when it began, and the ids seen after it), written beside and
+    renamed over, one write at a time. IPC `memory:unseen(newest)` and
+    `memory:seen(ids)` (1 to 500 positive integers).
+  - New is Inventory's: a memory newer than `since` that was not seen before
+    this visit. A row counts as seen once an IntersectionObserver finds it on
+    screen while Lore is in front; its mark stays until the next visit. Today's
+    rows do not count, so Today's See them still lands on New marks.
+  - Inventory's source filter is a removable chip beside the tabs; while it is
+    on, pieces for sale and Sales are hidden (a piece names no contributor).
+  - Ways in: the connect sheet's line ("Grok Bot saved 1 memory · See them →"),
+    the Mac notification for an agent's reading, "Saved N" on the agent's card,
+    and Today's New memories header when every run and memory there is one
+    agent's. A tile's click opens its own action, never a link in its text.
+  - Edge (`agents`): each way in lands filtered with New marks, New clears on the
+    next visit and is on disk for the next launch, and removing the chip shows
+    everything; `reading` checks an app's header has no See them.

@@ -154,6 +154,9 @@ type ReadingReport = { read: number; memories: Array<{ file: string; worth_selli
 type ReadyMemory = { id: number; title: string; sell: boolean; work: boolean; why: string };
 
 /** One finished reading, kept on Today until the owner clears it; `seen` once they have looked. */
+/** Which memories the owner has had on screen (APP-212); anything newer than `since` and not in `ids` is New. */
+type SeenMemories = { since: number; ids: number[] };
+
 type ReadyRun = { title: string; read: number; memories: ReadyMemory[]; at: string; seen: boolean; from?: string; by?: Contributor };
 
 /** Something Lore does on its own at a set hour, as `lore automation list` describes it. `due`: the app owes it a run now. */
@@ -342,6 +345,8 @@ interface Window {
     readyRuns(): Promise<ReadyRun[]>;
     seenMemories(): Promise<void>;
     clearMemories(): Promise<void>;
+    memoriesSeen(newest: number): Promise<SeenMemories>;
+    markSeen(ids: number[]): Promise<void>;
     checkIn(): Promise<CheckIn | null>;
     routines(): Promise<Routine[]>;
     noticedRoutines(): Promise<void>;
@@ -406,7 +411,7 @@ type AgentEvent =
   | { type: "auth"; message?: string; event?: import("@earendil-works/pi-ai").AuthEvent }
   | { type: "progress"; text?: string; done?: boolean; error?: string }
   | { type: "sold" }
-  | { type: "show"; view: "store" | "today" | "automations" }
+  | { type: "show"; view: "store" | "today" | "automations" | "inventory"; source?: { id: string; label: string } }
   | { type: "thread"; task: AgentTask }
   | { type: "ready" }
   /** What the owner's personal agents saved that Lore just brought in (APP-207). */
