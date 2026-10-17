@@ -4,6 +4,7 @@ import hashlib
 import json
 import os
 import re
+import sys
 import urllib.request
 import zipfile
 from abc import ABC, abstractmethod
@@ -1913,7 +1914,15 @@ class Registry:
             stats[result] += 1
         reader.settle()
         if source.origin != "automation":
-            self.store.credit_source(source.name, source.contributor())
+            try:
+                self.store.credit_source(source.name, source.contributor())
+            except Exception as error:
+                # Who brought it in is a nicety: a source whose name can't be kept on
+                # record still imports, and never stops the sources after it.
+                print(
+                    f"lore: could not record {source.name} as the source: {error}",
+                    file=sys.stderr,
+                )
         stats["found"] += reader.errors
         stats["errors"] = reader.errors
         self.reads[source.name] = LastRead(
@@ -1930,8 +1939,9 @@ class Registry:
                 continue
             try:
                 brought = self._brought(row, named)
-            except ValueError:
-                # One memory that can't be named never keeps the rest from loading.
+            except Exception:
+                # Whatever a memory holds, one that can't be named says Lore's and never
+                # keeps the rest of the library from loading.
                 brought = LORE
             row["sources"] = [{**brought, "at": None}]
         return rows
@@ -1966,24 +1976,27 @@ class Registry:
     def _captured(self, path: str) -> Contributor:
         """What the owner wrote in Lore is theirs; a file they brought is its app's when
         it sits in a folder one of their apps keeps, and the file's own otherwise."""
-        if not path.startswith(("/", "~")):
+        if not path.startswith(("/", "~/")):
             return Contributor(kind="capture", id="you", label="you", mark="pen")
-        file = Path(path).expanduser()
+        file = _home(path)
         for source in self.owned:
-            if source.kind == "folder" and file.is_relative_to(
-                Path(source.locator).expanduser()
-            ):
+            if source.kind == "folder" and file.is_relative_to(_home(source.locator)):
                 return source.contributor()
         # A path may be far longer than an id: the file is named by a digest of it.
         digest = hashlib.sha256(path.encode()).hexdigest()[:16]
         return Contributor(
-            kind="capture", id=f"file-{digest}", label=file.name[:200], mark="file"
+            kind="capture", id=f"file-{digest}", label=file.name, mark="file"
         )
 
     def _save_reads(self) -> None:
         self.store.set_setting(
             "source_reads", self.read_records.dump_python(self.reads, mode="json")
         )
+
+
+def _home(path: str) -> Path:
+    """A path, with only a leading `~/` meaning home: `~standup` is just a name."""
+    return Path.home() / path[2:] if path.startswith("~/") else Path(path)
 
 
 def available_sources() -> list[Source]:

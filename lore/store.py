@@ -73,6 +73,10 @@ class Memory(BaseModel):
         return cls.model_validate({key: row[key] for key in row.keys()})
 
 
+# How long a contributor's name may be; the app cuts its own to the same length.
+LABEL_LIMIT = 200
+
+
 class Contributor(BaseModel):
     """Who brought a memory in or wrote into it (APP-213): one of the owner's agents, an
     app, one of their routines, or the owner. `mark` names the picture it shows with."""
@@ -81,8 +85,15 @@ class Contributor(BaseModel):
 
     kind: Literal["agent", "app", "routine", "capture"]
     id: str = Field(min_length=1, max_length=200)
-    label: str = Field(min_length=1, max_length=200)
+    label: str = Field(min_length=1, max_length=LABEL_LIMIT)
     mark: str = Field(default="", max_length=40, pattern=r"^[a-z0-9-]*$")
+
+    @field_validator("label", mode="before")
+    @classmethod
+    def label_fits(cls, value: object) -> object:
+        """A name longer than a label holds (an owner's folder, a routine named by its
+        prompt) is cut to fit, never refused."""
+        return value.strip()[:LABEL_LIMIT] if isinstance(value, str) else value
 
 
 class PublicationKind(str, Enum):
@@ -803,21 +814,28 @@ class Store:
         if not ids:
             return 0
         return self._credit(
-            f"id IN ({','.join('?' * len(ids))})", tuple(ids), contributor
+            f"id IN ({','.join('?' * len(ids))})", tuple(ids), contributor, newest=True
         )
 
     def credit_source(self, source: str, contributor: Contributor) -> int:
-        """Put the app or agent a source is on record for everything it brought in."""
-        return self._credit("source=?", (source,), contributor)
+        """Put the app or agent a source is on record for everything it brought in. Reading
+        it again renames it but keeps when it first brought each memory in."""
+        return self._credit("source=?", (source,), contributor, newest=False)
 
     def _credit(
-        self, where: str, args: tuple[object, ...], contributor: Contributor
+        self,
+        where: str,
+        args: tuple[object, ...],
+        contributor: Contributor,
+        *,
+        newest: bool,
     ) -> int:
         cursor = self.db.execute(
             "INSERT INTO memory_contributors (memory_id,kind,ref,label,mark,at) "
             f"SELECT id,?,?,?,?,? FROM memories WHERE {where} "
             "ON CONFLICT(memory_id,kind,ref) DO UPDATE SET "
-            "label=excluded.label,mark=excluded.mark,at=excluded.at",
+            "label=excluded.label,mark=excluded.mark"
+            + (",at=excluded.at" if newest else ""),
             (
                 contributor.kind,
                 contributor.id,

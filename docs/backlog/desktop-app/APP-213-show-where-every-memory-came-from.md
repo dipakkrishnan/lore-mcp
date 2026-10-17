@@ -74,3 +74,10 @@ you"; a capture of an imported file says the file's app.
     must be strict positive integers) and by the renderer, which draws a fixed
     mark for anything else. An Inventory group named for an agent or app is
     headed by that one's own mark.
+  - Review round 3: only a leading `~/` means home, so a capture from
+    `~standup` is the owner's; any error naming one memory falls back to Lore for
+    that row. Labels are cut to 200 characters by the model and by the app, so a
+    routine named by its prompt or a long folder name never fails. Each source's
+    crediting is best-effort and never stops a read; reading again keeps when a
+    source first brought a memory in. The app credits in batches of 500, last,
+    after the result, Today's card and the banner, and logs a failure.

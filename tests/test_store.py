@@ -162,6 +162,10 @@ class ContributorTest(LoreTestCase):
             self.assertEqual(store.forget("Gone"), 1)
             self.assertEqual(store.contributors(), {})
 
+    def test_a_label_too_long_is_cut_to_fit(self) -> None:
+        long = Contributor(kind="routine", id="r1", label="Remember " * 60)
+        self.assertEqual(long.label, ("Remember " * 60).strip()[:200])
+
     def test_a_contributor_is_one_of_four_kinds_with_a_name(self) -> None:
         for bad in (
             {"kind": "lore", "id": "x", "label": "x"},

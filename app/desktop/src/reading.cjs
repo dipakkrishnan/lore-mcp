@@ -7,6 +7,13 @@ const { resolve, sep } = require("node:path");
 /** How many runs Today keeps before the oldest drops off. */
 const KEPT = 5;
 
+/** How long a contributor's name may be, as the store keeps it (lore/store.py LABEL_LIMIT). */
+const LABEL_LIMIT = 200;
+
+/** Who wrote a reading's memories, its name cut to what the store keeps.
+ * @param {Contributor["kind"]} kind @param {string} id @param {string} label @param {string} mark @returns {Contributor} */
+const contributor = (kind, id, label, mark) => ({ kind, id, label: label.trim().slice(0, LABEL_LIMIT), mark });
+
 /** @param {string} noun */
 const many = (noun) => `${noun.replace(/y$/, "ie")}s`;
 
@@ -23,17 +30,17 @@ function worthReading(read, apps) {
   if (!app || !read.added) return null;
   if (app.id === "agent") {
     const who = read.label || app.name;
-    const by = { kind: /** @type {const} */ ("agent"), id: read.name, label: who, mark: read.app ?? "other" };
+    const by = contributor("agent", read.name, who, read.app ?? "other");
     return { name: read.name, label: who, item: app.item, added: read.added, title: `${who} saved ${plural(read.added, "thing")} to Lore`, phase: `Reading what ${who} saved`, from: who, by };
   }
   const what = `your ${app.name} ${many(app.item)}`;
-  return { name: read.name, label: app.name, item: app.item, added: read.added, title: `Lore read ${what}`, phase: `Reading ${what}`, by: { kind: "app", id: read.name, label: app.name, mark: app.id } };
+  return { name: read.name, label: app.name, item: app.item, added: read.added, title: `Lore read ${what}`, phase: `Reading ${what}`, by: contributor("app", read.name, app.name, app.id) };
 }
 
 /** One of the owner's own routines, read through like an app: their sentence is all there is to call it.
  * @param {Pick<Routine, "id" | "name">} routine @param {string} ask @returns {Reading} */
 function asking(routine, ask) {
-  return { name: routine.id, label: routine.name, item: "", added: 0, ask, title: `“${routine.name}”`, phase: `Working on “${routine.name}”`, by: { kind: "routine", id: routine.id, label: routine.name, mark: "clock" } };
+  return { name: routine.id, label: routine.name, item: "", added: 0, ask, title: `“${routine.name}”`, phase: `Working on “${routine.name}”`, by: contributor("routine", routine.id, routine.name, "clock") };
 }
 
 /** What a reading wrote, as the store keeps it. A file outside the memories folder, or one the store did not take, is

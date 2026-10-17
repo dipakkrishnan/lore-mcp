@@ -737,8 +737,12 @@ function memoriesReady(runs) {
   const heading = runs.every((run) => run.title === latest.title) ? latest.title : "Lore read what you brought in";
   const detail = [`${plural(memories.length, "new memory")}, only on this Mac`, selling ? `${selling} ${selling === 1 ? "looks" : "look"} worth selling` : ""].filter(Boolean).join(" · ");
   const clear = button("Clear", "quiet", () => void window.lore.clearMemories().then(() => { readyRuns = []; render(); }));
-  /** What the library has on record for a memory, or, before it has caught up, who the reading was. @param {number} id @param {Contributor} [by] */
-  const sources = (id, by) => snapshot?.library.items.find((item) => item.id === id)?.sources ?? (by && [{ ...by, at: null }]);
+  /** What the library has on record for a memory, or, until the reading's own credit lands (it is recorded last), who the
+   * reading was. @param {number} id @param {Contributor} [by] */
+  const sources = (id, by) => {
+    const kept = snapshot?.library.items.find((item) => item.id === id)?.sources;
+    return by && (!kept || kept[0]?.kind === "lore") ? [{ ...by, at: null }] : kept;
+  };
   const list = el("div", "routines today-cards");
   for (const memory of memories) {
     const node = sourcedRow({ id: memory.id, title: memory.title, sources: sources(memory.id, memory.by) }, [memory.sell ? `Worth selling · ${memory.why}` : memory.work ? "Work · stays private" : "Private"], memory.sell);

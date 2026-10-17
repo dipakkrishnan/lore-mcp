@@ -574,7 +574,6 @@ async function start(loreHome) {
       const stored = JSON.parse(await lore(loreHome, ["search", "--source", "automation", "--limit", "0", "--json"]));
       const run = reading.landed(read, report, stored, join(loreHome, "memories"));
       const wrote = run.memories.length;
-      await creditMemories(loreHome, run.memories.map((memory) => memory.id), read.by);
       if (read.ask) await lore(loreHome, ["automation", "result", read.name, wrote ? reading.plural(wrote, "new memory") : "Nothing new"]);
       emit({ type: "changed" });
       if (!wrote) return;
@@ -586,6 +585,13 @@ async function start(loreHome) {
         window?.focus();
         emit({ type: "show", view: "today" });
       });
+      // Who wrote them is a nicety, kept last: failing to record it never costs the owner their memories' card or banner.
+      try {
+        await creditMemories(loreHome, run.memories.map((memory) => memory.id), read.by);
+        emit({ type: "changed" });
+      } catch (error) {
+        console.error("Lore could not record who wrote these memories:", error);
+      }
     },
     job: {
       // This process is the one that owes the row a close, so it claims the row

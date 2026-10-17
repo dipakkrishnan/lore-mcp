@@ -81,6 +81,18 @@ test("reads only the fixed APP-001 snapshot", async () => {
   }
 });
 
+test("crediting a big reading goes to the CLI in batches it takes", async () => {
+  const { creditMemories } = require("../src/state.cjs");
+  const directory = await mkdtemp(join(tmpdir(), "lore-desktop-"));
+  try {
+    const ids = Array.from({ length: 1001 }, (_, i) => i + 1);
+    await creditMemories(directory, ids, { kind: "routine", id: "r1", label: "Sunday", mark: "clock" });
+    await creditMemories(directory, [], { kind: "routine", id: "r1", label: "Sunday", mark: "clock" });
+  } finally {
+    await rm(directory, { recursive: true });
+  }
+});
+
 test("free copies save through the CLI, refused before it unless a whole number, and read back in the snapshot", async () => {
   const { setFreeCopies } = require("../src/state.cjs");
   const directory = await mkdtemp(join(tmpdir(), "lore-desktop-"));
@@ -1568,6 +1580,8 @@ test("an owner's routine runs their sentence as a quiet reading and is announced
   const run = landed(reading, { read: 0, memories: [{ file: "t.md", worth_selling: false, why: "" }] }, [{ id: 1, title: "t", content: "", project: "", source: "automation", source_path: `${folder}/t.md`, status: "private", updated_at: "" }], folder);
   assert.deepEqual(announcement(run), { title: "“Every Sunday, remember what I read”", body: "1 new memory. They stay private on this Mac." });
   assert.deepEqual(run.by, { kind: "routine", id: "r-1", label: "Every Sunday, remember what I read", mark: "clock" }, "what it wrote is on record as the routine's");
+  const long = "Remember ".repeat(60);
+  assert.equal(asking({ id: "r-2", name: long }, long).by.label, long.trim().slice(0, 200), "a routine named by a long prompt is cut to what the store keeps");
 });
 
 test("Run now waits for a scheduled run under way, so the two never overlap", async () => {

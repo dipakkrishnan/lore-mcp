@@ -8,8 +8,12 @@ from __future__ import annotations
 
 import json
 import os
+import subprocess
+import sys
 import unittest
+from contextlib import redirect_stderr
 from datetime import datetime
+from io import StringIO
 from pathlib import Path
 from unittest.mock import patch
 
@@ -731,14 +735,89 @@ class ProvenanceLimitsTest(ProvenanceTest):
         self.assertEqual((source["label"], source["mark"]), ("notes.md", "file"))
         self.assertLessEqual(len(source["id"]), 200)
 
+    def test_a_name_too_long_for_a_label_is_cut_to_fit(self) -> None:
+        self.put("agent-gone", "long", project="x" * 300)
+        [source] = self.sources()["long"]
+        self.assertEqual((source["kind"], source["label"]), ("agent", "x" * 200))
+
+    def test_a_tilde_name_is_the_owners_own_words_not_a_home(self) -> None:
+        # Only `~/` means home: `~standup` and `~bob/x` would make Path raise.
+        for path in ("~standup", "~bob/x"):
+            capture_module.save(
+                [{"title": path, "content": "we ship friday", "source_path": path}]
+            )
+        capture_module.save(
+            [{"title": "Home", "content": "a note", "source_path": "~/notes/a.md"}]
+        )
+        found = self.sources()
+        for path in ("~standup", "~bob/x"):
+            self.assertEqual(found[path][0]["label"], "you")
+        self.assertEqual(found["Home"][0]["label"], "a.md")
+        result = subprocess.run(
+            [sys.executable, "-m", "lore", "desktop-state"],
+            env=os.environ.copy(),
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+
     def test_one_memory_that_cannot_be_named_says_lore_and_the_rest_load(
         self,
     ) -> None:
-        self.put("agent-gone", "long", project="x" * 300)
+        self.put("capture", "/Users/owner/broken.md")
         self.put("agent-named", "fine", project="Grok Bot")
-        found = self.sources()
-        self.assertEqual(found["long"][0]["kind"], "lore")
+        with patch.object(Path, "is_relative_to", side_effect=RuntimeError("no")):
+            with Store() as store:
+                store.set_setting(
+                    "owner_sources",
+                    [
+                        {
+                            "name": "folder-1",
+                            "label": "V",
+                            "locator": "/v",
+                            "owned": True,
+                        }
+                    ],
+                )
+            found = self.sources()
+        self.assertEqual(found["/Users/owner/broken.md"][0]["kind"], "lore")
         self.assertEqual(found["fine"][0]["label"], "Grok Bot")
+
+    def test_a_folder_named_past_a_label_still_imports_and_syncs(self) -> None:
+        root = Path(self.tmp.name) / "vault"
+        root.mkdir()
+        (root / "note.md").write_text("# Note\n\nA lesson long enough to be kept.")
+        with Store() as store:
+            entry = Registry(store).add(str(root), label="L" * 270)
+            self.assertEqual(entry["imported"], 1)
+            Registry(store).scan()
+            [row] = store.memory_inventory()
+            [credited] = row["sources"]  # type: ignore[misc]
+            self.assertEqual(credited["label"], "L" * 200)
+
+    def test_one_source_that_cannot_be_credited_never_stops_the_rest(self) -> None:
+        root = Path(self.tmp.name) / "vault"
+        root.mkdir()
+        (root / "note.md").write_text("# Note\n\nA lesson long enough to be kept.")
+        with Store() as store:
+            name = str(Registry(store).add(str(root))["name"])
+            with patch.object(Store, "credit_source", side_effect=RuntimeError("no")):
+                with redirect_stderr(StringIO()) as said:
+                    report = Registry(store).scan()
+            self.assertIn(name, report)
+            self.assertIn(name, store.setting("source_reads", {}))
+            self.assertIn("could not record", said.getvalue())
+
+    def test_reading_again_keeps_when_a_source_first_brought_it_in(self) -> None:
+        root = Path(self.tmp.name) / "vault"
+        root.mkdir()
+        (root / "note.md").write_text("# Note\n\nA lesson long enough to be kept.")
+        with Store() as store:
+            Registry(store).add(str(root))
+            [first] = store.memory_inventory()[0]["sources"]  # type: ignore[misc]
+            Registry(store).scan()
+            [again] = store.memory_inventory()[0]["sources"]  # type: ignore[misc]
+            self.assertEqual(again["at"], first["at"])
 
     def test_marks_are_the_known_apps_agents_and_lores_own(self) -> None:
         known = sources_module.marks()
