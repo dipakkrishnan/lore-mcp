@@ -316,7 +316,7 @@ async function openMemory(id) {
   const head = el("div", "sheet-head");
   const text = el("div", "t");
   const titleLabel = el("b", "", memory.title);
-  text.append(titleLabel, el("span", "", [...new Set([...origin(memory), when(memory.updated_at)])].filter(Boolean).join(" · ")));
+  text.append(titleLabel, provenanceLine(memory));
   const close = el("button", "icon-btn", "×");
   close.type = "button";
   close.setAttribute("aria-label", "Close");
@@ -401,14 +401,6 @@ async function openMemory(id) {
   document.body.append(sheet);
   sheet.showModal();
   close.focus();
-}
-
-/** Where a memory came from, as its sheet says it: one of the owner's agents by its name, any other app by the app's.
- * @param {Memory} memory @returns {string[]} */
-function origin(memory) {
-  const from = snapshot?.library.sources.find((source) => source.name === memory.source);
-  if (from?.connector === "agent") return [`From ${from.label}`];
-  return [memory.project, apps.find((app) => app.id === from?.connector)?.name ?? from?.label ?? ""];
 }
 
 function closeSheet() {
@@ -616,6 +608,51 @@ function markTile(mark) {
   return node;
 }
 
+/** "A", "A and B", or "A, B and 2 more". @param {string[]} names */
+function named(names) {
+  return names.length < 3 ? names.join(" and ") : `${names.slice(0, 2).join(", ")} and ${names.length - 2} more`;
+}
+
+/** The picture one contributor shows with: an agent's or app's own mark, a clock for a routine, a pen for the owner,
+ * a page for a file they brought in, and Lore's own for what Lore wrote. @param {MemorySource} source */
+function sourceMark(source) {
+  if (source.kind === "agent") return agentMark(/** @type {AgentApp} */ (source.mark), source.label);
+  if (source.kind === "app") return brand(AGENT_MARKS[source.mark] ?? source.mark, source.label);
+  if (source.kind === "routine") return CLOCK_ICON;
+  if (source.kind === "capture") return source.mark === "file" ? STEP_ICONS.memory : EDIT_ICON;
+  return RING;
+}
+
+/** APP-213: where a memory came from, drawn the same wherever it shows: each contributor's mark, newest first and
+ * overlapping, three at most then "+N", and the line that names them. Nobody on record means Lore wrote it.
+ * @param {MemorySource[] | undefined} sources */
+function provenance(sources) {
+  const from = sources?.length ? sources : [{ kind: /** @type {const} */ ("lore"), id: "lore", label: "Lore", mark: "lore", at: null }];
+  const marks = el("span", "mark-stack");
+  for (const source of from.slice(0, 3)) marks.append(markTile(sourceMark(source)));
+  if (from.length > 3) marks.append(el("span", "routine-mark more", `+${from.length - 3}`));
+  const line = from[0].kind === "lore" ? "Written by Lore" : `From ${named(from.map((source) => source.label))}`;
+  return { marks, line };
+}
+
+/** A memory's row that leads with where it came from. @param {{id: number, title: string, sources?: MemorySource[]}} memory
+ * @param {string[]} rest What else the row says, after where it came from. @param {boolean} [sell] */
+function sourcedRow(memory, rest, sell) {
+  const { marks, line } = provenance(memory.sources);
+  const node = memoryRow(memory.id, memory.title, [line, ...rest].filter(Boolean).join(" · "), sell);
+  node.prepend(marks);
+  return node;
+}
+
+/** The line under a memory's title in its sheet and its preview: its marks, where it came from, and its date.
+ * @param {Memory} memory */
+function provenanceLine(memory) {
+  const { marks, line } = provenance(memory.sources);
+  const node = el("span", "provenance");
+  node.append(marks, [line, when(memory.updated_at)].filter(Boolean).join(" · "));
+  return node;
+}
+
 /** The one thing to do next, by the first stage that applies: a store in trouble, changes not live yet, drafts to
  * approve (the drafts themselves are the step), memories with nothing to sell, then no agent or app at all. None while
  * the store is being opened, repaired or updated.
@@ -693,18 +730,17 @@ function readingRow(item) {
 
 /** What Lore made of a connected app's newest items: each new memory, and a draft one press away for the ones worth selling. @param {ReadyRun[]} runs */
 function memoriesReady(runs) {
-  const memories = runs.flatMap((run) => run.memories.map((memory) => ({ ...memory, from: run.from })));
+  const memories = runs.flatMap((run) => run.memories.map((memory) => ({ ...memory, by: run.by })));
   const selling = memories.filter((memory) => memory.sell).length;
   const [latest] = runs;
   const heading = runs.every((run) => run.title === latest.title) ? latest.title : "Lore read what you brought in";
   const detail = [`${plural(memories.length, "new memory")}, only on this Mac`, selling ? `${selling} ${selling === 1 ? "looks" : "look"} worth selling` : ""].filter(Boolean).join(" · ");
   const clear = button("Clear", "quiet", () => void window.lore.clearMemories().then(() => { readyRuns = []; render(); }));
-  const app = (/** @type {string | undefined} */ from) => snapshot?.library.sources.find((source) => source.connector === "agent" && source.label === from)?.app;
+  /** What the library has on record for a memory, or, before it has caught up, who the reading was. @param {number} id @param {Contributor} [by] */
+  const sources = (id, by) => snapshot?.library.items.find((item) => item.id === id)?.sources ?? (by && [{ ...by, at: null }]);
   const list = el("div", "routines today-cards");
   for (const memory of memories) {
-    const node = memoryRow(memory.id, memory.title, [memory.from && `From ${memory.from}`, memory.sell ? `Worth selling · ${memory.why}` : memory.work ? "Work · stays private" : "Private"].filter(Boolean).join(" · "), memory.sell);
-    const agent = app(memory.from);
-    node.prepend(markTile(agent ? agentMark(agent, memory.from ?? "") : STEP_ICONS.memory));
+    const node = sourcedRow({ id: memory.id, title: memory.title, sources: sources(memory.id, memory.by) }, [memory.sell ? `Worth selling · ${memory.why}` : memory.work ? "Work · stays private" : "Private"], memory.sell);
     node.classList.add("routine");
     list.append(node);
   }
@@ -973,7 +1009,6 @@ function saleItem(item) {
 
 /** Inventory: everything Lore keeps, private or on sale, in groups by what it's about. @param {Snapshot} s */
 function renderInventory(s) {
-  const agentNames = new Set(s.library.sources.filter((source) => source.connector === "agent").map((source) => source.label));
   const agentApp = (/** @type {string} */ label) => s.library.sources.find((source) => source.connector === "agent" && source.label === label)?.app;
   const kept = privateMemories(s);
   const onSale = s.publications.items.filter((item) => item.state === "approved");
@@ -1011,9 +1046,7 @@ function renderInventory(s) {
     for (const item of items) groups.set(key(item), [...(groups.get(key(item)) ?? []), make(item)]);
     return grouped(groups);
   };
-  const privateGroups = () => groupBy(kept, (item) => item.project_label, (item) => {
-    return memoryRow(item.id, item.title, [agentNames.has(item.project_label) ? `From ${item.project_label}` : "", when(item.updated_at)].filter(Boolean).join(" · "));
-  });
+  const privateGroups = () => groupBy(kept, (item) => item.project_label, (item) => sourcedRow(item, [when(item.updated_at)]));
   const saleGroups = () => groupBy(onSale, (item) => item.topic, saleItem);
   const downGroups = () => groupBy(down, (item) => item.topic, (item) => row(item.title, item.topic, item.live === true ? chip("Still on your store", "attention") : chip("Taken down")));
   const stack = (/** @type {HTMLElement[]} */ cards) => {
@@ -3796,7 +3829,7 @@ async function fillPalette(query) {
   const ranked = [...found.filter((hit) => hit.title.toLowerCase().includes(lower)), ...found.filter((hit) => !hit.title.toLowerCase().includes(lower))];
   paletteRows = query
     ? ranked.map((hit) => paletteRow(highlight("b", hit.title, terms), snippet(hit.content, terms), "open", () => void openMemory(Number(hit.id))))
-    : (snapshot ? privateMemories(snapshot) : []).slice(0, 8).map((item) => paletteRow(el("b", "", item.title), el("span", "", [item.project_label, when(item.updated_at)].filter(Boolean).join(" · ")), "open", () => void openMemory(item.id)));
+    : (snapshot ? privateMemories(snapshot) : []).slice(0, 8).map((item) => paletteRow(el("b", "", item.title), el("span", "", [provenance(item.sources).line, when(item.updated_at)].join(" · ")), "open", () => void openMemory(item.id)));
   if (query) {
     const capture = paletteRow(el("b", "", `Capture “${query}”`), el("span", "", "Start a new memory with these words"), "capture", () => startCapture(query));
     capture.node.classList.add("capture");
@@ -3914,7 +3947,7 @@ function showPeek(anchor, memory) {
   peek = el("div", "card peek");
   peek.setAttribute("role", "tooltip");
   const text = memory.content.replace(FRONTMATTER, "").replace(/\s+/g, " ").trim();
-  peek.append(el("b", "", memory.title), el("span", "", [origin(memory)[0], when(memory.updated_at)].filter(Boolean).join(" · ")), el("p", "", text.slice(0, 400)));
+  peek.append(el("b", "", memory.title), provenanceLine(memory), el("p", "", text.slice(0, 400)));
   peek.addEventListener("mouseenter", () => window.clearTimeout(peekTimer));
   peek.addEventListener("mouseleave", hidePeek);
   peek.addEventListener("click", () => void openMemory(memory.id));

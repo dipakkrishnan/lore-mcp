@@ -560,9 +560,21 @@ dialog.palette[open] { animation: rise 0.12s ease; }
 .agent-hero .t b { font-family: var(--serif); font-size: 22px; font-weight: 500; }
 .agent-hero .t span { font-size: 14px; line-height: 1.5; color: var(--ink-soft); max-width: 46ch; }
 .agent-hero .v { max-width: none; }
-.mark-stack { display: flex; align-items: center; }
-.mark-stack .logo { width: 22px; height: 22px; padding: 10px; box-sizing: content-box; border-radius: 50%; background: var(--surface); border: 1px solid var(--line); box-shadow: 0 2px 8px rgba(29, 31, 28, 0.08); }
-.mark-stack .logo + .logo { margin-left: -12px; }
+.mark-stack { display: flex; align-items: center; flex-shrink: 0; }
+.mark-stack > .logo { width: 22px; height: 22px; padding: 10px; box-sizing: content-box; border-radius: 50%; background: var(--surface); border: 1px solid var(--line); box-shadow: 0 2px 8px rgba(29, 31, 28, 0.08); }
+.mark-stack > .logo + .logo { margin-left: -12px; }
+/* APP-213: where a memory came from, its contributors' tiles overlapping the same way, newest on top. */
+.mark-stack > .routine-mark { position: relative; background: var(--surface); box-shadow: 0 0 0 2px var(--surface); }
+.mark-stack > .routine-mark:nth-child(1) { z-index: 3; }
+.mark-stack > .routine-mark:nth-child(2) { z-index: 2; }
+.mark-stack > .routine-mark:nth-child(3) { z-index: 1; }
+.mark-stack > .routine-mark + .routine-mark { margin-left: -14px; }
+.mark-stack > .routine-mark.more { font-size: 11px; font-weight: 600; color: var(--muted); }
+.provenance { display: flex; align-items: center; gap: 8px; }
+.provenance .routine-mark { width: 22px; height: 22px; border-radius: 6px; }
+.provenance .routine-mark svg { width: 12px; height: 12px; }
+.provenance .routine-mark .logo { width: 13px; height: 13px; }
+.provenance .mark-stack > .routine-mark + .routine-mark { margin-left: -9px; }
 
 /* Inventory: tabs by status, cards by what each piece is about. */
 .shelves { display: flex; gap: 4px; padding: 4px; width: fit-content; border-radius: 999px; background: var(--bg-aside); border: 1px solid var(--line); }

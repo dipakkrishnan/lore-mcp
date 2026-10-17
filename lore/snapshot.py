@@ -206,8 +206,9 @@ def build() -> dict[str, object]:
     missing = object()
     with Store() as store:
         configured = store.setting("sources", missing)
-        source_entries = sources.Registry(store).entries()
-        memories = store.memory_inventory()
+        registry = sources.Registry(store)
+        source_entries = registry.entries()
+        memories = registry.provenance(store.memory_inventory())
         publications = store.publication_inventory()
         publication_price = store.setting("price_usd", None)
         answer_price = store.setting("answer_price_usd", 0.0)
@@ -225,6 +226,8 @@ def build() -> dict[str, object]:
     labels = _claude_project_labels()
     prefix = "-" + str(Path.home()).strip("/").replace("/", "-") + "-"
     for memory in memories:
+        for internal in ("source", "origin", "source_path"):
+            memory.pop(internal)
         project = str(memory.pop("project"))
         memory["project_label"] = labels.get(project) or project.removeprefix(prefix)
     for publication in publications:

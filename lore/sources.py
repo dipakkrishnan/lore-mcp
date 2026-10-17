@@ -57,7 +57,7 @@ from . import __version__
 from .inbox import AgentApp, Forget, Inbox, InboxError, Opened
 from .paths import claude_home, codex_home, home, obsidian_home
 from .signin import Keychain, Loopback
-from .store import Store
+from .store import Contributor, Store
 
 Kind = Literal["folder", "export", "feed", "mcp", "agent"]
 
@@ -100,6 +100,20 @@ class Source:
     connector: str | None = None
     # Which personal agent writes to it, vouched for by its inbox key.
     app: AgentApp | None = None
+
+    def contributor(self) -> Contributor:
+        """Who this source is, as a memory it brought in names it: an agent by its name and
+        app, any other app by the app's name."""
+        if self.kind == "agent":
+            return Contributor(
+                kind="agent", id=self.name, label=self.label, mark=self.app or "other"
+            )
+        if self.connector:
+            connector = Connector.named(self.connector)
+            return Contributor(
+                kind="app", id=self.name, label=connector.name, mark=connector.id
+            )
+        return Contributor(kind="app", id=self.name, label=self.label, mark=self.name)
 
     def reader(self) -> Reader:
         if self.connector:
@@ -1792,6 +1806,7 @@ class Registry:
                 "name": name,
                 "label": known[name].label,
                 "connector": known[name].connector,
+                "app": known[name].app,
                 **{key: value for key, value in report[name].items() if key != "found"},
                 "state": self.reads[name].state.value,
             }
@@ -1873,12 +1888,63 @@ class Registry:
             )
             stats[result] += 1
         reader.settle()
+        if source.origin != "automation":
+            self.store.credit_source(source.name, source.contributor())
         stats["found"] += reader.errors
         stats["errors"] = reader.errors
         self.reads[source.name] = LastRead(
             at=datetime.now(timezone.utc).isoformat(), state=reader.failure or state
         )
         return stats
+
+    def provenance(self, rows: list[dict[str, object]]) -> list[dict[str, object]]:
+        """Fill in `sources` for each memory with nobody on record: who its source says
+        brought it in. Lore's own writing with nobody on record says it was Lore's."""
+        named = {source.name: source for source in self.sources}
+        for row in rows:
+            if not row["sources"]:
+                row["sources"] = [{**self._brought(row, named), "at": None}]
+        return rows
+
+    def _brought(
+        self, row: dict[str, object], named: dict[str, Source]
+    ) -> dict[str, object]:
+        source, project = str(row["source"]), str(row["project"])
+        if source == "automation":
+            return {"kind": "lore", "id": "lore", "label": "Lore", "mark": "lore"}
+        if source == "capture":
+            return self._captured(str(row["source_path"])).model_dump()
+        if source in named:
+            return named[source].contributor().model_dump()
+        # A source since removed: its name says which app, and an agent's memories
+        # carry the agent's name as their project.
+        app = source.rpartition("-")[0]
+        if app == "agent":
+            return Contributor(
+                kind="agent", id=source, label=project or "Your agent", mark="other"
+            ).model_dump()
+        try:
+            connector = Connector.named(app)
+        except SourceError:
+            return Contributor(
+                kind="app", id=source, label=project or source
+            ).model_dump()
+        return Contributor(
+            kind="app", id=source, label=connector.name, mark=connector.id
+        ).model_dump()
+
+    def _captured(self, path: str) -> Contributor:
+        """What the owner wrote in Lore is theirs; a file they brought is its app's when
+        it sits in a folder one of their apps keeps, and the file's own otherwise."""
+        if not path.startswith(("/", "~")):
+            return Contributor(kind="capture", id="you", label="you", mark="pen")
+        file = Path(path).expanduser()
+        for source in self.owned:
+            if source.kind == "folder" and file.is_relative_to(
+                Path(source.locator).expanduser()
+            ):
+                return source.contributor()
+        return Contributor(kind="capture", id=path, label=file.name, mark="file")
 
     def _save_reads(self) -> None:
         self.store.set_setting(

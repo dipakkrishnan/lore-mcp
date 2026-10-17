@@ -991,6 +991,7 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         check("clicking it lands on Today's new memories, named for Grok", await waitFor(`${card}?.textContent.includes("Grok Bot saved 1 thing to Lore")`));
         const cardText = await js(`${card}.textContent`);
         check("…each memory says it came from Grok", cardText.includes("Price a sync placement by its reach") && cardText.includes("From Grok Bot · Worth selling"), cardText);
+        check("…with Grok Bot's mark in its tile", await js(`${card}.querySelector(".row .mark-stack .routine-mark img.logo")?.src.endsWith("assets/grok.svg")`));
         await shot("agents-today");
         check("with Grok Bot connected, Today never asks to connect an agent", !(await js(`${todayText}.includes("Connect the AI you talk to most")`)) && !/Claude Code|Codex/.test(await js(todayText)), await js(todayText));
         const order = await js(`JSON.stringify([...document.querySelectorAll("#content .section-head h2")].map((h) => h.textContent))`);
@@ -1004,6 +1005,15 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         check("…and its sheet says so", await waitFor(`/From Grok Bot/.test(document.querySelector("dialog.sheet[open] .sheet-head")?.textContent ?? "")`), await js(sheet));
         await shot("agents-memory-from");
         await js(`document.querySelector("dialog.sheet[open] .icon-btn").click()`);
+        // APP-213: the memory Lore wrote from what Grok saved is Grok's too, in Inventory and in its preview.
+        const written = `[...document.querySelectorAll("#content .row")].find((r) => r.textContent.includes("Price a sync placement by its reach"))`;
+        check("in Inventory, what Lore wrote from Grok's save says it came from Grok, with its mark", await waitFor(`/From Grok Bot · /.test(${written}?.textContent ?? "") && ${written}.querySelector(".mark-stack img.logo")?.src.endsWith("assets/grok.svg")`), await js(`${written}?.textContent ?? ""`));
+        check("…and so does what Grok saved itself", await js(`${saved}.querySelector(".mark-stack img.logo")?.src.endsWith("assets/grok.svg")`));
+        await js(`${written}.querySelector(".task-link").dispatchEvent(new MouseEvent("mouseenter"))`);
+        const peekLine = `document.querySelector(".peek .provenance")?.textContent ?? ""`;
+        check("its preview leads with where it came from, then the day", await waitFor(`/^From Grok Bot · [A-Z][a-z]{2} \\d{1,2}$/.test(${peekLine})`) && await js(`document.querySelector(".peek .provenance img.logo")?.src.endsWith("assets/grok.svg")`), await js(peekLine));
+        await shot("agents-preview");
+        await js(`${written}.querySelector(".task-link").dispatchEvent(new MouseEvent("mouseleave"))`);
 
         // Manage: a new key stops the old one, and Disconnect stops the agent and keeps what it saved.
         await js(`window.__lore.show("connectors")`);
@@ -1030,6 +1040,9 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         await shot("agents-disconnect");
         await press("Disconnect");
         check("disconnecting keeps its memory and says so", await waitFor(`document.querySelector("#status").textContent.includes("Disconnected Grok Bot. 1 memory kept.")`, 80), await js(`document.querySelector("#status").textContent`));
+        await js(`window.__lore.show("memories")`);
+        check("…and what it saved still says Grok Bot, with its mark", await waitFor(`/From Grok Bot/.test(${saved}?.textContent ?? "") && ${saved}.querySelector(".mark-stack img.logo")?.src.endsWith("assets/grok.svg")`), await js(`${saved}?.textContent ?? ""`));
+        await js(`window.__lore.show("connectors")`);
         check("…takes Grok off Connectors", await waitFor(`!${agentRow("Grok Bot")} && Boolean(${agentRow("Connect an agent")})`));
         check("…and its key stops working", (await call(fresh, "tools/list")).status === 401);
         await shot("agents-disconnected");
@@ -1227,10 +1240,17 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         check("…each by title, only on this Mac", /2 new memories, only on this Mac · 1 looks worth selling/.test(cardText) && cardText.includes("Raise the first price only after ten buyers pay") && cardText.includes("Add the ops management layer before the next ten hires"), cardText);
         check("…work stays private and is never offered for sale", cardText.includes("Work · stays private") && await js(`[...${card}.querySelectorAll(".row")].filter((r) => [...r.querySelectorAll("button")].some((b) => b.textContent === "Draft for sale")).map((r) => r.querySelector("b").textContent).join("|")`) === "Raise the first price only after ten buyers pay");
         check("…in plain words", !/synthes|agent|pipeline|mcp/i.test(cardText), cardText);
+        check("…each from Granola, with its mark", (cardText.match(/From Granola · /g) ?? []).length === 2 && await js(`[...${card}.querySelectorAll(".row")].every((r) => r.querySelector(".mark-stack img.logo")?.src.endsWith("assets/granola.svg"))`), cardText);
         check("seeing it clears the dock", await (async () => { for (let i = 0; i < 40 && badges.at(-1) !== 0; i++) await sleep(100); return badges.at(-1) === 0; })(), JSON.stringify(badges));
         await shot("reading-today-ready");
         await js(`window.__lore.show("memories")`);
         check("the memories are in Inventory, grouped under work and personal", await waitFor(`document.querySelector("#content").textContent.includes("Raise the first price only after ten buyers pay")`) && await js(`[...document.querySelectorAll("#content .row")].find((r) => r.textContent.includes("ops management"))?.closest(".inv-group")?.querySelector(".inv-group-head b")?.textContent === "work"`));
+        const older = `[...document.querySelectorAll("#content .row")].find((r) => r.textContent.includes("An older lesson Lore wrote"))`;
+        check("one Lore wrote before it kept who from says so, never a guess", await js(`/Written by Lore · /.test(${older}?.textContent ?? "") && !/From /.test(${older}.textContent) && Boolean(${older}.querySelector(".mark-stack .routine-mark svg rect"))`), await js(`${older}?.textContent ?? ""`));
+        check("…while the new ones say Granola", await js(`/From Granola · /.test([...document.querySelectorAll("#content .row")].find((r) => r.textContent.includes("Raise the first price"))?.textContent ?? "")`));
+        await js(`${older}.scrollIntoView({ block: "center" })`);
+        await sleep(300);
+        await shot("reading-inventory-from");
         await js(`window.__lore.show("today")`);
         await js(`[...${card}.querySelectorAll("button")].find((b) => b.textContent === "Draft for sale").click()`);
         check("Draft for sale opens the publish thread from that memory", await waitFor(`document.querySelector("#title").textContent === "Publish from your Lore"`) && await waitFor(`document.querySelector("#log").textContent.includes("Raise the first price only after ten buyers pay")`));
@@ -1301,6 +1321,8 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         await js(`window.__lore.show("today")`);
         const heading = `[...document.querySelectorAll("#content .section")].find((s) => s.textContent.includes("New memories"))?.querySelector(".list-aside span")?.textContent ?? ""`;
         check("Today names it by its sentence alone", await waitFor(`(${heading}).startsWith(${JSON.stringify(`“${SUNDAY}” · `)})`), await js(heading));
+        const written = `[...[...document.querySelectorAll("#content .section")].find((s) => s.textContent.includes("New memories")).querySelectorAll(".row")]`;
+        check("…and each memory it wrote shows the clock and says it came from the routine", await js(`${written}.length === 2 && ${written}.every((r) => r.textContent.includes(${JSON.stringify(`From ${SUNDAY} · `)}) && r.querySelector(".mark-stack .routine-mark svg circle"))`), await js(`${written}.map((r) => r.textContent).join(" | ")`));
         await js(`[...document.querySelectorAll("#content .section")].find((s) => s.textContent.includes("New memories"))?.scrollIntoView()`);
         await sleep(300);
         await shot("automations-today-owner-routine");

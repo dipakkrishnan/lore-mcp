@@ -122,6 +122,12 @@ async function readMemory(loreHome, id) {
   return JSON.parse(await lore(loreHome, ["memory", "show", String(id), "--json"]));
 }
 
+/** Put who wrote a reading's memories on record (APP-213). @param {string} loreHome @param {number[]} ids @param {Contributor} by */
+async function creditMemories(loreHome, ids, by) {
+  if (!ids.length) return;
+  await lore(loreHome, ["memory", "credit", "-"], JSON.stringify({ ids, by }));
+}
+
 /** @param {string} loreHome @param {unknown} id @param {string} title @returns {Promise<Memory>} */
 async function renameMemory(loreHome, id, title) {
   if (!Number.isInteger(id) || /** @type {number} */ (id) < 1) throw new Error("Invalid memory");
@@ -428,6 +434,7 @@ module.exports = {
   readViews,
   searchMemories,
   readMemory,
+  creditMemories,
   renameMemory,
   editMemory,
   captureMemories,

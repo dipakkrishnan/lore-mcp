@@ -20,6 +20,7 @@ from lore.store import (
     JOB_MAX_ROWS,
     STATUSES,
     AnswerSettings,
+    Contributor,
     JobKind,
     JobStatus,
     OwnerJob,
@@ -100,6 +101,75 @@ class StoreLifecycleTest(LoreTestCase):
             self.assertEqual(
                 {m.status for m in found}, {Status.PRIVATE, Status.DISCARDED}
             )
+
+
+class ContributorTest(LoreTestCase):
+    """APP-213: who brought each memory in or wrote into it, kept with the memory."""
+
+    GROK = Contributor(kind="agent", id="agent-g1", label="Grok Bot", mark="grok")
+    VAULT = Contributor(kind="app", id="obsidian-1", label="Obsidian", mark="obsidian")
+
+    def test_a_database_from_before_contributors_gains_the_table_on_open(
+        self,
+    ) -> None:
+        self.lore_home.mkdir(parents=True, exist_ok=True)
+        db = sqlite3.connect(self.lore_home / "lore.db")
+        db.execute(
+            """CREATE TABLE memories (
+                id INTEGER PRIMARY KEY, source TEXT NOT NULL,
+                origin TEXT NOT NULL DEFAULT 'native', source_path TEXT NOT NULL,
+                source_key TEXT NOT NULL UNIQUE, fingerprint TEXT NOT NULL,
+                title TEXT NOT NULL, content TEXT NOT NULL,
+                project TEXT NOT NULL DEFAULT '',
+                status TEXT NOT NULL DEFAULT 'private',
+                created_at TEXT NOT NULL, updated_at TEXT NOT NULL)"""
+        )
+        db.close()
+        with Store() as store:
+            tables = {
+                row[0] for row in store.db.execute("SELECT name FROM sqlite_master")
+            }
+            self.assertIn("memory_contributors", tables)
+
+    def test_contributors_are_newest_first_and_one_row_each(self) -> None:
+        first = self.seed_memory("Synthesized")
+        with Store() as store:
+            self.assertEqual(store.credit([first], self.GROK), 1)
+            store.credit([first], self.VAULT)
+            renamed = self.GROK.model_copy(update={"label": "Grok"})
+            store.credit([first], renamed)
+            credited = store.contributors([first])[first]
+            self.assertEqual(
+                [(c["id"], c["label"]) for c in credited],
+                [("agent-g1", "Grok"), ("obsidian-1", "Obsidian")],
+            )
+            self.assertTrue(all(c["at"] for c in credited))
+            [row] = store.memory_inventory()
+            self.assertEqual(row["sources"], credited)
+
+    def test_unknown_ids_are_skipped_and_nothing_is_a_no_op(self) -> None:
+        memory = self.seed_memory("Kept")
+        with Store() as store:
+            self.assertEqual(store.credit([memory, 999], self.GROK), 1)
+            self.assertEqual(store.credit([], self.GROK), 0)
+            self.assertEqual(store.contributors([]), {})
+            self.assertEqual(set(store.contributors()), {memory})
+
+    def test_deleting_a_memory_takes_its_contributors_with_it(self) -> None:
+        self.seed_memory("Gone")
+        with Store() as store:
+            store.credit_source("test", self.VAULT)
+            self.assertEqual(store.forget("Gone"), 1)
+            self.assertEqual(store.contributors(), {})
+
+    def test_a_contributor_is_one_of_four_kinds_with_a_name(self) -> None:
+        for bad in (
+            {"kind": "lore", "id": "x", "label": "x"},
+            {"kind": "app", "id": "", "label": "x"},
+            {"kind": "app", "id": "x", "label": " "},
+        ):
+            with self.assertRaises(ValueError):
+                Contributor.model_validate(bad)
 
 
 class RetentionTest(LoreTestCase):

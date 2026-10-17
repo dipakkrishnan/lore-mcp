@@ -11,6 +11,7 @@ from collections.abc import Collection
 from datetime import datetime, timedelta, timezone
 from enum import Enum
 from pathlib import Path
+from typing import Literal
 
 from pydantic import (
     BaseModel,
@@ -70,6 +71,18 @@ class Memory(BaseModel):
     def from_row(cls, row: sqlite3.Row) -> Memory:
         """Build a Memory from a `memories` row."""
         return cls.model_validate({key: row[key] for key in row.keys()})
+
+
+class Contributor(BaseModel):
+    """Who brought a memory in or wrote into it (APP-213): one of the owner's agents, an
+    app, one of their routines, or the owner. `mark` names the picture it shows with."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True, str_strip_whitespace=True)
+
+    kind: Literal["agent", "app", "routine", "capture"]
+    id: str = Field(min_length=1, max_length=200)
+    label: str = Field(min_length=1, max_length=200)
+    mark: str = Field(default="", max_length=40)
 
 
 class PublicationKind(str, Enum):
@@ -469,6 +482,20 @@ class Store:
                 flagged_at TEXT NOT NULL,
                 PRIMARY KEY (publication_id, memory_id)
             );
+            -- Who brought each memory in or wrote into it (APP-213), one row each.
+            -- The label is kept as it was, so an agent disconnected since still
+            -- has its name; a memory deleted takes its rows with it.
+            CREATE TABLE IF NOT EXISTS memory_contributors (
+                memory_id INTEGER NOT NULL
+                    REFERENCES memories(id) ON DELETE CASCADE,
+                kind TEXT NOT NULL
+                    CHECK(kind IN ('agent','app','routine','capture')),
+                ref TEXT NOT NULL,
+                label TEXT NOT NULL,
+                mark TEXT NOT NULL DEFAULT '',
+                at TEXT NOT NULL,
+                PRIMARY KEY (memory_id, kind, ref)
+            );
             """
         )
         # Roll-forward normalization, not back-compat: a database created before
@@ -761,11 +788,71 @@ class Store:
         )
 
     def memory_inventory(self) -> list[dict[str, object]]:
+        """Every memory's row, with who is on record as its `sources`, newest first. The
+        source, origin and path are there for whoever names a memory with none on record."""
         rows = self.db.execute(
-            "SELECT id,title,project,status,updated_at "
+            "SELECT id,title,project,status,updated_at,source,origin,source_path "
             "FROM memories ORDER BY updated_at DESC,id"
         ).fetchall()
-        return [dict(row) for row in rows]
+        credited = self.contributors()
+        return [{**dict(row), "sources": credited.get(row["id"], [])} for row in rows]
+
+    def credit(self, ids: Collection[int], contributor: Contributor) -> int:
+        """Put a contributor on record for these memories, as the newest; one already
+        there keeps a single row, renamed and moved to the front. Unknown ids are skipped."""
+        if not ids:
+            return 0
+        return self._credit(
+            f"id IN ({','.join('?' * len(ids))})", tuple(ids), contributor
+        )
+
+    def credit_source(self, source: str, contributor: Contributor) -> int:
+        """Put the app or agent a source is on record for everything it brought in."""
+        return self._credit("source=?", (source,), contributor)
+
+    def _credit(
+        self, where: str, args: tuple[object, ...], contributor: Contributor
+    ) -> int:
+        cursor = self.db.execute(
+            "INSERT INTO memory_contributors (memory_id,kind,ref,label,mark,at) "
+            f"SELECT id,?,?,?,?,? FROM memories WHERE {where} "
+            "ON CONFLICT(memory_id,kind,ref) DO UPDATE SET "
+            "label=excluded.label,mark=excluded.mark,at=excluded.at",
+            (
+                contributor.kind,
+                contributor.id,
+                contributor.label,
+                contributor.mark,
+                datetime.now(timezone.utc).isoformat(),
+                *args,
+            ),
+        )
+        self.db.commit()
+        return cursor.rowcount
+
+    def contributors(
+        self, ids: Collection[int] | None = None
+    ) -> dict[int, list[dict[str, object]]]:
+        """Who is on record for each memory, newest first."""
+        if ids is not None and not ids:
+            return {}
+        where = f" WHERE memory_id IN ({','.join('?' * len(ids))})" if ids else ""
+        credited: dict[int, list[dict[str, object]]] = {}
+        for row in self.db.execute(
+            "SELECT memory_id,kind,ref,label,mark,at FROM memory_contributors"
+            f"{where} ORDER BY at DESC,rowid DESC",
+            tuple(ids or ()),
+        ):
+            credited.setdefault(row["memory_id"], []).append(
+                {
+                    "kind": row["kind"],
+                    "id": row["ref"],
+                    "label": row["label"],
+                    "mark": row["mark"],
+                    "at": row["at"],
+                }
+            )
+        return credited
 
     def publication_inventory(self) -> list[dict[str, object]]:
         rows = self.db.execute(

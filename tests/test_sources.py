@@ -438,6 +438,7 @@ class OwnerFolderTest(LoreTestCase):
                         "name": "codex",
                         "label": "Codex",
                         "connector": None,
+                        "app": None,
                         "added": 1,
                         "updated": 0,
                         "unchanged": 0,
@@ -601,6 +602,124 @@ class ConnectorTest(LoreTestCase):
             Source.owner("/notes", connector="evernote")
         with self.assertRaises(sources_module.SourceError):
             Source.owner("https://a.example", kind="feed", connector="obsidian")
+
+
+class ProvenanceTest(LoreTestCase):
+    """APP-213: every memory says who it came from, and never guesses."""
+
+    def put(self, source: str, path: str, project: str = "") -> None:
+        with Store() as store:
+            store.put(
+                source=source,
+                origin="automation" if source == "automation" else "native",
+                source_path=path,
+                source_key=f"{source}:{path}",
+                fingerprint=path,
+                title=path,
+                content="a lesson",
+                project=project,
+            )
+
+    def sources(self) -> dict[str, list[dict[str, object]]]:
+        with Store() as store:
+            rows = Registry(store).provenance(store.memory_inventory())
+        return {
+            str(row["title"]): [
+                {k: v for k, v in s.items() if k != "at"}
+                for s in row["sources"]  # type: ignore[attr-defined]
+            ]
+            for row in rows
+        }
+
+    def test_a_connected_app_is_on_record_for_what_it_brought_in(self) -> None:
+        vault = Path(self.tmp.name) / "Personal"
+        vault.mkdir()
+        (vault / "note.md").write_text("# Note\n\nA lesson long enough to keep here.")
+        with Store() as store:
+            name = Registry(store).connect("obsidian", str(vault))["name"]
+            Registry(store).remove(str(name), delete=False)
+        self.assertEqual(
+            self.sources()["Note"],
+            [{"kind": "app", "id": name, "label": "Obsidian", "mark": "obsidian"}],
+        )
+
+    def test_with_nobody_on_record_the_source_names_who_brought_it(self) -> None:
+        vault = Path(self.tmp.name) / "Vault"
+        self.put("automation", "older.md")
+        self.put("capture", "agent-session")
+        self.put("capture", "/Users/owner/Downloads/notes.pdf")
+        self.put("capture", str(vault / "kept.md"))
+        self.put("agent-gone", "saved", project="Grok Bot")
+        self.put("agent-nameless", "unnamed")
+        self.put("substack-writer", "post")
+        self.put("mystery", "thing")
+        self.put("claude", "memory.md")
+        with Store() as store:
+            store.set_setting(
+                "owner_sources",
+                [
+                    {
+                        "name": "folder-1",
+                        "label": "Vault",
+                        "locator": str(vault),
+                        "owned": True,
+                    }
+                ],
+            )
+        found = self.sources()
+        lore = {"kind": "lore", "id": "lore", "label": "Lore", "mark": "lore"}
+        self.assertEqual(found["older.md"], [lore])
+        self.assertEqual(
+            found["agent-session"],
+            [{"kind": "capture", "id": "you", "label": "you", "mark": "pen"}],
+        )
+        downloaded = "/Users/owner/Downloads/notes.pdf"
+        self.assertEqual(
+            found[downloaded],
+            [
+                {
+                    "kind": "capture",
+                    "id": downloaded,
+                    "label": "notes.pdf",
+                    "mark": "file",
+                }
+            ],
+        )
+        self.assertEqual(
+            found[str(vault / "kept.md")],
+            [{"kind": "app", "id": "folder-1", "label": "Vault", "mark": "folder-1"}],
+        )
+        self.assertEqual(
+            found["saved"],
+            [
+                {
+                    "kind": "agent",
+                    "id": "agent-gone",
+                    "label": "Grok Bot",
+                    "mark": "other",
+                }
+            ],
+        )
+        self.assertEqual(found["unnamed"][0]["label"], "Your agent")
+        self.assertEqual(
+            found["post"],
+            [
+                {
+                    "kind": "app",
+                    "id": "substack-writer",
+                    "label": "Substack",
+                    "mark": "substack",
+                }
+            ],
+        )
+        self.assertEqual(
+            found["thing"],
+            [{"kind": "app", "id": "mystery", "label": "mystery", "mark": ""}],
+        )
+        self.assertEqual(
+            found["memory.md"],
+            [{"kind": "app", "id": "claude", "label": "Claude Code", "mark": "claude"}],
+        )
 
 
 if __name__ == "__main__":

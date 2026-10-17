@@ -34,7 +34,9 @@ from .store import (
     STATUSES,
     SUPPORT_EMAIL_SETTING,
     AnswerSettings,
+    Contributor,
     JobKind,
+    Memory,
     Publication,
     PublicationExtras,
     PublicationInput,
@@ -259,6 +261,10 @@ def parser() -> argparse.ArgumentParser:
     )
     memory_edit.add_argument("--json", action="store_true")
     memory_commands.add_parser("rules", help="print what earns a place in memory")
+    memory_credit = memory_commands.add_parser(
+        "credit", help="record who wrote into memories, as JSON on stdin"
+    )
+    memory_credit.add_argument("file", help="'-' for stdin")
 
     profile = commands.add_parser(
         "profile", help="save an agent-written synthesis profile"
@@ -635,6 +641,8 @@ def main(argv: list[str] | None = None) -> int:
 
                 print(RULES, end="")
                 return 0
+            if args.memory_command == "credit":
+                return credit_memories(args.file)
             if args.memory_command == "rename":
                 return rename_memory(args.id, args.title, args.json)
             if args.memory_command == "edit":
@@ -1269,6 +1277,33 @@ def search(
     return 0
 
 
+class Credit(BaseModel):
+    """Who wrote into which memories, as the desktop app hands it over once a reading lands."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    ids: list[Annotated[int, Field(gt=0)]] = Field(min_length=1, max_length=500)
+    by: Contributor
+
+
+def credit_memories(file: str) -> int:
+    """Put who wrote into a reading's memories on record (APP-213)."""
+    text = sys.stdin.read() if file == "-" else Path(file).read_text(encoding="utf-8")
+    credit = Credit.model_validate_json(text)
+    with Store() as store:
+        credited = store.credit(credit.ids, credit.by)
+    print(json.dumps({"credited": credited}))
+    return 0
+
+
+def _memory_json(memory: Memory) -> str:
+    """One memory in full, with who it came from."""
+    with Store() as store:
+        credited = store.contributors([memory.id]).get(memory.id, [])
+        [row] = Registry(store).provenance([{**memory.__dict__, "sources": credited}])
+    return json.dumps(row, indent=2)
+
+
 def show_memory(memory_id: int, as_json: bool) -> int:
     """Print one memory as a card or JSON."""
     with Store() as store:
@@ -1276,7 +1311,7 @@ def show_memory(memory_id: int, as_json: bool) -> int:
     if memory is None:
         raise ValueError(f"memory not found: {memory_id}")
     if as_json:
-        print(json.dumps(memory.__dict__, indent=2))
+        print(_memory_json(memory))
     else:
         memory_card(memory)
     return 0
@@ -1290,7 +1325,7 @@ def rename_memory(memory_id: int, title: str, as_json: bool) -> int:
     if memory is None:
         raise ValueError(f"memory not found: {memory_id}")
     if as_json:
-        print(json.dumps(memory.__dict__, indent=2))
+        print(_memory_json(memory))
     else:
         memory_card(memory)
     return 0
@@ -1320,7 +1355,7 @@ def edit_memory(
     if memory is None:
         raise ValueError(f"memory not found: {memory_id}")
     if as_json:
-        print(json.dumps(memory.__dict__, indent=2))
+        print(_memory_json(memory))
     else:
         memory_card(memory)
     return 0

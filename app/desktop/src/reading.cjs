@@ -15,23 +15,25 @@ const plural = (count, noun) => `${count} ${count === 1 ? noun : many(noun)}`;
 
 /** New items from an app the catalog knows, or null: nothing new, or a built-in agent source, which the schedule reads.
  * Worded once here: what Today and the notification call it, and what its row says while it reads. One of the owner's
- * personal agents (APP-207) is called by its own name, and what it saved says it came from there.
- * @param {{name: string, label?: string, connector?: string | null, added?: number}} read @param {SourceApp[]} apps @returns {Reading | null} */
+ * personal agents (APP-207) is called by its own name, and what it saved says it came from there. `by` is who the
+ * memories it writes are put on record as from (APP-213).
+ * @param {{name: string, label?: string, connector?: string | null, app?: AgentApp | null, added?: number}} read @param {SourceApp[]} apps @returns {Reading | null} */
 function worthReading(read, apps) {
   const app = apps.find((candidate) => candidate.id === read.connector);
   if (!app || !read.added) return null;
   if (app.id === "agent") {
     const who = read.label || app.name;
-    return { name: read.name, label: who, item: app.item, added: read.added, title: `${who} saved ${plural(read.added, "thing")} to Lore`, phase: `Reading what ${who} saved`, from: who };
+    const by = { kind: /** @type {const} */ ("agent"), id: read.name, label: who, mark: read.app ?? "other" };
+    return { name: read.name, label: who, item: app.item, added: read.added, title: `${who} saved ${plural(read.added, "thing")} to Lore`, phase: `Reading what ${who} saved`, from: who, by };
   }
   const what = `your ${app.name} ${many(app.item)}`;
-  return { name: read.name, label: app.name, item: app.item, added: read.added, title: `Lore read ${what}`, phase: `Reading ${what}` };
+  return { name: read.name, label: app.name, item: app.item, added: read.added, title: `Lore read ${what}`, phase: `Reading ${what}`, by: { kind: "app", id: read.name, label: app.name, mark: app.id } };
 }
 
 /** One of the owner's own routines, read through like an app: their sentence is all there is to call it.
  * @param {Pick<Routine, "id" | "name">} routine @param {string} ask @returns {Reading} */
 function asking(routine, ask) {
-  return { name: routine.id, label: routine.name, item: "", added: 0, ask, title: `“${routine.name}”`, phase: `Working on “${routine.name}”` };
+  return { name: routine.id, label: routine.name, item: "", added: 0, ask, title: `“${routine.name}”`, phase: `Working on “${routine.name}”`, by: { kind: "routine", id: routine.id, label: routine.name, mark: "clock" } };
 }
 
 /** What a reading wrote, as the store keeps it. A file outside the memories folder, or one the store did not take, is
@@ -48,7 +50,7 @@ function landed(reading, report, stored, folder) {
     const kept = path.startsWith(work);
     memories.set(memory.id, { id: memory.id, title: memory.title, sell: entry.worth_selling && !kept, work: kept, why: entry.why });
   }
-  return { title: reading.title, read: report.read || reading.added, memories: [...memories.values()], at: new Date().toISOString(), seen: false, ...(reading.from ? { from: reading.from } : {}) };
+  return { title: reading.title, read: report.read || reading.added, memories: [...memories.values()], at: new Date().toISOString(), seen: false, by: reading.by, ...(reading.from ? { from: reading.from } : {}) };
 }
 
 /** The Mac notification for a finished reading. @param {ReadyRun} run @returns {{title: string, body: string}} */

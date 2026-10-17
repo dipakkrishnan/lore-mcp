@@ -4,7 +4,7 @@ title: Show where every memory came from
 priority: P1
 effort: M
 component: desktop-app
-status: ready
+status: in-review
 related: [APP-207, APP-210, APP-212]
 blockers: []
 dependencies: []
@@ -47,3 +47,23 @@ you"; a capture of an imported file says the file's app.
 - [ ] Routine output says "From <routine name>" with the clock mark.
 - [ ] The hover preview leads with the source and date.
 - [ ] Nothing shows "personal" or a bare "Private" as the only provenance.
+
+## Notes
+
+- Built (Oct 17):
+  - Store: a `memory_contributors` table (memory, kind agent|app|routine|capture,
+    id, label, mark, at), one row per contributor, newest first, deleted with its
+    memory. `CREATE TABLE IF NOT EXISTS` adds it to older databases on open.
+  - Every source read puts its app or agent on record for what it brought in
+    (`Registry._import`), so labels and marks outlive a disconnect. When a reading
+    lands, the app credits what it wrote to the agent, app or routine that read
+    (`lore memory credit -`, from `Reading.by`).
+  - Memories with nobody on record are named by their source, never guessed:
+    Lore's own writing says "Written by Lore"; a capture is "you" (pen), or a
+    file's app when it sits in a connected folder, or the file's name.
+  - `sources` is on `memory_inventory`, the snapshot items and `memory show`.
+  - Renderer: `provenance()` draws stacked tiles (three, then "+N") and "From A,
+    B and 2 more" on Today's New memories, Inventory rows, the preview and the
+    memory sheet; the old `origin()` guess is gone.
+  - Edge: agents (Grok marks on Today, Inventory, preview, after disconnect),
+    reading (Granola marks, "Written by Lore"), automations (clock and routine name).
