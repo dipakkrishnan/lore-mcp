@@ -32,14 +32,17 @@ Primary sources (checked Oct 17, 2026) say:
   Add custom MCP server. Writes are documented for Business and
   Enterprise/Edu; Plus is unverified.
 - Grok Bot's documented way to add a custom MCP server is to ask it in chat:
-  "Add this MCP server: <url>".
+  "Add this MCP server: <url>". Grok Bot confirmed this itself (Oct 17): send
+  it an https MCP URL and it adds it to the account; for OAuth services it
+  uses automatic sign-up (DCR) when offered, else asks for a client id.
 - Muse: no primary source for adding an arbitrary MCP URL.
 
 ## Proposed approach
 
 - Claude and ChatGPT get the same private link as Grok Bot (`/agent/<key>`),
   with their own three-step path, Copy, and a live "Waiting for <agent>…".
-- Grok Bot: Lore copies one message, "Add this MCP server: <link>", to paste
+- Grok Bot: Lore copies one message, "Add this MCP server to my account:
+  <link>", to paste
   into Grok Bot's chat (Open Grok Bot when installed, APP-216). Keep the
   Connect apps path as a fallback line.
 - Muse shows "Coming soon" and creates no key.
