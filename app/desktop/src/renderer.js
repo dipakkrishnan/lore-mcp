@@ -664,10 +664,10 @@ function nextStepCard(step) {
   return section("Next step", list);
 }
 
-/** Unfinished threads, without the store's once the store is open: nothing is left to finish there. Quiet work is no
- * thread, and a check-in waiting on its card is not one yet. */
+/** Unfinished threads, without the store's once the store is open unless it is at work (a repair, a reprice): nothing
+ * is left to finish there. Quiet work is no thread, and a check-in waiting on its card is not one yet. */
 function displayTasks() {
-  return taskItems.filter((item) => !QUIET_TASKS.has(item.kind) && !(item.kind === "deploy" && snapshot?.node.url) && !(item.kind === "evening" && checkIn)).slice(0, 3);
+  return taskItems.filter((item) => !QUIET_TASKS.has(item.kind) && !(item.kind === "deploy" && snapshot?.node.url && item.state !== "working") && !(item.kind === "evening" && checkIn)).slice(0, 3);
 }
 
 /** The evening check-in leads Today: the questions Lore would like five minutes on, and a way to say not today. @param {CheckIn} asked */
@@ -3534,7 +3534,9 @@ function onEvent(event) {
   if (event.type === "working") {
     busy = event.active ? event.task : null;
     if (!busy) liveText = liveStatus = "";
-    syncComposer();
+    // A turn ending, however it ended, can bring Today's next step back.
+    if (busy) syncComposer();
+    else render();
     renderLog();
   }
   else if (event.type === "live") { if (event.task === task) live(event.text, event.status); }

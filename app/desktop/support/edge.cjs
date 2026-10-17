@@ -41,6 +41,8 @@ const prompts = [];
 /** APP-214: every store push asked for, and how the walk ends a thread the stand-in agent left working. */
 const pushes = [];
 let finishThread = (/** @type {AgentTask} */ _kind) => {};
+/** APP-214: the next turn fails a moment in, the way agent.mjs reports a thrown turn. */
+let failNextTurn = false;
 if (scenario === "listing") {
   require("electron").shell.openExternal = async (url) => { opened.push(url); };
   require(join(src, "main.cjs"));
@@ -154,6 +156,16 @@ if (scenario === "listing") {
       const record = { version: 1, kind: task, title: { deploy: "Open your store", publish: "Publish from your Lore" }[task] ?? task, state: "working", phase: "Working", updatedAt: new Date().toISOString() };
       threads.set(task, record);
       this.options.emit({ type: "task", task: record });
+      if (failNextTurn) {
+        failNextTurn = false;
+        this.options.emit({ type: "working", active: true, task });
+        await new Promise((done) => setTimeout(done, 3000));
+        const stopped = { ...record, state: "stopped", phase: "Needs another try", updatedAt: new Date().toISOString() };
+        threads.set(task, stopped);
+        this.options.emit({ type: "task", task: stopped });
+        this.options.emit({ type: "working", active: false, task });
+        throw new Error("the model stopped answering");
+      }
       finishThread = (/** @type {AgentTask} */ kind) => {
         const done = { ...threads.get(kind), state: "done", phase: "Finished", updatedAt: new Date().toISOString() };
         threads.set(kind, done);
@@ -1154,6 +1166,12 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         check("…Fix it opens the store's thread with one prompt", await waitFor(`document.querySelector("#title").textContent === "Open your store"`) && fixing.length === 1 && fixing[0].task === "deploy" && /isn't responding/.test(fixing[0].text), JSON.stringify(fixing));
         await back();
         check("…while the repair runs, Today offers no next step, though the store still isn't answering", await waitFor(`${steps}.length === 0 && document.querySelector("#content .strip").textContent.includes("Store offline")`), await js(today));
+        const repair = `[...document.querySelectorAll("#content .section")].find((s) => s.querySelector("h2")?.textContent === "Unfinished")?.querySelector(".task-link")`;
+        check("…the repair is listed under Unfinished, working", await waitFor(`(${repair}?.textContent ?? "") === "Open your storeWorkingWorking"`), await js(`${repair}?.textContent ?? "none"`));
+        const listed = prompts.length;
+        await js(`${repair}.click()`);
+        check("…and opens back into its thread, sending nothing", await waitFor(`document.querySelector("#title").textContent === "Open your store" && !document.querySelector("#task-back").hidden`) && prompts.length === listed, `${prompts.length - listed} more prompts`);
+        await back();
         const sent = prompts.length;
         await js(`window.__fix.click()`);
         await sleep(1500);
@@ -1161,6 +1179,12 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         await back();
         finishThread("deploy");
         check("…and once the repair ends with the store still silent, Fix it is offered again", await reach("Your store isn't responding"), await js(step));
+        // A repair that fails while the owner is back on Today: the step returns from the turn's end alone, with no other event.
+        failNextTurn = true;
+        const failing = await press();
+        await back();
+        check("…a repair under way hides Fix it while it runs", failing.length === 1 && await waitFor(`${steps}.length === 0`), JSON.stringify(failing));
+        check("…and when the repair fails, Fix it comes back on its own", await waitFor(`${step}.includes("Your store isn't responding")`, 60), await js(today));
 
         // f: everything live, nothing drafted, and an app connected: nothing to ask.
         python(`from lore.cli import _staged, _stage\nwith Store() as s:\n for each in _staged(): s.add_publication(**each.model_dump())\n s.set_setting('price_usd', 0.02)\n_stage([])`);
