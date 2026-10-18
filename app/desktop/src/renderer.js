@@ -646,7 +646,8 @@ const STEP_ICONS = {
 
 /** A small rounded tile holding a mark: a line icon, or an app's own logo. @param {string | HTMLElement} mark */
 function markTile(mark) {
-  const node = el("span", "routine-mark");
+  // Lore's own mark fills its tile in Lore's colours, as in the sidebar, rather than a grey glyph on a grey tile.
+  const node = el("span", mark === RING ? "routine-mark lore" : "routine-mark");
   if (typeof mark === "string") node.innerHTML = mark;
   else node.append(mark);
   return node;
@@ -2008,7 +2009,8 @@ function many(noun) {
 
 /** A bundled brand mark by asset name, the initial when none loads. @param {string} asset @param {string} name */
 function brand(asset, name) {
-  const node = el("img", "logo");
+  // Grok Bot's mark is already a whole app tile; framing it in another tile reads as a box in a box.
+  const node = el("img", asset === "grok" ? "logo full" : "logo");
   node.src = `assets/${asset}.svg`;
   node.alt = "";
   node.addEventListener("error", () => node.replaceWith(el("span", "logo initial", name[0])), { once: true });
