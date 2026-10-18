@@ -549,7 +549,7 @@ class PushTest(AgentCase):
     def test_a_push_keeps_the_agent_tables_and_always_carries_the_keys(self) -> None:
         handed = self.connect()
         self.save(handed["key"], {"title": "A", "content": "a"})
-        worker = self.lore_home / "node"
+        worker = self.store
         (worker / "wrangler.jsonc").write_text("{}\n")
         with captured():
             self.assertEqual(cli.push_job(worker, False), 0)

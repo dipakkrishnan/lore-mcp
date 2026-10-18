@@ -15,8 +15,11 @@ import sqlite3
 import stat
 import subprocess
 import sys
+import threading
+import time
 import unittest
-from contextlib import contextmanager
+from contextlib import contextmanager, redirect_stderr
+from io import StringIO
 from pathlib import Path
 from typing import Iterator
 from unittest.mock import patch
@@ -78,6 +81,7 @@ class _Wrangler:
         secret_list_fails: bool = False,
         install_fails: bool = False,
         secret_put_fails: bool = False,
+        secret_put_fails_for: str | None = None,
         d1_exists: bool = False,
         d1_create_fails: bool = False,
         d1_id_in_output: bool = True,
@@ -90,6 +94,8 @@ class _Wrangler:
         self.secret_list_fails = secret_list_fails
         self.install_fails = install_fails
         self.secret_put_fails = secret_put_fails
+        self.secret_put_fails_for = secret_put_fails_for
+        self.puts: list[tuple[str, object]] = []
         self.d1_exists = d1_exists
         self.d1_create_fails = d1_create_fails
         self.d1_id_in_output = d1_id_in_output
@@ -103,6 +109,10 @@ class _Wrangler:
         tail = tuple(args[1:])
         if args[0] == "npm" and tail[:1] == ("install",):
             code = 1 if self.install_fails else 0
+            if not code:
+                binary = Path(kwargs["cwd"]) / "node_modules/.bin/wrangler"
+                binary.parent.mkdir(parents=True, exist_ok=True)
+                binary.write_text("#!/bin/sh\n")
             err = "npm ERR! network" if self.install_fails else ""
         elif tail == ("whoami",):
             out = "logged in as ada" if self.logged_in else "You are not authenticated."
@@ -114,9 +124,11 @@ class _Wrangler:
             else:
                 out = '[{"name":"LORE_WALLET"}]' if self.has_wallet_secret else "[]"
         elif tail[:2] == ("secret", "put"):
-            code = 1 if self.secret_put_fails else 0
-            err = "vault down" if self.secret_put_fails else ""
+            failing = self.secret_put_fails or tail[2] == self.secret_put_fails_for
+            code = 1 if failing else 0
+            err = "vault down" if failing else ""
             self.secret_values[tail[2]] = kwargs.get("input")
+            self.puts.append((tail[2], kwargs.get("input")))
         elif tail == ("d1", "create", "lore-publications"):
             if self.d1_exists:
                 code, err = 1, "a database with that name already exists"
@@ -182,6 +194,7 @@ class SalesTest(LoreTestCase):
         binary = target / "node_modules/.bin/wrangler"
         binary.parent.mkdir(parents=True)
         binary.write_text("#!/bin/sh\n")
+        (binary.parents[2] / ".installed").write_text("")
         wrangler = _Wrangler()
         with patch("lore.deploy.subprocess.run", side_effect=wrangler):
             # A node deployed before refunds were tracked has no refund_owed column.
@@ -240,6 +253,7 @@ class SalesTest(LoreTestCase):
         binary = deploy_module.materialize(0.1) / "node_modules/.bin/wrangler"
         binary.parent.mkdir(parents=True)
         binary.write_text("#!/bin/sh\n")
+        (binary.parents[2] / ".installed").write_text("")
 
     def test_a_refused_first_read_is_retried_once(self) -> None:
         self._stage_node()
@@ -293,6 +307,7 @@ class RealMoneyTest(_NodeCase):
         binary = target / "node_modules/.bin/wrangler"
         binary.parent.mkdir(parents=True)
         binary.write_text("#!/bin/sh\n")
+        (binary.parents[2] / ".installed").write_text("")
         return _Wrangler()
 
     def test_a_credential_is_vaulted_from_the_value_given(self) -> None:
@@ -323,6 +338,68 @@ class RealMoneyTest(_NodeCase):
             ("deploy",), ("secret", "put", "LORE_NETWORK")
         )
         self.assertLess(deployed, network)
+
+    OLD = "0x" + "a" * 40
+    NEW = "0x" + "b" * 40
+
+    def _change(self, fails_for: str, recorded: str | None) -> tuple[_Wrangler, str]:
+        """Change the payout and network at once, with one of the two puts failing."""
+        with Store() as store:
+            store.set_setting("price_usd", 0.01)
+        store_dir = deploy_module.store_folder()
+        store_dir.mkdir(parents=True, exist_ok=True)
+        if recorded:
+            (store_dir / "payout.json").write_text(
+                json.dumps({"address": recorded, "network": "test"})
+            )
+        before = (store_dir / "payout.json").read_text() if recorded else ""
+        wrangler = _Wrangler(secret_put_fails_for=fails_for)
+        with (
+            patch("lore.deploy.subprocess.run", side_effect=wrangler),
+            patch("lore.deploy.shutil.which", return_value="/usr/bin/npm"),
+            patch("lore.cli.push_job", return_value=0),
+            captured() as output,
+            redirect_stderr(StringIO()) as err,
+            self.assertRaises(OSError),
+        ):
+            deploy_module.deploy(self.NEW, "real")
+        after = (store_dir / "payout.json").read_text() if recorded else ""
+        self.assertEqual(after, before, "the record is unchanged")
+        return wrangler, output.getvalue() + err.getvalue()
+
+    def test_a_failed_network_change_puts_the_old_payout_back(self) -> None:
+        wrangler, _ = self._change("LORE_NETWORK", self.OLD)
+        self.assertEqual(
+            wrangler.puts,
+            [
+                ("LORE_WALLET", self.NEW + "\n"),
+                ("LORE_NETWORK", "eip155:8453\n"),
+                ("LORE_WALLET", self.OLD + "\n"),
+            ],
+        )
+
+    def test_a_failed_wallet_change_changes_nothing_else(self) -> None:
+        wrangler, _ = self._change("LORE_WALLET", self.OLD)
+        self.assertEqual(wrangler.puts, [("LORE_WALLET", self.NEW + "\n")])
+
+    def test_a_restore_that_fails_says_where_the_store_now_pays(self) -> None:
+        with patch.object(
+            deploy_module, "_put_wallet", side_effect=[None, OSError("vault down")]
+        ):
+            _, said = self._change("LORE_NETWORK", self.OLD)
+        self.assertIn(
+            f"Your store may be half-updated: it now pays {self.NEW} on its old network.",
+            said,
+        )
+        self.assertNotIn("LORE_", said)
+
+    def test_with_no_earlier_payout_a_failed_change_says_so_plainly(self) -> None:
+        wrangler, said = self._change("LORE_NETWORK", None)
+        self.assertEqual(
+            [name for name, _ in wrangler.puts], ["LORE_WALLET", "LORE_NETWORK"]
+        )
+        self.assertIn("may be half-updated", said)
+        self.assertFalse((deploy_module.store_folder() / "payout.json").exists())
 
     def test_a_deploy_from_the_agent_shell_pushes_without_the_owner_gate(
         self,
@@ -362,7 +439,7 @@ class LoginTest(LoreTestCase):
     def test_a_fresh_machine_is_staged_and_installed_before_signing_in(self) -> None:
         wrangler = _Wrangler()
         output = self._login(wrangler)
-        self.assertTrue((self.lore_home / "node/package.json").is_file())
+        self.assertTrue((self.store / "package.json").is_file())
         self.assertEqual(wrangler.commands[:2][0][:2], ("npm", "install"))
         self.assertEqual(wrangler.commands[1][1:], ("login", "--browser=false"))
         self.assertEqual(wrangler.commands[2][1:], ("whoami",))
@@ -373,6 +450,7 @@ class LoginTest(LoreTestCase):
         binary = target / "node_modules/.bin/wrangler"
         binary.parent.mkdir(parents=True)
         binary.write_text("#!/bin/sh\n")
+        (binary.parents[2] / ".installed").write_text("")
         wrangler = _Wrangler()
         self._login(wrangler)
         self.assertEqual(
@@ -412,7 +490,7 @@ class MaterializeTest(LoreTestCase):
 
     def test_the_packaged_source_lands_without_dev_artifacts(self) -> None:
         target = deploy_module.materialize(0.37)
-        self.assertEqual(target, self.lore_home / "node")
+        self.assertEqual(target, self.store)
         for shipped in (
             "src/index.ts",
             "scripts/pay.ts",
@@ -442,6 +520,183 @@ class MaterializeTest(LoreTestCase):
         self.assertIn(
             "export const PRICE_USD = 0.42;", (target / "src/price.ts").read_text()
         )
+
+
+class StoreFolderTest(LoreTestCase):
+    """The store's code lives outside Lore's home, which the desktop agent can write."""
+
+    MOVED_ID = "11111111-2222-3333-4444-666666666666"
+
+    def _plant(self) -> Path:
+        """What an agent could leave in Lore's home: npm settings and an old store."""
+        (self.lore_home / "node/node_modules/.bin").mkdir(parents=True)
+        (self.lore_home / "package.json").write_text('{"workspaces": ["node"]}')
+        (self.lore_home / ".npmrc").write_text("node-options=--require=/planted.js\n")
+        planted = self.lore_home / "node/node_modules/.bin/wrangler"
+        planted.write_text("#!/bin/sh\n")
+        (self.lore_home / "node/wrangler.jsonc").write_text(
+            f'{{"database_id": "{self.MOVED_ID}"}}'
+        )
+        return planted
+
+    def test_the_store_folder_is_not_in_lores_home(self) -> None:
+        self.assertFalse(self.store.is_relative_to(self.lore_home))
+        with patch.dict(os.environ):
+            del os.environ["LORE_STORE"]
+            self.assertEqual(
+                deploy_module.store_folder(),
+                Path("~/Library/Application Support/Lore/store").expanduser(),
+            )
+
+    def test_a_store_set_up_in_lores_home_is_rebuilt_in_its_own_folder(self) -> None:
+        planted = self._plant()
+        wrangler = _Wrangler()
+
+        def install(args: tuple[str, ...], cwd: Path, **_: object) -> object:
+            if args[:2] == ("npm", "install"):
+                binary = self.store / "node_modules/.bin/wrangler"
+                binary.parent.mkdir(parents=True, exist_ok=True)
+                binary.write_text("#!/bin/sh\n")
+                (binary.parents[2] / ".installed").write_text("")
+            return wrangler(args, cwd=cwd)
+
+        with patch("lore.deploy.subprocess.run", side_effect=install):
+            deploy_module.sales()
+        ran = [command[0] for command in wrangler.commands]
+        self.assertNotIn(str(planted), ran)
+        self.assertEqual(ran[0], "npm")
+        self.assertEqual(ran[1], str(self.store / "node_modules/.bin/wrangler"))
+        # Only the database id came across; nothing else from Lore's home.
+        config = (self.store / "wrangler.jsonc").read_text()
+        self.assertIn(self.MOVED_ID, config)
+        self.assertEqual((self.store / ".npmrc-user").read_text(), "")
+
+    def test_a_moved_id_must_look_like_one(self) -> None:
+        self._plant()
+        (self.lore_home / "node/wrangler.jsonc").write_text('{"database_id": "x"}')
+        with self.assertRaisesRegex(ValueError, "open your store first"):
+            deploy_module.sales()
+
+    def _installs(self) -> tuple[_Wrangler, list[int], object]:
+        """A stand-in npm that takes a moment, counting how many installs ran."""
+        wrangler, runs = _Wrangler(), []
+
+        def run(args: tuple[str, ...], **kwargs: object) -> object:
+            if args[:2] == ("npm", "install"):
+                runs.append(1)
+                time.sleep(0.2)
+            return wrangler(args, **kwargs)
+
+        return wrangler, runs, run
+
+    def test_an_interrupted_first_build_leaves_nothing_and_the_next_one_finishes(
+        self,
+    ) -> None:
+        self._plant()
+        with (
+            patch("lore.deploy._replace", side_effect=OSError("interrupted")),
+            self.assertRaises(OSError),
+        ):
+            deploy_module.materialize(0.0)
+        self.assertFalse(self.store.exists(), "nothing half-built in its place")
+        self.assertEqual(
+            [
+                path.name
+                for path in self.store.parent.iterdir()
+                if path.name.startswith(".store")
+            ],
+            [],
+            "nor beside it",
+        )
+        _, _, run = self._installs()
+        with patch("lore.deploy.subprocess.run", side_effect=run):
+            deploy_module.tools()
+        self.assertIn(self.MOVED_ID, (self.store / "wrangler.jsonc").read_text())
+
+    def test_a_placeholder_config_takes_the_moved_id(self) -> None:
+        self._plant()
+        self.store.mkdir()
+        (self.store / "wrangler.jsonc").write_text(
+            f'{{"database_id": "{deploy_module.D1_PLACEHOLDER}"}}'
+        )
+        _, runs, run = self._installs()
+        with patch("lore.deploy.subprocess.run", side_effect=run):
+            deploy_module.tools()
+        self.assertIn(self.MOVED_ID, (self.store / "wrangler.jsonc").read_text())
+        self.assertEqual(len(runs), 1)
+
+    def test_an_unfinished_install_is_finished_from_the_stores_own_id(self) -> None:
+        # The old folder is gone; the store's own config still names its database.
+        deploy_module.materialize(0.0)
+        config = self.store / "wrangler.jsonc"
+        config.write_text(
+            config.read_text().replace(deploy_module.D1_PLACEHOLDER, self.MOVED_ID)
+        )
+        binary = self.store / "node_modules/.bin/wrangler"
+        binary.parent.mkdir(parents=True)
+        binary.write_text("#!/bin/sh\n")
+        self.assertFalse(
+            deploy_module.installed(self.store), "wrangler alone is not done"
+        )
+        _, runs, run = self._installs()
+        with patch("lore.deploy.subprocess.run", side_effect=run):
+            deploy_module.tools()
+            deploy_module.tools()
+        self.assertEqual(len(runs), 1)
+        self.assertTrue(deploy_module.installed(self.store))
+        self.assertIn(self.MOVED_ID, config.read_text())
+
+    def test_two_checks_at_once_install_once(self) -> None:
+        self._plant()
+        _, runs, run = self._installs()
+        with patch("lore.deploy.subprocess.run", side_effect=run):
+            checks = [threading.Thread(target=deploy_module.tools) for _ in range(2)]
+            for check in checks:
+                check.start()
+            for check in checks:
+                check.join()
+        self.assertEqual(len(runs), 1)
+        self.assertTrue(deploy_module.installed(self.store))
+
+    @unittest.skipIf(shutil.which("npm") is None, "needs npm")
+    def test_npm_settings_above_the_store_never_reach_its_install(self) -> None:
+        # The worst case: a workspace root above the store with its own npm
+        # settings, and an install script of the store's own. Real npm, offline:
+        # the store has no dependencies to fetch.
+        parent = self.store.parent
+        marker = parent / "ran"
+        planted = parent / "planted.cjs"
+        planted.write_text(f"require('fs').writeFileSync({str(marker)!r}, 'options')")
+        (parent / "package.json").write_text('{"workspaces": ["store"]}')
+        (parent / ".npmrc").write_text(f"node-options=--require={planted}\n")
+        self.store.mkdir()
+        (self.store / "package.json").write_text(
+            json.dumps(
+                {
+                    "name": "store",
+                    "version": "1.0.0",
+                    "scripts": {
+                        "postinstall": f"node -e \"require('fs').writeFileSync({str(marker)!r}, 'script')\""
+                    },
+                }
+            )
+        )
+        offline = {
+            "npm_config_offline": "true",
+            "npm_config_update_notifier": "false",
+            "NO_UPDATE_NOTIFIER": "1",
+        }
+        # The fixture has no wrangler, so the install is not marked done either.
+        # Real npm on purpose, past the hermetic guard: offline, with nothing to
+        # fetch, it reaches no network and no account.
+        with (
+            patch.dict(os.environ, offline),
+            patch("lore.deploy.subprocess.run", new=subprocess.run),
+            self.assertRaisesRegex(OSError, "without wrangler"),
+        ):
+            deploy_module.install(self.store)
+        self.assertFalse(marker.exists(), marker.read_text() if marker.exists() else "")
+        self.assertFalse(deploy_module.installed(self.store))
 
 
 class DeployTest(_NodeCase):
@@ -508,7 +763,7 @@ class DeployTest(_NodeCase):
         # No price is baked in: the shipped placeholder stays, and nothing is charged.
         self.assertIn(
             deploy_module.PRICE_DECLARATION,
-            (self.lore_home / "node/src/price.ts").read_text(),
+            (self.store / "src/price.ts").read_text(),
         )
 
     def test_inbox_only_still_walks_a_logged_out_owner_through_sign_in(self) -> None:
@@ -568,7 +823,7 @@ class DeployTest(_NodeCase):
         self.assertEqual(len(sent), pushes, "an approval pushed to a store not selling")
         # A push by hand, and a second inbox-only deploy, still carry no piece.
         with patch("lore.deploy.subprocess.run", side_effect=run), captured():
-            cli.push_job(self.lore_home / "node", False)
+            cli.push_job(self.store, False)
         deploy(None, inbox_only=True)
         for script in sent[pushes:]:
             self.assertNotIn("PAID-PIECE-TEXT", script)
@@ -678,7 +933,7 @@ class DeployTest(_NodeCase):
         # A price the owner already set is still the one baked in.
         self.assertIn(
             "export const PRICE_USD = 0.37;",
-            (self.lore_home / "node/src/price.ts").read_text(),
+            (self.store / "src/price.ts").read_text(),
         )
 
     def _legacy(self, *, node_url: str | None) -> None:
@@ -753,10 +1008,10 @@ class DeployTest(_NodeCase):
         # database's id, so a write SQLite refuses leaves neither; a retry then
         # finds the database already made and is refused or adopts it, never
         # pushing pieces with no choice recorded.
-        config = self.lore_home / "node/wrangler.jsonc"
+        config = self.store / "wrangler.jsonc"
         for inbox_only in (True, False):
             with self.subTest(inbox_only=inbox_only):
-                shutil.rmtree(self.lore_home / "node", ignore_errors=True)
+                shutil.rmtree(self.store, ignore_errors=True)
                 with Store() as store:
                     store.set_setting(deploy_module.SELLING_SETTING, None)
                     store.set_setting("node_url", None)
@@ -916,10 +1171,11 @@ class DeployTest(_NodeCase):
     ) -> None:
         # Nothing seeded: a fresh deploy whose payout or network write fails
         # leaves a live address that must not read as a store open for sale.
-        for failing in ("LORE_WALLET", "LORE_NETWORK"):
+        failures = {"LORE_WALLET": "payout address", "LORE_NETWORK": "network"}
+        for failing, said in failures.items():
             with self.subTest(failing=failing):
                 # Each run creates its store's database afresh, as a new owner's does.
-                shutil.rmtree(self.lore_home / "node", ignore_errors=True)
+                shutil.rmtree(self.store, ignore_errors=True)
                 with Store() as store:
                     store.set_setting("node_url", None)
                     store.set_setting(deploy_module.SELLING_SETTING, None)
@@ -930,7 +1186,7 @@ class DeployTest(_NodeCase):
                     patch("lore.deploy.shutil.which", return_value="/usr/bin/npm"),
                     patch("lore.cli.push_job") as push,
                     captured(),
-                    self.assertRaisesRegex(OSError, failing),
+                    self.assertRaisesRegex(OSError, said),
                 ):
                     deploy_module.deploy(
                         WALLET if failing == "LORE_WALLET" else None,
@@ -962,7 +1218,7 @@ class DeployTest(_NodeCase):
         with self.assertRaisesRegex(ValueError, "no payout address"):
             self._deploy(None, has_wallet_secret=False)
         self.assertIs(self._selling(), False)
-        with self.assertRaisesRegex(OSError, "LORE_WALLET"):
+        with self.assertRaisesRegex(OSError, "payout address"):
             self._deploy(WALLET, secret_put_fails=True)
         self.assertIs(self._selling(), False)
         code, wrangler = self._deploy(WALLET, has_wallet_secret=False)
@@ -973,10 +1229,42 @@ class DeployTest(_NodeCase):
         with Store() as store:
             self.assertTrue(deploy_module.selling(store))
 
+    def test_a_deploy_that_sets_the_payout_records_it_beside_the_stores_code(
+        self,
+    ) -> None:
+        self._deploy()
+        payout = json.loads((self.store / "payout.json").read_text())
+        self.assertEqual(payout, {"address": WALLET, "network": None})
+        # A later deploy on a network keeps the address and records the network;
+        # nothing that is not an address is ever recorded.
+        deploy_module._record_payout(self.store, None, "real")
+        deploy_module._record_payout(self.store, "0xnot-an-address", "test")
+        payout = json.loads((self.store / "payout.json").read_text())
+        self.assertEqual(payout, {"address": WALLET, "network": "real"})
+        self.assertFalse(self.store.is_relative_to(self.lore_home))
+
     def test_a_full_deploy_drives_wrangler_and_records_the_url(self) -> None:
         code, wrangler = self._deploy()
         self.assertEqual(code, 0)
-        self.assertIn(("npm", "install", "--no-fund", "--no-audit"), wrangler.commands)
+        # From the store's own folder only: no settings from above it, the user or
+        # global, and no install scripts.
+
+        self.assertIn(
+            (
+                "npm",
+                "install",
+                "--no-fund",
+                "--no-audit",
+                "--ignore-scripts",
+                "--prefix",
+                str(self.store),
+                "--userconfig",
+                str(self.store / ".npmrc-user"),
+                "--globalconfig",
+                str(self.store / ".npmrc-global"),
+            ),
+            wrangler.commands,
+        )
         self.assertTrue(wrangler.named("deploy"))
         self.assertTrue(wrangler.named("secret", "put", "LORE_WALLET"))
         self.probe.assert_called_once_with("https://lore.example.workers.dev/mcp")
@@ -992,7 +1280,7 @@ class DeployTest(_NodeCase):
             )
         self.assertIn(
             "export const PRICE_USD = 0.37;",
-            (self.lore_home / "node/src/price.ts").read_text(),
+            (self.store / "src/price.ts").read_text(),
         )
 
     def test_a_logged_out_owner_is_walked_through_the_browser_login(self) -> None:
@@ -1050,7 +1338,7 @@ class DeployTest(_NodeCase):
             patch("lore.deploy.shutil.which", return_value="/usr/bin/npm"),
             patch("lore.cli.push_job"),
             captured(),
-            self.assertRaisesRegex(OSError, "LORE_WALLET"),
+            self.assertRaisesRegex(OSError, "set your store.s payout address"),
         ):
             deploy_module.deploy(WALLET)
         deployed, secret = w.order(("deploy",), ("secret", "put", "LORE_WALLET"))
@@ -1089,7 +1377,7 @@ class DeployTest(_NodeCase):
         # placeholder has to become a real id before `deploy` runs.
         code, wrangler = self._deploy()
         self.assertEqual(code, 0)
-        config = (self.lore_home / "node/wrangler.jsonc").read_text()
+        config = (self.store / "wrangler.jsonc").read_text()
         self.assertIn(DATABASE_ID, config)
         self.assertNotIn("REPLACE_WITH_YOUR_D1_ID", config)
         create, deployed = wrangler.order(
@@ -1107,7 +1395,7 @@ class DeployTest(_NodeCase):
         code, wrangler = self._deploy(d1_exists=True)
         self.assertEqual(code, 0)
         self.assertTrue(wrangler.named("d1", "list", "--json"))
-        self.assertIn(DATABASE_ID, (self.lore_home / "node/wrangler.jsonc").read_text())
+        self.assertIn(DATABASE_ID, (self.store / "wrangler.jsonc").read_text())
 
     def test_a_fresh_installation_refuses_to_adopt_someone_elses_database(
         self,
@@ -1136,7 +1424,7 @@ class DeployTest(_NodeCase):
         # Refused before the config was ever rewritten with someone else's id.
         self.assertIn(
             "REPLACE_WITH_YOUR_D1_ID",
-            (self.lore_home / "node/wrangler.jsonc").read_text(),
+            (self.store / "wrangler.jsonc").read_text(),
         )
 
     def test_an_explicit_override_still_adopts_an_existing_database(self) -> None:
@@ -1146,7 +1434,7 @@ class DeployTest(_NodeCase):
         with patch.dict(os.environ, {"LORE_ADOPT_EXISTING_D1": "1"}):
             code, wrangler = self._deploy(d1_exists=True)
         self.assertEqual(code, 0)
-        self.assertIn(DATABASE_ID, (self.lore_home / "node/wrangler.jsonc").read_text())
+        self.assertIn(DATABASE_ID, (self.store / "wrangler.jsonc").read_text())
 
     def test_a_create_that_prints_no_id_falls_back_to_listing(self) -> None:
         # Wrangler has moved between TOML and JSON output; matching the id value
@@ -1155,7 +1443,7 @@ class DeployTest(_NodeCase):
         code, wrangler = self._deploy(d1_id_in_output=False)
         self.assertEqual(code, 0)
         self.assertTrue(wrangler.named("d1", "list", "--json"))
-        self.assertIn(DATABASE_ID, (self.lore_home / "node/wrangler.jsonc").read_text())
+        self.assertIn(DATABASE_ID, (self.store / "wrangler.jsonc").read_text())
 
     def test_a_real_d1_failure_stops_the_deploy(self) -> None:
         with self.assertRaisesRegex(OSError, "creating the D1 database failed"):
@@ -1187,7 +1475,7 @@ class DeployTest(_NodeCase):
         # Re-running deploy overwrites the shipped config; resetting a resolved
         # id back to the placeholder would recreate the database every upgrade.
         self._deploy()
-        config = self.lore_home / "node/wrangler.jsonc"
+        config = self.store / "wrangler.jsonc"
         config.write_text(config.read_text().replace(DATABASE_ID, "owner-pasted-id"))
         _, wrangler = self._deploy()
         self.assertIn("owner-pasted-id", config.read_text())
@@ -1199,9 +1487,7 @@ class DeployTest(_NodeCase):
         # both halves happened exactly once.
         code, wrangler = self._deploy()
         self.assertEqual(code, 0)
-        wrangler.push.assert_called_once_with(
-            self.lore_home / "node", False, opening=True
-        )
+        wrangler.push.assert_called_once_with(self.store, False, opening=True)
         self.probe.assert_called_once()
 
     def test_a_malformed_wallet_never_reaches_the_network(self) -> None:

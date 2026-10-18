@@ -7,7 +7,7 @@ desktop_dir="$(cd "$(dirname "$0")/.." && pwd)"
 repo_root="$(cd "$desktop_dir/../.." && pwd)"
 root="$(mktemp -d "${TMPDIR:-/tmp}/lore-edge.XXXXXX")"
 mkdir -p "$root/home" "$root/user-data"
-export LORE_HOME="$root/home" LORE_DESKTOP_USER_DATA="$root/user-data" LORE_SKIP_SCHEDULE=1 LORE_EDGE_OUT="$root"
+export LORE_HOME="$root/home" LORE_STORE="$root/store" LORE_DESKTOP_USER_DATA="$root/user-data" LORE_SKIP_SCHEDULE=1 LORE_EDGE_OUT="$root"
 # Usage events from a walk go nowhere: a closed local port, refused at once.
 export LORE_USAGE_URL="http://127.0.0.1:9/events"
 # A fresh home stays empty: that persona checks what an owner sees before anything is kept. So
@@ -58,14 +58,15 @@ with Store() as store:
 json.dump([{'kind': 'publication', 'item_id': piece, 'title': 'Live demos beat cold decks', 'price_usd': 3.0, 'network': 'stripe', 'payer': '', 'tx': 'pi_old', 'sold_at': '2026-10-01T12:00:00Z'}], open(f'{out}/sales.json', 'w'))
 json.dump([{'item_id': piece, 'views': 42}], open(f'{out}/views.json', 'w'))
 open(f'{out}/piece', 'w').write(piece)")
-  mkdir -p "$LORE_HOME/node/node_modules/.bin"
-  printf '#!/bin/sh\ncase "$*" in *page_views*) printf "[{\\"results\\": []}, {\\"results\\": %%s}]" "$(cat "$LORE_EDGE_OUT/views.json")";; *) printf "[{\\"results\\": %%s}]" "$(cat "$LORE_EDGE_OUT/sales.json")";; esac\n' > "$LORE_HOME/node/node_modules/.bin/wrangler"
-  chmod +x "$LORE_HOME/node/node_modules/.bin/wrangler"
+  mkdir -p "$LORE_STORE/node_modules/.bin"
+  printf '#!/bin/sh\ncase "$*" in *page_views*) printf "[{\\"results\\": []}, {\\"results\\": %%s}]" "$(cat "$LORE_EDGE_OUT/views.json")";; *) printf "[{\\"results\\": %%s}]" "$(cat "$LORE_EDGE_OUT/sales.json")";; esac\n' > "$LORE_STORE/node_modules/.bin/wrangler"
+  chmod +x "$LORE_STORE/node_modules/.bin/wrangler"
+  : > "$LORE_STORE/.installed"
 fi
 if [[ "$scenario" == "listing" ]]; then
   # XC-036: a live store, a setup name, a push that always succeeds, and an empty public list.
-  mkdir -p "$root/home/node" "$root/bin"
-  echo '{}' > "$root/home/node/wrangler.jsonc"
+  mkdir -p "$LORE_STORE" "$root/bin"
+  echo '{}' > "$LORE_STORE/wrangler.jsonc"
   printf '#!/bin/sh\nexit 0\n' > "$root/bin/npx" && chmod +x "$root/bin/npx"
   echo '{"sellers":[]}' > "$root/marketplace.json"
   export PATH="$root/bin:$PATH" LORE_MARKETPLACE_URL="file://$root/marketplace.json"

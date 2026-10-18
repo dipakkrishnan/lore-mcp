@@ -10,11 +10,23 @@ const S = process.env.LORE_EDGE_OUT ?? process.env.LORE_HOME;
 // lookup at scratch so the owner's real schedule cannot answer for the seed.
 if (scenario === "jobs") process.env.CODEX_HOME = join(S, "codex");
 const src = join(__dirname, "../src");
+// The desktop key lives in this walk's scratch, never the owner's account, so walks run side by side
+// without clobbering each other's (or the owner's) key. state.cjs reads the account's home once, at load.
+const os = require("node:os");
+const userInfo = os.userInfo;
+os.userInfo = (...args) => ({ ...userInfo(...args), homedir: join(S, "account") });
 const runtime = require(join(src, "runtime.cjs"));
-const realProvision = runtime.provision;
+os.userInfo = userInfo;
+const { ATTENDED_KEY } = require(join(src, "state.cjs"));
+// The CLI the app spawns reads the same scratch key: a test-only entry point, picked the way the app picks its runtime.
+const repo = join(__dirname, "../../..");
+const cli = { bin: join(S, "cli", "lore"), binDir: undefined };
+mkdirSync(dirname(cli.bin), { recursive: true });
+writeFileSync(join(S, "cli", "attended_cli.py"), `import sys\nfrom pathlib import Path\nfrom lore import cli\ncli.attended_key = lambda: Path(${JSON.stringify(ATTENDED_KEY)})\nsys.exit(cli.main())\n`);
+writeFileSync(cli.bin, `#!/bin/sh\ncd ${JSON.stringify(repo)} && exec uv run python ${JSON.stringify(join(S, "cli", "attended_cli.py"))} "$@"\n`, { mode: 0o755 });
 let failSetup = scenario === "provision";
 // main.cjs binds provision at require time, so the stub itself must flip.
-runtime.provision = async (emit) => { if (failSetup) throw new Error("uv exploded"); return realProvision(emit); };
+runtime.provision = async () => { if (failSetup) throw new Error("uv exploded"); return cli; };
 // APP-216: the agent apps on this Mac are whatever a walk says, and opening one only records it; the Mac's own
 // Applications are never looked at, and no app is launched.
 const { AgentApps } = require(join(src, "agents.cjs"));
@@ -200,9 +212,10 @@ if (scenario === "listing") {
       prompts.push({ text, task });
       if (task !== "deploy") return;
       this.options.emit({ type: "task", task: { version: 1, kind: "deploy", title: "Open your store", state: "working", phase: "Setting up your store", updatedAt: at() } });
-      const wrangler = join(process.env.LORE_HOME ?? "", "node/node_modules/.bin/wrangler");
+      const wrangler = join(process.env.LORE_STORE ?? "", "node_modules/.bin/wrangler");
       mkdirSync(dirname(wrangler), { recursive: true });
       writeFileSync(wrangler, `#!/bin/sh\ncd "${repo}" && exec uv run python -m tests.fixtures.inbox wrangler "$@"\n`, { mode: 0o755 });
+      writeFileSync(join(process.env.LORE_STORE ?? "", ".installed"), "");
       const url = `${process.env.LORE_EDGE_AGENT_URL}/mcp`;
       // XC-069: what `lore node deploy --inbox-only` leaves: an address, nothing for sale, no price and no payout. The
     // stand-in node answers only /agent, so its probe is kept for the whole walk instead of expiring a minute in.
@@ -233,6 +246,7 @@ if (scenario === "listing") {
 const sleep = (ms) => new Promise((done) => setTimeout(done, ms));
 const results = [];
 function check(name, ok, detail = "") { results.push(`${ok ? "PASS" : "FAIL"} ${name}${detail ? ` — ${detail}` : ""}`); }
+check("the desktop key is this walk's own", ATTENDED_KEY.startsWith(join(S, "account") + "/"), ATTENDED_KEY);
 
 /** The walk runs once, in the first window; one opened later (a notification after the window closed) is driven by it. */
 let walking = false;
@@ -360,8 +374,9 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         await waitFor(`document.querySelector("#content").textContent.includes("approved, not on your store yet")`);
         // The staged node answers the ledger query with two sales, one of them the publication just approved.
         const publicId = await js(`window.lore.snapshot().then((s) => s.publications.items.find((i) => i.state === "approved").public_id)`);
-        const wrangler = join(process.env.LORE_HOME, "node/node_modules/.bin/wrangler");
+        const wrangler = join(process.env.LORE_STORE ?? "", "node_modules/.bin/wrangler");
         mkdirSync(dirname(wrangler), { recursive: true });
+        writeFileSync(join(process.env.LORE_STORE ?? "", ".installed"), "");
         const sale = (item_id, title, tx, sold_at) => ({ kind: "publication", item_id, title, price_usd: 0.01, network: "eip155:84532", payer: "0xpayer", tx, sold_at });
         writeFileSync(wrangler, `#!/bin/sh\necho '${JSON.stringify([{ results: [sale(publicId, "Hire management before rapid growth", "0xfeed", "2026-09-02T14:02:00Z"), sale("1111111111111111807ae5f3", "Choosing a co-founder", "0xbeef", "2026-09-01T21:47:00Z")], success: true }])}'\n`, { mode: 0o755 });
         await js(`window.__lore.show("store")`);
