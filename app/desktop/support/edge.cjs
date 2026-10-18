@@ -64,6 +64,12 @@ const copied = [];
 const prompts = [];
 /** APP-215: whether the first-run walk's owner has signed in to Cloudflare, and that sign-in as each store-online call found it. */
 let signedInToCloudflare = false;
+/** APP-223: whether the walk's sign-in waits on the browser until stopped, how long the app waits on it, and whether
+ * the account signed in to already has a Lore store. */
+let signInHangs = false;
+/** @type {number | undefined} */
+let signInWait;
+let storeElsewhere = false;
 /** @type {boolean[]} */
 const storeOnlineCalls = [];
 /** APP-214: every store push asked for, and how the walk ends a thread the stand-in agent left working. */
@@ -271,13 +277,19 @@ if (scenario === "listing") {
   state.storeOnline = async () => {
     storeOnlineCalls.push(signedInToCloudflare);
     if (!signedInToCloudflare) return "The deploy did not finish: not signed in to Cloudflare; sign in first, then rerun.";
+    if (storeElsewhere) return "The deploy did not finish: a lore-publications database already exists on this Cloudflare account, but this installation has never deployed a node before.";
     standInDeploy();
     return "The store is deployed.\nYour store is online for your agents. Nothing for sale yet.";
   };
-  state.cloudflareSignIn = async () => {
-    signedInToCloudflare = true;
-    return "Signed in to Cloudflare as edge@example.com";
-  };
+  // APP-223: the real sign-in, its wait and its stop, with the CLI's `node login` stood in for by a process that prints
+  // the page to open, then signs in at once or waits on the browser until it is stopped. Pages open nowhere.
+  const realSignIn = state.cloudflareSignIn;
+  state.cloudflareSignIn = (home, onUrl, options) => realSignIn(home, onUrl, {
+    ...options,
+    ...(signInWait ? { wait: signInWait } : {}),
+    login: (onLine, signal) => state.stream("/bin/sh", ["-c", `echo "Open https://dash.cloudflare.com/oauth2/auth?walk=1 to sign in"; ${signInHangs ? "exec sleep 600" : "exit 0"}`], {}, onLine, S, signal).then(() => { signedInToCloudflare = true; })
+  });
+  require("electron").shell.openExternal = async (url) => { opened.push(url); };
   require(join(src, "sales.cjs")).notify = (words, onClick) => { notes.push({ words, handlers: { click: onClick } }); };
   require("electron").clipboard.writeText = (text) => { copied.push(text); };
   const setBadgeCount = app.setBadgeCount.bind(app);
@@ -1493,9 +1505,30 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         check("with no store online, Grok Bot is asked to save here too, and nothing goes on sale", await waitFor(`${chat}.includes("Want Grok Bot to save here too? Grok Bot works online, so it needs a place online to save to. Lore sets one up for you, free on Cloudflare. Only your agents can save to it, and nothing goes on sale.")`), await js(chat));
         check("…and the owner's answer, a pill, says who gave it to a screen reader", await js(`document.querySelector("#content .first-run .line.owner > .sr-only")?.textContent === "You: "`));
         await shot("firstrun-store");
+        // APP-223: a sign-in left open in the browser can be opened again, or cancelled, and never strands the card.
+        const pages = () => opened.filter((url) => url.startsWith("https://dash.cloudflare.com/")).length;
+        const buttons = `[...document.querySelectorAll("#content .first-run button")].map((b) => b.textContent)`;
+        signInHangs = true;
+        await tap("Set it up");
+        check("while Cloudflare's sign-in waits on the browser, the card offers it again, or Cancel", await waitFor(`${chat}.includes("Finish signing in to Cloudflare in your browser") && ${buttons}.includes("Open sign-in again") && ${buttons}.includes("Cancel")`, 80) && pages() === 1, `${pages()} pages; ${await js(chat)}`);
+        await shot("firstrun-sign-in-waiting");
+        await tap("Open sign-in again");
+        check("…Open sign-in again opens the same page", await waitFor(`true`) && pages() === 2 && opened.at(-1) === opened.at(-2), JSON.stringify(opened.slice(-2)));
+        await tap("Cancel");
+        check("…and Cancel stops it, back at Set it up with nothing to say", await waitFor(`${buttons}.includes("Set it up") && !${buttons}.includes("Cancel")`, 40) && !(await js(`Boolean(document.querySelector("#content .first-run .problem"))`)), await js(chat));
+        signInWait = 2000;
+        await tap("Set it up");
+        check("a sign-in that never finishes gives up after a while, plainly, with Set it up again", await waitFor(`${chat}.includes("Cloudflare sign-in didn't finish. Try again.") && ${buttons}.includes("Set it up")`, 60), await js(chat));
+        signInHangs = false;
+        signInWait = undefined;
+        storeElsewhere = true;
+        await tap("Set it up");
+        check("an account that already has a Lore store is told so, and nothing is set up there", await waitFor(`${chat}.includes("This Cloudflare account already has a Lore store. Sign in with a different account, or reconnect that store from the Mac that set it up.") && ${buttons}.includes("Set it up")`, 60) && await js(`window.lore.snapshot().then((s) => !s.node.url)`), await js(chat));
+        await shot("firstrun-store-elsewhere");
+        storeElsewhere = false;
         await tap("Set it up");
         answers++;
-        check("putting it online signs in to Cloudflare first, then puts it online for agents only", await waitFor(`document.querySelector("#content .first-run .agent-link")`, 80) && JSON.stringify(storeOnlineCalls) === JSON.stringify([false, true]), JSON.stringify(storeOnlineCalls));
+        check("putting it online signs in to Cloudflare first, then puts it online for agents only", await waitFor(`document.querySelector("#content .first-run .agent-link")`, 80) && JSON.stringify(storeOnlineCalls) === JSON.stringify([false, false, false, true, true]), JSON.stringify(storeOnlineCalls));
         const message = await copyMessage();
         const linked = new RegExp(`^${(ask + agentUrl).replace(/[.*+?^${}()|[\]\\/]/g, "\\$&")}/lore_agent_[0-9a-f]{16}_[A-Za-z0-9_-]{43}$`);
         check("Grok Bot's message to paste is in the chat two answers after it is asked about", answers === 2 && linked.test(message), `${answers} answers; ${message}`);

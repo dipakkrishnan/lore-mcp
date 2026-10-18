@@ -35,3 +35,10 @@ mode, the frosted sidebar picked up the dark material under a thin cream wash.
   See them and Go to Today.
 - The sidebar is the light material in dark mode too, under a thicker cream
   wash.
+- A Cloudflare sign-in left open in the browser never strands the card: while
+  it waits, the card offers Open sign-in again and Cancel, and after five
+  minutes it gives up with "Cloudflare sign-in didn't finish. Try again." The
+  deploy thread's sign-in, used from Connectors, gets the same.
+- An account that already has a Lore store is told so plainly, and nothing is
+  set up or written there (wrangler can report the existing database and still
+  exit 0). Reconnecting that store is APP-224.

@@ -52,6 +52,8 @@ let apps = [];
 let agents = null;
 /** Connecting an agent put the store online first; once it is, the sheet picks up where it left off. */
 let agentAfterStore = false;
+/** Whether Cloudflare's sign-in is waiting on the owner's browser, wherever the store is going online. */
+let signingIn = false;
 /** Whatever waits on an agent's save (its setup sheet, the first-run chat), told whatever Lore brings in from the
  * owner's agents. @type {Set<(reads: SourceRead[]) => void>} */
 const agentWaiting = new Set();
@@ -845,6 +847,7 @@ function renderToday(s) {
     // Drafts and the push after approving show in the threads that draft, as on Today.
     if (DRAFTING.has(detailTask)) parts.push(...drafts(s));
     if ((detailTask === "setup" || detailTask === "deploy") && detailRecord?.state === "done") parts.push(nextRung(s));
+    if (detailTask === "deploy" && signingIn) parts.push(signInCard());
     return parts;
   }
   // A check-in leads Today, on the rare day there is one.
@@ -906,6 +909,20 @@ class HowItWorks {
 }
 
 const howItWorks = new HowItWorks();
+
+/** While Cloudflare's sign-in waits on the browser: its page opened again, or the wait stopped. */
+function signInActions() {
+  const actions = el("div", "actions");
+  actions.append(button("Cancel", "secondary", () => void window.lore.cancelSignIn()), button("Open sign-in again", "secondary", () => void window.lore.reopenSignIn()));
+  return actions;
+}
+
+/** The deploy thread's sign-in, waiting on the browser. */
+function signInCard() {
+  const box = el("div", "card request sign-in-wait");
+  box.append(el("p", "hint", "Finish signing in to Cloudflare in your browser, then come back here."), signInActions());
+  return box;
+}
 
 /** Whether a read left the place it read readable. @param {SourceRead[]} reads @param {string} name */
 function readable(reads, name) {
@@ -1056,10 +1073,12 @@ class FirstRunChat {
       if (!online) throw new Error();
       this.working = false;
       await this.connect();
-    } catch {
+    } catch (error) {
       if (!this.current(run)) return;
       this.working = false;
-      this.problem = "Your store didn't go online. Try again in a minute.";
+      // Cancelled is the owner's own choice: back to Set it up, with nothing to say.
+      const said = reason(error, "Your store didn't go online. Try again in a minute.");
+      this.problem = said === "Cancelled" ? "" : said;
       this.redraw();
     }
   }
@@ -1273,13 +1292,17 @@ class FirstRunChat {
     if (this.stage === "store") {
       lore(`Want ${who} to save here too? ${who} works online, so it needs a place online to save to. Lore sets one up for you, free on Cloudflare. Only your agents can save to it, and nothing goes on sale.`);
       const box = el("div", "card request");
-      box.append(el("p", "hint", this.working ? "Setting it up. This takes a few minutes. If your browser opened, sign in to Cloudflare there." : "Takes a few minutes. Your browser opens so you can sign in to Cloudflare, or make a free account."));
+      const waiting = this.working && signingIn;
+      box.append(el("p", "hint", waiting ? "Finish signing in to Cloudflare in your browser, then come back here." : this.working ? "Setting it up. This takes a few minutes. If your browser opened, sign in to Cloudflare there." : "Takes a few minutes. Your browser opens so you can sign in to Cloudflare, or make a free account."));
       if (this.problem) box.append(el("p", "problem", this.problem));
-      const actions = el("div", "actions");
-      const go = button(this.working ? "Setting it up…" : "Set it up", "primary", () => void this.putOnline());
-      go.disabled = this.working;
-      actions.append(go);
-      box.append(actions);
+      if (waiting) box.append(signInActions());
+      else {
+        const actions = el("div", "actions");
+        const go = button(this.working ? "Setting it up…" : "Set it up", "primary", () => void this.putOnline());
+        go.disabled = this.working;
+        actions.append(go);
+        box.append(actions);
+      }
       lore(box);
       return this.shown(chat);
     }
@@ -4663,6 +4686,9 @@ function onEvent(event) {
   } else if (event.type === "dismiss") {
     if (redirectPrompt === event.id) offerRedirect(null);
     if (request?.id === event.id) { clearRequest(); renderLog(); }
+  } else if (event.type === "signin") {
+    signingIn = event.pending;
+    render();
   } else if (event.type === "auth-prompt" && !welcome.hidden) {
     // Sign-in has no thread to hold a card, so the field lives under the note that promises it.
     offerRedirect(event.id);
