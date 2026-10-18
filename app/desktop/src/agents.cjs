@@ -1,5 +1,7 @@
 // APP-207: the owner's personal agents save to the owner's own store. While Lore is open it asks the store what is
 // waiting, and brings that in through the same read every connected app goes through.
+const { existsSync } = require("node:fs");
+const { join } = require("node:path");
 
 /** Asking the store goes through Cloudflare, so once a minute is plenty; coming back to the app asks at once. */
 const WATCH_EVERY_MS = 60_000;
@@ -39,4 +41,37 @@ class Watch {
   }
 }
 
-module.exports = { Watch, WATCH_EVERY_MS };
+/** APP-216: the agent apps Lore looks for, by agent id, as each is named in Applications. Muse has no Mac app. */
+const AGENT_APPS = { grok: "Grok Bot.app", chatgpt: "ChatGPT.app", claude: "Claude.app" };
+
+/** Which of the owner's agent apps are on this Mac, and opening one. Only the apps above and only by id: nothing else
+ * on disk is looked at, and the renderer never names a path. */
+class AgentApps {
+  /** @param {string[]} roots where apps are installed @param {(path: string) => Promise<string>} launch resolves to an error, or "" */
+  constructor(roots, launch) {
+    this.roots = roots;
+    this.launch = launch;
+  }
+
+  /** @param {unknown} id */
+  #path(id) {
+    if (typeof id !== "string" || !Object.hasOwn(AGENT_APPS, id)) return undefined;
+    const name = AGENT_APPS[/** @type {keyof typeof AGENT_APPS} */ (id)];
+    return this.roots.map((root) => join(root, name)).find((path) => existsSync(path));
+  }
+
+  /** The ids of the agent apps installed. @returns {Promise<AgentApp[]>} */
+  async installed() {
+    return /** @type {AgentApp[]} */ (Object.keys(AGENT_APPS).filter((id) => this.#path(id)));
+  }
+
+  /** @param {unknown} id */
+  async open(id) {
+    const path = this.#path(id);
+    if (!path) throw new Error("Lore can't open that app");
+    const failed = await this.launch(path);
+    if (failed) throw new Error(failed);
+  }
+}
+
+module.exports = { Watch, WATCH_EVERY_MS, AgentApps };

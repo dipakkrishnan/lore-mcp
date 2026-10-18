@@ -15,6 +15,7 @@ const account = $("#account");
 const taskBack = /** @type {HTMLButtonElement} */ ($("#task-back"));
 const taskRestart = /** @type {HTMLButtonElement} */ ($("#task-restart"));
 const addMemoryBtn = /** @type {HTMLButtonElement} */ ($("#add-memory"));
+const sellWritingBtn = /** @type {HTMLButtonElement} */ ($("#sell-writing"));
 const feedbackBtn = /** @type {HTMLButtonElement} */ ($("#feedback-open"));
 const accountMenu = $("#account-menu");
 const accountLine = $("#account-line");
@@ -62,6 +63,8 @@ let auth = null;
 let view = "today";
 /** Which of Inventory's tabs is open. @type {Shelf} */
 let shelf = "all";
+/** Inventory shows only what this agent or app brought in, until the owner removes its chip (APP-212). @type {{id: string, label: string} | null} */
+let inventoryFrom = null;
 /** @type {AgentTask} */
 let task = "capture";
 /** @type {TaskRecord[]} */
@@ -139,7 +142,6 @@ const EDIT_ICON = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" st
 const COPY_ICON = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="8" y="8" width="12" height="12" rx="2.5"></rect><path d="M16 8V6.5A2.5 2.5 0 0 0 13.5 4h-7A2.5 2.5 0 0 0 4 6.5v7A2.5 2.5 0 0 0 6.5 16H8"></path></svg>`;
 const CHECK_ICON = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"></path></svg>`;
 const LOCK_ICON = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="11" width="14" height="9" rx="2"></rect><path d="M8 11V8a4 4 0 0 1 8 0v3"></path></svg>`;
-const CHEVRON_ICON = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6l6 6-6 6"></path></svg>`;
 const INFO_ICON = `<svg class="notice-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="9"></circle><path d="M12 11v5M12 8h.01"></path></svg>`;
 const ALERT_ICON = `<svg class="notice-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4l9 16H3z"></path><path d="M12 10v4M12 17h.01"></path></svg>`;
 const SALE_ICON = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 12l-8 8-9-9V3h8z"></path><circle cx="7.5" cy="7.5" r="1.5"></circle></svg>`;
@@ -155,8 +157,9 @@ const EXPLORERS = { "eip155:8453": "https://basescan.org", "eip155:84532": "http
 const REAL_MONEY = "I'm ready to switch my store to real money.";
 const SETUP_INTENT = "Let's set up my Lore.";
 const STORE_INTENT = "Help me open my store.";
-const AGENT_STORE_INTENT = "Put my store online so my personal agents can save to it. Nothing goes on sale until I approve it.";
+const AGENT_STORE_INTENT = "Put my store online so my personal agents can save to it. Nothing goes on sale until I choose to sell it.";
 const REDEPLOY_PRICE = "I changed my publication price. Redeploy my store so buyers pay the new amount.";
+const STORE_FIX = "My store isn't responding. Find out why and bring it back online.";
 // Six decimals, not the default two: a price can run below a cent, and rounding
 // $0.000001 up to $0.01 would misstate what a buyer pays. Six is the CLI's floor.
 const money = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 6 });
@@ -314,7 +317,7 @@ async function openMemory(id) {
   const head = el("div", "sheet-head");
   const text = el("div", "t");
   const titleLabel = el("b", "", memory.title);
-  text.append(titleLabel, el("span", "", [...new Set([...origin(memory), when(memory.updated_at)])].filter(Boolean).join(" · ")));
+  text.append(titleLabel, provenanceLine(memory));
   const close = el("button", "icon-btn", "×");
   close.type = "button";
   close.setAttribute("aria-label", "Close");
@@ -401,14 +404,6 @@ async function openMemory(id) {
   close.focus();
 }
 
-/** Where a memory came from, as its sheet says it: one of the owner's agents by its name, any other app by the app's.
- * @param {Memory} memory @returns {string[]} */
-function origin(memory) {
-  const from = snapshot?.library.sources.find((source) => source.name === memory.source);
-  if (from?.connector === "agent") return [`From ${from.label}`];
-  return [memory.project, apps.find((app) => app.id === from?.connector)?.name ?? from?.label ?? ""];
-}
-
 function closeSheet() {
   /** @type {HTMLDialogElement | null} */ (document.querySelector("dialog.sheet[open]"))?.close();
 }
@@ -470,6 +465,11 @@ function chip(text, className = "") {
 /** @param {number | null} value */
 function price(value) {
   return typeof value === "number" ? money.format(value) : "Not set";
+}
+
+/** A price with no trailing ".00": "$1", "$0.10", "$0.005". @param {number} value */
+function dollars(value) {
+  return price(value).replace(/\.00$/, "");
 }
 
 /** What buyers are charged, one entry per thing on offer; nothing when no price is set. @param {Snapshot} s @returns {Array<[string, string]>} */
@@ -538,9 +538,10 @@ function pushDetail(items, index) {
   return `${item.count} publication${item.count === 1 ? "" : "s"} on your store${change}`;
 }
 
-/** @param {Snapshot["node"]["live"]["state"]} state */
-function nodeLabel(state) {
-  return state === "online" ? "Live" : state === "unreachable" ? "Offline" : "Not set up";
+/** Online for the owner's agents only is not live: nothing is for sale (XC-069). @param {Snapshot["node"]} node */
+function nodeLabel(node) {
+  const state = node.live.state;
+  return state === "online" ? (node.selling === false ? "Online" : "Live") : state === "unreachable" ? "Offline" : "Not set up";
 }
 
 /** @param {string | null} network */
@@ -569,21 +570,26 @@ function explorer(network) {
   return EXPLORERS[/** @type {keyof typeof EXPLORERS} */ (network ?? "")] ?? EXPLORERS["eip155:8453"];
 }
 
-/** @param {Snapshot["node"]["live"]} live */
-function payoutLink(live) {
-  return live.payout ? outLink("Payouts ↗", `${explorer(live.network)}/address/${live.payout}`) : null;
+/** @param {Snapshot["node"]["live"]} live @param {string} [className] */
+function payoutLink(live, className) {
+  return live.payout ? outLink("Payouts ↗", `${explorer(live.network)}/address/${live.payout}`, className) : null;
 }
 
 /** @param {Snapshot["node"]} node */
 function storeAddress(node) {
   const url = /** @type {string} */ (node.url);
   const box = el("span", "address");
-  box.append(el("span", "mono", url.replace(/^https?:\/\//, "").replace(/\/mcp$/, "")));
+  box.append(el("span", "host", url.replace(/^https?:\/\//, "").replace(/\/mcp$/, "")));
   const console = workerConsole(url);
-  if (console) box.append(outLink("Cloudflare ↗", console));
-  const payouts = payoutLink(node.live);
+  if (console) box.append(outLink("Cloudflare ↗", console, "quiet-link"));
+  const payouts = payoutLink(node.live, "quiet-link");
   if (payouts) box.append(payouts);
   return box;
+}
+
+/** Open for sale, not only online for the owner's agents (XC-069). @param {Snapshot | null} s */
+function forSale(s) {
+  return Boolean(s?.node.url) && s?.node.selling !== false;
 }
 
 function greeting() {
@@ -599,11 +605,8 @@ function lineIcon(paths) {
 /** Each of Today's next steps by its mark. */
 const STEP_ICONS = {
   connect: lineIcon(`<path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1"></path><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"></path>`),
-  agents: lineIcon(`<path d="M12 3.5l1.9 5.1 5.1 1.9-5.1 1.9-1.9 5.1-1.9-5.1L5 10.5l5.1-1.9z"></path>`),
-  shape: lineIcon(`<path d="M12 3l9 5-9 5-9-5z"></path><path d="M3 13l9 5 9-5"></path>`),
-  rhythm: lineIcon(`<circle cx="12" cy="12" r="8.5"></circle><path d="M12 7.5V12l3 2"></path>`),
+  sell: lineIcon(`<path d="M12 3.5l1.9 5.1 5.1 1.9-5.1 1.9-1.9 5.1-1.9-5.1L5 10.5l5.1-1.9z"></path>`),
   store: lineIcon(`<path d="M4 9l1.5-5h13L20 9M4 9v11h16V9M4 9h16M9 20v-6h6v6"></path>`),
-  paste: lineIcon(`<rect x="6" y="4.5" width="12" height="16" rx="2"></rect><path d="M9.5 3.5h5v3h-5z"></path>`),
   publish: lineIcon(`<path d="M20 12l-8 8-9-9V3h8z"></path><circle cx="7.5" cy="7.5" r="1.5"></circle>`),
   update: lineIcon(`<path d="M12 15V4M7.5 8.5L12 4l4.5 4.5"></path><path d="M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3"></path>`),
   memory: lineIcon(`<path d="M7 3.5h7l4 4V20a.5.5 0 0 1-.5.5h-10A.5.5 0 0 1 7 20z"></path><path d="M14 3.5V8h4M10 12.5h5M10 16h5"></path>`)
@@ -617,38 +620,106 @@ function markTile(mark) {
   return node;
 }
 
-/** What wants the owner next, each a tile with its mark. @param {Snapshot} s */
-function needsYou(s) {
-  /** @type {HTMLElement[]} */
-  const rows = [];
-  const add = (/** @type {keyof typeof STEP_ICONS} */ mark, /** @type {string} */ label, /** @type {string} */ detail, /** @type {HTMLElement} */ action) => {
-    const node = row(label, detail, action, false);
-    node.prepend(markTile(STEP_ICONS[mark]));
-    rows.push(node);
-  };
-  if (!s.library.sources.some((source) => source.connector)) add("connect", "Bring in what you've written", "Notes, posts, or AI conversations from apps you already use.", button("Connect", "secondary", () => show("connectors")));
-  if (!s.setup.sources_configured) {
-    if (s.library.sources.some((source) => !source.owned)) add("agents", "Connect your agents", "Let Lore read what Claude Code and Codex already remember.", button("Start", "secondary", startSetup));
-  } else if (!s.setup.blueprint_configured) add("shape", "Shape your Lore", "Review one proposal based on what your agents already know.", button("Start", "secondary", startSetup));
-  else if (!s.setup.profile_configured) add("rhythm", "Set the rhythm", "Choose how often Lore writes new memories.", button("Start", "secondary", startSetup));
-  // The store rung waits for approved work, whatever rung setup is on: the
-  // payout address is asked last, once there is something worth being paid for.
-  if (s.publications.counts.active && !s.node.url && !pushOffer) add("store", "Open your store", `${s.publications.counts.active === 1 ? "Your approved piece is" : `Your ${s.publications.counts.active} approved pieces are`} ready to sell. Pick a price and where payments go.`, button("Open", "secondary", () => void startDeploy()));
-  const publishing = candidates.length || extraDrafts.length || taskItems.some((item) => item.kind === "publish");
-  if (!publishing) add("paste", "Sell something you wrote", "Paste a post, a postmortem or notes. Lore drafts the piece and shows you its page.", button("Paste", "secondary", openPasteSheet));
-  if (s.library.counts.private && !publishing) add("publish", "Publish something", "Lore drafts up to three things to sell; you approve each one.", button("Publish", "secondary", () => void startPublish()));
-  // Approved work a buyer cannot see yet, or a price they are not yet paying, is actionable whatever rung setup is on.
-  const stale = stalePrice(s);
-  if (stale !== null && !pushing) add("update", "Your new price isn't live yet", `Your store still charges ${price(stale)}. Update it to start charging ${price(s.pricing.publication_usd)}.`, button("Update store", "secondary", () => void startDeploy(REDEPLOY_PRICE)));
-  const waiting = unpushed(s);
-  if (waiting.length && !pushOffer && !pushing) add("update", "Update your store", `${pendingLabel(waiting)}.`, button("Update store", "secondary", pushNow));
-  return rows;
+/** "A", "A and B", or "A, B and 2 more". @param {string[]} names */
+function named(names) {
+  return names.length < 3 ? names.join(" and ") : `${names.slice(0, 2).join(", ")} and ${names.length - 2} more`;
 }
 
-/** Unfinished threads, without the store's once the store is open: nothing is left to finish there. Quiet work is no
- * thread, and a check-in waiting on its card is not one yet. */
+/** The picture one contributor shows with: an agent's or app's own mark, a clock for a routine, a pen for the owner,
+ * a page for a file they brought in, and Lore's own for what Lore wrote. @param {MemorySource} source */
+function sourceMark(source) {
+  if (source.kind === "agent") return agentMark(/** @type {AgentApp} */ (source.mark), source.label);
+  // Only a mark Lore ships is drawn; anything else gets the same plain one.
+  if (source.kind === "app") return Object.hasOwn(AGENT_MARKS, source.mark) ? brand(AGENT_MARKS[source.mark], source.label) : apps.some((app) => app.id === source.mark) ? brand(source.mark, source.label) : STEP_ICONS.connect;
+  if (source.kind === "routine") return CLOCK_ICON;
+  if (source.kind === "capture") return source.mark === "file" ? STEP_ICONS.memory : EDIT_ICON;
+  return RING;
+}
+
+/** APP-213: where a memory came from, drawn the same wherever it shows: each contributor's mark, newest first and
+ * overlapping, three at most then "+N", and the line that names them. Nobody on record means Lore wrote it.
+ * @param {MemorySource[] | undefined} sources */
+function provenance(sources) {
+  const from = sources?.length ? sources : [{ kind: /** @type {const} */ ("lore"), id: "lore", label: "Lore", mark: "lore", at: null }];
+  const marks = el("span", "mark-stack");
+  for (const source of from.slice(0, 3)) marks.append(markTile(sourceMark(source)));
+  if (from.length > 3) marks.append(el("span", "routine-mark more", `+${from.length - 3}`));
+  const line = from[0].kind === "lore" ? "Written by Lore" : `From ${named(from.map((source) => source.label))}`;
+  return { marks, line };
+}
+
+/** A memory's row that leads with where it came from. @param {{id: number, title: string, sources?: MemorySource[]}} memory
+ * @param {string[]} rest What else the row says, after where it came from. @param {boolean} [sell] */
+function sourcedRow(memory, rest, sell) {
+  const { marks, line } = provenance(memory.sources);
+  const node = memoryRow(memory.id, memory.title, [line, ...rest].filter(Boolean).join(" · "), sell);
+  node.prepend(marks);
+  return node;
+}
+
+/** The line under a memory's title in its sheet and its preview: its marks, where it came from, and its date.
+ * @param {Memory} memory */
+function provenanceLine(memory) {
+  const { marks, line } = provenance(memory.sources);
+  const node = el("span", "provenance");
+  node.append(marks, [line, when(memory.updated_at)].filter(Boolean).join(" · "));
+  return node;
+}
+
+/** The one thing to do next, by the first stage that applies: a store in trouble, changes not live yet, drafts to
+ * approve (the drafts themselves are the step), memories with nothing to sell, then no agent or app at all. None while
+ * the store is being opened, repaired or updated.
+ * @param {Snapshot} s @returns {{ mark: keyof typeof STEP_ICONS, label: string, detail: string, action: string, run: () => void } | "drafts" | null} */
+function nextStep(s) {
+  if (pushOffer || pushing || underWay("deploy")) return null;
+  if (s.node.url && s.node.live.state === "unreachable") return { mark: "store", label: "Your store isn't responding", detail: "Buyers and your agents can't reach it right now. Lore can find out why and bring it back.", action: "Fix it", run: resume("deploy", () => startDeploy(STORE_FIX)) };
+  const waiting = unpushed(s);
+  const stale = stalePrice(s);
+  const changes = waiting.length + (stale === null ? 0 : 1);
+  if (changes) {
+    const detail = [pendingLabel(waiting), stale === null ? "" : `Your store still charges ${price(stale)}, not ${price(s.pricing.publication_usd)}`].filter(Boolean).join(" · ");
+    return { mark: "update", label: `${plural(changes, "change")} ${changes === 1 ? "isn't" : "aren't"} live yet`, detail, action: "Update store", run: waiting.length ? pushNow : resume("deploy", () => startDeploy(REDEPLOY_PRICE)) };
+  }
+  const approved = s.publications.counts.active;
+  if (approved && !forSale(s)) return { mark: "store", label: `${plural(approved, "approved piece")} ${approved === 1 ? "isn't" : "aren't"} on sale yet`, detail: "Open your store to sell it. Pick a price and where payments go.", action: "Open your store", run: resume("deploy", () => startDeploy()) };
+  if (candidates.length || extraDrafts.length) return "drafts";
+  const drafting = taskItems.some((item) => item.kind === "publish" && item.state !== "done");
+  // An open publish thread is the step itself, under Unfinished.
+  if (s.library.counts.private && !approved) return drafting ? null : { mark: "sell", label: "Turn what you know into something to sell", detail: "Lore drafts up to three pieces from your memories. You approve each one.", action: "Start", run: resume("publish", () => startPublish()) };
+  if (!s.library.sources.some((source) => source.connector || source.enabled)) return { mark: "connect", label: "Connect the AI you talk to most", detail: "Grok Bot, ChatGPT or Claude saves what it learns about you. It stays private until you approve a piece.", action: "Connect", run: () => { show("connectors"); new AgentSetup().open(); } };
+  return null;
+}
+
+/** Whether the agent is at work on a thread of this kind. @param {AgentTask} kind */
+function underWay(kind) {
+  return busy === kind || taskItems.some((item) => item.kind === kind && item.state === "working");
+}
+
+/** A step's action: back into its thread while that thread is at work, so a second click never sends a second prompt.
+ * @param {AgentTask} kind @param {() => Promise<void>} start */
+function resume(kind, start) {
+  return () => void (underWay(kind) ? openTask(kind) : start());
+}
+
+/** Today's next step as one card, opened by a click anywhere on it. @param {Exclude<ReturnType<typeof nextStep>, "drafts" | null>} step */
+function nextStepCard(step) {
+  const node = row(step.label, step.detail, cell(button(step.action, "primary", step.run)), false);
+  node.prepend(markTile(STEP_ICONS[step.mark]));
+  node.classList.add("routine", "next-step");
+  node.addEventListener("click", (event) => {
+    if (!(event.target instanceof Element && event.target.closest("button"))) node.querySelector("button")?.click();
+  });
+  const list = el("div", "routines today-cards");
+  list.append(node);
+  return section("Next step", list);
+}
+
+/** Unfinished threads, without the store's once the store is open, or once a finished thread put it online for the
+ * owner's agents, unless it is at work (a repair, a reprice): nothing is left to finish there. Quiet work is no thread,
+ * and a check-in waiting on its card is not one yet. */
 function displayTasks() {
-  return taskItems.filter((item) => !QUIET_TASKS.has(item.kind) && !(item.kind === "deploy" && snapshot?.node.url) && !(item.kind === "evening" && checkIn)).slice(0, 3);
+  const storeDone = (/** @type {TaskRecord} */ item) => item.state !== "working" && (forSale(snapshot) || (Boolean(snapshot?.node.url) && item.state === "done"));
+  return taskItems.filter((item) => !QUIET_TASKS.has(item.kind) && !(item.kind === "deploy" && storeDone(item)) && !(item.kind === "evening" && checkIn)).slice(0, 3);
 }
 
 /** The evening check-in leads Today: the questions Lore would like five minutes on, and a way to say not today. @param {CheckIn} asked */
@@ -674,24 +745,33 @@ function readingRow(item) {
 
 /** What Lore made of a connected app's newest items: each new memory, and a draft one press away for the ones worth selling. @param {ReadyRun[]} runs */
 function memoriesReady(runs) {
-  const memories = runs.flatMap((run) => run.memories.map((memory) => ({ ...memory, from: run.from })));
+  const memories = runs.flatMap((run) => run.memories.map((memory) => ({ ...memory, by: run.by })));
   const selling = memories.filter((memory) => memory.sell).length;
   const [latest] = runs;
   const heading = runs.every((run) => run.title === latest.title) ? latest.title : "Lore read what you brought in";
   const detail = [`${plural(memories.length, "new memory")}, only on this Mac`, selling ? `${selling} ${selling === 1 ? "looks" : "look"} worth selling` : ""].filter(Boolean).join(" · ");
   const clear = button("Clear", "quiet", () => void window.lore.clearMemories().then(() => { readyRuns = []; render(); }));
-  const app = (/** @type {string | undefined} */ from) => snapshot?.library.sources.find((source) => source.connector === "agent" && source.label === from)?.app;
+  /** What the library has on record for a memory, or, until the reading's own credit lands (it is recorded last), who the
+   * reading was. @param {number} id @param {Contributor} [by] */
+  const sources = (id, by) => {
+    const kept = snapshot?.library.items.find((item) => item.id === id)?.sources;
+    return by && (!kept || kept[0]?.kind === "lore") ? [{ ...by, at: null }] : kept;
+  };
   const list = el("div", "routines today-cards");
   for (const memory of memories) {
-    const node = memoryRow(memory.id, memory.title, [memory.from && `From ${memory.from}`, memory.sell ? `Worth selling · ${memory.why}` : memory.work ? "Work · stays private" : "Private"].filter(Boolean).join(" · "), memory.sell);
-    const agent = app(memory.from);
-    node.prepend(markTile(agent ? agentMark(agent, memory.from ?? "") : STEP_ICONS.memory));
+    const node = sourcedRow({ id: memory.id, title: memory.title, sources: sources(memory.id, memory.by) }, [memory.sell ? `Worth selling · ${memory.why}` : memory.work ? "Work · stays private" : "Private"], memory.sell);
     node.classList.add("routine");
     list.append(node);
   }
   noticeReady();
   const aside = el("div", "list-aside");
-  aside.append(el("span", "", `${heading} · ${detail}`), clear);
+  aside.append(el("span", "", `${heading} · ${detail}`));
+  // One agent behind every memory here: one click to what it saved.
+  const by = runs[0].by;
+  if (by?.kind === "agent" && runs.every((run) => run.by?.id === by.id) && memories.every((memory) => sources(memory.id, memory.by)?.some((source) => source.id === by.id))) {
+    aside.append(inline("See them →", () => seeFrom({ id: by.id, label: by.label })));
+  }
+  aside.append(clear);
   return section("New memories", list, aside);
 }
 
@@ -710,31 +790,36 @@ function draftsPhase() {
 /** Threads whose agent can stage a publication draft. */
 const DRAFTING = new Set(["publish", "capture"]);
 
-/** @param {Snapshot} s */
+/** Drafts to approve, and the push after approving. @param {Snapshot} s */
+function drafts(s) {
+  /** @type {HTMLElement[]} */
+  const parts = [];
+  if (candidates.length || extraDrafts.length) parts.push(section("Approve what to sell", approvals(), el("span", "hint", "Buyers only ever get what you approve here.")));
+  if (pushOffer || pushing) parts.push(seamCard());
+  if (pushedNote) parts.push(pushReceipt(s));
+  return parts;
+}
+
+/** What came in, and the one thing to do next. @param {Snapshot} s */
 function renderToday(s) {
   /** @type {HTMLElement[]} */
   const parts = [];
   // A check-in leads Today, on the rare day there is one.
-  if (checkIn && !detailTask) parts.push(checkInCard(checkIn));
-  if (!detailTask && howItWorks.shown()) parts.push(howItWorks.line());
-  // Drafts and the push after approving show on Today and in the threads that draft.
-  if (!detailTask || DRAFTING.has(detailTask)) {
-    if (candidates.length || extraDrafts.length) parts.push(section("Approve what to sell", approvals(), el("span", "hint", "Buyers only ever get what you approve here.")));
-    if (pushOffer || pushing) parts.push(seamCard());
-    if (pushedNote) parts.push(pushReceipt(s));
-  }
   if (detailTask) {
+    // Drafts and the push after approving show in the threads that draft, as on Today.
+    if (DRAFTING.has(detailTask)) parts.push(...drafts(s));
     if ((detailTask === "setup" || detailTask === "deploy") && detailRecord?.state === "done") parts.push(nextRung(s));
     return parts;
   }
+  // A check-in leads Today, on the rare day there is one.
+  if (checkIn) parts.push(checkInCard(checkIn));
+  if (!s.library.counts.private && howItWorks.shown()) parts.push(howItWorks.line());
   const reading = taskItems.find((item) => item.kind === "synthesize" && item.state === "working");
   if (reading) parts.push(readingRow(reading));
   if (readyRuns.length) parts.push(memoriesReady(readyRuns));
-  const attention = needsYou(s);
-  if (attention.length) {
-    parts.push(section("Needs you", tiles(attention)));
-  }
-  if (Array.isArray(sales) && sales.length) parts.push(earned(sales));
+  const step = nextStep(s);
+  if (step === "drafts") parts.push(...drafts(s));
+  else if (step) parts.push(nextStepCard(step));
   const shown = displayTasks();
   if (shown.length) {
     const list = el("div", "routines today-cards");
@@ -751,14 +836,15 @@ function renderToday(s) {
     }
     parts.push(section("Unfinished", list));
   }
-  const runs = recentRuns(s);
-  if (runs) parts.push(runs);
+  if (step !== "drafts") parts.push(...drafts(s));
+  if (Array.isArray(sales) && sales.length) parts.push(earned(sales));
   const strip = el("div", "strip");
   /** @type {Array<[string, string] | null>} */
   const facts = [
     [String(s.library.counts.private), `${s.library.counts.private === 1 ? "memory" : "memories"}, only on this Mac`],
-    [String(s.publications.counts.active), "for sale"],
-    ["Store", nodeLabel(s.node.live.state).toLowerCase()],
+    // Approved is not on sale until the store opens for sale (XC-069).
+    [String(s.publications.counts.active), forSale(s) ? "for sale" : "ready to sell"],
+    ["Store", nodeLabel(s.node).toLowerCase()],
     ...offers(s)
   ];
   for (const fact of facts) {
@@ -772,7 +858,7 @@ function renderToday(s) {
   return parts;
 }
 
-/** Today's way into the FAQ for a new owner, until their first paid sale or until they close it. */
+/** Today's way into the FAQ for a new owner, until their first memory, their first paid sale, or until they close it. */
 class HowItWorks {
   key = "lore.how-it-works.closed";
 
@@ -813,13 +899,16 @@ function priceRow(s) {
   // Wrapped, not bare: `.prices` is a stretch-aligned column, so a bare button
   // would spread its hover background across the whole bar.
   const item = el("div", "price-row");
-  const open = el("button", "price-open");
-  open.type = "button";
-  open.title = "Change what a buyer pays per publication";
-  if (typeof s.pricing.publication_usd === "number") open.append(document.createTextNode(`${price(s.pricing.publication_usd)} `), el("span", "", ["a publication", freeCopies(s.pricing.free_copies)].filter(Boolean).join(" · ")));
-  else open.append("Not set");
-  open.addEventListener("click", openPriceSheet);
-  item.append(open);
+  const { publication_usd: piece, answer_usd: answer, answer_enabled: answers, free_copies: copies } = s.pricing;
+  if (typeof piece === "number") {
+    const open = el("button", "price-open");
+    open.type = "button";
+    open.title = "Change what a buyer pays per publication";
+    open.append(`${dollars(piece)} `, el("span", "", ["a piece", copies ? freeCopies(copies) : ""].filter(Boolean).join(" · ")));
+    open.addEventListener("click", openPriceSheet);
+    item.append(open);
+  } else if (s.node.url && s.node.live.state !== "unreachable") item.append(inline("Set a price", openPriceSheet));
+  if (answers && typeof answer === "number") item.append(el("span", "", " · "), `${dollars(answer)} `, el("span", "", "an answer"));
   return item;
 }
 
@@ -893,12 +982,14 @@ async function savePrice(raw, rawCopies) {
 /** The store at a glance: whether it's live, its address, what a piece costs, and a pending update. @param {Snapshot} s */
 function storeBar(s) {
   const live = s.node.live;
+  const selling = forSale(s);
   const bar = el("div", "card store-bar");
   const lead = el("div", "lead");
-  lead.append(el("span", `dot ${live.state === "online" ? "ok" : live.state === "unreachable" ? "" : "off"}`));
+  lead.append(el("span", `dot ${live.state === "online" && selling ? "ok" : live.state === "unreachable" ? "" : "off"}`));
   const text = el("div", "t");
-  text.append(el("b", "sans", live.state === "online" ? (live.network === TEST_NETWORK ? "Live · Test mode" : "Live") : live.state === "unreachable" ? "Your store isn't responding" : "No store yet"));
-  if (s.node.url) {
+  const state = !s.node.url ? "No store yet" : live.state === "unreachable" ? "Your store isn't responding" : !selling ? "Nothing for sale yet" : live.state === "online" ? (live.network === TEST_NETWORK ? "Live · Test mode" : "Live") : "No store yet";
+  text.append(el("b", "sans", state));
+  if (selling) {
     text.append(storeAddress(s.node));
   } else {
     const open = el("span");
@@ -908,23 +999,21 @@ function storeBar(s) {
   lead.append(text);
   const prices = el("div", "prices");
   prices.append(priceRow(s));
-  if (s.pricing.answer_enabled) {
-    const answers = el("div");
-    answers.append(document.createTextNode(`${price(s.pricing.answer_usd)} `), el("span", "", "an answer"));
-    prices.append(answers);
-  }
   const stale = stalePrice(s);
   if (stale !== null && !pushing) {
     const note = el("div", "stale-price");
-    note.append(el("span", "", `Your store still charges ${price(stale)}.`), button("Update store", "quiet", () => void startDeploy(REDEPLOY_PRICE)));
+    note.append(el("span", "", `Your store still charges ${price(stale)}.`));
     prices.append(note);
   }
   bar.append(lead, prices);
-  if (unpushed(s).length && !pushOffer) {
-    const push = button(pushing ? "Updating…" : "Update store", "primary", pushNow);
-    push.disabled = pushing;
-    bar.append(push);
-  }
+  // One Update store at a time: pieces waiting to go on or come off are pushed first; a new price is redeployed after.
+  if (unpushed(s).length) {
+    if (!pushOffer) {
+      const push = button(pushing ? "Updating…" : "Update store", "primary", pushNow);
+      push.disabled = pushing;
+      bar.append(push);
+    }
+  } else if (stale !== null && !pushing) bar.append(button("Update store", "primary", () => void startDeploy(REDEPLOY_PRICE)));
   return bar;
 }
 
@@ -949,17 +1038,22 @@ function saleItem(item) {
 
 /** Inventory: everything Lore keeps, private or on sale, in groups by what it's about. @param {Snapshot} s */
 function renderInventory(s) {
-  const agentNames = new Set(s.library.sources.filter((source) => source.connector === "agent").map((source) => source.label));
   const agentApp = (/** @type {string} */ label) => s.library.sources.find((source) => source.connector === "agent" && source.label === label)?.app;
-  const kept = privateMemories(s);
-  const onSale = s.publications.items.filter((item) => item.state === "approved");
-  const down = s.publications.items.filter((item) => item.state === "revoked");
+  const from = inventoryFrom;
+  const kept = privateMemories(s).filter((item) => !from || item.sources.some((source) => source.id === from.id));
+  // A piece for sale says nothing of who brought its memories in, so filtering by one shows memories only.
+  const onSale = from ? [] : s.publications.items.filter((item) => item.state === "approved");
+  const down = from ? [] : s.publications.items.filter((item) => item.state === "revoked");
+  unseen.forget();
   if (shelf === "down" && !down.length) shelf = "all";
 
   const tabs = el("div", "shelves");
   tabs.setAttribute("role", "tablist");
+  // Approved pieces wait for the store to open for sale before anyone can buy them (XC-069).
+  const saleLabel = forSale(s) ? "On sale" : "Ready to sell";
+  const waitingNote = forSale(s) ? undefined : el("span", "hint", "Ready to sell once your store opens.");
   /** @type {[Shelf, string, number][]} */
-  const shelves = [["all", "All", kept.length + onSale.length], ["private", "Private", kept.length], ["sale", "On sale", onSale.length]];
+  const shelves =[["all", "All", kept.length + onSale.length], ["private", "Private", kept.length], ["sale", saleLabel, onSale.length]];
   if (down.length) shelves.push(["down", "Taken down", down.length]);
   for (const [id, label, count] of shelves) {
     const tab = el("button", "shelf");
@@ -971,12 +1065,19 @@ function renderInventory(s) {
     tabs.append(tab);
   }
 
+  /** A group named for the agent or app its memories came from is headed by that one's own mark. @type {Map<string, MemorySource>} */
+  const known = new Map();
+  for (const item of kept) {
+    for (const source of item.sources) if ((source.kind === "agent" || source.kind === "app") && source.label === item.project_label) known.set(source.label, source);
+  }
   /** Rows under one heading, each group a card headed by what it's about. @param {Map<string, HTMLElement[]>} groups */
   const grouped = (groups) => [...groups].sort(([a], [b]) => a.localeCompare(b)).map(([name, rows]) => {
     const box = el("div", "card rows inv-group");
     const head = el("div", "inv-group-head");
     const app = agentApp(name);
-    head.append(app ? agentMark(app, name) : el("span", "logo initial", (name || "·")[0].toUpperCase()), el("b", "", name || "Unsorted"), el("span", "shelf-count", String(rows.length)));
+    const source = known.get(name);
+    const mark = source ? sourceMark(source) : app ? agentMark(app, name) : el("span", "logo initial", (name || "·")[0].toUpperCase());
+    head.append(typeof mark === "string" ? markTile(mark) : mark, el("b", "", name || "Unsorted"), el("span", "shelf-count", String(rows.length)));
     box.append(head, ...rows);
     return box;
   });
@@ -987,9 +1088,7 @@ function renderInventory(s) {
     for (const item of items) groups.set(key(item), [...(groups.get(key(item)) ?? []), make(item)]);
     return grouped(groups);
   };
-  const privateGroups = () => groupBy(kept, (item) => item.project_label, (item) => {
-    return memoryRow(item.id, item.title, [agentNames.has(item.project_label) ? `From ${item.project_label}` : "", when(item.updated_at)].filter(Boolean).join(" · "));
-  });
+  const privateGroups = () => groupBy(kept, (item) => item.project_label, (item) => unseen.watch(sourcedRow(item, [when(item.updated_at)]), item.arrival));
   const saleGroups = () => groupBy(onSale, (item) => item.topic, saleItem);
   const downGroups = () => groupBy(down, (item) => item.topic, (item) => row(item.title, item.topic, item.live === true ? chip("Still on your store", "attention") : chip("Taken down")));
   const stack = (/** @type {HTMLElement[]} */ cards) => {
@@ -1002,26 +1101,133 @@ function renderInventory(s) {
   const parts = [storeBar(s)];
   if (pushOffer) parts.push(seamCard());
   if (pushedNote) parts.push(pushReceipt(s));
-  parts.push(tabs);
+  const filters = el("div", "inv-filters");
+  filters.append(tabs);
+  if (from) {
+    const only = el("span", "chip source-filter", from.label);
+    const all = el("button", "dismiss", "×");
+    all.type = "button";
+    all.setAttribute("aria-label", `Show everything, not only ${from.label}`);
+    all.addEventListener("click", () => {
+      inventoryFrom = null;
+      render();
+    });
+    only.append(all);
+    filters.append(only);
+  }
+  parts.push(filters);
   const nothingKept = emptyState("Nothing kept yet. Say what you learned, or connect an agent, and Lore will keep it.", button("Add your first memory", "quiet", () => startCapture()));
   const nothingOnSale = emptyState("Nothing on sale yet.", button("See what's private", "quiet", () => { shelf = "private"; render(); }));
   if (shelf === "all") {
     if (!kept.length && !onSale.length) parts.push(nothingKept);
-    if (onSale.length) parts.push(section("On sale", stack(saleGroups())));
+    if (onSale.length) parts.push(section(saleLabel, stack(saleGroups()), waitingNote));
     if (kept.length) parts.push(section("Private", stack(privateGroups())));
   } else if (shelf === "private") {
     parts.push(kept.length ? stack(privateGroups()) : nothingKept);
   } else if (shelf === "sale") {
+    if (onSale.length && waitingNote) parts.push(waitingNote);
     parts.push(onSale.length ? stack(saleGroups()) : nothingOnSale);
   } else {
     parts.push(stack(downGroups()));
   }
-  if (shelf === "all" || shelf === "sale") parts.push(renderSales());
+  if (!from && (shelf === "all" || shelf === "sale")) parts.push(renderSales());
   return parts;
 }
 
+/** Inventory, showing only what one agent or app brought in, with what the owner hasn't seen marked New.
+ * @param {{id: string, label: string}} source */
+function seeFrom(source) {
+  inventoryFrom = source;
+  if (detailTask) closeTask();
+  show("memories");
+}
+
+/** APP-212: which memories Inventory marks New: arrived since Lore began keeping track, and not on screen before this
+ * visit. A row counts as seen once it has been on screen while Lore is in front; it keeps its mark until the next visit.
+ * Memories are known here by arrival, never by id, which the store can hand out again after a delete. */
+class Unseen {
+  since = Number.POSITIVE_INFINITY;
+  /** @type {Set<number>} */
+  seen = new Set();
+  /** What had been seen when this visit began. @type {Set<number>} */
+  before = new Set();
+  loaded = false;
+  /** Rows on screen now, by memory. @type {Map<Element, number>} */
+  #showing = new Map();
+  /** @type {Set<number>} */
+  #telling = new Set();
+  #timer = 0;
+  #observer = new IntersectionObserver((entries) => {
+    for (const entry of entries) {
+      if (entry.isIntersecting) this.#showing.set(entry.target, Number(/** @type {HTMLElement} */ (entry.target).dataset.memory));
+      else this.#showing.delete(entry.target);
+    }
+    this.#look();
+  });
+
+  constructor() {
+    window.addEventListener("focus", () => this.#look());
+    document.addEventListener("visibilitychange", () => this.#look());
+  }
+
+  /** @param {number} newest The newest memory, where "since" starts the first time. */
+  async load(newest) {
+    const kept = await window.lore.memoriesSeen(newest);
+    this.since = kept.since;
+    for (const arrival of kept.arrivals) this.seen.add(arrival);
+    if (!this.loaded) this.visit();
+    this.loaded = true;
+  }
+
+  /** A new visit: what was seen before it loses its mark. */
+  visit() {
+    this.before = new Set(this.seen);
+  }
+
+  /** @param {number} id */
+  fresh(id) {
+    return id > this.since && !this.before.has(id);
+  }
+
+  /** Inventory is drawn again: the rows it drew before are gone. */
+  forget() {
+    this.#observer.disconnect();
+    this.#showing.clear();
+  }
+
+  /** Mark a row New while its memory is, and watch for it on screen. @param {HTMLElement} row @param {number} id */
+  watch(row, id) {
+    if (!this.fresh(id)) return row;
+    row.querySelector(".t b")?.append(el("span", "new-mark", "New"));
+    if (!this.seen.has(id)) {
+      row.dataset.memory = String(id);
+      this.#observer.observe(row);
+    }
+    return row;
+  }
+
+  #look() {
+    if (document.visibilityState !== "visible" || !document.hasFocus()) return;
+    for (const id of this.#showing.values()) {
+      if (this.seen.has(id)) continue;
+      this.seen.add(id);
+      this.#telling.add(id);
+    }
+    if (!this.#telling.size) return;
+    window.clearTimeout(this.#timer);
+    this.#timer = window.setTimeout(() => {
+      const ids = [...this.#telling].slice(0, 500);
+      for (const id of ids) this.#telling.delete(id);
+      void window.lore.markSeen(ids).catch(() => undefined);
+      if (this.#telling.size) this.#look();
+    }, 300);
+  }
+}
+
+const unseen = new Unseen();
+
 function renderSales() {
-  if (sales instanceof Error) return section("Sales", emptyState(sales.message, button("Try again", "secondary", () => void loadSales())));
+  if (sales instanceof Error) return section("Sales", sales.message === SALES_ELSEWHERE ? el("div", "card pad empty", SALES_ELSEWHERE) : emptyState(sales.message, button("Try again", "secondary", () => void loadSales())));
   if (sales === null) return section("Sales", el("div", "card pad empty", "Checking your store…"));
   if (!sales.length) return section("Sales", el("div", "card pad empty", "No sales yet. When someone buys a piece, by card or through their agent, it shows here."));
   return section("Sales", card(sales.map(saleRow)), el("span", "hint", `${tally(sales)} · ${price(total(sales))} · last ${when(sales[0].sold_at)}`));
@@ -1039,7 +1245,7 @@ function tally(rows) {
 
 /** One sale: what sold, when, how it was paid, and where the payment can be seen. @param {Sale} sale */
 function saleRow(sale) {
-  if (sale.network === "free") return row(sale.title, `${when(sale.sold_at)} · a free copy`, cell(el("span", "mono", "Free")));
+  if (sale.network === "free") return row(sale.title, `${when(sale.sold_at)} · a free copy`, cell(el("span", "value", "Free")));
   const byCard = sale.network === "stripe";
   const trailing = el("div", "v");
   const [where, href] = byCard ? ["Stripe", `https://dashboard.stripe.com/payments/${sale.tx}`] : ["Basescan", `${explorer(sale.network)}/tx/${sale.tx}`];
@@ -1047,7 +1253,7 @@ function saleRow(sale) {
   receipt.title = `See this payment on ${where} · ${sale.tx}`;
   receipt.setAttribute("aria-label", `See this payment on ${where}`);
   if (sale.refund_owed) trailing.append(chip("Refund owed", "attention"));
-  trailing.append(el("span", "mono", price(sale.price_usd)), receipt);
+  trailing.append(el("span", "value", price(sale.price_usd)), receipt);
   // Paid for and never delivered: Lore can't send money from your wallet or Stripe account, so it says whom to refund.
   const why = byCard ? "taken down before delivery" : "not answered";
   const who = sale.payer ? `, refund ${sale.payer.slice(0, 6)}…${sale.payer.slice(-4)}` : "";
@@ -1061,6 +1267,8 @@ function earned(rows) {
   return section("Earned", card([head, ...rows.slice(0, 3).map(saleRow)]));
 }
 
+const SALES_ELSEWHERE = "Sales show here once your store is open on this Mac.";
+
 /** Read the ledger for the open store; without one there is nothing to read. */
 async function loadSales() {
   salesAsked = true;
@@ -1068,7 +1276,8 @@ async function loadSales() {
   try {
     [sales, views] = snapshot?.node.url ? await Promise.all([window.lore.sales(), window.lore.views().catch(() => views)]) : [[], {}];
   } catch (error) {
-    sales = new Error(reason(error, "Lore could not read your sales."));
+    // A store opened from another Mac has no ledger to read here; anything else is worth another try.
+    sales = new Error(/no deployed node/.test(reason(error, "")) ? SALES_ELSEWHERE : "Lore couldn't read your sales. Try again in a minute.");
   }
   render();
 }
@@ -1141,7 +1350,7 @@ function cardWay(s) {
     const done = await act(async () => {
       await window.lore.switchCards(account);
       cards = null;
-      tell(account ? (s.node.url ? "Card payments are on. Lore is updating your store so buyers see Buy by card." : "Card payments are on. They start when your store opens.") : "Card payments are off.");
+      tell(account ? (forSale(s) ? "Card payments are on. Lore is updating your store so buyers see Buy by card." : "Card payments are on. They start when your store opens.") : "Card payments are off.");
     });
     if (done) await goLive();
   };
@@ -1179,7 +1388,7 @@ function cardMinimum(s) {
 function walletWay(s) {
   const by = "To your wallet";
   const payout = s.node.live.payout;
-  if (!payout) return way(by, s.node.url ? "Lore can't see your store's wallet right now." : "You choose a wallet when your store opens.");
+  if (!payout) return way(by, forSale(s) ? "Lore can't see your store's wallet right now." : "You choose a wallet when your store opens.");
   const value = el("span", "way-value");
   value.append("Agents can pay it directly · ", el("span", "mono", `${payout.slice(0, 6)}…${payout.slice(-4)}`));
   return way(by, value, outLink("View ↗", `${explorer(s.node.live.network)}/address/${payout}`));
@@ -1223,12 +1432,12 @@ function addressRow(s) {
   detail.append(el("span", "mono", home.replace(/^https?:\/\//, "")));
   const console = workerConsole(s.node.url);
   if (console) detail.append(outLink("Hosted on Cloudflare ↗", console, "quiet-link"));
-  return row("Address", detail, cell(pill(nodeLabel(live.state), live.state === "online" ? "ok" : live.state === "unreachable" ? "attention" : ""), outLink("Open ↗", home)), false);
+  return row("Address", detail, cell(pill(nodeLabel(s.node), live.state === "online" ? "ok" : live.state === "unreachable" ? "attention" : ""), outLink("Open ↗", home)), false);
 }
 
 /** Read the listing state once per store address; Settings re-renders when it lands. @param {Snapshot} s */
 function loadListing(s) {
-  if (!s.node.url || listingFor === s.node.url) return;
+  if (!s.node.url || !forSale(s) || listingFor === s.node.url) return;
   listingFor = s.node.url;
   listing = null;
   window.lore.listingStatus().then((state) => {
@@ -1251,7 +1460,7 @@ async function changeListing(action) {
 
 /** Settings → Your store → Marketplace: one row, read from the public list and the store's own switch. @param {Snapshot} s */
 function marketplaceRow(s) {
-  if (!s.node.url) return [];
+  if (!forSale(s)) return [];
   loadListing(s);
   const label = "Marketplace";
   const shares = "It shows only what your store already shows: your name, topics, and prices.";
@@ -1742,7 +1951,8 @@ function tiles(rows) {
     node.classList.add("tile");
     node.addEventListener("click", (event) => {
       if (event.target instanceof Element && event.target.closest("button")) return;
-      node.querySelector("button")?.click();
+      // A link in its text goes where it says; the tile opens its own action.
+      /** @type {HTMLButtonElement | null} */ (node.querySelector("button:not(.inline)"))?.click();
     });
     grid.append(node);
   }
@@ -1753,14 +1963,39 @@ function tiles(rows) {
 const AGENT_APPS = [["grok", "Grok Bot"], ["muse", "Muse"], ["chatgpt", "ChatGPT"], ["claude", "Claude"], ["other", "Other"]];
 /** @type {Record<AgentApp, string>} */
 const PERSONAL_MARKS = { grok: "grok", muse: "muse", chatgpt: "chatgpt", claude: "claude", other: "agent" };
-const STORE_FIRST = "Your agents save to your own store, so it needs to be online. Nothing goes on sale until you approve it.";
-const SIGN_IN_SOON = "Some apps can only connect through a sign-in, which Lore doesn't offer yet. It's coming.";
+const STORE_FIRST = "Your agents save to your own store, so it needs to be online. Nothing goes on sale until you choose to sell it.";
+/** APP-217: how each agent takes Lore's private link, as its maker documents it (checked Oct 17, 2026). Grok Bot adds
+ * a connector it is sent in chat, so it gets a message around the link; `routine` is what each calls a scheduled ask.
+ * `again` is the same for a new link, which replaces the Lore connector the agent already has rather than adding one;
+ * `or` is the quiet alternative under the last step, and `fallback` a quiet way to add the bare link by hand.
+ * @typedef {{steps: string[], message?: string, or?: string, fallback?: string}} AgentSteps
+ * @type {Partial<Record<AgentApp, {first: AgentSteps, again: AgentSteps, note?: string, routine: string}>>} */
+const AGENT_GUIDES = {
+  grok: {
+    first: { steps: ["Copy the message", "Paste it into Grok Bot's chat", "Lore shows when the first save arrives"], message: "Add this MCP server to my account: ", fallback: "Or add it yourself in Grok Bot: Connect apps › add a custom connector, then paste the link." },
+    again: { steps: ["Copy the message", "Paste it into Grok Bot's chat", "Lore shows when the next save arrives"], message: "Replace the Lore MCP server in my account with this one: " },
+    routine: "routine"
+  },
+  claude: {
+    first: { steps: ["In Claude, open Customize › Connectors, then + Add › Add custom connector", "Name it Lore, paste the link below, and choose Continue", "Choose No sign in, then Add"] },
+    again: { steps: ["In Claude, open Customize › Connectors", "Open the Lore connector you added before and replace its link with this one"], or: "Or remove it and add a new one named Lore with this link" },
+    note: "Claude's free plan allows one custom connector.",
+    routine: "scheduled task"
+  },
+  chatgpt: {
+    first: { steps: ["In ChatGPT, open Plugins, then + › Add custom MCP server", "Name it Lore, paste the link below, choose No authentication, and continue", "Choose Create"] },
+    again: { steps: ["In ChatGPT, open Plugins", "Open the Lore connector you added before and replace its link with this one"], or: "Or remove it and add a new one named Lore with this link" },
+    note: "Saving to Lore needs a ChatGPT plan that allows custom connectors to write.",
+    routine: "scheduled task"
+  }
+};
+const EVERY_EVENING = "Every evening, save anything new you learned about me to Lore.";
 /** While the setup sheet waits on a first save, it asks the store this often, not once a minute. */
 const FIRST_SAVE_EVERY_MS = 10_000;
 
 /** @param {AgentApp | null | undefined} app @param {string} name */
 function agentMark(app, name) {
-  return brand(PERSONAL_MARKS[app ?? "other"] ?? "agent", name);
+  return brand(app && Object.hasOwn(PERSONAL_MARKS, app) ? PERSONAL_MARKS[app] : "agent", name);
 }
 
 /** @param {string} iso */
@@ -1775,6 +2010,16 @@ function agentLine(source) {
   const entry = agents?.find((agent) => agent.source === source.name);
   if (!entry) return source.imported ? `${plural(source.imported, "memory")} kept` : "Nothing saved yet";
   return entry.saved ? `Saved ${entry.saved}${entry.last_saved_at ? ` · last ${day(entry.last_saved_at)}` : ""}` : "Nothing saved yet";
+}
+
+/** An agent's line on its card, its "Saved N" one click from what it saved. @param {SourceEntry} source */
+function agentDetail(source) {
+  const line = agentLine(source);
+  const saved = agents?.find((agent) => agent.source === source.name)?.saved;
+  if (!saved) return line;
+  const node = el("span");
+  node.append(inline(`Saved ${saved}`, () => seeFrom({ id: source.name, label: source.label })), line.slice(`Saved ${saved}`.length));
+  return node;
 }
 
 /** What an agent's own history on this Mac is, in the owner's words. @type {Record<string, string>} */
@@ -1820,20 +2065,20 @@ function openHistory(source) {
 function agentTiles(s) {
   const rows = s.library.sources.filter((source) => source.connector === "agent").map((source) => {
     const line = agentLine(source);
-    const node = row(source.label, line, cell(line === "Nothing saved yet" ? pill("Waiting", "wait") : pill("Live", "ok"), button("Manage", "quiet", () => openAgent(source))), false);
+    const node = row(source.label, agentDetail(source), cell(line === "Nothing saved yet" ? pill("Waiting", "wait") : pill("Live", "ok"), button("Manage", "quiet", () => openAgent(source))), false);
     node.prepend(agentMark(source.app, source.label));
     return node;
   });
   const connect = () => new AgentSetup().open();
   if (rows.length) {
-    const more = row("Connect another agent", "Grok Bot, Muse, ChatGPT or Claude", cell(button("Connect", "secondary", connect)), false);
+    const more = row("Connect another agent", "Grok Bot, ChatGPT or Claude", cell(button("Connect", "secondary", connect)), false);
     more.prepend(agentMark("other", "Agent"));
     more.classList.add("tile-add");
     return tiles([...rows, more]);
   }
-  const hero = row("Connect an agent", "Grok Bot, Muse, ChatGPT or Claude saves what it learns about you. It stays private until you approve a piece.", cell(button("Connect an agent", "primary", connect)), false);
+  const hero = row("Connect an agent", "Grok Bot, ChatGPT or Claude saves what it learns about you. It stays private until you approve a piece.", cell(button("Connect an agent", "primary", connect)), false);
   const stack = el("div", "mark-stack");
-  for (const [app, name] of AGENT_APPS.filter(([id]) => id !== "other")) stack.append(agentMark(app, name));
+  for (const [app, name] of AGENT_APPS.filter(([id]) => id !== "other" && id !== "muse")) stack.append(agentMark(app, name));
   hero.prepend(stack);
   hero.classList.add("agent-hero");
   return hero;
@@ -1853,43 +2098,46 @@ function inlineNotice(text) {
   return box;
 }
 
-/** A Copy button that says it copied. @param {() => string} text */
-function copyButton(text) {
-  const node = button("Copy", "quiet", () => void window.lore.copy(text()).then(() => {
+/** A Copy button that says it copied. @param {() => string} text @param {string} [label] */
+function copyButton(text, label = "Copy") {
+  const node = button(label, "quiet", () => void window.lore.copy(text()).then(() => {
     node.textContent = "Copied";
-    setTimeout(() => { node.textContent = "Copy"; }, 1500);
+    setTimeout(() => { node.textContent = label; }, 1500);
   }));
   return node;
 }
 
-/** Where Grok Bot takes a custom connector, as a path. */
-function grokPath() {
-  const path = el("div", "agent-path");
-  ["Grok Bot", "Connect apps", "Custom connector"].forEach((part, i) => {
-    if (i) path.insertAdjacentHTML("beforeend", CHEVRON_ICON);
-    path.append(el("span", "", part));
-  });
-  return path;
-}
-
-/** The one link an agent needs, its key masked, copied whole. @param {AgentKey} handed */
-function privateLink(handed) {
-  const link = el("button", "agent-link");
+/** The one link an agent needs, its key masked, copied whole; with `lead`, the message around it that the agent needs
+ * instead. @param {AgentKey} handed @param {string} [lead] @param {string} [label] */
+function privateLink(handed, lead = "", label = "Copy") {
+  const link = el("button", lead ? "agent-link agent-message" : "agent-link");
   link.type = "button";
-  link.setAttribute("aria-label", "Copy link");
+  link.setAttribute("aria-label", lead ? label : "Copy link");
   const shown = el("span", "agent-link-text");
-  shown.append(handed.mcp_url.replace(/^https?:\/\//, "") + "/", el("span", "agent-link-key", "••••••••••••"));
+  shown.append(lead + handed.mcp_url.replace(/^https?:\/\//, "") + "/", el("span", "agent-link-key", "••••••••••••"));
   const glyph = el("span", "agent-link-icon");
   glyph.innerHTML = COPY_ICON;
-  const word = el("span", "agent-link-word", "Copy");
+  const word = el("span", "agent-link-word", label);
   link.append(shown, glyph, word);
-  link.addEventListener("click", () => void window.lore.copy(handed.connector_url).then(() => {
+  link.addEventListener("click", () => void window.lore.copy(lead + handed.connector_url).then(() => {
     link.classList.add("copied");
     glyph.innerHTML = CHECK_ICON;
     word.textContent = "Copied";
-    setTimeout(() => { link.classList.remove("copied"); glyph.innerHTML = COPY_ICON; word.textContent = "Copy"; }, 1500);
+    setTimeout(() => { link.classList.remove("copied"); glyph.innerHTML = COPY_ICON; word.textContent = label; }, 1500);
   }));
   return link;
+}
+
+/** After its first save, an agent can be asked to save every evening on its own schedule. Optional, so quiet.
+ * @param {AgentApp | null | undefined} app @param {string} who */
+function eveningOffer(app, who) {
+  const kind = app ? AGENT_GUIDES[app]?.routine : undefined;
+  if (!kind) return null;
+  const offer = el("div", "agent-next");
+  const words = el("div", "agent-next-words");
+  words.append(el("span", "", `Optional: paste this into ${who} as a ${kind}, so it saves every evening.`), el("span", "agent-next-quote", `“${EVERY_EVENING}”`));
+  offer.append(words, copyButton(() => EVERY_EVENING));
+  return offer;
 }
 
 /** APP-207: connecting one of the owner's personal agents, in one sheet: their store online first if it isn't yet,
@@ -1897,6 +2145,8 @@ function privateLink(handed) {
 class AgentSetup {
   constructor() {
     this.form = new FormSheet("Connect an agent", agentMark("other", "Agent"));
+    /** The agent apps on this Mac, so the sheet can open the one being connected (APP-216). */
+    this.installed = window.lore.agentApps().catch(() => /** @type {AgentApp[]} */ ([]));
   }
 
   open() {
@@ -1926,11 +2176,12 @@ class AgentSetup {
       const radio = el("input");
       radio.type = "radio";
       radio.name = "agent";
+      radio.disabled = app === "muse";
       radio.addEventListener("change", () => {
         chosen = [app, app === "other" ? "My agent" : label];
         form.refresh();
       });
-      const option = form.row(label, radio);
+      const option = radio.disabled ? form.row(label, el("span", "hint", "Coming soon"), radio) : form.row(label, radio);
       option.classList.add("form-option");
       option.prepend(agentMark(app, label));
       rows.append(option);
@@ -1945,15 +2196,15 @@ class AgentSetup {
         if (!chosen) return false;
         const handed = await window.lore.connectAgent({ app: chosen[0], name: chosen[1] });
         void load().then(loadAgents);
-        this.steps(handed, true);
+        this.steps(handed, true, await this.installed);
         return false;
       }
     });
   }
 
   /** What to paste into the agent, with its key shown this once; a first connect then waits for the first save.
-   * @param {AgentKey} handed @param {boolean} first */
-  steps(handed, first) {
+   * @param {AgentKey} handed @param {boolean} first @param {AgentApp[]} installed */
+  steps(handed, first, installed) {
     const { form } = this;
     const { name: who, app } = handed.agent;
     const where = app === "other" ? who : AGENT_APPS.find(([id]) => id === app)?.[1] ?? who;
@@ -1965,44 +2216,73 @@ class AgentSetup {
       node.classList.add("copy-row");
       return node;
     };
-    if (app === "grok") {
-      form.body.append(grokPath(), privateLink(handed));
-      const hint = el("span", "form-hint quiet-hint");
-      hint.innerHTML = LOCK_ICON;
-      hint.append(el("span", "", first ? "Private link, shown once" : "The old link stopped working"));
-      form.aside.append(hint);
-    } else {
-      const list = el("ol", "agent-steps");
-      form.body.append(list);
-      for (const step of [`In ${where}'s settings, find where to add a connector.`, "Add one named “Lore”, with the address and key below.", `Add the instructions where ${where} keeps standing instructions, like custom instructions or a skill, so it remembers what to save in every chat.`]) list.append(el("li", "", step));
+    const guide = AGENT_GUIDES[app];
+    const how = guide && (first ? guide.first : guide.again);
+    const list = el("ol", "agent-steps");
+    for (const step of how?.steps ?? [`In ${where}'s settings, find where to add a connector.`, "Add one named “Lore” with the link below, or with the address and key if it asks for both.", `Add the instructions where ${where} keeps standing instructions, like custom instructions or a skill, so it remembers what to save in every chat.`]) list.append(el("li", "", step));
+    if (how?.or) list.lastElementChild?.append(el("span", "agent-step-or", how.or));
+    form.body.append(list, how?.message ? privateLink(handed, how.message, "Copy message") : privateLink(handed));
+    if (how?.fallback) {
+      const fallback = el("div", "agent-fallback");
+      fallback.append(el("span", "", how.fallback), copyButton(() => handed.connector_url, "Copy link only"));
+      form.body.append(fallback);
+    }
+    if (guide?.note) form.text(guide.note, "hint");
+    const hint = el("span", "form-hint quiet-hint");
+    hint.innerHTML = LOCK_ICON;
+    hint.append(el("span", "", first ? "Private link, shown once" : "The old link stopped working"));
+    form.aside.append(hint);
+    if (!guide) {
       form.group("", [copyRow("Address", handed.mcp_url, handed.mcp_url), copyRow("Key", handed.header, handed.header), copyRow("Instructions", "What to save, and when", handed.prompt)]);
       form.body.append(inlineNotice(`This key is shown only once. If it's lost, get a new one from Manage.`));
-      form.body.append(inlineNotice(SIGN_IN_SOON));
       form.button("Copy all", "secondary", () => void window.lore.copy(`Address: ${handed.mcp_url}\nKey: ${handed.header}\n\n${handed.prompt}`));
     }
-    if (first) this.wait(handed.source, who);
+    if (app === "grok" && installed.includes(app)) form.button(`Open ${where}`, "secondary", () => void window.lore.openAgentApp(app).catch((error) => tell(reason(error, `Lore couldn't open ${where}.`))));
+    this.wait(handed, who, first);
     form.arm({ primary: "Done" });
     form.focus();
   }
 
-  /** Waits, in the sheet, for the agent's first save to reach Lore. @param {string} source @param {string} who */
-  wait(source, who) {
+  /** Waits, in the sheet, for the agent's first save to reach Lore, then offers its evening save; after a new link,
+   * for the next save, which shows the new link works. The store counts every save, even one that changes nothing,
+   * and the key came with the count so far, so only a save made with this key raises it: saves the old key left
+   * waiting were already counted. @param {AgentKey} handed @param {string} who @param {boolean} first */
+  wait(handed, who, first) {
+    const { source, agent } = handed;
     const line = el("p", "agent-wait");
-    line.append(el("span", "dot off"), el("span", "", `Waiting for ${who}'s first save…`));
+    line.append(el("span", "dot off"), el("span", "", `Waiting for ${who}'s ${first ? "first" : "next"} save…`));
     this.form.body.append(line);
-    const poll = setInterval(() => void window.lore.checkAgents(), FIRST_SAVE_EVERY_MS);
-    /** @param {SourceRead[]} reads */
-    const heard = (reads) => {
-      if (!reads.some((read) => read.name === source && (read.added || read.updated))) return;
-      line.replaceChildren(el("span", "dot ok"), el("span", "", `${who} saved its first memory`));
+    let done = false;
+    const { dialog } = this.form;
+    const check = async () => {
+      // Asked only while this sheet is on screen; main answers one list at a time.
+      if (done || !dialog.open) return;
+      const saved = (await window.lore.agents().catch(() => [])).find((entry) => entry.source === source)?.saved ?? 0;
+      if (done || saved <= agent.saved) return;
+      if (first) {
+        line.replaceChildren(el("span", "dot ok"), el("span", "", `${who} saved ${plural(saved - agent.saved, "memory")} · `), inline("See them →", () => {
+          closeSheet();
+          seeFrom({ id: source, label: who });
+        }));
+      } else line.replaceChildren(el("span", "dot ok"), el("span", "", `${who} saved with the new link`));
+      const offer = first && eveningOffer(agent.app, who);
+      if (offer) line.after(offer);
       stop();
     };
+    const poll = setInterval(() => {
+      if (dialog.open) void window.lore.checkAgents().finally(check);
+    }, FIRST_SAVE_EVERY_MS);
+    /** @param {SourceRead[]} reads */
+    const heard = (reads) => {
+      if (reads.some((read) => read.name === source)) void check();
+    };
     const stop = () => {
+      done = true;
       clearInterval(poll);
       if (agentWaiting === heard) agentWaiting = null;
     };
     agentWaiting = heard;
-    this.form.dialog.addEventListener("close", stop);
+    dialog.addEventListener("close", stop);
   }
 }
 
@@ -2012,6 +2292,8 @@ function openAgent(source) {
   const form = new FormSheet(name, agentMark(source.app, name));
   form.text(agentLine(source));
   form.text(`Lore brings in what ${name} saves while Lore is open. It stays private on this Mac.`, "hint");
+  const offer = agents?.find((agent) => agent.source === source.name)?.saved ? eveningOffer(source.app, name) : null;
+  if (offer) form.body.append(offer);
   form.button("Disconnect", "quiet", ask);
   form.button("Get a new key", "secondary", rekey);
   form.open();
@@ -2026,7 +2308,7 @@ function openAgent(source) {
       submit: async () => {
         const handed = await window.lore.agentKey(source.name);
         const setup = new AgentSetup();
-        setup.steps(handed, false);
+        setup.steps(handed, false, await setup.installed);
         setup.form.show();
         return false;
       }
@@ -2313,8 +2595,8 @@ function openNewRoutine() {
   text.focus();
 }
 
-/** APP-200: everything Lore does on its own, and when: Lore's and the owner's alike, in one list. */
-function renderAutomations() {
+/** APP-200: everything Lore does on its own, and when: Lore's and the owner's alike, in one list, then what ran lately. @param {Snapshot} s */
+function renderAutomations(s) {
   const add = row("New automation", "Tell Lore what to do and when, in a sentence.", undefined, false);
   const plus = el("span", "routine-mark add");
   plus.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg>`;
@@ -2326,13 +2608,15 @@ function renderAutomations() {
   add.addEventListener("keydown", (event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); openNewRoutine(); } });
   const list = el("div", "routines");
   list.append(...[...routines].sort((x, y) => Number(Boolean(y.built_in)) - Number(Boolean(x.built_in))).map(routineRow), add);
-  return [list];
+  const runs = recentRuns(s);
+  return runs ? [list, runs] : [list];
 }
 
 const renderers = { today: renderToday, inventory: renderInventory, connectors: renderConnectors, automations: renderAutomations, faq: renderFaq, settings: renderSettings };
 
 function render() {
   hidePeek();
+  renderNotices();
   const detail = view === "today" ? detailTask : null;
   const heading = detail ? detailRecord?.title ?? TASK_TITLES[detail] : { today: greeting(), inventory: "Inventory", connectors: "Connectors", automations: "Automations", faq: "FAQ", settings: "Settings" }[view];
   const pendingDrafts = detail === "publish" && (candidates.length || extraDrafts.length);
@@ -2343,6 +2627,7 @@ function render() {
   taskBack.hidden = !detail;
   taskRestart.hidden = !detail || detailRecord?.state !== "stopped";
   addMemoryBtn.hidden = Boolean(detail) || view !== "inventory";
+  sellWritingBtn.hidden = addMemoryBtn.hidden;
   captureArea.hidden = view !== "today";
   log.hidden = !detail;
   syncComposer();
@@ -2367,7 +2652,7 @@ function renderAccount() {
   const avatar = el("span", "avatar");
   if (icon) avatar.append(Object.assign(el("img"), { src: icon, alt: "" }));
   const who = el("span", "who");
-  const store = snapshot?.node.url ? ` · ${nodeLabel(snapshot.node.live.state)}` : "";
+  const store = snapshot?.node.url ? ` · ${nodeLabel(snapshot.node)}` : "";
   who.append(el("b", "", credential ? "Signed in" : "Not signed in"), el("span", "", credential ? `${name}${store}` : ""));
   account.replaceChildren(avatar, who);
   account.insertAdjacentHTML("beforeend", CHEVRON);
@@ -2384,6 +2669,7 @@ function show(next) {
   if (next === "connectors") void loadAgents();
   // A store update said once, where it happened; it doesn't follow the owner around.
   pushedNote = false;
+  unseen.visit();
   render();
   mainEl.scrollTop = 0;
   mainEl.focus({ preventScroll: true });
@@ -2405,8 +2691,16 @@ async function load() {
     const loaded = await Promise.all([window.lore.snapshot(), window.lore.candidates().catch(() => []), window.lore.extras().catch(() => []), window.lore.tasks().catch(() => []), apps.length ? apps : window.lore.sourceCatalog().catch(() => []), window.lore.readyRuns().catch(() => readyRuns), window.lore.checkIn().catch(() => null), window.lore.routines().catch(() => routines)]);
     if (ticket !== loads) return;
     [snapshot, candidates, extraDrafts, taskItems, apps, readyRuns, checkIn, routines] = loaded;
+    let newest = 0;
+    for (const item of snapshot.library.items) newest = Math.max(newest, item.arrival);
+    await unseen.load(newest).catch(() => undefined);
+    if (ticket !== loads) return;
     if (detailTask) detailRecord = taskItems.find((item) => item.kind === detailTask) ?? detailRecord;
     peeked.clear();
+    noticeAutomations();
+    noticeUsage();
+    // A dismissed notice whose write failed was still seen: try it again, without showing it again.
+    if (!appShell.hidden) for (const key of told.keys()) if (!notices.some((item) => item.key === key)) remember(key);
     render();
     // Today's earnings need the ledger once; after that a new sale or For Sale reads it again.
     if (!salesAsked && snapshot.node.url) void loadSales();
@@ -2434,17 +2728,50 @@ function say(text, owner = false, stopped = false) {
 }
 
 /** @typedef {{label: string, run: () => void}} NoticeAction */
-/** @type {Array<{text: string, attention: boolean, action?: NoticeAction, once?: boolean}>} */
+/** A Today notice carries its `key`; it leaves only by its × or its own action.
+ * @type {Array<{text: string, attention: boolean, action?: NoticeAction, key?: string}>} */
 const notices = [];
 
-/** Something Lore did or could not do, said where the owner is: in the open thread, or as a notice above the page when the log is hidden, scrolled into view. A newer success replaces an older one, except one said `once`, which stays until dismissed. @param {string} text @param {boolean} [attention] @param {NoticeAction} [action] The one next step, on the notice. @param {boolean} [once] */
-function tell(text, attention = false, action, once = false) {
+/** Something Lore did or could not do, said where the owner is: in the open thread, or as a notice above the page when the log is hidden, scrolled into view. A newer success replaces an older one; one told once stays until dismissed. @param {string} text @param {boolean} [attention] @param {NoticeAction} [action] The one next step, on the notice. */
+function tell(text, attention = false, action) {
   if (!log.hidden) { say(text, false, attention); return; }
-  if (!attention) drop((item) => !item.attention && !item.once);
-  notices.push({ text, attention, action, once });
-  if (notices.length > 3) notices.shift();
+  if (!attention) drop((item) => !item.attention && !item.key);
+  notices.push({ text, attention, action });
+  const plain = notices.filter((item) => !item.key);
+  if (plain.length > 3) notices.splice(notices.indexOf(plain[0]), 1);
   renderNotices();
   status.scrollIntoView({ block: "nearest" });
+}
+
+/** Today notices told this sign-in, by key, and the write that remembers each as said, kept until it lands.
+ * @type {Map<string, {write: () => Promise<unknown>, pending: boolean} | null>} */
+const told = new Map();
+/** Seen notices are remembered one write at a time: each goes through the CLI, and two first writes at once can collide. */
+let remembering = /** @type {Promise<unknown>} */ (Promise.resolve());
+
+/** A notice for Today only, told at most once a sign-in. @param {string} key @param {string} text @param {NoticeAction} action @param {() => Promise<unknown>} write */
+function tellOnce(key, text, action, write) {
+  if (told.has(key)) return;
+  told.set(key, { write, pending: false });
+  notices.push({ text, attention: false, action, key });
+  renderNotices();
+}
+
+/** Today is what the owner sees: signed in, on Today, with no thread open over it. */
+function onToday() {
+  return !appShell.hidden && view === "today" && !detailTask;
+}
+
+/** Remember a seen Today notice as said; a failed write stays to be tried again. A write that comes up after a sign-out,
+ * or for a notice told again since, is skipped. @param {string} key */
+function remember(key) {
+  const entry = told.get(key);
+  if (!entry || entry.pending) return;
+  entry.pending = true;
+  const current = () => told.get(key) === entry && !appShell.hidden;
+  remembering = remembering
+    .then(() => (current() ? entry.write().then(() => { if (current()) told.set(key, null); }) : undefined))
+    .catch(() => { entry.pending = false; });
 }
 
 /** @param {(item: typeof notices[number]) => boolean} which */
@@ -2454,7 +2781,8 @@ function drop(which) {
 }
 
 function renderNotices() {
-  status.replaceChildren(...notices.map((item) => {
+  const shown = notices.filter((item) => !item.key || onToday());
+  status.replaceChildren(...shown.map((item) => {
     const box = el("div", item.attention ? "notice attention" : "notice info");
     box.setAttribute("role", item.attention ? "alert" : "status");
     box.insertAdjacentHTML("afterbegin", item.attention ? ALERT_ICON : INFO_ICON);
@@ -2468,6 +2796,8 @@ function renderNotices() {
     box.append(dismiss);
     return box;
   }));
+  // A Today notice is in `shown` only while Today is on screen, so it is remembered only once the owner can see it.
+  for (const item of shown) if (item.key) remember(item.key);
 }
 
 /** @param {string} text @param {boolean} [status] */
@@ -2746,6 +3076,7 @@ function renderRequest(event) {
       const fieldset = el("fieldset");
       fieldset.dataset.question = question.question;
       fieldset.append(el("legend", "q", question.question));
+      if (event.source === "app" && question.detail) fieldset.append(el("div", "detail", question.detail));
       const choices = el("div", "choices");
       for (const option of question.options) {
         const label = el("label", "choice");
@@ -2974,25 +3305,30 @@ function storeOpened(s) {
 function nextRung(s) {
   const box = el("div", "card lead request");
   const deploy = detailTask === "deploy";
-  const storeOpen = Boolean(s.node.url);
-  const heading = deploy ? (storeOpen ? "Your store is open." : "Your store isn't open yet.") : "Your Lore is set up.";
+  const storeOpen = forSale(s);
+  // Online only so the owner's agents can save to it: nothing is on sale, and selling is its own step later.
+  const forAgents = Boolean(s.node.url) && !storeOpen;
+  const heading = deploy ? (storeOpen ? "Your store is open." : forAgents ? "Your store is online for your agents." : "Your store isn't open yet.") : "Your Lore is set up.";
   const detail = deploy
     ? storeOpen
       ? storeOpened(s)
-      : "This step is done. Try again now, or any time from Today."
+      : forAgents
+        ? "Nothing is for sale. When you approve something to sell, Lore asks for a price and where payments go."
+        : "This step is done. Try again now, or any time from Today."
     : "This step is done. What comes next is a separate step — take it now, or any time from Today.";
   box.append(
     el("p", "q", heading),
     el("p", "hint", detail)
   );
   const actions = el("div", "actions");
-  if (s.node.url) {
+  if (storeOpen && s.node.url) {
     const live = el("a", "btn secondary sm", "Your store ↗");
     live.href = s.node.url.replace(/\/mcp$/, "");
     live.target = "_blank";
     live.rel = "noreferrer";
     actions.append(live);
-  } else {
+  } else if (!forAgents) {
+    // Online for the owner's agents, selling waits for an approved piece: drafting one is the next step.
     actions.append(button("Open your store", "secondary", () => void startDeploy()));
   }
   actions.append(button("Publish something", "primary", () => void startPublish()));
@@ -3013,7 +3349,7 @@ function sellAction(source) {
     label: "Turn these into something to sell",
     run: () => {
       closeSheet();
-      drop((item) => Boolean(item.action));
+      drop((item) => Boolean(item.action) && !item.key);
       void startPublish(source);
     }
   };
@@ -3315,7 +3651,7 @@ function openPasteSheet() {
 
 function seamCard() {
   const box = el("div", "card lead request");
-  const store = Boolean(snapshot?.node.url);
+  const store = forSale(snapshot);
   box.append(el("p", "q", store ? "Push to your store now?" : "Open your store?"), el("p", "hint", pushOffer || ""));
   const actions = el("div", "actions");
   const leave = button("Not now", "secondary", () => { pushOffer = false; render(); });
@@ -3343,7 +3679,7 @@ async function pushNow() {
 
 /** What the next push changes: approved publications the node does not hold yet, and taken-down ones it still does. Read from the snapshot, so it survives a relaunch. @param {Snapshot} s */
 function unpushed(s) {
-  return s.node.url ? s.publications.items.filter((item) => item.live === (item.state === "revoked")) : [];
+  return forSale(s) ? s.publications.items.filter((item) => item.live === (item.state === "revoked")) : [];
 }
 
 /** @param {PublicationItem[]} waiting */
@@ -3374,14 +3710,14 @@ async function settle(action, approve) {
   // The thread's last word was "ready for your approval below"; with every card skipped, close it.
   if (!approvedThisPass) return void (detailTask && say("Skipped. Nothing new is for sale."));
   approvedThisPass = false;
-  if (snapshot?.node.url) return void (await goLive());
+  if (forSale(snapshot)) return void (await goLive());
   pushOffer = "What you approved goes on sale once it's open. Pick a price and where payments go.";
   render();
 }
 
 /** Every change reaches the store by itself: once a change is saved, push it. */
 async function goLive() {
-  if (snapshot?.node.url && !pushing) await pushNow();
+  if (forSale(snapshot) && !pushing) await pushNow();
 }
 
 /** @param {() => Promise<void>} action @param {string} [failed] Said instead of the CLI's reason when that reason would be plumbing. */
@@ -3401,12 +3737,12 @@ async function act(action, failed) {
 
 /** @param {string} text @param {AgentTask} [from] @param {number} [memory] A memory the agent starts from, named to it and never shown. @param {string} [source] Likewise, a connected app's memories. */
 async function send(text, from, memory, source) {
-  const files = attachments.length ? `\n\nFiles to read:\n${attachments.map((path) => `- ${path}`).join("\n")}` : "";
+  const files = attachments;
   attachments = [];
   renderAttachments();
   say(text, true);
   try {
-    await window.lore.prompt({ text: text + files, task, from, memory, source });
+    await window.lore.prompt({ text, task, from, memory, source, files });
     await load();
   } catch (error) {
     say(reason(error, "Something went wrong."));
@@ -3472,13 +3808,25 @@ function enter() {
   welcome.hidden = signedIn;
   appShell.hidden = !signedIn;
   document.body.dataset.state = signedIn ? "app" : "welcome";
-  // One after the other: each remembers itself through the CLI, and two first writes at once can collide.
-  if (signedIn) { render(); void load().then(noticeAutomations).then(noticeUsage); }
+  if (signedIn) {
+    render();
+    void load().then(opened);
+    return;
+  }
+  // Signed out: a load still out is stale, and what it would have told waits for the next sign-in.
+  loads++;
+  told.clear();
+  drop((item) => Boolean(item.key));
 }
 
-/** Lore's own routines are on from the start (AUT-009): the owner hears so once, with where to change it. */
-async function noticeAutomations() {
-  if (snapshot?.setup.automations_noticed !== false || !routines.length) return;
+/** An owner who has heard about usage events counts as opening Lore once a sign-in. */
+function opened() {
+  if (!appShell.hidden && snapshot?.setup.telemetry_enabled !== false && snapshot?.setup.telemetry_noticed) void window.lore.usage("app.opened").catch(() => undefined);
+}
+
+/** Lore's own routines are on from the start (AUT-009): once something is connected, the owner hears so once on Today, with where to change it. */
+function noticeAutomations() {
+  if (snapshot?.setup.automations_noticed !== false || !snapshot.library.sources.some((source) => source.enabled)) return;
   const on = (/** @type {Routine["kind"]} */ kind) => routines.find((routine) => routine.kind === kind && !routine.paused);
   const reading = on("read");
   const checkin = on("checkin");
@@ -3486,21 +3834,16 @@ async function noticeAutomations() {
     reading && `reads your connected apps ${runsWhen({ cadence: reading.cadence, hour: reading.hour, day: reading.day ?? 0 }).replace("Every", "every")}`,
     checkin && `checks in at ${clock(checkin.hour)} when something's worth asking`
   ].filter(Boolean);
-  if (parts.length) tell(`Lore ${parts.join(" and ")}. Change this in Automations.`, false, { label: "Automations", run: () => show("automations") }, true);
-  await window.lore.noticedRoutines().catch(() => undefined);
+  if (parts.length) tellOnce("automations", `Lore ${parts.join(" and ")}. Change this in Automations.`, { label: "Automations", run: () => show("automations") }, () => window.lore.noticedRoutines());
 }
 
 const USAGE_NOTICE = "Lore sends anonymous usage events, like \"store opened\" or \"first piece approved\", never your writing.";
 
-/** Someone who signed in before usage events existed hears about them once, here, before any is sent. */
-async function noticeUsage() {
+/** Someone who signed in before usage events existed hears about them once, on Today, before any is sent. */
+function noticeUsage() {
   const setup = snapshot?.setup;
-  if (!setup || setup.telemetry_enabled === false) return;
-  if (!setup.telemetry_noticed) {
-    tell(USAGE_NOTICE, false, { label: "Settings", run: () => show("settings") }, true);
-    await window.lore.usage("noticed").catch(() => undefined);
-  }
-  void window.lore.usage("app.opened").catch(() => undefined);
+  if (!setup || setup.telemetry_enabled === false || setup.telemetry_noticed) return;
+  tellOnce("usage", USAGE_NOTICE, { label: "Settings", run: () => show("settings") }, () => window.lore.usage("noticed").then(() => (appShell.hidden ? undefined : window.lore.usage("app.opened"))));
 }
 
 /** @param {AgentEvent} event */
@@ -3508,7 +3851,9 @@ function onEvent(event) {
   if (event.type === "working") {
     busy = event.active ? event.task : null;
     if (!busy) liveText = liveStatus = "";
-    syncComposer();
+    // A turn ending, however it ended, can bring Today's next step back.
+    if (busy) syncComposer();
+    else render();
     renderLog();
   }
   else if (event.type === "live") { if (event.task === task) live(event.text, event.status); }
@@ -3527,8 +3872,11 @@ function onEvent(event) {
   }
   else if (event.type === "ready") void load();
   else if (event.type === "show") {
-    if (event.view === "today" && detailTask) closeTask();
-    show(event.view);
+    if (event.source) seeFrom(event.source);
+    else {
+      if (event.view === "today" && detailTask) closeTask();
+      show(event.view);
+    }
   }
   else if (event.type === "thread") void openTask(event.task);
   else if (event.type === "update") showUpdate(event.update);
@@ -3741,6 +4089,7 @@ function startCapture(text = "") {
   input.focus();
 }
 addMemoryBtn.addEventListener("click", () => startCapture());
+sellWritingBtn.addEventListener("click", openPasteSheet);
 
 /* Find or capture: one gesture for both, so the owner never has to know whether a memory exists before reaching for it. */
 /** @type {Array<{node: HTMLElement, verb: string, run: () => void}>} */
@@ -3767,7 +4116,7 @@ async function fillPalette(query) {
   const ranked = [...found.filter((hit) => hit.title.toLowerCase().includes(lower)), ...found.filter((hit) => !hit.title.toLowerCase().includes(lower))];
   paletteRows = query
     ? ranked.map((hit) => paletteRow(highlight("b", hit.title, terms), snippet(hit.content, terms), "open", () => void openMemory(Number(hit.id))))
-    : (snapshot ? privateMemories(snapshot) : []).slice(0, 8).map((item) => paletteRow(el("b", "", item.title), el("span", "", [item.project_label, when(item.updated_at)].filter(Boolean).join(" · ")), "open", () => void openMemory(item.id)));
+    : (snapshot ? privateMemories(snapshot) : []).slice(0, 8).map((item) => paletteRow(el("b", "", item.title), el("span", "", [provenance(item.sources).line, when(item.updated_at)].join(" · ")), "open", () => void openMemory(item.id)));
   if (query) {
     const capture = paletteRow(el("b", "", `Capture “${query}”`), el("span", "", "Start a new memory with these words"), "capture", () => startCapture(query));
     capture.node.classList.add("capture");
@@ -3885,7 +4234,7 @@ function showPeek(anchor, memory) {
   peek = el("div", "card peek");
   peek.setAttribute("role", "tooltip");
   const text = memory.content.replace(FRONTMATTER, "").replace(/\s+/g, " ").trim();
-  peek.append(el("b", "", memory.title), el("span", "", [origin(memory)[0], when(memory.updated_at)].filter(Boolean).join(" · ")), el("p", "", text.slice(0, 400)));
+  peek.append(el("b", "", memory.title), provenanceLine(memory), el("p", "", text.slice(0, 400)));
   peek.addEventListener("mouseenter", () => window.clearTimeout(peekTimer));
   peek.addEventListener("mouseleave", hidePeek);
   peek.addEventListener("click", () => void openMemory(memory.id));
@@ -3961,7 +4310,7 @@ keyForm.addEventListener("submit", (event) => {
   void signIn(provider, "api_key", value);
 });
 
-Object.assign(window, { __lore: { show, openTask, paste: openPasteSheet, preview: renderRequest, event: onEvent, signIn: () => { previewSignIn = true; auth = { credentials: [{ providerId: "anthropic", type: "oauth" }] }; enter(); } } });
+Object.assign(window, { __lore: { show, openTask, preview: renderRequest, event: onEvent, signIn: () => { previewSignIn = true; auth = { credentials: [{ providerId: "anthropic", type: "oauth" }] }; enter(); } } });
 
 function boot() {
   if (previewSignIn) return;

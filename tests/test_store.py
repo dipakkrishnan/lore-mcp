@@ -20,6 +20,7 @@ from lore.store import (
     JOB_MAX_ROWS,
     STATUSES,
     AnswerSettings,
+    Contributor,
     JobKind,
     JobStatus,
     OwnerJob,
@@ -99,6 +100,163 @@ class StoreLifecycleTest(LoreTestCase):
             self.assertEqual(len(found), 4)
             self.assertEqual(
                 {m.status for m in found}, {Status.PRIVATE, Status.DISCARDED}
+            )
+
+
+class ContributorTest(LoreTestCase):
+    """APP-213: who brought each memory in or wrote into it, kept with the memory."""
+
+    GROK = Contributor(kind="agent", id="agent-g1", label="Grok Bot", mark="grok")
+    VAULT = Contributor(kind="app", id="obsidian-1", label="Obsidian", mark="obsidian")
+
+    def test_a_database_from_before_contributors_gains_the_table_on_open(
+        self,
+    ) -> None:
+        self.lore_home.mkdir(parents=True, exist_ok=True)
+        db = sqlite3.connect(self.lore_home / "lore.db")
+        db.execute(
+            """CREATE TABLE memories (
+                id INTEGER PRIMARY KEY, source TEXT NOT NULL,
+                origin TEXT NOT NULL DEFAULT 'native', source_path TEXT NOT NULL,
+                source_key TEXT NOT NULL UNIQUE, fingerprint TEXT NOT NULL,
+                title TEXT NOT NULL, content TEXT NOT NULL,
+                project TEXT NOT NULL DEFAULT '',
+                status TEXT NOT NULL DEFAULT 'private',
+                created_at TEXT NOT NULL, updated_at TEXT NOT NULL)"""
+        )
+        db.close()
+        with Store() as store:
+            tables = {
+                row[0] for row in store.db.execute("SELECT name FROM sqlite_master")
+            }
+            self.assertIn("memory_contributors", tables)
+
+    def test_contributors_are_newest_first_and_one_row_each(self) -> None:
+        first = self.seed_memory("Synthesized")
+        with Store() as store:
+            self.assertEqual(store.credit([first], self.GROK), 1)
+            store.credit([first], self.VAULT)
+            renamed = self.GROK.model_copy(update={"label": "Grok"})
+            store.credit([first], renamed)
+            credited = store.contributors([first])[first]
+            self.assertEqual(
+                [(c["id"], c["label"]) for c in credited],
+                [("agent-g1", "Grok"), ("obsidian-1", "Obsidian")],
+            )
+            self.assertTrue(all(c["at"] for c in credited))
+            [row] = store.memory_inventory()
+            self.assertEqual(row["sources"], credited)
+
+    def test_unknown_ids_are_skipped_and_nothing_is_a_no_op(self) -> None:
+        memory = self.seed_memory("Kept")
+        with Store() as store:
+            self.assertEqual(store.credit([memory, 999], self.GROK), 1)
+            self.assertEqual(store.credit([], self.GROK), 0)
+            self.assertEqual(store.contributors([]), {})
+            self.assertEqual(set(store.contributors()), {memory})
+
+    def test_deleting_a_memory_takes_its_contributors_with_it(self) -> None:
+        self.seed_memory("Gone")
+        with Store() as store:
+            store.credit_source("test", self.VAULT)
+            self.assertEqual(store.forget("Gone"), 1)
+            self.assertEqual(store.contributors(), {})
+
+    def test_a_label_too_long_is_cut_to_fit(self) -> None:
+        long = Contributor(kind="routine", id="r1", label="Remember " * 60)
+        self.assertEqual(long.label, ("Remember " * 60).strip()[:200])
+
+    def test_a_contributor_is_one_of_four_kinds_with_a_name(self) -> None:
+        for bad in (
+            {"kind": "lore", "id": "x", "label": "x"},
+            {"kind": "app", "id": "", "label": "x"},
+            {"kind": "app", "id": "x", "label": " "},
+        ):
+            with self.assertRaises(ValueError):
+                Contributor.model_validate(bad)
+
+
+class ArrivalTest(LoreTestCase):
+    """APP-212: the order memories arrived in, which an id can't be once one is deleted."""
+
+    def test_a_memory_saved_after_a_delete_arrives_after_everything(self) -> None:
+        first = self.seed_memory("First")
+        second = self.seed_memory("Second")
+        with Store() as store:
+            self.assertEqual(store.forget("Second"), 1)
+        again = self.seed_memory("Again")
+        self.assertEqual(again, second, "the store hands the id out again")
+        with Store() as store:
+            arrivals = {r["title"]: r["arrival"] for r in store.memory_inventory()}
+        self.assertEqual(arrivals["First"], first)
+        self.assertGreater(arrivals["Again"], second)
+
+    def test_a_database_from_before_arrivals_numbers_them_by_id(self) -> None:
+        titles = [f"Memory {n}" for n in range(1, 8)]
+        for title in titles:
+            self.seed_memory(title)
+        with Store() as store:
+            for title in titles[2:6]:
+                store.forget(title)
+            # As a database from before arrivals were kept.
+            store.db.execute("ALTER TABLE memories DROP COLUMN arrival")
+            store.db.execute("DROP TABLE memory_arrivals")
+            store.db.commit()
+        with Store() as store:
+            arrivals = sorted(int(r["arrival"]) for r in store.memory_inventory())
+            self.assertEqual(arrivals, [1, 2, 7])
+        added = self.seed_memory("After")
+        with Store() as store:
+            [row] = [r for r in store.memory_inventory() if r["id"] == added]
+            self.assertEqual(row["arrival"], 8)
+
+
+class ArrivalUpkeepTest(LoreTestCase):
+    def test_a_memory_an_older_lore_wrote_arrives_on_the_next_open(self) -> None:
+        self.seed_memory("First")
+        with Store() as store:
+            # As 0.1.15 writes one: it names no arrival.
+            store.db.execute(
+                """INSERT INTO memories(source,origin,source_path,source_key,
+                   fingerprint,title,content,status,created_at,updated_at)
+                   VALUES ('test','native','p','older','f','Older','c','private',
+                   '2026-10-01','2026-10-01')"""
+            )
+            store.db.commit()
+        with Store() as store:
+            arrivals = {r["title"]: r["arrival"] for r in store.memory_inventory()}
+        self.assertEqual(arrivals, {"First": 1, "Older": 2})
+        self.seed_memory("Next")
+        with Store() as store:
+            arrivals = {r["title"]: r["arrival"] for r in store.memory_inventory()}
+        self.assertEqual(arrivals["Next"], 3)
+
+    def test_the_index_follows_only_what_it_holds_and_old_triggers_are_replaced(
+        self,
+    ) -> None:
+        memory = self.seed_memory("Old title")
+        with Store() as store:
+            store.db.executescript(
+                """DROP TRIGGER memories_au;
+                CREATE TRIGGER memories_au AFTER UPDATE ON memories BEGIN
+                INSERT INTO memories_fts(memories_fts,rowid,title,content,project)
+                VALUES ('delete',old.id,old.title,old.content,old.project);
+                INSERT INTO memories_fts(rowid,title,content,project)
+                VALUES (new.id,new.title,new.content,new.project); END;"""
+            )
+        with Store() as store:
+            [sql] = store.db.execute(
+                "SELECT sql FROM sqlite_master WHERE name='memories_au'"
+            ).fetchone()
+            self.assertIn("UPDATE OF title,content,project", sql)
+            store.set_status(memory, "discarded")
+            store.set_title(memory, "New title")
+            self.assertEqual([m.id for m in store.search("New")], [memory])
+            store.set_content(memory, "A rewritten body")
+            self.assertEqual(store.search("deployment"), [])
+            self.assertEqual([m.id for m in store.search("rewritten")], [memory])
+            store.db.execute(
+                "INSERT INTO memories_fts(memories_fts) VALUES('integrity-check')"
             )
 
 
@@ -318,6 +476,25 @@ class SettingsTest(LoreTestCase):
             store.set_setting("answer_price_usd", "not a number")
             with self.assertRaises(ValueError):
                 store.answer_settings()
+
+
+class SettingIfUnsetTest(LoreTestCase):
+    """XC-069: a deploy's no to selling never replaces a choice written meanwhile."""
+
+    def test_it_writes_only_an_absent_or_null_setting(self) -> None:
+        with Store() as store:
+            self.assertTrue(store.set_setting_if_unset("node_selling", False))
+            self.assertIs(store.setting("node_selling"), False)
+            store.set_setting("node_selling", None)
+            self.assertTrue(store.set_setting_if_unset("node_selling", False))
+            self.assertIs(store.setting("node_selling"), False)
+
+    def test_a_value_another_connection_wrote_first_wins(self) -> None:
+        with Store() as deploy, Store() as owner:
+            self.assertIsNone(deploy.setting("node_selling"))
+            owner.set_setting("node_selling", True)
+            self.assertFalse(deploy.set_setting_if_unset("node_selling", False))
+            self.assertIs(deploy.setting("node_selling"), True)
 
 
 class PublicationTest(LoreTestCase):

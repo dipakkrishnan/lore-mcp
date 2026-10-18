@@ -1,7 +1,7 @@
 const { randomUUID } = require("node:crypto");
 const { existsSync } = require("node:fs");
 const { appendFile } = require("node:fs/promises");
-const { join } = require("node:path");
+const { dirname, join } = require("node:path");
 const { app, autoUpdater, BrowserWindow, clipboard, dialog, ipcMain, powerMonitor, safeStorage, shell, systemPreferences } = require("electron");
 const { provision, skillsDir, whisper } = require("./runtime.cjs");
 const { transcribe } = require("./dictation.cjs");
@@ -10,8 +10,9 @@ const { Updates } = require("./updates.cjs");
 const reading = require("./reading.cjs");
 const checkin = require("./checkin.cjs");
 const { Schedule } = require("./routines.cjs");
-const { Watch, WATCH_EVERY_MS } = require("./agents.cjs");
-const { lore, listRoutines, runRoutine, changeRoutine, addRoutine, editRoutine, switchSource, loreStream, openable, readState, readSales, readViews, searchMemories, readMemory, renameMemory, editMemory, captureMemories, previewPage, setPrice, setFreeCopies, candidates, decide, extrasCandidates, decideExtras, approveExtras, reportFeedback, listStore, cardStatus, connectCards, switchCards, listingStatus, sourceCatalog, sourceChoices, connectSource, signIn, readSource, removeSource, listAgents, connectAgent, agentKey, disconnectAgent, agentsWaiting, useRuntime } = require("./state.cjs");
+const { Watch, WATCH_EVERY_MS, AgentApps } = require("./agents.cjs");
+const { checkAttachments } = require("./attachments.cjs");
+const { lore, listRoutines, runRoutine, changeRoutine, addRoutine, editRoutine, switchSource, loreStream, openable, readState, readSales, readViews, searchMemories, readMemory, creditMemories, renameMemory, editMemory, captureMemories, previewPage, setPrice, setFreeCopies, candidates, decide, extrasCandidates, decideExtras, approveExtras, reportFeedback, listStore, cardStatus, connectCards, switchCards, listingStatus, sourceCatalog, sourceChoices, connectSource, signIn, readSource, removeSource, listAgents, connectAgent, agentKey, disconnectAgent, agentsWaiting, useRuntime, openStore, saveProfile, ATTENDED_KEY, STORE } = require("./state.cjs");
 
 if (process.env.LORE_DESKTOP_USER_DATA) app.setPath("userData", process.env.LORE_DESKTOP_USER_DATA);
 // Two copies sharing one credentials file each refresh the sign-in, and the provider refuses the second.
@@ -40,6 +41,8 @@ let connecting;
 /** What Lore read from connected apps, kept until the owner clears it, with the dock's red number. */
 const badge = new reading.Badge((count) => app.setBadgeCount(count));
 const newMemories = new reading.Ready(join(app.getPath("userData"), "memories-ready.json"), badge.part("memories"));
+/** Which memories the owner has had on screen, so Inventory marks the rest New (APP-212). */
+const seenMemories = new reading.Seen(join(app.getPath("userData"), "memories-seen.json"));
 /** The evening check-in waiting for the owner, if Lore found something worth asking (AUT-008). */
 const checkIns = new checkin.CheckIns(join(app.getPath("userData"), "check-in.json"), badge.part("checkin"));
 /** @param {AgentEvent} event */
@@ -73,12 +76,14 @@ function registerIpc(loreHome, schedule, watch) {
   ipcMain.handle("dictation:transcribe", (_event, /** @type {ArrayBuffer} */ wav) => transcribe({ ...whisper, dir: app.getPath("temp") }, Buffer.from(wav)));
   ipcMain.handle("setup:retry", () => (agent ? undefined : boot(loreHome)));
   ipcMain.handle("agent:status", () => agent?.status() ?? { credentials: [] });
-  ipcMain.handle("agent:prompt", (_event, input) => {
+  ipcMain.handle("agent:prompt", async (_event, input) => {
     if (!input || typeof input.text !== "string" || input.text.length > 100_000 || !TASKS.has(input.task) || (input.from !== undefined && !TASKS.has(input.from)) || (input.memory !== undefined && !Number.isInteger(input.memory)) || (input.source !== undefined && typeof input.source !== "string")) {
       throw new Error("Invalid prompt");
     }
+    // The agent reads copies, inside its own sandbox; never the owner's files where they lie.
+    const files = await ready().attach(await checkAttachments(loreHome, input.files ?? [], hidden()));
     // The owner's first word to a check-in answers it, once the turn went through; one that failed leaves it waiting.
-    const turn = ready().prompt(input.text, input.task, input.from, input.memory, input.source);
+    const turn = ready().prompt(input.text, input.task, input.from, input.memory, input.source, files);
     return input.task === "evening" ? turn.then(() => checkIns.answer()) : turn;
   });
   ipcMain.handle("agent:history", (_event, task) => {
@@ -228,6 +233,13 @@ function registerIpc(loreHome, schedule, watch) {
   ipcMain.handle("ready:runs", () => newMemories.runs());
   ipcMain.handle("ready:seen", () => newMemories.seen());
   ipcMain.handle("ready:clear", () => newMemories.clear());
+  ipcMain.handle("memory:unseen", (_event, newest) => {
+    if (!Number.isInteger(newest) || newest < 0) throw new Error("Invalid memory");
+    return seenMemories.read(newest);
+  });
+  ipcMain.handle("memory:seen", async (_event, ids) => {
+    await seenMemories.add(reading.seenIds(ids));
+  });
   ipcMain.handle("checkin:waiting", () => checkIns.waiting());
   ipcMain.handle("checkin:dismiss", () => checkIns.expire().then(closeCheckIn));
   // APP-200: the Automations tab reads and changes routines through the CLI, then the clock looks again. Run now waits
@@ -260,11 +272,18 @@ function registerIpc(loreHome, schedule, watch) {
   ipcMain.handle("sources:switch", (_event, name, on) => switchSource(loreHome, name, on === true));
   ipcMain.handle("sources:remove", (_event, name, keep) => removeSource(loreHome, name, keep === true));
   // APP-207: the owner's personal agents, each a key to their own store, and what they saved brought in on request.
-  ipcMain.handle("agents:list", () => listAgents(loreHome));
+  // Like collecting, asking the store is one at a time: a sheet waiting on a save and Connectors share one answer.
+  /** @type {Promise<AgentEntry[]> | null} */
+  let listing = null;
+  ipcMain.handle("agents:list", () => (listing ??= listAgents(loreHome).finally(() => { listing = null; })));
   ipcMain.handle("agents:connect", (_event, input) => connectAgent(loreHome, input));
   ipcMain.handle("agents:key", (_event, source) => agentKey(loreHome, source));
   ipcMain.handle("agents:disconnect", (_event, source, keep) => disconnectAgent(loreHome, source, keep === true));
   ipcMain.handle("agents:check", () => watch.check());
+  // APP-216: which of the owner's agent apps are on this Mac, and opening one by its id.
+  const agentApps = new AgentApps(["/Applications", join(app.getPath("home"), "Applications")], (path) => shell.openPath(path));
+  ipcMain.handle("agents:installed", () => agentApps.installed());
+  ipcMain.handle("agents:open", (_event, id) => agentApps.open(id));
   ipcMain.handle("clipboard:write", (_event, text) => {
     if (typeof text !== "string" || text.length > 100_000) throw new Error("Nothing to copy");
     clipboard.writeText(text);
@@ -305,12 +324,13 @@ async function told() {
   return JSON.stringify([(await newMemories.runs())[0], (await checkIns.latest())?.at]);
 }
 
-/** Bring the window forward, then show what the notification was about. @param {AgentEvent} event */
+/** Bring the window forward, then show what the notification was about. A window opened for it, or one still loading,
+ * hears that once its page has loaded, so nothing is said before anyone listens. @param {AgentEvent} event */
 function reveal(event) {
-  if (!window) createWindow();
+  if (window && !window.webContents.isLoading()) emit(event);
+  else (window ?? createWindow()).webContents.once("did-finish-load", () => emit(event));
   window?.show();
   window?.focus();
-  emit(event);
 }
 
 /** What the app does with each kind of routine's run, by the `kind` the CLI names. A new kind is one entry here.
@@ -381,6 +401,7 @@ function createWindow() {
     pending.clear();
   });
   void window.loadFile(join(__dirname, "index.html"));
+  return window;
 }
 
 app.whenReady().then(async () => {
@@ -415,9 +436,9 @@ app.whenReady().then(async () => {
 /** Reading the ledger asks Cloudflare, so once a minute is plenty; coming back to the app checks at once. */
 const SALES_EVERY_MS = 60_000;
 
-/** Only a deployed store has a ledger or an inbox; until one exists Lore never asks. @param {string} loreHome */
+/** Only a deployed store has a ledger or an inbox; until one exists Lore never asks. A store config is enough, wherever it is: the CLI finishes an unfinished install, or rebuilds a store set up inside Lore's home, on the first read. @param {string} loreHome */
 function hasStore(loreHome) {
-  return existsSync(join(loreHome, "node", "node_modules", ".bin", "wrangler"));
+  return [join(STORE, "wrangler.jsonc"), join(STORE, "node_modules", ".bin", "wrangler"), join(loreHome, "node", "wrangler.jsonc")].some((path) => existsSync(path));
 }
 
 /** What the owner's agents saved comes in while Lore is open: once a minute, on coming back to the app, and now.
@@ -470,6 +491,11 @@ function watchSales(loreHome) {
   void check();
 }
 
+/** Folders the agent may never read: the app's own data, where the decision key lives, and the store's code. */
+function hidden() {
+  return [app.getPath("userData"), dirname(ATTENDED_KEY), STORE];
+}
+
 /** @param {string} loreHome */
 async function boot(loreHome) {
   try {
@@ -496,6 +522,7 @@ async function start(loreHome) {
     loreHome,
     skillsDir,
     binDir: runtime?.binDir,
+    hidden: hidden(),
     credentials,
     emit,
     askUser: async (questions) =>
@@ -550,6 +577,19 @@ async function start(loreHome) {
       }
       return last;
     },
+    openStore: async (store) => {
+      const said = await openStore(loreHome, store, async (questions) => /** @type {Record<string, string>} */ (await request("question", { questions, source: "app" })));
+      // A store left half-changed is told to the owner directly, not only to the agent.
+      const half = said.split("\n").find((line) => line.startsWith("Your store may be half-updated"));
+      if (half) emit({ type: "message", task: agent?.activeTask ?? null, text: half });
+      emit({ type: "changed" });
+      return said;
+    },
+    saveProfile: async (profile) => {
+      const said = await saveProfile(loreHome, profile, async (questions) => /** @type {Record<string, string>} */ (await request("question", { questions, source: "app" })));
+      emit({ type: "changed" });
+      return said;
+    },
     openUrl: async (page) => {
       if (!openable(page.url)) return "Lore does not open that address; only Coinbase, Cloudflare and Basescan pages.";
       const answer = await request("open", page);
@@ -579,12 +619,16 @@ async function start(loreHome) {
       if (!wrote) return;
       await newMemories.add(run);
       emit({ type: "ready" });
-      sales.notify(reading.announcement(run), () => {
-        if (!window) createWindow();
-        window?.show();
-        window?.focus();
-        emit({ type: "show", view: "today" });
-      });
+      // An agent's save lands on what it saved, in Inventory; anything else on Today's new memories.
+      const agent = read.by.kind === "agent" ? { id: read.by.id, label: read.by.label } : undefined;
+      sales.notify(reading.announcement(run), () => reveal(agent ? { type: "show", view: "inventory", source: agent } : { type: "show", view: "today" }));
+      // Who wrote them is a nicety, kept last: failing to record it never costs the owner their memories' card or banner.
+      try {
+        await creditMemories(loreHome, run.memories.map((memory) => memory.id), read.by);
+        emit({ type: "changed" });
+      } catch (error) {
+        console.error("Lore could not record who wrote these memories:", error);
+      }
     },
     job: {
       // This process is the one that owes the row a close, so it claims the row
