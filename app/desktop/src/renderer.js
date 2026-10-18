@@ -16,6 +16,7 @@ const taskBack = /** @type {HTMLButtonElement} */ ($("#task-back"));
 const taskRestart = /** @type {HTMLButtonElement} */ ($("#task-restart"));
 const addMemoryBtn = /** @type {HTMLButtonElement} */ ($("#add-memory"));
 const sellWritingBtn = /** @type {HTMLButtonElement} */ ($("#sell-writing"));
+const skipBtn = /** @type {HTMLButtonElement} */ ($("#first-run-skip"));
 const feedbackBtn = /** @type {HTMLButtonElement} */ ($("#feedback-open"));
 const accountMenu = $("#account-menu");
 const accountLine = $("#account-line");
@@ -51,8 +52,9 @@ let apps = [];
 let agents = null;
 /** Connecting an agent put the store online first; once it is, the sheet picks up where it left off. */
 let agentAfterStore = false;
-/** The setup sheet waiting on an agent's first save, told whatever Lore brings in from the owner's agents. @type {((reads: SourceRead[]) => void) | null} */
-let agentWaiting = null;
+/** Whatever waits on an agent's save (its setup sheet, the first-run chat), told whatever Lore brings in from the
+ * owner's agents. @type {Set<(reads: SourceRead[]) => void>} */
+const agentWaiting = new Set();
 /** What Lore does on its own, as the CLI lists it. @type {Routine[]} */
 let routines = [];
 /** The routines the owner started that are still going. @type {Set<string>} */
@@ -802,6 +804,7 @@ function drafts(s) {
 
 /** What came in, and the one thing to do next. @param {Snapshot} s */
 function renderToday(s) {
+  if (firstRun.active && !detailTask) return firstRun.parts(s);
   /** @type {HTMLElement[]} */
   const parts = [];
   // A check-in leads Today, on the rare day there is one.
@@ -888,6 +891,477 @@ class HowItWorks {
 }
 
 const howItWorks = new HowItWorks();
+
+/** Whether a read left the place it read readable. @param {SourceRead[]} reads @param {string} name */
+function readable(reads, name) {
+  const read = reads.find((each) => each.name === name);
+  return Boolean(read && CONNECTION_STATES[read.state].ok);
+}
+
+/** How long Lore waits on where the first run stands before going on without it. */
+const FIRST_RUN_READ_MS = 5000;
+
+/** What a new owner can answer to "Which AI do you talk to most?": their personal agents, then the coding agents Lore
+ * already knows how to read, then none. @type {Array<[AgentApp | "coding" | "none", string]>} */
+const FIRST_CHOICES = [["grok", "Grok Bot"], ["muse", "Muse"], ["chatgpt", "ChatGPT"], ["claude", "Claude"], ["coding", "Claude Code or Codex"], ["none", "None of these"]];
+
+/** APP-215: the first-run chat. Lore starts it itself right after a new owner signs in, speaks first, and asks one
+ * thing at a time: which AI they talk to most, then (only if the store isn't online) to put it online, then shows
+ * what to paste into that agent and waits, live, for its first save. While it waits it offers the apps it found on
+ * this Mac, one tap to connect them all. Every step is the app's own, not the model's; where it stands is kept so a
+ * relaunch resumes it, and Skip for now always lands on Today. */
+class FirstRunChat {
+  /** Where it stands, as kept across launches; null before it ever started. @type {FirstRunState | null} */
+  kept = null;
+  /** On screen now, in place of Today. */
+  active = false;
+  /** @type {"ask" | "store" | "connect" | "saved"} */
+  stage = "ask";
+  /** The agent the owner picked. @type {[AgentApp, string] | null} */
+  picked = null;
+  /** Its link, shown this launch only: the key is never shown again. @type {AgentKey | null} */
+  handed = null;
+  /** How many memories the first save brought. */
+  saved = 0;
+  /** The agent apps on this Mac (APP-216). @type {AgentApp[]} */
+  installed = [];
+  /** The places found on this Mac, each to connect, until the owner connects them. @type {Array<{label: string, mark: string, detail: string, on: boolean, connect: (run: number) => Promise<unknown>}> | null} */
+  found = null;
+  /** What the one tap connected. @type {string[]} */
+  connected = [];
+  /** What it could not connect, said plainly over the places left to try again. */
+  unconnected = "";
+  /** What went wrong at the current step, said under it. */
+  problem = "";
+  /** A step under way: its button waits. */
+  working = false;
+  /** A new link on its way: one at a time, so a revoked one never shows last. */
+  rotating = false;
+  stop = () => {};
+  /** Moves on when the owner leaves or signs out, so a step still under way from before stops where it is. */
+  #run = 0;
+  /** Moves on with each ask for a link, and when the owner chooses another agent: only the latest ask is shown. */
+  #asks = 0;
+  /** Whether where it stands has been read this sign-in: until then nothing starts it. */
+  #known = false;
+
+  /** Whether a step begun in `run` still belongs on screen. @param {number} run */
+  current(run) {
+    return run === this.#run && this.active;
+  }
+
+  /** Read where it stands, before the first snapshot lands, so Today never flashes first. A read that doesn't answer
+   * in a few seconds counts as none, so Lore never waits on it; its late answer is not taken. */
+  async read() {
+    const run = this.#run;
+    const late = new Promise((done) => setTimeout(() => done(null), FIRST_RUN_READ_MS));
+    const kept = await Promise.race([window.lore.firstRun().catch(() => null), late]);
+    // A sign-out since, or a choice made meanwhile, is newer than what was read.
+    if (run !== this.#run || this.#known) return;
+    this.kept = kept;
+    this.#known = true;
+  }
+
+  /** With the snapshot in: a new owner (nothing kept, nothing connected) starts it; one already started resumes.
+   * @param {Snapshot} s */
+  consider(s) {
+    if (this.active || appShell.hidden || !this.#known) return;
+    const fresh = !s.library.counts.private && !s.publications.counts.active && !s.library.sources.some((source) => source.enabled || source.connector);
+    if (!this.kept && fresh) void this.keep({ state: "started" });
+    if (this.kept?.state !== "started") return;
+    this.active = true;
+    void window.lore.agentApps().then((installed) => { this.installed = installed; this.redraw(); }).catch(() => undefined);
+    const waiting = this.kept.source && s.library.sources.find((source) => source.name === this.kept?.source);
+    if (waiting) this.resume(waiting);
+  }
+
+  /** @param {FirstRunState} next */
+  async keep(next) {
+    this.kept = next;
+    await window.lore.setFirstRun(next).catch(() => undefined);
+  }
+
+  redraw() {
+    if (this.active && view === "today" && !detailTask) render();
+  }
+
+  /** Back after a relaunch, still waiting on the agent picked: its link was shown once, so a new one is a tap away.
+   * @param {SourceEntry} source */
+  async resume(source) {
+    const app = /** @type {AgentApp} */ (source.app ?? "other");
+    this.picked = [app, source.label];
+    this.stage = "connect";
+    const run = this.#run;
+    const entry = (await window.lore.agents().catch(() => [])).find((each) => each.source === source.name);
+    if (!this.current(run)) return;
+    if (entry?.saved) return this.heard(entry.saved);
+    this.wait({ source: source.name, agent: { id: "", name: source.label, app, saved: entry?.saved ?? 0 } });
+    void this.look();
+  }
+
+  /** @param {AgentApp | "coding" | "none"} choice @param {string} label */
+  async choose(choice, label) {
+    if (this.working) return;
+    if (choice === "none") return this.leave("done", () => input.focus({ preventScroll: true }));
+    if (choice === "coding") return this.leave("done", () => void startSetup());
+    this.picked = [choice, label];
+    this.problem = "";
+    if (snapshot?.node.url) return this.connect();
+    this.stage = "store";
+    this.redraw();
+  }
+
+  /** The store online for the owner's agents, on the owner's tap: the deploy and, if it must, the Cloudflare sign-in. */
+  async putOnline() {
+    const run = this.#run;
+    this.working = true;
+    this.problem = "";
+    this.redraw();
+    try {
+      await window.lore.storeOnline();
+      await load();
+      // Skipped while it went online: the store stays online, and nothing goes on to connect.
+      if (!this.current(run)) return;
+      if (!snapshot?.node.url) throw new Error();
+      this.working = false;
+      await this.connect();
+    } catch {
+      if (!this.current(run)) return;
+      this.working = false;
+      this.problem = "Your store didn't go online. Try again in a minute.";
+      this.redraw();
+    }
+  }
+
+  async connect() {
+    // One ask at a time; its error goes as it starts again.
+    if (!this.picked || this.working) return;
+    const run = this.#run;
+    const ask = ++this.#asks;
+    this.working = true;
+    this.problem = "";
+    this.redraw();
+    try {
+      const [app, name] = this.picked;
+      const handed = await window.lore.connectAgent({ app, name });
+      // Skipped while the link was on its way: the agent shows in Connectors, and the chat stays closed.
+      if (!this.current(run) || ask !== this.#asks) return;
+      this.handed = handed;
+      this.stage = "connect";
+      void this.keep({ state: "started", source: handed.source });
+      this.wait(handed);
+      void load();
+      void this.look();
+      setTimeout(() => this.reveal(), 0);
+    } catch (error) {
+      if (!this.current(run) || ask !== this.#asks) return;
+      this.problem = reason(error, `Lore couldn't connect ${this.picked[1]}. Try again.`);
+    }
+    this.working = false;
+    this.redraw();
+  }
+
+  /** @param {Pick<AgentKey, "source" | "agent">} handed */
+  wait(handed) {
+    this.stop();
+    this.stop = firstSave(handed, () => this.active, (saved) => this.heard(saved));
+  }
+
+  /** @param {number} saved */
+  heard(saved) {
+    this.saved = saved;
+    this.stage = "saved";
+    void this.keep({ state: "done", source: this.kept?.source });
+    void load();
+    this.redraw();
+    this.reveal();
+  }
+
+  /** The newest of the chat in view. */
+  reveal() {
+    if (this.active && view === "today" && !detailTask) mainEl.scrollTo({ top: mainEl.scrollHeight, behavior: "smooth" });
+  }
+
+  /** Its link was lost: a new one, shown here, and the wait goes on with it. */
+  async newLink() {
+    const source = this.kept?.source;
+    if (!source || this.rotating) return;
+    const run = this.#run;
+    this.rotating = true;
+    this.redraw();
+    try {
+      const handed = await window.lore.agentKey(source);
+      if (!this.current(run)) return;
+      this.handed = handed;
+      this.wait(handed);
+    } catch (error) {
+      if (!this.current(run)) return;
+      this.problem = reason(error, "Lore couldn't reach your store. Try again.");
+    }
+    this.rotating = false;
+    this.redraw();
+  }
+
+  /** The apps on this Mac Lore can read without asking anything: Obsidian vaults, and Claude Code's or Codex's memory.
+   * Only what Lore already reads is left out: one it knows but couldn't read, even from before a relaunch, is offered
+   * again. */
+  async look() {
+    if (this.found) return;
+    const run = this.#run;
+    const sources = snapshot?.library.sources ?? [];
+    /** @param {SourceEntry | undefined} source */
+    const reading = (source) => Boolean(source?.enabled && CONNECTION_STATES[source.state ?? "connected"].ok);
+    const byPlace = new Map(sources.map((source) => [source.locator, source]));
+    const vaults = (await window.lore.sourceChoices("obsidian").catch(() => /** @type {SourceChoice[]} */ ([]))).filter((vault) => !reading(byPlace.get(vault.locator)));
+    if (!this.current(run)) return;
+    const histories = sources.filter((source) => !source.connector && !reading(source));
+    this.found = [
+      ...vaults.map((vault) => {
+        /** Once Lore knows the vault, even one it couldn't read, trying again reads it afresh. @type {string | null} */
+        let known = byPlace.get(vault.locator)?.name ?? null;
+        return { label: `Obsidian · ${vault.label}`, mark: "obsidian", detail: "Your notes", on: true, connect: async () => {
+          if (known) {
+            if (!readable(await window.lore.readSource(known), known)) throw new Error("Lore can't read it yet");
+            return;
+          }
+          const added = await window.lore.connectSource({ connector: "obsidian", locator: vault.locator });
+          known = added.name;
+          if (!CONNECTION_STATES[added.state ?? "connected"].ok) throw new Error("Lore can't read it yet");
+        } };
+      }),
+      // Connected once its first read has gone through and found it readable, so the chat never says Lore is reading
+      // what it can't.
+      // Claude Code's or Codex's memory is switched on first; a folder the owner added is only read again.
+      ...histories.map((source) => ({ label: source.label, mark: AGENT_MARKS[source.name] ?? source.name, detail: source.owned ? "A folder you added" : "What it remembers about your work", on: true, connect: async (/** @type {number} */ run) => {
+        if (!source.owned) await window.lore.switchSource(source.name, true);
+        // Skipped while it was being switched on: it is not read after the owner left.
+        if (!this.current(run)) return;
+        if (!readable(await window.lore.readSource(source.name), source.name)) throw new Error("Lore can't read it yet");
+      } }))
+    ];
+    this.redraw();
+  }
+
+  /** One tap connects every place still ticked; any that fail stay, ticked, to try again. */
+  async connectFound() {
+    const chosen = (this.found ?? []).filter((place) => place.on);
+    /** @param {{label: string}} place */
+    const short = (place) => place.label.replace(/ · .*/, "");
+    const run = this.#run;
+    this.working = true;
+    this.redraw();
+    const failed = [];
+    for (const place of chosen) {
+      let ok = true;
+      try {
+        await place.connect(run);
+      } catch {
+        ok = false;
+      }
+      if (!this.current(run)) return;
+      if (ok) this.connected.push(short(place));
+      else failed.push(place);
+    }
+    this.found = failed;
+    this.unconnected = failed.length ? `${named(failed.map(short))} didn't connect. Try again.` : "";
+    this.working = false;
+    await load();
+  }
+
+  /** Done or skipped: Today, with its one next step. @param {"skipped" | "done"} state @param {() => void} [then] */
+  leave(state, then) {
+    this.stop();
+    this.#run++;
+    this.active = false;
+    void this.keep({ state, ...(this.kept?.source ? { source: this.kept.source } : {}) });
+    show("today");
+    then?.();
+  }
+
+  /** Signed out: nothing on screen, and the next sign-in reads it again. */
+  reset() {
+    this.stop();
+    this.#run++;
+    this.#known = false;
+    Object.assign(this, { kept: null, active: false, stage: "ask", picked: null, handed: null, found: null, connected: [], unconnected: "", problem: "", working: false, rotating: false });
+  }
+
+  /** The chat as it stands, Lore first. @param {Snapshot} s */
+  parts(s) {
+    const chat = el("div", "log first-run");
+    /** @param {...(string | HTMLElement)} said */
+    const lore = (...said) => {
+      const line = el("div", "line");
+      line.append(mark("mark mark-sm"), ...said.map((part) => (typeof part === "string" ? el("p", "", part) : part)));
+      chat.append(line);
+    };
+    /** @param {string} text */
+    const owner = (text) => {
+      const line = el("div", "line owner");
+      line.append(el("p", "", text), el("span", "you", "You"));
+      chat.append(line);
+    };
+    lore("Hi. I'm Lore. I keep what you've learned and help you sell the parts worth paying for.");
+    lore("Which AI do you talk to most?");
+    if (!this.picked) {
+      lore(this.choices());
+      return [chat];
+    }
+    const [app, who] = this.picked;
+    owner(who);
+    if (this.stage === "store") {
+      lore(`${who} saves to your own store, so first it goes online. Nothing goes on sale.`);
+      const box = el("div", "card request");
+      box.append(el("p", "hint", this.working ? "Putting your store online. This takes a few minutes. If your browser opens, sign in to Cloudflare there. It's free." : "Takes a few minutes. If your browser opens, sign in to Cloudflare there. It's free."));
+      if (this.problem) box.append(el("p", "problem", this.problem));
+      const actions = el("div", "actions");
+      const go = button(this.working ? "Putting it online…" : "Put it online", "primary", () => void this.putOnline());
+      go.disabled = this.working;
+      actions.append(go);
+      box.append(actions);
+      lore(box);
+      return [chat];
+    }
+    if (this.stage === "ask") {
+      // Its link is on its way, or didn't come: try again, or pick another.
+      if (!this.problem) {
+        lore(el("p", "hint", `Getting ${who}'s link…`));
+        return [chat];
+      }
+      const box = el("div", "card request");
+      const actions = el("div", "actions");
+      const other = button("Choose another", "secondary", () => {
+        this.#asks++;
+        Object.assign(this, { picked: null, problem: "", working: false });
+        this.redraw();
+      });
+      const again = button("Try again", "primary", () => void this.connect());
+      other.disabled = again.disabled = this.working;
+      actions.append(other, again);
+      box.append(el("p", "problem", this.problem), actions);
+      lore(box);
+      return [chat];
+    }
+    if (this.stage !== "saved") lore(this.handed ? `Here's how to connect ${who}. Lore shows it here when ${who} saves something.` : `${who}'s link was shown once. Get a new one here if you need it.`);
+    if (this.stage !== "saved") lore(this.connectCard(app, who));
+    if (this.stage === "saved") {
+      lore(this.savedCard(s, who));
+      lore("That's it. What it saves stays private on this Mac. When you want to sell some of it, Today shows the next step.");
+      const actions = el("div", "actions first-run-actions");
+      actions.append(button("Go to Today", "primary", () => this.leave("done")));
+      chat.append(actions);
+    } else {
+      if (this.connected.length) lore(`Connected ${named(this.connected)}. Lore is turning them into memories now.`);
+      else if (this.found?.length && !this.unconnected) lore("While you do that, I found these on this Mac. Connect them, and Lore reads them too.");
+      if (this.found?.length) lore(this.foundCard());
+    }
+    if (this.found && this.stage !== "saved") {
+      const more = el("p", "hint");
+      more.append("Your ChatGPT or Claude history, and newsletters, connect from a file or an address in ", inline("Connectors", () => show("connectors")), ".");
+      lore(more);
+    }
+    // APP-215: the notices a new owner would otherwise get on Today, as one quiet line here.
+    const said = notices.filter((item) => item.key);
+    if (said.length) {
+      lore(el("p", "hint", said.map((item) => item.text).join(" ")));
+      for (const item of said) if (item.key) remember(item.key);
+    }
+    return [chat];
+  }
+
+  /** Each answer one tap; the agent apps on this Mac first, and the one found already picked. */
+  choices() {
+    const list = el("div", "choices first-choices");
+    const ordered = [...FIRST_CHOICES].sort(([a], [b]) => Number(this.installed.includes(/** @type {AgentApp} */ (b))) - Number(this.installed.includes(/** @type {AgentApp} */ (a))));
+    const only = this.installed.length === 1 ? this.installed[0] : null;
+    for (const [choice, label] of ordered) {
+      const option = el("button", choice === only ? "choice picked" : "choice");
+      option.type = "button";
+      const soon = choice === "muse";
+      option.disabled = soon;
+      const icon = choice === "coding" ? markTile(STEP_ICONS.memory) : choice === "none" ? markTile(EDIT_ICON) : agentMark(choice, label);
+      option.append(icon, el("span", "", label));
+      const hint = soon ? "Coming soon" : this.installed.includes(/** @type {AgentApp} */ (choice)) ? "On this Mac" : "";
+      if (hint) option.append(el("small", "", hint));
+      option.addEventListener("click", () => void this.choose(choice, label));
+      list.append(option);
+    }
+    return list;
+  }
+
+  /** The connect card: the agent's own steps and its private link, Open <agent> when it's on this Mac, and the live
+   * wait. After a relaunch the link is gone, so it offers a new one; once it has saved, the card goes.
+   * @param {AgentApp} app @param {string} who */
+  connectCard(app, who) {
+    const box = el("div", "card request first-connect");
+    if (this.handed) {
+      box.append(...(agentGuide(this.handed, true) ?? [privateLink(this.handed)]));
+      const hint = el("span", "form-hint quiet-hint");
+      hint.innerHTML = LOCK_ICON;
+      hint.append(el("span", "", "Private link, shown once"));
+      box.append(hint);
+    }
+    if (this.problem) box.append(el("p", "problem", this.problem));
+    const actions = el("div", "actions");
+    if (!this.handed) {
+      const again = button("Get a new link", "secondary", () => void this.newLink());
+      again.disabled = this.rotating;
+      actions.append(again);
+    }
+    if (this.installed.includes(app)) actions.append(button(`Open ${who}`, "secondary", () => void window.lore.openAgentApp(app).catch((error) => tell(reason(error, `Lore couldn't open ${who}.`)))));
+    actions.prepend(waitLine(who, true));
+    box.append(actions);
+    return box;
+  }
+
+  /** What the first save brought, titles and marks, one click from all of it. @param {Snapshot} s @param {string} who */
+  savedCard(s, who) {
+    const source = this.kept?.source ?? "";
+    const box = el("div", "card first-saved");
+    const head = el("div", "row");
+    head.append(el("b", "", `${who} saved ${plural(this.saved, "memory")}`), inline("See them →", () => {
+      this.leave("done");
+      seeFrom({ id: source, label: who });
+    }));
+    box.append(head);
+    const items = s.library.items.filter((item) => item.sources?.some((each) => each.id === source)).slice(0, 5);
+    for (const item of items) {
+      const { marks } = provenance(item.sources);
+      const node = row(item.title, when(item.updated_at), undefined, true);
+      node.prepend(marks);
+      box.append(node);
+    }
+    if (!items.length) box.append(el("p", "hint first-saved-wait", "Bringing them in…"));
+    return box;
+  }
+
+  /** The places found, each ticked, and one tap for all of them. */
+  foundCard() {
+    const box = el("div", "card request");
+    const list = el("div", "choices");
+    for (const place of this.found ?? []) {
+      const option = el("label", "choice");
+      const tick = el("input");
+      tick.type = "checkbox";
+      tick.checked = place.on;
+      tick.addEventListener("change", () => { place.on = tick.checked; this.redraw(); });
+      const name = el("span", "first-place");
+      name.append(brand(place.mark, place.label), el("span", "", place.label));
+      option.append(tick, name, el("small", "", place.detail));
+      list.append(option);
+    }
+    if (this.unconnected) box.append(el("p", "problem", this.unconnected));
+    const actions = el("div", "actions");
+    const count = (this.found ?? []).filter((place) => place.on).length;
+    const go = button(this.working ? "Connecting…" : this.unconnected ? "Try again" : count > 1 ? "Connect these" : "Connect", "primary", () => void this.connectFound());
+    go.disabled = this.working || !count;
+    actions.append(go);
+    box.append(list, actions);
+    return box;
+  }
+}
+
+const firstRun = new FirstRunChat();
 
 /** @param {Snapshot} s */
 function privateMemories(s) {
@@ -2216,18 +2690,13 @@ class AgentSetup {
       node.classList.add("copy-row");
       return node;
     };
-    const guide = AGENT_GUIDES[app];
-    const how = guide && (first ? guide.first : guide.again);
-    const list = el("ol", "agent-steps");
-    for (const step of how?.steps ?? [`In ${where}'s settings, find where to add a connector.`, "Add one named “Lore” with the link below, or with the address and key if it asks for both.", `Add the instructions where ${where} keeps standing instructions, like custom instructions or a skill, so it remembers what to save in every chat.`]) list.append(el("li", "", step));
-    if (how?.or) list.lastElementChild?.append(el("span", "agent-step-or", how.or));
-    form.body.append(list, how?.message ? privateLink(handed, how.message, "Copy message") : privateLink(handed));
-    if (how?.fallback) {
-      const fallback = el("div", "agent-fallback");
-      fallback.append(el("span", "", how.fallback), copyButton(() => handed.connector_url, "Copy link only"));
-      form.body.append(fallback);
+    const guide = agentGuide(handed, first);
+    if (guide) form.body.append(...guide);
+    else {
+      const list = el("ol", "agent-steps");
+      for (const step of [`In ${where}'s settings, find where to add a connector.`, "Add one named “Lore” with the link below, or with the address and key if it asks for both.", `Add the instructions where ${where} keeps standing instructions, like custom instructions or a skill, so it remembers what to save in every chat.`]) list.append(el("li", "", step));
+      form.body.append(list, privateLink(handed));
     }
-    if (guide?.note) form.text(guide.note, "hint");
     const hint = el("span", "form-hint quiet-hint");
     hint.innerHTML = LOCK_ICON;
     hint.append(el("span", "", first ? "Private link, shown once" : "The old link stopped working"));
@@ -2249,41 +2718,79 @@ class AgentSetup {
    * waiting were already counted. @param {AgentKey} handed @param {string} who @param {boolean} first */
   wait(handed, who, first) {
     const { source, agent } = handed;
-    const line = el("p", "agent-wait");
-    line.append(el("span", "dot off"), el("span", "", `Waiting for ${who}'s ${first ? "first" : "next"} save…`));
+    const line = waitLine(who, first);
     this.form.body.append(line);
-    let done = false;
     const { dialog } = this.form;
-    const check = async () => {
-      // Asked only while this sheet is on screen; main answers one list at a time.
-      if (done || !dialog.open) return;
-      const saved = (await window.lore.agents().catch(() => [])).find((entry) => entry.source === source)?.saved ?? 0;
-      if (done || saved <= agent.saved) return;
+    // Asked only while this sheet is on screen.
+    const stop = firstSave(handed, () => dialog.open, (saved) => {
       if (first) {
-        line.replaceChildren(el("span", "dot ok"), el("span", "", `${who} saved ${plural(saved - agent.saved, "memory")} · `), inline("See them →", () => {
+        line.replaceChildren(el("span", "dot ok"), el("span", "", `${who} saved ${plural(saved, "memory")} · `), inline("See them →", () => {
           closeSheet();
           seeFrom({ id: source, label: who });
         }));
       } else line.replaceChildren(el("span", "dot ok"), el("span", "", `${who} saved with the new link`));
       const offer = first && eveningOffer(agent.app, who);
       if (offer) line.after(offer);
-      stop();
-    };
-    const poll = setInterval(() => {
-      if (dialog.open) void window.lore.checkAgents().finally(check);
-    }, FIRST_SAVE_EVERY_MS);
-    /** @param {SourceRead[]} reads */
-    const heard = (reads) => {
-      if (reads.some((read) => read.name === source)) void check();
-    };
-    const stop = () => {
-      done = true;
-      clearInterval(poll);
-      if (agentWaiting === heard) agentWaiting = null;
-    };
-    agentWaiting = heard;
+    });
     dialog.addEventListener("close", stop);
   }
+}
+
+/** What to do in the agent, by its maker's own steps, with its private link or the message around it, the quiet way
+ * to add the link by hand, and its note; null for an agent with no documented steps. @param {AgentKey} handed @param {boolean} first */
+function agentGuide(handed, first) {
+  const guide = AGENT_GUIDES[handed.agent.app];
+  const how = guide && (first ? guide.first : guide.again);
+  if (!guide || !how) return null;
+  const list = el("ol", "agent-steps");
+  for (const step of how.steps) list.append(el("li", "", step));
+  if (how.or) list.lastElementChild?.append(el("span", "agent-step-or", how.or));
+  /** @type {HTMLElement[]} */
+  const nodes = [list, how.message ? privateLink(handed, how.message, "Copy message") : privateLink(handed)];
+  if (how.fallback) {
+    const fallback = el("div", "agent-fallback");
+    fallback.append(el("span", "", how.fallback), copyButton(() => handed.connector_url, "Copy link only"));
+    nodes.push(fallback);
+  }
+  if (guide.note) nodes.push(el("p", "hint", guide.note));
+  return nodes;
+}
+
+/** The live line while Lore waits on an agent's save. @param {string} who @param {boolean} first */
+function waitLine(who, first) {
+  const line = el("p", "agent-wait");
+  line.append(el("span", "dot off"), el("span", "", `Waiting for ${who}'s ${first ? "first" : "next"} save…`));
+  return line;
+}
+
+/** Waits, while `active`, for the next save made with this key, and says how many it saved; the waiting is the app's.
+ * The store counts every save, even one that changes nothing, and the key came with the count so far, so only a save
+ * made with this key raises it: saves the old key left waiting were already counted. Returns what stops it.
+ * @param {Pick<AgentKey, "source" | "agent">} handed @param {() => boolean} active @param {(saved: number) => void} heard */
+function firstSave({ source, agent }, active, heard) {
+  let done = false;
+  const check = async () => {
+    // Main answers one list at a time.
+    if (done || !active()) return;
+    const saved = (await window.lore.agents().catch(() => [])).find((entry) => entry.source === source)?.saved ?? 0;
+    if (done || saved <= agent.saved) return;
+    stop();
+    heard(saved - agent.saved);
+  };
+  const poll = setInterval(() => {
+    if (active()) void window.lore.checkAgents().finally(check);
+  }, FIRST_SAVE_EVERY_MS);
+  /** @param {SourceRead[]} reads */
+  const landed = (reads) => {
+    if (reads.some((read) => read.name === source)) void check();
+  };
+  const stop = () => {
+    done = true;
+    clearInterval(poll);
+    agentWaiting.delete(landed);
+  };
+  agentWaiting.add(landed);
+  return stop;
 }
 
 /** What one personal agent saved, and what can be done to it. @param {SourceEntry} source */
@@ -2618,17 +3125,19 @@ function render() {
   hidePeek();
   renderNotices();
   const detail = view === "today" ? detailTask : null;
-  const heading = detail ? detailRecord?.title ?? TASK_TITLES[detail] : { today: greeting(), inventory: "Inventory", connectors: "Connectors", automations: "Automations", faq: "FAQ", settings: "Settings" }[view];
+  const welcoming = view === "today" && !detail && firstRun.active;
+  const heading = detail ? detailRecord?.title ?? TASK_TITLES[detail] : welcoming ? "Welcome to Lore" : { today: greeting(), inventory: "Inventory", connectors: "Connectors", automations: "Automations", faq: "FAQ", settings: "Settings" }[view];
   const pendingDrafts = detail === "publish" && (candidates.length || extraDrafts.length);
   eyebrow.textContent = detail
     ? pendingDrafts ? `Needs you · ${draftsPhase()}` : `${TASK_STATES[detailRecord?.state ?? "working"]} · ${detailRecord?.phase ?? "Starting"}`
-    : view === "today" ? longDate.format(new Date()) : "";
+    : welcoming ? "Getting started" : view === "today" ? longDate.format(new Date()) : "";
   title.textContent = heading;
   taskBack.hidden = !detail;
   taskRestart.hidden = !detail || detailRecord?.state !== "stopped";
   addMemoryBtn.hidden = Boolean(detail) || view !== "inventory";
   sellWritingBtn.hidden = addMemoryBtn.hidden;
-  captureArea.hidden = view !== "today";
+  captureArea.hidden = view !== "today" || welcoming;
+  skipBtn.hidden = !welcoming;
   log.hidden = !detail;
   syncComposer();
   for (const nav of navButtons) nav.setAttribute("aria-pressed", String(nav.dataset.view === view));
@@ -2697,6 +3206,7 @@ async function load() {
     if (ticket !== loads) return;
     if (detailTask) detailRecord = taskItems.find((item) => item.kind === detailTask) ?? detailRecord;
     peeked.clear();
+    firstRun.consider(snapshot);
     noticeAutomations();
     noticeUsage();
     // A dismissed notice whose write failed was still seen: try it again, without showing it again.
@@ -2759,7 +3269,7 @@ function tellOnce(key, text, action, write) {
 
 /** Today is what the owner sees: signed in, on Today, with no thread open over it. */
 function onToday() {
-  return !appShell.hidden && view === "today" && !detailTask;
+  return !appShell.hidden && view === "today" && !detailTask && !firstRun.active;
 }
 
 /** Remember a seen Today notice as said; a failed write stays to be tried again. A write that comes up after a sign-out,
@@ -3810,9 +4320,10 @@ function enter() {
   document.body.dataset.state = signedIn ? "app" : "welcome";
   if (signedIn) {
     render();
-    void load().then(opened);
+    void firstRun.read().then(load).then(opened);
     return;
   }
+  firstRun.reset();
   // Signed out: a load still out is stale, and what it would have told waits for the next sign-in.
   loads++;
   told.clear();
@@ -3867,7 +4378,7 @@ function onEvent(event) {
   else if (event.type === "changed") void load();
   else if (event.type === "sold") void loadSales();
   else if (event.type === "agents") {
-    agentWaiting?.(event.reads);
+    for (const landed of agentWaiting) landed(event.reads);
     void load().then(loadAgents);
   }
   else if (event.type === "ready") void load();
@@ -4255,6 +4766,7 @@ mainEl.addEventListener("scroll", () => mainEl.classList.toggle("scrolled", main
 for (const item of accountMenu.querySelectorAll("button")) item.addEventListener("click", () => accountMenu.hidePopover());
 for (const item of /** @type {NodeListOf<HTMLButtonElement>} */ (accountMenu.querySelectorAll("[data-view]"))) item.addEventListener("click", () => show(/** @type {View} */ (item.dataset.view)));
 feedbackBtn.addEventListener("click", openFeedbackDialog);
+skipBtn.addEventListener("click", () => firstRun.leave("skipped"));
 signOutBtn.addEventListener("click", () => { const id = auth?.credentials[0]?.providerId; if (id) void signOut(id); });
 accountMenu.addEventListener("toggle", (event) => {
   account.setAttribute("aria-expanded", String(/** @type {ToggleEvent} */ (event).newState === "open"));

@@ -37,6 +37,20 @@ substitute a temp file, `echo`, `printf`, a pipe, or another delimiter:
   and every profile field are the owner's calls; propose, then take their
   answer.
 
+## Connect first, shape after the first save
+
+Something saving to Lore comes before any question about shape. The blueprint, the
+profile and the reading rhythm are drafted from what came in, so they come after the
+first save, never before it.
+
+- **Lore desktop:** the app's own first-run chat connects the owner's agent (Grok Bot,
+  ChatGPT or Claude) and the apps it finds on this Mac before this skill runs. If the
+  library has no memories yet, say in one sentence that Lore shapes their library once
+  their agent or apps have brought something in, and call `finish_task`; do not ask the
+  persona, profile or rhythm questions on an empty library.
+- **Other hosts:** `lore setup --yes` below imports the agent memory already on this
+  machine; that is the first save. Continue only once `lore status` shows memories.
+
 ## 0. Preconditions
 
 ```sh

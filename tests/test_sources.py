@@ -493,6 +493,40 @@ class ConnectorTest(LoreTestCase):
         self.assertIs(choices[0].open, True)
         self.assertIs(choices[1].open, False)
 
+    def test_a_vault_is_offered_under_the_path_its_connected_source_keeps(self) -> None:
+        # APP-215: the first-run chat leaves out vaults Lore already reads by comparing paths, so a vault Obsidian
+        # names by another spelling (a link, /var for /private/var) must come back as the one a source records.
+        vault = Path(self.tmp.name) / "Real Vault"
+        vault.mkdir()
+        linked = Path(self.tmp.name) / "Linked Vault"
+        linked.symlink_to(vault)
+        self.registry(json.dumps({"vaults": {"a1": {"path": str(linked), "ts": 1}}}))
+        (choice,) = Connector.named("obsidian").choices()
+        kept = Source.owner(str(linked), kind="folder", connector="obsidian")
+        self.assertEqual(choice.locator, kept.locator)
+        self.assertEqual(choice.label, "Linked Vault")
+
+    def test_a_vault_whose_path_loops_is_offered_as_named_and_hides_no_other(self) -> None:
+        # APP-215: one bad entry in Obsidian's list must not cost the owner every healthy vault.
+        healthy = Path(self.tmp.name) / "Healthy"
+        healthy.mkdir()
+        looping = Path(self.tmp.name) / "Looping"
+        looping.symlink_to(looping)
+        self.registry(
+            json.dumps(
+                {
+                    "vaults": {
+                        "a1": {"path": str(looping), "ts": 1},
+                        "b2": {"path": str(healthy), "ts": 2},
+                    }
+                }
+            )
+        )
+        choices = Connector.named("obsidian").choices()
+        self.assertEqual([choice.label for choice in choices], ["Healthy", "Looping"])
+        self.assertEqual(choices[0].locator, str(healthy.resolve()))
+        self.assertEqual(choices[1].locator, str(looping))
+
     def test_no_obsidian_on_this_mac_means_no_choices_not_an_error(self) -> None:
         self.assertEqual(Obsidian().choices(), [])
         self.registry("{not json")
