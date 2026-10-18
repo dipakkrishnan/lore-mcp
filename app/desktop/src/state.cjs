@@ -2,7 +2,7 @@ const { execFile, spawn } = require("node:child_process");
 const { createInterface } = require("node:readline");
 const { promisify } = require("node:util");
 const { randomBytes } = require("node:crypto");
-const { chmodSync, lstatSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } = require("node:fs");
+const { chmodSync, closeSync, constants, fchmodSync, fstatSync, lstatSync, mkdirSync, openSync, readdirSync, readFileSync, readSync, rmSync, writeSync } = require("node:fs");
 const { homedir, userInfo } = require("node:os");
 const { dirname, join, resolve } = require("node:path");
 
@@ -19,52 +19,91 @@ const STORE = process.env.LORE_STORE || join(homedir(), "Library", "Application 
 
 /** This launch's key, in a file of its own so every running app and test run keeps its key; the key is fresh each launch and never in process.env, so the agent's shell cannot pass it. */
 class LaunchKey {
-  /** A file left by an app that crashed is cleared once its process is gone, or after this long. */
+  /** An empty or unreadable file is cleared after this long; a running app's file never is. */
   static STALE_MS = 7 * 24 * 60 * 60 * 1000;
+  /** A key file holds a pid and the key; the CLI reads no more than this either (lore/cli.py KEY_FILE_BYTES). */
+  static FILE_BYTES = 256;
 
   /** @param {string} folder */
   constructor(folder) {
     this.folder = folder;
     this.key = randomBytes(32).toString("hex");
-    /** Named by an id of its own, never the key. */
-    this.file = join(folder, randomBytes(16).toString("hex"));
+    /** @type {string | undefined} */
+    this.file = undefined;
     this.started = false;
   }
 
-  /** Rewritten on every decision, so a file cleared while the app ran comes back. @returns {{LORE_ATTENDED_KEY: string}} */
+  /** The key for a CLI call. The file is written once and never rewritten; if something removed it, a new one takes its place. @returns {{LORE_ATTENDED_KEY: string}} */
   env() {
-    mkdirSync(this.folder, { recursive: true, mode: 0o700 });
-    chmodSync(this.folder, 0o700);
+    this.trust();
     if (!this.started) {
       this.started = true;
       this.prune();
       process.once("exit", () => this.remove());
     }
-    writeFileSync(this.file, `${process.pid}\n${this.key}\n`, { mode: 0o600 });
+    if (!this.file || !lstatSync(this.file, { throwIfNoEntry: false })?.isFile()) this.write();
     return { LORE_ATTENDED_KEY: this.key };
   }
 
   remove() {
-    rmSync(this.file, { force: true });
+    if (this.file) rmSync(this.file, { force: true });
+    this.file = undefined;
   }
 
-  /** Clear the files of apps that are no longer running. */
+  /** The folder must be a real folder of this account's, closed to everyone else. */
+  trust() {
+    mkdirSync(this.folder, { recursive: true, mode: 0o700 });
+    const folder = lstatSync(this.folder);
+    if (!folder.isDirectory() || folder.uid !== process.getuid?.()) throw new Error(`${this.folder} is not a folder Lore can trust`);
+    if ((folder.mode & 0o777) !== 0o700) chmodSync(this.folder, 0o700);
+  }
+
+  /** Created whole under a name of its own, never the key, and closed to everyone else. */
+  write() {
+    const file = join(this.folder, randomBytes(16).toString("hex"));
+    const fd = openSync(file, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW, 0o600);
+    try {
+      fchmodSync(fd, 0o600);
+      writeSync(fd, `${process.pid}\n${this.key}\n`);
+    } finally {
+      closeSync(fd);
+    }
+    this.file = file;
+  }
+
+  /** Clear the files of apps that are no longer running, and empty ones left long ago. */
   prune() {
     for (const name of readdirSync(this.folder)) {
       const file = join(this.folder, name);
-      try {
-        const { mtimeMs } = lstatSync(file);
-        const pid = Number(readFileSync(file, "utf8").split("\n")[0]);
-        if (Date.now() - mtimeMs > LaunchKey.STALE_MS || !LaunchKey.running(pid)) rmSync(file, { force: true });
-      } catch {
-        // Gone already, or not a file this app wrote.
-      }
+      const read = LaunchKey.read(file);
+      if (!read || file === this.file) continue;
+      const pid = Number(read.text.split("\n")[0]);
+      const gone = Number.isInteger(pid) && pid > 0 ? !LaunchKey.running(pid) : Date.now() - read.mtimeMs > LaunchKey.STALE_MS;
+      if (gone) rmSync(file, { force: true });
+    }
+  }
+
+  /** The start of one of this account's regular files, opened without following a link or waiting on a pipe. @param {string} file */
+  static read(file) {
+    let fd;
+    try {
+      fd = openSync(file, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
+    } catch {
+      return undefined;
+    }
+    try {
+      const info = fstatSync(fd);
+      if (!info.isFile() || info.uid !== process.getuid?.()) return undefined;
+      const buffer = Buffer.alloc(LaunchKey.FILE_BYTES);
+      const size = readSync(fd, buffer, 0, buffer.length, 0);
+      return { text: buffer.toString("utf8", 0, size), mtimeMs: info.mtimeMs };
+    } finally {
+      closeSync(fd);
     }
   }
 
   /** @param {number} pid */
   static running(pid) {
-    if (!Number.isInteger(pid) || pid <= 0) return false;
     try {
       process.kill(pid, 0);
       return true;
@@ -74,7 +113,17 @@ class LaunchKey {
   }
 }
 
-const launchKey = new LaunchKey(ATTENDED_KEYS);
+let launchKey = new LaunchKey(ATTENDED_KEYS);
+
+/** Tests keep their launch keys in scratch; the app never calls this. @param {string} folder */
+function useKeys(folder) {
+  launchKey = new LaunchKey(folder);
+}
+
+/** On quit: this launch's key file goes with it. */
+function forgetKey() {
+  launchKey.remove();
+}
 
 /** @param {string} [file] */
 function useRuntime(file) {
@@ -669,6 +718,7 @@ module.exports = {
   saveProfile,
   ATTENDED_KEYS,
   LaunchKey,
-  launchKey,
+  useKeys,
+  forgetKey,
   STORE
 };

@@ -1707,21 +1707,32 @@ def attended_folder() -> Path:
 
 # A launch key file holds a pid and 64 hex characters; anything larger was not written by the app.
 KEY_FILE_BYTES = 256
-# Each running app or test run keeps one file, removed when it quits; a folder past this is not read further.
+# Each running app or test run keeps one file, removed when it quits; past this many, the rest are not read.
 KEY_FILES = 64
+# Entries looked at in the folder, key files or not, so junk there costs a bounded read.
+KEY_ENTRIES = 256
 
 
-def _launch_key(path: Path) -> str:
-    """The key in one launch key file: a regular file opened without following a link, else nothing."""
+def _owned(fd: int, kind: int, mode: int) -> bool:
+    """Whether an open file is of this kind, the owner's, open to no one else, and has one name."""
+    info = os.fstat(fd)
+    return (
+        stat.S_IFMT(info.st_mode) == kind
+        and info.st_uid == os.getuid()
+        and stat.S_IMODE(info.st_mode) == mode
+        and (kind == stat.S_IFDIR or info.st_nlink == 1)
+    )
+
+
+def _launch_key(name: str, folder: int) -> str:
+    """The key in one launch key file, opened in `folder` without following a link, else nothing."""
     try:
-        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+        fd = os.open(name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=folder)
     except OSError:
         return ""
     try:
         data = (
-            os.read(fd, KEY_FILE_BYTES + 1)
-            if stat.S_ISREG(os.fstat(fd).st_mode)
-            else b""
+            os.read(fd, KEY_FILE_BYTES + 1) if _owned(fd, stat.S_IFREG, 0o600) else b""
         )
     finally:
         os.close(fd)
@@ -1731,17 +1742,42 @@ def _launch_key(path: Path) -> str:
     return lines[-1] if lines else ""
 
 
+def _folder_keys(folder: int, names: list[str]) -> list[str]:
+    return [key for key in (_launch_key(name, folder) for name in names) if key]
+
+
 def _launch_keys() -> list[str]:
     """Every running app's launch key: one file each in `attended.d`, plus the single
     `attended` file an app from the release before still writes."""
-    folder = attended_folder()
-    paths = [folder / "attended"]
+    keys: list[str] = []
     try:
-        with os.scandir(folder / "attended.d") as entries:
-            paths += [Path(entry.path) for entry in islice(entries, KEY_FILES)]
+        lore = os.open(attended_folder(), os.O_RDONLY | os.O_DIRECTORY)
     except OSError:
-        pass
-    return [key for key in map(_launch_key, paths) if key]
+        return keys
+    try:
+        keys += _folder_keys(lore, ["attended"])
+        try:
+            folder = os.open(
+                "attended.d",
+                os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW,
+                dir_fd=lore,
+            )
+        except OSError:
+            return keys
+        try:
+            if _owned(folder, stat.S_IFDIR, 0o700):
+                with os.scandir(folder) as entries:
+                    names = [
+                        entry.name
+                        for entry in islice(entries, KEY_ENTRIES)
+                        if entry.is_file(follow_symlinks=False)
+                    ]
+                keys += _folder_keys(folder, names[:KEY_FILES])
+        finally:
+            os.close(folder)
+    finally:
+        os.close(lore)
+    return keys
 
 
 def _attended() -> bool:

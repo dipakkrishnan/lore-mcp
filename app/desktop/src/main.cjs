@@ -14,7 +14,7 @@ const { FirstRun } = require("./firstrun.cjs");
 const { Appearance } = require("./appearance.cjs");
 const { Watch, WATCH_EVERY_MS, AgentApps } = require("./agents.cjs");
 const { checkAttachments } = require("./attachments.cjs");
-const { lore, listRoutines, runRoutine, changeRoutine, addRoutine, editRoutine, switchSource, openable, readState, readSales, readViews, searchMemories, readMemory, creditMemories, renameMemory, editMemory, captureMemories, previewPage, setPrice, setFreeCopies, candidates, decide, extrasCandidates, decideExtras, approveExtras, reportFeedback, listStore, cardStatus, connectCards, switchCards, listingStatus, sourceCatalog, sourceChoices, connectSource, signIn, readSource, removeSource, listAgents, connectAgent, agentKey, disconnectAgent, agentsWaiting, useRuntime, openStore, storeOnline, cloudflareSignIn, saveProfile, ATTENDED_KEYS, launchKey, STORE } = require("./state.cjs");
+const { lore, listRoutines, runRoutine, changeRoutine, addRoutine, editRoutine, switchSource, openable, readState, readSales, readViews, searchMemories, readMemory, creditMemories, renameMemory, editMemory, captureMemories, previewPage, setPrice, setFreeCopies, candidates, decide, extrasCandidates, decideExtras, approveExtras, reportFeedback, listStore, cardStatus, connectCards, switchCards, listingStatus, sourceCatalog, sourceChoices, connectSource, signIn, readSource, removeSource, listAgents, connectAgent, agentKey, disconnectAgent, agentsWaiting, useRuntime, openStore, storeOnline, cloudflareSignIn, saveProfile, ATTENDED_KEYS, forgetKey, STORE } = require("./state.cjs");
 
 if (process.env.LORE_DESKTOP_USER_DATA) app.setPath("userData", process.env.LORE_DESKTOP_USER_DATA);
 // Two copies sharing one credentials file each refresh the sign-in, and the provider refuses the second.
@@ -722,7 +722,7 @@ async function start(loreHome) {
   });
 }
 
-app.on("will-quit", () => launchKey.remove());
+app.on("will-quit", () => forgetKey());
 
 app.on("before-quit", () => {
   agent?.dispose();

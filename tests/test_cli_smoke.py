@@ -280,10 +280,12 @@ class OwnerLifecycleTest(unittest.TestCase):
         self.assertIn("active · claim · 2 source memories · topic: launching", listed)
         self.assertIn("  id 1", listed)
 
-        (self.home / "Library/Application Support/Lore/attended.d").mkdir(parents=True)
-        (self.home / "Library/Application Support/Lore/attended.d/launch").write_text(
-            f"1\n{LAUNCH_KEY}\n", encoding="utf-8"
-        )
+        # As the desktop app writes it: a folder and a file only the owner can open.
+        keys = self.home / "Library/Application Support/Lore/attended.d"
+        keys.mkdir(parents=True)
+        keys.chmod(0o700)
+        (keys / "launch").touch(mode=0o600)
+        (keys / "launch").write_text(f"1\n{LAUNCH_KEY}\n", encoding="utf-8")
         pushed = self.lore(
             "push", "--local", "--worker-dir", str(self.worker), attended=True
         )
