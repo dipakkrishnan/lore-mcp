@@ -96,7 +96,11 @@ function request(type, payload, signal) {
 
 /** @param {string} loreHome @param {InstanceType<typeof Schedule>} schedule @param {InstanceType<typeof Watch>} watch */
 function registerIpc(loreHome, schedule, watch) {
-  ipcMain.handle("snapshot:read", () => readState(loreHome));
+  ipcMain.handle("snapshot:read", async () => {
+    const state = await readState(loreHome);
+    storeAddress = state.node.url;
+    return state;
+  });
   ipcMain.handle("dictation:permission", () => systemPreferences.askForMediaAccess("microphone"));
   ipcMain.handle("update:status", () => updates.update);
   ipcMain.handle("update:check", () => updates.check());
@@ -494,9 +498,17 @@ app.whenReady().then(async () => {
 /** Reading the ledger asks Cloudflare, so once a minute is plenty; coming back to the app checks at once. */
 const SALES_EVERY_MS = 60_000;
 
-/** Only a deployed store has a ledger or an inbox; until one exists Lore never asks. A store config is enough, wherever it is: the CLI finishes an unfinished install, or rebuilds a store set up inside Lore's home, on the first read. @param {string} loreHome */
-function hasStore(loreHome) {
-  return [join(STORE, "wrangler.jsonc"), join(STORE, "node_modules", ".bin", "wrangler"), join(loreHome, "node", "wrangler.jsonc")].some((path) => existsSync(path));
+/** The store's address as the last snapshot read it; undefined until one has been read. @type {string | null | undefined} */
+let storeAddress;
+
+/** Only a store that went online has a ledger or an inbox; until then Lore never asks. Its config, wherever it is (the CLI
+ * finishes an unfinished install, or rebuilds a store set up inside Lore's home, on the first read), and its recorded
+ * address: a deploy that stopped partway (an email not verified yet) leaves a config with no store behind it.
+ * @param {string} loreHome */
+async function hasStore(loreHome) {
+  if (![join(STORE, "wrangler.jsonc"), join(STORE, "node_modules", ".bin", "wrangler"), join(loreHome, "node", "wrangler.jsonc")].some((path) => existsSync(path))) return false;
+  if (storeAddress === undefined) storeAddress = (await readState(loreHome).catch(() => null))?.node.url;
+  return Boolean(storeAddress);
 }
 
 /** What the owner's agents saved comes in while Lore is open: once a minute, on coming back to the app, and now.
@@ -515,8 +527,12 @@ function watchSales(loreHome) {
   let checking = false;
   const check = async () => {
     // Only a deployed store has a ledger; skip the CLI entirely until one exists.
-    if (checking || !hasStore(loreHome)) return;
+    if (checking) return;
     checking = true;
+    if (!(await hasStore(loreHome))) {
+      checking = false;
+      return;
+    }
     try {
       const seen = await sales.readSeen(seenFile);
       // A store nobody has bought from or connected to yet has no ledger table: that is an empty
