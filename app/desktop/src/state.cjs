@@ -2,7 +2,7 @@ const { execFile, spawn } = require("node:child_process");
 const { createInterface } = require("node:readline");
 const { promisify } = require("node:util");
 const { randomBytes } = require("node:crypto");
-const { mkdirSync, readFileSync, writeFileSync } = require("node:fs");
+const { chmodSync, lstatSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } = require("node:fs");
 const { homedir, userInfo } = require("node:os");
 const { dirname, join, resolve } = require("node:path");
 
@@ -13,18 +13,68 @@ const root = resolve(__dirname, "../../..");
 let runtime = { file: "uv", args: ["run", "lore"], cwd: root };
 
 /** Where the CLI checks a decision came from this app: outside every root the agent's sandbox can read, in the account's own home rather than whatever HOME says. */
-const ATTENDED_KEY = join(userInfo().homedir, "Library", "Application Support", "Lore", "attended");
+const ATTENDED_KEYS = join(userInfo().homedir, "Library", "Application Support", "Lore", "attended.d");
 /** The store's code and tools, outside Lore's home, as the CLI finds them (lore/paths.py store_folder). */
 const STORE = process.env.LORE_STORE || join(homedir(), "Library", "Application Support", "Lore", "store");
-/** Fresh each launch and never in process.env, so the agent's shell cannot pass it. */
-const attendedKey = randomBytes(32).toString("hex");
 
-/** Rewritten on every decision, so the app that launched last still answers for itself. */
-function attended() {
-  mkdirSync(dirname(ATTENDED_KEY), { recursive: true });
-  writeFileSync(ATTENDED_KEY, attendedKey, { mode: 0o600 });
-  return { LORE_ATTENDED_KEY: attendedKey };
+/** This launch's key, in a file of its own so every running app and test run keeps its key; the key is fresh each launch and never in process.env, so the agent's shell cannot pass it. */
+class LaunchKey {
+  /** A file left by an app that crashed is cleared once its process is gone, or after this long. */
+  static STALE_MS = 7 * 24 * 60 * 60 * 1000;
+
+  /** @param {string} folder */
+  constructor(folder) {
+    this.folder = folder;
+    this.key = randomBytes(32).toString("hex");
+    /** Named by an id of its own, never the key. */
+    this.file = join(folder, randomBytes(16).toString("hex"));
+    this.started = false;
+  }
+
+  /** Rewritten on every decision, so a file cleared while the app ran comes back. @returns {{LORE_ATTENDED_KEY: string}} */
+  env() {
+    mkdirSync(this.folder, { recursive: true, mode: 0o700 });
+    chmodSync(this.folder, 0o700);
+    if (!this.started) {
+      this.started = true;
+      this.prune();
+      process.once("exit", () => this.remove());
+    }
+    writeFileSync(this.file, `${process.pid}\n${this.key}\n`, { mode: 0o600 });
+    return { LORE_ATTENDED_KEY: this.key };
+  }
+
+  remove() {
+    rmSync(this.file, { force: true });
+  }
+
+  /** Clear the files of apps that are no longer running. */
+  prune() {
+    for (const name of readdirSync(this.folder)) {
+      const file = join(this.folder, name);
+      try {
+        const { mtimeMs } = lstatSync(file);
+        const pid = Number(readFileSync(file, "utf8").split("\n")[0]);
+        if (Date.now() - mtimeMs > LaunchKey.STALE_MS || !LaunchKey.running(pid)) rmSync(file, { force: true });
+      } catch {
+        // Gone already, or not a file this app wrote.
+      }
+    }
+  }
+
+  /** @param {number} pid */
+  static running(pid) {
+    if (!Number.isInteger(pid) || pid <= 0) return false;
+    try {
+      process.kill(pid, 0);
+      return true;
+    } catch (error) {
+      return /** @type {NodeJS.ErrnoException} */ (error).code === "EPERM";
+    }
+  }
 }
+
+const launchKey = new LaunchKey(ATTENDED_KEYS);
 
 /** @param {string} [file] */
 function useRuntime(file) {
@@ -33,7 +83,7 @@ function useRuntime(file) {
 
 /** @param {string} loreHome @param {string[]} args @param {string} [decision] @param {AbortSignal} [signal] */
 async function lore(loreHome, args, decision, signal) {
-  const env = { ...process.env, LORE_HOME: loreHome, NO_COLOR: "1", ...(decision === undefined ? {} : attended()) };
+  const env = { ...process.env, LORE_HOME: loreHome, NO_COLOR: "1", ...(decision === undefined ? {} : launchKey.env()) };
   const pending = run(runtime.file, [...runtime.args, ...args], {
     cwd: runtime.cwd ?? loreHome,
     env,
@@ -617,6 +667,8 @@ module.exports = {
   cloudflareSignIn,
   SIGN_IN_UNFINISHED,
   saveProfile,
-  ATTENDED_KEY,
+  ATTENDED_KEYS,
+  LaunchKey,
+  launchKey,
   STORE
 };

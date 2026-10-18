@@ -7,8 +7,10 @@ import math
 import os
 import pwd
 import re
+import stat
 import sys
 import urllib.parse
+from itertools import islice
 from pathlib import Path
 from typing import Annotated, Mapping, get_args
 
@@ -1697,26 +1699,62 @@ def _interactive() -> bool:
     return sys.stdin.isatty() and sys.stdout.isatty()
 
 
-def attended_key() -> Path:
-    """Where the desktop app keeps its launch key: the account's own home, never `HOME`."""
+def attended_folder() -> Path:
+    """Where the desktop app keeps its launch keys: the account's own home, never `HOME`."""
     account = Path(pwd.getpwuid(os.getuid()).pw_dir)
-    return account / "Library" / "Application Support" / "Lore" / "attended"
+    return account / "Library" / "Application Support" / "Lore"
+
+
+# A launch key file holds a pid and 64 hex characters; anything larger was not written by the app.
+KEY_FILE_BYTES = 256
+# Each running app or test run keeps one file, removed when it quits; a folder past this is not read further.
+KEY_FILES = 64
+
+
+def _launch_key(path: Path) -> str:
+    """The key in one launch key file: a regular file opened without following a link, else nothing."""
+    try:
+        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+    except OSError:
+        return ""
+    try:
+        data = (
+            os.read(fd, KEY_FILE_BYTES + 1)
+            if stat.S_ISREG(os.fstat(fd).st_mode)
+            else b""
+        )
+    finally:
+        os.close(fd)
+    if len(data) > KEY_FILE_BYTES:
+        return ""
+    lines = data.decode("utf-8", "replace").split()
+    return lines[-1] if lines else ""
+
+
+def _launch_keys() -> list[str]:
+    """Every running app's launch key: one file each in `attended.d`, plus the single
+    `attended` file an app from the release before still writes."""
+    folder = attended_folder()
+    paths = [folder / "attended"]
+    try:
+        with os.scandir(folder / "attended.d") as entries:
+            paths += [Path(entry.path) for entry in islice(entries, KEY_FILES)]
+    except OSError:
+        pass
+    return [key for key in map(_launch_key, paths) if key]
 
 
 def _attended() -> bool:
     """Whether the Lore desktop app, the other attended surface, is piping a decision.
 
-    The app writes a fresh key each launch where its agent's sandbox cannot read,
+    Each app launch writes a fresh key where its agent's sandbox cannot read,
     and hands it only to the CLI processes it spawns, so the agent cannot pose as it.
     """
     key = os.environ.get("LORE_ATTENDED_KEY", "")
     if not key or sys.stdin.isatty():
         return False
-    try:
-        expected = attended_key().read_text(encoding="utf-8").strip()
-    except OSError:
-        return False
-    return hmac.compare_digest(key, expected)
+    matches = [hmac.compare_digest(key, expected) for expected in _launch_keys()]
+    return any(matches)
 
 
 def _desktop_decision(what: str) -> str:

@@ -35,10 +35,11 @@ from lore.store import JobKind, JobStatus, PublicationKind, Status, Store
 def desktop_stdin(text: str) -> Iterator[None]:
     """Stand in for Electron main piping a decision with its launch key."""
     with tempfile.TemporaryDirectory() as directory:
-        key = Path(directory) / "attended"
-        key.write_text("launch-key", encoding="utf-8")
+        keys = Path(directory) / "attended.d"
+        keys.mkdir()
+        (keys / "launch").write_text("1\nlaunch-key\n", encoding="utf-8")
         with (
-            patch.object(cli, "attended_key", return_value=key),
+            patch.object(cli, "attended_folder", return_value=Path(directory)),
             patch.dict(os.environ, {"LORE_ATTENDED_KEY": "launch-key"}),
             patch.object(sys, "stdin", StringIO(text)),
         ):
@@ -1917,8 +1918,7 @@ class PublicationApplyTest(LoreTestCase):
         (first,) = self.drafted()
         payload = json.dumps({"candidate": first, "approve": True})
         with tempfile.TemporaryDirectory() as directory:
-            key = Path(directory) / "attended"
-            key.write_text("launch-key", encoding="utf-8")
+            (Path(directory) / "attended").write_text("launch-key", encoding="utf-8")
             for env, tty in (
                 ({"LORE_ATTENDED_KEY": ""}, False),
                 ({"LORE_ATTENDED_KEY": "", "LORE_ATTENDED_SURFACE": "desktop"}, False),
@@ -1928,7 +1928,9 @@ class PublicationApplyTest(LoreTestCase):
                 stdin = StringIO(payload)
                 with self.subTest(env=env, tty=tty):
                     with (
-                        patch.object(cli, "attended_key", return_value=key),
+                        patch.object(
+                            cli, "attended_folder", return_value=Path(directory)
+                        ),
                         patch.dict(os.environ, env),
                         patch.object(sys, "stdin", stdin),
                         patch.object(stdin, "isatty", return_value=tty),
@@ -1943,22 +1945,77 @@ class PublicationApplyTest(LoreTestCase):
 
     def test_no_key_file_means_no_desktop_app(self) -> None:
         with (
-            patch.object(
-                cli, "attended_key", return_value=Path("/nonexistent/attended")
-            ),
+            patch.object(cli, "attended_folder", return_value=Path("/nonexistent")),
             patch.dict(os.environ, {"LORE_ATTENDED_KEY": "launch-key"}),
             patch.object(sys, "stdin", StringIO("")),
         ):
             self.assertFalse(cli._attended())
+
+    @contextmanager
+    def _keys(self) -> Iterator[Path]:
+        """A Lore folder with an empty `attended.d`, standing in for the account's."""
+        with (
+            tempfile.TemporaryDirectory() as directory,
+            patch.object(cli, "attended_folder", return_value=Path(directory)),
+            patch.object(sys, "stdin", StringIO("")),
+        ):
+            (Path(directory) / "attended.d").mkdir()
+            yield Path(directory)
+
+    def _accepts(self, key: str) -> bool:
+        with patch.dict(os.environ, {"LORE_ATTENDED_KEY": key}):
+            return cli._attended()
+
+    def test_each_running_app_keeps_its_own_key(self) -> None:
+        with self._keys() as folder:
+            (folder / "attended.d/one").write_text("101\nfirst-key\n", encoding="utf-8")
+            (folder / "attended.d/two").write_text(
+                "202\nsecond-key\n", encoding="utf-8"
+            )
+            self.assertTrue(self._accepts("first-key"))
+            self.assertTrue(self._accepts("second-key"))
+            self.assertFalse(self._accepts("third-key"))
+            self.assertFalse(self._accepts("101"))
+
+    def test_the_older_single_key_file_still_works_for_one_release(self) -> None:
+        with self._keys() as folder:
+            (folder / "attended").write_text("legacy-key", encoding="utf-8")
+            (folder / "attended.d/one").write_text("101\nnew-key\n", encoding="utf-8")
+            self.assertTrue(self._accepts("legacy-key"))
+            self.assertTrue(self._accepts("new-key"))
+
+    def test_only_small_regular_files_count_as_keys(self) -> None:
+        with self._keys() as folder:
+            elsewhere = folder / "elsewhere"
+            elsewhere.write_text("linked-key", encoding="utf-8")
+            (folder / "attended.d/link").symlink_to(elsewhere)
+            (folder / "attended").symlink_to(elsewhere)
+            big = "x" * cli.KEY_FILE_BYTES + "\nbig-key\n"
+            (folder / "attended.d/big").write_text(big, encoding="utf-8")
+            (folder / "attended.d/folder").mkdir()
+            os.mkfifo(folder / "attended.d/pipe")
+            for key in ("linked-key", "big-key"):
+                self.assertFalse(self._accepts(key), key)
+
+    def test_a_crowded_folder_is_read_only_so_far(self) -> None:
+        with self._keys() as folder:
+            for i in range(cli.KEY_FILES * 2):
+                (folder / f"attended.d/{i}").write_text(
+                    f"{i}\nkey-{i}\n", encoding="utf-8"
+                )
+            accepted = [
+                i for i in range(cli.KEY_FILES * 2) if self._accepts(f"key-{i}")
+            ]
+            self.assertEqual(len(accepted), cli.KEY_FILES)
 
     def test_the_key_is_read_from_the_account_home_not_home(self) -> None:
         # A shell can point HOME anywhere it can write; the account's home stays put.
         with tempfile.TemporaryDirectory() as directory:
             account, moved = Path(directory) / "account", Path(directory) / "moved"
             for home, key in ((account, "launch-key"), (moved, "planted-key")):
-                path = home / "Library/Application Support/Lore/attended"
+                path = home / "Library/Application Support/Lore/attended.d/launch"
                 path.parent.mkdir(parents=True)
-                path.write_text(key, encoding="utf-8")
+                path.write_text(f"1\n{key}\n", encoding="utf-8")
             user = MagicMock(pw_dir=str(account))
             for key, attended in (("planted-key", False), ("launch-key", True)):
                 with (

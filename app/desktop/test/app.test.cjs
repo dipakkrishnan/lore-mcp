@@ -1,9 +1,9 @@
 const assert = require("node:assert/strict");
 const { existsSync } = require("node:fs");
-const { access, constants, mkdir, mkdtemp, readdir, readFile, realpath, rename, rm, symlink, writeFile } = require("node:fs/promises");
+const { access, constants, mkdir, mkdtemp, readdir, readFile, realpath, rename, rm, stat, symlink, writeFile } = require("node:fs/promises");
 const { createServer } = require("node:http");
 const { homedir, tmpdir, userInfo } = require("node:os");
-const { dirname, join, sep } = require("node:path");
+const { basename, dirname, join, sep } = require("node:path");
 const { pathToFileURL } = require("node:url");
 const { spawn, spawnSync } = require("node:child_process");
 const { test } = require("node:test");
@@ -222,9 +222,10 @@ test("the sandbox reads the agents' memories, never their credential files", asy
   }
 });
 
-test("the sandbox hides the account's home and the key's folder, wherever HOME points", async () => {
+test("the sandbox hides the account's home and the keys' folder, wherever HOME points", async () => {
   const { sandboxPolicy } = await import("../src/agent.mjs");
-  const { ATTENDED_KEY: key } = require("../src/state.cjs");
+  const { ATTENDED_KEYS: key } = require("../src/state.cjs");
+  assert.equal(key, join(userInfo().homedir, "Library", "Application Support", "Lore", "attended.d"));
   const home = await mkdtemp(join(tmpdir(), "lore-policy-"));
   const moved = process.env.HOME;
   try {
@@ -238,6 +239,58 @@ test("the sandbox hides the account's home and the key's folder, wherever HOME p
   } finally {
     process.env.HOME = moved;
     await rm(home, { recursive: true });
+  }
+});
+
+test("each running app keeps its own launch key, and quitting removes only its own", async () => {
+  const { LaunchKey } = require("../src/state.cjs");
+  const root = await mkdtemp(join(tmpdir(), "lore-keys-"));
+  const folder = join(root, "attended.d");
+  try {
+    const [first, second] = [new LaunchKey(folder), new LaunchKey(folder)];
+    const keys = [first.env().LORE_ATTENDED_KEY, second.env().LORE_ATTENDED_KEY, first.env().LORE_ATTENDED_KEY];
+    assert.equal(keys[0], keys[2]);
+    assert.notEqual(keys[0], keys[1]);
+    assert.equal((await stat(folder)).mode & 0o777, 0o700);
+    for (const launch of [first, second]) {
+      assert.equal((await stat(launch.file)).mode & 0o777, 0o600);
+      assert.equal(await readFile(launch.file, "utf8"), `${process.pid}\n${launch.key}\n`);
+      assert.ok(!launch.file.includes(launch.key), "the file is not named by its key");
+    }
+    first.remove();
+    assert.deepEqual(await readdir(folder), [basename(second.file)]);
+    // A later launch clears what a crashed app left, and keeps what a running one wrote.
+    await writeFile(join(folder, "crashed"), `999999999\n${"a".repeat(64)}\n`);
+    new LaunchKey(folder).env();
+    assert.ok(!(await readdir(folder)).includes("crashed"));
+    assert.ok((await readdir(folder)).includes(basename(second.file)));
+  } finally {
+    await rm(root, { recursive: true });
+  }
+});
+
+test("the agent's shell can neither read a launch key nor add one", { skip: process.platform !== "darwin" }, async () => {
+  const { createSandboxedBashOperations } = await import("../src/agent.mjs");
+  const { SandboxManager } = await import("@anthropic-ai/sandbox-runtime");
+  const { ATTENDED_KEYS, LaunchKey } = require("../src/state.cjs");
+  const launch = new LaunchKey(ATTENDED_KEYS);
+  launch.env();
+  const planted = join(ATTENDED_KEYS, "planted");
+  const { root, loreHome, place } = await sandboxed({ hidden: [dirname(ATTENDED_KEYS)] });
+  try {
+    const bash = createSandboxedBashOperations(place);
+    assert.equal((await bash.exec("ls . && printf ok > ok", loreHome, { onData: () => {} })).exitCode, 0, "the shell itself runs");
+    let said = "";
+    for (const command of [`ls ${JSON.stringify(ATTENDED_KEYS)}`, `cat ${JSON.stringify(launch.file)}`, `printf '1\\nkey\\n' > ${JSON.stringify(planted)}`]) {
+      const result = await bash.exec(command, loreHome, { onData: (data) => void (said += String(data)) });
+      assert.notEqual(result.exitCode, 0, command);
+    }
+    assert.ok(!said.includes(launch.key));
+    assert.ok(!existsSync(planted));
+  } finally {
+    launch.remove();
+    await SandboxManager.reset();
+    await rm(root, { recursive: true, force: true });
   }
 });
 
