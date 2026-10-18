@@ -297,7 +297,7 @@ interface Window {
     snapshot(): Promise<Snapshot>;
     retrySetup(): Promise<void>;
     agentStatus(): Promise<AgentStatus>;
-    prompt(input: { text: string; task: AgentTask; from?: AgentTask; memory?: number; source?: string }): Promise<void>;
+    prompt(input: { text: string; task: AgentTask; from?: AgentTask; memory?: number; source?: string; files?: string[] }): Promise<void>;
     history(task: AgentTask): Promise<Line[]>;
     tasks(): Promise<TaskRecord[]>;
     restart(task: AgentTask): Promise<void>;
@@ -385,6 +385,8 @@ type OwnerQuestion = {
   options: Array<{ label: string; description: string; recommended?: boolean }>;
   format?: "evm_address";
   multiSelect: boolean;
+  /** Everything a yes would save, shown in full beneath the question. The app's own cards only; the agent's ask_user never sets it. */
+  detail?: string;
 };
 
 type AuthPrompt =
@@ -396,7 +398,8 @@ type AuthPrompt =
     };
 
 type AgentRequest =
-  | { type: "question"; id: string; task: AgentTask | null; questions: OwnerQuestion[] }
+  /** `source: "app"` marks a card the app wrote itself; only those show a question's `detail`. */
+  | { type: "question"; id: string; task: AgentTask | null; questions: OwnerQuestion[]; source?: "app" }
   | { type: "memories"; id: string; task: AgentTask | null; entries: ProposedMemory[] }
   | { type: "blueprint"; id: string; task: AgentTask | null; fields: BlueprintFields; evidence: string }
   | { type: "auth-prompt"; id: string; task: AgentTask | null; prompt: AuthPrompt }
@@ -429,7 +432,8 @@ type AgentEvent =
 type LoreAgentInstance = {
   readonly activeTask: AgentTask | null;
   status(): Promise<AgentStatus>;
-  prompt(text: string, task: AgentTask, from?: AgentTask, memory?: number, source?: string): Promise<void>;
+  prompt(text: string, task: AgentTask, from?: AgentTask, memory?: number, source?: string, files?: string[]): Promise<void>;
+  attach(files: Attachment[]): Promise<string[]>;
   history(task: AgentTask): Line[];
   tasks(): TaskRecord[];
   restart(task: AgentTask): void;
@@ -442,10 +446,17 @@ type LoreAgentInstance = {
   settled(): Promise<void>;
 };
 
+/** A file the owner attached to a turn, checked by the app for the agent to keep a copy of. */
+type Attachment = { name: string; path: string; size: number };
+
+type OpenStore = { network?: "real" | "test"; wallet?: string; inboxOnly?: boolean };
+
 type LoreAgentOptions = {
   loreHome: string;
   skillsDir: string;
   binDir?: string;
+  /** Folders the agent's sandbox may never read, wherever HOME points. */
+  hidden?: string[];
   credentials: import("@earendil-works/pi-ai").CredentialStore;
   emit(event: AgentEvent): void;
   askUser(questions: OwnerQuestion[]): Promise<Record<string, string>>;
@@ -454,6 +465,10 @@ type LoreAgentOptions = {
   /** Resolves to the amount the owner confirmed, or null if they declined. */
   proposePrice(amount: number, reason: string): Promise<number | null>;
   cloudflareLogin(): Promise<string>;
+  /** Deploy or redeploy the store through the app; resolves to how it went, in a sentence or a few lines. */
+  openStore(store: OpenStore): Promise<string>;
+  /** Save the onboarding profile through the app; resolves to what the CLI said. */
+  saveProfile(profile: Record<string, unknown>): Promise<string>;
   openUrl(page: { title: string; url: string; note: string }): Promise<string>;
   /** How many staged drafts still wait on the owner's cards. */
   drafts?(): Promise<number>;

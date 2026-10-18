@@ -5,6 +5,7 @@ import hmac
 import json
 import math
 import os
+import pwd
 import re
 import sys
 import urllib.parse
@@ -30,7 +31,7 @@ from . import sources as sources_module
 from . import usage
 from .agents import Agents
 from .inbox import AgentApp, Inbox, InboxError
-from .paths import home
+from .paths import home, store_folder
 from .sources import Registry, available_sources
 from .store import (
     FREE_COPIES,
@@ -540,7 +541,7 @@ def parser() -> argparse.ArgumentParser:
     )
     push.add_argument(
         "--worker-dir",
-        default=str(home() / "node"),
+        default=str(store_folder()),
         help="the node source directory (default: the one `lore node deploy` stages)",
     )
     push.add_argument(
@@ -891,8 +892,11 @@ def setup(yes: bool = False) -> int:
     """Choose native memory sources and perform the first import."""
     logo()
     automation_dir = home() / "automation"
-    automation_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
-    automation_dir.chmod(0o700)
+    # Touched only when it needs to change: the desktop agent's sandbox may read it, never write it.
+    if not automation_dir.is_dir():
+        automation_dir.mkdir(mode=0o700, parents=True)
+    if automation_dir.stat().st_mode & 0o777 != 0o700:
+        automation_dir.chmod(0o700)
     muted(
         "Lore imports only agent-generated memory files. Session transcripts stay untouched."
     )
@@ -1693,7 +1697,10 @@ def _interactive() -> bool:
     return sys.stdin.isatty() and sys.stdout.isatty()
 
 
-ATTENDED_KEY = Path.home() / "Library" / "Application Support" / "Lore" / "attended"
+def attended_key() -> Path:
+    """Where the desktop app keeps its launch key: the account's own home, never `HOME`."""
+    account = Path(pwd.getpwuid(os.getuid()).pw_dir)
+    return account / "Library" / "Application Support" / "Lore" / "attended"
 
 
 def _attended() -> bool:
@@ -1703,11 +1710,13 @@ def _attended() -> bool:
     and hands it only to the CLI processes it spawns, so the agent cannot pose as it.
     """
     key = os.environ.get("LORE_ATTENDED_KEY", "")
+    if not key or sys.stdin.isatty():
+        return False
     try:
-        expected = ATTENDED_KEY.read_text(encoding="utf-8").strip()
+        expected = attended_key().read_text(encoding="utf-8").strip()
     except OSError:
         return False
-    return bool(key) and hmac.compare_digest(key, expected) and not sys.stdin.isatty()
+    return hmac.compare_digest(key, expected)
 
 
 def _desktop_decision(what: str) -> str:
@@ -2128,7 +2137,7 @@ def _push_after_approval() -> None:
     if not open_for_sale:
         return
     try:
-        push(str(home() / "node"))
+        push(str(store_folder()))
     except (OSError, ValueError) as error:
         with Store() as store:
             store.set_setting("publish_pending", True)
@@ -2154,7 +2163,7 @@ def publication_revoke(publication_id: int) -> int:
     if not node_url:
         return 0
     try:
-        return push(str(home() / "node"))
+        return push(str(store_folder()))
     except (OSError, ValueError) as error:
         with Store() as store:
             store.set_setting("revocation_pending", True)
@@ -2253,6 +2262,9 @@ def push(worker_dir: str, local: bool = False) -> int:
 
 def _worker(worker_dir: str) -> Path:
     worker = Path(worker_dir)
+    if worker == store_folder() and not (worker / "wrangler.jsonc").is_file():
+        # A store set up inside Lore's home is rebuilt in its own folder first.
+        deploy_module.tools()
     if not (worker / "wrangler.jsonc").is_file():
         raise ValueError(
             f"no node source at {worker}/ — run `lore node deploy` first, "
@@ -2475,7 +2487,7 @@ def marketplace(args: argparse.Namespace) -> int:
     """List, delist, or check this store on the public marketplace."""
     command = args.marketplace_command or "status"
     market = marketplace_module.Marketplace(
-        lambda: push_job(_worker(str(home() / "node")), False)
+        lambda: push_job(_worker(str(store_folder())), False)
     )
     if command == "status":
         listing = market.status()

@@ -167,7 +167,7 @@ class OwnerSideTest(NodeCase):
                 Inbox().agents()
 
     def test_no_staged_node_is_a_plain_error(self) -> None:
-        (self.lore_home / "node/node_modules/.bin/wrangler").unlink()
+        (self.store / "node_modules/.bin/wrangler").unlink()
         with self.assertRaisesRegex(InboxError, "open your store first"):
             Inbox().waiting()
 

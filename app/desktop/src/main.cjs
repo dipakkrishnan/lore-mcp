@@ -1,7 +1,7 @@
 const { randomUUID } = require("node:crypto");
 const { existsSync } = require("node:fs");
 const { appendFile } = require("node:fs/promises");
-const { join } = require("node:path");
+const { dirname, join } = require("node:path");
 const { app, autoUpdater, BrowserWindow, clipboard, dialog, ipcMain, powerMonitor, safeStorage, shell, systemPreferences } = require("electron");
 const { provision, skillsDir, whisper } = require("./runtime.cjs");
 const { transcribe } = require("./dictation.cjs");
@@ -11,7 +11,8 @@ const reading = require("./reading.cjs");
 const checkin = require("./checkin.cjs");
 const { Schedule } = require("./routines.cjs");
 const { Watch, WATCH_EVERY_MS, AgentApps } = require("./agents.cjs");
-const { lore, listRoutines, runRoutine, changeRoutine, addRoutine, editRoutine, switchSource, loreStream, openable, readState, readSales, readViews, searchMemories, readMemory, creditMemories, renameMemory, editMemory, captureMemories, previewPage, setPrice, setFreeCopies, candidates, decide, extrasCandidates, decideExtras, approveExtras, reportFeedback, listStore, cardStatus, connectCards, switchCards, listingStatus, sourceCatalog, sourceChoices, connectSource, signIn, readSource, removeSource, listAgents, connectAgent, agentKey, disconnectAgent, agentsWaiting, useRuntime } = require("./state.cjs");
+const { checkAttachments } = require("./attachments.cjs");
+const { lore, listRoutines, runRoutine, changeRoutine, addRoutine, editRoutine, switchSource, loreStream, openable, readState, readSales, readViews, searchMemories, readMemory, creditMemories, renameMemory, editMemory, captureMemories, previewPage, setPrice, setFreeCopies, candidates, decide, extrasCandidates, decideExtras, approveExtras, reportFeedback, listStore, cardStatus, connectCards, switchCards, listingStatus, sourceCatalog, sourceChoices, connectSource, signIn, readSource, removeSource, listAgents, connectAgent, agentKey, disconnectAgent, agentsWaiting, useRuntime, openStore, saveProfile, ATTENDED_KEY, STORE } = require("./state.cjs");
 
 if (process.env.LORE_DESKTOP_USER_DATA) app.setPath("userData", process.env.LORE_DESKTOP_USER_DATA);
 // Two copies sharing one credentials file each refresh the sign-in, and the provider refuses the second.
@@ -75,12 +76,14 @@ function registerIpc(loreHome, schedule, watch) {
   ipcMain.handle("dictation:transcribe", (_event, /** @type {ArrayBuffer} */ wav) => transcribe({ ...whisper, dir: app.getPath("temp") }, Buffer.from(wav)));
   ipcMain.handle("setup:retry", () => (agent ? undefined : boot(loreHome)));
   ipcMain.handle("agent:status", () => agent?.status() ?? { credentials: [] });
-  ipcMain.handle("agent:prompt", (_event, input) => {
+  ipcMain.handle("agent:prompt", async (_event, input) => {
     if (!input || typeof input.text !== "string" || input.text.length > 100_000 || !TASKS.has(input.task) || (input.from !== undefined && !TASKS.has(input.from)) || (input.memory !== undefined && !Number.isInteger(input.memory)) || (input.source !== undefined && typeof input.source !== "string")) {
       throw new Error("Invalid prompt");
     }
+    // The agent reads copies, inside its own sandbox; never the owner's files where they lie.
+    const files = await ready().attach(await checkAttachments(loreHome, input.files ?? [], hidden()));
     // The owner's first word to a check-in answers it, once the turn went through; one that failed leaves it waiting.
-    const turn = ready().prompt(input.text, input.task, input.from, input.memory, input.source);
+    const turn = ready().prompt(input.text, input.task, input.from, input.memory, input.source, files);
     return input.task === "evening" ? turn.then(() => checkIns.answer()) : turn;
   });
   ipcMain.handle("agent:history", (_event, task) => {
@@ -433,9 +436,9 @@ app.whenReady().then(async () => {
 /** Reading the ledger asks Cloudflare, so once a minute is plenty; coming back to the app checks at once. */
 const SALES_EVERY_MS = 60_000;
 
-/** Only a deployed store has a ledger or an inbox; until one exists Lore never asks. @param {string} loreHome */
+/** Only a deployed store has a ledger or an inbox; until one exists Lore never asks. A store config is enough, wherever it is: the CLI finishes an unfinished install, or rebuilds a store set up inside Lore's home, on the first read. @param {string} loreHome */
 function hasStore(loreHome) {
-  return existsSync(join(loreHome, "node", "node_modules", ".bin", "wrangler"));
+  return [join(STORE, "wrangler.jsonc"), join(STORE, "node_modules", ".bin", "wrangler"), join(loreHome, "node", "wrangler.jsonc")].some((path) => existsSync(path));
 }
 
 /** What the owner's agents saved comes in while Lore is open: once a minute, on coming back to the app, and now.
@@ -488,6 +491,11 @@ function watchSales(loreHome) {
   void check();
 }
 
+/** Folders the agent may never read: the app's own data, where the decision key lives, and the store's code. */
+function hidden() {
+  return [app.getPath("userData"), dirname(ATTENDED_KEY), STORE];
+}
+
 /** @param {string} loreHome */
 async function boot(loreHome) {
   try {
@@ -514,6 +522,7 @@ async function start(loreHome) {
     loreHome,
     skillsDir,
     binDir: runtime?.binDir,
+    hidden: hidden(),
     credentials,
     emit,
     askUser: async (questions) =>
@@ -567,6 +576,19 @@ async function start(loreHome) {
         throw new Error(last.replace(/^lore: /, "") || /** @type {Error} */ (error).message);
       }
       return last;
+    },
+    openStore: async (store) => {
+      const said = await openStore(loreHome, store, async (questions) => /** @type {Record<string, string>} */ (await request("question", { questions, source: "app" })));
+      // A store left half-changed is told to the owner directly, not only to the agent.
+      const half = said.split("\n").find((line) => line.startsWith("Your store may be half-updated"));
+      if (half) emit({ type: "message", task: agent?.activeTask ?? null, text: half });
+      emit({ type: "changed" });
+      return said;
+    },
+    saveProfile: async (profile) => {
+      const said = await saveProfile(loreHome, profile, async (questions) => /** @type {Record<string, string>} */ (await request("question", { questions, source: "app" })));
+      emit({ type: "changed" });
+      return said;
     },
     openUrl: async (page) => {
       if (!openable(page.url)) return "Lore does not open that address; only Coinbase, Cloudflare and Basescan pages.";

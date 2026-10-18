@@ -313,13 +313,13 @@ class SkillContractTest(unittest.TestCase):
         order = [
             skill.index("no active publication"),
             skill.index("price through `propose_price`"),
-            skill.index("cloudflare_login` if needed"),
+            skill.index("call `cloudflare_login` if the owner has not signed in"),
             skill.index("the payout address, last"),
-            skill.index("lore node deploy --wallet <address> --network real"),
+            skill.index("`open_store` with network `real` and the address"),
         ]
         self.assertEqual(order, sorted(order))
         self.assertIn("no coinbase developer keys in the app", skill)
-        self.assertIn("never asked again", skill)
+        self.assertIn("never asks: call `open_store` without an address", skill)
 
     def test_the_payment_skill_refuses_a_recovery_phrase(self) -> None:
         """The one secret worse than an API key to land in a transcript."""

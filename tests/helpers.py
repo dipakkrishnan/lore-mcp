@@ -43,8 +43,12 @@ class LoreTestCase(unittest.TestCase):
         os.environ["LORE_HOME"] = str(self.lore_home)
         os.environ["CLAUDE_HOME"] = str(self.claude_home)
         os.environ["CODEX_HOME"] = str(self.codex_home)
+        self.store = root / "store"
+        os.environ["LORE_STORE"] = str(self.store)
         # Usage events go nowhere from a test: a closed local port, refused at once.
         os.environ["LORE_USAGE_URL"] = "http://127.0.0.1:9/events"
+        # No test opens the desktop gate unless it hands the CLI its own key file.
+        os.environ.pop("LORE_ATTENDED_KEY", None)
         self.addCleanup(self.tmp.cleanup)
         # Sign-ins and the agent inbox keys live in the Keychain; never the owner's own.
         self.keyring = FakeKeyring()
@@ -96,9 +100,10 @@ class NodeCase(LoreTestCase):
     def setUp(self) -> None:
         super().setUp()
         self.d1 = D1(Path(self.tmp.name) / "d1.sqlite")
-        wrangler = self.lore_home / "node/node_modules/.bin/wrangler"
+        wrangler = self.store / "node_modules/.bin/wrangler"
         wrangler.parent.mkdir(parents=True)
         wrangler.write_text("#!/bin/sh\n")
+        (self.store / ".installed").write_text("")
         patcher = patch("lore.deploy.subprocess.run", side_effect=self.d1.wrangler)
         self.wrangler = patcher.start()
         self.addCleanup(patcher.stop)

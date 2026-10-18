@@ -3026,6 +3026,7 @@ function renderRequest(event) {
       const fieldset = el("fieldset");
       fieldset.dataset.question = question.question;
       fieldset.append(el("legend", "q", question.question));
+      if (event.source === "app" && question.detail) fieldset.append(el("div", "detail", question.detail));
       const choices = el("div", "choices");
       for (const option of question.options) {
         const label = el("label", "choice");
@@ -3686,12 +3687,12 @@ async function act(action, failed) {
 
 /** @param {string} text @param {AgentTask} [from] @param {number} [memory] A memory the agent starts from, named to it and never shown. @param {string} [source] Likewise, a connected app's memories. */
 async function send(text, from, memory, source) {
-  const files = attachments.length ? `\n\nFiles to read:\n${attachments.map((path) => `- ${path}`).join("\n")}` : "";
+  const files = attachments;
   attachments = [];
   renderAttachments();
   say(text, true);
   try {
-    await window.lore.prompt({ text: text + files, task, from, memory, source });
+    await window.lore.prompt({ text, task, from, memory, source, files });
     await load();
   } catch (error) {
     say(reason(error, "Something went wrong."));

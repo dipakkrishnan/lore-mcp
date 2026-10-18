@@ -129,7 +129,7 @@ class MarketplaceTest(LoreTestCase):
         self.assertIn("VALUES ('listed_name','Ada');", sql)
 
     def test_list_pushes_the_node_and_prints_only_json(self) -> None:
-        worker = self.lore_home / "node"
+        worker = self.store
         worker.mkdir(parents=True)
         (worker / "wrangler.jsonc").write_text("{}")
         out = StringIO()

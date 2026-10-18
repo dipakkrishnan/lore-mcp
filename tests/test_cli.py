@@ -38,7 +38,7 @@ def desktop_stdin(text: str) -> Iterator[None]:
         key = Path(directory) / "attended"
         key.write_text("launch-key", encoding="utf-8")
         with (
-            patch.object(cli, "ATTENDED_KEY", key),
+            patch.object(cli, "attended_key", return_value=key),
             patch.dict(os.environ, {"LORE_ATTENDED_KEY": "launch-key"}),
             patch.object(sys, "stdin", StringIO(text)),
         ):
@@ -1682,7 +1682,7 @@ class PublicationApplyTest(LoreTestCase):
             captured(),
         ):
             self.assertEqual(cli.publication_apply(path), 0)
-        push.assert_called_once_with(str(cli.home() / "node"))
+        push.assert_called_once_with(str(cli.store_folder()))
 
     def test_a_failed_approval_push_is_recorded_never_silently_dropped(self) -> None:
         with Store() as store:
@@ -1784,14 +1784,14 @@ class PublicationApplyTest(LoreTestCase):
             captured(),
         ):
             self.assertEqual(cli.publication_decide(), 0)
-        push.assert_called_once_with(str(cli.home() / "node"))
+        push.assert_called_once_with(str(cli.store_folder()))
         with (
             desktop_stdin(json.dumps({"candidate": second, "approve": True})),
             patch.object(cli, "push", return_value=0) as push,
             captured(),
         ):
             self.assertEqual(cli.publication_decide(), 0)
-        push.assert_called_once_with(str(cli.home() / "node"))
+        push.assert_called_once_with(str(cli.store_folder()))
 
     def test_a_failed_desktop_approval_push_is_recorded_never_silently_dropped(
         self,
@@ -1928,7 +1928,7 @@ class PublicationApplyTest(LoreTestCase):
                 stdin = StringIO(payload)
                 with self.subTest(env=env, tty=tty):
                     with (
-                        patch.object(cli, "ATTENDED_KEY", key),
+                        patch.object(cli, "attended_key", return_value=key),
                         patch.dict(os.environ, env),
                         patch.object(sys, "stdin", stdin),
                         patch.object(stdin, "isatty", return_value=tty),
@@ -1943,11 +1943,33 @@ class PublicationApplyTest(LoreTestCase):
 
     def test_no_key_file_means_no_desktop_app(self) -> None:
         with (
-            patch.object(cli, "ATTENDED_KEY", Path("/nonexistent/attended")),
+            patch.object(
+                cli, "attended_key", return_value=Path("/nonexistent/attended")
+            ),
             patch.dict(os.environ, {"LORE_ATTENDED_KEY": "launch-key"}),
             patch.object(sys, "stdin", StringIO("")),
         ):
             self.assertFalse(cli._attended())
+
+    def test_the_key_is_read_from_the_account_home_not_home(self) -> None:
+        # A shell can point HOME anywhere it can write; the account's home stays put.
+        with tempfile.TemporaryDirectory() as directory:
+            account, moved = Path(directory) / "account", Path(directory) / "moved"
+            for home, key in ((account, "launch-key"), (moved, "planted-key")):
+                path = home / "Library/Application Support/Lore/attended"
+                path.parent.mkdir(parents=True)
+                path.write_text(key, encoding="utf-8")
+            user = MagicMock(pw_dir=str(account))
+            for key, attended in (("planted-key", False), ("launch-key", True)):
+                with (
+                    self.subTest(key=key),
+                    patch.object(cli.pwd, "getpwuid", return_value=user),
+                    patch.dict(
+                        os.environ, {"HOME": str(moved), "LORE_ATTENDED_KEY": key}
+                    ),
+                    patch.object(sys, "stdin", StringIO("")),
+                ):
+                    self.assertEqual(cli._attended(), attended)
 
 
 class PublicationExtrasTest(LoreTestCase):
@@ -2010,7 +2032,7 @@ class PublicationExtrasTest(LoreTestCase):
             captured() as out,
         ):
             self.assertEqual(cli.extras_decide(), 0)
-        push.assert_called_once_with(str(cli.home() / "node"))
+        push.assert_called_once_with(str(cli.store_folder()))
         self.assertEqual(json.loads(out.getvalue()), {"approved": 1, "remaining": 1})
         piece = self.live()
         self.assertEqual(
@@ -2058,7 +2080,7 @@ class PublicationExtrasTest(LoreTestCase):
             captured() as out,
         ):
             self.assertEqual(cli.extras_decide(), 0)
-        push.assert_called_once_with(str(cli.home() / "node"))
+        push.assert_called_once_with(str(cli.store_folder()))
         self.assertEqual(json.loads(out.getvalue()), {"approved": 2, "remaining": 1})
         self.assertEqual(self.live().sample, "Edited.")
         with Store() as store:
@@ -2250,7 +2272,7 @@ class PublicationCommandTest(LoreTestCase):
             for action in (
                 lambda: cli.publication_revoke(pid),
                 lambda: cli.publication_reapprove([pid]),
-                lambda: cli.push(str(cli.home() / "node")),
+                lambda: cli.push(str(cli.store_folder())),
             ):
                 with self.assertRaisesRegex(
                     ValueError, "attended terminal or the Lore desktop app"
@@ -2279,7 +2301,7 @@ class PublicationCommandTest(LoreTestCase):
             store.set_setting("node_selling", True)
         with patch.object(cli, "push", return_value=0) as push, captured():
             self.assertEqual(cli.publication_revoke(pid), 0)
-        push.assert_called_once_with(str(cli.home() / "node"))
+        push.assert_called_once_with(str(cli.store_folder()))
 
     def test_a_failed_revocation_push_is_recorded_never_silently_dropped(self) -> None:
         pid = self.publish()
@@ -2370,7 +2392,7 @@ class PushTest(LoreTestCase):
         interactive.start()
         self.addCleanup(interactive.stop)
         self.memory_id = self.seed_memory("Pricing lesson")
-        self.worker = self.lore_home / "node"
+        self.worker = self.store
         self.worker.mkdir(parents=True)
         (self.worker / "wrangler.jsonc").write_text("{}")
         # A store its owner opened for sale (XC-069); unset is a new store that sells nothing.
@@ -2970,6 +2992,46 @@ class DashboardTest(LoreTestCase):
         review.assert_called_once_with("", "private", 0)
         sync.assert_called_once_with()
         self.assertIn("[q] quit", text)
+
+
+class OwnerOnlyCommandsTest(LoreTestCase):
+    """What the desktop agent's shell is: no terminal, no desktop key. Every owner-only
+    command refuses there. The app runs them itself, so nothing relies on this refusal."""
+
+    COMMANDS = (
+        ["push"],
+        ["node", "secret", "CDP_API_KEY_ID"],
+        ["publication", "decide"],
+        ["publication", "review", "candidates.json"],
+        ["publication", "revoke", "1"],
+        ["publication", "reapprove", "1"],
+        ["publication", "extras", "decide"],
+        ["marketplace", "list"],
+        ["marketplace", "delist"],
+        ["cards", "connect"],
+        ["cards", "account", "acct_1Seller"],
+        ["cards", "off"],
+        ["agents", "connect", "--app", "claude", "--", "Claude"],
+        ["agents", "key", "claude"],
+        ["agents", "revoke", "claude", "--keep"],
+        ["answer", "on", "proxy.txt", "0.1"],
+    )
+
+    def test_each_refuses_without_a_terminal_or_the_desktop_app(self) -> None:
+        with Store() as store:
+            store.set_setting("node_url", "https://store.example/mcp")
+        for argv in self.COMMANDS:
+            with (
+                self.subTest(argv=argv),
+                patch.object(sys, "stdin", StringIO("{}")),
+                captured(),
+                redirect_stderr(StringIO()) as err,
+            ):
+                self.assertEqual(cli.main(argv), 1)
+                self.assertRegex(
+                    err.getvalue(),
+                    "needs an attended (interactive )?terminal|accepted only from the Lore desktop app",
+                )
 
 
 if __name__ == "__main__":
