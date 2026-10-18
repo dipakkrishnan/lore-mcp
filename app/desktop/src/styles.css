@@ -743,7 +743,7 @@ dialog.palette[open] { animation: rise 0.12s ease; }
 .first-saved .row:not(:first-child) { justify-content: flex-start; gap: 12px; }
 .first-saved .row:not(:first-child) .t b { font-family: var(--sans); font-size: 14px; font-weight: 500; }
 .first-saved .row:last-child { padding-bottom: 14px; }
-.first-saved .first-saved-wait { padding: 0 18px 14px; }
+.first-saved .first-saved-wait, .first-saved .first-saved-apps { padding: 0 18px 14px; }
 .first-run-actions { display: flex; }
 /* A first run's header is a small title and a quiet way out, not a page heading. */
 main header.compact { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; padding-top: 22px; padding-bottom: 10px; }
