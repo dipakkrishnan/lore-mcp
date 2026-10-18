@@ -188,6 +188,11 @@ lore profile - <<'LORE_PROFILE'
 LORE_PROFILE
 ```
 
+**Lore desktop:** never run `lore profile` yourself; your shell cannot write Lore's
+automation folder. Call `save_profile` with the same fields (no `executor` or `model`:
+Lore keeps the rhythm). The app saves it through `lore profile` and returns what was
+saved, or why not.
+
 Validates the profile, writes `profile.json` plus the executor prompt (0600), and installs
 one recurring local task. Codex uses its local automation definition. Claude uses a
 macOS LaunchAgent to run `claude -p`; cloud routines cannot read the owner's local Lore

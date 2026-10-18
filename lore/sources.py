@@ -4,6 +4,7 @@ import hashlib
 import json
 import os
 import re
+import sys
 import urllib.request
 import zipfile
 from abc import ABC, abstractmethod
@@ -24,6 +25,7 @@ from typing import (
     Iterator,
     Literal,
     TypeVar,
+    get_args,
 )
 from urllib.error import HTTPError
 from urllib.parse import parse_qs, quote, urlencode, urljoin, urlsplit
@@ -57,7 +59,7 @@ from . import __version__
 from .inbox import AgentApp, Forget, Inbox, InboxError, Opened
 from .paths import claude_home, codex_home, home, obsidian_home
 from .signin import Keychain, Loopback
-from .store import Store
+from .store import Contributor, Store
 
 Kind = Literal["folder", "export", "feed", "mcp", "agent"]
 
@@ -101,6 +103,22 @@ class Source:
     # Which personal agent writes to it, vouched for by its inbox key.
     app: AgentApp | None = None
 
+    def contributor(self) -> Contributor:
+        """Who this source is, as a memory it brought in names it: an agent by its name and
+        app, any other app by the app's name."""
+        if self.kind == "agent":
+            return Contributor(
+                kind="agent", id=self.name, label=self.label, mark=self.app or "other"
+            )
+        if self.connector:
+            connector = Connector.named(self.connector)
+            return Contributor(
+                kind="app", id=self.name, label=connector.name, mark=connector.id
+            )
+        # Claude Code and Codex have marks of their own; an owner's plain folder has none.
+        mark = self.name if self.name in BUILT_IN_MARKS else ""
+        return Contributor(kind="app", id=self.name, label=self.label, mark=mark)
+
     def reader(self) -> Reader:
         if self.connector:
             return Connector.named(self.connector).reader(self)
@@ -138,6 +156,27 @@ class Source:
             raise SourceError(str(error)) from None
         locator, default = source.reader().locate(locator)
         return replace(source, label=label or default, locator=locator)
+
+
+BUILT_IN_MARKS = ("claude", "codex")
+# Lore's own writing, with nobody else on record.
+LORE: dict[str, object] = {
+    "kind": "lore",
+    "id": "lore",
+    "label": "Lore",
+    "mark": "lore",
+}
+
+
+def marks() -> set[str]:
+    """Every mark a contributor may name: an app's, an agent's, a built-in agent
+    history's, the routine's clock, the owner's pen or file, and Lore's own."""
+    return (
+        {app.id for app in Connector.catalog()}
+        | set(get_args(AgentApp))
+        | set(BUILT_IN_MARKS)
+        | {"clock", "pen", "file", "lore", ""}
+    )
 
 
 class Reader(ABC):
@@ -1581,7 +1620,7 @@ class AgentReader(Reader):
 
 
 class PersonalAgent(Connector):
-    """Grok, Muse, ChatGPT or Claude, saving to the owner's inbox. Each agent the owner
+    """Grok, ChatGPT or Claude, saving to the owner's inbox. Each agent the owner
     connects is its own source, so every memory says which one saved it."""
 
     id = "agent"
@@ -1792,6 +1831,7 @@ class Registry:
                 "name": name,
                 "label": known[name].label,
                 "connector": known[name].connector,
+                "app": known[name].app,
                 **{key: value for key, value in report[name].items() if key != "found"},
                 "state": self.reads[name].state.value,
             }
@@ -1873,6 +1913,16 @@ class Registry:
             )
             stats[result] += 1
         reader.settle()
+        if source.origin != "automation":
+            try:
+                self.store.credit_source(source.name, source.contributor())
+            except Exception as error:
+                # Who brought it in is a nicety: a source whose name can't be kept on
+                # record still imports, and never stops the sources after it.
+                print(
+                    f"lore: could not record {source.name} as the source: {error}",
+                    file=sys.stderr,
+                )
         stats["found"] += reader.errors
         stats["errors"] = reader.errors
         self.reads[source.name] = LastRead(
@@ -1880,10 +1930,73 @@ class Registry:
         )
         return stats
 
+    def provenance(self, rows: list[dict[str, object]]) -> list[dict[str, object]]:
+        """Fill in `sources` for each memory with nobody on record: who its source says
+        brought it in. Lore's own writing with nobody on record says it was Lore's."""
+        named = {source.name: source for source in self.sources}
+        for row in rows:
+            if row["sources"]:
+                continue
+            try:
+                brought = self._brought(row, named)
+            except Exception:
+                # Whatever a memory holds, one that can't be named says Lore's and never
+                # keeps the rest of the library from loading.
+                brought = LORE
+            row["sources"] = [{**brought, "at": None}]
+        return rows
+
+    def _brought(
+        self, row: dict[str, object], named: dict[str, Source]
+    ) -> dict[str, object]:
+        source, project = str(row["source"]), str(row["project"])
+        if source == "automation":
+            return LORE
+        if source == "capture":
+            return self._captured(str(row["source_path"])).model_dump()
+        if source in named:
+            return named[source].contributor().model_dump()
+        # A source since removed: its name says which app, and an agent's memories
+        # carry the agent's name as their project.
+        app = source.rpartition("-")[0]
+        if app == "agent":
+            return Contributor(
+                kind="agent", id=source, label=project or "Your agent", mark="other"
+            ).model_dump()
+        try:
+            connector = Connector.named(app)
+        except SourceError:
+            return Contributor(
+                kind="app", id=source, label=project or source
+            ).model_dump()
+        return Contributor(
+            kind="app", id=source, label=connector.name, mark=connector.id
+        ).model_dump()
+
+    def _captured(self, path: str) -> Contributor:
+        """What the owner wrote in Lore is theirs; a file they brought is its app's when
+        it sits in a folder one of their apps keeps, and the file's own otherwise."""
+        if not path.startswith(("/", "~/")):
+            return Contributor(kind="capture", id="you", label="you", mark="pen")
+        file = _home(path)
+        for source in self.owned:
+            if source.kind == "folder" and file.is_relative_to(_home(source.locator)):
+                return source.contributor()
+        # A path may be far longer than an id: the file is named by a digest of it.
+        digest = hashlib.sha256(path.encode()).hexdigest()[:16]
+        return Contributor(
+            kind="capture", id=f"file-{digest}", label=file.name, mark="file"
+        )
+
     def _save_reads(self) -> None:
         self.store.set_setting(
             "source_reads", self.read_records.dump_python(self.reads, mode="json")
         )
+
+
+def _home(path: str) -> Path:
+    """A path, with only a leading `~/` meaning home: `~standup` is just a name."""
+    return Path.home() / path[2:] if path.startswith("~/") else Path(path)
 
 
 def available_sources() -> list[Source]:

@@ -5,13 +5,21 @@ import hmac
 import json
 import math
 import os
+import pwd
 import re
 import sys
 import urllib.parse
 from pathlib import Path
 from typing import Annotated, Mapping, get_args
 
-from pydantic import BaseModel, ConfigDict, Field, TypeAdapter
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    StrictInt,
+    TypeAdapter,
+    field_validator,
+)
 
 from . import blueprint as blueprint_module
 from . import capture as capture_module
@@ -23,7 +31,7 @@ from . import sources as sources_module
 from . import usage
 from .agents import Agents
 from .inbox import AgentApp, Inbox, InboxError
-from .paths import home
+from .paths import home, store_folder
 from .sources import Registry, available_sources
 from .store import (
     FREE_COPIES,
@@ -34,7 +42,9 @@ from .store import (
     STATUSES,
     SUPPORT_EMAIL_SETTING,
     AnswerSettings,
+    Contributor,
     JobKind,
+    Memory,
     Publication,
     PublicationExtras,
     PublicationInput,
@@ -97,6 +107,12 @@ class ExtrasDecision(BaseModel):
 EXTRAS_DECISIONS: TypeAdapter[ExtrasDecision | list[ExtrasDecision]] = TypeAdapter(
     ExtrasDecision | Annotated[list[ExtrasDecision], Field(min_length=1)]
 )
+
+
+def _new_agent_app(app: str) -> str:
+    if app == "muse":
+        raise argparse.ArgumentTypeError("Muse can't connect yet.")
+    return app
 
 
 def parser() -> argparse.ArgumentParser:
@@ -193,7 +209,13 @@ def parser() -> argparse.ArgumentParser:
         "connect", help="give a personal agent a key to save with"
     )
     agent_connect.add_argument("name", help="what you call it, like Grok")
-    agent_connect.add_argument("--app", required=True, choices=get_args(AgentApp))
+    # Muse stays a stored kind for agents already connected, but a new one can't connect (APP-217).
+    agent_connect.add_argument(
+        "--app",
+        required=True,
+        type=_new_agent_app,
+        choices=[app for app in get_args(AgentApp) if app != "muse"],
+    )
     agent_connect.add_argument("--json", action="store_true")
     agent_list = agent_commands.add_parser("list", help="show your connected agents")
     agent_list.add_argument("--json", action="store_true")
@@ -259,6 +281,10 @@ def parser() -> argparse.ArgumentParser:
     )
     memory_edit.add_argument("--json", action="store_true")
     memory_commands.add_parser("rules", help="print what earns a place in memory")
+    memory_credit = memory_commands.add_parser(
+        "credit", help="record who wrote into memories, as JSON on stdin"
+    )
+    memory_credit.add_argument("file", help="'-' for stdin")
 
     profile = commands.add_parser(
         "profile", help="save an agent-written synthesis profile"
@@ -429,6 +455,12 @@ def parser() -> argparse.ArgumentParser:
         choices=tuple(deploy_module.NETWORKS),
         help="switch the node to real money or back to the test network",
     )
+    node_deploy.add_argument(
+        "--inbox-only",
+        action="store_true",
+        help="put your store online for your own agents with nothing for sale: "
+        "no price or payout address needed",
+    )
     node_commands.add_parser("login", help="sign in to Cloudflare through your browser")
     node_sales = node_commands.add_parser("sales", help="what your node has sold")
     node_sales.add_argument(
@@ -509,7 +541,7 @@ def parser() -> argparse.ArgumentParser:
     )
     push.add_argument(
         "--worker-dir",
-        default=str(home() / "node"),
+        default=str(store_folder()),
         help="the node source directory (default: the one `lore node deploy` stages)",
     )
     push.add_argument(
@@ -635,6 +667,8 @@ def main(argv: list[str] | None = None) -> int:
 
                 print(RULES, end="")
                 return 0
+            if args.memory_command == "credit":
+                return credit_memories(args.file)
             if args.memory_command == "rename":
                 return rename_memory(args.id, args.title, args.json)
             if args.memory_command == "edit":
@@ -693,8 +727,10 @@ def main(argv: list[str] | None = None) -> int:
             return serve(serve_args)
         if args.command == "node":
             if args.node_command == "deploy":
-                deployed = deploy_module.deploy(args.wallet, args.network)
-                if deployed == 0:
+                deployed = deploy_module.deploy(
+                    args.wallet, args.network, inbox_only=args.inbox_only
+                )
+                if deployed == 0 and not args.inbox_only:
                     usage.record("store.opened")
                 return deployed
             if args.node_command == "secret":
@@ -856,8 +892,11 @@ def setup(yes: bool = False) -> int:
     """Choose native memory sources and perform the first import."""
     logo()
     automation_dir = home() / "automation"
-    automation_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
-    automation_dir.chmod(0o700)
+    # Touched only when it needs to change: the desktop agent's sandbox may read it, never write it.
+    if not automation_dir.is_dir():
+        automation_dir.mkdir(mode=0o700, parents=True)
+    if automation_dir.stat().st_mode & 0o777 != 0o700:
+        automation_dir.chmod(0o700)
     muted(
         "Lore imports only agent-generated memory files. Session transcripts stay untouched."
     )
@@ -1269,6 +1308,40 @@ def search(
     return 0
 
 
+class Credit(BaseModel):
+    """Who wrote into which memories, as the desktop app hands it over once a reading lands."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    ids: list[Annotated[StrictInt, Field(gt=0)]] = Field(min_length=1, max_length=500)
+    by: Contributor
+
+    @field_validator("by")
+    @classmethod
+    def mark_is_known(cls, by: Contributor) -> Contributor:
+        if by.mark not in sources_module.marks():
+            raise ValueError(f"unknown mark: {by.mark}")
+        return by
+
+
+def credit_memories(file: str) -> int:
+    """Put who wrote into a reading's memories on record (APP-213)."""
+    text = sys.stdin.read() if file == "-" else Path(file).read_text(encoding="utf-8")
+    credit = Credit.model_validate_json(text)
+    with Store() as store:
+        credited = store.credit(credit.ids, credit.by)
+    print(json.dumps({"credited": credited}))
+    return 0
+
+
+def _memory_json(memory: Memory) -> str:
+    """One memory in full, with who it came from."""
+    with Store() as store:
+        credited = store.contributors([memory.id]).get(memory.id, [])
+        [row] = Registry(store).provenance([{**memory.__dict__, "sources": credited}])
+    return json.dumps(row, indent=2)
+
+
 def show_memory(memory_id: int, as_json: bool) -> int:
     """Print one memory as a card or JSON."""
     with Store() as store:
@@ -1276,7 +1349,7 @@ def show_memory(memory_id: int, as_json: bool) -> int:
     if memory is None:
         raise ValueError(f"memory not found: {memory_id}")
     if as_json:
-        print(json.dumps(memory.__dict__, indent=2))
+        print(_memory_json(memory))
     else:
         memory_card(memory)
     return 0
@@ -1290,7 +1363,7 @@ def rename_memory(memory_id: int, title: str, as_json: bool) -> int:
     if memory is None:
         raise ValueError(f"memory not found: {memory_id}")
     if as_json:
-        print(json.dumps(memory.__dict__, indent=2))
+        print(_memory_json(memory))
     else:
         memory_card(memory)
     return 0
@@ -1320,7 +1393,7 @@ def edit_memory(
     if memory is None:
         raise ValueError(f"memory not found: {memory_id}")
     if as_json:
-        print(json.dumps(memory.__dict__, indent=2))
+        print(_memory_json(memory))
     else:
         memory_card(memory)
     return 0
@@ -1381,6 +1454,7 @@ def status() -> int:
         free = store.setting(FREE_COPIES_SETTING, FREE_COPIES)
         answer_settings = store.answer_settings()
         node_url = store.setting("node_url", None)
+        node_selling = deploy_module.selling(store)
         revocation_pending = store.setting("revocation_pending", False)
         publish_pending = store.setting("publish_pending", False)
         published = len(store.list_publications(active_only=True))
@@ -1388,7 +1462,9 @@ def status() -> int:
     heading("Library")
     print(
         f"  {counts['private']} private · {counts['discarded']} discarded · "
-        f"{published} active publication{'' if published == 1 else 's'} (externally usable)"
+        f"{published} active publication{'' if published == 1 else 's'}"
+        # Approved is not usable outside this Mac until the store sells (XC-069).
+        + ("" if node_url and not node_selling else " (externally usable)")
     )
     if stale:
         muted(
@@ -1419,6 +1495,12 @@ def status() -> int:
         # A cache of remote truth, not local truth like the price: another
         # machine or the Cloudflare dashboard can move the node after this.
         print(f"Node (last deploy): {node_url}")
+        if not node_selling:
+            print(
+                "  Online for your agents; nothing is for sale. "
+                "Opening it for sale needs a price and a payout address: "
+                "lore node deploy --wallet <address>"
+            )
     if revocation_pending:
         print(
             "A revocation has NOT reached the deployed node — it still serves "
@@ -1447,13 +1529,13 @@ def price(amount: float | None) -> int:
                 "Keep the price there, or stop taking cards first: lore cards off"
             )
         store.set_setting("price_usd", round(amount, 6))
-        node_url = store.setting("node_url", None)
+        on_sale = deploy_module.selling(store)
     success(
         "Publications are free"
         if amount == 0
         else f"Publication price set to ${amount:.2f}"
     )
-    if node_url:
+    if on_sale:
         # The deployed Worker charges the price baked in at deploy time; a
         # saved setting proves nothing about what the live node charges.
         muted(
@@ -1615,7 +1697,10 @@ def _interactive() -> bool:
     return sys.stdin.isatty() and sys.stdout.isatty()
 
 
-ATTENDED_KEY = Path.home() / "Library" / "Application Support" / "Lore" / "attended"
+def attended_key() -> Path:
+    """Where the desktop app keeps its launch key: the account's own home, never `HOME`."""
+    account = Path(pwd.getpwuid(os.getuid()).pw_dir)
+    return account / "Library" / "Application Support" / "Lore" / "attended"
 
 
 def _attended() -> bool:
@@ -1625,11 +1710,13 @@ def _attended() -> bool:
     and hands it only to the CLI processes it spawns, so the agent cannot pose as it.
     """
     key = os.environ.get("LORE_ATTENDED_KEY", "")
+    if not key or sys.stdin.isatty():
+        return False
     try:
-        expected = ATTENDED_KEY.read_text(encoding="utf-8").strip()
+        expected = attended_key().read_text(encoding="utf-8").strip()
     except OSError:
         return False
-    return bool(key) and hmac.compare_digest(key, expected) and not sys.stdin.isatty()
+    return hmac.compare_digest(key, expected)
 
 
 def _desktop_decision(what: str) -> str:
@@ -2044,11 +2131,13 @@ def _push_after_approval() -> None:
     behind until a push lands — never silently dropped.
     """
     with Store() as store:
-        node_url = store.setting("node_url", None)
-    if not node_url:
+        open_for_sale = deploy_module.selling(store)
+    # A store online only for the owner's agents gets its pieces when it opens
+    # for sale: that deploy pushes them, after a price and a payout address.
+    if not open_for_sale:
         return
     try:
-        push(str(home() / "node"))
+        push(str(store_folder()))
     except (OSError, ValueError) as error:
         with Store() as store:
             store.set_setting("publish_pending", True)
@@ -2074,7 +2163,7 @@ def publication_revoke(publication_id: int) -> int:
     if not node_url:
         return 0
     try:
-        return push(str(home() / "node"))
+        return push(str(store_folder()))
     except (OSError, ValueError) as error:
         with Store() as store:
             store.set_setting("revocation_pending", True)
@@ -2093,6 +2182,7 @@ def _push_sql(
     support_email: str = "",
     price_usd: float = 0,
     inbox: dict[str, str] | None = None,
+    selling: bool | None = None,
 ) -> str:
     """Render the full-replace SQL for the edge database.
 
@@ -2147,6 +2237,9 @@ def _push_sql(
         **({"price_usd": f"{price_usd:.6f}"} if price_usd > 0 else {}),
         # Every push, since it replaces this table: without them agents can't save.
         **(inbox or {}),
+        # XC-069: the owner's choice, when there is one. A store from before it
+        # sends no key, and its node sells as it always did.
+        **({} if selling is None else {"selling": "true" if selling else "false"}),
     }
     statements.extend(
         [
@@ -2169,6 +2262,9 @@ def push(worker_dir: str, local: bool = False) -> int:
 
 def _worker(worker_dir: str) -> Path:
     worker = Path(worker_dir)
+    if worker == store_folder() and not (worker / "wrangler.jsonc").is_file():
+        # A store set up inside Lore's home is rebuilt in its own folder first.
+        deploy_module.tools()
     if not (worker / "wrangler.jsonc").is_file():
         raise ValueError(
             f"no node source at {worker}/ — run `lore node deploy` first, "
@@ -2177,7 +2273,7 @@ def _worker(worker_dir: str) -> Path:
     return worker
 
 
-def push_job(worker: Path, local: bool) -> int:
+def push_job(worker: Path, local: bool, *, opening: bool = False) -> int:
     """One push, recorded as its own run. The deploy sequence carries one too:
     the deploy is already the owner's action, so its push skips the gate."""
     with Store() as store:
@@ -2185,14 +2281,14 @@ def push_job(worker: Path, local: bool) -> int:
             JobKind.PUSH.value, owner_pid=os.getpid(), timeout_minutes=60
         )
     try:
-        return _push(worker, local, job_id)
+        return _push(worker, local, job_id, opening)
     except BaseException:
         with Store() as store:
             store.finish_job(job_id, "failed", summary="failed")
         raise
 
 
-def _push(worker: Path, local: bool, job_id: int) -> int:
+def _push(worker: Path, local: bool, job_id: int, opening: bool = False) -> int:
     """Write the active publication set to the node's edge database."""
     import tempfile
 
@@ -2204,6 +2300,14 @@ def _push(worker: Path, local: bool, job_id: int) -> int:
         free = int(str(store.setting(FREE_COPIES_SETTING, FREE_COPIES)))
         support = str(store.setting(SUPPORT_EMAIL_SETTING, ""))
         price_usd = store.setting("price_usd", 0)
+        # A local push fills the dev database a contributor runs `wrangler dev` on,
+        # never a store buyers reach, so it always sells there; a full deploy's
+        # push is the one that opens the store for sale.
+        selling = True if local or opening else deploy_module.choice(store)
+    if selling is False:
+        # No piece text leaves this Mac while the store sells nothing (XC-069):
+        # the push carries settings and the agents' inbox keys only.
+        active = []
     script = _push_sql(
         active,
         answer_settings,
@@ -2213,6 +2317,7 @@ def _push(worker: Path, local: bool, job_id: int) -> int:
         support,
         float(price_usd) if isinstance(price_usd, (int, float)) else 0,
         Inbox().settings(),
+        selling,
     )
     with tempfile.NamedTemporaryFile("w", suffix=".sql", delete=False) as handle:
         handle.write(script)
@@ -2382,7 +2487,7 @@ def marketplace(args: argparse.Namespace) -> int:
     """List, delist, or check this store on the public marketplace."""
     command = args.marketplace_command or "status"
     market = marketplace_module.Marketplace(
-        lambda: push_job(_worker(str(home() / "node")), False)
+        lambda: push_job(_worker(str(store_folder())), False)
     )
     if command == "status":
         listing = market.status()

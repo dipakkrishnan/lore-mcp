@@ -58,7 +58,7 @@ class OwnerSideTest(NodeCase):
         inbox = Inbox()
         self.assertEqual(inbox.settings(), {})
         first = inbox.mint(" Grok ", "grok")
-        Inbox().mint("Muse", "muse")
+        Inbox().mint("Claude", "claude")
         self.assertEqual(first.agent.name, "Grok")
         self.assertRegex(first.token, r"^lore_agent_[0-9a-f]{16}_[A-Za-z0-9_-]{43}$")
         self.assertTrue(first.token.startswith(f"lore_agent_{first.agent.id}_"))
@@ -167,7 +167,7 @@ class OwnerSideTest(NodeCase):
                 Inbox().agents()
 
     def test_no_staged_node_is_a_plain_error(self) -> None:
-        (self.lore_home / "node/node_modules/.bin/wrangler").unlink()
+        (self.store / "node_modules/.bin/wrangler").unlink()
         with self.assertRaisesRegex(InboxError, "open your store first"):
             Inbox().waiting()
 
