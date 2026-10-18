@@ -216,6 +216,29 @@ function mark(className = "mark") {
   return node;
 }
 
+/** Who said a chat line, for a screen reader: the page shows it by where the line sits. @param {boolean} owner */
+function speaker(owner) {
+  return el("span", "sr-only", owner ? "You: " : "Lore: ");
+}
+
+/** APP-218: a chat's lines come in once each, a beat apart, by their data-say; a line already on screen never comes in
+ * again, and more than a few at once is history coming back, shown at once. */
+class Entrance {
+  /** @type {Set<string>} */
+  said = new Set();
+
+  /** @param {HTMLElement[]} shown */
+  play(shown) {
+    const fresh = shown.filter((line) => !this.said.has(line.dataset.say ?? ""));
+    for (const [beat, line] of fresh.entries()) {
+      this.said.add(line.dataset.say ?? "");
+      if (fresh.length > 3) continue;
+      line.classList.add("enter");
+      line.style.animationDelay = `${beat * 90}ms`;
+    }
+  }
+}
+
 /** @param {string} label @param {"primary" | "secondary" | "quiet"} kind @param {() => void} onClick @param {string} [icon] */
 function button(label, kind, onClick, icon) {
   const node = el("button", `btn ${kind} sm`, label);
@@ -949,6 +972,7 @@ class FirstRunChat {
   current(run) {
     return run === this.#run && this.active;
   }
+  entrance = new Entrance();
 
   /** Read where it stands, before the first snapshot lands, so Today never flashes first. A read that doesn't answer
    * in a few seconds counts as none, so Lore never waits on it; its late answer is not taken. */
@@ -1183,7 +1207,7 @@ class FirstRunChat {
     this.stop();
     this.#run++;
     this.#known = false;
-    Object.assign(this, { kept: null, active: false, stage: "ask", picked: null, handed: null, found: null, connected: [], unconnected: "", problem: "", working: false, rotating: false });
+    Object.assign(this, { kept: null, active: false, stage: "ask", picked: null, handed: null, found: null, connected: [], unconnected: "", problem: "", working: false, rotating: false, entrance: new Entrance() });
   }
 
   /** The chat as it stands, Lore first. @param {Snapshot} s */
@@ -1192,20 +1216,22 @@ class FirstRunChat {
     /** @param {...(string | HTMLElement)} said */
     const lore = (...said) => {
       const line = el("div", "line");
-      line.append(mark("mark mark-sm"), ...said.map((part) => (typeof part === "string" ? el("p", "", part) : part)));
+      line.dataset.say = said.map((part) => (typeof part === "string" ? part : part.className)).join(" ");
+      line.append(speaker(false), ...said.map((part) => (typeof part === "string" ? el("p", "", part) : part)));
       chat.append(line);
     };
     /** @param {string} text */
     const owner = (text) => {
       const line = el("div", "line owner");
-      line.append(el("p", "", text), el("span", "you", "You"));
+      line.dataset.say = `owner ${text}`;
+      line.append(speaker(true), el("p", "", text));
       chat.append(line);
     };
     lore("Hi. I'm Lore. I keep what you've learned and help you sell the parts worth paying for.");
     lore("Which AI do you talk to most?");
     if (!this.picked) {
       lore(this.choices());
-      return [chat];
+      return this.shown(chat);
     }
     const [app, who] = this.picked;
     owner(who);
@@ -1220,13 +1246,13 @@ class FirstRunChat {
       actions.append(go);
       box.append(actions);
       lore(box);
-      return [chat];
+      return this.shown(chat);
     }
     if (this.stage === "ask") {
       // Its link is on its way, or didn't come: try again, or pick another.
       if (!this.problem) {
         lore(el("p", "hint", `Getting ${who}'s link…`));
-        return [chat];
+        return this.shown(chat);
       }
       const box = el("div", "card request");
       const actions = el("div", "actions");
@@ -1240,10 +1266,10 @@ class FirstRunChat {
       actions.append(other, again);
       box.append(el("p", "problem", this.problem), actions);
       lore(box);
-      return [chat];
+      return this.shown(chat);
     }
     if (this.stage !== "saved") lore(this.handed ? `Here's how to connect ${who}. Lore shows it here when ${who} saves something.` : `${who}'s link was shown once. Get a new one here if you need it.`);
-    if (this.stage !== "saved") lore(this.connectCard(app, who));
+    if (this.stage !== "saved") lore(this.connectCard(app, who), waitLine(who, true));
     if (this.stage === "saved") {
       lore(this.savedCard(s, who));
       lore("That's it. What it saves stays private on this Mac. When you want to sell some of it, Today shows the next step.");
@@ -1266,6 +1292,12 @@ class FirstRunChat {
       lore(el("p", "hint", said.map((item) => item.text).join(" ")));
       for (const item of said) if (item.key) remember(item.key);
     }
+    return this.shown(chat);
+  }
+
+  /** @param {HTMLElement} chat */
+  shown(chat) {
+    this.entrance.play(/** @type {HTMLElement[]} */ ([...chat.children]));
     return [chat];
   }
 
@@ -1289,28 +1321,38 @@ class FirstRunChat {
     return list;
   }
 
-  /** The connect card: the agent's own steps and its private link, Open <agent> when it's on this Mac, and the live
-   * wait. After a relaunch the link is gone, so it offers a new one; once it has saved, the card goes.
-   * @param {AgentApp} app @param {string} who */
+  /** The connect card, one calm surface: the agent's own steps, the message to copy with its key masked, Open <agent>
+   * when it's on this Mac, and the agent's note. After a relaunch the link is gone, so it offers a new one. @param {AgentApp} app @param {string} who */
   connectCard(app, who) {
-    const box = el("div", "card request first-connect");
+    const box = el("div", "card first-connect");
+    const guide = AGENT_GUIDES[app]?.first;
     if (this.handed) {
-      box.append(...(agentGuide(this.handed, true) ?? [privateLink(this.handed)]));
-      const hint = el("span", "form-hint quiet-hint");
-      hint.innerHTML = LOCK_ICON;
-      hint.append(el("span", "", "Private link, shown once"));
-      box.append(hint);
+      if (guide?.brief) box.append(el("p", "first-steps", guide.brief));
+      else if (guide) {
+        const list = el("ol", "agent-steps");
+        for (const step of guide.steps) list.append(el("li", "", step));
+        box.append(list);
+      }
+      box.append(guide?.message ? privateLink(this.handed, guide.message, "Copy message") : privateLink(this.handed));
     }
     if (this.problem) box.append(el("p", "problem", this.problem));
-    const actions = el("div", "actions");
+    const foot = el("div", "first-connect-foot");
     if (!this.handed) {
       const again = button("Get a new link", "secondary", () => void this.newLink());
       again.disabled = this.rotating;
-      actions.append(again);
+      foot.append(again);
     }
-    if (this.installed.includes(app)) actions.append(button(`Open ${who}`, "secondary", () => void window.lore.openAgentApp(app).catch((error) => tell(reason(error, `Lore couldn't open ${who}.`)))));
-    actions.prepend(waitLine(who, true));
-    box.append(actions);
+    if (this.installed.includes(app)) foot.append(button(`Open ${who}`, "secondary", () => void window.lore.openAgentApp(app).catch((error) => tell(reason(error, `Lore couldn't open ${who}.`)))));
+    if (this.handed) {
+      const hint = el("span", "quiet-hint");
+      hint.innerHTML = LOCK_ICON;
+      hint.append(el("span", "", "Private link, shown once"));
+      foot.append(hint);
+    }
+    if (foot.childElementCount) box.append(foot);
+    // What the agent's plan must allow, or how many connectors it takes, said quietly under the steps.
+    const note = AGENT_GUIDES[app]?.note;
+    if (this.handed && note) box.append(el("p", "hint", note));
     return box;
   }
 
@@ -2441,12 +2483,13 @@ const STORE_FIRST = "Your agents save to your own store, so it needs to be onlin
 /** APP-217: how each agent takes Lore's private link, as its maker documents it (checked Oct 17, 2026). Grok Bot adds
  * a connector it is sent in chat, so it gets a message around the link; `routine` is what each calls a scheduled ask.
  * `again` is the same for a new link, which replaces the Lore connector the agent already has rather than adding one;
- * `or` is the quiet alternative under the last step, and `fallback` a quiet way to add the bare link by hand.
- * @typedef {{steps: string[], message?: string, or?: string, fallback?: string}} AgentSteps
+ * `or` is the quiet alternative under the last step, and `brief` the steps as one line, for the first-run chat. Grok Bot
+ * has no menu to add a connector by hand: the message pasted into its chat is the only documented way (APP-217).
+ * @typedef {{steps: string[], brief?: string, message?: string, or?: string}} AgentSteps
  * @type {Partial<Record<AgentApp, {first: AgentSteps, again: AgentSteps, note?: string, routine: string}>>} */
 const AGENT_GUIDES = {
   grok: {
-    first: { steps: ["Copy the message", "Paste it into Grok Bot's chat", "Lore shows when the first save arrives"], message: "Add this MCP server to my account: ", fallback: "Or add it yourself in Grok Bot: Connect apps › add a custom connector, then paste the link." },
+    first: { steps: ["Copy the message", "Paste it into Grok Bot's chat", "Lore shows when the first save arrives"], brief: "Copy this message and paste it into a Grok Bot chat.", message: "Add this MCP server to my account: " },
     again: { steps: ["Copy the message", "Paste it into Grok Bot's chat", "Lore shows when the next save arrives"], message: "Replace the Lore MCP server in my account with this one: " },
     routine: "routine"
   },
@@ -2588,7 +2631,14 @@ function privateLink(handed, lead = "", label = "Copy") {
   link.type = "button";
   link.setAttribute("aria-label", lead ? label : "Copy link");
   const shown = el("span", "agent-link-text");
-  shown.append(lead + handed.mcp_url.replace(/^https?:\/\//, "") + "/", el("span", "agent-link-key", "••••••••••••"));
+  const address = el("span", "agent-link-url");
+  address.append(handed.mcp_url.replace(/^https?:\/\//, "") + "/", el("span", "agent-link-key", "••••••••••••"));
+  if (lead) {
+    // APP-218: a plain name for what gets pasted, and the message itself quietly under it, never broken inside its link.
+    const quote = el("span", "agent-link-quote", lead);
+    quote.append(address);
+    shown.append(el("span", "agent-link-lead", `Message for ${handed.agent.name}`), quote);
+  } else shown.append(address);
   const glyph = el("span", "agent-link-icon");
   glyph.innerHTML = COPY_ICON;
   const word = el("span", "agent-link-word", label);
@@ -2736,8 +2786,8 @@ class AgentSetup {
   }
 }
 
-/** What to do in the agent, by its maker's own steps, with its private link or the message around it, the quiet way
- * to add the link by hand, and its note; null for an agent with no documented steps. @param {AgentKey} handed @param {boolean} first */
+/** What to do in the agent, by its maker's own steps, with its private link or the message around it, and its note;
+ * null for an agent with no documented steps. @param {AgentKey} handed @param {boolean} first */
 function agentGuide(handed, first) {
   const guide = AGENT_GUIDES[handed.agent.app];
   const how = guide && (first ? guide.first : guide.again);
@@ -2747,11 +2797,6 @@ function agentGuide(handed, first) {
   if (how.or) list.lastElementChild?.append(el("span", "agent-step-or", how.or));
   /** @type {HTMLElement[]} */
   const nodes = [list, how.message ? privateLink(handed, how.message, "Copy message") : privateLink(handed)];
-  if (how.fallback) {
-    const fallback = el("div", "agent-fallback");
-    fallback.append(el("span", "", how.fallback), copyButton(() => handed.connector_url, "Copy link only"));
-    nodes.push(fallback);
-  }
   if (guide.note) nodes.push(el("p", "hint", guide.note));
   return nodes;
 }
@@ -2759,7 +2804,9 @@ function agentGuide(handed, first) {
 /** The live line while Lore waits on an agent's save. @param {string} who @param {boolean} first */
 function waitLine(who, first) {
   const line = el("p", "agent-wait");
-  line.append(el("span", "dot off"), el("span", "", `Waiting for ${who}'s ${first ? "first" : "next"} save…`));
+  const dots = el("span", "typing");
+  dots.append(el("i"), el("i"), el("i"));
+  line.append(dots, el("span", "", `Waiting for ${who}'s ${first ? "first" : "next"} save…`));
   return line;
 }
 
@@ -3130,7 +3177,7 @@ function render() {
   const pendingDrafts = detail === "publish" && (candidates.length || extraDrafts.length);
   eyebrow.textContent = detail
     ? pendingDrafts ? `Needs you · ${draftsPhase()}` : `${TASK_STATES[detailRecord?.state ?? "working"]} · ${detailRecord?.phase ?? "Starting"}`
-    : welcoming ? "Getting started" : view === "today" ? longDate.format(new Date()) : "";
+    : welcoming ? "" : view === "today" ? longDate.format(new Date()) : "";
   title.textContent = heading;
   taskBack.hidden = !detail;
   taskRestart.hidden = !detail || detailRecord?.state !== "stopped";
@@ -3138,6 +3185,8 @@ function render() {
   sellWritingBtn.hidden = addMemoryBtn.hidden;
   captureArea.hidden = view !== "today" || welcoming;
   skipBtn.hidden = !welcoming;
+  header.classList.toggle("compact", welcoming || Boolean(detail));
+  mainEl.classList.toggle("thread", Boolean(detail));
   log.hidden = !detail;
   syncComposer();
   for (const nav of navButtons) nav.setAttribute("aria-pressed", String(nav.dataset.view === view));
@@ -3364,23 +3413,34 @@ function thinkingLine(label) {
   const bubble = el("span", "bubble");
   bubble.append(el("i"), el("i"), el("i"));
   line.setAttribute("role", "status");
-  line.append(mark("mark mark-sm"), bubble, el("span", "", label));
+  line.append(bubble, el("span", "", label));
   return line;
 }
 
+/** APP-218: the open thread's lines, each coming in once. Streamed text keeps the key of the line it becomes. */
+const logEntrance = new Entrance();
+
 function renderLog() {
-  log.replaceChildren(...lines.map(({ text, owner, stopped, saved }) => {
+  const thread = detailTask ?? "today";
+  log.replaceChildren(...lines.map(({ text, owner, stopped, saved }, index) => {
     const line = el("div", owner ? "line owner" : stopped ? "line stop" : "line");
-    line.append(owner ? el("span", "you", "You") : mark("mark mark-sm"), saved ? savedCard(saved) : owner ? el("p", "", text) : markdown(text));
+    line.dataset.say = `${thread} ${index}`;
+    line.append(speaker(owner), saved ? savedCard(saved) : owner ? el("p", "", text) : markdown(text));
     return line;
   }));
   if (liveText) {
     const line = el("div", "line live");
-    line.append(mark("mark mark-sm"), markdown(liveText));
+    line.dataset.say = `${thread} ${lines.length}`;
+    line.append(speaker(false), markdown(liveText));
     log.append(line);
   }
   const thinking = busy !== null && !request;
-  if (thinking && busy) log.append(thinkingLine(liveStatus || THINKING[busy] || ""));
+  if (thinking && busy) {
+    const line = thinkingLine(liveStatus || THINKING[busy] || "");
+    line.dataset.say = `${thread} thinking ${lines.length}`;
+    log.append(line);
+  }
+  logEntrance.play(/** @type {HTMLElement[]} */ ([...log.children]));
   agentPanel.hidden = !lines.length && !liveText && !thinking && !shownRequest() && !detailSlot.childElementCount && !blueprintGhost;
   if (log.lastElementChild) reveal();
 }
@@ -4762,6 +4822,8 @@ function showPeek(anchor, memory) {
 }
 mainEl.addEventListener("scroll", hidePeek, { passive: true });
 mainEl.addEventListener("scroll", () => mainEl.classList.toggle("scrolled", mainEl.scrollTop > 0), { passive: true });
+// APP-218: what a thread scrolls into view stops clear of the floating composer, however tall it has grown.
+new ResizeObserver(() => mainEl.style.setProperty("--composer-room", `${composer.offsetHeight}px`)).observe(composer);
 // The account menu is a native popover: Escape and a click elsewhere close it, and its trigger says whether it is open.
 for (const item of accountMenu.querySelectorAll("button")) item.addEventListener("click", () => accountMenu.hidePopover());
 for (const item of /** @type {NodeListOf<HTMLButtonElement>} */ (accountMenu.querySelectorAll("[data-view]"))) item.addEventListener("click", () => show(/** @type {View} */ (item.dataset.view)));
