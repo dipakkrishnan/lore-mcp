@@ -57,9 +57,26 @@ with Store() as store:
  store.set_setting('node_selling', True)
  store.add_publication(title='Live demos beat cold decks', content='paid text', topic='launches', teaser='What beat a cold deck', provenance=[1])
  piece = store.list_publications()[0].public_id
+ # APP-219: an owner with history: a run that stopped days ago at an agent's cost, and the same store update again and again.
+ stale = store.start_job('capture', timeout_minutes=60)
+ store.finish_job(stale, 'incomplete', title='What to Sell Today', summary='stopped', cost_usd=0.016121)
+ store.db.execute('UPDATE owner_jobs SET started_at=?, finished_at=? WHERE id=?', ('2026-10-15T09:00:00+00:00', '2026-10-15T09:20:00+00:00', stale))
+ store.db.commit()
+ for _ in range(4):
+  store.finish_job(store.start_job('push', timeout_minutes=60), 'succeeded', summary='pushed', count=13)
 json.dump([{'kind': 'publication', 'item_id': piece, 'title': 'Live demos beat cold decks', 'price_usd': 3.0, 'network': 'stripe', 'payer': '', 'tx': 'pi_old', 'sold_at': '2026-10-01T12:00:00Z'}], open(f'{out}/sales.json', 'w'))
 json.dump([{'item_id': piece, 'views': 42}], open(f'{out}/views.json', 'w'))
 open(f'{out}/piece', 'w').write(piece)")
+  # A thread that stopped days ago is history, not something to finish today.
+  (cd "$desktop_dir" && node --input-type=module -e "import { readdirSync, readFileSync, writeFileSync } from 'node:fs'; import { resolve } from 'node:path'; import { SessionManager } from '@earendil-works/pi-coding-agent';
+const dir = resolve(process.env.LORE_HOME, '.pi/sessions/capture');
+const session = SessionManager.create(process.env.LORE_HOME, dir);
+session.appendMessage({ role: 'user', content: 'OLD STOPPED CAPTURE', timestamp: 1 });
+const usage = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } };
+session.appendMessage({ role: 'assistant', content: [{ type: 'text', text: 'What did you learn?' }], api: 'anthropic-messages', provider: 'anthropic', model: 'edge', usage, stopReason: 'stop', timestamp: 2 });
+session.appendCustomEntry('lore.task', { version: 1, kind: 'capture', title: 'Capture a memory', state: 'stopped', phase: 'Review the capture' });
+const old = (line) => line && JSON.stringify({ ...JSON.parse(line), timestamp: '2026-10-15T09:00:00.000Z' });
+for (const name of readdirSync(dir)) writeFileSync(resolve(dir, name), readFileSync(resolve(dir, name), 'utf8').split('\n').map(old).join('\n'));")
   mkdir -p "$LORE_STORE/node_modules/.bin"
   printf '#!/bin/sh\ncase "$*" in *page_views*) printf "[{\\"results\\": []}, {\\"results\\": %%s}]" "$(cat "$LORE_EDGE_OUT/views.json")";; *) printf "[{\\"results\\": %%s}]" "$(cat "$LORE_EDGE_OUT/sales.json")";; esac\n' > "$LORE_STORE/node_modules/.bin/wrangler"
   chmod +x "$LORE_STORE/node_modules/.bin/wrangler"
