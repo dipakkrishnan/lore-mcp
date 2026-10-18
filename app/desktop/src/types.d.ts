@@ -1,9 +1,19 @@
+/** Who brought a memory in or wrote into it (APP-213): one of the owner's agents, an app, one of their routines, or the
+ * owner. `mark` names its picture: the agent's app, the app's id, "clock", or "pen" and "file" for what the owner brought. */
+type Contributor = { kind: "agent" | "app" | "routine" | "capture"; id: string; label: string; mark: string };
+
+/** A contributor as a memory lists it, newest first; "lore" is Lore's own writing with nobody else on record. */
+type MemorySource = { kind: Contributor["kind"] | "lore"; id: string; label: string; mark: string; at: string | null };
+
 type MemoryItem = {
   id: number;
   title: string;
   project_label: string;
   status: "private" | "discarded";
   updated_at: string;
+  sources: MemorySource[];
+  /** When it arrived, as a number that only grows and is never reused, as an id can be (APP-212). */
+  arrival: number;
 };
 
 type PublicationItem = {
@@ -132,12 +142,12 @@ type SourceKind = "folder" | "export" | "feed" | "mcp" | "agent";
 
 type SourceApp = { id: string; name: string; what: string; unit: string; item: string; kind: SourceKind; refresh: boolean; placeholder: string; guide?: string };
 
-type SourceRead = { name: string; label?: string; connector?: string | null; added: number; updated: number; unchanged: number; errors: number; state: SourceState };
+type SourceRead = { name: string; label?: string; connector?: string | null; app?: AgentApp | null; added: number; updated: number; unchanged: number; errors: number; state: SourceState };
 
 /** New items a connected app brought in, waiting to be read through: "23 new Granola meetings". */
 /** `title` and `phase` are worded once: what Today and the notification call it, and its row while it reads. One of the
  * owner's own routines carries their sentence as `ask`, and no app or items; one of their personal agents, its name as `from`. */
-type Reading = { name: string; label: string; item: string; added: number; title: string; phase: string; ask?: string; from?: string };
+type Reading = { name: string; label: string; item: string; added: number; title: string; phase: string; ask?: string; from?: string; by: Contributor };
 
 /** What a reading hands back: how many items it read, and each topic file it wrote. */
 type ReadingReport = { read: number; memories: Array<{ file: string; worth_selling: boolean; why: string }> };
@@ -146,7 +156,11 @@ type ReadingReport = { read: number; memories: Array<{ file: string; worth_selli
 type ReadyMemory = { id: number; title: string; sell: boolean; work: boolean; why: string };
 
 /** One finished reading, kept on Today until the owner clears it; `seen` once they have looked. */
-type ReadyRun = { title: string; read: number; memories: ReadyMemory[]; at: string; seen: boolean; from?: string };
+/** Which memories the owner has had on screen, by arrival (APP-212); one that arrived after `since` and is not in
+ * `arrivals` is New. */
+type SeenMemories = { since: number; arrivals: number[] };
+
+type ReadyRun = { title: string; read: number; memories: ReadyMemory[]; at: string; seen: boolean; from?: string; by?: Contributor };
 
 /** Something Lore does on its own at a set hour, as `lore automation list` describes it. `due`: the app owes it a run now. */
 type Routine = { id: string; kind: "read" | "checkin" | "ask"; name: string; about: string; built_in?: boolean; cadence: "daily" | "weekdays" | "weekly"; hour: number; day?: number; paused?: boolean; last_run: string | null; result: string; next_run: string; due: boolean };
@@ -207,6 +221,7 @@ type Memory = {
   source_path: string;
   status: string;
   updated_at: string;
+  sources: MemorySource[];
 };
 
 type ProposedMemory = {
@@ -333,6 +348,8 @@ interface Window {
     readyRuns(): Promise<ReadyRun[]>;
     seenMemories(): Promise<void>;
     clearMemories(): Promise<void>;
+    memoriesSeen(newest: number): Promise<SeenMemories>;
+    markSeen(arrivals: number[]): Promise<void>;
     checkIn(): Promise<CheckIn | null>;
     routines(): Promise<Routine[]>;
     noticedRoutines(): Promise<void>;
@@ -397,7 +414,7 @@ type AgentEvent =
   | { type: "auth"; message?: string; event?: import("@earendil-works/pi-ai").AuthEvent }
   | { type: "progress"; text?: string; done?: boolean; error?: string }
   | { type: "sold" }
-  | { type: "show"; view: "store" | "today" | "automations" }
+  | { type: "show"; view: "store" | "today" | "automations" | "inventory"; source?: { id: string; label: string } }
   | { type: "thread"; task: AgentTask }
   | { type: "ready" }
   /** What the owner's personal agents saved that Lore just brought in (APP-207). */

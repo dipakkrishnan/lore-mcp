@@ -357,6 +357,7 @@ class SourcesCommandTest(LoreTestCase):
                     "name": added["name"],
                     "label": "Notes",
                     "connector": None,
+                    "app": None,
                     "added": 0,
                     "updated": 0,
                     "unchanged": 3,
@@ -778,12 +779,56 @@ class ShowMemoryTest(LoreTestCase):
         self.assertEqual(payload["id"], memory_id)
         self.assertEqual(payload["title"], "Kept lesson")
         self.assertIn("content", payload)
+        self.assertEqual(
+            payload["sources"],
+            [{"kind": "app", "id": "test", "label": "test", "mark": "", "at": None}],
+        )
         with captured() as output:
             self.assertEqual(cli.show_memory(memory_id, False), 0)
         self.assertIn("Kept lesson", output.getvalue())
         with self.assertRaisesRegex(ValueError, "memory not found: 999"):
             cli.show_memory(999, True)
         self.assertEqual(cli.main(["memory", "show", "999"]), 1)
+
+
+class CreditMemoryTest(LoreTestCase):
+    def test_credit_puts_a_routine_on_record_and_show_leads_with_it(self) -> None:
+        # APP-213: the desktop app credits what a reading wrote, once it lands.
+        memory_id = self.seed_memory("Weekly notes")
+        credit = {
+            "ids": [memory_id],
+            "by": {"kind": "routine", "id": "r1", "label": "Sunday", "mark": "clock"},
+        }
+        with patch("sys.stdin", StringIO(json.dumps(credit))), captured() as output:
+            self.assertEqual(cli.main(["memory", "credit", "-"]), 0)
+        self.assertEqual(json.loads(output.getvalue()), {"credited": 1})
+        with captured() as output:
+            cli.show_memory(memory_id, True)
+        [source] = json.loads(output.getvalue())["sources"]
+        self.assertEqual(
+            (source["kind"], source["label"], source["mark"]),
+            ("routine", "Sunday", "clock"),
+        )
+
+    def test_credit_refuses_what_is_not_a_contributor(self) -> None:
+        for bad in (
+            {"ids": [], "by": {"kind": "app", "id": "a", "label": "A"}},
+            {"ids": [0], "by": {"kind": "app", "id": "a", "label": "A"}},
+            {"ids": [1], "by": {"kind": "robot", "id": "a", "label": "A"}},
+            {"ids": [True], "by": {"kind": "app", "id": "a", "label": "A"}},
+            {"ids": ["1"], "by": {"kind": "app", "id": "a", "label": "A"}},
+            {"ids": [1.0], "by": {"kind": "app", "id": "a", "label": "A"}},
+            {
+                "ids": [1],
+                "by": {"kind": "app", "id": "a", "label": "A", "mark": "../../x"},
+            },
+            {
+                "ids": [1],
+                "by": {"kind": "app", "id": "a", "label": "A", "mark": "nowhere"},
+            },
+        ):
+            with patch("sys.stdin", StringIO(json.dumps(bad))), captured():
+                self.assertEqual(cli.main(["memory", "credit", "-"]), 1)
 
 
 class RenameMemoryTest(LoreTestCase):

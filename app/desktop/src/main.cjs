@@ -11,7 +11,7 @@ const reading = require("./reading.cjs");
 const checkin = require("./checkin.cjs");
 const { Schedule } = require("./routines.cjs");
 const { Watch, WATCH_EVERY_MS } = require("./agents.cjs");
-const { lore, listRoutines, runRoutine, changeRoutine, addRoutine, editRoutine, switchSource, loreStream, openable, readState, readSales, readViews, searchMemories, readMemory, renameMemory, editMemory, captureMemories, previewPage, setPrice, setFreeCopies, candidates, decide, extrasCandidates, decideExtras, approveExtras, reportFeedback, listStore, cardStatus, connectCards, switchCards, listingStatus, sourceCatalog, sourceChoices, connectSource, signIn, readSource, removeSource, listAgents, connectAgent, agentKey, disconnectAgent, agentsWaiting, useRuntime } = require("./state.cjs");
+const { lore, listRoutines, runRoutine, changeRoutine, addRoutine, editRoutine, switchSource, loreStream, openable, readState, readSales, readViews, searchMemories, readMemory, creditMemories, renameMemory, editMemory, captureMemories, previewPage, setPrice, setFreeCopies, candidates, decide, extrasCandidates, decideExtras, approveExtras, reportFeedback, listStore, cardStatus, connectCards, switchCards, listingStatus, sourceCatalog, sourceChoices, connectSource, signIn, readSource, removeSource, listAgents, connectAgent, agentKey, disconnectAgent, agentsWaiting, useRuntime } = require("./state.cjs");
 
 if (process.env.LORE_DESKTOP_USER_DATA) app.setPath("userData", process.env.LORE_DESKTOP_USER_DATA);
 // Two copies sharing one credentials file each refresh the sign-in, and the provider refuses the second.
@@ -40,6 +40,8 @@ let connecting;
 /** What Lore read from connected apps, kept until the owner clears it, with the dock's red number. */
 const badge = new reading.Badge((count) => app.setBadgeCount(count));
 const newMemories = new reading.Ready(join(app.getPath("userData"), "memories-ready.json"), badge.part("memories"));
+/** Which memories the owner has had on screen, so Inventory marks the rest New (APP-212). */
+const seenMemories = new reading.Seen(join(app.getPath("userData"), "memories-seen.json"));
 /** The evening check-in waiting for the owner, if Lore found something worth asking (AUT-008). */
 const checkIns = new checkin.CheckIns(join(app.getPath("userData"), "check-in.json"), badge.part("checkin"));
 /** @param {AgentEvent} event */
@@ -228,6 +230,13 @@ function registerIpc(loreHome, schedule, watch) {
   ipcMain.handle("ready:runs", () => newMemories.runs());
   ipcMain.handle("ready:seen", () => newMemories.seen());
   ipcMain.handle("ready:clear", () => newMemories.clear());
+  ipcMain.handle("memory:unseen", (_event, newest) => {
+    if (!Number.isInteger(newest) || newest < 0) throw new Error("Invalid memory");
+    return seenMemories.read(newest);
+  });
+  ipcMain.handle("memory:seen", async (_event, ids) => {
+    await seenMemories.add(reading.seenIds(ids));
+  });
   ipcMain.handle("checkin:waiting", () => checkIns.waiting());
   ipcMain.handle("checkin:dismiss", () => checkIns.expire().then(closeCheckIn));
   // APP-200: the Automations tab reads and changes routines through the CLI, then the clock looks again. Run now waits
@@ -305,12 +314,13 @@ async function told() {
   return JSON.stringify([(await newMemories.runs())[0], (await checkIns.latest())?.at]);
 }
 
-/** Bring the window forward, then show what the notification was about. @param {AgentEvent} event */
+/** Bring the window forward, then show what the notification was about. A window opened for it, or one still loading,
+ * hears that once its page has loaded, so nothing is said before anyone listens. @param {AgentEvent} event */
 function reveal(event) {
-  if (!window) createWindow();
+  if (window && !window.webContents.isLoading()) emit(event);
+  else (window ?? createWindow()).webContents.once("did-finish-load", () => emit(event));
   window?.show();
   window?.focus();
-  emit(event);
 }
 
 /** What the app does with each kind of routine's run, by the `kind` the CLI names. A new kind is one entry here.
@@ -381,6 +391,7 @@ function createWindow() {
     pending.clear();
   });
   void window.loadFile(join(__dirname, "index.html"));
+  return window;
 }
 
 app.whenReady().then(async () => {
@@ -579,12 +590,16 @@ async function start(loreHome) {
       if (!wrote) return;
       await newMemories.add(run);
       emit({ type: "ready" });
-      sales.notify(reading.announcement(run), () => {
-        if (!window) createWindow();
-        window?.show();
-        window?.focus();
-        emit({ type: "show", view: "today" });
-      });
+      // An agent's save lands on what it saved, in Inventory; anything else on Today's new memories.
+      const agent = read.by.kind === "agent" ? { id: read.by.id, label: read.by.label } : undefined;
+      sales.notify(reading.announcement(run), () => reveal(agent ? { type: "show", view: "inventory", source: agent } : { type: "show", view: "today" }));
+      // Who wrote them is a nicety, kept last: failing to record it never costs the owner their memories' card or banner.
+      try {
+        await creditMemories(loreHome, run.memories.map((memory) => memory.id), read.by);
+        emit({ type: "changed" });
+      } catch (error) {
+        console.error("Lore could not record who wrote these memories:", error);
+      }
     },
     job: {
       // This process is the one that owes the row a close, so it claims the row

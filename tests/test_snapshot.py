@@ -207,6 +207,8 @@ class DesktopSnapshotTest(LoreTestCase):
                 "project_label",
                 "status",
                 "updated_at",
+                "sources",
+                "arrival",
             },
         )
         labels = {

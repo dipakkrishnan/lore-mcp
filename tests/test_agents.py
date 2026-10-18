@@ -330,6 +330,17 @@ class ReadTest(AgentCase):
         self.assertIsNone(self.endpoint.agent(f"Bearer {self.key}"))
         self.assertEqual(self.json("agents", "list"), {"agents": []})
 
+    def test_what_it_saved_still_says_who_after_it_is_disconnected(self) -> None:
+        # APP-213: the agent is on record by its own name and app, which outlive its key.
+        self.save(self.key, {"title": "Late", "content": "Saved just before."})
+        self.read()
+        self.json("agents", "revoke", self.source, "--keep")
+        [item] = build()["library"]["items"]  # type: ignore[index]
+        self.assertEqual(
+            [{k: v for k, v in s.items() if k != "at"} for s in item["sources"]],
+            [{"kind": "agent", "id": self.source, "label": "Grok", "mark": "grok"}],
+        )
+
     def test_revoke_delete_removes_what_it_saved_except_what_is_cited(self) -> None:
         self.save(
             self.key, {"title": "A", "content": "a"}, {"title": "B", "content": "b"}

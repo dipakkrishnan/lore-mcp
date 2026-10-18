@@ -63,6 +63,8 @@ let auth = null;
 let view = "today";
 /** Which of Inventory's tabs is open. @type {Shelf} */
 let shelf = "all";
+/** Inventory shows only what this agent or app brought in, until the owner removes its chip (APP-212). @type {{id: string, label: string} | null} */
+let inventoryFrom = null;
 /** @type {AgentTask} */
 let task = "capture";
 /** @type {TaskRecord[]} */
@@ -316,7 +318,7 @@ async function openMemory(id) {
   const head = el("div", "sheet-head");
   const text = el("div", "t");
   const titleLabel = el("b", "", memory.title);
-  text.append(titleLabel, el("span", "", [...new Set([...origin(memory), when(memory.updated_at)])].filter(Boolean).join(" · ")));
+  text.append(titleLabel, provenanceLine(memory));
   const close = el("button", "icon-btn", "×");
   close.type = "button";
   close.setAttribute("aria-label", "Close");
@@ -401,14 +403,6 @@ async function openMemory(id) {
   document.body.append(sheet);
   sheet.showModal();
   close.focus();
-}
-
-/** Where a memory came from, as its sheet says it: one of the owner's agents by its name, any other app by the app's.
- * @param {Memory} memory @returns {string[]} */
-function origin(memory) {
-  const from = snapshot?.library.sources.find((source) => source.name === memory.source);
-  if (from?.connector === "agent") return [`From ${from.label}`];
-  return [memory.project, apps.find((app) => app.id === from?.connector)?.name ?? from?.label ?? ""];
 }
 
 function closeSheet() {
@@ -616,6 +610,52 @@ function markTile(mark) {
   return node;
 }
 
+/** "A", "A and B", or "A, B and 2 more". @param {string[]} names */
+function named(names) {
+  return names.length < 3 ? names.join(" and ") : `${names.slice(0, 2).join(", ")} and ${names.length - 2} more`;
+}
+
+/** The picture one contributor shows with: an agent's or app's own mark, a clock for a routine, a pen for the owner,
+ * a page for a file they brought in, and Lore's own for what Lore wrote. @param {MemorySource} source */
+function sourceMark(source) {
+  if (source.kind === "agent") return agentMark(/** @type {AgentApp} */ (source.mark), source.label);
+  // Only a mark Lore ships is drawn; anything else gets the same plain one.
+  if (source.kind === "app") return Object.hasOwn(AGENT_MARKS, source.mark) ? brand(AGENT_MARKS[source.mark], source.label) : apps.some((app) => app.id === source.mark) ? brand(source.mark, source.label) : STEP_ICONS.connect;
+  if (source.kind === "routine") return CLOCK_ICON;
+  if (source.kind === "capture") return source.mark === "file" ? STEP_ICONS.memory : EDIT_ICON;
+  return RING;
+}
+
+/** APP-213: where a memory came from, drawn the same wherever it shows: each contributor's mark, newest first and
+ * overlapping, three at most then "+N", and the line that names them. Nobody on record means Lore wrote it.
+ * @param {MemorySource[] | undefined} sources */
+function provenance(sources) {
+  const from = sources?.length ? sources : [{ kind: /** @type {const} */ ("lore"), id: "lore", label: "Lore", mark: "lore", at: null }];
+  const marks = el("span", "mark-stack");
+  for (const source of from.slice(0, 3)) marks.append(markTile(sourceMark(source)));
+  if (from.length > 3) marks.append(el("span", "routine-mark more", `+${from.length - 3}`));
+  const line = from[0].kind === "lore" ? "Written by Lore" : `From ${named(from.map((source) => source.label))}`;
+  return { marks, line };
+}
+
+/** A memory's row that leads with where it came from. @param {{id: number, title: string, sources?: MemorySource[]}} memory
+ * @param {string[]} rest What else the row says, after where it came from. @param {boolean} [sell] */
+function sourcedRow(memory, rest, sell) {
+  const { marks, line } = provenance(memory.sources);
+  const node = memoryRow(memory.id, memory.title, [line, ...rest].filter(Boolean).join(" · "), sell);
+  node.prepend(marks);
+  return node;
+}
+
+/** The line under a memory's title in its sheet and its preview: its marks, where it came from, and its date.
+ * @param {Memory} memory */
+function provenanceLine(memory) {
+  const { marks, line } = provenance(memory.sources);
+  const node = el("span", "provenance");
+  node.append(marks, [line, when(memory.updated_at)].filter(Boolean).join(" · "));
+  return node;
+}
+
 /** The one thing to do next, by the first stage that applies: a store in trouble, changes not live yet, drafts to
  * approve (the drafts themselves are the step), memories with nothing to sell, then no agent or app at all. None while
  * the store is being opened, repaired or updated.
@@ -693,24 +733,33 @@ function readingRow(item) {
 
 /** What Lore made of a connected app's newest items: each new memory, and a draft one press away for the ones worth selling. @param {ReadyRun[]} runs */
 function memoriesReady(runs) {
-  const memories = runs.flatMap((run) => run.memories.map((memory) => ({ ...memory, from: run.from })));
+  const memories = runs.flatMap((run) => run.memories.map((memory) => ({ ...memory, by: run.by })));
   const selling = memories.filter((memory) => memory.sell).length;
   const [latest] = runs;
   const heading = runs.every((run) => run.title === latest.title) ? latest.title : "Lore read what you brought in";
   const detail = [`${plural(memories.length, "new memory")}, only on this Mac`, selling ? `${selling} ${selling === 1 ? "looks" : "look"} worth selling` : ""].filter(Boolean).join(" · ");
   const clear = button("Clear", "quiet", () => void window.lore.clearMemories().then(() => { readyRuns = []; render(); }));
-  const app = (/** @type {string | undefined} */ from) => snapshot?.library.sources.find((source) => source.connector === "agent" && source.label === from)?.app;
+  /** What the library has on record for a memory, or, until the reading's own credit lands (it is recorded last), who the
+   * reading was. @param {number} id @param {Contributor} [by] */
+  const sources = (id, by) => {
+    const kept = snapshot?.library.items.find((item) => item.id === id)?.sources;
+    return by && (!kept || kept[0]?.kind === "lore") ? [{ ...by, at: null }] : kept;
+  };
   const list = el("div", "routines today-cards");
   for (const memory of memories) {
-    const node = memoryRow(memory.id, memory.title, [memory.from && `From ${memory.from}`, memory.sell ? `Worth selling · ${memory.why}` : memory.work ? "Work · stays private" : "Private"].filter(Boolean).join(" · "), memory.sell);
-    const agent = app(memory.from);
-    node.prepend(markTile(agent ? agentMark(agent, memory.from ?? "") : STEP_ICONS.memory));
+    const node = sourcedRow({ id: memory.id, title: memory.title, sources: sources(memory.id, memory.by) }, [memory.sell ? `Worth selling · ${memory.why}` : memory.work ? "Work · stays private" : "Private"], memory.sell);
     node.classList.add("routine");
     list.append(node);
   }
   noticeReady();
   const aside = el("div", "list-aside");
-  aside.append(el("span", "", `${heading} · ${detail}`), clear);
+  aside.append(el("span", "", `${heading} · ${detail}`));
+  // One agent behind every memory here: one click to what it saved.
+  const by = runs[0].by;
+  if (by?.kind === "agent" && runs.every((run) => run.by?.id === by.id) && memories.every((memory) => sources(memory.id, memory.by)?.some((source) => source.id === by.id))) {
+    aside.append(inline("See them →", () => seeFrom({ id: by.id, label: by.label })));
+  }
+  aside.append(clear);
   return section("New memories", list, aside);
 }
 
@@ -973,11 +1022,13 @@ function saleItem(item) {
 
 /** Inventory: everything Lore keeps, private or on sale, in groups by what it's about. @param {Snapshot} s */
 function renderInventory(s) {
-  const agentNames = new Set(s.library.sources.filter((source) => source.connector === "agent").map((source) => source.label));
   const agentApp = (/** @type {string} */ label) => s.library.sources.find((source) => source.connector === "agent" && source.label === label)?.app;
-  const kept = privateMemories(s);
-  const onSale = s.publications.items.filter((item) => item.state === "approved");
-  const down = s.publications.items.filter((item) => item.state === "revoked");
+  const from = inventoryFrom;
+  const kept = privateMemories(s).filter((item) => !from || item.sources.some((source) => source.id === from.id));
+  // A piece for sale says nothing of who brought its memories in, so filtering by one shows memories only.
+  const onSale = from ? [] : s.publications.items.filter((item) => item.state === "approved");
+  const down = from ? [] : s.publications.items.filter((item) => item.state === "revoked");
+  unseen.forget();
   if (shelf === "down" && !down.length) shelf = "all";
 
   const tabs = el("div", "shelves");
@@ -995,12 +1046,19 @@ function renderInventory(s) {
     tabs.append(tab);
   }
 
+  /** A group named for the agent or app its memories came from is headed by that one's own mark. @type {Map<string, MemorySource>} */
+  const known = new Map();
+  for (const item of kept) {
+    for (const source of item.sources) if ((source.kind === "agent" || source.kind === "app") && source.label === item.project_label) known.set(source.label, source);
+  }
   /** Rows under one heading, each group a card headed by what it's about. @param {Map<string, HTMLElement[]>} groups */
   const grouped = (groups) => [...groups].sort(([a], [b]) => a.localeCompare(b)).map(([name, rows]) => {
     const box = el("div", "card rows inv-group");
     const head = el("div", "inv-group-head");
     const app = agentApp(name);
-    head.append(app ? agentMark(app, name) : el("span", "logo initial", (name || "·")[0].toUpperCase()), el("b", "", name || "Unsorted"), el("span", "shelf-count", String(rows.length)));
+    const source = known.get(name);
+    const mark = source ? sourceMark(source) : app ? agentMark(app, name) : el("span", "logo initial", (name || "·")[0].toUpperCase());
+    head.append(typeof mark === "string" ? markTile(mark) : mark, el("b", "", name || "Unsorted"), el("span", "shelf-count", String(rows.length)));
     box.append(head, ...rows);
     return box;
   });
@@ -1011,9 +1069,7 @@ function renderInventory(s) {
     for (const item of items) groups.set(key(item), [...(groups.get(key(item)) ?? []), make(item)]);
     return grouped(groups);
   };
-  const privateGroups = () => groupBy(kept, (item) => item.project_label, (item) => {
-    return memoryRow(item.id, item.title, [agentNames.has(item.project_label) ? `From ${item.project_label}` : "", when(item.updated_at)].filter(Boolean).join(" · "));
-  });
+  const privateGroups = () => groupBy(kept, (item) => item.project_label, (item) => unseen.watch(sourcedRow(item, [when(item.updated_at)]), item.arrival));
   const saleGroups = () => groupBy(onSale, (item) => item.topic, saleItem);
   const downGroups = () => groupBy(down, (item) => item.topic, (item) => row(item.title, item.topic, item.live === true ? chip("Still on your store", "attention") : chip("Taken down")));
   const stack = (/** @type {HTMLElement[]} */ cards) => {
@@ -1026,7 +1082,21 @@ function renderInventory(s) {
   const parts = [storeBar(s)];
   if (pushOffer) parts.push(seamCard());
   if (pushedNote) parts.push(pushReceipt(s));
-  parts.push(tabs);
+  const filters = el("div", "inv-filters");
+  filters.append(tabs);
+  if (from) {
+    const only = el("span", "chip source-filter", from.label);
+    const all = el("button", "dismiss", "×");
+    all.type = "button";
+    all.setAttribute("aria-label", `Show everything, not only ${from.label}`);
+    all.addEventListener("click", () => {
+      inventoryFrom = null;
+      render();
+    });
+    only.append(all);
+    filters.append(only);
+  }
+  parts.push(filters);
   const nothingKept = emptyState("Nothing kept yet. Say what you learned, or connect an agent, and Lore will keep it.", button("Add your first memory", "quiet", () => startCapture()));
   const nothingOnSale = emptyState("Nothing on sale yet.", button("See what's private", "quiet", () => { shelf = "private"; render(); }));
   if (shelf === "all") {
@@ -1040,9 +1110,101 @@ function renderInventory(s) {
   } else {
     parts.push(stack(downGroups()));
   }
-  if (shelf === "all" || shelf === "sale") parts.push(renderSales());
+  if (!from && (shelf === "all" || shelf === "sale")) parts.push(renderSales());
   return parts;
 }
+
+/** Inventory, showing only what one agent or app brought in, with what the owner hasn't seen marked New.
+ * @param {{id: string, label: string}} source */
+function seeFrom(source) {
+  inventoryFrom = source;
+  if (detailTask) closeTask();
+  show("memories");
+}
+
+/** APP-212: which memories Inventory marks New: arrived since Lore began keeping track, and not on screen before this
+ * visit. A row counts as seen once it has been on screen while Lore is in front; it keeps its mark until the next visit.
+ * Memories are known here by arrival, never by id, which the store can hand out again after a delete. */
+class Unseen {
+  since = Number.POSITIVE_INFINITY;
+  /** @type {Set<number>} */
+  seen = new Set();
+  /** What had been seen when this visit began. @type {Set<number>} */
+  before = new Set();
+  loaded = false;
+  /** Rows on screen now, by memory. @type {Map<Element, number>} */
+  #showing = new Map();
+  /** @type {Set<number>} */
+  #telling = new Set();
+  #timer = 0;
+  #observer = new IntersectionObserver((entries) => {
+    for (const entry of entries) {
+      if (entry.isIntersecting) this.#showing.set(entry.target, Number(/** @type {HTMLElement} */ (entry.target).dataset.memory));
+      else this.#showing.delete(entry.target);
+    }
+    this.#look();
+  });
+
+  constructor() {
+    window.addEventListener("focus", () => this.#look());
+    document.addEventListener("visibilitychange", () => this.#look());
+  }
+
+  /** @param {number} newest The newest memory, where "since" starts the first time. */
+  async load(newest) {
+    const kept = await window.lore.memoriesSeen(newest);
+    this.since = kept.since;
+    for (const arrival of kept.arrivals) this.seen.add(arrival);
+    if (!this.loaded) this.visit();
+    this.loaded = true;
+  }
+
+  /** A new visit: what was seen before it loses its mark. */
+  visit() {
+    this.before = new Set(this.seen);
+  }
+
+  /** @param {number} id */
+  fresh(id) {
+    return id > this.since && !this.before.has(id);
+  }
+
+  /** Inventory is drawn again: the rows it drew before are gone. */
+  forget() {
+    this.#observer.disconnect();
+    this.#showing.clear();
+  }
+
+  /** Mark a row New while its memory is, and watch for it on screen. @param {HTMLElement} row @param {number} id */
+  watch(row, id) {
+    if (!this.fresh(id)) return row;
+    row.querySelector(".t b")?.append(el("span", "new-mark", "New"));
+    if (!this.seen.has(id)) {
+      row.dataset.memory = String(id);
+      this.#observer.observe(row);
+    }
+    return row;
+  }
+
+  #look() {
+    if (document.visibilityState !== "visible" || !document.hasFocus()) return;
+    for (const id of this.#showing.values()) {
+      if (this.seen.has(id)) continue;
+      this.seen.add(id);
+      this.#telling.add(id);
+    }
+    if (!this.#telling.size) return;
+    window.clearTimeout(this.#timer);
+    this.#timer = window.setTimeout(() => {
+      const ids = [...this.#telling].slice(0, 500);
+      for (const id of ids) this.#telling.delete(id);
+      void window.lore.markSeen(ids).catch(() => undefined);
+      if (this.#telling.size) this.#look();
+    }, 300);
+  }
+}
+
+const unseen = new Unseen();
 
 function renderSales() {
   if (sales instanceof Error) return section("Sales", emptyState(sales.message, button("Try again", "secondary", () => void loadSales())));
@@ -1766,7 +1928,8 @@ function tiles(rows) {
     node.classList.add("tile");
     node.addEventListener("click", (event) => {
       if (event.target instanceof Element && event.target.closest("button")) return;
-      node.querySelector("button")?.click();
+      // A link in its text goes where it says; the tile opens its own action.
+      /** @type {HTMLButtonElement | null} */ (node.querySelector("button:not(.inline)"))?.click();
     });
     grid.append(node);
   }
@@ -1784,7 +1947,7 @@ const FIRST_SAVE_EVERY_MS = 10_000;
 
 /** @param {AgentApp | null | undefined} app @param {string} name */
 function agentMark(app, name) {
-  return brand(PERSONAL_MARKS[app ?? "other"] ?? "agent", name);
+  return brand(app && Object.hasOwn(PERSONAL_MARKS, app) ? PERSONAL_MARKS[app] : "agent", name);
 }
 
 /** @param {string} iso */
@@ -1799,6 +1962,16 @@ function agentLine(source) {
   const entry = agents?.find((agent) => agent.source === source.name);
   if (!entry) return source.imported ? `${plural(source.imported, "memory")} kept` : "Nothing saved yet";
   return entry.saved ? `Saved ${entry.saved}${entry.last_saved_at ? ` · last ${day(entry.last_saved_at)}` : ""}` : "Nothing saved yet";
+}
+
+/** An agent's line on its card, its "Saved N" one click from what it saved. @param {SourceEntry} source */
+function agentDetail(source) {
+  const line = agentLine(source);
+  const saved = agents?.find((agent) => agent.source === source.name)?.saved;
+  if (!saved) return line;
+  const node = el("span");
+  node.append(inline(`Saved ${saved}`, () => seeFrom({ id: source.name, label: source.label })), line.slice(`Saved ${saved}`.length));
+  return node;
 }
 
 /** What an agent's own history on this Mac is, in the owner's words. @type {Record<string, string>} */
@@ -1844,7 +2017,7 @@ function openHistory(source) {
 function agentTiles(s) {
   const rows = s.library.sources.filter((source) => source.connector === "agent").map((source) => {
     const line = agentLine(source);
-    const node = row(source.label, line, cell(line === "Nothing saved yet" ? pill("Waiting", "wait") : pill("Live", "ok"), button("Manage", "quiet", () => openAgent(source))), false);
+    const node = row(source.label, agentDetail(source), cell(line === "Nothing saved yet" ? pill("Waiting", "wait") : pill("Live", "ok"), button("Manage", "quiet", () => openAgent(source))), false);
     node.prepend(agentMark(source.app, source.label));
     return node;
   });
@@ -2017,8 +2190,12 @@ class AgentSetup {
     const poll = setInterval(() => void window.lore.checkAgents(), FIRST_SAVE_EVERY_MS);
     /** @param {SourceRead[]} reads */
     const heard = (reads) => {
-      if (!reads.some((read) => read.name === source && (read.added || read.updated))) return;
-      line.replaceChildren(el("span", "dot ok"), el("span", "", `${who} saved its first memory`));
+      const saved = reads.filter((read) => read.name === source).reduce((sum, read) => sum + read.added + read.updated, 0);
+      if (!saved) return;
+      line.replaceChildren(el("span", "dot ok"), el("span", "", `${who} saved ${plural(saved, "memory")} · `), inline("See them →", () => {
+        closeSheet();
+        seeFrom({ id: source, label: who });
+      }));
       stop();
     };
     const stop = () => {
@@ -2410,6 +2587,7 @@ function show(next) {
   if (next === "connectors") void loadAgents();
   // A store update said once, where it happened; it doesn't follow the owner around.
   pushedNote = false;
+  unseen.visit();
   render();
   mainEl.scrollTop = 0;
   mainEl.focus({ preventScroll: true });
@@ -2431,6 +2609,10 @@ async function load() {
     const loaded = await Promise.all([window.lore.snapshot(), window.lore.candidates().catch(() => []), window.lore.extras().catch(() => []), window.lore.tasks().catch(() => []), apps.length ? apps : window.lore.sourceCatalog().catch(() => []), window.lore.readyRuns().catch(() => readyRuns), window.lore.checkIn().catch(() => null), window.lore.routines().catch(() => routines)]);
     if (ticket !== loads) return;
     [snapshot, candidates, extraDrafts, taskItems, apps, readyRuns, checkIn, routines] = loaded;
+    let newest = 0;
+    for (const item of snapshot.library.items) newest = Math.max(newest, item.arrival);
+    await unseen.load(newest).catch(() => undefined);
+    if (ticket !== loads) return;
     if (detailTask) detailRecord = taskItems.find((item) => item.kind === detailTask) ?? detailRecord;
     peeked.clear();
     render();
@@ -3555,8 +3737,11 @@ function onEvent(event) {
   }
   else if (event.type === "ready") void load();
   else if (event.type === "show") {
-    if (event.view === "today" && detailTask) closeTask();
-    show(event.view);
+    if (event.source) seeFrom(event.source);
+    else {
+      if (event.view === "today" && detailTask) closeTask();
+      show(event.view);
+    }
   }
   else if (event.type === "thread") void openTask(event.task);
   else if (event.type === "update") showUpdate(event.update);
@@ -3796,7 +3981,7 @@ async function fillPalette(query) {
   const ranked = [...found.filter((hit) => hit.title.toLowerCase().includes(lower)), ...found.filter((hit) => !hit.title.toLowerCase().includes(lower))];
   paletteRows = query
     ? ranked.map((hit) => paletteRow(highlight("b", hit.title, terms), snippet(hit.content, terms), "open", () => void openMemory(Number(hit.id))))
-    : (snapshot ? privateMemories(snapshot) : []).slice(0, 8).map((item) => paletteRow(el("b", "", item.title), el("span", "", [item.project_label, when(item.updated_at)].filter(Boolean).join(" · ")), "open", () => void openMemory(item.id)));
+    : (snapshot ? privateMemories(snapshot) : []).slice(0, 8).map((item) => paletteRow(el("b", "", item.title), el("span", "", [provenance(item.sources).line, when(item.updated_at)].join(" · ")), "open", () => void openMemory(item.id)));
   if (query) {
     const capture = paletteRow(el("b", "", `Capture “${query}”`), el("span", "", "Start a new memory with these words"), "capture", () => startCapture(query));
     capture.node.classList.add("capture");
@@ -3914,7 +4099,7 @@ function showPeek(anchor, memory) {
   peek = el("div", "card peek");
   peek.setAttribute("role", "tooltip");
   const text = memory.content.replace(FRONTMATTER, "").replace(/\s+/g, " ").trim();
-  peek.append(el("b", "", memory.title), el("span", "", [origin(memory)[0], when(memory.updated_at)].filter(Boolean).join(" · ")), el("p", "", text.slice(0, 400)));
+  peek.append(el("b", "", memory.title), provenanceLine(memory), el("p", "", text.slice(0, 400)));
   peek.addEventListener("mouseenter", () => window.clearTimeout(peekTimer));
   peek.addEventListener("mouseleave", hidePeek);
   peek.addEventListener("click", () => void openMemory(memory.id));

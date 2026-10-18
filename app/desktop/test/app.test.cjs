@@ -81,6 +81,18 @@ test("reads only the fixed APP-001 snapshot", async () => {
   }
 });
 
+test("crediting a big reading goes to the CLI in batches it takes", async () => {
+  const { creditMemories } = require("../src/state.cjs");
+  const directory = await mkdtemp(join(tmpdir(), "lore-desktop-"));
+  try {
+    const ids = Array.from({ length: 1001 }, (_, i) => i + 1);
+    await creditMemories(directory, ids, { kind: "routine", id: "r1", label: "Sunday", mark: "clock" });
+    await creditMemories(directory, [], { kind: "routine", id: "r1", label: "Sunday", mark: "clock" });
+  } finally {
+    await rm(directory, { recursive: true });
+  }
+});
+
 test("free copies save through the CLI, refused before it unless a whole number, and read back in the snapshot", async () => {
   const { setFreeCopies } = require("../src/state.cjs");
   const directory = await mkdtemp(join(tmpdir(), "lore-desktop-"));
@@ -1171,7 +1183,7 @@ async function until(done) {
 test("an app that brings something new in is read through once; one that brings nothing is not", () => {
   const { worthReading } = require("../src/reading.cjs");
   const apps = [{ id: "granola", name: "Granola", item: "meeting" }, { id: "medium", name: "Medium", item: "story" }];
-  assert.deepEqual(worthReading({ name: "granola-1", connector: "granola", added: 23 }, apps), { name: "granola-1", label: "Granola", item: "meeting", added: 23, title: "Lore read your Granola meetings", phase: "Reading your Granola meetings" }, "worded once, for Today and the notification");
+  assert.deepEqual(worthReading({ name: "granola-1", connector: "granola", added: 23 }, apps), { name: "granola-1", label: "Granola", item: "meeting", added: 23, title: "Lore read your Granola meetings", phase: "Reading your Granola meetings", by: { kind: "app", id: "granola-1", label: "Granola", mark: "granola" } }, "worded once, for Today and the notification, and the app on record for what it brings");
   assert.equal(worthReading({ name: "granola-1", connector: "granola", added: 0 }, apps), null);
   assert.equal(worthReading({ name: "granola-1", connector: "granola" }, apps), null, "a CLI older than AUT-005 says nothing came in");
   assert.equal(worthReading({ name: "codex", connector: null, added: 3 }, apps), null, "the agents' own memories are the schedule's");
@@ -1269,6 +1281,21 @@ test("a reading lands as Today lists it: only stored memories, work never for sa
   assert.equal(run.seen, false);
   assert.deepEqual(announcement(run), { title: "Lore read your Granola meetings", body: "2 new memories. 1 looks worth selling." });
   assert.deepEqual(announcement({ ...run, read: 1, memories: [run.memories[1]] }), { title: "Lore read your Granola meetings", body: "1 new memory. They stay private on this Mac." });
+});
+
+test("the memories the owner has seen are kept across relaunches, from where Lore began keeping track", async () => {
+  const { Seen, seenIds } = require("../src/reading.cjs");
+  const directory = await mkdtemp(join(tmpdir(), "lore-seen-"));
+  const file = join(directory, "memories-seen.json");
+  assert.deepEqual(await new Seen(file).read(12), { since: 12, arrivals: [] }, "a library from before is never all new at once");
+  const seen = new Seen(file);
+  await Promise.all([seen.add([13, 14]), seen.add([15]), seen.add([3])]);
+  assert.deepEqual(await new Seen(file).read(99), { since: 12, arrivals: [13, 14, 15] }, "two reports at once both land; an old memory needs no record; a relaunch keeps since");
+  await writeFile(file, "{not json");
+  assert.deepEqual(await new Seen(file).read(20), { since: 20, arrivals: [] }, "a damaged file starts over from now");
+  assert.deepEqual(seenIds([1, 2]), [1, 2]);
+  for (const bad of [[], [0], [1.5], ["1"], null, "1", Array.from({ length: 501 }, (_, i) => i + 1)]) assert.throws(() => seenIds(bad), /Invalid memories/);
+  await rm(directory, { recursive: true });
 });
 
 test("the dock counts new memories until the owner has seen them, and Clear empties Today", async () => {
@@ -1567,6 +1594,12 @@ test("an owner's routine runs their sentence as a quiet reading and is announced
   const folder = "/Users/owner/.lore/memories";
   const run = landed(reading, { read: 0, memories: [{ file: "t.md", worth_selling: false, why: "" }] }, [{ id: 1, title: "t", content: "", project: "", source: "automation", source_path: `${folder}/t.md`, status: "private", updated_at: "" }], folder);
   assert.deepEqual(announcement(run), { title: "“Every Sunday, remember what I read”", body: "1 new memory. They stay private on this Mac." });
+  assert.deepEqual(run.by, { kind: "routine", id: "r-1", label: "Every Sunday, remember what I read", mark: "clock" }, "what it wrote is on record as the routine's");
+  const long = "Remember ".repeat(60);
+  assert.equal(asking({ id: "r-2", name: long }, long).by.label, long.trim().slice(0, 200), "a routine named by a long prompt is cut to what the store keeps");
+  const emoji = `${"a".repeat(199)}🧠 keep the lesson`;
+  const cut = asking({ id: "r-3", name: emoji }, emoji).by.label;
+  assert.equal(cut, `${"a".repeat(199)}🧠`, "a cut never splits an emoji");
 });
 
 test("Run now waits for a scheduled run under way, so the two never overlap", async () => {
@@ -1648,13 +1681,16 @@ test("one agent whose read fails leaves the others' saves to land", async () => 
 test("an agent's saves are read through like any app's, named for the agent, and say where they came from", () => {
   const { worthReading, landed, announcement } = require("../src/reading.cjs");
   const apps = /** @type {SourceApp[]} */ ([{ id: "agent", name: "Personal agent", item: "save" }, { id: "granola", name: "Granola", item: "meeting" }]);
-  const reading = worthReading({ name: "agent-1a2b3c4d5e6f7a8b", label: "Grok", connector: "agent", added: 3 }, apps);
-  assert.deepEqual(reading, { name: "agent-1a2b3c4d5e6f7a8b", label: "Grok", item: "save", added: 3, title: "Grok saved 3 things to Lore", phase: "Reading what Grok saved", from: "Grok" });
+  const reading = worthReading({ name: "agent-1a2b3c4d5e6f7a8b", label: "Grok", connector: "agent", app: "grok", added: 3 }, apps);
+  const by = { kind: "agent", id: "agent-1a2b3c4d5e6f7a8b", label: "Grok", mark: "grok" };
+  assert.deepEqual(reading, { name: "agent-1a2b3c4d5e6f7a8b", label: "Grok", item: "save", added: 3, title: "Grok saved 3 things to Lore", phase: "Reading what Grok saved", from: "Grok", by });
+  assert.equal(worthReading({ name: "agent-1", label: "Mine", connector: "agent", added: 1 }, apps)?.by.mark, "other", "an agent of no known app shows the plain agent mark");
   assert.equal(worthReading({ name: "agent-1a2b3c4d5e6f7a8b", label: "Grok", connector: "agent", added: 0 }, apps), null, "a re-save that only updated is not a new reading");
   assert.equal(worthReading({ name: "agent-1a2b3c4d5e6f7a8b", label: "", connector: "agent", added: 1 }, apps)?.title, "Personal agent saved 1 thing to Lore");
   const folder = "/Users/owner/.lore/memories";
   const run = landed(/** @type {Reading} */ (reading), { read: 3, memories: [{ file: "pricing.md", worth_selling: true, why: "a measured rule" }] }, [{ id: 7, title: "How I price sync", content: "", project: "", source: "automation", source_path: `${folder}/pricing.md`, status: "private", updated_at: "" }], folder);
   assert.equal(run.from, "Grok", "Today says which agent it came from");
+  assert.deepEqual(run.by, by, "and who to put on record for what it wrote");
   assert.deepEqual(announcement(run), { title: "Grok saved 3 things to Lore", body: "1 new memory. 1 looks worth selling." });
   const granola = worthReading({ name: "granola-1", connector: "granola", added: 2 }, apps);
   assert.equal("from" in landed(/** @type {Reading} */ (granola), { read: 2, memories: [] }, [], folder), false, "an app's run names no agent");

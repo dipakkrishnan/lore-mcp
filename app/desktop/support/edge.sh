@@ -186,6 +186,12 @@ if [[ "$scenario" == "today" ]]; then
   printf '# One\n\nA first lesson long enough to be worth keeping.\n' > "$root/Edge Vault/one.md"
   export CLAUDE_HOME="$root/claude" CODEX_HOME="$root/codex" OBSIDIAN_HOME="$root/obsidian"
 fi
+if [[ "$scenario" == "reading" ]]; then
+  # APP-213: one memory Lore wrote before it kept who each came from.
+  mkdir -p "$LORE_HOME/memories"
+  printf '# An older lesson Lore wrote\n\nWritten before Lore kept who each memory came from, long enough to keep.\n' > "$LORE_HOME/memories/older-lesson.md"
+  (cd "$repo_root" && uv run lore sync --source automation >/dev/null)
+fi
 if [[ "$scenario" == "agents" ]]; then
   # APP-207: the owner's node stood in for by tests/fixtures/inbox.py: its D1 a SQLite file, its /agent a local server,
   # and a keyring kept in a file, so the owner's Keychain is never touched. No store is online yet: the walk puts it

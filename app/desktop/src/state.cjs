@@ -122,6 +122,17 @@ async function readMemory(loreHome, id) {
   return JSON.parse(await lore(loreHome, ["memory", "show", String(id), "--json"]));
 }
 
+/** How many memories one `lore memory credit` names, as the CLI takes them. */
+const CREDIT_AT_ONCE = 500;
+
+/** Put who wrote a reading's memories on record (APP-213), as many at a time as the CLI takes.
+ * @param {string} loreHome @param {number[]} ids @param {Contributor} by */
+async function creditMemories(loreHome, ids, by) {
+  for (let start = 0; start < ids.length; start += CREDIT_AT_ONCE) {
+    await lore(loreHome, ["memory", "credit", "-"], JSON.stringify({ ids: ids.slice(start, start + CREDIT_AT_ONCE), by }));
+  }
+}
+
 /** @param {string} loreHome @param {unknown} id @param {string} title @returns {Promise<Memory>} */
 async function renameMemory(loreHome, id, title) {
   if (!Number.isInteger(id) || /** @type {number} */ (id) < 1) throw new Error("Invalid memory");
@@ -428,6 +439,7 @@ module.exports = {
   readViews,
   searchMemories,
   readMemory,
+  creditMemories,
   renameMemory,
   editMemory,
   captureMemories,
