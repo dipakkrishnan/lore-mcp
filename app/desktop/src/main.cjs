@@ -10,9 +10,10 @@ const { Updates } = require("./updates.cjs");
 const reading = require("./reading.cjs");
 const checkin = require("./checkin.cjs");
 const { Schedule } = require("./routines.cjs");
+const { FirstRun } = require("./firstrun.cjs");
 const { Watch, WATCH_EVERY_MS, AgentApps } = require("./agents.cjs");
 const { checkAttachments } = require("./attachments.cjs");
-const { lore, listRoutines, runRoutine, changeRoutine, addRoutine, editRoutine, switchSource, loreStream, openable, readState, readSales, readViews, searchMemories, readMemory, creditMemories, renameMemory, editMemory, captureMemories, previewPage, setPrice, setFreeCopies, candidates, decide, extrasCandidates, decideExtras, approveExtras, reportFeedback, listStore, cardStatus, connectCards, switchCards, listingStatus, sourceCatalog, sourceChoices, connectSource, signIn, readSource, removeSource, listAgents, connectAgent, agentKey, disconnectAgent, agentsWaiting, useRuntime, openStore, saveProfile, ATTENDED_KEY, STORE } = require("./state.cjs");
+const { lore, listRoutines, runRoutine, changeRoutine, addRoutine, editRoutine, switchSource, openable, readState, readSales, readViews, searchMemories, readMemory, creditMemories, renameMemory, editMemory, captureMemories, previewPage, setPrice, setFreeCopies, candidates, decide, extrasCandidates, decideExtras, approveExtras, reportFeedback, listStore, cardStatus, connectCards, switchCards, listingStatus, sourceCatalog, sourceChoices, connectSource, signIn, readSource, removeSource, listAgents, connectAgent, agentKey, disconnectAgent, agentsWaiting, useRuntime, openStore, storeOnline, cloudflareSignIn, saveProfile, ATTENDED_KEY, STORE } = require("./state.cjs");
 
 if (process.env.LORE_DESKTOP_USER_DATA) app.setPath("userData", process.env.LORE_DESKTOP_USER_DATA);
 // Two copies sharing one credentials file each refresh the sign-in, and the provider refuses the second.
@@ -41,6 +42,8 @@ let connecting;
 /** What Lore read from connected apps, kept until the owner clears it, with the dock's red number. */
 const badge = new reading.Badge((count) => app.setBadgeCount(count));
 const newMemories = new reading.Ready(join(app.getPath("userData"), "memories-ready.json"), badge.part("memories"));
+/** Where the first-run chat stands (APP-215). */
+const firstRun = new FirstRun(join(app.getPath("userData"), "first-run.json"));
 /** Which memories the owner has had on screen, so Inventory marks the rest New (APP-212). */
 const seenMemories = new reading.Seen(join(app.getPath("userData"), "memories-seen.json"));
 /** The evening check-in waiting for the owner, if Lore found something worth asking (AUT-008). */
@@ -284,6 +287,19 @@ function registerIpc(loreHome, schedule, watch) {
   const agentApps = new AgentApps(["/Applications", join(app.getPath("home"), "Applications")], (path) => shell.openPath(path));
   ipcMain.handle("agents:installed", () => agentApps.installed());
   ipcMain.handle("agents:open", (_event, id) => agentApps.open(id));
+  // APP-215: the first-run chat's place, and its store going online for the owner's agents on the owner's tap, signing
+  // in to Cloudflare first in the browser when it has to.
+  ipcMain.handle("firstrun:read", () => firstRun.read());
+  ipcMain.handle("firstrun:write", (_event, next) => firstRun.write(next));
+  ipcMain.handle("store:online", async () => {
+    let said = await storeOnline(loreHome);
+    if (said.includes("not signed in to Cloudflare")) {
+      await cloudflareSignIn(loreHome, (url) => void shell.openExternal(url));
+      said = await storeOnline(loreHome);
+    }
+    emit({ type: "changed" });
+    if (!said.startsWith("The store is deployed")) throw new Error(said);
+  });
   ipcMain.handle("clipboard:write", (_event, text) => {
     if (typeof text !== "string" || text.length > 100_000) throw new Error("Nothing to copy");
     clipboard.writeText(text);
@@ -563,19 +579,10 @@ async function start(loreHome) {
     },
     cloudflareLogin: async () => {
       if (!(await request("cloudflare", {}))) return "The owner chose not to sign in to Cloudflare right now.";
-      let last = "";
-      try {
-        await loreStream(loreHome, ["node", "login"], (line) => {
-          last = line;
-          const url = line.match(/https:\/\/dash\.cloudflare\.com\/\S+/)?.[0];
-          if (!url) return;
-          void shell.openExternal(url);
-          emit({ type: "live", task: agent?.activeTask ?? null, text: "Finish signing in to Cloudflare in your browser, then come back here." });
-        });
-      } catch (error) {
-        throw new Error(last.replace(/^lore: /, "") || /** @type {Error} */ (error).message);
-      }
-      return last;
+      return cloudflareSignIn(loreHome, (url) => {
+        void shell.openExternal(url);
+        emit({ type: "live", task: agent?.activeTask ?? null, text: "Finish signing in to Cloudflare in your browser, then come back here." });
+      });
     },
     openStore: async (store) => {
       const said = await openStore(loreHome, store, async (questions) => /** @type {Record<string, string>} */ (await request("question", { questions, source: "app" })));

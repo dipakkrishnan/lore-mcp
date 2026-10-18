@@ -188,6 +188,9 @@ type CheckInVerdict = { reach_out: boolean; why: string; questions: Array<{ ques
 type CheckIn = { questions: Array<{ question: string; memory: number; title: string }>; why: string; at: string; state: "waiting" | "answered" | "expired" };
 
 /** The apps a personal agent can be (CAP-036). */
+/** Where the first-run chat stands (APP-215), and the agent it is waiting on. */
+type FirstRunState = { state: "started" | "skipped" | "done"; source?: string };
+
 type AgentApp = "grok" | "muse" | "chatgpt" | "claude" | "other";
 
 /** What `lore agents connect` and `lore agents key` hand back: the agent, with how many saves its store has counted so far, and what to paste into it, shown once. */
@@ -349,6 +352,11 @@ interface Window {
     /** Which of the owner's agent apps are installed on this Mac (APP-216). */
     agentApps(): Promise<AgentApp[]>;
     openAgentApp(id: AgentApp): Promise<void>;
+    /** Where the first-run chat stands, or null if it never started (APP-215). */
+    firstRun(): Promise<FirstRunState | null>;
+    setFirstRun(next: FirstRunState): Promise<void>;
+    /** Put the store online for the owner's agents only; signs in to Cloudflare in the browser first if it must. */
+    storeOnline(): Promise<void>;
     copy(text: string): Promise<void>;
     readyRuns(): Promise<ReadyRun[]>;
     seenMemories(): Promise<void>;

@@ -663,3 +663,20 @@ dialog.palette[open] { animation: rise 0.12s ease; }
 .today-cards .row.routine.next-step .t span { font-size: 13.5px; line-height: 1.45; color: var(--ink-soft); }
 .list-aside { display: flex; align-items: center; gap: 12px; font-size: 12.5px; color: var(--muted); }
 .list-aside .btn.quiet { height: 26px; padding: 0 10px; border-radius: 999px; font-size: 12px; }
+
+/* APP-215: the first-run chat, Lore first and one thing at a time. */
+.first-run { gap: 14px; max-width: 640px; }
+.first-run .line > .card { max-width: 560px; }
+button.choice { width: 100%; font: inherit; color: var(--ink); text-align: left; align-items: center; cursor: pointer; }
+.choice.picked { border-color: var(--accent); background: var(--accent-soft); }
+button.choice:disabled { cursor: default; color: var(--muted); }
+button.choice:disabled:hover { background: var(--surface); }
+.first-choices .logo, .first-choices .routine-mark { width: 22px; height: 22px; }
+.first-place { display: inline-flex; align-items: center; gap: 8px; min-width: 0; }
+.first-connect .actions { align-items: center; }
+.first-connect .actions .agent-wait { margin: 0 auto 0 0; }
+.first-saved .row:first-child b { font-weight: 500; }
+.first-saved .first-saved-wait { padding: 0 16px 12px; }
+.first-run-actions { display: flex; justify-content: flex-end; }
+.first-saved .row:not(:first-child) { justify-content: flex-start; }
+.first-connect .actions:first-child { padding-top: 0; border-top: 0; }

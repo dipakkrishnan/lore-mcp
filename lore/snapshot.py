@@ -193,12 +193,16 @@ def _claude_project_labels() -> dict[str, str]:
     projects = claude_home() / "projects"
     if not projects.is_dir():
         return labels
-    for slug in projects.iterdir():
-        for session in slug.glob("*.jsonl"):
-            cwd = _session_cwd(session)
-            if cwd:
-                labels[slug.name] = Path(cwd).name
-                break
+    # A folder Lore hasn't been let into yet labels nothing; it never stops the snapshot.
+    try:
+        for slug in projects.iterdir():
+            for session in slug.glob("*.jsonl"):
+                cwd = _session_cwd(session)
+                if cwd:
+                    labels[slug.name] = Path(cwd).name
+                    break
+    except OSError:
+        pass
     return labels
 
 
