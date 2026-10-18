@@ -506,7 +506,9 @@ class ConnectorTest(LoreTestCase):
         self.assertEqual(choice.locator, kept.locator)
         self.assertEqual(choice.label, "Linked Vault")
 
-    def test_a_vault_whose_path_loops_is_offered_as_named_and_hides_no_other(self) -> None:
+    def test_a_vault_whose_path_loops_is_offered_as_named_and_hides_no_other(
+        self,
+    ) -> None:
         # APP-215: one bad entry in Obsidian's list must not cost the owner every healthy vault.
         healthy = Path(self.tmp.name) / "Healthy"
         healthy.mkdir()
