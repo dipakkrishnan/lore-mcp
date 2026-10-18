@@ -315,6 +315,270 @@ if (scenario === "listing") {
 const sleep = (ms) => new Promise((done) => setTimeout(done, ms));
 const results = [];
 function check(name, ok, detail = "") { results.push(`${ok ? "PASS" : "FAIL"} ${name}${detail ? ` — ${detail}` : ""}`); }
+/** APP-218: what reads wrong on screen, found in the page itself: the page or a box wider than its room, a one-line
+ * label on two lines, text or a control cut off by its box, two neighbours drawn over each other, text or the focused
+ * control hidden under something painted over it, or a dialog running off the window. Text meant to run on (a message,
+ * a memory, a hint) says so with data-wraps on its own box. Returns what it found, one line each. */
+const LAYOUT = String.raw`(() => {
+  const found = new Set();
+  const describe = (node) => {
+    const classes = typeof node.className === "string" && node.className.trim() ? "." + node.className.trim().split(/\s+/).join(".") : "";
+    return node.tagName.toLowerCase() + (node.id ? "#" + node.id : "") + classes + ' "' + (node.textContent ?? "").trim().replace(/\s+/g, " ").slice(0, 48) + '"';
+  };
+  const css = (node) => getComputedStyle(node);
+  const shown = (node) => {
+    const box = node.getBoundingClientRect();
+    if (box.width < 1 || box.height < 1) return false;
+    const style = css(node);
+    return style.visibility !== "hidden" && Number(style.opacity) > 0.05;
+  };
+  const scrolls = (style) => /auto|scroll/.test(style.overflowX + style.overflowY);
+  const inner = (node) => {
+    const box = node.getBoundingClientRect();
+    return { left: box.left + node.clientLeft, top: box.top + node.clientTop, right: box.left + node.clientLeft + node.clientWidth, bottom: box.top + node.clientTop + node.clientHeight };
+  };
+  const meet = (a, b) => {
+    const box = { left: Math.max(a.left, b.left), top: Math.max(a.top, b.top), right: Math.min(a.right, b.right), bottom: Math.min(a.bottom, b.bottom) };
+    return box.right - box.left > 0.5 && box.bottom - box.top > 0.5 ? box : null;
+  };
+  const layer = (node) => node.closest("dialog[open], :popover-open, .peek");
+  /** Where a box can be seen: inside the window and every box that scrolls around it; null once scrolled out of sight. */
+  const inView = (node, box = node.getBoundingClientRect()) => {
+    let seen = meet(box, { left: 0, top: 0, right: innerWidth, bottom: innerHeight });
+    for (let around = node.parentElement; seen && around && around !== document.body; around = around.parentElement) if (scrolls(css(around))) seen = meet(seen, inner(around));
+    return seen;
+  };
+  /** The part of a box its own clip and every clip around it let show: an ellipsized line ends where its "…" does. */
+  const showing = (node, box) => {
+    for (let around = node; box && around && around !== document.documentElement; around = around.parentElement) {
+      const style = css(around);
+      if (style.overflowX !== "visible" || style.overflowY !== "visible") box = meet(box, inner(around));
+    }
+    return box;
+  };
+  const texts = (node) => {
+    const runs = [];
+    const walk = document.createTreeWalker(node, NodeFilter.SHOW_TEXT);
+    for (let text = walk.nextNode(); text; text = walk.nextNode()) if (text.textContent.trim() && !text.parentElement.closest(".sr-only")) runs.push(text);
+    return runs;
+  };
+  const rects = (text) => {
+    const range = document.createRange();
+    range.selectNodeContents(text);
+    return [...range.getClientRects()].filter((box) => box.width > 0.5 && box.height > 0.5);
+  };
+  if (document.documentElement.scrollWidth > innerWidth + 1) found.add("the page scrolls sideways");
+  const modal = document.querySelector("dialog:modal");
+  const roots = (modal ? [modal, ...document.querySelectorAll(":popover-open, .peek")] : [...document.querySelectorAll("#welcome, #main, aside, dialog[open], :popover-open, .peek")]).filter(shown);
+  const nodes = [...new Set(roots.flatMap((root) => [root, ...root.querySelectorAll("*")]))].filter((node) => node instanceof HTMLElement && shown(node) && !node.closest(".sr-only"));
+  // How far a box's own text and children run past its right inner edge; a child pulled out with a negative margin
+  // (a hover background wider than its text) or placed on its own is meant to.
+  const bleeds = (node) => /-/.test(css(node).marginLeft + css(node).marginRight) || ["absolute", "fixed"].includes(css(node).position);
+  const past = (node) => inner(node).right;
+  const spill = (node, blocks = false) => {
+    let right = -Infinity;
+    for (const kid of node.childNodes) {
+      if (kid.nodeType === Node.TEXT_NODE && kid.textContent.trim() && !blocks) for (const box of rects(kid)) right = Math.max(right, box.right);
+      else if (kid instanceof HTMLElement && shown(kid) && !bleeds(kid) && (!blocks || !css(kid).display.startsWith("inline"))) right = Math.max(right, kid.getBoundingClientRect().right);
+    }
+    return right - past(node);
+  };
+  // (a) wider than its room, and (c) cut off at its own edge: only the innermost box says it, not every box around it.
+  // An ellipsis covers only the box's own line of text, never a block inside it that runs past.
+  const wide = new Map();
+  for (const node of nodes) {
+    if (node.matches("input, textarea, select, img")) continue;
+    const style = css(node);
+    if (style.display === "inline") continue;
+    if (node.scrollWidth - node.clientWidth > 1 && !scrolls(style)) {
+      if (style.overflowX === "visible") { if (spill(node) > 1) wide.set(node, "wider than its box"); }
+      else if (style.textOverflow !== "ellipsis") wide.set(node, "cut off at the side, with no ellipsis");
+      else if (spill(node, true) > 1) wide.set(node, "cut off at the side, where its ellipsis can't reach");
+    }
+    const masked = style.webkitMaskImage !== "none" || style.webkitLineClamp !== "none";
+    if (node.scrollHeight - node.clientHeight > 1 && (style.overflowY === "hidden" || style.overflowY === "clip") && !masked) wide.set(node, "cut off at the bottom");
+  }
+  for (const [node, what] of wide) if (![...wide.keys()].some((other) => other !== node && node.contains(other))) found.add(what + ": " + describe(node));
+  // (c) cut off by a box around it that doesn't scroll: a control or a line of text, even when that box is too small to
+  // be seen at all. A box that scrolls may hide what is scrolled out; a fade may end a preview; and a box with an ellipsis
+  // may end its own line of text at the side, an inline run of text inside it included, but never a control, and never
+  // from above or below.
+  const CONTROL = "button, input, select, textarea, a[href], [role=button]";
+  const clipper = (node) => {
+    let box = node.getBoundingClientRect();
+    for (let around = node.parentElement; around && around !== document.documentElement; around = around.parentElement) {
+      const style = css(around);
+      if (style.overflowX !== "visible" || style.overflowY !== "visible") {
+        if (scrolls(style)) { box = meet(box, inner(around)); if (!box) return null; }
+        else if (style.webkitMaskImage === "none" && style.webkitLineClamp === "none") {
+          const room = inner(around);
+          const ellipsized = style.textOverflow === "ellipsis" && css(node).display === "inline" && !node.matches(CONTROL);
+          if ((!ellipsized && (box.left < room.left - 1 || box.right > room.right + 1)) || box.top < room.top - 1 || box.bottom > room.bottom + 1) return around;
+        }
+      }
+      if (around.matches("dialog, [popover], .peek")) break;
+    }
+    return null;
+  };
+  for (const node of nodes) {
+    const speaks = node.matches(CONTROL) || [...node.childNodes].some((kid) => kid.nodeType === Node.TEXT_NODE && kid.textContent.trim());
+    const around = speaks && clipper(node);
+    if (around) found.add("cut off by the box around it: " + describe(node) + " in " + describe(around));
+  }
+  // (b) a label meant for one line, on two: its text, taken whole, on more than one line. A memory's title in its own
+  // sheet, and a batch's title, are allowed to run on.
+  const ONE_LINE = ".btn, button.choice, .chip, .status-pill, .pill, .shelf, .shelf-count, nav button, h1, h2, h3, legend, .eyebrow, .t b, .update, .search span, .form-label, .form-value, .new-mark, .routine-act, .agent-link-word, .account-trigger b, .account-menu button, .palette-keys span, .back, kbd, .agent-wait, .quiet-hint";
+  for (const node of nodes) {
+    if (!node.matches(ONE_LINE) || node.matches(".sheet-head .t b, .batch-head .t b") || node.closest("[data-wraps], .md")) continue;
+    const style = css(node);
+    const line = parseFloat(style.lineHeight) || parseFloat(style.fontSize) * 1.2;
+    const rows = [];
+    for (const box of texts(node).flatMap(rects)) {
+      const middle = (box.top + box.bottom) / 2;
+      if (!rows.some((row) => Math.abs(row - middle) < line / 2)) rows.push(middle);
+    }
+    if (rows.length > 1) found.add("wraps onto a second line: " + describe(node));
+  }
+  // (c) neighbours on top of each other: boxes laid out side by side or one under another, never stacked on purpose
+  // (an overlap made with a negative margin, like a stack of marks, is meant).
+  const placed = (node) => {
+    const style = css(node);
+    return shown(node) && style.position !== "sticky" && style.display !== "contents" && !bleeds(node) && !/-/.test(style.marginTop) && !node.matches(".sr-only");
+  };
+  for (const node of nodes) {
+    const boxes = /flex|grid/.test(css(node).display);
+    const kids = [...node.children].filter((kid) => kid instanceof HTMLElement && placed(kid) && (boxes || !css(kid).display.startsWith("inline")));
+    for (let i = 0; i < kids.length; i++) {
+      for (let j = i + 1; j < kids.length; j++) {
+        const [a, b] = [kids[i].getBoundingClientRect(), kids[j].getBoundingClientRect()];
+        if (Math.min(a.right, b.right) - Math.max(a.left, b.left) > 1 && Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top) > 1) found.add("drawn over its neighbour: " + describe(kids[i]) + " and " + describe(kids[j]));
+      }
+    }
+  }
+  // (c) hidden under something painted over it. A sticky bar may cover what has scrolled under it while it is stuck,
+  // never what sits beside it at rest, and never the control in focus; an overlay (a menu, a preview, a dialog) may
+  // cover the page under it. Only what is painted covers: a box with a background (or an image or a field) over all of
+  // it, a see-through box (the window's drag strip) only where its own text is.
+  const paintsAt = (node, x, y) => {
+    const style = css(node);
+    if (style.visibility === "hidden" || Number(style.opacity) <= 0.05) return false;
+    if (!/rgba\(.*, 0\)$|transparent/.test(style.backgroundColor) || style.backgroundImage !== "none" || node.matches("img, svg, input, textarea, select")) return true;
+    return [...node.childNodes].some((kid) => kid.nodeType === Node.TEXT_NODE && kid.textContent.trim() && rects(kid).some((line) => x >= line.left && x <= line.right && y >= line.top && y <= line.bottom));
+  };
+  /** A sticky bar is stuck only when it is pinned: its edge sits at its inset from the box it scrolls in (the padding
+   * edge or the content edge), and it has left the place it would rest at without sticking. */
+  const stuck = (bar) => {
+    let scroller = bar.parentElement;
+    while (scroller && !scrolls(css(scroller))) scroller = scroller.parentElement;
+    if (!scroller) return false;
+    const style = css(bar);
+    const box = bar.getBoundingClientRect();
+    const room = inner(scroller);
+    const pad = css(scroller);
+    const keep = bar.style.position;
+    bar.style.position = "static";
+    const rest = bar.getBoundingClientRect();
+    bar.style.position = keep;
+    const at = (edge, inset) => inset.some((place) => Math.abs(edge - place) <= 1);
+    if (style.top !== "auto") return rest.top < box.top - 1 && at(box.top, [room.top + parseFloat(style.top), room.top + parseFloat(pad.paddingTop) + parseFloat(style.top)]);
+    if (style.bottom !== "auto") return rest.bottom > box.bottom + 1 && at(box.bottom, [room.bottom - parseFloat(style.bottom), room.bottom - parseFloat(pad.paddingBottom) - parseFloat(style.bottom)]);
+    return false;
+  };
+  const focused = document.activeElement instanceof HTMLElement && !document.activeElement.matches("body, main, #main") ? document.activeElement : null;
+  /** Sets one property inline and important, which beats any rule, and hands back what puts the node's inline style
+   * back exactly as it was. */
+  const pin = (node, property, value) => {
+    const was = node.getAttribute("style");
+    node.style.setProperty(property, value, "important");
+    return () => {
+      // Written back through the attribute, which settles the style object first, so a node that had none gets none.
+      node.setAttribute("style", was ?? "");
+      if (was === null) node.removeAttribute("style");
+    };
+  };
+  // What is painted over a point of a node, top first, down to the node itself: every box there, even one that lets
+  // clicks through (pointer-events are switched on, inline and important so no rule can keep one out, for the look,
+  // then put back as they were).
+  const cover = (node, x, y) => {
+    for (const hit of document.elementsFromPoint(x, y)) {
+      if (hit === node || node.contains(hit)) return null;
+      if (hit.contains(node) || !paintsAt(hit, x, y)) continue;
+      if (hit.closest(":popover-open, .peek, dialog[open]") && layer(node) !== layer(hit)) continue;
+      let bar = null;
+      for (let up = hit; up && !up.contains(node) && !bar; up = up.parentElement) if (["sticky", "fixed"].includes(css(up).position)) bar = up;
+      if (bar && css(bar).position === "sticky" && stuck(bar) && !(focused && (focused === node || focused.contains(node)))) continue;
+      return hit;
+    }
+    return null;
+  };
+  /** Five points along the middle of a box that shows, so a cover over any part of a line is seen, not only its middle. */
+  const across = (node, part) => {
+    for (const share of [0.08, 0.3, 0.5, 0.7, 0.92]) {
+      const over = cover(node, part.left + (part.right - part.left) * share, (part.top + part.bottom) / 2);
+      if (over) return over;
+    }
+    return null;
+  };
+  const unpinned = [...document.querySelectorAll("*")].filter((node) => css(node).pointerEvents === "none").map((node) => pin(node, "pointer-events", "auto"));
+  try {
+    for (const node of nodes) {
+      for (const text of [...node.childNodes].filter((kid) => kid.nodeType === Node.TEXT_NODE && kid.textContent.trim())) {
+        for (const box of rects(text)) {
+          const seen = inView(node, box);
+          if (!seen || seen.bottom - seen.top < box.height - 1) continue;
+          const part = showing(node, seen);
+          const over = part && across(node, part);
+          if (over) { found.add("hidden under " + describe(over) + ": " + describe(node)); break; }
+        }
+      }
+    }
+    if (focused && shown(focused)) {
+      const box = focused.getBoundingClientRect();
+      const seen = inView(focused);
+      const over = seen && across(focused, seen);
+      if (over) found.add("the control in focus is hidden under " + describe(over) + ": " + describe(focused));
+      else if (!seen && box.width) found.add("the control in focus is out of sight: " + describe(focused));
+    }
+  } finally {
+    for (const unpin of unpinned) unpin();
+  }
+  // A dialog, menu or preview runs off the window.
+  for (const box of document.querySelectorAll("dialog[open], :popover-open, .peek")) {
+    const edge = box.getBoundingClientRect();
+    if (shown(box) && (edge.left < -1 || edge.top < -1 || edge.right > innerWidth + 1 || edge.bottom > innerHeight + 1)) found.add("runs off the window: " + describe(box));
+  }
+  return [...found];
+})()`;
+/** Animations that end, ended, the page's scrolling at rest, and frames painted, so a picture and its measurements show
+ * where things land, not where they are on the way or a frame behind. Each pass finishes what is animating, finds the
+ * boxes that scroll afresh, and waits for three frames in which no scroll moves and no animation starts or stops; it
+ * passes again until a whole pass changes nothing. A page that never paints or never comes to rest fails the walk. */
+const SETTLE = String.raw`(async () => {
+  const frame = () => new Promise((painted, stalled) => {
+    const late = setTimeout(() => stalled(new Error("the page painted no frame in 8s")), 8000);
+    requestAnimationFrame(() => { clearTimeout(late); painted(); });
+  });
+  const ending = () => document.getAnimations().filter((motion) => motion.playState === "running" && motion.effect?.getComputedTiming().endTime !== Infinity);
+  const state = () => [...document.querySelectorAll("*")].filter((node) => node.scrollHeight > node.clientHeight || node.scrollWidth > node.clientWidth).map((node) => node.scrollTop + ":" + node.scrollLeft).join(" ") + " | " + ending().length;
+  for (let pass = 0; ; pass++) {
+    if (pass > 12) throw new Error("the page never came to rest in 12 passes");
+    const before = state();
+    const finished = ending();
+    for (const motion of finished) motion.finish();
+    let last = state();
+    for (let still = 0, frames = 0; still < 3; frames++) {
+      if (frames > 180) throw new Error("the page kept moving for 180 frames");
+      await frame();
+      const now = state();
+      still = now === last ? still + 1 : 0;
+      last = now;
+    }
+    if (!finished.length && last === before) return true;
+  }
+})()`;
+/** APP-218: the walks that show the main tabs are checked again at a narrower window. */
+const NARROW = new Set(["today", "store", "connectors", "automations", "settings", "firstrun", "agents"]);
+const NARROW_WIDTH = 900;
 check("the desktop key is this walk's own", ATTENDED_KEY.startsWith(join(S, "account") + "/"), ATTENDED_KEY);
 
 /** The walk runs once, in the first window; one opened later (a notification after the window closed) is driven by it. */
@@ -327,7 +591,26 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
   // beneath, so it can never switch a view or close a sheet in the middle of a walk.
   window.setIgnoreMouseEvents(true);
   const js = (code) => window.webContents.executeJavaScript(code);
-  const shot = (name) => window.webContents.capturePage().then((image) => writeFileSync(join(S, `${name}.png`), image.toPNG()));
+  /** APP-218: every picture is checked for broken text first, at the window's size and, in the walks that show the
+   * main tabs, at a narrower one too. @param {string} name */
+  const shot = async (name) => {
+    const layout = async (where) => {
+      await js(SETTLE);
+      const found = await js(LAYOUT);
+      check(`the text sits right in ${where}`, !found.length, found.join(" | "));
+    };
+    await layout(name);
+    writeFileSync(join(S, `${name}.png`), (await window.webContents.capturePage()).toPNG());
+    if (!NARROW.has(scenario)) return;
+    const { debugger: devtools } = window.webContents;
+    if (!devtools.isAttached()) devtools.attach();
+    await devtools.sendCommand("Emulation.setDeviceMetricsOverride", { width: NARROW_WIDTH, height: window.getContentSize()[1], deviceScaleFactor: 0, mobile: false });
+    await sleep(150);
+    await layout(`${name}, ${NARROW_WIDTH}px wide`);
+    writeFileSync(join(S, `${name}-narrow.png`), (await window.webContents.capturePage()).toPNG());
+    await devtools.sendCommand("Emulation.clearDeviceMetricsOverride");
+    await sleep(100);
+  };
   const waitFor = async (code, tries = 40) => { for (let i = 0; i < tries; i++) { if (await js(code)) return true; await sleep(250); } return false; };
   const key = async (type, keyCode) => { window.webContents.sendInputEvent({ type, keyCode }); await sleep(30); };
 
@@ -336,6 +619,8 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
       // Focus events need a focused page, which a window launched in the background never is.
       window.webContents.debugger.attach();
       await window.webContents.debugger.sendCommand("Emulation.setFocusEmulationEnabled", { enabled: true });
+      // APP-218: a window behind others still paints frames, so every screenshot waits on real ones.
+      window.webContents.setBackgroundThrottling(false);
       await sleep(1500);
       if (scenario === "provision") {
         // Fix 4: setup failed. Every button must answer, the banner must say so, and Try again must recover.
@@ -1125,7 +1410,8 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         const agentUrl = `${process.env.LORE_EDGE_AGENT_URL}/agent`;
         /** One JSON-RPC call to the stand-in node's /agent, as Grok makes it. @param {string} key @param {string} method @param {object} [params] */
         const call = (key, method, params = {}) => fetch(agentUrl, { method: "POST", headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }) });
-        const chat = `(document.querySelector("#content .first-run")?.textContent ?? "")`;
+        // What the chat shows; each line's speaker, said only to a screen reader, is checked on its own.
+        const chat = `(() => { const shown = document.querySelector("#content .first-run")?.cloneNode(true); for (const said of shown?.querySelectorAll(".sr-only") ?? []) said.remove(); return shown?.textContent ?? ""; })()`;
         const tap = (label) => js(`[...document.querySelectorAll("#content .first-run button")].find((b) => b.textContent === ${JSON.stringify(label)}).click()`);
         const ask = "Add this MCP server to my account: ";
         const copyMessage = async () => {
@@ -1164,11 +1450,13 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         check("…the only one found already picked, Muse not pickable", await js(`document.querySelector("#content .first-choices .choice.picked")?.textContent === "Grok BotOn this Mac" && [...document.querySelectorAll("#content .first-choices .choice")].find((c) => c.textContent.startsWith("Muse")).disabled`));
         check("…with Skip for now there, and no capture box or Today notices over it", await js(`!document.querySelector("#first-run-skip").hidden && document.querySelector("#capture").hidden && !document.querySelector("#status .notice")`));
         check("…and where it stands is kept", await waitFor(`window.lore.firstRun().then((k) => k?.state === "started")`), JSON.stringify(await kept()));
+        check("…each of Lore's lines names its speaker to a screen reader", await js(`[...document.querySelectorAll("#content .first-run > .line")].every((line) => line.querySelector(":scope > .sr-only")?.textContent === "Lore: ")`));
         await shot("firstrun-greeting");
 
         await js(`[...document.querySelectorAll("#content .first-choices .choice")].find((c) => c.textContent.startsWith("Grok Bot")).click()`);
         answers++;
         check("with no store online, Grok Bot needs the store online first, and nothing goes on sale", await waitFor(`${chat}.includes("Grok Bot saves to your own store, so first it goes online. Nothing goes on sale.")`) && (await js(chat)).includes("Grok Bot"), await js(chat));
+        check("…and the owner's answer, a pill, says who gave it to a screen reader", await js(`document.querySelector("#content .first-run .line.owner > .sr-only")?.textContent === "You: "`));
         await shot("firstrun-store");
         await tap("Put it online");
         answers++;
@@ -1176,7 +1464,7 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         const message = await copyMessage();
         const linked = new RegExp(`^${(ask + agentUrl).replace(/[.*+?^${}()|[\]\\/]/g, "\\$&")}/lore_agent_[0-9a-f]{16}_[A-Za-z0-9_-]{43}$`);
         check("Grok Bot's message to paste is in the chat after two answers", answers === 2 && linked.test(message), `${answers} answers; ${message}`);
-        check("…with Grok Bot's own steps, Open Grok Bot, and the live wait", await js(`[...document.querySelectorAll("#content .first-run .agent-steps li")].map((li) => li.textContent).join("|")`) === "Copy the message|Paste it into Grok Bot's chat|Lore shows when the first save arrives" && (await js(chat)).includes("Waiting for Grok Bot's first save…") && await js(`[...document.querySelectorAll("#content .first-run button")].some((b) => b.textContent === "Open Grok Bot")`), await js(chat));
+        check("…with Grok Bot's steps as one line, Open Grok Bot, and the live wait", await js(`document.querySelector("#content .first-run .first-steps")?.textContent`) === "Copy this message and paste it into a Grok Bot chat." && (await js(chat)).includes("Waiting for Grok Bot's first save…") && await js(`[...document.querySelectorAll("#content .first-run button")].some((b) => b.textContent === "Open Grok Bot")`), await js(chat));
         await tap("Open Grok Bot");
         check("Open Grok Bot opens it", await waitFor(`true`) && launched.includes("grok"), JSON.stringify(launched));
         check("…and the store is online for agents, nothing for sale", await js(`window.lore.snapshot().then((s) => Boolean(s.node.url) && !s.node.selling)`));
@@ -1396,11 +1684,7 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         check("Copy message gives exactly the message, with the link and its key", linked(ask).test(message), message);
         // The clipboard stand-in records the copy before the renderer hears back, so wait for the link to say it.
         check("…and it says it copied", await waitFor(`document.querySelector("dialog.sheet[open] .agent-link").classList.contains("copied") && document.querySelector("dialog.sheet[open] .agent-link").textContent.includes("Copied")`, 20));
-        check("…and, quietly, the way to add it by hand", await js(`document.querySelector("dialog.sheet[open] .agent-fallback")?.textContent.startsWith("Or add it yourself in Grok Bot: Connect apps › add a custom connector, then paste the link.")`), setup);
-        const before0 = copied.length;
-        await js(`document.querySelector("dialog.sheet[open] .agent-fallback button").click()`);
-        for (let i = 0; i < 20 && copied.length === before0; i++) await sleep(50);
-        check("…whose Copy link only copies the bare link", await js(`document.querySelector("dialog.sheet[open] .agent-fallback button").classList.contains("quiet")`) && linked("").test(copied.at(-1) ?? "") && copied.at(-1) === message.slice(ask.length), String(copied.at(-1)));
+        check("…and no way to add it by hand, which Grok Bot doesn't have", !(await js(`/Copy link only|add it yourself/.test(document.querySelector("dialog.sheet[open]").textContent)`)));
         await sleep(1600);
         await shot("agents-setup");
         await shot("agents-grok-setup");
@@ -2268,8 +2552,13 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         await sleep(200);
         check("the echo labels and shortens the address", await js(`document.querySelector("#log").textContent.endsWith("$0.01 · Payout: 0x0c27…8166")`));
         await js(`window.__lore.event({ type: "message", task: "capture", text: "Ready." })`);
-        check("owner turns are right-aligned bubbles while Lore stays open", await js(`(() => { const owner = document.querySelector("#log .line.owner"); const bubble = owner?.querySelector("p"); const lore = document.querySelector("#log .line:not(.owner) .md"); return Boolean(owner && bubble && lore) && getComputedStyle(owner).justifyContent === "flex-end" && getComputedStyle(bubble).backgroundColor !== "rgba(0, 0, 0, 0)" && getComputedStyle(lore).backgroundColor === "rgba(0, 0, 0, 0)"; })()`));
+        check("owner turns are right-aligned bubbles while Lore stays open", await js(`(() => { const owner = document.querySelector("#log .line.owner"); const bubble = owner?.querySelector("p"); const lore = document.querySelector("#log .line:not(.owner) .md"); return Boolean(owner && bubble && lore) && Math.abs(bubble.getBoundingClientRect().right - owner.getBoundingClientRect().right) < 1 && bubble.getBoundingClientRect().left > owner.getBoundingClientRect().left + 64 && !owner.querySelector(".mark, .you") && getComputedStyle(bubble).backgroundColor !== "rgba(0, 0, 0, 0)" && getComputedStyle(lore).backgroundColor === "rgba(0, 0, 0, 0)"; })()`));
+        check("…and a screen reader hears who said each line", await js(`[...document.querySelectorAll("#log > .line:not(.thinking)")].every((line) => line.querySelector(":scope > .sr-only")?.textContent === (line.classList.contains("owner") ? "You: " : "Lore: "))`));
         await shot("conversation-bubble");
+        const room = `(() => { const main = document.querySelector("#main"); return parseFloat(getComputedStyle(main).scrollPaddingBottom) - document.querySelector("#composer").offsetHeight; })()`;
+        await js(`{ const field = document.querySelector("#capture-input"); field.value = "one\\ntwo\\nthree\\nfour\\nfive\\nsix"; field.dispatchEvent(new Event("input")); }`);
+        check("a thread keeps what it scrolls to clear of the composer as the composer grows", await waitFor(`document.querySelector("#composer").offsetHeight > 100 && ${room} === 34`), String(await js(room)));
+        await js(`{ const field = document.querySelector("#capture-input"); field.value = ""; field.dispatchEvent(new Event("input")); }`);
         await js(`window.__lore.event({ type: "working", task: "capture", active: true }); window.__lore.event({ type: "message", task: "capture", text: "I'll check the store is serving the new price." })`);
         await sleep(100);
         check("an open turn ends in a typing bubble labelled with what Lore is doing", await js(`(() => { const last = document.querySelector("#log").lastElementChild; return last?.classList.contains("thinking") && last.querySelectorAll(".bubble i").length === 3 && last.textContent === "Reading this…"; })()`));
@@ -2387,6 +2676,7 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         await key("keyDown", "Return");
         await sleep(300);
         check("Enter lands on Today with the text in the composer, focused", await js(`document.querySelector("#title").textContent !== "Inventory" && document.querySelector("#capture-input").value === "Something Lore has never heard" && document.activeElement === document.querySelector("#capture-input")`));
+        check("…with the composer showing the focus ring", await js(`(() => { const ring = getComputedStyle(document.querySelector("#composer")); return ring.outlineStyle === "solid" && parseFloat(ring.outlineWidth) >= 2 && ring.outlineColor === "rgb(36, 79, 61)"; })()`));
         await js(`document.querySelector("#capture-input").value = ""; window.__lore.show("memories")`);
         await waitFor(`document.querySelectorAll("#content .task-link").length >= 1`);
         await js(`document.querySelector("#content .task-link").click()`);
