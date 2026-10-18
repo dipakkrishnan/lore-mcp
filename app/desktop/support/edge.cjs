@@ -204,8 +204,9 @@ if (scenario === "listing") {
       mkdirSync(dirname(wrangler), { recursive: true });
       writeFileSync(wrangler, `#!/bin/sh\ncd "${repo}" && exec uv run python -m tests.fixtures.inbox wrangler "$@"\n`, { mode: 0o755 });
       const url = `${process.env.LORE_EDGE_AGENT_URL}/mcp`;
-      // XC-069: what `lore node deploy --inbox-only` leaves: an address, nothing for sale, no price and no payout.
-      execFileSync("uv", ["run", "python", "-c", `import time\nfrom lore.store import Store\nwith Store() as s:\n s.set_setting('node_url', '${url}')\n s.set_setting('node_selling', False)\n s.set_setting('node_live', {'url': '${url}', 'checked_at': time.time(), 'live': {'state': 'online', 'network': None, 'price_usd': None, 'payout': None}, 'ids': []})`], { cwd: repo, env: process.env });
+      // XC-069: what `lore node deploy --inbox-only` leaves: an address, nothing for sale, no price and no payout. The
+    // stand-in node answers only /agent, so its probe is kept for the whole walk instead of expiring a minute in.
+      execFileSync("uv", ["run", "python", "-c", `import time\nfrom lore.store import Store\nwith Store() as s:\n s.set_setting('node_url', '${url}')\n s.set_setting('node_selling', False)\n s.set_setting('node_live', {'url': '${url}', 'checked_at': time.time() + 3600, 'live': {'state': 'online', 'network': None, 'price_usd': None, 'payout': None}, 'ids': []})`], { cwd: repo, env: process.env });
       this.options.emit({ type: "task", task: { version: 1, kind: "deploy", title: "Open your store", state: "done", phase: "Finished", updatedAt: at() } });
     };
     LoreAgent.prototype.synthesize = function (/** @type {Reading} */ reading) {
@@ -1025,9 +1026,9 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         check("…and the sheet says what Grok Bot saved, one click from seeing it", await waitFor(`${sheet}.includes("Grok Bot saved 1 memory · See them →")`, 80), await js(sheet));
         const evening = "Every evening, save anything new you learned about me to Lore.";
         check("…then offers, below it, an evening routine to paste into Grok Bot", await js(`Boolean(document.querySelector("dialog.sheet[open] .agent-wait + .agent-next")) && ${sheet}.includes("Optional: paste this into Grok Bot as a routine, so it saves every evening.")`), await js(sheet));
-        const before = copied.length;
+        const copiedBefore = copied.length;
         await js(`document.querySelector("dialog.sheet[open] .agent-next button").click()`);
-        for (let i = 0; i < 20 && copied.length === before; i++) await sleep(50);
+        for (let i = 0; i < 20 && copied.length === copiedBefore; i++) await sleep(50);
         check("…whose one quiet Copy copies the ask", copied.at(-1) === evening && await js(`document.querySelectorAll("dialog.sheet[open] .agent-next button").length === 1 && document.querySelector("dialog.sheet[open] .agent-next button").classList.contains("quiet")`), String(copied.at(-1)));
         await shot("agents-first-save");
         check("…read through once, named for Grok", readings.length === 1 && readings[0].title === "Grok Bot saved 1 thing to Lore" && readings[0].label === "Grok Bot", JSON.stringify(readings));
