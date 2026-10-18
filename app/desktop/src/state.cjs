@@ -338,8 +338,8 @@ async function removeSource(loreHome, name, keep) {
   return JSON.parse(await lore(loreHome, ["sources", "remove", sourceName(name), keep ? "--keep" : "--delete", "--json"]));
 }
 
-/** What a personal agent can be (CAP-036). */
-const AGENT_APPS = new Set(["grok", "muse", "chatgpt", "claude", "other"]);
+/** What a personal agent connected from the app can be (CAP-036). Muse has no way to take a link yet (APP-217). */
+const AGENT_APPS = new Set(["grok", "chatgpt", "claude", "other"]);
 
 /** @param {unknown} name */
 function agentSource(name) {

@@ -10,7 +10,7 @@ const { Updates } = require("./updates.cjs");
 const reading = require("./reading.cjs");
 const checkin = require("./checkin.cjs");
 const { Schedule } = require("./routines.cjs");
-const { Watch, WATCH_EVERY_MS } = require("./agents.cjs");
+const { Watch, WATCH_EVERY_MS, AgentApps } = require("./agents.cjs");
 const { lore, listRoutines, runRoutine, changeRoutine, addRoutine, editRoutine, switchSource, loreStream, openable, readState, readSales, readViews, searchMemories, readMemory, creditMemories, renameMemory, editMemory, captureMemories, previewPage, setPrice, setFreeCopies, candidates, decide, extrasCandidates, decideExtras, approveExtras, reportFeedback, listStore, cardStatus, connectCards, switchCards, listingStatus, sourceCatalog, sourceChoices, connectSource, signIn, readSource, removeSource, listAgents, connectAgent, agentKey, disconnectAgent, agentsWaiting, useRuntime } = require("./state.cjs");
 
 if (process.env.LORE_DESKTOP_USER_DATA) app.setPath("userData", process.env.LORE_DESKTOP_USER_DATA);
@@ -269,11 +269,18 @@ function registerIpc(loreHome, schedule, watch) {
   ipcMain.handle("sources:switch", (_event, name, on) => switchSource(loreHome, name, on === true));
   ipcMain.handle("sources:remove", (_event, name, keep) => removeSource(loreHome, name, keep === true));
   // APP-207: the owner's personal agents, each a key to their own store, and what they saved brought in on request.
-  ipcMain.handle("agents:list", () => listAgents(loreHome));
+  // Like collecting, asking the store is one at a time: a sheet waiting on a save and Connectors share one answer.
+  /** @type {Promise<AgentEntry[]> | null} */
+  let listing = null;
+  ipcMain.handle("agents:list", () => (listing ??= listAgents(loreHome).finally(() => { listing = null; })));
   ipcMain.handle("agents:connect", (_event, input) => connectAgent(loreHome, input));
   ipcMain.handle("agents:key", (_event, source) => agentKey(loreHome, source));
   ipcMain.handle("agents:disconnect", (_event, source, keep) => disconnectAgent(loreHome, source, keep === true));
   ipcMain.handle("agents:check", () => watch.check());
+  // APP-216: which of the owner's agent apps are on this Mac, and opening one by its id.
+  const agentApps = new AgentApps(["/Applications", join(app.getPath("home"), "Applications")], (path) => shell.openPath(path));
+  ipcMain.handle("agents:installed", () => agentApps.installed());
+  ipcMain.handle("agents:open", (_event, id) => agentApps.open(id));
   ipcMain.handle("clipboard:write", (_event, text) => {
     if (typeof text !== "string" || text.length > 100_000) throw new Error("Nothing to copy");
     clipboard.writeText(text);

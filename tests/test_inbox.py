@@ -58,7 +58,7 @@ class OwnerSideTest(NodeCase):
         inbox = Inbox()
         self.assertEqual(inbox.settings(), {})
         first = inbox.mint(" Grok ", "grok")
-        Inbox().mint("Muse", "muse")
+        Inbox().mint("Claude", "claude")
         self.assertEqual(first.agent.name, "Grok")
         self.assertRegex(first.token, r"^lore_agent_[0-9a-f]{16}_[A-Za-z0-9_-]{43}$")
         self.assertTrue(first.token.startswith(f"lore_agent_{first.agent.id}_"))

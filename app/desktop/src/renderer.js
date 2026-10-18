@@ -142,7 +142,6 @@ const EDIT_ICON = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" st
 const COPY_ICON = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="8" y="8" width="12" height="12" rx="2.5"></rect><path d="M16 8V6.5A2.5 2.5 0 0 0 13.5 4h-7A2.5 2.5 0 0 0 4 6.5v7A2.5 2.5 0 0 0 6.5 16H8"></path></svg>`;
 const CHECK_ICON = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"></path></svg>`;
 const LOCK_ICON = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="11" width="14" height="9" rx="2"></rect><path d="M8 11V8a4 4 0 0 1 8 0v3"></path></svg>`;
-const CHEVRON_ICON = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6l6 6-6 6"></path></svg>`;
 const INFO_ICON = `<svg class="notice-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="9"></circle><path d="M12 11v5M12 8h.01"></path></svg>`;
 const ALERT_ICON = `<svg class="notice-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4l9 16H3z"></path><path d="M12 10v4M12 17h.01"></path></svg>`;
 const SALE_ICON = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 12l-8 8-9-9V3h8z"></path><circle cx="7.5" cy="7.5" r="1.5"></circle></svg>`;
@@ -1941,7 +1940,32 @@ const AGENT_APPS = [["grok", "Grok Bot"], ["muse", "Muse"], ["chatgpt", "ChatGPT
 /** @type {Record<AgentApp, string>} */
 const PERSONAL_MARKS = { grok: "grok", muse: "muse", chatgpt: "chatgpt", claude: "claude", other: "agent" };
 const STORE_FIRST = "Your agents save to your own store, so it needs to be online. Nothing goes on sale until you approve it.";
-const SIGN_IN_SOON = "Some apps can only connect through a sign-in, which Lore doesn't offer yet. It's coming.";
+/** APP-217: how each agent takes Lore's private link, as its maker documents it (checked Oct 17, 2026). Grok Bot adds
+ * a connector it is sent in chat, so it gets a message around the link; `routine` is what each calls a scheduled ask.
+ * `again` is the same for a new link, which replaces the Lore connector the agent already has rather than adding one;
+ * `or` is the quiet alternative under the last step, and `fallback` a quiet way to add the bare link by hand.
+ * @typedef {{steps: string[], message?: string, or?: string, fallback?: string}} AgentSteps
+ * @type {Partial<Record<AgentApp, {first: AgentSteps, again: AgentSteps, note?: string, routine: string}>>} */
+const AGENT_GUIDES = {
+  grok: {
+    first: { steps: ["Copy the message", "Paste it into Grok Bot's chat", "Lore shows when the first save arrives"], message: "Add this MCP server to my account: ", fallback: "Or add it yourself in Grok Bot: Connect apps › add a custom connector, then paste the link." },
+    again: { steps: ["Copy the message", "Paste it into Grok Bot's chat", "Lore shows when the next save arrives"], message: "Replace the Lore MCP server in my account with this one: " },
+    routine: "routine"
+  },
+  claude: {
+    first: { steps: ["In Claude, open Customize › Connectors, then + Add › Add custom connector", "Name it Lore, paste the link below, and choose Continue", "Choose No sign in, then Add"] },
+    again: { steps: ["In Claude, open Customize › Connectors", "Open the Lore connector you added before and replace its link with this one"], or: "Or remove it and add a new one named Lore with this link" },
+    note: "Claude's free plan allows one custom connector.",
+    routine: "scheduled task"
+  },
+  chatgpt: {
+    first: { steps: ["In ChatGPT, open Plugins, then + › Add custom MCP server", "Name it Lore, paste the link below, choose No authentication, and continue", "Choose Create"] },
+    again: { steps: ["In ChatGPT, open Plugins", "Open the Lore connector you added before and replace its link with this one"], or: "Or remove it and add a new one named Lore with this link" },
+    note: "Saving to Lore needs a ChatGPT plan that allows custom connectors to write.",
+    routine: "scheduled task"
+  }
+};
+const EVERY_EVENING = "Every evening, save anything new you learned about me to Lore.";
 /** While the setup sheet waits on a first save, it asks the store this often, not once a minute. */
 const FIRST_SAVE_EVERY_MS = 10_000;
 
@@ -2023,14 +2047,14 @@ function agentTiles(s) {
   });
   const connect = () => new AgentSetup().open();
   if (rows.length) {
-    const more = row("Connect another agent", "Grok Bot, Muse, ChatGPT or Claude", cell(button("Connect", "secondary", connect)), false);
+    const more = row("Connect another agent", "Grok Bot, ChatGPT or Claude", cell(button("Connect", "secondary", connect)), false);
     more.prepend(agentMark("other", "Agent"));
     more.classList.add("tile-add");
     return tiles([...rows, more]);
   }
-  const hero = row("Connect an agent", "Grok Bot, Muse, ChatGPT or Claude saves what it learns about you. It stays private until you approve a piece.", cell(button("Connect an agent", "primary", connect)), false);
+  const hero = row("Connect an agent", "Grok Bot, ChatGPT or Claude saves what it learns about you. It stays private until you approve a piece.", cell(button("Connect an agent", "primary", connect)), false);
   const stack = el("div", "mark-stack");
-  for (const [app, name] of AGENT_APPS.filter(([id]) => id !== "other")) stack.append(agentMark(app, name));
+  for (const [app, name] of AGENT_APPS.filter(([id]) => id !== "other" && id !== "muse")) stack.append(agentMark(app, name));
   hero.prepend(stack);
   hero.classList.add("agent-hero");
   return hero;
@@ -2050,43 +2074,46 @@ function inlineNotice(text) {
   return box;
 }
 
-/** A Copy button that says it copied. @param {() => string} text */
-function copyButton(text) {
-  const node = button("Copy", "quiet", () => void window.lore.copy(text()).then(() => {
+/** A Copy button that says it copied. @param {() => string} text @param {string} [label] */
+function copyButton(text, label = "Copy") {
+  const node = button(label, "quiet", () => void window.lore.copy(text()).then(() => {
     node.textContent = "Copied";
-    setTimeout(() => { node.textContent = "Copy"; }, 1500);
+    setTimeout(() => { node.textContent = label; }, 1500);
   }));
   return node;
 }
 
-/** Where Grok Bot takes a custom connector, as a path. */
-function grokPath() {
-  const path = el("div", "agent-path");
-  ["Grok Bot", "Connect apps", "Custom connector"].forEach((part, i) => {
-    if (i) path.insertAdjacentHTML("beforeend", CHEVRON_ICON);
-    path.append(el("span", "", part));
-  });
-  return path;
-}
-
-/** The one link an agent needs, its key masked, copied whole. @param {AgentKey} handed */
-function privateLink(handed) {
-  const link = el("button", "agent-link");
+/** The one link an agent needs, its key masked, copied whole; with `lead`, the message around it that the agent needs
+ * instead. @param {AgentKey} handed @param {string} [lead] @param {string} [label] */
+function privateLink(handed, lead = "", label = "Copy") {
+  const link = el("button", lead ? "agent-link agent-message" : "agent-link");
   link.type = "button";
-  link.setAttribute("aria-label", "Copy link");
+  link.setAttribute("aria-label", lead ? label : "Copy link");
   const shown = el("span", "agent-link-text");
-  shown.append(handed.mcp_url.replace(/^https?:\/\//, "") + "/", el("span", "agent-link-key", "••••••••••••"));
+  shown.append(lead + handed.mcp_url.replace(/^https?:\/\//, "") + "/", el("span", "agent-link-key", "••••••••••••"));
   const glyph = el("span", "agent-link-icon");
   glyph.innerHTML = COPY_ICON;
-  const word = el("span", "agent-link-word", "Copy");
+  const word = el("span", "agent-link-word", label);
   link.append(shown, glyph, word);
-  link.addEventListener("click", () => void window.lore.copy(handed.connector_url).then(() => {
+  link.addEventListener("click", () => void window.lore.copy(lead + handed.connector_url).then(() => {
     link.classList.add("copied");
     glyph.innerHTML = CHECK_ICON;
     word.textContent = "Copied";
-    setTimeout(() => { link.classList.remove("copied"); glyph.innerHTML = COPY_ICON; word.textContent = "Copy"; }, 1500);
+    setTimeout(() => { link.classList.remove("copied"); glyph.innerHTML = COPY_ICON; word.textContent = label; }, 1500);
   }));
   return link;
+}
+
+/** After its first save, an agent can be asked to save every evening on its own schedule. Optional, so quiet.
+ * @param {AgentApp | null | undefined} app @param {string} who */
+function eveningOffer(app, who) {
+  const kind = app ? AGENT_GUIDES[app]?.routine : undefined;
+  if (!kind) return null;
+  const offer = el("div", "agent-next");
+  const words = el("div", "agent-next-words");
+  words.append(el("span", "", `Optional: paste this into ${who} as a ${kind}, so it saves every evening.`), el("span", "agent-next-quote", `“${EVERY_EVENING}”`));
+  offer.append(words, copyButton(() => EVERY_EVENING));
+  return offer;
 }
 
 /** APP-207: connecting one of the owner's personal agents, in one sheet: their store online first if it isn't yet,
@@ -2094,6 +2121,8 @@ function privateLink(handed) {
 class AgentSetup {
   constructor() {
     this.form = new FormSheet("Connect an agent", agentMark("other", "Agent"));
+    /** The agent apps on this Mac, so the sheet can open the one being connected (APP-216). */
+    this.installed = window.lore.agentApps().catch(() => /** @type {AgentApp[]} */ ([]));
   }
 
   open() {
@@ -2123,11 +2152,12 @@ class AgentSetup {
       const radio = el("input");
       radio.type = "radio";
       radio.name = "agent";
+      radio.disabled = app === "muse";
       radio.addEventListener("change", () => {
         chosen = [app, app === "other" ? "My agent" : label];
         form.refresh();
       });
-      const option = form.row(label, radio);
+      const option = radio.disabled ? form.row(label, el("span", "hint", "Coming soon"), radio) : form.row(label, radio);
       option.classList.add("form-option");
       option.prepend(agentMark(app, label));
       rows.append(option);
@@ -2142,15 +2172,15 @@ class AgentSetup {
         if (!chosen) return false;
         const handed = await window.lore.connectAgent({ app: chosen[0], name: chosen[1] });
         void load().then(loadAgents);
-        this.steps(handed, true);
+        this.steps(handed, true, await this.installed);
         return false;
       }
     });
   }
 
   /** What to paste into the agent, with its key shown this once; a first connect then waits for the first save.
-   * @param {AgentKey} handed @param {boolean} first */
-  steps(handed, first) {
+   * @param {AgentKey} handed @param {boolean} first @param {AgentApp[]} installed */
+  steps(handed, first, installed) {
     const { form } = this;
     const { name: who, app } = handed.agent;
     const where = app === "other" ? who : AGENT_APPS.find(([id]) => id === app)?.[1] ?? who;
@@ -2162,48 +2192,73 @@ class AgentSetup {
       node.classList.add("copy-row");
       return node;
     };
-    if (app === "grok") {
-      form.body.append(grokPath(), privateLink(handed));
-      const hint = el("span", "form-hint quiet-hint");
-      hint.innerHTML = LOCK_ICON;
-      hint.append(el("span", "", first ? "Private link, shown once" : "The old link stopped working"));
-      form.aside.append(hint);
-    } else {
-      const list = el("ol", "agent-steps");
-      form.body.append(list);
-      for (const step of [`In ${where}'s settings, find where to add a connector.`, "Add one named “Lore”, with the address and key below.", `Add the instructions where ${where} keeps standing instructions, like custom instructions or a skill, so it remembers what to save in every chat.`]) list.append(el("li", "", step));
+    const guide = AGENT_GUIDES[app];
+    const how = guide && (first ? guide.first : guide.again);
+    const list = el("ol", "agent-steps");
+    for (const step of how?.steps ?? [`In ${where}'s settings, find where to add a connector.`, "Add one named “Lore” with the link below, or with the address and key if it asks for both.", `Add the instructions where ${where} keeps standing instructions, like custom instructions or a skill, so it remembers what to save in every chat.`]) list.append(el("li", "", step));
+    if (how?.or) list.lastElementChild?.append(el("span", "agent-step-or", how.or));
+    form.body.append(list, how?.message ? privateLink(handed, how.message, "Copy message") : privateLink(handed));
+    if (how?.fallback) {
+      const fallback = el("div", "agent-fallback");
+      fallback.append(el("span", "", how.fallback), copyButton(() => handed.connector_url, "Copy link only"));
+      form.body.append(fallback);
+    }
+    if (guide?.note) form.text(guide.note, "hint");
+    const hint = el("span", "form-hint quiet-hint");
+    hint.innerHTML = LOCK_ICON;
+    hint.append(el("span", "", first ? "Private link, shown once" : "The old link stopped working"));
+    form.aside.append(hint);
+    if (!guide) {
       form.group("", [copyRow("Address", handed.mcp_url, handed.mcp_url), copyRow("Key", handed.header, handed.header), copyRow("Instructions", "What to save, and when", handed.prompt)]);
       form.body.append(inlineNotice(`This key is shown only once. If it's lost, get a new one from Manage.`));
-      form.body.append(inlineNotice(SIGN_IN_SOON));
       form.button("Copy all", "secondary", () => void window.lore.copy(`Address: ${handed.mcp_url}\nKey: ${handed.header}\n\n${handed.prompt}`));
     }
-    if (first) this.wait(handed.source, who);
+    if (app === "grok" && installed.includes(app)) form.button(`Open ${where}`, "secondary", () => void window.lore.openAgentApp(app).catch((error) => tell(reason(error, `Lore couldn't open ${where}.`))));
+    this.wait(handed, who, first);
     form.arm({ primary: "Done" });
     form.focus();
   }
 
-  /** Waits, in the sheet, for the agent's first save to reach Lore. @param {string} source @param {string} who */
-  wait(source, who) {
+  /** Waits, in the sheet, for the agent's first save to reach Lore, then offers its evening save; after a new link,
+   * for the next save, which shows the new link works. The store counts every save, even one that changes nothing,
+   * and the key came with the count so far, so only a save made with this key raises it: saves the old key left
+   * waiting were already counted. @param {AgentKey} handed @param {string} who @param {boolean} first */
+  wait(handed, who, first) {
+    const { source, agent } = handed;
     const line = el("p", "agent-wait");
-    line.append(el("span", "dot off"), el("span", "", `Waiting for ${who}'s first save…`));
+    line.append(el("span", "dot off"), el("span", "", `Waiting for ${who}'s ${first ? "first" : "next"} save…`));
     this.form.body.append(line);
-    const poll = setInterval(() => void window.lore.checkAgents(), FIRST_SAVE_EVERY_MS);
-    /** @param {SourceRead[]} reads */
-    const heard = (reads) => {
-      const saved = reads.filter((read) => read.name === source).reduce((sum, read) => sum + read.added + read.updated, 0);
-      if (!saved) return;
-      line.replaceChildren(el("span", "dot ok"), el("span", "", `${who} saved ${plural(saved, "memory")} · `), inline("See them →", () => {
-        closeSheet();
-        seeFrom({ id: source, label: who });
-      }));
+    let done = false;
+    const { dialog } = this.form;
+    const check = async () => {
+      // Asked only while this sheet is on screen; main answers one list at a time.
+      if (done || !dialog.open) return;
+      const saved = (await window.lore.agents().catch(() => [])).find((entry) => entry.source === source)?.saved ?? 0;
+      if (done || saved <= agent.saved) return;
+      if (first) {
+        line.replaceChildren(el("span", "dot ok"), el("span", "", `${who} saved ${plural(saved - agent.saved, "memory")} · `), inline("See them →", () => {
+          closeSheet();
+          seeFrom({ id: source, label: who });
+        }));
+      } else line.replaceChildren(el("span", "dot ok"), el("span", "", `${who} saved with the new link`));
+      const offer = first && eveningOffer(agent.app, who);
+      if (offer) line.after(offer);
       stop();
     };
+    const poll = setInterval(() => {
+      if (dialog.open) void window.lore.checkAgents().finally(check);
+    }, FIRST_SAVE_EVERY_MS);
+    /** @param {SourceRead[]} reads */
+    const heard = (reads) => {
+      if (reads.some((read) => read.name === source)) void check();
+    };
     const stop = () => {
+      done = true;
       clearInterval(poll);
       if (agentWaiting === heard) agentWaiting = null;
     };
     agentWaiting = heard;
-    this.form.dialog.addEventListener("close", stop);
+    dialog.addEventListener("close", stop);
   }
 }
 
@@ -2213,6 +2268,8 @@ function openAgent(source) {
   const form = new FormSheet(name, agentMark(source.app, name));
   form.text(agentLine(source));
   form.text(`Lore brings in what ${name} saves while Lore is open. It stays private on this Mac.`, "hint");
+  const offer = agents?.find((agent) => agent.source === source.name)?.saved ? eveningOffer(source.app, name) : null;
+  if (offer) form.body.append(offer);
   form.button("Disconnect", "quiet", ask);
   form.button("Get a new key", "secondary", rekey);
   form.open();
@@ -2227,7 +2284,7 @@ function openAgent(source) {
       submit: async () => {
         const handed = await window.lore.agentKey(source.name);
         const setup = new AgentSetup();
-        setup.steps(handed, false);
+        setup.steps(handed, false, await setup.installed);
         setup.form.show();
         return false;
       }

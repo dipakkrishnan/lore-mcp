@@ -188,8 +188,8 @@ type CheckIn = { questions: Array<{ question: string; memory: number; title: str
 /** The apps a personal agent can be (CAP-036). */
 type AgentApp = "grok" | "muse" | "chatgpt" | "claude" | "other";
 
-/** What `lore agents connect` and `lore agents key` hand back: the agent, and what to paste into it, shown once. */
-type AgentKey = { source: string; agent: { id: string; name: string; app: AgentApp }; mcp_url: string; connector_url: string; key: string; header: string; prompt: string };
+/** What `lore agents connect` and `lore agents key` hand back: the agent, with how many saves its store has counted so far, and what to paste into it, shown once. */
+type AgentKey = { source: string; agent: { id: string; name: string; app: AgentApp; saved: number }; mcp_url: string; connector_url: string; key: string; header: string; prompt: string };
 
 /** One connected personal agent, as `lore agents list` reads it from the store. */
 type AgentEntry = { source: string; name: string; app: AgentApp; saved: number; waiting: number; last_saved_at: string | null; memories: number; revoked: boolean };
@@ -344,6 +344,9 @@ interface Window {
     agentKey(source: string): Promise<AgentKey>;
     disconnectAgent(source: string, keep: boolean): Promise<SourceRemoval>;
     checkAgents(): Promise<void>;
+    /** Which of the owner's agent apps are installed on this Mac (APP-216). */
+    agentApps(): Promise<AgentApp[]>;
+    openAgentApp(id: AgentApp): Promise<void>;
     copy(text: string): Promise<void>;
     readyRuns(): Promise<ReadyRun[]>;
     seenMemories(): Promise<void>;

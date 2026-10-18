@@ -108,6 +108,12 @@ EXTRAS_DECISIONS: TypeAdapter[ExtrasDecision | list[ExtrasDecision]] = TypeAdapt
 )
 
 
+def _new_agent_app(app: str) -> str:
+    if app == "muse":
+        raise argparse.ArgumentTypeError("Muse can't connect yet.")
+    return app
+
+
 def parser() -> argparse.ArgumentParser:
     """Build the Lore command-line parser."""
     root = argparse.ArgumentParser(
@@ -202,7 +208,13 @@ def parser() -> argparse.ArgumentParser:
         "connect", help="give a personal agent a key to save with"
     )
     agent_connect.add_argument("name", help="what you call it, like Grok")
-    agent_connect.add_argument("--app", required=True, choices=get_args(AgentApp))
+    # Muse stays a stored kind for agents already connected, but a new one can't connect (APP-217).
+    agent_connect.add_argument(
+        "--app",
+        required=True,
+        type=_new_agent_app,
+        choices=[app for app in get_args(AgentApp) if app != "muse"],
+    )
     agent_connect.add_argument("--json", action="store_true")
     agent_list = agent_commands.add_parser("list", help="show your connected agents")
     agent_list.add_argument("--json", action="store_true")

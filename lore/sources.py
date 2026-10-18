@@ -1620,7 +1620,7 @@ class AgentReader(Reader):
 
 
 class PersonalAgent(Connector):
-    """Grok, Muse, ChatGPT or Claude, saving to the owner's inbox. Each agent the owner
+    """Grok, ChatGPT or Claude, saving to the owner's inbox. Each agent the owner
     connects is its own source, so every memory says which one saved it."""
 
     id = "agent"

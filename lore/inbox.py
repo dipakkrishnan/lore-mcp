@@ -162,8 +162,12 @@ class Inbox:
         except ValidationError:
             raise InboxError(
                 "An agent's name is 1-40 characters, and its app one of "
-                "grok, muse, chatgpt, claude or other."
+                "grok, chatgpt, claude or other."
             ) from None
+        # APP-217: Muse has no way to take a link yet. Agents already connected as Muse
+        # keep listing, re-keying and disconnecting; only a new one is refused.
+        if app == "muse":
+            raise InboxError("Muse can't connect yet.")
         if not self.keys:
             private = X25519PrivateKey.generate()
             keys = Keys(

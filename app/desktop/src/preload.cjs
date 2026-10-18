@@ -85,6 +85,9 @@ contextBridge.exposeInMainWorld("lore", {
   /** @param {string} source @param {boolean} keep */
   disconnectAgent: (source, keep) => ipcRenderer.invoke("agents:disconnect", source, keep),
   checkAgents: () => ipcRenderer.invoke("agents:check"),
+  agentApps: () => ipcRenderer.invoke("agents:installed"),
+  /** @param {AgentApp} id */
+  openAgentApp: (id) => ipcRenderer.invoke("agents:open", id),
   /** @param {string} text */
   copy: (text) => ipcRenderer.invoke("clipboard:write", text),
   readyRuns: () => ipcRenderer.invoke("ready:runs"),
