@@ -964,7 +964,8 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         };
         const address = await copyLink();
         check("Copy gives one link with the key in it", new RegExp(`^${agentUrl.replace(/[.*+?^${}()|[\]\\/]/g, "\\$&")}/lore_agent_[0-9a-f]{16}_[A-Za-z0-9_-]{43}$`).test(address), address);
-        check("…and the link says it copied", await js(`document.querySelector("dialog.sheet[open] .agent-link").classList.contains("copied") && document.querySelector("dialog.sheet[open] .agent-link").textContent.includes("Copied")`));
+        // The clipboard stand-in records the copy before the renderer hears back, so wait for the link to say it.
+        check("…and the link says it copied", await waitFor(`document.querySelector("dialog.sheet[open] .agent-link").classList.contains("copied") && document.querySelector("dialog.sheet[open] .agent-link").textContent.includes("Copied")`, 20));
         await shot("agents-setup");
 
         // Grok saves, with the key it was given, and the sheet hears it.
