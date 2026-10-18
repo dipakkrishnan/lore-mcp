@@ -1465,10 +1465,10 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
 
         await js(`[...document.querySelectorAll("#content .first-choices .choice")].find((c) => c.textContent.startsWith("Grok Bot")).click()`);
         answers++;
-        check("with no store online, Grok Bot needs the store online first, and nothing goes on sale", await waitFor(`${chat}.includes("Grok Bot saves to your own store, so first it goes online. Nothing goes on sale.")`) && (await js(chat)).includes("Grok Bot"), await js(chat));
+        check("with no store online, Grok Bot needs the store online first, and nothing goes on sale", await waitFor(`${chat}.includes("Grok Bot works online, so it needs a place online to save to. Lore sets one up for you, free on Cloudflare. Only your agents can save to it, and nothing goes on sale.")`) && (await js(chat)).includes("Grok Bot"), await js(chat));
         check("…and the owner's answer, a pill, says who gave it to a screen reader", await js(`document.querySelector("#content .first-run .line.owner > .sr-only")?.textContent === "You: "`));
         await shot("firstrun-store");
-        await tap("Put it online");
+        await tap("Set it up");
         answers++;
         check("putting it online signs in to Cloudflare first, then puts it online for agents only", await waitFor(`document.querySelector("#content .first-run .agent-link")`, 80) && JSON.stringify(storeOnlineCalls) === JSON.stringify([false, true]), JSON.stringify(storeOnlineCalls));
         const message = await copyMessage();
@@ -1608,10 +1608,10 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         await relaunch();
         await waitFor(`document.querySelector("#title").textContent === "Welcome to Lore"`, 80);
         await js(`[...document.querySelectorAll("#content .first-choices .choice")].find((c) => c.textContent.startsWith("Claude")).click()`);
-        await waitFor(`${chat}.includes("Put it online")`);
+        await waitFor(`${chat}.includes("Set it up")`);
         const letOnline = hold("store:online");
         const connectsBefore = connects();
-        await tap("Put it online");
+        await tap("Set it up");
         await js(`document.querySelector("#first-run-skip").click()`);
         letOnline();
         check("a Skip while the store goes online stays a Skip, and connects nothing after it", await stayedSkipped() && connects() === connectsBefore, `${JSON.stringify(await kept())}; ${connects() - connectsBefore} connects after`);
@@ -1641,7 +1641,7 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         await js(`${agentRow("Connect an agent")}.querySelector("button").click()`);
         await waitFor(`${primary}?.textContent === "Put your store online"`);
         await sleep(400);
-        check("with no store online, the first step says why it goes online, plainly", await js(`${sheet}.includes("Your agents save to your own store, so it needs to be online. Nothing goes on sale until you choose to sell it.")`), await js(sheet));
+        check("with no store online, the first step says why it goes online, plainly", await js(`${sheet}.includes("Your agents work online, so they need a place online to save to. Lore sets one up for you, free on Cloudflare. Only your agents can save to it, and nothing goes on sale until you choose to sell it.")`), await js(sheet));
         await shot("agents-store-first");
         await js(`${primary}.click()`);
         const deploying = await waitFor(`document.querySelector("#title").textContent === "Open your store"`);

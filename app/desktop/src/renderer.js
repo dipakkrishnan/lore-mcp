@@ -1228,12 +1228,12 @@ class FirstRunChat {
     const [app, who] = this.picked;
     owner(who);
     if (this.stage === "store") {
-      lore(`${who} saves to your own store, so first it goes online. Nothing goes on sale.`);
+      lore(`${who} works online, so it needs a place online to save to. Lore sets one up for you, free on Cloudflare. Only your agents can save to it, and nothing goes on sale.`);
       const box = el("div", "card request");
-      box.append(el("p", "hint", this.working ? "Putting your store online. This takes a few minutes. If your browser opens, sign in to Cloudflare there. It's free." : "Takes a few minutes. If your browser opens, sign in to Cloudflare there. It's free."));
+      box.append(el("p", "hint", this.working ? "Setting it up. This takes a few minutes. If your browser opened, sign in to Cloudflare there." : "Takes a few minutes. Your browser opens so you can sign in to Cloudflare, or make a free account."));
       if (this.problem) box.append(el("p", "problem", this.problem));
       const actions = el("div", "actions");
-      const go = button(this.working ? "Putting it online…" : "Put it online", "primary", () => void this.putOnline());
+      const go = button(this.working ? "Setting it up…" : "Set it up", "primary", () => void this.putOnline());
       go.disabled = this.working;
       actions.append(go);
       box.append(actions);
@@ -2465,7 +2465,7 @@ function tiles(rows) {
 const AGENT_APPS = [["grok", "Grok Bot"], ["muse", "Muse"], ["chatgpt", "ChatGPT"], ["claude", "Claude"], ["other", "Other"]];
 /** @type {Record<AgentApp, string>} */
 const PERSONAL_MARKS = { grok: "grok", muse: "muse", chatgpt: "chatgpt", claude: "claude", other: "agent" };
-const STORE_FIRST = "Your agents save to your own store, so it needs to be online. Nothing goes on sale until you choose to sell it.";
+const STORE_FIRST = "Your agents work online, so they need a place online to save to. Lore sets one up for you, free on Cloudflare. Only your agents can save to it, and nothing goes on sale until you choose to sell it.";
 /** APP-217: how each agent takes Lore's private link, as its maker documents it (checked Oct 17, 2026). Grok Bot adds
  * a connector it is sent in chat, so it gets a message around the link; `routine` is what each calls a scheduled ask.
  * `again` is the same for a new link, which replaces the Lore connector the agent already has rather than adding one;
