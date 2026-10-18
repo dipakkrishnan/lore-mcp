@@ -2353,3 +2353,23 @@ test("first-run writes that overlap land in the order they were asked, each whol
     await rm(directory, { recursive: true });
   }
 });
+
+test("APP-222: each tool call is a step in the owner's words, and card tools are none", async () => {
+  const { stepKind } = await import("../src/agent.mjs");
+  const home = "/lore";
+  assert.equal(stepKind("read", { path: "memories/pricing.md" }, home), "read-memory");
+  assert.equal(stepKind("read", { path: "/elsewhere/notes.md" }, home), "read");
+  assert.equal(stepKind("read", { path: "/lore/.pi/skills/lore-publish/SKILL.md" }, home), null);
+  assert.equal(stepKind("write", { path: "/lore/memories/new.md" }, home), "write-memory");
+  assert.equal(stepKind("bash", { command: "lore publication draft - <<'EOF'\n[]\nEOF" }, home), "draft");
+  assert.equal(stepKind("bash", { command: "cd /lore && uv run lore push --json" }, home), "push");
+  assert.equal(stepKind("bash", { command: "lore node deploy --network base" }, home), "deploy");
+  assert.equal(stepKind("bash", { command: "lore node sales" }, home), "sales");
+  assert.equal(stepKind("bash", { command: "lore status --json" }, home), "status");
+  assert.equal(stepKind("bash", { command: "lore search pricing" }, home), "look");
+  assert.equal(stepKind("bash", { command: "npx wrangler deploy" }, home), "deploy");
+  assert.equal(stepKind("bash", { command: "ls memories" }, home), "look");
+  assert.equal(stepKind("bash", { command: "python3 -c 'print(1)'" }, home), "work");
+  assert.equal(stepKind("save_profile", {}, home), "profile");
+  for (const card of ["ask_user", "propose_memories", "propose_blueprint", "propose_price", "cloudflare_login", "finish_task"]) assert.equal(stepKind(card, {}, home), null);
+});

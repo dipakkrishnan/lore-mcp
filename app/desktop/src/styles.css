@@ -1,6 +1,8 @@
 :root {
   --bg: #f7f3ea;
   --bg-aside: #f3eee3;
+  /* The sidebar is the window's frosted material under a wash of cream; where the material is off, the wash is all. */
+  --bg-aside-wash: color-mix(in srgb, var(--bg-aside) 62%, transparent);
   --surface: #fffdf8;
   --ink: #1d1f1c;
   --ink-soft: #3a3d38;
@@ -23,6 +25,8 @@
   --radius: 12px;
   --radius-sm: 8px;
   --radius-lg: 16px;
+  --ease: cubic-bezier(0.23, 1, 0.32, 1);
+  --shine: color-mix(in srgb, var(--muted) 22%, var(--surface));
 }
 
 * { box-sizing: border-box; }
@@ -96,9 +100,11 @@ input[type="text"], input[type="password"], input[type="search"], select, textar
 
 /* Shell */
 .app { position: fixed; inset: 0; display: flex; }
+/* APP-222: with the app shell up, the window shows through only under the sidebar; the main pane stays solid cream. */
+body:has(#app:not([hidden])) { background: transparent; }
 .titlebar { position: fixed; inset: 0 0 auto 0; height: 28px; -webkit-app-region: drag; }
 aside {
-  width: 224px; flex-shrink: 0; border-right: 1px solid var(--line); background: var(--bg-aside);
+  width: 224px; flex-shrink: 0; border-right: 1px solid var(--line); background: var(--bg-aside-wash);
   display: flex; flex-direction: column; padding: 44px 12px 16px; gap: 14px; -webkit-app-region: drag;
 }
 aside > * { -webkit-app-region: no-drag; }
@@ -116,7 +122,9 @@ aside > * { -webkit-app-region: no-drag; }
 nav { display: flex; flex-direction: column; gap: 2px; }
 nav button {
   display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-radius: var(--radius-sm); font-size: 14px; font-weight: 500; text-align: left;
+  opacity: 0.68; transition: opacity 150ms var(--ease), background-color 150ms var(--ease);
 }
+nav button:hover, nav button:focus-visible, nav button[aria-pressed="true"] { opacity: 1; }
 nav button svg { width: 18px; height: 18px; color: var(--muted); flex-shrink: 0; }
 nav button:hover { background: var(--hover); }
 nav button[aria-pressed="true"] { background: var(--accent-soft); color: var(--accent-ink); }
@@ -144,7 +152,7 @@ nav .count { margin-left: auto; font-family: var(--mono); font-size: 12px; color
 .account-line { padding: 4px 10px 2px; font-size: 12px; color: var(--muted); }
 
 main:focus { outline: none; }
-main { flex: 1; min-width: 0; overflow: auto; padding: 0 44px 26px; display: flex; flex-direction: column; gap: 30px; }
+main { flex: 1; min-width: 0; overflow: auto; padding: 0 44px 26px; display: flex; flex-direction: column; gap: 30px; background: var(--bg); }
 #content { display: flex; flex-direction: column; gap: 30px; }
 main header { display: grid; grid-template-columns: minmax(0, 1fr) auto; row-gap: 4px; column-gap: 16px; position: sticky; top: 0; z-index: 1; padding-top: 28px; background: var(--bg); }
 main header > :not(.header-actions) { grid-column: 1; }
@@ -240,13 +248,32 @@ main.thread .capture-area { width: 100%; max-width: 760px; }
 .log .line.enter { animation: line-in 0.26s cubic-bezier(0.2, 0.7, 0.2, 1) both; }
 @keyframes line-in { from { opacity: 0; transform: translateY(6px); } }
 .log .line.thinking { flex-direction: row; align-items: center; gap: 10px; font-size: 13px; color: var(--muted); }
-.bubble, .typing { display: inline-flex; align-items: center; gap: 4px; }
-.bubble i, .typing i { width: 6px; height: 6px; border-radius: 50%; background: var(--muted); animation: typing 1.2s ease-in-out infinite; }
-.typing i { width: 5px; height: 5px; }
-.bubble i:nth-child(2), .typing i:nth-child(2) { animation-delay: 0.15s; }
-.bubble i:nth-child(3), .typing i:nth-child(3) { animation-delay: 0.3s; }
-@keyframes typing { 0%, 60%, 100% { opacity: 0.3; transform: none; } 30% { opacity: 1; transform: translateY(-2px); } }
-@media (prefers-reduced-motion: reduce) { .bubble i, .typing i, .log .line.enter { animation: none; } }
+/* APP-222: what is still under way says so with a slow light sweep across its words. */
+.shimmer {
+  background: linear-gradient(90deg, var(--muted) 40%, var(--shine) 50%, var(--muted) 60%) 0 0 / 200% 100%;
+  -webkit-background-clip: text; background-clip: text; color: transparent; animation: shimmer 2s linear infinite;
+}
+@keyframes shimmer { from { background-position: 200% 0; } to { background-position: 0 0; } }
+/* A streaming reply's newest words ink in; code never does. */
+.ink { animation: ink 150ms var(--ease) both; }
+@keyframes ink { from { opacity: 0; filter: blur(2px); } }
+/* A turn's steps: one small line each while Lore works, then one line that opens on click. */
+.log .line.steps { gap: 0; font-size: 13px; line-height: 1.5; color: var(--muted); }
+.step { display: flex; align-items: center; gap: 8px; min-height: 24px; }
+.step svg, .steps-sum svg { width: 13px; height: 13px; flex-shrink: 0; color: var(--faint); }
+.step .took { font-variant-numeric: tabular-nums; color: var(--faint); }
+.steps-sum { display: inline-flex; align-items: center; gap: 8px; align-self: flex-start; min-height: 24px; color: var(--muted); font-size: 13px; transition: color 150ms var(--ease); }
+.steps-sum:hover { color: var(--ink); }
+.steps-sum svg { transition: transform 200ms var(--ease); }
+.steps.open .steps-sum svg { transform: rotate(90deg); }
+.steps-fold { display: grid; grid-template-rows: 0fr; visibility: hidden; transition: grid-template-rows 200ms var(--ease), visibility 200ms; }
+.steps.open .steps-fold { grid-template-rows: 1fr; visibility: visible; }
+.steps-fold > .steps-list { min-height: 0; overflow: hidden; padding-left: 21px; }
+@media (prefers-reduced-motion: reduce) {
+  .log .line.enter, .ink, .shimmer { animation: none; }
+  .shimmer { background: none; color: var(--muted); }
+  .steps-fold, .steps-sum svg { transition: none; }
+}
 /* Cards in a conversation sit on the page as soft surfaces, and their buttons are pills. */
 .log .card, #request .card, .card.lead { border-color: transparent; border-radius: 18px; box-shadow: 0 1px 2px rgba(29, 31, 28, 0.05), 0 6px 24px rgba(29, 31, 28, 0.05); }
 .log .btn, #request .btn, .card.lead .btn { border-radius: 999px; }
