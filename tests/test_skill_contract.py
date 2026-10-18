@@ -19,6 +19,8 @@ import re
 import unittest
 from pathlib import Path
 
+import hermetic  # noqa: F401  (no test may reach a real Cloudflare account)
+
 from lore.cli import parser
 
 ROOT = Path(__file__).resolve().parent.parent

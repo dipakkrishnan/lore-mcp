@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Iterator
 from unittest.mock import patch
 
+import hermetic  # noqa: F401  (no test may reach a real Cloudflare account)
 import httpx2
 import keyring
 from fixtures.inbox import D1, Endpoint, Node

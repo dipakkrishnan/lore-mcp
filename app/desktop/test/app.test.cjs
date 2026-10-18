@@ -686,6 +686,30 @@ test("a capture that saves closes as done even when the agent never calls finish
   assert.deepEqual(jobOutcome(false), ["incomplete", "stopped"]);
 });
 
+test("putting the store online for the owner's agents asks only for the sign-in, in its subtitle too", async () => {
+  // XC-069: the request the app sends is the one the agent recognizes.
+  const { deployPhase } = await import("../src/agent.mjs");
+  const renderer = await readFile(join(__dirname, "../src/renderer.js"), "utf8");
+  const intent = /const AGENT_STORE_INTENT = "([^"]+)";/.exec(renderer)?.[1] ?? "";
+  assert.equal(deployPhase("deploy", intent), "Sign in to Cloudflare");
+  assert.equal(deployPhase("deploy", "Help me open my store."), undefined);
+  assert.equal(deployPhase("publish", intent), undefined);
+});
+
+test("a reply in the agents' store thread keeps its subtitle; a stopped or finished one doesn't pass it on", async () => {
+  const { turnPhase } = await import("../src/agent.mjs");
+  const record = (/** @type {TaskState} */ state, phase = "Sign in to Cloudflare") => ({ version: 1, kind: /** @type {const} */ ("deploy"), title: "Open your store", state, phase, updatedAt: "" });
+  for (const state of /** @type {TaskState[]} */ (["working", "needs_you"])) {
+    assert.equal(turnPhase("deploy", "I'm signed in now", record(state)), "Sign in to Cloudflare", state);
+  }
+  // A thread that stopped or failed records its own subtitle, and a finished one starts over.
+  assert.equal(turnPhase("deploy", "Help me open my store.", record("stopped", "Needs another try")), undefined);
+  assert.equal(turnPhase("deploy", "Help me open my store.", record("done")), undefined);
+  assert.equal(turnPhase("deploy", "Help me open my store.", record("working", "Price, sign-in, payout")), undefined);
+  assert.equal(turnPhase("deploy", "Help me open my store.", null), undefined);
+  assert.equal(turnPhase("publish", "Help me publish", record("working")), undefined);
+});
+
 test("deploy is a task kind with its own session, title, and records", async () => {
   const { LoreAgent, latestTaskRecord } = await import("../src/agent.mjs");
   const home = await mkdtemp(join(tmpdir(), "lore-desktop-"));
@@ -1065,7 +1089,9 @@ test("listing switches the store on through the CLI and hands back the request f
 from lore.store import Store
 from lore import blueprint
 import json
-with Store() as store: store.set_setting("node_url", "https://lore.example.workers.dev/mcp")
+with Store() as store:
+    store.set_setting("node_url", "https://lore.example.workers.dev/mcp")
+    store.set_setting("node_selling", True)
 blueprint.blueprint_path().parent.mkdir(parents=True, exist_ok=True)
 blueprint.blueprint_path().write_text(json.dumps({"name": "Ada"}))
 `], { cwd: join(__dirname, "../../.."), env: { ...process.env, LORE_HOME: directory }, stdio: "inherit" });

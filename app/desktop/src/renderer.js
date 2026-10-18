@@ -157,7 +157,7 @@ const EXPLORERS = { "eip155:8453": "https://basescan.org", "eip155:84532": "http
 const REAL_MONEY = "I'm ready to switch my store to real money.";
 const SETUP_INTENT = "Let's set up my Lore.";
 const STORE_INTENT = "Help me open my store.";
-const AGENT_STORE_INTENT = "Put my store online so my personal agents can save to it. Nothing goes on sale until I approve it.";
+const AGENT_STORE_INTENT = "Put my store online so my personal agents can save to it. Nothing goes on sale until I choose to sell it.";
 const REDEPLOY_PRICE = "I changed my publication price. Redeploy my store so buyers pay the new amount.";
 const STORE_FIX = "My store isn't responding. Find out why and bring it back online.";
 // Six decimals, not the default two: a price can run below a cent, and rounding
@@ -533,9 +533,10 @@ function pushDetail(items, index) {
   return `${item.count} publication${item.count === 1 ? "" : "s"} on your store${change}`;
 }
 
-/** @param {Snapshot["node"]["live"]["state"]} state */
-function nodeLabel(state) {
-  return state === "online" ? "Live" : state === "unreachable" ? "Offline" : "Not set up";
+/** Online for the owner's agents only is not live: nothing is for sale (XC-069). @param {Snapshot["node"]} node */
+function nodeLabel(node) {
+  const state = node.live.state;
+  return state === "online" ? (node.selling === false ? "Online" : "Live") : state === "unreachable" ? "Offline" : "Not set up";
 }
 
 /** @param {string | null} network */
@@ -579,6 +580,11 @@ function storeAddress(node) {
   const payouts = payoutLink(node.live);
   if (payouts) box.append(payouts);
   return box;
+}
+
+/** Open for sale, not only online for the owner's agents (XC-069). @param {Snapshot | null} s */
+function forSale(s) {
+  return Boolean(s?.node.url) && s?.node.selling !== false;
 }
 
 function greeting() {
@@ -670,7 +676,7 @@ function nextStep(s) {
     return { mark: "update", label: `${plural(changes, "change")} ${changes === 1 ? "isn't" : "aren't"} live yet`, detail, action: "Update store", run: waiting.length ? pushNow : resume("deploy", () => startDeploy(REDEPLOY_PRICE)) };
   }
   const approved = s.publications.counts.active;
-  if (approved && !s.node.url) return { mark: "store", label: `${plural(approved, "approved piece")} ${approved === 1 ? "isn't" : "aren't"} on sale yet`, detail: "Open your store to sell it. Pick a price and where payments go.", action: "Open your store", run: resume("deploy", () => startDeploy()) };
+  if (approved && !forSale(s)) return { mark: "store", label: `${plural(approved, "approved piece")} ${approved === 1 ? "isn't" : "aren't"} on sale yet`, detail: "Open your store to sell it. Pick a price and where payments go.", action: "Open your store", run: resume("deploy", () => startDeploy()) };
   if (candidates.length || extraDrafts.length) return "drafts";
   const drafting = taskItems.some((item) => item.kind === "publish" && item.state !== "done");
   // An open publish thread is the step itself, under Unfinished.
@@ -703,10 +709,12 @@ function nextStepCard(step) {
   return section("Next step", list);
 }
 
-/** Unfinished threads, without the store's once the store is open unless it is at work (a repair, a reprice): nothing
- * is left to finish there. Quiet work is no thread, and a check-in waiting on its card is not one yet. */
+/** Unfinished threads, without the store's once the store is open, or once a finished thread put it online for the
+ * owner's agents, unless it is at work (a repair, a reprice): nothing is left to finish there. Quiet work is no thread,
+ * and a check-in waiting on its card is not one yet. */
 function displayTasks() {
-  return taskItems.filter((item) => !QUIET_TASKS.has(item.kind) && !(item.kind === "deploy" && snapshot?.node.url && item.state !== "working") && !(item.kind === "evening" && checkIn)).slice(0, 3);
+  const storeDone = (/** @type {TaskRecord} */ item) => item.state !== "working" && (forSale(snapshot) || (Boolean(snapshot?.node.url) && item.state === "done"));
+  return taskItems.filter((item) => !QUIET_TASKS.has(item.kind) && !(item.kind === "deploy" && storeDone(item)) && !(item.kind === "evening" && checkIn)).slice(0, 3);
 }
 
 /** The evening check-in leads Today: the questions Lore would like five minutes on, and a way to say not today. @param {CheckIn} asked */
@@ -829,8 +837,9 @@ function renderToday(s) {
   /** @type {Array<[string, string] | null>} */
   const facts = [
     [String(s.library.counts.private), `${s.library.counts.private === 1 ? "memory" : "memories"}, only on this Mac`],
-    [String(s.publications.counts.active), "for sale"],
-    ["Store", nodeLabel(s.node.live.state).toLowerCase()],
+    // Approved is not on sale until the store opens for sale (XC-069).
+    [String(s.publications.counts.active), forSale(s) ? "for sale" : "ready to sell"],
+    ["Store", nodeLabel(s.node).toLowerCase()],
     ...offers(s)
   ];
   for (const fact of facts) {
@@ -965,12 +974,14 @@ async function savePrice(raw, rawCopies) {
 /** The store at a glance: whether it's live, its address, what a piece costs, and a pending update. @param {Snapshot} s */
 function storeBar(s) {
   const live = s.node.live;
+  const selling = forSale(s);
   const bar = el("div", "card store-bar");
   const lead = el("div", "lead");
-  lead.append(el("span", `dot ${live.state === "online" ? "ok" : live.state === "unreachable" ? "" : "off"}`));
+  lead.append(el("span", `dot ${live.state === "online" && selling ? "ok" : live.state === "unreachable" ? "" : "off"}`));
   const text = el("div", "t");
-  text.append(el("b", "sans", live.state === "online" ? (live.network === TEST_NETWORK ? "Live · Test mode" : "Live") : live.state === "unreachable" ? "Your store isn't responding" : "No store yet"));
-  if (s.node.url) {
+  const state = !s.node.url ? "No store yet" : live.state === "unreachable" ? "Your store isn't responding" : !selling ? "Nothing for sale yet" : live.state === "online" ? (live.network === TEST_NETWORK ? "Live · Test mode" : "Live") : "No store yet";
+  text.append(el("b", "sans", state));
+  if (selling) {
     text.append(storeAddress(s.node));
   } else {
     const open = el("span");
@@ -1032,8 +1043,11 @@ function renderInventory(s) {
 
   const tabs = el("div", "shelves");
   tabs.setAttribute("role", "tablist");
+  // Approved pieces wait for the store to open for sale before anyone can buy them (XC-069).
+  const saleLabel = forSale(s) ? "On sale" : "Ready to sell";
+  const waitingNote = forSale(s) ? undefined : el("span", "hint", "Ready to sell once your store opens.");
   /** @type {[Shelf, string, number][]} */
-  const shelves = [["all", "All", kept.length + onSale.length], ["private", "Private", kept.length], ["sale", "On sale", onSale.length]];
+  const shelves =[["all", "All", kept.length + onSale.length], ["private", "Private", kept.length], ["sale", saleLabel, onSale.length]];
   if (down.length) shelves.push(["down", "Taken down", down.length]);
   for (const [id, label, count] of shelves) {
     const tab = el("button", "shelf");
@@ -1100,11 +1114,12 @@ function renderInventory(s) {
   const nothingOnSale = emptyState("Nothing on sale yet.", button("See what's private", "quiet", () => { shelf = "private"; render(); }));
   if (shelf === "all") {
     if (!kept.length && !onSale.length) parts.push(nothingKept);
-    if (onSale.length) parts.push(section("On sale", stack(saleGroups())));
+    if (onSale.length) parts.push(section(saleLabel, stack(saleGroups()), waitingNote));
     if (kept.length) parts.push(section("Private", stack(privateGroups())));
   } else if (shelf === "private") {
     parts.push(kept.length ? stack(privateGroups()) : nothingKept);
   } else if (shelf === "sale") {
+    if (onSale.length && waitingNote) parts.push(waitingNote);
     parts.push(onSale.length ? stack(saleGroups()) : nothingOnSale);
   } else {
     parts.push(stack(downGroups()));
@@ -1326,7 +1341,7 @@ function cardWay(s) {
     const done = await act(async () => {
       await window.lore.switchCards(account);
       cards = null;
-      tell(account ? (s.node.url ? "Card payments are on. Lore is updating your store so buyers see Buy by card." : "Card payments are on. They start when your store opens.") : "Card payments are off.");
+      tell(account ? (forSale(s) ? "Card payments are on. Lore is updating your store so buyers see Buy by card." : "Card payments are on. They start when your store opens.") : "Card payments are off.");
     });
     if (done) await goLive();
   };
@@ -1364,7 +1379,7 @@ function cardMinimum(s) {
 function walletWay(s) {
   const by = "To your wallet";
   const payout = s.node.live.payout;
-  if (!payout) return way(by, s.node.url ? "Lore can't see your store's wallet right now." : "You choose a wallet when your store opens.");
+  if (!payout) return way(by, forSale(s) ? "Lore can't see your store's wallet right now." : "You choose a wallet when your store opens.");
   const value = el("span", "way-value");
   value.append("Agents can pay it directly · ", el("span", "mono", `${payout.slice(0, 6)}…${payout.slice(-4)}`));
   return way(by, value, outLink("View ↗", `${explorer(s.node.live.network)}/address/${payout}`));
@@ -1408,12 +1423,12 @@ function addressRow(s) {
   detail.append(el("span", "mono", home.replace(/^https?:\/\//, "")));
   const console = workerConsole(s.node.url);
   if (console) detail.append(outLink("Hosted on Cloudflare ↗", console, "quiet-link"));
-  return row("Address", detail, cell(pill(nodeLabel(live.state), live.state === "online" ? "ok" : live.state === "unreachable" ? "attention" : ""), outLink("Open ↗", home)), false);
+  return row("Address", detail, cell(pill(nodeLabel(s.node), live.state === "online" ? "ok" : live.state === "unreachable" ? "attention" : ""), outLink("Open ↗", home)), false);
 }
 
 /** Read the listing state once per store address; Settings re-renders when it lands. @param {Snapshot} s */
 function loadListing(s) {
-  if (!s.node.url || listingFor === s.node.url) return;
+  if (!s.node.url || !forSale(s) || listingFor === s.node.url) return;
   listingFor = s.node.url;
   listing = null;
   window.lore.listingStatus().then((state) => {
@@ -1436,7 +1451,7 @@ async function changeListing(action) {
 
 /** Settings → Your store → Marketplace: one row, read from the public list and the store's own switch. @param {Snapshot} s */
 function marketplaceRow(s) {
-  if (!s.node.url) return [];
+  if (!forSale(s)) return [];
   loadListing(s);
   const label = "Marketplace";
   const shares = "It shows only what your store already shows: your name, topics, and prices.";
@@ -1939,7 +1954,7 @@ function tiles(rows) {
 const AGENT_APPS = [["grok", "Grok Bot"], ["muse", "Muse"], ["chatgpt", "ChatGPT"], ["claude", "Claude"], ["other", "Other"]];
 /** @type {Record<AgentApp, string>} */
 const PERSONAL_MARKS = { grok: "grok", muse: "muse", chatgpt: "chatgpt", claude: "claude", other: "agent" };
-const STORE_FIRST = "Your agents save to your own store, so it needs to be online. Nothing goes on sale until you approve it.";
+const STORE_FIRST = "Your agents save to your own store, so it needs to be online. Nothing goes on sale until you choose to sell it.";
 /** APP-217: how each agent takes Lore's private link, as its maker documents it (checked Oct 17, 2026). Grok Bot adds
  * a connector it is sent in chat, so it gets a message around the link; `routine` is what each calls a scheduled ask.
  * `again` is the same for a new link, which replaces the Lore connector the agent already has rather than adding one;
@@ -2627,7 +2642,7 @@ function renderAccount() {
   const avatar = el("span", "avatar");
   if (icon) avatar.append(Object.assign(el("img"), { src: icon, alt: "" }));
   const who = el("span", "who");
-  const store = snapshot?.node.url ? ` · ${nodeLabel(snapshot.node.live.state)}` : "";
+  const store = snapshot?.node.url ? ` · ${nodeLabel(snapshot.node)}` : "";
   who.append(el("b", "", credential ? "Signed in" : "Not signed in"), el("span", "", credential ? `${name}${store}` : ""));
   account.replaceChildren(avatar, who);
   account.insertAdjacentHTML("beforeend", CHEVRON);
@@ -3239,25 +3254,30 @@ function storeOpened(s) {
 function nextRung(s) {
   const box = el("div", "card lead request");
   const deploy = detailTask === "deploy";
-  const storeOpen = Boolean(s.node.url);
-  const heading = deploy ? (storeOpen ? "Your store is open." : "Your store isn't open yet.") : "Your Lore is set up.";
+  const storeOpen = forSale(s);
+  // Online only so the owner's agents can save to it: nothing is on sale, and selling is its own step later.
+  const forAgents = Boolean(s.node.url) && !storeOpen;
+  const heading = deploy ? (storeOpen ? "Your store is open." : forAgents ? "Your store is online for your agents." : "Your store isn't open yet.") : "Your Lore is set up.";
   const detail = deploy
     ? storeOpen
       ? storeOpened(s)
-      : "This step is done. Try again now, or any time from Today."
+      : forAgents
+        ? "Nothing is for sale. When you approve something to sell, Lore asks for a price and where payments go."
+        : "This step is done. Try again now, or any time from Today."
     : "This step is done. What comes next is a separate step — take it now, or any time from Today.";
   box.append(
     el("p", "q", heading),
     el("p", "hint", detail)
   );
   const actions = el("div", "actions");
-  if (s.node.url) {
+  if (storeOpen && s.node.url) {
     const live = el("a", "btn secondary sm", "Your store ↗");
     live.href = s.node.url.replace(/\/mcp$/, "");
     live.target = "_blank";
     live.rel = "noreferrer";
     actions.append(live);
-  } else {
+  } else if (!forAgents) {
+    // Online for the owner's agents, selling waits for an approved piece: drafting one is the next step.
     actions.append(button("Open your store", "secondary", () => void startDeploy()));
   }
   actions.append(button("Publish something", "primary", () => void startPublish()));
@@ -3580,7 +3600,7 @@ function openPasteSheet() {
 
 function seamCard() {
   const box = el("div", "card lead request");
-  const store = Boolean(snapshot?.node.url);
+  const store = forSale(snapshot);
   box.append(el("p", "q", store ? "Push to your store now?" : "Open your store?"), el("p", "hint", pushOffer || ""));
   const actions = el("div", "actions");
   const leave = button("Not now", "secondary", () => { pushOffer = false; render(); });
@@ -3608,7 +3628,7 @@ async function pushNow() {
 
 /** What the next push changes: approved publications the node does not hold yet, and taken-down ones it still does. Read from the snapshot, so it survives a relaunch. @param {Snapshot} s */
 function unpushed(s) {
-  return s.node.url ? s.publications.items.filter((item) => item.live === (item.state === "revoked")) : [];
+  return forSale(s) ? s.publications.items.filter((item) => item.live === (item.state === "revoked")) : [];
 }
 
 /** @param {PublicationItem[]} waiting */
@@ -3639,14 +3659,14 @@ async function settle(action, approve) {
   // The thread's last word was "ready for your approval below"; with every card skipped, close it.
   if (!approvedThisPass) return void (detailTask && say("Skipped. Nothing new is for sale."));
   approvedThisPass = false;
-  if (snapshot?.node.url) return void (await goLive());
+  if (forSale(snapshot)) return void (await goLive());
   pushOffer = "What you approved goes on sale once it's open. Pick a price and where payments go.";
   render();
 }
 
 /** Every change reaches the store by itself: once a change is saved, push it. */
 async function goLive() {
-  if (snapshot?.node.url && !pushing) await pushNow();
+  if (forSale(snapshot) && !pushing) await pushNow();
 }
 
 /** @param {() => Promise<void>} action @param {string} [failed] Said instead of the CLI's reason when that reason would be plumbing. */

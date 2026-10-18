@@ -52,6 +52,7 @@ from lore.store import Store
 out = os.environ['LORE_EDGE_OUT']
 with Store() as store:
  store.set_setting('node_url', 'https://edge-store.invalid/mcp')
+ store.set_setting('node_selling', True)
  store.add_publication(title='Live demos beat cold decks', content='paid text', topic='launches', teaser='What beat a cold deck', provenance=[1])
  piece = store.list_publications()[0].public_id
 json.dump([{'kind': 'publication', 'item_id': piece, 'title': 'Live demos beat cold decks', 'price_usd': 3.0, 'network': 'stripe', 'payer': '', 'tx': 'pi_old', 'sold_at': '2026-10-01T12:00:00Z'}], open(f'{out}/sales.json', 'w'))
@@ -73,6 +74,7 @@ from lore import blueprint
 from lore.store import Store
 with Store() as store:
  store.set_setting('node_url', 'https://store.example/mcp')
+ store.set_setting('node_selling', True)
  store.set_setting('node_live', {'url': 'https://store.example/mcp', 'checked_at': time.time(), 'live': {'state': 'online', 'network': 'eip155:8453', 'price_usd': 0.01, 'payout': '0x' + 'a' * 40}, 'ids': []})
 blueprint.blueprint_path().parent.mkdir(parents=True, exist_ok=True)
 blueprint.blueprint_path().write_text(json.dumps({'name': 'Edge Seller'}))")
@@ -82,6 +84,7 @@ if [[ "$scenario" == "store" ]]; then
 from lore.store import Store
 with Store() as store:
  store.set_setting('node_url', 'https://store.example/mcp')
+ store.set_setting('node_selling', True)
  store.set_setting('node_live', {'url': 'https://store.example/mcp', 'checked_at': time.time(), 'live': {'state': 'online', 'network': 'eip155:84532', 'price_usd': 0.02, 'payout': '0x' + 'a' * 40}, 'ids': []})")
   (cd "$desktop_dir" && node --input-type=module -e "import { resolve } from 'node:path'; import { SessionManager } from '@earendil-works/pi-coding-agent';
 const session = SessionManager.create(process.env.LORE_HOME, resolve(process.env.LORE_HOME, '.pi/sessions/deploy'));
@@ -105,6 +108,7 @@ if [[ "$scenario" == "settings" ]]; then
 from lore.store import Store
 with Store() as store:
  store.set_setting('node_url', 'https://lore-edge.example.workers.dev/mcp')
+ store.set_setting('node_selling', True)
  store.set_setting('node_live', {'url': 'https://lore-edge.example.workers.dev/mcp', 'checked_at': time.time(), 'live': {'state': 'online', 'network': 'eip155:8453', 'price_usd': 1.0, 'payout': '0x0c270534cfcecc9224edb903ef5dd70410d08166'}, 'ids': []})
  store.set_setting('price_usd', 1.0)
  store.set_setting('answer_enabled', True)

@@ -63,6 +63,8 @@ type Snapshot = {
   };
   node: {
     url: string | null;
+    /** False while the store is online only for the owner's agents, with nothing for sale (XC-069). */
+    selling: boolean;
     live: {
       state: "online" | "not_configured" | "unreachable";
       network: string | null;

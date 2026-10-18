@@ -12,7 +12,7 @@ from unittest.mock import Mock, patch
 
 from helpers import LoreTestCase
 
-from lore import blueprint, cli, marketplace
+from lore import blueprint, cli, deploy, marketplace
 from lore.store import Store
 
 NODE = "https://lore.example.workers.dev/mcp"
@@ -23,6 +23,7 @@ class MarketplaceTest(LoreTestCase):
         super().setUp()
         with Store() as store:
             store.set_setting("node_url", NODE)
+            store.set_setting("node_selling", True)
         self.file = Path(self.tmp.name) / "marketplace.json"
         self.on_file(False)
         env = patch.dict("os.environ", {"LORE_MARKETPLACE_URL": self.file.as_uri()})
@@ -46,6 +47,21 @@ class MarketplaceTest(LoreTestCase):
             store.set_setting("node_url", None)
         with self.assertRaisesRegex(ValueError, "open your store"):
             self.market()
+
+    def test_a_store_online_only_for_agents_is_not_listed(self) -> None:
+        # XC-069: nothing is for sale there, so there is nothing to list; what
+        # it says about itself, and taking it off the list, still work.
+        with Store() as store:
+            store.set_setting(deploy.SELLING_SETTING, False)
+        market = self.market()
+        with self.assertRaisesRegex(ValueError, "open your store for sale"):
+            market.list("Ada")
+        self.assertEqual(self.pushed_name(), "")
+        self.on_file(True)
+        self.assertEqual(
+            market.status(), marketplace.Listing(state="pending", action="delist")
+        )
+        self.assertEqual(market.delist(), marketplace.Listing(state="none"))
 
     def test_status_reads_the_file_and_the_switch(self) -> None:
         market = self.market()

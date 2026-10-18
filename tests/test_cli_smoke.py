@@ -23,6 +23,8 @@ import time
 import unittest
 from pathlib import Path
 
+import hermetic  # noqa: F401  (no test may reach a real Cloudflare account)
+
 try:
     import pty
 except ImportError:  # Windows has no pseudo-terminals
@@ -47,6 +49,12 @@ if [ "$#" -ne 8 ] ||
 fi
 pwd -P > "$LORE_SMOKE_PUSHED/cwd"
 cp "$7" "$LORE_SMOKE_PUSHED/push.sql"
+"""
+
+
+REFUSED = """#!/bin/sh
+echo "tests must not run wrangler/npm: $0 $*" >&2
+exit 97
 """
 
 
@@ -77,6 +85,10 @@ class OwnerLifecycleTest(unittest.TestCase):
             directory.mkdir()
         (tools / "npx").write_text(NPX, encoding="utf-8")
         (tools / "npx").chmod(0o755)
+        # npm and wrangler themselves are never this job's to run (XC-069).
+        for tool in ("npm", "wrangler"):
+            (tools / tool).write_text(REFUSED, encoding="utf-8")
+            (tools / tool).chmod(0o755)
         (self.worker / "wrangler.jsonc").write_text("{}\n", encoding="utf-8")
         # HOME moves too: the desktop launch key lives under it, and nothing
         # here may read or write the developer's real one.

@@ -478,6 +478,25 @@ class SettingsTest(LoreTestCase):
                 store.answer_settings()
 
 
+class SettingIfUnsetTest(LoreTestCase):
+    """XC-069: a deploy's no to selling never replaces a choice written meanwhile."""
+
+    def test_it_writes_only_an_absent_or_null_setting(self) -> None:
+        with Store() as store:
+            self.assertTrue(store.set_setting_if_unset("node_selling", False))
+            self.assertIs(store.setting("node_selling"), False)
+            store.set_setting("node_selling", None)
+            self.assertTrue(store.set_setting_if_unset("node_selling", False))
+            self.assertIs(store.setting("node_selling"), False)
+
+    def test_a_value_another_connection_wrote_first_wins(self) -> None:
+        with Store() as deploy, Store() as owner:
+            self.assertIsNone(deploy.setting("node_selling"))
+            owner.set_setting("node_selling", True)
+            self.assertFalse(deploy.set_setting_if_unset("node_selling", False))
+            self.assertIs(deploy.setting("node_selling"), True)
+
+
 class PublicationTest(LoreTestCase):
     """Publications are the only externally-readable rows, so every guard on
     creating one is a guard on what a stranger's agent can be sold."""
