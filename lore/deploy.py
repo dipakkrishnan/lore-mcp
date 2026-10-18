@@ -43,6 +43,10 @@ DATABASE_ID = "[0-9a-f-]{36}"
 WALLET = re.compile(r"0x[0-9a-fA-F]{40}")
 D1_NAME = "lore-publications"
 D1_PLACEHOLDER = "REPLACE_WITH_YOUR_D1_ID"
+VERIFY_EMAIL = (
+    "Cloudflare needs you to verify your email first. Check your inbox for their "
+    "email, click the link, then tap Set it up again."
+)
 NEEDS_NODE = "deploying needs Node.js; install it from nodejs.org and rerun"
 # Generous enough for a cold `npm install` plus a `wrangler deploy` on a slow
 # connection, but bounded: nothing in this chain may block a caller (the
@@ -749,7 +753,16 @@ def _deploy(
             )
 
     _ensure_d1(wrangler, target)
-    deployed = _run((wrangler, "deploy"), target, fail="deploy failed")
+    deployed = _run((wrangler, "deploy"), target)
+    # A brand-new Cloudflare account can't run Workers until its email is verified;
+    # the database is made and recorded by now, so a retry afterwards picks it up.
+    refused = f"{deployed.stdout}{deployed.stderr}"
+    if deployed.returncode and (
+        "10034" in refused or "verify your email" in refused.lower()
+    ):
+        raise OSError(VERIFY_EMAIL)
+    if deployed.returncode:
+        raise OSError(f"deploy failed:\n{_detail(deployed)}")
     print(deployed.stdout.strip())
 
     # Wrangler colourises under TTY-ish environments; strip escapes so \S+

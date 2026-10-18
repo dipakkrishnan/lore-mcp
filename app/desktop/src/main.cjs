@@ -57,6 +57,7 @@ const updates = new Updates({ app, autoUpdater, dialog, shell }, (update) => emi
 /** The Cloudflare sign-in waiting on the owner's browser, if any: its page, to open again, and how to stop it.
  * @type {{url: string, stop: AbortController} | null} */
 let signingIn = null;
+const VERIFY_EMAIL = "Cloudflare needs you to verify your email first. Check your inbox for their email, click the link, then tap Set it up again.";
 const STORE_ELSEWHERE = "This Cloudflare account already has a Lore store. Sign in with a different account, or reconnect that store from the Mac that set it up.";
 
 /** Sign in to Cloudflare in the browser, wherever the store goes online, with the page reopenable and the wait
@@ -324,6 +325,7 @@ function registerIpc(loreHome, schedule, watch) {
       }
       // A store this Mac didn't set up is never taken over or written to from here.
       if (said.includes("already exists on this Cloudflare account")) throw new Error(STORE_ELSEWHERE);
+      if (said.includes("verify your email")) throw new Error(VERIFY_EMAIL);
       if (!said.startsWith("The store is deployed")) {
         console.error("The store did not go online:", said);
         throw new Error("Your store didn't go online. Try again in a minute.");

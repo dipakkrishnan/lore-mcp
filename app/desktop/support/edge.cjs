@@ -70,6 +70,8 @@ let signInHangs = false;
 /** @type {number | undefined} */
 let signInWait;
 let storeElsewhere = false;
+/** APP-223: whether the account signed in to hasn't verified its email, so Workers refuse the deploy. */
+let emailUnverified = false;
 /** @type {boolean[]} */
 const storeOnlineCalls = [];
 /** APP-214: every store push asked for, and how the walk ends a thread the stand-in agent left working. */
@@ -278,6 +280,7 @@ if (scenario === "listing") {
     storeOnlineCalls.push(signedInToCloudflare);
     if (!signedInToCloudflare) return "The deploy did not finish: not signed in to Cloudflare; sign in first, then rerun.";
     if (storeElsewhere) return "The deploy did not finish: a lore-publications database already exists on this Cloudflare account, but this installation has never deployed a node before.";
+    if (emailUnverified) return "The deploy did not finish: Cloudflare needs you to verify your email first. Check your inbox for their email, click the link, then tap Set it up again..";
     standInDeploy();
     return "The store is deployed.\nYour store is online for your agents. Nothing for sale yet.";
   };
@@ -1526,9 +1529,14 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         check("an account that already has a Lore store is told so, and nothing is set up there", await waitFor(`${chat}.includes("This Cloudflare account already has a Lore store. Sign in with a different account, or reconnect that store from the Mac that set it up.") && ${buttons}.includes("Set it up")`, 60) && await js(`window.lore.snapshot().then((s) => !s.node.url)`), await js(chat));
         await shot("firstrun-store-elsewhere");
         storeElsewhere = false;
+        emailUnverified = true;
+        await tap("Set it up");
+        check("an account whose email isn't verified yet is told what to do, plainly", await waitFor(`${chat}.includes("Cloudflare needs you to verify your email first. Check your inbox for their email, click the link, then tap Set it up again.") && ${buttons}.includes("Set it up")`, 60), await js(chat));
+        await shot("firstrun-verify-email");
+        emailUnverified = false;
         await tap("Set it up");
         answers++;
-        check("putting it online signs in to Cloudflare first, then puts it online for agents only", await waitFor(`document.querySelector("#content .first-run .agent-link")`, 80) && JSON.stringify(storeOnlineCalls) === JSON.stringify([false, false, false, true, true]), JSON.stringify(storeOnlineCalls));
+        check("putting it online signs in to Cloudflare first, then puts it online for agents only", await waitFor(`document.querySelector("#content .first-run .agent-link")`, 80) && JSON.stringify(storeOnlineCalls) === JSON.stringify([false, false, false, true, true, true]), JSON.stringify(storeOnlineCalls));
         const message = await copyMessage();
         const linked = new RegExp(`^${(ask + agentUrl).replace(/[.*+?^${}()|[\]\\/]/g, "\\$&")}/lore_agent_[0-9a-f]{16}_[A-Za-z0-9_-]{43}$`);
         check("Grok Bot's message to paste is in the chat two answers after it is asked about", answers === 2 && linked.test(message), `${answers} answers; ${message}`);
