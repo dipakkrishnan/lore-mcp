@@ -29,8 +29,8 @@ from typing import Any
 
 import keyring
 from fixtures.granola import Granola
-from helpers import LoreTestCase
-from test_hosted import FakeKeyring, serving
+from helpers import FakeKeyring, LoreTestCase
+from test_hosted import serving
 
 ROOT = Path(__file__).resolve().parent.parent
 SEED = ROOT / "support" / "seed"
