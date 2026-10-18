@@ -424,8 +424,17 @@ class Obsidian(Connector):
             return []
         vaults = sorted(known.vaults.values(), key=lambda v: (not v.open, v.path))
         return [
-            Choice(label=Path(v.path).name, locator=v.path, open=v.open) for v in vaults
+            Choice(label=Path(v.path).name, locator=self._located(v.path), open=v.open)
+            for v in vaults
         ]
+
+    def _located(self, path: str) -> str:
+        """Under the path a connected vault's source keeps, so one already read is known by
+        it; a path that can't be resolved (a link that loops) is offered as Obsidian names it."""
+        try:
+            return self.reader.locate(path)[0]
+        except (OSError, RuntimeError):
+            return path
 
 
 class Role(Enum):

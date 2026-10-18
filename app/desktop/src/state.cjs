@@ -158,6 +158,29 @@ async function deployStore(loreHome, args) {
   }
 }
 
+/** APP-215: the store online for the owner's agents only, from the first-run chat, where the owner's tap is the yes:
+ * nothing goes on sale, so there is no network, payout or price to confirm. Resolves to how it went, as a deploy says.
+ * @param {string} loreHome */
+function storeOnline(loreHome) {
+  return deployStore(loreHome, ["node", "deploy", "--inbox-only"]);
+}
+
+/** Sign in to Cloudflare from the owner's browser; `onUrl` gets the page to open. Resolves to the CLI's last line,
+ * and rejects in its own words. @param {string} loreHome @param {(url: string) => void} onUrl */
+async function cloudflareSignIn(loreHome, onUrl) {
+  let last = "";
+  try {
+    await loreStream(loreHome, ["node", "login"], (line) => {
+      last = line;
+      const url = line.match(/https:\/\/dash\.cloudflare\.com\/\S+/)?.[0];
+      if (url) onUrl(url);
+    });
+  } catch (error) {
+    throw new Error(last.replace(/^lore: /, "") || /** @type {Error} */ (error).message);
+  }
+  return last;
+}
+
 const atHour = (/** @type {unknown} */ hour) => (typeof hour === "number" ? `${hour % 12 || 12} ${hour < 12 ? "AM" : "PM"}` : "");
 const DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
 
@@ -580,6 +603,8 @@ module.exports = {
   agentsWaiting,
   useRuntime,
   openStore,
+  storeOnline,
+  cloudflareSignIn,
   saveProfile,
   ATTENDED_KEY,
   STORE

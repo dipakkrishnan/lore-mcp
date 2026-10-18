@@ -408,6 +408,17 @@ class DesktopSnapshotTest(LoreTestCase):
         self.assertEqual(state["node"]["live"]["state"], "unreachable")
 
 
+class UnreadableClaudeCodeTest(LoreTestCase):
+    def test_a_claude_code_folder_lore_cant_open_never_stops_the_snapshot(self) -> None:
+        # APP-215: an owner who hasn't let Lore into Claude Code's notes yet still gets the app, not "could not load".
+        projects = self.claude_home / "projects"
+        (projects / "demo").mkdir(parents=True)
+        projects.chmod(0o000)
+        self.addCleanup(projects.chmod, 0o755)
+        built = snapshot.build()
+        self.assertEqual(built["library"]["counts"]["private"], 0)
+
+
 class SnapshotJobsTest(LoreTestCase):
     """Owner-run history reaches the desktop app through the snapshot, so the
     app never needs its own database access to show what ran."""
