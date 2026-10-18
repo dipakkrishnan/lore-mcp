@@ -2,6 +2,7 @@
 // the owner's key; buyers on /mcp never see it (contracts/inbox.md).
 import { env } from "cloudflare:workers";
 import { beforeAll, describe, expect, it } from "vitest";
+import { Inbox, type Save } from "../src/inbox";
 import { Agent, Mac, connect, memory, open, ownerKey, workerFetch } from "./inbox";
 
 let mac: Mac;
@@ -111,6 +112,23 @@ describe("store", () => {
     expect(await mac.opened(id)).toMatchObject([{ id: a.id, plain: { content: "v2" } }]);
   });
 
+  it("keeps nothing of a write already under way when the owner makes a new key or disconnects the agent", async () => {
+    for (const end of ["rotate", "revoke"] as const) {
+      const { id, token, agent } = await setup();
+      await agent.store(memory({ key: "before" }));
+      // Let in with the old key, as a request already past the key check would be.
+      const inFlight = (await Inbox.open(env.LORE_DB, id, token.slice(`lore_agent_${id}_`.length))) as Inbox;
+      expect(inFlight).not.toBeNull();
+      await (end === "rotate" ? mac.rotate(id) : mac.revoke(id));
+      const counted = () => env.LORE_DB.prepare("SELECT saved, (SELECT count(*) FROM inbox WHERE agent = ?1) AS items FROM agents WHERE id = ?1").bind(id).first<{ saved: number; items: number }>();
+      const before = await counted();
+      expect(await inFlight.store([memory({ key: "late" }) as Save])).toEqual({ error: "this link was replaced or disconnected in Lore; ask the owner for the new one" });
+      expect(await inFlight.forget("before")).toMatchObject({ error: expect.stringMatching(/replaced or disconnected/) as string });
+      expect(await counted()).toEqual(before);
+      expect(before).toEqual({ saved: 1, items: 1 });
+    }
+  });
+
   it("drops the payload on confirm, and a later save starts a new item", async () => {
     const { id, agent } = await setup();
     await agent.store(memory({ key: "k" }));
@@ -130,6 +148,8 @@ describe("store", () => {
     const again = await agent.store(memory({ key: "k" }));
     expect((again.body.saved as { id: string; replaced: boolean }[])[0].replaced).toBe(false);
     expect((await mac.collect(id))[0].id).not.toBe(item.id);
+    // The same save again still counts: the app confirms a new key by the count rising (APP-217).
+    expect((await agent.tool("stored", {})).body).toMatchObject({ saved: 2 });
   });
 
   it("keeps a re-save made between collect and confirm for the next collection", async () => {

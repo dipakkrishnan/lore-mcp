@@ -46,6 +46,7 @@ type AgentRow = { id: string; token_hash: string; last_saved_at: string | null; 
 
 const NOT_READY: Failure = { error: "Lore isn't ready for agents on this store yet" };
 const NOTE = "Saved privately for the owner. It waits sealed until their Mac collects it, and nothing is published or sold without their approval.";
+const REPLACED: Failure = { error: "this link was replaced or disconnected in Lore; ask the owner for the new one" };
 const BUSY: Failure = {
   error: `this agent has reached its limit of ${WINDOWS.map((window) => window.label).join(" or ")}, or the store holds ${LIMITS.waiting.toLocaleString("en-US")} waiting items; try again later`
 };
@@ -187,6 +188,14 @@ export class Inbox {
     const sealed = await Promise.all(planned.map(async ({ id, plaintext }) => (plaintext === null ? null : seal(owner.publicKey, id, plaintext))));
     const saves = writes.filter((write) => write.save).length;
     const statements = [
+      // The key this call was let in with must still be the agent's, inside the batch: a write already under way when
+      // the owner made a new key or disconnected the agent fails this NOT NULL insert, and nothing of it is kept.
+      db
+        .prepare(
+          "INSERT INTO inbox (id, agent, key_hash, state, sealed, saved_at) SELECT '', NULL, '', 'waiting', NULL, '' WHERE " +
+            "NOT EXISTS (SELECT 1 FROM agents WHERE id = ?1 AND token_hash = ?2 AND revoked_at IS NULL)"
+        )
+        .bind(this.agent.id, this.agent.token_hash),
       ...WINDOWS.map((window) =>
         db
           .prepare(
@@ -218,6 +227,7 @@ export class Inbox {
     try {
       await db.batch(statements);
     } catch (error) {
+      if (/NOT NULL constraint failed: inbox\.agent/.test(String(error))) return REPLACED;
       if (/NOT NULL constraint failed: inbox_windows/.test(String(error))) return BUSY;
       throw error;
     }

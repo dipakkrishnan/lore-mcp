@@ -1,9 +1,19 @@
+/** Who brought a memory in or wrote into it (APP-213): one of the owner's agents, an app, one of their routines, or the
+ * owner. `mark` names its picture: the agent's app, the app's id, "clock", or "pen" and "file" for what the owner brought. */
+type Contributor = { kind: "agent" | "app" | "routine" | "capture"; id: string; label: string; mark: string };
+
+/** A contributor as a memory lists it, newest first; "lore" is Lore's own writing with nobody else on record. */
+type MemorySource = { kind: Contributor["kind"] | "lore"; id: string; label: string; mark: string; at: string | null };
+
 type MemoryItem = {
   id: number;
   title: string;
   project_label: string;
   status: "private" | "discarded";
   updated_at: string;
+  sources: MemorySource[];
+  /** When it arrived, as a number that only grows and is never reused, as an id can be (APP-212). */
+  arrival: number;
 };
 
 type PublicationItem = {
@@ -53,6 +63,8 @@ type Snapshot = {
   };
   node: {
     url: string | null;
+    /** False while the store is online only for the owner's agents, with nothing for sale (XC-069). */
+    selling: boolean;
     live: {
       state: "online" | "not_configured" | "unreachable";
       network: string | null;
@@ -132,12 +144,12 @@ type SourceKind = "folder" | "export" | "feed" | "mcp" | "agent";
 
 type SourceApp = { id: string; name: string; what: string; unit: string; item: string; kind: SourceKind; refresh: boolean; placeholder: string; guide?: string };
 
-type SourceRead = { name: string; label?: string; connector?: string | null; added: number; updated: number; unchanged: number; errors: number; state: SourceState };
+type SourceRead = { name: string; label?: string; connector?: string | null; app?: AgentApp | null; added: number; updated: number; unchanged: number; errors: number; state: SourceState };
 
 /** New items a connected app brought in, waiting to be read through: "23 new Granola meetings". */
 /** `title` and `phase` are worded once: what Today and the notification call it, and its row while it reads. One of the
  * owner's own routines carries their sentence as `ask`, and no app or items; one of their personal agents, its name as `from`. */
-type Reading = { name: string; label: string; item: string; added: number; title: string; phase: string; ask?: string; from?: string };
+type Reading = { name: string; label: string; item: string; added: number; title: string; phase: string; ask?: string; from?: string; by: Contributor };
 
 /** What a reading hands back: how many items it read, and each topic file it wrote. */
 type ReadingReport = { read: number; memories: Array<{ file: string; worth_selling: boolean; why: string }> };
@@ -146,7 +158,11 @@ type ReadingReport = { read: number; memories: Array<{ file: string; worth_selli
 type ReadyMemory = { id: number; title: string; sell: boolean; work: boolean; why: string };
 
 /** One finished reading, kept on Today until the owner clears it; `seen` once they have looked. */
-type ReadyRun = { title: string; read: number; memories: ReadyMemory[]; at: string; seen: boolean; from?: string };
+/** Which memories the owner has had on screen, by arrival (APP-212); one that arrived after `since` and is not in
+ * `arrivals` is New. */
+type SeenMemories = { since: number; arrivals: number[] };
+
+type ReadyRun = { title: string; read: number; memories: ReadyMemory[]; at: string; seen: boolean; from?: string; by?: Contributor };
 
 /** Something Lore does on its own at a set hour, as `lore automation list` describes it. `due`: the app owes it a run now. */
 type Routine = { id: string; kind: "read" | "checkin" | "ask"; name: string; about: string; built_in?: boolean; cadence: "daily" | "weekdays" | "weekly"; hour: number; day?: number; paused?: boolean; last_run: string | null; result: string; next_run: string; due: boolean };
@@ -174,8 +190,8 @@ type CheckIn = { questions: Array<{ question: string; memory: number; title: str
 /** The apps a personal agent can be (CAP-036). */
 type AgentApp = "grok" | "muse" | "chatgpt" | "claude" | "other";
 
-/** What `lore agents connect` and `lore agents key` hand back: the agent, and what to paste into it, shown once. */
-type AgentKey = { source: string; agent: { id: string; name: string; app: AgentApp }; mcp_url: string; connector_url: string; key: string; header: string; prompt: string };
+/** What `lore agents connect` and `lore agents key` hand back: the agent, with how many saves its store has counted so far, and what to paste into it, shown once. */
+type AgentKey = { source: string; agent: { id: string; name: string; app: AgentApp; saved: number }; mcp_url: string; connector_url: string; key: string; header: string; prompt: string };
 
 /** One connected personal agent, as `lore agents list` reads it from the store. */
 type AgentEntry = { source: string; name: string; app: AgentApp; saved: number; waiting: number; last_saved_at: string | null; memories: number; revoked: boolean };
@@ -207,6 +223,7 @@ type Memory = {
   source_path: string;
   status: string;
   updated_at: string;
+  sources: MemorySource[];
 };
 
 type ProposedMemory = {
@@ -280,7 +297,7 @@ interface Window {
     snapshot(): Promise<Snapshot>;
     retrySetup(): Promise<void>;
     agentStatus(): Promise<AgentStatus>;
-    prompt(input: { text: string; task: AgentTask; from?: AgentTask; memory?: number; source?: string }): Promise<void>;
+    prompt(input: { text: string; task: AgentTask; from?: AgentTask; memory?: number; source?: string; files?: string[] }): Promise<void>;
     history(task: AgentTask): Promise<Line[]>;
     tasks(): Promise<TaskRecord[]>;
     restart(task: AgentTask): Promise<void>;
@@ -329,10 +346,15 @@ interface Window {
     agentKey(source: string): Promise<AgentKey>;
     disconnectAgent(source: string, keep: boolean): Promise<SourceRemoval>;
     checkAgents(): Promise<void>;
+    /** Which of the owner's agent apps are installed on this Mac (APP-216). */
+    agentApps(): Promise<AgentApp[]>;
+    openAgentApp(id: AgentApp): Promise<void>;
     copy(text: string): Promise<void>;
     readyRuns(): Promise<ReadyRun[]>;
     seenMemories(): Promise<void>;
     clearMemories(): Promise<void>;
+    memoriesSeen(newest: number): Promise<SeenMemories>;
+    markSeen(arrivals: number[]): Promise<void>;
     checkIn(): Promise<CheckIn | null>;
     routines(): Promise<Routine[]>;
     noticedRoutines(): Promise<void>;
@@ -363,6 +385,8 @@ type OwnerQuestion = {
   options: Array<{ label: string; description: string; recommended?: boolean }>;
   format?: "evm_address";
   multiSelect: boolean;
+  /** Everything a yes would save, shown in full beneath the question. The app's own cards only; the agent's ask_user never sets it. */
+  detail?: string;
 };
 
 type AuthPrompt =
@@ -374,7 +398,8 @@ type AuthPrompt =
     };
 
 type AgentRequest =
-  | { type: "question"; id: string; task: AgentTask | null; questions: OwnerQuestion[] }
+  /** `source: "app"` marks a card the app wrote itself; only those show a question's `detail`. */
+  | { type: "question"; id: string; task: AgentTask | null; questions: OwnerQuestion[]; source?: "app" }
   | { type: "memories"; id: string; task: AgentTask | null; entries: ProposedMemory[] }
   | { type: "blueprint"; id: string; task: AgentTask | null; fields: BlueprintFields; evidence: string }
   | { type: "auth-prompt"; id: string; task: AgentTask | null; prompt: AuthPrompt }
@@ -397,7 +422,7 @@ type AgentEvent =
   | { type: "auth"; message?: string; event?: import("@earendil-works/pi-ai").AuthEvent }
   | { type: "progress"; text?: string; done?: boolean; error?: string }
   | { type: "sold" }
-  | { type: "show"; view: "store" | "today" | "automations" }
+  | { type: "show"; view: "store" | "today" | "automations" | "inventory"; source?: { id: string; label: string } }
   | { type: "thread"; task: AgentTask }
   | { type: "ready" }
   /** What the owner's personal agents saved that Lore just brought in (APP-207). */
@@ -407,7 +432,8 @@ type AgentEvent =
 type LoreAgentInstance = {
   readonly activeTask: AgentTask | null;
   status(): Promise<AgentStatus>;
-  prompt(text: string, task: AgentTask, from?: AgentTask, memory?: number, source?: string): Promise<void>;
+  prompt(text: string, task: AgentTask, from?: AgentTask, memory?: number, source?: string, files?: string[]): Promise<void>;
+  attach(files: Attachment[]): Promise<string[]>;
   history(task: AgentTask): Line[];
   tasks(): TaskRecord[];
   restart(task: AgentTask): void;
@@ -420,10 +446,17 @@ type LoreAgentInstance = {
   settled(): Promise<void>;
 };
 
+/** A file the owner attached to a turn, checked by the app for the agent to keep a copy of. */
+type Attachment = { name: string; path: string; size: number };
+
+type OpenStore = { network?: "real" | "test"; wallet?: string; inboxOnly?: boolean };
+
 type LoreAgentOptions = {
   loreHome: string;
   skillsDir: string;
   binDir?: string;
+  /** Folders the agent's sandbox may never read, wherever HOME points. */
+  hidden?: string[];
   credentials: import("@earendil-works/pi-ai").CredentialStore;
   emit(event: AgentEvent): void;
   askUser(questions: OwnerQuestion[]): Promise<Record<string, string>>;
@@ -432,6 +465,10 @@ type LoreAgentOptions = {
   /** Resolves to the amount the owner confirmed, or null if they declined. */
   proposePrice(amount: number, reason: string): Promise<number | null>;
   cloudflareLogin(): Promise<string>;
+  /** Deploy or redeploy the store through the app; resolves to how it went, in a sentence or a few lines. */
+  openStore(store: OpenStore): Promise<string>;
+  /** Save the onboarding profile through the app; resolves to what the CLI said. */
+  saveProfile(profile: Record<string, unknown>): Promise<string>;
   openUrl(page: { title: string; url: string; note: string }): Promise<string>;
   /** How many staged drafts still wait on the owner's cards. */
   drafts?(): Promise<number>;

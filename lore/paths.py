@@ -8,6 +8,16 @@ def home() -> Path:
     return Path(os.environ.get("LORE_HOME", "~/.lore")).expanduser()
 
 
+def store_folder() -> Path:
+    """The store's code and tools, which Lore runs with the owner's Cloudflare sign-in.
+
+    Outside Lore's home, which the desktop agent can write, beside the desktop app's
+    other private files.
+    """
+    default = "~/Library/Application Support/Lore/store"
+    return Path(os.environ.get("LORE_STORE", default)).expanduser()
+
+
 def database() -> Path:
     return home() / "lore.db"
 

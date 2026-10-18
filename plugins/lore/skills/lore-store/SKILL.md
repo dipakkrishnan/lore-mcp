@@ -1,6 +1,6 @@
 ---
 name: lore-store
-description: For a personal agent the owner connected to Lore (Grok, Muse, ChatGPT, Claude). Save the owner's first-hand experience, lessons, preferences and facts no one could find by searching, privately, through Lore's `store` tool, and keep each topic current as it changes. Never sells or publishes anything. Use when you have Lore's `store` tool and the owner tells you something worth keeping, says "save that to Lore" or "what have you saved to Lore", or a weekly routine looks back for anything new. Without the `store` tool this does not apply.
+description: For a personal agent the owner connected to Lore (Grok, ChatGPT, Claude). Save the owner's first-hand experience, lessons, preferences and facts no one could find by searching, privately, through Lore's `store` tool, and keep each topic current as it changes. Never sells or publishes anything. Use when you have Lore's `store` tool and the owner tells you something worth keeping, says "save that to Lore" or "what have you saved to Lore", or a weekly routine looks back for anything new. Without the `store` tool this does not apply.
 ---
 
 # Save to Lore
