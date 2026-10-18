@@ -1038,8 +1038,12 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         const written = `[...document.querySelectorAll("#content .row")].find((r) => r.textContent.includes("Price a sync placement by its reach"))`;
         check("in Inventory, what Lore wrote from Grok's save says it came from Grok, with its mark", await waitFor(`/From Grok Bot · /.test(${written}?.textContent ?? "") && ${written}.querySelector(".mark-stack img.logo")?.src.endsWith("assets/grok.svg")`), await js(`${written}?.textContent ?? ""`));
         check("…and so does what Grok saved itself", await js(`${saved}.querySelector(".mark-stack img.logo")?.src.endsWith("assets/grok.svg")`));
-        await js(`${written}.querySelector(".task-link").dispatchEvent(new MouseEvent("mouseenter"))`);
+        // Any refresh hides a preview (render() does), so the pointer comes back to the row until one stays up.
         const peekLine = `document.querySelector(".peek .provenance")?.textContent ?? ""`;
+        for (let i = 0; i < 5 && !(await js(`Boolean(document.querySelector(".peek"))`)); i++) {
+          await js(`[...document.querySelectorAll("#content .row")].find((r) => r.textContent.includes("Price a sync placement by its reach")).querySelector(".task-link").dispatchEvent(new MouseEvent("mouseenter"))`);
+          await waitFor(`document.querySelector(".peek")`, 8);
+        }
         check("its preview leads with where it came from, then the day", await waitFor(`/^From Grok Bot · [A-Z][a-z]{2} \\d{1,2}$/.test(${peekLine})`) && await js(`document.querySelector(".peek .provenance img.logo")?.src.endsWith("assets/grok.svg")`), await js(peekLine));
         await shot("agents-preview");
         await js(`${written}.querySelector(".task-link").dispatchEvent(new MouseEvent("mouseleave"))`);
