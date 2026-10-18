@@ -207,6 +207,8 @@ class DesktopSnapshotTest(LoreTestCase):
                 "project_label",
                 "status",
                 "updated_at",
+                "sources",
+                "arrival",
             },
         )
         labels = {
@@ -320,6 +322,7 @@ class DesktopSnapshotTest(LoreTestCase):
         state = snapshot.build()
         self.assertEqual(state["node"]["live"]["state"], "not_configured")
         self.assertEqual(state["node"]["live"]["price_usd"], None)
+        self.assertFalse(state["node"]["selling"])
         with Store() as store:
             store.set_setting("node_url", "https://offline.example/mcp")
         with patch("lore.snapshot.remote_manifest", side_effect=OSError("offline")):
@@ -327,6 +330,8 @@ class DesktopSnapshotTest(LoreTestCase):
                 self.assertEqual(cli.main(["desktop-state"]), 0)
         state = json.loads(output.getvalue())
         self.assertEqual(state["node"]["live"]["state"], "unreachable")
+        # A store from before XC-069 recorded no choice: it sells, as it did.
+        self.assertTrue(state["node"]["selling"])
         self.assertEqual(state["node"]["live"]["network"], None)
         self.assertEqual(state["node"]["live"]["payout"], None)
         # A node we cannot reach tells us nothing about its price, and the app
@@ -401,6 +406,17 @@ class DesktopSnapshotTest(LoreTestCase):
                 self.assertEqual(cli.main(["desktop-state"]), 0)
         state = json.loads(output.getvalue())
         self.assertEqual(state["node"]["live"]["state"], "unreachable")
+
+
+class UnreadableClaudeCodeTest(LoreTestCase):
+    def test_a_claude_code_folder_lore_cant_open_never_stops_the_snapshot(self) -> None:
+        # APP-215: an owner who hasn't let Lore into Claude Code's notes yet still gets the app, not "could not load".
+        projects = self.claude_home / "projects"
+        (projects / "demo").mkdir(parents=True)
+        projects.chmod(0o000)
+        self.addCleanup(projects.chmod, 0o755)
+        built = snapshot.build()
+        self.assertEqual(built["library"]["counts"]["private"], 0)
 
 
 class SnapshotJobsTest(LoreTestCase):

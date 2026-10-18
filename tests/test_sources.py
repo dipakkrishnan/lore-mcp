@@ -8,14 +8,20 @@ from __future__ import annotations
 
 import json
 import os
+import subprocess
+import sys
 import unittest
+from contextlib import redirect_stderr
 from datetime import datetime
+from io import StringIO
 from pathlib import Path
 from unittest.mock import patch
 
 from helpers import LoreTestCase
 
+from lore import capture as capture_module
 from lore import sources as sources_module
+from lore.snapshot import build
 from lore.sources import Connector, Obsidian, Registry, Source, State, available_sources
 from lore.store import Status, Store
 
@@ -438,6 +444,7 @@ class OwnerFolderTest(LoreTestCase):
                         "name": "codex",
                         "label": "Codex",
                         "connector": None,
+                        "app": None,
                         "added": 1,
                         "updated": 0,
                         "unchanged": 0,
@@ -485,6 +492,42 @@ class ConnectorTest(LoreTestCase):
         self.assertEqual(choices[0].locator, "/notes/Personal")
         self.assertIs(choices[0].open, True)
         self.assertIs(choices[1].open, False)
+
+    def test_a_vault_is_offered_under_the_path_its_connected_source_keeps(self) -> None:
+        # APP-215: the first-run chat leaves out vaults Lore already reads by comparing paths, so a vault Obsidian
+        # names by another spelling (a link, /var for /private/var) must come back as the one a source records.
+        vault = Path(self.tmp.name) / "Real Vault"
+        vault.mkdir()
+        linked = Path(self.tmp.name) / "Linked Vault"
+        linked.symlink_to(vault)
+        self.registry(json.dumps({"vaults": {"a1": {"path": str(linked), "ts": 1}}}))
+        (choice,) = Connector.named("obsidian").choices()
+        kept = Source.owner(str(linked), kind="folder", connector="obsidian")
+        self.assertEqual(choice.locator, kept.locator)
+        self.assertEqual(choice.label, "Linked Vault")
+
+    def test_a_vault_whose_path_loops_is_offered_as_named_and_hides_no_other(
+        self,
+    ) -> None:
+        # APP-215: one bad entry in Obsidian's list must not cost the owner every healthy vault.
+        healthy = Path(self.tmp.name) / "Healthy"
+        healthy.mkdir()
+        looping = Path(self.tmp.name) / "Looping"
+        looping.symlink_to(looping)
+        self.registry(
+            json.dumps(
+                {
+                    "vaults": {
+                        "a1": {"path": str(looping), "ts": 1},
+                        "b2": {"path": str(healthy), "ts": 2},
+                    }
+                }
+            )
+        )
+        choices = Connector.named("obsidian").choices()
+        self.assertEqual([choice.label for choice in choices], ["Healthy", "Looping"])
+        self.assertEqual(choices[0].locator, str(healthy.resolve()))
+        self.assertEqual(choices[1].locator, str(looping))
 
     def test_no_obsidian_on_this_mac_means_no_choices_not_an_error(self) -> None:
         self.assertEqual(Obsidian().choices(), [])
@@ -601,6 +644,222 @@ class ConnectorTest(LoreTestCase):
             Source.owner("/notes", connector="evernote")
         with self.assertRaises(sources_module.SourceError):
             Source.owner("https://a.example", kind="feed", connector="obsidian")
+
+
+class ProvenanceTest(LoreTestCase):
+    """APP-213: every memory says who it came from, and never guesses."""
+
+    def put(self, source: str, path: str, project: str = "") -> None:
+        with Store() as store:
+            store.put(
+                source=source,
+                origin="automation" if source == "automation" else "native",
+                source_path=path,
+                source_key=f"{source}:{path}",
+                fingerprint=path,
+                title=path,
+                content="a lesson",
+                project=project,
+            )
+
+    def sources(self) -> dict[str, list[dict[str, object]]]:
+        with Store() as store:
+            rows = Registry(store).provenance(store.memory_inventory())
+        return {
+            str(row["title"]): [
+                {k: v for k, v in s.items() if k != "at"}
+                for s in row["sources"]  # type: ignore[attr-defined]
+            ]
+            for row in rows
+        }
+
+    def test_a_connected_app_is_on_record_for_what_it_brought_in(self) -> None:
+        vault = Path(self.tmp.name) / "Personal"
+        vault.mkdir()
+        (vault / "note.md").write_text("# Note\n\nA lesson long enough to keep here.")
+        with Store() as store:
+            name = Registry(store).connect("obsidian", str(vault))["name"]
+            Registry(store).remove(str(name), delete=False)
+        self.assertEqual(
+            self.sources()["Note"],
+            [{"kind": "app", "id": name, "label": "Obsidian", "mark": "obsidian"}],
+        )
+
+    def test_with_nobody_on_record_the_source_names_who_brought_it(self) -> None:
+        vault = Path(self.tmp.name) / "Vault"
+        self.put("automation", "older.md")
+        self.put("capture", "agent-session")
+        self.put("capture", "/Users/owner/Downloads/notes.pdf")
+        self.put("capture", str(vault / "kept.md"))
+        self.put("agent-gone", "saved", project="Grok Bot")
+        self.put("agent-nameless", "unnamed")
+        self.put("substack-writer", "post")
+        self.put("mystery", "thing")
+        self.put("claude", "memory.md")
+        with Store() as store:
+            store.set_setting(
+                "owner_sources",
+                [
+                    {
+                        "name": "folder-1",
+                        "label": "Vault",
+                        "locator": str(vault),
+                        "owned": True,
+                    }
+                ],
+            )
+        found = self.sources()
+        lore = {"kind": "lore", "id": "lore", "label": "Lore", "mark": "lore"}
+        self.assertEqual(found["older.md"], [lore])
+        self.assertEqual(
+            found["agent-session"],
+            [{"kind": "capture", "id": "you", "label": "you", "mark": "pen"}],
+        )
+        downloaded = "/Users/owner/Downloads/notes.pdf"
+        [file] = found[downloaded]
+        self.assertEqual(
+            (file["kind"], file["label"], file["mark"]),
+            ("capture", "notes.pdf", "file"),
+        )
+        self.assertRegex(str(file["id"]), r"^file-[0-9a-f]{16}$")
+        self.assertEqual(
+            found[str(vault / "kept.md")],
+            [{"kind": "app", "id": "folder-1", "label": "Vault", "mark": ""}],
+        )
+        self.assertEqual(
+            found["saved"],
+            [
+                {
+                    "kind": "agent",
+                    "id": "agent-gone",
+                    "label": "Grok Bot",
+                    "mark": "other",
+                }
+            ],
+        )
+        self.assertEqual(found["unnamed"][0]["label"], "Your agent")
+        self.assertEqual(
+            found["post"],
+            [
+                {
+                    "kind": "app",
+                    "id": "substack-writer",
+                    "label": "Substack",
+                    "mark": "substack",
+                }
+            ],
+        )
+        self.assertEqual(
+            found["thing"],
+            [{"kind": "app", "id": "mystery", "label": "mystery", "mark": ""}],
+        )
+        self.assertEqual(
+            found["memory.md"],
+            [{"kind": "app", "id": "claude", "label": "Claude Code", "mark": "claude"}],
+        )
+
+
+class ProvenanceLimitsTest(ProvenanceTest):
+    """Whatever a memory holds, naming where it came from never fails the library."""
+
+    def test_a_capture_from_a_long_path_is_named_by_its_file(self) -> None:
+        path = "/Users/owner/" + "deeply/nested/" * 15 + "notes.md"
+        self.assertGreater(len(path), 200)
+        capture_module.save([{"title": "Long", "content": "a", "source_path": path}])
+        [item] = build()["library"]["items"]  # type: ignore[index]
+        [source] = item["sources"]
+        self.assertEqual((source["label"], source["mark"]), ("notes.md", "file"))
+        self.assertLessEqual(len(source["id"]), 200)
+
+    def test_a_name_too_long_for_a_label_is_cut_to_fit(self) -> None:
+        self.put("agent-gone", "long", project="x" * 300)
+        [source] = self.sources()["long"]
+        self.assertEqual((source["kind"], source["label"]), ("agent", "x" * 200))
+
+    def test_a_tilde_name_is_the_owners_own_words_not_a_home(self) -> None:
+        # Only `~/` means home: `~standup` and `~bob/x` would make Path raise.
+        for path in ("~standup", "~bob/x"):
+            capture_module.save(
+                [{"title": path, "content": "we ship friday", "source_path": path}]
+            )
+        capture_module.save(
+            [{"title": "Home", "content": "a note", "source_path": "~/notes/a.md"}]
+        )
+        found = self.sources()
+        for path in ("~standup", "~bob/x"):
+            self.assertEqual(found[path][0]["label"], "you")
+        self.assertEqual(found["Home"][0]["label"], "a.md")
+        result = subprocess.run(
+            [sys.executable, "-m", "lore", "desktop-state"],
+            env=os.environ.copy(),
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_one_memory_that_cannot_be_named_says_lore_and_the_rest_load(
+        self,
+    ) -> None:
+        self.put("capture", "/Users/owner/broken.md")
+        self.put("agent-named", "fine", project="Grok Bot")
+        with patch.object(Path, "is_relative_to", side_effect=RuntimeError("no")):
+            with Store() as store:
+                store.set_setting(
+                    "owner_sources",
+                    [
+                        {
+                            "name": "folder-1",
+                            "label": "V",
+                            "locator": "/v",
+                            "owned": True,
+                        }
+                    ],
+                )
+            found = self.sources()
+        self.assertEqual(found["/Users/owner/broken.md"][0]["kind"], "lore")
+        self.assertEqual(found["fine"][0]["label"], "Grok Bot")
+
+    def test_a_folder_named_past_a_label_still_imports_and_syncs(self) -> None:
+        root = Path(self.tmp.name) / "vault"
+        root.mkdir()
+        (root / "note.md").write_text("# Note\n\nA lesson long enough to be kept.")
+        with Store() as store:
+            entry = Registry(store).add(str(root), label="L" * 270)
+            self.assertEqual(entry["imported"], 1)
+            Registry(store).scan()
+            [row] = store.memory_inventory()
+            [credited] = row["sources"]  # type: ignore[misc]
+            self.assertEqual(credited["label"], "L" * 200)
+
+    def test_one_source_that_cannot_be_credited_never_stops_the_rest(self) -> None:
+        root = Path(self.tmp.name) / "vault"
+        root.mkdir()
+        (root / "note.md").write_text("# Note\n\nA lesson long enough to be kept.")
+        with Store() as store:
+            name = str(Registry(store).add(str(root))["name"])
+            with patch.object(Store, "credit_source", side_effect=RuntimeError("no")):
+                with redirect_stderr(StringIO()) as said:
+                    report = Registry(store).scan()
+            self.assertIn(name, report)
+            self.assertIn(name, store.setting("source_reads", {}))
+            self.assertIn("could not record", said.getvalue())
+
+    def test_reading_again_keeps_when_a_source_first_brought_it_in(self) -> None:
+        root = Path(self.tmp.name) / "vault"
+        root.mkdir()
+        (root / "note.md").write_text("# Note\n\nA lesson long enough to be kept.")
+        with Store() as store:
+            Registry(store).add(str(root))
+            [first] = store.memory_inventory()[0]["sources"]  # type: ignore[misc]
+            Registry(store).scan()
+            [again] = store.memory_inventory()[0]["sources"]  # type: ignore[misc]
+            self.assertEqual(again["at"], first["at"])
+
+    def test_marks_are_the_known_apps_agents_and_lores_own(self) -> None:
+        known = sources_module.marks()
+        self.assertTrue({"obsidian", "grok", "other", "claude", "codex"} <= known)
+        self.assertTrue({"clock", "pen", "file", "lore", ""} <= known)
+        self.assertNotIn("../../elsewhere", known)
 
 
 if __name__ == "__main__":

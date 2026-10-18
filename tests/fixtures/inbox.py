@@ -9,7 +9,7 @@ runs the same pieces as processes, from the repository root:
     LORE_EDGE_D1=$root/d1.sqlite uv run python -m tests.fixtures.inbox serve --port N
     LORE_EDGE_D1=$root/d1.sqlite uv run python -m tests.fixtures.inbox wrangler d1 execute ...
 
-with `$LORE_HOME/node/node_modules/.bin/wrangler` a shim that `cd`s to the repository
+with `$LORE_STORE/node_modules/.bin/wrangler` a shim that `cd`s to the repository
 and execs the second line with `"$@"`, and `node_url` set to `http://127.0.0.1:N/mcp`.
 The CLI keeps the owner's inbox keys in a file rather than the Keychain with
 `PYTHONPATH=<repo> PYTHON_KEYRING_BACKEND=tests.fixtures.inbox.Keyring` and

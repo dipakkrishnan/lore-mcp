@@ -34,6 +34,19 @@ describe("create", () => {
     expect(sent.has("payment_intent_data[application_fee_amount]")).toBe(false);
   });
 
+  it("sells for a store with no wallet: the listing a walletless card store serves is all a charge needs", async () => {
+    // XC-069: lore/node/test/empty-store.test.ts asserts a store with no LORE_WALLET serves exactly this
+    // listing; cards charge the seller's Stripe account directly, so no wallet is ever read or required.
+    const walletless = { id: PIECE, teaser: "What beat a cold deck", price_usd: 3, stripe_account: ACCOUNT, test: false };
+    const calls = stub({ store: walletless });
+    const response = await buy();
+    expect(response.status).toBe(303);
+    expect(response.headers.get("location")).toBe("https://checkout.stripe.test/c/pay/cs_test_abc");
+    const session = calls.find((c) => c.url.includes("/v1/checkout/sessions"))!;
+    expect(session.headers.get("stripe-account")).toBe(ACCOUNT);
+    expect(session.body).not.toMatch(/wallet|0x[0-9a-fA-F]{40}/);
+  });
+
   it("takes price and payee from the store, ignoring anything the buyer adds to the form", async () => {
     const calls = stub();
     await buy({ origin: STORE, id: PIECE, price_usd: "0.01", stripe_account: "acct_Attacker", unit_amount: "1" });

@@ -23,6 +23,8 @@ import time
 import unittest
 from pathlib import Path
 
+import hermetic  # noqa: F401  (no test may reach a real Cloudflare account)
+
 try:
     import pty
 except ImportError:  # Windows has no pseudo-terminals
@@ -33,6 +35,14 @@ ROOT = Path(__file__).resolve().parent.parent
 # takes seconds on a busy machine.
 TIMEOUT_S = 120
 LAUNCH_KEY = "smoke-launch-key"
+# The desktop app's stand-in: the CLI reads its key from the account's home, so
+# this one entry point points it at the run's home instead.
+DESKTOP = """import sys
+from pathlib import Path
+from lore import cli
+cli.attended_key = lambda: Path({key!r})
+sys.exit(cli.main())
+"""
 
 # `lore push --local` hands its SQL to `npx wrangler d1 execute`. This job has
 # no Node toolchain and must not download one, so `npx` is this stand-in: it
@@ -47,6 +57,12 @@ if [ "$#" -ne 8 ] ||
 fi
 pwd -P > "$LORE_SMOKE_PUSHED/cwd"
 cp "$7" "$LORE_SMOKE_PUSHED/push.sql"
+"""
+
+
+REFUSED = """#!/bin/sh
+echo "tests must not run wrangler/npm: $0 $*" >&2
+exit 97
 """
 
 
@@ -77,12 +93,16 @@ class OwnerLifecycleTest(unittest.TestCase):
             directory.mkdir()
         (tools / "npx").write_text(NPX, encoding="utf-8")
         (tools / "npx").chmod(0o755)
+        # npm and wrangler themselves are never this job's to run (XC-069).
+        for tool in ("npm", "wrangler"):
+            (tools / tool).write_text(REFUSED, encoding="utf-8")
+            (tools / tool).chmod(0o755)
         (self.worker / "wrangler.jsonc").write_text("{}\n", encoding="utf-8")
-        # HOME moves too: the desktop launch key lives under it, and nothing
-        # here may read or write the developer's real one.
+        # HOME moves too, so nothing here writes under the developer's own.
         self.env = os.environ | {
             "HOME": str(self.home),
             "LORE_HOME": str(self.lore_home),
+            "LORE_STORE": str(root / "store"),
             "CLAUDE_HOME": str(self.claude_home),
             "CODEX_HOME": str(self.codex_home),
             "OBSIDIAN_HOME": str(root / "obsidian"),
@@ -103,8 +123,10 @@ class OwnerLifecycleTest(unittest.TestCase):
     def lore(self, *args: str, stdin: str = "", attended: bool = False) -> str:
         """Run one command on pipes and return its stdout; it must exit 0."""
         env = self.env | ({"LORE_ATTENDED_KEY": LAUNCH_KEY} if attended else {})
+        key = self.home / "Library/Application Support/Lore/attended"
+        entry = ["-c", DESKTOP.format(key=str(key))] if attended else ["-m", "lore"]
         result = subprocess.run(
-            [sys.executable, "-m", "lore", *args],
+            [sys.executable, *entry, *args],
             cwd=ROOT,
             env=env,
             input=stdin,

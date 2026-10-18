@@ -85,11 +85,22 @@ contextBridge.exposeInMainWorld("lore", {
   /** @param {string} source @param {boolean} keep */
   disconnectAgent: (source, keep) => ipcRenderer.invoke("agents:disconnect", source, keep),
   checkAgents: () => ipcRenderer.invoke("agents:check"),
+  agentApps: () => ipcRenderer.invoke("agents:installed"),
+  /** @param {AgentApp} id */
+  openAgentApp: (id) => ipcRenderer.invoke("agents:open", id),
+  firstRun: () => ipcRenderer.invoke("firstrun:read"),
+  /** @param {FirstRunState} next */
+  setFirstRun: (next) => ipcRenderer.invoke("firstrun:write", next),
+  storeOnline: () => ipcRenderer.invoke("store:online"),
   /** @param {string} text */
   copy: (text) => ipcRenderer.invoke("clipboard:write", text),
   readyRuns: () => ipcRenderer.invoke("ready:runs"),
   seenMemories: () => ipcRenderer.invoke("ready:seen"),
   clearMemories: () => ipcRenderer.invoke("ready:clear"),
+  /** @param {number} newest */
+  memoriesSeen: (newest) => ipcRenderer.invoke("memory:unseen", newest),
+  /** @param {number[]} arrivals */
+  markSeen: (arrivals) => ipcRenderer.invoke("memory:seen", arrivals),
   checkIn: () => ipcRenderer.invoke("checkin:waiting"),
   routines: () => ipcRenderer.invoke("routines:list"),
   noticedRoutines: () => ipcRenderer.invoke("routines:noticed"),
