@@ -591,6 +591,7 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
   // beneath, so it can never switch a view or close a sheet in the middle of a walk.
   window.setIgnoreMouseEvents(true);
   const js = (code) => window.webContents.executeJavaScript(code);
+  const todayShown = `Boolean(snapshot) && view === "today" && !detailTask && document.querySelector("#content").childElementCount > 0`;
   /** APP-218: every picture is checked for broken text first, at the window's size and, in the walks that show the
    * main tabs, at a narrower one too. @param {string} name */
   const shot = async (name) => {
@@ -642,34 +643,37 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         // that started and never reported finishing. APP-214: it lives there, not on Today.
         await waitFor(`document.body.dataset.state === "welcome" && !document.querySelector("#welcome").classList.contains("provisioning")`);
         await js(`window.__lore.signIn()`);
-        await waitFor(`document.querySelector("#content .strip")`);
-        check("Today carries no Recent runs", !(await js(`document.querySelector("#content").textContent.includes("Recent runs")`)));
+        await waitFor(todayShown);
+        check("Today carries no Activity", !(await js(`document.querySelector("#content").textContent.includes("Activity")`)));
         await js(`window.__lore.show("automations")`);
-        await waitFor(`document.querySelector("#content").textContent.includes("Recent runs")`);
-        check("Recent runs is Automations' last section, below the routines", await js(`(() => { const last = document.querySelector("#content").lastElementChild; return last.querySelector("h2")?.textContent === "Recent runs" && Boolean(last.previousElementSibling?.classList.contains("routines")); })()`));
-        const runs = await js(`[...document.querySelectorAll("#content .section")].find((s) => s.textContent.includes("Recent runs")).textContent`);
-        check("a finished capture reads as done, with what it cost", /Capture/.test(runs) && /Saved what you approved/.test(runs) && /\$0\.42/.test(runs), runs);
+        check("Automations carries no run log, only automations", await waitFor(`document.querySelector("#content .routines") !== null`) && !(await js(`/Recent runs|Activity/.test(document.querySelector("#content").textContent)`)));
+        await js(`window.__lore.show("settings")`);
+        await waitFor(`document.querySelector("#content").textContent.includes("Activity")`);
+        check("Activity is Settings' last section", await js(`document.querySelector("#content").lastElementChild.querySelector("h2")?.textContent === "Activity"`));
+        const runs = await js(`[...document.querySelectorAll("#content .section")].find((s) => s.textContent.includes("Activity")).textContent`);
+        check("a finished capture reads as done, and never says what the agent cost", /Capture/.test(runs) && /Saved what you approved/.test(runs) && !/\$/.test(runs), runs);
         check("a failed push says so", /Store update/.test(runs) && /Failed/.test(runs), runs);
         check("a finished push says how big the store is and what changed", /19 publications on your store, 2 more than before/.test(runs), runs);
         check("a run that never reported is unfinished, not successful", /Synthesis/.test(runs) && /Unfinished/.test(runs) && /never reported/.test(runs), runs);
         check("a run still going reads as running", /Store deploy/.test(runs) && /Running/.test(runs), runs);
+        check("each run's state is a dot and a word, not a chip", await js(`(() => { const box = [...document.querySelectorAll("#content .section")].find((s) => s.textContent.includes("Activity")); return !box.querySelector(".chip") && box.querySelectorAll(".run-state .dot").length === box.querySelectorAll(".row").length; })()`));
         // The failure cause names wrangler and a database to the owner, but
         // none of it is durable — history keeps a bounded phrase.
         check("history carries no command or path", !/wrangler|npx|\/Users\//.test(runs), runs);
-        await js(`[...document.querySelectorAll("#content .section")].find((s) => s.textContent.includes("Recent runs")).scrollIntoView()`);
+        await js(`[...document.querySelectorAll("#content .section")].find((s) => s.textContent.includes("Activity")).scrollIntoView()`);
         await sleep(300);
-        await shot("automations-recent-runs");
-        // A run with a thread behind it opens that thread from Automations, on Today, as it did from Today.
+        await shot("settings-activity");
+        // A run with a thread behind it opens that thread from Settings, on Today, as it did from Today.
         await js(`[...document.querySelectorAll("#content .task-link")].find((b) => b.textContent.includes("Store deploy")).click()`);
-        check("a Recent runs row opens its thread, saying the run is still going", await waitFor(`document.querySelector("#title").textContent === "Store deploy" && document.querySelector("#eyebrow").textContent === "Working · Running" && !document.querySelector("#task-back").hidden`), `${await js(`document.querySelector("#title").textContent`)} | ${await js(`document.querySelector("#eyebrow").textContent`)}`);
+        check("an Activity row opens its thread, saying the run is still going", await waitFor(`document.querySelector("#title").textContent === "Store deploy" && document.querySelector("#eyebrow").textContent === "Working · Running" && !document.querySelector("#task-back").hidden`), `${await js(`document.querySelector("#title").textContent`)} | ${await js(`document.querySelector("#eyebrow").textContent`)}`);
         await js(`document.querySelector("#task-back").click()`);
 
         // The record is read from the snapshot, not from agent memory, so it is
         // still here after a relaunch — which is the whole point of the table.
         await js(`window.__lore.show("memories")`);
         await sleep(300);
-        await js(`window.__lore.show("automations")`);
-        await waitFor(`document.querySelector("#content").textContent.includes("Recent runs")`);
+        await js(`window.__lore.show("settings")`);
+        await waitFor(`document.querySelector("#content").textContent.includes("Activity")`);
         check("history survives leaving and returning", await js(`document.querySelector("#content").textContent.includes("Saved what you approved")`));
 
         // An owner who has run nothing yet gets a sentence, not a bare heading.
@@ -678,9 +682,9 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         // switching views alone re-renders what it already had.
         await js(`window.__lore.event({ type: "changed" })`);
         // The re-read runs the CLI several times; on a busy Mac it takes longer than any fixed pause.
-        check("an owner with no runs yet sees no Recent runs section", await waitFor(`![...document.querySelectorAll("#content .section")].some((s) => s.textContent.includes("Recent runs"))`));
-        check("the rest of Automations still renders", await js(`document.querySelector("#content .routines") !== null`));
-        await shot("automations-recent-runs-empty");
+        check("an owner with no runs yet sees no Activity section", await waitFor(`![...document.querySelectorAll("#content .section")].some((s) => s.textContent.includes("Activity"))`));
+        check("the rest of Settings still renders", await js(`document.querySelector("#content").textContent.includes("Account")`));
+        await shot("settings-activity-empty");
 
         // AUT-010: a reading Codex ran, every Sunday at 9 PM, is Lore's from the first launch, with no agent named.
         await js(`window.__lore.show("connectors")`);
@@ -744,7 +748,7 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         await waitFor(`document.querySelector("#content").textContent.includes("2 sales")`);
         const store = await js(`document.querySelector("#content").textContent`);
         check("the Sales section sums the ledger", store.includes("2 sales · $0.02 · last Sep 2"), store.slice(-200));
-        check("each sale links to its transaction", await js(`[...document.querySelectorAll("#content a.link-btn.glyph")].map((a) => a.href).join(" ")`) === "https://sepolia.basescan.org/tx/0xfeed https://sepolia.basescan.org/tx/0xbeef");
+        check("each sale links to its transaction, as a Receipt", await js(`[...document.querySelectorAll("#content a.receipt")].map((a) => a.href).join(" ")`) === "https://sepolia.basescan.org/tx/0xfeed https://sepolia.basescan.org/tx/0xbeef");
         check("no hash is spelled out in the row", !store.includes("0xfeed"));
         check("the approved publication counts its sales", store.includes("1 sold"));
         check("the For Sale bar links to payouts, as a quiet link", await js(`[...document.querySelectorAll("#content .store-bar a.quiet-link")].some((a) => a.textContent === "Payouts ↗") && !document.querySelector("#content .store-bar a.link-btn")`));
@@ -833,7 +837,7 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         check("loading on another page shows no notice there", await js(`!document.querySelector("#status .notice")`), await js(`document.querySelector("#status").textContent`));
         check("…and nothing is remembered as said before it's seen", usage.length === 0 && await js(`window.lore.snapshot().then((s) => s.setup.telemetry_noticed !== true && s.setup.automations_noticed === false)`), JSON.stringify(usage));
         await js(`window.__lore.show("today")`);
-        await waitFor(`document.querySelector("#content .strip")`);
+        await waitFor(todayShown);
         // AUT-009: with no profile, Lore's own routines are on from the start; with nothing connected, there is nothing to say about them yet.
         check("the first visit to Today tells about usage events", await waitFor(`document.querySelector("#status").textContent.includes("anonymous usage events")`));
         // The first write to remember it fails; the next snapshot tries again, with the notice still shown once.
@@ -887,7 +891,7 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         // The page's own sign-in check answers first, as on the first launch; signing in before it would be undone by it.
         await waitFor(`document.body.dataset.state === "welcome" && !document.querySelector("#welcome").classList.contains("provisioning")`);
         await js(`window.__lore.signIn()`);
-        await waitFor(`document.querySelector("#content .strip")`);
+        await waitFor(todayShown);
         await sleep(1500);
         check("opened again, it says nothing more about it", !/Change this in Automations|anonymous usage events/.test(await js(`document.querySelector("#status").textContent`)), await js(`document.querySelector("#status").textContent`));
         // APP-211: something connects while the owner sits on Today; the notice comes with the snapshot that shows it.
@@ -926,7 +930,7 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         // APP-124: an app by name, one Connect, the vault offered rather than asked for.
         await waitFor(`document.body.dataset.state === "welcome" && !document.querySelector("#welcome").classList.contains("provisioning")`);
         await js(`window.__lore.signIn()`);
-        await waitFor(`document.querySelector("#content .strip")`);
+        await waitFor(todayShown);
         await js(`window.__lore.show("connectors")`);
         const rowText = `[...document.querySelectorAll("#content .row")].find((r) => r.textContent.includes("Obsidian"))?.textContent ?? ""`;
         const rowButton = `[...document.querySelectorAll("#content .row")].find((r) => r.textContent.includes("Obsidian")).querySelector("button").click()`;
@@ -962,7 +966,7 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         // The catalog drives the surface: three apps of three shapes, none of them special-cased.
         await waitFor(`document.body.dataset.state === "welcome" && !document.querySelector("#welcome").classList.contains("provisioning")`);
         await js(`window.__lore.signIn()`);
-        await waitFor(`document.querySelector("#content .strip")`);
+        await waitFor(todayShown);
         // APP-127, APP-214: an owner with nothing connected is pointed at Connectors, and nothing to publish yet.
         const firstToday = await js(`document.querySelector("#content").textContent`);
         check("Today points a new owner at connecting their AI, with nothing to publish yet", /Connect the AI you talk to most/.test(firstToday) && !/something to sell/.test(firstToday), firstToday);
@@ -1139,13 +1143,13 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         // APP-118: one page that says what Lore does and how the money works, in plain words.
         await waitFor(`document.body.dataset.state === "welcome" && !document.querySelector("#welcome").classList.contains("provisioning")`);
         await js(`window.__lore.signIn()`);
-        await waitFor(`document.querySelector("#content .strip")`);
+        await waitFor(todayShown);
         // APP-201: the sidebar holds the main places; Settings, help and feedback live in the account menu.
         const nav = await js(`[...document.querySelectorAll("nav button")].map((b) => b.dataset.view).join()`);
         check("the sidebar lists only the four main places", nav === "today,inventory,connectors,automations", nav);
         check("…and no lone feedback link outside the account menu", await js(`document.querySelector("#account-menu").contains(document.querySelector("#feedback-open")) && !document.querySelector("aside > .feedback-open")`));
         // APP-202, APP-214: How it works is for an owner with nothing kept yet (the today walk covers it); this one has memories.
-        check("an owner with memories is not offered How it works", await js(`document.querySelector("#content .strip") !== null && document.querySelector("#content .how-it-works") === null`));
+        check("an owner with memories is not offered How it works", await js(`${todayShown} && document.querySelector("#content .how-it-works") === null`));
         await js(`document.querySelector("#account").click()`);
         const menu =await js(`[...document.querySelectorAll("#account-menu button:not([hidden]), #account-menu p")].map((b) => b.textContent).join("|")`);
         check("the account row opens a menu: Settings, Help & FAQ, feedback when it can be sent, then who is signed in", /^Settings⌘,\|Help & FAQ\|(Report feedback\|)?Signed in with Claude\|Sign out of Claude$/.test(menu), menu);
@@ -1529,7 +1533,7 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         check("…showing what it saved", await waitFor(`[...document.querySelectorAll("#content .row .t b")].some((b) => b.textContent.startsWith("Send the cue sheet with the invoice"))`));
         await shot("firstrun-see-them");
         await relaunch();
-        check("once done, a relaunch opens on Today", await waitFor(`document.querySelector("#content .strip")`, 80) && await js(`document.querySelector("#title").textContent !== "Welcome to Lore" && document.querySelector("#first-run-skip").hidden && !document.querySelector("#capture").hidden`), await js(`document.querySelector("#title").textContent`));
+        check("once done, a relaunch opens on Today", await waitFor(todayShown, 80) && await js(`document.querySelector("#title").textContent !== "Welcome to Lore" && document.querySelector("#first-run-skip").hidden && !document.querySelector("#capture").hidden`), await js(`document.querySelector("#title").textContent`));
 
         // Skip for now: the chat steps aside for Today's one next step, and stays aside.
         await js(`window.lore.setFirstRun({ state: "started" })`);
@@ -1540,11 +1544,11 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         check("…and is kept as skipped", await waitFor(`window.lore.firstRun().then((k) => k?.state === "skipped")`), JSON.stringify(await kept()));
         await shot("firstrun-skipped-today");
         await relaunch();
-        check("…so a relaunch stays on Today", await waitFor(`document.querySelector("#content .strip")`, 80) && await js(`document.querySelector("#title").textContent !== "Welcome to Lore"`));
+        check("…so a relaunch stays on Today", await waitFor(todayShown, 80) && await js(`document.querySelector("#title").textContent !== "Welcome to Lore"`));
         // Where the first run stands never answers: Lore goes on without it after a moment.
         const letStuck = hold("firstrun:read");
         await relaunch();
-        check("a first-run read that never answers holds Today back only a moment", await waitFor(`document.querySelector("#content .strip")`, 40) && await js(`document.querySelector("#title").textContent !== "Welcome to Lore"`), await js(`document.querySelector("#title").textContent`));
+        check("a first-run read that never answers holds Today back only a moment", await waitFor(todayShown, 40) && await js(`document.querySelector("#title").textContent !== "Welcome to Lore"`), await js(`document.querySelector("#title").textContent`));
         letStuck();
 
         // Skip while a step is still under way: what finishes after it never brings the chat back, or goes on to connect.
@@ -1615,7 +1619,7 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         const agentRow = (name) => `[...(${agentsSection}?.querySelectorAll(".row") ?? [])].find((r) => r.querySelector("b").textContent === ${JSON.stringify(name)})`;
         await waitFor(`document.body.dataset.state === "welcome" && !document.querySelector("#welcome").classList.contains("provisioning")`);
         await js(`window.__lore.signIn()`);
-        await waitFor(`document.querySelector("#content .strip")`);
+        await waitFor(todayShown);
         // APP-214: Claude Code is on this Mac, but Today asks only for the owner's own AI, and never names coding agents.
         const todayText = `document.querySelector("#content").textContent`;
         check("Today's one next step is to connect the owner's AI", await waitFor(`(document.querySelector("#content .next-step")?.textContent ?? "").includes("Connect the AI you talk to most")`) && !/Claude Code|Codex/.test(await js(todayText)), await js(todayText));
@@ -1982,14 +1986,17 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         await js(`window.__lore.show("settings")`);
         check("…and Settings offers no marketplace listing for it", await waitFor(`document.querySelector("#content")?.textContent.includes("Address")`) && !(await js(`[...document.querySelectorAll("#content .row b")].some((b) => b.textContent === "Marketplace")`)));
         await js(`window.__lore.show("today")`);
-        check("…and Today offers no store update", await waitFor(`Boolean(document.querySelector("#content .strip"))`) && !(await js(`/Update store|live yet/.test(document.querySelector("#content").textContent)`)), await js(`document.querySelector("#content").textContent`));
+        check("…and Today offers no store update", await waitFor(todayShown) && !(await js(`/Update store|live yet/.test(document.querySelector("#content").textContent)`)), await js(`document.querySelector("#content").textContent`));
         // The first approved piece: opening the store for sale asks for a price and where payments go, as always.
         execFileSync("uv", ["run", "python", "-c", "from lore.store import Store\nwith Store() as s:\n first = s.db.execute('SELECT min(id) FROM memories').fetchone()[0]\n s.add_publication(title='Price a sync placement by its reach', content='Charge by the audience.', topic='licensing', teaser='How to price a sync placement', provenance=[first])"], { cwd: process.env.LORE_EDGE_REPO, env: process.env });
         await js(`window.__lore.event({ type: "changed" })`);
         const rung = `document.querySelector("#content .next-step")`;
         check("the first approved piece offers to open the store, with a price and where payments go", await waitFor(`/Pick a price and where payments go/.test(${rung}?.textContent ?? "")`, 80), await js(`document.querySelector("#content").textContent`));
-        const today = await js(`document.querySelector("#content .strip")?.textContent ?? ""`);
-        check("…and Today calls it ready to sell, not for sale", /1 ready to sell/.test(today) && !/\d for sale/.test(today), today);
+        await js(`window.__lore.show("inventory")`);
+        const shelves = await js(`[...document.querySelectorAll(".shelf")].map((s) => s.textContent).join("|")`);
+        check("…and Inventory calls it ready to sell, not on sale", /Ready to sell1/.test(shelves) && !/On sale/.test(shelves), shelves);
+        await js(`window.__lore.show("today")`);
+        await waitFor(`/Pick a price and where payments go/.test(${rung}?.textContent ?? "")`);
         const before = prompts.length;
         await js(`${rung}.querySelector("button").click()`);
         for (let i = 0; i < 40 && prompts.length === before; i++) await sleep(100);
@@ -2027,7 +2034,7 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         };
         await waitFor(`document.body.dataset.state === "welcome" && !document.querySelector("#welcome").classList.contains("provisioning")`);
         await js(`window.__lore.signIn()`);
-        await waitFor(`document.querySelector("#content .strip")`);
+        await waitFor(todayShown);
         // Every render of Today is watched: never more than one next step, at any moment of the walk.
         await js(`window.__steps = 0; new MutationObserver(() => { window.__steps = Math.max(window.__steps, ${steps}.length); }).observe(document.querySelector("#content"), { childList: true, subtree: true }); true`);
 
@@ -2041,7 +2048,7 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         await js(`window.__lore.show("today")`);
         await js(`document.querySelector("#content .how-it-works .dismiss").click()`);
         await js(`window.__lore.show("memories"); window.__lore.show("today")`);
-        check("…and once closed it stays closed", await js(`document.querySelector("#content .strip") !== null && document.querySelector("#content .how-it-works") === null`));
+        check("…and once closed it stays closed", await js(`${todayShown} && document.querySelector("#content .how-it-works") === null`));
         // Opened again, so the next stage shows that a first memory alone takes it away.
         await js(`localStorage.removeItem("lore.how-it-works.closed"); window.__lore.show("today"); true`);
         await js(`${steps}[0].querySelector("button").click()`);
@@ -2066,7 +2073,7 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         await js(`window.__lore.event({ type: "changed" })`);
         check("c: with drafts waiting, the drafts themselves are the next step, with no card pointing at them", await waitFor(`${headings}[0] === "Approve what to sell" && ${steps}.length === 0`, 80), await js(`JSON.stringify(${headings})`));
         const order = await js(`JSON.stringify(${headings})`);
-        check("…in the next step's place, said once, with the stats line last", !order.includes("Next step") && (await js(today)).split("Buyers only ever get what you approve").length === 2 && await js(`document.querySelector("#content").lastElementChild.classList.contains("strip")`), order);
+        check("…in the next step's place, said once, with no stats line under it", !order.includes("Next step") && (await js(today)).split("Buyers only ever get what you approve").length === 2 && await js(`document.querySelector("#content .strip") === null`), order);
         await shot("today-c-drafts");
 
         // b2: a piece approved with no store yet.
@@ -2105,7 +2112,7 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         const fixing = await press();
         check("…Fix it opens the store's thread with one prompt", await waitFor(`document.querySelector("#title").textContent === "Open your store"`) && fixing.length === 1 && fixing[0].task === "deploy" && /isn't responding/.test(fixing[0].text), JSON.stringify(fixing));
         await back();
-        check("…while the repair runs, Today offers no next step, though the store still isn't answering", await waitFor(`${steps}.length === 0 && document.querySelector("#content .strip").textContent.includes("Store offline")`), await js(today));
+        check("…while the repair runs, Today offers no next step, though the store still isn't answering", await waitFor(`${steps}.length === 0 && document.querySelector("#account").textContent.includes("Offline")`), await js(today));
         const repair = `[...document.querySelectorAll("#content .section")].find((s) => s.querySelector("h2")?.textContent === "Unfinished")?.querySelector(".task-link")`;
         check("…the repair is listed under Unfinished, working", await waitFor(`(${repair}?.textContent ?? "") === "Open your storeWorkingWorking"`), await js(`${repair}?.textContent ?? "none"`));
         const listed = prompts.length;
@@ -2132,7 +2139,7 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         const ids = JSON.stringify(JSON.parse(await js(`window.lore.snapshot().then((s) => JSON.stringify(s.publications.items.map((i) => i.public_id)))`)));
         probe("online", ids);
         await js(`window.__lore.event({ type: "changed" })`);
-        check("f: with nothing waiting on the owner, Today shows no next step", await waitFor(`!${today}.includes("isn't responding") && ${steps}.length === 0 && document.querySelector("#content .strip").textContent.includes("2 for sale")`, 80), await js(today));
+        check("f: with nothing waiting on the owner, Today shows no next step", await waitFor(`!${today}.includes("isn't responding") && ${steps}.length === 0 && snapshot.publications.counts.active === 2 && forSale(snapshot)`, 80), await js(today));
         check("…and a connected app is enough not to be asked to connect", !(await js(`${today}.includes("Connect the AI you talk to most")`)));
         await shot("today-f-nothing");
         check("no moment of the walk showed more than one next step", (await js(`window.__steps`)) === 1, String(await js(`window.__steps`)));
@@ -2140,7 +2147,7 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         // AUT-005: connect Granola, and Lore reads the meetings through without being asked.
         await waitFor(`document.body.dataset.state === "welcome" && !document.querySelector("#welcome").classList.contains("provisioning")`);
         await js(`window.__lore.signIn()`);
-        await waitFor(`document.querySelector("#content .strip")`);
+        await waitFor(todayShown);
         await js(`window.__lore.show("connectors")`);
         const granola = `[...[...document.querySelectorAll("#content section")].find((s) => s.querySelector("h2")?.textContent === "Your apps").querySelectorAll(".row")].find((r) => r.querySelector("b").textContent === "Granola")`;
         await waitFor(granola);
@@ -2219,7 +2226,7 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         const mine = () => listed().find((/** @type {Routine} */ routine) => !routine.built_in);
         await waitFor(`document.body.dataset.state === "welcome" && !document.querySelector("#welcome").classList.contains("provisioning")`);
         await js(`window.__lore.signIn()`);
-        await waitFor(`document.querySelector("#content .strip")`);
+        await waitFor(todayShown);
         await js(`document.querySelector("nav [data-view=automations]").click()`);
         const rowOf = (/** @type {string} */ name) => `[...document.querySelectorAll("#content .row")].find((r) => r.querySelector("b")?.textContent === ${JSON.stringify(name)})`;
         const SUNDAY = "Every Sunday, remember what I read this week";
@@ -2421,15 +2428,24 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
           for (let i = 0; i < 60 && notes.length === before; i++) await sleep(250);
         };
         await js(`window.__lore.signIn()`);
-        check("Today shows what the store has earned, and the sale", await waitFor(`document.querySelector("#content").textContent.includes("$3.00 earned") && document.querySelector("#content").textContent.includes("by card")`));
+        // APP-219: Today is what came in and the one thing to do next; sales, runs and store facts live elsewhere.
+        await waitFor(`${todayShown} && Array.isArray(sales) && sales.length === 1`);
+        const today = await js(`document.querySelector("#content").textContent`);
+        check("Today carries no Earned, no Recent runs and no stats line", !/Earned|earned|Recent runs/.test(today) && !today.includes("Live demos beat cold decks") && await js(`document.querySelector("#content .strip") === null`), today);
+        check("…and a thread left days ago is not Unfinished", !today.includes("Unfinished") && !today.includes("Capture a memory"), today);
         for (let i = 0; i < 60 && !existsSync(join(process.env.LORE_DESKTOP_USER_DATA ?? "", "sales-seen.json")); i++) await sleep(250);
         check("a sale from before is never announced", notes.length === 0, String(notes.length));
-        await js(`[...document.querySelectorAll("#content .row")].find((r) => r.textContent.includes("earned"))?.scrollIntoView({ block: "center" })`);
+        await sleep(300);
+        await shot("sales-today-top");
+        await js(`document.querySelector("#main").scrollTop = document.querySelector("#main").scrollHeight`);
         await sleep(300);
         await shot("sales-today");
+        await js(`window.__lore.show("store")`);
+        check("Inventory shows what the store has earned, and the sale", await waitFor(`document.querySelector("#content").textContent.includes("1 sale · $3.00") && document.querySelector("#content").textContent.includes("by card")`), await js(`document.querySelector("#content").textContent`));
+        check("…each sale's receipt is a word, not a glyph", await js(`[...document.querySelectorAll("#content a.receipt")].map((a) => a.textContent + " " + a.href).join(",")`) === "Receipt https://dashboard.stripe.com/payments/pi_old" && !(await js(`document.querySelector("#content").textContent.includes("↗")`)));
         await arrive(sale("pi_new", "2026-10-04T18:00:00Z"));
         check("a new sale is a Mac notification", notes.length === 1 && notes[0].words.title === "You sold a piece" && notes[0].words.body === "Live demos beat cold decks · $3.00 by card", JSON.stringify(notes.map((n) => n.words)));
-        check("…and Today counts it", await waitFor(`document.querySelector("#content").textContent.includes("$6.00 earned")`));
+        check("…and Inventory counts it", await waitFor(`document.querySelector("#content").textContent.includes("2 sales · $6.00")`));
         await arrive(...[1, 2, 3, 4, 5].map((n) => sale(`0xtx${n}`, `2026-10-04T19:0${n}:00Z`, "eip155:8453", 0.5)));
         check("many at once are one notification", notes.length === 2 && notes[1].words.title === "You sold 5 pieces" && notes[1].words.body === "$2.50", JSON.stringify(notes.map((n) => n.words)));
         app.emit("browser-window-focus");
@@ -2447,6 +2463,15 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         await shot("sales-list");
         await js(`document.querySelector("#main").scrollTop = 0`);
         await shot("sales-for-sale");
+        await js(`window.__lore.show("settings")`);
+        await waitFor(`document.querySelector("#content").textContent.includes("Activity")`);
+        const runs = await js(`[...document.querySelectorAll("#content .section")].find((s) => s.textContent.includes("Activity")).textContent`);
+        check("the same store update again and again is one row", runs.split("13 publications on your store").length === 2 && runs.includes("4 times"), runs);
+        check("an agent's cost is never shown", !runs.includes("$"), runs);
+        check("a run that stopped days ago is history, not a way back in", runs.includes("What to Sell Today") && !(await js(`[...document.querySelectorAll("#content .task-link")].some((b) => b.textContent.includes("What to Sell Today"))`)), runs);
+        await js(`[...document.querySelectorAll("#content h2")].find((h) => h.textContent === "Activity")?.scrollIntoView({ block: "start" })`);
+        await sleep(200);
+        await shot("sales-activity");
       } else if (scenario === "cards") {
         // XC-039: Settings takes an owner from "Get paid to your bank" to card payments on, with no Stripe key on this Mac.
         await js(`window.__lore.signIn()`);
@@ -2676,7 +2701,7 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         await key("keyDown", "Return");
         await sleep(300);
         check("Enter lands on Today with the text in the composer, focused", await js(`document.querySelector("#title").textContent !== "Inventory" && document.querySelector("#capture-input").value === "Something Lore has never heard" && document.activeElement === document.querySelector("#capture-input")`));
-        check("…with the composer showing the focus ring", await js(`(() => { const ring = getComputedStyle(document.querySelector("#composer")); return ring.outlineStyle === "solid" && parseFloat(ring.outlineWidth) >= 2 && ring.outlineColor === "rgb(36, 79, 61)"; })()`));
+        check("…with the composer showing its focus halo", await js(`(() => { const ring = getComputedStyle(document.querySelector("#composer")); return ring.outlineStyle === "none" && /0px 0px 0px 4px/.test(ring.boxShadow); })()`), await js(`getComputedStyle(document.querySelector("#composer")).boxShadow`));
         await js(`document.querySelector("#capture-input").value = ""; window.__lore.show("memories")`);
         await waitFor(`document.querySelectorAll("#content .task-link").length >= 1`);
         await js(`document.querySelector("#content .task-link").click()`);

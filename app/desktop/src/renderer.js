@@ -497,14 +497,15 @@ function dollars(value) {
   return price(value).replace(/\.00$/, "");
 }
 
-/** What buyers are charged, one entry per thing on offer; nothing when no price is set. @param {Snapshot} s @returns {Array<[string, string]>} */
-function offers(s) {
-  /** @type {Array<[string, string]>} */
-  const list = [];
-  if (typeof s.pricing.publication_usd === "number") list.push([price(s.pricing.publication_usd), "a publication"]);
-  if (s.pricing.answer_enabled) list.push([price(s.pricing.answer_usd), "an answer"]);
-  return list;
+/** A state as a dot and a word, the way tiles say it. @param {string} text @param {"ok" | "attention" | "off"} [tone] */
+function runState(text, tone = "off") {
+  const node = el("span", "run-state");
+  node.append(el("span", `dot ${tone === "attention" ? "" : tone}`.trim()), text);
+  return node;
 }
+
+/** Under a day old: anything unfinished from before that is history, not something to act on. @param {string} iso */
+const recent = (iso) => Date.now() - new Date(iso).getTime() < 86_400_000;
 
 /** A date with no time of day is that calendar day here, not midnight in London. @param {string} iso */
 function when(iso) {
@@ -518,27 +519,33 @@ const RUN_STATES = { running: "Running", succeeded: "Done", failed: "Failed", in
 /** Job kinds with an agent thread behind them, keyed to the task that thread belongs to. Synthesis and push are plain CLI runs with no owner-facing conversation, so a Recent-runs row for either stays non-interactive. @type {Partial<Record<JobItem["kind"], AgentTask>>} */
 const JOB_TASK = { capture: "capture", deploy: "deploy" };
 
-/** Recent owner runs, newest first. Absent when the installed CLI predates them.
+/** Recent owner runs, newest first, the same run again and again as one row. Absent when the installed CLI predates them.
  * @param {Snapshot} s */
 function recentRuns(s) {
   if (!s.jobs) return null;
   const all = s.jobs.items;
-  const items = all.slice(0, 5);
-  if (!items.length) return null;
-  return section("Recent runs", card(items.map((item, index) => {
-    const detail = [pushDetail(all, index) ?? item.summary, when(item.started_at), typeof item.cost_usd === "number" ? money.format(item.cost_usd) : ""].filter(Boolean);
+  /** @type {Array<{item: JobItem, summary: string, times: number}>} */
+  const runs = [];
+  all.forEach((item, index) => {
+    const summary = pushDetail(all, index) ?? item.summary;
+    const last = runs.at(-1);
+    if (last && last.item.kind === item.kind && last.item.status === item.status && last.item.title === item.title && last.summary === summary) last.times++;
+    else runs.push({ item, summary, times: 1 });
+  });
+  if (!runs.length) return null;
+  return section("Activity", card(runs.slice(0, 6).map(({ item, summary, times }) => {
+    const detail = [summary, when(item.started_at), times > 1 ? `${times} times` : ""].filter(Boolean);
     const label = item.title?.trim() || RUN_LABELS[item.kind] || item.kind;
-    const status = chip(RUN_STATES[item.status] ?? item.status, item.status === "running" ? "ok" : item.status === "succeeded" ? "" : "attention");
-    // A plain success has nothing more to show than this row already does; anything
-    // else showing real cost or a confusing state should be openable, when there is
-    // a thread behind it to open.
-    const task = item.status === "succeeded" ? undefined : JOB_TASK[item.kind];
-    if (!task) return row(label, detail.join(" · "), status);
+    const status = runState(RUN_STATES[item.status] ?? item.status, item.status === "running" ? "ok" : item.status === "failed" ? "attention" : "off");
+    // A plain success has nothing more to show than this row already does; a run still going, or one that went wrong
+    // today, opens its thread when there is one. Older than that, it is history.
+    const task = item.status === "running" || (item.status !== "succeeded" && recent(item.finished_at ?? item.started_at)) ? JOB_TASK[item.kind] : undefined;
+    if (!task) return row(label, detail.join(" · "), status, false);
     const node = el("div", "row");
     const open = el("button", "task-link");
     open.type = "button";
     const text = el("div", "t");
-    text.append(el("b", "", label), el("span", "", detail.join(" · ")));
+    text.append(el("b", "sans", label), el("span", "", detail.join(" · ")));
     open.append(text, status);
     // A job whose owning session never reached a terminal state (e.g. it was
     // conceded by reap_jobs, or the app restarted) has no entry in taskItems.
@@ -639,7 +646,8 @@ const STEP_ICONS = {
 
 /** A small rounded tile holding a mark: a line icon, or an app's own logo. @param {string | HTMLElement} mark */
 function markTile(mark) {
-  const node = el("span", "routine-mark");
+  // Lore's own mark fills its tile in Lore's colours, as in the sidebar, rather than a grey glyph on a grey tile.
+  const node = el("span", mark === RING ? "routine-mark lore" : "routine-mark");
   if (typeof mark === "string") node.innerHTML = mark;
   else node.append(mark);
   return node;
@@ -741,10 +749,10 @@ function nextStepCard(step) {
 
 /** Unfinished threads, without the store's once the store is open, or once a finished thread put it online for the
  * owner's agents, unless it is at work (a repair, a reprice): nothing is left to finish there. Quiet work is no thread,
- * and a check-in waiting on its card is not one yet. */
+ * a check-in waiting on its card is not one yet, and one left more than a day ago is history. */
 function displayTasks() {
   const storeDone = (/** @type {TaskRecord} */ item) => item.state !== "working" && (forSale(snapshot) || (Boolean(snapshot?.node.url) && item.state === "done"));
-  return taskItems.filter((item) => !QUIET_TASKS.has(item.kind) && !(item.kind === "deploy" && storeDone(item)) && !(item.kind === "evening" && checkIn)).slice(0, 3);
+  return taskItems.filter((item) => !QUIET_TASKS.has(item.kind) && !(item.kind === "deploy" && storeDone(item)) && !(item.kind === "evening" && checkIn) && (item.state === "working" || recent(item.updatedAt))).slice(0, 3);
 }
 
 /** The evening check-in leads Today: the questions Lore would like five minutes on, and a way to say not today. @param {CheckIn} asked */
@@ -765,7 +773,7 @@ function checkInCard(asked) {
 
 /** A reading under way, as one quiet row. @param {TaskRecord} item */
 function readingRow(item) {
-  return card([row(`${item.phase}…`, "Lore will tell you when your memories are ready.", chip("Working", "ok"), false)]);
+  return card([row(`${item.phase}…`, "Lore will tell you when your memories are ready.", runState("Working", "ok"), false)]);
 }
 
 /** What Lore made of a connected app's newest items: each new memory, and a draft one press away for the ones worth selling. @param {ReadyRun[]} runs */
@@ -854,8 +862,8 @@ function renderToday(s) {
       const open = el("button", "task-link");
       open.type = "button";
       const text = el("div", "t");
-      text.append(el("b", "", item.title), el("span", "", item.phase));
-      open.append(text, chip(TASK_STATES[item.state], item.state === "working" ? "ok" : ""));
+      text.append(el("b", "sans", item.title), el("span", "", item.phase));
+      open.append(text, runState(TASK_STATES[item.state], item.state === "working" ? "ok" : item.state === "needs_you" ? "attention" : "off"));
       open.addEventListener("click", () => void openTask(item.kind, item));
       row.append(markTile(ROUTINE_ICONS.ask), open);
       list.append(row);
@@ -863,24 +871,6 @@ function renderToday(s) {
     parts.push(section("Unfinished", list));
   }
   if (step !== "drafts") parts.push(...drafts(s));
-  if (Array.isArray(sales) && sales.length) parts.push(earned(sales));
-  const strip = el("div", "strip");
-  /** @type {Array<[string, string] | null>} */
-  const facts = [
-    [String(s.library.counts.private), `${s.library.counts.private === 1 ? "memory" : "memories"}, only on this Mac`],
-    // Approved is not on sale until the store opens for sale (XC-069).
-    [String(s.publications.counts.active), forSale(s) ? "for sale" : "ready to sell"],
-    ["Store", nodeLabel(s.node).toLowerCase()],
-    ...offers(s)
-  ];
-  for (const fact of facts) {
-    if (!fact) continue;
-    const item = el("span");
-    if (fact[0] === "Store") item.append(el("span", `dot ${s.node.live.state === "online" ? "ok" : "off"}`), document.createTextNode(`Store ${fact[1]}`));
-    else item.append(el("b", "", fact[0]), document.createTextNode(` ${fact[1]}`));
-    strip.append(item);
-  }
-  parts.push(strip);
   return parts;
 }
 
@@ -1761,26 +1751,19 @@ function tally(rows) {
 
 /** One sale: what sold, when, how it was paid, and where the payment can be seen. @param {Sale} sale */
 function saleRow(sale) {
-  if (sale.network === "free") return row(sale.title, `${when(sale.sold_at)} · a free copy`, cell(el("span", "value", "Free")));
+  if (sale.network === "free") return row(sale.title, `${when(sale.sold_at)} · a free copy`, cell(el("span", "value", "Free")), false);
   const byCard = sale.network === "stripe";
   const trailing = el("div", "v");
   const [where, href] = byCard ? ["Stripe", `https://dashboard.stripe.com/payments/${sale.tx}`] : ["Basescan", `${explorer(sale.network)}/tx/${sale.tx}`];
-  const receipt = outLink("↗", href, "link-btn glyph");
-  receipt.title = `See this payment on ${where} · ${sale.tx}`;
-  receipt.setAttribute("aria-label", `See this payment on ${where}`);
+  const receipt = outLink("Receipt", href, "receipt");
+  receipt.title = `See this payment on ${where}`;
   if (sale.refund_owed) trailing.append(chip("Refund owed", "attention"));
   trailing.append(el("span", "value", price(sale.price_usd)), receipt);
   // Paid for and never delivered: Lore can't send money from your wallet or Stripe account, so it says whom to refund.
   const why = byCard ? "taken down before delivery" : "not answered";
   const who = sale.payer ? `, refund ${sale.payer.slice(0, 6)}…${sale.payer.slice(-4)}` : "";
   const owed = sale.refund_owed ? ` · ${why}${who}` : "";
-  return row(sale.title, `${when(sale.sold_at)} · ${byCard ? "by card" : "by an agent"}${owed}`, trailing);
-}
-
-/** Today: what the store has earned, and the latest few sales. @param {Sale[]} rows */
-function earned(rows) {
-  const head = row(`${price(total(rows))} earned`, `${tally(rows)} · paid straight to you; Lore never holds it`, cell(button("See all", "quiet", () => show("store"))), false);
-  return section("Earned", card([head, ...rows.slice(0, 3).map(saleRow)]));
+  return row(sale.title, `${when(sale.sold_at)} · ${byCard ? "by card" : "by an agent"}${owed}`, trailing, false);
 }
 
 const SALES_ELSEWHERE = "Sales show here once your store is open on this Mac.";
@@ -2026,7 +2009,8 @@ function many(noun) {
 
 /** A bundled brand mark by asset name, the initial when none loads. @param {string} asset @param {string} name */
 function brand(asset, name) {
-  const node = el("img", "logo");
+  // Grok Bot's mark is already a whole app tile; framing it in another tile reads as a box in a box.
+  const node = el("img", asset === "grok" ? "logo full" : "logo");
   node.src = `assets/${asset}.svg`;
   node.alt = "";
   node.addEventListener("error", () => node.replaceWith(el("span", "logo initial", name[0])), { once: true });
@@ -2921,6 +2905,8 @@ function renderFaq(s) {
 /** @param {Snapshot} s */
 function renderSettings(s) {
   const live = s.node.live;
+  // What Lore has run for the owner (store updates, readings, tasks) is a log, not an automation, so it sits last here.
+  const runs = recentRuns(s);
   const path = el("span", "mono path", s.home.replace(/^\/Users\/[^/]+/, "~"));
   path.title = s.home;
   return [
@@ -2955,7 +2941,8 @@ function renderSettings(s) {
         : []),
       ...marketplaceRow(s)
     ])),
-    ...(appUpdate ? [section("Updates", card([updateRow(appUpdate)]))] : [])
+    ...(appUpdate ? [section("Updates", card([updateRow(appUpdate)]))] : []),
+    ...(runs ? [runs] : [])
   ];
 }
 
@@ -3162,8 +3149,7 @@ function renderAutomations(s) {
   add.addEventListener("keydown", (event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); openNewRoutine(); } });
   const list = el("div", "routines");
   list.append(...[...routines].sort((x, y) => Number(Boolean(y.built_in)) - Number(Boolean(x.built_in))).map(routineRow), add);
-  const runs = recentRuns(s);
-  return runs ? [list, runs] : [list];
+  return [list];
 }
 
 const renderers = { today: renderToday, inventory: renderInventory, connectors: renderConnectors, automations: renderAutomations, faq: renderFaq, settings: renderSettings };
