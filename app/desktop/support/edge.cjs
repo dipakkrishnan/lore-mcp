@@ -15,6 +15,15 @@ const realProvision = runtime.provision;
 let failSetup = scenario === "provision";
 // main.cjs binds provision at require time, so the stub itself must flip.
 runtime.provision = async (emit) => { if (failSetup) throw new Error("uv exploded"); return realProvision(emit); };
+// APP-216: the agent apps on this Mac are whatever a walk says, and opening one only records it; the Mac's own
+// Applications are never looked at, and no app is launched.
+const { AgentApps } = require(join(src, "agents.cjs"));
+/** @type {AgentApp[]} */
+let installedApps = [];
+/** @type {unknown[]} */
+const launched = [];
+AgentApps.prototype.installed = async () => installedApps;
+AgentApps.prototype.open = async (id) => { if (!installedApps.includes(/** @type {AgentApp} */ (id))) throw new Error("Lore can't open that app"); launched.push(id); };
 
 // APP-105: a relay that answers slowly, so the dialog can be poked while a
 // report is genuinely in flight. Every report reaches this and nothing else —
@@ -205,6 +214,7 @@ if (scenario === "listing") {
       // One topic per reading, so each of the walk's saves brings something new.
       const [file, text] = [
         ["pricing-sync-by-reach.md", "# Price a sync placement by its reach\n\nCharge by the audience the placement reaches, not by the hours it took. From what Grok saved, October 2026.\n"],
+        ["late-sync-note.md", "# Write down a sync change the day it happens\n\nA change noted late is a change argued about later. From what Grok saved, October 2026.\n"],
         ["rush-fee-up-front.md", "# Quote a rush fee up front\n\nName the rush fee before the work starts, never after it ships. From what Grok saved, October 2026.\n"],
         ["rerun-at-half.md", "# Bill a rerun at half the first fee\n\nA rerun costs half the first fee, because the work is already done. From what Grok saved, October 2026.\n"],
         ["sign-off-in-writing.md", "# Get the final cut signed off in writing\n\nA written sign-off ends the revisions; a nod on a call starts more. From what Grok saved, October 2026.\n"]
@@ -938,6 +948,7 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         await shot("agents-offer");
 
         // No store online: the sheet puts it online first, the way the store always goes online, then picks up.
+        installedApps = ["grok", "claude"];
         await js(`${agentRow("Connect an agent")}.querySelector("button").click()`);
         await waitFor(`${primary}?.textContent === "Put your store online"`);
         await sleep(400);
@@ -949,21 +960,35 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         check("…and puts it online through the store's own deploy", deploying && prompts.some((p) => p.task === "deploy" && /personal agents/.test(p.text)), JSON.stringify(prompts));
         check("once the store is online, the sheet continues to the setup", await waitFor(`${sheet}.includes("Which agent should save to Lore?")`, 80), await js(sheet));
         const picks = await js(`[...document.querySelectorAll("dialog.sheet[open] .form-option")].map((o) => o.textContent)`);
-        check("…offering each of the five, each with its mark", JSON.stringify(picks) === JSON.stringify(["Grok Bot", "Muse", "ChatGPT", "Claude", "Other"]) && await js(`[...document.querySelectorAll("dialog.sheet[open] .form-option")].every((o) => o.querySelector("img.logo"))`), JSON.stringify(picks));
+        check("…offering each of the five, each with its mark, Muse as coming soon", JSON.stringify(picks) === JSON.stringify(["Grok Bot", "MuseComing soon", "ChatGPT", "Claude", "Other"]) && await js(`[...document.querySelectorAll("dialog.sheet[open] .form-option")].every((o) => o.querySelector("img.logo"))`), JSON.stringify(picks));
         check("Connect waits for a choice", await js(`${primary}.disabled`));
+        // APP-217: Muse can't be chosen, and nothing mints a key for it, not even a call past the sheet.
+        const keys = async () => (await js(`window.lore.agents()`)).length;
+        const keysBefore = await keys();
+        await js(`[...document.querySelectorAll("dialog.sheet[open] .form-option")].find((o) => o.textContent.startsWith("Muse")).click()`);
+        await sleep(300);
+        check("Muse can't be picked, so Connect still waits", await js(`[...document.querySelectorAll("dialog.sheet[open] .form-option")].find((o) => o.textContent.startsWith("Muse")).querySelector("input").disabled && ${primary}.disabled`));
+        await shot("agents-muse-soon");
+        const refused = await js(`window.lore.connectAgent({ app: "muse", name: "Muse" }).then(() => "connected", (error) => error.message)`);
+        check("…a Muse connect is refused, and mints no key", /Choose an agent/.test(refused) && (await keys()) === keysBefore, `${refused}; ${keysBefore} keys before, ${await keys()} after`);
         await js(`[...document.querySelectorAll("dialog.sheet[open] .form-option")].find((o) => o.textContent === "Grok Bot").querySelector("input").click()`);
         await sleep(400);
         await shot("agents-pick");
         await js(`${primary}.click()`);
         check("connecting Grok Bot turns the sheet into Grok Bot's, with its mark", await waitFor(`document.querySelector("dialog.sheet[open] .form-head h2")?.textContent === "Connect Grok Bot"`, 80) && await js(`document.querySelector("dialog.sheet[open] .form-head img.logo").src.endsWith("assets/grok.svg")`), await js(sheet));
         const setup = await js(sheet);
-        check("…the way in, as a path: Grok Bot, Connect apps, Custom connector", JSON.stringify(await js(`[...document.querySelectorAll("dialog.sheet[open] .agent-path span")].map((s) => s.textContent)`)) === JSON.stringify(["Grok Bot", "Connect apps", "Custom connector"]), setup);
-        check("…one link and nothing else to paste: no key, no instructions, no numbered steps", await js(`document.querySelectorAll("dialog.sheet[open] .agent-link").length === 1 && !document.querySelector("dialog.sheet[open] .copy-row, dialog.sheet[open] .agent-steps")`), setup);
-        check("…its key masked, and a quiet private-link line", /••••/.test(setup) && !/lore_agent_/.test(setup) && setup.includes("Private link, shown once") && !/\bmcp\b|token|mainnet/i.test(setup), setup);
+        const stepsOf = () => js(`[...document.querySelectorAll("dialog.sheet[open] .agent-steps li")].map((s) => s.firstChild.textContent)`);
+        check("…three steps: copy the message, paste it into Grok Bot's chat, and Lore shows the first save", JSON.stringify(await stepsOf()) === JSON.stringify(["Copy the message", "Paste it into Grok Bot's chat", "Lore shows when the first save arrives"]), setup);
+        check("…one message to copy and nothing else: no path, no key, no instructions", await js(`document.querySelectorAll("dialog.sheet[open] .agent-link").length === 1 && document.querySelector("dialog.sheet[open] .agent-link .agent-link-word").textContent === "Copy message" && !document.querySelector("dialog.sheet[open] .copy-row, dialog.sheet[open] .agent-path")`), setup);
+        check("…its key masked, and a quiet private-link line", /••••/.test(setup) && !/lore_agent_/.test(setup) && setup.includes("Private link, shown once") && !/token|mainnet|bearer|endpoint|oauth/i.test(setup), setup);
+        check("…the message is the only place MCP shows", setup.replace("Add this MCP server to my account: ", "").search(/\bmcp\b/i) === -1, setup);
         check("…and it waits for Grok Bot's first save", setup.includes("Waiting for Grok Bot's first save…"), setup);
         // APP-214: connected, with nothing saved and nothing kept yet, Today (rendered as it stands) stops asking to connect.
         const todayNow = `renderToday(snapshot).map((p) => p.textContent).join(" ")`;
         check("as soon as Grok Bot is connected, before its first save, Today stops asking to connect an agent", await waitFor(`snapshot.library.counts.private === 0 && snapshot.library.sources.some((s) => s.connector === "agent") && !(${todayNow}).includes("Connect the AI you talk to most")`, 80), await js(todayNow));
+        await press("Open Grok Bot");
+        for (let i = 0; i < 20 && !launched.length; i++) await sleep(50);
+        check("Grok Bot on this Mac: Open Grok Bot opens it, by its id", JSON.stringify(launched) === JSON.stringify(["grok"]), JSON.stringify(launched));
         const copyLink = async () => {
           const before = copied.length;
           await js(`document.querySelector("dialog.sheet[open] .agent-link").click()`);
@@ -976,18 +1001,33 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
           for (let i = 0; i < 20 && copied.length === before; i++) await sleep(50);
           return copied.at(-1) ?? "";
         };
-        const address = await copyLink();
-        check("Copy gives one link with the key in it", new RegExp(`^${agentUrl.replace(/[.*+?^${}()|[\]\\/]/g, "\\$&")}/lore_agent_[0-9a-f]{16}_[A-Za-z0-9_-]{43}$`).test(address), address);
+        const linked = (/** @type {string} */ lead) => new RegExp(`^${(lead + agentUrl).replace(/[.*+?^${}()|[\]\\/]/g, "\\$&")}/lore_agent_[0-9a-f]{16}_[A-Za-z0-9_-]{43}$`);
+        const ask = "Add this MCP server to my account: ";
+        const message = await copyLink();
+        check("Copy message gives exactly the message, with the link and its key", linked(ask).test(message), message);
         // The clipboard stand-in records the copy before the renderer hears back, so wait for the link to say it.
-        check("…and the link says it copied", await waitFor(`document.querySelector("dialog.sheet[open] .agent-link").classList.contains("copied") && document.querySelector("dialog.sheet[open] .agent-link").textContent.includes("Copied")`, 20));
+        check("…and it says it copied", await waitFor(`document.querySelector("dialog.sheet[open] .agent-link").classList.contains("copied") && document.querySelector("dialog.sheet[open] .agent-link").textContent.includes("Copied")`, 20));
+        check("…and, quietly, the way to add it by hand", await js(`document.querySelector("dialog.sheet[open] .agent-fallback")?.textContent.startsWith("Or add it yourself in Grok Bot: Connect apps › add a custom connector, then paste the link.")`), setup);
+        const before0 = copied.length;
+        await js(`document.querySelector("dialog.sheet[open] .agent-fallback button").click()`);
+        for (let i = 0; i < 20 && copied.length === before0; i++) await sleep(50);
+        check("…whose Copy link only copies the bare link", await js(`document.querySelector("dialog.sheet[open] .agent-fallback button").classList.contains("quiet")`) && linked("").test(copied.at(-1) ?? "") && copied.at(-1) === message.slice(ask.length), String(copied.at(-1)));
+        await sleep(1600);
         await shot("agents-setup");
+        await shot("agents-grok-setup");
 
         // Grok saves, with the key it was given, and the sheet hears it.
-        const key = address.slice(agentUrl.length + 1);
+        const key = message.slice(ask.length + agentUrl.length + 1);
         readingHeld = new Promise((done) => { releaseReading = () => done(undefined); });
         const stored = await (await call(key, "tools/call", { name: "store", arguments: { items: [{ title: "How I price sync placements", content: "I charge by the audience the placement reaches, not by the hours it took.", key: "sync-pricing", kind: "preference" }] } })).json();
         check("a save with that key reaches the store", stored.result?.isError === false, JSON.stringify(stored));
         check("…and the sheet says what Grok Bot saved, one click from seeing it", await waitFor(`${sheet}.includes("Grok Bot saved 1 memory · See them →")`, 80), await js(sheet));
+        const evening = "Every evening, save anything new you learned about me to Lore.";
+        check("…then offers, below it, an evening routine to paste into Grok Bot", await js(`Boolean(document.querySelector("dialog.sheet[open] .agent-wait + .agent-next")) && ${sheet}.includes("Optional: paste this into Grok Bot as a routine, so it saves every evening.")`), await js(sheet));
+        const before = copied.length;
+        await js(`document.querySelector("dialog.sheet[open] .agent-next button").click()`);
+        for (let i = 0; i < 20 && copied.length === before; i++) await sleep(50);
+        check("…whose one quiet Copy copies the ask", copied.at(-1) === evening && await js(`document.querySelectorAll("dialog.sheet[open] .agent-next button").length === 1 && document.querySelector("dialog.sheet[open] .agent-next button").classList.contains("quiet")`), String(copied.at(-1)));
         await shot("agents-first-save");
         check("…read through once, named for Grok", readings.length === 1 && readings[0].title === "Grok Bot saved 1 thing to Lore" && readings[0].label === "Grok Bot", JSON.stringify(readings));
         // APP-212: each way in lands on Inventory, filtered to Grok Bot, with what the owner hasn't seen marked New.
@@ -1053,16 +1093,41 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         await waitFor(agentRow("Grok Bot"));
         await js(`${agentRow("Grok Bot")}.querySelector("button:not(.inline)").click()`);
         check("Manage offers a new key and Disconnect", await waitFor(`${sheet}.includes("Get a new key") && ${sheet}.includes("Disconnect")`));
+        check("…and, since Grok Bot has saved, its evening routine, below what it saved", await js(`${sheet}.includes("Optional: paste this into Grok Bot as a routine, so it saves every evening.") && document.querySelector("dialog.sheet[open] .form-body").lastElementChild.previousElementSibling?.classList.contains("agent-next")`), await js(sheet));
+        await shot("agents-manage");
+        // A save the old key makes just before the new one, still waiting when the new link is shown.
+        const late = await (await call(key, "tools/call", { name: "store", arguments: { items: [{ title: "Late sync note", content: "Saved with the old link, just before it was replaced.", key: "late-note", kind: "fact" }] } })).json();
+        check("a save with the old key just before a new one is made", late.result?.isError === false, JSON.stringify(late));
+        installedApps = [];
         await press("Get a new key");
         await waitFor(`${primary}?.textContent === "Get a new key"`);
         check("…and says the old key stops at once", /stops working at once/.test(await js(sheet)), await js(sheet));
         await js(`${primary}.click()`);
-        check("a new key shows the setup again", await waitFor(`document.querySelector("dialog.sheet[open] .form-head h2")?.textContent === "A new link for Grok Bot"`, 80) && !(await js(`${sheet}.includes("Waiting for")`)), await js(sheet));
-        const fresh = (await copyLink()).slice(agentUrl.length + 1);
+        check("a new key shows the setup again, waiting for the next save", await waitFor(`document.querySelector("dialog.sheet[open] .form-head h2")?.textContent === "A new link for Grok Bot"`, 80) && await js(`${sheet}.includes("Waiting for Grok Bot's next save…")`), await js(sheet));
+        // APP-217: Grok Bot already has a Lore server, so a new link replaces it rather than adding a second.
+        check("…and its steps end with the next save, not the first", JSON.stringify(await stepsOf()) === JSON.stringify(["Copy the message", "Paste it into Grok Bot's chat", "Lore shows when the next save arrives"]), JSON.stringify(await stepsOf()));
+        const replace = "Replace the Lore MCP server in my account with this one: ";
+        const replaced = await copyLink();
+        check("…its message asks Grok Bot to replace the Lore server", linked(replace).test(replaced), replaced);
+        const fresh = replaced.slice(replace.length + agentUrl.length + 1);
         check("…with a different key", fresh !== key && fresh.startsWith(key.slice(0, "lore_agent_".length + 16)), fresh);
         check("…the old one no longer works", (await call(key, "tools/list")).status === 401);
         check("…and the new one does", (await call(fresh, "tools/list")).status === 200);
+        check("…and with Grok Bot not on this Mac, nothing offers to open it", !(await js(`[...document.querySelectorAll("dialog.sheet[open] button")].some((b) => b.textContent === "Open Grok Bot")`)), await js(sheet));
         await shot("agents-new-key");
+        await shot("agents-grok-new-key");
+        // The old key's waiting save comes in now, and is not taken for the new link working.
+        const readBefore = readings.length;
+        await js(`window.lore.checkAgents()`);
+        for (let i = 0; i < 80 && readings.length === readBefore; i++) await sleep(250);
+        check("the old key's late save is brought in while the new link waits", readings.length > readBefore, JSON.stringify(readings.map((r) => r.title)));
+        // Long enough for the sheet's own check, which runs every 10 seconds, to have looked again.
+        await sleep(11_000);
+        check("…and the sheet still waits for the new link's first save", await js(`${sheet}.includes("Waiting for Grok Bot's next save…") && !${sheet}.includes("saved with the new link")`), await js(sheet));
+        // Grok saves again what it already saved, word for word: nothing changes in Lore, and it still shows the link works.
+        const resaved = await (await call(fresh, "tools/call", { name: "store", arguments: { items: [{ title: "How I price sync placements", content: "I charge by the audience the placement reaches, not by the hours it took.", key: "sync-pricing", kind: "preference" }] } })).json();
+        check("an unchanged save with the new link reaches the store", resaved.result?.isError === false, JSON.stringify(resaved));
+        check("…and the sheet shows the new link works", await waitFor(`${sheet}.includes("Grok Bot saved with the new link")`, 80) && !(await js(`Boolean(document.querySelector("dialog.sheet[open] .agent-next"))`)), await js(sheet));
         await press("Done");
         await sleep(300);
         /** Grok saves one more thing, and Lore brings it in and reads it through. @param {string} title */
@@ -1074,12 +1139,16 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
           return notes.length === told + 1;
         };
         check("another save lands while the owner is on Connectors", await saveMore("How I quote a rush job"));
-        const savedLink = `[...(${agentRow("Grok Bot")}?.querySelectorAll("button.inline") ?? [])].find((b) => b.textContent === "Saved 2")`;
-        check("Grok Bot's card says Saved 2, as a link", await waitFor(savedLink));
+        const savedLink = `[...(${agentRow("Grok Bot")}?.querySelectorAll("button.inline") ?? [])].find((b) => b.textContent === "Saved 4")`;
+        check("Grok Bot's card says Saved 4, as a link", await waitFor(savedLink));
         await js(`${savedLink}.click()`);
         check("…which lands on what it saved, filtered to Grok Bot", await waitFor(`document.querySelector("#title").textContent === "Inventory" && (${chip}) === "Grok Bot×"`), await js(chip));
         check("…the new save and what Lore wrote from it marked New, the rest not", await waitFor(`${isNew("How I quote a rush job")} && ${isNew("Quote a rush fee up front")}`) && !(await js(`${isNew("How I price sync placements")} || ${isNew("Price a sync placement by its reach")}`)), await js(listed));
         await shot("agents-see-them-card");
+        // Seen means on screen: with the old key's late note listed too, what Lore wrote from the rush job sits below the fold.
+        const rush = await js(`${rowOf("Quote a rush fee up front")}.dataset.memory`);
+        await js(`${rowOf("Quote a rush fee up front")}.scrollIntoView({ block: "center" })`);
+        check("…and once on screen it is kept as seen", await waitFor(`window.lore.memoriesSeen(0).then((kept) => kept.arrivals.includes(${Number(rush)}))`, 20), rush);
         await js(`window.__lore.show("today")`);
         check("a third save lands while the owner is on Today", await saveMore("How I bill a rerun"));
         const headerLink = `[...(${card}?.querySelectorAll(".list-aside button.inline") ?? [])].find((b) => b.textContent === "See them →")`;
@@ -1125,10 +1194,10 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         await waitFor(`${sheet}.includes("Disconnect")`);
         await press("Disconnect");
         await waitFor(`${sheet}.includes("Disconnect Grok Bot?")`);
-        check("Disconnect offers to keep or delete what Grok Bot saved", /The 4 memories it saved stay in your library/.test(await js(sheet)) && await js(`[...document.querySelectorAll("dialog.sheet[open] button")].some((b) => b.textContent === "Delete them too")`), await js(sheet));
+        check("Disconnect offers to keep or delete what Grok Bot saved", /The 5 memories it saved stay in your library/.test(await js(sheet)) && await js(`[...document.querySelectorAll("dialog.sheet[open] button")].some((b) => b.textContent === "Delete them too")`), await js(sheet));
         await shot("agents-disconnect");
         await press("Disconnect");
-        check("disconnecting keeps its memory and says so", await waitFor(`document.querySelector("#status").textContent.includes("Disconnected Grok Bot. 4 memories kept.")`, 80), await js(`document.querySelector("#status").textContent`));
+        check("disconnecting keeps its memory and says so", await waitFor(`document.querySelector("#status").textContent.includes("Disconnected Grok Bot. 5 memories kept.")`, 80), await js(`document.querySelector("#status").textContent`));
         await js(`window.__lore.show("memories")`);
         check("…and what it saved still says Grok Bot, with its mark", await waitFor(`/From Grok Bot/.test(${saved}?.textContent ?? "") && ${saved}.querySelector(".mark-stack img.logo")?.src.endsWith("assets/grok.svg")`), await js(`${saved}?.textContent ?? ""`));
         await js(`window.__lore.show("connectors")`);
@@ -1136,19 +1205,57 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         check("…and its key stops working", (await call(fresh, "tools/list")).status === 401);
         await shot("agents-disconnected");
 
-        // Any other app gets honest, general steps, and is told some apps need a sign-in Lore doesn't offer yet.
-        await js(`${agentRow("Connect an agent")}.querySelector("button").click()`);
-        await waitFor(`${sheet}.includes("Which agent should save to Lore?")`);
-        await js(`[...document.querySelectorAll("dialog.sheet[open] .form-option")].find((o) => o.textContent === "Claude").querySelector("input").click()`);
-        await js(`${primary}.click()`);
-        check("Claude gets general steps, under its own name", await waitFor(`document.querySelector("dialog.sheet[open] .form-head h2")?.textContent === "Connect Claude" && ${sheet}.includes("In Claude's settings, find where to add a connector.") && ${sheet}.includes("Waiting for Claude's first save…")`, 80), await js(sheet));
-        check("…keeping the instructions where Claude remembers them", (await js(sheet)).includes("Add the instructions where Claude keeps standing instructions, like custom instructions or a skill, so it remembers what to save in every chat."), await js(sheet));
-        check("…and is told plainly that a sign-in is coming", /can only connect through a sign-in, which Lore doesn't offer yet\. It's coming\./.test(await js(sheet)) && !/\bmcp\b|oauth|token/i.test(await js(sheet)), await js(sheet));
-        check("…and its instructions use that name", (await copyOf("Instructions")).includes("You are Claude"));
-        await sleep(300);
+        // APP-217: Claude and ChatGPT take the same private link, each by the steps its maker documents; Other keeps the
+        // link and the address and key for apps that ask for both.
+        /** @param {string} label @param {string} name */
+        const connectNew = async (label, name) => {
+          await js(`(${agentRow("Connect an agent")} ?? ${agentRow("Connect another agent")}).querySelector("button").click()`);
+          await waitFor(`${sheet}.includes("Which agent should save to Lore?")`);
+          await js(`[...document.querySelectorAll("dialog.sheet[open] .form-option")].find((o) => o.textContent === ${JSON.stringify(label)}).querySelector("input").click()`);
+          await js(`${primary}.click()`);
+          return waitFor(`document.querySelector("dialog.sheet[open] .form-head h2")?.textContent === ${JSON.stringify(`Connect ${name}`)} && ${sheet}.includes(${JSON.stringify(`Waiting for ${name}'s first save…`)})`, 80);
+        };
+        const plainly = (/** @type {string} */ text) => !/\bmcp\b|oauth|token|bearer|endpoint|header|offer yet/i.test(text);
+        /** @param {string} name @param {string[]} steps @param {string} note @param {RegExp} [allowed] a label the app itself uses */
+        const linkSheet = async (name, steps, note, allowed) => {
+          check(`${name} gets its own sheet, waiting for its first save`, await connectNew(name, name), await js(sheet));
+          const text = await js(sheet);
+          check(`…with the steps ${name}'s maker documents`, JSON.stringify(await stepsOf()) === JSON.stringify(steps), JSON.stringify(await stepsOf()));
+          check("…a quiet note about its plan", await js(`[...document.querySelectorAll("dialog.sheet[open] .form-body p.hint")].some((p) => p.textContent === ${JSON.stringify(note)})`), text);
+          check("…one private link and nothing else to paste: no address, key, instructions or sign-in notice", await js(`document.querySelectorAll("dialog.sheet[open] .agent-link").length === 1 && !document.querySelector("dialog.sheet[open] .agent-message, dialog.sheet[open] .copy-row") && ![...document.querySelectorAll("dialog.sheet[open] button")].some((b) => /^(Copy all|Open)/.test(b.textContent))`) && plainly(allowed ? text.replace(allowed, "") : text), text);
+          const link = await copyLink();
+          check("…and Copy gives the bare link with its key", linked("").test(link), link);
+          await sleep(300);
+        };
+        // Claude's and ChatGPT's apps on this Mac too: only Grok Bot's sheet offers to open its app.
+        installedApps = ["grok", "claude", "chatgpt"];
+        await linkSheet("Claude", ["In Claude, open Customize › Connectors, then + Add › Add custom connector", "Name it Lore, paste the link below, and choose Continue", "Choose No sign in, then Add"], "Claude's free plan allows one custom connector.");
         await shot("agents-claude-setup");
         await press("Done");
         check("…and it joins the agents with Claude's mark", await waitFor(`${agentRow("Claude")}?.querySelector("img.logo")?.src.endsWith("assets/claude.svg") && /Nothing saved yet/.test(${agentRow("Claude")}.textContent)`), await js(`${agentRow("Claude")}?.textContent ?? ""`));
+        // A new link for Claude replaces the Lore connector it has, which on the free plan is its only one.
+        await js(`${agentRow("Claude")}.querySelector("button").click()`);
+        await waitFor(`${sheet}.includes("Get a new key")`);
+        await press("Get a new key");
+        await waitFor(`${primary}?.textContent === "Get a new key"`);
+        await js(`${primary}.click()`);
+        check("a new link for Claude says to replace the Lore connector, not add another", await waitFor(`document.querySelector("dialog.sheet[open] .form-head h2")?.textContent === "A new link for Claude"`, 80) && JSON.stringify(await stepsOf()) === JSON.stringify(["In Claude, open Customize › Connectors", "Open the Lore connector you added before and replace its link with this one"]), JSON.stringify(await stepsOf()));
+        check("…with removing it and adding a new one as a quiet line under that step, not a step of its own", await js(`document.querySelector("dialog.sheet[open] .agent-steps li:last-child .agent-step-or")?.textContent === "Or remove it and add a new one named Lore with this link"`), await js(sheet));
+        check("…waits for its next save", (await js(sheet)).includes("Waiting for Claude's next save…"), await js(sheet));
+        check("…and copies the bare new link", linked("").test(await copyLink()));
+        await sleep(300);
+        await shot("agents-claude-new-key");
+        await press("Done");
+        await linkSheet("ChatGPT", ["In ChatGPT, open Plugins, then + › Add custom MCP server", "Name it Lore, paste the link below, choose No authentication, and continue", "Choose Create"], "Saving to Lore needs a ChatGPT plan that allows custom connectors to write.", /Add custom MCP server/);
+        await shot("agents-chatgpt-setup");
+        await press("Done");
+        check("…and it joins the agents with ChatGPT's mark", await waitFor(`${agentRow("ChatGPT")}?.querySelector("img.logo")?.src.endsWith("assets/chatgpt.svg")`), await js(`${agentRow("ChatGPT")}?.textContent ?? ""`));
+        check("Other keeps a link, and the address and key for apps that ask for both", await connectNew("Other", "My agent") && await js(`document.querySelectorAll("dialog.sheet[open] .agent-link").length === 1 && JSON.stringify([...document.querySelectorAll("dialog.sheet[open] .copy-row .form-label")].map((l) => l.textContent)) === '["Address","Key","Instructions"]'`), await js(sheet));
+        check("…with no sign-in notice", !/offer yet/.test(await js(sheet)), await js(sheet));
+        check("…and its instructions name it", (await copyOf("Instructions")).includes("You are My agent"));
+        await sleep(300);
+        await shot("agents-other-setup");
+        await press("Done");
 
         // Claude Code's own memory on this Mac connects from its tile, and turns off from it again.
         const histories = `[...document.querySelectorAll("#content section")].find((s) => s.querySelector("h2")?.textContent === "Your apps")`;

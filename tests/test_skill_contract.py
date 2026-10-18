@@ -41,7 +41,7 @@ EXTERNAL_SKILLS = {
     "lore-store",
     "lore-synthesize",
 }
-# Skills for the owner's remote agents (Grok, Muse, ChatGPT, Claude), which reach them
+# Skills for the owner's remote agents (Grok, ChatGPT, Claude), which reach them
 # as a paste block from `lore agents connect`. Agents on this Mac write to Lore
 # directly, so these are never linked or installed where a local agent looks.
 REMOTE_SKILLS = {"lore-store"}

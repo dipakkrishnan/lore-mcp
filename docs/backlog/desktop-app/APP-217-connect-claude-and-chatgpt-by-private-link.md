@@ -4,7 +4,7 @@ title: Connect Claude and ChatGPT by private link, and connect Grok Bot with one
 priority: P0
 effort: M
 component: desktop-app
-status: ready
+status: in-review
 related: [APP-207, XC-067, XC-068, APP-215]
 blockers: []
 dependencies: []
@@ -54,10 +54,10 @@ Primary sources (checked Oct 17, 2026) say:
 
 ## Acceptance criteria
 
-- [ ] Claude, ChatGPT and Grok Bot each connect from one copied link or message.
-- [ ] Muse creates no key and does not count as connected.
+- [x] Claude, ChatGPT and Grok Bot each connect from one copied link or message.
+- [x] Muse creates no key and does not count as connected.
 - [ ] A live test with Claude (Free plan) and ChatGPT saves a memory through the link; record the plan used.
-- [ ] Steps and labels match the vendors' documentation as of the build date.
+- [x] Steps and labels match the vendors' documentation as of the build date.
 
 ## Notes
 

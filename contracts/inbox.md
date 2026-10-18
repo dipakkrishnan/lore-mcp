@@ -69,6 +69,13 @@ before this version.
   owner's own Cloudflare logs.
 - Revoking sets `revoked_at`. Rotating replaces `token_hash` on the same row,
   so the agent id and the memories' provenance stay put.
+- A write checks its token twice: once when the request comes in, and again
+  inside the batch that stores it. The batch's first statement fails unless
+  the agent row still has the `token_hash` the request came in with and no
+  `revoked_at`. So a `store` or `forget` already under way when the owner
+  rotates or revokes keeps nothing: no inbox row, no quota use, no `saved`
+  increment. Its result is the error "this link was replaced or disconnected
+  in Lore; ask the owner for the new one".
 
 ## Sealing
 
@@ -140,7 +147,14 @@ published or sold without the owner's approval.
 ## The Mac side (all through `wrangler d1 execute --remote`)
 
 - **Mint:** insert into `agents`.
-- **Rotate:** update `token_hash`.
+- **Rotate:** update `token_hash`, and hand back the agent row with its
+  `saved` count at that moment. The node raises `saved` by one for every
+  item a `store` call saves, whether or not it changes anything, and only a
+  valid token can save. So once the old token stops working, a count above
+  the one handed back means the new token was used. The app shows "saved
+  with the new link" on exactly that (APP-217). Saves the old token left
+  waiting were counted before the rotation, so bringing them in later never
+  confirms the new token.
 - **Revoke:** set `revoked_at`.
 - **Waiting:** `SELECT agent, count(*) FROM inbox WHERE state IN ('waiting','forgotten') AND sealed IS NOT NULL GROUP BY agent`. It is batched into the same wrangler call as the sales check where possible.
 - **Collect:** `SELECT id, agent, state, sealed, saved_at FROM inbox WHERE agent = ? AND state IN ('waiting','forgotten') AND sealed IS NOT NULL ORDER BY saved_at LIMIT 200`.

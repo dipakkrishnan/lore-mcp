@@ -87,7 +87,7 @@ class ConnectTest(AgentCase):
         self.assertEqual(len(saved["saved"]), 1)
 
     def test_the_owners_keys_are_made_once_and_never_land_on_disk(self) -> None:
-        first, second = self.connect(), self.connect("Muse", "muse")
+        first, second = self.connect(), self.connect("Claude", "claude")
         self.assertEqual(list(self.keyring.saved), [("Lore", "inbox keys")])
         keys = json.loads(self.keyring.saved[("Lore", "inbox keys")])
         secrets = [keys["private_key"], keys["salt"], first["key"], second["key"]]
@@ -102,6 +102,37 @@ class ConnectTest(AgentCase):
         self.assertNotIn(keys["private_key"], node)
         for key in (first["key"], second["key"]):
             self.assertNotIn(key.split("_", 3)[3], node)
+
+    def test_muse_cannot_connect_yet_but_one_already_connected_still_works(
+        self,
+    ) -> None:
+        with captured(), patch("sys.stderr") as err:
+            with self.assertRaises(SystemExit) as refused:
+                cli.main(["agents", "connect", "Muse", "--app", "muse", "--json"])
+        self.assertEqual(refused.exception.code, 2)
+        said = "".join(call.args[0] for call in err.write.call_args_list)
+        self.assertIn("Muse can't connect yet.", said)
+        with self.assertRaisesRegex(InboxError, "Muse can't connect yet."):
+            Inbox().mint("Muse", "muse")
+        self.assertEqual(self.d1.commands, [], "no key minted, the node never asked")
+        with captured() as out, self.assertRaises(SystemExit):
+            cli.main(["agents", "connect", "--help"])
+        self.assertIn("{grok,chatgpt,claude,other}", out.getvalue())
+        self.assertNotIn("muse", out.getvalue())
+        self.assertEqual(self.json("agents", "list")["agents"], [])
+        # One connected as Muse before APP-217 lists, re-keys and disconnects as before.
+        source = self.connect("Muse", "claude")["source"]
+        with sqlite3.connect(self.d1.path) as d1:
+            d1.execute("UPDATE agents SET app = 'muse'")
+        (listed,) = self.json("agents", "list")["agents"]
+        self.assertEqual((listed["source"], listed["app"]), (source, "muse"))
+        rekeyed = self.json("agents", "key", source)
+        self.assertEqual(rekeyed["agent"]["app"], "muse")
+        self.assertEqual(
+            len(self.save(rekeyed["key"], {"title": "t", "content": "c"})["saved"]), 1
+        )
+        self.json("agents", "revoke", source, "--keep")
+        self.assertEqual(self.json("agents", "list")["agents"], [])
 
     def test_without_a_store_online_connect_says_so_and_mints_nothing(self) -> None:
         with Store() as store:
@@ -286,6 +317,31 @@ class ReadTest(AgentCase):
         self.assertEqual((read["errors"], read["added"]), (1, 0))
         self.assertEqual(self.json("agents", "waiting")["waiting"], 1)
 
+    def test_a_new_key_hands_over_the_count_that_only_its_own_saves_raise(
+        self,
+    ) -> None:
+        # APP-217: the app shows a new link works once the agent's count rises past
+        # the one its key came with. Saves the old key left waiting were counted
+        # already; a save with the new key counts even when it changes nothing.
+        item = {
+            "title": "Pricing",
+            "content": "I quote off the budget tier.",
+            "key": "p",
+        }
+        self.save(self.key, item)
+        self.assertEqual(self.read()["added"], 1)
+        self.save(self.key, {"title": "Late", "content": "Saved with the old key."})
+        rekeyed = self.json("agents", "key", self.source)
+        baseline = rekeyed["agent"]["saved"]
+        self.assertEqual(baseline, 2)
+        self.assertEqual(self.read()["added"], 1, "the old key's save, brought in late")
+        (entry,) = self.json("agents", "list")["agents"]
+        self.assertEqual(entry["saved"], baseline, "an old-key save never confirms")
+        self.save(rekeyed["key"], item)
+        self.assertEqual(self.read()["unchanged"], 1)
+        (entry,) = self.json("agents", "list")["agents"]
+        self.assertGreater(entry["saved"], baseline, "an unchanged new-key save does")
+
     def test_a_confirm_that_fails_is_harmless(self) -> None:
         self.save(self.key, {"title": "A", "content": "a"})
         with patch.object(Inbox, "received", side_effect=InboxError("down")):
@@ -373,7 +429,10 @@ class ReadTest(AgentCase):
             patch.object(cli, "_interactive", return_value=False),
         ):
             for argv, what in (
-                (("agents", "connect", "Muse", "--app", "muse"), "connecting an agent"),
+                (
+                    ("agents", "connect", "Claude", "--app", "claude"),
+                    "connecting an agent",
+                ),
                 (("agents", "key", source), "giving an agent a new key"),
                 (("agents", "revoke", source, "--delete"), "disconnecting an agent"),
             ):

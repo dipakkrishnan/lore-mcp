@@ -1678,6 +1678,35 @@ test("one agent whose read fails leaves the others' saves to land", async () => 
   assert.deepEqual(landed.map((reads) => reads.map((each) => each.name)), [["agent-b"]]);
 });
 
+test("Lore finds the owner's agent apps by id, and opens only an installed one it knows", async () => {
+  const { AgentApps } = require("../src/agents.cjs");
+  const system = await mkdtemp(join(tmpdir(), "lore-apps-"));
+  const own = await mkdtemp(join(tmpdir(), "lore-apps-"));
+  try {
+    /** @type {string[]} */
+    const launched = [];
+    const apps = new AgentApps([system, own], async (path) => (launched.push(path), ""));
+    assert.deepEqual(await apps.installed(), [], "nothing installed is nothing found");
+    await assert.rejects(apps.open("grok"), { message: /can't open that app/ }, "a known app not installed is not opened");
+    await mkdir(join(own, "Grok Bot.app"));
+    await mkdir(join(system, "Claude.app"));
+    await mkdir(join(system, "Muse.app"));
+    await mkdir(join(system, "Notes.app"));
+    assert.deepEqual(await apps.installed(), ["grok", "claude"], "found in either place; Muse and other apps are never reported");
+    await apps.open("grok");
+    await apps.open("claude");
+    assert.deepEqual(launched, [join(own, "Grok Bot.app"), join(system, "Claude.app")]);
+    for (const id of ["muse", "other", "notes", "Notes.app", "../Notes.app", join(system, "Notes.app"), "__proto__", "toString", null, 7]) {
+      await assert.rejects(apps.open(id), { message: /can't open that app/ }, String(id));
+    }
+    assert.equal(launched.length, 2, "an unknown id opens nothing");
+    await assert.rejects(new AgentApps([own], async () => "No application knows how to open it").open("grok"), { message: /No application/ });
+  } finally {
+    await rm(system, { recursive: true });
+    await rm(own, { recursive: true });
+  }
+});
+
 test("an agent's saves are read through like any app's, named for the agent, and say where they came from", () => {
   const { worthReading, landed, announcement } = require("../src/reading.cjs");
   const apps = /** @type {SourceApp[]} */ ([{ id: "agent", name: "Personal agent", item: "save" }, { id: "granola", name: "Granola", item: "meeting" }]);
@@ -1698,7 +1727,7 @@ test("an agent's saves are read through like any app's, named for the agent, and
 
 test("connecting a personal agent validates what it is and what it is called before any CLI call", async () => {
   const { connectAgent, agentKey, disconnectAgent } = require("../src/state.cjs");
-  for (const app of ["", "gemini", null]) await assert.rejects(connectAgent("/nonexistent", { app, name: "Grok" }), { message: /Choose an agent/ });
+  for (const app of ["", "gemini", "muse", null]) await assert.rejects(connectAgent("/nonexistent", { app, name: "Grok" }), { message: /Choose an agent/ });
   for (const name of ["", "   ", "x".repeat(41), 7]) await assert.rejects(connectAgent("/nonexistent", { app: "grok", name }), { message: /1 to 40 characters/ });
   for (const source of ["agent-1", "granola-1", "agent-1A2B3C4D5E6F7A8B", null]) {
     await assert.rejects(agentKey("/nonexistent", source), { message: /Unknown agent/ });

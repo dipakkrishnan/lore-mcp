@@ -4,7 +4,7 @@ title: Find the owner's agent apps on this Mac and open them
 priority: P0
 effort: S
 component: desktop-app
-status: ready
+status: in-review
 related: [APP-215, APP-207]
 blockers: []
 dependencies: []
@@ -29,6 +29,6 @@ never by a path the renderer supplies. The connect card and sheet show
 
 ## Acceptance criteria
 
-- [ ] Installed agent apps are reported by id; nothing else on disk is read.
-- [ ] Open <agent> launches the installed app; the IPC rejects unknown ids.
-- [ ] Unit tests cover found, not found, and an unknown id.
+- [x] Installed agent apps are reported by id; nothing else on disk is read.
+- [x] Open <agent> launches the installed app; the IPC rejects unknown ids.
+- [x] Unit tests cover found, not found, and an unknown id.
