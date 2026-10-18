@@ -185,6 +185,7 @@ obsolete), then `priority` (P0 → P3).
 | [APP-218](./desktop-app/APP-218-a-sleeker-chat-and-no-broken-text.md) | A sleeker chat, and no broken text anywhere | P1 | M | desktop-app | in-review | APP-215 | — | — | — |
 | [APP-219](./desktop-app/APP-219-today-shows-only-what-came-in-and-what-to-do-next.md) | Today shows only what came in and what to do next | P1 | S | desktop-app | in-review | APP-214, APP-218 | — | — | — |
 | [APP-220](./desktop-app/APP-220-marks-that-match-the-app.md) | Marks that match the app | P2 | S | desktop-app | in-review | APP-213, APP-218 | — | — | — |
+| [APP-221](./desktop-app/APP-221-automations-holds-only-automations.md) | Automations holds only automations, and a calmer composer focus | P2 | S | desktop-app | in-review | APP-219, APP-218 | — | — | — |
 | [XC-069](./cross-cutting/XC-069-put-a-store-online-before-anything-is-for-sale.md) | Put a store online to receive agent saves before anything is for sale | P0 | M | cross-cutting | in-review | XC-067, APP-207, APP-215 | — | — | — |
 | [CAP-036](./capture/CAP-036-bring-in-what-personal-agents-save-as-a-typed-source.md) | Bring in what personal agents save, as a typed source | P0 | M | capture | in-progress | XC-067, CAP-037, APP-207, MON-046 | — | "XC-067 inbox API" | — |
 | [CAP-037](./capture/CAP-037-give-personal-agents-a-lore-store-skill-and-a-setup-prompt.md) | Give personal agents a lore-store skill and a setup prompt | P0 | S | capture | in-progress | XC-067, CAP-036, APP-207, CAP-001 | — | — | [#467](https://github.com/dipakkrishnan/lore-mcp/issues/467) |

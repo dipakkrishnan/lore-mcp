@@ -533,7 +533,7 @@ function recentRuns(s) {
     else runs.push({ item, summary, times: 1 });
   });
   if (!runs.length) return null;
-  return section("Recent runs", card(runs.slice(0, 6).map(({ item, summary, times }) => {
+  return section("Activity", card(runs.slice(0, 6).map(({ item, summary, times }) => {
     const detail = [summary, when(item.started_at), times > 1 ? `${times} times` : ""].filter(Boolean);
     const label = item.title?.trim() || RUN_LABELS[item.kind] || item.kind;
     const status = runState(RUN_STATES[item.status] ?? item.status, item.status === "running" ? "ok" : item.status === "failed" ? "attention" : "off");
@@ -2905,6 +2905,8 @@ function renderFaq(s) {
 /** @param {Snapshot} s */
 function renderSettings(s) {
   const live = s.node.live;
+  // What Lore has run for the owner (store updates, readings, tasks) is a log, not an automation, so it sits last here.
+  const runs = recentRuns(s);
   const path = el("span", "mono path", s.home.replace(/^\/Users\/[^/]+/, "~"));
   path.title = s.home;
   return [
@@ -2939,7 +2941,8 @@ function renderSettings(s) {
         : []),
       ...marketplaceRow(s)
     ])),
-    ...(appUpdate ? [section("Updates", card([updateRow(appUpdate)]))] : [])
+    ...(appUpdate ? [section("Updates", card([updateRow(appUpdate)]))] : []),
+    ...(runs ? [runs] : [])
   ];
 }
 
@@ -3146,8 +3149,7 @@ function renderAutomations(s) {
   add.addEventListener("keydown", (event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); openNewRoutine(); } });
   const list = el("div", "routines");
   list.append(...[...routines].sort((x, y) => Number(Boolean(y.built_in)) - Number(Boolean(x.built_in))).map(routineRow), add);
-  const runs = recentRuns(s);
-  return runs ? [list, runs] : [list];
+  return [list];
 }
 
 const renderers = { today: renderToday, inventory: renderInventory, connectors: renderConnectors, automations: renderAutomations, faq: renderFaq, settings: renderSettings };
