@@ -214,6 +214,7 @@ if (scenario === "listing") {
       // One topic per reading, so each of the walk's saves brings something new.
       const [file, text] = [
         ["pricing-sync-by-reach.md", "# Price a sync placement by its reach\n\nCharge by the audience the placement reaches, not by the hours it took. From what Grok saved, October 2026.\n"],
+        ["late-sync-note.md", "# Write down a sync change the day it happens\n\nA change noted late is a change argued about later. From what Grok saved, October 2026.\n"],
         ["rush-fee-up-front.md", "# Quote a rush fee up front\n\nName the rush fee before the work starts, never after it ships. From what Grok saved, October 2026.\n"],
         ["rerun-at-half.md", "# Bill a rerun at half the first fee\n\nA rerun costs half the first fee, because the work is already done. From what Grok saved, October 2026.\n"],
         ["sign-off-in-writing.md", "# Get the final cut signed off in writing\n\nA written sign-off ends the revisions; a nod on a call starts more. From what Grok saved, October 2026.\n"]
@@ -1138,12 +1139,15 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
           return notes.length === told + 1;
         };
         check("another save lands while the owner is on Connectors", await saveMore("How I quote a rush job"));
-        const savedLink = `[...(${agentRow("Grok Bot")}?.querySelectorAll("button.inline") ?? [])].find((b) => b.textContent === "Saved 2")`;
-        check("Grok Bot's card says Saved 2, as a link", await waitFor(savedLink));
+        const savedLink = `[...(${agentRow("Grok Bot")}?.querySelectorAll("button.inline") ?? [])].find((b) => b.textContent === "Saved 4")`;
+        check("Grok Bot's card says Saved 4, as a link", await waitFor(savedLink));
         await js(`${savedLink}.click()`);
         check("…which lands on what it saved, filtered to Grok Bot", await waitFor(`document.querySelector("#title").textContent === "Inventory" && (${chip}) === "Grok Bot×"`), await js(chip));
         check("…the new save and what Lore wrote from it marked New, the rest not", await waitFor(`${isNew("How I quote a rush job")} && ${isNew("Quote a rush fee up front")}`) && !(await js(`${isNew("How I price sync placements")} || ${isNew("Price a sync placement by its reach")}`)), await js(listed));
         await shot("agents-see-them-card");
+        // Seen means on screen: with the old key's late note listed too, what Lore wrote from the rush job sits below the fold.
+        await js(`${rowOf("Quote a rush fee up front")}.scrollIntoView({ block: "center" })`);
+        await sleep(500);
         await js(`window.__lore.show("today")`);
         check("a third save lands while the owner is on Today", await saveMore("How I bill a rerun"));
         const headerLink = `[...(${card}?.querySelectorAll(".list-aside button.inline") ?? [])].find((b) => b.textContent === "See them →")`;
@@ -1189,10 +1193,10 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         await waitFor(`${sheet}.includes("Disconnect")`);
         await press("Disconnect");
         await waitFor(`${sheet}.includes("Disconnect Grok Bot?")`);
-        check("Disconnect offers to keep or delete what Grok Bot saved", /The 4 memories it saved stay in your library/.test(await js(sheet)) && await js(`[...document.querySelectorAll("dialog.sheet[open] button")].some((b) => b.textContent === "Delete them too")`), await js(sheet));
+        check("Disconnect offers to keep or delete what Grok Bot saved", /The 5 memories it saved stay in your library/.test(await js(sheet)) && await js(`[...document.querySelectorAll("dialog.sheet[open] button")].some((b) => b.textContent === "Delete them too")`), await js(sheet));
         await shot("agents-disconnect");
         await press("Disconnect");
-        check("disconnecting keeps its memory and says so", await waitFor(`document.querySelector("#status").textContent.includes("Disconnected Grok Bot. 4 memories kept.")`, 80), await js(`document.querySelector("#status").textContent`));
+        check("disconnecting keeps its memory and says so", await waitFor(`document.querySelector("#status").textContent.includes("Disconnected Grok Bot. 5 memories kept.")`, 80), await js(`document.querySelector("#status").textContent`));
         await js(`window.__lore.show("memories")`);
         check("…and what it saved still says Grok Bot, with its mark", await waitFor(`/From Grok Bot/.test(${saved}?.textContent ?? "") && ${saved}.querySelector(".mark-stack img.logo")?.src.endsWith("assets/grok.svg")`), await js(`${saved}?.textContent ?? ""`));
         await js(`window.__lore.show("connectors")`);
