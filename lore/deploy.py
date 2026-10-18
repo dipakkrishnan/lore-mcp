@@ -453,7 +453,8 @@ def _ensure_d1(
     muted("Creating the publications database (one-time)...")
     created = _run((wrangler, "d1", "create", D1_NAME), target)
     output = f"{created.stdout or ''}{created.stderr or ''}"
-    already_existed = bool(created.returncode) and "already exists" in output.lower()
+    # Some wrangler versions say so and still exit 0; the words decide, never the exit code alone.
+    already_existed = "already exists" in output.lower()
     if created.returncode and not already_existed:
         raise OSError(f"creating the D1 database failed:\n{output.strip()[-2000:]}")
     # `d1 create` prints a config snippet; the id format survives wrangler's

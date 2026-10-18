@@ -83,6 +83,7 @@ class _Wrangler:
         secret_put_fails: bool = False,
         secret_put_fails_for: str | None = None,
         d1_exists: bool = False,
+        d1_exists_quietly: bool = False,
         d1_create_fails: bool = False,
         d1_id_in_output: bool = True,
         d1_execute_refusals: int = 0,
@@ -97,6 +98,7 @@ class _Wrangler:
         self.secret_put_fails_for = secret_put_fails_for
         self.puts: list[tuple[str, object]] = []
         self.d1_exists = d1_exists
+        self.d1_exists_quietly = d1_exists_quietly
         self.d1_create_fails = d1_create_fails
         self.d1_id_in_output = d1_id_in_output
         self.d1_execute_refusals = d1_execute_refusals
@@ -132,6 +134,9 @@ class _Wrangler:
         elif tail == ("d1", "create", "lore-publications"):
             if self.d1_exists:
                 code, err = 1, "a database with that name already exists"
+            elif self.d1_exists_quietly:
+                # Some wrangler versions say so and still exit 0.
+                out = "A database with that name already exists"
             elif self.d1_create_fails:
                 code, err = 1, "authentication error"
             elif self.d1_id_in_output:
@@ -1422,6 +1427,28 @@ class DeployTest(_NodeCase):
         with Store() as store:
             self.assertIsNone(store.setting("node_url", None))
         # Refused before the config was ever rewritten with someone else's id.
+        self.assertIn(
+            "REPLACE_WITH_YOUR_D1_ID",
+            (self.store / "wrangler.jsonc").read_text(),
+        )
+
+    def test_an_existing_database_is_refused_even_when_wrangler_exits_0(self) -> None:
+        # APP-223: a returning owner signed in to the account that already has their store; wrangler said the
+        # database exists and exited 0. The deploy refused nothing, and went on with the placeholder id.
+        wrangler = _Wrangler(d1_exists_quietly=True)
+        with (
+            patch("lore.deploy.subprocess.run", side_effect=wrangler),
+            patch("lore.deploy.shutil.which", return_value="/usr/bin/npm"),
+            patch("lore.cli.push_job") as push,
+            captured(),
+            self.assertRaisesRegex(
+                OSError, "already exists on this Cloudflare account"
+            ),
+        ):
+            deploy_module.deploy(None, inbox_only=True)
+        push.assert_not_called()
+        self.assertFalse(wrangler.named("deploy"))
+        self.assertFalse([c for c in wrangler.commands if c[1:3] == ("d1", "execute")])
         self.assertIn(
             "REPLACE_WITH_YOUR_D1_ID",
             (self.store / "wrangler.jsonc").read_text(),
