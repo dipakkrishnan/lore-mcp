@@ -1146,8 +1146,9 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         check("…the new save and what Lore wrote from it marked New, the rest not", await waitFor(`${isNew("How I quote a rush job")} && ${isNew("Quote a rush fee up front")}`) && !(await js(`${isNew("How I price sync placements")} || ${isNew("Price a sync placement by its reach")}`)), await js(listed));
         await shot("agents-see-them-card");
         // Seen means on screen: with the old key's late note listed too, what Lore wrote from the rush job sits below the fold.
+        const rush = await js(`${rowOf("Quote a rush fee up front")}.dataset.memory`);
         await js(`${rowOf("Quote a rush fee up front")}.scrollIntoView({ block: "center" })`);
-        await sleep(500);
+        check("…and once on screen it is kept as seen", await waitFor(`window.lore.memoriesSeen(0).then((kept) => kept.arrivals.includes(${Number(rush)}))`, 20), rush);
         await js(`window.__lore.show("today")`);
         check("a third save lands while the owner is on Today", await saveMore("How I bill a rerun"));
         const headerLink = `[...(${card}?.querySelectorAll(".list-aside button.inline") ?? [])].find((b) => b.textContent === "See them →")`;
