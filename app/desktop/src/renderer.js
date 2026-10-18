@@ -773,7 +773,9 @@ function checkInCard(asked) {
 
 /** A reading under way, as one quiet row. @param {TaskRecord} item */
 function readingRow(item) {
-  return card([row(`${item.phase}…`, "Lore will tell you when your memories are ready.", runState("Working", "ok"), false)]);
+  const reading = row(`${item.phase}…`, "Lore will tell you when your memories are ready.", runState("Working", "ok"), false);
+  reading.querySelector("b")?.classList.add("shimmer");
+  return card([reading]);
 }
 
 /** What Lore made of a connected app's newest items: each new memory, and a draft one press away for the ones worth selling. @param {ReadyRun[]} runs */
@@ -2788,9 +2790,7 @@ function agentGuide(handed, first) {
 /** The live line while Lore waits on an agent's save. @param {string} who @param {boolean} first */
 function waitLine(who, first) {
   const line = el("p", "agent-wait");
-  const dots = el("span", "typing");
-  dots.append(el("i"), el("i"), el("i"));
-  line.append(dots, el("span", "", `Waiting for ${who}'s ${first ? "first" : "next"} save…`));
+  line.append(el("span", "shimmer", `Waiting for ${who}'s ${first ? "first" : "next"} save…`));
   return line;
 }
 
@@ -3393,14 +3393,142 @@ function clearRequest() {
   syncComposer();
 }
 
-/** Lore's typing bubble while its turn is open, with what it is doing beside it. @param {string} label */
+/** What Lore is doing while its turn is open, in one shimmering line. @param {string} label */
 function thinkingLine(label) {
   const line = el("div", "line live thinking");
-  const bubble = el("span", "bubble");
-  bubble.append(el("i"), el("i"), el("i"));
   line.setAttribute("role", "status");
-  line.append(bubble, el("span", "", label));
+  line.append(el("span", "shimmer", label));
   return line;
+}
+
+/** Each kind of step by its icon and its words, for `n` steps of that kind in a row. */
+const STEP_WORDS = /** @type {Record<StepKind, [string, (n: number) => string]>} */ ({
+  read: ["memory", (n) => `Read ${plural(n, "note")}`],
+  "read-memory": ["memory", (n) => `Read ${plural(n, "memory")}`],
+  write: ["edit", (n) => `Wrote ${plural(n, "note")}`],
+  "write-memory": ["edit", (n) => `Wrote ${plural(n, "memory")}`],
+  edit: ["edit", (n) => `Edited ${plural(n, "note")}`],
+  "edit-memory": ["edit", (n) => `Edited ${plural(n, "memory")}`],
+  look: ["look", () => "Looked through your Lore"],
+  draft: ["publish", (n) => `Drafted ${plural(n, "piece")}`],
+  extras: ["publish", () => "Drafted free parts"],
+  listing: ["publish", () => "Changed what's for sale"],
+  push: ["update", () => "Updated your store"],
+  deploy: ["store", () => "Set up your store"],
+  sales: ["store", () => "Checked your sales"],
+  status: ["store", () => "Checked your store"],
+  price: ["publish", () => "Set your price"],
+  profile: ["check", () => "Saved your profile"],
+  shape: ["check", () => "Saved how your Lore is shaped"],
+  capture: ["memory", () => "Saved memories"],
+  answers: ["store", () => "Changed paid answers"],
+  "open-store": ["store", () => "Opened your store"],
+  open: ["update", () => "Opened a page"],
+  work: ["work", () => "Worked on your Lore"]
+});
+const STEP_MARKS = {
+  ...STEP_ICONS,
+  edit: lineIcon(`<path d="M12 20h8M16.5 3.5a2.1 2.1 0 0 1 3 3L8 18l-4 1 1-4z"></path>`),
+  look: lineIcon(`<circle cx="11" cy="11" r="6.5"></circle><path d="M20 20l-4-4"></path>`),
+  check: lineIcon(`<path d="M5 12.5l4.5 4.5L19 7.5"></path>`),
+  work: lineIcon(`<circle cx="12" cy="12" r="3"></circle>`)
+};
+
+/** How long something took, as a step row says it: "0.4s", "12s", "1m 05s". @param {number} ms */
+function took(ms) {
+  if (ms < 10000) return `${(ms / 1000).toFixed(1)}s`;
+  const seconds = Math.round(ms / 1000);
+  return seconds < 60 ? `${seconds}s` : `${Math.floor(seconds / 60)}m ${String(seconds % 60).padStart(2, "0")}s`;
+}
+
+/** One row per run of steps of the same kind. @param {Step[]} steps */
+function stepRows(steps) {
+  /** @type {Step[][]} */
+  const runs = [];
+  for (const step of steps) {
+    const last = runs.at(-1);
+    if (last && last[0].kind === step.kind) last.push(step);
+    else runs.push([step]);
+  }
+  return runs.map((run) => {
+    const [icon, words] = STEP_WORDS[run[0].kind];
+    const running = run.some((step) => step.ended === undefined);
+    const node = el("div", "step");
+    node.insertAdjacentHTML("afterbegin", STEP_MARKS[/** @type {keyof typeof STEP_MARKS} */ (icon)]);
+    node.append(el("span", running ? "shimmer" : "", words(run.length)));
+    if (!running) node.append(el("span", "took", took(run.reduce((sum, step) => sum + (step.ended ?? step.started) - step.started, 0))));
+    return node;
+  });
+}
+
+/** A turn's steps: each as a row while Lore is on them, then folded into one line that opens on click.
+ * @param {Line & { steps: Step[] }} entry @param {boolean} active */
+function stepsLine(entry, active) {
+  const line = el("div", "line steps");
+  const list = el("div", "steps-list");
+  list.append(...stepRows(entry.steps));
+  if (active) {
+    line.append(list);
+    return line;
+  }
+  const ended = Math.max(...entry.steps.map((step) => step.ended ?? step.started));
+  const summary = el("button", "steps-sum");
+  summary.type = "button";
+  summary.insertAdjacentHTML("beforeend", lineIcon(`<path d="M9 6l6 6-6 6"></path>`));
+  summary.append(el("span", "", `${plural(entry.steps.length, "step")} · ${took(ended - entry.steps[0].started)}`));
+  const fold = el("div", "steps-fold");
+  fold.append(list);
+  const show = () => {
+    line.classList.toggle("open", Boolean(entry.open));
+    summary.setAttribute("aria-expanded", String(Boolean(entry.open)));
+  };
+  summary.addEventListener("click", () => { entry.open = !entry.open; show(); });
+  show();
+  line.append(summary, fold);
+  return line;
+}
+
+/** A tool call starting or ending in the open thread. @param {Extract<AgentEvent, { type: "step" }>} event */
+function step(event) {
+  const last = lines.at(-1);
+  if (event.done) {
+    const found = last?.steps?.find((each) => each.id === event.id);
+    if (!found) return;
+    found.ended = Date.now();
+  } else if (event.kind) {
+    const started = { id: event.id, kind: event.kind, started: Date.now() };
+    if (last?.steps) last.steps.push(started);
+    else lines.push({ text: "", owner: false, steps: [started] });
+  }
+  renderLog();
+}
+
+/** When each word of the streaming reply first showed, by its place in the reply. @type {number[]} */
+const inkTimes = [];
+const INK_MS = 150;
+
+/** The streaming reply with only its newest words inking in; a word already in keeps going where it was, and code
+ * never animates. @param {HTMLElement} node */
+function inked(node) {
+  const now = performance.now();
+  const walk = document.createTreeWalker(node, NodeFilter.SHOW_TEXT, { acceptNode: (text) => text.parentElement?.closest("pre, code") ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT });
+  /** @type {Text[]} */
+  const texts = [];
+  for (let text = walk.nextNode(); text; text = walk.nextNode()) texts.push(/** @type {Text} */ (text));
+  let index = 0;
+  for (const text of texts) {
+    const pieces = (text.textContent ?? "").split(/(\s+)/).map((part) => {
+      if (!part.trim()) return part;
+      const since = now - (inkTimes[index] ??= now);
+      index++;
+      if (since >= INK_MS) return part;
+      const word = el("span", "ink", part);
+      word.style.animationDelay = `${-since}ms`;
+      return word;
+    });
+    if (pieces.some((piece) => typeof piece !== "string")) text.replaceWith(...pieces);
+  }
+  return node;
 }
 
 /** APP-218: the open thread's lines, each coming in once. Streamed text keeps the key of the line it becomes. */
@@ -3408,7 +3536,14 @@ const logEntrance = new Entrance();
 
 function renderLog() {
   const thread = detailTask ?? "today";
-  log.replaceChildren(...lines.map(({ text, owner, stopped, saved }, index) => {
+  const working = busy !== null && !liveText;
+  log.replaceChildren(...lines.map((entry, index) => {
+    const { text, owner, stopped, saved, steps } = entry;
+    if (steps) {
+      const line = stepsLine(/** @type {Line & { steps: Step[] }} */ (entry), working && index === lines.length - 1);
+      line.dataset.say = `${thread} ${index}`;
+      return line;
+    }
     const line = el("div", owner ? "line owner" : stopped ? "line stop" : "line");
     line.dataset.say = `${thread} ${index}`;
     line.append(speaker(owner), saved ? savedCard(saved) : owner ? el("p", "", text) : markdown(text));
@@ -3417,11 +3552,12 @@ function renderLog() {
   if (liveText) {
     const line = el("div", "line live");
     line.dataset.say = `${thread} ${lines.length}`;
-    line.append(speaker(false), markdown(liveText));
+    line.append(speaker(false), inked(markdown(liveText)));
     log.append(line);
-  }
+  } else inkTimes.length = 0;
+  const stepping = Boolean(working && lines.at(-1)?.steps?.some((each) => each.ended === undefined));
   const thinking = busy !== null && !request;
-  if (thinking && busy) {
+  if (thinking && busy && !stepping) {
     const line = thinkingLine(liveStatus || THINKING[busy] || "");
     line.dataset.say = `${thread} thinking ${lines.length}`;
     log.append(line);
@@ -4414,6 +4550,7 @@ function onEvent(event) {
     renderLog();
   }
   else if (event.type === "live") { if (event.task === task) live(event.text, event.status); }
+  else if (event.type === "step") { if (event.task === task) step(event); }
   else if (event.type === "blueprint-progress") {
     if (event.task !== task) return;
     blueprintDraft = { ...blueprintDraft, ...event.fields };

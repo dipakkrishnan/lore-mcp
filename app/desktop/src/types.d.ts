@@ -293,7 +293,12 @@ type BlueprintFields = {
   storytelling: string;
 };
 
-type Line = { text: string; owner: boolean; stopped?: boolean; saved?: SavedMemory[] };
+type Line = { text: string; owner: boolean; stopped?: boolean; saved?: SavedMemory[]; steps?: Step[]; open?: boolean };
+
+type StepKind = "read" | "read-memory" | "write" | "write-memory" | "edit" | "edit-memory" | "look" | "draft" | "extras" | "listing" | "push" | "deploy" | "sales" | "status" | "price" | "profile" | "shape" | "capture" | "answers" | "open-store" | "open" | "work";
+
+/** One tool call of a working thread, as the owner sees it: what kind of step, and when it started and ended. */
+type Step = { id: string; kind: StepKind; started: number; ended?: number };
 
 interface Window {
   lore: {
@@ -419,6 +424,7 @@ type AgentEvent =
   | AgentRequest
   | { type: "dismiss"; id: string }
   | { type: "live"; task: AgentTask | null; text: string; status?: boolean }
+  | { type: "step"; task: AgentTask; id: string; kind?: StepKind; done?: boolean }
   | { type: "blueprint-progress"; task: AgentTask | null; fields: Partial<BlueprintFields> & { evidence?: string } }
   | { type: "working"; active: boolean; task: AgentTask }
   | { type: "changed" }

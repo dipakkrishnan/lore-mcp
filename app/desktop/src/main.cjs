@@ -397,7 +397,10 @@ function createWindow() {
     height: 760,
     minWidth: 760,
     minHeight: 620,
-    backgroundColor: "#f7f3ea",
+    // The page paints its own cream everywhere but the sidebar, which shows the window's frosted sidebar material.
+    backgroundColor: "#00000000",
+    vibrancy: "sidebar",
+    visualEffectState: "followWindow",
     titleBarStyle: "hiddenInset",
     webPreferences: {
       preload: join(__dirname, "preload.cjs"),

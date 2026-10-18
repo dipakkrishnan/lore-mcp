@@ -52,6 +52,46 @@ export function turnPhase(task, text, latest) {
   return deployPhase(task, text) ?? (kept ? AGENT_STORE_PHASE : undefined);
 }
 
+/** What a `lore` command does, in the words of a step row, by its subcommand. @type {Array<[RegExp, StepKind]>} */
+const LORE_STEPS = [
+  [/^(publication )?draft\b/, "draft"],
+  [/^publication extras\b/, "extras"],
+  [/^publication (revoke|reapprove)\b/, "listing"],
+  [/^(publication (list|review)|search|review|blueprint show|memory|list|show)\b/, "look"],
+  [/^push\b/, "push"],
+  [/^(node (deploy|secret)|setup)\b/, "deploy"],
+  [/^node sales\b/, "sales"],
+  [/^(node|status)\b/, "status"],
+  [/^price\b/, "price"],
+  [/^profile\b/, "profile"],
+  [/^blueprint\b/, "shape"],
+  [/^capture\b/, "capture"],
+  [/^answer\b/, "answers"]
+];
+/** Card tools the owner answers on the page, and bookkeeping: none is a step. */
+const UNSTEPPED = new Set(["ask_user", "propose_memories", "propose_blueprint", "propose_price", "cloudflare_login", "finish_task", "memories_ready", "check_in"]);
+
+/** The kind of step a tool call is, for the owner's step rows, or null when it is not one; never the tool's own name,
+ * command or path. @param {string} tool @param {any} args @param {string} loreHome @returns {StepKind | null} */
+export function stepKind(tool, args, loreHome) {
+  if (UNSTEPPED.has(tool)) return null;
+  const path = typeof args?.path === "string" ? resolve(loreHome, args.path) : "";
+  const memory = path.startsWith(resolve(loreHome, "memories") + "/");
+  if (tool === "read") return /\/skills\//.test(path) ? null : memory ? "read-memory" : "read";
+  if (tool === "write") return memory ? "write-memory" : "write";
+  if (tool === "edit") return memory ? "edit-memory" : "edit";
+  if (tool === "save_profile") return "profile";
+  if (tool === "open_store") return "open-store";
+  if (tool === "open_url") return "open";
+  if (tool !== "bash") return "work";
+  const command = typeof args?.command === "string" ? args.command : "";
+  const lore = command.match(/(?:^|[\s;&|(/])lore\s+([a-z-]+(?:\s+[a-z-]+)?)/)?.[1];
+  if (lore) return LORE_STEPS.find(([pattern]) => pattern.test(lore))?.[1] ?? "work";
+  if (/\b(wrangler|npx)\b/.test(command)) return "deploy";
+  if (/^\s*(ls|cat|head|tail|grep|rg|find|wc|sed -n)\b/.test(command)) return "look";
+  return "work";
+}
+
 /** Tasks that run between the owner's turns, never as a thread: each starts cold, asks nothing, and gives way to the owner. @type {ReadonlySet<AgentTask>} */
 const QUIET = new Set(["synthesize", "checkin"]);
 const OWNER_TOOLS = ["read", "write", "edit", "bash", "ask_user", "propose_memories", "propose_blueprint", "save_profile", "propose_price", "cloudflare_login", "open_store", "open_url", "finish_task"];
@@ -880,6 +920,11 @@ export class LoreAgent {
           this.options.emit({ type: "blueprint-progress", task, fields: /** @type {Partial<BlueprintFields> & { evidence?: string }} */ (block.arguments) });
         }
       }
+      if (!QUIET.has(task) && event.type === "tool_execution_start") {
+        const kind = stepKind(event.toolName, event.args, this.options.loreHome);
+        if (kind) this.options.emit({ type: "step", task, id: event.toolCallId, kind });
+      }
+      if (!QUIET.has(task) && event.type === "tool_execution_end") this.options.emit({ type: "step", task, id: event.toolCallId, done: true });
       if (event.type === "tool_execution_end" && event.toolName === "bash") this.options.emit({ type: "changed" });
       if (event.type !== "message_end" || event.message.role !== "assistant") return;
       // Counted before the error return, so a turn that failed still reports
