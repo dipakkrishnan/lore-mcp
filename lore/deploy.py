@@ -88,6 +88,25 @@ SECRETS = ("CDP_API_KEY_ID", "CDP_API_KEY_SECRET")
 # The smallest price the six-decimal formatter can render without collapsing
 # to zero; `lore price` rounds to six decimals, so this matches its floor.
 MINIMUM_PRICE = 1e-6
+# The owner's choice to sell (XC-069), in three states, none of them guessed:
+# - true: written only after a full deploy's push succeeded;
+# - false: written only by a deploy that created a brand-new D1 database in
+#   that run, before its push (and kept until a full deploy opens the store);
+# - unset: every store from before XC-069, which behaves exactly as it did:
+#   its push carries the pieces and no `selling` key, so its node sells.
+SELLING_SETTING = "node_selling"
+
+
+def choice(store: Store) -> bool | None:
+    """The owner's choice to sell: true, false, or unset (a store from before XC-069)."""
+    chosen = store.setting(SELLING_SETTING, None)
+    return chosen if isinstance(chosen, bool) else None
+
+
+def selling(store: Store) -> bool:
+    """Whether the store is online and open for sale, not only for agents: an
+    address, and no explicit no."""
+    return bool(store.setting("node_url", None)) and choice(store) is not False
 
 
 def _refuse_dev_source_drift(packaged: Path) -> None:
@@ -115,11 +134,12 @@ def _refuse_dev_source_drift(packaged: Path) -> None:
         return
 
 
-def materialize(price_usd: float) -> Path:
+def materialize(price_usd: float | None) -> Path:
     """Copy the packaged Worker source to ~/.lore/node, never touching secrets.
 
     Re-running overwrites the source files (that is the upgrade path); files
-    the owner created (`.buyer.env`, `.dev.vars`) stay untouched.
+    the owner created (`.buyer.env`, `.dev.vars`) stay untouched. With no
+    price the shipped one stays: a store with nothing for sale charges nothing.
     """
     target = home() / "node"
     target.mkdir(mode=0o700, parents=True, exist_ok=True)
@@ -143,10 +163,11 @@ def materialize(price_usd: float) -> Path:
     source = price_file.read_text()
     if PRICE_DECLARATION not in source:
         raise OSError(f"could not configure the node price in {price_file}")
-    price = f"{price_usd:.6f}".rstrip("0").rstrip(".")
-    price_file.write_text(
-        source.replace(PRICE_DECLARATION, f"export const PRICE_USD = {price};")
-    )
+    if price_usd is not None:
+        price = f"{price_usd:.6f}".rstrip("0").rstrip(".")
+        price_file.write_text(
+            source.replace(PRICE_DECLARATION, f"export const PRICE_USD = {price};")
+        )
     if existing_id:
         config.write_text(config.read_text().replace(D1_PLACEHOLDER, existing_id))
     # Owner-only, like the rest of ~/.lore — after copytree, which copystats
@@ -226,7 +247,9 @@ def _timeout_detail(error: subprocess.TimeoutExpired) -> str:
     return f"{stderr}{stdout}".strip()[-2000:]
 
 
-def _ensure_d1(wrangler: str, target: Path) -> None:
+def _ensure_d1(
+    wrangler: str, target: Path
+) -> Literal["created", "adopted", "recorded"]:
     """Resolve the shipped database_id placeholder against the owner's account.
 
     Wrangler validates D1 bindings at deploy time, so the placeholder must
@@ -246,7 +269,7 @@ def _ensure_d1(wrangler: str, target: Path) -> None:
     config = target / "wrangler.jsonc"
     text = config.read_text()
     if D1_PLACEHOLDER not in text:
-        return
+        return "recorded"
     muted("Creating the publications database (one-time)...")
     created = _run((wrangler, "d1", "create", D1_NAME), target)
     output = f"{created.stdout or ''}{created.stderr or ''}"
@@ -286,7 +309,16 @@ def _ensure_d1(wrangler: str, target: Path) -> None:
                 "it into wrangler.jsonc yourself, or rerun with "
                 "LORE_ADOPT_EXISTING_D1=1 set."
             )
+    if not already_existed:
+        # A database made in this run is a new store: it sells nothing until a
+        # full deploy's push opens it. Written before its id, so a write that
+        # fails leaves no recorded database a retry could take for an older
+        # store; guarded, so an explicit choice written meanwhile is never
+        # overwritten (XC-069).
+        with Store() as store:
+            store.set_setting_if_unset(SELLING_SETTING, False)
     config.write_text(text.replace(D1_PLACEHOLDER, database_id))
+    return "adopted" if already_existed else "created"
 
 
 def login() -> int:
@@ -374,8 +406,19 @@ def secret(name: str, value: str) -> int:
     return 0
 
 
-def deploy(wallet: str | None, network: str | None = None) -> int:
-    """Check the preconditions, then run and record one deploy."""
+def deploy(
+    wallet: str | None, network: str | None = None, *, inbox_only: bool = False
+) -> int:
+    """Check the preconditions, then run and record one deploy.
+
+    `inbox_only` puts the store online for the owner's own agents before
+    anything is for sale (XC-069): only the Cloudflare sign-in is needed, and
+    the price and payout guards wait for the deploy that opens it for sale."""
+    if inbox_only and (wallet or network):
+        raise ValueError(
+            "--inbox-only puts your store online with nothing for sale, so it takes "
+            "no payout address or network; leave them off, or drop --inbox-only to sell"
+        )
     if wallet and not WALLET.fullmatch(wallet):
         raise ValueError(
             "wallet must be a public EVM address: 0x plus 40 hex characters"
@@ -385,6 +428,28 @@ def deploy(wallet: str | None, network: str | None = None) -> int:
 
     with Store() as store:
         configured_price = store.setting("price_usd", None)
+        already_selling = selling(store)
+        chosen = choice(store)
+    if inbox_only and os.environ.get("LORE_ADOPT_EXISTING_D1") and chosen is not False:
+        # Reconnecting an existing store starts from no address, which an
+        # inbox-only deploy would take for a new store and close for sale.
+        raise ValueError(
+            "You're reconnecting an existing store; run the full store setup so it keeps selling."
+        )
+    if inbox_only:
+        # A store open for sale keeps charging its owner's price, so that price
+        # must be one it can charge, exactly as for a full deploy.
+        price = (
+            _valid_price(configured_price)
+            if already_selling
+            else _priced(configured_price)
+        )
+        return _recorded(price, None, None, inbox_only=True)
+    return _recorded(_valid_price(configured_price), wallet, network)
+
+
+def _valid_price(configured_price: object) -> float:
+    """The owner's price, or a plain refusal naming what to set."""
     if configured_price is None:
         raise ValueError(
             "no publication price is set; set one with `lore price <USD>` before deploying"
@@ -413,11 +478,30 @@ def deploy(wallet: str | None, network: str | None = None) -> int:
             f"the publication price must be a number of at least ${MINIMUM_PRICE:.6f}; "
             "set it with `lore price <USD>` and rerun"
         )
+    return float(configured_price)
 
-    # Recorded from here, past the argument and price guards: a refused
-    # precondition is validation the owner sees immediately, not a run. This is
-    # the one seam both deploy paths cross — the desktop app reaches it through
-    # the agent's shell, a terminal reaches it through the CLI.
+
+def _priced(configured: object) -> float | None:
+    """The owner's price when it is one the node can charge, else none."""
+    if isinstance(configured, bool) or not isinstance(configured, (int, float)):
+        return None
+    priced = math.isfinite(configured) and configured >= MINIMUM_PRICE
+    return float(configured) if priced else None
+
+
+def _recorded(
+    price: float | None,
+    wallet: str | None,
+    network: str | None,
+    *,
+    inbox_only: bool = False,
+) -> int:
+    """Run one deploy as a recorded job.
+
+    Recorded from here, past the argument and price guards: a refused
+    precondition is validation the owner sees immediately, not a run. This is
+    the one seam both deploy paths cross — the desktop app reaches it through
+    the agent's shell, a terminal reaches it through the CLI."""
     with Store() as store:
         job_id = store.start_job(
             JobKind.DEPLOY.value, owner_pid=os.getpid(), timeout_minutes=60
@@ -427,10 +511,16 @@ def deploy(wallet: str | None, network: str | None = None) -> int:
     # reach owner history, so the cause stays in the raised error alone.
     outcome = ("failed", "failed")
     try:
-        result = _deploy(float(configured_price), wallet, network)
+        result = _deploy(price, wallet, network, inbox_only=inbox_only)
+        with Store() as store:
+            open_for_sale = choice(store) is not False
         outcome = (
             "succeeded",
-            f"deployed_{network}" if network in NETWORKS else "deployed",
+            f"deployed_{network}"
+            if network in NETWORKS
+            else "deployed"
+            if open_for_sale
+            else "deployed_inbox",
         )
         return result
     finally:
@@ -439,10 +529,18 @@ def deploy(wallet: str | None, network: str | None = None) -> int:
 
 
 def _deploy(
-    configured_price: float, wallet: str | None, network: str | None = None
+    configured_price: float | None,
+    wallet: str | None,
+    network: str | None = None,
+    *,
+    inbox_only: bool = False,
 ) -> int:
     """Materialize, authenticate, ensure D1, deploy, set the payout secret,
-    push the active publications, smoke-check."""
+    push the active publications, smoke-check.
+
+    Whether the store sells is the owner's choice, `node_selling` (see
+    SELLING_SETTING): a deploy that creates the store's database marks it not
+    selling, and only a full deploy whose push succeeded marks it selling."""
     target = materialize(configured_price)
     muted(f"Node source staged at {target}")
     muted("Installing dependencies (the first run can take a minute)...")
@@ -463,10 +561,15 @@ def _deploy(
                 f"Cloudflare login failed; run `npx wrangler login` in {target}"
             )
 
-    if not wallet:
-        # The Worker fails closed without LORE_WALLET regardless; this check
-        # exists purely so a missing payout address costs seconds, not a deploy.
-        listing = _run((wrangler, "secret", "list"), target)
+    if not wallet and not inbox_only:
+        # This check exists so a missing payout address costs seconds, not a
+        # deploy. A listing that failed says nothing about the wallet, so it
+        # stops the deploy rather than being read as "no wallet".
+        listing = _run(
+            (wrangler, "secret", "list"),
+            target,
+            fail="reading your store's settings from Cloudflare failed; try again in a minute",
+        )
         if "LORE_WALLET" not in (listing.stdout or ""):
             raise ValueError(
                 "the node has no payout address; rerun with --wallet 0x<your public address>"
@@ -488,8 +591,8 @@ def _deploy(
             store.set_setting("node_url", url)
 
     if network:
-        # Before the wallet: a new node without LORE_WALLET refuses to start,
-        # so it never serves a moment on the wrong network.
+        # Before the wallet: a new node without LORE_WALLET sells nothing,
+        # so it never sells a moment on the wrong network.
         # Real money settles keyless unless the owner vaulted a Coinbase pair
         # (`lore node secret`); half a pair refuses to start and the smoke
         # check below says so.
@@ -508,13 +611,18 @@ def _deploy(
             input=wallet + "\n",
             fail="setting LORE_WALLET failed",
         )
-
     # First push creates the publications table (CREATE TABLE IF NOT EXISTS),
     # so discover works before the owner has published anything; an empty
-    # active set is a valid state, and re-pushing is idempotent.
+    # active set is a valid state, and re-pushing is idempotent. A full deploy
+    # has the price, network and payout in place, so its push opens the store
+    # for sale; only once that push landed does the owner's choice say so.
     from .cli import push_job  # local import: cli imports this module at top level
 
-    push_job(target, False)
+    push_job(target, False, opening=not inbox_only)
+    with Store() as store:
+        if not inbox_only:
+            store.set_setting(SELLING_SETTING, True)
+        open_for_sale = selling(store)
 
     if not url:
         # The deploy succeeded, so no workers.dev address in the output means
@@ -537,5 +645,8 @@ def _deploy(
             f"Stream the live error with `npx wrangler tail` in {target}"
         ) from error
     count = sum(len(entries) for entries in manifest.topics.values())
+    if not open_for_sale:
+        success(f"Online: {url} · ready for your agents, nothing for sale")
+        return 0
     success(f"Live: {url} · {count} publication{'s' if count != 1 else ''}")
     return 0

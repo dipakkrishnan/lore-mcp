@@ -204,7 +204,8 @@ if (scenario === "listing") {
       mkdirSync(dirname(wrangler), { recursive: true });
       writeFileSync(wrangler, `#!/bin/sh\ncd "${repo}" && exec uv run python -m tests.fixtures.inbox wrangler "$@"\n`, { mode: 0o755 });
       const url = `${process.env.LORE_EDGE_AGENT_URL}/mcp`;
-      execFileSync("uv", ["run", "python", "-c", `import time\nfrom lore.store import Store\nwith Store() as s:\n s.set_setting('node_url', '${url}')\n s.set_setting('node_live', {'url': '${url}', 'checked_at': time.time(), 'live': {'state': 'online', 'network': 'eip155:84532', 'price_usd': 1.0, 'payout': '0x' + 'a' * 40}, 'ids': []})`], { cwd: repo, env: process.env });
+      // XC-069: what `lore node deploy --inbox-only` leaves: an address, nothing for sale, no price and no payout.
+      execFileSync("uv", ["run", "python", "-c", `import time\nfrom lore.store import Store\nwith Store() as s:\n s.set_setting('node_url', '${url}')\n s.set_setting('node_selling', False)\n s.set_setting('node_live', {'url': '${url}', 'checked_at': time.time(), 'live': {'state': 'online', 'network': None, 'price_usd': None, 'payout': None}, 'ids': []})`], { cwd: repo, env: process.env });
       this.options.emit({ type: "task", task: { version: 1, kind: "deploy", title: "Open your store", state: "done", phase: "Finished", updatedAt: at() } });
     };
     LoreAgent.prototype.synthesize = function (/** @type {Reading} */ reading) {
@@ -952,7 +953,7 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         await js(`${agentRow("Connect an agent")}.querySelector("button").click()`);
         await waitFor(`${primary}?.textContent === "Put your store online"`);
         await sleep(400);
-        check("with no store online, the first step says why it goes online, plainly", await js(`${sheet}.includes("Your agents save to your own store, so it needs to be online. Nothing goes on sale until you approve it.")`), await js(sheet));
+        check("with no store online, the first step says why it goes online, plainly", await js(`${sheet}.includes("Your agents save to your own store, so it needs to be online. Nothing goes on sale until you choose to sell it.")`), await js(sheet));
         await shot("agents-store-first");
         await js(`${primary}.click()`);
         const deploying = await waitFor(`document.querySelector("#title").textContent === "Open your store"`);
@@ -1277,6 +1278,36 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         await waitFor(`${primary}?.textContent === "Turn off"`);
         await js(`${primary}.click()`);
         check("…Turn off keeps what it brought in and says so", await waitFor(`document.querySelector("#status").textContent.includes("Turned off Claude Code. What it brought in stays.") && ${claudeCode}?.querySelector("button")?.textContent === "Connect"`, 80), await js(`document.querySelector("#status").textContent`));
+
+        // XC-069: the store went online only for the agents. Nothing in the app says anything is for sale, and
+        // opening it for sale is still the first approved piece's own step, with a price and where payments go.
+        check("the deploy thread asked only to put the store online for the agents", prompts.some((p) => p.task === "deploy") && prompts.filter((p) => p.task === "deploy").every((p) => /personal agents/.test(p.text) && !/price|payout|wallet/i.test(p.text)), JSON.stringify(prompts));
+        check("the store is online for agents, not open for sale", await js(`window.lore.snapshot().then((s) => Boolean(s.node.url) && s.node.selling === false)`));
+        await js(`window.__lore.show("store")`);
+        const bar = `(document.querySelector("#content .store-bar")?.textContent ?? "")`;
+        check("For Sale says nothing is for sale yet, and offers to open the store", await waitFor(`/Nothing for sale yet/.test(${bar}) && /Open your store/.test(${bar}) && !/\\bLive\\b|Payouts/.test(${bar})`), await js(bar));
+        await shot("agents-nothing-for-sale");
+        await js(`window.__lore.show("settings")`);
+        check("…and Settings offers no marketplace listing for it", await waitFor(`document.querySelector("#content")?.textContent.includes("Address")`) && !(await js(`[...document.querySelectorAll("#content .row b")].some((b) => b.textContent === "Marketplace")`)));
+        await js(`window.__lore.show("today")`);
+        check("…and Today offers no store update", await waitFor(`Boolean(document.querySelector("#content .strip"))`) && !(await js(`/Update store|live yet/.test(document.querySelector("#content").textContent)`)), await js(`document.querySelector("#content").textContent`));
+        // The first approved piece: opening the store for sale asks for a price and where payments go, as always.
+        execFileSync("uv", ["run", "python", "-c", "from lore.store import Store\nwith Store() as s:\n first = s.db.execute('SELECT min(id) FROM memories').fetchone()[0]\n s.add_publication(title='Price a sync placement by its reach', content='Charge by the audience.', topic='licensing', teaser='How to price a sync placement', provenance=[first])"], { cwd: process.env.LORE_EDGE_REPO, env: process.env });
+        await js(`window.__lore.event({ type: "changed" })`);
+        const rung = `document.querySelector("#content .next-step")`;
+        check("the first approved piece offers to open the store, with a price and where payments go", await waitFor(`/Pick a price and where payments go/.test(${rung}?.textContent ?? "")`, 80), await js(`document.querySelector("#content").textContent`));
+        const today = await js(`document.querySelector("#content .strip")?.textContent ?? ""`);
+        check("…and Today calls it ready to sell, not for sale", /1 ready to sell/.test(today) && !/\d for sale/.test(today), today);
+        const before = prompts.length;
+        await js(`${rung}.querySelector("button").click()`);
+        for (let i = 0; i < 40 && prompts.length === before; i++) await sleep(100);
+        check("…through the store's usual opening, not the agents' one", prompts.at(-1)?.task === "deploy" && prompts.at(-1)?.text.includes("Help me open my store.") && !/personal agents/.test(prompts.at(-1)?.text ?? ""), JSON.stringify(prompts.slice(before)));
+        await js(`document.querySelector("#task-back")?.click()`);
+        await sleep(200);
+        await js(`window.__lore.show("store")`);
+        const shelf =`(document.querySelector(".shelf[aria-selected=true]")?.textContent ?? "")`;
+        check("Inventory files it under Ready to sell, waiting for the store to open", await waitFor(`${shelf}.startsWith("Ready to sell") && document.querySelector("#content").textContent.includes("Ready to sell once your store opens.") && !document.querySelector("#content").textContent.includes("On sale")`), await js(`document.querySelector("#content").textContent`));
+        await shot("agents-ready-to-sell");
       } else if (scenario === "today") {
         // APP-214: Today's one next step, stage by stage, each seeded through the CLI and its store.
         const repo = join(__dirname, "../../..");

@@ -274,6 +274,7 @@ JOB_SUMMARIES: dict[str, str] = {
     "synthesized": "Synthesis finished",
     "not_reported": "Synthesis never reported finishing",
     "deployed": "Your store is live",
+    "deployed_inbox": "Your store is online for your agents",
     "deployed_test": "Your store is live on the test network",
     "deployed_real": "Your store is live with real money",
     "pushed": "Your store was updated",
@@ -944,6 +945,19 @@ class Store:
             "SELECT value FROM settings WHERE key=?", (key,)
         ).fetchone()
         return json.loads(row["value"]) if row else default
+
+    def set_setting_if_unset(self, key: str, value: object) -> bool:
+        """Write a setting only if it is absent or null, in one statement, so a
+        value written meanwhile by anyone else is never overwritten. Returns
+        whether this call wrote it."""
+        written = self.db.execute(
+            "INSERT INTO settings(key,value) VALUES (?,?) "
+            "ON CONFLICT(key) DO UPDATE SET value=excluded.value "
+            "WHERE settings.value = 'null'",
+            (key, json.dumps(value, allow_nan=False)),
+        ).rowcount
+        self.db.commit()
+        return written == 1
 
     def set_setting(self, key: str, value: object) -> None:
         """Create or replace a JSON-backed setting."""

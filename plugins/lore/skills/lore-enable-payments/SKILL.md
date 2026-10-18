@@ -1,6 +1,6 @@
 ---
 name: lore-enable-payments
-description: Set up a paid Lore node end to end, so other agents pay to call `get`. Walks the owner to a price, a deployed Cloudflare Worker, and a payout address they control, asked last. In a terminal, a proven test-network payment can come first. Use when the user says "enable payments on Lore", "monetize my lore", "charge for answers", "deploy my lore node", "put my lore online", or picks the Monetize branch after onboarding.
+description: Set up a paid Lore node end to end, so other agents pay to call `get`. Walks the owner to a price, a deployed Cloudflare Worker, and a payout address they control, asked last. In a terminal, a proven test-network payment can come first. Also puts a store online with nothing for sale, so the owner's personal agents can save to it. Use when the user says "enable payments on Lore", "monetize my lore", "charge for answers", "deploy my lore node", "put my lore online", or picks the Monetize branch after onboarding.
 ---
 
 # Enabling payments
@@ -44,7 +44,9 @@ having at least one.
 >
 > 1. `lore publication list`. No active publication → say the store opens once
 >    they have approved something to sell, offer to draft one now, and stop;
->    a real buyer must never pay against an empty catalog.
+>    a real buyer must never pay against an empty catalog. (A request to put
+>    the store online only so their agents can save to it is a different
+>    task: see "Online for the owner's agents" below.)
 > 2. Price through `propose_price` (step 4).
 > 3. Cloudflare: `npx wrangler whoami`, and `cloudflare_login` if needed.
 > 4. **The payout address, last.** One `ask_user` question, exactly:
@@ -64,6 +66,27 @@ having at least one.
 >
 > Say "real money", never "mainnet", and never name Base, Sepolia, USDC
 > contracts, facilitators, or Coinbase developer keys in prose.
+>
+> **Online for the owner's agents.** When the latest message asks to put the
+> store online so the owner's personal agents can save to it, nothing goes on
+> sale, so none of the order above applies: no publication check, no price,
+> no payout address. Only two steps:
+>
+> 1. Cloudflare: `npx wrangler whoami`; not signed in → `cloudflare_login`.
+> 2. `lore node deploy --inbox-only` as a bash call with an explicit timeout of
+>    at least 300 seconds (MON-023). If it stops with "not signed in to
+>    Cloudflare", call `cloudflare_login` and rerun it. Say plainly if it
+>    fails or times out.
+>
+> Close in one sentence, from what the deploy printed. "Online: … nothing
+> for sale" → their store is online, their agents can save to it, and nothing
+> is for sale. "Live: …" → their store was already open for sale and stays
+> so; say their agents can now save to it and what was on sale still is.
+> Then `finish_task`. Never ask about a price or where payments go here.
+> Later, when the owner opens the store to sell their first approved piece,
+> `lore status` says the store is online for their agents and nothing is for
+> sale; run the whole desktop order above, and the deploy with `--wallet`
+> opens it for sale.
 
 ## How to drive — read this first
 
@@ -219,7 +242,14 @@ Verify three prerequisites from state, then one command:
 ```sh
 lore node deploy --wallet <payout-address> --network real   # desktop: real money, one pass
 lore node deploy --wallet <payout-address>                  # terminal: test network first
+lore node deploy --inbox-only                               # online for the owner's agents, nothing for sale
 ```
+
+`--inbox-only` needs only the Cloudflare sign-in: no price, no payout address,
+no approved piece. On a new store, buyers see an empty catalog and `get`
+answers "nothing is for sale here yet"; the first full deploy (`--wallet`)
+opens it for sale. On a store already open for sale it changes nothing about
+selling.
 
 It stages the node at `~/.lore/node`, installs dependencies, creates the D1
 database, deploys, stores the payout address as the Worker's `LORE_WALLET` secret

@@ -30,6 +30,23 @@ const TASKS = {
   checkin: { title: "Look over today", phase: "Looking over today" },
   evening: { title: "Evening check-in", phase: "Five minutes on today" }
 };
+/** The desktop's request to put the store online for the owner's agents (renderer.js AGENT_STORE_INTENT, XC-069). */
+const AGENT_STORE_INTENT = "Put my store online so my personal agents can save to it.";
+const AGENT_STORE_PHASE = "Sign in to Cloudflare";
+
+/** The subtitle a deploy thread starts with: the agents' store asks only for the sign-in. Undefined keeps the task's own. @param {AgentTask} task @param {string} text */
+export function deployPhase(task, text) {
+  return task === "deploy" && text.startsWith(AGENT_STORE_INTENT) ? AGENT_STORE_PHASE : undefined;
+}
+
+/** The subtitle a turn records: the prompt's own, or, for a reply in the agents' store thread while it is still under
+ * way, that thread's. A thread that stopped or failed has already recorded another subtitle, so it doesn't carry over.
+ * @param {AgentTask} task @param {string} text @param {TaskRecord | null | undefined} latest */
+export function turnPhase(task, text, latest) {
+  const kept = task === "deploy" && latest?.phase === AGENT_STORE_PHASE && latest.state !== "done";
+  return deployPhase(task, text) ?? (kept ? AGENT_STORE_PHASE : undefined);
+}
+
 /** Tasks that run between the owner's turns, never as a thread: each starts cold, asks nothing, and gives way to the owner. @type {ReadonlySet<AgentTask>} */
 const QUIET = new Set(["synthesize", "checkin"]);
 const OWNER_TOOLS = ["read", "write", "edit", "bash", "ask_user", "propose_memories", "propose_blueprint", "propose_price", "cloudflare_login", "open_url", "finish_task"];
@@ -403,6 +420,7 @@ export class LoreAgent {
         "During capture, show proposed memories only through propose_memories, never in prose; that tool saves what the owner keeps and returns the saved memories, or returns the owner's correction for you to revise and propose again. After it saves, say one short sentence and call finish_task; never offer publication unprompted. If the owner asks to sell what they captured, tell them to choose Draft for sale on the saved memory.",
         "During onboarding, gather evidence first, then call propose_blueprint once with one bounded proposal; that tool saves the owner-approved shape.",
         "To set what buyers pay per publication, call propose_price and never run a price command yourself; the owner confirms the exact amount on the card, and the tool returns what they saved or null if they declined. Work from that number, not from what you proposed.",
+        "When the owner asks to put their store online so their personal agents can save to it, the owner's only step is the sign-in through cloudflare_login, then put it online with lore node deploy --inbox-only; never ask about a price or where payments go. Close from what the deploy printed: if it says nothing for sale, say their agents can save to their store and nothing is for sale; if it says Live, their store was already open, so say their agents can save to it and what was on sale still is.",
         "Never mention tools, commands, files, or plumbing to the owner: no Cloudflare, Node, wrangler, Worker, Base, Sepolia, network ids, or memory ids in prose; name a memory by its title. Speak about memories, their Lore, their store, and real money, and say what happens next rather than which checks passed.",
         "A memory's id number is for tools only: never say one to the owner, even in passing; call every memory by its title.",
         "Call finish_task when the current task is complete."
@@ -564,7 +582,7 @@ export class LoreAgent {
       this.#yielding = false;
     }
     try {
-      return await this.#turn(text, task, from, memory, source);
+      return await this.#turn(text, task, from, memory, source, undefined, text);
     } finally {
       void this.#next();
     }
@@ -638,8 +656,8 @@ export class LoreAgent {
     await this.#quietTurn;
   }
 
-  /** @param {string} text @param {AgentTask} task @param {AgentTask} [from] @param {number} [memory] @param {string} [source] @param {string} [phase] What the task's row says while it works. */
-  async #turn(text, task, from, memory, source, phase) {
+  /** @param {string} text @param {AgentTask} task @param {AgentTask} [from] @param {number} [memory] @param {string} [source] @param {string} [phase] What the task's row says while it works. @param {string} [prompted] The owner's prompt, from which the row's subtitle is worked out. */
+  async #turn(text, task, from, memory, source, phase, prompted) {
     if (this.#busy) throw new Error("Lore is already working");
     if (!text.trim()) throw new Error("Nothing to capture");
     const quiet = QUIET.has(task);
@@ -669,7 +687,7 @@ export class LoreAgent {
       }
       const existing = this.#sessions.get(task);
       const [session, resumed] = existing ? [existing, true] : await this.#newSession(task, from);
-      this.#record(session, task, "working", phase);
+      this.#record(session, task, "working", prompted === undefined ? phase : turnPhase(task, prompted, latestTaskRecord(session.sessionManager, task)));
       let body = memory === undefined ? text : `${text}${memoryAside(memory)}`;
       if (source !== undefined) body += sourceAside(source);
       if (task === "publish" && this.options.drafts) body += draftsAside(await this.options.drafts());

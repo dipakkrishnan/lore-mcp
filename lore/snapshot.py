@@ -10,7 +10,7 @@ from typing import Any, Literal, cast
 
 from pydantic import BaseModel, ConfigDict, TypeAdapter
 
-from . import automation, blueprint, feedback, sources
+from . import automation, blueprint, deploy, feedback, sources
 from .paths import claude_home, home
 from .store import FREE_COPIES, FREE_COPIES_SETTING, JOB_SUMMARIES, Store
 
@@ -218,6 +218,7 @@ def build() -> dict[str, object]:
         telemetry_noticed = store.setting("telemetry_noticed", False) is True
         automations_noticed = store.setting(automation.NOTICED, False) is True
         node_url = store.setting("node_url", None)
+        node_selling = deploy.selling(store)
         # Reading concedes jobs whose liveness claim expired, so an interrupted
         # run turns visibly incomplete on the next refresh without a scheduler.
         jobs = store.recent_jobs(limit=20)
@@ -276,6 +277,8 @@ def build() -> dict[str, object]:
         },
         "node": {
             "url": node_url if isinstance(node_url, str) else None,
+            # False while the store is online only for the owner's agents (XC-069).
+            "selling": node_selling,
             "live": live,
         },
         # Owner-run history. The stored summary is a code; the prose is applied

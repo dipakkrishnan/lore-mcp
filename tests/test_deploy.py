@@ -10,10 +10,15 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
+import sqlite3
 import stat
 import subprocess
 import sys
 import unittest
+from contextlib import contextmanager
+from pathlib import Path
+from typing import Iterator
 from unittest.mock import patch
 
 from helpers import LoreTestCase, captured
@@ -70,6 +75,7 @@ class _Wrangler:
         logged_in: bool = True,
         login_fails: bool = False,
         has_wallet_secret: bool = True,
+        secret_list_fails: bool = False,
         install_fails: bool = False,
         secret_put_fails: bool = False,
         d1_exists: bool = False,
@@ -81,6 +87,7 @@ class _Wrangler:
         self.logged_in = logged_in
         self.login_fails = login_fails
         self.has_wallet_secret = has_wallet_secret
+        self.secret_list_fails = secret_list_fails
         self.install_fails = install_fails
         self.secret_put_fails = secret_put_fails
         self.d1_exists = d1_exists
@@ -102,7 +109,10 @@ class _Wrangler:
         elif tail[:1] == ("login",):
             code = 1 if self.login_fails else 0
         elif tail == ("secret", "list"):
-            out = '[{"name":"LORE_WALLET"}]' if self.has_wallet_secret else "[]"
+            if self.secret_list_fails:
+                code, err = 1, "Authentication error [code: 10000]"
+            else:
+                out = '[{"name":"LORE_WALLET"}]' if self.has_wallet_secret else "[]"
         elif tail[:2] == ("secret", "put"):
             code = 1 if self.secret_put_fails else 0
             err = "vault down" if self.secret_put_fails else ""
@@ -148,6 +158,22 @@ class _NodeCase(LoreTestCase):
         probe = patch("lore.snapshot.remote_manifest", return_value=LIVE)
         self.probe = probe.start()
         self.addCleanup(probe.stop)
+
+    @contextmanager
+    def refused(self, npm: str | None = "/usr/bin/npm") -> Iterator[None]:
+        """For a deploy a guard must stop: any command or push it reaches fails the test."""
+        with (
+            patch("lore.deploy.shutil.which", return_value=npm),
+            patch(
+                "lore.deploy.subprocess.run",
+                side_effect=AssertionError("a refused deploy ran a command"),
+            ),
+            patch(
+                "lore.cli.push_job",
+                side_effect=AssertionError("a refused deploy pushed"),
+            ),
+        ):
+            yield
 
 
 class SalesTest(LoreTestCase):
@@ -423,12 +449,14 @@ class DeployTest(_NodeCase):
         self,
         wallet: str | None = WALLET,
         *,
-        price_usd: float = 0.37,
+        price_usd: float | None = 0.37,
         probe_fails: bool = False,
+        inbox_only: bool = False,
         **script: object,
     ) -> tuple[int, _Wrangler]:
-        with Store() as store:
-            store.set_setting("price_usd", price_usd)
+        if price_usd is not None:
+            with Store() as store:
+                store.set_setting("price_usd", price_usd)
         wrangler = _Wrangler(**script)  # type: ignore[arg-type]
         with (
             patch("lore.deploy.subprocess.run", side_effect=wrangler),
@@ -436,7 +464,7 @@ class DeployTest(_NodeCase):
             # `push_job` is `lore.cli`'s, exercised in tests/test_cli.py; here
             # it only needs to be observable and not touch the network.
             patch("lore.cli.push_job") as push,
-            captured(),
+            captured() as output,
         ):
             # The push creates the publications table, so the node is only
             # asked for its manifest after it; probing first would test a
@@ -448,9 +476,502 @@ class DeployTest(_NodeCase):
                 return LIVE
 
             self.probe.side_effect = probed
-            code = deploy_module.deploy(wallet)
+            code = deploy_module.deploy(wallet, inbox_only=inbox_only)
         wrangler.push = push  # type: ignore[attr-defined]
+        wrangler.output = output.getvalue()  # type: ignore[attr-defined]
         return code, wrangler
+
+    def _selling(self) -> object:
+        with Store() as store:
+            return store.setting(deploy_module.SELLING_SETTING, None)
+
+    def test_inbox_only_needs_no_price_and_no_payout_address(self) -> None:
+        # XC-069: a new owner's agents save to the store before anything is
+        # priced or approved; only the Cloudflare sign-in stands in the way.
+        code, wrangler = self._deploy(
+            None, price_usd=None, inbox_only=True, has_wallet_secret=False
+        )
+        self.assertEqual(code, 0)
+        self.assertTrue(wrangler.named("deploy"))
+        self.assertEqual(wrangler.named("secret", "put", "LORE_WALLET"), [])
+        self.assertEqual(wrangler.named("secret", "put", "LORE_NETWORK"), [])
+        # The push is what carries the inbox keys and creates the tables.
+        wrangler.push.assert_called_once()  # type: ignore[attr-defined]
+        self.probe.assert_called_once_with("https://lore.example.workers.dev/mcp")
+        with Store() as store:
+            self.assertEqual(
+                store.setting("node_url"), "https://lore.example.workers.dev/mcp"
+            )
+            self.assertFalse(deploy_module.selling(store))
+        self.assertIs(self._selling(), False)
+        self.assertIn("nothing for sale", wrangler.output)  # type: ignore[attr-defined]
+        # No price is baked in: the shipped placeholder stays, and nothing is charged.
+        self.assertIn(
+            deploy_module.PRICE_DECLARATION,
+            (self.lore_home / "node/src/price.ts").read_text(),
+        )
+
+    def test_inbox_only_still_walks_a_logged_out_owner_through_sign_in(self) -> None:
+        code, wrangler = self._deploy(
+            None, price_usd=None, inbox_only=True, logged_in=False
+        )
+        self.assertEqual(code, 0)
+        self.assertTrue(wrangler.named("login"))
+
+    def test_inbox_only_takes_no_payout_address_or_network(self) -> None:
+        for wallet, network in ((WALLET, None), (None, "real")):
+            with self.subTest(wallet=wallet, network=network):
+                with (
+                    self.refused(),
+                    self.assertRaisesRegex(ValueError, "nothing for sale"),
+                ):
+                    deploy_module.deploy(wallet, network, inbox_only=True)
+        with Store() as store:
+            self.assertEqual(store.recent_jobs(limit=5), [])
+
+    def test_a_piece_approved_while_online_for_agents_reaches_the_store_when_it_opens(
+        self,
+    ) -> None:
+        # The real push, not a stand-in: what the edge database is sent.
+        from lore import cli
+
+        wrangler = _Wrangler(has_wallet_secret=False)
+        sent: list[str] = []
+
+        def run(args, **kwargs):  # type: ignore[no-untyped-def]
+            if "--file" in args:
+                sent.append(Path(args[args.index("--file") + 1]).read_text())
+            return wrangler(args, **kwargs)
+
+        def deploy(wallet: str | None, **options: bool) -> None:
+            with (
+                patch("lore.deploy.subprocess.run", side_effect=run),
+                patch("lore.deploy.shutil.which", return_value="/usr/bin/npm"),
+                captured(),
+            ):
+                self.assertEqual(deploy_module.deploy(wallet, **options), 0)
+
+        deploy(None, inbox_only=True)
+        self.assertIn("('selling','false')", sent[-1])
+        memory = self.seed_memory("Price a sync placement by its reach")
+        with Store() as store:
+            store.add_publication(
+                title="Price by reach",
+                content="PAID-PIECE-TEXT",
+                topic="licensing",
+                teaser="How to price a sync placement",
+                provenance=[memory],
+            )
+        pushes = len(sent)
+        with patch("lore.deploy.subprocess.run", side_effect=run), captured():
+            cli._push_after_approval()
+        self.assertEqual(len(sent), pushes, "an approval pushed to a store not selling")
+        # A push by hand, and a second inbox-only deploy, still carry no piece.
+        with patch("lore.deploy.subprocess.run", side_effect=run), captured():
+            cli.push_job(self.lore_home / "node", False)
+        deploy(None, inbox_only=True)
+        for script in sent[pushes:]:
+            self.assertNotIn("PAID-PIECE-TEXT", script)
+            self.assertIn("('selling','false')", script)
+
+        with Store() as store:
+            store.set_setting("price_usd", 3.0)
+        deploy(WALLET)
+        self.assertIn("PAID-PIECE-TEXT", sent[-1])
+        self.assertIn("('selling','true')", sent[-1])
+        self.assertIn("('price_usd','3.000000')", sent[-1])
+
+    def _sent_by(
+        self, wrangler: _Wrangler, wallet: str | None, **options: bool
+    ) -> list[str]:
+        """Deploy through the real push, and return the scripts it sent."""
+        sent: list[str] = []
+
+        def run(args, **kwargs):  # type: ignore[no-untyped-def]
+            if "--file" in args:
+                sent.append(Path(args[args.index("--file") + 1]).read_text())
+            return wrangler(args, **kwargs)
+
+        with (
+            patch("lore.deploy.subprocess.run", side_effect=run),
+            patch("lore.deploy.shutil.which", return_value="/usr/bin/npm"),
+            captured(),
+        ):
+            self.assertEqual(deploy_module.deploy(wallet, **options), 0)
+        return sent
+
+    def test_a_new_store_online_for_agents_is_never_told_to_sell_without_an_address(
+        self,
+    ) -> None:
+        # A custom route, or wrangler output that changed: no workers.dev
+        # address is printed, yet the push still runs and must not sell.
+        memory = self.seed_memory("Price a sync placement by its reach")
+        with Store() as store:
+            store.add_publication(
+                title="Price by reach",
+                content="PAID-PIECE-TEXT",
+                topic="licensing",
+                teaser="How to price a sync placement",
+                provenance=[memory],
+            )
+        sent = self._sent_by(
+            _Wrangler(deploy_output="Deployed to a custom route"), None, inbox_only=True
+        )
+        self.assertIn("('selling','false')", sent[-1])
+        self.assertNotIn("PAID-PIECE-TEXT", sent[-1])
+        with Store() as store:
+            self.assertIsNone(store.setting("node_url", None))
+            self.assertIs(store.setting(deploy_module.SELLING_SETTING, None), False)
+            self.assertIs(deploy_module.choice(store), False)
+
+    def test_inbox_only_is_recorded_as_online_for_agents_not_live(self) -> None:
+        self._deploy(None, price_usd=None, inbox_only=True)
+        with Store() as store:
+            self.assertEqual(store.recent_jobs(limit=1)[0].summary, "deployed_inbox")
+        self._deploy(WALLET)
+        with Store() as store:
+            self.assertEqual(store.recent_jobs(limit=1)[0].summary, "deployed")
+        # Inbox-only on a store already selling leaves it selling: it is live.
+        self._deploy(None, inbox_only=True)
+        with Store() as store:
+            self.assertEqual(store.recent_jobs(limit=1)[0].summary, "deployed")
+
+    def test_inbox_only_on_a_selling_store_keeps_a_price_it_can_charge(self) -> None:
+        self._deploy(WALLET)
+        for stored, message in (
+            (0, "stop here"),
+            ("bogus", "at least"),
+            (None, "no publication price"),
+        ):
+            with self.subTest(stored=stored):
+                with Store() as store:
+                    store.set_setting("price_usd", stored)
+                    jobs = len(store.recent_jobs())
+                with (
+                    self.refused(),
+                    self.assertRaisesRegex(ValueError, message),
+                ):
+                    deploy_module.deploy(None, inbox_only=True)
+                with Store() as store:
+                    self.assertEqual(len(store.recent_jobs()), jobs)
+
+    def test_inbox_only_never_reads_the_wallet(self) -> None:
+        # A failed or empty secret listing must never decide whether a store
+        # sells; inbox-only doesn't ask.
+        _, wrangler = self._deploy(
+            None, price_usd=None, inbox_only=True, secret_list_fails=True
+        )
+        self.assertEqual(wrangler.named("secret", "list"), [])
+
+    def test_inbox_only_on_a_store_already_selling_keeps_it_selling(self) -> None:
+        self._deploy(WALLET)
+        self.assertIs(self._selling(), True)
+        code, wrangler = self._deploy(
+            None, inbox_only=True, has_wallet_secret=False, secret_list_fails=True
+        )
+        self.assertEqual(code, 0)
+        self.assertEqual(wrangler.named("secret", "list"), [])
+        self.assertEqual(wrangler.named("secret", "put", "LORE_WALLET"), [])
+        self.assertIs(self._selling(), True)
+        self.assertIn("Live:", wrangler.output)  # type: ignore[attr-defined]
+        self.assertNotIn("nothing for sale", wrangler.output)  # type: ignore[attr-defined]
+        # A price the owner already set is still the one baked in.
+        self.assertIn(
+            "export const PRICE_USD = 0.37;",
+            (self.lore_home / "node/src/price.ts").read_text(),
+        )
+
+    def _legacy(self, *, node_url: str | None) -> None:
+        """A store from before XC-069 (0.1.15): the staged node holds its real
+        database id, and no choice to sell was ever recorded. A failed old
+        deploy, a dry run, or a store deployed and long kept selling all look
+        like this; none of them is ever guessed at."""
+        node = deploy_module.materialize(0.37)
+        config = node / "wrangler.jsonc"
+        config.write_text(
+            config.read_text().replace(deploy_module.D1_PLACEHOLDER, DATABASE_ID)
+        )
+        memory = self.seed_memory("Price a sync placement by its reach")
+        with Store() as store:
+            store.set_setting("node_url", node_url)
+            store.add_publication(
+                title="Price by reach",
+                content="PAID-PIECE-TEXT",
+                topic="licensing",
+                teaser="How to price a sync placement",
+                provenance=[memory],
+            )
+
+    def test_inbox_only_on_a_store_from_before_the_setting_changes_nothing_about_selling(
+        self,
+    ) -> None:
+        # Codex scenario 1: a real D1 id left by an old deploy that may never
+        # have gone live. The database was found, not created, so the store
+        # stays as 0.1.15 left it: its push carries the pieces and no key.
+        self._legacy(node_url=None)
+        sent = self._sent_by(
+            _Wrangler(deploy_output="Deployed to a custom route"), None, inbox_only=True
+        )
+        self.assertIsNone(self._selling())
+        self.assertIn("PAID-PIECE-TEXT", sent[-1])
+        self.assertNotIn("'selling'", sent[-1])
+
+    def test_inbox_only_that_adopts_an_existing_database_leaves_the_choice_unset(
+        self,
+    ) -> None:
+        # The address is known, the staged config was reset, and the database
+        # already exists: adopted, not created, so nothing is decided for the owner.
+        with Store() as store:
+            store.set_setting("node_url", "https://lore.example.workers.dev/mcp")
+            # It sells, so like any deploy of a store that sells it keeps a real price.
+            store.set_setting("price_usd", 0.37)
+        sent = self._sent_by(_Wrangler(d1_exists=True), None, inbox_only=True)
+        self.assertIsNone(self._selling())
+        self.assertNotIn("'selling'", sent[-1])
+
+    def test_a_fresh_inbox_only_deploy_creates_its_database_and_sells_nothing(
+        self,
+    ) -> None:
+        memory = self.seed_memory("Price a sync placement by its reach")
+        with Store() as store:
+            store.add_publication(
+                title="Price by reach",
+                content="PAID-PIECE-TEXT",
+                topic="licensing",
+                teaser="How to price a sync placement",
+                provenance=[memory],
+            )
+        sent = self._sent_by(_Wrangler(), None, inbox_only=True)
+        self.assertIs(self._selling(), False)
+        self.assertIn("('selling','false')", sent[-1])
+        self.assertNotIn("PAID-PIECE-TEXT", sent[-1])
+
+    def test_a_failed_choice_write_records_no_database_and_a_retry_stays_safe(
+        self,
+    ) -> None:
+        # Codex round 7: the store's "not selling" is written before the new
+        # database's id, so a write SQLite refuses leaves neither; a retry then
+        # finds the database already made and is refused or adopts it, never
+        # pushing pieces with no choice recorded.
+        config = self.lore_home / "node/wrangler.jsonc"
+        for inbox_only in (True, False):
+            with self.subTest(inbox_only=inbox_only):
+                shutil.rmtree(self.lore_home / "node", ignore_errors=True)
+                with Store() as store:
+                    store.set_setting(deploy_module.SELLING_SETTING, None)
+                    store.set_setting("node_url", None)
+                    store.set_setting("price_usd", 0.37)
+                wallet = None if inbox_only else WALLET
+                with (
+                    patch("lore.deploy.subprocess.run", side_effect=_Wrangler()),
+                    patch("lore.deploy.shutil.which", return_value="/usr/bin/npm"),
+                    patch.object(
+                        Store,
+                        "set_setting_if_unset",
+                        side_effect=sqlite3.OperationalError("database is locked"),
+                    ),
+                    patch("lore.cli.push_job") as push,
+                    captured(),
+                    self.assertRaisesRegex(sqlite3.OperationalError, "locked"),
+                ):
+                    deploy_module.deploy(wallet, inbox_only=inbox_only)
+                push.assert_not_called()
+                self.assertIn(deploy_module.D1_PLACEHOLDER, config.read_text())
+                self.assertIsNone(self._selling())
+                with Store() as store:
+                    self.assertIsNone(store.setting("node_url", None))
+
+                # The retry: the database now exists on the account.
+                with (
+                    patch(
+                        "lore.deploy.subprocess.run",
+                        side_effect=_Wrangler(d1_exists=True),
+                    ),
+                    patch("lore.deploy.shutil.which", return_value="/usr/bin/npm"),
+                    patch("lore.cli.push_job") as push,
+                    captured(),
+                    self.assertRaisesRegex(OSError, "already exists"),
+                ):
+                    deploy_module.deploy(wallet, inbox_only=inbox_only)
+                push.assert_not_called()
+                self.assertIsNone(self._selling())
+                if inbox_only:
+                    # Reconnecting it for agents only is refused outright.
+                    with (
+                        patch.dict(os.environ, {"LORE_ADOPT_EXISTING_D1": "1"}),
+                        self.refused(),
+                        self.assertRaisesRegex(ValueError, "run the full store setup"),
+                    ):
+                        deploy_module.deploy(None, inbox_only=True)
+                else:
+                    # Adopting it with a full deploy opens it for sale, explicitly.
+                    with patch.dict(os.environ, {"LORE_ADOPT_EXISTING_D1": "1"}):
+                        sent = self._sent_by(_Wrangler(d1_exists=True), WALLET)
+                    self.assertIn("('selling','true')", sent[-1])
+                    self.assertIs(self._selling(), True)
+
+    def test_an_explicit_choice_written_during_the_deploy_is_never_overwritten(
+        self,
+    ) -> None:
+        # Codex scenario 3: the owner's yes lands while the database is being
+        # created; the deploy's no is guarded and never replaces it.
+        wrangler = _Wrangler()
+
+        def run(args, **kwargs):  # type: ignore[no-untyped-def]
+            if tuple(args[1:]) == ("d1", "create", deploy_module.D1_NAME):
+                with Store() as other:
+                    other.set_setting(deploy_module.SELLING_SETTING, True)
+            return wrangler(args, **kwargs)
+
+        with (
+            patch("lore.deploy.subprocess.run", side_effect=run),
+            patch("lore.deploy.shutil.which", return_value="/usr/bin/npm"),
+            patch("lore.cli.push_job"),
+            captured(),
+        ):
+            deploy_module.deploy(None, inbox_only=True)
+        self.assertIs(self._selling(), True)
+
+    def test_a_full_deploy_says_selling_only_after_its_push_landed(self) -> None:
+        self._deploy(None, price_usd=None, inbox_only=True)
+        seen: list[object] = []
+        wrangler = _Wrangler()
+        with (
+            patch("lore.deploy.subprocess.run", side_effect=wrangler),
+            patch("lore.deploy.shutil.which", return_value="/usr/bin/npm"),
+            patch(
+                "lore.cli.push_job",
+                side_effect=lambda *a, **k: seen.append(self._selling()),
+            ),
+            captured(),
+        ):
+            with Store() as store:
+                store.set_setting("price_usd", 0.37)
+            deploy_module.deploy(WALLET)
+        self.assertEqual(seen, [False])
+        self.assertIs(self._selling(), True)
+
+    def test_inbox_only_refuses_to_reconnect_a_store_that_sells(self) -> None:
+        for chosen in (True, None):
+            with self.subTest(chosen=chosen):
+                with Store() as store:
+                    store.set_setting(deploy_module.SELLING_SETTING, chosen)
+                with (
+                    patch.dict(os.environ, {"LORE_ADOPT_EXISTING_D1": "1"}),
+                    self.refused(),
+                    self.assertRaisesRegex(
+                        ValueError, "run the full store setup so it keeps selling"
+                    ),
+                ):
+                    deploy_module.deploy(None, inbox_only=True)
+        # A store its owner already took off sale can be reconnected for its agents.
+        with Store() as store:
+            store.set_setting(deploy_module.SELLING_SETTING, False)
+        with patch.dict(os.environ, {"LORE_ADOPT_EXISTING_D1": "1"}):
+            code, _ = self._deploy(None, price_usd=None, inbox_only=True)
+        self.assertEqual(code, 0)
+        self.assertIs(self._selling(), False)
+
+    def test_a_failed_push_leaves_the_store_as_it_was(self) -> None:
+        # The node never heard it, so the owner's status must not say it sells.
+        self._deploy(None, price_usd=None, inbox_only=True)
+        self.assertIs(self._selling(), False)
+        wrangler = _Wrangler()
+        with (
+            patch("lore.deploy.subprocess.run", side_effect=wrangler),
+            patch("lore.deploy.shutil.which", return_value="/usr/bin/npm"),
+            patch(
+                "lore.cli.push_job",
+                side_effect=ValueError("wrangler could not write the edge database"),
+            ),
+            captured(),
+            self.assertRaisesRegex(ValueError, "edge database"),
+        ):
+            with Store() as store:
+                store.set_setting("price_usd", 0.37)
+            deploy_module.deploy(WALLET)
+        self.assertIs(self._selling(), False)
+        with Store() as store:
+            self.assertFalse(deploy_module.selling(store))
+
+    def test_a_failed_check_after_a_pushed_deploy_keeps_the_store_selling(self) -> None:
+        # The push told the node to sell; only the probe afterwards failed.
+        self._deploy(None, price_usd=None, inbox_only=True)
+        with self.assertRaisesRegex(OSError, "did not answer discover"):
+            self._deploy(WALLET, probe_fails=True)
+        self.assertIs(self._selling(), True)
+
+    def test_a_failed_secret_listing_stops_the_deploy_and_changes_nothing(
+        self,
+    ) -> None:
+        with Store() as store:
+            store.set_setting("node_url", "https://lore.example.workers.dev/mcp")
+            store.set_setting(deploy_module.SELLING_SETTING, False)
+        with self.assertRaisesRegex(OSError, "reading your store's settings"):
+            self._deploy(None, secret_list_fails=True)
+        self.assertIs(self._selling(), False)
+
+    def test_a_new_store_is_not_selling_until_its_secrets_are_in_place(
+        self,
+    ) -> None:
+        # Nothing seeded: a fresh deploy whose payout or network write fails
+        # leaves a live address that must not read as a store open for sale.
+        for failing in ("LORE_WALLET", "LORE_NETWORK"):
+            with self.subTest(failing=failing):
+                # Each run creates its store's database afresh, as a new owner's does.
+                shutil.rmtree(self.lore_home / "node", ignore_errors=True)
+                with Store() as store:
+                    store.set_setting("node_url", None)
+                    store.set_setting(deploy_module.SELLING_SETTING, None)
+                    store.set_setting("price_usd", 0.37)
+                wrangler = _Wrangler(secret_put_fails=True)
+                with (
+                    patch("lore.deploy.subprocess.run", side_effect=wrangler),
+                    patch("lore.deploy.shutil.which", return_value="/usr/bin/npm"),
+                    patch("lore.cli.push_job") as push,
+                    captured(),
+                    self.assertRaisesRegex(OSError, failing),
+                ):
+                    deploy_module.deploy(
+                        WALLET if failing == "LORE_WALLET" else None,
+                        "real" if failing == "LORE_NETWORK" else None,
+                    )
+                push.assert_not_called()
+                with Store() as store:
+                    self.assertEqual(
+                        store.setting("node_url"),
+                        "https://lore.example.workers.dev/mcp",
+                    )
+                    self.assertIs(
+                        store.setting(deploy_module.SELLING_SETTING, None), False
+                    )
+                    self.assertFalse(deploy_module.selling(store))
+
+    def test_a_store_online_for_agents_opens_for_sale_on_the_usual_deploy(
+        self,
+    ) -> None:
+        self._deploy(None, price_usd=None, inbox_only=True, has_wallet_secret=False)
+        self.assertIs(self._selling(), False)
+        # The first piece to sell: no price yet, so the usual guard asks for one.
+        with (
+            self.refused(),
+            self.assertRaisesRegex(ValueError, "no publication price is set"),
+        ):
+            deploy_module.deploy(WALLET)
+        # Without --wallet, a store with no payout address is still refused in seconds.
+        with self.assertRaisesRegex(ValueError, "no payout address"):
+            self._deploy(None, has_wallet_secret=False)
+        self.assertIs(self._selling(), False)
+        with self.assertRaisesRegex(OSError, "LORE_WALLET"):
+            self._deploy(WALLET, secret_put_fails=True)
+        self.assertIs(self._selling(), False)
+        code, wrangler = self._deploy(WALLET, has_wallet_secret=False)
+        self.assertEqual(code, 0)
+        self.assertEqual(wrangler.secret_values["LORE_WALLET"], WALLET + "\n")
+        self.assertIs(self._selling(), True)
+        self.assertIn("Live:", wrangler.output)  # type: ignore[attr-defined]
+        with Store() as store:
+            self.assertTrue(deploy_module.selling(store))
 
     def test_a_full_deploy_drives_wrangler_and_records_the_url(self) -> None:
         code, wrangler = self._deploy()
@@ -678,7 +1199,9 @@ class DeployTest(_NodeCase):
         # both halves happened exactly once.
         code, wrangler = self._deploy()
         self.assertEqual(code, 0)
-        wrangler.push.assert_called_once_with(self.lore_home / "node", False)
+        wrangler.push.assert_called_once_with(
+            self.lore_home / "node", False, opening=True
+        )
         self.probe.assert_called_once()
 
     def test_a_malformed_wallet_never_reaches_the_network(self) -> None:
@@ -691,14 +1214,14 @@ class DeployTest(_NodeCase):
 
     def test_a_missing_node_toolchain_is_named_before_anything_else(self) -> None:
         with (
-            patch("lore.deploy.shutil.which", return_value=None),
+            self.refused(npm=None),
             self.assertRaisesRegex(OSError, "nodejs.org"),
         ):
             deploy_module.deploy(WALLET)
 
     def test_deploying_with_no_price_set_is_refused(self) -> None:
         with (
-            patch("lore.deploy.shutil.which", return_value="/usr/bin/npm"),
+            self.refused(),
             self.assertRaisesRegex(ValueError, "no publication price is set"),
         ):
             deploy_module.deploy(WALLET)
@@ -716,10 +1239,45 @@ class DeployTest(_NodeCase):
                 with Store() as store:
                     store.set_setting("price_usd", stored)
                 with (
-                    patch("lore.deploy.shutil.which", return_value="/usr/bin/npm"),
+                    self.refused(),
                     self.assertRaisesRegex(ValueError, message),
                 ):
                     deploy_module.deploy(WALLET)
+
+
+class HermeticTest(LoreTestCase):
+    """No test can reach a real Cloudflare account, whatever guard regresses."""
+
+    def test_an_unstubbed_command_is_refused_before_it_runs(self) -> None:
+        for command in (
+            ("npm", "install"),
+            ("npx", "wrangler", "whoami"),
+            ("wrangler", "deploy"),
+        ):
+            with self.subTest(command=command):
+                with self.assertRaisesRegex(
+                    AssertionError, "tests must not run wrangler/npm"
+                ):
+                    deploy_module._run(command, self.lore_home)
+
+    def test_a_whole_deploy_with_nothing_stubbed_runs_nothing(self) -> None:
+        with Store() as store:
+            store.set_setting("price_usd", 0.37)
+        with (
+            patch("lore.deploy.shutil.which", return_value="/usr/bin/npm"),
+            captured(),
+            self.assertRaisesRegex(AssertionError, "tests must not run wrangler/npm"),
+        ):
+            deploy_module.deploy(WALLET)
+
+    def test_a_real_wrangler_could_not_sign_in_or_npm_download(self) -> None:
+        self.assertEqual(os.environ["CLOUDFLARE_API_TOKEN"], "invalid-for-tests")
+        self.assertEqual(os.environ["npm_config_offline"], "true")
+        self.assertEqual(Path(os.environ["npm_config_userconfig"]).read_text(), "")
+        home = str(Path.home())
+        for name in ("WRANGLER_HOME", "XDG_CONFIG_HOME", "npm_config_cache"):
+            with self.subTest(name=name):
+                self.assertFalse(os.environ[name].startswith(home), os.environ[name])
 
 
 class RunTest(_NodeCase):
