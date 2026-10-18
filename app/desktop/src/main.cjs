@@ -2,7 +2,7 @@ const { randomUUID } = require("node:crypto");
 const { existsSync } = require("node:fs");
 const { appendFile } = require("node:fs/promises");
 const { dirname, join } = require("node:path");
-const { app, autoUpdater, BrowserWindow, clipboard, dialog, ipcMain, powerMonitor, safeStorage, shell, systemPreferences } = require("electron");
+const { app, autoUpdater, BrowserWindow, clipboard, dialog, ipcMain, nativeTheme, powerMonitor, safeStorage, shell, systemPreferences } = require("electron");
 const { provision, skillsDir, whisper } = require("./runtime.cjs");
 const { transcribe } = require("./dictation.cjs");
 const sales = require("./sales.cjs");
@@ -392,6 +392,8 @@ async function runNow(loreHome, routine) {
 }
 
 function createWindow() {
+  // Lore is drawn light only, so its frosted sidebar is the light material even when the Mac is in dark mode.
+  nativeTheme.themeSource = "light";
   window = new BrowserWindow({
     width: 1040,
     height: 760,
