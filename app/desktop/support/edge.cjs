@@ -1531,7 +1531,7 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         check("…showing what it saved", await waitFor(`[...document.querySelectorAll("#content .row .t b")].some((b) => b.textContent.startsWith("Send the cue sheet with the invoice"))`));
         await shot("firstrun-see-them");
         await relaunch();
-        check("once done, a relaunch opens on Today", await waitFor(`document.querySelector("#content .strip")`, 80) && await js(`document.querySelector("#title").textContent !== "Welcome to Lore" && document.querySelector("#first-run-skip").hidden && !document.querySelector("#capture").hidden`), await js(`document.querySelector("#title").textContent`));
+        check("once done, a relaunch opens on Today", await waitFor(todayShown, 80) && await js(`document.querySelector("#title").textContent !== "Welcome to Lore" && document.querySelector("#first-run-skip").hidden && !document.querySelector("#capture").hidden`), await js(`document.querySelector("#title").textContent`));
 
         // Skip for now: the chat steps aside for Today's one next step, and stays aside.
         await js(`window.lore.setFirstRun({ state: "started" })`);
@@ -1542,11 +1542,11 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         check("…and is kept as skipped", await waitFor(`window.lore.firstRun().then((k) => k?.state === "skipped")`), JSON.stringify(await kept()));
         await shot("firstrun-skipped-today");
         await relaunch();
-        check("…so a relaunch stays on Today", await waitFor(`document.querySelector("#content .strip")`, 80) && await js(`document.querySelector("#title").textContent !== "Welcome to Lore"`));
+        check("…so a relaunch stays on Today", await waitFor(todayShown, 80) && await js(`document.querySelector("#title").textContent !== "Welcome to Lore"`));
         // Where the first run stands never answers: Lore goes on without it after a moment.
         const letStuck = hold("firstrun:read");
         await relaunch();
-        check("a first-run read that never answers holds Today back only a moment", await waitFor(`document.querySelector("#content .strip")`, 40) && await js(`document.querySelector("#title").textContent !== "Welcome to Lore"`), await js(`document.querySelector("#title").textContent`));
+        check("a first-run read that never answers holds Today back only a moment", await waitFor(todayShown, 40) && await js(`document.querySelector("#title").textContent !== "Welcome to Lore"`), await js(`document.querySelector("#title").textContent`));
         letStuck();
 
         // Skip while a step is still under way: what finishes after it never brings the chat back, or goes on to connect.
