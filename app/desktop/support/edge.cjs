@@ -67,6 +67,31 @@ const pushes = [];
 let finishThread = (/** @type {AgentTask} */ _kind) => {};
 /** APP-214: the next turn fails a moment in, the way agent.mjs reports a thrown turn. */
 let failNextTurn = false;
+/** APP-211: every call the renderer made to the main process, every usage event it asked to record, and every write
+ * remembering the automations notice. In fresh, the first of each write fails as a busy CLI's would (the usage one at
+ * once, the automations one after a moment), and the third automations write is slow. */
+const ipc = [];
+const usage = [];
+const routinesNoticed = [];
+{
+  const { ipcMain } = require("electron");
+  const handle = ipcMain.handle.bind(ipcMain);
+  const locked = () => new Error("database is locked");
+  ipcMain.handle = (channel, listener) => handle(channel, (event, ...args) => {
+    ipc.push(channel);
+    if (scenario !== "fresh") return listener(event, ...args);
+    if (channel === "usage:record") {
+      usage.push(args[0]);
+      if (args[0] === "noticed" && usage.filter((name) => name === "noticed").length === 1) return Promise.reject(locked());
+    }
+    if (channel === "routines:noticed") {
+      routinesNoticed.push(Date.now());
+      if (routinesNoticed.length === 1) return sleep(1500).then(() => Promise.reject(locked()));
+      if (routinesNoticed.length === 3) return sleep(2000).then(() => listener(event, ...args));
+    }
+    return listener(event, ...args);
+  });
+}
 if (scenario === "listing") {
   require("electron").shell.openExternal = async (url) => { opened.push(url); };
   require(join(src, "main.cjs"));
@@ -254,6 +279,9 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
   if (window.getParentWindow()) return; // a page preview, not the app
   if (walking) return;
   walking = true;
+  // The walk drives the page itself. A real click from whoever is working on this Mac passes through to the window
+  // beneath, so it can never switch a view or close a sheet in the middle of a walk.
+  window.setIgnoreMouseEvents(true);
   const js = (code) => window.webContents.executeJavaScript(code);
   const shot = (name) => window.webContents.capturePage().then((image) => writeFileSync(join(S, `${name}.png`), image.toPNG()));
   const waitFor = async (code, tries = 40) => { for (let i = 0; i < tries; i++) { if (await js(code)) return true; await sleep(250); } return false; };
@@ -362,6 +390,9 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         check("a saved price closes the sheet", await waitFor(`!document.querySelector("dialog.form-sheet[open]")`));
         await waitFor(`document.querySelector("#content").textContent.includes("Your store still charges $0.02.")`);
         check("a saved price the node does not charge yet says so on For Sale", await js(`document.querySelector("#content .store-bar").textContent.includes("$0.75") && document.querySelector("#content .store-bar").textContent.includes("Your store still charges $0.02.")`));
+        const salesBox = await js(`[...document.querySelectorAll("#content section")].find((n) => n.querySelector("h2")?.textContent === "Sales")?.textContent ?? ""`);
+        check("a store not opened on this Mac says so about sales, in plain words", salesBox.includes("Sales show here once your store is open on this Mac.") && !/deployed|node|machine/.test(salesBox), salesBox);
+        check("…with exactly one Update store control on the card", await js(`[...document.querySelectorAll("#content .store-bar button, #content .store-bar a")].filter((b) => b.textContent === "Update store").length === 1`));
         await shot("store-stale-price");
         await js(`window.__lore.show("today")`);
         await sleep(400);
@@ -387,7 +418,11 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         check("each sale links to its transaction", await js(`[...document.querySelectorAll("#content a.link-btn.glyph")].map((a) => a.href).join(" ")`) === "https://sepolia.basescan.org/tx/0xfeed https://sepolia.basescan.org/tx/0xbeef");
         check("no hash is spelled out in the row", !store.includes("0xfeed"));
         check("the approved publication counts its sales", store.includes("1 sold"));
-        check("the For Sale bar links to payouts", await js(`[...document.querySelectorAll("#content .store-bar a.link-btn")].some((a) => a.textContent === "Payouts ↗")`));
+        check("the For Sale bar links to payouts, as a quiet link", await js(`[...document.querySelectorAll("#content .store-bar a.quiet-link")].some((a) => a.textContent === "Payouts ↗") && !document.querySelector("#content .store-bar a.link-btn")`));
+        // APP-211: one calm row in the UI font: Live and the host on the left, the prices on the right.
+        check("the store card has no monospace", await js(`[...document.querySelectorAll("#content .store-bar *")].every((n) => !getComputedStyle(n).fontFamily.includes("Mono"))`), await js(`[...document.querySelectorAll("#content .store-bar *")].map((n) => getComputedStyle(n).fontFamily).find((f) => f.includes("Mono")) ?? ""`));
+        check("…titled Live, with the host under it", await js(`document.querySelector("#content .store-bar .t b").textContent === "Live · Test mode" && document.querySelector("#content .store-bar .host").textContent === "store.example"`));
+        check("…and the price by the piece, with its free copies", await js(`document.querySelector("#content .store-bar .price-row").textContent`) === "$0.75 a piece · first 3 copies free", await js(`document.querySelector("#content .store-bar .price-row").textContent`));
         await shot("store-sales");
         check("For Sale bar offers Update store while an approved item is not live", await js(`[...document.querySelectorAll("#content .store-bar button")].some((b) => b.textContent === "Update store")`));
         check("the one item not on the store says so on its row, once", await js(`(document.querySelector("#content").textContent.match(/Not on your store yet/g) ?? []).length === 1 && !document.querySelector("#content").textContent.includes("Not live yet")`));
@@ -417,6 +452,28 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         await js(`window.__lore.show("today")`);
         await sleep(400);
         check("Today's next step names the pending removal", await js(`${nextStep}.includes("1 taken down, still on your store")`), await js(nextStep));
+        // APP-211: the last piece taken down, its removal not on the store yet, and a new price: Update store pushes the removal first.
+        const pendingRemoval = () => execFileSync("uv", ["run", "python", "-c", `import time\nfrom lore.store import Store\nwith Store() as s:\n s.set_setting('node_live', {'url': 'https://store.example/mcp', 'checked_at': time.time(), 'live': {'state': 'online', 'network': 'eip155:84532', 'price_usd': 0.02, 'payout': '0x' + 'a' * 40}, 'ids': ['${publicId}']})`], { cwd: join(__dirname, "../../.."), env: process.env });
+        pendingRemoval();
+        await js(`window.__lore.event({ type: "changed" })`);
+        check("Today's next step counts both changes: the removal still pending and the new price", await waitFor(`snapshot.node.live.price_usd === 0.02 && ${nextStep}.includes("2 changes aren't live yet") && ${nextStep}.includes("1 taken down, still on your store")`), await js(nextStep));
+        const todayUpdates = `[...document.querySelectorAll("#content button")].filter((b) => b.textContent === "Update store")`;
+        check("Today offers one Update store for it", await js(`${todayUpdates}.length === 1`), String(await js(`${todayUpdates}.length`)));
+        let before = ipc.length;
+        await js(`${todayUpdates}[0].click()`);
+        for (let i = 0; i < 40 && !ipc.slice(before).includes("store:push"); i++) await sleep(100);
+        check("…which pushes, and starts no deploy", ipc.slice(before).includes("store:push") && !ipc.slice(before).includes("agent:prompt"), JSON.stringify(ipc.slice(before)));
+        pendingRemoval();
+        await js(`window.__lore.event({ type: "changed" })`);
+        await js(`window.__lore.show("store")`);
+        await waitFor(`document.querySelector("#content .store-bar").textContent.includes("Your store still charges $0.02.")`);
+        const updates = `[...document.querySelectorAll("#content .store-bar button, #content .store-bar a")].filter((b) => /^(Update store|Updating…)$/.test(b.textContent))`;
+        check("a pending removal and a new price: one Update store", await js(`${updates}.length === 1`), String(await js(`${updates}.length`)));
+        before = ipc.length;
+        await js(`${updates}[0].click()`);
+        for (let i = 0; i < 40 && !ipc.slice(before).includes("store:push"); i++) await sleep(100);
+        check("…which pushes the removal first, not a redeploy", ipc.slice(before).includes("store:push") && !ipc.slice(before).includes("agent:prompt") && await js(`document.querySelector("#title").textContent`) === "Inventory", JSON.stringify(ipc.slice(before)));
+        await shot("store-push-first");
         // Fix 9: a memory typed on Today joins the unfinished capture thread instead of an empty one.
         await js(`window.__lore.show("today")`);
         await js(`window.__lore.event({ type: "task", task: { version: 1, kind: "capture", title: "Capture", state: "stopped", phase: "Reply to keep going", updatedAt: new Date().toISOString() } })`);
@@ -435,17 +492,44 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
       } else if (scenario === "fresh") {
         // APP-109: an empty Lore names the next action and carries the control that takes it.
         await waitFor(`document.body.dataset.state === "welcome" && !document.querySelector("#welcome").classList.contains("provisioning")`);
+        // APP-211: signing out before the first load lands leaves nothing remembered and nothing sent.
+        await js(`window.__lore.signIn(); auth = { credentials: [] }; enter(); true`);
+        await sleep(2500);
+        check("signing out while Lore loads remembers nothing and sends nothing", usage.length === 0 && await js(`document.body.dataset.state === "welcome" && !document.querySelector("#status .notice")`) && await js(`window.lore.snapshot().then((s) => s.setup.telemetry_noticed !== true && s.setup.automations_noticed === false)`), JSON.stringify(usage));
+        // APP-211: the owner is on another page when Lore loads. Today's notices wait for Today, and aren't remembered as said until seen.
+        await js(`window.__lore.show("connectors")`);
         await js(`window.__lore.signIn()`);
+        await waitFor(`document.querySelector("#title").textContent === "Connectors" && document.querySelector("#content section")`);
+        await sleep(1500);
+        check("loading on another page shows no notice there", await js(`!document.querySelector("#status .notice")`), await js(`document.querySelector("#status").textContent`));
+        check("…and nothing is remembered as said before it's seen", usage.length === 0 && await js(`window.lore.snapshot().then((s) => s.setup.telemetry_noticed !== true && s.setup.automations_noticed === false)`), JSON.stringify(usage));
+        await js(`window.__lore.show("today")`);
         await waitFor(`document.querySelector("#content .strip")`);
-        // AUT-009: with no profile, Lore's own routines are on from the start, and the owner is told once.
-        const told = `[...document.querySelectorAll("#status .notice")].filter((n) => n.textContent.includes("Change this in Automations"))`;
-        check("the first launch says once that Lore reads and checks in on its own", await waitFor(`${told}.length === 1`) && (await js(`${told}[0].textContent`)).startsWith("Lore reads your connected apps every day at 9 AM and checks in at 6 PM when something's worth asking."), await js(`document.querySelector("#status").textContent`));
-        check("…alongside the usage notice, not in place of it", await waitFor(`document.querySelector("#status").textContent.includes("anonymous usage events")`) && await js(`${told}.length === 1`));
-        check("…and remembers having said it", await waitFor(`window.lore.snapshot().then((s) => s.setup.automations_noticed === true)`));
-        await shot("automations-on-notice");
-        await js(`[...${told}[0].querySelectorAll("button")].find((b) => b.textContent === "Automations").click()`);
+        // AUT-009: with no profile, Lore's own routines are on from the start; with nothing connected, there is nothing to say about them yet.
+        check("the first visit to Today tells about usage events", await waitFor(`document.querySelector("#status").textContent.includes("anonymous usage events")`));
+        // The first write to remember it fails; the next snapshot tries again, with the notice still shown once.
+        for (let i = 0; i < 40 && !usage.length; i++) await sleep(100);
         await sleep(500);
-        check("its Automations button shows both of Lore's own on", await js(`document.querySelector("#title").textContent`) === "Automations" && await js(`[...document.querySelectorAll("#content .switch")].map((s) => s.getAttribute("aria-label") + "=" + s.getAttribute("aria-checked")).join("|")`) === "Pause Read connected apps=true|Pause Evening check-in=true", await js(`document.querySelector("#content").textContent`));
+        check("…and tries to remember it only then; that first write fails and nothing else is sent", JSON.stringify(usage) === JSON.stringify(["noticed"]) && await js(`window.lore.snapshot().then((s) => s.setup.telemetry_noticed !== true)`), JSON.stringify(usage));
+        await js(`window.__lore.event({ type: "changed" })`);
+        check("…a later snapshot remembers it", await waitFor(`window.lore.snapshot().then((s) => s.setup.telemetry_noticed === true)`), JSON.stringify(usage));
+        for (let i = 0; i < 40 && !usage.includes("app.opened"); i++) await sleep(100);
+        check("…and only then counts Lore as opened", JSON.stringify(usage) === JSON.stringify(["noticed", "noticed", "app.opened"]), JSON.stringify(usage));
+        check("…with the notice shown once throughout", await js(`[...document.querySelectorAll("#status .notice")].filter((n) => n.textContent.includes("anonymous usage events")).length === 1`));
+        check("…and says nothing about reading connected apps while none is connected", !(await js(`document.querySelector("#status").textContent`)).includes("connected apps") && await js(`window.lore.snapshot().then((s) => s.setup.automations_noticed === false)`), await js(`document.querySelector("#status").textContent`));
+        await shot("today-usage-notice");
+        // APP-211: notices belong to Today; the other pages open clean.
+        for (const page of ["inventory", "connectors", "automations"]) {
+          await js(`window.__lore.show(${JSON.stringify(page)})`);
+          await sleep(300);
+          check(`${page} carries no notice`, await js(`!document.querySelector("#status .notice")`), await js(`document.querySelector("#status").textContent`));
+        }
+        await shot("automations-no-notice");
+        await js(`window.__lore.show("today")`);
+        check("…and back on Today the usage notice is still there until dismissed", await waitFor(`document.querySelector("#status").textContent.includes("anonymous usage events")`));
+        await js(`window.__lore.show("automations")`);
+        await sleep(500);
+        check("Automations shows both of Lore's own on", await js(`document.querySelector("#title").textContent`) === "Automations" && await js(`[...document.querySelectorAll("#content .switch")].map((s) => s.getAttribute("aria-label") + "=" + s.getAttribute("aria-checked")).join("|")`) === "Pause Read connected apps=true|Pause Evening check-in=true", await js(`document.querySelector("#content").textContent`));
         await shot("automations-on-by-default");
         await js(`window.__lore.show("memories")`);
         await sleep(400);
@@ -458,6 +542,7 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         await js(`window.__lore.show("store")`);
         await sleep(600);
         check("no store: the bar offers to open one", await js(`[...document.querySelectorAll("#content .store-bar button")].some((b) => b.textContent === "Open your store")`));
+        check("…and shows no price it doesn't have", !(await js(`document.querySelector("#content .store-bar").textContent`)).includes("Not set"), await js(`document.querySelector("#content .store-bar").textContent`));
         const forSale = await js(`[...document.querySelectorAll("#content .empty")].map((n) => n.textContent).join("|")`);
         check("nothing on sale: one sentence and a way to what's private", /Nothing on sale yet\./.test(forSale) && await js(`[...document.querySelectorAll("#content .empty button")].some((b) => b.textContent === "See what's private")`), forSale);
         check("no sales: left alone, no action", await js(`[...document.querySelectorAll("#content .empty")].find((n) => n.textContent.includes("No sales yet")).querySelector("button") === null`));
@@ -470,10 +555,44 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         const reloaded = new Promise((done) => window.webContents.once("did-finish-load", done));
         window.webContents.reload();
         await reloaded;
+        // The page's own sign-in check answers first, as on the first launch; signing in before it would be undone by it.
+        await waitFor(`document.body.dataset.state === "welcome" && !document.querySelector("#welcome").classList.contains("provisioning")`);
         await js(`window.__lore.signIn()`);
         await waitFor(`document.querySelector("#content .strip")`);
         await sleep(1500);
-        check("opened again, it says nothing more about it", !(await js(`document.querySelector("#status").textContent.includes("Change this in Automations")`)), await js(`document.querySelector("#status").textContent`));
+        check("opened again, it says nothing more about it", !/Change this in Automations|anonymous usage events/.test(await js(`document.querySelector("#status").textContent`)), await js(`document.querySelector("#status").textContent`));
+        // APP-211: something connects while the owner sits on Today; the notice comes with the snapshot that shows it.
+        mkdirSync(join(S, "Edge Vault"), { recursive: true });
+        writeFileSync(join(S, "Edge Vault", "one.md"), "# One\n\nA first lesson long enough to be worth keeping.\n");
+        execFileSync("uv", ["run", "lore", "sources", "connect", "obsidian", "--json", "--", join(S, "Edge Vault")], { cwd: join(__dirname, "../../.."), env: { ...process.env, OBSIDIAN_HOME: join(S, "obsidian") } });
+        const toldAutomations = `[...document.querySelectorAll("#status .notice")].filter((n) => n.textContent.includes("Change this in Automations")).length`;
+        check("…until something connects: nothing said before the snapshot shows it", await js(`${toldAutomations} === 0`));
+        await js(`window.__lore.event({ type: "changed" })`);
+        check("…then Today says once what Lore does on its own, when that snapshot lands", await waitFor(`${toldAutomations} === 1`), await js(`document.querySelector("#status").textContent`));
+        await shot("today-automations-after-connect");
+        // APP-211: dismissed while its write is out, and that write fails: it stays dismissed, and the next snapshot remembers it.
+        for (let i = 0; i < 40 && !routinesNoticed.length; i++) await sleep(50);
+        await js(`[...document.querySelectorAll("#status .notice")].find((n) => n.textContent.includes("Change this in Automations")).querySelector(".dismiss").click()`);
+        await sleep(2500);
+        check("dismissed while its write is out, and the write fails: it stays dismissed", routinesNoticed.length === 1 && await js(`${toldAutomations} === 0`) && await js(`window.lore.snapshot().then((s) => s.setup.automations_noticed === false)`), String(routinesNoticed.length));
+        await js(`window.__lore.event({ type: "changed" })`);
+        check("…the next snapshot remembers it, without showing it again", await waitFor(`window.lore.snapshot().then((s) => s.setup.automations_noticed === true)`) && routinesNoticed.length === 2 && await js(`${toldAutomations} === 0`), String(routinesNoticed.length));
+        await js(`window.__lore.event({ type: "changed" })`);
+        await sleep(1000);
+        check("…and later snapshots leave it alone", routinesNoticed.length === 2 && await js(`${toldAutomations} === 0`), String(routinesNoticed.length));
+        // APP-211: both notices unsaid again; sign in, and sign out while the slow automations write is out. Nothing queued behind it goes out.
+        execFileSync("uv", ["run", "python", "-c", "from lore.store import Store\nfrom lore import automation, usage\nwith Store() as s:\n s.set_setting(automation.NOTICED, False)\n s.set_setting(usage.NOTICED_SETTING, False)"], { cwd: join(__dirname, "../../.."), env: process.env });
+        await js(`auth = { credentials: [] }; enter(); true`);
+        await js(`window.__lore.signIn()`);
+        check("signed in again, Today says both", await waitFor(`${toldAutomations} === 1 && document.querySelector("#status").textContent.includes("anonymous usage events")`));
+        for (let i = 0; i < 40 && routinesNoticed.length < 3; i++) await sleep(50);
+        await js(`auth = { credentials: [] }; enter(); true`);
+        const signedOut = usage.length;
+        await sleep(3500);
+        check("signed out while a write is out: nothing queued behind it goes out, and nothing is left told", routinesNoticed.length === 3 && usage.length === signedOut && await js(`told.size === 0`) && await js(`window.lore.snapshot().then((s) => s.setup.telemetry_noticed !== true)`), JSON.stringify(usage.slice(signedOut)));
+        await js(`window.__lore.signIn()`);
+        check("…and signing in again is a fresh sign-in: the one notice still unsaid shows, once", await waitFor(`document.querySelector("#status").textContent.includes("anonymous usage events")`) && await js(`[...document.querySelectorAll("#status .notice")].length === 1`), await js(`document.querySelector("#status").textContent`));
+        check("…is remembered, and only then counts Lore as opened", await waitFor(`window.lore.snapshot().then((s) => s.setup.telemetry_noticed === true)`) && await waitFor(`window.lore.snapshot().then(() => true)`) && JSON.stringify(usage.slice(signedOut)) === JSON.stringify(["noticed", "app.opened"]), JSON.stringify(usage.slice(signedOut)));
       } else if (scenario === "obsidian") {
         // APP-124: an app by name, one Connect, the vault offered rather than asked for.
         await waitFor(`document.body.dataset.state === "welcome" && !document.querySelector("#welcome").classList.contains("provisioning")`);
@@ -683,6 +802,10 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         check("the next step opens the publish thread, starting from that app", await waitFor(`document.querySelector("#title").textContent === "Publish from your Lore" && document.querySelector("#log").textContent.includes("brought in from ChatGPT")`), await js(`document.querySelector("#title").textContent`));
         check("…and the other offers to sell go away", await js(`document.querySelectorAll("#status .notice button.btn").length`) === 0);
         await shot("publish-from-app");
+        // APP-211: that clean-up leaves Today's own notice alone: it waits under the thread and is there once it closes.
+        check("the automations notice survives selling, hidden while the thread covers Today", await js(`notices.some((n) => n.key === "automations") && !document.querySelector("#status").textContent.includes("Change this in Automations")`));
+        await js(`closeTask(); true`);
+        check("…and shows again, once, when Today is back", await waitFor(`[...document.querySelectorAll("#status .notice")].filter((n) => n.textContent.includes("Change this in Automations")).length === 1`));
       } else if (scenario === "faq") {
         // APP-118: one page that says what Lore does and how the money works, in plain words.
         await waitFor(`document.body.dataset.state === "welcome" && !document.querySelector("#welcome").classList.contains("provisioning")`);
@@ -885,6 +1008,15 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         check("the address row has one Live pill and one Open link", await js(`(() => { const r = ${rowOf("Address")}; return r.querySelector(".status-pill")?.textContent === "Live" && [...r.querySelectorAll("a.link-btn")].map((a) => a.textContent + " " + a.href).join() === "Open ↗ https://lore-edge.example.workers.dev/"; })()`));
         check("one Change control for the price, and no second payouts link", await js(`[...document.querySelectorAll("#content button")].filter((b) => /Change/.test(b.textContent)).length === 1 && ![...document.querySelectorAll("#content a")].some((a) => a.textContent === "Payouts ↗")`));
         check("the price row says the free copies", await js(`${rowOf("Price")}.textContent.includes("$1.00 per piece · first 3 copies free")`));
+        await js(`window.__lore.show("store")`);
+        await waitFor(`document.querySelector("#content .store-bar .price-row")`);
+        await sleep(300);
+        const bar = await js(`document.querySelector("#content .store-bar").textContent`);
+        check("the store card reads in whole dollars and cents, no extra zeros", await js(`document.querySelector("#content .store-bar .price-row").textContent`) === "$1 a piece · first 3 copies free · $0.10 an answer", bar);
+        check("…with Cloudflare and Payouts as quiet links", await js(`[...document.querySelectorAll("#content .store-bar a")].map((a) => a.className + " " + a.textContent).join("|")`) === "quiet-link Cloudflare ↗|quiet-link Payouts ↗", bar);
+        await shot("store-card");
+        await js(`window.__lore.show("settings")`);
+        await waitFor(`document.querySelector("#content").textContent.includes("Listed")`);
         const paid = await js(`${rowOf("Get paid")}?.textContent ?? ""`);
         check("Get paid names both ways in, card first", /By card.*agents in a browser.*Stripe.*On.*To your wallet.*0x0c27…8166/.test(paid), paid);
         check("…with the wallet one link away", await js(`[...${rowOf("Get paid")}.querySelectorAll("a.link-btn")].some((a) => a.textContent === "View ↗" && a.href === "https://basescan.org/address/0x0c270534cfcecc9224edb903ef5dd70410d08166")`));
@@ -1036,9 +1168,11 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         // Grok saves, with the key it was given, and the sheet hears it.
         const key = message.slice(ask.length + agentUrl.length + 1);
         readingHeld = new Promise((done) => { releaseReading = () => done(undefined); });
-        const stored = await (await call(key, "tools/call", { name: "store", arguments: { items: [{ title: "How I price sync placements", content: "I charge by the audience the placement reaches, not by the hours it took.", key: "sync-pricing", kind: "preference" }] } })).json();
+        const stored = await (await call(key, "tools/call", { name: "store", arguments: { items: [{ title: "How I price sync placements", content: "I charge by the audience the placement reaches, not by the hours it took.", key: "sync-pricing", kind: "preference" }, { title: "Quote sync fees in the buyer's currency", content: "Buyers sign faster when the fee is already in their currency.", key: "sync-currency", kind: "preference" }] } })).json();
         check("a save with that key reaches the store", stored.result?.isError === false, JSON.stringify(stored));
-        check("…and the sheet says what Grok Bot saved, one click from seeing it", await waitFor(`${sheet}.includes("Grok Bot saved 1 memory · See them →")`, 80), await js(sheet));
+        check("…and the sheet counts what Grok Bot saved, one click from seeing it", await waitFor(`${sheet}.includes("Grok Bot saved 2 memories · See them →")`, 80) && !(await js(sheet)).includes("first memory"), await js(sheet));
+        // APP-211: the owner is still on Connectors, so the automations notice waits, unsaid and unremembered.
+        check("…while on Connectors, the automations notice waits for Today", await js(`!document.querySelector("#status .notice")`) && await js(`window.lore.snapshot().then((s) => s.setup.automations_noticed === false)`), await js(`document.querySelector("#status").textContent`));
         const evening = "Every evening, save anything new you learned about me to Lore.";
         check("…then offers, below it, an evening routine to paste into Grok Bot", await js(`Boolean(document.querySelector("dialog.sheet[open] .agent-wait + .agent-next")) && ${sheet}.includes("Optional: paste this into Grok Bot as a routine, so it saves every evening.")`), await js(sheet));
         const copiedBefore = copied.length;
@@ -1046,7 +1180,7 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         for (let i = 0; i < 20 && copied.length === copiedBefore; i++) await sleep(50);
         check("…whose one quiet Copy copies the ask", copied.at(-1) === evening && await js(`document.querySelectorAll("dialog.sheet[open] .agent-next button").length === 1 && document.querySelector("dialog.sheet[open] .agent-next button").classList.contains("quiet")`), String(copied.at(-1)));
         await shot("agents-first-save");
-        check("…read through once, named for Grok", readings.length === 1 && readings[0].title === "Grok Bot saved 1 thing to Lore" && readings[0].label === "Grok Bot", JSON.stringify(readings));
+        check("…read through once, named for Grok", readings.length === 1 && readings[0].title === "Grok Bot saved 2 things to Lore" && readings[0].label === "Grok Bot", JSON.stringify(readings));
         // APP-212: each way in lands on Inventory, filtered to Grok Bot, with what the owner hasn't seen marked New.
         const chip = `document.querySelector("#content .source-filter")?.textContent ?? ""`;
         const rowOf = (title) => `[...document.querySelectorAll("#content .row")].find((r) => r.querySelector(".t b")?.textContent.startsWith(${JSON.stringify(title)}))`;
@@ -1054,14 +1188,14 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         const listed = `[...document.querySelectorAll("#content .row .t b")].map((b) => b.textContent).join("|")`;
         await js(`[...document.querySelectorAll("dialog.sheet[open] button.inline")].find((b) => b.textContent === "See them →").click()`);
         check("See them closes the sheet and lands on Inventory, filtered to Grok Bot", await waitFor(`document.querySelector("#title").textContent === "Inventory" && !document.querySelector("dialog.sheet[open]") && (${chip}) === "Grok Bot×"`), await js(chip));
-        check("…with what Grok Bot saved marked New", await waitFor(isNew("How I price sync placements")) && (await js(listed)) === "How I price sync placementsNew", await js(listed));
+        check("…with both things Grok Bot saved marked New, and nothing else", await waitFor(`${isNew("How I price sync placements")} && ${isNew("Quote sync fees in the buyer's currency")}`) && (await js(`document.querySelectorAll("#content .row").length`)) === 2, await js(listed));
         await shot("agents-see-them-sheet");
         await js(`window.__lore.show("connectors")`);
         releaseReading();
         for (let i = 0; i < 60 && !notes.length; i++) await sleep(250);
-        check("its memories are one Mac notification that names Grok", notes.length === 1 && notes[0].words.title === "Grok Bot saved 1 thing to Lore" && notes[0].words.body === "1 new memory. 1 looks worth selling.", JSON.stringify(notes.map((n) => n.words)));
+        check("its memories are one Mac notification that names Grok", notes.length === 1 && notes[0].words.title === "Grok Bot saved 2 things to Lore" && notes[0].words.body === "1 new memory. 1 looks worth selling.", JSON.stringify(notes.map((n) => n.words)));
         check("…and a red 1 on the dock", badges.at(-1) === 1, JSON.stringify(badges));
-        check("Grok's row says what it saved, and when", await waitFor(`/Saved 1 · last today/.test(${agentRow("Grok Bot")}?.textContent ?? "")`), await js(`${agentRow("Grok Bot")}?.textContent ?? ""`));
+        check("Grok's row says what it saved, and when", await waitFor(`/Saved 2 · last today/.test(${agentRow("Grok Bot")}?.textContent ?? "")`), await js(`${agentRow("Grok Bot")}?.textContent ?? ""`));
         check("…with Grok's mark, and the offer to connect another", await js(`${agentRow("Grok Bot")}.querySelector("img.logo").src.endsWith("assets/grok.svg") && Boolean(${agentRow("Connect another agent")})`));
         await shot("agents-connected");
         app.emit("browser-window-focus");
@@ -1074,14 +1208,32 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         await shot("agents-see-them-notification");
         await js(`window.__lore.show("today")`);
         const card = `[...document.querySelectorAll("#content .section")].find((s) => s.textContent.includes("New memories"))`;
-        check("Today's new memories are named for Grok", await waitFor(`${card}?.textContent.includes("Grok Bot saved 1 thing to Lore")`));
+        check("Today's new memories are named for Grok", await waitFor(`${card}?.textContent.includes("Grok Bot saved 2 things to Lore")`));
         const cardText = await js(`${card}.textContent`);
         check("…each memory says it came from Grok", cardText.includes("Price a sync placement by its reach") && cardText.includes("From Grok Bot · Worth selling"), cardText);
         check("…with Grok Bot's mark in its tile", await js(`${card}.querySelector(".row .mark-stack .routine-mark img.logo")?.src.endsWith("assets/grok.svg")`));
+        // APP-211: with an agent connected, Today now says once what Lore does on its own.
+        const told = `[...document.querySelectorAll("#status .notice")].filter((n) => n.textContent.includes("Change this in Automations"))`;
+        check("with Grok connected, Today says once that Lore reads and checks in on its own", await waitFor(`${told}.length === 1`) && (await js(`${told}[0].textContent`)).startsWith("Lore reads your connected apps every day at 9 AM and checks in at 6 PM when something's worth asking."), await js(`document.querySelector("#status").textContent`));
+        check("…and remembers having said it", await waitFor(`window.lore.snapshot().then((s) => s.setup.automations_noticed === true)`));
+        // APP-211: a refresh that still reads "not said" (as one started before the write would) never says it twice.
+        execFileSync("uv", ["run", "python", "-c", "from lore.store import Store\nwith Store() as s:\n s.set_setting('automations_noticed', False)"], { cwd: join(__dirname, "../../.."), env: process.env });
+        await js(`window.__lore.event({ type: "changed" })`);
+        check("a refresh then reads it as unsaid, in the store and in the window", await waitFor(`window.lore.snapshot().then((s) => s.setup.automations_noticed === false)`) && await waitFor(`snapshot.setup.automations_noticed === false`));
+        await sleep(1000);
+        await js(`window.__lore.show("inventory")`);
+        await js(`window.__lore.show("today")`);
+        await sleep(300);
+        check("after a refresh that reads it as unsaid, Today still shows exactly one", await js(`${told}.length === 1`), String(await js(`${told}.length`)));
         await shot("agents-today");
         check("with Grok Bot connected, Today never asks to connect an agent", !(await js(`${todayText}.includes("Connect the AI you talk to most")`)) && !/Claude Code|Codex/.test(await js(todayText)), await js(todayText));
         const order = await js(`JSON.stringify([...document.querySelectorAll("#content .section-head h2")].map((h) => h.textContent))`);
         check("…its new memories lead, and the next step follows them", /"New memories".*"Next step"/.test(order), order);
+        await js(`[...${told}[0].querySelectorAll("button")].find((b) => b.textContent === "Automations").click()`);
+        check("its Automations button opens Automations, which carries no notice", await waitFor(`document.querySelector("#title").textContent === "Automations"`) && await js(`!document.querySelector("#status .notice")`));
+        await js(`window.__lore.show("today")`);
+        await sleep(300);
+        check("…and it is not said again", await js(`${told}.length === 0`));
         await js(`window.__lore.show("memories")`);
         const saved = `[...document.querySelectorAll("#content .row")].find((r) => r.textContent.includes("How I price sync placements"))`;
         // APP-208: a date-only save shows the day it names, whatever the Mac's time zone.
@@ -1156,8 +1308,8 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
           return notes.length === told + 1;
         };
         check("another save lands while the owner is on Connectors", await saveMore("How I quote a rush job"));
-        const savedLink = `[...(${agentRow("Grok Bot")}?.querySelectorAll("button.inline") ?? [])].find((b) => b.textContent === "Saved 4")`;
-        check("Grok Bot's card says Saved 4, as a link", await waitFor(savedLink));
+        const savedLink = `[...(${agentRow("Grok Bot")}?.querySelectorAll("button.inline") ?? [])].find((b) => b.textContent === "Saved 5")`;
+        check("Grok Bot's card says Saved 5, as a link", await waitFor(savedLink));
         await js(`${savedLink}.click()`);
         check("…which lands on what it saved, filtered to Grok Bot", await waitFor(`document.querySelector("#title").textContent === "Inventory" && (${chip}) === "Grok Bot×"`), await js(chip));
         check("…the new save and what Lore wrote from it marked New, the rest not", await waitFor(`${isNew("How I quote a rush job")} && ${isNew("Quote a rush fee up front")}`) && !(await js(`${isNew("How I price sync placements")} || ${isNew("Price a sync placement by its reach")}`)), await js(listed));
@@ -1211,10 +1363,10 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         await waitFor(`${sheet}.includes("Disconnect")`);
         await press("Disconnect");
         await waitFor(`${sheet}.includes("Disconnect Grok Bot?")`);
-        check("Disconnect offers to keep or delete what Grok Bot saved", /The 5 memories it saved stay in your library/.test(await js(sheet)) && await js(`[...document.querySelectorAll("dialog.sheet[open] button")].some((b) => b.textContent === "Delete them too")`), await js(sheet));
+        check("Disconnect offers to keep or delete what Grok Bot saved", /The 6 memories it saved stay in your library/.test(await js(sheet)) && await js(`[...document.querySelectorAll("dialog.sheet[open] button")].some((b) => b.textContent === "Delete them too")`), await js(sheet));
         await shot("agents-disconnect");
         await press("Disconnect");
-        check("disconnecting keeps its memory and says so", await waitFor(`document.querySelector("#status").textContent.includes("Disconnected Grok Bot. 5 memories kept.")`, 80), await js(`document.querySelector("#status").textContent`));
+        check("disconnecting keeps its memory and says so", await waitFor(`document.querySelector("#status").textContent.includes("Disconnected Grok Bot. 6 memories kept.")`, 80), await js(`document.querySelector("#status").textContent`));
         await js(`window.__lore.show("memories")`);
         check("…and what it saved still says Grok Bot, with its mark", await waitFor(`/From Grok Bot/.test(${saved}?.textContent ?? "") && ${saved}.querySelector(".mark-stack img.logo")?.src.endsWith("assets/grok.svg")`), await js(`${saved}?.textContent ?? ""`));
         await js(`window.__lore.show("connectors")`);
@@ -1590,7 +1742,8 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         for (let i = 0; i < 40 && notes.length === told; i++) await sleep(250);
         const away = notes.slice(told).map((n) => n.words);
         check("Run now away from Lore ends with one banner saying it is done", away.length === 1 && away[0].title === "“Read connected apps” is done" && away[0].body === "Nothing new", JSON.stringify(away));
-        window.show();
+        // Back on screen without taking the keyboard from whoever is at this Mac.
+        window.showInactive();
         // Paused for days, then resumed: it waits for its next hour instead of running at once.
         const repo = join(__dirname, "../../..");
         const python = (/** @type {string} */ code) => execFileSync("uv", ["run", "python", "-c", `from datetime import datetime, timedelta, timezone\nfrom lore import automation\nnow = datetime.now(timezone.utc)\n${code}`], { cwd: repo, env: process.env, encoding: "utf8" });
@@ -1761,6 +1914,14 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         notes[1].handlers.click();
         check("clicking it opens Inventory, on sale", await waitFor(`document.querySelector("#title").textContent === "Inventory" && document.querySelector(".shelf[aria-selected=true]")?.textContent.startsWith("On sale")`));
         check("For Sale shows each piece's page views and how each sale was paid", await waitFor(`document.querySelector("#content").textContent.includes("42 views") && document.querySelector("#content").textContent.includes("by an agent")`));
+        check("an unreachable store offers no price link it can't act on", await js(`document.querySelector("#content .store-bar").textContent.includes("isn't responding") && !document.querySelector("#content .store-bar").textContent.includes("Set a price")`), await js(`document.querySelector("#content .store-bar").textContent`));
+        // APP-211: sale amounts read in the UI font with even figures, like the store card.
+        const amounts = `[...document.querySelectorAll("#content *")].filter((n) => !n.children.length && /\\$\\d/.test(n.textContent))`;
+        check("no sale amount is monospace", await js(`${amounts}.length > 2 && ${amounts}.every((n) => !/mono/i.test(getComputedStyle(n).fontFamily) && getComputedStyle(n).fontVariantNumeric.includes("tabular-nums"))`), await js(`${amounts}.map((n) => n.textContent + " " + getComputedStyle(n).fontFamily + " " + getComputedStyle(n).fontVariantNumeric).join(" | ")`));
+        await js(`[...document.querySelectorAll("#content h2")].find((h) => /sales/i.test(h.textContent))?.scrollIntoView({ block: "start" })`);
+        await sleep(200);
+        await shot("sales-list");
+        await js(`document.querySelector("#main").scrollTop = 0`);
         await shot("sales-for-sale");
       } else if (scenario === "cards") {
         // XC-039: Settings takes an owner from "Get paid to your bank" to card payments on, with no Stripe key on this Mac.

@@ -467,6 +467,11 @@ function price(value) {
   return typeof value === "number" ? money.format(value) : "Not set";
 }
 
+/** A price with no trailing ".00": "$1", "$0.10", "$0.005". @param {number} value */
+function dollars(value) {
+  return price(value).replace(/\.00$/, "");
+}
+
 /** What buyers are charged, one entry per thing on offer; nothing when no price is set. @param {Snapshot} s @returns {Array<[string, string]>} */
 function offers(s) {
   /** @type {Array<[string, string]>} */
@@ -565,19 +570,19 @@ function explorer(network) {
   return EXPLORERS[/** @type {keyof typeof EXPLORERS} */ (network ?? "")] ?? EXPLORERS["eip155:8453"];
 }
 
-/** @param {Snapshot["node"]["live"]} live */
-function payoutLink(live) {
-  return live.payout ? outLink("Payouts ↗", `${explorer(live.network)}/address/${live.payout}`) : null;
+/** @param {Snapshot["node"]["live"]} live @param {string} [className] */
+function payoutLink(live, className) {
+  return live.payout ? outLink("Payouts ↗", `${explorer(live.network)}/address/${live.payout}`, className) : null;
 }
 
 /** @param {Snapshot["node"]} node */
 function storeAddress(node) {
   const url = /** @type {string} */ (node.url);
   const box = el("span", "address");
-  box.append(el("span", "mono", url.replace(/^https?:\/\//, "").replace(/\/mcp$/, "")));
+  box.append(el("span", "host", url.replace(/^https?:\/\//, "").replace(/\/mcp$/, "")));
   const console = workerConsole(url);
-  if (console) box.append(outLink("Cloudflare ↗", console));
-  const payouts = payoutLink(node.live);
+  if (console) box.append(outLink("Cloudflare ↗", console, "quiet-link"));
+  const payouts = payoutLink(node.live, "quiet-link");
   if (payouts) box.append(payouts);
   return box;
 }
@@ -894,13 +899,16 @@ function priceRow(s) {
   // Wrapped, not bare: `.prices` is a stretch-aligned column, so a bare button
   // would spread its hover background across the whole bar.
   const item = el("div", "price-row");
-  const open = el("button", "price-open");
-  open.type = "button";
-  open.title = "Change what a buyer pays per publication";
-  if (typeof s.pricing.publication_usd === "number") open.append(document.createTextNode(`${price(s.pricing.publication_usd)} `), el("span", "", ["a publication", freeCopies(s.pricing.free_copies)].filter(Boolean).join(" · ")));
-  else open.append("Not set");
-  open.addEventListener("click", openPriceSheet);
-  item.append(open);
+  const { publication_usd: piece, answer_usd: answer, answer_enabled: answers, free_copies: copies } = s.pricing;
+  if (typeof piece === "number") {
+    const open = el("button", "price-open");
+    open.type = "button";
+    open.title = "Change what a buyer pays per publication";
+    open.append(`${dollars(piece)} `, el("span", "", ["a piece", copies ? freeCopies(copies) : ""].filter(Boolean).join(" · ")));
+    open.addEventListener("click", openPriceSheet);
+    item.append(open);
+  } else if (s.node.url && s.node.live.state !== "unreachable") item.append(inline("Set a price", openPriceSheet));
+  if (answers && typeof answer === "number") item.append(el("span", "", " · "), `${dollars(answer)} `, el("span", "", "an answer"));
   return item;
 }
 
@@ -991,23 +999,21 @@ function storeBar(s) {
   lead.append(text);
   const prices = el("div", "prices");
   prices.append(priceRow(s));
-  if (s.pricing.answer_enabled) {
-    const answers = el("div");
-    answers.append(document.createTextNode(`${price(s.pricing.answer_usd)} `), el("span", "", "an answer"));
-    prices.append(answers);
-  }
   const stale = stalePrice(s);
   if (stale !== null && !pushing) {
     const note = el("div", "stale-price");
-    note.append(el("span", "", `Your store still charges ${price(stale)}.`), button("Update store", "quiet", () => void startDeploy(REDEPLOY_PRICE)));
+    note.append(el("span", "", `Your store still charges ${price(stale)}.`));
     prices.append(note);
   }
   bar.append(lead, prices);
-  if (unpushed(s).length && !pushOffer) {
-    const push = button(pushing ? "Updating…" : "Update store", "primary", pushNow);
-    push.disabled = pushing;
-    bar.append(push);
-  }
+  // One Update store at a time: pieces waiting to go on or come off are pushed first; a new price is redeployed after.
+  if (unpushed(s).length) {
+    if (!pushOffer) {
+      const push = button(pushing ? "Updating…" : "Update store", "primary", pushNow);
+      push.disabled = pushing;
+      bar.append(push);
+    }
+  } else if (stale !== null && !pushing) bar.append(button("Update store", "primary", () => void startDeploy(REDEPLOY_PRICE)));
   return bar;
 }
 
@@ -1221,7 +1227,7 @@ class Unseen {
 const unseen = new Unseen();
 
 function renderSales() {
-  if (sales instanceof Error) return section("Sales", emptyState(sales.message, button("Try again", "secondary", () => void loadSales())));
+  if (sales instanceof Error) return section("Sales", sales.message === SALES_ELSEWHERE ? el("div", "card pad empty", SALES_ELSEWHERE) : emptyState(sales.message, button("Try again", "secondary", () => void loadSales())));
   if (sales === null) return section("Sales", el("div", "card pad empty", "Checking your store…"));
   if (!sales.length) return section("Sales", el("div", "card pad empty", "No sales yet. When someone buys a piece, by card or through their agent, it shows here."));
   return section("Sales", card(sales.map(saleRow)), el("span", "hint", `${tally(sales)} · ${price(total(sales))} · last ${when(sales[0].sold_at)}`));
@@ -1239,7 +1245,7 @@ function tally(rows) {
 
 /** One sale: what sold, when, how it was paid, and where the payment can be seen. @param {Sale} sale */
 function saleRow(sale) {
-  if (sale.network === "free") return row(sale.title, `${when(sale.sold_at)} · a free copy`, cell(el("span", "mono", "Free")));
+  if (sale.network === "free") return row(sale.title, `${when(sale.sold_at)} · a free copy`, cell(el("span", "value", "Free")));
   const byCard = sale.network === "stripe";
   const trailing = el("div", "v");
   const [where, href] = byCard ? ["Stripe", `https://dashboard.stripe.com/payments/${sale.tx}`] : ["Basescan", `${explorer(sale.network)}/tx/${sale.tx}`];
@@ -1247,7 +1253,7 @@ function saleRow(sale) {
   receipt.title = `See this payment on ${where} · ${sale.tx}`;
   receipt.setAttribute("aria-label", `See this payment on ${where}`);
   if (sale.refund_owed) trailing.append(chip("Refund owed", "attention"));
-  trailing.append(el("span", "mono", price(sale.price_usd)), receipt);
+  trailing.append(el("span", "value", price(sale.price_usd)), receipt);
   // Paid for and never delivered: Lore can't send money from your wallet or Stripe account, so it says whom to refund.
   const why = byCard ? "taken down before delivery" : "not answered";
   const who = sale.payer ? `, refund ${sale.payer.slice(0, 6)}…${sale.payer.slice(-4)}` : "";
@@ -1261,6 +1267,8 @@ function earned(rows) {
   return section("Earned", card([head, ...rows.slice(0, 3).map(saleRow)]));
 }
 
+const SALES_ELSEWHERE = "Sales show here once your store is open on this Mac.";
+
 /** Read the ledger for the open store; without one there is nothing to read. */
 async function loadSales() {
   salesAsked = true;
@@ -1268,7 +1276,8 @@ async function loadSales() {
   try {
     [sales, views] = snapshot?.node.url ? await Promise.all([window.lore.sales(), window.lore.views().catch(() => views)]) : [[], {}];
   } catch (error) {
-    sales = new Error(reason(error, "Lore could not read your sales."));
+    // A store opened from another Mac has no ledger to read here; anything else is worth another try.
+    sales = new Error(/no deployed node/.test(reason(error, "")) ? SALES_ELSEWHERE : "Lore couldn't read your sales. Try again in a minute.");
   }
   render();
 }
@@ -2607,6 +2616,7 @@ const renderers = { today: renderToday, inventory: renderInventory, connectors: 
 
 function render() {
   hidePeek();
+  renderNotices();
   const detail = view === "today" ? detailTask : null;
   const heading = detail ? detailRecord?.title ?? TASK_TITLES[detail] : { today: greeting(), inventory: "Inventory", connectors: "Connectors", automations: "Automations", faq: "FAQ", settings: "Settings" }[view];
   const pendingDrafts = detail === "publish" && (candidates.length || extraDrafts.length);
@@ -2687,6 +2697,10 @@ async function load() {
     if (ticket !== loads) return;
     if (detailTask) detailRecord = taskItems.find((item) => item.kind === detailTask) ?? detailRecord;
     peeked.clear();
+    noticeAutomations();
+    noticeUsage();
+    // A dismissed notice whose write failed was still seen: try it again, without showing it again.
+    if (!appShell.hidden) for (const key of told.keys()) if (!notices.some((item) => item.key === key)) remember(key);
     render();
     // Today's earnings need the ledger once; after that a new sale or For Sale reads it again.
     if (!salesAsked && snapshot.node.url) void loadSales();
@@ -2714,17 +2728,50 @@ function say(text, owner = false, stopped = false) {
 }
 
 /** @typedef {{label: string, run: () => void}} NoticeAction */
-/** @type {Array<{text: string, attention: boolean, action?: NoticeAction, once?: boolean}>} */
+/** A Today notice carries its `key`; it leaves only by its × or its own action.
+ * @type {Array<{text: string, attention: boolean, action?: NoticeAction, key?: string}>} */
 const notices = [];
 
-/** Something Lore did or could not do, said where the owner is: in the open thread, or as a notice above the page when the log is hidden, scrolled into view. A newer success replaces an older one, except one said `once`, which stays until dismissed. @param {string} text @param {boolean} [attention] @param {NoticeAction} [action] The one next step, on the notice. @param {boolean} [once] */
-function tell(text, attention = false, action, once = false) {
+/** Something Lore did or could not do, said where the owner is: in the open thread, or as a notice above the page when the log is hidden, scrolled into view. A newer success replaces an older one; one told once stays until dismissed. @param {string} text @param {boolean} [attention] @param {NoticeAction} [action] The one next step, on the notice. */
+function tell(text, attention = false, action) {
   if (!log.hidden) { say(text, false, attention); return; }
-  if (!attention) drop((item) => !item.attention && !item.once);
-  notices.push({ text, attention, action, once });
-  if (notices.length > 3) notices.shift();
+  if (!attention) drop((item) => !item.attention && !item.key);
+  notices.push({ text, attention, action });
+  const plain = notices.filter((item) => !item.key);
+  if (plain.length > 3) notices.splice(notices.indexOf(plain[0]), 1);
   renderNotices();
   status.scrollIntoView({ block: "nearest" });
+}
+
+/** Today notices told this sign-in, by key, and the write that remembers each as said, kept until it lands.
+ * @type {Map<string, {write: () => Promise<unknown>, pending: boolean} | null>} */
+const told = new Map();
+/** Seen notices are remembered one write at a time: each goes through the CLI, and two first writes at once can collide. */
+let remembering = /** @type {Promise<unknown>} */ (Promise.resolve());
+
+/** A notice for Today only, told at most once a sign-in. @param {string} key @param {string} text @param {NoticeAction} action @param {() => Promise<unknown>} write */
+function tellOnce(key, text, action, write) {
+  if (told.has(key)) return;
+  told.set(key, { write, pending: false });
+  notices.push({ text, attention: false, action, key });
+  renderNotices();
+}
+
+/** Today is what the owner sees: signed in, on Today, with no thread open over it. */
+function onToday() {
+  return !appShell.hidden && view === "today" && !detailTask;
+}
+
+/** Remember a seen Today notice as said; a failed write stays to be tried again. A write that comes up after a sign-out,
+ * or for a notice told again since, is skipped. @param {string} key */
+function remember(key) {
+  const entry = told.get(key);
+  if (!entry || entry.pending) return;
+  entry.pending = true;
+  const current = () => told.get(key) === entry && !appShell.hidden;
+  remembering = remembering
+    .then(() => (current() ? entry.write().then(() => { if (current()) told.set(key, null); }) : undefined))
+    .catch(() => { entry.pending = false; });
 }
 
 /** @param {(item: typeof notices[number]) => boolean} which */
@@ -2734,7 +2781,8 @@ function drop(which) {
 }
 
 function renderNotices() {
-  status.replaceChildren(...notices.map((item) => {
+  const shown = notices.filter((item) => !item.key || onToday());
+  status.replaceChildren(...shown.map((item) => {
     const box = el("div", item.attention ? "notice attention" : "notice info");
     box.setAttribute("role", item.attention ? "alert" : "status");
     box.insertAdjacentHTML("afterbegin", item.attention ? ALERT_ICON : INFO_ICON);
@@ -2748,6 +2796,8 @@ function renderNotices() {
     box.append(dismiss);
     return box;
   }));
+  // A Today notice is in `shown` only while Today is on screen, so it is remembered only once the owner can see it.
+  for (const item of shown) if (item.key) remember(item.key);
 }
 
 /** @param {string} text @param {boolean} [status] */
@@ -3299,7 +3349,7 @@ function sellAction(source) {
     label: "Turn these into something to sell",
     run: () => {
       closeSheet();
-      drop((item) => Boolean(item.action));
+      drop((item) => Boolean(item.action) && !item.key);
       void startPublish(source);
     }
   };
@@ -3758,13 +3808,25 @@ function enter() {
   welcome.hidden = signedIn;
   appShell.hidden = !signedIn;
   document.body.dataset.state = signedIn ? "app" : "welcome";
-  // One after the other: each remembers itself through the CLI, and two first writes at once can collide.
-  if (signedIn) { render(); void load().then(noticeAutomations).then(noticeUsage); }
+  if (signedIn) {
+    render();
+    void load().then(opened);
+    return;
+  }
+  // Signed out: a load still out is stale, and what it would have told waits for the next sign-in.
+  loads++;
+  told.clear();
+  drop((item) => Boolean(item.key));
 }
 
-/** Lore's own routines are on from the start (AUT-009): the owner hears so once, with where to change it. */
-async function noticeAutomations() {
-  if (snapshot?.setup.automations_noticed !== false || !routines.length) return;
+/** An owner who has heard about usage events counts as opening Lore once a sign-in. */
+function opened() {
+  if (!appShell.hidden && snapshot?.setup.telemetry_enabled !== false && snapshot?.setup.telemetry_noticed) void window.lore.usage("app.opened").catch(() => undefined);
+}
+
+/** Lore's own routines are on from the start (AUT-009): once something is connected, the owner hears so once on Today, with where to change it. */
+function noticeAutomations() {
+  if (snapshot?.setup.automations_noticed !== false || !snapshot.library.sources.some((source) => source.enabled)) return;
   const on = (/** @type {Routine["kind"]} */ kind) => routines.find((routine) => routine.kind === kind && !routine.paused);
   const reading = on("read");
   const checkin = on("checkin");
@@ -3772,21 +3834,16 @@ async function noticeAutomations() {
     reading && `reads your connected apps ${runsWhen({ cadence: reading.cadence, hour: reading.hour, day: reading.day ?? 0 }).replace("Every", "every")}`,
     checkin && `checks in at ${clock(checkin.hour)} when something's worth asking`
   ].filter(Boolean);
-  if (parts.length) tell(`Lore ${parts.join(" and ")}. Change this in Automations.`, false, { label: "Automations", run: () => show("automations") }, true);
-  await window.lore.noticedRoutines().catch(() => undefined);
+  if (parts.length) tellOnce("automations", `Lore ${parts.join(" and ")}. Change this in Automations.`, { label: "Automations", run: () => show("automations") }, () => window.lore.noticedRoutines());
 }
 
 const USAGE_NOTICE = "Lore sends anonymous usage events, like \"store opened\" or \"first piece approved\", never your writing.";
 
-/** Someone who signed in before usage events existed hears about them once, here, before any is sent. */
-async function noticeUsage() {
+/** Someone who signed in before usage events existed hears about them once, on Today, before any is sent. */
+function noticeUsage() {
   const setup = snapshot?.setup;
-  if (!setup || setup.telemetry_enabled === false) return;
-  if (!setup.telemetry_noticed) {
-    tell(USAGE_NOTICE, false, { label: "Settings", run: () => show("settings") }, true);
-    await window.lore.usage("noticed").catch(() => undefined);
-  }
-  void window.lore.usage("app.opened").catch(() => undefined);
+  if (!setup || setup.telemetry_enabled === false || setup.telemetry_noticed) return;
+  tellOnce("usage", USAGE_NOTICE, { label: "Settings", run: () => show("settings") }, () => window.lore.usage("noticed").then(() => (appShell.hidden ? undefined : window.lore.usage("app.opened"))));
 }
 
 /** @param {AgentEvent} event */

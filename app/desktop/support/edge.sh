@@ -214,4 +214,23 @@ if [[ "$scenario" == "agents" ]]; then
   for _ in $(seq 1 60); do curl -s -o /dev/null "$LORE_EDGE_AGENT_URL/agent" && break; sleep 0.5; done
 fi
 echo "Screenshots land in $root"
-"$desktop_dir/node_modules/.bin/electron" "$desktop_dir/support/edge.cjs" "$scenario" 2>/dev/null | grep -E "^(PASS|FAIL|ERROR)"
+# A walk that outlives its limit fails loudly, with a sample of Electron's main process, instead of hanging the run.
+limit="${LORE_EDGE_LIMIT:-180}"
+"$desktop_dir/node_modules/.bin/electron" "$desktop_dir/support/edge.cjs" "$scenario" >"$root/walk.log" 2>/dev/null &
+walk=$!
+for _ in $(seq 1 "$limit"); do kill -0 "$walk" 2>/dev/null || break; sleep 1; done
+timed_out=""
+if kill -0 "$walk" 2>/dev/null; then
+  main="$(pgrep -P "$walk" | head -1 || true)"
+  [[ -n "$main" ]] && sample "$main" 3 -file "$root/hang.txt" >/dev/null 2>&1 || true
+  [[ -n "$main" ]] && kill -9 "$main" 2>/dev/null || true
+  kill -9 "$walk" 2>/dev/null || true
+  timed_out="FAIL $scenario timed out (sample at $root/hang.txt)"
+fi
+# Fails on a walk that exits non-zero, says FAIL or ERROR, says nothing at all, or runs out of time.
+code=0
+wait "$walk" 2>/dev/null || code=$?
+grep -E "^(PASS|FAIL|ERROR)" "$root/walk.log" || code=1
+if grep -qE "^(FAIL|ERROR)" "$root/walk.log"; then code=1; fi
+if [[ -n "$timed_out" ]]; then echo "$timed_out"; code=1; fi
+exit "$code"
