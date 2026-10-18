@@ -2,8 +2,8 @@ const { execFile, spawn } = require("node:child_process");
 const { createInterface } = require("node:readline");
 const { promisify } = require("node:util");
 const { randomBytes } = require("node:crypto");
-const { mkdirSync, writeFileSync } = require("node:fs");
-const { homedir } = require("node:os");
+const { mkdirSync, readFileSync, writeFileSync } = require("node:fs");
+const { homedir, userInfo } = require("node:os");
 const { dirname, join, resolve } = require("node:path");
 
 const run = promisify(execFile);
@@ -12,8 +12,10 @@ const root = resolve(__dirname, "../../..");
 /** The packaged CLI runs from the Lore home: the app inherits whatever directory launched it, and the CLI treats a checkout there as development. @type {{file: string, args: string[], cwd?: string}} */
 let runtime = { file: "uv", args: ["run", "lore"], cwd: root };
 
-/** Where the CLI checks a decision came from this app: outside every root the agent's sandbox can read. */
-const ATTENDED_KEY = join(homedir(), "Library", "Application Support", "Lore", "attended");
+/** Where the CLI checks a decision came from this app: outside every root the agent's sandbox can read, in the account's own home rather than whatever HOME says. */
+const ATTENDED_KEY = join(userInfo().homedir, "Library", "Application Support", "Lore", "attended");
+/** The store's code and tools, outside Lore's home, as the CLI finds them (lore/paths.py store_folder). */
+const STORE = process.env.LORE_STORE || join(homedir(), "Library", "Application Support", "Lore", "store");
 /** Fresh each launch and never in process.env, so the agent's shell cannot pass it. */
 const attendedKey = randomBytes(32).toString("hex");
 
@@ -72,6 +74,136 @@ function loreStream(loreHome, args, onLine, signal) {
   return stream(runtime.file, [...runtime.args, ...args], { LORE_HOME: loreHome, NO_COLOR: "1" }, onLine, runtime.cwd ?? loreHome, signal);
 }
 
+/** @typedef {(questions: OwnerQuestion[]) => Promise<Record<string, string>>} Ask One owner card; resolves to the answer for each question. */
+
+/** One yes-or-no card, with anything it would save shown in full; true only on the yes. @param {Ask} ask @param {string} header @param {string} question @param {string} yes @param {string} what @param {string} [detail] */
+async function confirmed(ask, header, question, yes, what, detail) {
+  const answers = await ask([{ question, header, options: [{ label: yes, description: what, recommended: true }, { label: "Not now", description: "Nothing changes" }], multiSelect: false, ...(detail ? { detail } : {}) }]);
+  return answers?.[question] === yes;
+}
+
+/** A payout address in groups of four, so the owner can check every character. @param {string} address */
+const grouped = (address) => `0x ${address.slice(2).match(/.{1,4}/g)?.join(" ")}`;
+
+const ADDRESS = /^0x[0-9a-fA-F]{40}$/;
+
+/** Where the store pays out and on which network, as its last deploy recorded it in the store's own folder, which the agent can't touch; null when there is none. @returns {{address: string, network: "real" | "test" | null} | null} */
+function recordedPayout() {
+  try {
+    const { address, network } = JSON.parse(readFileSync(join(STORE, "payout.json"), "utf8"));
+    if (typeof address !== "string" || !ADDRESS.test(address)) return null;
+    return { address, network: network === "real" || network === "test" ? network : null };
+  } catch {
+    return null;
+  }
+}
+
+/** Six decimals, as the renderer shows prices: a price below a cent must not read as $0.00 on a card the owner confirms. */
+const dollars = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 6 });
+
+/**
+ * Deploy or redeploy the owner's store from the app, outside the agent's sandbox, once the owner says yes
+ * on a card naming the network, the whole payout address, and the price and free copies it goes live with;
+ * then say how it went. A redeploy pays out where the store's last deploy recorded, and nothing Lore's home
+ * holds; with no record the owner types the address on the app's own card. The deploy always carries the
+ * address and network the card showed. It fails fast when Cloudflare is not signed in, so the agent can ask
+ * for the sign-in and retry.
+ * `inboxOnly` puts the store online for the owner's agents only (XC-069): no network, payout or price, so the card
+ * asks only whether to put it online.
+ * @param {string} loreHome @param {OpenStore} store @param {Ask} ask
+ */
+async function openStore(loreHome, { network: asked, wallet, inboxOnly }, ask) {
+  if (inboxOnly) {
+    if (!(await confirmed(ask, "Your store", "Put your store online so your agents can save to it? Nothing goes on sale.", "Put it online", "Takes a few minutes"))) return "The owner chose not to put the store online right now.";
+    return deployStore(loreHome, ["node", "deploy", "--inbox-only"]);
+  }
+  if (asked !== undefined && asked !== "real" && asked !== "test") return "The store opens on real money or the test network; nothing else.";
+  if (wallet !== undefined && !ADDRESS.test(wallet)) return "That payout address is not valid; ask the owner for it again.";
+  const recorded = recordedPayout();
+  const network = asked ?? recorded?.network;
+  if (!network) return "Say which network the store opens on: real money or the test network.";
+  let payout = wallet ?? recorded?.address;
+  if (!payout) {
+    const question = "Where should buyers' payments go?";
+    payout = (await ask([{ question, header: "Payouts", options: [], format: "evm_address", multiSelect: false }]))?.[question]?.trim() ?? "";
+    if (!ADDRESS.test(payout)) return "The owner gave no payout address, so the store did not open.";
+  }
+  const { pricing } = await readState(loreHome);
+  const price = pricing.publication_usd === null ? "no price set" : `${dollars.format(pricing.publication_usd)} a piece`;
+  const free = pricing.free_copies ?? 0;
+  // A new address where the store already pays somewhere is a change, and the card says so, naming both.
+  const moved = recorded && recorded.address.toLowerCase() !== payout.toLowerCase() ? recorded.address : null;
+  const terms = [
+    network === "real" ? "Real money" : "The test network",
+    moved ? `from ${grouped(moved)} to ${grouped(payout)}` : `paid to ${grouped(payout)}`,
+    price,
+    free ? `the first ${free} ${free === 1 ? "copy" : "copies"} of each piece free` : "no free copies"
+  ].join(" · ");
+  const question = moved ? `Change where your sales are paid? ${terms}` : `Open your store? ${terms}`;
+  if (!(await confirmed(ask, moved ? "Payouts" : "Open store", question, moved ? "Change it" : "Open it", "Takes a few minutes"))) return "The owner chose not to open the store right now.";
+  return deployStore(loreHome, ["node", "deploy", "--network", network, "--wallet", payout]);
+}
+
+/** Run one deploy the owner said yes to, and say how it went. @param {string} loreHome @param {string[]} args */
+async function deployStore(loreHome, args) {
+  const lines = /** @type {string[]} */ ([]);
+  try {
+    await stream(runtime.file, [...runtime.args, ...args], { LORE_HOME: loreHome, NO_COLOR: "1", LORE_UNATTENDED: "1" }, (line) => lines.push(line), runtime.cwd ?? loreHome);
+    return `The store is deployed.\n${lines.slice(-8).join("\n")}`;
+  } catch {
+    const said = [...lines].reverse().find((line) => line.startsWith("lore: ")) ?? lines.at(-1) ?? "the deploy stopped";
+    // A change that stopped halfway is said in the CLI's own plain words, so the owner hears it however the deploy ended.
+    const half = lines.find((line) => line.startsWith("! Your store may be half-updated"))?.slice(2);
+    return [`The deploy did not finish: ${said.replace(/^lore: /, "").replace(/:$/, "")}.`, ...(half ? [half] : [])].join("\n");
+  }
+}
+
+/** APP-215: the store online for the owner's agents only, from the first-run chat, where the owner's tap is the yes:
+ * nothing goes on sale, so there is no network, payout or price to confirm. Resolves to how it went, as a deploy says.
+ * @param {string} loreHome */
+function storeOnline(loreHome) {
+  return deployStore(loreHome, ["node", "deploy", "--inbox-only"]);
+}
+
+/** Sign in to Cloudflare from the owner's browser; `onUrl` gets the page to open. Resolves to the CLI's last line,
+ * and rejects in its own words. @param {string} loreHome @param {(url: string) => void} onUrl */
+async function cloudflareSignIn(loreHome, onUrl) {
+  let last = "";
+  try {
+    await loreStream(loreHome, ["node", "login"], (line) => {
+      last = line;
+      const url = line.match(/https:\/\/dash\.cloudflare\.com\/\S+/)?.[0];
+      if (url) onUrl(url);
+    });
+  } catch (error) {
+    throw new Error(last.replace(/^lore: /, "") || /** @type {Error} */ (error).message);
+  }
+  return last;
+}
+
+const atHour = (/** @type {unknown} */ hour) => (typeof hour === "number" ? `${hour % 12 || 12} ${hour < 12 ? "AM" : "PM"}` : "");
+const DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
+
+/**
+ * Save the onboarding profile the agent drafted from the owner's answers, once the owner says yes on a card
+ * that says what changes: who reads and when, and each part of the profile; the CLI validates it.
+ * @param {string} loreHome @param {Record<string, unknown>} profile @param {Ask} ask
+ */
+async function saveProfile(loreHome, profile, ask) {
+  const when = profile.cadence === "weekly" ? `every ${DAYS[Number(profile.day ?? 0)] ?? "week"}` : profile.cadence === "weekdays" ? "on weekdays" : "every day";
+  const parts = /** @type {Array<[string, string]>} */ ([["role", "Role"], ["domains", "Areas"], ["valuable_context", "Worth keeping"], ["preferences", "Preferences"], ["boundaries", "Keep out"]])
+    .filter(([field]) => typeof profile[field] === "string" && String(profile[field]).trim())
+    .map(([field, label]) => `${label}: ${String(profile[field]).trim()}`);
+  // Every value in full: nothing is saved that the owner could not read first.
+  const detail = [`Lore reads your apps ${when} at ${atHour(profile.hour)}.`, ...parts].join("\n\n");
+  if (!(await confirmed(ask, "Your profile", "Save this profile?", "Save it", "Lore reads on this rhythm while it's open", detail))) return "The owner chose not to save the profile right now.";
+  try {
+    return (await lore(loreHome, ["profile", "-"], JSON.stringify(profile))).trim();
+  } catch (error) {
+    return `The profile was not saved: ${/** @type {Error} */ (error).message}`;
+  }
+}
+
 /** The hosts the payments skill sends an owner to; anything else stays closed. */
 const OPENABLE = new Set(["coinbase.com", "www.coinbase.com", "dash.cloudflare.com", "basescan.org", "sepolia.basescan.org"]);
 
@@ -120,6 +252,17 @@ async function searchMemories(loreHome, query) {
 async function readMemory(loreHome, id) {
   if (!Number.isInteger(id) || /** @type {number} */ (id) < 1) throw new Error("Invalid memory");
   return JSON.parse(await lore(loreHome, ["memory", "show", String(id), "--json"]));
+}
+
+/** How many memories one `lore memory credit` names, as the CLI takes them. */
+const CREDIT_AT_ONCE = 500;
+
+/** Put who wrote a reading's memories on record (APP-213), as many at a time as the CLI takes.
+ * @param {string} loreHome @param {number[]} ids @param {Contributor} by */
+async function creditMemories(loreHome, ids, by) {
+  for (let start = 0; start < ids.length; start += CREDIT_AT_ONCE) {
+    await lore(loreHome, ["memory", "credit", "-"], JSON.stringify({ ids: ids.slice(start, start + CREDIT_AT_ONCE), by }));
+  }
 }
 
 /** @param {string} loreHome @param {unknown} id @param {string} title @returns {Promise<Memory>} */
@@ -317,13 +460,110 @@ async function readSource(loreHome, name) {
   return JSON.parse(await lore(loreHome, ["sources", "read", sourceName(name), "--json"]));
 }
 
+/** Turn an agent's own history on this Mac, like Codex's, on or off. @param {string} loreHome @param {unknown} name @param {boolean} on @returns {Promise<SourceEntry>} */
+async function switchSource(loreHome, name, on) {
+  return JSON.parse(await lore(loreHome, ["sources", on ? "enable" : "disable", sourceName(name), "--json"], ""));
+}
+
 /** @param {string} loreHome @param {unknown} name @param {boolean} keep @returns {Promise<SourceRemoval>} */
 async function removeSource(loreHome, name, keep) {
   return JSON.parse(await lore(loreHome, ["sources", "remove", sourceName(name), keep ? "--keep" : "--delete", "--json"]));
 }
 
+/** What a personal agent connected from the app can be (CAP-036). Muse has no way to take a link yet (APP-217). */
+const AGENT_APPS = new Set(["grok", "chatgpt", "claude", "other"]);
+
+/** @param {unknown} name */
+function agentSource(name) {
+  if (typeof name !== "string" || !/^agent-[0-9a-f]{16}$/.test(name)) throw new Error("Unknown agent");
+  return name;
+}
+
+/** The owner's personal agents and what each has saved, as their store counts it. @param {string} loreHome @returns {Promise<AgentEntry[]>} */
+async function listAgents(loreHome) {
+  return JSON.parse(await lore(loreHome, ["agents", "list", "--json"])).agents;
+}
+
+/** A key for a new personal agent, and what to paste into it. The name follows `--` so one that starts with a dash
+ * stays a name. @param {string} loreHome @param {{app?: unknown, name?: unknown}} input @returns {Promise<AgentKey>} */
+async function connectAgent(loreHome, input) {
+  const app = /** @type {string} */ (input?.app);
+  if (!AGENT_APPS.has(app)) throw new Error("Choose an agent");
+  const name = typeof input.name === "string" ? input.name.trim() : "";
+  if (!name || name.length > 40) throw new Error("An agent's name is 1 to 40 characters");
+  // Attended: a key opens the owner's store, so only the owner hands one out, here or at a terminal.
+  return JSON.parse(await lore(loreHome, ["agents", "connect", "--app", app, "--json", "--", name], ""));
+}
+
+/** A new key for an agent; the one it had stops working at once. @param {string} loreHome @param {unknown} source @returns {Promise<AgentKey>} */
+async function agentKey(loreHome, source) {
+  return JSON.parse(await lore(loreHome, ["agents", "key", agentSource(source), "--json"], ""));
+}
+
+/** Stop an agent's key, keeping or deleting what it saved. @param {string} loreHome @param {unknown} source @param {boolean} keep @returns {Promise<SourceRemoval>} */
+async function disconnectAgent(loreHome, source, keep) {
+  return JSON.parse(await lore(loreHome, ["agents", "revoke", agentSource(source), keep ? "--keep" : "--delete", "--json"], ""));
+}
+
+/** Which agents saved something Lore hasn't brought in yet. @param {string} loreHome @returns {Promise<{waiting: number, sources: string[]}>} */
+async function agentsWaiting(loreHome) {
+  return JSON.parse(await lore(loreHome, ["agents", "waiting", "--json"]));
+}
+
+/** The routines Lore runs on its own, as the CLI keeps them. @param {string} loreHome @returns {Promise<Routine[]>} */
+async function listRoutines(loreHome) {
+  return JSON.parse(await lore(loreHome, ["automation", "list", "--json"]));
+}
+
+/** @param {unknown} id */
+function routineId(id) {
+  if (typeof id !== "string" || !/^[a-z0-9][a-z0-9-]*$/.test(id)) throw new Error("Unknown routine");
+  return id;
+}
+
+/** When a routine runs, as the CLI's flags say it. @param {unknown} when @returns {string[]} */
+function rhythmArgs(when) {
+  const { cadence, hour, day = 0 } = /** @type {{cadence?: unknown, hour?: unknown, day?: unknown}} */ (when ?? {});
+  if (!["daily", "weekdays", "weekly"].includes(/** @type {string} */ (cadence)) || !Number.isInteger(hour) || !Number.isInteger(day)) throw new Error("Choose when it runs");
+  return ["--cadence", String(cadence), "--hour", String(hour), "--day", String(day)];
+}
+
+/** @param {string} loreHome @param {unknown} id @returns {Promise<RoutineRun>} */
+async function runRoutine(loreHome, id) {
+  return JSON.parse(await lore(loreHome, ["automation", "run", routineId(id), "--json"]));
+}
+
+/** Pause, resume, retime or remove a routine; the CLI refuses removing one of Lore's own.
+ * @param {string} loreHome @param {unknown} id @param {unknown} action @param {unknown} [when] */
+async function changeRoutine(loreHome, id, action, when) {
+  if (action === "time") return lore(loreHome, ["automation", "time", routineId(id), ...rhythmArgs(when), "--json"]);
+  if (action !== "pause" && action !== "resume" && action !== "remove") throw new Error("Unknown change");
+  return lore(loreHome, ["automation", action, routineId(id), "--json"]);
+}
+
+/** Reword one of the owner's own. @param {string} loreHome @param {string} id @param {unknown} text @param {unknown} [title] @returns {Promise<Routine>} */
+async function editRoutine(loreHome, id, text, title = "") {
+  if (typeof text !== "string" || !text.trim() || text.length > 500) throw new Error("Say what Lore should do, in a sentence");
+  const named = typeof title === "string" && title.trim() ? ["--title", title.trim().slice(0, 120)] : [];
+  return JSON.parse(await lore(loreHome, ["automation", "edit", routineId(id), ...named, "--json", "--", text.trim()]));
+}
+
+/** One of the owner's own: a sentence, after `--` so one starting with a dash stays words. @param {string} loreHome @param {unknown} text @param {unknown} when @param {unknown} [title] A name; the sentence by default. @returns {Promise<Routine>} */
+async function addRoutine(loreHome, text, when, title = "") {
+  if (typeof text !== "string" || !text.trim() || text.length > 500) throw new Error("Say what Lore should do, in a sentence");
+  const named = typeof title === "string" && title.trim() ? ["--title", title.trim().slice(0, 120)] : [];
+  return JSON.parse(await lore(loreHome, ["automation", "add", ...rhythmArgs(when), ...named, "--json", "--", text.trim()]));
+}
+
 module.exports = {
+  dollars,
   lore,
+  listRoutines,
+  runRoutine,
+  changeRoutine,
+  addRoutine,
+  editRoutine,
+  switchSource,
   loreStream,
   stream,
   openable,
@@ -332,6 +572,7 @@ module.exports = {
   readViews,
   searchMemories,
   readMemory,
+  creditMemories,
   renameMemory,
   editMemory,
   captureMemories,
@@ -355,5 +596,16 @@ module.exports = {
   signIn,
   readSource,
   removeSource,
-  useRuntime
+  listAgents,
+  connectAgent,
+  agentKey,
+  disconnectAgent,
+  agentsWaiting,
+  useRuntime,
+  openStore,
+  storeOnline,
+  cloudflareSignIn,
+  saveProfile,
+  ATTENDED_KEY,
+  STORE
 };

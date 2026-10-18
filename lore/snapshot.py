@@ -10,7 +10,7 @@ from typing import Any, Literal, cast
 
 from pydantic import BaseModel, ConfigDict, TypeAdapter
 
-from . import automation, blueprint, feedback, sources
+from . import automation, blueprint, deploy, feedback, sources
 from .paths import claude_home, home
 from .store import FREE_COPIES, FREE_COPIES_SETTING, JOB_SUMMARIES, Store
 
@@ -193,12 +193,16 @@ def _claude_project_labels() -> dict[str, str]:
     projects = claude_home() / "projects"
     if not projects.is_dir():
         return labels
-    for slug in projects.iterdir():
-        for session in slug.glob("*.jsonl"):
-            cwd = _session_cwd(session)
-            if cwd:
-                labels[slug.name] = Path(cwd).name
-                break
+    # A folder Lore hasn't been let into yet labels nothing; it never stops the snapshot.
+    try:
+        for slug in projects.iterdir():
+            for session in slug.glob("*.jsonl"):
+                cwd = _session_cwd(session)
+                if cwd:
+                    labels[slug.name] = Path(cwd).name
+                    break
+    except OSError:
+        pass
     return labels
 
 
@@ -206,15 +210,19 @@ def build() -> dict[str, object]:
     missing = object()
     with Store() as store:
         configured = store.setting("sources", missing)
-        source_entries = sources.Registry(store).entries()
-        memories = store.memory_inventory()
+        registry = sources.Registry(store)
+        source_entries = registry.entries()
+        memories = registry.provenance(store.memory_inventory())
         publications = store.publication_inventory()
         publication_price = store.setting("price_usd", None)
         answer_price = store.setting("answer_price_usd", 0.0)
         answer_enabled = store.setting("answer_enabled", False) is True
         free_copies = store.setting(FREE_COPIES_SETTING, FREE_COPIES)
         telemetry_enabled = store.setting("telemetry_enabled", True) is not False
+        telemetry_noticed = store.setting("telemetry_noticed", False) is True
+        automations_noticed = store.setting(automation.NOTICED, False) is True
         node_url = store.setting("node_url", None)
+        node_selling = deploy.selling(store)
         # Reading concedes jobs whose liveness claim expired, so an interrupted
         # run turns visibly incomplete on the next refresh without a scheduler.
         jobs = store.recent_jobs(limit=20)
@@ -223,6 +231,8 @@ def build() -> dict[str, object]:
     labels = _claude_project_labels()
     prefix = "-" + str(Path.home()).strip("/").replace("/", "-") + "-"
     for memory in memories:
+        for internal in ("source", "origin", "source_path"):
+            memory.pop(internal)
         project = str(memory.pop("project"))
         memory["project_label"] = labels.get(project) or project.removeprefix(prefix)
     for publication in publications:
@@ -245,6 +255,8 @@ def build() -> dict[str, object]:
             "profile_configured": automation.profile_path().is_file(),
             "schedule": automation.schedule_state(),
             "telemetry_enabled": telemetry_enabled,
+            "telemetry_noticed": telemetry_noticed,
+            "automations_noticed": automations_noticed,
         },
         # Whether this build can send feedback at all. The Desktop app hides
         # its Report Feedback button when it cannot, so a release with no
@@ -269,6 +281,8 @@ def build() -> dict[str, object]:
         },
         "node": {
             "url": node_url if isinstance(node_url, str) else None,
+            # False while the store is online only for the owner's agents (XC-069).
+            "selling": node_selling,
             "live": live,
         },
         # Owner-run history. The stored summary is a code; the prose is applied

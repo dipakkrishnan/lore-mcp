@@ -135,7 +135,8 @@ function storefront(catalog, store) {
       item: { "@type": "Product", name: piece.teaser, category: label(piece.topic), url: `${store.origin}/p/${piece.id}`, offers: offer(store, piece) }
     }))
   };
-  const body = `<h1>${escape(name)}</h1><p class="lede">${lede}</p>${notice(store)}${chips}${sections || '<p class="empty">Nothing for sale yet. Check back soon.</p>'}${agentsNote(store)}`;
+  const buying = store.selling === false ? "" : `${notice(store)}${chips}${sections || '<p class="empty">Nothing for sale yet. Check back soon.</p>'}${agentsNote(store)}`;
+  const body = `<h1>${escape(name)}</h1><p class="lede">${lede}</p>${buying}`;
   return page(`${name} \xB7 Lore`, `${count} firsthand ${count === 1 ? "piece" : "pieces"} for sale on Lore.`, `${store.origin}/`, body + foot(store), data);
 }
 var clip = (text, length) => {

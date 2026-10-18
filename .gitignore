@@ -20,3 +20,6 @@ support/seed/private/
 
 # git worktrees (local, per-developer)
 .worktrees/
+
+# local logs from test and edge runs
+*.log

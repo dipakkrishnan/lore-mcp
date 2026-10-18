@@ -1,0 +1,4 @@
+interface:
+  display_name: "Lore Synthesize"
+  short_description: "Turn a connected app into private Lore memories"
+  default_prompt: "Use $lore-synthesize to turn what my connected apps brought into Lore into private topic memories."
