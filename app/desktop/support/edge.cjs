@@ -1205,7 +1205,8 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         check("an owner with memories is not offered How it works", await js(`${todayShown} && document.querySelector("#content .how-it-works") === null`));
         await js(`document.querySelector("#account").click()`);
         const menu =await js(`[...document.querySelectorAll("#account-menu button:not([hidden]), #account-menu p")].map((b) => b.textContent).join("|")`);
-        check("the account row opens a menu: Settings, Help & FAQ, feedback when it can be sent, Dark mode, then who is signed in", /^Settings⌘,\|Help & FAQ\|(Report feedback\|)?Dark mode\|Signed in with Claude\|Sign out of Claude$/.test(menu), menu);
+        check("the account row opens a menu: who is signed in, then Settings, Help & FAQ, feedback when it can be sent, Dark mode and Sign out", /^Signed in with Claude\|Settings⌘,\|Help & FAQ\|(Report feedback\|)?Dark mode\|Sign out$/.test(menu), menu);
+        check("…each item with its icon", await js(`[...document.querySelectorAll("#account-menu button:not([hidden])")].every((b) => b.querySelector(":scope > svg"))`));
         check("…with focus on its first item, and the row saying it is open", await js(`document.activeElement === document.querySelector("#account-menu [data-view=settings]") && document.querySelector("#account").getAttribute("aria-expanded") === "true"`));
         await shot("account-menu");
         await key("keyDown", "Escape");

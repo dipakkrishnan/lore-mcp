@@ -3314,7 +3314,6 @@ function renderAccount() {
   account.insertAdjacentHTML("beforeend", CHEVRON);
   accountLine.textContent = credential ? `Signed in with ${name}` : "Not signed in";
   signOutBtn.hidden = !credential;
-  signOutBtn.textContent = `Sign out of ${name}`;
 }
 
 /** Memories and For Sale became Inventory's tabs; anything that still asks for them lands there. @param {View | "memories" | "store"} next */
