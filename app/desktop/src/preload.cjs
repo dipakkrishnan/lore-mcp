@@ -39,7 +39,7 @@ contextBridge.exposeInMainWorld("lore", {
   approveExtras: (decisions) => ipcRenderer.invoke("publication:approve-extras", decisions),
   /** @param {number} id */
   revoke: (id) => ipcRenderer.invoke("publication:revoke", id),
-  push: () => ipcRenderer.invoke("store:push"),
+  push: (/** @type {boolean} */ latest) => ipcRenderer.invoke("store:push", latest === true),
   /** @param {number} amount */
   setPrice: (amount) => ipcRenderer.invoke("pricing:set", amount),
   /** @param {number} count */

@@ -283,6 +283,8 @@ def build() -> dict[str, object]:
             "url": node_url if isinstance(node_url, str) else None,
             # False while the store is online only for the owner's agents (XC-069).
             "selling": node_selling,
+            # Whether the store online is the one this Lore ships (APP-231).
+            "store": deploy.store_state(node_url),
             "live": live,
         },
         # Owner-run history. The stored summary is a code; the prose is applied

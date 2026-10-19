@@ -10,6 +10,7 @@ and the Worker share a D1 schema (MON-003).
 from __future__ import annotations
 
 import fcntl
+import hashlib
 import json
 import math
 import os
@@ -20,6 +21,7 @@ import sys
 import tempfile
 import time
 from contextlib import contextmanager
+from fnmatch import fnmatch
 from importlib import resources
 from pathlib import Path
 from typing import Iterator, Literal
@@ -39,6 +41,8 @@ WRANGLER = "node_modules/.bin/wrangler"
 INSTALLED = ".installed"
 # Where the store pays out, written only by a deploy that set it.
 PAYOUT = "payout.json"
+# Which store this Lore last put online from this Mac, written by every deploy that went out.
+DEPLOYED = "deployed.json"
 DATABASE_ID = "[0-9a-f-]{36}"
 WALLET = re.compile(r"0x[0-9a-fA-F]{40}")
 D1_NAME = "lore-publications"
@@ -253,6 +257,50 @@ def materialize(price_usd: float | None) -> Path:
         shutil.rmtree(building, ignore_errors=True)
         raise
     return target
+
+
+def shipped_store() -> str:
+    """A digest of the store this Lore ships: every packaged file a deploy lays
+    down, by path and content. Two Lore releases that ship the same store agree."""
+    digest = hashlib.sha256()
+    with resources.as_file(resources.files("lore") / "node") as source_dir:
+        for root, dirs, files in os.walk(source_dir):
+            dirs[:] = sorted(d for d in dirs if not _excluded(d))
+            for name in sorted(files):
+                if _excluded(name):
+                    continue
+                path = Path(root, name)
+                digest.update(path.relative_to(source_dir).as_posix().encode())
+                digest.update(b"\0" + path.read_bytes() + b"\0")
+    return digest.hexdigest()
+
+
+def _excluded(name: str) -> bool:
+    return any(fnmatch(name, pattern) for pattern in EXCLUDED)
+
+
+def _record_store(target: Path) -> None:
+    """Keep which store went online, beside its payout record: the app offers an
+    update once this Lore ships a newer one."""
+    _replace(target / DEPLOYED, json.dumps({"store": shipped_store()}))
+
+
+def store_state(node_url: object) -> Literal["current", "outdated", "unknown"]:
+    """Whether the store online is the one this Lore ships (APP-231). Only a store
+    this Mac put online can be behind: one with no record here is unknown, never
+    outdated, so the app never offers to update a store another Mac set up. A
+    store put online from this Mac before the record was kept has its payout
+    record instead, which only a deploy from here writes."""
+    if not node_url:
+        return "unknown"
+    target = store_folder()
+    try:
+        kept = json.loads((target / DEPLOYED).read_text()).get("store")
+    except (OSError, ValueError, AttributeError):
+        kept = None
+    if not isinstance(kept, str):
+        return "outdated" if (target / PAYOUT).is_file() else "unknown"
+    return "current" if kept == shipped_store() else "outdated"
 
 
 def installed(target: Path) -> bool:
@@ -776,6 +824,7 @@ def _deploy(
     if deployed.returncode:
         raise OSError(f"deploy failed:\n{_detail(deployed)}")
     print(deployed.stdout.strip())
+    _record_store(target)
 
     # Wrangler colourises under TTY-ish environments; strip escapes so \S+
     # cannot swallow them into the matched address.

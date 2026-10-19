@@ -253,6 +253,8 @@ class DesktopSnapshotTest(LoreTestCase):
         # setting above is 0.01, the deployed node still advertises 0.02.
         self.assertEqual(state["node"]["live"]["price_usd"], 0.02)
         self.assertEqual(state["node"]["live"]["payout"], "0x" + "a" * 40)
+        # Nothing on record of putting it online from this Mac: never offered an update (APP-231).
+        self.assertEqual(state["node"]["store"], "unknown")
 
     def test_the_schedule_is_the_profiles_rhythm_kept_by_lore(self) -> None:
         automation.save_profile({"cadence": "weekly", "hour": 21, "day": 6})

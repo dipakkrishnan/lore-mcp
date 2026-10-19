@@ -1,7 +1,7 @@
 // Walks the renderer through the edge audit's two personas against a seeded scratch home.
 // Usage: support/edge.sh <scenario>   (seeds LORE_HOME, then runs this under Electron)
 const { app, BrowserWindow, nativeTheme } = require("electron");
-const { chmodSync, mkdirSync, readFileSync, writeFileSync } = require("node:fs");
+const { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } = require("node:fs");
 const { execFileSync } = require("node:child_process");
 const { dirname, join } = require("node:path");
 const scenario = process.argv.at(-1);
@@ -132,6 +132,14 @@ const hold = (channel) => {
 }
 if (scenario === "listing") {
   require("electron").shell.openExternal = async (url) => { opened.push(url); };
+  require(join(src, "main.cjs"));
+} else if (scenario === "update") {
+  // APP-231: the walk's own CLI for everything but putting the store online, which records what it was asked and keeps
+  // the store this Lore ships on record, as a deploy that went out does. Nothing reaches a real account.
+  const bin = join(S, "update-bin");
+  mkdirSync(bin, { recursive: true });
+  writeFileSync(join(bin, "lore"), `#!/bin/sh\nif [ "$1 $2" = "node deploy" ]; then echo "$*" >> ${JSON.stringify(join(S, "deploys"))}; cd ${JSON.stringify(join(__dirname, "../../.."))} && uv run python -c "from lore import deploy; deploy._record_store(deploy.store_folder())"; echo "Deployed"; exit 0; fi\nexec ${JSON.stringify(cli.bin)} "$@"\n`, { mode: 0o755 });
+  process.env.LORE_DESKTOP_BIN_DIR = bin;
   require(join(src, "main.cjs"));
 } else if (scenario === "feedback") {
   const relay = require("node:http").createServer((request, response) => {
@@ -723,6 +731,58 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         const reading = `[...document.querySelectorAll("#content .row")].find((r) => r.querySelector("b")?.textContent === "Read connected apps")?.textContent ?? ""`;
         check("…and Automations lists it like any other, with Run now", await waitFor(`(${reading}).includes("Every Sunday at 9 PM · Next")`) && !/Codex|Claude| by /.test(await js(reading)) && await js(`Boolean(document.querySelector("#content .routine-act[aria-label='Run now']"))`), await js(reading));
         await shot("automations-taken-over");
+      } else if (scenario === "update") {
+        await waitFor(`document.body.dataset.state === "welcome" && !document.querySelector("#welcome").classList.contains("provisioning")`);
+        await js(`window.__lore.signIn()`);
+        const nextStep = `(document.querySelector("#content .next-step")?.textContent ?? "")`;
+        const changes = `document.querySelector("dialog.changes-sheet[open]")`;
+        const answerChanges = (/** @type {string} */ label) => js(`[...${changes}.querySelectorAll("button")].find((b) => b.textContent === ${JSON.stringify(label)}).click()`);
+        const address = `[...document.querySelectorAll("#content .row")].find((r) => r.querySelector(".t b")?.textContent === "Address")`;
+        const update = () => js(`[...${address}.querySelectorAll("button")].find((b) => b.textContent === "Update").click()`);
+        const deploys = () => (existsSync(join(S, "deploys")) ? readFileSync(join(S, "deploys"), "utf8").trim().split("\n") : []);
+        const older = () => writeFileSync(join(process.env.LORE_STORE ?? "", "deployed.json"), JSON.stringify({ store: "an older one" }));
+        const settled = async () => { await js(`window.__lore.event({ type: "changed" })`); await sleep(1500); };
+        // APP-231: a newer store from Lore is never a step on Today.
+        await waitFor(`window.lore.snapshot().then((s) => s.node.store === "outdated")`, 80);
+        await sleep(800);
+        check("a newer store from Lore is not a step on Today", !/newer store|update from Lore/i.test(await js(`document.querySelector("#content").textContent`)), await js(nextStep));
+        // It is offered quietly where the store shows: Settings, and the store card.
+        await js(`window.__lore.show("settings")`);
+        check("Settings says a newer store is ready beside the store's address, with a quiet Update", await waitFor(`${address}?.textContent.includes("A newer store from Lore is ready.") && [...${address}.querySelectorAll("button")].some((b) => b.textContent === "Update" && b.classList.contains("quiet"))`, 80), await js(`${address}?.textContent ?? ""`));
+        check("…never naming code, versions or deploys", !/worker|code|version|deploy/i.test(await js(`${address}.textContent`)), await js(`${address}.textContent`));
+        await shot("update-settings");
+        await js(`window.__lore.show("store")`);
+        check("the store card offers the same quiet Update", await waitFor(`[...document.querySelectorAll("#content .store-bar button")].some((b) => b.textContent === "Update") && document.querySelector("#content .store-bar").textContent.includes("A newer store from Lore is ready.")`, 40), await js(`document.querySelector("#content .store-bar")?.textContent ?? ""`));
+        await shot("update-store-card");
+        await js(`window.__lore.show("settings")`);
+        await waitFor(address);
+        await update();
+        check("Update asks first, naming the newer store on the card", await waitFor(`${changes}?.textContent.includes("Store") && ${changes}.textContent.includes("The latest from Lore")`), await js(`${changes}?.textContent ?? ""`));
+        await shot("update-confirm");
+        await answerChanges("Cancel");
+        await waitFor(`!document.querySelector("dialog.changes-sheet[open]")`);
+        check("Cancel puts nothing out, and the Update stays on offer", deploys().length === 0 && await waitFor(`${address}?.textContent.includes("A newer store from Lore is ready.")`), deploys().join("|"));
+        await update();
+        await waitFor(changes);
+        await answerChanges("Confirm");
+        for (let i = 0; i < 120 && deploys().length < 1; i++) await sleep(250);
+        check("Confirm puts the store out again as it was last opened: its network and payout", deploys().at(-1) === `node deploy --network test --wallet 0x${"a".repeat(40)}`, deploys().join("|"));
+        check("…and once it is the store this Lore ships, nothing more is offered", await waitFor(`window.lore.snapshot().then((s) => s.node.store === "current")`, 80) && await waitFor(`!${address}?.textContent.includes("A newer store")`, 40), await js(`${address}?.textContent ?? ""`));
+        // A store online only for its agents goes out the same way it was put online.
+        execFileSync("uv", ["run", "python", "-c", "from lore.store import Store\nwith Store() as s:\n s.set_setting('node_selling', False)"], { cwd: join(__dirname, "../../.."), env: process.env });
+        older();
+        await settled();
+        check("a store online only for its agents is offered its update too", await waitFor(`${address}?.textContent.includes("A newer store from Lore is ready.")`, 80), await js(`${address}?.textContent ?? ""`));
+        await update();
+        await waitFor(changes);
+        await answerChanges("Confirm");
+        for (let i = 0; i < 120 && deploys().length < 2; i++) await sleep(250);
+        check("…and goes out online for its agents only", deploys().at(-1) === "node deploy --inbox-only", deploys().join("|"));
+        // With no record of putting it online from this Mac, it might be another Mac's store: never offered.
+        rmSync(join(process.env.LORE_STORE ?? "", "deployed.json"), { force: true });
+        rmSync(join(process.env.LORE_STORE ?? "", "payout.json"), { force: true });
+        await settled();
+        check("a store this Mac has no record of putting online is never offered an update", await js(`window.lore.snapshot().then((s) => s.node.store === "unknown")`) && !(await js(`${address}?.textContent ?? ""`)).includes("A newer store"), await js(`${address}?.textContent ?? ""`));
       } else if (scenario === "store") {
         await waitFor(`document.body.dataset.state === "welcome" && !document.querySelector("#welcome").classList.contains("provisioning")`);
         await js(`window.__lore.signIn()`);

@@ -463,7 +463,10 @@ a.receipt:hover { color: var(--accent); }
 .price-field input[type="text"] { width: 6ch; height: auto; padding: 0; border: 0; background: none; font-family: var(--mono); font-size: 15px; text-align: left; }
 .price-field input[type="text"]:focus-visible { outline: none; box-shadow: none; }
 .request .price-field { height: 36px; align-self: flex-start; }
-.store-bar .stale-price { display: flex; align-items: center; justify-content: flex-end; gap: 6px; }
+.store-bar /* APP-231: a newer store from Lore, said quietly beside the store, never as a step. */
+.newer-store { display: block; font-size: 12px; color: var(--muted); }
+.newer-store-line { display: flex; align-items: center; justify-content: flex-end; gap: 10px; margin-top: 4px; }
+.stale-price { display: flex; align-items: center; justify-content: flex-end; gap: 6px; }
 .store-bar .stale-price span { color: var(--attention-ink); }
 
 .error { padding: 18px 20px; display: flex; flex-direction: column; gap: 8px; }
