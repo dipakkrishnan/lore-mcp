@@ -766,11 +766,11 @@ class Store:
             sql = (
                 "SELECT m.* FROM memories_fts f JOIN memories m ON m.id=f.rowid "
                 f"WHERE memories_fts MATCH ?{status_sql} "
-                "ORDER BY bm25(memories_fts),m.updated_at DESC LIMIT ?"
+                "ORDER BY bm25(memories_fts),m.updated_at DESC,m.id DESC LIMIT ?"
             )
             args.append(match)
         else:
-            sql = f"SELECT m.* FROM memories m WHERE 1=1{status_sql} ORDER BY m.updated_at DESC LIMIT ?"
+            sql = f"SELECT m.* FROM memories m WHERE 1=1{status_sql} ORDER BY m.updated_at DESC,m.id DESC LIMIT ?"
         args.extend(value for value in (status, source) if value)
         args.append(limit or -1)
         return [Memory.from_row(row) for row in self.db.execute(sql, args).fetchall()]

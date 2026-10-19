@@ -152,7 +152,7 @@ type SourceRead = { name: string; label?: string; connector?: string | null; app
 type Reading = { name: string; label: string; item: string; added: number; title: string; phase: string; ask?: string; from?: string; by: Contributor };
 
 /** What a reading hands back: how many items it read, and each topic file it wrote. */
-type ReadingReport = { read: number; memories: Array<{ file: string; worth_selling: boolean; why: string }> };
+type ReadingReport = { read: number; memories: Array<{ file: string; worth_selling: boolean; why: string }>; missing?: string };
 
 /** One memory a reading wrote, as Today lists it. Work is never offered for sale. */
 type ReadyMemory = { id: number; title: string; sell: boolean; work: boolean; why: string };
@@ -483,7 +483,7 @@ type OpenStore = { network?: "real" | "test"; wallet?: string; inboxOnly?: boole
 type StoreChange = { group: string; label: string; from?: string; to?: string };
 
 /** The terms a deploy for sale goes live with, and where the store's last deploy recorded it paid. */
-type SaleDeploy = { network: "real" | "test"; payout: string; recorded: { address: string; network: "real" | "test" | null } | null };
+type SaleDeploy = { network: "real" | "test"; payout: string | null; recorded: { address: string; network: "real" | "test" | null } | null };
 
 /** The owner's card for what a store update puts out; true only on Confirm. */
 type Confirm = (heading: string, changes: StoreChange[]) => Promise<boolean>;
