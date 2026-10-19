@@ -231,9 +231,30 @@ def parser() -> argparse.ArgumentParser:
     kept.add_argument("--delete", action="store_true", help="delete what it saved")
     agent_revoke.add_argument("--json", action="store_true")
     agent_waiting = agent_commands.add_parser(
-        "waiting", help="how many saves are waiting to be brought in"
+        "waiting",
+        help="how many saves are waiting to be brought in, and which apps ask to sign in",
     )
     agent_waiting.add_argument("--json", action="store_true")
+    agent_address = agent_commands.add_parser(
+        "address", help="the address an app signs in at, with no key in it"
+    )
+    agent_address.add_argument("--json", action="store_true")
+    agent_allow = agent_commands.add_parser(
+        "allow", help="let an app that asked to sign in save to your Lore"
+    )
+    agent_allow.add_argument("sign_in", help="the sign-in's id, from `agents waiting`")
+    agent_allow.add_argument("--name", help="what you call it; guessed from the app")
+    agent_allow.add_argument(
+        "--app",
+        type=_new_agent_app,
+        choices=[app for app in get_args(AgentApp) if app != "muse"],
+    )
+    agent_allow.add_argument("--json", action="store_true")
+    agent_deny = agent_commands.add_parser(
+        "deny", help="refuse an app that asked to sign in"
+    )
+    agent_deny.add_argument("sign_in")
+    agent_deny.add_argument("--json", action="store_true")
 
     review = commands.add_parser("review", help="keep or discard memories")
     review.add_argument("query", nargs="*", help="words to narrow the review queue")
@@ -1062,6 +1083,8 @@ def agents_command(args: argparse.Namespace) -> int:
         "connect": "connecting an agent",
         "key": "giving an agent a new key",
         "revoke": "disconnecting an agent",
+        "allow": "letting an app sign in",
+        "deny": "refusing an app's sign-in",
     }
     if command in owner_only:
         _owner_action(owner_only[command])
@@ -1086,7 +1109,22 @@ def agents_command(args: argparse.Namespace) -> int:
                 lines = [f"Disconnected {args.source}; memories {kind}."]
             elif command == "waiting":
                 payload = agents.waiting()
-                lines = [f"{payload['waiting']} waiting to be brought in."]
+                lines = [f"{payload['waiting']} waiting to be brought in."] + [
+                    f"{asking['client']} asks to sign in, code {asking['code']}: "
+                    f"lore agents allow {asking['id']}"
+                    for asking in payload["sign_ins"]  # type: ignore[attr-defined]
+                ]
+            elif command == "address":
+                payload = agents.address()
+                lines = [
+                    f"Add Lore in your app with {payload['mcp_url']}, then allow it here."
+                ]
+            elif command == "allow":
+                payload = agents.allow(args.sign_in, args.name, args.app)
+                lines = [f"Allowed. It saves to Lore as {payload['agent']['name']}."]  # type: ignore[index]
+            elif command == "deny":
+                payload = agents.deny(args.sign_in)
+                lines = ["Refused. It can't save to Lore."]
             else:
                 listed = agents.entries()
                 payload = listed

@@ -227,7 +227,10 @@ class ReadTest(AgentCase):
             for r in sqlite3.connect(self.d1.path).execute("SELECT state FROM inbox")
         ]
         self.assertEqual(states, ["received", "received"])
-        self.assertEqual(self.json("agents", "waiting"), {"waiting": 0, "sources": []})
+        self.assertEqual(
+            self.json("agents", "waiting"),
+            {"waiting": 0, "sources": [], "sign_ins": []},
+        )
         self.assertEqual(self.read()["added"], 0)
 
     def test_a_failed_import_confirms_nothing_and_the_next_read_finishes(self) -> None:
@@ -249,7 +252,9 @@ class ReadTest(AgentCase):
         ):
             self.lore("sources", "read", self.source)
         waiting = self.json("agents", "waiting")
-        self.assertEqual(waiting, {"waiting": 2, "sources": [self.source]})
+        self.assertEqual(
+            waiting, {"waiting": 2, "sources": [self.source], "sign_ins": []}
+        )
         read = self.read()
         self.assertEqual((read["added"], read["unchanged"]), (1, 1))
         self.assertEqual(set(self.memories(self.source)), {"A", "B"})
@@ -468,13 +473,15 @@ class ReadTest(AgentCase):
                         "last_saved_at": listed["agents"][0]["last_saved_at"],
                         "memories": 0,
                         "revoked": False,
+                        "signed_in": False,
                     }
                 ]
             },
         )
         self.assertIsNotNone(listed["agents"][0]["last_saved_at"])
         self.assertEqual(
-            self.json("agents", "waiting"), {"waiting": 1, "sources": [self.source]}
+            self.json("agents", "waiting"),
+            {"waiting": 1, "sources": [self.source], "sign_ins": []},
         )
         self.read()
         self.assertEqual(self.json("agents", "list")["agents"][0]["memories"], 1)
@@ -532,7 +539,10 @@ class ReadTest(AgentCase):
 
 class WaitingTest(AgentCase):
     def test_with_no_agent_connected_waiting_asks_nobody(self) -> None:
-        self.assertEqual(self.json("agents", "waiting"), {"waiting": 0, "sources": []})
+        self.assertEqual(
+            self.json("agents", "waiting"),
+            {"waiting": 0, "sources": [], "sign_ins": []},
+        )
         self.assertEqual(self.json("agents", "list"), {"agents": []})
         self.wrangler.assert_not_called()
         self.assertEqual(self.keyring.saved, {})
@@ -572,3 +582,105 @@ class PushTest(AgentCase):
         self.assertNotIn(
             "inbox_", cli._push_sql([], answer, "", inbox=Inbox().settings())
         )
+
+
+class SignInTest(AgentCase):
+    """XC-068: an app adds the plain address and signs in; the owner allows it here."""
+
+    def address(self) -> str:
+        return str(self.json("agents", "address")["mcp_url"])
+
+    def test_the_address_has_no_key_and_lore_then_listens_for_a_sign_in(self) -> None:
+        self.assertEqual(self.address(), f"{self.node.url}/agent")
+        self.assertEqual(self.keyring.saved, {}, "no key is made for a plain address")
+        sign_in, code = self.d1.ask("Claude")
+        waiting = self.json("agents", "waiting")
+        self.assertEqual(waiting["sources"], [])
+        self.assertEqual(
+            [
+                (s["id"], s["code"], s["client"], s["app"], s["name"])
+                for s in waiting["sign_ins"]
+            ],
+            [(sign_in, code, "Claude", "claude", "Claude")],
+        )
+
+    def test_allow_makes_the_agent_and_binds_the_sign_in_to_it(self) -> None:
+        self.address()
+        sign_in, _ = self.d1.ask("Grok")
+        allowed = self.json("agents", "allow", sign_in)
+        agent = allowed["agent"]
+        self.assertEqual((agent["name"], agent["app"]), ("Grok Bot", "grok"))
+        self.assertEqual(allowed["source"], f"agent-{agent['id']}")
+        self.assertNotIn("key", allowed)
+        bound = self.d1.sign_in(sign_in)
+        self.assertEqual((bound["state"], bound["agent"]), ("allowed", agent["id"]))
+        listed = self.json("agents", "list")["agents"]
+        self.assertEqual(
+            [(a["source"], a["signed_in"]) for a in listed], [(allowed["source"], True)]
+        )
+        self.assertEqual(self.json("agents", "waiting")["sign_ins"], [])
+        # The owner's keys are made, so what it saves is sealed to this Mac.
+        self.assertEqual(set(Inbox().settings()), {"inbox_public_key", "inbox_salt"})
+        code, _ = self.lore("agents", "key", allowed["source"], "--json")
+        self.assertEqual(code, 2, "a signed-in agent has no link to replace")
+
+    def test_the_owner_names_the_agent_they_were_connecting(self) -> None:
+        self.address()
+        sign_in, _ = self.d1.ask("Some MCP client")
+        allowed = self.json(
+            "agents", "allow", sign_in, "--app", "claude", "--name", "Claude"
+        )
+        self.assertEqual(
+            (allowed["agent"]["name"], allowed["agent"]["app"]), ("Claude", "claude")
+        )
+
+    def test_an_expired_or_refused_sign_in_binds_nothing(self) -> None:
+        self.address()
+        expired, _ = self.d1.ask("Claude", minutes=-1)
+        refused, _ = self.d1.ask("Claude")
+        self.assertEqual(self.json("agents", "deny", refused), {"denied": refused})
+        self.assertEqual(self.d1.sign_in(refused)["state"], "denied")
+        for sign_in in (expired, refused):
+            with self.subTest(sign_in=sign_in):
+                code, _ = self.lore(
+                    "agents",
+                    "allow",
+                    sign_in,
+                    "--app",
+                    "claude",
+                    "--name",
+                    "Claude",
+                    "--json",
+                )
+                self.assertEqual(code, 2)
+        db = sqlite3.connect(self.d1.path)
+        self.assertEqual(db.execute("SELECT count(*) FROM agents").fetchone()[0], 0)
+        self.assertEqual(self.json("agents", "list"), {"agents": []})
+
+    def test_only_the_owner_allows_or_refuses_a_sign_in(self) -> None:
+        self.address()
+        sign_in, _ = self.d1.ask("Claude")
+        with (
+            patch.object(cli, "_attended", return_value=False),
+            patch.object(cli, "_interactive", return_value=False),
+        ):
+            for argv in (("agents", "allow", sign_in), ("agents", "deny", sign_in)):
+                with self.subTest(argv=argv), captured(), patch("sys.stderr"):
+                    self.assertEqual(cli.main([*argv, "--json"]), 1)
+        self.assertEqual(self.d1.sign_in(sign_in)["state"], "pending")
+
+    def test_waiting_stays_one_query_with_sign_ins(self) -> None:
+        self.address()
+        self.d1.ask("Claude")
+        self.wrangler.reset_mock()
+        self.assertEqual(len(self.json("agents", "waiting")["sign_ins"]), 1)
+        self.assertEqual(self.wrangler.call_count, 1)
+
+    def test_lore_stops_listening_a_while_after_the_address_was_copied(self) -> None:
+        self.address()
+        with Store() as store:
+            store.set_setting("agent_sign_in_until", 0)
+        self.d1.ask("Claude")
+        self.wrangler.reset_mock()
+        self.assertEqual(self.json("agents", "waiting")["sign_ins"], [])
+        self.wrangler.assert_not_called()

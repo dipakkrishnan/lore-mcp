@@ -515,7 +515,31 @@ async function disconnectAgent(loreHome, source, keep) {
   return JSON.parse(await lore(loreHome, ["agents", "revoke", agentSource(source), keep ? "--keep" : "--delete", "--json"], ""));
 }
 
-/** Which agents saved something Lore hasn't brought in yet. @param {string} loreHome @returns {Promise<{waiting: number, sources: string[]}>} */
+/** The plain address an app signs in at (XC-068); Lore listens for its sign-in a while after. @param {string} loreHome
+ * @returns {Promise<{mcp_url: string}>} */
+async function agentAddress(loreHome) {
+  return JSON.parse(await lore(loreHome, ["agents", "address", "--json"]));
+}
+
+/** @param {unknown} id */
+function signInId(id) {
+  if (typeof id !== "string" || !/^[0-9a-f]{64}$/.test(id)) throw new Error("Unknown sign-in");
+  return id;
+}
+
+/** Let an app that asked to sign in save to Lore, as the agent the owner was connecting. Attended, like a key.
+ * @param {string} loreHome @param {{id?: unknown, app?: unknown, name?: unknown}} input @returns {Promise<AllowedAgent>} */
+async function allowSignIn(loreHome, input) {
+  const as = AGENT_APPS.has(/** @type {string} */ (input?.app)) && typeof input.name === "string" && input.name.trim() ? ["--app", String(input.app), "--name", input.name.trim().slice(0, 40)] : [];
+  return JSON.parse(await lore(loreHome, ["agents", "allow", signInId(input?.id), ...as, "--json"], ""));
+}
+
+/** @param {string} loreHome @param {unknown} id */
+async function denySignIn(loreHome, id) {
+  return JSON.parse(await lore(loreHome, ["agents", "deny", signInId(id), "--json"], ""));
+}
+
+/** Which agents saved something Lore hasn't brought in yet, and which apps ask to sign in. @param {string} loreHome @returns {Promise<AgentsWaiting>} */
 async function agentsWaiting(loreHome) {
   return JSON.parse(await lore(loreHome, ["agents", "waiting", "--json"]));
 }
@@ -611,6 +635,9 @@ module.exports = {
   agentKey,
   disconnectAgent,
   agentsWaiting,
+  agentAddress,
+  allowSignIn,
+  denySignIn,
   useRuntime,
   openStore,
   storeOnline,

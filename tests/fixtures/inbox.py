@@ -45,6 +45,8 @@ from cryptography.hazmat.primitives.kdf.hkdf import HKDF
 from keyring.backend import KeyringBackend
 from keyring.errors import PasswordDeleteError
 
+from lore.inbox import SCHEMA
+
 TOKEN = re.compile(r"^lore_agent_([0-9a-f]{16})_([A-Za-z0-9_-]{43})$")
 KINDS = ("experience", "lesson", "preference", "fact", "reference")
 WINDOWS = {"hour": (timedelta(hours=1), 100), "day": (timedelta(days=1), 1000)}
@@ -137,6 +139,24 @@ class D1:
                 ]
         finally:
             db.close()
+
+    def ask(self, client: str, minutes: int = 10) -> tuple[str, str]:
+        """An app asking to sign in, as the node's authorize page leaves it (XC-068):
+        the sign-in's id and the code the page shows."""
+        sign_in, code = secrets.token_hex(32), secrets.token_hex(2).upper()
+        now = datetime.now(timezone.utc)
+        self.execute(
+            f"{SCHEMA}INSERT INTO sign_ins(id,code,client,state,created_at,expires_at) "
+            f"VALUES ('{sign_in}','{code}','{client.replace(chr(39), chr(39) * 2)}',"
+            f"'pending','{Endpoint._at(now)}',"
+            f"'{Endpoint._at(now + timedelta(minutes=minutes))}');"
+        )
+        return sign_in, code
+
+    def sign_in(self, sign_in: str) -> dict[str, object] | None:
+        rows = self.execute(f"SELECT * FROM sign_ins WHERE id = '{sign_in}';")
+        found = rows[0]["results"]
+        return found[0] if found else None
 
     def wrangler(
         self, args: tuple[str, ...], **_: object
@@ -570,11 +590,15 @@ class Handler(BaseHTTPRequestHandler):
 
 if __name__ == "__main__":
     options = argparse.ArgumentParser(prog="python -m tests.fixtures.inbox")
-    options.add_argument("mode", choices=("serve", "wrangler"))
+    options.add_argument("mode", choices=("serve", "wrangler", "ask"))
+    options.add_argument("--client", default="Claude")
     options.add_argument("--port", type=int, default=8788)
     options.add_argument("--db", default=os.environ.get("LORE_EDGE_D1", "d1.sqlite"))
     known, rest = options.parse_known_args()
     d1 = D1(Path(known.db))
+    if known.mode == "ask":
+        print(json.dumps(dict(zip(("id", "code"), d1.ask(known.client), strict=True))))
+        sys.exit(0)
     if known.mode == "wrangler":
         answered = d1.wrangler(tuple(rest))
         print(answered.stdout, end="")
