@@ -23,6 +23,7 @@ The owner walked the app before 0.1.17 and found these problems:
 - **Connecting an agent gave no prompt to test a save.** The scheduled-task suggestion only appeared after the first save.
 - **"Push my store" in a drafting chat redeployed the store.** The assistant called `open_store` instead of saying it can't. Its closing line also showed twice.
 - **Focus rings and selected options in bright green looked artificial** everywhere in the app.
+- **In the first run, a folder macOS keeps Lore out of said "didn't connect. Try again."** Trying again can never help until the owner allows Lore. (On the walk, the Obsidian vault was in Documents.)
 
 ## Proposed approach
 
@@ -36,6 +37,7 @@ The owner walked the app before 0.1.17 and found these problems:
 - `open_store` and `cloudflare_login` exist only in the store's own thread, which only the app's buttons start. Anywhere else, the assistant says it can't change the store.
 - A repeated closing line is shown once, live and on replay.
 - Focus and selection use a quiet ink-toned ring. Green stays for actions and Lore's mark.
+- When macOS blocks a folder, the first run says so and offers Open System Settings next to Try again.
 
 ## Acceptance criteria
 

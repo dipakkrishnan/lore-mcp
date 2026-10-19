@@ -974,10 +974,13 @@ function signInCard() {
   return box;
 }
 
-/** Whether a read left the place it read readable. @param {SourceRead[]} reads @param {string} name */
-function readable(reads, name) {
-  const read = reads.find((each) => each.name === name);
-  return Boolean(read && CONNECTION_STATES[read.state].ok);
+/** What a place macOS keeps Lore out of throws, so the first run asks for the access rather than another try. */
+const MAC_SAYS_NO = "macOS hasn't let Lore read it";
+
+/** Throws, in words the first run can tell apart, unless the place reads. @param {SourceState | undefined} state */
+function readOrThrow(state) {
+  if (state === "needs_permission") throw new Error(MAC_SAYS_NO);
+  if (!CONNECTION_STATES[state ?? "connected"].ok) throw new Error("Lore can't read it yet");
 }
 
 /** How long Lore waits on where the first run stands before going on without it. */
@@ -1012,6 +1015,8 @@ class FirstRunChat {
   saved = 0;
   /** The agent apps on this Mac (APP-216). @type {AgentApp[]} */
   installed = [];
+  /** Whether macOS kept Lore out of a place it tried. */
+  walled = false;
   /** The places found on this Mac, each to connect, until the owner connects them. @type {Array<{label: string, mark: string, detail: string, on: boolean, connect: (run: number) => Promise<string | undefined>}> | null} */
   found = null;
   /** What the one tap connected. @type {string[]} */
@@ -1220,12 +1225,13 @@ class FirstRunChat {
         let known = byPlace.get(vault.locator)?.name ?? null;
         return { label: `Obsidian · ${vault.label}`, mark: "obsidian", detail: "Your notes", on: true, connect: async () => {
           if (known) {
-            if (!readable(await window.lore.readSource(known), known)) throw new Error("Lore can't read it yet");
+            const name = known;
+            readOrThrow((await window.lore.readSource(name)).find((read) => read.name === name)?.state ?? "unreachable");
             return known;
           }
           const added = await window.lore.connectSource({ connector: "obsidian", locator: vault.locator });
           known = added.name;
-          if (!CONNECTION_STATES[added.state ?? "connected"].ok) throw new Error("Lore can't read it yet");
+          readOrThrow(added.state);
           return known;
         } };
       }),
@@ -1236,7 +1242,7 @@ class FirstRunChat {
         if (!source.owned) await window.lore.switchSource(source.name, true);
         // Skipped while it was being switched on: it is not read after the owner left.
         if (!this.current(run)) return;
-        if (!readable(await window.lore.readSource(source.name), source.name)) throw new Error("Lore can't read it yet");
+        readOrThrow((await window.lore.readSource(source.name)).find((read) => read.name === source.name)?.state ?? "unreachable");
         return source.name;
       } }))
     ];
@@ -1253,14 +1259,16 @@ class FirstRunChat {
     this.working = true;
     this.redraw();
     const failed = [];
+    let walled = false;
     for (const place of chosen) {
       /** @type {string | undefined} */
       let name;
       let ok = true;
       try {
         name = await place.connect(run);
-      } catch {
+      } catch (error) {
         ok = false;
+        if (/** @type {Error} */ (error).message === MAC_SAYS_NO) walled = true;
       }
       if (!this.current(run)) return;
       if (ok) this.connected.push(short(place));
@@ -1268,7 +1276,9 @@ class FirstRunChat {
       if (name) this.brought.push(name);
     }
     this.found = failed;
-    this.unconnected = failed.length ? `${named(failed.map(short))} didn't connect. Try again.` : "";
+    // A folder macOS keeps Lore out of never reads on another try: the owner allows Lore first.
+    this.walled = walled;
+    this.unconnected = !failed.length ? "" : walled ? `macOS hasn't let Lore read ${named(failed.map(short))}. Allow Lore in System Settings, then try again.` : `${named(failed.map(short))} didn't connect. Try again.`;
     if (!failed.length) this.appsDone = true;
     this.working = false;
     await load();
@@ -1517,7 +1527,7 @@ class FirstRunChat {
     go.disabled = this.working || !count;
     const later = button("Not now", "secondary", () => { this.appsDone = true; this.redraw(); });
     later.disabled = this.working;
-    actions.append(later, go);
+    actions.append(later, ...(this.walled && !this.working ? [button("Open System Settings", "secondary", () => void window.lore.openPrivacySettings())] : []), go);
     box.append(list, actions);
     return box;
   }
