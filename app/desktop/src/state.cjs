@@ -364,15 +364,20 @@ async function openStore(loreHome, { network: asked, wallet, inboxOnly }, ask, o
   const moved = payout !== null && recorded && recorded.address.toLowerCase() !== payout.toLowerCase();
   const heading = !state.node.selling ? "Open your store" : moved ? "Change where your sales are paid" : "Update your store";
   if (asks(changes) && !(await outgoing.confirm(heading, changes))) return "The owner chose not to change the store right now.";
-  return outgoing.deploy(["node", "deploy", "--network", network, ...(payout === null ? [] : ["--wallet", payout])]);
+  const said = await outgoing.deploy(["node", "deploy", "--network", network, ...(payout === null ? [] : ["--wallet", payout])]);
+  // Said plainly, so the agent never reads a card-only store's missing payout address as something left undone.
+  return byCard && said.startsWith("The store is deployed") ? `${said}\n${BY_CARD_ONLY}` : said;
 }
+
+const BY_CARD_ONLY = "It sells by card: buyers pay on each piece's page, and Stripe pays the owner's bank. There is no payout address to set, and nothing else is left to do.";
 
 /** Run one deploy the owner said yes to, and say how it went. @param {string} loreHome @param {string[]} args */
 async function deployStore(loreHome, args) {
   const lines = /** @type {string[]} */ ([]);
   try {
     await stream(runtime.file, [...runtime.args, ...args], { LORE_HOME: loreHome, NO_COLOR: "1", LORE_UNATTENDED: "1" }, (line) => lines.push(line), runtime.cwd ?? loreHome);
-    return `The store is deployed.\n${lines.slice(-8).join("\n")}`;
+    // The deploy's own settings lines are plumbing, never what the owner set: leave them out of what the agent reads.
+    return `The store is deployed.\n${lines.filter((line) => !/^env\./.test(line.trim())).slice(-8).join("\n")}`;
   } catch {
     const said = [...lines].reverse().find((line) => line.startsWith("lore: ")) ?? lines.at(-1) ?? "the deploy stopped";
     // A change that stopped halfway is said in the CLI's own plain words, so the owner hears it however the deploy ended.
