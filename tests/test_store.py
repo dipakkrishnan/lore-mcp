@@ -406,8 +406,13 @@ class SearchTest(LoreTestCase):
         for title in ("First save", "Second save", "Third save"):
             self.seed_memory(title)
         with Store() as store:
-            self.assertEqual([m.title for m in store.search("", limit=2)], ["Third save", "Second save"])
-            self.assertEqual([m.title for m in store.search("save", limit=1)], ["Third save"])
+            self.assertEqual(
+                [m.title for m in store.search("", limit=2)],
+                ["Third save", "Second save"],
+            )
+            self.assertEqual(
+                [m.title for m in store.search("save", limit=1)], ["Third save"]
+            )
 
     def test_a_query_with_no_word_characters_matches_nothing(self) -> None:
         # `!!!` is not a search for everything: it tokenizes to nothing, and
