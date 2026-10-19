@@ -4,13 +4,13 @@ title: Show drafts where the agent says they are, and OpenAI's answer once
 priority: P1
 effort: S
 component: desktop-app
-status: in-review
+status: completed
 related: [APP-131, APP-128]
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-10-01
-updated: 2026-10-01
+updated: 2026-10-19
 ---
 
 ## Problem
@@ -32,3 +32,7 @@ re-renders below it.
 - [x] Drafts appear in a capture thread, and stay out of setup and deploy threads
 - [x] Replaying every recorded reply: Anthropic unchanged, OpenAI loses only the duplicate previews
 - [x] All ten desktop edge scenarios pass
+
+## Notes
+
+**Completed (verified 2026-10-19):** every acceptance criterion is checked and the work is on main in 358741d. Status was left stale after merge; closed out in the review-queue pass.

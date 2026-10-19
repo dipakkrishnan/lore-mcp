@@ -1,7 +1,8 @@
 # Connectors
 
 A connector is an app the owner recognises: Obsidian, ChatGPT, Claude,
-Substack, Medium, Bluesky, any blog or newsletter, Granola, Notion, or Readwise.
+Substack, Medium, Bluesky, any blog or newsletter, Letterboxd, Goodreads,
+Granola, Notion, or Readwise.
 A reader is how Lore gets the content out of it. The owner only ever
 meets the connector; the reader is Lore's business.
 
@@ -27,7 +28,10 @@ Apps that share a reader differ only in what the owner types. A small reader
 subclass overriding `locate` keeps each app to its own kind of address:
 `MediumFeed` turns `@name` into Medium's feed (which holds only the ten most
 recent stories), `BlueskyFeed` takes a handle or profile link, and `SiteFeed`,
-behind Substack and "Blog or newsletter", refuses a handle.
+behind Substack and "Blog or newsletter", refuses a handle. `LetterboxdFeed`
+and `GoodreadsFeed` turn a username, profile link or feed link into the one
+feed, and also override `_item`: an entry keeps its rating and review, and one
+with neither is skipped as empty.
 
 `choices()` is the one optional hook: what the app can offer without asking
 (Obsidian reads `obsidian.json` for its vaults). The rule is to ask only for
