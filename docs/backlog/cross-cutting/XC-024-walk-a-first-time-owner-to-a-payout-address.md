@@ -10,7 +10,7 @@ blockers: []
 dependencies: []
 github_issue: null
 created: 2026-09-04
-updated: 2026-09-04
+updated: 2026-10-19
 ---
 
 ## Problem
@@ -44,3 +44,5 @@ trap sentences on the wallet card.
 
 ## Notes
 Reviewed 2026-09-04: a steps array and a per-tool heading duplicated what markdown and one copy change already give.
+
+**Review 2026-10-19:** not completed. Shortened in 408ba80, then superseded by MON-025's in-app payout card, which covers criteria 1 and 2. The wallet-app-versus-exchange-app warning is no longer on the card. Rewrite criteria against MON-025 or fold into it.

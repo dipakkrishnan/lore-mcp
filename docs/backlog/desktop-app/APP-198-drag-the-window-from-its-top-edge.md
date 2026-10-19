@@ -4,13 +4,13 @@ title: Drag the window from its top edge
 priority: P2
 effort: XS
 component: desktop-app
-status: in-review
+status: completed
 related: []
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-10-11
-updated: 2026-10-11
+updated: 2026-10-19
 ---
 
 ## Problem
@@ -29,3 +29,7 @@ padding, so nothing clickable sits under it.
 
 - [x] The window drags from anywhere along its top edge
 - [x] No button, link or field sits under the strip, scrolled or not (`edge.sh settings`)
+
+## Notes
+
+**Completed (verified 2026-10-19):** every acceptance criterion is checked and the work is on main in 177d1ff. Status was left stale after merge; closed out in the review-queue pass.

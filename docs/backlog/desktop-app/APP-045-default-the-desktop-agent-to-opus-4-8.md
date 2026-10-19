@@ -4,13 +4,13 @@ title: Default the desktop agent to Opus 4.8
 priority: P2
 effort: XS
 component: desktop-app
-status: in-review
+status: completed
 related: [APP-014, APP-003]
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-09-01
-updated: 2026-09-01
+updated: 2026-10-19
 ---
 
 ## Problem
@@ -35,3 +35,7 @@ a test against the real provider catalog.
 - [x] The pi provider catalog actually resolves `claude-opus-4-8`, proven by
       a test rather than assumed.
 - [x] Sonnet 5 and the OpenAI models remain selectable fallbacks.
+
+## Notes
+
+**Completed (verified 2026-10-19):** every acceptance criterion is checked and the work is on main in 47c9a29. Status was left stale after merge; closed out in the review-queue pass.

@@ -4,13 +4,13 @@ title: Turn a newly connected app into memories and tell the owner
 priority: P1
 effort: M
 component: automation-synthesis
-status: in-review
+status: completed
 related: [AUT-002, AUT-006, AUT-007, APP-042, MON-037]
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-10-13
-updated: 2026-10-13
+updated: 2026-10-19
 ---
 
 ## Problem
@@ -67,3 +67,5 @@ apart from work.
   a hand-run sync does.
 - Follow-ups: AUT-006 (let the schedule run on the in-app agent) and AUT-007
   (resume a reading that Lore closed partway through).
+
+**Completed (verified 2026-10-19):** every acceptance criterion is checked and the work is on main in f6ffc91. Status was left stale after merge; closed out in the review-queue pass.

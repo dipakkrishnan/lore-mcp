@@ -4,13 +4,13 @@ title: Record every settled sale on the node and show it in the app
 priority: P1
 effort: M
 component: monetization
-status: in-review
+status: completed
 related: [XC-020, MON-013, APP-055, MCP-003]
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-09-02
-updated: 2026-09-02
+updated: 2026-10-19
 ---
 
 ## Problem
@@ -55,3 +55,5 @@ the existing probe carries it (closes XC-020).
 A node deployed before this records from its next redeploy; there is no
 in-app affordance for the missing table since the only node is the
 maintainer's. The public storefront shows nothing about sales.
+
+**Completed (verified 2026-10-19):** every acceptance criterion is checked and the work is on main in bfecb7b. Status was left stale after merge; closed out in the review-queue pass.

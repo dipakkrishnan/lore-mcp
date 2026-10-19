@@ -15,6 +15,8 @@ import json
 import unittest
 from pathlib import Path
 
+import hermetic  # noqa: F401  (no test may reach a real Cloudflare account)
+
 from lore.mcp import TOOLS
 
 CONTRACT_PATH = Path(__file__).resolve().parent.parent / "contracts" / "mcp_tools.json"

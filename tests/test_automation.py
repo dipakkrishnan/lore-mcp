@@ -304,6 +304,28 @@ class LoreScheduleTest(LoreTestCase):
         self.assertEqual(automation.next_run("weekly", 9, local(14, 8)), local(19, 9))
         self.assertEqual(automation.next_run("weekly", 9, local(12, 8)), local(12, 9))
 
+    def test_each_says_what_it_does_and_only_the_owners_own_can_be_reworded(
+        self,
+    ) -> None:
+        routines = self.routines(local(14, 8))
+        added = routines.add("Each Friday, pick one worth selling", "weekly", 9, 4)
+        listed = {routine["id"]: routine for routine in routines.list()}
+        self.assertIn("connected", str(listed["synthesis"]["about"]))
+        self.assertEqual(
+            listed[added["id"]]["about"], "Each Friday, pick one worth selling"
+        )
+        edited = routines.edit(
+            added["id"], "  Each   Friday, pick two ", "Friday picks"
+        )
+        self.assertEqual(
+            (edited["name"], edited["about"], edited["cadence"], edited["day"]),
+            ("Friday picks", "Each Friday, pick two", "weekly", 4),
+        )
+        with self.assertRaisesRegex(ValueError, "not reworded"):
+            routines.edit("synthesis", "something else")
+        with self.assertRaisesRegex(ValueError, "Say what Lore should do"):
+            routines.edit(added["id"], "   ")
+
     def test_lore_installs_and_removes_nothing(self) -> None:
         path = self.lore_home / "profile-input.json"
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -348,7 +370,7 @@ class LoreScheduleTest(LoreTestCase):
             {"name": "granola-1", "connector": "granola", "added": 2},
             {"name": "obsidian-1", "connector": "obsidian", "added": 1},
             {"name": "medium-1", "connector": "medium", "added": 0},
-            {"name": "codex", "connector": None, "added": 4},
+            {"name": "codex", "label": "Codex", "connector": None, "added": 4},
         ]
         with patch("lore.sources.Registry.read", return_value=reads) as read:
             ran = self.routines(local(14, 12)).run("synthesis")
@@ -356,7 +378,7 @@ class LoreScheduleTest(LoreTestCase):
         self.assertEqual(ran["reads"], reads)
         self.assertEqual(
             self.routines(local(14, 12)).get("synthesis").listed()["result"],
-            "2 new meetings · 1 new note",
+            "2 new meetings · 1 new note · 4 from Codex",
         )
 
     def test_the_schedule_state_says_when_lore_missed_a_run(self) -> None:
@@ -638,15 +660,19 @@ class CheckInTest(LoreTestCase):
         fresh = self.seed_memory("Pricing call with Acme")
         discarded = self.seed_memory("A meeting the owner threw away", "discarded")
         with store_module.Store() as store:
-            for origin in ("automation", "attended"):
+            for source, origin in (
+                ("automation", "automation"),
+                ("attended", "attended"),
+                ("claude", "native"),
+            ):
                 store.put(
-                    source=origin,
+                    source=source,
                     origin=origin,
-                    source_path=f"memories/{origin}.md",
-                    source_key=f"{origin}:pricing",
-                    fingerprint=origin,
-                    title=f"Not brought in: {origin}",
-                    content="Lore's own writing, or the owner's own capture.",
+                    source_path=f"memories/{source}.md",
+                    source_key=f"{source}:pricing",
+                    fingerprint=source,
+                    title=f"Not brought in: {source}",
+                    content="Lore's own writing, the owner's own capture, or an agent's notes.",
                 )
         with patch("lore.sources.Registry.read") as read:
             ran = automation.Routines(clock=lambda: local(14, 18)).run("checkin")
@@ -740,10 +766,11 @@ class AutomationsTest(LoreTestCase):
 
     def test_the_list_puts_lores_own_first_and_only_the_owners_can_go(self) -> None:
         automation.save_profile(automation_profile(executor="lore"))
-        added = automation.Routines().add(
+        clock = automation.Routines(clock=lambda: local(14, 12))
+        added = clock.add(
             "Every Sunday, remember what I read this week", "weekly", 18, day=6
         )
-        routines = automation.Routines(clock=lambda: local(14, 12)).list()
+        routines = clock.list()
         self.assertEqual(
             [(r["id"], r["built_in"]) for r in routines],
             [("synthesis", True), ("checkin", True), (added["id"], False)],

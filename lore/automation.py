@@ -400,6 +400,8 @@ class Routine:
     id: ClassVar[str] = ""
     kind: ClassVar[str]
     name = ""
+    # What it does, in a sentence the owner reads before changing it.
+    about = ""
 
     def __init__(self, routines: Routines, routine_id: str, saved: Saved | None):
         self.routines = routines
@@ -450,6 +452,7 @@ class Routine:
             "id": self.routine_id,
             "kind": self.kind,
             "name": self.name,
+            "about": self.about,
             "built_in": bool(self.id),
             "cadence": cadence,
             "hour": hour,
@@ -470,6 +473,9 @@ class ReadApps(Routine):
     id = "synthesis"
     kind = "read"
     name = "Read connected apps"
+    about = (
+        "Reads every app you've connected and turns what's new into private memories."
+    )
 
     def rhythm(self) -> tuple[str, int, int]:
         profile = self.routines.profile
@@ -494,12 +500,18 @@ class ReadApps(Routine):
             reads = Registry(store).read()
         found: dict[str, int] = {}
         for read in reads:
-            if read["connector"] and read["added"]:
-                noun = Connector.named(str(read["connector"])).item
-                found[noun] = found.get(noun, 0) + int(str(read["added"]))
+            if not read["added"]:
+                continue
+            # An agent's own folder has notes, not items an app names.
+            what = (
+                f"new {Connector.named(str(read['connector'])).item}"
+                if read["connector"]
+                else f"from {read['label']}"
+            )
+            found[what] = found.get(what, 0) + int(str(read["added"]))
         result = " · ".join(
-            f"{count} new {noun if count == 1 else _many(noun)}"
-            for noun, count in found.items()
+            f"{count} {what if count == 1 or what.startswith('from') else _many(what)}"
+            for what, count in found.items()
         )
         self.routines.save(self.id, result=result or "Nothing new")
         return {"reads": reads}
@@ -515,6 +527,7 @@ class CheckIn(Routine):
     id = "checkin"
     kind = "checkin"
     name = "Evening check-in"
+    about = "Looks over what came in today and, only when something is worth it, asks you up to three questions about it."
     # Due later than this after its hour, Lore was closed or asleep: asking then
     # would come out of nowhere, so the run is recorded as missed instead.
     late = timedelta(hours=3)
@@ -541,6 +554,7 @@ class CheckIn(Routine):
     def run(self) -> dict[str, object]:
         """Every private item brought in since the last judged run, for the app's
         model to judge; it moves the mark only once it has."""
+        from .sources import available_sources
         from .store import Store
 
         owed, latest = self.slots()
@@ -552,11 +566,13 @@ class CheckIn(Routine):
                 f"{'AM' if hour < 12 else 'PM'}",
             )
             return {"items": [], "missed": True}
+        # An agent's notes to itself are its own business, not something to ask the owner about.
+        agents = {source.name for source in available_sources()}
         with Store() as store:
             mark = self.saved.mark if self.saved else None
             floor = store.newest_memory_id() if mark is None else mark
             return {
-                "items": store.brought_in_after(floor),
+                "items": store.brought_in_after(floor, skip=agents),
                 "mark": store.newest_memory_id(),
             }
 
@@ -570,6 +586,7 @@ class Ask(Routine):
     def __init__(self, routines: Routines, routine_id: str, saved: Saved | None):
         super().__init__(routines, routine_id, saved)
         self.name = (saved.title or saved.prompt) if saved else ""
+        self.about = saved.prompt if saved else ""
 
     def rhythm(self) -> tuple[str, int, int]:
         saved = self.saved or Saved(since=self.routines.clock())
@@ -635,6 +652,20 @@ class Routines:
         fields |= {"cadence": cadence, "hour": hour, "day": day}
         Saved.model_validate({"since": self.clock(), **fields})
         routine_id = f"r-{secrets.token_hex(4)}"
+        self.save(routine_id, **fields)
+        return self.get(routine_id).listed()
+
+    def edit(self, routine_id: str, prompt: str, title: str = "") -> dict[str, object]:
+        """Reword one of the owner's own: what Lore does, and what it's called."""
+        if self.get(routine_id).id:
+            raise ValueError(
+                "Lore's own routines can be retimed or paused, not reworded"
+            )
+        prompt = " ".join(prompt.split())
+        if not prompt:
+            raise ValueError("Say what Lore should do")
+        fields = {"prompt": prompt, "title": " ".join(title.split())}
+        Saved.model_validate({"since": self.clock(), **fields})
         self.save(routine_id, **fields)
         return self.get(routine_id).listed()
 

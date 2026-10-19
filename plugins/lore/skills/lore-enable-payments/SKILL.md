@@ -1,6 +1,6 @@
 ---
 name: lore-enable-payments
-description: Set up a paid Lore node end to end, so other agents pay to call `get`. Walks the owner to a price, a deployed Cloudflare Worker, and a payout address they control, asked last. In a terminal, a proven test-network payment can come first. Use when the user says "enable payments on Lore", "monetize my lore", "charge for answers", "deploy my lore node", "put my lore online", or picks the Monetize branch after onboarding.
+description: Set up a paid Lore node end to end, so other agents pay to call `get`. Walks the owner to a price, a deployed Cloudflare Worker, and a payout address they control, asked last. In a terminal, a proven test-network payment can come first. Also puts a store online with nothing for sale, so the owner's personal agents can save to it. Use when the user says "enable payments on Lore", "monetize my lore", "charge for answers", "deploy my lore node", "put my lore online", or picks the Monetize branch after onboarding.
 ---
 
 # Enabling payments
@@ -27,16 +27,19 @@ having at least one.
 > opens the store on **real money** in one pass: price, Cloudflare sign-in,
 > payout address, deploy. There is no test-network step, no test payment, and
 > no Coinbase developer keys in the app (the node settles through a keyless
-> facilitator). Ask every decision through `ask_user`. You run every command
-> yourself except two the app keeps for the owner: Cloudflare sign-in (call
-> `cloudflare_login`; it opens Cloudflare in their browser and returns who is
-> signed in — never send the owner to a terminal) and `lore push` (they press
-> **Push** in the app; never run it). Other browser steps — the workers.dev
+> facilitator). Ask every decision through `ask_user`. The app runs everything
+> that touches the store; your shell has no network and cannot write
+> `~/.lore/node`, so never run `lore node deploy`, `lore push`, `npx wrangler`,
+> or `npm` yourself. Three tools do it instead: `cloudflare_login` (opens
+> Cloudflare in the owner's browser and returns who is signed in — never send
+> the owner to a terminal), `open_store` (the app deploys or redeploys the
+> store and pushes the approved publications, then says how it went), and the
+> owner's own **Push** button in the app. Other browser steps — the workers.dev
 > subdomain, Basescan — go through `open_url` with a short step title and a
 > note of up to three short numbered lines; it waits for the owner and tells
 > you whether they finished, got stuck, or declined. Never paste a link into
-> prose. If `lore node deploy` stops with "not signed in to Cloudflare", call
-> `cloudflare_login` and rerun it. Keep the desktop flow publication-only;
+> prose. If `open_store` says the owner is not signed in to Cloudflare, call
+> `cloudflare_login` and call `open_store` again. Keep the desktop flow publication-only;
 > paid answers remain a separate, terminal-attended option. Do not read or
 > write `~/.lore/automation/onboarding.json`.
 >
@@ -44,26 +47,50 @@ having at least one.
 >
 > 1. `lore publication list`. No active publication → say the store opens once
 >    they have approved something to sell, offer to draft one now, and stop;
->    a real buyer must never pay against an empty catalog.
+>    a real buyer must never pay against an empty catalog. (A request to put
+>    the store online only so their agents can save to it is a different
+>    task: see "Online for the owner's agents" below.)
 > 2. Price through `propose_price` (step 4).
-> 3. Cloudflare: `npx wrangler whoami`, and `cloudflare_login` if needed.
+> 3. Cloudflare: call `cloudflare_login` if the owner has not signed in this
+>    session; `open_store` also says when the sign-in is missing.
 > 4. **The payout address, last.** One `ask_user` question, exactly:
 >    question "Where should buyers' payments go?", header "Payouts", no
 >    options, format `evm_address`. The app renders the whole guided step
 >    itself: Coinbase first, a wallet app second, the Base network check, and
 >    format validation. Do not add your own wallet instructions around it or
->    open Coinbase for them. An address already stored on the node (a
->    redeploy) is never asked again (`npx wrangler secret list` shows
->    `LORE_WALLET`).
-> 5. `lore node deploy --wallet <address> --network real` as a bash call with
->    an explicit timeout of at least 300 seconds (MON-023). Say plainly if it
->    fails or times out; never leave the composer silent.
+>    open Coinbase for them. A redeploy (`lore status` shows a last deploy)
+>    never asks: call `open_store` without an address, and the app shows the
+>    owner the address the store already pays to, or asks for it on its own
+>    card when it has none on record.
+> 5. `open_store` with network `real` and the address. It takes a few
+>    minutes; say plainly if it fails, and never leave the composer silent.
 > 6. Close in two sentences: the store is open, what buyers pay, and that each
 >    payment lands at the address ending in its last four characters. Then
 >    `finish_task`.
 >
 > Say "real money", never "mainnet", and never name Base, Sepolia, USDC
 > contracts, facilitators, or Coinbase developer keys in prose.
+>
+> **Online for the owner's agents.** When the latest message asks to put the
+> store online so the owner's personal agents can save to it, nothing goes on
+> sale, so none of the order above applies: no publication check, no price,
+> no payout address. Only two steps:
+>
+> 1. Cloudflare: `npx wrangler whoami`; not signed in → `cloudflare_login`.
+> 2. `lore node deploy --inbox-only` as a bash call with an explicit timeout of
+>    at least 300 seconds (MON-023). If it stops with "not signed in to
+>    Cloudflare", call `cloudflare_login` and rerun it. Say plainly if it
+>    fails or times out.
+>
+> Close in one sentence, from what the deploy printed. "Online: … nothing
+> for sale" → their store is online, their agents can save to it, and nothing
+> is for sale. "Live: …" → their store was already open for sale and stays
+> so; say their agents can now save to it and what was on sale still is.
+> Then `finish_task`. Never ask about a price or where payments go here.
+> Later, when the owner opens the store to sell their first approved piece,
+> `lore status` says the store is online for their agents and nothing is for
+> sale; run the whole desktop order above, and the deploy with `--wallet`
+> opens it for sale.
 
 ## How to drive — read this first
 
@@ -219,7 +246,14 @@ Verify three prerequisites from state, then one command:
 ```sh
 lore node deploy --wallet <payout-address> --network real   # desktop: real money, one pass
 lore node deploy --wallet <payout-address>                  # terminal: test network first
+lore node deploy --inbox-only                               # online for the owner's agents, nothing for sale
 ```
+
+`--inbox-only` needs only the Cloudflare sign-in: no price, no payout address,
+no approved piece. On a new store, buyers see an empty catalog and `get`
+answers "nothing is for sale here yet"; the first full deploy (`--wallet`)
+opens it for sale. On a store already open for sale it changes nothing about
+selling.
 
 It stages the node at `~/.lore/node`, installs dependencies, creates the D1
 database, deploys, stores the payout address as the Worker's `LORE_WALLET` secret
@@ -338,9 +372,9 @@ never in conversation); half a pair refuses to start.
 > sentence, and take the owner's explicit yes as gate 3; a settled test sale
 > is not required in the app. Never run `npm run pay`, query the chain, or
 > call an explorer from the app: its sandbox cannot bind sockets or reach
-> them. Then run `lore node deploy --network real` **as a bash call with an
-> explicit timeout of at least 300 seconds** (MON-023). If it times out or
-> otherwise fails, say so plainly — don't leave the composer silent. Say
+> them. Then call `open_store` with network `real` and no address; the app
+> shows the owner the address the store pays to. If it
+> fails, say so plainly — don't leave the composer silent. Say
 > "real money" and "the test network", never "mainnet".
 
 All gates hold in a terminal → `lore node deploy --network real`. The

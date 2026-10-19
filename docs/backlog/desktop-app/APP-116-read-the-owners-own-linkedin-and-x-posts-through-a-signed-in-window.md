@@ -10,7 +10,7 @@ blockers: []
 dependencies: ["A decision on the terms-of-service disclosure wording for LinkedIn and X"]
 github_issue: null
 created: 2026-09-14
-updated: 2026-09-15
+updated: 2026-10-19
 ---
 
 ## Problem
@@ -91,3 +91,5 @@ Kernel (hosted browsers, Managed Auth) was trialled 2026-09-14 and stopped
 before a password was typed: any hosted login passes the credential through
 Kernel once, and credential saving defaults on. Kept as the option for
 unattended scheduled pulls, not for the first version.
+
+**Review 2026-10-19:** not completed. Not done. Commit 3480b8e only edits this doc. No `read_posts` tool, `persist:lore-connect` partition, "Forget this login" or per-platform selectors exist. All criteria unmet.
