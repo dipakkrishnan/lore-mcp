@@ -684,3 +684,10 @@ class SignInTest(AgentCase):
         self.wrangler.reset_mock()
         self.assertEqual(self.json("agents", "waiting")["sign_ins"], [])
         self.wrangler.assert_not_called()
+
+    def test_a_connected_agent_does_not_keep_lore_listening_for_strangers(self) -> None:
+        self.json("agents", "connect", "My agent", "--app", "other")
+        self.d1.ask("Claude")
+        self.assertEqual(self.json("agents", "waiting")["sign_ins"], [])
+        self.address()
+        self.assertEqual(len(self.json("agents", "waiting")["sign_ins"]), 1)

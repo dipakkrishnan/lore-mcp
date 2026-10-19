@@ -10,7 +10,7 @@ blockers: []
 dependencies: ["STO-003 for per-source state in the snapshot"]
 github_issue: null
 created: 2026-09-17
-updated: 2026-09-17
+updated: 2026-10-19
 ---
 
 ## Problem
@@ -70,3 +70,5 @@ Filed 2026-09-17 from the connector research (Town, ChatGPT, Claude,
 Granola, Notion, Dust, Perplexity, Plaid, Raycast). Keep the word
 "connector" out of the copy; the section heading is the name. The pulsing
 `.pill i` already serves as the Connecting indicator.
+
+**Review 2026-10-19:** not completed. Shipped in acfddbe. Unmet: the preview and keep-a-subset step when connecting a vault, and edge checks for disconnect-and-delete and a named failure state.

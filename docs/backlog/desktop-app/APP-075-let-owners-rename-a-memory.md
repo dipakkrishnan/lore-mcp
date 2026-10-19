@@ -4,13 +4,13 @@ title: Let owners rename a memory
 priority: P2
 effort: S
 component: desktop-app
-status: in-progress
+status: completed
 related: []
 blockers: []
 dependencies: []
 github_issue: https://github.com/dipakkrishnan/lore-mcp/issues/172
 created: 2026-09-02
-updated: 2026-09-04
+updated: 2026-10-19
 ---
 
 ## Problem
@@ -45,3 +45,5 @@ issue was never cataloged before implementation started, so this item was
 filed after the fact to give the PR a resolvable backlog id.
 
 Renumbered from APP-054 on 2026-09-04: PR #177 landed the id after PR #192 had already assigned it to the edge-audit item, and the duplicate blocked every index regeneration. Issue #172 still refers to APP-054.
+
+**Completed (verified 2026-10-19):** every acceptance criterion is checked and the work is on main in 3695ec7 (#177). Status was left stale after merge; closed out in the review-queue pass.

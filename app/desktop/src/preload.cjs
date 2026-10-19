@@ -96,6 +96,9 @@ contextBridge.exposeInMainWorld("lore", {
   firstRun: () => ipcRenderer.invoke("firstrun:read"),
   /** @param {FirstRunState} next */
   setFirstRun: (next) => ipcRenderer.invoke("firstrun:write", next),
+  appearance: () => ipcRenderer.invoke("appearance:read"),
+  /** @param {AppearanceChoice} choice */
+  setAppearance: (choice) => ipcRenderer.invoke("appearance:set", choice),
   storeOnline: () => ipcRenderer.invoke("store:online"),
   reopenSignIn: () => ipcRenderer.invoke("signin:reopen"),
   cancelSignIn: () => ipcRenderer.invoke("signin:cancel"),

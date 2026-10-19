@@ -129,9 +129,11 @@ class Agents:
     def waiting(self) -> dict[str, object]:
         """What the owner's agents saved that Lore hasn't brought in, and the apps asking
         to sign in: one query, and none at all before any agent is connected or
-        expected."""
+        expected. Apps are shown only while Lore is listening, so a stranger at the
+        store's sign-in page can't raise a card for an owner who never asked."""
         local = self._local()
-        if not local and not self._expecting():
+        expecting = self._expecting()
+        if not local and not expecting:
             return {"waiting": 0, "sources": [], "sign_ins": []}
         counts, asking = self.inbox.waiting()
         waiting = {
@@ -142,7 +144,9 @@ class Agents:
         return {
             "waiting": sum(waiting.values()),
             "sources": list(waiting),
-            "sign_ins": [self._shown(sign_in) for sign_in in asking],
+            "sign_ins": [self._shown(sign_in) for sign_in in asking]
+            if expecting
+            else [],
         }
 
     def _add(self, minted: Minted) -> str:

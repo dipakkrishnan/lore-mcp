@@ -4,13 +4,13 @@ title: Close the edge audit's cheap launch-week findings
 priority: P1
 effort: S
 component: desktop-app
-status: in-review
+status: completed
 related: [APP-054, MON-013, APP-048, APP-019, XC-020, APP-030]
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-09-02
-updated: 2026-09-02
+updated: 2026-10-19
 ---
 
 ## Problem
@@ -59,3 +59,5 @@ tiny request at sign-in.
 Shipped in PR #193, stacked on APP-054's PR #192. The label deliberately
 avoids "mainnet"; the row explains that test-network buyers pay with play
 money.
+
+**Completed (verified 2026-10-19):** every acceptance criterion is checked and the work is on main in 8e2b11a, 8446e52. Status was left stale after merge; closed out in the review-queue pass.

@@ -7,8 +7,10 @@ import math
 import os
 import pwd
 import re
+import stat
 import sys
 import urllib.parse
+from itertools import islice
 from pathlib import Path
 from typing import Annotated, Mapping, get_args
 
@@ -1735,26 +1737,98 @@ def _interactive() -> bool:
     return sys.stdin.isatty() and sys.stdout.isatty()
 
 
-def attended_key() -> Path:
-    """Where the desktop app keeps its launch key: the account's own home, never `HOME`."""
+def attended_folder() -> Path:
+    """Where the desktop app keeps its launch keys: the account's own home, never `HOME`."""
     account = Path(pwd.getpwuid(os.getuid()).pw_dir)
-    return account / "Library" / "Application Support" / "Lore" / "attended"
+    return account / "Library" / "Application Support" / "Lore"
+
+
+# A launch key file holds a pid and 64 hex characters; anything larger was not written by the app.
+KEY_FILE_BYTES = 256
+# Each running app or test run keeps one file, removed when it quits; past this many, the rest are not read.
+KEY_FILES = 64
+# Entries looked at in the folder, key files or not, so junk there costs a bounded read.
+KEY_ENTRIES = 256
+
+
+def _owned(fd: int, kind: int, mode: int) -> bool:
+    """Whether an open file is of this kind, the owner's, open to no one else, and has one name."""
+    info = os.fstat(fd)
+    return (
+        stat.S_IFMT(info.st_mode) == kind
+        and info.st_uid == os.getuid()
+        and stat.S_IMODE(info.st_mode) == mode
+        and (kind == stat.S_IFDIR or info.st_nlink == 1)
+    )
+
+
+def _launch_key(name: str, folder: int) -> str:
+    """The key in one launch key file, opened in `folder` without following a link, else nothing."""
+    try:
+        fd = os.open(name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=folder)
+    except OSError:
+        return ""
+    try:
+        data = (
+            os.read(fd, KEY_FILE_BYTES + 1) if _owned(fd, stat.S_IFREG, 0o600) else b""
+        )
+    finally:
+        os.close(fd)
+    if len(data) > KEY_FILE_BYTES:
+        return ""
+    lines = data.decode("utf-8", "replace").split()
+    return lines[-1] if lines else ""
+
+
+def _folder_keys(folder: int, names: list[str]) -> list[str]:
+    return [key for key in (_launch_key(name, folder) for name in names) if key]
+
+
+def _launch_keys() -> list[str]:
+    """Every running app's launch key: one file each in `attended.d`, plus the single
+    `attended` file an app from the release before still writes."""
+    keys: list[str] = []
+    try:
+        lore = os.open(attended_folder(), os.O_RDONLY | os.O_DIRECTORY)
+    except OSError:
+        return keys
+    try:
+        keys += _folder_keys(lore, ["attended"])
+        try:
+            folder = os.open(
+                "attended.d",
+                os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW,
+                dir_fd=lore,
+            )
+        except OSError:
+            return keys
+        try:
+            if _owned(folder, stat.S_IFDIR, 0o700):
+                with os.scandir(folder) as entries:
+                    names = [
+                        entry.name
+                        for entry in islice(entries, KEY_ENTRIES)
+                        if entry.is_file(follow_symlinks=False)
+                    ]
+                keys += _folder_keys(folder, names[:KEY_FILES])
+        finally:
+            os.close(folder)
+    finally:
+        os.close(lore)
+    return keys
 
 
 def _attended() -> bool:
     """Whether the Lore desktop app, the other attended surface, is piping a decision.
 
-    The app writes a fresh key each launch where its agent's sandbox cannot read,
+    Each app launch writes a fresh key where its agent's sandbox cannot read,
     and hands it only to the CLI processes it spawns, so the agent cannot pose as it.
     """
     key = os.environ.get("LORE_ATTENDED_KEY", "")
     if not key or sys.stdin.isatty():
         return False
-    try:
-        expected = attended_key().read_text(encoding="utf-8").strip()
-    except OSError:
-        return False
-    return hmac.compare_digest(key, expected)
+    matches = [hmac.compare_digest(key, expected) for expected in _launch_keys()]
+    return any(matches)
 
 
 def _desktop_decision(what: str) -> str:
@@ -2162,6 +2236,13 @@ def publication_list() -> int:
     return 0
 
 
+def _push_held() -> bool:
+    """The desktop app pushes a decision's change itself, once the owner says
+    yes to what goes out (APP-226); the pending flag says the store is behind
+    until then."""
+    return os.environ.get("LORE_HOLD_PUSH") == "1"
+
+
 def _push_after_approval() -> None:
     """Push newly approved publications to the deployed node (MON-013): the
     mirror-image of `publication_revoke`'s MON-004 push. A failed push
@@ -2173,6 +2254,10 @@ def _push_after_approval() -> None:
     # A store online only for the owner's agents gets its pieces when it opens
     # for sale: that deploy pushes them, after a price and a payout address.
     if not open_for_sale:
+        return
+    if _push_held():
+        with Store() as store:
+            store.set_setting("publish_pending", True)
         return
     try:
         push(str(store_folder()))
@@ -2199,6 +2284,10 @@ def publication_revoke(publication_id: int) -> int:
         node_url = store.setting("node_url", None)
     success(f"Revoked publication {publication_id}; it is no longer answerable")
     if not node_url:
+        return 0
+    if _push_held():
+        with Store() as store:
+            store.set_setting("revocation_pending", True)
         return 0
     try:
         return push(str(store_folder()))

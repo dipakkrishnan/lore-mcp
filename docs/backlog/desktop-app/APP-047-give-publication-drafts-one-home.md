@@ -4,13 +4,13 @@ title: Give publication drafts one home and keep cards in their own thread
 priority: P0
 effort: S
 component: desktop-app
-status: in-review
+status: completed
 related: [APP-020, APP-023, APP-032, APP-046]
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-09-01
-updated: 2026-09-01
+updated: 2026-10-19
 ---
 
 ## Problem
@@ -59,3 +59,5 @@ agent:status IPC bug. The capture skill keeps its optional publish handoff for
 terminal hosts; only the desktop prompt overrides it. Enforcement is by prompt:
 the capture sandbox has no command-level policy, so a hard block on the draft
 command is deliberately out of scope here.
+
+**Completed (verified 2026-10-19):** every acceptance criterion is checked and the work is on main in bfe7dbb (#187). Status was left stale after merge; closed out in the review-queue pass.

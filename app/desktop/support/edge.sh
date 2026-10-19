@@ -12,6 +12,8 @@ export LORE_HOME="$root/home" LORE_STORE="$root/store" LORE_DESKTOP_USER_DATA="$
 export LORE_USAGE_URL="http://127.0.0.1:9/events"
 # APP-215: only the firstrun walk meets the first-run chat; every other walk starts past it, as an owner who skipped it.
 [[ "$scenario" == "firstrun" ]] || echo '{"state":"skipped"}' > "$root/user-data/first-run.json"
+# APP-225: a walk is drawn light, never as the Mac running it is set; LORE_EDGE_APPEARANCE=dark walks it dark.
+echo "{\"appearance\":\"${LORE_EDGE_APPEARANCE:-light}\"}" > "$root/user-data/appearance.json"
 # A fresh home stays empty: that persona checks what an owner sees before anything is kept. So
 # does the connectors one: a seller with no agents, whose first memories come from their apps. And the agents one: an
 # owner whose first memories are what their personal agent saves. And the today one, which seeds each stage itself.
@@ -121,7 +123,12 @@ with Store() as store:
 fi
 if [[ "$scenario" == "settings" ]]; then
   # A store on real money with every Settings row filled: cards on, paid answers, listed, and two
-  # pieces already for sale with new free parts waiting, one with a sample and one without.
+  # pieces already for sale with new free parts waiting, one with a sample and one without. The store's update,
+  # once confirmed, goes to a stand-in that always succeeds, never to Cloudflare.
+  mkdir -p "$LORE_STORE" "$root/bin"
+  echo '{}' > "$LORE_STORE/wrangler.jsonc"
+  printf '#!/bin/sh\nexit 0\n' > "$root/bin/npx" && chmod +x "$root/bin/npx"
+  export PATH="$root/bin:$PATH"
   echo '{"sellers":[{"node":"https://lore-edge.example.workers.dev/mcp"}]}' > "$root/marketplace.json"
   export LORE_MARKETPLACE_URL="file://$root/marketplace.json"
   (cd "$repo_root" && uv run python -c "import time

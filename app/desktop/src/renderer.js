@@ -19,6 +19,7 @@ const sellWritingBtn = /** @type {HTMLButtonElement} */ ($("#sell-writing"));
 const skipBtn = /** @type {HTMLButtonElement} */ ($("#first-run-skip"));
 const feedbackBtn = /** @type {HTMLButtonElement} */ ($("#feedback-open"));
 const accountMenu = $("#account-menu");
+const darkMode = $("#dark-mode");
 const accountLine = $("#account-line");
 const signOutBtn = /** @type {HTMLButtonElement} */ ($("#sign-out"));
 const updateBtn = /** @type {HTMLButtonElement} */ ($("#update"));
@@ -120,10 +121,14 @@ let views = {};
 let salesAsked = false;
 /** This copy's version and whether a newer one is on its way, from the main process. @type {AppUpdate | null} */
 let appUpdate = null;
+/** How Lore is drawn, as the owner chose in Settings. @type {AppearanceChoice} */
+let appearance = "system";
 /** The task whose turn is open, while one is. @type {AgentTask | null} */
 let busy = null;
 /** The card awaiting the owner. A memory card also carries `current`, its entries as edited, so the composer can send a spoken or typed correction with them; `pinned` cards stay in view as the thread re-renders. @type {{id: string, task: AgentTask | null, box: HTMLElement, pinned: boolean, current?: () => ProposedMemory[]} | null} */
 let request = null;
+/** APP-226: the sheet a store update waits on, by its request; `drop` closes it without answering. @type {{id: string, sheet: FormSheet, drop: () => void} | null} */
+let changing = null;
 /**
  * The one blueprint panel node for the current setup thread: a read-only
  * ghost while propose_blueprint's fields are still streaming in, then the
@@ -3146,9 +3151,35 @@ function renderSettings(s) {
         : []),
       ...marketplaceRow(s)
     ])),
+    section("Appearance", card([appearanceRow()])),
     ...(appUpdate ? [section("Updates", card([updateRow(appUpdate)]))] : []),
     ...(runs ? [runs] : [])
   ];
+}
+
+const APPEARANCES = /** @type {const} */ ([["system", "Match Mac"], ["light", "Light"], ["dark", "Dark"]]);
+
+/** Light, dark or the Mac's own, from Settings or the account menu's switch. The window turns at once. @param {AppearanceChoice} choice */
+function chooseAppearance(choice) {
+  appearance = choice;
+  if (view === "settings") render();
+  void window.lore.setAppearance(choice).catch(() => tell("Lore couldn't keep that choice. It goes back to how it was next time Lore opens.", true));
+}
+
+/** Settings → Appearance: as the Mac is set, or always light or dark. The window changes as soon as one is picked. */
+function appearanceRow() {
+  const choices = el("div", "shelves");
+  choices.setAttribute("role", "radiogroup");
+  choices.setAttribute("aria-label", "Appearance");
+  for (const [choice, label] of APPEARANCES) {
+    const option = el("button", "shelf", label);
+    option.type = "button";
+    option.setAttribute("role", "radio");
+    option.setAttribute("aria-checked", String(appearance === choice));
+    option.addEventListener("click", () => chooseAppearance(choice));
+    choices.append(option);
+  }
+  return row("Light or dark", "Lore can follow your Mac's light or dark setting, or keep to one.", cell(choices), false);
 }
 
 /** Settings → Updates: the version on this Mac, and the one thing to do about a newer one. @param {AppUpdate} u */
@@ -3407,7 +3438,6 @@ function renderAccount() {
   account.insertAdjacentHTML("beforeend", CHEVRON);
   accountLine.textContent = credential ? `Signed in with ${name}` : "Not signed in";
   signOutBtn.hidden = !credential;
-  signOutBtn.textContent = `Sign out of ${name}`;
 }
 
 /** Memories and For Sale became Inventory's tabs; anything that still asks for them lands there. @param {View | "memories" | "store"} next */
@@ -3956,7 +3986,7 @@ function payoutField(question, index) {
   return fieldset;
 }
 
-/** @param {AgentRequest} event */
+/** @param {Exclude<AgentRequest, {type: "changes"}>} event */
 function renderRequest(event) {
   // The blueprint panel is built by the shared blueprintPanel() below, in confirm
   // mode, reusing the live ghost node if the evidence scan already built one.
@@ -4167,6 +4197,38 @@ function renderRequest(event) {
   for (const area of box.querySelectorAll("textarea")) fit(/** @type {HTMLTextAreaElement} */ (area));
   reveal();
   if (!pinned) /** @type {HTMLElement | null} */ (box.querySelector("input[type=text], input[type=password], select"))?.focus({ preventScroll: true });
+}
+
+/** APP-226: each change a store update puts out, grouped as the owner thinks of them, with Confirm and Cancel. Closing
+ * the sheet any way but Confirm is Cancel, so nothing goes out without the yes.
+ * @param {Extract<AgentRequest, {type: "changes"}>} event */
+function confirmChanges(event) {
+  const sheet = new FormSheet(event.heading);
+  sheet.dialog.classList.add("changes-sheet");
+  const groups = [...new Set(event.changes.map((change) => change.group))];
+  for (const group of groups) {
+    sheet.group(group, event.changes.filter((change) => change.group === group).map(({ label, from, to }) => {
+      const value = el("span", "form-value");
+      if (from) value.append(el("s", "", from), " → ");
+      if (to) value.append(to);
+      const row = sheet.row(label, value);
+      row.dataset.wraps = "";
+      return row;
+    }));
+  }
+  sheet.note("Nothing changes on your store until you confirm.");
+  let yes = false;
+  let waiting = true;
+  sheet.button("Cancel", "secondary", () => sheet.close());
+  // Every way this sheet closes answers its own request once, even when another sheet replaced it.
+  sheet.dialog.addEventListener("close", () => {
+    if (changing?.sheet === sheet) changing = null;
+    if (!waiting) return;
+    waiting = false;
+    void window.lore.respond({ id: event.id, value: yes });
+  });
+  changing = { id: event.id, sheet, drop: () => { waiting = false; sheet.close(); } };
+  sheet.open({ primary: "Confirm", submit: () => { yes = true; } });
 }
 
 /** @param {string} id @param {unknown} value @param {string} [echo] */
@@ -4389,10 +4451,11 @@ async function approveAllExtras(forms) {
   const working = `Approving ${plural(decisions.length, "piece")} and updating your store. It takes a minute; you can keep working.`;
   tell(working);
   render();
-  const done = await act(() => window.lore.approveExtras(decisions), "Approved. They go live with your next store update.");
+  let pushed = false;
+  const done = await act(async () => { pushed = await window.lore.approveExtras(decisions); }, "Approved. They go live with your next store update.");
   approvingExtras = 0;
   drop((item) => item.text === working);
-  if (done) tell(`Your store is updated · ${plural(decisions.length, "piece")} have their new pages.`);
+  if (done) tell(pushed ? `Your store is updated · ${plural(decisions.length, "piece")} have their new pages.` : "Approved. They go live with your next store update.");
   render();
 }
 
@@ -4564,7 +4627,8 @@ async function pushNow() {
   pushing = true;
   render();
   const offer = pushOffer;
-  if (await act(window.lore.push, "Lore couldn't update your store. Try Update store again in a minute.")) {
+  let pushed = false;
+  if (await act(async () => { pushed = await window.lore.push(); }, "Lore couldn't update your store. Try Update store again in a minute.") && pushed) {
     const live = snapshot ? `${snapshot.publications.counts.active} ${snapshot.publications.counts.active === 1 ? "publication" : "publications"}` : "publications";
     pushedNote = `Your store is updated · ${live} for sale`;
   } else {
@@ -4814,6 +4878,7 @@ function onEvent(event) {
   } else if (event.type === "dismiss") {
     if (redirectPrompt === event.id) offerRedirect(null);
     if (request?.id === event.id) { clearRequest(); renderLog(); }
+    if (changing?.id === event.id) changing.drop();
   } else if (event.type === "signin") {
     signingIn = event.pending;
     render();
@@ -4823,6 +4888,8 @@ function onEvent(event) {
   } else if (event.type === "auth") {
     const detail = event.event;
     welcomeNote.textContent = event.message || (detail?.type === "device_code" ? `Open ${detail.verificationUri} and enter ${detail.userCode}.` : detail && "message" in detail ? detail.message : "Continue signing in.");
+  } else if (event.type === "changes") {
+    confirmChanges(event);
   } else if (event.task && event.task !== detailTask) {
     // A card belongs in its own thread, never under whichever heading happens to be open.
     void openTask(event.task).then(() => renderRequest(event));
@@ -4831,6 +4898,10 @@ function onEvent(event) {
 
 window.lore.onAgentEvent(onEvent);
 void window.lore.update().then(showUpdate);
+void window.lore.appearance().then((choice) => {
+  appearance = choice;
+  if (view === "settings") render();
+});
 updateBtn.addEventListener("click", () => void window.lore.installUpdate());
 
 composer.addEventListener("submit", async (event) => {
@@ -5157,7 +5228,13 @@ mainEl.addEventListener("scroll", () => mainEl.classList.toggle("scrolled", main
 // APP-218: what a thread scrolls into view stops clear of the floating composer, however tall it has grown.
 new ResizeObserver(() => mainEl.style.setProperty("--composer-room", `${composer.offsetHeight}px`)).observe(composer);
 // The account menu is a native popover: Escape and a click elsewhere close it, and its trigger says whether it is open.
-for (const item of accountMenu.querySelectorAll("button")) item.addEventListener("click", () => accountMenu.hidePopover());
+// The Dark mode switch stays open to show itself flip; it says what the window is drawn in, whoever chose it.
+for (const item of accountMenu.querySelectorAll("button:not(#dark-mode)")) item.addEventListener("click", () => accountMenu.hidePopover());
+const darkScheme = matchMedia("(prefers-color-scheme: dark)");
+const showDark = () => darkMode.setAttribute("aria-checked", String(darkScheme.matches));
+darkScheme.addEventListener("change", showDark);
+showDark();
+darkMode.addEventListener("click", () => chooseAppearance(darkScheme.matches ? "light" : "dark"));
 for (const item of /** @type {NodeListOf<HTMLButtonElement>} */ (accountMenu.querySelectorAll("[data-view]"))) item.addEventListener("click", () => show(/** @type {View} */ (item.dataset.view)));
 feedbackBtn.addEventListener("click", openFeedbackDialog);
 skipBtn.addEventListener("click", () => firstRun.leave("skipped"));

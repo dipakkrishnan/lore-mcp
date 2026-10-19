@@ -4,13 +4,13 @@ title: Find the owner's agent apps on this Mac and open them
 priority: P0
 effort: S
 component: desktop-app
-status: in-review
+status: completed
 related: [APP-215, APP-207]
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-10-17
-updated: 2026-10-17
+updated: 2026-10-19
 ---
 
 ## Problem
@@ -32,3 +32,7 @@ never by a path the renderer supplies. The connect card and sheet show
 - [x] Installed agent apps are reported by id; nothing else on disk is read.
 - [x] Open <agent> launches the installed app; the IPC rejects unknown ids.
 - [x] Unit tests cover found, not found, and an unknown id.
+
+## Notes
+
+**Completed (verified 2026-10-19):** every acceptance criterion is checked and the work is on main in 2ea1c94 (#481). Status was left stale after merge; closed out in the review-queue pass.
