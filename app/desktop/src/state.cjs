@@ -187,16 +187,35 @@ const grouped = (address) => `0x ${address.slice(2).match(/.{1,4}/g)?.join(" ")}
 
 const ADDRESS = /^0x[0-9a-fA-F]{40}$/;
 
-/** Where the store pays out and on which network, as its last deploy recorded it in the store's own folder, which the agent can't touch; null when there is none. @returns {{address: string, network: "real" | "test" | null} | null} */
-function recordedPayout() {
+/** What the store's last deploy recorded in the store's own folder, which the agent can't touch. @returns {{address?: unknown, network?: unknown}} */
+function recorded() {
   try {
-    const { address, network } = JSON.parse(readFileSync(join(STORE, "payout.json"), "utf8"));
-    if (typeof address !== "string" || !ADDRESS.test(address)) return null;
-    return { address, network: network === "real" || network === "test" ? network : null };
+    return JSON.parse(readFileSync(join(STORE, "payout.json"), "utf8")) ?? {};
   } catch {
-    return null;
+    return {};
   }
 }
+
+/** Where the store pays out and on which network, as its last deploy recorded it; null when there is none. @returns {{address: string, network: "real" | "test" | null} | null} */
+function recordedPayout() {
+  const { address, network } = recorded();
+  if (typeof address !== "string" || !ADDRESS.test(address)) return null;
+  return { address, network: network === "real" || network === "test" ? network : null };
+}
+
+/** The network a store that sells by card alone last opened on: it has no address on record, only that. @returns {"real" | "test" | null} */
+function recordedNetwork() {
+  const { network } = recorded();
+  return network === "real" || network === "test" ? network : null;
+}
+
+/** Whether the owner takes card payments, which is enough for a store to sell without a payout address. @param {string} loreHome */
+async function takesCards(loreHome) {
+  return Boolean((await cardStatus(loreHome).catch(() => null))?.account);
+}
+
+/** What the owner answers on the payout card to sell by card instead of to an address. */
+const BY_CARD = "By card";
 
 /** Six decimals, as the renderer shows prices: a price below a cent must not read as $0.00 on a card the owner confirms. */
 const dollars = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 6 });
@@ -237,6 +256,12 @@ function storeChanges(state, updated = [], deploy) {
   }
   if (!deploy) return changes;
   const { network, payout, recorded } = deploy;
+  if (payout === null) {
+    // By card alone: Stripe pays the owner's bank, and only a store opening says so.
+    if (opening) changes.push({ group: "", label: "Payments", to: network === "real" ? "By card" : "By card, with Stripe's test cards" }, { group: "", label: "Paid to", to: "Your bank, through Stripe" });
+    if (opening && !state.node.url) changes.push({ group: "", label: "Address", to: "A new one, made as it opens" });
+    return changes;
+  }
   const switched = !opening && recorded?.network && recorded.network !== network ? recorded.network : null;
   if (opening || switched) changes.push({ group: "", label: "Payments", ...(switched ? { from: networkName(switched) } : {}), to: networkName(network) });
   // A new address where the store already pays somewhere is a change, and the card names both.
@@ -318,20 +343,28 @@ async function openStore(loreHome, { network: asked, wallet, inboxOnly }, ask, o
   if (asked !== undefined && asked !== "real" && asked !== "test") return "The store opens on real money or the test network; nothing else.";
   if (wallet !== undefined && !ADDRESS.test(wallet)) return "That payout address is not valid; ask the owner for it again.";
   const recorded = recordedPayout();
-  const network = asked ?? recorded?.network;
+  /** @type {string | null} */
+  let payout = wallet ?? recorded?.address ?? null;
+  // With nowhere on record to pay, card payments are enough: the store sells by card alone, on real money unless it
+  // last opened on the test network, and the owner is never asked for an address.
+  let byCard = !payout && (await takesCards(loreHome));
+  const network = asked ?? recorded?.network ?? (byCard ? recordedNetwork() ?? "real" : undefined);
   if (!network) return "Say which network the store opens on: real money or the test network.";
-  let payout = wallet ?? recorded?.address;
-  if (!payout) {
+  if (!payout && !byCard) {
     const question = "Where should buyers' payments go?";
-    payout = (await ask([{ question, header: "Payouts", options: [], format: "evm_address", multiSelect: false }]))?.[question]?.trim() ?? "";
-    if (!ADDRESS.test(payout)) return "The owner gave no payout address, so the store did not open.";
+    const answer = (await ask([{ question, header: "Payouts", options: [], format: "evm_address", multiSelect: false }]))?.[question]?.trim() ?? "";
+    // The card answers By card only once Stripe cleared the owner; the CLI is asked again rather than trusted.
+    byCard = answer === BY_CARD && (await takesCards(loreHome));
+    if (answer === BY_CARD && !byCard) return "Card payments aren't on yet, so the store did not open.";
+    if (!byCard && !ADDRESS.test(answer)) return "The owner gave no payout address, so the store did not open.";
+    if (!byCard) payout = answer;
   }
   const state = await readState(loreHome);
   const changes = storeChanges(state, outgoing.updated, { network, payout, recorded });
-  const moved = recorded && recorded.address.toLowerCase() !== payout.toLowerCase();
+  const moved = payout !== null && recorded && recorded.address.toLowerCase() !== payout.toLowerCase();
   const heading = !state.node.selling ? "Open your store" : moved ? "Change where your sales are paid" : "Update your store";
   if (asks(changes) && !(await outgoing.confirm(heading, changes))) return "The owner chose not to change the store right now.";
-  return outgoing.deploy(["node", "deploy", "--network", network, "--wallet", payout]);
+  return outgoing.deploy(["node", "deploy", "--network", network, ...(payout === null ? [] : ["--wallet", payout])]);
 }
 
 /** Run one deploy the owner said yes to, and say how it went. @param {string} loreHome @param {string[]} args */
