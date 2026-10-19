@@ -785,37 +785,81 @@ function readingRow(item) {
   return card([reading]);
 }
 
-/** What Lore made of a connected app's newest items: each new memory, and a draft one press away for the ones worth selling. @param {ReadyRun[]} runs */
+/** Today's groups of new memories the owner has opened, by who they came from; each starts folded. @type {Set<string>} */
+const openGroups = new Set();
+
+const DISCLOSE = lineIcon(`<path d="M9 6l6 6-6 6"></path>`);
+
+/** What Lore made of what came in, one folded group per agent, app or routine: who, how many, and the memories inside
+ * a click away, so Today stays short and its next step in view. @param {ReadyRun[]} runs */
 function memoriesReady(runs) {
-  const memories = runs.flatMap((run) => run.memories.map((memory) => ({ ...memory, by: run.by })));
-  const selling = memories.filter((memory) => memory.sell).length;
-  const [latest] = runs;
-  // An agent's saves come in by the item and leave as fewer memories, so its line names the agent, not how many it sent.
-  const heading = latest.from && runs.every((run) => run.from === latest.from) ? `From ${latest.from}` : runs.every((run) => run.title === latest.title) ? latest.title : "Lore read what you brought in";
-  const detail = [plural(memories.length, "new memory"), selling ? `${selling} worth selling` : ""].filter(Boolean).join(" · ");
-  const clear = button("Clear", "quiet", () => void window.lore.clearMemories().then(() => { readyRuns = []; render(); }));
   /** What the library has on record for a memory, or, until the reading's own credit lands (it is recorded last), who the
    * reading was. @param {number} id @param {Contributor} [by] */
   const sources = (id, by) => {
     const kept = snapshot?.library.items.find((item) => item.id === id)?.sources;
     return by && (!kept || kept[0]?.kind === "lore") ? [{ ...by, at: null }] : kept;
   };
+  /** @type {Map<string, ReadyRun[]>} */
+  const groups = new Map();
+  for (const run of runs) {
+    const key = run.by?.id ?? run.title;
+    groups.set(key, [...(groups.get(key) ?? []), run]);
+  }
   const list = el("div", "routines today-cards");
-  for (const memory of memories) {
-    const node = sourcedRow({ id: memory.id, title: memory.title, sources: sources(memory.id, memory.by) }, [memory.sell ? `Worth selling · ${memory.why}` : memory.work ? "Work · stays private" : "Private"], memory.sell);
-    node.classList.add("routine");
-    list.append(node);
-  }
+  for (const [key, group] of groups) list.append(readyGroup(key, group, sources));
   noticeReady();
-  const aside = el("div", "list-aside");
-  aside.append(el("span", "", `${heading} · ${detail}`));
-  // One agent behind every memory here: one click to what it saved.
-  const by = runs[0].by;
-  if (by?.kind === "agent" && runs.every((run) => run.by?.id === by.id) && memories.every((memory) => sources(memory.id, memory.by)?.some((source) => source.id === by.id))) {
-    aside.append(inline("See them →", () => seeFrom({ id: by.id, label: by.label })));
+  const clear = button("Clear", "quiet", () => void window.lore.clearMemories().then(() => { readyRuns = []; render(); }));
+  return section("New memories", list, clear);
+}
+
+/** One contributor's new memories: a row that says who and how many, opening onto the memories themselves.
+ * @param {string} key @param {ReadyRun[]} runs @param {(id: number, by?: Contributor) => MemorySource[] | undefined} sources */
+function readyGroup(key, runs, sources) {
+  const [latest] = runs;
+  const memories = runs.flatMap((run) => run.memories.map((memory) => ({ ...memory, by: run.by })));
+  const selling = memories.filter((memory) => memory.sell).length;
+  const by = latest.by;
+  const heading = latest.from ? `From ${latest.from}` : latest.title;
+  // An agent's saves that only added to memories already kept still say they arrived, and where to find them.
+  const read = runs.reduce((sum, run) => sum + run.read, 0);
+  const detail = memories.length ? [plural(memories.length, "new memory"), selling ? `${selling} worth selling` : ""].filter(Boolean).join(" · ") : `${plural(read, "save")} · already in your memories`;
+  const box = el("div", "ready-group");
+  const head = el("div", "row routine ready-head");
+  const toggle = el("button", "task-link");
+  toggle.type = "button";
+  const text = el("div", "t");
+  text.append(el("b", "sans", heading), el("span", "", detail));
+  toggle.append(text);
+  const marks = el("span", "mark-stack");
+  marks.append(markTile(by ? sourceMark({ ...by, at: null }) : RING));
+  head.append(marks, toggle);
+  if (by?.kind === "agent") head.append(inline("See them →", () => seeFrom({ id: by.id, label: by.label })));
+  const open = openGroups.has(key);
+  if (memories.length) {
+    const chevron = el("span", "disclose");
+    chevron.innerHTML = DISCLOSE;
+    head.append(chevron);
+    toggle.setAttribute("aria-expanded", String(open));
+    head.addEventListener("click", (event) => {
+      if (event.target instanceof Element && event.target.closest("button.inline")) return;
+      if (openGroups.has(key)) openGroups.delete(key);
+      else openGroups.add(key);
+      render();
+    });
+  } else head.classList.add("still");
+  box.classList.toggle("open", open);
+  box.append(head);
+  if (open && memories.length) {
+    const items = el("div", "ready-items");
+    for (const memory of memories) {
+      // The group already says who; a memory says only what it is to the owner, unless more than one wrote it.
+      const kept = sources(memory.id, memory.by);
+      const status = memory.sell ? `Worth selling · ${memory.why}` : memory.work ? "Work · stays private" : "Private";
+      items.append((kept?.length ?? 0) > 1 ? sourcedRow({ id: memory.id, title: memory.title, sources: kept }, [status], memory.sell) : memoryRow(memory.id, memory.title, status, memory.sell));
+    }
+    box.append(items);
   }
-  aside.append(clear);
-  return section("New memories", list, aside);
+  return box;
 }
 
 /** The owner is looking at the new memories, so the dock stops counting them. */
@@ -1399,7 +1443,7 @@ class FirstRunChat {
         for (const step of guide.steps) list.append(el("li", "", step));
         box.append(list);
       }
-      box.append(guide?.message ? privateLink(this.handed, guide.message, "Copy message") : privateLink(this.handed));
+      box.append(guide?.message ? privateLink(this.handed, guide.message, "Copy message") : privateLink(this.handed), ...afterConnect(app, who));
     }
     if (this.problem) box.append(el("p", "problem", this.problem));
     const foot = el("div", "first-connect-foot");
@@ -2577,6 +2621,8 @@ const AGENT_GUIDES = {
   }
 };
 const EVERY_EVENING = "Every evening, save anything new you learned about me to Lore.";
+/** What to send an agent once it's connected, so its first save comes now and shows the connection works. */
+const SAVE_NOW = "Save what you know about me to Lore: how I work, what I care about, and what I'm working on.";
 /** While the setup sheet waits on a first save, it asks the store this often, not once a minute. */
 const FIRST_SAVE_EVERY_MS = 10_000;
 
@@ -2724,16 +2770,27 @@ function privateLink(handed, lead = "", label = "Copy") {
   return link;
 }
 
-/** After its first save, an agent can be asked to save every evening on its own schedule. Optional, so quiet.
+/** A sentence to paste into an agent, with what it's for and a Copy button. @param {string} what @param {string} text */
+function promptOffer(what, text) {
+  const offer = el("div", "agent-next");
+  const words = el("div", "agent-next-words");
+  words.append(el("span", "", what), el("span", "agent-next-quote", `“${text}”`));
+  offer.append(words, copyButton(() => text));
+  return offer;
+}
+
+/** An agent can be asked to save every evening on its own schedule, where it has one. Optional, so quiet.
  * @param {AgentApp | null | undefined} app @param {string} who */
 function eveningOffer(app, who) {
   const kind = app ? AGENT_GUIDES[app]?.routine : undefined;
-  if (!kind) return null;
-  const offer = el("div", "agent-next");
-  const words = el("div", "agent-next-words");
-  words.append(el("span", "", `Optional: paste this into ${who} as a ${kind}, so it saves every evening.`), el("span", "agent-next-quote", `“${EVERY_EVENING}”`));
-  offer.append(words, copyButton(() => EVERY_EVENING));
-  return offer;
+  return kind ? promptOffer(`Optional: add this to ${who} as a ${kind}, so it saves every evening.`, EVERY_EVENING) : null;
+}
+
+/** Once connected: what to send so the first save comes now, and, where the agent has a schedule, its evening save.
+ * @param {AgentApp | null | undefined} app @param {string} who @returns {HTMLElement[]} */
+function afterConnect(app, who) {
+  const evening = eveningOffer(app, who);
+  return [promptOffer(`Then send ${who} this, so it saves right away:`, SAVE_NOW), ...(evening ? [evening] : [])];
 }
 
 /** APP-207: connecting one of the owner's personal agents, in one sheet: their store online first if it isn't yet,
@@ -2828,18 +2885,19 @@ class AgentSetup {
       form.body.append(inlineNotice(`This key is shown only once. If it's lost, get a new one from Manage.`));
       form.button("Copy all", "secondary", () => void window.lore.copy(`Address: ${handed.mcp_url}\nKey: ${handed.header}\n\n${handed.prompt}`));
     }
+    if (first) form.body.append(...afterConnect(app, where));
     if (app === "grok" && installed.includes(app)) form.button(`Open ${where}`, "secondary", () => void window.lore.openAgentApp(app).catch((error) => tell(reason(error, `Lore couldn't open ${where}.`))));
     this.wait(handed, who, first);
     form.arm({ primary: "Done" });
     form.focus();
   }
 
-  /** Waits, in the sheet, for the agent's first save to reach Lore, then offers its evening save; after a new link,
+  /** Waits, in the sheet, for the agent's first save to reach Lore; after a new link,
    * for the next save, which shows the new link works. The store counts every save, even one that changes nothing,
    * and the key came with the count so far, so only a save made with this key raises it: saves the old key left
    * waiting were already counted. @param {AgentKey} handed @param {string} who @param {boolean} first */
   wait(handed, who, first) {
-    const { source, agent } = handed;
+    const { source } = handed;
     const line = waitLine(who, first);
     this.form.body.append(line);
     const { dialog } = this.form;
@@ -2851,8 +2909,6 @@ class AgentSetup {
           seeFrom({ id: source, label: who });
         }));
       } else line.replaceChildren(el("span", "dot ok"), el("span", "", `${who} saved with the new link`));
-      const offer = first && eveningOffer(agent.app, who);
-      if (offer) line.after(offer);
     });
     dialog.addEventListener("close", stop);
   }
