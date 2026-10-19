@@ -243,6 +243,8 @@ echo "Screenshots land in $root"
 limit="${LORE_EDGE_LIMIT:-180}"
 # The first-run walk relaunches the app five times.
 [[ "$scenario" == "firstrun" && -z "${LORE_EDGE_LIMIT:-}" ]] && limit=300
+# The agents walk connects four agents and answers two sign-ins (XC-068).
+[[ "$scenario" == "agents" && -z "${LORE_EDGE_LIMIT:-}" ]] && limit=240
 "$desktop_dir/node_modules/.bin/electron" "$desktop_dir/support/edge.cjs" "$scenario" >"$root/walk.log" 2>/dev/null &
 walk=$!
 for _ in $(seq 1 "$limit"); do kill -0 "$walk" 2>/dev/null || break; sleep 1; done

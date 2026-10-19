@@ -1724,7 +1724,6 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
           check("…whose message carries the plain address alone", copied.at(-1) === `Add this MCP server to my account: ${agentUrl}`, String(copied.at(-1)));
         }
         check("…and nothing is made for it until it asks", (await keys()) === keysBefore);
-        await sleep(1600);
         await shot("agents-grok-sign-in");
         await instead();
         await waitFor(`${sheet}.includes("Waiting for Grok Bot's first save…")`, 80);
