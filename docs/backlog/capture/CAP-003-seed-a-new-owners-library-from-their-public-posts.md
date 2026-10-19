@@ -10,7 +10,7 @@ blockers: []
 dependencies: []
 github_issue: null
 created: 2026-09-14
-updated: 2026-09-27
+updated: 2026-10-19
 ---
 
 ## Problem
@@ -84,3 +84,5 @@ were always reachable, just not findable by app. "Publish something" on Today
 now depends only on the library having memories. The Substack criterion is
 met by the connectors (`STO-003`, `APP-124`); LinkedIn and X archives are
 still open, so this stays in review.
+
+**Review 2026-10-19:** not completed. Connect-to-publish nudge shipped (1be4431). Unmet: LinkedIn and X archive import. The Substack criterion is met by the connector in lore/sources.py but unticked.

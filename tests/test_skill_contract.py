@@ -19,6 +19,8 @@ import re
 import unittest
 from pathlib import Path
 
+import hermetic  # noqa: F401  (no test may reach a real Cloudflare account)
+
 from lore.cli import parser
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -34,10 +36,17 @@ OWNER_SKILL_GLOB = "lore-*"
 EXTERNAL_SKILLS = {
     "lore-buy",
     "lore-capture",
+    "lore-check-in",
     "lore-enable-payments",
     "lore-onboard",
     "lore-publish",
+    "lore-store",
+    "lore-synthesize",
 }
+# Skills for the owner's remote agents (Grok, ChatGPT, Claude), which reach them
+# as a paste block from `lore agents connect`. Agents on this Mac write to Lore
+# directly, so these are never linked or installed where a local agent looks.
+REMOTE_SKILLS = {"lore-store"}
 
 # A `lore <command> [subcommand]` invocation, anchored to the start of a shell line or
 # an inline code span so that prose about "your lore" is never mistaken for a command.
@@ -176,6 +185,8 @@ class SkillContractTest(unittest.TestCase):
                 self.assertGreaterEqual(len(fields["short_description"]), 25)
                 self.assertLessEqual(len(fields["short_description"]), 64)
                 self.assertIn(f"${name}", fields["default_prompt"])
+                if name in REMOTE_SKILLS:
+                    continue
                 for host in (".agents", ".claude"):
                     linked = ROOT / host / "skills" / name
                     self.assertTrue(linked.is_dir())
@@ -199,6 +210,11 @@ class SkillContractTest(unittest.TestCase):
             with self.subTest(skill=skill.name):
                 # The installer ships a glob; a skill outside it is silently skipped.
                 self.assertTrue(skill.match(f"*/{OWNER_SKILL_GLOB}"))
+                if skill.name in REMOTE_SKILLS:
+                    self.assertIn(f'"$SKILL_NAME" != {skill.name}', installer)
+                    for host in (".agents", ".claude"):
+                        self.assertFalse((ROOT / host / "skills" / skill.name).exists())
+                    continue
                 linked = ROOT / ".claude/skills" / skill.name
                 self.assertTrue(
                     linked.is_dir(), f"{skill.name} is not linked for this repo"
@@ -297,13 +313,13 @@ class SkillContractTest(unittest.TestCase):
         order = [
             skill.index("no active publication"),
             skill.index("price through `propose_price`"),
-            skill.index("cloudflare_login` if needed"),
+            skill.index("call `cloudflare_login` if the owner has not signed in"),
             skill.index("the payout address, last"),
-            skill.index("lore node deploy --wallet <address> --network real"),
+            skill.index("`open_store` with network `real` and the address"),
         ]
         self.assertEqual(order, sorted(order))
         self.assertIn("no coinbase developer keys in the app", skill)
-        self.assertIn("never asked again", skill)
+        self.assertIn("never asks: call `open_store` without an address", skill)
 
     def test_the_payment_skill_refuses_a_recovery_phrase(self) -> None:
         """The one secret worse than an API key to land in a transcript."""
@@ -378,6 +394,63 @@ class SkillContractTest(unittest.TestCase):
         ):
             with self.subTest(boundary=boundary):
                 self.assertIn(boundary, skill)
+
+    def test_the_reading_skill_keeps_work_private_and_never_sells(self) -> None:
+        """AUT-005: it runs with nobody watching, so its boundaries are the only guard."""
+        skill = " ".join(
+            (OWNER_SKILLS / "lore-synthesize/SKILL.md").read_text().lower().split()
+        )
+        for boundary in (
+            "run `lore memory rules`",
+            "never ask the owner anything",
+            "when unsure, it is work",
+            "never suggest anything under `work/`",
+            "no company, people, client, or product names",
+            "`memories_ready`",
+            "never publish",
+        ):
+            with self.subTest(boundary=boundary):
+                self.assertIn(boundary, skill)
+
+    def test_the_check_in_skill_defaults_to_silence_and_saves_nothing(self) -> None:
+        """AUT-008: a check-in that nags gets turned off, so silence is the default."""
+        skill = " ".join(
+            (OWNER_SKILLS / "lore-check-in/SKILL.md").read_text().lower().split()
+        )
+        for boundary in (
+            "silence is the normal outcome",
+            "the library does not already explain",
+            "one to three questions, each about one specific item",
+            "never ask the owner anything",
+            "`check_in` once",
+            "the app, not you, decides whether anything is posted",
+            "only after they approve them",
+            "never save a memory, draft a publication",
+        ):
+            with self.subTest(boundary=boundary):
+                self.assertIn(boundary, skill)
+
+    def test_the_store_skill_is_a_paste_block_that_never_sells(self) -> None:
+        """CAP-037: it is pasted into a remote agent, so it carries its own connection."""
+        text = (OWNER_SKILLS / "lore-store/SKILL.md").read_text(encoding="utf-8")
+        body = " ".join(text.split("---", 2)[2].lower().split())
+        for field in ("{name}", "{mcp_url}", "{header}"):
+            self.assertIn(field, body)
+        for promise in (
+            "nothing is ever sold or published without my approval in the lore app",
+            "never save",
+            "passwords",
+            "one short, stable `key`",
+            "save again under the same key",
+            "want me to save that to lore?",
+            "in one line",
+            "once a week",
+            "`store`",
+            "`stored`",
+            "`forget`",
+        ):
+            with self.subTest(promise=promise):
+                self.assertIn(promise, body)
 
 
 if __name__ == "__main__":

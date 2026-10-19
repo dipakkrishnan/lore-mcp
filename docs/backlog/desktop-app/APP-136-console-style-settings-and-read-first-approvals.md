@@ -4,13 +4,13 @@ title: Tidy Settings into console-style rows and make approval cards read first
 priority: P1
 effort: M
 component: desktop-app
-status: in-review
+status: completed
 related: [APP-135, APP-019, MON-039, MON-040, XC-039]
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-10-05
-updated: 2026-10-05
+updated: 2026-10-19
 ---
 
 ## Problem
@@ -74,3 +74,5 @@ links to the Stripe dashboard instead of showing "Chase ••3816".
 
 The For Sale bar still says "Live, answering on Base" and keeps its own
 Payouts ↗. That was out of scope for this pass.
+
+**Completed (verified 2026-10-19):** every acceptance criterion is checked and the work is on main in 35d0447. Status was left stale after merge; closed out in the review-queue pass.

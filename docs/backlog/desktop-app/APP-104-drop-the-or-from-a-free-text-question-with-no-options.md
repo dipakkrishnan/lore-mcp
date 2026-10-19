@@ -4,13 +4,13 @@ title: Drop the "Or" from a free-text question with no options
 priority: P3
 effort: XS
 component: desktop-app
-status: in-review
+status: completed
 related: []
 blockers: []
 dependencies: []
 github_issue: https://github.com/dipakkrishnan/lore-mcp/issues/254
 created: 2026-09-07
-updated: 2026-09-07
+updated: 2026-10-19
 ---
 
 ## Problem
@@ -42,3 +42,5 @@ Cataloged from GitHub issue #254. Already implemented on branch
 placeholder now reads `question.options.length ? "Or type your answer" :
 "Type your answer"`. `npm run check` and `npm test` (33/33) both green in
 `app/desktop`.
+
+**Completed (verified 2026-10-19):** every acceptance criterion is checked and the work is on main in d601415. Status was left stale after merge; closed out in the review-queue pass.
