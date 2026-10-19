@@ -146,8 +146,9 @@ textarea, input, [contenteditable] { -webkit-user-select: text; user-select: tex
 input[type="text"], input[type="password"], input[type="search"], select, textarea {
   height: 36px; padding: 0 12px; border: 1px solid var(--line-strong); border-radius: var(--radius-sm); background: var(--surface);
 }
-/* A bordered field in focus darkens its own border and takes a soft halo, rather than a ring around it. */
-.request :is(input[type="text"], input[type="password"], textarea):focus-visible { outline: none; border-color: var(--ring); box-shadow: 0 0 0 3px var(--ring-soft); }
+/* A bordered field in focus darkens its own border and takes a soft halo, rather than a ring around it. A field drawn
+ * inside a box of its own (a price, a form entry) leaves the halo to that box, so focus is one ring, never two. */
+.request :is(input[type="text"], input[type="password"], textarea):not(.price-field *, .form-entry *):focus-visible { outline: none; border-color: var(--ring); box-shadow: 0 0 0 3px var(--ring-soft); }
 
 /* Shell */
 .app { position: fixed; inset: 0; display: flex; }
@@ -460,7 +461,7 @@ a.receipt:hover { color: var(--accent); }
 .price-field:focus-within { border-color: var(--ring); box-shadow: 0 0 0 3px var(--ring-soft); outline: 0; }
 .price-field .price-prefix { font-family: var(--mono); font-size: 15px; color: var(--muted); }
 .price-field input[type="text"] { width: 6ch; height: auto; padding: 0; border: 0; background: none; font-family: var(--mono); font-size: 15px; text-align: left; }
-.price-field input[type="text"]:focus-visible { outline: none; }
+.price-field input[type="text"]:focus-visible { outline: none; box-shadow: none; }
 .request .price-field { height: 36px; align-self: flex-start; }
 .store-bar .stale-price { display: flex; align-items: center; justify-content: flex-end; gap: 6px; }
 .store-bar .stale-price span { color: var(--attention-ink); }

@@ -1413,6 +1413,9 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         await waitFor(`Boolean(document.querySelector("dialog.form-sheet[open]"))`);
         check("Change opens one sheet for price and free copies", await js(`[...document.querySelectorAll("dialog.form-sheet[open] .form-row")].map((r) => r.querySelector(".form-label").textContent).join("|") === "Price per piece|Free copies" && document.querySelectorAll("dialog.form-sheet[open] input").length === 2 && document.querySelector("#title").textContent === "Inventory"`));
         await shot("store-price-sheet");
+        // A price asked for on a card is one field in one ring: focus never draws a second box around the digits inside.
+        const rings = await js(`{ const box = document.createElement("div"); box.className = "card request"; box.innerHTML = '<div class="price-field"><span class="price-prefix">$</span><input type="text" value="1"></div>'; (document.querySelector("dialog[open] .form-body") ?? document.querySelector("#content")).append(box); const input = box.querySelector("input"); input.focus({ focusVisible: true }); const seen = [getComputedStyle(box.firstChild).boxShadow, getComputedStyle(input).boxShadow, getComputedStyle(input).outlineStyle].join(" | "); box.remove(); seen; }`);
+        check("a price field in focus shows one ring, around the field, none around its digits", /^(?!none).+ \| none \| none$/.test(rings), rings);
         await js(`{ const [amount, copies] = document.querySelectorAll("dialog.form-sheet[open] input"); amount.value = "0.75"; copies.value = "5"; amount.form.requestSubmit(); }`);
         check("both save through the CLI", await waitFor(`window.lore.snapshot().then((s) => s.pricing.publication_usd === 0.75 && s.pricing.free_copies === 5)`));
         // APP-226: a live store charges the new price only once the owner confirms it; Cancel leaves Update store waiting.
