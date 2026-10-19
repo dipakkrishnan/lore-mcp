@@ -4,13 +4,13 @@ title: Take a store to real money without a terminal
 priority: P1
 effort: S
 component: desktop-app
-status: in-review
+status: completed
 related: [APP-055, APP-056, MON-005, MON-018]
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-09-02
-updated: 2026-09-02
+updated: 2026-10-19
 ---
 
 ## Problem
@@ -47,3 +47,5 @@ a desktop path built on the hand-off card from APP-056.
 
 Shipped in PR #198. Reuses the sign-in secret card rather than adding a
 fourth card shape; the message carries the vault note.
+
+**Completed (verified 2026-10-19):** every acceptance criterion is checked and the work is on main in 714ee59. Status was left stale after merge; closed out in the review-queue pass.

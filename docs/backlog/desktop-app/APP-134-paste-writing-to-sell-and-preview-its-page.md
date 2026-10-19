@@ -4,13 +4,13 @@ title: Paste writing to sell, and preview its page before approving
 priority: P1
 effort: M
 component: desktop-app
-status: in-review
+status: completed
 related: [MON-035, MON-025]
 blockers: []
 dependencies: []
 github_issue: 368
 created: 2026-10-04
-updated: 2026-10-04
+updated: 2026-10-19
 ---
 
 ## Problem
@@ -40,3 +40,7 @@ is a stack of fields, not a page.
 - [x] Preview shows the page a buyer would see, with only free fields.
 - [x] The approval card names what is free and what is paid.
 - [x] The bundled renderer can't drift from the store's: CI fails when it does.
+
+## Notes
+
+**Completed (verified 2026-10-19):** every acceptance criterion is checked and the work is on main in 2089a91. Status was left stale after merge; closed out in the review-queue pass.
