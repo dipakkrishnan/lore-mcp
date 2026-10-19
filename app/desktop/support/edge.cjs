@@ -1982,6 +1982,8 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
           check("…one private link and nothing else to paste: no address, key, instructions or sign-in notice", await js(`document.querySelectorAll("dialog.sheet[open] .agent-link").length === 1 && !document.querySelector("dialog.sheet[open] .agent-message, dialog.sheet[open] .copy-row") && ![...document.querySelectorAll("dialog.sheet[open] button")].some((b) => /^(Copy all|Open)/.test(b.textContent))`) && plainly(allowed ? text.replace(allowed, "") : text), text);
           const link = await copyLink();
           check("…and Copy gives the bare link with its key", linked("").test(link), link);
+          const byHand = await js(`{ const data = new DataTransfer(); document.querySelector("dialog.sheet[open] .agent-link-url").dispatchEvent(new ClipboardEvent("copy", { clipboardData: data, bubbles: true, cancelable: true })); data.getData("text/plain"); }`);
+          check("…and copying the shown link by hand takes the real one, not its dots", byHand === link, byHand);
           await sleep(300);
         };
         // Claude's and ChatGPT's apps on this Mac too: only Grok Bot's sheet offers to open its app.

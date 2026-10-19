@@ -2697,7 +2697,7 @@ function privateLink(handed, lead = "", label = "Copy") {
   link.setAttribute("aria-label", lead ? label : "Copy link");
   const shown = el("span", "agent-link-text");
   const address = el("span", "agent-link-url");
-  address.append(handed.mcp_url.replace(/^https?:\/\//, "") + "/", el("span", "agent-link-key", "••••••••••••"));
+  address.append(handed.mcp_url + "/", el("span", "agent-link-key", "••••••••••••"));
   if (lead) {
     // APP-218: a plain name for what gets pasted, and the message itself quietly under it, never broken inside its link.
     const quote = el("span", "agent-link-quote", lead);
@@ -2708,6 +2708,8 @@ function privateLink(handed, lead = "", label = "Copy") {
   glyph.innerHTML = COPY_ICON;
   const word = el("span", "agent-link-word", label);
   link.append(shown, glyph, word);
+  // Selecting the shown link and copying it by hand would take the dots, so a hand copy also takes the real link.
+  link.addEventListener("copy", (event) => { event.preventDefault(); event.clipboardData?.setData("text/plain", lead + handed.connector_url); });
   link.addEventListener("click", () => void window.lore.copy(lead + handed.connector_url).then(() => {
     link.classList.add("copied");
     glyph.innerHTML = CHECK_ICON;
