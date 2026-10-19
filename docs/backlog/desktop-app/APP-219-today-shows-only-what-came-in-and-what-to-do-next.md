@@ -4,13 +4,13 @@ title: Today shows only what came in and what to do next
 priority: P1
 effort: S
 component: desktop-app
-status: in-review
+status: completed
 related: [APP-214, APP-218]
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-10-18
-updated: 2026-10-18
+updated: 2026-10-19
 ---
 
 ## Problem
@@ -34,3 +34,7 @@ an unexplained logo.
 ## Acceptance
 
 The edge `sales` walk seeds an owner-like history and checks each point above.
+
+## Notes
+
+**Completed (verified 2026-10-19, by reading code and tests, no suites run):** on main in 418c7c3. Closed out in the review-queue pass.

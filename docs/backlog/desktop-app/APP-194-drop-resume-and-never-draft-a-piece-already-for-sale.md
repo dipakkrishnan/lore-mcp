@@ -4,13 +4,13 @@ title: Drop Resume and never draft a piece already for sale
 priority: P1
 effort: S
 component: desktop-app
-status: in-review
+status: completed
 related: [APP-186, APP-139]
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-10-06
-updated: 2026-10-06
+updated: 2026-10-19
 ---
 
 ## Problem
@@ -42,3 +42,7 @@ had checked.
 - [x] A repeat of a piece for sale is never staged; distinct pieces from the
       same memory still are (checked against the Oct 6 library: 13/20, 20/21,
       23/27 caught; 13/14, 15/16/17, 5/10 kept).
+
+## Notes
+
+**Completed (verified 2026-10-19):** every acceptance criterion is checked and the work is on main in d81405a. Status was left stale after merge; closed out in the review-queue pass.

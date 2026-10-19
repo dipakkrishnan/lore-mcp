@@ -4,13 +4,13 @@ title: Surface unpushed publication drift between the local library and the depl
 priority: P1
 effort: S
 component: monetization
-status: in-review
+status: completed
 related: [MON-004, MON-006]
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-08-10
-updated: 2026-09-22
+updated: 2026-10-19
 ---
 
 ## Problem
@@ -87,3 +87,5 @@ does. New tests: `test_approving_several_candidates_in_one_sitting_pushes_once_n
 desktop-path counterpart), plus a `publish_pending` counterpart to each
 existing `revocation_pending` status/push test. Moving `ready` → `in-review`
 per this repo's backlog convention.
+
+**Completed (verified 2026-10-19):** every acceptance criterion is checked and the work is on main in 3729470. Status was left stale after merge; closed out in the review-queue pass.

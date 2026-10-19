@@ -4,13 +4,13 @@ title: Open each tab at the top and say a store update where it happened
 priority: P2
 effort: XS
 component: desktop-app
-status: in-review
+status: completed
 related: [APP-139, APP-190]
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-10-06
-updated: 2026-10-06
+updated: 2026-10-19
 ---
 
 ## Problem
@@ -32,3 +32,7 @@ thread whose last card was skipped with "Skipped. Nothing new is for sale."
 - [x] Each tab opens at its top.
 - [x] A price saved on For Sale confirms there, and the note doesn't follow.
 - [x] A thread with every draft skipped ends on a line that says so.
+
+## Notes
+
+**Completed (verified 2026-10-19):** every acceptance criterion is checked and the work is on main in c38484f. Status was left stale after merge; closed out in the review-queue pass.
