@@ -64,5 +64,5 @@ Primary sources (checked Oct 17, 2026) say:
 Anthropic advises against credentials in URLs; the key in `/agent/<key>` is
 revocable from Manage and scoped to write-only `store`, `stored`, `forget`.
 Bearer headers (Claude limited beta) and OAuth (XC-068) remain the upgrade
-path. XC-068 currently protects `/mcp`, but agent writes live at `/agent`;
-fix that before building it.
+path. XC-068 now signs Claude, ChatGPT and Grok Bot in at the plain `/agent`
+address; this private link stays as the fallback.
