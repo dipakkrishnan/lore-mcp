@@ -250,8 +250,9 @@ jobs:
           # desktop app's launch key (lore/cli.py:_attended), so CI writes one.
           LORE_ATTENDED_KEY: ci
         run: |
-          mkdir -p ~/"Library/Application Support/Lore"
-          printf ci > ~/"Library/Application Support/Lore/attended"
+          # As the app writes it: a folder and a file only the owner can open.
+          (umask 077 && mkdir -p ~/"Library/Application Support/Lore/attended.d" &&
+            printf '%s\nci\n' "$$" > ~/"Library/Application Support/Lore/attended.d/ci")
           export LORE_HOME="$(mktemp -d)"
           uv run --project .. python ../../.github/scripts/seed_worker_smoke.py
           uv run --project .. lore push --local --worker-dir .

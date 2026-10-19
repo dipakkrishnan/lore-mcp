@@ -19,12 +19,12 @@ const userInfo = os.userInfo;
 os.userInfo = (...args) => ({ ...userInfo(...args), homedir: join(S, "account") });
 const runtime = require(join(src, "runtime.cjs"));
 os.userInfo = userInfo;
-const { ATTENDED_KEY } = require(join(src, "state.cjs"));
+const { ATTENDED_KEYS } = require(join(src, "state.cjs"));
 // The CLI the app spawns reads the same scratch key: a test-only entry point, picked the way the app picks its runtime.
 const repo = join(__dirname, "../../..");
 const cli = { bin: join(S, "cli", "lore"), binDir: undefined };
 mkdirSync(dirname(cli.bin), { recursive: true });
-writeFileSync(join(S, "cli", "attended_cli.py"), `import sys\nfrom pathlib import Path\nfrom lore import cli\ncli.attended_key = lambda: Path(${JSON.stringify(ATTENDED_KEY)})\nsys.exit(cli.main())\n`);
+writeFileSync(join(S, "cli", "attended_cli.py"), `import sys\nfrom pathlib import Path\nfrom lore import cli\ncli.attended_folder = lambda: Path(${JSON.stringify(dirname(ATTENDED_KEYS))})\nsys.exit(cli.main())\n`);
 writeFileSync(cli.bin, `#!/bin/sh\ncd ${JSON.stringify(repo)} && exec uv run python ${JSON.stringify(join(S, "cli", "attended_cli.py"))} "$@"\n`, { mode: 0o755 });
 let failSetup = scenario === "provision";
 // main.cjs binds provision at require time, so the stub itself must flip.
@@ -600,7 +600,7 @@ const NARROW_WIDTH = 900;
 const BG = `getComputedStyle(document.documentElement).getPropertyValue("--bg").trim()`;
 const LIGHT_BG = "#f7f3ea";
 const DARK_BG = "#141613";
-check("the desktop key is this walk's own", ATTENDED_KEY.startsWith(join(S, "account") + "/"), ATTENDED_KEY);
+check("the desktop key is this walk's own", ATTENDED_KEYS.startsWith(join(S, "account") + "/"), ATTENDED_KEYS);
 
 /** The walk runs once, in the first window; one opened later (a notification after the window closed) is driven by it. */
 let walking = false;

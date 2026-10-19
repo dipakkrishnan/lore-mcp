@@ -1,15 +1,24 @@
 const assert = require("node:assert/strict");
 const { existsSync } = require("node:fs");
-const { access, constants, mkdir, mkdtemp, readdir, readFile, realpath, rename, rm, symlink, writeFile } = require("node:fs/promises");
+const { access, constants, mkdir, mkdtemp, readdir, readFile, realpath, rename, rm, stat, symlink, writeFile } = require("node:fs/promises");
 const { createServer } = require("node:http");
 const { homedir, tmpdir, userInfo } = require("node:os");
-const { dirname, join, sep } = require("node:path");
+const { basename, dirname, join, sep } = require("node:path");
 const { pathToFileURL } = require("node:url");
 const { spawn, spawnSync } = require("node:child_process");
 const { test } = require("node:test");
 // The CLI these tests run keeps its store in scratch, never in the owner's Application Support.
 process.env.LORE_STORE = require("node:fs").mkdtempSync(join(tmpdir(), "lore-store-"));
-const { readState } = require("../src/state.cjs");
+// So do the launch keys it writes, and the CLI they run reads that scratch through a test-only entry point,
+// as support/edge.cjs does: nothing here touches the owner's own keys.
+const KEYS = require("node:fs").mkdtempSync(join(tmpdir(), "lore-keys-"));
+const CLI = join(KEYS, "lore");
+require("node:fs").writeFileSync(join(KEYS, "attended_cli.py"), `import sys\nfrom pathlib import Path\nfrom lore import cli\ncli.attended_folder = lambda: Path(${JSON.stringify(KEYS)})\nsys.exit(cli.main())\n`);
+require("node:fs").writeFileSync(CLI, `#!/bin/sh\ncd ${JSON.stringify(join(__dirname, "../../.."))} && exec uv run python ${JSON.stringify(join(KEYS, "attended_cli.py"))} "$@"\n`, { mode: 0o755 });
+process.once("exit", () => require("node:fs").rmSync(KEYS, { recursive: true, force: true }));
+const { readState, useKeys, useRuntime } = require("../src/state.cjs");
+useKeys(join(KEYS, "attended.d"));
+useRuntime(CLI);
 
 test("announces only sales after the last one seen, one by one or as one lot", () => {
   const { announcements, marker, unseen } = require("../src/sales.cjs");
@@ -135,7 +144,7 @@ test("useRuntime runs the packaged binary instead of uv", async () => {
     const { lore } = require("../src/state.cjs");
     assert.equal(JSON.parse(await lore(directory, [])).cwd, await realpath(directory));
   } finally {
-    useRuntime();
+    useRuntime(CLI);
     await rm(directory, { recursive: true });
   }
 });
@@ -222,9 +231,10 @@ test("the sandbox reads the agents' memories, never their credential files", asy
   }
 });
 
-test("the sandbox hides the account's home and the key's folder, wherever HOME points", async () => {
+test("the sandbox hides the account's home and the keys' folder, wherever HOME points", async () => {
   const { sandboxPolicy } = await import("../src/agent.mjs");
-  const { ATTENDED_KEY: key } = require("../src/state.cjs");
+  const { ATTENDED_KEYS: key } = require("../src/state.cjs");
+  assert.equal(key, join(userInfo().homedir, "Library", "Application Support", "Lore", "attended.d"));
   const home = await mkdtemp(join(tmpdir(), "lore-policy-"));
   const moved = process.env.HOME;
   try {
@@ -238,6 +248,149 @@ test("the sandbox hides the account's home and the key's folder, wherever HOME p
   } finally {
     process.env.HOME = moved;
     await rm(home, { recursive: true });
+  }
+});
+
+test("each running app keeps its own launch key, and quitting removes only its own", async () => {
+  const { LaunchKey } = require("../src/state.cjs");
+  const root = await mkdtemp(join(tmpdir(), "lore-keys-"));
+  const folder = join(root, "attended.d");
+  try {
+    const [first, second] = [new LaunchKey(folder), new LaunchKey(folder)];
+    const keys = [first.env().LORE_ATTENDED_KEY, second.env().LORE_ATTENDED_KEY, first.env().LORE_ATTENDED_KEY];
+    assert.equal(keys[0], keys[2]);
+    assert.notEqual(keys[0], keys[1]);
+    assert.equal((await stat(folder)).mode & 0o777, 0o700);
+    for (const launch of [first, second]) {
+      assert.equal((await stat(launch.file)).mode & 0o777, 0o600);
+      assert.equal(await readFile(launch.file, "utf8"), `${process.pid}\n${launch.key}\n`);
+      assert.ok(!launch.file.includes(launch.key), "the file is not named by its key");
+    }
+    first.remove();
+    assert.deepEqual(await readdir(folder), [basename(second.file)]);
+    // A later launch clears what a crashed app left, and keeps what a running one wrote.
+    await writeFile(join(folder, "crashed"), `999999999\n${"a".repeat(64)}\n`);
+    new LaunchKey(folder).env();
+    assert.ok(!(await readdir(folder)).includes("crashed"));
+    assert.ok((await readdir(folder)).includes(basename(second.file)));
+  } finally {
+    await rm(root, { recursive: true });
+  }
+});
+
+test("a launch's key file is written once and never rewritten; a removed one comes back under a new name", async () => {
+  const { LaunchKey } = require("../src/state.cjs");
+  const root = await mkdtemp(join(tmpdir(), "lore-keys-"));
+  const folder = join(root, "attended.d");
+  try {
+    const launch = new LaunchKey(folder);
+    launch.env();
+    const { file } = launch;
+    const before = await stat(file);
+    await new Promise((done) => setTimeout(done, 20));
+    launch.env();
+    const after = await stat(file);
+    assert.equal(launch.file, file);
+    assert.equal(after.ino, before.ino);
+    assert.equal(after.mtimeMs, before.mtimeMs, "never rewritten in place");
+    await rm(file);
+    const { LORE_ATTENDED_KEY } = launch.env();
+    assert.notEqual(launch.file, file);
+    assert.equal(await readFile(launch.file, "utf8"), `${process.pid}\n${LORE_ATTENDED_KEY}\n`);
+  } finally {
+    await rm(root, { recursive: true });
+  }
+});
+
+test("clearing old keys never removes a running app's, however old, or one still being written", async () => {
+  const { LaunchKey } = require("../src/state.cjs");
+  const { utimes } = require("node:fs/promises");
+  const root = await mkdtemp(join(tmpdir(), "lore-keys-"));
+  const folder = join(root, "attended.d");
+  try {
+    await mkdir(folder, { mode: 0o700 });
+    const old = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+    await writeFile(join(folder, "running"), `${process.pid}\n${"a".repeat(64)}\n`, { mode: 0o600 });
+    await utimes(join(folder, "running"), old, old);
+    await writeFile(join(folder, "writing"), "", { mode: 0o600 });
+    await writeFile(join(folder, "abandoned"), "", { mode: 0o600 });
+    await utimes(join(folder, "abandoned"), old, old);
+    new LaunchKey(folder).env();
+    const left = await readdir(folder);
+    assert.ok(left.includes("running"), "a running app's key stays, whatever its age");
+    assert.ok(left.includes("writing"), "a file just created and not yet written stays");
+    assert.ok(!left.includes("abandoned"), "an empty file left long ago goes");
+  } finally {
+    await rm(root, { recursive: true });
+  }
+});
+
+test("clearing old keys follows no link and never waits on a pipe or reads a huge file", { skip: process.platform === "win32" }, async () => {
+  const root = await mkdtemp(join(tmpdir(), "lore-keys-"));
+  const folder = join(root, "attended.d");
+  try {
+    await mkdir(folder, { mode: 0o700 });
+    const elsewhere = join(root, "elsewhere");
+    await writeFile(elsewhere, "999999999\nkey\n");
+    await symlink(elsewhere, join(folder, "link"));
+    spawnSync("mkfifo", [join(folder, "pipe")]);
+    await writeFile(join(folder, "huge"), "");
+    await require("node:fs/promises").truncate(join(folder, "huge"), 64 * 1024 * 1024);
+    // In a child process, so a prune that blocks on the pipe fails this test instead of hanging the suite.
+    const pruned = spawnSync(process.execPath, ["-e", `const { LaunchKey } = require(${JSON.stringify(require.resolve("../src/state.cjs"))}); new LaunchKey(${JSON.stringify(folder)}).env();`], { timeout: 10_000, encoding: "utf8" });
+    assert.equal(pruned.status, 0, pruned.stderr || String(pruned.error));
+    assert.ok(existsSync(elsewhere), "the link's target is untouched");
+  } finally {
+    await rm(root, { recursive: true });
+  }
+});
+
+test("the keys folder must be a real folder of the owner's, closed to everyone else", async () => {
+  const { LaunchKey } = require("../src/state.cjs");
+  const root = await mkdtemp(join(tmpdir(), "lore-keys-"));
+  try {
+    const open = join(root, "open");
+    await mkdir(open, { mode: 0o755 });
+    await require("node:fs/promises").chmod(open, 0o755);
+    const launch = new LaunchKey(open);
+    launch.env();
+    assert.equal((await stat(open)).mode & 0o777, 0o700);
+    assert.equal((await stat(launch.file)).mode & 0o777, 0o600);
+    const real = join(root, "real");
+    await mkdir(real, { mode: 0o700 });
+    await symlink(real, join(root, "linked"));
+    assert.throws(() => new LaunchKey(join(root, "linked")).env(), /not a folder Lore can trust/);
+    assert.deepEqual(await readdir(real), []);
+  } finally {
+    await rm(root, { recursive: true });
+  }
+});
+
+test("the agent's shell can neither read a launch key nor add one", { skip: process.platform !== "darwin" }, async () => {
+  const { createSandboxedBashOperations } = await import("../src/agent.mjs");
+  const { SandboxManager } = await import("@anthropic-ai/sandbox-runtime");
+  const { LaunchKey } = require("../src/state.cjs");
+  // As main.cjs hides the folder that holds the keys; the policy test above checks that is the real one.
+  const lore = await realpath(await mkdtemp(join(tmpdir(), "lore-account-")));
+  const folder = join(lore, "attended.d");
+  const launch = new LaunchKey(folder);
+  launch.env();
+  const planted = join(folder, "planted");
+  const { root, loreHome, place } = await sandboxed({ hidden: [lore] });
+  try {
+    const bash = createSandboxedBashOperations(place);
+    assert.equal((await bash.exec("ls . && printf ok > ok", loreHome, { onData: () => {} })).exitCode, 0, "the shell itself runs");
+    let said = "";
+    for (const command of [`ls ${JSON.stringify(folder)}`, `cat ${JSON.stringify(launch.file)}`, `printf '1\\nkey\\n' > ${JSON.stringify(planted)}`]) {
+      const result = await bash.exec(command, loreHome, { onData: (data) => void (said += String(data)) });
+      assert.notEqual(result.exitCode, 0, command);
+    }
+    assert.ok(!said.includes(launch.key));
+    assert.ok(!existsSync(planted));
+  } finally {
+    await SandboxManager.reset();
+    await rm(root, { recursive: true, force: true });
+    await rm(lore, { recursive: true, force: true });
   }
 });
 
@@ -495,7 +648,7 @@ test("the store opens only after the owner says yes to the network, the whole ad
     assert.match(await openStore(directory, { network: "real", wallet }, answer("Open it")), /deployed/);
     assert.equal(await readFile(ran, "utf8"), `node deploy --network real --wallet ${wallet} unattended=1 stdin=\n`);
   } finally {
-    useRuntime();
+    useRuntime(CLI);
     await rm(directory, { recursive: true });
   }
 });
@@ -517,7 +670,7 @@ test("putting the store online for the owner's agents asks one yes, and never a 
     assert.equal(await readFile(ran, "utf8"), "node deploy --inbox-only unattended=1 stdin=\n");
     assert.equal(asked.length, 2, "one card each time, and nothing else asked");
   } finally {
-    useRuntime();
+    useRuntime(CLI);
     await rm(directory, { recursive: true });
   }
 });
@@ -542,7 +695,7 @@ test("a redeploy pays where the store's own record says, whatever Lore's databas
     assert.equal(await readFile(ran, "utf8"), `node deploy --network test --wallet ${recorded} unattended=1 stdin=\n`);
   } finally {
     await recordPayout(null);
-    useRuntime();
+    useRuntime(CLI);
     await rm(directory, { recursive: true });
   }
 });
@@ -568,7 +721,7 @@ test("a new address where the store already pays somewhere is shown as a change,
     assert.equal(await readFile(ran, "utf8"), `node deploy --network real --wallet ${next} unattended=1 stdin=\nnode deploy --network real --wallet ${recorded.toUpperCase().replace("0X", "0x")} unattended=1 stdin=\n`);
   } finally {
     await recordPayout(null);
-    useRuntime();
+    useRuntime(CLI);
     await rm(directory, { recursive: true });
   }
 });
@@ -589,7 +742,7 @@ test("a store left half-changed is said plainly in the desktop result, with no s
     assert.ok(!said.includes("LORE_"));
   } finally {
     await recordPayout(null);
-    useRuntime();
+    useRuntime(CLI);
     await rm(directory, { recursive: true });
   }
 });
@@ -618,7 +771,7 @@ test("a redeploy with no payout on record asks the owner on the app's own card, 
     // And with neither a network asked nor one on record, it says so instead of picking.
     assert.match(await openStore(directory, {}, async () => ({})), /Say which network/);
   } finally {
-    useRuntime();
+    useRuntime(CLI);
     await rm(directory, { recursive: true });
   }
 });
@@ -664,7 +817,7 @@ test("the profile saves only after the owner sees every part of it in full", asy
     await saveProfile(directory, profile, answer("Save it"));
     assert.equal(await readFile(ran, "utf8"), `profile - unattended= stdin=${JSON.stringify(profile)}\n`);
   } finally {
-    useRuntime();
+    useRuntime(CLI);
     await rm(directory, { recursive: true });
   }
 });
@@ -745,7 +898,7 @@ test("a streamed CLI command hands back each line and fails on a non-zero exit",
     await assert.rejects(loreStream(directory, ["node", "deploy"], (line) => lines.push(line)), /exited with 1/);
     assert.equal(lines.at(-1), "lore: Cloudflare sign-in did not complete");
   } finally {
-    useRuntime();
+    useRuntime(CLI);
     await rm(directory, { recursive: true });
   }
 });
