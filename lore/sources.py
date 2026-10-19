@@ -4,6 +4,7 @@ import hashlib
 import json
 import os
 import re
+import sys
 import urllib.request
 import zipfile
 from abc import ABC, abstractmethod
@@ -24,6 +25,7 @@ from typing import (
     Iterator,
     Literal,
     TypeVar,
+    get_args,
 )
 from urllib.error import HTTPError
 from urllib.parse import parse_qs, quote, urlencode, urljoin, urlsplit
@@ -54,11 +56,12 @@ from pydantic import (
 from pydantic.dataclasses import dataclass
 
 from . import __version__
+from .inbox import AgentApp, Forget, Inbox, InboxError, Opened
 from .paths import claude_home, codex_home, home, obsidian_home
 from .signin import Keychain, Loopback
-from .store import Store
+from .store import Contributor, Store
 
-Kind = Literal["folder", "export", "feed", "mcp"]
+Kind = Literal["folder", "export", "feed", "mcp", "agent"]
 
 
 class State(Enum):
@@ -82,6 +85,8 @@ class Item:
     dated: str | None
     excluded: bool = False
     key: str | None = None
+    # The place took it back, so the memory made from it goes too.
+    forgotten: bool = False
 
 
 @dataclass(frozen=True)
@@ -95,6 +100,24 @@ class Source:
     owned: bool = False
     since: str | None = None
     connector: str | None = None
+    # Which personal agent writes to it, vouched for by its inbox key.
+    app: AgentApp | None = None
+
+    def contributor(self) -> Contributor:
+        """Who this source is, as a memory it brought in names it: an agent by its name and
+        app, any other app by the app's name."""
+        if self.kind == "agent":
+            return Contributor(
+                kind="agent", id=self.name, label=self.label, mark=self.app or "other"
+            )
+        if self.connector:
+            connector = Connector.named(self.connector)
+            return Contributor(
+                kind="app", id=self.name, label=connector.name, mark=connector.id
+            )
+        # Claude Code and Codex have marks of their own; an owner's plain folder has none.
+        mark = self.name if self.name in BUILT_IN_MARKS else ""
+        return Contributor(kind="app", id=self.name, label=self.label, mark=mark)
 
     def reader(self) -> Reader:
         if self.connector:
@@ -113,10 +136,11 @@ class Source:
         since: str | None = None,
         kind: str = "folder",
         connector: str | None = None,
+        app: str | None = None,
     ) -> Source:
-        app = Connector.named(connector) if connector is not None else None
-        if app is not None and app.reader.kind != kind:
-            raise SourceError(f"{connector} reads a {app.reader.kind}, not a {kind}")
+        named = Connector.named(connector) if connector is not None else None
+        if named is not None and named.reader.kind != kind:
+            raise SourceError(f"{connector} reads a {named.reader.kind}, not a {kind}")
         try:
             source = cls(
                 "",
@@ -126,11 +150,33 @@ class Source:
                 owned=True,
                 since=_day(since),
                 connector=connector,
+                app=TypeAdapter(AgentApp | None).validate_python(app),
             )
         except ValidationError as error:
             raise SourceError(str(error)) from None
         locator, default = source.reader().locate(locator)
         return replace(source, label=label or default, locator=locator)
+
+
+BUILT_IN_MARKS = ("claude", "codex")
+# Lore's own writing, with nobody else on record.
+LORE: dict[str, object] = {
+    "kind": "lore",
+    "id": "lore",
+    "label": "Lore",
+    "mark": "lore",
+}
+
+
+def marks() -> set[str]:
+    """Every mark a contributor may name: an app's, an agent's, a built-in agent
+    history's, the routine's clock, the owner's pen or file, and Lore's own."""
+    return (
+        {app.id for app in Connector.catalog()}
+        | set(get_args(AgentApp))
+        | set(BUILT_IN_MARKS)
+        | {"clock", "pen", "file", "lore", ""}
+    )
 
 
 class Reader(ABC):
@@ -170,6 +216,10 @@ class Reader(ABC):
     @abstractmethod
     def items(self) -> Iterator[Item]:
         """Yield source items, counting unreadable records in errors."""
+
+    def settle(self) -> None:
+        """Tell the place what it handed over is safely kept; most places need nothing."""
+        return None
 
     @property
     def trouble(self) -> str:
@@ -374,8 +424,17 @@ class Obsidian(Connector):
             return []
         vaults = sorted(known.vaults.values(), key=lambda v: (not v.open, v.path))
         return [
-            Choice(label=Path(v.path).name, locator=v.path, open=v.open) for v in vaults
+            Choice(label=Path(v.path).name, locator=self._located(v.path), open=v.open)
+            for v in vaults
         ]
+
+    def _located(self, path: str) -> str:
+        """Under the path a connected vault's source keeps, so one already read is known by
+        it; a path that can't be resolved (a link that loops) is offered as Obsidian names it."""
+        try:
+            return self.reader.locate(path)[0]
+        except (OSError, RuntimeError):
+            return path
 
 
 class Role(Enum):
@@ -1496,6 +1555,96 @@ class Readwise(Hosted):
         )
 
 
+class AgentReader(Reader):
+    """What one of the owner's personal agents saved to Lore's inbox, sealed to this Mac.
+    Each save is kept under the key the agent gave it, so saving again updates it."""
+
+    kind = "agent"
+    # An agent saves only what it judged worth keeping: one line can be a preference.
+    sentence = 1
+
+    def __init__(self, source: Source) -> None:
+        super().__init__(source)
+        self.inbox = Inbox()
+        self.collected: list[Opened] = []
+
+    @classmethod
+    def locate(cls, locator: str) -> tuple[str, str]:
+        return locator.strip(), ""
+
+    def name(self) -> str:
+        return f"agent-{self.source.locator}"
+
+    def sign_out(self) -> None:
+        # Disconnecting stops the agent's key at once, not at the next read.
+        self.inbox.revoke(self.source.locator)
+
+    @property
+    def trouble(self) -> str:
+        return "can't reach your store"
+
+    @cached_property
+    def waiting(self) -> list[Opened] | None:
+        try:
+            sealed = self.inbox.items(self.source.locator)
+        except InboxError:
+            self.failure = State.UNREACHABLE
+            return None
+        opened = []
+        for item in sealed:
+            try:
+                opened.append(self.inbox.open(item))
+            except InboxError:
+                self.errors += 1
+        return opened
+
+    def probe(self) -> State:
+        # The store answering is the read: an agent with nothing new is still connected.
+        return State.UNREACHABLE if self.waiting is None else State.CONNECTED
+
+    def items(self) -> Iterator[Item]:
+        for opened in self.waiting or []:
+            self.collected.append(opened)
+            save = opened.payload
+            where = f"{self.name()}#{opened.key}"
+            if isinstance(save, Forget):
+                yield Item("", "", where, None, key=opened.key, forgotten=True)
+                continue
+            yield Item(
+                save.title,
+                save.content,
+                where,
+                _date(save.occurred_at or opened.saved_at),
+                key=opened.key,
+            )
+
+    def settle(self) -> None:
+        if not self.collected:
+            return
+        try:
+            self.inbox.received(self.collected)
+        except InboxError:
+            # What isn't confirmed comes again, and its key makes that a no-op.
+            pass
+
+
+class PersonalAgent(Connector):
+    """Grok, ChatGPT or Claude, saving to the owner's inbox. Each agent the owner
+    connects is its own source, so every memory says which one saved it."""
+
+    id = "agent"
+    name = "Personal agent"
+    what = "What your agents save for you"
+    unit = "agent"
+    item = "save"
+    reader = AgentReader
+
+    def address(self, typed: str) -> str:
+        raise SourceError(
+            "Connect a personal agent with: lore agents connect <name> --app <app>"
+        )
+
+
 class _Html(HTMLParser):
     # The two things a feed importer wants out of HTML: a post's text with its
     # paragraphs intact, and the feeds a site page advertises.
@@ -1604,6 +1753,7 @@ class Registry:
                     "locator": source.locator,
                     "owned": source.owned,
                     "connector": source.connector,
+                    "app": source.app,
                     "refresh": source.reader().refresh,
                     "enabled": enabled,
                     "imported": counts.get(source.name, 0),
@@ -1621,12 +1771,13 @@ class Registry:
         kind: str = "folder",
         connector: str | None = None,
         *,
+        app: str | None = None,
         replacing: str | None = None,
         show: Callable[[str], None] | None = None,
     ) -> dict[str, object]:
         """Read a new source, and only then retire the one it replaces. With `show`, the
         owner is there to let Lore in wherever the place asks them to."""
-        source = Source.owner(locator, label, since, kind, connector)
+        source = Source.owner(locator, label, since, kind, connector, app)
         reader = source.reader()
         asked = show is not None and reader.sign_in(show)
         state = reader.probe()
@@ -1689,11 +1840,23 @@ class Registry:
                 "name": name,
                 "label": known[name].label,
                 "connector": known[name].connector,
+                "app": known[name].app,
                 **{key: value for key, value in report[name].items() if key != "found"},
                 "state": self.reads[name].state.value,
             }
             for name in chosen
         ]
+
+    def switch(self, name: str, on: bool) -> dict[str, object]:
+        """Turn one of the agents' own histories on this Mac on or off; what it
+        already brought in stays."""
+        if name not in {source.name for source in available_sources()}:
+            raise SourceError(f"unknown source: {name}")
+        self.enabled = self.enabled | {name} if on else self.enabled - {name}
+        self.store.set_setting("sources", sorted(self.enabled))
+        # Off and not on this Mac, it isn't listed at all.
+        listed = (entry for entry in self.entries() if entry["name"] == name)
+        return next(listed, {"name": name, "enabled": on})
 
     def remove(self, name: str, *, delete: bool) -> dict[str, object]:
         if name in {source.name for source in available_sources()}:
@@ -1727,19 +1890,30 @@ class Registry:
         return report
 
     def _import(self, source: Source, reader: Reader) -> dict[str, int]:
-        stats = {"found": 0, "added": 0, "updated": 0, "unchanged": 0, "errors": 0}
+        stats = {
+            "found": 0,
+            "added": 0,
+            "updated": 0,
+            "unchanged": 0,
+            "removed": 0,
+            "errors": 0,
+        }
         reader.known = self.store.source_keys(source.name)
         state = reader.probe()
         for item in reader.items():
             stats["found"] += 1
+            path = Path(item.source_path)
+            key = f"{source.name}:{item.key or path.resolve()}"
+            if item.forgotten:
+                stats["removed"] += self.store.forget(key)
+                continue
             if not reader.keeps(item):
                 continue
-            path = Path(item.source_path)
             result = self.store.put(
                 source=source.name,
                 origin=source.origin,
                 source_path=item.source_path,
-                source_key=f"{source.name}:{item.key or path.resolve()}",
+                source_key=key,
                 fingerprint=hashlib.sha256(item.content.encode()).hexdigest(),
                 title=item.title,
                 content=item.content,
@@ -1747,6 +1921,17 @@ class Registry:
                 dated=item.dated,
             )
             stats[result] += 1
+        reader.settle()
+        if source.origin != "automation":
+            try:
+                self.store.credit_source(source.name, source.contributor())
+            except Exception as error:
+                # Who brought it in is a nicety: a source whose name can't be kept on
+                # record still imports, and never stops the sources after it.
+                print(
+                    f"lore: could not record {source.name} as the source: {error}",
+                    file=sys.stderr,
+                )
         stats["found"] += reader.errors
         stats["errors"] = reader.errors
         self.reads[source.name] = LastRead(
@@ -1754,10 +1939,73 @@ class Registry:
         )
         return stats
 
+    def provenance(self, rows: list[dict[str, object]]) -> list[dict[str, object]]:
+        """Fill in `sources` for each memory with nobody on record: who its source says
+        brought it in. Lore's own writing with nobody on record says it was Lore's."""
+        named = {source.name: source for source in self.sources}
+        for row in rows:
+            if row["sources"]:
+                continue
+            try:
+                brought = self._brought(row, named)
+            except Exception:
+                # Whatever a memory holds, one that can't be named says Lore's and never
+                # keeps the rest of the library from loading.
+                brought = LORE
+            row["sources"] = [{**brought, "at": None}]
+        return rows
+
+    def _brought(
+        self, row: dict[str, object], named: dict[str, Source]
+    ) -> dict[str, object]:
+        source, project = str(row["source"]), str(row["project"])
+        if source == "automation":
+            return LORE
+        if source == "capture":
+            return self._captured(str(row["source_path"])).model_dump()
+        if source in named:
+            return named[source].contributor().model_dump()
+        # A source since removed: its name says which app, and an agent's memories
+        # carry the agent's name as their project.
+        app = source.rpartition("-")[0]
+        if app == "agent":
+            return Contributor(
+                kind="agent", id=source, label=project or "Your agent", mark="other"
+            ).model_dump()
+        try:
+            connector = Connector.named(app)
+        except SourceError:
+            return Contributor(
+                kind="app", id=source, label=project or source
+            ).model_dump()
+        return Contributor(
+            kind="app", id=source, label=connector.name, mark=connector.id
+        ).model_dump()
+
+    def _captured(self, path: str) -> Contributor:
+        """What the owner wrote in Lore is theirs; a file they brought is its app's when
+        it sits in a folder one of their apps keeps, and the file's own otherwise."""
+        if not path.startswith(("/", "~/")):
+            return Contributor(kind="capture", id="you", label="you", mark="pen")
+        file = _home(path)
+        for source in self.owned:
+            if source.kind == "folder" and file.is_relative_to(_home(source.locator)):
+                return source.contributor()
+        # A path may be far longer than an id: the file is named by a digest of it.
+        digest = hashlib.sha256(path.encode()).hexdigest()[:16]
+        return Contributor(
+            kind="capture", id=f"file-{digest}", label=file.name, mark="file"
+        )
+
     def _save_reads(self) -> None:
         self.store.set_setting(
             "source_reads", self.read_records.dump_python(self.reads, mode="json")
         )
+
+
+def _home(path: str) -> Path:
+    """A path, with only a leading `~/` meaning home: `~standup` is just a name."""
+    return Path.home() / path[2:] if path.startswith("~/") else Path(path)
 
 
 def available_sources() -> list[Source]:
@@ -1819,6 +2067,9 @@ def _project(source: Source, path: Path) -> str:
     if source.name == "codex":
         relative = path.relative_to(Path(source.locator))
         return relative.parts[0] if len(relative.parts) > 1 else ""
+    if source.kind == "agent":
+        # Each agent is its own source, so what it saved says which agent, by name.
+        return source.label
     if source.connector:
         return Connector.named(source.connector).name
     if (

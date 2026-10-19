@@ -4,13 +4,13 @@ title: Preselect and tag the recommended answer on a question card
 priority: P1
 effort: XS
 component: desktop-app
-status: in-review
+status: completed
 related: [APP-052, APP-022]
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-09-04
-updated: 2026-09-04
+updated: 2026-10-19
 ---
 
 ## Problem
@@ -29,11 +29,13 @@ because questions like "Do you already have a wallet?" have no recommendation.
 
 ## Acceptance criteria
 
-- [ ] A single-choice question opens with the model's recommended option
+- [x] A single-choice question opens with the model's recommended option
       selected and tagged Recommended; Continue with no clicks submits it.
-- [ ] Multi-select questions are unchanged.
+- [x] Multi-select questions are unchanged.
 
 ## Notes
 Reviewed 2026-09-04: the first option is not necessarily the recommendation,
 so the model marks the recommendation explicitly rather than encoding it in a
 label or position.
+
+**Completed (verified 2026-10-19, by reading code and tests, no suites run):** on main in 4327730, a123ac0. Closed out in the review-queue pass.

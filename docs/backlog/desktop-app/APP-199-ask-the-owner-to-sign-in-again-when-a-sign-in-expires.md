@@ -4,13 +4,13 @@ title: Ask the owner to sign in again when Claude's sign-in expires, never show 
 priority: P0
 effort: S
 component: desktop-app
-status: in-review
+status: completed
 related: [APP-193, APP-190]
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-10-13
-updated: 2026-10-13
+updated: 2026-10-19
 ---
 
 ## Problem
@@ -58,3 +58,5 @@ conversation, so every provider or plumbing failure reads as a stack trace.
 Filed from a trial user's Oct 13 report. APP-193 covers the account
 indicator saying the session expired before a task fails; this item is the
 failure path inside a task.
+
+**Completed (verified 2026-10-19):** every acceptance criterion is checked and the work is on main in ddc4bdf. Status was left stale after merge; closed out in the review-queue pass.

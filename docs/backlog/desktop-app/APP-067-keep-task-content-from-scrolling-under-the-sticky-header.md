@@ -4,13 +4,13 @@ title: Keep task content from scrolling under the sticky header
 priority: P1
 effort: XS
 component: desktop-app
-status: in-review
+status: completed
 related: [APP-054, APP-046]
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-09-04
-updated: 2026-09-05
+updated: 2026-10-19
 ---
 
 ## Problem
@@ -32,9 +32,9 @@ height when scrolling a card into view.
 
 ## Acceptance criteria
 
-- [ ] No thread content is visible above or through the sticky header at any
+- [x] No thread content is visible above or through the sticky header at any
       scroll position.
-- [ ] Opening a question, memories or blueprint card lands its first line
+- [x] Opening a question, memories or blueprint card lands its first line
       fully below the header without manual scrolling.
 
 ## Notes
@@ -43,3 +43,5 @@ Seen on both the blueprint-review card and the interview card in the
 `dogfood:new` pass.
 
 - 2026-09-05 browser-driven dogfood: still reproduces on the packaged build. The sticky header is 108px with a background, and a one-line strip of scrolled thread text shows at its bottom edge under "Set up your Lore", "Capture a memory" and "Publish from your Lore" (screenshots `20-dogfood-setup-start.png`, `22-dogfood-setup-shape-accepted.png`, `31-dogfood-capture-proposal.png`).
+
+**Completed (verified 2026-10-19, by reading code and tests, no suites run):** on main in 8f4b62e. Closed out in the review-queue pass.

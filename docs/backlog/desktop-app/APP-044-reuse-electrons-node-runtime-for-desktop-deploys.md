@@ -10,7 +10,7 @@ blockers: []
 dependencies: []
 github_issue: null
 created: 2026-09-01
-updated: 2026-09-01
+updated: 2026-10-19
 ---
 
 ## Problem
@@ -52,3 +52,5 @@ process.versions.electron and misreads argv, so wrangler aborts on its own
 cli.js path. Local verification on the unsigned rebuild: shim prints v24.18.1,
 npm 11.19.0 and wrangler 4.127.1 run through it, app 704 MB -> 585 MB
 (node 129 MB -> 14 MB), zip 362 MiB -> 289 MiB, 12,510 files.
+
+**Review 2026-10-19:** not completed. Shipped in 7c56032, 46e2932. Unmet: a fresh-account Desktop deploy without the owner's Node/npm, and signature/stapling/Gatekeeper validation of the rebuilt artifact. Both are manual release steps.
