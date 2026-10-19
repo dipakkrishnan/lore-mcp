@@ -1,6 +1,6 @@
 #!/bin/bash
 # Seed a scratch Lore home with two memories and two drafts, then drive the renderer as one persona.
-# Scenarios: seller | provision | store | jobs | fresh | feedback | listing | obsidian | connectors | reading | schedule | checkin | quiet | automations | faq | sell | cards | sales | extras | settings | agents | today
+# Scenarios: seller | provision | store | jobs | fresh | feedback | listing | obsidian | connectors | reading | schedule | checkin | quiet | automations | faq | sell | cards | sales | extras | settings | agents | today | firstrun
 set -euo pipefail
 scenario="${1:-seller}"
 desktop_dir="$(cd "$(dirname "$0")/.." && pwd)"
@@ -10,10 +10,12 @@ mkdir -p "$root/home" "$root/user-data"
 export LORE_HOME="$root/home" LORE_STORE="$root/store" LORE_DESKTOP_USER_DATA="$root/user-data" LORE_SKIP_SCHEDULE=1 LORE_EDGE_OUT="$root"
 # Usage events from a walk go nowhere: a closed local port, refused at once.
 export LORE_USAGE_URL="http://127.0.0.1:9/events"
+# APP-215: only the firstrun walk meets the first-run chat; every other walk starts past it, as an owner who skipped it.
+[[ "$scenario" == "firstrun" ]] || echo '{"state":"skipped"}' > "$root/user-data/first-run.json"
 # A fresh home stays empty: that persona checks what an owner sees before anything is kept. So
 # does the connectors one: a seller with no agents, whose first memories come from their apps. And the agents one: an
 # owner whose first memories are what their personal agent saves. And the today one, which seeds each stage itself.
-[[ "$scenario" == "fresh" || "$scenario" == "connectors" || "$scenario" == "reading" || "$scenario" == "agents" || "$scenario" == "today" ]] || (
+[[ "$scenario" == "fresh" || "$scenario" == "connectors" || "$scenario" == "reading" || "$scenario" == "agents" || "$scenario" == "today" || "$scenario" == "firstrun" ]] || (
   cd "$repo_root"
   echo '[{"title":"Hire management before rapid growth","content":"Add the management layer before the next ten engineers join, not after.","project":"team scaling"},{"title":"Price the first tier low","content":"A low first price gets the first ten buyers; raise it once there are receipts.","project":"pricing"}]' | uv run lore capture apply - >/dev/null
   echo '[{"title":"Hire management before rapid growth","teaser":"When to add managers in a fast-growing team.","content":"Add the management layer before the next ten engineers join, not after.","kind":"claim","topic":"team scaling","provenance":[1]},{"title":"Price the first tier low","teaser":"How to set a first price.","content":"A low first price gets the first ten buyers; raise it once there are receipts.","kind":"claim","topic":"pricing","provenance":[2]}]' | uv run lore publication draft - >/dev/null
@@ -55,9 +57,26 @@ with Store() as store:
  store.set_setting('node_selling', True)
  store.add_publication(title='Live demos beat cold decks', content='paid text', topic='launches', teaser='What beat a cold deck', provenance=[1])
  piece = store.list_publications()[0].public_id
+ # APP-219: an owner with history: a run that stopped days ago at an agent's cost, and the same store update again and again.
+ stale = store.start_job('capture', timeout_minutes=60)
+ store.finish_job(stale, 'incomplete', title='What to Sell Today', summary='stopped', cost_usd=0.016121)
+ store.db.execute('UPDATE owner_jobs SET started_at=?, finished_at=? WHERE id=?', ('2026-10-15T09:00:00+00:00', '2026-10-15T09:20:00+00:00', stale))
+ store.db.commit()
+ for _ in range(4):
+  store.finish_job(store.start_job('push', timeout_minutes=60), 'succeeded', summary='pushed', count=13)
 json.dump([{'kind': 'publication', 'item_id': piece, 'title': 'Live demos beat cold decks', 'price_usd': 3.0, 'network': 'stripe', 'payer': '', 'tx': 'pi_old', 'sold_at': '2026-10-01T12:00:00Z'}], open(f'{out}/sales.json', 'w'))
 json.dump([{'item_id': piece, 'views': 42}], open(f'{out}/views.json', 'w'))
 open(f'{out}/piece', 'w').write(piece)")
+  # A thread that stopped days ago is history, not something to finish today.
+  (cd "$desktop_dir" && node --input-type=module -e "import { readdirSync, readFileSync, writeFileSync } from 'node:fs'; import { resolve } from 'node:path'; import { SessionManager } from '@earendil-works/pi-coding-agent';
+const dir = resolve(process.env.LORE_HOME, '.pi/sessions/capture');
+const session = SessionManager.create(process.env.LORE_HOME, dir);
+session.appendMessage({ role: 'user', content: 'OLD STOPPED CAPTURE', timestamp: 1 });
+const usage = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } };
+session.appendMessage({ role: 'assistant', content: [{ type: 'text', text: 'What did you learn?' }], api: 'anthropic-messages', provider: 'anthropic', model: 'edge', usage, stopReason: 'stop', timestamp: 2 });
+session.appendCustomEntry('lore.task', { version: 1, kind: 'capture', title: 'Capture a memory', state: 'stopped', phase: 'Review the capture' });
+const old = (line) => line && JSON.stringify({ ...JSON.parse(line), timestamp: '2026-10-15T09:00:00.000Z' });
+for (const name of readdirSync(dir)) writeFileSync(resolve(dir, name), readFileSync(resolve(dir, name), 'utf8').split('\n').map(old).join('\n'));")
   mkdir -p "$LORE_STORE/node_modules/.bin"
   printf '#!/bin/sh\ncase "$*" in *page_views*) printf "[{\\"results\\": []}, {\\"results\\": %%s}]" "$(cat "$LORE_EDGE_OUT/views.json")";; *) printf "[{\\"results\\": %%s}]" "$(cat "$LORE_EDGE_OUT/sales.json")";; esac\n' > "$LORE_STORE/node_modules/.bin/wrangler"
   chmod +x "$LORE_STORE/node_modules/.bin/wrangler"
@@ -197,7 +216,13 @@ if [[ "$scenario" == "reading" ]]; then
   printf '# An older lesson Lore wrote\n\nWritten before Lore kept who each memory came from, long enough to keep.\n' > "$LORE_HOME/memories/older-lesson.md"
   (cd "$repo_root" && uv run lore sync --source automation >/dev/null)
 fi
-if [[ "$scenario" == "agents" ]]; then
+if [[ "$scenario" == "firstrun" ]]; then
+  # APP-215: a new owner with one Obsidian vault on this Mac; the rest is the agents walk's stand-in node and Claude Code.
+  mkdir -p "$root/obsidian" "$root/Edge Vault"
+  printf '# One\n\nA first lesson long enough to be worth keeping.\n' > "$root/Edge Vault/one.md"
+  printf '{"vaults":{"e1":{"path":"%s","ts":1,"open":true}}}' "$root/Edge Vault" > "$root/obsidian/obsidian.json"
+fi
+if [[ "$scenario" == "agents" || "$scenario" == "firstrun" ]]; then
   # APP-207: the owner's node stood in for by tests/fixtures/inbox.py: its D1 a SQLite file, its /agent a local server,
   # and a keyring kept in a file, so the owner's Keychain is never touched. No store is online yet: the walk puts it
   # online through a stand-in deploy, which leaves the node's wrangler (the fixture's) and its address behind.
@@ -216,6 +241,8 @@ fi
 echo "Screenshots land in $root"
 # A walk that outlives its limit fails loudly, with a sample of Electron's main process, instead of hanging the run.
 limit="${LORE_EDGE_LIMIT:-180}"
+# The first-run walk relaunches the app five times.
+[[ "$scenario" == "firstrun" && -z "${LORE_EDGE_LIMIT:-}" ]] && limit=300
 "$desktop_dir/node_modules/.bin/electron" "$desktop_dir/support/edge.cjs" "$scenario" >"$root/walk.log" 2>/dev/null &
 walk=$!
 for _ in $(seq 1 "$limit"); do kill -0 "$walk" 2>/dev/null || break; sleep 1; done

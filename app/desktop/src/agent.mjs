@@ -52,6 +52,46 @@ export function turnPhase(task, text, latest) {
   return deployPhase(task, text) ?? (kept ? AGENT_STORE_PHASE : undefined);
 }
 
+/** What a `lore` command does, in the words of a step row, by its subcommand. @type {Array<[RegExp, StepKind]>} */
+const LORE_STEPS = [
+  [/^(publication )?draft\b/, "draft"],
+  [/^publication extras\b/, "extras"],
+  [/^publication (revoke|reapprove)\b/, "listing"],
+  [/^(publication (list|review)|search|review|blueprint show|memory|list|show)\b/, "look"],
+  [/^push\b/, "push"],
+  [/^(node (deploy|secret)|setup)\b/, "deploy"],
+  [/^node sales\b/, "sales"],
+  [/^(node|status)\b/, "status"],
+  [/^price\b/, "price"],
+  [/^profile\b/, "profile"],
+  [/^blueprint\b/, "shape"],
+  [/^capture\b/, "capture"],
+  [/^answer\b/, "answers"]
+];
+/** Card tools the owner answers on the page, and bookkeeping: none is a step. */
+const UNSTEPPED = new Set(["ask_user", "propose_memories", "propose_blueprint", "propose_price", "cloudflare_login", "finish_task", "memories_ready", "check_in"]);
+
+/** The kind of step a tool call is, for the owner's step rows, or null when it is not one; never the tool's own name,
+ * command or path. @param {string} tool @param {any} args @param {string} loreHome @returns {StepKind | null} */
+export function stepKind(tool, args, loreHome) {
+  if (UNSTEPPED.has(tool)) return null;
+  const path = typeof args?.path === "string" ? resolve(loreHome, args.path) : "";
+  const memory = path.startsWith(resolve(loreHome, "memories") + "/");
+  if (tool === "read") return /\/skills\//.test(path) ? null : memory ? "read-memory" : "read";
+  if (tool === "write") return memory ? "write-memory" : "write";
+  if (tool === "edit") return memory ? "edit-memory" : "edit";
+  if (tool === "save_profile") return "profile";
+  if (tool === "open_store") return "open-store";
+  if (tool === "open_url") return "open";
+  if (tool !== "bash") return "work";
+  const command = typeof args?.command === "string" ? args.command : "";
+  const lore = command.match(/(?:^|[\s;&|(/])lore\s+([a-z-]+(?:\s+[a-z-]+)?)/)?.[1];
+  if (lore) return LORE_STEPS.find(([pattern]) => pattern.test(lore))?.[1] ?? "work";
+  if (/\b(wrangler|npx)\b/.test(command)) return "deploy";
+  if (/^\s*(ls|cat|head|tail|grep|rg|find|wc|sed -n)\b/.test(command)) return "look";
+  return "work";
+}
+
 /** Tasks that run between the owner's turns, never as a thread: each starts cold, asks nothing, and gives way to the owner. @type {ReadonlySet<AgentTask>} */
 const QUIET = new Set(["synthesize", "checkin"]);
 const OWNER_TOOLS = ["read", "write", "edit", "bash", "ask_user", "propose_memories", "propose_blueprint", "save_profile", "propose_price", "cloudflare_login", "open_store", "open_url", "finish_task"];
@@ -464,7 +504,7 @@ export class LoreAgent {
         "Ask the owner everything through ask_user — decisions and open questions alike; offer the likely answers as options, and the owner can always type their own. Set recommended true on the one option you recommend, if any. To ask for something the owner types or pastes, send the question with no options; for a payout address also set format to evm_address. Never end a turn with a question in prose.",
         "Keep every message light: a sentence or two, question text under fifteen words, option labels of a few words with one short description, and never restate what a card already shows.",
         "During capture, show proposed memories only through propose_memories, never in prose; that tool saves what the owner keeps and returns the saved memories, or returns the owner's correction for you to revise and propose again. After it saves, say one short sentence and call finish_task; never offer publication unprompted. If the owner asks to sell what they captured, tell them to choose Draft for sale on the saved memory.",
-        "During onboarding, gather evidence first, then call propose_blueprint once with one bounded proposal; that tool saves the owner-approved shape. Save the profile with save_profile, never by running lore profile.",
+        "During onboarding, the app connects the owner's agent and apps first; the blueprint, profile and rhythm come after the first save, drafted from what came in, never asked on an empty library. Gather evidence first, then call propose_blueprint once with one bounded proposal; that tool saves the owner-approved shape. Save the profile with save_profile, never by running lore profile.",
         "To open, redeploy, or switch the store, call open_store; never run lore node deploy, lore push, or wrangler yourself. Your shell has no network and cannot change the store's files; the app runs the deploy.",
         "To set what buyers pay per publication, call propose_price and never run a price command yourself; the owner confirms the exact amount on the card, and the tool returns what they saved or null if they declined. Work from that number, not from what you proposed.",
         "When the owner asks to put their store online so their personal agents can save to it, the owner's only step is the sign-in through cloudflare_login, then call open_store with inbox_only; never ask about a price or where payments go. Close from what the deploy printed: if it says nothing for sale, say their agents can save to their store and nothing is for sale; if it says Live, their store was already open, so say their agents can save to it and what was on sale still is.",
@@ -880,6 +920,11 @@ export class LoreAgent {
           this.options.emit({ type: "blueprint-progress", task, fields: /** @type {Partial<BlueprintFields> & { evidence?: string }} */ (block.arguments) });
         }
       }
+      if (!QUIET.has(task) && event.type === "tool_execution_start") {
+        const kind = stepKind(event.toolName, event.args, this.options.loreHome);
+        if (kind) this.options.emit({ type: "step", task, id: event.toolCallId, kind });
+      }
+      if (!QUIET.has(task) && event.type === "tool_execution_end") this.options.emit({ type: "step", task, id: event.toolCallId, done: true });
       if (event.type === "tool_execution_end" && event.toolName === "bash") this.options.emit({ type: "changed" });
       if (event.type !== "message_end" || event.message.role !== "assistant") return;
       // Counted before the error return, so a turn that failed still reports

@@ -158,6 +158,39 @@ async function deployStore(loreHome, args) {
   }
 }
 
+/** APP-215: the store online for the owner's agents only, from the first-run chat, where the owner's tap is the yes:
+ * nothing goes on sale, so there is no network, payout or price to confirm. Resolves to how it went, as a deploy says.
+ * @param {string} loreHome */
+function storeOnline(loreHome) {
+  return deployStore(loreHome, ["node", "deploy", "--inbox-only"]);
+}
+
+/** How long a Cloudflare sign-in waits on the browser before it gives up. */
+const SIGN_IN_MS = 5 * 60_000;
+const SIGN_IN_UNFINISHED = "Cloudflare sign-in didn't finish. Try again.";
+
+/** Sign in to Cloudflare from the owner's browser; `onUrl` gets the page to open. Resolves to the CLI's last line,
+ * and rejects in its own words. It never waits forever: after `wait` it stops the sign-in and says so plainly, and
+ * `signal` (the owner's Cancel) stops it at once. `login` is how the sign-in runs, the CLI's unless a walk stands in.
+ * @param {string} loreHome @param {(url: string) => void} onUrl
+ * @param {{signal?: AbortSignal, wait?: number, login?: (onLine: (line: string) => void, signal: AbortSignal) => Promise<unknown>}} [options] */
+async function cloudflareSignIn(loreHome, onUrl, { signal, wait = SIGN_IN_MS, login = (onLine, stop) => loreStream(loreHome, ["node", "login"], onLine, stop) } = {}) {
+  const late = AbortSignal.timeout(wait);
+  let last = "";
+  try {
+    await login((line) => {
+      last = line;
+      const url = line.match(/https:\/\/dash\.cloudflare\.com\/\S+/)?.[0];
+      if (url) onUrl(url);
+    }, signal ? AbortSignal.any([signal, late]) : late);
+  } catch (error) {
+    if (signal?.aborted) throw new Error("Cancelled");
+    if (late.aborted) throw new Error(SIGN_IN_UNFINISHED);
+    throw new Error(last.replace(/^lore: /, "") || /** @type {Error} */ (error).message);
+  }
+  return last;
+}
+
 const atHour = (/** @type {unknown} */ hour) => (typeof hour === "number" ? `${hour % 12 || 12} ${hour < 12 ? "AM" : "PM"}` : "");
 const DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
 
@@ -580,6 +613,9 @@ module.exports = {
   agentsWaiting,
   useRuntime,
   openStore,
+  storeOnline,
+  cloudflareSignIn,
+  SIGN_IN_UNFINISHED,
   saveProfile,
   ATTENDED_KEY,
   STORE

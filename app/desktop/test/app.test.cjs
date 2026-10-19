@@ -1488,7 +1488,8 @@ test("connecting an app validates before any CLI call, then round-trips through 
   process.env.OBSIDIAN_HOME = obsidian;
   try {
     assert.deepEqual((await sourceCatalog(directory)).map((app) => [app.id, app.kind]), [["obsidian", "folder"], ["chatgpt", "export"], ["claude", "export"], ["substack", "feed"], ["medium", "feed"], ["bluesky", "feed"], ["blog", "feed"], ["letterboxd", "feed"], ["goodreads", "feed"], ["granola", "mcp"], ["notion", "mcp"], ["readwise", "mcp"], ["agent", "agent"]]);
-    assert.deepEqual(await sourceChoices(directory, "obsidian"), [{ label: "Personal", locator: vault, open: true }]);
+    // Offered under the path its source will keep, so a vault already connected is recognised (APP-215).
+    assert.deepEqual(await sourceChoices(directory, "obsidian"), [{ label: "Personal", locator: await realpath(vault), open: true }]);
     await assert.rejects(connectSource(directory, { connector: "evernote", locator: vault }), { message: /unknown app/ });
     // Closing the sheet aborts the read, and nothing is connected.
     await assert.rejects(connectSource(directory, { connector: "obsidian", locator: vault }, AbortSignal.abort()), { message: "Cancelled" });
@@ -2303,4 +2304,72 @@ test("the desktop agent never loads the skill meant for the owner's remote agent
   } finally {
     await rm(loreHome, { recursive: true });
   }
+});
+
+test("the first-run chat keeps where it stands across launches, and nothing else", async () => {
+  const { FirstRun } = require("../src/firstrun.cjs");
+  const directory = await mkdtemp(join(tmpdir(), "lore-first-run-"));
+  const file = join(directory, "first-run.json");
+  const kept = new FirstRun(file);
+  try {
+    assert.equal(await kept.read(), null, "never started");
+    await kept.write({ state: "started" });
+    assert.deepEqual(await kept.read(), { state: "started" });
+    await kept.write({ state: "started", source: "agent-1", extra: "dropped" });
+    assert.deepEqual(await kept.read(), { state: "started", source: "agent-1" });
+    await kept.write({ state: "skipped" });
+    assert.deepEqual(await kept.read(), { state: "skipped" });
+    await assert.rejects(kept.write({ state: "finished" }), /Unknown first-run state/);
+    await assert.rejects(kept.write(null), /Unknown first-run state/);
+    assert.deepEqual(await kept.read(), { state: "skipped" }, "a refused write changes nothing");
+    await writeFile(file, "{not json");
+    assert.equal(await kept.read(), null, "a damaged file reads as never started");
+  } finally {
+    await rm(directory, { recursive: true });
+  }
+});
+
+test("the first-run chat asks the onboarding skill to shape the library only after the first save", async () => {
+  const skill = await readFile(join(__dirname, "../../../plugins/lore/skills/lore-onboard/SKILL.md"), "utf8");
+  assert.match(skill, /## Connect first, shape after the first save/);
+  assert.ok(skill.indexOf("## Connect first") < skill.indexOf("## 1. Persona interview"));
+  const agent = await readFile(join(__dirname, "../src/agent.mjs"), "utf8");
+  assert.match(agent, /the blueprint, profile and rhythm come after the first save/);
+});
+
+test("first-run writes that overlap land in the order they were asked, each whole", async () => {
+  const { FirstRun } = require("../src/firstrun.cjs");
+  const directory = await mkdtemp(join(tmpdir(), "lore-first-run-"));
+  const kept = new FirstRun(join(directory, "first-run.json"));
+  try {
+    for (let round = 0; round < 20; round++) {
+      // Not awaited one by one, as the chat fires them: a connect's `started` and then the owner's Skip.
+      const writes = [kept.write({ state: "started", source: `agent-${round}` }), kept.write({ state: "skipped" })];
+      await Promise.all(writes);
+      assert.deepEqual(await kept.read(), { state: "skipped" }, `round ${round}`);
+    }
+    assert.deepEqual((await readdir(directory)).sort(), ["first-run.json"], "no temp file is left behind");
+  } finally {
+    await rm(directory, { recursive: true });
+  }
+});
+
+test("APP-222: each tool call is a step in the owner's words, and card tools are none", async () => {
+  const { stepKind } = await import("../src/agent.mjs");
+  const home = "/lore";
+  assert.equal(stepKind("read", { path: "memories/pricing.md" }, home), "read-memory");
+  assert.equal(stepKind("read", { path: "/elsewhere/notes.md" }, home), "read");
+  assert.equal(stepKind("read", { path: "/lore/.pi/skills/lore-publish/SKILL.md" }, home), null);
+  assert.equal(stepKind("write", { path: "/lore/memories/new.md" }, home), "write-memory");
+  assert.equal(stepKind("bash", { command: "lore publication draft - <<'EOF'\n[]\nEOF" }, home), "draft");
+  assert.equal(stepKind("bash", { command: "cd /lore && uv run lore push --json" }, home), "push");
+  assert.equal(stepKind("bash", { command: "lore node deploy --network base" }, home), "deploy");
+  assert.equal(stepKind("bash", { command: "lore node sales" }, home), "sales");
+  assert.equal(stepKind("bash", { command: "lore status --json" }, home), "status");
+  assert.equal(stepKind("bash", { command: "lore search pricing" }, home), "look");
+  assert.equal(stepKind("bash", { command: "npx wrangler deploy" }, home), "deploy");
+  assert.equal(stepKind("bash", { command: "ls memories" }, home), "look");
+  assert.equal(stepKind("bash", { command: "python3 -c 'print(1)'" }, home), "work");
+  assert.equal(stepKind("save_profile", {}, home), "profile");
+  for (const card of ["ask_user", "propose_memories", "propose_blueprint", "propose_price", "cloudflare_login", "finish_task"]) assert.equal(stepKind(card, {}, home), null);
 });

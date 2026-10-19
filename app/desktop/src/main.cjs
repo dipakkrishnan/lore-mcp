@@ -2,7 +2,7 @@ const { randomUUID } = require("node:crypto");
 const { existsSync } = require("node:fs");
 const { appendFile } = require("node:fs/promises");
 const { dirname, join } = require("node:path");
-const { app, autoUpdater, BrowserWindow, clipboard, dialog, ipcMain, powerMonitor, safeStorage, shell, systemPreferences } = require("electron");
+const { app, autoUpdater, BrowserWindow, clipboard, dialog, ipcMain, nativeTheme, powerMonitor, safeStorage, shell, systemPreferences } = require("electron");
 const { provision, skillsDir, whisper } = require("./runtime.cjs");
 const { transcribe } = require("./dictation.cjs");
 const sales = require("./sales.cjs");
@@ -10,9 +10,10 @@ const { Updates } = require("./updates.cjs");
 const reading = require("./reading.cjs");
 const checkin = require("./checkin.cjs");
 const { Schedule } = require("./routines.cjs");
+const { FirstRun } = require("./firstrun.cjs");
 const { Watch, WATCH_EVERY_MS, AgentApps } = require("./agents.cjs");
 const { checkAttachments } = require("./attachments.cjs");
-const { lore, listRoutines, runRoutine, changeRoutine, addRoutine, editRoutine, switchSource, loreStream, openable, readState, readSales, readViews, searchMemories, readMemory, creditMemories, renameMemory, editMemory, captureMemories, previewPage, setPrice, setFreeCopies, candidates, decide, extrasCandidates, decideExtras, approveExtras, reportFeedback, listStore, cardStatus, connectCards, switchCards, listingStatus, sourceCatalog, sourceChoices, connectSource, signIn, readSource, removeSource, listAgents, connectAgent, agentKey, disconnectAgent, agentsWaiting, useRuntime, openStore, saveProfile, ATTENDED_KEY, STORE } = require("./state.cjs");
+const { lore, listRoutines, runRoutine, changeRoutine, addRoutine, editRoutine, switchSource, openable, readState, readSales, readViews, searchMemories, readMemory, creditMemories, renameMemory, editMemory, captureMemories, previewPage, setPrice, setFreeCopies, candidates, decide, extrasCandidates, decideExtras, approveExtras, reportFeedback, listStore, cardStatus, connectCards, switchCards, listingStatus, sourceCatalog, sourceChoices, connectSource, signIn, readSource, removeSource, listAgents, connectAgent, agentKey, disconnectAgent, agentsWaiting, useRuntime, openStore, storeOnline, cloudflareSignIn, saveProfile, ATTENDED_KEY, STORE } = require("./state.cjs");
 
 if (process.env.LORE_DESKTOP_USER_DATA) app.setPath("userData", process.env.LORE_DESKTOP_USER_DATA);
 // Two copies sharing one credentials file each refresh the sign-in, and the provider refuses the second.
@@ -41,6 +42,8 @@ let connecting;
 /** What Lore read from connected apps, kept until the owner clears it, with the dock's red number. */
 const badge = new reading.Badge((count) => app.setBadgeCount(count));
 const newMemories = new reading.Ready(join(app.getPath("userData"), "memories-ready.json"), badge.part("memories"));
+/** Where the first-run chat stands (APP-215). */
+const firstRun = new FirstRun(join(app.getPath("userData"), "first-run.json"));
 /** Which memories the owner has had on screen, so Inventory marks the rest New (APP-212). */
 const seenMemories = new reading.Seen(join(app.getPath("userData"), "memories-seen.json"));
 /** The evening check-in waiting for the owner, if Lore found something worth asking (AUT-008). */
@@ -50,6 +53,31 @@ function emit(event) {
   window?.webContents.send("agent:event", event);
 }
 const updates = new Updates({ app, autoUpdater, dialog, shell }, (update) => emit({ type: "update", update }));
+
+/** The Cloudflare sign-in waiting on the owner's browser, if any: its page, to open again, and how to stop it.
+ * @type {{url: string, stop: AbortController} | null} */
+let signingIn = null;
+const VERIFY_EMAIL = "Cloudflare needs you to verify your email first. Check your inbox for their email, click the link, then tap Set it up again.";
+const STORE_ELSEWHERE = "This Cloudflare account already has a Lore store. Sign in with a different account, or reconnect that store from the Mac that set it up.";
+
+/** Sign in to Cloudflare in the browser, wherever the store goes online, with the page reopenable and the wait
+ * cancellable from the app until it ends; it always ends, signed in, cancelled, failed or timed out.
+ * @param {string} loreHome @param {(url: string) => void} [opened] */
+async function signInToCloudflare(loreHome, opened) {
+  const current = { url: "", stop: new AbortController() };
+  signingIn = current;
+  try {
+    return await cloudflareSignIn(loreHome, (url) => {
+      current.url = url;
+      void shell.openExternal(url);
+      emit({ type: "signin", pending: true });
+      opened?.(url);
+    }, { signal: current.stop.signal });
+  } finally {
+    if (signingIn === current) signingIn = null;
+    emit({ type: "signin", pending: false });
+  }
+}
 
 /** @param {AgentRequest["type"]} type @param {Record<string, unknown>} payload @param {AbortSignal} [signal] */
 function request(type, payload, signal) {
@@ -68,7 +96,11 @@ function request(type, payload, signal) {
 
 /** @param {string} loreHome @param {InstanceType<typeof Schedule>} schedule @param {InstanceType<typeof Watch>} watch */
 function registerIpc(loreHome, schedule, watch) {
-  ipcMain.handle("snapshot:read", () => readState(loreHome));
+  ipcMain.handle("snapshot:read", async () => {
+    const state = await readState(loreHome);
+    storeAddress = state.node.url;
+    return state;
+  });
   ipcMain.handle("dictation:permission", () => systemPreferences.askForMediaAccess("microphone"));
   ipcMain.handle("update:status", () => updates.update);
   ipcMain.handle("update:check", () => updates.check());
@@ -284,6 +316,31 @@ function registerIpc(loreHome, schedule, watch) {
   const agentApps = new AgentApps(["/Applications", join(app.getPath("home"), "Applications")], (path) => shell.openPath(path));
   ipcMain.handle("agents:installed", () => agentApps.installed());
   ipcMain.handle("agents:open", (_event, id) => agentApps.open(id));
+  // APP-215: the first-run chat's place, and its store going online for the owner's agents on the owner's tap, signing
+  // in to Cloudflare first in the browser when it has to.
+  ipcMain.handle("firstrun:read", () => firstRun.read());
+  ipcMain.handle("firstrun:write", (_event, next) => firstRun.write(next));
+  ipcMain.handle("store:online", async () => {
+    try {
+      let said = await storeOnline(loreHome);
+      if (said.includes("not signed in to Cloudflare")) {
+        await signInToCloudflare(loreHome);
+        said = await storeOnline(loreHome);
+      }
+      // A store this Mac didn't set up is never taken over or written to from here.
+      if (said.includes("already exists on this Cloudflare account")) throw new Error(STORE_ELSEWHERE);
+      if (said.includes("verify your email")) throw new Error(VERIFY_EMAIL);
+      if (!said.startsWith("The store is deployed")) {
+        console.error("The store did not go online:", said);
+        throw new Error("Your store didn't go online. Try again in a minute.");
+      }
+    } finally {
+      emit({ type: "changed" });
+    }
+  });
+  // A sign-in waiting on the browser: its page opened again, or the wait stopped, from the card that started it.
+  ipcMain.handle("signin:reopen", () => signingIn?.url && shell.openExternal(signingIn.url));
+  ipcMain.handle("signin:cancel", () => signingIn?.stop.abort());
   ipcMain.handle("clipboard:write", (_event, text) => {
     if (typeof text !== "string" || text.length > 100_000) throw new Error("Nothing to copy");
     clipboard.writeText(text);
@@ -376,12 +433,17 @@ async function runNow(loreHome, routine) {
 }
 
 function createWindow() {
+  // Lore is drawn light only, so its frosted sidebar is the light material even when the Mac is in dark mode.
+  nativeTheme.themeSource = "light";
   window = new BrowserWindow({
     width: 1040,
     height: 760,
     minWidth: 760,
     minHeight: 620,
-    backgroundColor: "#f7f3ea",
+    // The page paints its own cream everywhere but the sidebar, which shows the window's frosted sidebar material.
+    backgroundColor: "#00000000",
+    vibrancy: "sidebar",
+    visualEffectState: "followWindow",
     titleBarStyle: "hiddenInset",
     webPreferences: {
       preload: join(__dirname, "preload.cjs"),
@@ -436,9 +498,17 @@ app.whenReady().then(async () => {
 /** Reading the ledger asks Cloudflare, so once a minute is plenty; coming back to the app checks at once. */
 const SALES_EVERY_MS = 60_000;
 
-/** Only a deployed store has a ledger or an inbox; until one exists Lore never asks. A store config is enough, wherever it is: the CLI finishes an unfinished install, or rebuilds a store set up inside Lore's home, on the first read. @param {string} loreHome */
-function hasStore(loreHome) {
-  return [join(STORE, "wrangler.jsonc"), join(STORE, "node_modules", ".bin", "wrangler"), join(loreHome, "node", "wrangler.jsonc")].some((path) => existsSync(path));
+/** The store's address as the last snapshot read it; undefined until one has been read. @type {string | null | undefined} */
+let storeAddress;
+
+/** Only a store that went online has a ledger or an inbox; until then Lore never asks. Its config, wherever it is (the CLI
+ * finishes an unfinished install, or rebuilds a store set up inside Lore's home, on the first read), and its recorded
+ * address: a deploy that stopped partway (an email not verified yet) leaves a config with no store behind it.
+ * @param {string} loreHome */
+async function hasStore(loreHome) {
+  if (![join(STORE, "wrangler.jsonc"), join(STORE, "node_modules", ".bin", "wrangler"), join(loreHome, "node", "wrangler.jsonc")].some((path) => existsSync(path))) return false;
+  if (storeAddress === undefined) storeAddress = (await readState(loreHome).catch(() => null))?.node.url;
+  return Boolean(storeAddress);
 }
 
 /** What the owner's agents saved comes in while Lore is open: once a minute, on coming back to the app, and now.
@@ -457,8 +527,12 @@ function watchSales(loreHome) {
   let checking = false;
   const check = async () => {
     // Only a deployed store has a ledger; skip the CLI entirely until one exists.
-    if (checking || !hasStore(loreHome)) return;
+    if (checking) return;
     checking = true;
+    if (!(await hasStore(loreHome))) {
+      checking = false;
+      return;
+    }
     try {
       const seen = await sales.readSeen(seenFile);
       // A store nobody has bought from or connected to yet has no ledger table: that is an empty
@@ -563,19 +637,7 @@ async function start(loreHome) {
     },
     cloudflareLogin: async () => {
       if (!(await request("cloudflare", {}))) return "The owner chose not to sign in to Cloudflare right now.";
-      let last = "";
-      try {
-        await loreStream(loreHome, ["node", "login"], (line) => {
-          last = line;
-          const url = line.match(/https:\/\/dash\.cloudflare\.com\/\S+/)?.[0];
-          if (!url) return;
-          void shell.openExternal(url);
-          emit({ type: "live", task: agent?.activeTask ?? null, text: "Finish signing in to Cloudflare in your browser, then come back here." });
-        });
-      } catch (error) {
-        throw new Error(last.replace(/^lore: /, "") || /** @type {Error} */ (error).message);
-      }
-      return last;
+      return signInToCloudflare(loreHome, () => emit({ type: "live", task: agent?.activeTask ?? null, text: "Finish signing in to Cloudflare in your browser, then come back here." }));
     },
     openStore: async (store) => {
       const said = await openStore(loreHome, store, async (questions) => /** @type {Record<string, string>} */ (await request("question", { questions, source: "app" })));

@@ -10,7 +10,7 @@ blockers: []
 dependencies: []
 github_issue: null
 created: 2026-09-29
-updated: 2026-09-29
+updated: 2026-10-19
 ---
 
 ## Problem
@@ -51,3 +51,5 @@ refund terms on a seller's behalf: the seller is the merchant, so refunds
 and disputes are theirs (XC-041 seller terms must say so). Refunds are
 issued by hand from the seller's Stripe dashboard; Checkout text and
 the desktop Refund button remain open.
+
+**Review 2026-10-19:** not completed. Seller support footer shipped (342526b). Unmet: refund terms in Checkout, a desktop Refund button, and the sale row showing the refund.

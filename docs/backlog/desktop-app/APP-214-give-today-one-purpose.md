@@ -4,13 +4,13 @@ title: Give Today one purpose: what came in, and the one thing to do next
 priority: P0
 effort: M
 component: desktop-app
-status: in-review
+status: completed
 related: [APP-210, APP-212, APP-215]
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-10-17
-updated: 2026-10-17
+updated: 2026-10-19
 ---
 
 ## Problem
@@ -62,3 +62,5 @@ Needs you grid; its way in is now a secondary button in Inventory's header,
 beside + Add Memory. While a deploy or publish thread is at work Today shows no
 next step, and a step's action reopens a thread already under way rather than
 sending a second prompt.
+
+**Completed (verified 2026-10-19):** every acceptance criterion is checked and the work is on main in b7256be. Status was left stale after merge; closed out in the review-queue pass.

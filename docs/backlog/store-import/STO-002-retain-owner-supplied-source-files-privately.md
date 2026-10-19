@@ -10,7 +10,7 @@ blockers: []
 dependencies: ["Concrete owner demand identifying the first supported file types and storage budget"]
 github_issue: null
 created: 2026-08-05
-updated: 2026-08-05
+updated: 2026-10-19
 ---
 
 ## Problem
@@ -66,3 +66,5 @@ concept but deliberately deferred its ingest path.
 Do not implement this merely because the item exists. Revisit it when an owner
 specifically needs file retention, then use that demand to choose the first file
 class and storage budget before promoting it to `ready`.
+
+**Review 2026-10-19:** not completed. Not done. Commit bbcf580 only adds this item. No asset retention code, CLI command or docs exist; all six criteria unmet.

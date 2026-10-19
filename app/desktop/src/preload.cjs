@@ -88,6 +88,12 @@ contextBridge.exposeInMainWorld("lore", {
   agentApps: () => ipcRenderer.invoke("agents:installed"),
   /** @param {AgentApp} id */
   openAgentApp: (id) => ipcRenderer.invoke("agents:open", id),
+  firstRun: () => ipcRenderer.invoke("firstrun:read"),
+  /** @param {FirstRunState} next */
+  setFirstRun: (next) => ipcRenderer.invoke("firstrun:write", next),
+  storeOnline: () => ipcRenderer.invoke("store:online"),
+  reopenSignIn: () => ipcRenderer.invoke("signin:reopen"),
+  cancelSignIn: () => ipcRenderer.invoke("signin:cancel"),
   /** @param {string} text */
   copy: (text) => ipcRenderer.invoke("clipboard:write", text),
   readyRuns: () => ipcRenderer.invoke("ready:runs"),

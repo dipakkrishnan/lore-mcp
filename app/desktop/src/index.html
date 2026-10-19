@@ -13,7 +13,7 @@
     <section id="welcome" class="welcome" hidden>
       <div class="welcome-inner">
         <span class="mark mark-lg" aria-hidden="true"><svg viewBox="0 0 26 26" fill="none"><rect x="4.5" y="5" width="17" height="16" rx="3.2" fill="currentColor"></rect><path d="M3 11.2L4.5 10.6C8 9.2 10.5 12.2 13 10.9S18.5 9.6 21.5 11.2L23 12" stroke="var(--accent)" stroke-width="1.7"></path><path d="M3 16.9L4.5 16.3C8 15 10.5 17.8 13 16.6S18.5 15 21.5 16.8L23 17.7" stroke="var(--accent)" stroke-width="1.7"></path></svg></span>
-        <h1>Turn what you've learned<br />into pieces people pay for.</h1>
+        <h1 data-wraps>Turn what you've learned<br />into pieces agents pay for.</h1>
         <p class="welcome-sub">Your notes stay on this Mac.</p>
         <p id="welcome-back" class="welcome-back" role="status" hidden></p>
         <div class="welcome-actions">
@@ -74,6 +74,7 @@
           <p class="eyebrow" id="eyebrow"></p>
           <h1 id="title"></h1>
           <div class="header-actions">
+            <button type="button" class="btn quiet" id="first-run-skip" hidden>Skip for now</button>
             <button type="button" class="btn secondary" id="sell-writing" hidden>Sell something you wrote</button>
             <button type="button" class="btn primary" id="add-memory" hidden>+ Add Memory</button>
           </div>

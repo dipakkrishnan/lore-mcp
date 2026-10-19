@@ -4,13 +4,13 @@ title: Only the desktop app's launch key opens the attended gate
 priority: P0
 effort: S
 component: desktop-app
-status: in-review
+status: completed
 related: [APP-006, APP-008, APP-035]
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-09-30
-updated: 2026-09-30
+updated: 2026-10-19
 ---
 
 ## Problem
@@ -37,3 +37,5 @@ as `LORE_ATTENDED_KEY`. The CLI compares it to the file.
 
 The setup task may write `~/Library/LaunchAgents`, and a LaunchAgent runs
 outside the sandbox. That is a separate escape from this item.
+
+**Completed (verified 2026-10-19):** every acceptance criterion is checked and the work is on main in 9a1f044. Status was left stale after merge; closed out in the review-queue pass.

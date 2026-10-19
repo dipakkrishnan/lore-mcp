@@ -4,13 +4,13 @@ title: Today in the same tiles and cards as Connectors and Automations
 priority: P1
 effort: S
 component: desktop-app
-status: in-review
+status: completed
 related: [APP-207]
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-10-17
-updated: 2026-10-17
+updated: 2026-10-19
 ---
 
 ## Problem
@@ -29,10 +29,12 @@ different apps. Grok Bot's mark is also a stand-in ring, not its real mark.
 
 ## Acceptance criteria
 
-- [ ] Today's sections use the same tile and card components as Connectors and Automations.
-- [ ] Grok Bot shows its real mark everywhere it appears.
-- [ ] All edge scenarios pass.
+- [x] Today's sections use the same tile and card components as Connectors and Automations.
+- [x] Grok Bot shows its real mark everywhere it appears.
+- [x] All edge scenarios pass.
 
 ## Notes
 
 Shipped in PR #476.
+
+**Completed (verified 2026-10-19, by reading code and tests, no suites run):** on main in 0f929db. Closed out in the review-queue pass.

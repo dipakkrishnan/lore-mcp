@@ -4,13 +4,13 @@ title: First run: a short chat that connects the owner's agent, then their apps
 priority: P0
 effort: L
 component: desktop-app
-status: ready
+status: completed
 related: [APP-207, APP-212, APP-214, XC-068]
 blockers: [APP-212, APP-214, APP-216, XC-069]
 dependencies: []
 github_issue: null
 created: 2026-10-17
-updated: 2026-10-17
+updated: 2026-10-19
 ---
 
 ## Problem
@@ -56,8 +56,42 @@ two first-run notices become one quiet line in the chat.
 
 ## Acceptance criteria
 
-- [ ] A fresh owner who picks Grok Bot sees the connect link within two answers of signing in.
-- [ ] An installed agent app is detected and offered first.
-- [ ] Found apps are offered while waiting, and connecting them takes one tap.
-- [ ] The first save shows in the chat with See them.
-- [ ] Skip for now lands on Today with the one next step (APP-214).
+- [x] A fresh owner who picks Grok Bot sees the connect link within two answers of signing in.
+- [x] An installed agent app is detected and offered first.
+- [x] Found apps are offered while waiting, and connecting them takes one tap.
+- [x] The first save shows in the chat with See them.
+- [x] Skip for now lands on Today with the one next step (APP-214).
+
+## What was built
+
+Oct 17, on `app-215-first-run` (with APP-211/212/216/217, XC-069 and the owner-gate
+hardening merged in):
+
+- After sign-in, an owner with nothing kept and nothing connected gets "Welcome to
+  Lore" in place of Today: Lore speaks first and asks "Which AI do you talk to
+  most?" as one-tap choices. Agent apps on this Mac come first, marked "On this
+  Mac"; exactly one found is shown already picked. Muse says Coming soon.
+- Picking Grok Bot, ChatGPT or Claude mints its private link at once if the store is
+  online; otherwise one more tap, Put it online, deploys the store for agents only
+  (`lore node deploy --inbox-only`, run by the app on that tap), signing in to
+  Cloudflare in the browser first only when it has to. The connect card (the
+  agent's own steps, its link or message, Open <agent> when installed, and a live
+  "Waiting for <agent>'s first save…") sits in the chat.
+- While it waits, the chat lists the Obsidian vaults and Claude Code or Codex memory
+  found on this Mac, all ticked, with one Connect these; exports and newsletters
+  point to Connectors.
+- The first save shows as "<agent> saved N memories" with each title and its mark,
+  and See them lands on Inventory filtered to that agent (APP-212).
+- Skip for now (header) lands on Today's one next step. "Claude Code or Codex" runs
+  the existing setup thread; "None of these" goes to the capture box.
+- Where it stands (`started` with the agent's source, `skipped`, `done`) is kept in
+  the app's own `first-run.json`, so a relaunch resumes the wait, with Get a new
+  link since a link is shown only once. The usage and automations notices show as
+  one quiet line in the chat instead of on Today.
+- Every step is the app's; no model turn runs. The onboarding skill and the agent's
+  system prompt now put the blueprint, profile and rhythm after the first save.
+- The `firstrun` edge walk drives it end to end against the stand-in node.
+
+## Notes
+
+**Completed (verified 2026-10-19):** every acceptance criterion is checked and the work is on main in 9fb5620. Status was left stale after merge; closed out in the review-queue pass.

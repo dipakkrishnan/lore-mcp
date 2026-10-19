@@ -766,10 +766,11 @@ class AutomationsTest(LoreTestCase):
 
     def test_the_list_puts_lores_own_first_and_only_the_owners_can_go(self) -> None:
         automation.save_profile(automation_profile(executor="lore"))
-        added = automation.Routines().add(
+        clock = automation.Routines(clock=lambda: local(14, 12))
+        added = clock.add(
             "Every Sunday, remember what I read this week", "weekly", 18, day=6
         )
-        routines = automation.Routines(clock=lambda: local(14, 12)).list()
+        routines = clock.list()
         self.assertEqual(
             [(r["id"], r["built_in"]) for r in routines],
             [("synthesis", True), ("checkin", True), (added["id"], False)],

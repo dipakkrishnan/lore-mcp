@@ -10,7 +10,7 @@ blockers: []
 dependencies: []
 github_issue: null
 created: 2026-10-17
-updated: 2026-10-17
+updated: 2026-10-19
 ---
 
 ## Problem
@@ -66,3 +66,5 @@ revocable from Manage and scoped to write-only `store`, `stored`, `forget`.
 Bearer headers (Claude limited beta) and OAuth (XC-068) remain the upgrade
 path. XC-068 currently protects `/mcp`, but agent writes live at `/agent`;
 fix that before building it.
+
+**Review 2026-10-19:** not completed. Shipped in 2ea1c94. Unmet: a live test with Claude (Free plan) and ChatGPT saving through the link, with the plan recorded. Needs a human run.

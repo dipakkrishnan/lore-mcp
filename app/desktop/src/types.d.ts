@@ -188,6 +188,9 @@ type CheckInVerdict = { reach_out: boolean; why: string; questions: Array<{ ques
 type CheckIn = { questions: Array<{ question: string; memory: number; title: string }>; why: string; at: string; state: "waiting" | "answered" | "expired" };
 
 /** The apps a personal agent can be (CAP-036). */
+/** Where the first-run chat stands (APP-215), and the agent it is waiting on. */
+type FirstRunState = { state: "started" | "skipped" | "done"; source?: string };
+
 type AgentApp = "grok" | "muse" | "chatgpt" | "claude" | "other";
 
 /** What `lore agents connect` and `lore agents key` hand back: the agent, with how many saves its store has counted so far, and what to paste into it, shown once. */
@@ -290,7 +293,12 @@ type BlueprintFields = {
   storytelling: string;
 };
 
-type Line = { text: string; owner: boolean; stopped?: boolean; saved?: SavedMemory[] };
+type Line = { text: string; owner: boolean; stopped?: boolean; saved?: SavedMemory[]; steps?: Step[]; open?: boolean };
+
+type StepKind = "read" | "read-memory" | "write" | "write-memory" | "edit" | "edit-memory" | "look" | "draft" | "extras" | "listing" | "push" | "deploy" | "sales" | "status" | "price" | "profile" | "shape" | "capture" | "answers" | "open-store" | "open" | "work";
+
+/** One tool call of a working thread, as the owner sees it: what kind of step, and when it started and ended. */
+type Step = { id: string; kind: StepKind; started: number; ended?: number };
 
 interface Window {
   lore: {
@@ -349,6 +357,14 @@ interface Window {
     /** Which of the owner's agent apps are installed on this Mac (APP-216). */
     agentApps(): Promise<AgentApp[]>;
     openAgentApp(id: AgentApp): Promise<void>;
+    /** Where the first-run chat stands, or null if it never started (APP-215). */
+    firstRun(): Promise<FirstRunState | null>;
+    setFirstRun(next: FirstRunState): Promise<void>;
+    /** Put the store online for the owner's agents only; signs in to Cloudflare in the browser first if it must. */
+    storeOnline(): Promise<void>;
+    /** The Cloudflare sign-in waiting on the browser: its page opened again, or the wait stopped. */
+    reopenSignIn(): Promise<void>;
+    cancelSignIn(): Promise<void>;
     copy(text: string): Promise<void>;
     readyRuns(): Promise<ReadyRun[]>;
     seenMemories(): Promise<void>;
@@ -411,6 +427,7 @@ type AgentEvent =
   | AgentRequest
   | { type: "dismiss"; id: string }
   | { type: "live"; task: AgentTask | null; text: string; status?: boolean }
+  | { type: "step"; task: AgentTask; id: string; kind?: StepKind; done?: boolean }
   | { type: "blueprint-progress"; task: AgentTask | null; fields: Partial<BlueprintFields> & { evidence?: string } }
   | { type: "working"; active: boolean; task: AgentTask }
   | { type: "changed" }
@@ -427,6 +444,8 @@ type AgentEvent =
   | { type: "ready" }
   /** What the owner's personal agents saved that Lore just brought in (APP-207). */
   | { type: "agents"; reads: SourceRead[] }
+  /** Whether a Cloudflare sign-in is waiting on the owner's browser. */
+  | { type: "signin"; pending: boolean }
   | { type: "update"; update: AppUpdate };
 
 type LoreAgentInstance = {
