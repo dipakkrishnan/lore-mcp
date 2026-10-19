@@ -4,13 +4,13 @@ title: Tell the desktop agent what Lore is for
 priority: P1
 effort: S
 component: desktop-app
-status: in-review
+status: completed
 related: [APP-128, CAP-009]
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-09-30
-updated: 2026-09-30
+updated: 2026-10-19
 ---
 
 ## Problem
@@ -34,3 +34,7 @@ app can name the phrase it answers someone with no account, and Lore says so.
 - [x] The system prompt says what Lore is for and what selling means in it
 - [x] Two text blocks render as two paragraphs, live and in history
 - [x] A Granola sign-in with no Granola account says so
+
+## Notes
+
+**Completed (verified 2026-10-19):** every acceptance criterion is checked and the work is on main in 88f237a. Status was left stale after merge; closed out in the review-queue pass.

@@ -4,13 +4,13 @@ title: Tell the agent what happened to the drafts it staged
 priority: P1
 effort: XS
 component: desktop-app
-status: in-review
+status: completed
 related: [APP-047, APP-097, APP-083]
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-09-07
-updated: 2026-09-07
+updated: 2026-10-19
 ---
 
 ## Problem
@@ -35,3 +35,7 @@ trust only that line. Thread history strips every aside at one marker.
       waiting, and the thread history shows only what the owner typed.
 - [x] The skill tells the desktop agent to claim a waiting draft only from
       that line.
+
+## Notes
+
+**Completed (verified 2026-10-19):** every acceptance criterion is checked and the work is on main in 886d427 (#242). Status was left stale after merge; closed out in the review-queue pass.

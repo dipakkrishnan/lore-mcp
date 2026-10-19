@@ -4,13 +4,13 @@ title: Prune tests that are out of date or don't test core behavior
 priority: P2
 effort: S
 component: cross-cutting
-status: in-review
+status: completed
 related: [XC-013]
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-09-30
-updated: 2026-09-30
+updated: 2026-10-19
 ---
 
 ## Problem
@@ -31,3 +31,7 @@ skill safety-boundary tests.
 
 - [x] Every suite passes: Python, desktop unit and CI edge scenarios, node store, feedback relay, bridge
 - [x] No test is tied to a month or a single model version
+
+## Notes
+
+**Completed (verified 2026-10-19):** every acceptance criterion is checked and the work is on main in fc98b2b. Status was left stale after merge; closed out in the review-queue pass.

@@ -4,7 +4,7 @@ title: An Automations tab to see, pause and add routines
 priority: P1
 effort: M
 component: desktop-app
-status: ready
+status: completed
 related: [AUT-006, AUT-008, AUT-002]
 blockers: [AUT-006]
 dependencies: []
@@ -43,14 +43,49 @@ copy.
 
 ## Acceptance criteria
 
-- [ ] The tab lists every routine with its next run, last run and result.
-- [ ] Pause, Run now, Change time and Remove work and survive a restart.
-- [ ] An owner-written routine runs at its time and its output lands as
+- [x] The tab lists every routine with its next run, last run and result.
+- [x] Pause, Run now, Change time and Remove work and survive a restart.
+- [x] An owner-written routine runs at its time and its output lands as
       private memories through the same sync as synthesis.
-- [ ] Lore's own routines can be paused but not removed.
-- [ ] Copy is plain words only (no cron, no "executor").
+- [x] Lore's own routines can be paused but not removed.
+- [x] Copy is plain words only (no cron, no "executor").
 
 ## Notes
 
 The existing Claude Code/Codex scheduled synthesis shows as one row whose
 runner is the owner's agent, so there aren't two places to manage scheduling.
+
+Oct 14, done:
+- Automations sits in the sidebar between Connectors and FAQ.
+- Lore's own routines come first: Read connected apps (the profile's rhythm)
+  and Evening check-in. The owner's own come after. Each row shows when it
+  runs, the next date, when it last ran and what it found, a switch, and a ⋯
+  menu (a native `<details>`) with Run now, Change time and Remove. Remove is
+  only on the owner's own routines.
+- All of it goes through `lore automation list|pause|resume|time|add|remove|run`
+  on `~/.lore/automation/routines.json`. The app keeps no copy.
+- Pausing or retiming the reading routine when Claude Code or Codex runs it
+  takes their task down or reinstalls it through the profile. Its rhythm is
+  every day or every week (Mondays), because that is all those agents
+  schedule. Run now is offered only on routines Lore runs.
+- An owner's routine runs its sentence as a quiet `lore-synthesize` turn, so
+  it follows the same rules and the same memory sync. It lands on Today and as
+  a notification like any reading, and is never published.
+- No blue dot: Ready's seen state and the dock badge already say what is
+  unseen, so a third signal was dropped in review.
+- Not built: "Each Friday, suggest one piece worth selling" as a third
+  built-in. It needs its own output shape (a draft offer, not memories), so it
+  is a follow-up. An owner can add it as their own sentence today.
+- Edge walk: `support/edge.sh automations`.
+
+Oct 14, review fixes: an owner's routine is `automation.Ask`, a third
+`Routine` subclass; the CLI lists each routine's `kind`, and the app's
+`AFTER_RUN` map and `OWN_RHYTHM` (which times the owner may pick) dispatch on
+it, with no special case by id. Run now goes through `Schedule.runNow`, so it
+waits behind a scheduled run instead of overlapping it. Resuming or retiming
+counts the next run from the change, never runs at once. A reading carries
+its `title` and `phase`, worded once, so an owner's routine reads as
+“Every Sunday, …” on Today, in its row and in the notification (which is now
+the title plus "2 new memories."). Saving the profile again (`lore profile`)
+turns a paused reading back on. Edge walk `automations` proves resume and
+retime, and `checkin` proves Run now keeps today's card.

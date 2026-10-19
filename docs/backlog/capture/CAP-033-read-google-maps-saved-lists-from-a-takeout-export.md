@@ -4,13 +4,13 @@ title: Read Google Maps saved lists and starred places from a Takeout export
 priority: P2
 effort: S
 component: capture
-status: completed
+status: in-review
 related: [CAP-006, CAP-032]
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-10-14
-updated: 2026-10-14
+updated: 2026-10-19
 ---
 
 ## Problem
@@ -39,7 +39,7 @@ one, as with ChatGPT/Claude exports.
       ignored.
 - [x] Each saved list becomes one item that keeps the owner's notes.
 - [x] Re-importing a newer export replaces rather than duplicates.
-- [x] Contract test against a recorded, anonymized Takeout sample.
+- [ ] Contract test against a recorded, anonymized Takeout sample.
 
 ## Notes
 
@@ -55,11 +55,14 @@ one, as with ChatGPT/Claude exports.
 - `MapsPlace` reads both spellings Google has used (`location.name`,
   `five_star_rating_published`, `review_text_published`, `date`; earlier
   `Location.Business Name`, `Star Rating`, `Review Comment`, `Published`).
-- Not verified against a real export: the fixture follows documented field
-  names (open-source Takeout parsers and third-party guides; Google publishes
-  no schema). The `Comment` and `Tags` columns of the list CSVs, and whether
-  Takeout's "Saved" product puts non-Maps collections in the same folder,
-  should be checked on the first real export.
+- The fourth criterion is open: the fixture under
+  `tests/fixtures/exports/takeout/` is synthesised from documented field names
+  (open-source Takeout parsers and third-party guides; Google publishes no
+  schema), not recorded from a real export. The `Comment` and `Tags` columns of
+  the list CSVs, whether Takeout's "Saved" product puts non-Maps collections in
+  the same folder, and the path and name of `Reviews.json` should be checked on
+  the first real export. Record and anonymize one, then tick the box and mark
+  the item completed.
 - A list deleted from Google Maps stays in Lore after a newer import, as a
   ChatGPT conversation does.
 

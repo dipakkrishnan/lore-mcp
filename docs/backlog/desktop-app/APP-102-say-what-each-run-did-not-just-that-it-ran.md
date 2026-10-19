@@ -4,13 +4,13 @@ title: Say what each run did, not just that it ran
 priority: P2
 effort: XS
 component: desktop-app
-status: in-review
+status: completed
 related: [APP-007, APP-084, MON-013]
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-09-07
-updated: 2026-09-07
+updated: 2026-10-19
 ---
 
 ## Problem
@@ -37,3 +37,7 @@ runs so a push is visible beside the capture, synthesis, and deploy rows.
 - [x] A deploy says whether the store went live on the test network or with
       real money.
 - [x] A capture run gets a name when Claude is the only signed-in provider.
+
+## Notes
+
+**Completed (verified 2026-10-19):** every acceptance criterion is checked and the work is on main in 886d427 (#242). Status was left stale after merge; closed out in the review-queue pass.
