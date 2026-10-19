@@ -83,6 +83,8 @@ class _Wrangler:
         secret_put_fails: bool = False,
         secret_put_fails_for: str | None = None,
         d1_exists: bool = False,
+        d1_exists_quietly: bool = False,
+        email_unverified: bool = False,
         d1_create_fails: bool = False,
         d1_id_in_output: bool = True,
         d1_execute_refusals: int = 0,
@@ -97,6 +99,8 @@ class _Wrangler:
         self.secret_put_fails_for = secret_put_fails_for
         self.puts: list[tuple[str, object]] = []
         self.d1_exists = d1_exists
+        self.d1_exists_quietly = d1_exists_quietly
+        self.email_unverified = email_unverified
         self.d1_create_fails = d1_create_fails
         self.d1_id_in_output = d1_id_in_output
         self.d1_execute_refusals = d1_execute_refusals
@@ -132,12 +136,18 @@ class _Wrangler:
         elif tail == ("d1", "create", "lore-publications"):
             if self.d1_exists:
                 code, err = 1, "a database with that name already exists"
+            elif self.d1_exists_quietly:
+                # Some wrangler versions say so and still exit 0.
+                out = "A database with that name already exists"
             elif self.d1_create_fails:
                 code, err = 1, "authentication error"
             elif self.d1_id_in_output:
                 out = f'database_id = "{DATABASE_ID}"\n'
         elif tail == ("d1", "list", "--json"):
             out = json.dumps([{"uuid": DATABASE_ID, "name": "lore-publications"}])
+        elif tail == ("deploy",) and self.email_unverified:
+            code = 1
+            err = "You need to verify your email address to use Workers. [code: 10034]"
         elif tail == ("deploy",):
             out = self.deploy_output
         elif tail[:2] == ("d1", "execute"):
@@ -1426,6 +1436,46 @@ class DeployTest(_NodeCase):
             "REPLACE_WITH_YOUR_D1_ID",
             (self.store / "wrangler.jsonc").read_text(),
         )
+
+    def test_an_existing_database_is_refused_even_when_wrangler_exits_0(self) -> None:
+        # APP-223: a returning owner signed in to the account that already has their store; wrangler said the
+        # database exists and exited 0. The deploy refused nothing, and went on with the placeholder id.
+        wrangler = _Wrangler(d1_exists_quietly=True)
+        with (
+            patch("lore.deploy.subprocess.run", side_effect=wrangler),
+            patch("lore.deploy.shutil.which", return_value="/usr/bin/npm"),
+            patch("lore.cli.push_job") as push,
+            captured(),
+            self.assertRaisesRegex(
+                OSError, "already exists on this Cloudflare account"
+            ),
+        ):
+            deploy_module.deploy(None, inbox_only=True)
+        push.assert_not_called()
+        self.assertFalse(wrangler.named("deploy"))
+        self.assertFalse([c for c in wrangler.commands if c[1:3] == ("d1", "execute")])
+        self.assertIn(
+            "REPLACE_WITH_YOUR_D1_ID",
+            (self.store / "wrangler.jsonc").read_text(),
+        )
+
+    def test_an_unverified_email_is_said_plainly_and_a_retry_keeps_the_database(
+        self,
+    ) -> None:
+        # APP-223: a brand-new Cloudflare account; the database was made and its id
+        # recorded, then Workers refused the deploy until the owner verifies their email.
+        with self.assertRaisesRegex(OSError, "verify your email first"):
+            self._deploy(None, price_usd=None, inbox_only=True, email_unverified=True)
+        config = (self.store / "wrangler.jsonc").read_text()
+        self.assertIn(DATABASE_ID, config)
+        with Store() as store:
+            self.assertIsNone(store.setting("node_url", None))
+        # Verified: the retry deploys onto the database this Mac already made.
+        code, wrangler = self._deploy(None, price_usd=None, inbox_only=True)
+        self.assertEqual(code, 0)
+        self.assertFalse(wrangler.named("d1", "create", "lore-publications"))
+        self.assertTrue(wrangler.named("deploy"))
+        self.assertIn(DATABASE_ID, (self.store / "wrangler.jsonc").read_text())
 
     def test_an_explicit_override_still_adopts_an_existing_database(self) -> None:
         # A deliberate cross-machine reconnect (a real second machine picking

@@ -92,6 +92,8 @@ contextBridge.exposeInMainWorld("lore", {
   /** @param {FirstRunState} next */
   setFirstRun: (next) => ipcRenderer.invoke("firstrun:write", next),
   storeOnline: () => ipcRenderer.invoke("store:online"),
+  reopenSignIn: () => ipcRenderer.invoke("signin:reopen"),
+  cancelSignIn: () => ipcRenderer.invoke("signin:cancel"),
   /** @param {string} text */
   copy: (text) => ipcRenderer.invoke("clipboard:write", text),
   readyRuns: () => ipcRenderer.invoke("ready:runs"),
