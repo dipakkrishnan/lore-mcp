@@ -1,10 +1,12 @@
 // Walks the renderer through the edge audit's two personas against a seeded scratch home.
 // Usage: support/edge.sh <scenario>   (seeds LORE_HOME, then runs this under Electron)
-const { app, BrowserWindow } = require("electron");
-const { chmodSync, mkdirSync, writeFileSync } = require("node:fs");
+const { app, BrowserWindow, nativeTheme } = require("electron");
+const { chmodSync, mkdirSync, readFileSync, writeFileSync } = require("node:fs");
 const { execFileSync } = require("node:child_process");
 const { dirname, join } = require("node:path");
 const scenario = process.argv.at(-1);
+// APP-225: a walk is drawn light unless LORE_EDGE_APPEARANCE=dark; edge.sh keeps that choice as the app would.
+const DARK = process.env.LORE_EDGE_APPEARANCE === "dark";
 const S = process.env.LORE_EDGE_OUT ?? process.env.LORE_HOME;
 // The scheduler is per user, not per Lore home: point the Codex automations
 // lookup at scratch so the owner's real schedule cannot answer for the seed.
@@ -594,6 +596,10 @@ const SETTLE = String.raw`(async () => {
 /** APP-218: the walks that show the main tabs are checked again at a narrower window. */
 const NARROW = new Set(["today", "store", "connectors", "automations", "settings", "firstrun", "agents"]);
 const NARROW_WIDTH = 900;
+/** The page's background token, light or dark. */
+const BG = `getComputedStyle(document.documentElement).getPropertyValue("--bg").trim()`;
+const LIGHT_BG = "#f7f3ea";
+const DARK_BG = "#141613";
 check("the desktop key is this walk's own", ATTENDED_KEY.startsWith(join(S, "account") + "/"), ATTENDED_KEY);
 
 /** The walk runs once, in the first window; one opened later (a notification after the window closed) is driven by it. */
@@ -644,6 +650,7 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
       // APP-218: a window behind others still paints frames, so every screenshot waits on real ones.
       window.webContents.setBackgroundThrottling(false);
       await sleep(1500);
+      check(`the window is drawn ${DARK ? "dark" : "light"}, as kept`, nativeTheme.shouldUseDarkColors === DARK && (await js(BG)) === (DARK ? DARK_BG : LIGHT_BG), await js(BG));
       if (scenario === "provision") {
         // Fix 4: setup failed. Every button must answer, the banner must say so, and Try again must recover.
         await waitFor(`document.querySelector("#welcome-note").textContent.includes("could not finish setting up")`);
@@ -1173,7 +1180,7 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         check("an owner with memories is not offered How it works", await js(`${todayShown} && document.querySelector("#content .how-it-works") === null`));
         await js(`document.querySelector("#account").click()`);
         const menu =await js(`[...document.querySelectorAll("#account-menu button:not([hidden]), #account-menu p")].map((b) => b.textContent).join("|")`);
-        check("the account row opens a menu: Settings, Help & FAQ, feedback when it can be sent, then who is signed in", /^Settings⌘,\|Help & FAQ\|(Report feedback\|)?Signed in with Claude\|Sign out of Claude$/.test(menu), menu);
+        check("the account row opens a menu: Settings, Help & FAQ, feedback when it can be sent, Dark mode, then who is signed in", /^Settings⌘,\|Help & FAQ\|(Report feedback\|)?Dark mode\|Signed in with Claude\|Sign out of Claude$/.test(menu), menu);
         check("…with focus on its first item, and the row saying it is open", await js(`document.activeElement === document.querySelector("#account-menu [data-view=settings]") && document.querySelector("#account").getAttribute("aria-expanded") === "true"`));
         await shot("account-menu");
         await key("keyDown", "Escape");
@@ -1396,6 +1403,37 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         await sleep(300);
         await shot("settings-updates");
         await js(`window.__lore.event({ type: "update", update: { version: "0.1.13", state: "current" } })`);
+        // APP-225: Appearance turns the window at once, sidebar material too, and the choice is kept for next launch.
+        const looks = () => js(`[...${rowOf("Light or dark")}.querySelectorAll("[role=radio]")].map((b) => b.textContent + (b.getAttribute("aria-checked") === "true" ? "*" : "")).join("|")`);
+        const pick = (label) => js(`[...${rowOf("Light or dark")}.querySelectorAll("[role=radio]")].find((b) => b.textContent === ${JSON.stringify(label)}).click()`);
+        const kept = () => JSON.parse(readFileSync(join(process.env.LORE_DESKTOP_USER_DATA ?? "", "appearance.json"), "utf8")).appearance;
+        check("Appearance offers Match Mac, Light and Dark, the kept one picked", (await looks()) === (DARK ? "Match Mac|Light|Dark*" : "Match Mac|Light*|Dark"), await looks());
+        await pick(DARK ? "Light" : "Dark");
+        check(`…and picking ${DARK ? "Light" : "Dark"} turns the window at once`, (await waitFor(`${BG} === ${JSON.stringify(DARK ? LIGHT_BG : DARK_BG)}`)) && nativeTheme.themeSource === (DARK ? "light" : "dark"), await js(BG));
+        await sleep(200);
+        check("…kept for the next launch", kept() === (DARK ? "light" : "dark"));
+        await js(`${rowOf("Light or dark")}.scrollIntoView({ block: "center" })`);
+        await shot(`settings-appearance-${DARK ? "light" : "dark"}`);
+        await pick(DARK ? "Dark" : "Light");
+        check("…and back", (await waitFor(`${BG} === ${JSON.stringify(DARK ? DARK_BG : LIGHT_BG)}`)) && (await looks()) === (DARK ? "Match Mac|Light|Dark*" : "Match Mac|Light*|Dark"));
+        // The account menu's Dark mode switch: one click flips the window, says what it is drawn in, and is kept.
+        const switchOn = () => js(`document.querySelector("#dark-mode").getAttribute("aria-checked")`);
+        await js(`document.querySelector("#account").click()`);
+        check("the account menu's Dark mode switch shows the window's theme", (await waitFor(`document.querySelector("#account-menu").matches(":popover-open")`)) && (await switchOn()) === String(DARK));
+        await shot(`account-menu-dark-mode-${DARK ? "on" : "off"}`);
+        await js(`document.querySelector("#dark-mode").click()`);
+        check("…one click flips the window at once, the menu still open", (await waitFor(`${BG} === ${JSON.stringify(DARK ? LIGHT_BG : DARK_BG)}`)) && (await switchOn()) === String(!DARK) && await js(`document.querySelector("#account-menu").matches(":popover-open")`), await js(BG));
+        await shot(`account-menu-dark-mode-${DARK ? "off" : "on"}`);
+        await sleep(200);
+        const { Appearance } = require(join(src, "appearance.cjs"));
+        check("…kept as an explicit choice the next launch reads", kept() === (DARK ? "light" : "dark") && (await new Appearance(join(process.env.LORE_DESKTOP_USER_DATA ?? "", "appearance.json"), { themeSource: "system" }).read()) === (DARK ? "light" : "dark"));
+        await js(`document.querySelector("#account-menu").hidePopover()`);
+        check("…and Settings shows it", (await looks()) === (DARK ? "Match Mac|Light*|Dark" : "Match Mac|Light|Dark*"), await looks());
+        check("…and the page reads it back as a new launch would", (await js(`window.lore.appearance()`)) === (DARK ? "light" : "dark"));
+        await js(`document.querySelector("#account").click()`);
+        await js(`document.querySelector("#dark-mode").click()`);
+        await js(`document.querySelector("#account-menu").hidePopover()`);
+        check("…and flips back", await waitFor(`${BG} === ${JSON.stringify(DARK ? DARK_BG : LIGHT_BG)}`));
 
         await js(`window.__lore.show("today")`);
         await waitFor(`document.querySelector("#content").textContent.includes("already for sale")`);

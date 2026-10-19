@@ -19,6 +19,7 @@ const sellWritingBtn = /** @type {HTMLButtonElement} */ ($("#sell-writing"));
 const skipBtn = /** @type {HTMLButtonElement} */ ($("#first-run-skip"));
 const feedbackBtn = /** @type {HTMLButtonElement} */ ($("#feedback-open"));
 const accountMenu = $("#account-menu");
+const darkMode = $("#dark-mode");
 const accountLine = $("#account-line");
 const signOutBtn = /** @type {HTMLButtonElement} */ ($("#sign-out"));
 const updateBtn = /** @type {HTMLButtonElement} */ ($("#update"));
@@ -115,6 +116,8 @@ let views = {};
 let salesAsked = false;
 /** This copy's version and whether a newer one is on its way, from the main process. @type {AppUpdate | null} */
 let appUpdate = null;
+/** How Lore is drawn, as the owner chose in Settings. @type {AppearanceChoice} */
+let appearance = "system";
 /** The task whose turn is open, while one is. @type {AgentTask | null} */
 let busy = null;
 /** The card awaiting the owner. A memory card also carries `current`, its entries as edited, so the composer can send a spoken or typed correction with them; `pinned` cards stay in view as the thread re-renders. @type {{id: string, task: AgentTask | null, box: HTMLElement, pinned: boolean, current?: () => ProposedMemory[]} | null} */
@@ -3022,9 +3025,35 @@ function renderSettings(s) {
         : []),
       ...marketplaceRow(s)
     ])),
+    section("Appearance", card([appearanceRow()])),
     ...(appUpdate ? [section("Updates", card([updateRow(appUpdate)]))] : []),
     ...(runs ? [runs] : [])
   ];
+}
+
+const APPEARANCES = /** @type {const} */ ([["system", "Match Mac"], ["light", "Light"], ["dark", "Dark"]]);
+
+/** Light, dark or the Mac's own, from Settings or the account menu's switch. The window turns at once. @param {AppearanceChoice} choice */
+function chooseAppearance(choice) {
+  appearance = choice;
+  if (view === "settings") render();
+  void window.lore.setAppearance(choice).catch(() => tell("Lore couldn't keep that choice. It goes back to how it was next time Lore opens.", true));
+}
+
+/** Settings → Appearance: as the Mac is set, or always light or dark. The window changes as soon as one is picked. */
+function appearanceRow() {
+  const choices = el("div", "shelves");
+  choices.setAttribute("role", "radiogroup");
+  choices.setAttribute("aria-label", "Appearance");
+  for (const [choice, label] of APPEARANCES) {
+    const option = el("button", "shelf", label);
+    option.type = "button";
+    option.setAttribute("role", "radio");
+    option.setAttribute("aria-checked", String(appearance === choice));
+    option.addEventListener("click", () => chooseAppearance(choice));
+    choices.append(option);
+  }
+  return row("Light or dark", "Lore can follow your Mac's light or dark setting, or keep to one.", cell(choices), false);
 }
 
 /** Settings → Updates: the version on this Mac, and the one thing to do about a newer one. @param {AppUpdate} u */
@@ -4706,6 +4735,10 @@ function onEvent(event) {
 
 window.lore.onAgentEvent(onEvent);
 void window.lore.update().then(showUpdate);
+void window.lore.appearance().then((choice) => {
+  appearance = choice;
+  if (view === "settings") render();
+});
 updateBtn.addEventListener("click", () => void window.lore.installUpdate());
 
 composer.addEventListener("submit", async (event) => {
@@ -5032,7 +5065,13 @@ mainEl.addEventListener("scroll", () => mainEl.classList.toggle("scrolled", main
 // APP-218: what a thread scrolls into view stops clear of the floating composer, however tall it has grown.
 new ResizeObserver(() => mainEl.style.setProperty("--composer-room", `${composer.offsetHeight}px`)).observe(composer);
 // The account menu is a native popover: Escape and a click elsewhere close it, and its trigger says whether it is open.
-for (const item of accountMenu.querySelectorAll("button")) item.addEventListener("click", () => accountMenu.hidePopover());
+// The Dark mode switch stays open to show itself flip; it says what the window is drawn in, whoever chose it.
+for (const item of accountMenu.querySelectorAll("button:not(#dark-mode)")) item.addEventListener("click", () => accountMenu.hidePopover());
+const darkScheme = matchMedia("(prefers-color-scheme: dark)");
+const showDark = () => darkMode.setAttribute("aria-checked", String(darkScheme.matches));
+darkScheme.addEventListener("change", showDark);
+showDark();
+darkMode.addEventListener("click", () => chooseAppearance(darkScheme.matches ? "light" : "dark"));
 for (const item of /** @type {NodeListOf<HTMLButtonElement>} */ (accountMenu.querySelectorAll("[data-view]"))) item.addEventListener("click", () => show(/** @type {View} */ (item.dataset.view)));
 feedbackBtn.addEventListener("click", openFeedbackDialog);
 skipBtn.addEventListener("click", () => firstRun.leave("skipped"));

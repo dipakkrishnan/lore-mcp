@@ -12,6 +12,8 @@ export LORE_HOME="$root/home" LORE_STORE="$root/store" LORE_DESKTOP_USER_DATA="$
 export LORE_USAGE_URL="http://127.0.0.1:9/events"
 # APP-215: only the firstrun walk meets the first-run chat; every other walk starts past it, as an owner who skipped it.
 [[ "$scenario" == "firstrun" ]] || echo '{"state":"skipped"}' > "$root/user-data/first-run.json"
+# APP-225: a walk is drawn light, never as the Mac running it is set; LORE_EDGE_APPEARANCE=dark walks it dark.
+echo "{\"appearance\":\"${LORE_EDGE_APPEARANCE:-light}\"}" > "$root/user-data/appearance.json"
 # A fresh home stays empty: that persona checks what an owner sees before anything is kept. So
 # does the connectors one: a seller with no agents, whose first memories come from their apps. And the agents one: an
 # owner whose first memories are what their personal agent saves. And the today one, which seeds each stage itself.
