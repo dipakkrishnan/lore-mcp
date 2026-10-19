@@ -4,13 +4,13 @@ title: Let a desktop deploy finish its own push
 priority: P0
 effort: S
 component: monetization
-status: in-review
+status: completed
 related: [APP-056, APP-055, APP-006, MON-013]
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-09-04
-updated: 2026-09-04
+updated: 2026-10-19
 ---
 
 ## Problem
@@ -37,10 +37,10 @@ No bypass flag, no marker in the agent's shell.
 
 ## Acceptance criteria
 
-- [ ] A store deploy from the desktop agent's shell completes, and the deploy
+- [x] A store deploy from the desktop agent's shell completes, and the deploy
       job records succeeded.
-- [ ] `lore push` from a pipe without the marker still refuses.
-- [ ] The payments skill no longer tells the owner to press Push after a
+- [x] `lore push` from a pipe without the marker still refuses.
+- [x] The payments skill no longer tells the owner to press Push after a
       deploy.
 
 ## Notes
@@ -49,3 +49,5 @@ Regression from the owner-action gate (APP-006) meeting the deploy sequence's
 built-in push; the edge tests cover the Push button and not the agent's
 deploy path.
 Reviewed 2026-09-04: reusing the deploy's job id would have finished it as "pushed"; a separate push job keeps both rows truthful.
+
+**Completed (verified 2026-10-19, by reading code and tests, no suites run):** on main in a25babd, c901529. Closed out in the review-queue pass.

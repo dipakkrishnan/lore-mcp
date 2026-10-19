@@ -10,7 +10,7 @@ blockers: [MON-002, MON-003, MON-004]
 dependencies: ["CDP account and API credentials", "Decision to launch the edge adapter at all"]
 github_issue: https://github.com/dipakkrishnan/lore-mcp/issues/25
 created: 2026-07-30
-updated: 2026-08-26
+updated: 2026-10-19
 ---
 
 ## Problem
@@ -65,3 +65,5 @@ chain (real money, real disclosure to strangers), the item's own Notes say
 credentials, and the standing decision to launch the edge adapter at all)
 are exactly the kind of human calls a mechanical blocker check can't clear.
 Left `in-review`.
+
+**Review 2026-10-19:** not completed. Mainnet is opt-in and labelled (21e7865). Unmet: a real payment settling on Base mainnet to the configured address. Needs a live run by a human.

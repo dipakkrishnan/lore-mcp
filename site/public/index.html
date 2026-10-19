@@ -2,89 +2,170 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Lore: private memory you can monetize</title>
-<meta name="description" content="Lore lives on your Mac, remembers across all your personal agents, and lets you sell exactly what you choose.">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Lore: private memory you can sell to agents</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1024 1024'%3E%3Crect x='100' y='100' width='824' height='824' rx='185' fill='%23244f3d'/%3E%3Cg transform='translate(512 512) scale(25.5) translate(-13 -13)' fill='none' stroke='%23244f3d' stroke-width='1.7'%3E%3Crect x='4.5' y='5' width='17' height='16' rx='3.2' fill='%23fffdf8' stroke='none'/%3E%3Cpath d='M3 11.2L4.5 10.6C8 9.2 10.5 12.2 13 10.9S18.5 9.6 21.5 11.2L23 12'/%3E%3Cpath d='M3 16.9L4.5 16.3C8 15 10.5 17.8 13 16.6S18.5 15 21.5 16.8L23 17.7'/%3E%3C/g%3E%3C/svg%3E">
+<meta name="description" content="Lore keeps what you've learned, from your agents, notes, meetings and reading, privately on your Mac. Other people's agents pay for the parts you choose to share.">
 <style>
-  :root {
-    --bg: #0e0e11;
-    --fg: #f2f0eb;
-    --muted: #98948b;
-    --accent: #e8ddc8;
-    --accent-fg: #141310;
-  }
-  * { box-sizing: border-box; margin: 0; }
-  body {
-    background: var(--bg);
-    color: var(--fg);
-    font: 17px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-    min-height: 100svh;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    padding: 2rem 1.5rem;
-    text-align: center;
-  }
-  main { max-width: 34rem; }
-  .mark { width: 72px; height: 72px; display: inline-block; }
-  h1 {
-    font-size: 2.6rem;
-    letter-spacing: -0.02em;
-    margin: 0.75rem 0 0.5rem;
-    font-weight: 650;
-  }
-  .tagline { color: var(--muted); font-size: 1.15rem; margin-bottom: 2.25rem; }
-  .tagline strong { color: var(--fg); font-weight: 550; }
-  .download {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.6rem;
-    background: var(--accent);
-    color: var(--accent-fg);
-    font-size: 1.2rem;
-    font-weight: 600;
-    padding: 0.95rem 2.4rem;
-    border-radius: 12px;
-    text-decoration: none;
-    transition: transform 0.08s ease, box-shadow 0.08s ease;
-    box-shadow: 0 1px 0 rgba(255,255,255,0.08) inset, 0 8px 28px rgba(232,221,200,0.14);
-  }
-  .download:hover { transform: translateY(-1px); box-shadow: 0 1px 0 rgba(255,255,255,0.1) inset, 0 12px 34px rgba(232,221,200,0.2); }
-  .download:active { transform: translateY(0); }
-  .alt { margin-top: 1.5rem; font-size: 0.9rem; color: var(--muted); }
-  .alt a { color: var(--fg); text-decoration: underline; text-underline-offset: 3px; text-decoration-color: var(--muted); }
-  footer { position: fixed; bottom: 1.25rem; font-size: 0.85rem; color: var(--muted); }
-  footer a { color: inherit; }
+/* Layout: a left-set hero over the app itself in a window, three plain beats, one quiet footer. Tokens are the desktop app's. */
+:root {
+  --bg: #f7f3ea;
+  --bg-aside: #f1ece1;
+  --surface: #fffdf8;
+  --ink: #1d1f1c;
+  --muted: #6c6f69;
+  --faint: #9a9d96;
+  --line: #e6e1d6;
+  --accent: #244f3d;
+  --accent-ink: #fffdf8;
+  --accent-soft: #e3ece6;
+  --shadow: rgba(29, 31, 28, 0.12);
+  --serif: ui-serif, "New York", "Iowan Old Style", Georgia, serif;
+  --sans: -apple-system, "SF Pro Text", "Helvetica Neue", Arial, sans-serif;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) { --bg: #141613; --bg-aside: #191c18; --surface: #1c1f1b; --ink: #ecebe6; --muted: #a3a69f; --faint: #7d8079; --line: #2e322d; --accent: #8fc3a6; --accent-ink: #141613; --accent-soft: #223129; --shadow: rgba(0, 0, 0, 0.45); color-scheme: dark; }
+}
+:root[data-theme="dark"] { --bg: #141613; --bg-aside: #191c18; --surface: #1c1f1b; --ink: #ecebe6; --muted: #a3a69f; --faint: #7d8079; --line: #2e322d; --accent: #8fc3a6; --accent-ink: #141613; --accent-soft: #223129; --shadow: rgba(0, 0, 0, 0.45); color-scheme: dark; }
+
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 17px/1.55 var(--sans); -webkit-font-smoothing: antialiased; }
+a { color: inherit; }
+.wrap { max-width: 1080px; margin: 0 auto; padding-left: max(24px, env(safe-area-inset-left, 0px)); padding-right: max(24px, env(safe-area-inset-right, 0px)); }
+
+.bar { display: flex; align-items: center; justify-content: space-between; padding-block: 22px; font-size: 14px; color: var(--muted); }
+.brand { display: inline-flex; align-items: center; gap: 9px; color: var(--ink); font-weight: 600; font-size: 16px; text-decoration: none; }
+.brand svg { width: 26px; height: 26px; }
+.bar nav { display: flex; gap: 22px; }
+.bar nav a { text-decoration: none; }
+.bar nav a:hover { color: var(--ink); }
+
+.hero { display: grid; gap: 22px; padding-block: 56px 40px; max-width: 700px; }
+h1 { font: 500 clamp(40px, 7vw, 64px)/1.04 var(--serif); letter-spacing: -0.02em; margin: 0; text-wrap: balance; }
+.lede { margin: 0; font-size: clamp(17px, 2.2vw, 20px); color: var(--muted); max-width: 34em; text-wrap: pretty; }
+.cta { display: flex; flex-wrap: wrap; align-items: center; gap: 14px 20px; margin-top: 6px; }
+.download { display: inline-flex; align-items: center; gap: 10px; padding: 13px 22px; border-radius: 999px; background: var(--accent); color: var(--accent-ink); font-weight: 600; font-size: 16px; text-decoration: none; transition: transform 0.2s cubic-bezier(0.23, 1, 0.32, 1), filter 0.2s; }
+.download:hover { filter: brightness(1.08); transform: translateY(-1px); }
+.download:focus-visible, .bar a:focus-visible, .foot a:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+.download svg { width: 17px; height: 17px; }
+.fine { font-size: 14px; color: var(--faint); }
+
+.sources { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px; padding-block: 8px 44px; font-size: 13px; color: var(--faint); }
+.sources ul { display: flex; flex-wrap: wrap; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.sources li { display: inline-flex; align-items: center; gap: 7px; padding: 5px 11px 5px 6px; border: 1px solid var(--line); border-radius: 999px; background: var(--surface); color: var(--muted); font-size: 13px; }
+.sources li img { width: 18px; height: 18px; border-radius: 5px; }
+img.tile { background: #fffdf8; padding: 2px; }
+
+/* The app, drawn as a window. */
+.window { border: 1px solid var(--line); border-radius: 16px; background: var(--bg); box-shadow: 0 30px 80px -20px var(--shadow), 0 2px 6px var(--shadow); overflow: hidden; display: grid; grid-template-columns: 210px minmax(0, 1fr); min-height: 470px; }
+.side { background: var(--bg-aside); border-right: 1px solid var(--line); padding: 14px 12px; display: grid; align-content: start; gap: 4px; font-size: 14px; }
+.lights { display: flex; gap: 7px; padding: 2px 4px 16px; }
+.lights i { width: 11px; height: 11px; border-radius: 50%; background: var(--line); }
+.side .brand { font-size: 15px; padding: 0 6px 12px; }
+.side .brand svg { width: 22px; height: 22px; }
+.nav { display: flex; justify-content: space-between; padding: 7px 10px; border-radius: 8px; color: var(--muted); }
+.nav.on { background: var(--accent-soft); color: var(--ink); font-weight: 500; }
+.nav span { color: var(--faint); font-variant-numeric: tabular-nums; }
+.main { padding: 30px clamp(18px, 4vw, 40px) 34px; display: grid; align-content: start; gap: 18px; min-width: 0; }
+.date { font-size: 13px; color: var(--faint); }
+.hello { font: 500 30px/1.1 var(--serif); margin: 2px 0 6px; }
+.composer { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 8px 8px 8px 18px; border: 1px solid var(--line); border-radius: 999px; background: var(--surface); color: var(--faint); font-size: 14px; }
+.composer b { padding: 7px 16px; border-radius: 999px; background: var(--accent); color: var(--accent-ink); font-weight: 600; font-size: 13px; }
+.head { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 4px 14px; margin-top: 8px; font-size: 12px; color: var(--muted); }
+.head strong { letter-spacing: 0.08em; text-transform: uppercase; font-size: 11.5px; }
+.cards { display: grid; gap: 8px; }
+.card { display: grid; grid-template-columns: 30px minmax(0, 1fr) auto; align-items: center; gap: 14px; padding: 12px 16px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); }
+.card img { width: 30px; height: 30px; border-radius: 8px; }
+.card b { display: block; font-size: 14.5px; font-weight: 600; overflow-wrap: anywhere; }
+.card small { display: block; font-size: 12.5px; color: var(--muted); }
+.tag { font-size: 12px; padding: 3px 10px; border-radius: 999px; background: var(--accent-soft); color: var(--accent); white-space: nowrap; }
+.tag.quiet { background: transparent; border: 1px solid var(--line); color: var(--faint); }
+.sale { justify-self: end; display: flex; align-items: center; gap: 12px; margin-top: 4px; padding: 11px 16px; border-radius: 14px; background: var(--surface); border: 1px solid var(--line); box-shadow: 0 12px 30px -12px var(--shadow); font-size: 13.5px; max-width: 380px; }
+.sale .dot { flex: none; width: 30px; height: 30px; border-radius: 50%; display: grid; place-items: center; background: var(--accent); color: var(--accent-ink); font-weight: 700; font-size: 14px; }
+.sale small { display: block; color: var(--muted); font-size: 12.5px; }
+@media (prefers-reduced-motion: no-preference) {
+  .card, .sale { animation: rise 0.7s cubic-bezier(0.23, 1, 0.32, 1) both; }
+  .card:nth-child(2) { animation-delay: 0.08s; } .card:nth-child(3) { animation-delay: 0.16s; } .sale { animation-delay: 0.5s; }
+  @keyframes rise { from { transform: translateY(8px); } to { transform: none; } }
+}
+
+.beats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 36px; padding-block: 72px 64px; }
+.beats h2 { font: 500 22px/1.2 var(--serif); margin: 0 0 8px; }
+.beats p { margin: 0; color: var(--muted); font-size: 15.5px; max-width: 30em; }
+.beats .step { font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--accent); margin-bottom: 10px; display: block; }
+
+.foot { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 12px 24px; padding-block: 26px 40px; border-top: 1px solid var(--line); font-size: 14px; color: var(--faint); }
+.foot nav { display: flex; flex-wrap: wrap; gap: 20px; }
+.foot a { text-decoration: none; color: var(--muted); }
+.foot a:hover { color: var(--ink); }
+
+@media (max-width: 760px) {
+  .window { grid-template-columns: minmax(0, 1fr); min-height: 0; }
+  .side { display: none; }
+  .beats { grid-template-columns: minmax(0, 1fr); gap: 28px; padding-block: 52px 44px; }
+  .bar nav a:not(:last-child) { display: none; }
+  .card { grid-template-columns: 28px minmax(0, 1fr); }
+  .card .tag { grid-column: 2; justify-self: start; }
+  .sale { justify-self: stretch; }
+}
 </style>
 </head>
 <body>
-<main>
-  <svg class="mark" aria-hidden="true" viewBox="0 0 1024 1024">
-    <rect x="100" y="100" width="824" height="824" rx="185" fill="#244f3d"/>
-    <g transform="translate(512 512) scale(25.5) translate(-13 -13)" fill="none" stroke="#244f3d" stroke-width="1.7">
-      <rect x="4.5" y="5" width="17" height="16" rx="3.2" fill="#fffdf8" stroke="none"/>
-      <path d="M3 11.2L4.5 10.6C8 9.2 10.5 12.2 13 10.9S18.5 9.6 21.5 11.2L23 12"/>
-      <path d="M3 16.9L4.5 16.3C8 15 10.5 17.8 13 16.6S18.5 15 21.5 16.8L23 17.7"/>
-    </g>
-  </svg>
-  <h1>Lore</h1>
-  <p class="tagline"><strong>Private memory you can monetize.</strong><br>
-  Lore lives on your Mac, remembers across all your personal agents, and lets you sell exactly what you choose.</p>
+<div class="wrap">
+  <header class="bar">
+    <a class="brand" href="/"><svg viewBox="0 0 26 26" aria-hidden="true"><rect x="0" y="0" width="26" height="26" rx="6.5" fill="#244f3d"/><g fill="none" stroke="#244f3d" stroke-width="1.7"><rect x="4.5" y="5" width="17" height="16" rx="3.2" fill="#fffdf8" stroke="none"/><path d="M3 11.2L4.5 10.6C8 9.2 10.5 12.2 13 10.9S18.5 9.6 21.5 11.2L23 12"/><path d="M3 16.9L4.5 16.3C8 15 10.5 17.8 13 16.6S18.5 15 21.5 16.8L23 17.7"/></g></svg>Lore</a>
+    <nav><a href="/marketplace">Marketplace</a><a href="https://github.com/dipakkrishnan/lore-mcp">GitHub</a><a href="https://github.com/dipakkrishnan/lore-mcp/releases/latest/download/Lore-macOS-arm64.zip">Download</a></nav>
+  </header>
 
-  <a class="download" href="https://github.com/dipakkrishnan/lore-mcp/releases/latest/download/Lore-macOS-arm64.zip">
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-      <path d="M12 3v12"/><path d="m6 11 6 6 6-6"/><path d="M5 21h14"/>
-    </svg>
-    Download for&nbsp;macOS
-  </a>
+  <section class="hero">
+    <h1>Private memory you can sell to agents.</h1>
+    <p class="lede">Lore gathers what you learn from your AI agents, notes, meetings and reading into private memories on your Mac. When something is worth sharing, other people's agents pay you for it.</p>
+    <div class="cta">
+      <a class="download" href="https://github.com/dipakkrishnan/lore-mcp/releases/latest/download/Lore-macOS-arm64.zip"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4v11M7 10l5 5 5-5M5 20h14"/></svg>Download for Mac</a>
+      <span class="fine">Free · Apple silicon · macOS 13 or later</span>
+    </div>
+  </section>
 
-  <p class="alt"><a href="/marketplace">Browse the marketplace</a>: people selling what they learned firsthand.</p>
+  <div class="sources" aria-label="Where Lore gathers from">
+    <span>Gathers from</span>
+    <ul>
+      <li><img src="data:image/svg+xml;base64,PHN2ZyB2aWV3Qm94PSIwIDAgMjQgMjQiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+PHRpdGxlPkdyb2sgQm90PC90aXRsZT48ZGVmcz48cmFkaWFsR3JhZGllbnQgaWQ9ImciIGN4PSIwLjM4IiBjeT0iMC4zMiIgcj0iMC43NSI+PHN0b3Agb2Zmc2V0PSIwIiBzdG9wLWNvbG9yPSIjZmZmZmZmIi8+PHN0b3Agb2Zmc2V0PSIwLjciIHN0b3AtY29sb3I9IiNlOWU5ZTkiLz48c3RvcCBvZmZzZXQ9IjEiIHN0b3AtY29sb3I9IiNjOWM5YzkiLz48L3JhZGlhbEdyYWRpZW50PjwvZGVmcz48cmVjdCB3aWR0aD0iMjQiIGhlaWdodD0iMjQiIHJ4PSI1LjUiIGZpbGw9IiMxMTEiLz48Y2lyY2xlIGN4PSIxMS42IiBjeT0iMTIuOCIgcj0iOC40IiBmaWxsPSJ1cmwoI2cpIi8+PGcgc3Ryb2tlPSIjMTExIiBzdHJva2Utd2lkdGg9IjEuNyIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIj48cGF0aCBkPSJNMTIuNiA3LjkgMTMuNiAxMC4yIi8+PHBhdGggZD0iTTE2LjEgNyAxNy4xIDkuMyIvPjwvZz48L3N2Zz4=" alt="">Grok Bot</li><li><img src="data:image/svg+xml;base64,PHN2ZyBmaWxsPSIjRDk3NzU3IiByb2xlPSJpbWciIHZpZXdCb3g9IjAgMCAyNCAyNCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48dGl0bGU+Q2xhdWRlPC90aXRsZT48cGF0aCBkPSJtNC43MTQ0IDE1Ljk1NTUgNC43MTc0LTIuNjQ3MS4wNzktLjIzMDctLjA3OS0uMTI3NWgtLjIzMDdsLS43ODkzLS4wNDg2LTIuNjk1Ni0uMDcyOS0yLjMzNzUtLjA5NzEtMi4yNjQ2LS4xMjE0LS41NzA3LS4xMjE1LS41MzQzLS43MDQyLjA1NDYtLjM1MjIuNDc5Ny0uMzIxOC42ODYuMDYwOCAxLjUxNzkuMTAzMiAyLjI3NjcuMTU3OCAxLjY1MTQuMDk3MiAyLjQ0NjguMjU1aC4zODg2bC4wNTQ2LS4xNTc5LS4xMzM2LS4wOTcxLS4xMDMyLS4wOTcyTDYuOTczIDkuODM1NmwtMi41NS0xLjY4NzktMS4zMzU2LS45NzE0LS43MjI1LS40OTE4LS4zNjQzLS40NjE0LS4xNTc4LTEuMDA3OC42NTU3LS43MjI1Ljg4MDMuMDYwNy4yMjQ2LjA2MDcuODkyNS42ODYgMS45MDY0IDEuNDc1NCAyLjQ4OTMgMS44MzM2LjM2NDMuMzAzNS4xNDU3LS4xMDMyLjAxODItLjA3MjgtLjE2NC0uMjczMy0xLjM1MzktMi40NDY3LTEuNDQ1LTIuNDg5My0uNjQzNS0xLjAzMi0uMTctLjYxOTRjLS4wNjA3LS4yNTUtLjEwMzItLjQ2NzQtLjEwMzItLjcyODVMNi4yODcuMTMzNSA2LjY5OTcgMGwuOTk1Ny4xMzM2LjQxOS4zNjQyLjYxOTIgMS40MTQ3IDEuMDAxOCAyLjIyODIgMS41NTQzIDMuMDI5Ni40NTUzLjg5ODUuMjQyOS44MzE4LjA5MS4yNTVoLjE1Nzl2LS4xNDU3bC4xMjc1LTEuNzA2LjIzNjgtMi4wOTQ3LjIzMDctMi42OTU3LjA3ODktLjc1ODkuMzc2NC0uOTEwNy43NDY4LS40OTE4LjU4MjguMjc5My40Nzk3LjY4Ni0uMDY2OC40NDMzLS4yODUzIDEuODUxNy0uNTU4NiAyLjkwMjEtLjM2NDMgMS45NDI5aC4yMTI1bC4yNDI5LS4yNDI5Ljk4MzUtMS4zMDUzIDEuNjUxNC0yLjA2NDMuNzI4Ni0uODE5Ni44NS0uOTA0Ni41NDY0LS40MzExaDEuMDMyMWwuNzU5IDEuMTI5My0uMzQgMS4xNjU3LTEuMDYyNSAxLjM0NzgtLjg4MDQgMS4xNDE0LTEuMjYyOCAxLjctLjc4OTMgMS4zNi4wNzI5LjEwOTMuMTg4Mi0uMDE4MyAyLjg1MzUtLjYwNyAxLjU0MjEtLjI3OTQgMS44Mzk2LS4zMTU3LjgzMTguMzg4Ni4wOTEuMzk0Ni0uMzI3OC44MDc1LTEuOTY3LjQ4NTctMi4zMDcyLjQ2MTQtMy40MzY0LjgxMzYtLjA0MjUuMDMwNC4wNDg2LjA2MDcgMS41NDgyLjE0NTcuNjYxOC4wMzY0aDEuNjIxbDMuMDE3NS4yMjQ3Ljc4OTIuNTIyLjQ3MzYuNjM3Ni0uMDc5LjQ4NTctMS4yMTQyLjYxOTMtMS42MzkzLS4zODg2LTMuODI1LS45MTA3LTEuMzExMy0uMzI3OWgtLjE4MjJ2LjEwOTNsMS4wOTI5IDEuMDY4NiAyLjAwMzUgMS44MDkyIDIuNTA3NSAyLjMzMTQuMTI3NS41NzY4LS4zMjE4LjQ1NTQtLjM0LS4wNDg2LTIuMjAzOS0xLjY1NzUtLjg1LS43NDY4LTEuOTI0Ni0xLjYyMWgtLjEyNzV2LjE3bC40NDMyLjY0OTYgMi4zNDM2IDMuNTIxNC4xMjE0IDEuMDgwNy0uMTcuMzUyMS0uNjA3MS4yMTI1LS42Njc5LS4xMjE0LTEuMzcyMS0xLjkyNDZMMTQuMzggMTcuOTU5bC0xLjE0MTQtMS45NDI4LS4xMzk3LjA3OS0uNjc0IDcuMjU1Mi0uMzE1Ni4zNzAzLS43Mjg2LjI3OTMtLjYwNzEtLjQ2MTQtLjMyMTgtLjc0NjguMzIxOC0xLjQ3NTMuMzg4Ni0xLjkyNDYuMzE1Ny0xLjUzLjI4NTMtMS45MDA0LjE3LS42MzE0LS4wMTIxLS4wNDI1LS4xMzk3LjAxODItMS40MzI4IDEuOTY3Mi0yLjE3OTYgMi45NDQ2LTEuNzI0MyAxLjg0NTYtLjQxMjguMTY0LS43MTY0LS4zNzA0LjA2NjctLjY2MTguNDAwOC0uNTg4OSAyLjM4Ni0zLjAzNTcgMS40Mzg5LTEuODgyLjkyOS0xLjA4NjgtLjAwNjItLjE1NzloLS4wNTQ2bC02LjMzODUgNC4xMTY0LTEuMTI5My4xNDU3LS40ODU3LS40NTU0LjA2MDgtLjc0NjcuMjMwNy0uMjQyOSAxLjkwNjQtMS4zMTE0WiIvPjwvc3ZnPg==" alt="">Claude</li><li><img class="tile" src="data:image/svg+xml;base64,PHN2ZyBmaWxsPSIjMWQxZjFjIiBmaWxsLXJ1bGU9ImV2ZW5vZGQiIGhlaWdodD0iMjQiIHZpZXdCb3g9IjAgMCAyNCAyNCIgd2lkdGg9IjI0IiB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciPjx0aXRsZT5PcGVuQUk8L3RpdGxlPjxwYXRoIGQ9Ik05LjIwNSA4LjY1OHYtMi4yNmMwLS4xOS4wNzItLjMzMy4yMzgtLjQyOGw0LjU0My0yLjYxNmMuNjE5LS4zNTcgMS4zNTYtLjUyMyAyLjExNy0uNTIzIDIuODU0IDAgNC42NjIgMi4yMTIgNC42NjIgNC41NjYgMCAuMTY3IDAgLjM1Ny0uMDI0LjU0N2wtNC43MS0yLjc1OWEuNzk3Ljc5NyAwIDAwLS44NTYgMGwtNS45NyAzLjQ3M3ptMTAuNjA5IDguOFYxMi4wNmMwLS4zMzMtLjE0My0uNTctLjQyOS0uNzM3bC01Ljk3LTMuNDczIDEuOTUtMS4xMThhLjQzMy40MzMgMCAwMS40NzYgMGw0LjU0MyAyLjYxN2MxLjMwOS43NiAyLjE4OSAyLjM3OCAyLjE4OSAzLjk0OCAwIDEuODA4LTEuMDcgMy40NzMtMi43NiA0LjE2M3pNNy44MDIgMTIuNzAzbC0xLjk1LTEuMTQyYy0uMTY3LS4wOTUtLjIzOS0uMjM4LS4yMzktLjQyOFY1Ljg5OWMwLTIuNTQ1IDEuOTUtNC40NzIgNC41OTEtNC40NzIgMSAwIDEuOTI3LjMzMyAyLjcxMi45MjhMOC4yMyA1LjA2N2MtLjI4NS4xNjYtLjQyOC40MDQtLjQyOC43Mzd2Ni44OTh6TTEyIDE1LjEyOGwtMi43OTUtMS41N3YtMy4zM0wxMiA4LjY1OGwyLjc5NSAxLjU3djMuMzNMMTIgMTUuMTI4em0xLjc5NiA3LjIzYy0xIDAtMS45MjctLjMzMi0yLjcxMi0uOTI3bDQuNjg2LTIuNzEyYy4yODUtLjE2Ni40MjgtLjQwNC40MjgtLjczN3YtNi44OThsMS45NzQgMS4xNDJjLjE2Ny4wOTUuMjM4LjIzOC4yMzguNDI4djUuMjMzYzAgMi41NDUtMS45NzQgNC40NzItNC42MTQgNC40NzJ6bS01LjYzNy01LjMwM2wtNC41NDQtMi42MTdjLTEuMzA4LS43NjEtMi4xODgtMi4zNzgtMi4xODgtMy45NDhBNC40ODIgNC40ODIgMCAwMTQuMjEgNi4zMjd2NS40MjNjMCAuMzMzLjE0My41NzEuNDI4LjczOGw1Ljk0NyAzLjQ0OS0xLjk1IDEuMTE4YS40MzIuNDMyIDAgMDEtLjQ3NiAwem0tLjI2MiAzLjljLTIuNjg4IDAtNC42NjItMi4wMjEtNC42NjItNC41MTkgMC0uMTkuMDI0LS4zOC4wNDctLjU3bDQuNjg2IDIuNzFjLjI4Ni4xNjcuNTcxLjE2Ny44NTYgMGw1Ljk3LTMuNDQ4djIuMjZjMCAuMTktLjA3LjMzMy0uMjM3LjQyOGwtNC41NDMgMi42MTZjLS42MTkuMzU3LTEuMzU2LjUyMy0yLjExNy41MjN6bTUuODk5IDIuODNhNS45NDcgNS45NDcgMCAwMDUuODI3LTQuNzU2QzIyLjI4NyAxOC4zMzkgMjQgMTUuODQgMjQgMTMuMjk2YzAtMS42NjUtLjcxMy0zLjI4Mi0xLjk5OC00LjQ0OC4xMTktLjUuMTktLjk5OS4xOS0xLjQ5OCAwLTMuNDAxLTIuNzU5LTUuOTQ3LTUuOTQ2LTUuOTQ3LS42NDIgMC0xLjI2LjA5NS0xLjg4LjMxQTUuOTYyIDUuOTYyIDAgMDAxMC4yMDUgMGE1Ljk0NyA1Ljk0NyAwIDAwLTUuODI3IDQuNzU3QzEuNzEzIDUuNDQ3IDAgNy45NDUgMCAxMC40OWMwIDEuNjY2LjcxMyAzLjI4MyAxLjk5OCA0LjQ0OC0uMTE5LjUtLjE5IDEtLjE5IDEuNDk5IDAgMy40MDEgMi43NTkgNS45NDYgNS45NDYgNS45NDYuNjQyIDAgMS4yNi0uMDk1IDEuODgtLjMwOWE1Ljk2IDUuOTYgMCAwMDQuMTYyIDEuNzEzeiI+PC9wYXRoPjwvc3ZnPg==" alt="">ChatGPT</li><li><img src="data:image/svg+xml;base64,PHN2ZyBmaWxsPSJub25lIiBoZWlnaHQ9IjEwMCUiIHdpZHRoPSIxMDAlIiB2aWV3Qm94PSIwIDAgNTEyIDUxMiIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48dGl0bGU+T2JzaWRpYW48L3RpdGxlPgoJPHJhZGlhbEdyYWRpZW50IGlkPSJsb2dvLWJvdHRvbS1sZWZ0IiBjeD0iMCIgY3k9IjAiIGdyYWRpZW50VHJhbnNmb3JtPSJtYXRyaXgoLTU5IC0yMjUgMTUwIC0zOSAxNjEuNCA0NzApIiBncmFkaWVudFVuaXRzPSJ1c2VyU3BhY2VPblVzZSIgcj0iMSI+CgkJPHN0b3Agb2Zmc2V0PSIwIiBzdG9wLWNvbG9yPSIjZmZmIiBzdG9wLW9wYWNpdHk9Ii40Ii8+CgkJPHN0b3Agb2Zmc2V0PSIxIiBzdG9wLW9wYWNpdHk9Ii4xIi8+Cgk8L3JhZGlhbEdyYWRpZW50PgoJPHJhZGlhbEdyYWRpZW50IGlkPSJsb2dvLXRvcC1yaWdodCIgY3g9IjAiIGN5PSIwIiBncmFkaWVudFRyYW5zZm9ybT0ibWF0cml4KDUwIC0zNzkgMjgwIDM3IDM2MCAzNzQuMikiIGdyYWRpZW50VW5pdHM9InVzZXJTcGFjZU9uVXNlIiByPSIxIj4KCQk8c3RvcCBvZmZzZXQ9IjAiIHN0b3AtY29sb3I9IiNmZmYiIHN0b3Atb3BhY2l0eT0iLjYiLz4KCQk8c3RvcCBvZmZzZXQ9IjEiIHN0b3AtY29sb3I9IiNmZmYiIHN0b3Atb3BhY2l0eT0iLjEiLz4KCTwvcmFkaWFsR3JhZGllbnQ+Cgk8cmFkaWFsR3JhZGllbnQgaWQ9ImxvZ28tdG9wLWxlZnQiIGN4PSIwIiBjeT0iMCIgZ3JhZGllbnRUcmFuc2Zvcm09Im1hdHJpeCg2OSAtMzE5IDIxOCA0NyAxNzUuNCAzMDcpIiBncmFkaWVudFVuaXRzPSJ1c2VyU3BhY2VPblVzZSIgcj0iMSI+CgkJPHN0b3Agb2Zmc2V0PSIwIiBzdG9wLWNvbG9yPSIjZmZmIiBzdG9wLW9wYWNpdHk9Ii44Ii8+CgkJPHN0b3Agb2Zmc2V0PSIxIiBzdG9wLWNvbG9yPSIjZmZmIiBzdG9wLW9wYWNpdHk9Ii40Ii8+Cgk8L3JhZGlhbEdyYWRpZW50PgoJPHJhZGlhbEdyYWRpZW50IGlkPSJsb2dvLWJvdHRvbS1yaWdodCIgY3g9IjAiIGN5PSIwIiBncmFkaWVudFRyYW5zZm9ybT0ibWF0cml4KC05NiAtMTYzIDE4NyAtMTExIDMzNS4zIDUxMi4yKSIgZ3JhZGllbnRVbml0cz0idXNlclNwYWNlT25Vc2UiIHI9IjEiPgoJCTxzdG9wIG9mZnNldD0iMCIgc3RvcC1jb2xvcj0iI2ZmZiIgc3RvcC1vcGFjaXR5PSIuMyIvPgoJCTxzdG9wIG9mZnNldD0iMSIgc3RvcC1vcGFjaXR5PSIuMyIvPgoJPC9yYWRpYWxHcmFkaWVudD4KCTxyYWRpYWxHcmFkaWVudCBpZD0ibG9nby10b3AtZWRnZSIgY3g9IjAiIGN5PSIwIiBncmFkaWVudFRyYW5zZm9ybT0ibWF0cml4KC0zNiAxNjYgLTExMiAtMjQgMzEwIDEyOC4yKSIgZ3JhZGllbnRVbml0cz0idXNlclNwYWNlT25Vc2UiIHI9IjEiPgoJCTxzdG9wIG9mZnNldD0iMCIgc3RvcC1jb2xvcj0iI2ZmZiIgc3RvcC1vcGFjaXR5PSIwIi8+CgkJPHN0b3Agb2Zmc2V0PSIxIiBzdG9wLWNvbG9yPSIjZmZmIiBzdG9wLW9wYWNpdHk9Ii4yIi8+Cgk8L3JhZGlhbEdyYWRpZW50PgoJPHJhZGlhbEdyYWRpZW50IGlkPSJsb2dvLWxlZnQtZWRnZSIgY3g9IjAiIGN5PSIwIiBncmFkaWVudFRyYW5zZm9ybT0ibWF0cml4KDg4IDg5IC0xOTAgMTg3IDExMSAyMjAuMikiIGdyYWRpZW50VW5pdHM9InVzZXJTcGFjZU9uVXNlIiByPSIxIj4KCQk8c3RvcCBvZmZzZXQ9IjAiIHN0b3AtY29sb3I9IiNmZmYiIHN0b3Atb3BhY2l0eT0iLjIiLz4KCQk8c3RvcCBvZmZzZXQ9IjEiIHN0b3AtY29sb3I9IiNmZmYiIHN0b3Atb3BhY2l0eT0iLjQiLz4KCTwvcmFkaWFsR3JhZGllbnQ+Cgk8cmFkaWFsR3JhZGllbnQgaWQ9ImxvZ28tYm90dG9tLWVkZ2UiIGN4PSIwIiBjeT0iMCIgZ3JhZGllbnRUcmFuc2Zvcm09Im1hdHJpeCg5IDEzMCAtMjc2IDIwIDIxNSAyODQpIiBncmFkaWVudFVuaXRzPSJ1c2VyU3BhY2VPblVzZSIgcj0iMSI+CgkJPHN0b3Agb2Zmc2V0PSIwIiBzdG9wLWNvbG9yPSIjZmZmIiBzdG9wLW9wYWNpdHk9Ii4yIi8+CgkJPHN0b3Agb2Zmc2V0PSIxIiBzdG9wLWNvbG9yPSIjZmZmIiBzdG9wLW9wYWNpdHk9Ii4zIi8+Cgk8L3JhZGlhbEdyYWRpZW50PgoJPHJhZGlhbEdyYWRpZW50IGlkPSJsb2dvLW1pZGRsZS1lZGdlIiBjeD0iMCIgY3k9IjAiIGdyYWRpZW50VHJhbnNmb3JtPSJtYXRyaXgoLTE5OCAtMTA0IDMyNyAtNjIzIDQwMCAzOTkuMikiIGdyYWRpZW50VW5pdHM9InVzZXJTcGFjZU9uVXNlIiByPSIxIj4KCQk8c3RvcCBvZmZzZXQ9IjAiIHN0b3AtY29sb3I9IiNmZmYiIHN0b3Atb3BhY2l0eT0iLjIiLz4KCQk8c3RvcCBvZmZzZXQ9Ii41IiBzdG9wLWNvbG9yPSIjZmZmIiBzdG9wLW9wYWNpdHk9Ii4yIi8+CgkJPHN0b3Agb2Zmc2V0PSIxIiBzdG9wLWNvbG9yPSIjZmZmIiBzdG9wLW9wYWNpdHk9Ii4zIi8+Cgk8L3JhZGlhbEdyYWRpZW50PgoJPGNsaXBQYXRoIGlkPSJjbGlwIj4KCQk8cGF0aCBkPSJNLjIuMmg1MTJ2NTEySC4yeiIvPgoJPC9jbGlwUGF0aD4KCTxnIGNsaXAtcGF0aD0idXJsKCNjbGlwKSI+CgkJPHBhdGggZD0iTTM4Mi4zIDQ3NS42Yy0zLjEgMjMuNC0yNiA0MS42LTQ4LjcgMzUuMy0zMi40LTguOS02OS45LTIyLjgtMTAzLjYtMjUuNGwtNTEuNy00YTM0IDM0IDAgMCAxLTIyLTEwLjJsLTg5LTkxLjdhMzQgMzQgMCAwIDEtNi43LTM3LjdzNTUtMTIxIDU3LjEtMTI3LjNjMi02LjMgOS42LTYxLjIgMTQtOTAuNiAxLjItNy45IDUtMTUgMTEtMjAuM0wyNDggOC45YTM0LjEgMzQuMSAwIDAgMSA0OS42IDQuM0wzODYgMTI1LjZhMzcgMzcgMCAwIDEgNy42IDIyLjRjMCAyMS4zIDEuOCA2NSAxMy42IDkzLjIgMTEuNSAyNy4zIDMyLjUgNTcgNDMuNSA3MS41YTE3LjMgMTcuMyAwIDAgMSAxLjMgMTkuMiAxNDk0IDE0OTQgMCAwIDEtNDQuOCA3MC42Yy0xNSAyMi4zLTIxLjkgNDkuOS0yNSA3My4xeiIgZmlsbD0iIzZjMzFlMyIvPgoJCTxwYXRoIGQ9Ik0xNjUuOSA0NzguM2M0MS40LTg0IDQwLjItMTQ0LjIgMjIuNi0xODctMTYuMi0zOS42LTQ2LjMtNjQuNS03MC04MC0uNiAyLjMtMS4zIDQuNC0yLjIgNi41TDYwLjYgMzQyYTM0IDM0IDAgMCAwIDYuNiAzNy43bDg5LjEgOTEuN2EzNCAzNCAwIDAgMCA5LjYgN3oiIGZpbGw9InVybCgjbG9nby1ib3R0b20tbGVmdCkiLz4KCQk8cGF0aCBkPSJNMjc4LjQgMzA3LjhjMTEuMiAxLjIgMjIuMiAzLjYgMzIuOCA3LjYgMzQgMTIuNyA2NSA0MS4yIDkwLjUgOTYuMyAxLjgtMy4xIDMuNi02LjIgNS42LTkuMmExNTM2IDE1MzYgMCAwIDAgNDQuOC03MC42IDE3IDE3IDAgMCAwLTEuMy0xOS4yYy0xMS0xNC42LTMyLTQ0LjItNDMuNS03MS41LTExLjgtMjguMi0xMy41LTcyLTEzLjYtOTMuMiAwLTguMS0yLjYtMTYtNy42LTIyLjRMMjk3LjYgMTMuMmEzNCAzNCAwIDAgMC0xLjUtMS43IDk2IDk2IDAgMCAxIDIgNTQgMTk4LjMgMTk4LjMgMCAwIDEtMTcuNiA0MS4zbC03LjIgMTQuMmExNzEgMTcxIDAgMCAwLTE5LjQgNzFjLTEuMiAyOS40IDQuOCA2Ni40IDI0LjUgMTE1Ljh6IiBmaWxsPSJ1cmwoI2xvZ28tdG9wLXJpZ2h0KSIvPgoJCTxwYXRoIGQ9Ik0yNzguNCAzMDcuOGMtMTkuNy00OS40LTI1LjgtODYuNC0yNC41LTExNS45YTE3MSAxNzEgMCAwIDEgMTkuNC03MWMyLjMtNC44IDQuOC05LjUgNy4yLTE0LjEgNy4xLTEzLjkgMTQtMjcgMTcuNi00MS40YTk2IDk2IDAgMCAwLTItNTRBMzQuMSAzNC4xIDAgMCAwIDI0OCA5bC0xMDUuNCA5NC44YTM0LjEgMzQuMSAwIDAgMC0xMC45IDIwLjNsLTEyLjggODUtLjUgMi4zYzIzLjggMTUuNSA1NCA0MC40IDcwLjEgODBhMTQ3IDE0NyAwIDAgMSA3LjggMjQuOGMyOC02LjggNTUuNy0xMSA4Mi4xLTguM3oiIGZpbGw9InVybCgjbG9nby10b3AtbGVmdCkiLz4KCQk8cGF0aCBkPSJNMzMzLjYgNTExYzIyLjcgNi4yIDQ1LjYtMTIgNDguNy0zNS40YTE4NyAxODcgMCAwIDEgMTkuNC02My45Yy0yNS42LTU1LTU2LjUtODMuNi05MC40LTk2LjMtMzYtMTMuNC03NS4yLTktMTE1IC43IDguOSA0MC40IDMuNiA5My4zLTMwLjQgMTYyLjIgNCAxLjggOC4xIDMgMTIuNSAzLjMgMCAwIDI0LjQgMiA1My42IDQuMSAyOSAyIDcyLjQgMTcuMSAxMDEuNiAyNS4yeiIgZmlsbD0idXJsKCNsb2dvLWJvdHRvbS1yaWdodCkiLz4KCQk8ZyBjbGlwLXJ1bGU9ImV2ZW5vZGQiIGZpbGwtcnVsZT0iZXZlbm9kZCI+CgkJCTxwYXRoIGQ9Ik0yNTQuMSAxOTBjLTEuMyAyOS4yIDIuNCA2Mi44IDIyLjEgMTEyLjFsLTYuMi0uNWMtMTcuNy01MS41LTIxLjUtNzgtMjAuMi0xMDcuNmExNzQuNyAxNzQuNyAwIDAgMSAyMC40LTcyYzIuNC00LjkgOC0xNC4xIDEwLjUtMTguOCA3LjEtMTMuNyAxMS45LTIxIDE2LTMzLjYgNS43LTE3LjUgNC41LTI1LjkgMy44LTM0LjEgNC42IDI5LjktMTIuNyA1Ni0yNS43IDgyLjRhMTc3LjEgMTc3LjEgMCAwIDAtMjAuNyA3MnoiIGZpbGw9InVybCgjbG9nby10b3AtZWRnZSkiLz4KCQkJPHBhdGggZD0iTTE5NC4zIDI5My40YzIuNCA1LjQgNC42IDkuOCA2IDE2LjVMMTk1IDMxMWMtMi4xLTcuOC0zLjgtMTMuNC02LjgtMjAtMTcuOC00Mi00Ni4zLTYzLjYtNjkuNy03OS41IDI4LjIgMTUuMiA1Ny4yIDM5IDc1LjcgODEuOXoiIGZpbGw9InVybCgjbG9nby1sZWZ0LWVkZ2UpIi8+CgkJCTxwYXRoIGQ9Ik0yMDAuNiAzMTUuMWM5LjggNDYtMS4yIDEwNC4yLTMzLjYgMTYwLjkgMjcuMS01Ni4yIDQwLjItMTEwLjEgMjkuMy0xNjB6IiBmaWxsPSJ1cmwoI2xvZ28tYm90dG9tLWVkZ2UpIi8+CgkJCTxwYXRoIGQ9Ik0zMTIuNSAzMTFjNTMuMSAxOS45IDczLjYgNjMuNiA4OC45IDEwMC0xOS0zOC4xLTQ1LjItODAuMy05MC44LTk2LTM0LjgtMTEuOC02NC4xLTEwLjQtMTE0LjMgMWwtMS4xLTVjNTMuMi0xMi4xIDgxLTEzLjUgMTE3LjMgMHoiIGZpbGw9InVybCgjbG9nby1taWRkbGUtZWRnZSkiLz4KCQk8L2c+Cgk8L2c+Cjwvc3ZnPg==" alt="">Obsidian</li><li><img src="data:image/svg+xml;base64,PHN2ZyBmaWxsPSIjMDAwIiB2aWV3Qm94PSIwIDAgMjQgMjQiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+PHRpdGxlPk5vdGlvbjwvdGl0bGU+PHBhdGggZD0iTTQuNDU5IDQuMjA4Yy43NDYuNjA2IDEuMDI2LjU2IDIuNDI4LjQ2NmwxMy4yMTUtLjc5M2MuMjggMCAuMDQ3LS4yOC0uMDQ2LS4zMjZMMTcuODYgMS45NjhjLS40Mi0uMzI2LS45ODEtLjctMi4wNTUtLjYwN0wzLjAxIDIuMjk1Yy0uNDY2LjA0Ni0uNTYuMjgtLjM3NC40NjZ6bS43OTMgMy4wOHYxMy45MDRjMCAuNzQ3LjM3MyAxLjAyNyAxLjIxNC45OGwxNC41MjMtLjg0Yy44NDEtLjA0Ni45MzUtLjU2LjkzNS0xLjE2N1Y2LjM1NGMwLS42MDYtLjIzMy0uOTMzLS43NDgtLjg4N2wtMTUuMTc3Ljg4N2MtLjU2LjA0Ny0uNzQ3LjMyNy0uNzQ3LjkzM3ptMTQuMzM3Ljc0NWMuMDkzLjQyIDAgLjg0LS40Mi44ODhsLS43LjE0djEwLjI2NGMtLjYwOC4zMjctMS4xNjguNTE0LTEuNjM1LjUxNC0uNzQ4IDAtLjkzNS0uMjM0LTEuNDk1LS45MzNsLTQuNTc3LTcuMTg2djYuOTUyTDEyLjIxIDE5czAgLjg0LTEuMTY4Ljg0bC0zLjIyMi4xODZjLS4wOTMtLjE4NiAwLS42NTMuMzI3LS43NDZsLjg0LS4yMzNWOS44NTRMNy44MjIgOS43NmMtLjA5NC0uNDIuMTQtMS4wMjYuNzkzLTEuMDczbDMuNDU2LS4yMzMgNC43NjQgNy4yNzl2LTYuNDRsLTEuMjE1LS4xMzljLS4wOTMtLjUxNC4yOC0uODg3Ljc0Ny0uOTMzek0xLjkzNiAxLjAzNWwxMy4zMS0uOThjMS42MzQtLjE0IDIuMDU1LS4wNDcgMy4wODIuN2w0LjI0OSAyLjk4NmMuNy41MTMuOTM0LjY1My45MzQgMS4yMTN2MTYuMzc4YzAgMS4wMjYtLjM3MyAxLjYzNC0xLjY4IDEuNzI2bC0xNS40NTguOTM0Yy0uOTguMDQ3LTEuNDQ4LS4wOTMtMS45NjItLjc0N2wtMy4xMjktNC4wNmMtLjU2LS43NDctLjc5My0xLjMwNi0uNzkzLTEuOTZWMi42NjdjMC0uODM5LjM3NC0xLjU0IDEuNDQ3LTEuNjMyeiIvPjwvc3ZnPg==" alt="">Notion</li><li><img src="data:image/svg+xml;base64,PHN2ZyB2aWV3Qm94PSIwIDAgMjQgMjQiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+PHRpdGxlPkdyYW5vbGE8L3RpdGxlPjxyZWN0IHdpZHRoPSIyNCIgaGVpZ2h0PSIyNCIgcng9IjUiIGZpbGw9IiNCMkMyNDgiLz48cGF0aCBkPSJNMTIgMTJhMSAxIDAgMCAxIDIgMGEyIDIgMCAwIDEtNCAwYTMgMyAwIDAgMSA2IDBhNCA0IDAgMCAxLTggMGE1IDUgMCAwIDEgMTAgMCIgZmlsbD0ibm9uZSIgc3Ryb2tlPSIjMUExQTFBIiBzdHJva2Utd2lkdGg9IjEuOCIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIi8+PC9zdmc+" alt="">Granola</li><li><img src="data:image/svg+xml;base64,PHN2ZyBmaWxsPSIjRkY2NzE5IiB2aWV3Qm94PSIwIDAgMjQgMjQiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+PHRpdGxlPlN1YnN0YWNrPC90aXRsZT48cGF0aCBkPSJNMiAyaDIwdjIuOEgyek0yIDcuNmgyMHYyLjhIMnpNMiAxMy4yaDIwVjIybC0xMC01LjZMMiAyMnoiLz48L3N2Zz4=" alt="">Substack</li><li><img src="data:image/svg+xml;base64,PHN2ZyB2aWV3Qm94PSIwIDAgMjQgMjQiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+PHRpdGxlPlJlYWR3aXNlPC90aXRsZT48cmVjdCB4PSIuNSIgeT0iLjUiIHdpZHRoPSIyMyIgaGVpZ2h0PSIyMyIgcng9IjUiIGZpbGw9IiNmZmYiIHN0cm9rZT0iI0U0RTRFNCIvPjx0ZXh0IHg9IjEyIiB5PSIxOCIgdGV4dC1hbmNob3I9Im1pZGRsZSIgZm9udC1mYW1pbHk9Ikdlb3JnaWEsICdUaW1lcyBOZXcgUm9tYW4nLCBzZXJpZiIgZm9udC1zaXplPSIxNyIgZm9udC13ZWlnaHQ9IjcwMCIgZmlsbD0iIzAwMCI+UjwvdGV4dD48L3N2Zz4=" alt="">Readwise</li>
+    </ul>
+    <span>and more</span>
+  </div>
 
-  <p class="alt">Trouble with the direct link? Get it from the
-    <a href="https://github.com/dipakkrishnan/lore-mcp/releases/latest">latest release on GitHub</a>.</p>
-</main>
-<footer><a href="https://github.com/dipakkrishnan/lore-mcp">github.com/dipakkrishnan/lore-mcp</a></footer>
+  <div class="window" role="img" aria-label="Lore's Today screen: new memories from Grok Bot, Granola and Obsidian, and a sale">
+    <aside class="side">
+      <div class="lights"><i></i><i></i><i></i></div>
+      <span class="brand"><svg viewBox="0 0 26 26" aria-hidden="true"><rect x="0" y="0" width="26" height="26" rx="6.5" fill="#244f3d"/><g fill="none" stroke="#244f3d" stroke-width="1.7"><rect x="4.5" y="5" width="17" height="16" rx="3.2" fill="#fffdf8" stroke="none"/><path d="M3 11.2L4.5 10.6C8 9.2 10.5 12.2 13 10.9S18.5 9.6 21.5 11.2L23 12"/><path d="M3 16.9L4.5 16.3C8 15 10.5 17.8 13 16.6S18.5 15 21.5 16.8L23 17.7"/></g></svg>Lore</span>
+      <div class="nav on">Today</div>
+      <div class="nav">Inventory <span>42</span></div>
+      <div class="nav">Connectors <span>5</span></div>
+      <div class="nav">Automations</div>
+    </aside>
+    <div class="main">
+      <div><div class="date">Sunday, October 18</div><div class="hello">Good evening.</div></div>
+      <div class="composer">What did you learn today? <b>Capture</b></div>
+      <div class="head"><strong>New memories</strong><span>3 new today · 1 worth selling</span></div>
+      <div class="cards">
+        <div class="card"><img src="data:image/svg+xml;base64,PHN2ZyB2aWV3Qm94PSIwIDAgMjQgMjQiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+PHRpdGxlPkdyb2sgQm90PC90aXRsZT48ZGVmcz48cmFkaWFsR3JhZGllbnQgaWQ9ImciIGN4PSIwLjM4IiBjeT0iMC4zMiIgcj0iMC43NSI+PHN0b3Agb2Zmc2V0PSIwIiBzdG9wLWNvbG9yPSIjZmZmZmZmIi8+PHN0b3Agb2Zmc2V0PSIwLjciIHN0b3AtY29sb3I9IiNlOWU5ZTkiLz48c3RvcCBvZmZzZXQ9IjEiIHN0b3AtY29sb3I9IiNjOWM5YzkiLz48L3JhZGlhbEdyYWRpZW50PjwvZGVmcz48cmVjdCB3aWR0aD0iMjQiIGhlaWdodD0iMjQiIHJ4PSI1LjUiIGZpbGw9IiMxMTEiLz48Y2lyY2xlIGN4PSIxMS42IiBjeT0iMTIuOCIgcj0iOC40IiBmaWxsPSJ1cmwoI2cpIi8+PGcgc3Ryb2tlPSIjMTExIiBzdHJva2Utd2lkdGg9IjEuNyIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIj48cGF0aCBkPSJNMTIuNiA3LjkgMTMuNiAxMC4yIi8+PHBhdGggZD0iTTE2LjEgNyAxNy4xIDkuMyIvPjwvZz48L3N2Zz4=" alt=""><div><b>Price a sync placement by its reach</b><small>From Grok Bot · a pricing rule from real placements</small></div><span class="tag">Worth selling</span></div>
+        <div class="card"><img src="data:image/svg+xml;base64,PHN2ZyB2aWV3Qm94PSIwIDAgMjQgMjQiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+PHRpdGxlPkdyYW5vbGE8L3RpdGxlPjxyZWN0IHdpZHRoPSIyNCIgaGVpZ2h0PSIyNCIgcng9IjUiIGZpbGw9IiNCMkMyNDgiLz48cGF0aCBkPSJNMTIgMTJhMSAxIDAgMCAxIDIgMGEyIDIgMCAwIDEtNCAwYTMgMyAwIDAgMSA2IDBhNCA0IDAgMCAxLTggMGE1IDUgMCAwIDEgMTAgMCIgZmlsbD0ibm9uZSIgc3Ryb2tlPSIjMUExQTFBIiBzdHJva2Utd2lkdGg9IjEuOCIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIi8+PC9zdmc+" alt=""><div><b>Add the ops layer before the next ten hires</b><small>From Granola · from Tuesday's planning meeting</small></div><span class="tag quiet">Private</span></div>
+        <div class="card"><img src="data:image/svg+xml;base64,PHN2ZyBmaWxsPSJub25lIiBoZWlnaHQ9IjEwMCUiIHdpZHRoPSIxMDAlIiB2aWV3Qm94PSIwIDAgNTEyIDUxMiIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48dGl0bGU+T2JzaWRpYW48L3RpdGxlPgoJPHJhZGlhbEdyYWRpZW50IGlkPSJsb2dvLWJvdHRvbS1sZWZ0IiBjeD0iMCIgY3k9IjAiIGdyYWRpZW50VHJhbnNmb3JtPSJtYXRyaXgoLTU5IC0yMjUgMTUwIC0zOSAxNjEuNCA0NzApIiBncmFkaWVudFVuaXRzPSJ1c2VyU3BhY2VPblVzZSIgcj0iMSI+CgkJPHN0b3Agb2Zmc2V0PSIwIiBzdG9wLWNvbG9yPSIjZmZmIiBzdG9wLW9wYWNpdHk9Ii40Ii8+CgkJPHN0b3Agb2Zmc2V0PSIxIiBzdG9wLW9wYWNpdHk9Ii4xIi8+Cgk8L3JhZGlhbEdyYWRpZW50PgoJPHJhZGlhbEdyYWRpZW50IGlkPSJsb2dvLXRvcC1yaWdodCIgY3g9IjAiIGN5PSIwIiBncmFkaWVudFRyYW5zZm9ybT0ibWF0cml4KDUwIC0zNzkgMjgwIDM3IDM2MCAzNzQuMikiIGdyYWRpZW50VW5pdHM9InVzZXJTcGFjZU9uVXNlIiByPSIxIj4KCQk8c3RvcCBvZmZzZXQ9IjAiIHN0b3AtY29sb3I9IiNmZmYiIHN0b3Atb3BhY2l0eT0iLjYiLz4KCQk8c3RvcCBvZmZzZXQ9IjEiIHN0b3AtY29sb3I9IiNmZmYiIHN0b3Atb3BhY2l0eT0iLjEiLz4KCTwvcmFkaWFsR3JhZGllbnQ+Cgk8cmFkaWFsR3JhZGllbnQgaWQ9ImxvZ28tdG9wLWxlZnQiIGN4PSIwIiBjeT0iMCIgZ3JhZGllbnRUcmFuc2Zvcm09Im1hdHJpeCg2OSAtMzE5IDIxOCA0NyAxNzUuNCAzMDcpIiBncmFkaWVudFVuaXRzPSJ1c2VyU3BhY2VPblVzZSIgcj0iMSI+CgkJPHN0b3Agb2Zmc2V0PSIwIiBzdG9wLWNvbG9yPSIjZmZmIiBzdG9wLW9wYWNpdHk9Ii44Ii8+CgkJPHN0b3Agb2Zmc2V0PSIxIiBzdG9wLWNvbG9yPSIjZmZmIiBzdG9wLW9wYWNpdHk9Ii40Ii8+Cgk8L3JhZGlhbEdyYWRpZW50PgoJPHJhZGlhbEdyYWRpZW50IGlkPSJsb2dvLWJvdHRvbS1yaWdodCIgY3g9IjAiIGN5PSIwIiBncmFkaWVudFRyYW5zZm9ybT0ibWF0cml4KC05NiAtMTYzIDE4NyAtMTExIDMzNS4zIDUxMi4yKSIgZ3JhZGllbnRVbml0cz0idXNlclNwYWNlT25Vc2UiIHI9IjEiPgoJCTxzdG9wIG9mZnNldD0iMCIgc3RvcC1jb2xvcj0iI2ZmZiIgc3RvcC1vcGFjaXR5PSIuMyIvPgoJCTxzdG9wIG9mZnNldD0iMSIgc3RvcC1vcGFjaXR5PSIuMyIvPgoJPC9yYWRpYWxHcmFkaWVudD4KCTxyYWRpYWxHcmFkaWVudCBpZD0ibG9nby10b3AtZWRnZSIgY3g9IjAiIGN5PSIwIiBncmFkaWVudFRyYW5zZm9ybT0ibWF0cml4KC0zNiAxNjYgLTExMiAtMjQgMzEwIDEyOC4yKSIgZ3JhZGllbnRVbml0cz0idXNlclNwYWNlT25Vc2UiIHI9IjEiPgoJCTxzdG9wIG9mZnNldD0iMCIgc3RvcC1jb2xvcj0iI2ZmZiIgc3RvcC1vcGFjaXR5PSIwIi8+CgkJPHN0b3Agb2Zmc2V0PSIxIiBzdG9wLWNvbG9yPSIjZmZmIiBzdG9wLW9wYWNpdHk9Ii4yIi8+Cgk8L3JhZGlhbEdyYWRpZW50PgoJPHJhZGlhbEdyYWRpZW50IGlkPSJsb2dvLWxlZnQtZWRnZSIgY3g9IjAiIGN5PSIwIiBncmFkaWVudFRyYW5zZm9ybT0ibWF0cml4KDg4IDg5IC0xOTAgMTg3IDExMSAyMjAuMikiIGdyYWRpZW50VW5pdHM9InVzZXJTcGFjZU9uVXNlIiByPSIxIj4KCQk8c3RvcCBvZmZzZXQ9IjAiIHN0b3AtY29sb3I9IiNmZmYiIHN0b3Atb3BhY2l0eT0iLjIiLz4KCQk8c3RvcCBvZmZzZXQ9IjEiIHN0b3AtY29sb3I9IiNmZmYiIHN0b3Atb3BhY2l0eT0iLjQiLz4KCTwvcmFkaWFsR3JhZGllbnQ+Cgk8cmFkaWFsR3JhZGllbnQgaWQ9ImxvZ28tYm90dG9tLWVkZ2UiIGN4PSIwIiBjeT0iMCIgZ3JhZGllbnRUcmFuc2Zvcm09Im1hdHJpeCg5IDEzMCAtMjc2IDIwIDIxNSAyODQpIiBncmFkaWVudFVuaXRzPSJ1c2VyU3BhY2VPblVzZSIgcj0iMSI+CgkJPHN0b3Agb2Zmc2V0PSIwIiBzdG9wLWNvbG9yPSIjZmZmIiBzdG9wLW9wYWNpdHk9Ii4yIi8+CgkJPHN0b3Agb2Zmc2V0PSIxIiBzdG9wLWNvbG9yPSIjZmZmIiBzdG9wLW9wYWNpdHk9Ii4zIi8+Cgk8L3JhZGlhbEdyYWRpZW50PgoJPHJhZGlhbEdyYWRpZW50IGlkPSJsb2dvLW1pZGRsZS1lZGdlIiBjeD0iMCIgY3k9IjAiIGdyYWRpZW50VHJhbnNmb3JtPSJtYXRyaXgoLTE5OCAtMTA0IDMyNyAtNjIzIDQwMCAzOTkuMikiIGdyYWRpZW50VW5pdHM9InVzZXJTcGFjZU9uVXNlIiByPSIxIj4KCQk8c3RvcCBvZmZzZXQ9IjAiIHN0b3AtY29sb3I9IiNmZmYiIHN0b3Atb3BhY2l0eT0iLjIiLz4KCQk8c3RvcCBvZmZzZXQ9Ii41IiBzdG9wLWNvbG9yPSIjZmZmIiBzdG9wLW9wYWNpdHk9Ii4yIi8+CgkJPHN0b3Agb2Zmc2V0PSIxIiBzdG9wLWNvbG9yPSIjZmZmIiBzdG9wLW9wYWNpdHk9Ii4zIi8+Cgk8L3JhZGlhbEdyYWRpZW50PgoJPGNsaXBQYXRoIGlkPSJjbGlwIj4KCQk8cGF0aCBkPSJNLjIuMmg1MTJ2NTEySC4yeiIvPgoJPC9jbGlwUGF0aD4KCTxnIGNsaXAtcGF0aD0idXJsKCNjbGlwKSI+CgkJPHBhdGggZD0iTTM4Mi4zIDQ3NS42Yy0zLjEgMjMuNC0yNiA0MS42LTQ4LjcgMzUuMy0zMi40LTguOS02OS45LTIyLjgtMTAzLjYtMjUuNGwtNTEuNy00YTM0IDM0IDAgMCAxLTIyLTEwLjJsLTg5LTkxLjdhMzQgMzQgMCAwIDEtNi43LTM3LjdzNTUtMTIxIDU3LjEtMTI3LjNjMi02LjMgOS42LTYxLjIgMTQtOTAuNiAxLjItNy45IDUtMTUgMTEtMjAuM0wyNDggOC45YTM0LjEgMzQuMSAwIDAgMSA0OS42IDQuM0wzODYgMTI1LjZhMzcgMzcgMCAwIDEgNy42IDIyLjRjMCAyMS4zIDEuOCA2NSAxMy42IDkzLjIgMTEuNSAyNy4zIDMyLjUgNTcgNDMuNSA3MS41YTE3LjMgMTcuMyAwIDAgMSAxLjMgMTkuMiAxNDk0IDE0OTQgMCAwIDEtNDQuOCA3MC42Yy0xNSAyMi4zLTIxLjkgNDkuOS0yNSA3My4xeiIgZmlsbD0iIzZjMzFlMyIvPgoJCTxwYXRoIGQ9Ik0xNjUuOSA0NzguM2M0MS40LTg0IDQwLjItMTQ0LjIgMjIuNi0xODctMTYuMi0zOS42LTQ2LjMtNjQuNS03MC04MC0uNiAyLjMtMS4zIDQuNC0yLjIgNi41TDYwLjYgMzQyYTM0IDM0IDAgMCAwIDYuNiAzNy43bDg5LjEgOTEuN2EzNCAzNCAwIDAgMCA5LjYgN3oiIGZpbGw9InVybCgjbG9nby1ib3R0b20tbGVmdCkiLz4KCQk8cGF0aCBkPSJNMjc4LjQgMzA3LjhjMTEuMiAxLjIgMjIuMiAzLjYgMzIuOCA3LjYgMzQgMTIuNyA2NSA0MS4yIDkwLjUgOTYuMyAxLjgtMy4xIDMuNi02LjIgNS42LTkuMmExNTM2IDE1MzYgMCAwIDAgNDQuOC03MC42IDE3IDE3IDAgMCAwLTEuMy0xOS4yYy0xMS0xNC42LTMyLTQ0LjItNDMuNS03MS41LTExLjgtMjguMi0xMy41LTcyLTEzLjYtOTMuMiAwLTguMS0yLjYtMTYtNy42LTIyLjRMMjk3LjYgMTMuMmEzNCAzNCAwIDAgMC0xLjUtMS43IDk2IDk2IDAgMCAxIDIgNTQgMTk4LjMgMTk4LjMgMCAwIDEtMTcuNiA0MS4zbC03LjIgMTQuMmExNzEgMTcxIDAgMCAwLTE5LjQgNzFjLTEuMiAyOS40IDQuOCA2Ni40IDI0LjUgMTE1Ljh6IiBmaWxsPSJ1cmwoI2xvZ28tdG9wLXJpZ2h0KSIvPgoJCTxwYXRoIGQ9Ik0yNzguNCAzMDcuOGMtMTkuNy00OS40LTI1LjgtODYuNC0yNC41LTExNS45YTE3MSAxNzEgMCAwIDEgMTkuNC03MWMyLjMtNC44IDQuOC05LjUgNy4yLTE0LjEgNy4xLTEzLjkgMTQtMjcgMTcuNi00MS40YTk2IDk2IDAgMCAwLTItNTRBMzQuMSAzNC4xIDAgMCAwIDI0OCA5bC0xMDUuNCA5NC44YTM0LjEgMzQuMSAwIDAgMC0xMC45IDIwLjNsLTEyLjggODUtLjUgMi4zYzIzLjggMTUuNSA1NCA0MC40IDcwLjEgODBhMTQ3IDE0NyAwIDAgMSA3LjggMjQuOGMyOC02LjggNTUuNy0xMSA4Mi4xLTguM3oiIGZpbGw9InVybCgjbG9nby10b3AtbGVmdCkiLz4KCQk8cGF0aCBkPSJNMzMzLjYgNTExYzIyLjcgNi4yIDQ1LjYtMTIgNDguNy0zNS40YTE4NyAxODcgMCAwIDEgMTkuNC02My45Yy0yNS42LTU1LTU2LjUtODMuNi05MC40LTk2LjMtMzYtMTMuNC03NS4yLTktMTE1IC43IDguOSA0MC40IDMuNiA5My4zLTMwLjQgMTYyLjIgNCAxLjggOC4xIDMgMTIuNSAzLjMgMCAwIDI0LjQgMiA1My42IDQuMSAyOSAyIDcyLjQgMTcuMSAxMDEuNiAyNS4yeiIgZmlsbD0idXJsKCNsb2dvLWJvdHRvbS1yaWdodCkiLz4KCQk8ZyBjbGlwLXJ1bGU9ImV2ZW5vZGQiIGZpbGwtcnVsZT0iZXZlbm9kZCI+CgkJCTxwYXRoIGQ9Ik0yNTQuMSAxOTBjLTEuMyAyOS4yIDIuNCA2Mi44IDIyLjEgMTEyLjFsLTYuMi0uNWMtMTcuNy01MS41LTIxLjUtNzgtMjAuMi0xMDcuNmExNzQuNyAxNzQuNyAwIDAgMSAyMC40LTcyYzIuNC00LjkgOC0xNC4xIDEwLjUtMTguOCA3LjEtMTMuNyAxMS45LTIxIDE2LTMzLjYgNS43LTE3LjUgNC41LTI1LjkgMy44LTM0LjEgNC42IDI5LjktMTIuNyA1Ni0yNS43IDgyLjRhMTc3LjEgMTc3LjEgMCAwIDAtMjAuNyA3MnoiIGZpbGw9InVybCgjbG9nby10b3AtZWRnZSkiLz4KCQkJPHBhdGggZD0iTTE5NC4zIDI5My40YzIuNCA1LjQgNC42IDkuOCA2IDE2LjVMMTk1IDMxMWMtMi4xLTcuOC0zLjgtMTMuNC02LjgtMjAtMTcuOC00Mi00Ni4zLTYzLjYtNjkuNy03OS41IDI4LjIgMTUuMiA1Ny4yIDM5IDc1LjcgODEuOXoiIGZpbGw9InVybCgjbG9nby1sZWZ0LWVkZ2UpIi8+CgkJCTxwYXRoIGQ9Ik0yMDAuNiAzMTUuMWM5LjggNDYtMS4yIDEwNC4yLTMzLjYgMTYwLjkgMjcuMS01Ni4yIDQwLjItMTEwLjEgMjkuMy0xNjB6IiBmaWxsPSJ1cmwoI2xvZ28tYm90dG9tLWVkZ2UpIi8+CgkJCTxwYXRoIGQ9Ik0zMTIuNSAzMTFjNTMuMSAxOS45IDczLjYgNjMuNiA4OC45IDEwMC0xOS0zOC4xLTQ1LjItODAuMy05MC44LTk2LTM0LjgtMTEuOC02NC4xLTEwLjQtMTE0LjMgMWwtMS4xLTVjNTMuMi0xMi4xIDgxLTEzLjUgMTE3LjMgMHoiIGZpbGw9InVybCgjbG9nby1taWRkbGUtZWRnZSkiLz4KCQk8L2c+Cgk8L2c+Cjwvc3ZnPg==" alt=""><div><b>Raise the first price only after ten buyers pay</b><small>From Obsidian · Pricing notes</small></div><span class="tag quiet">Private</span></div>
+      </div>
+      <div class="sale"><span class="dot">$</span><div>An agent bought “How I price sync placements”<small>$1.00, paid straight to you · just now</small></div></div>
+    </div>
+  </div>
+
+  <section class="beats">
+    <div><span class="step">Bring it in</span><h2>Your agents and apps, in one place</h2><p>Grok Bot, Claude and ChatGPT save what they learn about you as you talk. Lore reads your notes, meetings and highlights each morning.</p></div>
+    <div><span class="step">Keep it private</span><h2>Everything stays on your Mac</h2><p>Memories are yours alone. Nothing leaves your Mac until you approve a piece, and you can take it back anytime.</p></div>
+    <div><span class="step">Get paid</span><h2>Agents pay for what you share</h2><p>Approve a piece and it goes on sale in your own store. Other people's agents pay to read it, by card or stablecoin, straight to you.</p></div>
+  </section>
+
+  <footer class="foot">
+    <span>Lore · made for people who learn things firsthand</span>
+    <nav><a href="/marketplace">Marketplace</a><a href="https://yourlore.dev/marketplace.json">For agents</a><a href="https://github.com/dipakkrishnan/lore-mcp/releases/latest">All releases</a><a href="https://github.com/dipakkrishnan/lore-mcp">GitHub</a></nav>
+  </footer>
+</div>
 </body>
 </html>

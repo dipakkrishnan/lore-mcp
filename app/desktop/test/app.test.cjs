@@ -1,11 +1,14 @@
 const assert = require("node:assert/strict");
-const { access, constants, mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } = require("node:fs/promises");
+const { existsSync } = require("node:fs");
+const { access, constants, mkdir, mkdtemp, readdir, readFile, realpath, rename, rm, symlink, writeFile } = require("node:fs/promises");
 const { createServer } = require("node:http");
-const { homedir, tmpdir } = require("node:os");
-const { dirname, join } = require("node:path");
+const { homedir, tmpdir, userInfo } = require("node:os");
+const { dirname, join, sep } = require("node:path");
 const { pathToFileURL } = require("node:url");
-const { spawnSync } = require("node:child_process");
+const { spawn, spawnSync } = require("node:child_process");
 const { test } = require("node:test");
+// The CLI these tests run keeps its store in scratch, never in the owner's Application Support.
+process.env.LORE_STORE = require("node:fs").mkdtempSync(join(tmpdir(), "lore-store-"));
 const { readState } = require("../src/state.cjs");
 
 test("announces only sales after the last one seen, one by one or as one lot", () => {
@@ -81,6 +84,18 @@ test("reads only the fixed APP-001 snapshot", async () => {
   }
 });
 
+test("crediting a big reading goes to the CLI in batches it takes", async () => {
+  const { creditMemories } = require("../src/state.cjs");
+  const directory = await mkdtemp(join(tmpdir(), "lore-desktop-"));
+  try {
+    const ids = Array.from({ length: 1001 }, (_, i) => i + 1);
+    await creditMemories(directory, ids, { kind: "routine", id: "r1", label: "Sunday", mark: "clock" });
+    await creditMemories(directory, [], { kind: "routine", id: "r1", label: "Sunday", mark: "clock" });
+  } finally {
+    await rm(directory, { recursive: true });
+  }
+});
+
 test("free copies save through the CLI, refused before it unless a whole number, and read back in the snapshot", async () => {
   const { setFreeCopies } = require("../src/state.cjs");
   const directory = await mkdtemp(join(tmpdir(), "lore-desktop-"));
@@ -125,97 +140,576 @@ test("useRuntime runs the packaged binary instead of uv", async () => {
   }
 });
 
+/** A Lore home for one sandbox test, with the sandbox started on it. @param {Partial<import("../src/agent.mjs").Place>} [extra] */
+async function sandboxed(extra = {}) {
+  const { initializeSandbox } = await import("../src/agent.mjs");
+  const root = await realpath(await mkdtemp(join(tmpdir(), "lore-sandbox-")));
+  const loreHome = join(root, "lore");
+  const place = { loreHome, ...extra };
+  await initializeSandbox(place);
+  return { root, loreHome, place };
+}
+
+/** Swap `dir` between itself and a link to `elsewhere`, outside the sandbox, until stopped. @param {string} dir @param {string} elsewhere */
+function swapping(dir, elsewhere) {
+  const script = 'while :; do mv "$1" "$1.real" && ln -s "$2" "$1" && rm "$1" && mv "$1.real" "$1"; done';
+  // Its own process group, so stopping it also stops the mv or ln it is in the middle of.
+  const child = spawn("/bin/bash", ["-c", script, "swap", dir, elsewhere], { stdio: "ignore", detached: true });
+  const exited = new Promise((done) => child.once("exit", done));
+  return async () => {
+    process.kill(-(child.pid ?? 0), "SIGKILL");
+    await exited;
+    // Leave the real folder in place, whichever step the loop stopped on.
+    if (existsSync(`${dir}.real`)) {
+      await rm(dir, { force: true });
+      await rename(`${dir}.real`, dir);
+    }
+  };
+}
+
+const TASKS_ALL = ["capture", "setup", "publish", "deploy", "synthesize", "checkin", "evening"];
+
 test("desktop Bash is confined to Lore", { skip: process.platform !== "darwin" }, async () => {
-  const { createSandboxedBashOperations, initializeBashSandbox } = await import("../src/agent.mjs");
+  const { createSandboxedBashOperations } = await import("../src/agent.mjs");
   const { SandboxManager } = await import("@anthropic-ai/sandbox-runtime");
-  const real = await mkdtemp(join(tmpdir(), "lore-sandbox-"));
-  const home = `${real}-link`;
-  await symlink(real, home);
-  const inside = join(home, "inside");
-  const escaped = `${real}-escaped`;
+  const { root, loreHome, place } = await sandboxed();
   const output = [];
-  const run = (task, command) => createSandboxedBashOperations(home, task).exec(command, home, { onData: (data) => output.push(data) });
+  const run = (/** @type {string} */ command) => createSandboxedBashOperations(place).exec(command, loreHome, { onData: (data) => output.push(data) });
   try {
-    await initializeBashSandbox(home);
-    const result = await run("capture", `printf inside > ${JSON.stringify(inside)}; printf escaped > ${JSON.stringify(escaped)}`);
+    const inside = join(loreHome, "inside");
+    const escaped = join(root, "escaped");
+    const result = await run(`printf inside > ${JSON.stringify(inside)}; printf escaped > ${JSON.stringify(escaped)}`);
     assert.equal(result.exitCode, 1);
     assert.equal(await readFile(inside, "utf8"), "inside");
     await assert.rejects(readFile(escaped, "utf8"), { code: "ENOENT" });
     assert.match(Buffer.concat(output).toString(), /Operation not permitted|sandbox_violations/);
-    assert.equal((await run("capture", 'printf "$TMPDIR" > "$TMPDIR/probe" && cat "$TMPDIR/probe"')).exitCode, 0);
-    assert.deepEqual(SandboxManager.getNetworkRestrictionConfig().allowedHosts, []);
-    await run("deploy", "true");
-    assert.deepEqual(SandboxManager.getNetworkRestrictionConfig().allowedHosts, ["*"]);
-    await run("setup", "true");
-    assert.ok(SandboxManager.getFsWriteConfig().allowOnly.includes(join(homedir(), ".codex/automations")));
-    await run("capture", "true");
-    assert.deepEqual(SandboxManager.getNetworkRestrictionConfig().allowedHosts, []);
+    assert.equal((await run('printf "$TMPDIR" > "$TMPDIR/probe" && cat "$TMPDIR/probe"')).exitCode, 0);
+    // AUT-010: in the app Lore keeps the rhythm, so nothing writes an agent's scheduler.
+    assert.ok(!SandboxManager.getFsWriteConfig().allowOnly.includes(join(userInfo().homedir, ".codex/automations")));
   } finally {
     await SandboxManager.reset();
-    await rm(real, { recursive: true, force: true });
-    await rm(home, { force: true });
-    await rm(escaped, { force: true });
+    await rm(root, { recursive: true, force: true });
   }
 });
 
-test("desktop Bash reads the agents' memories, never their credential files", async () => {
-  const { bashSandboxPolicy } = await import("../src/agent.mjs");
+test("no command the agent runs reaches the network, in any task", { skip: process.platform !== "darwin" }, async () => {
+  const { createSandboxedBashOperations, sandboxPolicy } = await import("../src/agent.mjs");
+  const { SandboxManager } = await import("@anthropic-ai/sandbox-runtime");
+  const { root, loreHome, place } = await sandboxed();
+  try {
+    for (const task of TASKS_ALL) {
+      assert.deepEqual(sandboxPolicy(place, /** @type {AgentTask} */ (task)).network.allowedDomains, [], task);
+      const output = [];
+      const result = await createSandboxedBashOperations(place, /** @type {AgentTask} */ (task)).exec("curl -sS --max-time 5 -o /dev/null https://api.cloudflare.com/client/v4/", loreHome, { onData: (data) => output.push(data) });
+      assert.notEqual(result.exitCode, 0, task);
+      assert.deepEqual(SandboxManager.getConfig()?.network.allowedDomains, [], task);
+    }
+  } finally {
+    await SandboxManager.reset();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("the sandbox reads the agents' memories, never their credential files", async () => {
+  const { sandboxPolicy } = await import("../src/agent.mjs");
   const home = await mkdtemp(join(tmpdir(), "lore-policy-"));
   try {
-    const { allowRead } = bashSandboxPolicy(home, "setup").filesystem;
-    for (const dir of [".claude/projects", ".codex/memories", ".codex/automations"]) assert.ok(allowRead.includes(join(homedir(), dir)), dir);
-    for (const dir of [".claude", ".codex"]) assert.ok(!allowRead.includes(join(homedir(), dir)), `${dir} root, which holds auth.json and credentials`);
+    const { allowRead } = sandboxPolicy({ loreHome: home }).filesystem;
+    for (const dir of [".claude/projects", ".codex/memories"]) assert.ok(allowRead.includes(join(userInfo().homedir, dir)), dir);
+    for (const dir of [".claude", ".codex"]) assert.ok(!allowRead.includes(join(userInfo().homedir, dir)), `${dir} root, which holds auth.json and credentials`);
   } finally {
     await rm(home, { recursive: true });
   }
 });
 
-test("desktop write and edit are confined to Lore, like Bash already is", async () => {
-  const { createSandboxedEditOperations, createSandboxedWriteOperations } = await import("../src/agent.mjs");
-  const real = await mkdtemp(join(tmpdir(), "lore-fs-sandbox-"));
-  const home = `${real}-link`;
-  await symlink(real, home);
-  const escaped = `${real}-escaped`;
+test("the sandbox hides the account's home and the key's folder, wherever HOME points", async () => {
+  const { sandboxPolicy } = await import("../src/agent.mjs");
+  const { ATTENDED_KEY: key } = require("../src/state.cjs");
+  const home = await mkdtemp(join(tmpdir(), "lore-policy-"));
+  const moved = process.env.HOME;
   try {
-    const write = createSandboxedWriteOperations(home, "capture");
-    // Allowed: a new file, including a not-yet-created parent directory, inside Lore's home.
-    const nested = join(home, "notes", "inside.md");
+    process.env.HOME = home;
+    for (const task of TASKS_ALL) {
+      const { denyRead, allowRead, allowWrite } = sandboxPolicy({ loreHome: home, binDir: "/Applications/Lore.app/Contents/Resources/bin", hidden: [dirname(key)] }, /** @type {AgentTask} */ (task)).filesystem;
+      assert.equal(denyRead[0], userInfo().homedir, task);
+      assert.ok(denyRead.includes(dirname(key)), task);
+      assert.ok(![...allowRead, ...allowWrite].some((dir) => key === dir || key.startsWith(`${dir}/`)), `${task}: nothing lets the agent back in to it`);
+    }
+  } finally {
+    process.env.HOME = moved;
+    await rm(home, { recursive: true });
+  }
+});
+
+test("read goes through the sandbox: inside Lore yes; outside, through a link, or under a swapped folder never", { skip: process.platform !== "darwin" }, async () => {
+  const { createSandboxedReadOperations } = await import("../src/agent.mjs");
+  const { SandboxManager } = await import("@anthropic-ai/sandbox-runtime");
+  const outside = await realpath(await mkdtemp(join(tmpdir(), "lore-outside-")));
+  const { root, loreHome, place } = await sandboxed({ hidden: [outside] });
+  const read = createSandboxedReadOperations(place, "capture");
+  try {
+    await writeFile(join(loreHome, "inside.md"), "inside");
+    await writeFile(join(outside, "f"), "SECRET");
+    const png = Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 13]), Buffer.from("IHDR"), Buffer.alloc(17)]);
+    await writeFile(join(loreHome, "shot.png"), png);
+    await symlink(join(outside, "f"), join(loreHome, "link.md"));
+    await read.access(join(loreHome, "inside.md"));
+    assert.equal((await read.readFile(join(loreHome, "inside.md"))).toString(), "inside");
+    assert.equal(await read.detectImageMimeType?.(join(loreHome, "shot.png")), "image/png");
+    for (const path of [join(outside, "f"), join(loreHome, "link.md"), join(loreHome, "missing.md")]) {
+      await assert.rejects(read.access(path), /Lore can't read that file/, path);
+      await assert.rejects(read.readFile(path), /Lore can't read that file/, path);
+      await assert.rejects(read.detectImageMimeType?.(path) ?? Promise.reject(new Error()), /Lore can't read that file/, path);
+    }
+    // A folder swapped for a link to the outside, over and over, while the agent reads through it.
+    const dir = join(loreHome, "dir");
+    await mkdir(dir);
+    await writeFile(join(dir, "f"), "inside");
+    const stop = swapping(dir, outside);
+    const seen = new Set();
+    try {
+      for (let i = 0; i < 300; i++) seen.add(await read.readFile(join(dir, "f")).then((bytes) => bytes.toString(), () => "refused"));
+    } finally {
+      await stop();
+    }
+    assert.ok(!seen.has("SECRET"), "never anything from outside");
+    assert.ok(seen.has("inside"), "the real file still reads");
+  } finally {
+    await SandboxManager.reset();
+    await rm(root, { recursive: true, force: true });
+    await rm(outside, { recursive: true, force: true });
+  }
+});
+
+test("write and edit go through the sandbox: never outside, through a link, or under a swapped folder", { skip: process.platform !== "darwin" }, async () => {
+  const { createSandboxedEditOperations, createSandboxedWriteOperations } = await import("../src/agent.mjs");
+  const { SandboxManager } = await import("@anthropic-ai/sandbox-runtime");
+  const outside = await realpath(await mkdtemp(join(tmpdir(), "lore-outside-")));
+  const { root, loreHome, place } = await sandboxed();
+  const write = createSandboxedWriteOperations(place, "capture");
+  const edit = createSandboxedEditOperations(place, "capture");
+  try {
+    const nested = join(loreHome, "notes", "inside.md");
     await write.mkdir(dirname(nested));
     await write.writeFile(nested, "inside");
     assert.equal(await readFile(nested, "utf8"), "inside");
-    // Refused: a target outside Lore's home, resolved through the symlink the same way
-    // bashSandboxPolicy resolves loreHome itself, so a realpath escape can't slip past it.
-    await assert.rejects(write.writeFile(escaped, "escaped"), /Refusing to write outside Lore's home/);
-    await assert.rejects(readFile(escaped, "utf8"), { code: "ENOENT" });
-    await assert.rejects(write.mkdir(`${real}-escaped-dir`), /Refusing to write outside Lore's home/);
-
-    const edit = createSandboxedEditOperations(home, "capture");
     await edit.access(nested);
-    assert.equal((await edit.readFile(nested)).toString("utf8"), "inside");
+    assert.equal((await edit.readFile(nested)).toString(), "inside");
     await edit.writeFile(nested, "edited");
     assert.equal(await readFile(nested, "utf8"), "edited");
-    await assert.rejects(edit.access(escaped), /Refusing to write outside Lore's home/);
-    await assert.rejects(edit.readFile(escaped), /Refusing to write outside Lore's home/);
-    await assert.rejects(edit.writeFile(escaped, "x"), /Refusing to write outside Lore's home/);
 
-    // Refused: a symlink *at the leaf itself* inside Lore's home, pointing outside it.
-    // The ancestor walk alone never resolves this — dirname(leaf) already exists, so
-    // realpathOfTarget must also realpath the leaf when the leaf itself already exists.
-    const secret = `${real}-secret`;
-    await writeFile(secret, "top secret");
-    const leafSymlink = join(home, "pwn.md");
-    await symlink(secret, leafSymlink);
-    await assert.rejects(write.writeFile(leafSymlink, "pwned"), /Refusing to write outside Lore's home/);
-    await assert.rejects(edit.access(leafSymlink), /Refusing to write outside Lore's home/);
-    await assert.rejects(edit.readFile(leafSymlink), /Refusing to write outside Lore's home/);
-    await assert.rejects(edit.writeFile(leafSymlink, "pwned"), /Refusing to write outside Lore's home/);
-    assert.equal(await readFile(secret, "utf8"), "top secret");
+    await writeFile(join(outside, "f"), "SECRET");
+    await symlink(join(outside, "f"), join(loreHome, "pwn.md"));
+    for (const path of [join(outside, "f"), join(outside, "new.md"), join(loreHome, "pwn.md")]) {
+      await assert.rejects(write.writeFile(path, "pwned"), /Lore can't write there/, path);
+      await assert.rejects(edit.writeFile(path, "pwned"), /Lore can't write there/, path);
+      await assert.rejects(edit.access(path), /Lore can't write there/, path);
+    }
+    await assert.rejects(write.mkdir(join(outside, "made")), /Lore can't write there/);
+
+    const dir = join(loreHome, "dir");
+    await mkdir(dir);
+    await writeFile(join(dir, "f"), "inside");
+    const stop = swapping(dir, outside);
+    try {
+      for (let i = 0; i < 300; i++) await write.writeFile(join(dir, "f"), "pwned").catch(() => {});
+    } finally {
+      await stop();
+    }
+    assert.equal(await readFile(join(outside, "f"), "utf8"), "SECRET");
+    assert.deepEqual(await readdir(outside), ["f"]);
   } finally {
-    await rm(real, { recursive: true, force: true });
-    await rm(home, { force: true });
-    await rm(escaped, { recursive: true, force: true });
-    await rm(`${real}-escaped-dir`, { recursive: true, force: true });
-    await rm(`${real}-secret`, { force: true });
+    await SandboxManager.reset();
+    await rm(root, { recursive: true, force: true });
+    await rm(outside, { recursive: true, force: true });
+  }
+});
+
+test("the agent's shell, write and edit cannot change the store's files or the scheduled prompts, by any route", { skip: process.platform !== "darwin" }, async () => {
+  const { createSandboxedBashOperations, createSandboxedEditOperations, createSandboxedWriteOperations } = await import("../src/agent.mjs");
+  const { SandboxManager } = await import("@anthropic-ai/sandbox-runtime");
+  const outside = await realpath(await mkdtemp(join(tmpdir(), "lore-app-only-out-")));
+  const { root, loreHome: home, place } = await sandboxed();
+  const wrangler = join(home, "node", "node_modules", ".bin", "wrangler");
+  const prompt = join(home, "automation", "synthesis-prompt.md");
+  const output = [];
+  const run = async (/** @type {string} */ command) => (await createSandboxedBashOperations(place).exec(command, home, { onData: (data) => output.push(data) })).exitCode;
+  try {
+    await mkdir(dirname(wrangler), { recursive: true });
+    await writeFile(wrangler, "the app's own");
+    await writeFile(join(home, "planted"), "the agent's");
+    await writeFile(prompt, "the app's own");
+    const q = JSON.stringify;
+    for (const target of [wrangler, prompt]) {
+      const dir = dirname(target);
+      assert.notEqual(await run(`printf x > ${q(target)}`), 0, `overwrite ${target}`);
+      assert.notEqual(await run(`printf x > ${q(join(dir, "new"))}`), 0, `create in ${dir}`);
+      assert.notEqual(await run(`mv ${q(join(home, "planted"))} ${q(target)}`), 0, `rename onto ${target}`);
+      assert.notEqual(await run(`ln -sf ${q(join(home, "planted"))} ${q(join(dir, "link"))}`), 0, `symlink in ${dir}`);
+      assert.notEqual(await run(`rm ${q(target)}`), 0, `remove ${target}`);
+      assert.equal(await readFile(target, "utf8"), "the app's own");
+    }
+    for (const dir of ["node", "automation"]) {
+      // Moving the folder away and putting another in its place is a write on the folder itself.
+      assert.notEqual(await run(`mv ${q(join(home, dir))} ${q(join(home, `${dir}-old`))}`), 0, `rename ${dir}`);
+      assert.notEqual(await run(`mv ${q(join(home, dir))} ${q(join(outside, dir))}`), 0, `move ${dir} out`);
+    }
+    // A store not yet opened has no node folder: the agent cannot make one, or a link where it goes.
+    await rm(join(home, "node"), { recursive: true });
+    assert.notEqual(await run(`mkdir -p ${q(dirname(wrangler))}`), 0);
+    assert.notEqual(await run(`ln -s ${q(outside)} ${q(join(home, "node"))}`), 0);
+    await assert.rejects(readFile(join(home, "node")), { code: "ENOENT" });
+    // Everything else in Lore's home stays the agent's to write.
+    assert.equal(await run(`printf ok > ${q(join(home, "memories.md"))}`), 0);
+
+    const write = createSandboxedWriteOperations(place);
+    const edit = createSandboxedEditOperations(place);
+    await symlink(prompt, join(home, "to-prompt"));
+    for (const path of [prompt, wrangler, join(home, "to-prompt")]) {
+      await assert.rejects(write.writeFile(path, "x"), /Lore can't write there/, path);
+      await assert.rejects(edit.writeFile(path, "x"), /Lore can't write there/, path);
+    }
+    await assert.rejects(write.mkdir(dirname(wrangler)), /Lore can't write there/);
+    assert.equal(await readFile(prompt, "utf8"), "the app's own");
+  } finally {
+    await SandboxManager.reset();
+    await rm(root, { recursive: true, force: true });
+    await rm(outside, { recursive: true, force: true });
+  }
+});
+
+test("the agent's shell cannot change Lore's database", { skip: process.platform !== "darwin", todo: "Known gap: lore.db is writable inside the sandbox until an owner-only store for approvals and selling settings is decided" }, async () => {
+  const { createSandboxedBashOperations } = await import("../src/agent.mjs");
+  const { SandboxManager } = await import("@anthropic-ai/sandbox-runtime");
+  const { root, loreHome, place } = await sandboxed();
+  try {
+    await writeFile(join(loreHome, "lore.db"), "the app's own");
+    const result = await createSandboxedBashOperations(place).exec(`printf x >> ${JSON.stringify(join(loreHome, "lore.db"))}`, loreHome, { onData: () => {} });
+    assert.notEqual(result.exitCode, 0);
+  } finally {
+    await SandboxManager.reset();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("attachments: only regular files the agent could not have planted, within size, never a folder, a credential or Lore's own", async () => {
+  const { checkAttachments, FILE_CAP } = require("../src/attachments.cjs");
+  const root = await realpath(await mkdtemp(join(tmpdir(), "lore-attach-")));
+  const loreHome = join(root, "lore");
+  const kept = join(root, "kept");
+  try {
+    for (const dir of [loreHome, kept, join(root, "Desktop")]) await mkdir(dir, { recursive: true });
+    const notes = join(root, "Desktop", "notes.md");
+    await writeFile(notes, "what the owner attached");
+    await writeFile(join(loreHome, "planted.md"), "x");
+    await writeFile(join(kept, "attended"), "x");
+    await writeFile(join(root, "Desktop", "id_ed25519"), "x");
+    await writeFile(join(root, "Desktop", ".env"), "x");
+    await symlink(join(loreHome, "planted.md"), join(root, "Desktop", "link.md"));
+    assert.deepEqual(await checkAttachments(loreHome, [notes], [kept]), [{ name: "notes.md", path: notes, size: 23 }]);
+    for (const path of [join(root, "Desktop"), root, join(loreHome, "planted.md"), join(root, "Desktop", "link.md"), join(kept, "attended"), join(root, "Desktop", "id_ed25519"), join(root, "Desktop", ".env"), join(root, "missing.md")]) {
+      await assert.rejects(checkAttachments(loreHome, [path], [kept]), /Lore won't read/, path);
+    }
+    await assert.rejects(checkAttachments(loreHome, ["relative.md"], [kept]), /Invalid attachments/);
+    // Sizes are checked before anything is read: one file over its cap, or a turn over the total.
+    const big = join(root, "Desktop", "big.pdf");
+    await writeFile(big, "");
+    await require("node:fs/promises").truncate(big, FILE_CAP + 1);
+    await assert.rejects(checkAttachments(loreHome, [big], [kept]), /big\.pdf is larger than Lore takes \(25 MB\)/);
+    const parts = [];
+    for (let i = 0; i < 5; i++) {
+      parts.push(join(root, "Desktop", `part-${i}.pdf`));
+      await writeFile(parts[i], "");
+      await require("node:fs/promises").truncate(parts[i], FILE_CAP - 1);
+    }
+    await assert.rejects(checkAttachments(loreHome, parts, [kept]), /together are more than Lore takes at once \(100 MB\)/);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("the agent reads its copy of an attachment, not the original, and a quiet task reads neither", { skip: process.platform !== "darwin" }, async () => {
+  const { createSandboxedBashOperations, createSandboxedReadOperations } = await import("../src/agent.mjs");
+  const { SandboxManager } = await import("@anthropic-ai/sandbox-runtime");
+  // The original stands in for a file under the owner's home, which the sandbox hides.
+  const desktop = await realpath(await mkdtemp(join(tmpdir(), "lore-desktop-")));
+  const { agent, loreHome } = await scriptedAgent({ hidden: [desktop] });
+  try {
+    await writeFile(join(desktop, "notes.md"), "what the owner attached, and more written after the check");
+    await import("../src/agent.mjs").then(({ initializeSandbox }) => initializeSandbox(agent.options));
+    // Streamed one at a time, and only as many bytes as the file had when the app checked it.
+    const [copy, empty] = await agent.attach([{ name: "notes.md", path: join(desktop, "notes.md"), size: 23 }, { name: "empty.md", path: join(desktop, "notes.md"), size: 0 }]);
+    assert.equal(await readFile(empty, "utf8"), "");
+    assert.ok(copy.includes(`${sep}attachments${sep}`), copy);
+    const owner = createSandboxedReadOperations(agent.options, "capture");
+    assert.equal((await owner.readFile(copy)).toString(), "what the owner attached");
+    await assert.rejects(owner.readFile(join(desktop, "notes.md")), /Lore can't read that file/);
+    for (const task of ["synthesize", "checkin"]) {
+      await assert.rejects(createSandboxedReadOperations(agent.options, /** @type {AgentTask} */ (task)).readFile(copy), /Lore can't read that file/, task);
+      const result = await createSandboxedBashOperations(agent.options, /** @type {AgentTask} */ (task)).exec(`cat ${JSON.stringify(copy)}`, loreHome, { onData: () => {} });
+      assert.notEqual(result.exitCode, 0, task);
+    }
+  } finally {
+    agent.dispose();
+    await SandboxManager.reset();
+    await rm(loreHome, { recursive: true, force: true });
+    await rm(desktop, { recursive: true, force: true });
+  }
+});
+
+/** A stand-in CLI: answers the snapshot with a price, free copies and the store's payout address, and records every other call with its stdin. @param {string} directory @param {string | null} payout */
+async function recordingCli(directory, payout) {
+  const fake = join(directory, "lore");
+  const ran = join(directory, "ran");
+  const state = JSON.stringify({ version: 1, pricing: { publication_usd: 1.5, answer_usd: null, answer_enabled: false, free_copies: 3 }, node: { url: "https://lore.example.workers.dev/mcp", live: { state: "online", network: "eip155:8453", price_usd: 1.5, payout } } });
+  await writeFile(fake, `#!/bin/sh\nif [ "$1" = desktop-state ]; then echo '${state}'; exit 0; fi\necho "$* unattended=$LORE_UNATTENDED stdin=$([ "$1" = profile ] && cat)" >> ${JSON.stringify(ran)}\necho "Done"\n`, { mode: 0o755 });
+  return { fake, ran };
+}
+
+/** Where the store's last deploy recorded its payout, in the store's own folder; null clears it. @param {{address: string, network: string} | null} payout */
+async function recordPayout(payout) {
+  const file = join(process.env.LORE_STORE ?? "", "payout.json");
+  if (payout) await writeFile(file, JSON.stringify(payout));
+  else await rm(file, { force: true });
+}
+
+test("the store opens only after the owner says yes to the network, the whole address, the price and free copies", async () => {
+  const { openStore, useRuntime, dollars } = require("../src/state.cjs");
+  assert.equal(dollars.format(0.000001), "$0.000001", "a price below a cent reads as itself on the card the owner confirms");
+  assert.equal(dollars.format(1.5), "$1.50");
+  const directory = await mkdtemp(join(tmpdir(), "lore-desktop-"));
+  const { fake, ran } = await recordingCli(directory, null);
+  const wallet = `0x${"ab12".repeat(9)}c0de`;
+  /** @type {OwnerQuestion[][]} */
+  const asked = [];
+  const answer = (/** @type {string} */ label) => async (/** @type {OwnerQuestion[]} */ questions) => { asked.push(questions); return { [questions[0].question]: label }; };
+  try {
+    useRuntime(fake);
+    await recordPayout(null);
+    assert.match(await openStore(directory, { network: "real", wallet }, answer("Not now")), /chose not to/);
+    assert.ok(!existsSync(ran), "nothing ran without a yes");
+    assert.equal(asked[0][0].question, `Open your store? Real money · paid to 0x ${"ab12 ".repeat(9)}c0de · $1.50 a piece · the first 3 copies of each piece free`);
+    assert.match(await openStore(directory, { network: "real", wallet: "0x123" }, answer("Open it")), /not valid/);
+    assert.match(await openStore(directory, { network: /** @type {"real"} */ ("main"), wallet }, answer("Open it")), /real money or the test network/);
+    assert.equal(asked.length, 1, "a bad address or network never reaches the owner");
+    assert.match(await openStore(directory, { network: "real", wallet }, answer("Open it")), /deployed/);
+    assert.equal(await readFile(ran, "utf8"), `node deploy --network real --wallet ${wallet} unattended=1 stdin=\n`);
+  } finally {
+    useRuntime();
+    await rm(directory, { recursive: true });
+  }
+});
+
+test("putting the store online for the owner's agents asks one yes, and never a network, payout or price", async () => {
+  const { openStore, useRuntime } = require("../src/state.cjs");
+  const directory = await mkdtemp(join(tmpdir(), "lore-desktop-"));
+  const { fake, ran } = await recordingCli(directory, null);
+  /** @type {OwnerQuestion[][]} */
+  const asked = [];
+  const answer = (/** @type {string} */ label) => async (/** @type {OwnerQuestion[]} */ questions) => { asked.push(questions); return { [questions[0].question]: label }; };
+  try {
+    useRuntime(fake);
+    await recordPayout(null);
+    assert.match(await openStore(directory, { inboxOnly: true }, answer("Not now")), /chose not to/);
+    assert.ok(!existsSync(ran), "nothing ran without a yes");
+    assert.equal(asked[0][0].question, "Put your store online so your agents can save to it? Nothing goes on sale.");
+    assert.match(await openStore(directory, { inboxOnly: true }, answer("Put it online")), /deployed/);
+    assert.equal(await readFile(ran, "utf8"), "node deploy --inbox-only unattended=1 stdin=\n");
+    assert.equal(asked.length, 2, "one card each time, and nothing else asked");
+  } finally {
+    useRuntime();
+    await rm(directory, { recursive: true });
+  }
+});
+
+test("a redeploy pays where the store's own record says, whatever Lore's database claims, and deploys exactly that", async () => {
+  const { openStore, useRuntime } = require("../src/state.cjs");
+  const directory = await mkdtemp(join(tmpdir(), "lore-desktop-"));
+  // The snapshot (from lore.db, which the agent can write) names a different address.
+  const forged = `0x${"bad0".repeat(10)}`;
+  const { fake, ran } = await recordingCli(directory, forged);
+  const recorded = `0x${"5e11".repeat(9)}f00d`;
+  /** @type {OwnerQuestion[][]} */
+  const asked = [];
+  try {
+    useRuntime(fake);
+    await recordPayout({ address: recorded, network: "test" });
+    const said = await openStore(directory, {}, async (questions) => { asked.push(questions); return { [questions[0].question]: "Open it" }; });
+    assert.match(said, /deployed/);
+    assert.equal(asked.length, 1);
+    assert.equal(asked[0][0].question, `Open your store? The test network · paid to 0x ${"5e11 ".repeat(9)}f00d · $1.50 a piece · the first 3 copies of each piece free`);
+    assert.ok(!asked[0][0].question.includes("bad0"));
+    assert.equal(await readFile(ran, "utf8"), `node deploy --network test --wallet ${recorded} unattended=1 stdin=\n`);
+  } finally {
+    await recordPayout(null);
+    useRuntime();
+    await rm(directory, { recursive: true });
+  }
+});
+
+test("a new address where the store already pays somewhere is shown as a change, naming both", async () => {
+  const { openStore, useRuntime } = require("../src/state.cjs");
+  const directory = await mkdtemp(join(tmpdir(), "lore-desktop-"));
+  const { fake, ran } = await recordingCli(directory, null);
+  const recorded = `0x${"5e11".repeat(9)}f00d`;
+  const next = `0x${"7777".repeat(10)}`;
+  /** @type {OwnerQuestion[][]} */
+  const asked = [];
+  const answer = (/** @type {string} */ label) => async (/** @type {OwnerQuestion[]} */ questions) => { asked.push(questions); return { [questions[0].question]: label }; };
+  try {
+    useRuntime(fake);
+    await recordPayout({ address: recorded, network: "real" });
+    assert.match(await openStore(directory, { wallet: next }, answer("Change it")), /deployed/);
+    assert.equal(asked[0][0].question, `Change where your sales are paid? Real money · from 0x ${"5e11 ".repeat(9)}f00d to 0x ${"7777 ".repeat(9)}7777 · $1.50 a piece · the first 3 copies of each piece free`);
+    assert.equal(asked[0][0].options[0].label, "Change it");
+    // The same address, in any case, is no change.
+    assert.match(await openStore(directory, { wallet: recorded.toUpperCase().replace("0X", "0x") }, answer("Open it")), /deployed/);
+    assert.match(asked[1][0].question, /^Open your store\? Real money · paid to 0x 5E11/);
+    assert.equal(await readFile(ran, "utf8"), `node deploy --network real --wallet ${next} unattended=1 stdin=\nnode deploy --network real --wallet ${recorded.toUpperCase().replace("0X", "0x")} unattended=1 stdin=\n`);
+  } finally {
+    await recordPayout(null);
+    useRuntime();
+    await rm(directory, { recursive: true });
+  }
+});
+
+test("a store left half-changed is said plainly in the desktop result, with no setting names", async () => {
+  const { openStore, useRuntime } = require("../src/state.cjs");
+  const directory = await mkdtemp(join(tmpdir(), "lore-desktop-"));
+  const fake = join(directory, "lore");
+  const state = JSON.stringify({ version: 1, pricing: { publication_usd: 1.5, answer_usd: null, answer_enabled: false, free_copies: 0 } });
+  const next = `0x${"7777".repeat(10)}`;
+  // The CLI as it ends when the wallet changed, the network did not, and the old wallet could not go back.
+  await writeFile(fake, `#!/bin/sh\nif [ "$1" = desktop-state ]; then echo '${state}'; exit 0; fi\necho "! Your store may be half-updated: it now pays ${next} on its old network. Open your store again to finish." >&2\necho "lore: Lore couldn't switch your store's network:" >&2\necho "vault down" >&2\nexit 1\n`, { mode: 0o755 });
+  try {
+    useRuntime(fake);
+    await recordPayout({ address: `0x${"5e11".repeat(10)}`, network: "test" });
+    const said = await openStore(directory, { network: "real", wallet: next }, async (questions) => ({ [questions[0].question]: "Change it" }));
+    assert.equal(said, `The deploy did not finish: Lore couldn't switch your store's network.\nYour store may be half-updated: it now pays ${next} on its old network. Open your store again to finish.`);
+    assert.ok(!said.includes("LORE_"));
+  } finally {
+    await recordPayout(null);
+    useRuntime();
+    await rm(directory, { recursive: true });
+  }
+});
+
+test("a redeploy with no payout on record asks the owner on the app's own card, never guesses", async () => {
+  const { openStore, useRuntime } = require("../src/state.cjs");
+  const directory = await mkdtemp(join(tmpdir(), "lore-desktop-"));
+  const { fake, ran } = await recordingCli(directory, `0x${"bad0".repeat(10)}`);
+  const typed = `0x${"7777".repeat(10)}`;
+  /** @type {OwnerQuestion[][]} */
+  const asked = [];
+  try {
+    useRuntime(fake);
+    await recordPayout(null);
+    // Nothing typed: nothing opens.
+    assert.match(await openStore(directory, { network: "real" }, async (questions) => { asked.push(questions); return {}; }), /no payout address/);
+    assert.equal(asked[0][0].format, "evm_address");
+    assert.ok(!existsSync(ran));
+    const said = await openStore(directory, { network: "real" }, async (questions) => {
+      asked.push(questions);
+      return { [questions[0].question]: questions[0].format === "evm_address" ? typed : "Open it" };
+    });
+    assert.match(said, /deployed/);
+    assert.match(asked.at(-1)?.[0].question ?? "", new RegExp(`paid to 0x ${"7777 ".repeat(9)}7777`));
+    assert.equal(await readFile(ran, "utf8"), `node deploy --network real --wallet ${typed} unattended=1 stdin=\n`);
+    // And with neither a network asked nor one on record, it says so instead of picking.
+    assert.match(await openStore(directory, {}, async () => ({})), /Say which network/);
+  } finally {
+    useRuntime();
+    await rm(directory, { recursive: true });
+  }
+});
+
+test("an agent's question never carries the app's full-text block to the owner", async () => {
+  const { fauxAssistantMessage, fauxToolCall } = await import("@earendil-works/pi-ai");
+  /** @type {OwnerQuestion[][]} */
+  const shown = [];
+  const { agent, faux, loreHome } = await scriptedAgent({ askUser: async (questions) => { shown.push(questions); return {}; } });
+  const question = { question: "Pick one", header: "Pick", options: [{ label: "A", description: "a", injected: true }], multiSelect: false, detail: "planted text" };
+  faux.setResponses([
+    fauxAssistantMessage(fauxToolCall("ask_user", { questions: [question] }), { stopReason: "toolUse" }),
+    fauxAssistantMessage("Done.")
+  ]);
+  try {
+    await agent.prompt("Ask me", "capture");
+    assert.equal(shown.length, 0, "the schema refuses a field an ask_user card does not have");
+    // And were one to get past it, only the card's own fields go on.
+    const { asked } = await import("../src/agent.mjs");
+    assert.deepEqual(asked([/** @type {OwnerQuestion} */ (question)]), [{ question: "Pick one", header: "Pick", options: [{ label: "A", description: "a" }], multiSelect: false }]);
+    assert.ok(!JSON.stringify(shown).includes("planted text"));
+  } finally {
+    agent.dispose();
+    await rm(loreHome, { recursive: true, force: true });
+  }
+});
+
+test("the profile saves only after the owner sees every part of it in full", async () => {
+  const { saveProfile, useRuntime } = require("../src/state.cjs");
+  const directory = await mkdtemp(join(tmpdir(), "lore-desktop-"));
+  const { fake, ran } = await recordingCli(directory, null);
+  const long = "Keep out ".repeat(60).trim();
+  const profile = { role: "Founder", boundaries: long, cadence: "weekly", day: 6, hour: 21, executor: "lore" };
+  /** @type {OwnerQuestion[]} */
+  const asked = [];
+  const answer = (/** @type {string} */ label) => async (/** @type {OwnerQuestion[]} */ questions) => { asked.push(questions[0]); return { [questions[0].question]: label }; };
+  try {
+    useRuntime(fake);
+    assert.match(await saveProfile(directory, profile, answer("Not now")), /chose not to/);
+    assert.ok(!existsSync(ran));
+    assert.equal(asked[0].question, "Save this profile?");
+    assert.equal(asked[0].detail, `Lore reads your apps every Sunday at 9 PM.\n\nRole: Founder\n\nKeep out: ${long}`);
+    await saveProfile(directory, profile, answer("Save it"));
+    assert.equal(await readFile(ran, "utf8"), `profile - unattended= stdin=${JSON.stringify(profile)}\n`);
+  } finally {
+    useRuntime();
+    await rm(directory, { recursive: true });
+  }
+});
+
+test("a shell command with no limit of its own stops at Lore's default", { skip: process.platform !== "darwin" }, async () => {
+  const { createSandboxedBashOperations, BASH_TIMEOUT_S } = await import("../src/agent.mjs");
+  const { SandboxManager } = await import("@anthropic-ai/sandbox-runtime");
+  const { root, loreHome, place } = await sandboxed();
+  try {
+    assert.equal(BASH_TIMEOUT_S, 600);
+    const started = Date.now();
+    await assert.rejects(createSandboxedBashOperations(place, "capture", 1).exec("sleep 30", loreHome, { onData: () => {} }), /timeout/);
+    assert.ok(Date.now() - started < 10_000);
+    // A limit the agent names wins.
+    assert.equal((await createSandboxedBashOperations(place, "capture", 1).exec("sleep 2", loreHome, { onData: () => {}, timeout: 10 })).exitCode, 0);
+  } finally {
+    await SandboxManager.reset();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("each task reads only its own conversation, and no read runs long or large", { skip: process.platform !== "darwin" }, async () => {
+  const { createSandboxedReadOperations, READ_CAP } = await import("../src/agent.mjs");
+  const { SandboxManager } = await import("@anthropic-ai/sandbox-runtime");
+  const { root, loreHome, place } = await sandboxed();
+  try {
+    for (const task of ["capture", "synthesize"]) {
+      await mkdir(join(loreHome, ".pi", "sessions", task), { recursive: true });
+      await writeFile(join(loreHome, ".pi", "sessions", task, "s.jsonl"), task);
+    }
+    const quiet = createSandboxedReadOperations(place, "synthesize");
+    assert.equal((await quiet.readFile(join(loreHome, ".pi", "sessions", "synthesize", "s.jsonl"))).toString(), "synthesize");
+    await assert.rejects(quiet.readFile(join(loreHome, ".pi", "sessions", "capture", "s.jsonl")), /Lore can't read that file/);
+    await assert.rejects(createSandboxedReadOperations(place, "capture").readFile(join(loreHome, ".pi", "sessions", "synthesize", "s.jsonl")), /Lore can't read that file/);
+
+    const read = createSandboxedReadOperations(place, "capture");
+    await writeFile(join(loreHome, "huge.txt"), Buffer.alloc(READ_CAP + 1, 97));
+    await assert.rejects(read.readFile(join(loreHome, "huge.txt")), /larger than Lore reads at once/);
+    spawnSync("mkfifo", [join(loreHome, "pipe")]);
+    const started = Date.now();
+    await assert.rejects(read.readFile(join(loreHome, "pipe")), /Lore can't read that file/);
+    assert.ok(Date.now() - started < 5000, "a pipe is refused, not waited on");
+  } finally {
+    await SandboxManager.reset();
+    await rm(root, { recursive: true, force: true });
   }
 });
 
@@ -253,31 +747,6 @@ test("a streamed CLI command hands back each line and fails on a non-zero exit",
   } finally {
     useRuntime();
     await rm(directory, { recursive: true });
-  }
-});
-
-test("switching tasks updates the live network policy the proxy actually filters against", { skip: process.platform !== "darwin" }, async () => {
-  const { createSandboxedBashOperations, initializeBashSandbox } = await import("../src/agent.mjs");
-  const { SandboxManager } = await import("@anthropic-ai/sandbox-runtime");
-  const home = await mkdtemp(join(tmpdir(), "lore-sandbox-net-"));
-  try {
-    // initializeBashSandbox() always starts the session with the "capture"
-    // policy (empty network allowlist) regardless of which task runs first.
-    await initializeBashSandbox(home);
-    assert.deepEqual(SandboxManager.getConfig().network.allowedDomains, []);
-    // filterNetworkRequest — the mux proxy's live per-request filter — reads
-    // only this session-level config, never the customConfig exec() passes to
-    // wrapWithSandbox. Running a "deploy" command must update it in place, or
-    // deploy stays filtered against "capture"'s empty allowlist forever.
-    const result = await createSandboxedBashOperations(home, "deploy").exec("true", home, { onData: () => {} });
-    assert.equal(result.exitCode, 0);
-    assert.deepEqual(SandboxManager.getConfig().network.allowedDomains, ["*"]);
-    // And it swaps back for the next "capture" command in the same session.
-    await createSandboxedBashOperations(home, "capture").exec("true", home, { onData: () => {} });
-    assert.deepEqual(SandboxManager.getConfig().network.allowedDomains, []);
-  } finally {
-    await SandboxManager.reset();
-    await rm(home, { recursive: true, force: true });
   }
 });
 
@@ -363,12 +832,17 @@ test("a declined attended tool's plain-text result survives a resume, not just J
     written.appendMessage({ role: "toolResult", toolCallId: "call-err", toolName: "cloudflare_login", content: [{ type: "text", text: "wrangler crashed" }], isError: true, timestamp: 3 });
     written.appendMessage({ role: "toolResult", toolCallId: "call-2", toolName: "propose_price", content: [{ type: "text", text: JSON.stringify({ price_usd: 0.01 }) }], isError: false, timestamp: 4 });
     written.appendMessage({ role: "toolResult", toolCallId: "call-3", toolName: "propose_price", content: [{ type: "text", text: JSON.stringify({ price_usd: null }) }], isError: false, timestamp: 4 });
+    const halfway = "The deploy did not finish: Lore couldn't switch your store's network.\nYour store may be half-updated: it now pays 0x7777 on its old network. Open your store again to finish.";
+    written.appendMessage({ role: "toolResult", toolCallId: "call-4", toolName: "open_store", content: [{ type: "text", text: halfway }], isError: false, timestamp: 5 });
+    written.appendMessage({ role: "toolResult", toolCallId: "call-5", toolName: "save_profile", content: [{ type: "text", text: "The owner kept their profile as it was." }], isError: false, timestamp: 6 });
     assert.deepEqual(LoreAgent.history(home, "deploy"), [
       { text: "Help me open my store.", owner: true },
       { text: "Please sign in to the free hosting account in the browser.", owner: false },
       { text: "The owner chose not to sign in to Cloudflare right now.", owner: false },
       { text: "Price set: $0.01", owner: false },
-      { text: "The owner declined to set a price.", owner: false }
+      { text: "The owner declined to set a price.", owner: false },
+      { text: halfway, owner: false },
+      { text: "The owner kept their profile as it was.", owner: false }
     ]);
   } finally {
     await rm(home, { recursive: true });
@@ -656,6 +1130,30 @@ test("a capture that saves closes as done even when the agent never calls finish
   // "succeeded" paired with a summary that says the opposite.
   assert.deepEqual(jobOutcome(true), ["succeeded", "captured"]);
   assert.deepEqual(jobOutcome(false), ["incomplete", "stopped"]);
+});
+
+test("putting the store online for the owner's agents asks only for the sign-in, in its subtitle too", async () => {
+  // XC-069: the request the app sends is the one the agent recognizes.
+  const { deployPhase } = await import("../src/agent.mjs");
+  const renderer = await readFile(join(__dirname, "../src/renderer.js"), "utf8");
+  const intent = /const AGENT_STORE_INTENT = "([^"]+)";/.exec(renderer)?.[1] ?? "";
+  assert.equal(deployPhase("deploy", intent), "Sign in to Cloudflare");
+  assert.equal(deployPhase("deploy", "Help me open my store."), undefined);
+  assert.equal(deployPhase("publish", intent), undefined);
+});
+
+test("a reply in the agents' store thread keeps its subtitle; a stopped or finished one doesn't pass it on", async () => {
+  const { turnPhase } = await import("../src/agent.mjs");
+  const record = (/** @type {TaskState} */ state, phase = "Sign in to Cloudflare") => ({ version: 1, kind: /** @type {const} */ ("deploy"), title: "Open your store", state, phase, updatedAt: "" });
+  for (const state of /** @type {TaskState[]} */ (["working", "needs_you"])) {
+    assert.equal(turnPhase("deploy", "I'm signed in now", record(state)), "Sign in to Cloudflare", state);
+  }
+  // A thread that stopped or failed records its own subtitle, and a finished one starts over.
+  assert.equal(turnPhase("deploy", "Help me open my store.", record("stopped", "Needs another try")), undefined);
+  assert.equal(turnPhase("deploy", "Help me open my store.", record("done")), undefined);
+  assert.equal(turnPhase("deploy", "Help me open my store.", record("working", "Price, sign-in, payout")), undefined);
+  assert.equal(turnPhase("deploy", "Help me open my store.", null), undefined);
+  assert.equal(turnPhase("publish", "Help me publish", record("working")), undefined);
 });
 
 test("deploy is a task kind with its own session, title, and records", async () => {
@@ -948,7 +1446,8 @@ test("a CLI refusal explained over several lines reaches the owner as its Reason
     await mkdir(join(home, "automation"), { recursive: true });
     await writeFile(join(home, "automation", "profile.json"), JSON.stringify({ executor: "", cadence: "daily", hour: 21 }));
     await assert.rejects(schedule(), (error) => /^'' is not a valid Agent$/.test(error.message));
-    assert.deepEqual((await readState(home)).setup.schedule, { installed: false, executor: null, cadence: null, hour: null });
+    // With no model named, Lore reads on the saved rhythm itself (AUT-009).
+    assert.equal((await readState(home)).setup.schedule?.hour, 21);
   } finally {
     await rm(home, { recursive: true });
   }
@@ -988,8 +1487,9 @@ test("connecting an app validates before any CLI call, then round-trips through 
   await writeFile(join(vault, "note.md"), "# Note\n\nA lesson long enough to be worth keeping.");
   process.env.OBSIDIAN_HOME = obsidian;
   try {
-    assert.deepEqual((await sourceCatalog(directory)).map((app) => [app.id, app.kind]), [["obsidian", "folder"], ["chatgpt", "export"], ["claude", "export"], ["substack", "feed"], ["medium", "feed"], ["bluesky", "feed"], ["blog", "feed"], ["granola", "mcp"], ["notion", "mcp"], ["readwise", "mcp"]]);
-    assert.deepEqual(await sourceChoices(directory, "obsidian"), [{ label: "Personal", locator: vault, open: true }]);
+    assert.deepEqual((await sourceCatalog(directory)).map((app) => [app.id, app.kind]), [["obsidian", "folder"], ["chatgpt", "export"], ["claude", "export"], ["substack", "feed"], ["medium", "feed"], ["bluesky", "feed"], ["blog", "feed"], ["letterboxd", "feed"], ["goodreads", "feed"], ["granola", "mcp"], ["notion", "mcp"], ["readwise", "mcp"], ["agent", "agent"]]);
+    // Offered under the path its source will keep, so a vault already connected is recognised (APP-215).
+    assert.deepEqual(await sourceChoices(directory, "obsidian"), [{ label: "Personal", locator: await realpath(vault), open: true }]);
     await assert.rejects(connectSource(directory, { connector: "evernote", locator: vault }), { message: /unknown app/ });
     // Closing the sheet aborts the read, and nothing is connected.
     await assert.rejects(connectSource(directory, { connector: "obsidian", locator: vault }, AbortSignal.abort()), { message: "Cancelled" });
@@ -1025,8 +1525,7 @@ test("listing switches the store on through the CLI and hands back the request f
   const previous = { PATH: process.env.PATH, LORE_MARKETPLACE_URL: process.env.LORE_MARKETPLACE_URL };
   try {
     // A deployed node whose push always succeeds, and a public list this test controls.
-    await mkdir(join(directory, "node"));
-    await writeFile(join(directory, "node", "wrangler.jsonc"), "{}");
+    await writeFile(join(process.env.LORE_STORE ?? "", "wrangler.jsonc"), "{}");
     await mkdir(join(directory, "bin"));
     await writeFile(join(directory, "bin", "npx"), "#!/bin/sh\nexit 0\n", { mode: 0o755 });
     await writeFile(file, JSON.stringify({ sellers: [] }));
@@ -1036,7 +1535,9 @@ test("listing switches the store on through the CLI and hands back the request f
 from lore.store import Store
 from lore import blueprint
 import json
-with Store() as store: store.set_setting("node_url", "https://lore.example.workers.dev/mcp")
+with Store() as store:
+    store.set_setting("node_url", "https://lore.example.workers.dev/mcp")
+    store.set_setting("node_selling", True)
 blueprint.blueprint_path().parent.mkdir(parents=True, exist_ok=True)
 blueprint.blueprint_path().write_text(json.dumps({"name": "Ada"}))
 `], { cwd: join(__dirname, "../../.."), env: { ...process.env, LORE_HOME: directory }, stdio: "inherit" });
@@ -1151,10 +1652,82 @@ async function until(done) {
   assert.ok(done(), "timed out");
 }
 
+test("the agent's read tool is the sandboxed one: its copy of an attachment opens, a file Lore hides does not", { skip: process.platform !== "darwin" }, async () => {
+  const { fauxAssistantMessage, fauxToolCall } = await import("@earendil-works/pi-ai");
+  const { SandboxManager } = await import("@anthropic-ai/sandbox-runtime");
+  const { initializeSandbox } = await import("../src/agent.mjs");
+  const outside = await realpath(await mkdtemp(join(tmpdir(), "lore-outside-")));
+  const { agent, faux, loreHome } = await scriptedAgent({ hidden: [outside] });
+  const secret = join(outside, "secret.md");
+  /** @type {Array<{text: string, isError: boolean}>} */
+  const results = [];
+  try {
+    await writeFile(secret, "top secret");
+    await initializeSandbox(agent.options);
+    await writeFile(join(outside, "notes.md"), "what the owner attached");
+    const [copy] = await agent.attach([{ name: "notes.md", path: join(outside, "notes.md"), size: 23 }]);
+    faux.setResponses([
+      fauxAssistantMessage([fauxToolCall("read", { path: copy }, { id: "r-1" }), fauxToolCall("read", { path: secret }, { id: "r-2" })], { stopReason: "toolUse" }),
+      (context) => {
+        for (const message of context.messages) {
+          if (message.role === "toolResult") results.push({ text: message.content.map((block) => (block.type === "text" ? block.text : "")).join(""), isError: message.isError });
+        }
+        return fauxAssistantMessage("Done.");
+      }
+    ]);
+    await agent.prompt("Read these", "capture", undefined, undefined, undefined, [copy]);
+    assert.deepEqual(results.map((result) => result.isError), [false, true]);
+    assert.match(results[0].text, /what the owner attached/);
+    assert.match(results[1].text, /Lore can't read that file/);
+    assert.ok(!results[1].text.includes("top secret"));
+  } finally {
+    agent.dispose();
+    await SandboxManager.reset();
+    await rm(loreHome, { recursive: true, force: true });
+    await rm(outside, { recursive: true, force: true });
+  }
+});
+
+test("the store opens through the app; the agent's own shell can neither stage it nor reach Cloudflare", { skip: process.platform !== "darwin" }, async () => {
+  const { fauxAssistantMessage, fauxToolCall } = await import("@earendil-works/pi-ai");
+  const { SandboxManager } = await import("@anthropic-ai/sandbox-runtime");
+  const { initializeSandbox } = await import("../src/agent.mjs");
+  /** @type {OpenStore[]} */
+  const opened = [];
+  const { agent, faux, loreHome } = await scriptedAgent({ openStore: async (store) => { opened.push(store); return "The store is deployed."; } });
+  const wallet = `0x${"a".repeat(40)}`;
+  /** @type {string[]} */
+  const results = [];
+  faux.setResponses([
+    // What `lore node deploy` needs first from a shell: the store's folder, then Cloudflare.
+    fauxAssistantMessage(fauxToolCall("bash", { command: 'mkdir -p "$LORE_HOME/node/src"; echo "folder=$?"; curl -sS --max-time 5 -o /dev/null https://api.cloudflare.com/client/v4/; echo "network=$?"' }), { stopReason: "toolUse" }),
+    fauxAssistantMessage(fauxToolCall("open_store", { network: "real", wallet }), { stopReason: "toolUse" }),
+    (context) => {
+      for (const message of context.messages) {
+        if (message.role === "toolResult") results.push(message.content.map((block) => (block.type === "text" ? block.text : "")).join(""));
+      }
+      return fauxAssistantMessage("Your store is open.");
+    }
+  ]);
+  try {
+    await initializeSandbox(agent.options);
+    await agent.prompt("Open my store", "deploy");
+    assert.match(results[0], /folder=[1-9]/);
+    assert.match(results[0], /network=[1-9]/);
+    assert.ok(!existsSync(join(loreHome, "node")), "the agent staged nothing");
+    assert.deepEqual(opened, [{ network: "real", wallet }]);
+    assert.equal(results[1], "The store is deployed.");
+  } finally {
+    agent.dispose();
+    await SandboxManager.reset();
+    await rm(loreHome, { recursive: true, force: true });
+  }
+});
+
 test("an app that brings something new in is read through once; one that brings nothing is not", () => {
   const { worthReading } = require("../src/reading.cjs");
   const apps = [{ id: "granola", name: "Granola", item: "meeting" }, { id: "medium", name: "Medium", item: "story" }];
-  assert.deepEqual(worthReading({ name: "granola-1", connector: "granola", added: 23 }, apps), { name: "granola-1", label: "Granola", item: "meeting", added: 23 });
+  assert.deepEqual(worthReading({ name: "granola-1", connector: "granola", added: 23 }, apps), { name: "granola-1", label: "Granola", item: "meeting", added: 23, title: "Lore read your Granola meetings", phase: "Reading your Granola meetings", by: { kind: "app", id: "granola-1", label: "Granola", mark: "granola" } }, "worded once, for Today and the notification, and the app on record for what it brings");
   assert.equal(worthReading({ name: "granola-1", connector: "granola", added: 0 }, apps), null);
   assert.equal(worthReading({ name: "granola-1", connector: "granola" }, apps), null, "a CLI older than AUT-005 says nothing came in");
   assert.equal(worthReading({ name: "codex", connector: null, added: 3 }, apps), null, "the agents' own memories are the schedule's");
@@ -1177,9 +1750,9 @@ test("a reading runs quietly, says what it is doing on Today, and hands back wha
     fauxAssistantMessage("Done.")
   ]);
   try {
-    agent.synthesize({ name: "granola-1", label: "Granola", item: "meeting", added: 23 });
+    agent.synthesize({ name: "granola-1", label: "Granola", item: "meeting", added: 23, title: "Lore read your Granola meetings", phase: "Reading your Granola meetings" });
     await until(() => handed.length === 1);
-    assert.deepEqual(handed, [[{ name: "granola-1", label: "Granola", item: "meeting", added: 23 }, report]]);
+    assert.deepEqual(handed, [[{ name: "granola-1", label: "Granola", item: "meeting", added: 23, title: "Lore read your Granola meetings", phase: "Reading your Granola meetings" }, report]]);
     assert.match(asked[0], /lore-synthesize/);
     assert.match(asked[0], /23 new Granola meetings/);
     assert.match(asked[0], /"granola-1"/);
@@ -1230,7 +1803,7 @@ test("a reading lands as Today lists it: only stored memories, work never for sa
   const memory = (id, file, status = "private") => ({ id, title: `Topic ${id}`, content: "", project: "", source: "automation", source_path: `${folder}/${file}`, status, updated_at: "" });
   const stored = [memory(1, "receipts.md"), memory(2, "work/launch-review.md"), memory(3, "dropped.md", "discarded")];
   const run = landed(
-    { name: "granola-1", label: "Granola", item: "meeting", added: 23 },
+    { name: "granola-1", label: "Granola", item: "meeting", added: 23, title: "Lore read your Granola meetings", phase: "Reading your Granola meetings" },
     {
       read: 23,
       memories: [
@@ -1250,8 +1823,23 @@ test("a reading lands as Today lists it: only stored memories, work never for sa
     { id: 2, title: "Topic 2", sell: false, work: true, why: "names the client" }
   ]);
   assert.equal(run.seen, false);
-  assert.deepEqual(announcement(run), { title: "Lore turned 23 Granola meetings into 2 memories", body: "1 looks worth selling." });
-  assert.deepEqual(announcement({ ...run, read: 1, memories: [run.memories[1]] }), { title: "Lore turned 1 Granola meeting into 1 memory", body: "They stay private on this Mac." });
+  assert.deepEqual(announcement(run), { title: "Lore read your Granola meetings", body: "2 new memories. 1 looks worth selling." });
+  assert.deepEqual(announcement({ ...run, read: 1, memories: [run.memories[1]] }), { title: "Lore read your Granola meetings", body: "1 new memory. They stay private on this Mac." });
+});
+
+test("the memories the owner has seen are kept across relaunches, from where Lore began keeping track", async () => {
+  const { Seen, seenIds } = require("../src/reading.cjs");
+  const directory = await mkdtemp(join(tmpdir(), "lore-seen-"));
+  const file = join(directory, "memories-seen.json");
+  assert.deepEqual(await new Seen(file).read(12), { since: 12, arrivals: [] }, "a library from before is never all new at once");
+  const seen = new Seen(file);
+  await Promise.all([seen.add([13, 14]), seen.add([15]), seen.add([3])]);
+  assert.deepEqual(await new Seen(file).read(99), { since: 12, arrivals: [13, 14, 15] }, "two reports at once both land; an old memory needs no record; a relaunch keeps since");
+  await writeFile(file, "{not json");
+  assert.deepEqual(await new Seen(file).read(20), { since: 20, arrivals: [] }, "a damaged file starts over from now");
+  assert.deepEqual(seenIds([1, 2]), [1, 2]);
+  for (const bad of [[], [0], [1.5], ["1"], null, "1", Array.from({ length: 501 }, (_, i) => i + 1)]) assert.throws(() => seenIds(bad), /Invalid memories/);
+  await rm(directory, { recursive: true });
 });
 
 test("the dock counts new memories until the owner has seen them, and Clear empties Today", async () => {
@@ -1261,7 +1849,7 @@ test("the dock counts new memories until the owner has seen them, and Clear empt
   const badges = [];
   const ready = new Ready(join(directory, "memories-ready.json"), (count) => badges.push(count));
   /** @param {number} count @returns {ReadyRun} */
-  const run = (count) => ({ label: "Granola", item: "meeting", read: 9, memories: Array.from({ length: count }, (_, id) => ({ id, title: "t", sell: false, work: false, why: "" })), at: "", seen: false });
+  const run = (count) => ({ title: "Lore read your Granola meetings", read: 9, memories: Array.from({ length: count }, (_, id) => ({ id, title: "t", sell: false, work: false, why: "" })), at: "", seen: false });
   try {
     assert.deepEqual(await ready.runs(), [], "nothing read yet");
     await ready.add(run(6));
@@ -1276,10 +1864,512 @@ test("the dock counts new memories until the owner has seen them, and Clear empt
     assert.equal(badges.at(-1), 3, "a relaunch puts the badge back");
     await ready.clear();
     assert.deepEqual([await ready.runs(), badges.at(-1)], [[], 0]);
+    await writeFile(join(directory, "memories-ready.json"), JSON.stringify([{ label: "Granola", item: "meeting", read: 2, memories: [], at: "", seen: true }]));
+    assert.equal((await ready.runs())[0].title, "Lore read your Granola meetings", "a run kept by 0.1.14 is titled as it was then");
     await writeFile(join(directory, "memories-ready.json"), "{damaged");
     assert.deepEqual(await ready.runs(), []);
     await assert.rejects(access(join(directory, "memories-ready.json.tmp")));
   } finally {
     await rm(directory, { recursive: true });
   }
+});
+
+test("Lore runs what is due once, then looks again at the next hour it keeps, or within the hour", async (t) => {
+  const { Schedule, LOOK_EVERY_MS } = require("../src/routines.cjs");
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const now = Date.parse("2026-10-14T12:00:00Z");
+  /** @param {Partial<Routine>} fields @returns {Routine} */
+  const routine = (fields) => ({ id: "synthesis", kind: "read", name: "Read connected apps", cadence: "daily", hour: 9, last_run: null, result: "", next_run: "2026-10-15T09:00:00Z", due: false, ...fields });
+  let routines = [routine({ due: true }), routine({ id: "theirs", next_run: "2026-10-14T13:00:00Z" })];
+  /** @type {string[]} */
+  const ran = [];
+  let looks = 0;
+  const schedule = new Schedule(async () => { looks++; return routines; }, async (due) => {
+    ran.push(due.id);
+    routines = routines.map((each) => (each.id === due.id ? { ...each, due: false, next_run: "2026-10-14T12:30:00Z" } : each));
+  }, () => now);
+  // A launch and a wake at the same moment are one look, so a missed hour runs once.
+  await Promise.all([schedule.check(), schedule.check()]);
+  assert.deepEqual(ran, ["synthesis"], "only what is due, and only once");
+  assert.equal(looks, 2, "once to run what was due, once more to see what is next");
+  t.mock.timers.tick(30 * 60_000 - 1);
+  assert.equal(looks, 2, "it waits for the soonest hour any routine names");
+  // The timer's own look is under way, so this waits for it rather than starting another.
+  t.mock.timers.tick(1);
+  await schedule.check();
+  assert.equal(looks, 3);
+  routines = [];
+  await schedule.check();
+  t.mock.timers.tick(LOOK_EVERY_MS - 1);
+  assert.equal(looks, 4, "with nothing to keep, Lore still looks within the hour");
+  t.mock.timers.tick(1);
+  await schedule.check();
+  assert.equal(looks, 5);
+  schedule.stop();
+});
+
+/** AUT-008: a check-in run end to end with a stand-in model, through the same rules the app posts by.
+ * @param {CheckInVerdict} verdict @param {CheckInItem[]} items */
+async function checkInWith(verdict, items) {
+  const { fauxAssistantMessage, fauxToolCall } = await import("@earendil-works/pi-ai");
+  const { CheckIns } = require("../src/checkin.cjs");
+  /** @type {number[]} */
+  const badges = [];
+  /** @type {Array<CheckIn | null>} */
+  const posted = [];
+  /** @type {string[]} */
+  const asked = [];
+  const directory = await mkdtemp(join(tmpdir(), "lore-check-in-"));
+  const checkIns = new CheckIns(join(directory, "check-in.json"), (count) => badges.push(count));
+  const { agent, faux, events, loreHome } = await scriptedAgent({ checkedIn: async (job, said) => { posted.push(await checkIns.consider(said, job.items)); } });
+  faux.setResponses([
+    (context) => {
+      const first = context.messages.find((message) => message.role === "user");
+      asked.push(typeof first.content === "string" ? first.content : first.content.map((block) => (block.type === "text" ? block.text : "")).join(""));
+      return fauxAssistantMessage(fauxToolCall("check_in", verdict), { stopReason: "toolUse" });
+    },
+    fauxAssistantMessage("Done.")
+  ]);
+  agent.checkIn({ items });
+  await until(() => posted.length === 1);
+  await rm(loreHome, { recursive: true, force: true });
+  return { posted: posted[0], badges, asked: asked[0], events, checkIns, directory };
+}
+
+const TODAY = [{ id: 12, title: "Pricing call with Acme", source: "granola-1" }, { id: 13, title: "Weekly standup", source: "granola-1" }];
+
+test("a check-in stays silent when nothing today is worth asking: no notification, no badge, no card", async () => {
+  const { posted, badges, asked, events, checkIns, directory } = await checkInWith({ reach_out: false, why: "routine meetings, already covered", questions: [] }, TODAY);
+  try {
+    assert.equal(posted, null);
+    assert.deepEqual(badges, [], "the dock is never touched");
+    assert.equal(await checkIns.waiting(), null, "Today has no card to show");
+    assert.match(asked, /lore-check-in/);
+    assert.match(asked, /12: "Pricing call with Acme" from "granola-1"/);
+    assert.ok(!events.some((event) => event.type === "working"), "it never locks the owner's composer");
+  } finally {
+    await rm(directory, { recursive: true });
+  }
+});
+
+test("a check-in that finds something asks once, about real items only, and is replaced rather than stacked", async () => {
+  const { announcement } = require("../src/checkin.cjs");
+  const question = "You pushed back on the pricing call with Acme. What made you hold firm?";
+  const { posted, badges, checkIns, directory } = await checkInWith({
+    reach_out: true,
+    why: "a decision with no reason given",
+    questions: [{ question, memory: 12 }, { question: "What about the item Lore never brought in?", memory: 99 }, { question: "  ", memory: 13 }]
+  }, TODAY);
+  try {
+    assert.deepEqual(posted?.questions, [{ question, memory: 12, title: "Pricing call with Acme" }], "only questions about today's items");
+    assert.deepEqual(announcement(/** @type {CheckIn} */ (posted)), { title: "Five minutes on today?", body: question }, "one notification naming the thing");
+    assert.deepEqual(badges, [1]);
+    assert.equal((await checkIns.waiting())?.questions[0].question, question, "Today shows it");
+    const again = await checkIns.consider({ reach_out: true, why: "", questions: [{ question: "Another?", memory: 13 }] }, TODAY);
+    assert.equal(again, null, "at most one a day");
+    assert.equal(await checkIns.expire(), true, "Not today retires it");
+    assert.equal(await checkIns.waiting(), null);
+    assert.equal(badges.at(-1), 0);
+    await checkIns.answer();
+    assert.equal((await checkIns.latest())?.state, "expired", "an expired check-in cannot be answered");
+  } finally {
+    await rm(directory, { recursive: true });
+  }
+});
+
+test("a posted check-in opens its own thread with the questions as Lore's first words; the owner's answer clears it once it goes through", async () => {
+  const { fauxAssistantMessage } = await import("@earendil-works/pi-ai");
+  const { LoreAgent } = await import("../src/agent.mjs");
+  const { CheckIns, opening } = require("../src/checkin.cjs");
+  const directory = await mkdtemp(join(tmpdir(), "lore-check-in-"));
+  /** @type {number[]} */
+  const badges = [];
+  const checkIns = new CheckIns(join(directory, "check-in.json"), (count) => badges.push(count));
+  const question = "You pushed back on the pricing call with Acme. What made you hold firm?";
+  const { agent, faux, loreHome } = await scriptedAgent({});
+  /** @type {string[]} */
+  const told = [];
+  faux.setResponses([
+    (context) => {
+      told.push(context.messages.map((message) => (typeof message.content === "string" ? message.content : message.content.map((block) => (block.type === "text" ? block.text : "")).join(""))).join("\n---\n"));
+      return fauxAssistantMessage("Thanks. Here is what I would keep.");
+    }
+  ]);
+  try {
+    // Yesterday's thread, still open on screen, is not where today's questions go.
+    agent.ask("evening", "Yesterday's question?", "about yesterday");
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    const posted = /** @type {CheckIn} */ (await checkIns.consider({ reach_out: true, why: "a decision", questions: [{ question, memory: 12 }] }, TODAY));
+    const { asked, note } = opening(posted);
+    agent.ask("evening", asked, note);
+    assert.deepEqual(LoreAgent.history(loreHome, "evening"), [{ text: question, owner: false }], "the thread opens with today's question, and only it");
+    assert.deepEqual(agent.tasks().map((record) => [record.kind, record.state, record.phase]), [["evening", "stopped", "Five minutes on today"]]);
+    await agent.prompt("They wanted a discount we never give first-year customers.", "evening");
+    await checkIns.answer();
+    assert.deepEqual(badges, [1, 0], "answering clears the dock");
+    assert.equal(await checkIns.waiting(), null);
+    assert.match(told[0], /lore-capture/, "the owner's first word still starts the capture skill");
+    assert.ok(told[0].includes(question) && told[0].includes("(id 12)"), "the agent knows what was asked, about which item");
+    assert.deepEqual(LoreAgent.history(loreHome, "evening").map((line) => [line.owner, line.text]), [
+      [false, question],
+      [true, "They wanted a discount we never give first-year customers."],
+      [false, "Thanks. Here is what I would keep."]
+    ]);
+  } finally {
+    await rm(loreHome, { recursive: true, force: true });
+    await rm(directory, { recursive: true });
+  }
+});
+
+test("a check-in whose model fails says so, and one from an earlier day is retired while today's stays", async () => {
+  const { fauxAssistantMessage } = await import("@earendil-works/pi-ai");
+  const { CheckIns } = require("../src/checkin.cjs");
+  /** @type {Array<CheckInVerdict | null>} */
+  const verdicts = [];
+  const { agent, faux, loreHome } = await scriptedAgent({ checkedIn: async (_job, verdict) => { verdicts.push(verdict); } });
+  faux.setResponses([fauxAssistantMessage("", { stopReason: "error", errorMessage: "overloaded" })]);
+  const directory = await mkdtemp(join(tmpdir(), "lore-check-in-"));
+  const checkIns = new CheckIns(join(directory, "check-in.json"), () => {});
+  try {
+    agent.checkIn({ items: TODAY, mark: 13 });
+    await until(() => verdicts.length === 1);
+    assert.equal(verdicts[0], null, "no verdict, so the app records that it could not look");
+    await checkIns.consider({ reach_out: true, why: "", questions: [{ question: "Why?", memory: 12 }] }, TODAY);
+    assert.equal(await checkIns.retire(), false, "Run now later today keeps today's questions");
+    assert.ok(await checkIns.waiting());
+    const tomorrow = new Date(Date.now() + 24 * 60 * 60_000);
+    assert.equal(await checkIns.retire(tomorrow), true, "the next day's run retires it");
+    assert.equal(await checkIns.waiting(), null);
+  } finally {
+    await rm(loreHome, { recursive: true, force: true });
+    await rm(directory, { recursive: true });
+  }
+});
+
+test("the check-in waits for what is still being read, and gives way to the owner like a reading", async () => {
+  const { fauxAssistantMessage, fauxToolCall } = await import("@earendil-works/pi-ai");
+  /** @type {string[]} */
+  const order = [];
+  const { agent, faux, loreHome } = await scriptedAgent({
+    memoriesReady: async () => { order.push("read"); },
+    checkedIn: async (job) => { order.push(`checked ${job.items.length}`); }
+  });
+  faux.setResponses([
+    fauxAssistantMessage(fauxToolCall("memories_ready", { read: 2, memories: [] }), { stopReason: "toolUse" }),
+    fauxAssistantMessage("Done."),
+    (_context, options) => new Promise((resolve) => {
+      order.push("looking");
+      options?.signal?.addEventListener("abort", () => resolve(fauxAssistantMessage("", { stopReason: "aborted" })), { once: true });
+    }),
+    fauxAssistantMessage("Kept that."),
+    fauxAssistantMessage(fauxToolCall("check_in", { reach_out: false, why: "nothing new", questions: [] }), { stopReason: "toolUse" }),
+    fauxAssistantMessage("Done.")
+  ]);
+  try {
+    agent.synthesize({ name: "granola-1", label: "Granola", item: "meeting", added: 2 });
+    agent.checkIn({ items: TODAY });
+    await until(() => order.includes("looking"));
+    await agent.prompt("I learned to hire managers before scaling.", "capture");
+    await until(() => order.length === 3);
+    assert.deepEqual(order, ["read", "looking", "checked 2"]);
+    assert.ok(!agent.tasks().some((record) => record.kind === "checkin"), "the check-in is no thread");
+  } finally {
+    await rm(loreHome, { recursive: true, force: true });
+  }
+});
+
+test("a run the owner started is done only once its reading and check-in are", async () => {
+  const { fauxAssistantMessage, fauxToolCall } = await import("@earendil-works/pi-ai");
+  /** @type {string[]} */
+  const order = [];
+  const { agent, faux, loreHome } = await scriptedAgent({
+    memoriesReady: async () => { order.push("read"); },
+    checkedIn: async () => { order.push("checked"); }
+  });
+  faux.setResponses([
+    fauxAssistantMessage(fauxToolCall("memories_ready", { read: 2, memories: [] }), { stopReason: "toolUse" }),
+    fauxAssistantMessage("Done."),
+    fauxAssistantMessage(fauxToolCall("check_in", { reach_out: false, why: "nothing new", questions: [] }), { stopReason: "toolUse" }),
+    fauxAssistantMessage("Done.")
+  ]);
+  try {
+    await agent.settled();
+    assert.deepEqual(order, [], "with nothing in line it is done at once");
+    agent.synthesize({ name: "granola-1", label: "Granola", item: "meeting", added: 2 });
+    agent.checkIn({ items: TODAY });
+    await agent.settled();
+    assert.deepEqual(order, ["read", "checked"]);
+  } finally {
+    await rm(loreHome, { recursive: true, force: true });
+  }
+});
+
+test("routines are added, paused, retimed and removed through the CLI, refused before it when malformed, and kept across a restart", async () => {
+  const { listRoutines, changeRoutine, addRoutine } = require("../src/state.cjs");
+  for (const [text, when] of [["", { cadence: "daily", hour: 9, day: 0 }], ["x".repeat(501), { cadence: "daily", hour: 9, day: 0 }], ["Fine", { cadence: "hourly", hour: 9, day: 0 }], ["Fine", { cadence: "daily", hour: 9.5, day: 0 }]]) {
+    await assert.rejects(addRoutine("/nonexistent", text, when), /in a sentence|when it runs/);
+  }
+  await assert.rejects(changeRoutine("/nonexistent", "../x", "pause"), /Unknown routine/);
+  await assert.rejects(changeRoutine("/nonexistent", "checkin", "delete"), /Unknown change/);
+  const directory = await mkdtemp(join(tmpdir(), "lore-routines-"));
+  try {
+    const added = await addRoutine(directory, "-Every Sunday, remember what I read this week", { cadence: "weekly", hour: 18, day: 6 });
+    assert.equal(added.name, "-Every Sunday, remember what I read this week", "a sentence that starts with a dash stays words");
+    await changeRoutine(directory, "checkin", "pause");
+    await changeRoutine(directory, added.id, "time", { cadence: "daily", hour: 7, day: 0 });
+    const kept = await listRoutines(directory);
+    assert.deepEqual(kept.map((routine) => [routine.id, routine.built_in, routine.paused, routine.cadence, routine.hour]), [["synthesis", true, false, "daily", 9], ["checkin", true, true, "weekdays", 18], [added.id, false, false, "daily", 7]]);
+    await assert.rejects(changeRoutine(directory, "checkin", "remove"), /paused, not removed/);
+    await changeRoutine(directory, added.id, "remove");
+    assert.deepEqual((await listRoutines(directory)).map((routine) => routine.id), ["synthesis", "checkin"]);
+  } finally {
+    await rm(directory, { recursive: true });
+  }
+});
+
+test("an owner's routine runs their sentence as a quiet reading and is announced by it", async () => {
+  const { readingPrompt } = await import("../src/agent.mjs");
+  const { announcement, asking, landed } = require("../src/reading.cjs");
+  const reading = asking({ id: "r-1", name: "Every Sunday, remember what I read" }, "Every Sunday, remember what I read");
+  assert.deepEqual([reading.title, reading.phase], ["“Every Sunday, remember what I read”", "Working on “Every Sunday, remember what I read”"], "its sentence names it, with nothing tacked on");
+  const prompt = readingPrompt(reading, "/Users/owner/.lore");
+  assert.match(prompt, /asked Lore to do this on a schedule: "Every Sunday, remember what I read"/);
+  assert.match(prompt, /owner's own routine, not a connected app/);
+  const folder = "/Users/owner/.lore/memories";
+  const run = landed(reading, { read: 0, memories: [{ file: "t.md", worth_selling: false, why: "" }] }, [{ id: 1, title: "t", content: "", project: "", source: "automation", source_path: `${folder}/t.md`, status: "private", updated_at: "" }], folder);
+  assert.deepEqual(announcement(run), { title: "“Every Sunday, remember what I read”", body: "1 new memory. They stay private on this Mac." });
+  assert.deepEqual(run.by, { kind: "routine", id: "r-1", label: "Every Sunday, remember what I read", mark: "clock" }, "what it wrote is on record as the routine's");
+  const long = "Remember ".repeat(60);
+  assert.equal(asking({ id: "r-2", name: long }, long).by.label, long.trim().slice(0, 200), "a routine named by a long prompt is cut to what the store keeps");
+  const emoji = `${"a".repeat(199)}🧠 keep the lesson`;
+  const cut = asking({ id: "r-3", name: emoji }, emoji).by.label;
+  assert.equal(cut, `${"a".repeat(199)}🧠`, "a cut never splits an emoji");
+});
+
+test("Run now waits for a scheduled run under way, so the two never overlap", async () => {
+  const { Schedule } = require("../src/routines.cjs");
+  /** @type {string[]} */
+  const order = [];
+  /** @type {() => void} */
+  let finish = () => {};
+  const routine = /** @type {Routine} */ ({ id: "synthesis", kind: "read", name: "Read connected apps", cadence: "daily", hour: 9, last_run: null, result: "", next_run: "2026-10-15T09:00:00Z", due: true });
+  const schedule = new Schedule(async () => [routine], async (due) => {
+    order.push(`start ${due.id}`);
+    if (due.id === "synthesis") await new Promise((done) => { finish = () => done(undefined); });
+    order.push(`end ${due.id}`);
+  });
+  const checking = schedule.check();
+  await until(() => order.length === 1);
+  const pressed = schedule.runNow({ ...routine, id: "checkin", kind: "checkin" });
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  assert.deepEqual(order, ["start synthesis"], "the owner's run waits");
+  finish();
+  await pressed;
+  assert.deepEqual(order.slice(0, 4), ["start synthesis", "end synthesis", "start checkin", "end checkin"]);
+  schedule.stop();
+  await checking;
+  schedule.stop();
+});
+
+test("what the owner's agents saved comes in once per check, and a check never overlaps another", async () => {
+  const { Watch } = require("../src/agents.cjs");
+  /** @param {string} name @param {number} added @returns {SourceRead} */
+  const read = (name, added) => ({ name, label: "Grok", connector: "agent", added, updated: 0, unchanged: 0, errors: 0, state: "connected" });
+  let ready = false;
+  let asked = 0;
+  /** @type {() => Promise<{waiting: number, sources: string[]}>} */
+  let waiting = async () => ({ waiting: 2, sources: ["agent-a", "agent-b"] });
+  /** @type {SourceRead[][]} */
+  const landed = [];
+  const watch = new Watch({
+    ready: () => ready,
+    waiting: () => { asked++; return waiting(); },
+    read: async (name) => [read(name, 1)],
+    landed: (reads) => { landed.push(reads); }
+  });
+  await watch.check();
+  assert.equal(asked, 0, "with no store, the CLI is never asked");
+  ready = true;
+  await Promise.all([watch.check(), watch.check()]);
+  assert.equal(asked, 1, "a check under way is the one a second caller gets");
+  assert.deepEqual(landed, [[read("agent-a", 1), read("agent-b", 1)]], "both agents' saves, read through once");
+  waiting = async () => { throw new Error("You are not authenticated"); };
+  await watch.check();
+  assert.equal(landed.length, 1, "signed out of Cloudflare: quiet, and nothing lands");
+  waiting = async () => ({ waiting: 0, sources: [] });
+  await watch.check();
+  assert.equal(landed.length, 1, "nothing waiting is nothing to read");
+  waiting = async () => ({ waiting: 1, sources: ["agent-a"] });
+  await watch.check();
+  assert.equal(asked, 4, "a failed check is retried at the next one");
+  assert.equal(landed.length, 2);
+});
+
+test("one agent whose read fails leaves the others' saves to land", async () => {
+  const { Watch } = require("../src/agents.cjs");
+  /** @type {SourceRead[][]} */
+  const landed = [];
+  const watch = new Watch({
+    ready: () => true,
+    waiting: async () => ({ waiting: 2, sources: ["agent-a", "agent-b"] }),
+    read: async (name) => {
+      if (name === "agent-a") throw new Error("collecting saves failed");
+      return [{ name, label: "Muse", connector: "agent", added: 2, updated: 0, unchanged: 0, errors: 0, state: "connected" }];
+    },
+    landed: (reads) => { landed.push(reads); }
+  });
+  await watch.check();
+  assert.deepEqual(landed.map((reads) => reads.map((each) => each.name)), [["agent-b"]]);
+});
+
+test("Lore finds the owner's agent apps by id, and opens only an installed one it knows", async () => {
+  const { AgentApps } = require("../src/agents.cjs");
+  const system = await mkdtemp(join(tmpdir(), "lore-apps-"));
+  const own = await mkdtemp(join(tmpdir(), "lore-apps-"));
+  try {
+    /** @type {string[]} */
+    const launched = [];
+    const apps = new AgentApps([system, own], async (path) => (launched.push(path), ""));
+    assert.deepEqual(await apps.installed(), [], "nothing installed is nothing found");
+    await assert.rejects(apps.open("grok"), { message: /can't open that app/ }, "a known app not installed is not opened");
+    await mkdir(join(own, "Grok Bot.app"));
+    await mkdir(join(system, "Claude.app"));
+    await mkdir(join(system, "Muse.app"));
+    await mkdir(join(system, "Notes.app"));
+    assert.deepEqual(await apps.installed(), ["grok", "claude"], "found in either place; Muse and other apps are never reported");
+    await apps.open("grok");
+    await apps.open("claude");
+    assert.deepEqual(launched, [join(own, "Grok Bot.app"), join(system, "Claude.app")]);
+    for (const id of ["muse", "other", "notes", "Notes.app", "../Notes.app", join(system, "Notes.app"), "__proto__", "toString", null, 7]) {
+      await assert.rejects(apps.open(id), { message: /can't open that app/ }, String(id));
+    }
+    assert.equal(launched.length, 2, "an unknown id opens nothing");
+    await assert.rejects(new AgentApps([own], async () => "No application knows how to open it").open("grok"), { message: /No application/ });
+  } finally {
+    await rm(system, { recursive: true });
+    await rm(own, { recursive: true });
+  }
+});
+
+test("an agent's saves are read through like any app's, named for the agent, and say where they came from", () => {
+  const { worthReading, landed, announcement } = require("../src/reading.cjs");
+  const apps = /** @type {SourceApp[]} */ ([{ id: "agent", name: "Personal agent", item: "save" }, { id: "granola", name: "Granola", item: "meeting" }]);
+  const reading = worthReading({ name: "agent-1a2b3c4d5e6f7a8b", label: "Grok", connector: "agent", app: "grok", added: 3 }, apps);
+  const by = { kind: "agent", id: "agent-1a2b3c4d5e6f7a8b", label: "Grok", mark: "grok" };
+  assert.deepEqual(reading, { name: "agent-1a2b3c4d5e6f7a8b", label: "Grok", item: "save", added: 3, title: "Grok saved 3 things to Lore", phase: "Reading what Grok saved", from: "Grok", by });
+  assert.equal(worthReading({ name: "agent-1", label: "Mine", connector: "agent", added: 1 }, apps)?.by.mark, "other", "an agent of no known app shows the plain agent mark");
+  assert.equal(worthReading({ name: "agent-1a2b3c4d5e6f7a8b", label: "Grok", connector: "agent", added: 0 }, apps), null, "a re-save that only updated is not a new reading");
+  assert.equal(worthReading({ name: "agent-1a2b3c4d5e6f7a8b", label: "", connector: "agent", added: 1 }, apps)?.title, "Personal agent saved 1 thing to Lore");
+  const folder = "/Users/owner/.lore/memories";
+  const run = landed(/** @type {Reading} */ (reading), { read: 3, memories: [{ file: "pricing.md", worth_selling: true, why: "a measured rule" }] }, [{ id: 7, title: "How I price sync", content: "", project: "", source: "automation", source_path: `${folder}/pricing.md`, status: "private", updated_at: "" }], folder);
+  assert.equal(run.from, "Grok", "Today says which agent it came from");
+  assert.deepEqual(run.by, by, "and who to put on record for what it wrote");
+  assert.deepEqual(announcement(run), { title: "Grok saved 3 things to Lore", body: "1 new memory. 1 looks worth selling." });
+  const granola = worthReading({ name: "granola-1", connector: "granola", added: 2 }, apps);
+  assert.equal("from" in landed(/** @type {Reading} */ (granola), { read: 2, memories: [] }, [], folder), false, "an app's run names no agent");
+});
+
+test("connecting a personal agent validates what it is and what it is called before any CLI call", async () => {
+  const { connectAgent, agentKey, disconnectAgent } = require("../src/state.cjs");
+  for (const app of ["", "gemini", "muse", null]) await assert.rejects(connectAgent("/nonexistent", { app, name: "Grok" }), { message: /Choose an agent/ });
+  for (const name of ["", "   ", "x".repeat(41), 7]) await assert.rejects(connectAgent("/nonexistent", { app: "grok", name }), { message: /1 to 40 characters/ });
+  for (const source of ["agent-1", "granola-1", "agent-1A2B3C4D5E6F7A8B", null]) {
+    await assert.rejects(agentKey("/nonexistent", source), { message: /Unknown agent/ });
+    await assert.rejects(disconnectAgent("/nonexistent", source, true), { message: /Unknown agent/ });
+  }
+});
+
+test("with no store online, connecting an agent says so and mints nothing", async () => {
+  const { connectAgent, listAgents, agentsWaiting } = require("../src/state.cjs");
+  const loreHome = await mkdtemp(join(tmpdir(), "lore-agents-"));
+  try {
+    await assert.rejects(connectAgent(loreHome, { app: "grok", name: "Grok" }), { message: /put your store online first/ });
+    assert.deepEqual(await listAgents(loreHome), []);
+    assert.deepEqual(await agentsWaiting(loreHome), { waiting: 0, sources: [] }, "no agent, so nobody is asked");
+  } finally {
+    await rm(loreHome, { recursive: true });
+  }
+});
+
+test("the desktop agent never loads the skill meant for the owner's remote agents", async () => {
+  const { DefaultResourceLoader, SettingsManager } = await import("@earendil-works/pi-coding-agent");
+  const { ownSkills } = await import("../src/agent.mjs");
+  const loreHome = await mkdtemp(join(tmpdir(), "lore-skills-"));
+  try {
+    const resources = new DefaultResourceLoader({ cwd: loreHome, agentDir: join(loreHome, ".pi"), settingsManager: SettingsManager.inMemory(), additionalSkillPaths: [join(__dirname, "../../../plugins/lore/skills")], skillsOverride: ownSkills, noExtensions: true, noSkills: true, noPromptTemplates: true, noThemes: true, noContextFiles: true });
+    await resources.reload();
+    const names = resources.getSkills().skills.map((skill) => skill.name);
+    assert.ok(names.includes("lore-capture") && names.includes("lore-synthesize"), names.join());
+    assert.ok(!names.includes("lore-store"), names.join());
+  } finally {
+    await rm(loreHome, { recursive: true });
+  }
+});
+
+test("the first-run chat keeps where it stands across launches, and nothing else", async () => {
+  const { FirstRun } = require("../src/firstrun.cjs");
+  const directory = await mkdtemp(join(tmpdir(), "lore-first-run-"));
+  const file = join(directory, "first-run.json");
+  const kept = new FirstRun(file);
+  try {
+    assert.equal(await kept.read(), null, "never started");
+    await kept.write({ state: "started" });
+    assert.deepEqual(await kept.read(), { state: "started" });
+    await kept.write({ state: "started", source: "agent-1", extra: "dropped" });
+    assert.deepEqual(await kept.read(), { state: "started", source: "agent-1" });
+    await kept.write({ state: "skipped" });
+    assert.deepEqual(await kept.read(), { state: "skipped" });
+    await assert.rejects(kept.write({ state: "finished" }), /Unknown first-run state/);
+    await assert.rejects(kept.write(null), /Unknown first-run state/);
+    assert.deepEqual(await kept.read(), { state: "skipped" }, "a refused write changes nothing");
+    await writeFile(file, "{not json");
+    assert.equal(await kept.read(), null, "a damaged file reads as never started");
+  } finally {
+    await rm(directory, { recursive: true });
+  }
+});
+
+test("the first-run chat asks the onboarding skill to shape the library only after the first save", async () => {
+  const skill = await readFile(join(__dirname, "../../../plugins/lore/skills/lore-onboard/SKILL.md"), "utf8");
+  assert.match(skill, /## Connect first, shape after the first save/);
+  assert.ok(skill.indexOf("## Connect first") < skill.indexOf("## 1. Persona interview"));
+  const agent = await readFile(join(__dirname, "../src/agent.mjs"), "utf8");
+  assert.match(agent, /the blueprint, profile and rhythm come after the first save/);
+});
+
+test("first-run writes that overlap land in the order they were asked, each whole", async () => {
+  const { FirstRun } = require("../src/firstrun.cjs");
+  const directory = await mkdtemp(join(tmpdir(), "lore-first-run-"));
+  const kept = new FirstRun(join(directory, "first-run.json"));
+  try {
+    for (let round = 0; round < 20; round++) {
+      // Not awaited one by one, as the chat fires them: a connect's `started` and then the owner's Skip.
+      const writes = [kept.write({ state: "started", source: `agent-${round}` }), kept.write({ state: "skipped" })];
+      await Promise.all(writes);
+      assert.deepEqual(await kept.read(), { state: "skipped" }, `round ${round}`);
+    }
+    assert.deepEqual((await readdir(directory)).sort(), ["first-run.json"], "no temp file is left behind");
+  } finally {
+    await rm(directory, { recursive: true });
+  }
+});
+
+test("APP-222: each tool call is a step in the owner's words, and card tools are none", async () => {
+  const { stepKind } = await import("../src/agent.mjs");
+  const home = "/lore";
+  assert.equal(stepKind("read", { path: "memories/pricing.md" }, home), "read-memory");
+  assert.equal(stepKind("read", { path: "/elsewhere/notes.md" }, home), "read");
+  assert.equal(stepKind("read", { path: "/lore/.pi/skills/lore-publish/SKILL.md" }, home), null);
+  assert.equal(stepKind("write", { path: "/lore/memories/new.md" }, home), "write-memory");
+  assert.equal(stepKind("bash", { command: "lore publication draft - <<'EOF'\n[]\nEOF" }, home), "draft");
+  assert.equal(stepKind("bash", { command: "cd /lore && uv run lore push --json" }, home), "push");
+  assert.equal(stepKind("bash", { command: "lore node deploy --network base" }, home), "deploy");
+  assert.equal(stepKind("bash", { command: "lore node sales" }, home), "sales");
+  assert.equal(stepKind("bash", { command: "lore status --json" }, home), "status");
+  assert.equal(stepKind("bash", { command: "lore search pricing" }, home), "look");
+  assert.equal(stepKind("bash", { command: "npx wrangler deploy" }, home), "deploy");
+  assert.equal(stepKind("bash", { command: "ls memories" }, home), "look");
+  assert.equal(stepKind("bash", { command: "python3 -c 'print(1)'" }, home), "work");
+  assert.equal(stepKind("save_profile", {}, home), "profile");
+  for (const card of ["ask_user", "propose_memories", "propose_blueprint", "propose_price", "cloudflare_login", "finish_task"]) assert.equal(stepKind(card, {}, home), null);
 });

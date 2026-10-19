@@ -26,6 +26,7 @@ class Keychain:
     """The SDK's token storage, one Keychain entry per server and kind: nothing on disk."""
 
     service = "Lore"
+    kinds: tuple[str, ...] = ("tokens", "client")
 
     def __init__(self, server: str) -> None:
         self.server = server
@@ -43,7 +44,7 @@ class Keychain:
         self._save("client", client_info)
 
     def forget(self) -> None:
-        for kind in ("tokens", "client"):
+        for kind in self.kinds:
             try:
                 keyring.delete_password(self.service, f"{self.server} {kind}")
             except PasswordDeleteError:

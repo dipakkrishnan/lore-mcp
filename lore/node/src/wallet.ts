@@ -16,3 +16,10 @@ export function payTo(env: Env): `0x${string}` {
   }
   return env.LORE_WALLET as `0x${string}`;
 }
+
+/** Whether agents can pay this store directly. Whether it sells at all is the owner's own
+ * choice, pushed as `selling` (XC-069); a store that sells only by card has no wallet, and a
+ * wallet that is set but isn't an address still refuses to start, through `payTo`. */
+export function takesAgentPayments(env: Env): boolean {
+  return Boolean(env.LORE_WALLET);
+}

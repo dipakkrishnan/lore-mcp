@@ -1,0 +1,1 @@
+../plugins/lore/skills/lore-store/SKILL.md
