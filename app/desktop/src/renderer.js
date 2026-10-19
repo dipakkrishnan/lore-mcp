@@ -1343,10 +1343,7 @@ class FirstRunChat {
     owner(who);
     if (this.stage === "end") {
       lore(this.savedCard(s, who));
-      lore("That's it. What it brought in stays private on this Mac. When you want to sell some of it, Today shows the next step.");
-      const actions = el("div", "actions first-run-actions");
-      actions.append(button("Go to Today", "primary", () => this.leave("done")));
-      chat.append(actions);
+      this.closing(chat, lore, "What it brought in");
       return this.said(chat, lore);
     }
     if (this.stage === "store") {
@@ -1390,12 +1387,21 @@ class FirstRunChat {
     if (this.stage !== "saved") lore(this.connectCard(app, who), waitLine(who, true));
     if (this.stage === "saved") {
       lore(this.savedCard(s, who));
-      lore("That's it. What it saves stays private on this Mac. When you want to sell some of it, Today shows the next step.");
-      const actions = el("div", "actions first-run-actions");
-      actions.append(button("Go to Today", "primary", () => this.leave("done")));
-      chat.append(actions);
+      // So it keeps saving without being asked: its own schedule, where it has one.
+      const kind = AGENT_GUIDES[app]?.routine;
+      if (kind) lore(promptOffer(`So ${who} keeps saving without you asking, add this to ${who} as a ${kind}:`, EVERY_EVENING));
+      this.closing(chat, lore, "What it saves");
     }
     return this.said(chat, lore);
+  }
+
+  /** The last word, then the next AI or Today: most people talk to more than one, and the next is a tap away, in the
+   * same sheet Connectors uses. @param {HTMLElement} chat @param {(said: string | HTMLElement) => void} lore @param {string} what */
+  closing(chat, lore, what) {
+    lore(`That's it. ${what} stays private on this Mac. Connect another AI you talk to, or go to Today, which shows the next step when you want to sell some of it.`);
+    const actions = el("div", "actions first-run-actions");
+    actions.append(button("Connect another AI", "secondary", () => this.leave("done", () => { show("connectors"); new AgentSetup().open(); })), button("Go to Today", "primary", () => this.leave("done")));
+    chat.append(actions);
   }
 
   /** The notices a new owner would otherwise get on Today, as one quiet line at the foot of the chat (APP-215).
@@ -1447,13 +1453,9 @@ class FirstRunChat {
     const box = el("div", "card first-connect");
     const guide = AGENT_GUIDES[app]?.first;
     if (this.handed) {
-      if (guide?.brief) box.append(el("p", "first-steps", guide.brief));
-      else if (guide) {
-        const list = el("ol", "agent-steps");
-        for (const step of guide.steps) list.append(el("li", "", step));
-        box.append(list);
-      }
-      box.append(guide?.message ? privateLink(this.handed, guide.message, "Copy message") : privateLink(this.handed), ...afterConnect(app, who));
+      if (guide?.brief) box.append(el("p", "first-steps", guide.brief), privateLink(this.handed, guide.message ?? "", "Copy message"));
+      else box.append(...(guide ? howTo(this.handed, guide) : [privateLink(this.handed)]));
+      box.append(...afterConnect(app, who));
     }
     if (this.problem) box.append(el("p", "problem", this.problem));
     const foot = el("div", "first-connect-foot");
@@ -2609,7 +2611,8 @@ const STORE_FIRST = "Your agents work online, so they need a place online to sav
  * `again` is the same for a new link, which replaces the Lore connector the agent already has rather than adding one;
  * `or` is the quiet alternative under the last step, and `brief` the steps as one line, for the first-run chat. Grok Bot
  * has no menu to add a connector by hand: the message pasted into its chat is the only documented way (APP-217).
- * @typedef {{steps: string[], brief?: string, message?: string, or?: string}} AgentSteps
+ * `ask` is a message an agent with a menu can also be sent instead, to add Lore itself.
+ * @typedef {{steps: string[], brief?: string, message?: string, or?: string, ask?: string}} AgentSteps
  * @type {Partial<Record<AgentApp, {first: AgentSteps, again: AgentSteps, note?: string, routine: string}>>} */
 const AGENT_GUIDES = {
   grok: {
@@ -2624,8 +2627,8 @@ const AGENT_GUIDES = {
     routine: "scheduled task"
   },
   chatgpt: {
-    first: { steps: ["In ChatGPT, open Plugins, then + › Add custom MCP server", "Name it Lore, paste the link below, choose No authentication, and continue", "Choose Create"] },
-    again: { steps: ["In ChatGPT, open Plugins", "Open the Lore connector you added before and replace its link with this one"], or: "Or remove it and add a new one named Lore with this link" },
+    first: { steps: ["In ChatGPT, open Plugins, then its settings, and choose Add MCP server", "Name it Lore, choose Streamable HTTP, and paste the link below as the URL", "Leave arguments empty, then save"], ask: "Add this MCP server to my account as Lore, using Streamable HTTP and no arguments: " },
+    again: { steps: ["In ChatGPT, open Plugins, then its settings", "Open the Lore server you added before and replace its URL with this one"], or: "Or remove it and add a new one named Lore with this link" },
     note: "Saving to Lore needs a ChatGPT plan that allows custom connectors to write.",
     routine: "scheduled task"
   }
@@ -2930,13 +2933,23 @@ function agentGuide(handed, first) {
   const guide = AGENT_GUIDES[handed.agent.app];
   const how = guide && (first ? guide.first : guide.again);
   if (!guide || !how) return null;
+  const nodes = howTo(handed, how);
+  if (guide.note) nodes.push(el("p", "hint", guide.note));
+  return nodes;
+}
+
+/** What to do in the agent: its steps and the link, or the message around the link. An agent that can add Lore itself
+ * leads with the message to send it, its steps folded away for anyone who'd rather add it by hand.
+ * @param {AgentKey} handed @param {AgentSteps} how @returns {HTMLElement[]} */
+function howTo(handed, how) {
   const list = el("ol", "agent-steps");
   for (const step of how.steps) list.append(el("li", "", step));
   if (how.or) list.lastElementChild?.append(el("span", "agent-step-or", how.or));
-  /** @type {HTMLElement[]} */
-  const nodes = [list, how.message ? privateLink(handed, how.message, "Copy message") : privateLink(handed)];
-  if (guide.note) nodes.push(el("p", "hint", guide.note));
-  return nodes;
+  if (!how.ask) return [list, how.message ? privateLink(handed, how.message, "Copy message") : privateLink(handed)];
+  const where = AGENT_APPS.find(([id]) => id === handed.agent.app)?.[1] ?? handed.agent.name;
+  const byHand = el("details", "agent-by-hand");
+  byHand.append(el("summary", "", "Or add it by hand"), list, privateLink(handed));
+  return [el("p", "agent-ask", `Copy this message and send it to ${where}. It adds Lore itself.`), privateLink(handed, how.ask, "Copy message"), byHand];
 }
 
 /** The live line while Lore waits on an agent's save. @param {string} who @param {boolean} first */
