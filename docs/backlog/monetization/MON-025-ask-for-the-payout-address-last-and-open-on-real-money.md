@@ -10,7 +10,7 @@ blockers: []
 dependencies: []
 github_issue: null
 created: 2026-09-14
-updated: 2026-09-28
+updated: 2026-10-19
 ---
 
 ## Problem
@@ -71,3 +71,5 @@ real-money switch, which every seller must still pass, one screen later.
 Zane's custodial suggestion ("you can also probs access significant cash
 flow this way") is recorded and declined; the non-custodial line stays.
 The buyer side of the same gap is MON-026 and MON-027.
+
+**Review 2026-10-19:** not completed. Shipped in 5c0a96e. Unmet: the 1 cent real-money purchase settling to a Coinbase account, and a v0.1.3 store opening without stalling. XC-069 has since offered "Open your store" before any approved publication, so criterion 1 has partly lapsed.

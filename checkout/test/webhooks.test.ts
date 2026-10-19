@@ -88,3 +88,105 @@ describe("a paid checkout", () => {
     expect((await deliver(event())).status).toBe(502);
   });
 });
+
+describe("Stripe's signature, at its edges", () => {
+  it("accepts a signature exactly at the five-minute tolerance and refuses one a second past it either way", async () => {
+    const body = event();
+    const t = 1_800_000_000;
+    const header = await signature(body, SECRET, t);
+    expect(await signed(body, header, SECRET, t + 300)).toBe(true);
+    expect(await signed(body, header, SECRET, t - 300)).toBe(true);
+    expect(await signed(body, header, SECRET, t + 301)).toBe(false);
+    expect(await signed(body, header, SECRET, t - 301)).toBe(false);
+  });
+
+  it("accepts any one valid v1 among several, as Stripe sends while a secret is rolled", async () => {
+    const body = event();
+    const t = Math.floor(Date.now() / 1000);
+    const good = (await signature(body, SECRET, t)).split(",")[1];
+    const other = (await signature(body, "whsec_old_secret", t)).split(",")[1];
+    expect(await signed(body, `t=${t},${other},${good}`, SECRET)).toBe(true);
+    expect(await signed(body, `t=${t},${other}`, SECRET)).toBe(false);
+  });
+
+  it("refuses a header with no timestamp, a v1 with no value, or a v1 that isn't 64 hex characters", async () => {
+    const body = event();
+    const t = Math.floor(Date.now() / 1000);
+    const good = (await signature(body, SECRET, t)).split(",")[1];
+    expect(await signed(body, good, SECRET)).toBe(false);
+    expect(await signed(body, `t=${t},v1`, SECRET)).toBe(false);
+    expect(await signed(body, `t=${t},${good.toUpperCase().replace("V1", "v1")}`, SECRET)).toBe(false);
+    expect(await signed(body, `t=${t},${good.slice(0, -2)}`, SECRET)).toBe(false);
+  });
+
+  it("refuses a timestamp that isn't a number, even signed over what the verifier would then compute", async () => {
+    const body = event();
+    const key = await crypto.subtle.importKey("raw", new TextEncoder().encode(SECRET), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+    const overNaN = hex(await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(`NaN.${body}`)));
+    expect(await signed(body, `t=soon,v1=${overNaN}`, SECRET)).toBe(false);
+  });
+
+  it("drops a delivery with no Stripe-Signature header at all", async () => {
+    const calls = stub();
+    const response = await exports.default.fetch("https://checkout.test/webhooks", { method: "POST", body: event() });
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({ outcome: "unsigned" });
+    expect(calls).toEqual([]);
+  });
+});
+
+describe("a paid checkout, past the happy path", () => {
+  it("acknowledges and drops a paid session that isn't a Lore sale, telling no store", async () => {
+    const calls = stub();
+    const notLore = [
+      event({ account: undefined }),
+      event({ account: "acct_x/../y" }),
+      event({}, { metadata: undefined }),
+      event({}, { metadata: { origin: STORE } }),
+      event({}, { metadata: { origin: STORE, piece: "../admin" } }),
+      event({}, { id: undefined }),
+      event({}, { id: "pi_123" })
+    ];
+    for (const body of notLore) {
+      const response = await deliver(body);
+      expect(response.status).toBe(200);
+      expect(await response.json()).toEqual({ outcome: "not a Lore sale" });
+    }
+    expect(calls).toEqual([]);
+  });
+
+  it("says which outcome each delivery had", async () => {
+    stub();
+    expect(await (await deliver(event())).json()).toEqual({ outcome: "recorded" });
+    expect(await (await deliver(event({ type: "customer.created" }))).json()).toEqual({ outcome: "ignored" });
+    stub({ boundTo: "https://real-seller.test" });
+    expect(await (await deliver(event())).json()).toEqual({ outcome: "not this account's store" });
+    stub({ noticeStatus: 503 });
+    expect(await (await deliver(event())).json()).toEqual({ outcome: "store refused" });
+  });
+
+  it("asks Stripe to retry when the store can't be reached, or Stripe can't say which store the account is tied to", async () => {
+    const calls = stub({ noticeThrows: true });
+    let response = await deliver(event());
+    expect(response.status).toBe(502);
+    expect(await response.json()).toEqual({ outcome: "store unreachable" });
+    expect(notices(calls)).toHaveLength(1);
+    // A Stripe outage reads the same as an unreachable store.
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const stripe = stub({ stripeStatus: 500 });
+    response = await deliver(event());
+    expect(response.status).toBe(502);
+    expect(await response.json()).toEqual({ outcome: "store unreachable" });
+    expect(notices(stripe)).toEqual([]);
+  });
+
+  it("pins today's behaviour: an account tied to no store and a sale naming no store asks Stripe to retry forever", async () => {
+    // boundStore answers "" and the event's origin is "", so the check passes and
+    // the notice goes to a relative URL, which throws. Reported, not fixed here.
+    const calls = stub({ boundTo: "" });
+    const response = await deliver(event({}, { metadata: { piece: PIECE } }));
+    expect(response.status).toBe(502);
+    expect(await response.json()).toEqual({ outcome: "store unreachable" });
+    expect(notices(calls)).toEqual([]);
+  });
+});

@@ -10,7 +10,7 @@ blockers: []
 dependencies: []
 github_issue: https://github.com/dipakkrishnan/lore-mcp/issues/175
 created: 2026-09-01
-updated: 2026-09-01
+updated: 2026-10-19
 ---
 
 ## Problem
@@ -40,3 +40,5 @@ a versioned `Lore-darwin-arm64-<version>.zip`, renamed at upload — see
 
 The zip is far over Cloudflare's 25 MiB asset cap, so the binary stays on
 GitHub Releases; the Worker hosts only the page.
+
+**Review 2026-10-19:** not completed. Download link and releases fallback ship (a3b5308). Unmet: the link serving the current notarized zip; uploading that asset is a manual release step, check with `gh release`.

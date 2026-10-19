@@ -158,7 +158,9 @@ class ExportTest(LoreTestCase):
 
     def test_the_same_export_read_twice_adds_nothing(self) -> None:
         first = self.add(self.unpacked("chatgpt"))
-        self.assertEqual(self.add(self.unpacked("chatgpt")), first)
+        again = self.add(self.unpacked("chatgpt"))
+        self.assertEqual((first.pop("added"), again.pop("added")), (2, 0))
+        self.assertEqual(again, first)
         with Store() as store:
             self.assertEqual(store.counts()["private"], 2)
             read = sources_module.Registry(store).read([str(first["name"])])

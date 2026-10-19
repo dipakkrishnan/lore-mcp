@@ -1,0 +1,4 @@
+interface:
+  display_name: "Lore Check-in"
+  short_description: "Ask about today only when something is worth it"
+  default_prompt: "Use $lore-check-in to decide whether anything Lore brought in today is worth asking me about."
