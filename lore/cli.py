@@ -2198,6 +2198,13 @@ def publication_list() -> int:
     return 0
 
 
+def _push_held() -> bool:
+    """The desktop app pushes a decision's change itself, once the owner says
+    yes to what goes out (APP-226); the pending flag says the store is behind
+    until then."""
+    return os.environ.get("LORE_HOLD_PUSH") == "1"
+
+
 def _push_after_approval() -> None:
     """Push newly approved publications to the deployed node (MON-013): the
     mirror-image of `publication_revoke`'s MON-004 push. A failed push
@@ -2209,6 +2216,10 @@ def _push_after_approval() -> None:
     # A store online only for the owner's agents gets its pieces when it opens
     # for sale: that deploy pushes them, after a price and a payout address.
     if not open_for_sale:
+        return
+    if _push_held():
+        with Store() as store:
+            store.set_setting("publish_pending", True)
         return
     try:
         push(str(store_folder()))
@@ -2235,6 +2246,10 @@ def publication_revoke(publication_id: int) -> int:
         node_url = store.setting("node_url", None)
     success(f"Revoked publication {publication_id}; it is no longer answerable")
     if not node_url:
+        return 0
+    if _push_held():
+        with Store() as store:
+            store.set_setting("revocation_pending", True)
         return 0
     try:
         return push(str(store_folder()))
