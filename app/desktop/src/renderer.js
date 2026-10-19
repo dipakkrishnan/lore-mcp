@@ -2633,7 +2633,7 @@ const AGENT_GUIDES = {
 /** What to send an agent once it's connected: save now, so the first save shows the connection works, and, where it
  * has a schedule, set one up. The agent asks the owner before it schedules anything, so this is one paste, not two.
  * @param {string} [kind] What the agent calls a scheduled ask. */
-const saveAsk = (kind) => `Save what you know about me to Lore: how I work, what I care about, and what I'm working on.${kind ? ` Then set up a ${kind} that does this every evening.` : ""}`;
+const saveAsk = (kind) => `Save what you know about me to Lore: who I am, what I like, how I work, and what I'm into lately.${kind ? ` Then set up a ${kind} that does this every evening.` : ""}`;
 /** The same schedule on its own, for an agent that already saves. @param {string} kind */
 const eveningAsk = (kind) => `Set up a ${kind} that saves anything new you learn about me to Lore every evening.`;
 /** While the setup sheet waits on a first save, it asks the store this often, not once a minute. */
