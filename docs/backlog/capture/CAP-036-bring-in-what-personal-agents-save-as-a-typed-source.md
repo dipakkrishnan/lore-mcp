@@ -4,13 +4,13 @@ title: Bring in what personal agents save, as a typed source
 priority: P0
 effort: M
 component: capture
-status: in-review
+status: completed
 related: [XC-067, CAP-037, APP-207, MON-046]
 blockers: []
 dependencies: [XC-067 inbox API]
 github_issue: null
 created: 2026-10-16
-updated: 2026-10-16
+updated: 2026-10-19
 ---
 
 ## Problem
@@ -54,11 +54,11 @@ every other source, and stay current when the agent saves a newer version.
 
 ## Acceptance criteria
 
-- [ ] `lore agents connect` registers the owner on first use only and returns a working key; the key and private key are never written to SQLite or disk in the clear.
-- [ ] Reading an agent source imports its waiting items as private memories whose source names the agent, then confirms receipt; a failed import confirms nothing.
-- [ ] A newer save under the same key updates the memory and flags publications that cite it; a forgotten item's memory is removed unless a publication cites it.
-- [ ] The catalog, `lore sources list`, and the desktop snapshot show each agent source with its app, last save and count, with no other wiring.
-- [ ] Tests run against a local fake of the inbox API; coverage meets the 90% gate.
+- [x] `lore agents connect` registers the owner on first use only and returns a working key; the key and private key are never written to SQLite or disk in the clear.
+- [x] Reading an agent source imports its waiting items as private memories whose source names the agent, then confirms receipt; a failed import confirms nothing.
+- [x] A newer save under the same key updates the memory and flags publications that cite it; a forgotten item's memory is removed unless a publication cites it.
+- [x] The catalog, `lore sources list`, and the desktop snapshot show each agent source with its app, last save and count, with no other wiring.
+- [x] Tests run against a local fake of the inbox API; coverage meets the 90% gate.
 
 ## Notes
 
@@ -98,3 +98,4 @@ every other source, and stay current when the agent saves a newer version.
 - Not checked against the real Worker or a real Cloudflare D1; only against
   the stand-in.
 
+**Completed (verified 2026-10-19, by reading code and tests, no suites run):** on main in f8859fb. Closed out in the review-queue pass.

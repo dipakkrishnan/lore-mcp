@@ -4,13 +4,13 @@ title: Let personal agents write to an owner's own node
 priority: P0
 effort: L
 component: cross-cutting
-status: in-review
+status: completed
 related: [CAP-036, CAP-037, APP-207, XC-068, MON-046, XC-044, CAP-009]
 blockers: []
 dependencies: [the owner has a deployed node (APP-207 deploys one first when missing)]
 github_issue: https://github.com/dipakkrishnan/lore-mcp/issues/467
 created: 2026-10-16
-updated: 2026-10-16
+updated: 2026-10-19
 ---
 
 ## Problem
@@ -34,12 +34,12 @@ between. The full wire contract is `contracts/inbox.md`.
 
 ## Acceptance criteria
 
-- [ ] An agent key minted on the Mac lets that agent's `store` call put sealed items in the node's `inbox`; the Mac opens them with its private key only.
-- [ ] A revoked, rotated-out or wrong key gets 401; buyers calling `/mcp` see no write tools, and `/agent` never takes payment.
-- [ ] The same `key` saved twice leaves one waiting item, holding the newer content; `forget` withdraws a waiting item or tells the Mac to remove the memory.
-- [ ] Quotas and size limits reject with a tool error that names the limit; payloads waiting past 30 days are dropped.
-- [ ] No plaintext item content is logged, and none is stored at rest (asserted against D1 after a store).
-- [ ] A push keeps `agents` and `inbox` intact and always carries `inbox_public_key` and `inbox_salt`.
+- [x] An agent key minted on the Mac lets that agent's `store` call put sealed items in the node's `inbox`; the Mac opens them with its private key only.
+- [x] A revoked, rotated-out or wrong key gets 401; buyers calling `/mcp` see no write tools, and `/agent` never takes payment.
+- [x] The same `key` saved twice leaves one waiting item, holding the newer content; `forget` withdraws a waiting item or tells the Mac to remove the memory.
+- [x] Quotas and size limits reject with a tool error that names the limit; payloads waiting past 30 days are dropped.
+- [x] No plaintext item content is logged, and none is stored at rest (asserted against D1 after a store).
+- [x] A push keeps `agents` and `inbox` intact and always carries `inbox_public_key` and `inbox_salt`.
 
 ## Notes
 
@@ -83,3 +83,5 @@ between. The full wire contract is `contracts/inbox.md`.
   versions don't, and would return these rows forever.
 - A payload dropped after 30 days takes its row with it, so `stored`
   reports that key as `unknown`, or as its previous state.
+
+**Completed (verified 2026-10-19, by reading code and tests, no suites run):** on main in 677f5df. Closed out in the review-queue pass.

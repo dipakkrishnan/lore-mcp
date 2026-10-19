@@ -4,13 +4,13 @@ title: A sleeker chat, and no broken text anywhere
 priority: P1
 effort: M
 component: desktop-app
-status: in-review
+status: completed
 related: [APP-215]
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-10-17
-updated: 2026-10-17
+updated: 2026-10-19
 ---
 
 ## Problem
@@ -59,10 +59,14 @@ over each other. Text meant to run on opts out with `data-wraps`, narrowly.
 
 ## Acceptance criteria
 
-- [ ] No chat line carries an icon or a "YOU" label; owner answers are right-aligned pills.
-- [ ] First-run answers are pills in a wrapping row, with marks; found apps say "On this Mac"; Muse is disabled.
-- [ ] The connect card has no hard border and shows the message in words with its key masked; Grok Bot gets no hand-added-link fallback, since it has no such menu.
-- [ ] Lines fade in once, in sequence, and not at all with reduced motion; the wait shows typing dots.
-- [ ] The first-run header is a small title and a quiet Skip for now.
-- [ ] Threads use the same language, with a floating rounded composer.
-- [ ] Every edge screenshot runs the layout guard; the main-tab walks also run it at 900px; every walk passes.
+- [x] No chat line carries an icon or a "YOU" label; owner answers are right-aligned pills.
+- [x] First-run answers are pills in a wrapping row, with marks; found apps say "On this Mac"; Muse is disabled.
+- [x] The connect card has no hard border and shows the message in words with its key masked; Grok Bot gets no hand-added-link fallback, since it has no such menu.
+- [x] Lines fade in once, in sequence, and not at all with reduced motion; the wait shows typing dots.
+- [x] The first-run header is a small title and a quiet Skip for now.
+- [x] Threads use the same language, with a floating rounded composer.
+- [x] Every edge screenshot runs the layout guard; the main-tab walks also run it at 900px; every walk passes.
+
+## Notes
+
+**Completed (verified 2026-10-19, by reading code and tests, no suites run):** on main in 46e4653. Closed out in the review-queue pass.

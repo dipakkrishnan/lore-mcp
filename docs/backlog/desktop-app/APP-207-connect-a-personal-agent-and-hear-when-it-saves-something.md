@@ -10,7 +10,7 @@ blockers: [CAP-036]
 dependencies: []
 github_issue: https://github.com/dipakkrishnan/lore-mcp/issues/467
 created: 2026-10-16
-updated: 2026-10-16
+updated: 2026-10-19
 ---
 
 ## Problem
@@ -92,3 +92,5 @@ turns saves into memories, and memories into pieces for sale, never closes.
 - Not checked against a real Cloudflare account, the real Worker, or a real
   Grok, Muse, ChatGPT or Claude connector. The per-app steps for anything but
   Grok are generic.
+
+**Review 2026-10-19:** not completed. Shipped in 347769b but largely superseded by APP-217 (2ea1c94): the sheet no longer shows address, key and instructions for each choice. Criteria need rewriting to match APP-217; confirm the watch interval is within a minute.
