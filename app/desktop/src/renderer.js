@@ -785,8 +785,9 @@ function memoriesReady(runs) {
   const memories = runs.flatMap((run) => run.memories.map((memory) => ({ ...memory, by: run.by })));
   const selling = memories.filter((memory) => memory.sell).length;
   const [latest] = runs;
-  const heading = runs.every((run) => run.title === latest.title) ? latest.title : "Lore read what you brought in";
-  const detail = [`${plural(memories.length, "new memory")}, only on this Mac`, selling ? `${selling} ${selling === 1 ? "looks" : "look"} worth selling` : ""].filter(Boolean).join(" · ");
+  // An agent's saves come in by the item and leave as fewer memories, so its line names the agent, not how many it sent.
+  const heading = latest.from && runs.every((run) => run.from === latest.from) ? `From ${latest.from}` : runs.every((run) => run.title === latest.title) ? latest.title : "Lore read what you brought in";
+  const detail = [plural(memories.length, "new memory"), selling ? `${selling} worth selling` : ""].filter(Boolean).join(" · ");
   const clear = button("Clear", "quiet", () => void window.lore.clearMemories().then(() => { readyRuns = []; render(); }));
   /** What the library has on record for a memory, or, until the reading's own credit lands (it is recorded last), who the
    * reading was. @param {number} id @param {Contributor} [by] */
