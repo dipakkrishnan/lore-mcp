@@ -19,6 +19,7 @@ const sellWritingBtn = /** @type {HTMLButtonElement} */ ($("#sell-writing"));
 const skipBtn = /** @type {HTMLButtonElement} */ ($("#first-run-skip"));
 const feedbackBtn = /** @type {HTMLButtonElement} */ ($("#feedback-open"));
 const accountMenu = $("#account-menu");
+const darkMode = $("#dark-mode");
 const accountLine = $("#account-line");
 const signOutBtn = /** @type {HTMLButtonElement} */ ($("#sign-out"));
 const updateBtn = /** @type {HTMLButtonElement} */ ($("#update"));
@@ -115,10 +116,14 @@ let views = {};
 let salesAsked = false;
 /** This copy's version and whether a newer one is on its way, from the main process. @type {AppUpdate | null} */
 let appUpdate = null;
+/** How Lore is drawn, as the owner chose in Settings. @type {AppearanceChoice} */
+let appearance = "system";
 /** The task whose turn is open, while one is. @type {AgentTask | null} */
 let busy = null;
 /** The card awaiting the owner. A memory card also carries `current`, its entries as edited, so the composer can send a spoken or typed correction with them; `pinned` cards stay in view as the thread re-renders. @type {{id: string, task: AgentTask | null, box: HTMLElement, pinned: boolean, current?: () => ProposedMemory[]} | null} */
 let request = null;
+/** APP-226: the sheet a store update waits on, by its request; `drop` closes it without answering. @type {{id: string, sheet: FormSheet, drop: () => void} | null} */
+let changing = null;
 /**
  * The one blueprint panel node for the current setup thread: a read-only
  * ghost while propose_blueprint's fields are still streaming in, then the
@@ -780,37 +785,81 @@ function readingRow(item) {
   return card([reading]);
 }
 
-/** What Lore made of a connected app's newest items: each new memory, and a draft one press away for the ones worth selling. @param {ReadyRun[]} runs */
+/** Today's groups of new memories the owner has opened, by who they came from; each starts folded. @type {Set<string>} */
+const openGroups = new Set();
+
+const DISCLOSE = lineIcon(`<path d="M9 6l6 6-6 6"></path>`);
+
+/** What Lore made of what came in, one folded group per agent, app or routine: who, how many, and the memories inside
+ * a click away, so Today stays short and its next step in view. @param {ReadyRun[]} runs */
 function memoriesReady(runs) {
-  const memories = runs.flatMap((run) => run.memories.map((memory) => ({ ...memory, by: run.by })));
-  const selling = memories.filter((memory) => memory.sell).length;
-  const [latest] = runs;
-  // An agent's saves come in by the item and leave as fewer memories, so its line names the agent, not how many it sent.
-  const heading = latest.from && runs.every((run) => run.from === latest.from) ? `From ${latest.from}` : runs.every((run) => run.title === latest.title) ? latest.title : "Lore read what you brought in";
-  const detail = [plural(memories.length, "new memory"), selling ? `${selling} worth selling` : ""].filter(Boolean).join(" · ");
-  const clear = button("Clear", "quiet", () => void window.lore.clearMemories().then(() => { readyRuns = []; render(); }));
   /** What the library has on record for a memory, or, until the reading's own credit lands (it is recorded last), who the
    * reading was. @param {number} id @param {Contributor} [by] */
   const sources = (id, by) => {
     const kept = snapshot?.library.items.find((item) => item.id === id)?.sources;
     return by && (!kept || kept[0]?.kind === "lore") ? [{ ...by, at: null }] : kept;
   };
+  /** @type {Map<string, ReadyRun[]>} */
+  const groups = new Map();
+  for (const run of runs) {
+    const key = run.by?.id ?? run.title;
+    groups.set(key, [...(groups.get(key) ?? []), run]);
+  }
   const list = el("div", "routines today-cards");
-  for (const memory of memories) {
-    const node = sourcedRow({ id: memory.id, title: memory.title, sources: sources(memory.id, memory.by) }, [memory.sell ? `Worth selling · ${memory.why}` : memory.work ? "Work · stays private" : "Private"], memory.sell);
-    node.classList.add("routine");
-    list.append(node);
-  }
+  for (const [key, group] of groups) list.append(readyGroup(key, group, sources));
   noticeReady();
-  const aside = el("div", "list-aside");
-  aside.append(el("span", "", `${heading} · ${detail}`));
-  // One agent behind every memory here: one click to what it saved.
-  const by = runs[0].by;
-  if (by?.kind === "agent" && runs.every((run) => run.by?.id === by.id) && memories.every((memory) => sources(memory.id, memory.by)?.some((source) => source.id === by.id))) {
-    aside.append(inline("See them →", () => seeFrom({ id: by.id, label: by.label })));
+  const clear = button("Clear", "quiet", () => void window.lore.clearMemories().then(() => { readyRuns = []; render(); }));
+  return section("New memories", list, clear);
+}
+
+/** One contributor's new memories: a row that says who and how many, opening onto the memories themselves.
+ * @param {string} key @param {ReadyRun[]} runs @param {(id: number, by?: Contributor) => MemorySource[] | undefined} sources */
+function readyGroup(key, runs, sources) {
+  const [latest] = runs;
+  const memories = runs.flatMap((run) => run.memories.map((memory) => ({ ...memory, by: run.by })));
+  const selling = memories.filter((memory) => memory.sell).length;
+  const by = latest.by;
+  const heading = latest.from ? `From ${latest.from}` : latest.title;
+  // An agent's saves that only added to memories already kept still say they arrived, and where to find them.
+  const read = runs.reduce((sum, run) => sum + run.read, 0);
+  const detail = memories.length ? [plural(memories.length, "new memory"), selling ? `${selling} worth selling` : ""].filter(Boolean).join(" · ") : `${plural(read, "save")} · already in your memories`;
+  const box = el("div", "ready-group");
+  const head = el("div", "row routine ready-head");
+  const toggle = el("button", "task-link");
+  toggle.type = "button";
+  const text = el("div", "t");
+  text.append(el("b", "sans", heading), el("span", "", detail));
+  toggle.append(text);
+  const marks = el("span", "mark-stack");
+  marks.append(markTile(by ? sourceMark({ ...by, at: null }) : RING));
+  head.append(marks, toggle);
+  if (by?.kind === "agent") head.append(inline("See them →", () => seeFrom({ id: by.id, label: by.label })));
+  const open = openGroups.has(key);
+  if (memories.length) {
+    const chevron = el("span", "disclose");
+    chevron.innerHTML = DISCLOSE;
+    head.append(chevron);
+    toggle.setAttribute("aria-expanded", String(open));
+    head.addEventListener("click", (event) => {
+      if (event.target instanceof Element && event.target.closest("button.inline")) return;
+      if (openGroups.has(key)) openGroups.delete(key);
+      else openGroups.add(key);
+      render();
+    });
+  } else head.classList.add("still");
+  box.classList.toggle("open", open);
+  box.append(head);
+  if (open && memories.length) {
+    const items = el("div", "ready-items");
+    for (const memory of memories) {
+      // The group already says who; a memory says only what it is to the owner, unless more than one wrote it.
+      const kept = sources(memory.id, memory.by);
+      const status = memory.sell ? `Worth selling · ${memory.why}` : memory.work ? "Work · stays private" : "Private";
+      items.append((kept?.length ?? 0) > 1 ? sourcedRow({ id: memory.id, title: memory.title, sources: kept }, [status], memory.sell) : memoryRow(memory.id, memory.title, status, memory.sell));
+    }
+    box.append(items);
   }
-  aside.append(clear);
-  return section("New memories", list, aside);
+  return box;
 }
 
 /** The owner is looking at the new memories, so the dock stops counting them. */
@@ -925,10 +974,13 @@ function signInCard() {
   return box;
 }
 
-/** Whether a read left the place it read readable. @param {SourceRead[]} reads @param {string} name */
-function readable(reads, name) {
-  const read = reads.find((each) => each.name === name);
-  return Boolean(read && CONNECTION_STATES[read.state].ok);
+/** What a place macOS keeps Lore out of throws, so the first run asks for the access rather than another try. */
+const MAC_SAYS_NO = "macOS hasn't let Lore read it";
+
+/** Throws, in words the first run can tell apart, unless the place reads. @param {SourceState | undefined} state */
+function readOrThrow(state) {
+  if (state === "needs_permission") throw new Error(MAC_SAYS_NO);
+  if (!CONNECTION_STATES[state ?? "connected"].ok) throw new Error("Lore can't read it yet");
 }
 
 /** How long Lore waits on where the first run stands before going on without it. */
@@ -963,6 +1015,8 @@ class FirstRunChat {
   saved = 0;
   /** The agent apps on this Mac (APP-216). @type {AgentApp[]} */
   installed = [];
+  /** Whether macOS kept Lore out of a place it tried. */
+  walled = false;
   /** The places found on this Mac, each to connect, until the owner connects them. @type {Array<{label: string, mark: string, detail: string, on: boolean, connect: (run: number) => Promise<string | undefined>}> | null} */
   found = null;
   /** What the one tap connected. @type {string[]} */
@@ -1171,12 +1225,13 @@ class FirstRunChat {
         let known = byPlace.get(vault.locator)?.name ?? null;
         return { label: `Obsidian · ${vault.label}`, mark: "obsidian", detail: "Your notes", on: true, connect: async () => {
           if (known) {
-            if (!readable(await window.lore.readSource(known), known)) throw new Error("Lore can't read it yet");
+            const name = known;
+            readOrThrow((await window.lore.readSource(name)).find((read) => read.name === name)?.state ?? "unreachable");
             return known;
           }
           const added = await window.lore.connectSource({ connector: "obsidian", locator: vault.locator });
           known = added.name;
-          if (!CONNECTION_STATES[added.state ?? "connected"].ok) throw new Error("Lore can't read it yet");
+          readOrThrow(added.state);
           return known;
         } };
       }),
@@ -1187,7 +1242,7 @@ class FirstRunChat {
         if (!source.owned) await window.lore.switchSource(source.name, true);
         // Skipped while it was being switched on: it is not read after the owner left.
         if (!this.current(run)) return;
-        if (!readable(await window.lore.readSource(source.name), source.name)) throw new Error("Lore can't read it yet");
+        readOrThrow((await window.lore.readSource(source.name)).find((read) => read.name === source.name)?.state ?? "unreachable");
         return source.name;
       } }))
     ];
@@ -1204,14 +1259,16 @@ class FirstRunChat {
     this.working = true;
     this.redraw();
     const failed = [];
+    let walled = false;
     for (const place of chosen) {
       /** @type {string | undefined} */
       let name;
       let ok = true;
       try {
         name = await place.connect(run);
-      } catch {
+      } catch (error) {
         ok = false;
+        if (/** @type {Error} */ (error).message === MAC_SAYS_NO) walled = true;
       }
       if (!this.current(run)) return;
       if (ok) this.connected.push(short(place));
@@ -1219,7 +1276,9 @@ class FirstRunChat {
       if (name) this.brought.push(name);
     }
     this.found = failed;
-    this.unconnected = failed.length ? `${named(failed.map(short))} didn't connect. Try again.` : "";
+    // A folder macOS keeps Lore out of never reads on another try: the owner allows Lore first.
+    this.walled = walled;
+    this.unconnected = !failed.length ? "" : walled ? `macOS hasn't let Lore read ${named(failed.map(short))}. Allow Lore in System Settings, then try again.` : `${named(failed.map(short))} didn't connect. Try again.`;
     if (!failed.length) this.appsDone = true;
     this.working = false;
     await load();
@@ -1394,7 +1453,7 @@ class FirstRunChat {
         for (const step of guide.steps) list.append(el("li", "", step));
         box.append(list);
       }
-      box.append(guide?.message ? privateLink(this.handed, guide.message, "Copy message") : privateLink(this.handed));
+      box.append(guide?.message ? privateLink(this.handed, guide.message, "Copy message") : privateLink(this.handed), ...afterConnect(app, who));
     }
     if (this.problem) box.append(el("p", "problem", this.problem));
     const foot = el("div", "first-connect-foot");
@@ -1468,7 +1527,7 @@ class FirstRunChat {
     go.disabled = this.working || !count;
     const later = button("Not now", "secondary", () => { this.appsDone = true; this.redraw(); });
     later.disabled = this.working;
-    actions.append(later, go);
+    actions.append(later, ...(this.walled && !this.working ? [button("Open System Settings", "secondary", () => void window.lore.openPrivacySettings())] : []), go);
     box.append(list, actions);
     return box;
   }
@@ -2572,6 +2631,8 @@ const AGENT_GUIDES = {
   }
 };
 const EVERY_EVENING = "Every evening, save anything new you learned about me to Lore.";
+/** What to send an agent once it's connected, so its first save comes now and shows the connection works. */
+const SAVE_NOW = "Save what you know about me to Lore: how I work, what I care about, and what I'm working on.";
 /** While the setup sheet waits on a first save, it asks the store this often, not once a minute. */
 const FIRST_SAVE_EVERY_MS = 10_000;
 
@@ -2719,16 +2780,27 @@ function privateLink(handed, lead = "", label = "Copy") {
   return link;
 }
 
-/** After its first save, an agent can be asked to save every evening on its own schedule. Optional, so quiet.
+/** A sentence to paste into an agent, with what it's for and a Copy button. @param {string} what @param {string} text */
+function promptOffer(what, text) {
+  const offer = el("div", "agent-next");
+  const words = el("div", "agent-next-words");
+  words.append(el("span", "", what), el("span", "agent-next-quote", `“${text}”`));
+  offer.append(words, copyButton(() => text));
+  return offer;
+}
+
+/** An agent can be asked to save every evening on its own schedule, where it has one. Optional, so quiet.
  * @param {AgentApp | null | undefined} app @param {string} who */
 function eveningOffer(app, who) {
   const kind = app ? AGENT_GUIDES[app]?.routine : undefined;
-  if (!kind) return null;
-  const offer = el("div", "agent-next");
-  const words = el("div", "agent-next-words");
-  words.append(el("span", "", `Optional: paste this into ${who} as a ${kind}, so it saves every evening.`), el("span", "agent-next-quote", `“${EVERY_EVENING}”`));
-  offer.append(words, copyButton(() => EVERY_EVENING));
-  return offer;
+  return kind ? promptOffer(`Optional: add this to ${who} as a ${kind}, so it saves every evening.`, EVERY_EVENING) : null;
+}
+
+/** Once connected: what to send so the first save comes now, and, where the agent has a schedule, its evening save.
+ * @param {AgentApp | null | undefined} app @param {string} who @returns {HTMLElement[]} */
+function afterConnect(app, who) {
+  const evening = eveningOffer(app, who);
+  return [promptOffer(`Then send ${who} this, so it saves right away:`, SAVE_NOW), ...(evening ? [evening] : [])];
 }
 
 /** APP-207: connecting one of the owner's personal agents, in one sheet: their store online first if it isn't yet,
@@ -2823,18 +2895,19 @@ class AgentSetup {
       form.body.append(inlineNotice(`This key is shown only once. If it's lost, get a new one from Manage.`));
       form.button("Copy all", "secondary", () => void window.lore.copy(`Address: ${handed.mcp_url}\nKey: ${handed.header}\n\n${handed.prompt}`));
     }
+    if (first) form.body.append(...afterConnect(app, where));
     if (app === "grok" && installed.includes(app)) form.button(`Open ${where}`, "secondary", () => void window.lore.openAgentApp(app).catch((error) => tell(reason(error, `Lore couldn't open ${where}.`))));
     this.wait(handed, who, first);
     form.arm({ primary: "Done" });
     form.focus();
   }
 
-  /** Waits, in the sheet, for the agent's first save to reach Lore, then offers its evening save; after a new link,
+  /** Waits, in the sheet, for the agent's first save to reach Lore; after a new link,
    * for the next save, which shows the new link works. The store counts every save, even one that changes nothing,
    * and the key came with the count so far, so only a save made with this key raises it: saves the old key left
    * waiting were already counted. @param {AgentKey} handed @param {string} who @param {boolean} first */
   wait(handed, who, first) {
-    const { source, agent } = handed;
+    const { source } = handed;
     const line = waitLine(who, first);
     this.form.body.append(line);
     const { dialog } = this.form;
@@ -2846,8 +2919,6 @@ class AgentSetup {
           seeFrom({ id: source, label: who });
         }));
       } else line.replaceChildren(el("span", "dot ok"), el("span", "", `${who} saved with the new link`));
-      const offer = first && eveningOffer(agent.app, who);
-      if (offer) line.after(offer);
     });
     dialog.addEventListener("close", stop);
   }
@@ -3022,9 +3093,35 @@ function renderSettings(s) {
         : []),
       ...marketplaceRow(s)
     ])),
+    section("Appearance", card([appearanceRow()])),
     ...(appUpdate ? [section("Updates", card([updateRow(appUpdate)]))] : []),
     ...(runs ? [runs] : [])
   ];
+}
+
+const APPEARANCES = /** @type {const} */ ([["system", "Match Mac"], ["light", "Light"], ["dark", "Dark"]]);
+
+/** Light, dark or the Mac's own, from Settings or the account menu's switch. The window turns at once. @param {AppearanceChoice} choice */
+function chooseAppearance(choice) {
+  appearance = choice;
+  if (view === "settings") render();
+  void window.lore.setAppearance(choice).catch(() => tell("Lore couldn't keep that choice. It goes back to how it was next time Lore opens.", true));
+}
+
+/** Settings → Appearance: as the Mac is set, or always light or dark. The window changes as soon as one is picked. */
+function appearanceRow() {
+  const choices = el("div", "shelves");
+  choices.setAttribute("role", "radiogroup");
+  choices.setAttribute("aria-label", "Appearance");
+  for (const [choice, label] of APPEARANCES) {
+    const option = el("button", "shelf", label);
+    option.type = "button";
+    option.setAttribute("role", "radio");
+    option.setAttribute("aria-checked", String(appearance === choice));
+    option.addEventListener("click", () => chooseAppearance(choice));
+    choices.append(option);
+  }
+  return row("Light or dark", "Lore can follow your Mac's light or dark setting, or keep to one.", cell(choices), false);
 }
 
 /** Settings → Updates: the version on this Mac, and the one thing to do about a newer one. @param {AppUpdate} u */
@@ -3283,7 +3380,6 @@ function renderAccount() {
   account.insertAdjacentHTML("beforeend", CHEVRON);
   accountLine.textContent = credential ? `Signed in with ${name}` : "Not signed in";
   signOutBtn.hidden = !credential;
-  signOutBtn.textContent = `Sign out of ${name}`;
 }
 
 /** Memories and For Sale became Inventory's tabs; anything that still asks for them lands there. @param {View | "memories" | "store"} next */
@@ -3832,7 +3928,7 @@ function payoutField(question, index) {
   return fieldset;
 }
 
-/** @param {AgentRequest} event */
+/** @param {Exclude<AgentRequest, {type: "changes"}>} event */
 function renderRequest(event) {
   // The blueprint panel is built by the shared blueprintPanel() below, in confirm
   // mode, reusing the live ghost node if the evidence scan already built one.
@@ -4043,6 +4139,38 @@ function renderRequest(event) {
   for (const area of box.querySelectorAll("textarea")) fit(/** @type {HTMLTextAreaElement} */ (area));
   reveal();
   if (!pinned) /** @type {HTMLElement | null} */ (box.querySelector("input[type=text], input[type=password], select"))?.focus({ preventScroll: true });
+}
+
+/** APP-226: each change a store update puts out, grouped as the owner thinks of them, with Confirm and Cancel. Closing
+ * the sheet any way but Confirm is Cancel, so nothing goes out without the yes.
+ * @param {Extract<AgentRequest, {type: "changes"}>} event */
+function confirmChanges(event) {
+  const sheet = new FormSheet(event.heading);
+  sheet.dialog.classList.add("changes-sheet");
+  const groups = [...new Set(event.changes.map((change) => change.group))];
+  for (const group of groups) {
+    sheet.group(group, event.changes.filter((change) => change.group === group).map(({ label, from, to }) => {
+      const value = el("span", "form-value");
+      if (from) value.append(el("s", "", from), " → ");
+      if (to) value.append(to);
+      const row = sheet.row(label, value);
+      row.dataset.wraps = "";
+      return row;
+    }));
+  }
+  sheet.note("Nothing changes on your store until you confirm.");
+  let yes = false;
+  let waiting = true;
+  sheet.button("Cancel", "secondary", () => sheet.close());
+  // Every way this sheet closes answers its own request once, even when another sheet replaced it.
+  sheet.dialog.addEventListener("close", () => {
+    if (changing?.sheet === sheet) changing = null;
+    if (!waiting) return;
+    waiting = false;
+    void window.lore.respond({ id: event.id, value: yes });
+  });
+  changing = { id: event.id, sheet, drop: () => { waiting = false; sheet.close(); } };
+  sheet.open({ primary: "Confirm", submit: () => { yes = true; } });
 }
 
 /** @param {string} id @param {unknown} value @param {string} [echo] */
@@ -4265,10 +4393,11 @@ async function approveAllExtras(forms) {
   const working = `Approving ${plural(decisions.length, "piece")} and updating your store. It takes a minute; you can keep working.`;
   tell(working);
   render();
-  const done = await act(() => window.lore.approveExtras(decisions), "Approved. They go live with your next store update.");
+  let pushed = false;
+  const done = await act(async () => { pushed = await window.lore.approveExtras(decisions); }, "Approved. They go live with your next store update.");
   approvingExtras = 0;
   drop((item) => item.text === working);
-  if (done) tell(`Your store is updated · ${plural(decisions.length, "piece")} have their new pages.`);
+  if (done) tell(pushed ? `Your store is updated · ${plural(decisions.length, "piece")} have their new pages.` : "Approved. They go live with your next store update.");
   render();
 }
 
@@ -4440,7 +4569,8 @@ async function pushNow() {
   pushing = true;
   render();
   const offer = pushOffer;
-  if (await act(window.lore.push, "Lore couldn't update your store. Try Update store again in a minute.")) {
+  let pushed = false;
+  if (await act(async () => { pushed = await window.lore.push(); }, "Lore couldn't update your store. Try Update store again in a minute.") && pushed) {
     const live = snapshot ? `${snapshot.publications.counts.active} ${snapshot.publications.counts.active === 1 ? "publication" : "publications"}` : "publications";
     pushedNote = `Your store is updated · ${live} for sale`;
   } else {
@@ -4689,6 +4819,7 @@ function onEvent(event) {
   } else if (event.type === "dismiss") {
     if (redirectPrompt === event.id) offerRedirect(null);
     if (request?.id === event.id) { clearRequest(); renderLog(); }
+    if (changing?.id === event.id) changing.drop();
   } else if (event.type === "signin") {
     signingIn = event.pending;
     render();
@@ -4698,6 +4829,8 @@ function onEvent(event) {
   } else if (event.type === "auth") {
     const detail = event.event;
     welcomeNote.textContent = event.message || (detail?.type === "device_code" ? `Open ${detail.verificationUri} and enter ${detail.userCode}.` : detail && "message" in detail ? detail.message : "Continue signing in.");
+  } else if (event.type === "changes") {
+    confirmChanges(event);
   } else if (event.task && event.task !== detailTask) {
     // A card belongs in its own thread, never under whichever heading happens to be open.
     void openTask(event.task).then(() => renderRequest(event));
@@ -4706,6 +4839,10 @@ function onEvent(event) {
 
 window.lore.onAgentEvent(onEvent);
 void window.lore.update().then(showUpdate);
+void window.lore.appearance().then((choice) => {
+  appearance = choice;
+  if (view === "settings") render();
+});
 updateBtn.addEventListener("click", () => void window.lore.installUpdate());
 
 composer.addEventListener("submit", async (event) => {
@@ -5032,7 +5169,13 @@ mainEl.addEventListener("scroll", () => mainEl.classList.toggle("scrolled", main
 // APP-218: what a thread scrolls into view stops clear of the floating composer, however tall it has grown.
 new ResizeObserver(() => mainEl.style.setProperty("--composer-room", `${composer.offsetHeight}px`)).observe(composer);
 // The account menu is a native popover: Escape and a click elsewhere close it, and its trigger says whether it is open.
-for (const item of accountMenu.querySelectorAll("button")) item.addEventListener("click", () => accountMenu.hidePopover());
+// The Dark mode switch stays open to show itself flip; it says what the window is drawn in, whoever chose it.
+for (const item of accountMenu.querySelectorAll("button:not(#dark-mode)")) item.addEventListener("click", () => accountMenu.hidePopover());
+const darkScheme = matchMedia("(prefers-color-scheme: dark)");
+const showDark = () => darkMode.setAttribute("aria-checked", String(darkScheme.matches));
+darkScheme.addEventListener("change", showDark);
+showDark();
+darkMode.addEventListener("click", () => chooseAppearance(darkScheme.matches ? "light" : "dark"));
 for (const item of /** @type {NodeListOf<HTMLButtonElement>} */ (accountMenu.querySelectorAll("[data-view]"))) item.addEventListener("click", () => show(/** @type {View} */ (item.dataset.view)));
 feedbackBtn.addEventListener("click", openFeedbackDialog);
 skipBtn.addEventListener("click", () => firstRun.leave("skipped"));
