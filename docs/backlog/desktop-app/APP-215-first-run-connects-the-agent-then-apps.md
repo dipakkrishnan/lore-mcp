@@ -4,13 +4,13 @@ title: First run: a short chat that connects the owner's agent, then their apps
 priority: P0
 effort: L
 component: desktop-app
-status: in-review
+status: completed
 related: [APP-207, APP-212, APP-214, XC-068]
 blockers: [APP-212, APP-214, APP-216, XC-069]
 dependencies: []
 github_issue: null
 created: 2026-10-17
-updated: 2026-10-17
+updated: 2026-10-19
 ---
 
 ## Problem
@@ -91,3 +91,7 @@ hardening merged in):
 - Every step is the app's; no model turn runs. The onboarding skill and the agent's
   system prompt now put the blueprint, profile and rhythm after the first save.
 - The `firstrun` edge walk drives it end to end against the stand-in node.
+
+## Notes
+
+**Completed (verified 2026-10-19):** every acceptance criterion is checked and the work is on main in 9fb5620. Status was left stale after merge; closed out in the review-queue pass.

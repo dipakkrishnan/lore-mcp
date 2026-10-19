@@ -4,13 +4,13 @@ title: A UI that feels alive
 priority: P2
 effort: M
 component: desktop-app
-status: in-review
+status: completed
 related: [APP-218, APP-221]
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-10-18
-updated: 2026-10-18
+updated: 2026-10-19
 ---
 
 ## Problem
@@ -34,3 +34,7 @@ took. Replies landed as whole blocks, and the sidebar was a flat cream panel.
   current step shimmers. Finished steps fold into one "4 steps · 12s" line that
   opens on click. Raw tool names, commands and paths never reach the page.
 - Everything here is still under reduced motion.
+
+## Notes
+
+**Completed (verified 2026-10-19, by reading code and tests, no suites run):** on main in 9feb663. Closed out in the review-queue pass.

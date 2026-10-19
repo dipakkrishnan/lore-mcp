@@ -4,13 +4,13 @@ title: Show owner cards one at a time, never racing
 priority: P0
 effort: XS
 component: desktop-app
-status: in-review
+status: completed
 related: [APP-057, APP-056, APP-052]
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-09-07
-updated: 2026-09-07
+updated: 2026-10-19
 ---
 
 ## Problem
@@ -35,3 +35,7 @@ cannot exist until the first is answered.
 - [x] Each owner-facing tool declares sequential execution.
 - [x] A turn holding two owner cards shows the first, then the second, and
       both results reach the agent.
+
+## Notes
+
+**Completed (verified 2026-10-19):** every acceptance criterion is checked and the work is on main in 886d427 (#242). Status was left stale after merge; closed out in the review-queue pass.
