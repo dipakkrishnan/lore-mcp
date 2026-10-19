@@ -208,9 +208,9 @@ describe("without a usable LORE_WALLET", () => {
       })
     });
 
+  // A missing or empty one is a store with nothing for sale yet (XC-069, test/empty-store.test.ts);
+  // one that is set to something other than an address is a mistake, and the store refuses to start.
   it.each([
-    ["missing", undefined],
-    ["empty", ""],
     ["not an address", "not an address"],
     ["a private key", `0x${"1".repeat(64)}`]
   ])("the MCP surface refuses to start when it is %s", async (_label, wallet) => {
@@ -234,10 +234,10 @@ describe("without a usable LORE_WALLET", () => {
     }
   });
 
-  it("the store pages still show only what is free", async () => {
+  it("the store pages never show the piece itself", async () => {
     mockFacilitator();
-    setWallet(undefined);
-    // These routes never build the MCP server, so they answer without a
+    setWallet("not an address");
+    // These routes never build the MCP server, so they answer with a broken
     // wallet. What they may say is the teaser; the piece itself stays unsold.
     const routes: [string, RequestInit?][] = [
       ["/"],
