@@ -4,13 +4,13 @@ title: Import only the owner's writing from Notion and Claude Code
 priority: P1
 effort: S
 component: store-import
-status: in-review
+status: completed
 related: [STO-004]
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-10-06
-updated: 2026-10-06
+updated: 2026-10-19
 ---
 
 ## Problem
@@ -40,3 +40,5 @@ as six memories titled "Memory".
 
 Pages already imported are not re-read, so existing libraries are cleaned
 once with `notion_writing` (done for the owner's library on 2026-10-06).
+
+**Completed (verified 2026-10-19):** every acceptance criterion is checked and the work is on main in f9c3f23. Status was left stale after merge; closed out in the review-queue pass.

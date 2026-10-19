@@ -4,13 +4,13 @@ title: Put a store online to receive agent saves before anything is for sale
 priority: P0
 effort: M
 component: cross-cutting
-status: in-review
+status: completed
 related: [XC-067, APP-207, APP-215]
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-10-17
-updated: 2026-10-17
+updated: 2026-10-19
 ---
 
 ## Problem
@@ -103,3 +103,5 @@ the owner first approves something to sell, through the existing store flow.
     to `~/.lore/node/wrangler.jsonc`. If the write fails, no id is saved and
     the deploy fails; a retry finds the database already made and is refused,
     or adopts it with a full deploy that opens it for sale explicitly.
+
+**Completed (verified 2026-10-19):** every acceptance criterion is checked and the work is on main in 0f367d3. Status was left stale after merge; closed out in the review-queue pass.
