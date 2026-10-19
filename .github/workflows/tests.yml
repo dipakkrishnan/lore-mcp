@@ -76,6 +76,10 @@ jobs:
         timeout-minutes: 5
       - run: support/edge.sh agents
         timeout-minutes: 5
+      - run: support/edge.sh connectors
+        env:
+          LORE_EDGE_APPEARANCE: dark
+        timeout-minutes: 5
       - run: npm run package
 
   node-lint:

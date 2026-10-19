@@ -2329,6 +2329,37 @@ test("the first-run chat keeps where it stands across launches, and nothing else
   }
 });
 
+test("APP-225: the appearance chosen drives the window's theme and is kept across launches", async () => {
+  const { Appearance } = require("../src/appearance.cjs");
+  const directory = await mkdtemp(join(tmpdir(), "lore-appearance-"));
+  const file = join(directory, "appearance.json");
+  const theme = { themeSource: "light" };
+  const kept = new Appearance(file, theme);
+  try {
+    assert.equal(await kept.read(), "system", "never chosen follows the Mac");
+    await kept.apply();
+    assert.equal(theme.themeSource, "system");
+    await Promise.all([kept.set("light"), kept.set("dark")]);
+    assert.equal(theme.themeSource, "dark");
+    assert.equal(await new Appearance(file, theme).read(), "dark", "the last choice is the one kept");
+    await assert.rejects(kept.set("sepia"), /Unknown appearance/);
+    assert.equal(theme.themeSource, "dark", "a refused choice changes nothing");
+    await writeFile(file, "{not json");
+    assert.equal(await kept.read(), "system", "a damaged file reads as never chosen");
+    assert.deepEqual(await readdir(directory), ["appearance.json"]);
+  } finally {
+    await rm(directory, { recursive: true });
+  }
+});
+
+test("APP-225: every colour in the stylesheet is a token, so dark covers the whole app", async () => {
+  const css = await readFile(join(__dirname, "../src/styles.css"), "utf8");
+  const outside = css.replace(/:root \{[^}]*\}/g, "").replace(/--mark-tile: #[0-9a-f]+;/, "").replace(/mask-image: [^;]*;/g, "");
+  assert.deepEqual(outside.match(/#[0-9a-fA-F]{3,8}\b|rgba?\(\d/g), null);
+  const dark = css.match(/@media \(prefers-color-scheme: dark\) \{\s*:root \{([^}]*)\}/)?.[1] ?? "";
+  for (const token of ["--bg", "--surface", "--ink", "--muted", "--line", "--accent", "--accent-soft", "--accent-ink", "--hover", "--attention-ink"]) assert.match(dark, new RegExp(`${token}:`), token);
+});
+
 test("the first-run chat asks the onboarding skill to shape the library only after the first save", async () => {
   const skill = await readFile(join(__dirname, "../../../plugins/lore/skills/lore-onboard/SKILL.md"), "utf8");
   assert.match(skill, /## Connect first, shape after the first save/);

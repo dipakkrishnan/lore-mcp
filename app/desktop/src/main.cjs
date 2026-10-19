@@ -11,6 +11,7 @@ const reading = require("./reading.cjs");
 const checkin = require("./checkin.cjs");
 const { Schedule } = require("./routines.cjs");
 const { FirstRun } = require("./firstrun.cjs");
+const { Appearance } = require("./appearance.cjs");
 const { Watch, WATCH_EVERY_MS, AgentApps } = require("./agents.cjs");
 const { checkAttachments } = require("./attachments.cjs");
 const { lore, listRoutines, runRoutine, changeRoutine, addRoutine, editRoutine, switchSource, openable, readState, readSales, readViews, searchMemories, readMemory, creditMemories, renameMemory, editMemory, captureMemories, previewPage, setPrice, setFreeCopies, candidates, decide, extrasCandidates, decideExtras, approveExtras, reportFeedback, listStore, cardStatus, connectCards, switchCards, listingStatus, sourceCatalog, sourceChoices, connectSource, signIn, readSource, removeSource, listAgents, connectAgent, agentKey, disconnectAgent, agentsWaiting, useRuntime, openStore, storeOnline, cloudflareSignIn, saveProfile, ATTENDED_KEY, STORE } = require("./state.cjs");
@@ -44,6 +45,8 @@ const badge = new reading.Badge((count) => app.setBadgeCount(count));
 const newMemories = new reading.Ready(join(app.getPath("userData"), "memories-ready.json"), badge.part("memories"));
 /** Where the first-run chat stands (APP-215). */
 const firstRun = new FirstRun(join(app.getPath("userData"), "first-run.json"));
+/** Light, dark, or the Mac's own (APP-225). */
+const appearance = new Appearance(join(app.getPath("userData"), "appearance.json"), nativeTheme);
 /** Which memories the owner has had on screen, so Inventory marks the rest New (APP-212). */
 const seenMemories = new reading.Seen(join(app.getPath("userData"), "memories-seen.json"));
 /** The evening check-in waiting for the owner, if Lore found something worth asking (AUT-008). */
@@ -320,6 +323,8 @@ function registerIpc(loreHome, schedule, watch) {
   // in to Cloudflare first in the browser when it has to.
   ipcMain.handle("firstrun:read", () => firstRun.read());
   ipcMain.handle("firstrun:write", (_event, next) => firstRun.write(next));
+  ipcMain.handle("appearance:read", () => appearance.read());
+  ipcMain.handle("appearance:set", (_event, choice) => appearance.set(choice));
   ipcMain.handle("store:online", async () => {
     try {
       let said = await storeOnline(loreHome);
@@ -433,8 +438,6 @@ async function runNow(loreHome, routine) {
 }
 
 function createWindow() {
-  // Lore is drawn light only, so its frosted sidebar is the light material even when the Mac is in dark mode.
-  nativeTheme.themeSource = "light";
   window = new BrowserWindow({
     width: 1040,
     height: 760,
@@ -480,6 +483,7 @@ app.whenReady().then(async () => {
     }
   });
   registerIpc(loreHome, schedule, watch);
+  await appearance.apply();
   createWindow();
   await new Promise((loaded) => window?.webContents.once("did-finish-load", () => loaded(undefined)));
   updates.start();

@@ -191,6 +191,9 @@ type CheckIn = { questions: Array<{ question: string; memory: number; title: str
 /** Where the first-run chat stands (APP-215), and the agent it is waiting on. */
 type FirstRunState = { state: "started" | "skipped" | "done"; source?: string };
 
+/** How Lore is drawn: as the Mac is set, or always light or dark (APP-225). */
+type AppearanceChoice = "system" | "light" | "dark";
+
 type AgentApp = "grok" | "muse" | "chatgpt" | "claude" | "other";
 
 /** What `lore agents connect` and `lore agents key` hand back: the agent, with how many saves its store has counted so far, and what to paste into it, shown once. */
@@ -360,6 +363,8 @@ interface Window {
     /** Where the first-run chat stands, or null if it never started (APP-215). */
     firstRun(): Promise<FirstRunState | null>;
     setFirstRun(next: FirstRunState): Promise<void>;
+    appearance(): Promise<AppearanceChoice>;
+    setAppearance(choice: AppearanceChoice): Promise<void>;
     /** Put the store online for the owner's agents only; signs in to Cloudflare in the browser first if it must. */
     storeOnline(): Promise<void>;
     /** The Cloudflare sign-in waiting on the browser: its page opened again, or the wait stopped. */
