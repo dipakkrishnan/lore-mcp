@@ -21,7 +21,7 @@ from typing import Callable, Literal
 
 from pydantic import BaseModel, ConfigDict
 
-from . import blueprint, feedback
+from . import blueprint, deploy, feedback
 from .store import Store
 from .ui import CONTROL_CHARACTERS
 
@@ -45,6 +45,7 @@ class Marketplace:
         self.push = push
         with Store() as store:
             node = store.setting("node_url", None)
+            self.open_for_sale = deploy.selling(store)
             self.name = str(store.setting(NAME_SETTING, ""))
         if not isinstance(node, str) or not node:
             raise ValueError("open your store before listing it")
@@ -82,6 +83,9 @@ class Marketplace:
         return Listing(state="none")
 
     def list(self, name: str | None = None) -> Listing:
+        # Status and delisting still work on a store online only for agents (XC-069).
+        if not self.open_for_sale:
+            raise ValueError("open your store for sale before listing it")
         chosen = (name or _setup_name()).translate(CONTROL_CHARACTERS).strip()
         if not chosen:
             raise ValueError("a display name is needed; pass --name")

@@ -5,13 +5,21 @@ import hmac
 import json
 import math
 import os
+import pwd
 import re
 import sys
 import urllib.parse
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Mapping, get_args
 
-from pydantic import BaseModel, ConfigDict, Field, TypeAdapter
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    StrictInt,
+    TypeAdapter,
+    field_validator,
+)
 
 from . import blueprint as blueprint_module
 from . import capture as capture_module
@@ -21,7 +29,9 @@ from . import feedback as feedback_module
 from . import marketplace as marketplace_module
 from . import sources as sources_module
 from . import usage
-from .paths import home
+from .agents import Agents
+from .inbox import AgentApp, Inbox, InboxError
+from .paths import home, store_folder
 from .sources import Registry, available_sources
 from .store import (
     FREE_COPIES,
@@ -32,7 +42,9 @@ from .store import (
     STATUSES,
     SUPPORT_EMAIL_SETTING,
     AnswerSettings,
+    Contributor,
     JobKind,
+    Memory,
     Publication,
     PublicationExtras,
     PublicationInput,
@@ -95,6 +107,12 @@ class ExtrasDecision(BaseModel):
 EXTRAS_DECISIONS: TypeAdapter[ExtrasDecision | list[ExtrasDecision]] = TypeAdapter(
     ExtrasDecision | Annotated[list[ExtrasDecision], Field(min_length=1)]
 )
+
+
+def _new_agent_app(app: str) -> str:
+    if app == "muse":
+        raise argparse.ArgumentTypeError("Muse can't connect yet.")
+    return app
 
 
 def parser() -> argparse.ArgumentParser:
@@ -166,6 +184,12 @@ def parser() -> argparse.ArgumentParser:
     source_read = source_commands.add_parser("read", help="import from sources now")
     source_read.add_argument("name", nargs="*")
     source_read.add_argument("--json", action="store_true")
+    for name, words in (("enable", "start"), ("disable", "stop")):
+        switch = source_commands.add_parser(
+            name, help=f"{words} reading an agent's history on this Mac, like codex"
+        )
+        switch.add_argument("name")
+        switch.add_argument("--json", action="store_true")
     source_remove = source_commands.add_parser("remove", help="stop reading a source")
     source_remove.add_argument("name")
     memories = source_remove.add_mutually_exclusive_group(required=True)
@@ -176,6 +200,40 @@ def parser() -> argparse.ArgumentParser:
         "--delete", action="store_true", help="delete what it imported"
     )
     source_remove.add_argument("--json", action="store_true")
+
+    agents = commands.add_parser(
+        "agents", help="connect the personal agents that save to your Lore"
+    )
+    agent_commands = agents.add_subparsers(dest="agents_command", required=True)
+    agent_connect = agent_commands.add_parser(
+        "connect", help="give a personal agent a key to save with"
+    )
+    agent_connect.add_argument("name", help="what you call it, like Grok")
+    # Muse stays a stored kind for agents already connected, but a new one can't connect (APP-217).
+    agent_connect.add_argument(
+        "--app",
+        required=True,
+        type=_new_agent_app,
+        choices=[app for app in get_args(AgentApp) if app != "muse"],
+    )
+    agent_connect.add_argument("--json", action="store_true")
+    agent_list = agent_commands.add_parser("list", help="show your connected agents")
+    agent_list.add_argument("--json", action="store_true")
+    agent_key = agent_commands.add_parser(
+        "key", help="give an agent a new key; its old one stops working"
+    )
+    agent_key.add_argument("source", help="the agent's source, like agent-1a2b")
+    agent_key.add_argument("--json", action="store_true")
+    agent_revoke = agent_commands.add_parser("revoke", help="disconnect an agent")
+    agent_revoke.add_argument("source", help="the agent's source, like agent-1a2b")
+    kept = agent_revoke.add_mutually_exclusive_group(required=True)
+    kept.add_argument("--keep", action="store_true", help="keep what it saved")
+    kept.add_argument("--delete", action="store_true", help="delete what it saved")
+    agent_revoke.add_argument("--json", action="store_true")
+    agent_waiting = agent_commands.add_parser(
+        "waiting", help="how many saves are waiting to be brought in"
+    )
+    agent_waiting.add_argument("--json", action="store_true")
 
     review = commands.add_parser("review", help="keep or discard memories")
     review.add_argument("query", nargs="*", help="words to narrow the review queue")
@@ -223,6 +281,10 @@ def parser() -> argparse.ArgumentParser:
     )
     memory_edit.add_argument("--json", action="store_true")
     memory_commands.add_parser("rules", help="print what earns a place in memory")
+    memory_credit = memory_commands.add_parser(
+        "credit", help="record who wrote into memories, as JSON on stdin"
+    )
+    memory_credit.add_argument("file", help="'-' for stdin")
 
     profile = commands.add_parser(
         "profile", help="save an agent-written synthesis profile"
@@ -264,6 +326,15 @@ def parser() -> argparse.ArgumentParser:
         toggle = routine_commands.add_parser(name, help=f"{words} a routine")
         toggle.add_argument("id")
         toggle.add_argument("--json", action="store_true")
+    routine_edit = routine_commands.add_parser(
+        "edit", help="reword one of your own: what it does and its name"
+    )
+    routine_edit.add_argument("id")
+    routine_edit.add_argument("text", help="what to do, in a sentence")
+    routine_edit.add_argument(
+        "--title", default="", help="a name; the sentence by default"
+    )
+    routine_edit.add_argument("--json", action="store_true")
     routine_time = routine_commands.add_parser("time", help="change when one runs")
     routine_time.add_argument("id")
     routine_add = routine_commands.add_parser(
@@ -384,6 +455,12 @@ def parser() -> argparse.ArgumentParser:
         choices=tuple(deploy_module.NETWORKS),
         help="switch the node to real money or back to the test network",
     )
+    node_deploy.add_argument(
+        "--inbox-only",
+        action="store_true",
+        help="put your store online for your own agents with nothing for sale: "
+        "no price or payout address needed",
+    )
     node_commands.add_parser("login", help="sign in to Cloudflare through your browser")
     node_sales = node_commands.add_parser("sales", help="what your node has sold")
     node_sales.add_argument(
@@ -464,7 +541,7 @@ def parser() -> argparse.ArgumentParser:
     )
     push.add_argument(
         "--worker-dir",
-        default=str(home() / "node"),
+        default=str(store_folder()),
         help="the node source directory (default: the one `lore node deploy` stages)",
     )
     push.add_argument(
@@ -574,6 +651,8 @@ def main(argv: list[str] | None = None) -> int:
             )
         if args.command == "sources":
             return source_command(args)
+        if args.command == "agents":
+            return agents_command(args)
         if args.command == "job":
             return job(args)
         if args.command == "review":
@@ -588,6 +667,8 @@ def main(argv: list[str] | None = None) -> int:
 
                 print(RULES, end="")
                 return 0
+            if args.memory_command == "credit":
+                return credit_memories(args.file)
             if args.memory_command == "rename":
                 return rename_memory(args.id, args.title, args.json)
             if args.memory_command == "edit":
@@ -646,8 +727,10 @@ def main(argv: list[str] | None = None) -> int:
             return serve(serve_args)
         if args.command == "node":
             if args.node_command == "deploy":
-                deployed = deploy_module.deploy(args.wallet, args.network)
-                if deployed == 0:
+                deployed = deploy_module.deploy(
+                    args.wallet, args.network, inbox_only=args.inbox_only
+                )
+                if deployed == 0 and not args.inbox_only:
                     usage.record("store.opened")
                 return deployed
             if args.node_command == "secret":
@@ -809,8 +892,11 @@ def setup(yes: bool = False) -> int:
     """Choose native memory sources and perform the first import."""
     logo()
     automation_dir = home() / "automation"
-    automation_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
-    automation_dir.chmod(0o700)
+    # Touched only when it needs to change: the desktop agent's sandbox may read it, never write it.
+    if not automation_dir.is_dir():
+        automation_dir.mkdir(mode=0o700, parents=True)
+    if automation_dir.stat().st_mode & 0o777 != 0o700:
+        automation_dir.chmod(0o700)
     muted(
         "Lore imports only agent-generated memory files. Session transcripts stay untouched."
     )
@@ -943,6 +1029,12 @@ def source_command(args: argparse.Namespace) -> int:
                         for read in reads
                     ],
                 )
+            elif command in ("enable", "disable"):
+                _owner_action(
+                    f"turning {args.name} {'on' if command == 'enable' else 'off'}"
+                )
+                switched = Registry(store).switch(args.name, command == "enable")
+                payload, lines = switched, [_source_line(switched)]
             elif command == "remove":
                 removed = Registry(store).remove(args.name, delete=args.delete)
                 kind = "deleted" if args.delete else "kept"
@@ -951,6 +1043,60 @@ def source_command(args: argparse.Namespace) -> int:
                 listed = Registry(store).entries()
                 payload, lines = listed, [_source_line(entry) for entry in listed]
         except sources_module.SourceError as error:
+            print(f"lore: {error}", file=sys.stderr)
+            return 2
+    if args.json:
+        print(json.dumps(payload, separators=(",", ":"), allow_nan=False))
+        return 0
+    for line in lines:
+        print(line)
+    return 0
+
+
+def agents_command(args: argparse.Namespace) -> int:
+    """Connect, list, re-key and disconnect the personal agents that save to Lore."""
+    command = args.agents_command
+    payload: Mapping[str, object]
+    # A key opens the owner's store to an agent, so only the owner hands one out or takes it back.
+    owner_only = {
+        "connect": "connecting an agent",
+        "key": "giving an agent a new key",
+        "revoke": "disconnecting an agent",
+    }
+    if command in owner_only:
+        _owner_action(owner_only[command])
+    with Store() as store:
+        try:
+            agents = Agents(store)
+            if command in ("connect", "key"):
+                payload = (
+                    agents.connect(args.name, args.app)
+                    if command == "connect"
+                    else agents.key(args.source)
+                )
+                said = (
+                    f"Connected {args.name}. Paste this into it:"
+                    if command == "connect"
+                    else "Its old key no longer works. Paste this into it again:"
+                )
+                lines = [said, "", str(payload["prompt"])]
+            elif command == "revoke":
+                payload = agents.revoke(args.source, delete=args.delete)
+                kind = "deleted" if args.delete else "kept"
+                lines = [f"Disconnected {args.source}; memories {kind}."]
+            elif command == "waiting":
+                payload = agents.waiting()
+                lines = [f"{payload['waiting']} waiting to be brought in."]
+            else:
+                listed = agents.entries()
+                payload = listed
+                lines = [
+                    f"  {agent['name']:<14} {agent['app']:<8} {agent['saved']} saved "
+                    f"· {agent['waiting']} waiting · {agent['memories']} memories"
+                    + (" · disconnected" if agent["revoked"] else "")
+                    for agent in listed["agents"]
+                ] or ["No personal agents connected."]
+        except (sources_module.SourceError, InboxError) as error:
             print(f"lore: {error}", file=sys.stderr)
             return 2
     if args.json:
@@ -1008,6 +1154,9 @@ def automation_command(args: argparse.Namespace) -> int:
     elif command == "remove":
         routines.remove(args.id)
         payload, lines = {"removed": args.id}, [f"Removed {args.id}."]
+    elif command == "edit":
+        payload = edited = routines.edit(args.id, args.text, args.title)
+        lines = [f"Changed {edited['id']}: {edited['name']}"]
     elif command == "add":
         payload = added = routines.add(
             args.text, args.cadence, args.hour, args.day, args.title
@@ -1159,6 +1308,40 @@ def search(
     return 0
 
 
+class Credit(BaseModel):
+    """Who wrote into which memories, as the desktop app hands it over once a reading lands."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    ids: list[Annotated[StrictInt, Field(gt=0)]] = Field(min_length=1, max_length=500)
+    by: Contributor
+
+    @field_validator("by")
+    @classmethod
+    def mark_is_known(cls, by: Contributor) -> Contributor:
+        if by.mark not in sources_module.marks():
+            raise ValueError(f"unknown mark: {by.mark}")
+        return by
+
+
+def credit_memories(file: str) -> int:
+    """Put who wrote into a reading's memories on record (APP-213)."""
+    text = sys.stdin.read() if file == "-" else Path(file).read_text(encoding="utf-8")
+    credit = Credit.model_validate_json(text)
+    with Store() as store:
+        credited = store.credit(credit.ids, credit.by)
+    print(json.dumps({"credited": credited}))
+    return 0
+
+
+def _memory_json(memory: Memory) -> str:
+    """One memory in full, with who it came from."""
+    with Store() as store:
+        credited = store.contributors([memory.id]).get(memory.id, [])
+        [row] = Registry(store).provenance([{**memory.__dict__, "sources": credited}])
+    return json.dumps(row, indent=2)
+
+
 def show_memory(memory_id: int, as_json: bool) -> int:
     """Print one memory as a card or JSON."""
     with Store() as store:
@@ -1166,7 +1349,7 @@ def show_memory(memory_id: int, as_json: bool) -> int:
     if memory is None:
         raise ValueError(f"memory not found: {memory_id}")
     if as_json:
-        print(json.dumps(memory.__dict__, indent=2))
+        print(_memory_json(memory))
     else:
         memory_card(memory)
     return 0
@@ -1180,7 +1363,7 @@ def rename_memory(memory_id: int, title: str, as_json: bool) -> int:
     if memory is None:
         raise ValueError(f"memory not found: {memory_id}")
     if as_json:
-        print(json.dumps(memory.__dict__, indent=2))
+        print(_memory_json(memory))
     else:
         memory_card(memory)
     return 0
@@ -1210,7 +1393,7 @@ def edit_memory(
     if memory is None:
         raise ValueError(f"memory not found: {memory_id}")
     if as_json:
-        print(json.dumps(memory.__dict__, indent=2))
+        print(_memory_json(memory))
     else:
         memory_card(memory)
     return 0
@@ -1271,6 +1454,7 @@ def status() -> int:
         free = store.setting(FREE_COPIES_SETTING, FREE_COPIES)
         answer_settings = store.answer_settings()
         node_url = store.setting("node_url", None)
+        node_selling = deploy_module.selling(store)
         revocation_pending = store.setting("revocation_pending", False)
         publish_pending = store.setting("publish_pending", False)
         published = len(store.list_publications(active_only=True))
@@ -1278,7 +1462,9 @@ def status() -> int:
     heading("Library")
     print(
         f"  {counts['private']} private · {counts['discarded']} discarded · "
-        f"{published} active publication{'' if published == 1 else 's'} (externally usable)"
+        f"{published} active publication{'' if published == 1 else 's'}"
+        # Approved is not usable outside this Mac until the store sells (XC-069).
+        + ("" if node_url and not node_selling else " (externally usable)")
     )
     if stale:
         muted(
@@ -1309,6 +1495,12 @@ def status() -> int:
         # A cache of remote truth, not local truth like the price: another
         # machine or the Cloudflare dashboard can move the node after this.
         print(f"Node (last deploy): {node_url}")
+        if not node_selling:
+            print(
+                "  Online for your agents; nothing is for sale. "
+                "Opening it for sale needs a price and a payout address: "
+                "lore node deploy --wallet <address>"
+            )
     if revocation_pending:
         print(
             "A revocation has NOT reached the deployed node — it still serves "
@@ -1337,13 +1529,13 @@ def price(amount: float | None) -> int:
                 "Keep the price there, or stop taking cards first: lore cards off"
             )
         store.set_setting("price_usd", round(amount, 6))
-        node_url = store.setting("node_url", None)
+        on_sale = deploy_module.selling(store)
     success(
         "Publications are free"
         if amount == 0
         else f"Publication price set to ${amount:.2f}"
     )
-    if node_url:
+    if on_sale:
         # The deployed Worker charges the price baked in at deploy time; a
         # saved setting proves nothing about what the live node charges.
         muted(
@@ -1505,7 +1697,10 @@ def _interactive() -> bool:
     return sys.stdin.isatty() and sys.stdout.isatty()
 
 
-ATTENDED_KEY = Path.home() / "Library" / "Application Support" / "Lore" / "attended"
+def attended_key() -> Path:
+    """Where the desktop app keeps its launch key: the account's own home, never `HOME`."""
+    account = Path(pwd.getpwuid(os.getuid()).pw_dir)
+    return account / "Library" / "Application Support" / "Lore" / "attended"
 
 
 def _attended() -> bool:
@@ -1515,11 +1710,13 @@ def _attended() -> bool:
     and hands it only to the CLI processes it spawns, so the agent cannot pose as it.
     """
     key = os.environ.get("LORE_ATTENDED_KEY", "")
+    if not key or sys.stdin.isatty():
+        return False
     try:
-        expected = ATTENDED_KEY.read_text(encoding="utf-8").strip()
+        expected = attended_key().read_text(encoding="utf-8").strip()
     except OSError:
         return False
-    return bool(key) and hmac.compare_digest(key, expected) and not sys.stdin.isatty()
+    return hmac.compare_digest(key, expected)
 
 
 def _desktop_decision(what: str) -> str:
@@ -1934,11 +2131,13 @@ def _push_after_approval() -> None:
     behind until a push lands — never silently dropped.
     """
     with Store() as store:
-        node_url = store.setting("node_url", None)
-    if not node_url:
+        open_for_sale = deploy_module.selling(store)
+    # A store online only for the owner's agents gets its pieces when it opens
+    # for sale: that deploy pushes them, after a price and a payout address.
+    if not open_for_sale:
         return
     try:
-        push(str(home() / "node"))
+        push(str(store_folder()))
     except (OSError, ValueError) as error:
         with Store() as store:
             store.set_setting("publish_pending", True)
@@ -1964,7 +2163,7 @@ def publication_revoke(publication_id: int) -> int:
     if not node_url:
         return 0
     try:
-        return push(str(home() / "node"))
+        return push(str(store_folder()))
     except (OSError, ValueError) as error:
         with Store() as store:
             store.set_setting("revocation_pending", True)
@@ -1982,6 +2181,8 @@ def _push_sql(
     free_copies: int = FREE_COPIES,
     support_email: str = "",
     price_usd: float = 0,
+    inbox: dict[str, str] | None = None,
+    selling: bool | None = None,
 ) -> str:
     """Render the full-replace SQL for the edge database.
 
@@ -2034,6 +2235,11 @@ def _push_sql(
         "support_email": support_email,
         # The store charges this from its next push, so a new price needs no redeploy.
         **({"price_usd": f"{price_usd:.6f}"} if price_usd > 0 else {}),
+        # Every push, since it replaces this table: without them agents can't save.
+        **(inbox or {}),
+        # XC-069: the owner's choice, when there is one. A store from before it
+        # sends no key, and its node sells as it always did.
+        **({} if selling is None else {"selling": "true" if selling else "false"}),
     }
     statements.extend(
         [
@@ -2056,6 +2262,9 @@ def push(worker_dir: str, local: bool = False) -> int:
 
 def _worker(worker_dir: str) -> Path:
     worker = Path(worker_dir)
+    if worker == store_folder() and not (worker / "wrangler.jsonc").is_file():
+        # A store set up inside Lore's home is rebuilt in its own folder first.
+        deploy_module.tools()
     if not (worker / "wrangler.jsonc").is_file():
         raise ValueError(
             f"no node source at {worker}/ — run `lore node deploy` first, "
@@ -2064,7 +2273,7 @@ def _worker(worker_dir: str) -> Path:
     return worker
 
 
-def push_job(worker: Path, local: bool) -> int:
+def push_job(worker: Path, local: bool, *, opening: bool = False) -> int:
     """One push, recorded as its own run. The deploy sequence carries one too:
     the deploy is already the owner's action, so its push skips the gate."""
     with Store() as store:
@@ -2072,14 +2281,14 @@ def push_job(worker: Path, local: bool) -> int:
             JobKind.PUSH.value, owner_pid=os.getpid(), timeout_minutes=60
         )
     try:
-        return _push(worker, local, job_id)
+        return _push(worker, local, job_id, opening)
     except BaseException:
         with Store() as store:
             store.finish_job(job_id, "failed", summary="failed")
         raise
 
 
-def _push(worker: Path, local: bool, job_id: int) -> int:
+def _push(worker: Path, local: bool, job_id: int, opening: bool = False) -> int:
     """Write the active publication set to the node's edge database."""
     import tempfile
 
@@ -2091,6 +2300,14 @@ def _push(worker: Path, local: bool, job_id: int) -> int:
         free = int(str(store.setting(FREE_COPIES_SETTING, FREE_COPIES)))
         support = str(store.setting(SUPPORT_EMAIL_SETTING, ""))
         price_usd = store.setting("price_usd", 0)
+        # A local push fills the dev database a contributor runs `wrangler dev` on,
+        # never a store buyers reach, so it always sells there; a full deploy's
+        # push is the one that opens the store for sale.
+        selling = True if local or opening else deploy_module.choice(store)
+    if selling is False:
+        # No piece text leaves this Mac while the store sells nothing (XC-069):
+        # the push carries settings and the agents' inbox keys only.
+        active = []
     script = _push_sql(
         active,
         answer_settings,
@@ -2099,6 +2316,8 @@ def _push(worker: Path, local: bool, job_id: int) -> int:
         free,
         support,
         float(price_usd) if isinstance(price_usd, (int, float)) else 0,
+        Inbox().settings(),
+        selling,
     )
     with tempfile.NamedTemporaryFile("w", suffix=".sql", delete=False) as handle:
         handle.write(script)
@@ -2268,7 +2487,7 @@ def marketplace(args: argparse.Namespace) -> int:
     """List, delist, or check this store on the public marketplace."""
     command = args.marketplace_command or "status"
     market = marketplace_module.Marketplace(
-        lambda: push_job(_worker(str(home() / "node")), False)
+        lambda: push_job(_worker(str(store_folder())), False)
     )
     if command == "status":
         listing = market.status()

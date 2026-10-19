@@ -11,6 +11,7 @@ requires-python = ">=3.10"
 license = "MIT"
 license-files = ["LICENSE"]
 dependencies = [
+    "cryptography>=44",
     "defusedxml>=0.7.1",
     "keyring>=25",
     "httpx2>=2.13",
@@ -64,6 +65,7 @@ lore = [
     "node/.dev.vars.example",
     "node/src/*.ts",
     "node/scripts/*.ts",
+    "store_skill.md",
 ]
 
 [tool.pytest.ini_options]

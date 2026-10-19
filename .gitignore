@@ -14,3 +14,6 @@ app/desktop/out/
 
 # git worktrees (local, per-developer)
 .worktrees/
+
+# local logs from test and edge runs
+*.log
