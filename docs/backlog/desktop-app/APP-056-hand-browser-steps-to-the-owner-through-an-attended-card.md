@@ -4,13 +4,13 @@ title: Hand every browser step to the owner through one attended card
 priority: P1
 effort: S
 component: desktop-app
-status: in-review
+status: completed
 related: [APP-055, MON-005, MON-018]
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-09-02
-updated: 2026-09-02
+updated: 2026-10-19
 ---
 
 ## Problem
@@ -54,3 +54,5 @@ tool instead of hanging.
 
 Shipped in PR #195. A Stop control while a card waits is still audit item
 10 and out of scope here.
+
+**Completed (verified 2026-10-19):** every acceptance criterion is checked and the work is on main in 55055b1. Status was left stale after merge; closed out in the review-queue pass.

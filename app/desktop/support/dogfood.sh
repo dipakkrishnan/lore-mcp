@@ -23,7 +23,9 @@ case "${1:-}" in
     # Wrangler keeps its login under $XDG_CONFIG_HOME/.wrangler; inside the
     # sandbox home the agent's shell can write it, and the Worker name is
     # fixed, so a shared login would deploy over the owner's live node.
+    # The store's code and its payout record live outside Lore's home; a sandbox keeps its own, never the owner's.
     LORE_HOME="$dogfood_root/lore" \
+      LORE_STORE="$dogfood_root/store" \
       LORE_DESKTOP_USER_DATA="$dogfood_root/user-data" \
       LORE_SKIP_SCHEDULE=1 \
       XDG_CONFIG_HOME="$dogfood_root/lore/.config" \

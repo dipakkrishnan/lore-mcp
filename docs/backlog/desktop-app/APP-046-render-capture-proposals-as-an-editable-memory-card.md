@@ -4,13 +4,13 @@ title: Render capture proposals as an editable memory card
 priority: P0
 effort: S
 component: desktop-app
-status: in-review
+status: completed
 related: [APP-003, APP-009, APP-016, APP-045]
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-09-01
-updated: 2026-09-01
+updated: 2026-10-19
 ---
 
 ## Problem
@@ -54,3 +54,5 @@ APP-009's completed capture-card criterion after the old Bash-policy renderer
 was removed with the Bash-regex approval boundary. The fix must not restore
 command parsing. Supersedes the uncommitted APP-038 draft from that dogfood
 session, whose id was later claimed on main by the Keychain sign-in bug.
+
+**Completed (verified 2026-10-19):** every acceptance criterion is checked and the work is on main in a3f6407, bfe7dbb. Status was left stale after merge; closed out in the review-queue pass.

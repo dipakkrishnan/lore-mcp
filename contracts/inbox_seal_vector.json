@@ -1,0 +1,10 @@
+{
+  "description": "XC-067 sealing test vector. sealed = b64url(eph_public || nonce || AES-256-GCM(key, nonce, plaintext, aad=item_id)); key = HKDF-SHA256(ikm=X25519(eph, owner_public), salt=eph_public || owner_public, info='lore-inbox-v1', length=32). b64url has no padding.",
+  "owner_private": "dxeECe8PYUB09OfygIScQt1p2GyrK6b7WcT9Esl6VjY",
+  "owner_public": "YeMNqbtFAfnITvRHWIWTdmjg5HZ48466gm4Zy3PcFww",
+  "ephemeral_private": "8bnhxqMtmdcfLPrGTgyLjNFABqxNiXrUrPTZzh8ZE3Y",
+  "nonce": "hF-aAQQk5vlZjBxQ",
+  "item_id": "3f2a9c0d4e5b6a7182930a1b2c3d4e5f",
+  "plaintext": "{\"title\":\"How I price sync placements\",\"content\":\"Indie sync fees run $500-$5k; I quote off the show's budget tier, not the song.\",\"topic\":\"music licensing\",\"kind\":\"experience\",\"key\":\"sync-pricing\",\"occurred_at\":\"2026-10-01\"}",
+  "sealed": "qsFnD9zjfle7HW5K43vQvpLUhbhJ_YnVJl_Z9-2d-0WEX5oBBCTm-VmMHFDiTFFCeuGAxIrJKUL1oVNW9buSzX1mVDEzKhq-5DsM64142UpCB5pttx66uNRbGS0AScGChH0Jl9QtaSC3LRdVuM2VBGOHfqZSl9rmNRhws41X40R_oGQgciyOP2XGQIhRmlWM0vNAJLfaOUPIp0Gjl3-p8Xhj5qQ9U5a4bo0Ic1nNTYlPls8xbsBS7QrL55QfGYVZKLUrmmBiQIvtr7wTmICegBmObTAiDv_KguAqnS4zZ8u0yMapFNysOwWF26bfZLopVxug_BQGEVG_TMmUX2oLTFRXplKyZi1cEWfz0j0z8ddoSAMCHziolCbTkbmp"
+}

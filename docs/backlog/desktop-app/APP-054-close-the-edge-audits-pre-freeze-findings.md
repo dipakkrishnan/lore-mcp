@@ -4,13 +4,13 @@ title: Close the edge audit's pre-freeze findings before the notarized build
 priority: P1
 effort: S
 component: desktop-app
-status: in-review
+status: completed
 related: [APP-039, APP-046, APP-047, APP-034]
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-09-02
-updated: 2026-09-02
+updated: 2026-10-19
 ---
 
 ## Problem
@@ -58,3 +58,5 @@ Shipped in PR #192. The audit's remaining pre-launch items (deploy re-entry,
 standing push, root capture, probe cache, read allowlist, key proof) are
 APP-055. The sales ledger, payout address and an owner-gated open-URL tool are
 scoped separately.
+
+**Completed (verified 2026-10-19):** every acceptance criterion is checked and the work is on main in 691cd98 (PR #192). Status was left stale after merge; closed out in the review-queue pass.

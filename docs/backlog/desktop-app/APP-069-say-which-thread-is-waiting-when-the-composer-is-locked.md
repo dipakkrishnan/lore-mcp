@@ -4,13 +4,13 @@ title: Say which thread is waiting when the composer is locked
 priority: P1
 effort: XS
 component: desktop-app
-status: in-review
+status: completed
 related: [APP-070, APP-053]
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-09-04
-updated: 2026-09-04
+updated: 2026-10-19
 ---
 
 ## Problem
@@ -31,10 +31,12 @@ controls rather than showing them disabled (`syncComposer`,
 
 ## Acceptance criteria
 
-- [ ] With a card pending in the deploy thread, the Today composer names the
+- [x] With a card pending in the deploy thread, the Today composer names the
       thread and the Needs-you row opens it.
-- [ ] A running turn never shows enabled-looking controls that do nothing.
+- [x] A running turn never shows enabled-looking controls that do nothing.
 
 ## Notes
 
 APP-070 removes most of the lock; this item makes the remaining one honest.
+
+**Completed (verified 2026-10-19, by reading code and tests, no suites run):** on main in ac2b4da. Closed out in the review-queue pass.

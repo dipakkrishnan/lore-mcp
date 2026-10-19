@@ -4,13 +4,13 @@ title: Never charge an agent for nothing, and mark unanswered answers owed back
 priority: P1
 effort: S
 component: monetization
-status: in-review
+status: completed
 related: [MON-030, MON-037, XC-039]
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-10-04
-updated: 2026-10-04
+updated: 2026-10-19
 ---
 
 ## Problem
@@ -48,3 +48,5 @@ Settling an answer only after it completes would avoid the refund entirely,
 but needs our own facilitator call outside `agents/x402`, with the signed
 authorization held until the job ends (it expires after `maxTimeoutSeconds`,
 300). Revisit if refunds owed turn out to be common.
+
+**Completed (verified 2026-10-19):** every acceptance criterion is checked and the work is on main in 701c443. Status was left stale after merge; closed out in the review-queue pass.
