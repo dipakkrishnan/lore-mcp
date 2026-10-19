@@ -4,13 +4,13 @@ title: Run the desktop renderer's persona tests in CI
 priority: P1
 effort: S
 component: desktop-app
-status: in-review
+status: ready
 related: [APP-054, APP-055, APP-056, APP-057, APP-007, XC-004, XC-014]
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-09-03
-updated: 2026-09-07
+updated: 2026-10-19
 ---
 
 ## Problem
@@ -92,3 +92,5 @@ was filed as `APP-058` from a branch cut before PR #214 landed
 first and keeps the id. Same race as the `APP-054` collision resolved in the
 same pull request — two branches each taking "highest on `main` plus one"
 while the other is open.
+
+**Prioritization 2026-10-19:** promoted to `ready`. No open blockers, no commit on main implements it, and the acceptance criteria are concrete and checkable. Priority and effort unchanged.

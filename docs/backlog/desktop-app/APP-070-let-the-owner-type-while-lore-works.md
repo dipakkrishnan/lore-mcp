@@ -4,13 +4,13 @@ title: Let the owner type while Lore works
 priority: P2
 effort: M
 component: desktop-app
-status: in-review
+status: ready
 related: [APP-069, APP-054]
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-09-04
-updated: 2026-09-04
+updated: 2026-10-19
 ---
 
 ## Problem
@@ -41,3 +41,5 @@ make the composer say which.
 
 Post-launch unless dogfooding shows owners repeatedly trying to type during
 turns. Pi: `@earendil-works/pi-coding-agent` 0.84.4 `agent-session.d.ts:380`.
+
+**Prioritization 2026-10-19:** promoted to `ready`. No open blockers, no commit on main implements it, and the acceptance criteria are concrete and checkable. Priority and effort unchanged.

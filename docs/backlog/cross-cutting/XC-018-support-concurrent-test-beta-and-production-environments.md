@@ -4,13 +4,13 @@ title: Support concurrent test, beta, and production environments
 priority: P2
 effort: L
 component: cross-cutting
-status: in-review
+status: ready
 related: [MON-008, XC-008, XC-002, STO-001]
 blockers: []
 dependencies: []
 github_issue: https://github.com/dipakkrishnan/lore-mcp/issues/87
 created: 2026-08-07
-updated: 2026-08-07
+updated: 2026-10-19
 ---
 
 ## Problem
@@ -110,3 +110,5 @@ worth reading first — even though `MON-008` itself is still `in-review`,
 waiting on `MON-016`'s credential provisioning, not on anything this item
 needs — before deciding this one; the decision itself still needs a person,
 not this pass.
+
+**Prioritization 2026-10-19:** promoted to `ready`. No open blockers, no commit on main implements it, and the acceptance criteria are concrete and checkable. Priority and effort unchanged.

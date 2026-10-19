@@ -4,13 +4,13 @@ title: Stop calling a missing store "Setting up"
 priority: P3
 effort: XS
 component: desktop-app
-status: in-review
+status: ready
 related: [APP-049]
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-09-05
-updated: 2026-09-05
+updated: 2026-10-19
 ---
 
 ## Problem
@@ -37,3 +37,5 @@ event instead and let it clear when provisioning finishes.
 ## Notes
 
 Every dogfood screenshot from the 2026-09-05 pass shows the chip.
+
+**Prioritization 2026-10-19:** promoted to `ready`. No open blockers, no commit on main implements it, and the acceptance criteria are concrete and checkable. Priority and effort unchanged.

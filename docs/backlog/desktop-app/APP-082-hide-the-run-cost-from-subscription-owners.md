@@ -4,13 +4,13 @@ title: Hide the run cost from subscription owners
 priority: P3
 effort: XS
 component: desktop-app
-status: in-review
+status: ready
 related: [APP-007]
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-09-05
-updated: 2026-09-05
+updated: 2026-10-19
 ---
 
 ## Problem
@@ -35,3 +35,5 @@ real cost. For OAuth sign-in, leave it out of the row.
 ## Notes
 
 Screenshot `70-dogfood-relaunch.png`.
+
+**Prioritization 2026-10-19:** promoted to `ready`. No open blockers, no commit on main implements it, and the acceptance criteria are concrete and checkable. Priority and effort unchanged.

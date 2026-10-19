@@ -4,13 +4,13 @@ title: Capture and inject context via agent session hooks
 priority: P3
 effort: L
 component: onboarding
-status: in-review
+status: ready
 related: [STO-001, XC-001, XC-002]
 blockers: [XC-002]
 dependencies: []
 github_issue: https://github.com/dipakkrishnan/lore-mcp/issues/6
 created: 2026-07-26
-updated: 2026-08-26
+updated: 2026-10-19
 ---
 
 ## Problem
@@ -71,3 +71,5 @@ qualitative ("do not pick this up until intent-driven publishing has shipped
 and earned it"), not just XC-002 shipping. Flagging for reconsideration
 rather than deciding it here: worth a fresh look at whether publishing has
 "earned" this yet.
+
+**Prioritization 2026-10-19:** promoted to `ready`. No open blockers, no commit on main implements it, and the acceptance criteria are concrete and checkable. Priority and effort unchanged.

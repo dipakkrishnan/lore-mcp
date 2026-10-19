@@ -4,13 +4,13 @@ title: Bundle source logos with provenance and render Apple icons from disk
 priority: P2
 effort: S
 component: desktop-app
-status: in-review
+status: ready
 related: [APP-120, APP-115]
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-09-17
-updated: 2026-09-17
+updated: 2026-10-19
 ---
 
 ## Problem
@@ -52,3 +52,5 @@ returns a real 512 px image; `nativeImage.createFromPath` on the `.icns` is
 empty; `app.getFileIcon` at size `large` crashes the process with SIGTRAP
 and must never be called. simple-icons is CC0 but waives no trademark
 rights; treat it as delivery, not licence.
+
+**Prioritization 2026-10-19:** promoted to `ready`. No open blockers, no commit on main implements it, and the acceptance criteria are concrete and checkable. Priority and effort unchanged.

@@ -4,13 +4,13 @@ title: Resuming a session cannot re-ask its last unanswered card
 priority: P2
 effort: L
 component: desktop-app
-status: in-review
+status: ready
 related: [APP-113, APP-018]
 blockers: []
 dependencies: []
 github_issue: https://github.com/dipakkrishnan/lore-mcp/issues/256
 created: 2026-09-12
-updated: 2026-09-13
+updated: 2026-10-19
 ---
 
 ## Problem
@@ -69,3 +69,5 @@ no resolved result to render here at all). This item likely needs someone
 who can drive the packaged Electron app end-to-end with real credentials, or
 who has visibility into `@earendil-works/pi-coding-agent`'s resume
 semantics, since it may live partly outside this repo.
+
+**Prioritization 2026-10-19:** promoted to `ready`. No open blockers, no commit on main implements it, and the acceptance criteria are concrete and checkable. Priority and effort unchanged.

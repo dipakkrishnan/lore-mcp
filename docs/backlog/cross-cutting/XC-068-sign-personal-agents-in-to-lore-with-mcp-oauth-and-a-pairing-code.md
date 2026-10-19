@@ -10,7 +10,7 @@ blockers: [XC-067]
 dependencies: [@cloudflare/workers-oauth-provider]
 github_issue: null
 created: 2026-10-16
-updated: 2026-10-16
+updated: 2026-10-19
 ---
 
 ## Problem
@@ -43,3 +43,5 @@ key. Revoking from the app revokes the grant.
 - Live test notes: a Grok connector has been reported marking itself
   connected without ever opening the authorize URL (ergofobe/imogen-server
   #27). Test against real Grok before calling it done.
+
+**Review 2026-10-19:** not completed. Not done. `/agent` only returns a 401 with an oauth-protected-resource header; no authorize/token/refresh endpoints, pairing code, expiry, rate limit or token revocation. All 3 criteria unmet; needs an external client to verify.

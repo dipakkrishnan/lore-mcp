@@ -4,13 +4,13 @@ title: Let a buyer reach a seller they were never introduced to
 priority: P3
 effort: L
 component: cross-cutting
-status: in-review
+status: completed
 related: [MCP-001, MON-007, XC-006, XC-033, XC-034, APP-119]
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-08-06
-updated: 2026-09-27
+updated: 2026-10-19
 ---
 
 ## Problem
@@ -46,12 +46,12 @@ registry or the MCP directory is the search layer over it.
 
 Shape-agnostic, so they survive whichever is chosen:
 
-- [ ] A buyer who has never been given a URL can find a node by topic and
+- [x] A buyer who has never been given a URL can find a node by topic and
       complete a purchase without hand-editing MCP config
-- [ ] The node's network is discoverable before payment, so a testnet node and
+- [x] The node's network is discoverable before payment, so a testnet node and
       a mainnet buyer fail loudly at connect rather than silently at settlement
-- [ ] Listing is explicit seller opt-in; an unlisted node stays unlisted
-- [ ] Nothing beyond what `discover` already serves publicly is advertised —
+- [x] Listing is explicit seller opt-in; an unlisted node stays unlisted
+- [x] Nothing beyond what `discover` already serves publicly is advertised —
       no private memory, no owner identity the owner did not choose to attach
 
 ## Notes
@@ -99,3 +99,5 @@ Self-advertisement and the MCP directory remain later trust and reach layers.
 **2026-09-27:** superseded in part by `XC-036`: the registry refreshes itself
 from each node's `discover`; listing is an issue form plus the node's own
 `"listed": true`, not a relay-opened pull request.
+
+**Completed (verified 2026-10-19, by reading code and tests, no suites run):** on main in 5b55cc2, bef85bb, cbee2b8, 5910825, 6e7034c, de8d310. Closed out in the review-queue pass.

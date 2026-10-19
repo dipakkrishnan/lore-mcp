@@ -4,13 +4,13 @@ title: agent:status IPC handler is missing, logged as an error on every launch
 priority: P2
 effort: S
 component: desktop-app
-status: in-review
+status: ready
 related: [APP-038]
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-09-01
-updated: 2026-09-01
+updated: 2026-10-19
 ---
 
 ## Problem
@@ -59,3 +59,5 @@ Also reproduced earlier the same session via plain `npm start` in dev mode.
 Filed alongside APP-038 (a different, unrelated symptom from the same
 dogfood run) — keep them separate since the root causes are unlikely to be
 related (one is Keychain/signing, this one is an IPC wiring gap).
+
+**Prioritization 2026-10-19:** promoted to `ready`. No open blockers, no commit on main implements it, and the acceptance criteria are concrete and checkable. Priority and effort unchanged.
