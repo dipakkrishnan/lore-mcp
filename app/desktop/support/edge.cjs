@@ -1650,8 +1650,8 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         check("…counting what the apps on this Mac brought in too, after the relaunch as well", /brought in \d+ memor(y|ies) too\./.test(await js(`${savedCard}.querySelector(".first-saved-apps")?.textContent ?? ""`)) && /Claude Code/.test(await js(`${savedCard}.querySelector(".first-saved-apps").textContent`)), await js(`${savedCard}?.textContent ?? ""`));
         check("…and the first run is done", await waitFor(`window.lore.firstRun().then((k) => k?.state === "done")`), JSON.stringify(await kept()));
         check("…and nothing shimmers once it has saved", await js(`!document.querySelector("#content .first-run .shimmer")`));
-        // APP-230: so it keeps saving on its own, then the next AI or Today.
-        check("…then asks for Grok Bot's routine, so it keeps saving without being asked", (await js(chat)).includes("So Grok Bot keeps saving without you asking, add this to Grok Bot as a routine:") && await js(`Boolean(document.querySelector("#content .first-run .agent-next button"))`), await js(chat));
+        // APP-230: the message it was sent already set up its routine, so the first run ends on the next AI or Today.
+        check("…without asking a second time for the routine", !(await js(chat)).includes("routine"), await js(chat));
         check("…and ends on Connect another AI beside Go to Today", await js(`[...document.querySelectorAll("#content .first-run-actions button")].map((b) => b.textContent).join("|")`) === "Connect another AI|Go to Today", await js(`document.querySelector("#content .first-run-actions")?.textContent ?? ""`));
         await shot("firstrun-saved");
         await js(`[...${savedCard}.querySelectorAll("button.inline")].find((b) => b.textContent === "See them →").click()`);
@@ -1836,13 +1836,13 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         check("…and its wait stops shimmering", await js(`Boolean(document.querySelector("dialog.sheet[open] .agent-wait")) && !document.querySelector("dialog.sheet[open] .agent-wait .shimmer")`));
         // APP-211: the owner is still on Connectors, so the automations notice waits, unsaid and unremembered.
         check("…while on Connectors, the automations notice waits for Today", await js(`!document.querySelector("#status .notice")`) && await js(`window.lore.snapshot().then((s) => s.setup.automations_noticed === false)`), await js(`document.querySelector("#status").textContent`));
-        const evening = "Every evening, save anything new you learned about me to Lore.";
-        // APP-229: what to send so it saves now, and its evening routine, both offered from the start, above the wait.
-        check("…with, above the wait, a sentence to save now and an evening routine to paste into Grok Bot", await js(`document.querySelectorAll("dialog.sheet[open] .agent-next").length === 2 && Boolean(document.querySelector("dialog.sheet[open] .agent-next + .agent-next + .agent-wait"))`) && (await js(sheet)).includes("Then send Grok Bot this, so it saves right away:") && (await js(sheet)).includes("Optional: add this to Grok Bot as a routine, so it saves every evening."), await js(sheet));
+        const evening = "Save what you know about me to Lore: how I work, what I care about, and what I'm working on. Then set up a routine that does this every evening.";
+        // APP-229, APP-230: one paste that saves now and sets up its evening routine, offered from the start, above the wait.
+        check("…with, above the wait, one message that saves now and sets up an evening routine in Grok Bot", await js(`document.querySelectorAll("dialog.sheet[open] .agent-next").length === 1 && Boolean(document.querySelector("dialog.sheet[open] .agent-next + .agent-wait"))`) && (await js(sheet)).includes("Then send Grok Bot this. It saves now, and every evening after:"), await js(sheet));
         const copiedBefore = copied.length;
         await js(`[...document.querySelectorAll("dialog.sheet[open] .agent-next button")].at(-1).click()`);
         for (let i = 0; i < 20 && copied.length === copiedBefore; i++) await sleep(50);
-        check("…each with one quiet Copy, the routine's copying the ask", copied.at(-1) === evening && await js(`[...document.querySelectorAll("dialog.sheet[open] .agent-next")].every((n) => n.querySelectorAll("button").length === 1 && n.querySelector("button").classList.contains("quiet"))`), String(copied.at(-1)));
+        check("…with one quiet Copy that copies it", copied.at(-1) === evening && await js(`[...document.querySelectorAll("dialog.sheet[open] .agent-next")].every((n) => n.querySelectorAll("button").length === 1 && n.querySelector("button").classList.contains("quiet"))`), String(copied.at(-1)));
         await shot("agents-first-save");
         check("…read through once, named for Grok", readings.length === 1 && readings[0].title === "Grok Bot saved 2 things to Lore" && readings[0].label === "Grok Bot", JSON.stringify(readings));
         // APP-212: each way in lands on Inventory, filtered to Grok Bot, with what the owner hasn't seen marked New.
@@ -1928,7 +1928,7 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         await waitFor(agentRow("Grok Bot"));
         await js(`${agentRow("Grok Bot")}.querySelector("button:not(.inline)").click()`);
         check("Manage offers a new key and Disconnect", await waitFor(`${sheet}.includes("Get a new key") && ${sheet}.includes("Disconnect")`));
-        check("…and, since Grok Bot has saved, its evening routine, below what it saved", await js(`${sheet}.includes("Optional: add this to Grok Bot as a routine, so it saves every evening.") && document.querySelector("dialog.sheet[open] .form-body").lastElementChild.previousElementSibling?.classList.contains("agent-next")`), await js(sheet));
+        check("…and, since Grok Bot has saved, its evening routine, below what it saved", await js(`${sheet}.includes("Send Grok Bot this, so it saves every evening on its own:") && ${sheet}.includes("Set up a routine that saves anything new you learn about me to Lore every evening.") && document.querySelector("dialog.sheet[open] .form-body").lastElementChild.previousElementSibling?.classList.contains("agent-next")`), await js(sheet));
         await shot("agents-manage");
         // A save the old key makes just before the new one, still waiting when the new link is shown.
         const late = await (await call(key, "tools/call", { name: "store", arguments: { items: [{ title: "Late sync note", content: "Saved with the old link, just before it was replaced.", key: "late-note", kind: "fact" }] } })).json();

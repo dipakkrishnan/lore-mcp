@@ -1387,9 +1387,6 @@ class FirstRunChat {
     if (this.stage !== "saved") lore(this.connectCard(app, who), waitLine(who, true));
     if (this.stage === "saved") {
       lore(this.savedCard(s, who));
-      // So it keeps saving without being asked: its own schedule, where it has one.
-      const kind = AGENT_GUIDES[app]?.routine;
-      if (kind) lore(promptOffer(`So ${who} keeps saving without you asking, add this to ${who} as a ${kind}:`, EVERY_EVENING));
       this.closing(chat, lore, "What it saves");
     }
     return this.said(chat, lore);
@@ -2633,9 +2630,12 @@ const AGENT_GUIDES = {
     routine: "scheduled task"
   }
 };
-const EVERY_EVENING = "Every evening, save anything new you learned about me to Lore.";
-/** What to send an agent once it's connected, so its first save comes now and shows the connection works. */
-const SAVE_NOW = "Save what you know about me to Lore: how I work, what I care about, and what I'm working on.";
+/** What to send an agent once it's connected: save now, so the first save shows the connection works, and, where it
+ * has a schedule, set one up. The agent asks the owner before it schedules anything, so this is one paste, not two.
+ * @param {string} [kind] What the agent calls a scheduled ask. */
+const saveAsk = (kind) => `Save what you know about me to Lore: how I work, what I care about, and what I'm working on.${kind ? ` Then set up a ${kind} that does this every evening.` : ""}`;
+/** The same schedule on its own, for an agent that already saves. @param {string} kind */
+const eveningAsk = (kind) => `Set up a ${kind} that saves anything new you learn about me to Lore every evening.`;
 /** While the setup sheet waits on a first save, it asks the store this often, not once a minute. */
 const FIRST_SAVE_EVERY_MS = 10_000;
 
@@ -2796,14 +2796,14 @@ function promptOffer(what, text) {
  * @param {AgentApp | null | undefined} app @param {string} who */
 function eveningOffer(app, who) {
   const kind = app ? AGENT_GUIDES[app]?.routine : undefined;
-  return kind ? promptOffer(`Optional: add this to ${who} as a ${kind}, so it saves every evening.`, EVERY_EVENING) : null;
+  return kind ? promptOffer(`Send ${who} this, so it saves every evening on its own:`, eveningAsk(kind)) : null;
 }
 
 /** Once connected: what to send so the first save comes now, and, where the agent has a schedule, its evening save.
  * @param {AgentApp | null | undefined} app @param {string} who @returns {HTMLElement[]} */
 function afterConnect(app, who) {
-  const evening = eveningOffer(app, who);
-  return [promptOffer(`Then send ${who} this, so it saves right away:`, SAVE_NOW), ...(evening ? [evening] : [])];
+  const kind = app ? AGENT_GUIDES[app]?.routine : undefined;
+  return [promptOffer(kind ? `Then send ${who} this. It saves now, and every evening after:` : `Then send ${who} this, so it saves right away:`, saveAsk(kind))];
 }
 
 /** APP-207: connecting one of the owner's personal agents, in one sheet: their store online first if it isn't yet,

@@ -24,10 +24,10 @@ The owner's first-run walk on Oct 19 turned up three problems:
 ## Proposed approach
 
 - ChatGPT leads with a message to copy that adds Lore itself. The corrected steps sit folded under "Or add it by hand".
-- After the first save, the first run asks for the agent's scheduled task or routine, in the owner's words.
+- Once connected, one message to paste does both jobs: save now, then set up the agent's scheduled task or routine. The agent asks the owner before it schedules anything, so there is no second paste.
 - It ends on "Connect another AI" beside "Go to Today".
 
 ## Acceptance criteria
 
 - [ ] ChatGPT's sheet and first-run card lead with the message, its key masked, with the steps folded.
-- [ ] After the first save, the first run shows the evening ask with Copy, then Connect another AI and Go to Today.
+- [ ] The connect step shows one message that saves now and sets up the evening schedule. After the first save, the first run ends on Connect another AI and Go to Today.
