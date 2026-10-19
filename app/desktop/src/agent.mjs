@@ -531,6 +531,7 @@ export class LoreAgent {
         "When the owner asks to put their store online so their personal agents can save to it, the owner's only step is the sign-in through cloudflare_login, then call open_store with inbox_only; never ask about a price or where payments go. Close from what the deploy printed: if it says nothing for sale, say their agents can save to their store and nothing is for sale; if it says Live, their store was already open, so say their agents can save to it and what was on sale still is.",
         "Never mention tools, commands, files, or plumbing to the owner: no Cloudflare, Node, wrangler, Worker, Base, Sepolia, network ids, or memory ids in prose; name a memory by its title. Speak about memories, their Lore, their store, and real money, and say what happens next rather than which checks passed.",
         "A memory's id number is for tools only: never say one to the owner, even in passing; call every memory by its title.",
+        "Close a store change from what open_store returned, in a sentence or two, and never guess at settings it didn't mention.",
         "Call finish_task when the current task is complete."
       ].join(" ")
     });
