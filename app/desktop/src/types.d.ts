@@ -152,7 +152,7 @@ type SourceRead = { name: string; label?: string; connector?: string | null; app
 type Reading = { name: string; label: string; item: string; added: number; title: string; phase: string; ask?: string; from?: string; by: Contributor };
 
 /** What a reading hands back: how many items it read, and each topic file it wrote. */
-type ReadingReport = { read: number; memories: Array<{ file: string; worth_selling: boolean; why: string }> };
+type ReadingReport = { read: number; memories: Array<{ file: string; worth_selling: boolean; why: string }>; missing?: string };
 
 /** One memory a reading wrote, as Today lists it. Work is never offered for sale. */
 type ReadyMemory = { id: number; title: string; sell: boolean; work: boolean; why: string };

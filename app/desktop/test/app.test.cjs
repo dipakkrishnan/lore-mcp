@@ -1987,6 +1987,32 @@ test("the store opens through the app; the agent's own shell can neither stage i
   }
 });
 
+test("asked in chat to push the store, the agent can't: only the store's own thread has the store's tools (APP-229)", async () => {
+  const { fauxAssistantMessage, fauxToolCall } = await import("@earendil-works/pi-ai");
+  /** @type {OpenStore[]} */
+  const opened = [];
+  const { agent, faux, loreHome } = await scriptedAgent({ openStore: async (store) => { opened.push(store); return "The store is deployed."; } });
+  /** @type {string[]} */
+  const results = [];
+  faux.setResponses([
+    fauxAssistantMessage(fauxToolCall("open_store", { network: "real" }), { stopReason: "toolUse" }),
+    (context) => {
+      for (const message of context.messages) {
+        if (message.role === "toolResult") results.push(message.content.map((block) => (block.type === "text" ? block.text : "")).join(""));
+      }
+      return fauxAssistantMessage("I can't update your store from here.");
+    }
+  ]);
+  try {
+    await agent.prompt("Push my store", "publish");
+    assert.deepEqual(opened, []);
+    assert.match(results[0], /not found/i);
+  } finally {
+    agent.dispose();
+    await rm(loreHome, { recursive: true, force: true });
+  }
+});
+
 test("an app that brings something new in is read through once; one that brings nothing is not", () => {
   const { worthReading } = require("../src/reading.cjs");
   const apps = [{ id: "granola", name: "Granola", item: "meeting" }, { id: "medium", name: "Medium", item: "story" }];
