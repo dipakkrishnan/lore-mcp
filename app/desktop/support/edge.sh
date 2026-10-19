@@ -123,7 +123,12 @@ with Store() as store:
 fi
 if [[ "$scenario" == "settings" ]]; then
   # A store on real money with every Settings row filled: cards on, paid answers, listed, and two
-  # pieces already for sale with new free parts waiting, one with a sample and one without.
+  # pieces already for sale with new free parts waiting, one with a sample and one without. The store's update,
+  # once confirmed, goes to a stand-in that always succeeds, never to Cloudflare.
+  mkdir -p "$LORE_STORE" "$root/bin"
+  echo '{}' > "$LORE_STORE/wrangler.jsonc"
+  printf '#!/bin/sh\nexit 0\n' > "$root/bin/npx" && chmod +x "$root/bin/npx"
+  export PATH="$root/bin:$PATH"
   echo '{"sellers":[{"node":"https://lore-edge.example.workers.dev/mcp"}]}' > "$root/marketplace.json"
   export LORE_MARKETPLACE_URL="file://$root/marketplace.json"
   (cd "$repo_root" && uv run python -c "import time

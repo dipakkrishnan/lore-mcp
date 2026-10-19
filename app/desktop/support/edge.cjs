@@ -748,7 +748,13 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         await sleep(300);
         check("zero is refused in the sheet, which stays open", await js(`document.querySelector("dialog.form-sheet[open] .problem")?.textContent.includes("above zero") && Boolean(${priceInput})`));
         await js(`{ const field = ${priceInput}; field.value = "0.75"; field.form.requestSubmit(); }`);
-        check("a saved price closes the sheet", await waitFor(`!document.querySelector("dialog.form-sheet[open]")`));
+        check("a saved price closes the sheet", await waitFor(`!document.querySelector("dialog.form-sheet[open]:not(.changes-sheet)")`));
+        // APP-226: what an update puts out waits on the owner's Confirm, piece by piece and term by term.
+        const changes = `document.querySelector("dialog.changes-sheet[open]")`;
+        const answerChanges = (/** @type {string} */ label) => js(`[...${changes}.querySelectorAll("button")].find((b) => b.textContent === ${JSON.stringify(label)}).click()`);
+        check("the store charges a new price only once the owner confirms it", await waitFor(`${changes}?.textContent.includes("$0.02 a piece → $0.75 a piece")`), await js(`${changes}?.textContent ?? ""`));
+        await answerChanges("Cancel");
+        await waitFor(`!document.querySelector("dialog.changes-sheet[open]")`);
         await waitFor(`document.querySelector("#content").textContent.includes("Your store still charges $0.02.")`);
         check("a saved price the node does not charge yet says so on For Sale", await js(`document.querySelector("#content .store-bar").textContent.includes("$0.75") && document.querySelector("#content .store-bar").textContent.includes("Your store still charges $0.02.")`));
         const salesBox = await js(`[...document.querySelectorAll("#content section")].find((n) => n.querySelector("h2")?.textContent === "Sales")?.textContent ?? ""`);
@@ -762,8 +768,18 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         // Fix 5: approved work the node does not hold yet gets a standing Push, on For Sale and as Today's next step.
         await js(`window.__lore.show("today")`);
         await sleep(400);
+        const pushJobs = `window.lore.snapshot().then((s) => (s.jobs?.items ?? []).filter((j) => j.kind === "push").length)`;
+        const pushedBefore = await js(pushJobs);
         await js(`[...document.querySelectorAll("#content button")].find((b) => b.textContent === "Approve").click()`);
         await waitFor(`document.querySelector("#content").textContent.includes("approved, not on your store yet")`);
+        check("an approval with another draft still waiting puts nothing out yet", !(await js(changes)) && await js(pushJobs) === pushedBefore);
+        await js(`[...document.querySelectorAll("#content .next-step button")].find((b) => b.textContent === "Update store").click()`);
+        check("Update store asks first, naming the piece going on sale and the new price", await waitFor(`${changes}?.textContent.includes("Going on sale") && ${changes}.textContent.includes("Hire management before rapid growth") && ${changes}.textContent.includes("$0.02 a piece → $0.75 a piece")`), await js(`${changes}?.textContent ?? ""`));
+        check("…with Cancel and Confirm, under the store's own heading", await js(`${changes}.getAttribute("aria-label") === "Update your store" && [...${changes}.querySelectorAll("button")].filter((b) => /^(Cancel|Confirm)$/.test(b.textContent)).length === 2`));
+        await shot("store-confirm-changes");
+        await answerChanges("Cancel");
+        check("Cancel closes it and nothing goes out", await waitFor(`!document.querySelector("dialog.changes-sheet[open]")`) && await js(pushJobs) === pushedBefore, String(await js(pushJobs)));
+        check("…so the piece still waits for the next update", await js(`window.lore.snapshot().then((s) => s.publications.items.some((i) => i.state === "approved" && i.live === false))`));
         // The staged node answers the ledger query with two sales, one of them the publication just approved.
         const publicId = await js(`window.lore.snapshot().then((s) => s.publications.items.find((i) => i.state === "approved").public_id)`);
         const wrangler = join(process.env.LORE_STORE ?? "", "node_modules/.bin/wrangler");
@@ -799,6 +815,9 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         await sleep(200);
         check("take-down confirmation does not promise buyers lose their copies", await js(`document.querySelector("#content").textContent.includes("Anyone who already did keeps their copy.")`));
         await js(`[...document.querySelectorAll("#content button.primary")].find((b) => b.textContent === "Take down").click()`);
+        // The update that takes it down also carries the new price, so the owner confirms that first.
+        check("a take-down that also puts out a new price asks about the price", await waitFor(`${changes}?.textContent.includes("$0.02 a piece → $0.75 a piece")`), await js(`${changes}?.textContent ?? ""`));
+        await answerChanges("Confirm");
         await waitFor(`document.querySelector("#content").textContent.includes("Taken down")`);
         // This scratch home has no node source, so the revoke's push fails: the owner hears that plainly, not as a command.
         const revokeNotice = await js(`document.querySelector("#status").textContent`);
@@ -824,6 +843,9 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         await js(`${todayUpdates}[0].click()`);
         for (let i = 0; i < 40 && !ipc.slice(before).includes("store:push"); i++) await sleep(100);
         check("…which pushes, and starts no deploy", ipc.slice(before).includes("store:push") && !ipc.slice(before).includes("agent:prompt"), JSON.stringify(ipc.slice(before)));
+        check("…once the owner confirms the piece coming off and the new price", await waitFor(`${changes}?.textContent.includes("Coming off") && ${changes}.textContent.includes("Hire management before rapid growth") && ${changes}.textContent.includes("$0.02 a piece → $0.75 a piece")`), await js(`${changes}?.textContent ?? ""`));
+        await answerChanges("Confirm");
+        await waitFor(`!document.querySelector("dialog.changes-sheet[open]")`);
         pendingRemoval();
         await js(`window.__lore.event({ type: "changed" })`);
         await js(`window.__lore.show("store")`);
@@ -834,6 +856,9 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         await js(`${updates}[0].click()`);
         for (let i = 0; i < 40 && !ipc.slice(before).includes("store:push"); i++) await sleep(100);
         check("…which pushes the removal first, not a redeploy", ipc.slice(before).includes("store:push") && !ipc.slice(before).includes("agent:prompt") && await js(`document.querySelector("#title").textContent`) === "Inventory", JSON.stringify(ipc.slice(before)));
+        await waitFor(changes);
+        await answerChanges("Confirm");
+        check("…and goes out on Confirm", await waitFor(`!document.querySelector("dialog.changes-sheet[open]")`));
         await shot("store-push-first");
         // Fix 9: a memory typed on Today joins the unfinished capture thread instead of an empty one.
         await js(`window.__lore.show("today")`);
@@ -1389,7 +1414,11 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         await shot("store-price-sheet");
         await js(`{ const [amount, copies] = document.querySelectorAll("dialog.form-sheet[open] input"); amount.value = "0.75"; copies.value = "5"; amount.form.requestSubmit(); }`);
         check("both save through the CLI", await waitFor(`window.lore.snapshot().then((s) => s.pricing.publication_usd === 0.75 && s.pricing.free_copies === 5)`));
-        check("…and a live store is updated without being asked", await waitFor(`!document.querySelector("#status").textContent.includes("next push") && (document.querySelector("#content").textContent.includes("Your store is updated") || [...document.querySelectorAll("#content button")].some((b) => b.textContent === "Update store"))`));
+        // APP-226: a live store charges the new price only once the owner confirms it; Cancel leaves Update store waiting.
+        const priceChange = `document.querySelector("dialog.changes-sheet[open]")`;
+        check("…and a live store asks before it charges the new price", await waitFor(`${priceChange}?.textContent.includes("$1.00 a piece → $0.75 a piece")`), await js(`${priceChange}?.textContent ?? ""`));
+        await js(`[...${priceChange}.querySelectorAll("button")].find((b) => b.textContent === "Cancel").click()`);
+        check("…and Cancel leaves the update waiting", await waitFor(`!document.querySelector("dialog.changes-sheet[open]") && [...document.querySelectorAll("#content button")].some((b) => b.textContent === "Update store")`));
         await shot("store-price-editor-saved");
         await js(`window.__lore.show("settings")`);
         await waitFor(`${rowOf("Price")}?.textContent.includes("first 5 copies free")`);
@@ -1455,8 +1484,12 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         await shot("today-extras-confirm");
         await js(`[...${batch}.querySelectorAll("button")].find((b) => b.textContent === "Approve both").click()`);
         check("approving all consumes every update", await waitFor(`window.lore.extras().then((left) => !left.length)`));
+        // APP-226: the update that carries them waits on the owner's Confirm, naming both pieces.
+        const changes = `document.querySelector("dialog.changes-sheet[open]")`;
+        check("…and the store update names both pieces before it goes out", await waitFor(`${changes}?.textContent.includes("Live demos beat cold decks") && ${changes}.textContent.includes("Raise prices after the tenth buyer")`), await js(`${changes}?.textContent ?? ""`));
+        await js(`[...${changes}.querySelectorAll("button")].find((b) => b.textContent === "Confirm").click()`);
         check("…carrying the edit made on the card", /Not useful if: you have no buyers yet|not useful if: you have no buyers yet/i.test(execFileSync("uv", ["run", "lore", "publication", "list"], { cwd: join(__dirname, "../../.."), env: process.env, encoding: "utf8" })));
-        check("…and says how the store update went, once it has", await waitFor(`/have their new pages|go live with your next store update/.test(document.body.textContent) && !document.body.textContent.includes("updating your store. It takes")`));
+        check("…and says how the store update went, once it has", await waitFor(`/have their new pages|go live with your next store update/.test(document.body.textContent) && !document.body.textContent.includes("updating your store. It takes")`), await js(`document.querySelector("#status").textContent`));
         check("…and leaves the new drafts alone", await js(`window.lore.candidates().then((left) => left.length)`) === 2);
         await shot("today-extras-approved");
         // APP-058: someone signed in before usage events existed hears about them once, then can turn them off.

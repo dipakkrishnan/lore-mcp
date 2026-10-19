@@ -325,9 +325,10 @@ interface Window {
     decide(input: { original: PublicationCandidate; candidate: PublicationCandidate; approve: boolean }): Promise<void>;
     extras(): Promise<ExtrasCandidate[]>;
     decideExtras(input: { original: PublicationExtras; extras: PublicationExtras; approve: boolean }): Promise<void>;
-    approveExtras(decisions: Array<{ original: PublicationExtras; extras: PublicationExtras }>): Promise<void>;
+    /** Resolves to whether the store was updated: false when the owner cancelled its card. */
+    approveExtras(decisions: Array<{ original: PublicationExtras; extras: PublicationExtras }>): Promise<boolean>;
     revoke(id: number): Promise<void>;
-    push(): Promise<void>;
+    push(): Promise<boolean>;
     setPrice(amount: number): Promise<void>;
     setFreeCopies(count: number): Promise<void>;
     revealHome(): Promise<string>;
@@ -426,7 +427,9 @@ type AgentRequest =
   | { type: "auth-prompt"; id: string; task: AgentTask | null; prompt: AuthPrompt }
   | { type: "cloudflare"; id: string; task: AgentTask | null }
   | { type: "price"; id: string; task: AgentTask | null; amount: number; reason: string }
-  | { type: "open"; id: string; task: AgentTask | null; title: string; url: string; note: string };
+  | { type: "open"; id: string; task: AgentTask | null; title: string; url: string; note: string }
+  /** APP-226: what a store update puts out, for the owner's Confirm or Cancel. */
+  | { type: "changes"; id: string; task: AgentTask | null; heading: string; changes: StoreChange[] };
 
 type AgentEvent =
   | AgentRequest
@@ -474,6 +477,16 @@ type LoreAgentInstance = {
 type Attachment = { name: string; path: string; size: number };
 
 type OpenStore = { network?: "real" | "test"; wallet?: string; inboxOnly?: boolean };
+
+/** One line on the card a store update waits on: a piece under its group's heading, or a store term, from what it was
+ * (when it was something) to what it becomes. */
+type StoreChange = { group: string; label: string; from?: string; to?: string };
+
+/** The terms a deploy for sale goes live with, and where the store's last deploy recorded it paid. */
+type SaleDeploy = { network: "real" | "test"; payout: string; recorded: { address: string; network: "real" | "test" | null } | null };
+
+/** The owner's card for what a store update puts out; true only on Confirm. */
+type Confirm = (heading: string, changes: StoreChange[]) => Promise<boolean>;
 
 type LoreAgentOptions = {
   loreHome: string;

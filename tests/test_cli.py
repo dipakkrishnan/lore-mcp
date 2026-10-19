@@ -1691,6 +1691,24 @@ class PublicationApplyTest(LoreTestCase):
             self.assertEqual(cli.publication_apply(path), 0)
         push.assert_called_once_with(str(cli.store_folder()))
 
+    def test_a_desktop_approval_leaves_the_push_to_the_app(self) -> None:
+        # APP-226: the app pushes once the owner confirms what goes out.
+        with Store() as store:
+            store.set_setting("node_url", "https://node.example/mcp")
+            store.set_setting("node_selling", True)
+        with (
+            self._attended(),
+            patch.dict(os.environ, {"LORE_HOLD_PUSH": "1"}),
+            patch.object(cli, "ask", return_value="a"),
+            patch.object(cli, "push") as push,
+            captured(),
+        ):
+            self.assertEqual(cli.publication_apply(self.candidates()), 0)
+        push.assert_not_called()
+        with Store() as store:
+            self.assertEqual(len(store.list_publications(active_only=True)), 1)
+            self.assertTrue(store.setting("publish_pending", False))
+
     def test_a_failed_approval_push_is_recorded_never_silently_dropped(self) -> None:
         with Store() as store:
             store.set_setting("node_url", "https://node.example/mcp")
@@ -2393,6 +2411,22 @@ class PublicationCommandTest(LoreTestCase):
         with patch.object(cli, "push", return_value=0) as push, captured():
             self.assertEqual(cli.publication_revoke(pid), 0)
         push.assert_called_once_with(str(cli.store_folder()))
+
+    def test_a_desktop_revoke_leaves_the_push_to_the_app(self) -> None:
+        pid = self.publish()
+        with Store() as store:
+            store.set_setting("node_url", "https://node.example/mcp")
+            store.set_setting("node_selling", True)
+        with (
+            patch.dict(os.environ, {"LORE_HOLD_PUSH": "1"}),
+            patch.object(cli, "push") as push,
+            captured(),
+        ):
+            self.assertEqual(cli.publication_revoke(pid), 0)
+        push.assert_not_called()
+        with Store() as store:
+            self.assertEqual(store.list_publications(active_only=True), [])
+            self.assertTrue(store.setting("revocation_pending", False))
 
     def test_a_failed_revocation_push_is_recorded_never_silently_dropped(self) -> None:
         pid = self.publish()
