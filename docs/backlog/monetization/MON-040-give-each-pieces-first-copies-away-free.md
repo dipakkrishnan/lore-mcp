@@ -4,13 +4,13 @@ title: Give each piece's first copies away free
 priority: P1
 effort: M
 component: monetization
-status: in-review
+status: completed
 related: [MON-038, MON-039, XC-039]
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-10-05
-updated: 2026-10-05
+updated: 2026-10-19
 ---
 
 ## Problem
@@ -38,3 +38,7 @@ one person can take several copies.
 - [x] Concurrent claims never exceed the limit.
 - [x] Free copies are $0 ledger rows: never earnings, never refund owed.
 - [x] The desktop notifies for a free copy in its own words.
+
+## Notes
+
+**Completed (verified 2026-10-19):** every acceptance criterion is checked and the work is on main in 2a40869. Status was left stale after merge; closed out in the review-queue pass.

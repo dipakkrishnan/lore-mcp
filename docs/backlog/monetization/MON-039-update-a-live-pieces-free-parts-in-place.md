@@ -4,13 +4,13 @@ title: Update a live piece's free parts in place
 priority: P1
 effort: S
 component: monetization
-status: in-review
+status: completed
 related: [MON-035]
 blockers: []
 dependencies: [MON-035]
 github_issue: null
 created: 2026-10-05
-updated: 2026-10-05
+updated: 2026-10-19
 ---
 
 ## Problem
@@ -44,3 +44,5 @@ then pushes the way a desktop approval already does.
 Staged in `~/.lore/publish-extras.json`, separate from new-piece drafts, so
 staging one never discards the other. The three values replace the piece's
 current ones together. Edge check: `app/desktop/support/edge.sh extras`.
+
+**Completed (verified 2026-10-19):** every acceptance criterion is checked and the work is on main in 54aea0c, f3faedc. Status was left stale after merge; closed out in the review-queue pass.

@@ -10,7 +10,7 @@ blockers: []
 dependencies: []
 github_issue: 367
 created: 2026-10-04
-updated: 2026-10-04
+updated: 2026-10-19
 ---
 
 ## Problem
@@ -44,3 +44,5 @@ The README documents the flow: list, submit the prefilled form, get a reply.
 
 The badge follows the node's own switch, not `marketplace.json`, so it shows
 while a request is pending and disappears on the push that delists.
+
+**Review 2026-10-19:** not completed. Listing badge and README shipped (3d8175d). Unverifiable here: a listing request starting a refresh run, which lives in the external lore-marketplace repo.

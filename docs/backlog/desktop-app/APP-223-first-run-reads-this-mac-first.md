@@ -4,13 +4,13 @@ title: First run reads the apps on this Mac before asking for an agent
 priority: P1
 effort: M
 component: desktop-app
-status: in-review
+status: completed
 related: [APP-215, APP-222, XC-069]
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-10-18
-updated: 2026-10-18
+updated: 2026-10-19
 ---
 
 ## Problem
@@ -42,3 +42,7 @@ mode, the frosted sidebar picked up the dark material under a thin cream wash.
 - An account that already has a Lore store is told so plainly, and nothing is
   set up or written there (wrangler can report the existing database and still
   exit 0). Reconnecting that store is APP-224.
+
+## Notes
+
+**Completed (verified 2026-10-19, by reading code and tests, no suites run):** on main in efe1e53. Closed out in the review-queue pass.
