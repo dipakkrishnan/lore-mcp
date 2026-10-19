@@ -3871,33 +3871,57 @@ function blueprintPanel(fields, mode) {
   return { box, controls };
 }
 
+/** What the payout card answers to sell by card instead of to an address; the app reads the same words. */
+const BY_CARD = "By card";
 const PAYOUT_PATHS = [
+  {
+    label: BY_CARD,
+    detail: "Stripe pays you out to your bank.",
+    steps: ["Lore opens Stripe's form in your browser.", "Stripe checks who you are and where to pay you.", "Come back here. Your store opens once Stripe is done."],
+    help: null,
+    card: true
+  },
   {
     label: "My Coinbase account",
     detail: "Payments can go on to your bank from there.",
     steps: ["In the Coinbase app, tap Receive, then USDC.", "Set the network to Base. Not Ethereum or Solana.", "Copy the address and paste it here."],
-    help: outLink("No account yet? Create one ↗", "https://www.coinbase.com/signup")
+    help: outLink("No account yet? Create one ↗", "https://www.coinbase.com/signup"),
+    card: false
   },
   {
     label: "A wallet app",
     detail: "MetaMask, Rainbow, Coinbase Wallet, or similar.",
     steps: ["Open your wallet and tap Receive.", "Pick the Base network.", "Copy the address and paste it here."],
-    help: null
+    help: null,
+    card: false
   }
 ];
 const PUBLIC_ADDRESS = /^0x[0-9a-fA-F]{40}$/;
 
-/** The one step where new sellers stalled: two paths, their exact taps, and a field that says what it got. @param {OwnerQuestion} question @param {number} index */
+/** The one step where new sellers stalled: by card first, then two ways to an address, their exact taps, and a field
+ * that says what it got. @param {OwnerQuestion} question @param {number} index */
 function payoutField(question, index) {
   const fieldset = el("fieldset", "payout");
   fieldset.dataset.question = question.question;
   fieldset.append(el("legend", "q", question.question), el("p", "hint", "Each payment goes straight there. Lore never holds your money."));
   const choices = el("div", "choices");
   const steps = el("div", "payout-steps");
+  const address = el("input", "other-answer mono");
+  address.type = "text";
+  address.required = true;
+  address.pattern = PUBLIC_ADDRESS.source.slice(1, -1);
+  address.placeholder = "0x…";
+  address.spellcheck = false;
+  address.autocomplete = "off";
+  const status = el("p", "hint payout-status");
   const pick = (/** @type {typeof PAYOUT_PATHS[number]} */ path) => {
     const list = el("ol");
     list.append(...path.steps.map((step) => el("li", "", step)));
     steps.replaceChildren(list, ...(path.help ? [path.help] : []));
+    // By card asks for no address: Stripe has the owner's bank.
+    address.hidden = status.hidden = path.card;
+    address.required = !path.card;
+    if (path.card) address.value = "";
   };
   for (const [position, path] of PAYOUT_PATHS.entries()) {
     const label = el("label", "choice");
@@ -3913,14 +3937,6 @@ function payoutField(question, index) {
     choices.append(label);
   }
   pick(PAYOUT_PATHS[0]);
-  const address = el("input", "other-answer mono");
-  address.type = "text";
-  address.required = true;
-  address.pattern = PUBLIC_ADDRESS.source.slice(1, -1);
-  address.placeholder = "0x…";
-  address.spellcheck = false;
-  address.autocomplete = "off";
-  const status = el("p", "hint payout-status");
   address.addEventListener("input", () => {
     const value = address.value.trim();
     // A recovery phrase is the wallet itself; it must not sit in a field, a transcript, or a memory.
@@ -3939,6 +3955,39 @@ function payoutField(question, index) {
   });
   fieldset.append(choices, steps, address, status);
   return fieldset;
+}
+
+/** While Stripe has the owner on its form: how often the payout card asks whether it's done. */
+const CARDS_EVERY_MS = 5_000;
+
+/** By card on the payout card: Stripe's form in the browser, then a wait here until Stripe clears the owner, then card
+ * payments on, as Settings does it; `then` answers the card. Waits only while the card is on screen with By card picked.
+ * @param {HTMLFormElement} box @param {HTMLButtonElement} go @param {() => void} then */
+async function cardsFirst(box, go, then) {
+  const status = /** @type {HTMLElement | null} */ (box.querySelector(".payout .payout-status"));
+  const say = (/** @type {string} */ text) => { if (status) { status.hidden = false; status.textContent = text; status.dataset.state = ""; } };
+  const picked = () => box.isConnected && Boolean(box.querySelector(`.payout input[value="${BY_CARD}"]:checked`));
+  go.disabled = true;
+  try {
+    let found = await window.lore.cardStatus();
+    if (!found.account && !found.ready) {
+      await window.lore.connectCards();
+      say("Finish with Stripe in your browser. Lore waits here.");
+    }
+    while (!found.account && !found.ready && picked()) {
+      await new Promise((done) => setTimeout(done, CARDS_EVERY_MS));
+      found = await window.lore.cardStatus();
+      if (found.checking) say("Stripe is checking your details. This usually takes a minute or two.");
+    }
+    if (!picked()) return;
+    if (!found.account) await window.lore.switchCards(found.pending);
+    box.dataset.cardsOn = "1";
+    then();
+  } catch (error) {
+    say(reason(error, "Lore couldn't reach Stripe. Try again."));
+  } finally {
+    go.disabled = false;
+  }
 }
 
 /** @param {Exclude<AgentRequest, {type: "changes"}>} event */
@@ -3981,12 +4030,19 @@ function renderRequest(event) {
       box.append(fieldset);
     }
     const actions = el("div", "actions");
-    const go = el("button", "btn primary sm", event.questions.every((question) => question.format === "evm_address") ? "Use this address" : "Continue");
+    const payoutOnly = event.questions.every((question) => question.format === "evm_address");
+    const go = el("button", "btn primary sm", "Continue");
     go.type = "submit";
+    const byCard = () => Boolean(box.querySelector(`.payout input[value="${BY_CARD}"]:checked`));
+    const relabel = () => { go.textContent = byCard() ? "Continue with Stripe" : payoutOnly ? "Use this address" : "Continue"; };
+    relabel();
+    box.addEventListener("change", relabel);
     actions.append(go);
     box.append(actions);
     box.addEventListener("submit", (submitEvent) => {
       submitEvent.preventDefault();
+      // By card answers only once Stripe has cleared the owner and card payments are on.
+      if (byCard() && !box.dataset.cardsOn) return void cardsFirst(box, go, () => box.requestSubmit());
       /** @type {Record<string, string>} */
       const answers = {};
       for (const fieldset of box.querySelectorAll("fieldset")) {
