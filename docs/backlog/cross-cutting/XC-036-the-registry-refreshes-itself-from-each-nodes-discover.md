@@ -10,7 +10,7 @@ blockers: []
 dependencies: []
 github_issue: null
 created: 2026-09-27
-updated: 2026-09-27
+updated: 2026-10-19
 ---
 
 ## Problem
@@ -54,3 +54,5 @@ issue-form URL, `delist` pushes it empty, and `status` reads the raw file.
 
 Trade-off: sending the issue form needs a GitHub account. Intake through the
 feedback relay for sellers without one is a possible later step, not built.
+
+**Review 2026-10-19:** not completed. Four of five met (cbee2b8, 5910825). Unmet: the registry PR's workflow listing the first real node end to end. External, needs a live run.

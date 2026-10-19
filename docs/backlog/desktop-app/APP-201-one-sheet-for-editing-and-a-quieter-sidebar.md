@@ -4,13 +4,13 @@ title: One sheet for setting values, and a quieter sidebar
 priority: P1
 effort: M
 component: desktop-app
-status: in-review
+status: completed
 related: [APP-200, APP-118, APP-105, APP-019]
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-10-14
-updated: 2026-10-14
+updated: 2026-10-19
 ---
 
 ## Problem
@@ -70,3 +70,5 @@ Oct 14, built:
   over For Sale from every Change price, as before. A refused price is said in
   the sheet instead of as a notice behind it.
 - The app has no dark theme, so there is no dark variant to check.
+
+**Completed (verified 2026-10-19):** every acceptance criterion is checked and the work is on main in a323ca7. Status was left stale after merge; closed out in the review-queue pass.

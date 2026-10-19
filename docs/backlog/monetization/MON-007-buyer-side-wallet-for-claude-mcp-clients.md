@@ -10,7 +10,7 @@ blockers: []
 dependencies: ["A worked example: an owner with a live node and a friend willing to test buy-side"]
 github_issue: null
 created: 2026-08-03
-updated: 2026-08-03
+updated: 2026-10-19
 ---
 
 ## Problem
@@ -75,3 +75,5 @@ just call it directly. Answer at the time: only for the free half.
 
 Stay on Base Sepolia / test facilitator for any prototyping here — this item
 does not touch the mainnet cutover in `MON-005`.
+
+**Review 2026-10-19:** not completed. Bridge code complete (b0f9e24 and follow-ups). Unverified: a live discover -> get -> paid retrieval against a node end to end.

@@ -4,13 +4,13 @@ title: Tell the seller the moment something sells, and how often each page is re
 priority: P1
 effort: M
 component: monetization
-status: in-review
+status: completed
 related: [MON-035, XC-039, MON-029]
 blockers: []
 dependencies: []
 github_issue: 366
 created: 2026-10-04
-updated: 2026-10-04
+updated: 2026-10-19
 ---
 
 ## Problem
@@ -52,3 +52,5 @@ isn't counted, while crawlers and link-preview unfurlers are, so the number
 can run low or high. Read it as a rough signal of interest, not an audience. Buyers' questions to the answer
 tier are kept in `answer_jobs` but not shown in the app yet; that is a
 follow-up.
+
+**Completed (verified 2026-10-19):** every acceptance criterion is checked and the work is on main in 7663c50. Status was left stale after merge; closed out in the review-queue pass.
