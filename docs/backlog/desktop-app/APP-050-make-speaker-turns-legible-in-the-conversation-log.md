@@ -4,13 +4,13 @@ title: Make it easier to tell owner and Lore turns apart in the conversation log
 priority: P2
 effort: S
 component: desktop-app
-status: in-review
+status: completed
 related: [APP-016]
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-09-02
-updated: 2026-09-02
+updated: 2026-10-19
 ---
 
 ## Problem
@@ -47,9 +47,9 @@ style rather than becoming a boxed chat-bubble UI.
 
 ## Acceptance criteria
 
-- [ ] An owner can tell, at a glance and without reading the per-line
+- [x] An owner can tell, at a glance and without reading the per-line
       label, which lines are theirs vs. Lore's on a long real thread.
-- [ ] Change is visually consistent with the existing `.log` styling
+- [x] Change is visually consistent with the existing `.log` styling
       (typography, spacing scale, color tokens in `styles.css`).
 
 ## Notes
@@ -57,3 +57,5 @@ style rather than becoming a boxed chat-bubble UI.
 Reported by the owner while dogfooding (2026-09-02), with a screenshot of a
 full setup thread where "YOU" is the only text differentiator and the color
 difference between speakers is subtle.
+
+**Completed (verified 2026-10-19, by reading code and tests, no suites run):** on main in 6a78701 (rule later replaced by APP-218's bubble design, 46e4653). Closed out in the review-queue pass.

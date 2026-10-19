@@ -4,13 +4,13 @@ title: Connect apps through their hosted MCP servers
 priority: P1
 effort: L
 component: capture
-status: in-review
+status: completed
 related: [STO-003, CAP-003]
 blockers: []
 dependencies: ["CAP-003 connect → publish path merged first"]
 github_issue: null
 created: 2026-09-27
-updated: 2026-09-27
+updated: 2026-10-19
 ---
 
 ## Problem
@@ -55,3 +55,5 @@ desktop client today with no partner approval. Risks: client allowlists
 gating (Granola transcripts paid, free = 30 days), vendor terms on bulk
 reads. Pi's `pi-mcp-adapter` could let the agent call these live later,
 but it brings a second token store; importing is the primary path.
+
+**Completed (verified 2026-10-19):** every acceptance criterion is checked and the work is on main in 69464b4, 205c4ba, 385acac. Status was left stale after merge; closed out in the review-queue pass.

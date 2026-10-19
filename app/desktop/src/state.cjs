@@ -165,17 +165,27 @@ function storeOnline(loreHome) {
   return deployStore(loreHome, ["node", "deploy", "--inbox-only"]);
 }
 
+/** How long a Cloudflare sign-in waits on the browser before it gives up. */
+const SIGN_IN_MS = 5 * 60_000;
+const SIGN_IN_UNFINISHED = "Cloudflare sign-in didn't finish. Try again.";
+
 /** Sign in to Cloudflare from the owner's browser; `onUrl` gets the page to open. Resolves to the CLI's last line,
- * and rejects in its own words. @param {string} loreHome @param {(url: string) => void} onUrl */
-async function cloudflareSignIn(loreHome, onUrl) {
+ * and rejects in its own words. It never waits forever: after `wait` it stops the sign-in and says so plainly, and
+ * `signal` (the owner's Cancel) stops it at once. `login` is how the sign-in runs, the CLI's unless a walk stands in.
+ * @param {string} loreHome @param {(url: string) => void} onUrl
+ * @param {{signal?: AbortSignal, wait?: number, login?: (onLine: (line: string) => void, signal: AbortSignal) => Promise<unknown>}} [options] */
+async function cloudflareSignIn(loreHome, onUrl, { signal, wait = SIGN_IN_MS, login = (onLine, stop) => loreStream(loreHome, ["node", "login"], onLine, stop) } = {}) {
+  const late = AbortSignal.timeout(wait);
   let last = "";
   try {
-    await loreStream(loreHome, ["node", "login"], (line) => {
+    await login((line) => {
       last = line;
       const url = line.match(/https:\/\/dash\.cloudflare\.com\/\S+/)?.[0];
       if (url) onUrl(url);
-    });
+    }, signal ? AbortSignal.any([signal, late]) : late);
   } catch (error) {
+    if (signal?.aborted) throw new Error("Cancelled");
+    if (late.aborted) throw new Error(SIGN_IN_UNFINISHED);
     throw new Error(last.replace(/^lore: /, "") || /** @type {Error} */ (error).message);
   }
   return last;
@@ -605,6 +615,7 @@ module.exports = {
   openStore,
   storeOnline,
   cloudflareSignIn,
+  SIGN_IN_UNFINISHED,
   saveProfile,
   ATTENDED_KEY,
   STORE

@@ -4,13 +4,13 @@ title: See what an agent saved in one click
 priority: P0
 effort: M
 component: desktop-app
-status: in-review
+status: completed
 related: [APP-207, APP-213, APP-215]
 blockers: [APP-213]
 dependencies: []
 github_issue: null
 created: 2026-10-17
-updated: 2026-10-17
+updated: 2026-10-19
 ---
 
 ## Problem
@@ -44,10 +44,10 @@ links to one agent only when every memory under it came from that agent.
 
 ## Acceptance criteria
 
-- [ ] Each of the four entry points opens Inventory filtered to that agent in one click.
-- [ ] Memories not yet seen carry a quiet "New" mark that clears once seen.
-- [ ] Removing the chip shows everything again.
-- [ ] Edge checks cover each entry point.
+- [x] Each of the four entry points opens Inventory filtered to that agent in one click.
+- [x] Memories not yet seen carry a quiet "New" mark that clears once seen.
+- [x] Removing the chip shows everything again.
+- [x] Edge checks cover each entry point.
 
 ## Notes
 
@@ -81,3 +81,5 @@ links to one agent only when every memory under it came from that agent.
     store numbers it the next time it opens. The FTS update trigger now fires only
     on title, content and project, so numbering arrivals never re-indexes. A
     notification also waits for a window that is still loading.
+
+**Completed (verified 2026-10-19, by reading code and tests, no suites run):** on main in 4b96cff. Closed out in the review-queue pass.
