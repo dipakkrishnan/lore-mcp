@@ -19,6 +19,9 @@
   --attention-soft: #fbefe7;
   --attention-ink: #8f4520;
   --hover: #ebe6da;
+  /* Focus and selection in the ink's own tone, quiet in either theme; the green is kept for actions and Lore's mark. */
+  --ring: color-mix(in srgb, var(--ink) 30%, transparent);
+  --ring-soft: color-mix(in srgb, var(--ink) 7%, transparent);
   --serif: ui-serif, "New York", Georgia, serif;
   --sans: -apple-system, "SF Pro Text", "Helvetica Neue", sans-serif;
   --mono: ui-monospace, "SF Mono", Menlo, monospace;
@@ -96,7 +99,7 @@ input, textarea, select { font: inherit; color: inherit; }
 textarea, input, [contenteditable] { -webkit-user-select: text; user-select: text; }
 .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 [hidden] { display: none !important; }
-:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
 .mono { font-family: var(--mono); font-variant-numeric: tabular-nums; }
 .serif { font-family: var(--serif); }
 
@@ -143,6 +146,8 @@ textarea, input, [contenteditable] { -webkit-user-select: text; user-select: tex
 input[type="text"], input[type="password"], input[type="search"], select, textarea {
   height: 36px; padding: 0 12px; border: 1px solid var(--line-strong); border-radius: var(--radius-sm); background: var(--surface);
 }
+/* A bordered field in focus darkens its own border and takes a soft halo, rather than a ring around it. */
+.request :is(input[type="text"], input[type="password"], textarea):focus-visible { outline: none; border-color: var(--ring); box-shadow: 0 0 0 3px var(--ring-soft); }
 
 /* Shell */
 .app { position: fixed; inset: 0; display: flex; }
@@ -228,7 +233,7 @@ h2 { font-size: 12px; font-weight: 600; letter-spacing: 0.06em; text-transform: 
 .section-aside { display: flex; align-items: center; gap: 12px; }
 .card { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; }
 .card.pad { padding: 18px 20px; }
-.card.lead { border-color: var(--accent); }
+.card.lead { border-color: var(--line-strong); }
 .card.lead .link-btn { margin-left: auto; }
 .hint { font-size: 12px; color: var(--muted); }
 .status:empty { display: none; }
@@ -254,8 +259,8 @@ button.inline:hover { text-decoration: underline; }
 }
 .composer:focus-within { border-color: var(--line-strong); box-shadow: 0 1px 2px rgb(var(--shadow) / calc(0.05 * var(--depth))), 0 10px 32px rgb(var(--shadow) / calc(0.1 * var(--depth))); }
 /* The text field's own ring is off, so the whole pill takes the app's focus ring while someone types in it. */
-/* Focus is a soft accent halo, not a hard ring: still plain to see, and in keeping with the pill. */
-.composer:has(textarea:focus-visible) { border-color: color-mix(in srgb, var(--accent) 45%, var(--line)); box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 12%, transparent), 0 10px 32px rgb(var(--shadow) / calc(0.1 * var(--depth))); }
+/* Focus is a soft halo, not a hard ring: still plain to see, and in keeping with the pill. */
+.composer:has(textarea:focus-visible) { border-color: var(--ring); box-shadow: 0 0 0 4px var(--ring-soft), 0 10px 32px rgb(var(--shadow) / calc(0.1 * var(--depth))); }
 .composer .btn, .composer .icon-btn { border-radius: 999px; }
 /* In a thread the composer floats over the end of the conversation, the one framed thing on the page. */
 main.thread .composer { position: sticky; bottom: 18px; z-index: 1; }
@@ -359,12 +364,12 @@ fieldset .detail { max-height: 220px; overflow-y: auto; white-space: pre-wrap; o
 .choice input { margin-top: 3px; }
 .choice small { grid-column: 2 / -1; font-size: 13px; line-height: 1.4; }
 .choice:hover { background: var(--hover); }
-.choice:has(input:checked) { border-color: var(--accent); background: var(--accent-soft); }
+.choice:has(input:checked) { border-color: var(--ring); background: var(--surface); box-shadow: 0 0 0 3px var(--ring-soft); }
 .choice input { margin: 0; accent-color: var(--accent); }
 .choice small { color: var(--muted); }
 .choice .chip { grid-column: 3; grid-row: 1; justify-self: end; height: 18px; font-size: 11px; }
 .other-answer { height: 34px; font-size: 14px; }
-.payout .payout-steps { display: flex; flex-direction: column; gap: 6px; padding: 10px 12px; border-radius: var(--radius-sm); background: var(--accent-soft); font-size: 13px; }
+.payout .payout-steps { display: flex; flex-direction: column; gap: 6px; padding: 10px 12px; border-radius: var(--radius-sm); background: var(--bg-aside); font-size: 13px; }
 .payout .payout-steps ol { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 3px; }
 .payout .payout-steps a { align-self: flex-start; }
 .payout .payout-status { min-height: 18px; margin: 0; }
@@ -406,7 +411,7 @@ a.link-btn:hover { background: var(--hover); text-decoration: none; }
 .logo.initial { display: inline-flex; align-items: center; justify-content: center; border-radius: 6px; background: var(--accent-soft); color: var(--accent); font-size: 12px; font-weight: 600; }
 .choices { display: flex; flex-direction: column; gap: 8px; }
 .choice { display: flex; align-items: center; gap: 10px; padding: 10px 14px; border: 1px solid transparent; border-radius: var(--radius); cursor: pointer; }
-.choice:has(:checked) { border-color: var(--accent); }
+.choice:has(:checked) { border-color: var(--ring); }
 .choice b { font-weight: 500; white-space: nowrap; }
 .choice .hint { flex: 1; min-width: 0; text-align: right; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .problem { font-size: 13px; color: var(--attention-ink); }
@@ -452,7 +457,7 @@ a.receipt:hover { color: var(--accent); }
 .price-field { display: inline-flex; align-items: center; height: 32px; padding: 0 8px; gap: 2px; border: 1px solid var(--line-strong); border-radius: var(--radius-sm); background: var(--surface); }
 /* The ring belongs on the whole field, not the inner input — an input ring with
    its offset paints over the "$" prefix sitting 2px away inside the same box. */
-.price-field:focus-within { outline: 2px solid var(--accent); outline-offset: 2px; }
+.price-field:focus-within { border-color: var(--ring); box-shadow: 0 0 0 3px var(--ring-soft); outline: 0; }
 .price-field .price-prefix { font-family: var(--mono); font-size: 15px; color: var(--muted); }
 .price-field input[type="text"] { width: 6ch; height: auto; padding: 0; border: 0; background: none; font-family: var(--mono); font-size: 15px; text-align: left; }
 .price-field input[type="text"]:focus-visible { outline: none; }
@@ -492,7 +497,7 @@ textarea.form-prompt {
   border: 1px solid var(--line); border-radius: var(--radius); background: var(--bg); font-size: 15px; line-height: 1.5;
 }
 textarea.form-prompt.tall { min-height: 200px; max-height: 360px; }
-textarea.form-prompt:focus { border-color: var(--accent); }
+textarea.form-prompt:focus { border-color: var(--ring); box-shadow: 0 0 0 3px var(--ring-soft); }
 textarea.form-prompt::placeholder { color: var(--faint); }
 .form-group { display: flex; flex-direction: column; gap: 6px; }
 .form-group:has(.form-rows:empty) { display: none; }
@@ -513,7 +518,7 @@ textarea.form-prompt::placeholder { color: var(--faint); }
 /* A real select over the whole row: the row shows the value, the select takes the click and the keys. */
 .form-row.pick select { position: absolute; inset: 0; width: 100%; height: 100%; padding: 0; border: 0; opacity: 0; appearance: none; cursor: default; }
 .form-row.pick:hover { background: var(--hover); }
-.form-row:has(select:focus-visible), .form-row:has(.form-entry input:focus-visible), .form-row.form-option:has(input:focus-visible) { outline: 2px solid var(--accent); outline-offset: -2px; }
+.form-row:has(select:focus-visible), .form-row:has(.form-entry input:focus-visible), .form-row.form-option:has(input:focus-visible) { outline: 0; box-shadow: inset 0 0 0 1px var(--ring), 0 0 0 3px var(--ring-soft); }
 .form-entry { flex: 1.4; min-width: 0; display: flex; align-items: center; justify-content: flex-end; gap: 2px; }
 .form-row input:focus-visible, .form-row select:focus-visible { outline: none; }
 .form-entry input { field-sizing: content; min-width: 3ch; max-width: 100%; height: 40px; padding: 0; border: 0; border-radius: 0; background: none; text-align: right; color: var(--ink); outline: none; }
@@ -533,14 +538,14 @@ textarea.form-prompt::placeholder { color: var(--faint); }
 .inline-notice { padding-right: 14px; }
 .agent-wait { display: flex; align-items: center; gap: 10px; font-size: 13px; color: var(--muted); }
 .agent-link { display: flex; align-items: center; gap: 10px; width: 100%; padding: 12px 14px 12px 16px; border: 1px solid transparent; border-radius: 14px; background: var(--bg); font: inherit; color: var(--ink); cursor: pointer; text-align: left; transition: border-color 0.15s, background 0.15s; }
-.agent-link:hover { border-color: var(--accent); }
-.agent-link:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.agent-link:hover { border-color: var(--ring); }
+.agent-link:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
 .agent-link-text { flex: 1; min-width: 0; font-family: var(--mono); font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .agent-link-key { color: var(--faint); letter-spacing: 1px; }
 .agent-link-icon { display: inline-flex; color: var(--accent); }
 .agent-link-icon svg { width: 16px; height: 16px; }
 .agent-link-word { font-size: 13px; font-weight: 500; color: var(--accent); min-width: 48px; }
-.agent-link.copied { border-color: var(--ok); background: var(--accent-soft); }
+.agent-link.copied { border-color: var(--ring); background: var(--hover); }
 .agent-link.copied .agent-link-icon, .agent-link.copied .agent-link-word { color: var(--ok); }
 .agent-step-or { display: block; font-size: 13px; color: var(--muted); }
 .agent-message .agent-link-text { display: flex; flex-direction: column; gap: 3px; white-space: normal; line-height: 1.45; font-family: var(--sans); font-size: 14px; color: var(--ink); }
@@ -724,6 +729,19 @@ dialog.palette[open] { animation: rise 0.12s ease; }
 .routines .row.routine:hover { border-color: var(--line-strong); box-shadow: 0 6px 20px rgb(var(--shadow) / calc(0.06 * var(--depth))); }
 .routines .row.routine .t { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 6px; }
 .routines .row.routine .t b { font-size: 15px; font-weight: 600; }
+/* Today's new memories: one folded card per agent, app or routine, opening onto its memories. */
+.ready-group { border: 1px solid var(--line); border-radius: var(--radius-lg); background: var(--surface); transition: border-color 0.15s, box-shadow 0.15s; }
+.ready-group:hover { border-color: var(--line-strong); box-shadow: 0 6px 20px rgb(var(--shadow) / calc(0.06 * var(--depth))); }
+.routines .ready-group > .row.routine { border: 0; background: none; box-shadow: none; }
+.routines .ready-group > .row.routine.still { cursor: default; }
+.ready-head .disclose { display: inline-flex; color: var(--faint); transition: transform 0.15s; }
+.ready-head .disclose svg { width: 16px; height: 16px; }
+.ready-group.open .disclose { transform: rotate(90deg); }
+.ready-head button.inline { white-space: nowrap; font-size: 13px; }
+.ready-items { border-top: 1px solid var(--line-soft); padding: 2px 4px 4px; }
+.ready-items .row { padding: 10px 14px; }
+.ready-items .row .t b { font-family: var(--sans); font-size: 14px; font-weight: 500; }
+.ready-items .row .t span { font-size: 12px; color: var(--muted); }
 .routine-mark { display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; width: 32px; height: 32px; border-radius: 9px; background: var(--bg-aside); border: 1px solid var(--line-soft); color: var(--muted); }
 .routine-mark svg { width: 16px; height: 16px; }
 .routine-mark.lore { background: var(--accent); border-color: var(--accent); color: var(--surface); }
@@ -735,16 +753,16 @@ dialog.palette[open] { animation: rise 0.12s ease; }
 .routine-act:hover { background: var(--hover); color: var(--ink); }
 .routine-act.when-chip { width: auto; height: 26px; padding: 0 10px; border: 1px solid var(--line); background: var(--bg-aside); color: var(--ink-soft); font-size: 12px; font-weight: 500; }
 .routine-act.when-chip svg { width: 13px; height: 13px; }
-.routine-act.when-chip:hover { border-color: var(--accent); color: var(--accent); background: var(--surface); }
+.routine-act.when-chip:hover { border-color: var(--line-strong); color: var(--ink); background: var(--surface); }
 .routines .row.routine .v { gap: 6px; max-width: none; }
 .routines .row.routine .v .routine-act { opacity: 0; }
 .routines .row.routine:hover .v .routine-act, .routines .row.routine:focus-within .v .routine-act { opacity: 1; }
 .routines .row.routine.paused .routine-mark { filter: grayscale(1); opacity: 0.55; }
 .routines .row.routine.paused .t b { color: var(--muted); }
 .routines .row.add-tile { cursor: pointer; border-style: dashed; background: transparent; }
-.routines .row.add-tile:hover { border-color: var(--accent); background: var(--surface); }
+.routines .row.add-tile:hover { border-color: var(--line-strong); background: var(--surface); }
 .routine-mark.add { background: transparent; border: 1px dashed var(--line-strong); color: var(--muted); }
-.routines .row.add-tile:hover .routine-mark.add { border-color: var(--accent); color: var(--accent); }
+.routines .row.add-tile:hover .routine-mark.add { border-color: var(--line-strong); color: var(--ink); }
 .routines .row.add-tile .t span { font-size: 13px; color: var(--muted); }
 
 /* Today: lists read like Inventory's; a step is one quiet row that does its thing on a click. */
@@ -760,7 +778,7 @@ dialog.palette[open] { animation: rise 0.12s ease; }
 .today-cards .row.routine .t span { font-size: 12.5px; color: var(--muted); }
 .today-cards .row.routine .btn.quiet { height: 28px; padding: 0 12px; border: 1px solid var(--line); border-radius: 999px; background: var(--bg-aside); color: var(--ink-soft); font-size: 12px; font-weight: 500; opacity: 0; transition: opacity 0.12s, border-color 0.12s, color 0.12s; }
 .today-cards .row.routine:hover .btn.quiet, .today-cards .row.routine:focus-within .btn.quiet { opacity: 1; }
-.today-cards .row.routine .btn.quiet:hover { border-color: var(--accent); color: var(--accent); background: var(--surface); }
+.today-cards .row.routine .btn.quiet:hover { border-color: var(--line-strong); color: var(--ink); background: var(--surface); }
 .today-cards .row.routine.next-step { padding: 20px 22px; gap: 18px; }
 .today-cards .row.routine.next-step > .routine-mark { width: 44px; height: 44px; border-radius: 12px; color: var(--accent); }
 .today-cards .row.routine.next-step > .routine-mark svg { width: 20px; height: 20px; }
@@ -775,7 +793,7 @@ dialog.palette[open] { animation: rise 0.12s ease; }
 .first-choices { flex-direction: row; flex-wrap: wrap; gap: 8px; }
 .first-choices .choice { display: inline-flex; align-items: center; gap: 8px; height: 40px; padding: 0 16px 0 8px; border: 1px solid var(--line); border-radius: 999px; background: var(--surface); font: inherit; font-size: 14px; font-weight: 500; color: var(--ink); white-space: nowrap; cursor: pointer; transition: border-color 0.15s, box-shadow 0.15s; }
 .first-choices .choice:hover { background: var(--surface); border-color: var(--line-strong); box-shadow: 0 4px 14px rgb(var(--shadow) / calc(0.07 * var(--depth))); }
-.first-choices .choice.picked { border-color: var(--accent); background: var(--accent-soft); }
+.first-choices .choice.picked { border-color: var(--ring); background: var(--surface); box-shadow: 0 0 0 3px var(--ring-soft); }
 .first-choices .choice small { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; font-weight: 400; color: var(--muted); }
 .first-choices .choice small::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--ok); }
 .first-choices .choice:disabled { cursor: default; opacity: 0.55; box-shadow: none; border-color: var(--line); }
@@ -792,7 +810,7 @@ dialog.palette[open] { animation: rise 0.12s ease; }
 .first-connect > .hint { font-size: 12.5px; line-height: 1.55; }
 .first-run .card .choices { gap: 6px; }
 .first-run .card .choice { background: var(--bg); }
-.first-run .card .choice:has(:checked) { border-color: transparent; background: var(--accent-soft); }
+.first-run .card .choice:has(:checked) { border-color: var(--ring); background: var(--surface); }
 .first-run .card .choice small { margin-left: auto; font-size: 12.5px; }
 .first-run .card .actions { padding-top: 2px; }
 .first-saved .row { padding: 10px 18px; border-top-color: var(--line-soft); }

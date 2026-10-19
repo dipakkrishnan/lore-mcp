@@ -1553,13 +1553,13 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         const denied = [join(S, "Edge Vault"), join(S, "claude", "projects")];
         for (const folder of denied) chmodSync(folder, 0o000);
         await tap("Connect these");
-        check("a connect that fails keeps its apps, ticked, says so plainly, and offers to try again", await waitFor(`${chat}.includes("Obsidian and Claude Code didn't connect. Try again.")`, 80) && await js(`[...document.querySelectorAll("#content .first-run input[type=checkbox]")].filter((t) => t.checked).length === 2 && [...document.querySelectorAll("#content .first-run button")].some((b) => b.textContent === "Try again")`), await js(chat));
+        check("a connect macOS keeps out keeps its apps, ticked, says why, and offers System Settings and another try", await waitFor(`${chat}.includes("macOS hasn't let Lore read Obsidian and Claude Code. Allow Lore in System Settings, then try again.")`, 80) && await js(`[...document.querySelectorAll("#content .first-run input[type=checkbox]")].filter((t) => t.checked).length === 2 && ["Open System Settings", "Try again"].every((label) => [...document.querySelectorAll("#content .first-run button")].some((b) => b.textContent === label))`), await js(chat));
         check("…and never says anything came in that could not", !/came in|reading them now/.test(await js(chat)), await js(chat));
         // A vault Lore knows, even unread, is connected: what Lore then does on its own is said once, quietly, in the chat.
         check("…and what Lore then does on its own is one quiet line in the chat, not a notice over it", await waitFor(`${chat}.includes("Change this in Automations.")`) && await js(`!document.querySelector("#status .notice")`) && await waitFor(`window.lore.snapshot().then((s) => s.setup.automations_noticed === true)`), await js(chat));
         await shot("firstrun-apps-failed");
         await tap("Try again");
-        check("…and trying again before access is granted says so again", await waitFor(`!document.querySelector("#content .first-run .btn.primary[disabled]") && ${chat}.includes("Obsidian and Claude Code didn't connect. Try again.")`, 80), await js(`document.querySelector("#title").textContent + " | " + document.querySelector("#content").textContent`));
+        check("…and trying again before access is granted says so again", await waitFor(`!document.querySelector("#content .first-run .btn.primary[disabled]") && ${chat}.includes("macOS hasn't let Lore read Obsidian and Claude Code.")`, 80), await js(`document.querySelector("#title").textContent + " | " + document.querySelector("#content").textContent`));
         // Lore quits before access is granted: after a relaunch both are still on offer, Lore knowing them already.
         await relaunch();
         check("after a relaunch, what didn't connect is still on offer, first", await waitFor(`${chat}.includes(${JSON.stringify(offer)}) && /Obsidian · Edge Vault/.test(${chat}) && /Claude Code/.test(${chat})`, 80), await js(chat));
@@ -1833,11 +1833,12 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         // APP-211: the owner is still on Connectors, so the automations notice waits, unsaid and unremembered.
         check("…while on Connectors, the automations notice waits for Today", await js(`!document.querySelector("#status .notice")`) && await js(`window.lore.snapshot().then((s) => s.setup.automations_noticed === false)`), await js(`document.querySelector("#status").textContent`));
         const evening = "Every evening, save anything new you learned about me to Lore.";
-        check("…then offers, below it, an evening routine to paste into Grok Bot", await js(`Boolean(document.querySelector("dialog.sheet[open] .agent-wait + .agent-next")) && ${sheet}.includes("Optional: paste this into Grok Bot as a routine, so it saves every evening.")`), await js(sheet));
+        // APP-229: what to send so it saves now, and its evening routine, both offered from the start, above the wait.
+        check("…with, above the wait, a sentence to save now and an evening routine to paste into Grok Bot", await js(`document.querySelectorAll("dialog.sheet[open] .agent-next").length === 2 && Boolean(document.querySelector("dialog.sheet[open] .agent-next + .agent-next + .agent-wait"))`) && (await js(sheet)).includes("Then send Grok Bot this, so it saves right away:") && (await js(sheet)).includes("Optional: add this to Grok Bot as a routine, so it saves every evening."), await js(sheet));
         const copiedBefore = copied.length;
-        await js(`document.querySelector("dialog.sheet[open] .agent-next button").click()`);
+        await js(`[...document.querySelectorAll("dialog.sheet[open] .agent-next button")].at(-1).click()`);
         for (let i = 0; i < 20 && copied.length === copiedBefore; i++) await sleep(50);
-        check("…whose one quiet Copy copies the ask", copied.at(-1) === evening && await js(`document.querySelectorAll("dialog.sheet[open] .agent-next button").length === 1 && document.querySelector("dialog.sheet[open] .agent-next button").classList.contains("quiet")`), String(copied.at(-1)));
+        check("…each with one quiet Copy, the routine's copying the ask", copied.at(-1) === evening && await js(`[...document.querySelectorAll("dialog.sheet[open] .agent-next")].every((n) => n.querySelectorAll("button").length === 1 && n.querySelector("button").classList.contains("quiet"))`), String(copied.at(-1)));
         await shot("agents-first-save");
         check("…read through once, named for Grok", readings.length === 1 && readings[0].title === "Grok Bot saved 2 things to Lore" && readings[0].label === "Grok Bot", JSON.stringify(readings));
         // APP-212: each way in lands on Inventory, filtered to Grok Bot, with what the owner hasn't seen marked New.
@@ -1867,9 +1868,11 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         await shot("agents-see-them-notification");
         await js(`window.__lore.show("today")`);
         const card = `[...document.querySelectorAll("#content .section")].find((s) => s.textContent.includes("New memories"))`;
-        check("Today's new memories are named for Grok", await waitFor(`${card}?.textContent.includes("From Grok Bot · 1 new memory · 1 worth selling")`));
+        check("Today's new memories are one folded card named for Grok", await waitFor(`${card}?.querySelector(".ready-head")?.textContent.includes("From Grok Bot1 new memory · 1 worth selling")`) && !(await js(`Boolean(${card}.querySelector(".ready-items"))`)), await js(`${card}?.textContent ?? ""`));
+        await js(`${card}.querySelector(".ready-head .task-link").click()`);
+        check("…which opens onto what Lore wrote from it", await waitFor(`${card}?.querySelector(".ready-items")?.textContent.includes("Price a sync placement by its reach")`));
         const cardText = await js(`${card}.textContent`);
-        check("…each memory says it came from Grok", cardText.includes("Price a sync placement by its reach") && cardText.includes("From Grok Bot · Worth selling"), cardText);
+        check("…each memory saying what it is to the owner", cardText.includes("Worth selling · "), cardText);
         check("…with Grok Bot's mark in its tile", await js(`${card}.querySelector(".row .mark-stack .routine-mark img.logo")?.src.endsWith("assets/grok.svg")`));
         // APP-211: with an agent connected, Today now says once what Lore does on its own.
         const told = `[...document.querySelectorAll("#status .notice")].filter((n) => n.textContent.includes("Change this in Automations"))`;
@@ -1921,7 +1924,7 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         await waitFor(agentRow("Grok Bot"));
         await js(`${agentRow("Grok Bot")}.querySelector("button:not(.inline)").click()`);
         check("Manage offers a new key and Disconnect", await waitFor(`${sheet}.includes("Get a new key") && ${sheet}.includes("Disconnect")`));
-        check("…and, since Grok Bot has saved, its evening routine, below what it saved", await js(`${sheet}.includes("Optional: paste this into Grok Bot as a routine, so it saves every evening.") && document.querySelector("dialog.sheet[open] .form-body").lastElementChild.previousElementSibling?.classList.contains("agent-next")`), await js(sheet));
+        check("…and, since Grok Bot has saved, its evening routine, below what it saved", await js(`${sheet}.includes("Optional: add this to Grok Bot as a routine, so it saves every evening.") && document.querySelector("dialog.sheet[open] .form-body").lastElementChild.previousElementSibling?.classList.contains("agent-next")`), await js(sheet));
         await shot("agents-manage");
         // A save the old key makes just before the new one, still waiting when the new link is shown.
         const late = await (await call(key, "tools/call", { name: "store", arguments: { items: [{ title: "Late sync note", content: "Saved with the old link, just before it was replaced.", key: "late-note", kind: "fact" }] } })).json();
@@ -1979,7 +1982,7 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         check("…and once on screen it is kept as seen", await waitFor(`window.lore.memoriesSeen(0).then((kept) => kept.arrivals.includes(${Number(rush)}))`, 20), rush);
         await js(`window.__lore.show("today")`);
         check("a third save lands while the owner is on Today", await saveMore("How I bill a rerun"));
-        const headerLink = `[...(${card}?.querySelectorAll(".list-aside button.inline") ?? [])].find((b) => b.textContent === "See them →")`;
+        const headerLink = `[...(${card}?.querySelectorAll(".ready-head button.inline") ?? [])].find((b) => b.textContent === "See them →")`;
         check("Today's new memories, all from Grok Bot, link to what it saved", await waitFor(`${card}?.textContent.includes("Bill a rerun at half the first fee") && ${headerLink}`), await js(`${card}?.querySelector(".list-aside")?.textContent ?? ""`));
         await shot("agents-today-see-them");
         await js(`${headerLink}.click()`);
@@ -2308,12 +2311,15 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         notes[0].handlers.click();
         check("clicking it lands on Today's new memories", await waitFor(`document.querySelector("#content").textContent.includes("Lore read your Granola meetings")`), await js(`document.querySelector("#title").textContent + " | " + document.querySelector("#content").textContent.slice(0, 200)`));
         const card = `[...document.querySelectorAll("#content .section")].find((s) => s.textContent.includes("New memories"))`;
+        check("…folded, its mark Granola's", await js(`!${card}.querySelector(".ready-items") && ${card}.querySelector(".ready-head .mark-stack img.logo")?.src.endsWith("assets/granola.svg")`));
+        await js(`${card}.querySelector(".ready-head .task-link").click()`);
+        await waitFor(`Boolean(${card}?.querySelector(".ready-items"))`);
         const cardText = await js(`${card}.textContent`);
-        check("…each by title", /2 new memories · 1 worth selling/.test(cardText) && cardText.includes("Raise the first price only after ten buyers pay") && cardText.includes("Add the ops management layer before the next ten hires"), cardText);
+        check("…opened, each by title", /2 new memories · 1 worth selling/.test(cardText) && cardText.includes("Raise the first price only after ten buyers pay") && cardText.includes("Add the ops management layer before the next ten hires"), cardText);
         check("…work stays private and is never offered for sale", cardText.includes("Work · stays private") && await js(`[...${card}.querySelectorAll(".row")].filter((r) => [...r.querySelectorAll("button")].some((b) => b.textContent === "Draft for sale")).map((r) => r.querySelector("b").textContent).join("|")`) === "Raise the first price only after ten buyers pay");
         check("…in plain words", !/synthes|agent|pipeline|mcp/i.test(cardText), cardText);
-        check("…and, from an app rather than an agent, no See them in its header", !(await js(`Boolean(${card}.querySelector(".list-aside button.inline"))`)));
-        check("…each from Granola, with its mark", (cardText.match(/From Granola · /g) ?? []).length === 2 && await js(`[...${card}.querySelectorAll(".row")].every((r) => r.querySelector(".mark-stack img.logo")?.src.endsWith("assets/granola.svg"))`), cardText);
+        check("…and, from an app rather than an agent, no See them in its header", !(await js(`Boolean(${card}.querySelector(".ready-head button.inline"))`)));
+        check("…the card says who once, not each memory again", !/From Granola · /.test(cardText), cardText);
         check("seeing it clears the dock", await (async () => { for (let i = 0; i < 40 && badges.at(-1) !== 0; i++) await sleep(100); return badges.at(-1) === 0; })(), JSON.stringify(badges));
         check("…and nothing on Today shimmers once it has read", await js(`!document.querySelector("#content .shimmer")`));
         await shot("reading-today-ready");
