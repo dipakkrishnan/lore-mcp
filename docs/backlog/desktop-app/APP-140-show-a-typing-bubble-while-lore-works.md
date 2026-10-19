@@ -4,13 +4,13 @@ title: Show a typing bubble while Lore works
 priority: P2
 effort: S
 component: desktop-app
-status: in-review
+status: completed
 related: [APP-137]
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-10-06
-updated: 2026-10-06
+updated: 2026-10-19
 ---
 
 ## Problem
@@ -31,3 +31,7 @@ closes or Lore asks the owner something.
 - [x] An open turn ends in a three-dot bubble with a short label.
 - [x] A tool's status relabels the bubble; what Lore said stays readable.
 - [x] The bubble goes when the turn closes; reduced motion stops the dots.
+
+## Notes
+
+**Completed (verified 2026-10-19):** every acceptance criterion is checked and the work is on main in dacd920. Status was left stale after merge; closed out in the review-queue pass.

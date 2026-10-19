@@ -4,13 +4,13 @@ title: Let desktop users update the app from inside it
 priority: P2
 effort: M
 component: desktop-app
-status: in-review
+status: completed
 related: [APP-005, APP-040]
 blockers: []
 dependencies: [APP-005]
 github_issue: https://github.com/dipakkrishnan/lore-mcp/issues/266
 created: 2026-09-19
-updated: 2026-10-13
+updated: 2026-10-19
 ---
 
 ## Problem
@@ -66,3 +66,5 @@ the first release that carries it is the first that can update itself.
 Cataloged from issue #266 on 2026-09-19. `APP-005` listed auto-update
 infrastructure as out of scope "until real owner usage shows which one is
 necessary"; this is that signal. `APP-040` covers first install only.
+
+**Completed (verified 2026-10-19):** every acceptance criterion is checked and the work is on main in f0253bf, e568071. Status was left stale after merge; closed out in the review-queue pass.

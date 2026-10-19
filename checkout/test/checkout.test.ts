@@ -34,6 +34,19 @@ describe("create", () => {
     expect(sent.has("payment_intent_data[application_fee_amount]")).toBe(false);
   });
 
+  it("sells for a store with no wallet: the listing a walletless card store serves is all a charge needs", async () => {
+    // XC-069: lore/node/test/empty-store.test.ts asserts a store with no LORE_WALLET serves exactly this
+    // listing; cards charge the seller's Stripe account directly, so no wallet is ever read or required.
+    const walletless = { id: PIECE, teaser: "What beat a cold deck", price_usd: 3, stripe_account: ACCOUNT, test: false };
+    const calls = stub({ store: walletless });
+    const response = await buy();
+    expect(response.status).toBe(303);
+    expect(response.headers.get("location")).toBe("https://checkout.stripe.test/c/pay/cs_test_abc");
+    const session = calls.find((c) => c.url.includes("/v1/checkout/sessions"))!;
+    expect(session.headers.get("stripe-account")).toBe(ACCOUNT);
+    expect(session.body).not.toMatch(/wallet|0x[0-9a-fA-F]{40}/);
+  });
+
   it("takes price and payee from the store, ignoring anything the buyer adds to the form", async () => {
     const calls = stub();
     await buy({ origin: STORE, id: PIECE, price_usd: "0.01", stripe_account: "acct_Attacker", unit_amount: "1" });
@@ -63,6 +76,13 @@ describe("create", () => {
     for (const fields of malformed) {
       expect((await buy(fields)).status).toBe(400);
     }
+    expect(calls).toHaveLength(0);
+  });
+
+  it("refuses a body that isn't a form without calling anyone", async () => {
+    const calls = stub();
+    const response = await exports.default.fetch("https://checkout.test/create", { method: "POST", body: JSON.stringify({ origin: STORE, id: PIECE }), headers: { "Content-Type": "application/json" } });
+    expect(response.status).toBe(400);
     expect(calls).toHaveLength(0);
   });
 
@@ -214,5 +234,208 @@ describe("health", () => {
     const down = await exports.default.fetch("https://checkout.test/health");
     expect(down.status).toBe(502);
     expect(await down.json()).toEqual({ ok: false });
+  });
+});
+
+describe("create, past the happy path", () => {
+  it("refuses a piece the store won't list, can't be reached for, or answers with something other than JSON", async () => {
+    for (const options of [{ store: null }, { storeBody: "<html>not json</html>" }]) {
+      const calls = stub(options);
+      const response = await buy();
+      expect(response.status).toBe(404);
+      expect(await response.text()).toBe("This piece isn't for sale.\n");
+      expect(calls).toHaveLength(0);
+      vi.restoreAllMocks();
+    }
+    // A store that errors is not for sale, even if its error page reads like a listing.
+    const erroring = stub();
+    const storeFetch = vi.mocked(globalThis.fetch).getMockImplementation()!;
+    vi.mocked(globalThis.fetch).mockImplementation(async (input, init) =>
+      new Request(input, init).url.endsWith(".json") ? Response.json(listing(), { status: 500 }) : storeFetch(input, init)
+    );
+    expect((await buy()).status).toBe(404);
+    expect(erroring).toHaveLength(0);
+    vi.restoreAllMocks();
+    // A store that can't be reached: every fetch fails.
+    vi.spyOn(globalThis, "fetch").mockRejectedValue(new TypeError("Network connection lost."));
+    expect((await buy()).status).toBe(404);
+  });
+
+  it("sells at exactly the card minimum, and rounds the store's price to the nearest cent", async () => {
+    for (const [price, cents] of [[0.5, "50"], [0.57, "57"]] as const) {
+      const calls = stub({ store: listing({ price_usd: price }) });
+      expect((await buy()).status).toBe(303);
+      const sent = new URLSearchParams(calls.find((c) => c.url.includes("/v1/checkout/sessions"))!.body);
+      expect(sent.get("line_items[0][price_data][unit_amount]")).toBe(cents);
+      vi.restoreAllMocks();
+    }
+  });
+
+  it("names the product with at most the teaser's first 250 characters", async () => {
+    const calls = stub({ store: listing({ teaser: "x".repeat(300) }) });
+    expect((await buy()).status).toBe(303);
+    const sent = new URLSearchParams(calls.find((c) => c.url.includes("/v1/checkout/sessions"))!.body);
+    expect(sent.get("line_items[0][price_data][product_data][name]")).toBe("x".repeat(250));
+  });
+
+  it("refuses a test store a real card payment on a live key, but not on a test or restricted test key", async () => {
+    const as = (key: string) =>
+      entry.default.fetch(new Request("https://checkout.test/create", { method: "POST", body: new URLSearchParams({ origin: STORE, id: PIECE }), redirect: "manual" }), {
+        STRIPE_API: env.STRIPE_API,
+        STRIPE_SECRET_KEY: key,
+        STRIPE_WEBHOOK_SECRET: env.STRIPE_WEBHOOK_SECRET,
+        ACCOUNT_TOKEN_SECRET: env.ACCOUNT_TOKEN_SECRET
+      });
+    let calls = stub({ store: listing({ test: true }) });
+    const live = await as("sk_live_not_a_real_key");
+    expect(live.status).toBe(409);
+    expect(await live.text()).toContain("test store");
+    expect(calls).toHaveLength(0);
+    for (const key of ["sk_test_not_a_real_key", "rk_test_not_a_real_key"]) {
+      calls = stub({ store: listing({ test: true }) });
+      expect((await as(key)).status).toBe(303);
+      expect(calls.find((c) => c.url.includes("/v1/checkout/sessions"))!.headers.get("authorization")).toBe(`Bearer ${key}`);
+    }
+    // A real store on the live key goes through.
+    calls = stub();
+    expect((await as("sk_live_not_a_real_key")).status).toBe(303);
+    expect(calls.find((c) => c.url.includes("/v1/checkout/sessions"))!.headers.get("authorization")).toBe("Bearer sk_live_not_a_real_key");
+  });
+
+  it("refuses an account Stripe holds no store for", async () => {
+    const calls = stub({ account: { id: ACCOUNT } });
+    expect((await buy()).status).toBe(409);
+    expect(calls.some((c) => c.url.includes("/v1/checkout/sessions"))).toBe(false);
+  });
+
+  it("answers 502 rather than redirecting nowhere when Stripe opens a session with no page", async () => {
+    stub({ session: { url: null } });
+    const response = await buy();
+    expect(response.status).toBe(502);
+    expect(response.headers.get("location")).toBeNull();
+  });
+});
+
+describe("verify, past the happy path", () => {
+  it("says Stripe is unreachable on any refusal other than an unknown session", async () => {
+    stub({ stripeStatus: 500 });
+    const logged = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const response = await verify(`session=cs_test_abc&account=${ACCOUNT}`);
+    expect(response.status).toBe(502);
+    expect(await response.json()).toEqual({ error: "Stripe is unreachable" });
+    expect(logged).toHaveBeenCalled();
+  });
+
+  it("requires both a session and an account", async () => {
+    const calls = stub();
+    for (const query of ["", "session=cs_test_abc", `account=${ACCOUNT}`]) {
+      expect((await verify(query)).status).toBe(400);
+    }
+    expect(calls).toHaveLength(0);
+  });
+
+  it("reports a paid session that names no store as unpaid, with empty fields rather than missing ones", async () => {
+    stub({ session: { metadata: {}, payment_intent: null, amount_total: null }, boundTo: "" });
+    expect(await (await verify(`session=cs_test_abc&account=${ACCOUNT}`)).json()).toEqual({ paid: false, piece: "", origin: "", payment_intent: "", amount_usd: 0 });
+  });
+
+  it("answers 502 for a session Stripe returns without metadata", async () => {
+    stub({ session: { metadata: undefined } });
+    expect((await verify(`session=cs_test_abc&account=${ACCOUNT}`)).status).toBe(502);
+  });
+});
+
+describe("seller accounts, past the happy path", () => {
+  const open = async () => (await (await exports.default.fetch("https://checkout.test/accounts", { method: "POST" })).json<{ account: string; token: string }>());
+
+  it("answers 502 to the seller's own form, binding and status when Stripe fails after the token checks out", async () => {
+    stub();
+    const { account, token } = await open();
+    stub({ stripeStatus: 500 });
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const onboard = await exports.default.fetch(`https://checkout.test/onboard?account=${account}&token=${token}`, { redirect: "manual" });
+    expect(onboard.status).toBe(502);
+    expect(await onboard.text()).toContain("Stripe is unavailable right now");
+    const bind = await exports.default.fetch("https://checkout.test/accounts/bind", { method: "POST", body: new URLSearchParams({ account, token, origin: STORE }) });
+    expect(bind.status).toBe(502);
+    expect(await bind.json()).toEqual({ error: "Stripe is unreachable" });
+    const status = await exports.default.fetch(`https://checkout.test/accounts/status?account=${account}&token=${token}`);
+    expect(status.status).toBe(502);
+    expect(await status.json()).toEqual({ error: "Stripe is unreachable" });
+  });
+
+  it("refuses a missing token, a token that isn't 64 hex characters, or a malformed account, without asking Stripe", async () => {
+    stub();
+    const { account, token } = await open();
+    const calls = stub();
+    const queries = ["", `account=${account}`, `account=${account}&token=${token.toUpperCase()}`, `account=${account}&token=${token.slice(1)}`, `account=acct_x/../y&token=${token}`];
+    for (const query of queries) {
+      expect((await exports.default.fetch(`https://checkout.test/onboard?${query}`, { redirect: "manual" })).status).toBe(403);
+      expect((await exports.default.fetch(`https://checkout.test/accounts/status?${query}`)).status).toBe(403);
+      const fields = Object.fromEntries(new URLSearchParams(query));
+      expect((await exports.default.fetch("https://checkout.test/accounts/bind", { method: "POST", body: new URLSearchParams({ ...fields, origin: STORE }) })).status).toBe(403);
+    }
+    // Even a correctly signed token can't carry a malformed account into a Stripe path.
+    const key = await crypto.subtle.importKey("raw", new TextEncoder().encode(env.ACCOUNT_TOKEN_SECRET), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+    const malformed = "acct_x/../y";
+    const forged = [...new Uint8Array(await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(malformed)))].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+    expect((await exports.default.fetch(`https://checkout.test/accounts/status?${new URLSearchParams({ account: malformed, token: forged })}`)).status).toBe(403);
+    // A body that isn't a form at all carries no token either.
+    expect((await exports.default.fetch("https://checkout.test/accounts/bind", { method: "POST", body: "{}", headers: { "Content-Type": "application/json" } })).status).toBe(403);
+    expect(calls).toHaveLength(0);
+  });
+
+  it("counts only requirements due now, so one with no deadline doesn't hold the seller in checking", async () => {
+    stub();
+    const { account, token } = await open();
+    const status = async () => (await exports.default.fetch(`https://checkout.test/accounts/status?account=${account}&token=${token}`)).json();
+    stub({ account: { configuration: { merchant: { capabilities: { card_payments: { status: "restricted" } } } }, requirements: { entries: [{ awaiting_action_from: "stripe" }] } } });
+    expect(await status()).toEqual({ ready: false, checking: false });
+    stub({ account: { requirements: { entries: [{ awaiting_action_from: "stripe", minimum_deadline: { status: "past_due" } }] } } });
+    expect(await status()).toEqual({ ready: false, checking: true });
+    stub({ account: {} });
+    expect(await status()).toEqual({ ready: false, checking: false });
+  });
+
+  it("logs Stripe's bare status when its refusal isn't JSON", async () => {
+    stub({ stripeStatus: 500, stripeBody: "<html>bad gateway</html>" });
+    const logged = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    expect((await exports.default.fetch("https://checkout.test/accounts", { method: "POST" })).status).toBe(502);
+    expect(logged).toHaveBeenCalledWith("/v2/core/accounts: Stripe answered 500");
+  });
+});
+
+describe("routes", () => {
+  it("answers the seller's return page and the root in plain text, uncached", async () => {
+    const calls = stub();
+    for (const [path, words] of [["/onboarded", "You're set up with Stripe"], ["/", "Lore card checkout"]]) {
+      const response = await exports.default.fetch(`https://checkout.test${path}`);
+      expect(response.status).toBe(200);
+      expect(response.headers.get("content-type")).toBe("text/plain; charset=utf-8");
+      expect(response.headers.get("cache-control")).toBe("no-store");
+      expect(await response.text()).toContain(words);
+    }
+    expect(calls).toHaveLength(0);
+  });
+
+  it("answers 404 to an unknown path and to each route called with the wrong method, without calling anyone", async () => {
+    const calls = stub();
+    const wrong: [string, string][] = [
+      ["/nope", "GET"],
+      ["/create", "GET"],
+      ["/verify", "POST"],
+      ["/accounts", "GET"],
+      ["/accounts/status", "POST"],
+      ["/accounts/bind", "GET"],
+      ["/onboard", "POST"],
+      ["/webhooks", "GET"],
+      ["/health", "POST"]
+    ];
+    for (const [path, method] of wrong) {
+      const response = await exports.default.fetch(`https://checkout.test${path}`, { method });
+      expect(response.status, `${method} ${path}`).toBe(404);
+      expect(await response.text()).toBe("Not found.\n");
+    }
+    expect(calls).toHaveLength(0);
   });
 });

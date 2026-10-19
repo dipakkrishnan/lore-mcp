@@ -7,6 +7,13 @@ const { resolve, sep } = require("node:path");
 /** How many runs Today keeps before the oldest drops off. */
 const KEPT = 5;
 
+/** How long a contributor's name may be, as the store keeps it (lore/store.py LABEL_LIMIT). */
+const LABEL_LIMIT = 200;
+
+/** Who wrote a reading's memories, its name cut to what the store keeps, by character so an emoji is never split.
+ * @param {Contributor["kind"]} kind @param {string} id @param {string} label @param {string} mark @returns {Contributor} */
+const contributor = (kind, id, label, mark) => ({ kind, id, label: Array.from(label.trim()).slice(0, LABEL_LIMIT).join(""), mark });
+
 /** @param {string} noun */
 const many = (noun) => `${noun.replace(/y$/, "ie")}s`;
 
@@ -14,19 +21,26 @@ const many = (noun) => `${noun.replace(/y$/, "ie")}s`;
 const plural = (count, noun) => `${count} ${count === 1 ? noun : many(noun)}`;
 
 /** New items from an app the catalog knows, or null: nothing new, or a built-in agent source, which the schedule reads.
- * Worded once here: what Today and the notification call it, and what its row says while it reads.
- * @param {{name: string, connector?: string | null, added?: number}} read @param {SourceApp[]} apps @returns {Reading | null} */
+ * Worded once here: what Today and the notification call it, and what its row says while it reads. One of the owner's
+ * personal agents (APP-207) is called by its own name, and what it saved says it came from there. `by` is who the
+ * memories it writes are put on record as from (APP-213).
+ * @param {{name: string, label?: string, connector?: string | null, app?: AgentApp | null, added?: number}} read @param {SourceApp[]} apps @returns {Reading | null} */
 function worthReading(read, apps) {
   const app = apps.find((candidate) => candidate.id === read.connector);
   if (!app || !read.added) return null;
+  if (app.id === "agent") {
+    const who = read.label || app.name;
+    const by = contributor("agent", read.name, who, read.app ?? "other");
+    return { name: read.name, label: who, item: app.item, added: read.added, title: `${who} saved ${plural(read.added, "thing")} to Lore`, phase: `Reading what ${who} saved`, from: who, by };
+  }
   const what = `your ${app.name} ${many(app.item)}`;
-  return { name: read.name, label: app.name, item: app.item, added: read.added, title: `Lore read ${what}`, phase: `Reading ${what}` };
+  return { name: read.name, label: app.name, item: app.item, added: read.added, title: `Lore read ${what}`, phase: `Reading ${what}`, by: contributor("app", read.name, app.name, app.id) };
 }
 
 /** One of the owner's own routines, read through like an app: their sentence is all there is to call it.
  * @param {Pick<Routine, "id" | "name">} routine @param {string} ask @returns {Reading} */
 function asking(routine, ask) {
-  return { name: routine.id, label: routine.name, item: "", added: 0, ask, title: `“${routine.name}”`, phase: `Working on “${routine.name}”` };
+  return { name: routine.id, label: routine.name, item: "", added: 0, ask, title: `“${routine.name}”`, phase: `Working on “${routine.name}”`, by: contributor("routine", routine.id, routine.name, "clock") };
 }
 
 /** What a reading wrote, as the store keeps it. A file outside the memories folder, or one the store did not take, is
@@ -43,7 +57,7 @@ function landed(reading, report, stored, folder) {
     const kept = path.startsWith(work);
     memories.set(memory.id, { id: memory.id, title: memory.title, sell: entry.worth_selling && !kept, work: kept, why: entry.why });
   }
-  return { title: reading.title, read: report.read || reading.added, memories: [...memories.values()], at: new Date().toISOString(), seen: false };
+  return { title: reading.title, read: report.read || reading.added, memories: [...memories.values()], at: new Date().toISOString(), seen: false, by: reading.by, ...(reading.from ? { from: reading.from } : {}) };
 }
 
 /** The Mac notification for a finished reading. @param {ReadyRun} run @returns {{title: string, body: string}} */
@@ -99,6 +113,67 @@ class Ready {
   }
 }
 
+/** How many memories one report of what the owner saw may name. */
+const SEEN_AT_ONCE = 500;
+
+/** What the renderer says the owner saw, checked before it touches the file. @param {unknown} ids @returns {number[]} */
+function seenIds(ids) {
+  if (!Array.isArray(ids) || !ids.length || ids.length > SEEN_AT_ONCE || !ids.every((id) => Number.isInteger(id) && id > 0)) throw new Error("Invalid memories");
+  return ids;
+}
+
+/** APP-212: the memories the owner has had on screen, by arrival, so "New" means arrived and not yet seen, across
+ * relaunches. An arrival is never reused, as an id can be. `since` is the newest arrival when Lore began keeping this,
+ * so a library from before it is never all new at once. */
+class Seen {
+  /** Every read and write waits its turn, so two reports never drop each other's ids. @type {Promise<unknown>} */
+  #turn = Promise.resolve();
+
+  /** @param {string} file */
+  constructor(file) {
+    this.file = file;
+  }
+
+  /** @param {number} newest The newest arrival now: where "since" starts, the first time. @returns {Promise<SeenMemories>} */
+  read(newest) {
+    return this.#then(async () => (await this.#kept()) ?? this.#save({ since: newest, arrivals: [] }));
+  }
+
+  /** @param {number[]} arrivals */
+  add(arrivals) {
+    return this.#then(async () => {
+      const kept = (await this.#kept()) ?? { since: 0, arrivals: [] };
+      const all = new Set(kept.arrivals);
+      for (const arrival of arrivals) if (arrival > kept.since) all.add(arrival);
+      return this.#save({ since: kept.since, arrivals: [...all] });
+    });
+  }
+
+  /** @template T @param {() => Promise<T>} work */
+  #then(work) {
+    const next = this.#turn.then(work);
+    this.#turn = next.catch(() => undefined);
+    return next;
+  }
+
+  /** A missing or damaged file reads as none. @returns {Promise<SeenMemories | null>} */
+  async #kept() {
+    try {
+      const kept = JSON.parse(await readFile(this.file, "utf8"));
+      return Number.isInteger(kept?.since) && Array.isArray(kept.arrivals) ? { since: kept.since, arrivals: kept.arrivals.filter(Number.isInteger) } : null;
+    } catch {
+      return null;
+    }
+  }
+
+  /** Written beside the file, then renamed over it, like Ready's. @param {SeenMemories} seen */
+  async #save(seen) {
+    await writeFile(`${this.file}.tmp`, JSON.stringify(seen));
+    await rename(`${this.file}.tmp`, this.file);
+    return seen;
+  }
+}
+
 /** The red number: memories in runs the owner has not looked at. @param {ReadyRun[]} runs */
 function unseen(runs) {
   return runs.filter((run) => !run.seen).reduce((count, run) => count + run.memories.length, 0);
@@ -123,4 +198,4 @@ class Badge {
   }
 }
 
-module.exports = { many, plural, worthReading, asking, landed, announcement, Ready, Badge };
+module.exports = { many, plural, worthReading, asking, landed, announcement, Ready, Badge, Seen, seenIds };

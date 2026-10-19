@@ -1,16 +1,20 @@
+import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { constants, existsSync, mkdirSync, realpathSync } from "node:fs";
-import { access, mkdir, readFile, writeFile } from "node:fs/promises";
-import { homedir } from "node:os";
-import { basename, dirname, resolve, sep } from "node:path";
+import { createReadStream, existsSync, mkdirSync, realpathSync } from "node:fs";
+import { Readable } from "node:stream";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir, userInfo } from "node:os";
+import { resolve } from "node:path";
 import {
   createAgentSession,
   createBashTool,
   createEditTool,
   createLocalBashOperations,
+  createReadTool,
   createWriteTool,
   DefaultResourceLoader,
   defineTool,
+  detectSupportedImageMimeTypeFromFile,
   ModelRuntime,
   resolveModelScopeWithDiagnostics,
   SessionManager,
@@ -19,6 +23,7 @@ import {
 import { Type } from "@earendil-works/pi-ai";
 import { SandboxManager } from "@anthropic-ai/sandbox-runtime";
 import { plural } from "./reading.cjs";
+import { ATTACHMENTS } from "./attachments.cjs";
 
 const SKILLS = { capture: "lore-capture", setup: "lore-onboard", publish: "lore-publish", deploy: "lore-enable-payments", synthesize: "lore-synthesize", checkin: "lore-check-in", evening: "lore-capture" };
 const TASKS = {
@@ -30,9 +35,66 @@ const TASKS = {
   checkin: { title: "Look over today", phase: "Looking over today" },
   evening: { title: "Evening check-in", phase: "Five minutes on today" }
 };
+/** The desktop's request to put the store online for the owner's agents (renderer.js AGENT_STORE_INTENT, XC-069). */
+const AGENT_STORE_INTENT = "Put my store online so my personal agents can save to it.";
+const AGENT_STORE_PHASE = "Sign in to Cloudflare";
+
+/** The subtitle a deploy thread starts with: the agents' store asks only for the sign-in. Undefined keeps the task's own. @param {AgentTask} task @param {string} text */
+export function deployPhase(task, text) {
+  return task === "deploy" && text.startsWith(AGENT_STORE_INTENT) ? AGENT_STORE_PHASE : undefined;
+}
+
+/** The subtitle a turn records: the prompt's own, or, for a reply in the agents' store thread while it is still under
+ * way, that thread's. A thread that stopped or failed has already recorded another subtitle, so it doesn't carry over.
+ * @param {AgentTask} task @param {string} text @param {TaskRecord | null | undefined} latest */
+export function turnPhase(task, text, latest) {
+  const kept = task === "deploy" && latest?.phase === AGENT_STORE_PHASE && latest.state !== "done";
+  return deployPhase(task, text) ?? (kept ? AGENT_STORE_PHASE : undefined);
+}
+
+/** What a `lore` command does, in the words of a step row, by its subcommand. @type {Array<[RegExp, StepKind]>} */
+const LORE_STEPS = [
+  [/^(publication )?draft\b/, "draft"],
+  [/^publication extras\b/, "extras"],
+  [/^publication (revoke|reapprove)\b/, "listing"],
+  [/^(publication (list|review)|search|review|blueprint show|memory|list|show)\b/, "look"],
+  [/^push\b/, "push"],
+  [/^(node (deploy|secret)|setup)\b/, "deploy"],
+  [/^node sales\b/, "sales"],
+  [/^(node|status)\b/, "status"],
+  [/^price\b/, "price"],
+  [/^profile\b/, "profile"],
+  [/^blueprint\b/, "shape"],
+  [/^capture\b/, "capture"],
+  [/^answer\b/, "answers"]
+];
+/** Card tools the owner answers on the page, and bookkeeping: none is a step. */
+const UNSTEPPED = new Set(["ask_user", "propose_memories", "propose_blueprint", "propose_price", "cloudflare_login", "finish_task", "memories_ready", "check_in"]);
+
+/** The kind of step a tool call is, for the owner's step rows, or null when it is not one; never the tool's own name,
+ * command or path. @param {string} tool @param {any} args @param {string} loreHome @returns {StepKind | null} */
+export function stepKind(tool, args, loreHome) {
+  if (UNSTEPPED.has(tool)) return null;
+  const path = typeof args?.path === "string" ? resolve(loreHome, args.path) : "";
+  const memory = path.startsWith(resolve(loreHome, "memories") + "/");
+  if (tool === "read") return /\/skills\//.test(path) ? null : memory ? "read-memory" : "read";
+  if (tool === "write") return memory ? "write-memory" : "write";
+  if (tool === "edit") return memory ? "edit-memory" : "edit";
+  if (tool === "save_profile") return "profile";
+  if (tool === "open_store") return "open-store";
+  if (tool === "open_url") return "open";
+  if (tool !== "bash") return "work";
+  const command = typeof args?.command === "string" ? args.command : "";
+  const lore = command.match(/(?:^|[\s;&|(/])lore\s+([a-z-]+(?:\s+[a-z-]+)?)/)?.[1];
+  if (lore) return LORE_STEPS.find(([pattern]) => pattern.test(lore))?.[1] ?? "work";
+  if (/\b(wrangler|npx)\b/.test(command)) return "deploy";
+  if (/^\s*(ls|cat|head|tail|grep|rg|find|wc|sed -n)\b/.test(command)) return "look";
+  return "work";
+}
+
 /** Tasks that run between the owner's turns, never as a thread: each starts cold, asks nothing, and gives way to the owner. @type {ReadonlySet<AgentTask>} */
 const QUIET = new Set(["synthesize", "checkin"]);
-const OWNER_TOOLS = ["read", "write", "edit", "bash", "ask_user", "propose_memories", "propose_blueprint", "propose_price", "cloudflare_login", "open_url", "finish_task"];
+const OWNER_TOOLS = ["read", "write", "edit", "bash", "ask_user", "propose_memories", "propose_blueprint", "save_profile", "propose_price", "cloudflare_login", "open_store", "open_url", "finish_task"];
 /** @type {Partial<Record<AgentTask, string[]>>} */
 const QUIET_TOOLS = { synthesize: ["read", "write", "edit", "bash", "memories_ready"], checkin: ["read", "bash", "check_in"] };
 const TASK_STATES = new Set(["needs_you", "working", "stopped", "done"]);
@@ -45,10 +107,8 @@ export const MODELS = ["anthropic/claude-opus-5-5", "anthropic/claude-sonnet-5",
 const NAMING_MODELS = [...LUNA_MODELS, "anthropic/claude-sonnet-5", "anthropic/claude-opus-5-5"];
 const MAX_TURNS = 60;
 const SANDBOX_TMPDIR = "/tmp/claude";
-/** @type {Partial<Record<AgentTask, string[]>>} Home-relative directories outside Lore that a task's commands must write. */
-const OWNER_DIRS = {
-  deploy: [".wrangler", "Library/Preferences/.wrangler", "Library/Caches/.wrangler", ".npm"]
-};
+/** Folders in Lore's home only the app writes: the store's code and tools, which the app runs outside the sandbox, and the routines and prompts scheduled runs follow. */
+const APP_ONLY = ["node", "automation"];
 const CAPPED = "That reply took more steps than Lore allows at once, so it paused. Say continue to keep going.";
 const NO_ANSWER = "Lore's model did not answer. Try again.";
 /** @type {Record<string, string>} */
@@ -84,6 +144,12 @@ export function checkInPrompt(job) {
   const items = job.items.map((item) => `- ${item.id}: ${JSON.stringify(item.title)} from ${JSON.stringify(item.source)}`).join("\n");
   return `Lore brought in ${plural(job.items.length, "item")} since the last check-in. Decide whether any is worth asking the owner about.${ASIDE}the items, by id:\n${items})`;
 }
+/** The skills this agent loads. lore-store is for the owner's remote agents, through a `store` tool this one never has:
+ * here it would only compete with lore-capture whenever the owner says "save that to Lore".
+ * @param {{skills: import("@earendil-works/pi-coding-agent").Skill[], diagnostics: import("@earendil-works/pi-coding-agent").ResourceDiagnostic[]}} loaded */
+export function ownSkills({ skills, diagnostics }) {
+  return { skills: skills.filter((skill) => skill.name !== "lore-store"), diagnostics };
+}
 /** Drafts are approved or skipped on cards the agent never sees, so every publish turn says where they stand. @param {number} waiting */
 export function draftsAside(waiting) {
   const state = waiting === 0 ? "no drafts are waiting on the owner; anything you staged before was approved or skipped on its card" : `${waiting} draft${waiting === 1 ? " is" : "s are"} still waiting on the owner's card`;
@@ -93,7 +159,7 @@ const KEY_REJECTED = /\b401\b|authentication_error|invalid[_ -](?:x-)?api[_ -]?k
 /** pi-ai hands back only the message; a refused refresh (not a dropped connection) means the sign-in is gone. Group 1 is the provider. */
 const SIGN_IN_EXPIRED = /^OAuth refresh failed for ([\w-]+):[^]*\b(?:invalid_grant|refresh_token_(?:expired|reused|invalidated))\b/;
 /** Attended tools whose result is a plain-English sentence, not JSON — history() must not run these through toolResultJson. */
-const PLAIN_TEXT_TOOLS = new Set(["cloudflare_login", "open_url"]);
+const PLAIN_TEXT_TOOLS = new Set(["cloudflare_login", "open_url", "open_store", "save_profile"]);
 
 /** @param {import("@earendil-works/pi-coding-agent").ModelRuntime} models @param {string} text */
 export async function nameRun(models, text) {
@@ -113,49 +179,61 @@ export async function nameRun(models, text) {
   }
 }
 
-/** @param {string} loreHome @param {AgentTask} task @param {string} [binDir] */
-export function bashSandboxPolicy(loreHome, task, binDir) {
-  const home = homedir();
+/** @typedef {{loreHome: string, binDir?: string, skillsDir?: string, hidden?: string[]}} Place Where the agent works, and the folders it may never read. */
+
+/**
+ * The one OS sandbox every tool of the agent runs in, bash, read, write and edit alike, anchored to the
+ * account's home rather than HOME. No network. Reads Lore's home, its runtime and skills, and the agents'
+ * memories; writes Lore's home but never its app-only folders. A quiet task cannot read what the owner
+ * attached to a turn.
+ * @param {Place} place @param {AgentTask} [task]
+ */
+export function sandboxPolicy({ loreHome, binDir, skillsDir, hidden = [] }, task) {
+  const home = userInfo().homedir;
   const lore = realpathSync(loreHome);
-  const owned = (OWNER_DIRS[task] ?? []).map((dir) => resolve(home, dir));
   // Contents/, not just Resources/: node/bin/node is a shim onto Contents/MacOS/Lore,
   // which dyld loads from Contents/Frameworks — all must stay readable under $HOME.
   const runtime = binDir
     ? [resolve(binDir, ".."), ...(process.resourcesPath ? [resolve(process.resourcesPath, "..")] : [])]
     : [resolve(home, ".local/bin/lore"), resolve(home, ".local/share/lore/lore-mcp"), resolve(home, ".local/share/uv/python"), resolve(home, ".local/share/uv/tools/lore-mcp")];
   return {
-    network: { allowedDomains: task === "deploy" ? ["*"] : [], deniedDomains: [] },
+    network: { allowedDomains: [], deniedDomains: [] },
     filesystem: {
-      denyRead: [home],
-      allowRead: [lore, ...runtime, resolve(home, ".claude/projects"), resolve(home, ".codex/memories"), ...owned, ...(task === "deploy" ? [resolve(home, ".npmrc")] : [])],
-      allowWrite: [lore, ...owned],
-      denyWrite: []
+      denyRead: [home, ...hidden, ...(task ? kept(lore, task) : [])],
+      allowRead: [lore, ...runtime, ...(skillsDir ? [skillsDir] : []), resolve(home, ".claude/projects"), resolve(home, ".codex/memories")],
+      allowWrite: [lore],
+      denyWrite: APP_ONLY.map((dir) => resolve(lore, dir))
     }
   };
 }
 
-/** @param {string} loreHome @param {string} [binDir] */
-export async function initializeBashSandbox(loreHome, binDir) {
-  mkdirSync(loreHome, { recursive: true, mode: 0o700 });
-  mkdirSync(SANDBOX_TMPDIR, { recursive: true });
-  await SandboxManager.initialize(bashSandboxPolicy(loreHome, "capture", binDir), undefined, true);
+/** What one task may not read in Lore's home: every other task's conversation, and for a quiet task what the owner attached. @param {string} lore @param {AgentTask} task */
+function kept(lore, task) {
+  const others = Object.keys(TASKS).filter((other) => other !== task).map((other) => resolve(lore, ".pi", "sessions", other));
+  return [...others, ...(QUIET.has(task) ? [resolve(lore, ATTACHMENTS)] : [])];
 }
 
-/** @param {string} loreHome @param {AgentTask} task @param {string} [binDir] @returns {import("@earendil-works/pi-coding-agent").BashOperations} */
-export function createSandboxedBashOperations(loreHome, task, binDir) {
+/** @param {Place} place */
+export async function initializeSandbox(place) {
+  mkdirSync(place.loreHome, { recursive: true, mode: 0o700 });
+  // Made here, outside the sandbox, so commands that only read it never need to create it.
+  mkdirSync(resolve(place.loreHome, "automation"), { recursive: true, mode: 0o700 });
+  mkdirSync(SANDBOX_TMPDIR, { recursive: true });
+  await SandboxManager.initialize(sandboxPolicy(place), undefined, true);
+}
+
+/** How long one shell command runs when the agent names no limit, in seconds; it may name a longer one up to Pi's own ceiling. */
+export const BASH_TIMEOUT_S = 600;
+
+/** @param {Place} place @param {AgentTask} [task] @param {number} [timeout] @returns {import("@earendil-works/pi-coding-agent").BashOperations} */
+export function createSandboxedBashOperations(place, task, timeout = BASH_TIMEOUT_S) {
   const local = createLocalBashOperations();
   return {
     exec: async (command, cwd, options) => {
       const id = randomUUID();
-      const policy = bashSandboxPolicy(loreHome, task, binDir);
-      // The mux proxy's live network filter reads the session-level config set by
-      // initialize()/updateConfig(), never the customConfig passed to wrapWithSandbox
-      // below — so without this, every task is filtered against whichever task's
-      // policy initializeBashSandbox() started the session with (always "capture").
-      SandboxManager.updateConfig(policy);
-      const wrapped = await SandboxManager.wrapWithSandbox(command, undefined, policy, options.signal, { commandId: id, commandText: command });
+      const wrapped = await SandboxManager.wrapWithSandbox(command, undefined, sandboxPolicy(place, task), options.signal, { commandId: id, commandText: command });
       try {
-        const result = await local.exec(wrapped, cwd, options);
+        const result = await local.exec(wrapped, cwd, { ...options, timeout: options.timeout ?? timeout });
         const violations = SandboxManager.annotateStderrWithSandboxFailures(id, "");
         if (violations) options.onData(Buffer.from(violations));
         return result;
@@ -166,67 +244,98 @@ export function createSandboxedBashOperations(loreHome, task, binDir) {
   };
 }
 
+/** The most one read hands back, and how long one command may take, so a huge file or a pipe never holds the app. */
+export const READ_CAP = 10 * 1024 * 1024;
+const COMMAND_MS = 60_000;
+
 /**
- * Resolves `absolutePath` to its real, symlink-free path. If the path itself
- * already exists (including as a symlink at the leaf), it is realpath-resolved
- * directly — otherwise the nearest existing ancestor is resolved and the
- * not-yet-created suffix rejoined, so a target that doesn't exist yet (a new
- * file the write tool is about to create) still gets checked against a symlink-
- * resolved path, the same way `bashSandboxPolicy` resolves `loreHome` itself.
- * @param {string} absolutePath
+ * Run one fixed command in the sandbox and hand back what it printed. The path reaches it as
+ * an environment variable, never as shell text; the kernel decides what it may touch.
+ * @param {Place} place @param {AgentTask | undefined} task @param {string} script @param {string} path @param {string} refusal @param {Buffer | string | import("node:stream").Readable} [input]
+ * @returns {Promise<Buffer>}
  */
-function realpathOfTarget(absolutePath) {
-  if (existsSync(absolutePath)) return realpathSync(absolutePath);
-  const suffix = [];
-  let dir = dirname(absolutePath);
-  while (!existsSync(dir)) {
-    suffix.unshift(basename(dir));
-    const parent = dirname(dir);
-    if (parent === dir) break;
-    dir = parent;
+async function sandboxed(place, task, script, path, refusal, input) {
+  const { argv, env } = await SandboxManager.wrapWithSandboxArgv(script, undefined, sandboxPolicy(place, task));
+  try {
+    const [code, output] = await new Promise((done, fail) => {
+      const signal = AbortSignal.timeout(COMMAND_MS);
+      const child = spawn(argv[0], argv.slice(1), { cwd: place.loreHome, env: { ...env, LORE_PATH: path }, stdio: ["pipe", "pipe", "ignore"], signal, killSignal: "SIGKILL" });
+      /** @type {Buffer[]} */
+      const chunks = [];
+      let size = 0;
+      child.stdout.on("data", (chunk) => {
+        size += chunk.length;
+        if (size <= READ_CAP) return void chunks.push(chunk);
+        child.kill("SIGKILL");
+        fail(new Error(`That file is larger than Lore reads at once (10 MB): ${path}`));
+      });
+      child.on("error", (error) => fail(signal.aborted ? new Error(`${refusal}, it took too long: ${path}`) : error));
+      child.on("close", (status) => done([status, Buffer.concat(chunks)]));
+      child.stdin.on("error", () => {});
+      if (input instanceof Readable) input.on("error", (error) => { child.kill("SIGKILL"); fail(error); }).pipe(child.stdin);
+      else child.stdin.end(input);
+    });
+    if (code !== 0) throw new Error(`${refusal}: ${path}`);
+    return output;
+  } finally {
+    SandboxManager.cleanupAfterCommand();
   }
-  return resolve(realpathSync(dir), ...suffix, basename(absolutePath));
 }
 
-/** @param {string} absolutePath @param {string[]} allowedRoots */
-function assertWithinAllowedPaths(absolutePath, allowedRoots) {
-  const real = realpathOfTarget(absolutePath);
-  const allowed = allowedRoots.some((root) => real === root || real.startsWith(root + sep));
-  if (!allowed) throw new Error(`Refusing to write outside Lore's home: ${absolutePath}`);
+const CANNOT_READ = "Lore can't read that file";
+const CANNOT_WRITE = "Lore can't write there";
+
+/** Pi's image sniffing, on the first bytes the sandbox handed back. @param {Buffer} head */
+async function imageType(head) {
+  const dir = await mkdtemp(resolve(tmpdir(), "lore-sniff-"));
+  try {
+    await writeFile(resolve(dir, "head"), head);
+    return await detectSupportedImageMimeTypeFromFile(resolve(dir, "head"));
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
 }
 
-/** Confines the write tool to `bashSandboxPolicy`'s `allowWrite` roots. @param {string} loreHome @param {AgentTask} task @param {string} [binDir] @returns {import("@earendil-works/pi-coding-agent").WriteOperations} */
-export function createSandboxedWriteOperations(loreHome, task, binDir) {
+/** The read tool, reading only through the sandbox. @param {Place} place @param {AgentTask} [task] @returns {import("@earendil-works/pi-coding-agent").ReadOperations} */
+export function createSandboxedReadOperations(place, task) {
   return {
-    writeFile: async (absolutePath, content) => {
-      assertWithinAllowedPaths(absolutePath, bashSandboxPolicy(loreHome, task, binDir).filesystem.allowWrite);
-      await writeFile(absolutePath, content, "utf-8");
-    },
-    mkdir: async (dir) => {
-      assertWithinAllowedPaths(dir, bashSandboxPolicy(loreHome, task, binDir).filesystem.allowWrite);
-      await mkdir(dir, { recursive: true });
-    }
+    access: async (path) => void (await sandboxed(place, task, '[ -f "$LORE_PATH" ] && : < "$LORE_PATH"', path, CANNOT_READ)),
+    readFile: (path) => sandboxed(place, task, '[ -f "$LORE_PATH" ] && exec cat -- "$LORE_PATH"', path, CANNOT_READ),
+    detectImageMimeType: async (path) => imageType(await sandboxed(place, task, '[ -f "$LORE_PATH" ] && exec head -c 4100 -- "$LORE_PATH"', path, CANNOT_READ))
   };
 }
 
-/** Confines the edit tool to `bashSandboxPolicy`'s `allowWrite` roots. @param {string} loreHome @param {AgentTask} task @param {string} [binDir] @returns {import("@earendil-works/pi-coding-agent").EditOperations} */
-export function createSandboxedEditOperations(loreHome, task, binDir) {
-  /** @param {string} absolutePath */
-  const guard = (absolutePath) => assertWithinAllowedPaths(absolutePath, bashSandboxPolicy(loreHome, task, binDir).filesystem.allowWrite);
+/** The write tool, writing only through the sandbox. @param {Place} place @param {AgentTask} [task] @returns {import("@earendil-works/pi-coding-agent").WriteOperations} */
+export function createSandboxedWriteOperations(place, task) {
   return {
-    access: async (absolutePath) => {
-      guard(absolutePath);
-      await access(absolutePath, constants.R_OK | constants.W_OK);
-    },
-    readFile: async (absolutePath) => {
-      guard(absolutePath);
-      return readFile(absolutePath);
-    },
-    writeFile: async (absolutePath, content) => {
-      guard(absolutePath);
-      await writeFile(absolutePath, content, "utf-8");
-    }
+    writeFile: async (path, content) => void (await sandboxed(place, task, 'exec cat > "$LORE_PATH"', path, CANNOT_WRITE, content)),
+    mkdir: async (dir) => void (await sandboxed(place, task, 'exec mkdir -p -- "$LORE_PATH"', dir, CANNOT_WRITE))
   };
+}
+
+/** The edit tool, reading and writing only through the sandbox. @param {Place} place @param {AgentTask} [task] @returns {import("@earendil-works/pi-coding-agent").EditOperations} */
+export function createSandboxedEditOperations(place, task) {
+  return {
+    // Opening it for reading and writing, without truncating, is the check.
+    access: async (path) => void (await sandboxed(place, task, '[ -f "$LORE_PATH" ] && : 0<>"$LORE_PATH"', path, CANNOT_WRITE)),
+    readFile: (path) => sandboxed(place, task, '[ -f "$LORE_PATH" ] && exec cat -- "$LORE_PATH"', path, CANNOT_READ),
+    writeFile: async (path, content) => void (await sandboxed(place, task, 'exec cat > "$LORE_PATH"', path, CANNOT_WRITE, content))
+  };
+}
+
+/**
+ * The agent's questions rebuilt from the fields an ask_user card has, so nothing else it sends,
+ * such as the full-text block only the app's own cards carry, ever reaches the owner's screen.
+ * @param {OwnerQuestion[]} questions @returns {OwnerQuestion[]}
+ */
+export function asked(questions) {
+  return questions.map(({ question, header, options, format, multiSelect }) => ({
+    question,
+    header,
+    options: options.map(({ label, description, recommended }) => ({ label, description, ...(recommended === undefined ? {} : { recommended }) })),
+    ...(format === undefined ? {} : { format }),
+    multiSelect
+  }));
 }
 
 /** @param {unknown} value @returns {value is BlueprintFields} */
@@ -374,7 +483,7 @@ export class LoreAgent {
 
   /** @param {LoreAgentOptions} options */
   static async create(options) {
-    await initializeBashSandbox(options.loreHome, options.binDir);
+    await initializeSandbox(options);
     const models = await ModelRuntime.create({ credentials: options.credentials });
     const settings = SettingsManager.inMemory();
     const resources = new DefaultResourceLoader({
@@ -382,6 +491,7 @@ export class LoreAgent {
       agentDir: resolve(options.loreHome, ".pi"),
       settingsManager: settings,
       additionalSkillPaths: [options.skillsDir],
+      skillsOverride: ownSkills,
       noExtensions: true,
       noSkills: true,
       noPromptTemplates: true,
@@ -394,8 +504,10 @@ export class LoreAgent {
         "Ask the owner everything through ask_user — decisions and open questions alike; offer the likely answers as options, and the owner can always type their own. Set recommended true on the one option you recommend, if any. To ask for something the owner types or pastes, send the question with no options; for a payout address also set format to evm_address. Never end a turn with a question in prose.",
         "Keep every message light: a sentence or two, question text under fifteen words, option labels of a few words with one short description, and never restate what a card already shows.",
         "During capture, show proposed memories only through propose_memories, never in prose; that tool saves what the owner keeps and returns the saved memories, or returns the owner's correction for you to revise and propose again. After it saves, say one short sentence and call finish_task; never offer publication unprompted. If the owner asks to sell what they captured, tell them to choose Draft for sale on the saved memory.",
-        "During onboarding, gather evidence first, then call propose_blueprint once with one bounded proposal; that tool saves the owner-approved shape.",
+        "During onboarding, the app connects the owner's agent and apps first; the blueprint, profile and rhythm come after the first save, drafted from what came in, never asked on an empty library. Gather evidence first, then call propose_blueprint once with one bounded proposal; that tool saves the owner-approved shape. Save the profile with save_profile, never by running lore profile.",
+        "To open, redeploy, or switch the store, call open_store; never run lore node deploy, lore push, or wrangler yourself. Your shell has no network and cannot change the store's files; the app runs the deploy.",
         "To set what buyers pay per publication, call propose_price and never run a price command yourself; the owner confirms the exact amount on the card, and the tool returns what they saved or null if they declined. Work from that number, not from what you proposed.",
+        "When the owner asks to put their store online so their personal agents can save to it, the owner's only step is the sign-in through cloudflare_login, then call open_store with inbox_only; never ask about a price or where payments go. Close from what the deploy printed: if it says nothing for sale, say their agents can save to their store and nothing is for sale; if it says Live, their store was already open, so say their agents can save to it and what was on sale still is.",
         "Never mention tools, commands, files, or plumbing to the owner: no Cloudflare, Node, wrangler, Worker, Base, Sepolia, network ids, or memory ids in prose; name a memory by its title. Speak about memories, their Lore, their store, and real money, and say what happens next rather than which checks passed.",
         "A memory's id number is for tools only: never say one to the owner, even in passing; call every memory by its title.",
         "Call finish_task when the current task is complete."
@@ -550,17 +662,40 @@ export class LoreAgent {
     return this.#activeTask;
   }
 
-  /** The owner's turn; a reading under way stops for it and starts again after. @param {string} text @param {AgentTask} task @param {AgentTask} [from] Continue from the latest `from` thread instead of starting cold. @param {number} [memory] A memory to start from, named by id to the agent only. @param {string} [source] A connected app's memories to start from. */
-  async prompt(text, task, from, memory, source) {
+  /** The owner's turn; a reading under way stops for it and starts again after. @param {string} text @param {AgentTask} task @param {AgentTask} [from] Continue from the latest `from` thread instead of starting cold. @param {number} [memory] A memory to start from, named by id to the agent only. @param {string} [source] A connected app's memories to start from. @param {string[]} [files] The app's copies, inside Lore's home, of files the owner attached. */
+  async prompt(text, task, from, memory, source, files = []) {
+    if (files.length) text += `\n\nFiles to read:\n${files.map((file) => `- ${file}`).join("\n")}`;
     if (this.#busy && this.#activeTask && QUIET.has(this.#activeTask)) {
       await this.#yield(this.#activeTask);
       this.#yielding = false;
     }
     try {
-      return await this.#turn(text, task, from, memory, source);
+      return await this.#turn(text, task, from, memory, source, undefined, text);
     } finally {
       void this.#next();
     }
+  }
+
+  /**
+   * Keep copies of what the owner attached to this turn in Lore's home, written through the agent's own
+   * sandbox so nothing it planted there can send them elsewhere, and clear turns older than a few days.
+   * @param {Attachment[]} files @returns {Promise<string[]>}
+   */
+  async attach(files) {
+    const folder = resolve(this.options.loreHome, ATTACHMENTS);
+    await sandboxed(this.options, undefined, 'exec find "$LORE_PATH" -mindepth 1 -maxdepth 1 -mtime +3 -exec rm -rf {} +', folder, CANNOT_WRITE).catch(() => {});
+    if (!files.length) return [];
+    const turn = resolve(folder, randomUUID());
+    await sandboxed(this.options, undefined, 'exec mkdir -p -- "$LORE_PATH"', turn, CANNOT_WRITE);
+    const copies = [];
+    // One at a time, streamed, and only as many bytes as the file had when the app checked it.
+    for (const [index, { name, path, size }] of files.entries()) {
+      const copy = resolve(turn, `${index + 1}-${name}`);
+      const content = size ? createReadStream(path, { end: size - 1 }) : "";
+      await sandboxed(this.options, undefined, 'set -C; exec cat > "$LORE_PATH"', copy, CANNOT_WRITE, content);
+      copies.push(copy);
+    }
+    return copies;
   }
 
   /** Read through what a connected app just brought in, quietly, once nothing else is running. @param {Reading} reading */
@@ -631,8 +766,8 @@ export class LoreAgent {
     await this.#quietTurn;
   }
 
-  /** @param {string} text @param {AgentTask} task @param {AgentTask} [from] @param {number} [memory] @param {string} [source] @param {string} [phase] What the task's row says while it works. */
-  async #turn(text, task, from, memory, source, phase) {
+  /** @param {string} text @param {AgentTask} task @param {AgentTask} [from] @param {number} [memory] @param {string} [source] @param {string} [phase] What the task's row says while it works. @param {string} [prompted] The owner's prompt, from which the row's subtitle is worked out. */
+  async #turn(text, task, from, memory, source, phase, prompted) {
     if (this.#busy) throw new Error("Lore is already working");
     if (!text.trim()) throw new Error("Nothing to capture");
     const quiet = QUIET.has(task);
@@ -662,7 +797,7 @@ export class LoreAgent {
       }
       const existing = this.#sessions.get(task);
       const [session, resumed] = existing ? [existing, true] : await this.#newSession(task, from);
-      this.#record(session, task, "working", phase);
+      this.#record(session, task, "working", prompted === undefined ? phase : turnPhase(task, prompted, latestTaskRecord(session.sessionManager, task)));
       let body = memory === undefined ? text : `${text}${memoryAside(memory)}`;
       if (source !== undefined) body += sourceAside(source);
       if (task === "publish" && this.options.drafts) body += draftsAside(await this.options.drafts());
@@ -741,7 +876,7 @@ export class LoreAgent {
       tools: QUIET_TOOLS[task] ?? OWNER_TOOLS,
       customTools: [
         createBashTool(this.options.loreHome, {
-          operations: createSandboxedBashOperations(this.options.loreHome, task, this.options.binDir),
+          operations: createSandboxedBashOperations(this.options, task),
           spawnHook: (context) => ({
             ...context,
             env: {
@@ -753,13 +888,16 @@ export class LoreAgent {
             }
           })
         }),
-        createWriteTool(this.options.loreHome, { operations: createSandboxedWriteOperations(this.options.loreHome, task, this.options.binDir) }),
-        createEditTool(this.options.loreHome, { operations: createSandboxedEditOperations(this.options.loreHome, task, this.options.binDir) }),
+        createReadTool(this.options.loreHome, { operations: createSandboxedReadOperations(this.options, task) }),
+        createWriteTool(this.options.loreHome, { operations: createSandboxedWriteOperations(this.options, task) }),
+        createEditTool(this.options.loreHome, { operations: createSandboxedEditOperations(this.options, task) }),
         this.#askTool(),
         this.#memoriesTool(),
         this.#blueprintTool(),
+        this.#profileTool(),
         this.#priceTool(),
         this.#cloudflareTool(),
+        this.#storeTool(),
         this.#openTool(),
         this.#finishTool(),
         this.#readyTool(),
@@ -782,6 +920,11 @@ export class LoreAgent {
           this.options.emit({ type: "blueprint-progress", task, fields: /** @type {Partial<BlueprintFields> & { evidence?: string }} */ (block.arguments) });
         }
       }
+      if (!QUIET.has(task) && event.type === "tool_execution_start") {
+        const kind = stepKind(event.toolName, event.args, this.options.loreHome);
+        if (kind) this.options.emit({ type: "step", task, id: event.toolCallId, kind });
+      }
+      if (!QUIET.has(task) && event.type === "tool_execution_end") this.options.emit({ type: "step", task, id: event.toolCallId, done: true });
       if (event.type === "tool_execution_end" && event.toolName === "bash") this.options.emit({ type: "changed" });
       if (event.type !== "message_end" || event.message.role !== "assistant") return;
       // Counted before the error return, so a turn that failed still reports
@@ -824,18 +967,19 @@ export class LoreAgent {
   }
 
   #askTool() {
+    const closed = { additionalProperties: false };
     const parameters = Type.Object({
       questions: Type.Array(
         Type.Object({
           question: Type.String(),
           header: Type.String(),
-          options: Type.Array(Type.Object({ label: Type.String(), description: Type.String(), recommended: Type.Optional(Type.Boolean()) })),
+          options: Type.Array(Type.Object({ label: Type.String(), description: Type.String(), recommended: Type.Optional(Type.Boolean()) }, closed)),
           format: Type.Optional(Type.Literal("evm_address")),
           multiSelect: Type.Boolean()
-        }),
+        }, closed),
         { minItems: 1, maxItems: 4 }
       )
-    });
+    }, closed);
     return defineTool({
       name: "ask_user",
       executionMode: "sequential",
@@ -843,7 +987,7 @@ export class LoreAgent {
       description: "Ask the owner structured questions. Offer the likely answers as options; the owner can always type something else.",
       parameters,
       execute: async (_id, { questions }) => {
-        const answers = await this.#attended(undefined, () => this.options.askUser(questions));
+        const answers = await this.#attended(undefined, () => this.options.askUser(asked(questions)));
         return { content: [{ type: "text", text: JSON.stringify({ answers }) }], details: {} };
       }
     });
@@ -928,6 +1072,48 @@ export class LoreAgent {
       parameters: Type.Object({}),
       execute: async () => {
         const text = await this.#attended("Sign in to Cloudflare", () => this.options.cloudflareLogin());
+        return { content: [{ type: "text", text }], details: {} };
+      }
+    });
+  }
+
+  #profileTool() {
+    const text = Type.String({ maxLength: 2000 });
+    return defineTool({
+      name: "save_profile",
+      executionMode: "sequential",
+      label: "Save the synthesis profile",
+      description: "Save the owner's synthesis profile from their answers: who they are, what is worth keeping, and how often Lore reads their apps. Lore runs the rhythm itself. Returns what was saved, or why it was not.",
+      parameters: Type.Object({
+        role: Type.Optional(text),
+        domains: Type.Optional(text),
+        valuable_context: Type.Optional(text),
+        preferences: Type.Optional(text),
+        boundaries: Type.Optional(text),
+        cadence: Type.Union([Type.Literal("daily"), Type.Literal("weekdays"), Type.Literal("weekly")]),
+        hour: Type.Integer({ minimum: 0, maximum: 23 }),
+        day: Type.Optional(Type.Integer({ minimum: 0, maximum: 6 }))
+      }),
+      execute: async (_id, profile) => {
+        const text = await this.options.saveProfile({ ...profile, executor: "lore" });
+        return { content: [{ type: "text", text }], details: {} };
+      }
+    });
+  }
+
+  #storeTool() {
+    return defineTool({
+      name: "open_store",
+      executionMode: "sequential",
+      label: "Open the store",
+      description: "Deploy the owner's store, or redeploy it after a price change or a network switch; the app shows the owner a card with the network, the full payout address, the price and the free copies, and deploys only on their yes, pushing the approved publications. Pass the payout address only on a first deploy; a redeploy pays to the address the store already has, which the app shows the owner, or asks for on its own card. Leave out the network to keep the store's. Takes a few minutes. Returns how it went; if it says the owner is not signed in to Cloudflare, call cloudflare_login and try again. Set inbox_only, with nothing else, to put the store online only for the owner's agents to save to: nothing for sale, no price or payout.",
+      parameters: Type.Object({
+        network: Type.Optional(Type.Union([Type.Literal("real"), Type.Literal("test")])),
+        wallet: Type.Optional(Type.String({ pattern: "^0x[0-9a-fA-F]{40}$" })),
+        inbox_only: Type.Optional(Type.Boolean())
+      }),
+      execute: async (_id, { network, wallet, inbox_only }) => {
+        const text = await this.options.openStore(inbox_only ? { inboxOnly: true } : { network, wallet });
         return { content: [{ type: "text", text }], details: {} };
       }
     });
