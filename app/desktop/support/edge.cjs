@@ -1727,6 +1727,7 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         await sleep(1600);
         await shot("agents-grok-sign-in");
         await instead();
+        await waitFor(`${sheet}.includes("Waiting for Grok Bot's first save…")`, 80);
         check("connecting Grok Bot turns the sheet into Grok Bot's, with its mark", await waitFor(`document.querySelector("dialog.sheet[open] .form-head h2")?.textContent === "Connect Grok Bot"`, 80) && await js(`document.querySelector("dialog.sheet[open] .form-head img.logo").src.endsWith("assets/grok.svg")`), await js(sheet));
         const setup = await js(sheet);
         const stepsOf = () => js(`[...document.querySelectorAll("dialog.sheet[open] .agent-steps li")].map((s) => s.firstChild.textContent)`);
