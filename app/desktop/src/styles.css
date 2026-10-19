@@ -2,7 +2,7 @@
   --bg: #f7f3ea;
   --bg-aside: #f3eee3;
   /* The sidebar is the window's frosted material under a wash of cream; where the material is off, the wash is all. */
-  --bg-aside-wash: color-mix(in srgb, var(--bg-aside) 62%, transparent);
+  --bg-aside-wash: color-mix(in srgb, var(--bg-aside) 85%, transparent);
   --surface: #fffdf8;
   --ink: #1d1f1c;
   --ink-soft: #3a3d38;
@@ -743,7 +743,7 @@ dialog.palette[open] { animation: rise 0.12s ease; }
 .first-saved .row:not(:first-child) { justify-content: flex-start; gap: 12px; }
 .first-saved .row:not(:first-child) .t b { font-family: var(--sans); font-size: 14px; font-weight: 500; }
 .first-saved .row:last-child { padding-bottom: 14px; }
-.first-saved .first-saved-wait { padding: 0 18px 14px; }
+.first-saved .first-saved-wait, .first-saved .first-saved-apps { padding: 0 18px 14px; }
 .first-run-actions { display: flex; }
 /* A first run's header is a small title and a quiet way out, not a page heading. */
 main header.compact { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; padding-top: 22px; padding-bottom: 10px; }

@@ -52,6 +52,8 @@ let apps = [];
 let agents = null;
 /** Connecting an agent put the store online first; once it is, the sheet picks up where it left off. */
 let agentAfterStore = false;
+/** Whether Cloudflare's sign-in is waiting on the owner's browser, wherever the store is going online. */
+let signingIn = false;
 /** Whatever waits on an agent's save (its setup sheet, the first-run chat), told whatever Lore brings in from the
  * owner's agents. @type {Set<(reads: SourceRead[]) => void>} */
 const agentWaiting = new Set();
@@ -783,8 +785,9 @@ function memoriesReady(runs) {
   const memories = runs.flatMap((run) => run.memories.map((memory) => ({ ...memory, by: run.by })));
   const selling = memories.filter((memory) => memory.sell).length;
   const [latest] = runs;
-  const heading = runs.every((run) => run.title === latest.title) ? latest.title : "Lore read what you brought in";
-  const detail = [`${plural(memories.length, "new memory")}, only on this Mac`, selling ? `${selling} ${selling === 1 ? "looks" : "look"} worth selling` : ""].filter(Boolean).join(" · ");
+  // An agent's saves come in by the item and leave as fewer memories, so its line names the agent, not how many it sent.
+  const heading = latest.from && runs.every((run) => run.from === latest.from) ? `From ${latest.from}` : runs.every((run) => run.title === latest.title) ? latest.title : "Lore read what you brought in";
+  const detail = [plural(memories.length, "new memory"), selling ? `${selling} worth selling` : ""].filter(Boolean).join(" · ");
   const clear = button("Clear", "quiet", () => void window.lore.clearMemories().then(() => { readyRuns = []; render(); }));
   /** What the library has on record for a memory, or, until the reading's own credit lands (it is recorded last), who the
    * reading was. @param {number} id @param {Contributor} [by] */
@@ -845,6 +848,7 @@ function renderToday(s) {
     // Drafts and the push after approving show in the threads that draft, as on Today.
     if (DRAFTING.has(detailTask)) parts.push(...drafts(s));
     if ((detailTask === "setup" || detailTask === "deploy") && detailRecord?.state === "done") parts.push(nextRung(s));
+    if (detailTask === "deploy" && signingIn) parts.push(signInCard());
     return parts;
   }
   // A check-in leads Today, on the rare day there is one.
@@ -907,6 +911,20 @@ class HowItWorks {
 
 const howItWorks = new HowItWorks();
 
+/** While Cloudflare's sign-in waits on the browser: its page opened again, or the wait stopped. */
+function signInActions() {
+  const actions = el("div", "actions");
+  actions.append(button("Cancel", "secondary", () => void window.lore.cancelSignIn()), button("Open sign-in again", "secondary", () => void window.lore.reopenSignIn()));
+  return actions;
+}
+
+/** The deploy thread's sign-in, waiting on the browser. */
+function signInCard() {
+  const box = el("div", "card request sign-in-wait");
+  box.append(el("p", "hint", "Finish signing in to Cloudflare in your browser, then come back here."), signInActions());
+  return box;
+}
+
 /** Whether a read left the place it read readable. @param {SourceRead[]} reads @param {string} name */
 function readable(reads, name) {
   const read = reads.find((each) => each.name === name);
@@ -921,17 +939,22 @@ const FIRST_RUN_READ_MS = 5000;
 const FIRST_CHOICES = [["grok", "Grok Bot"], ["muse", "Muse"], ["chatgpt", "ChatGPT"], ["claude", "Claude"], ["coding", "Claude Code or Codex"], ["none", "None of these"]];
 
 /** APP-215: the first-run chat. Lore starts it itself right after a new owner signs in, speaks first, and asks one
- * thing at a time: which AI they talk to most, then (only if the store isn't online) to put it online, then shows
- * what to paste into that agent and waits, live, for its first save. While it waits it offers the apps it found on
- * this Mac, one tap to connect them all. Every step is the app's own, not the model's; where it stands is kept so a
- * relaunch resumes it, and Skip for now always lands on Today. */
+ * thing at a time. First the apps it found on this Mac, one tap to connect them all, so something comes in before
+ * anything is asked of the owner (APP-223); then which AI they talk to most, then (only for an agent online, and only
+ * if the store isn't) to put the store online, then what to paste into that agent, waiting live for its first save.
+ * Every step is the app's own, not the model's; where it stands is kept so a relaunch resumes it, and Skip for now
+ * always lands on Today. */
 class FirstRunChat {
   /** Where it stands, as kept across launches; null before it ever started. @type {FirstRunState | null} */
   kept = null;
   /** On screen now, in place of Today. */
   active = false;
-  /** @type {"ask" | "store" | "connect" | "saved"} */
+  /** @type {"ask" | "store" | "connect" | "saved" | "end"} */
   stage = "ask";
+  /** Past the apps on this Mac: connected, set aside, or none found. */
+  appsDone = false;
+  /** The sources the apps step connected, to say what they brought in. @type {string[]} */
+  brought = [];
   /** The agent the owner picked. @type {[AgentApp, string] | null} */
   picked = null;
   /** Its link, shown this launch only: the key is never shown again. @type {AgentKey | null} */
@@ -940,7 +963,7 @@ class FirstRunChat {
   saved = 0;
   /** The agent apps on this Mac (APP-216). @type {AgentApp[]} */
   installed = [];
-  /** The places found on this Mac, each to connect, until the owner connects them. @type {Array<{label: string, mark: string, detail: string, on: boolean, connect: (run: number) => Promise<unknown>}> | null} */
+  /** The places found on this Mac, each to connect, until the owner connects them. @type {Array<{label: string, mark: string, detail: string, on: boolean, connect: (run: number) => Promise<string | undefined>}> | null} */
   found = null;
   /** What the one tap connected. @type {string[]} */
   connected = [];
@@ -989,6 +1012,7 @@ class FirstRunChat {
     void window.lore.agentApps().then((installed) => { this.installed = installed; this.redraw(); }).catch(() => undefined);
     const waiting = this.kept.source && s.library.sources.find((source) => source.name === this.kept?.source);
     if (waiting) this.resume(waiting);
+    else void this.look();
   }
 
   /** @param {FirstRunState} next */
@@ -1007,17 +1031,24 @@ class FirstRunChat {
     const app = /** @type {AgentApp} */ (source.app ?? "other");
     this.picked = [app, source.label];
     this.stage = "connect";
+    this.appsDone = true;
     const run = this.#run;
     const entry = (await window.lore.agents().catch(() => [])).find((each) => each.source === source.name);
     if (!this.current(run)) return;
     if (entry?.saved) return this.heard(entry.saved);
     this.wait({ source: source.name, agent: { id: "", name: source.label, app, saved: entry?.saved ?? 0 } });
-    void this.look();
   }
 
   /** @param {AgentApp | "coding" | "none"} choice @param {string} label */
   async choose(choice, label) {
     if (this.working) return;
+    // With nothing online to connect, the apps already brought in are the whole first run; with none, as before.
+    if ((choice === "none" || choice === "coding") && this.brought.length) {
+      this.picked = [/** @type {AgentApp} */ ("other"), label];
+      this.stage = "end";
+      void this.keep({ state: "done" });
+      return this.redraw();
+    }
     if (choice === "none") return this.leave("done", () => input.focus({ preventScroll: true }));
     if (choice === "coding") return this.leave("done", () => void startSetup());
     this.picked = [choice, label];
@@ -1035,16 +1066,20 @@ class FirstRunChat {
     this.redraw();
     try {
       await window.lore.storeOnline();
-      await load();
+      // Asked of the store itself: a refresh already under way (an app's reading) can leave the window's copy stale.
+      const online = Boolean((await window.lore.snapshot()).node.url);
+      void load();
       // Skipped while it went online: the store stays online, and nothing goes on to connect.
       if (!this.current(run)) return;
-      if (!snapshot?.node.url) throw new Error();
+      if (!online) throw new Error();
       this.working = false;
       await this.connect();
-    } catch {
+    } catch (error) {
       if (!this.current(run)) return;
       this.working = false;
-      this.problem = "Your store didn't go online. Try again in a minute.";
+      // Cancelled is the owner's own choice: back to Set it up, with nothing to say.
+      const said = reason(error, "Your store didn't go online. Try again in a minute.");
+      this.problem = said === "Cancelled" ? "" : said;
       this.redraw();
     }
   }
@@ -1067,7 +1102,6 @@ class FirstRunChat {
       void this.keep({ state: "started", source: handed.source });
       this.wait(handed);
       void load();
-      void this.look();
       setTimeout(() => this.reveal(), 0);
     } catch (error) {
       if (!this.current(run) || ask !== this.#asks) return;
@@ -1138,11 +1172,12 @@ class FirstRunChat {
         return { label: `Obsidian · ${vault.label}`, mark: "obsidian", detail: "Your notes", on: true, connect: async () => {
           if (known) {
             if (!readable(await window.lore.readSource(known), known)) throw new Error("Lore can't read it yet");
-            return;
+            return known;
           }
           const added = await window.lore.connectSource({ connector: "obsidian", locator: vault.locator });
           known = added.name;
           if (!CONNECTION_STATES[added.state ?? "connected"].ok) throw new Error("Lore can't read it yet");
+          return known;
         } };
       }),
       // Connected once its first read has gone through and found it readable, so the chat never says Lore is reading
@@ -1153,8 +1188,10 @@ class FirstRunChat {
         // Skipped while it was being switched on: it is not read after the owner left.
         if (!this.current(run)) return;
         if (!readable(await window.lore.readSource(source.name), source.name)) throw new Error("Lore can't read it yet");
+        return source.name;
       } }))
     ];
+    if (!this.found.length) this.appsDone = true;
     this.redraw();
   }
 
@@ -1168,18 +1205,22 @@ class FirstRunChat {
     this.redraw();
     const failed = [];
     for (const place of chosen) {
+      /** @type {string | undefined} */
+      let name;
       let ok = true;
       try {
-        await place.connect(run);
+        name = await place.connect(run);
       } catch {
         ok = false;
       }
       if (!this.current(run)) return;
       if (ok) this.connected.push(short(place));
       else failed.push(place);
+      if (name) this.brought.push(name);
     }
     this.found = failed;
     this.unconnected = failed.length ? `${named(failed.map(short))} didn't connect. Try again.` : "";
+    if (!failed.length) this.appsDone = true;
     this.working = false;
     await load();
   }
@@ -1199,7 +1240,7 @@ class FirstRunChat {
     this.stop();
     this.#run++;
     this.#known = false;
-    Object.assign(this, { kept: null, active: false, stage: "ask", picked: null, handed: null, found: null, connected: [], unconnected: "", problem: "", working: false, rotating: false, entrance: new Entrance() });
+    Object.assign(this, { kept: null, active: false, stage: "ask", appsDone: false, brought: [], picked: null, handed: null, found: null, connected: [], unconnected: "", problem: "", working: false, rotating: false, entrance: new Entrance() });
   }
 
   /** The chat as it stands, Lore first. @param {Snapshot} s */
@@ -1220,23 +1261,49 @@ class FirstRunChat {
       chat.append(line);
     };
     lore("Hi. I'm Lore. I keep what you've learned and help you sell the parts worth paying for.");
+    // APP-223: first what's already on this Mac, so something comes in before anything is asked of the owner.
+    if (!this.appsDone && !this.found) {
+      lore(el("p", "hint", "Looking on this Mac…"));
+      return this.shown(chat);
+    }
+    if (this.connected.length) lore(this.cameIn(s));
+    if (!this.appsDone) {
+      if (!this.connected.length && !this.unconnected) lore("First, I found these on this Mac. Connect them, and Lore reads them in a few seconds.");
+      lore(this.foundCard());
+      const more = el("p", "hint");
+      more.append("Your ChatGPT or Claude history, and newsletters, connect from a file or an address in ", inline("Connectors", () => show("connectors")), ".");
+      lore(more);
+      return this.said(chat, lore);
+    }
     lore("Which AI do you talk to most?");
     if (!this.picked) {
       lore(this.choices());
-      return this.shown(chat);
+      return this.said(chat, lore);
     }
     const [app, who] = this.picked;
     owner(who);
+    if (this.stage === "end") {
+      lore(this.savedCard(s, who));
+      lore("That's it. What it brought in stays private on this Mac. When you want to sell some of it, Today shows the next step.");
+      const actions = el("div", "actions first-run-actions");
+      actions.append(button("Go to Today", "primary", () => this.leave("done")));
+      chat.append(actions);
+      return this.said(chat, lore);
+    }
     if (this.stage === "store") {
-      lore(`${who} saves to your own store, so first it goes online. Nothing goes on sale.`);
+      lore(`Want ${who} to save here too? ${who} works online, so it needs a place online to save to. Lore sets one up for you, free on Cloudflare. Only your agents can save to it, and nothing goes on sale.`);
       const box = el("div", "card request");
-      box.append(el("p", "hint", this.working ? "Putting your store online. This takes a few minutes. If your browser opens, sign in to Cloudflare there. It's free." : "Takes a few minutes. If your browser opens, sign in to Cloudflare there. It's free."));
+      const waiting = this.working && signingIn;
+      box.append(el("p", "hint", waiting ? "Finish signing in to Cloudflare in your browser, then come back here." : this.working ? "Setting it up. This takes a few minutes. If your browser opened, sign in to Cloudflare there." : "Takes a few minutes. Your browser opens so you can sign in to Cloudflare, or make a free account."));
       if (this.problem) box.append(el("p", "problem", this.problem));
-      const actions = el("div", "actions");
-      const go = button(this.working ? "Putting it online…" : "Put it online", "primary", () => void this.putOnline());
-      go.disabled = this.working;
-      actions.append(go);
-      box.append(actions);
+      if (waiting) box.append(signInActions());
+      else {
+        const actions = el("div", "actions");
+        const go = button(this.working ? "Setting it up…" : "Set it up", "primary", () => void this.putOnline());
+        go.disabled = this.working;
+        actions.append(go);
+        box.append(actions);
+      }
       lore(box);
       return this.shown(chat);
     }
@@ -1268,23 +1335,25 @@ class FirstRunChat {
       const actions = el("div", "actions first-run-actions");
       actions.append(button("Go to Today", "primary", () => this.leave("done")));
       chat.append(actions);
-    } else {
-      if (this.connected.length) lore(`Connected ${named(this.connected)}. Lore is turning them into memories now.`);
-      else if (this.found?.length && !this.unconnected) lore("While you do that, I found these on this Mac. Connect them, and Lore reads them too.");
-      if (this.found?.length) lore(this.foundCard());
     }
-    if (this.found && this.stage !== "saved") {
-      const more = el("p", "hint");
-      more.append("Your ChatGPT or Claude history, and newsletters, connect from a file or an address in ", inline("Connectors", () => show("connectors")), ".");
-      lore(more);
-    }
-    // APP-215: the notices a new owner would otherwise get on Today, as one quiet line here.
+    return this.said(chat, lore);
+  }
+
+  /** The notices a new owner would otherwise get on Today, as one quiet line at the foot of the chat (APP-215).
+   * @param {HTMLElement} chat @param {(...said: Array<string | HTMLElement>) => void} lore */
+  said(chat, lore) {
     const said = notices.filter((item) => item.key);
     if (said.length) {
       lore(el("p", "hint", said.map((item) => item.text).join(" ")));
       for (const item of said) if (item.key) remember(item.key);
     }
     return this.shown(chat);
+  }
+
+  /** What the apps on this Mac brought in, once it's in. @param {Snapshot} s */
+  cameIn(s) {
+    const count = privateMemories(s).filter((item) => item.sources?.some((each) => this.brought.includes(each.id))).length;
+    return count ? `Connected ${named(this.connected)}. ${plural(count, "memory")} came in.` : `Connected ${named(this.connected)}. Lore is reading them now…`;
   }
 
   /** @param {HTMLElement} chat */
@@ -1350,15 +1419,23 @@ class FirstRunChat {
 
   /** What the first save brought, titles and marks, one click from all of it. @param {Snapshot} s @param {string} who */
   savedCard(s, who) {
-    const source = this.kept?.source ?? "";
+    // The agent's first save, and what the apps on this Mac brought in before it; with no agent, the apps' alone. Read
+    // from the library, so it holds after a relaunch: everything a new owner has came from one or the other.
+    const source = this.stage === "saved" ? this.kept?.source ?? "" : "";
+    const kept = privateMemories(s);
+    const mine = kept.filter((item) => source && item.sources?.some((each) => each.id === source));
+    const others = kept.filter((item) => !mine.includes(item));
+    const apps = named([...new Set(others.flatMap((item) => item.sources?.map((each) => each.label) ?? []))]) || "Your apps";
     const box = el("div", "card first-saved");
     const head = el("div", "row");
-    head.append(el("b", "", `${who} saved ${plural(this.saved, "memory")}`), inline("See them →", () => {
+    head.append(el("b", "", source ? `${who} saved ${plural(this.saved, "memory")}` : `${apps} brought in ${plural(others.length, "memory")}`), inline("See them →", () => {
       this.leave("done");
-      seeFrom({ id: source, label: who });
+      if (source && !others.length) seeFrom({ id: source, label: who });
+      else show("memories");
     }));
     box.append(head);
-    const items = s.library.items.filter((item) => item.sources?.some((each) => each.id === source)).slice(0, 5);
+    if (source && others.length) box.append(el("p", "hint first-saved-apps", `${apps} brought in ${plural(others.length, "memory")} too.`));
+    const items = [...mine, ...others].slice(0, 5);
     for (const item of items) {
       const { marks } = provenance(item.sources);
       const node = row(item.title, when(item.updated_at), undefined, true);
@@ -1389,7 +1466,9 @@ class FirstRunChat {
     const count = (this.found ?? []).filter((place) => place.on).length;
     const go = button(this.working ? "Connecting…" : this.unconnected ? "Try again" : count > 1 ? "Connect these" : "Connect", "primary", () => void this.connectFound());
     go.disabled = this.working || !count;
-    actions.append(go);
+    const later = button("Not now", "secondary", () => { this.appsDone = true; this.redraw(); });
+    later.disabled = this.working;
+    actions.append(later, go);
     box.append(list, actions);
     return box;
   }
@@ -2465,7 +2544,7 @@ function tiles(rows) {
 const AGENT_APPS = [["grok", "Grok Bot"], ["muse", "Muse"], ["chatgpt", "ChatGPT"], ["claude", "Claude"], ["other", "Other"]];
 /** @type {Record<AgentApp, string>} */
 const PERSONAL_MARKS = { grok: "grok", muse: "muse", chatgpt: "chatgpt", claude: "claude", other: "agent" };
-const STORE_FIRST = "Your agents save to your own store, so it needs to be online. Nothing goes on sale until you choose to sell it.";
+const STORE_FIRST = "Your agents work online, so they need a place online to save to. Lore sets one up for you, free on Cloudflare. Only your agents can save to it, and nothing goes on sale until you choose to sell it.";
 /** APP-217: how each agent takes Lore's private link, as its maker documents it (checked Oct 17, 2026). Grok Bot adds
  * a connector it is sent in chat, so it gets a message around the link; `routine` is what each calls a scheduled ask.
  * `again` is the same for a new link, which replaces the Lore connector the agent already has rather than adding one;
@@ -2618,7 +2697,7 @@ function privateLink(handed, lead = "", label = "Copy") {
   link.setAttribute("aria-label", lead ? label : "Copy link");
   const shown = el("span", "agent-link-text");
   const address = el("span", "agent-link-url");
-  address.append(handed.mcp_url.replace(/^https?:\/\//, "") + "/", el("span", "agent-link-key", "••••••••••••"));
+  address.append(handed.mcp_url + "/", el("span", "agent-link-key", "••••••••••••"));
   if (lead) {
     // APP-218: a plain name for what gets pasted, and the message itself quietly under it, never broken inside its link.
     const quote = el("span", "agent-link-quote", lead);
@@ -2629,6 +2708,8 @@ function privateLink(handed, lead = "", label = "Copy") {
   glyph.innerHTML = COPY_ICON;
   const word = el("span", "agent-link-word", label);
   link.append(shown, glyph, word);
+  // Selecting the shown link and copying it by hand would take the dots, so a hand copy also takes the real link.
+  link.addEventListener("copy", (event) => { event.preventDefault(); event.clipboardData?.setData("text/plain", lead + handed.connector_url); });
   link.addEventListener("click", () => void window.lore.copy(lead + handed.connector_url).then(() => {
     link.classList.add("copied");
     glyph.innerHTML = CHECK_ICON;
@@ -4608,6 +4689,9 @@ function onEvent(event) {
   } else if (event.type === "dismiss") {
     if (redirectPrompt === event.id) offerRedirect(null);
     if (request?.id === event.id) { clearRequest(); renderLog(); }
+  } else if (event.type === "signin") {
+    signingIn = event.pending;
+    render();
   } else if (event.type === "auth-prompt" && !welcome.hidden) {
     // Sign-in has no thread to hold a card, so the field lives under the note that promises it.
     offerRedirect(event.id);

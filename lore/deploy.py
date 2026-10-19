@@ -43,6 +43,10 @@ DATABASE_ID = "[0-9a-f-]{36}"
 WALLET = re.compile(r"0x[0-9a-fA-F]{40}")
 D1_NAME = "lore-publications"
 D1_PLACEHOLDER = "REPLACE_WITH_YOUR_D1_ID"
+VERIFY_EMAIL = (
+    "Cloudflare needs you to verify your email first. Check your inbox for their "
+    "email, click the link, then tap Set it up again."
+)
 NEEDS_NODE = "deploying needs Node.js; install it from nodejs.org and rerun"
 # Generous enough for a cold `npm install` plus a `wrangler deploy` on a slow
 # connection, but bounded: nothing in this chain may block a caller (the
@@ -453,7 +457,8 @@ def _ensure_d1(
     muted("Creating the publications database (one-time)...")
     created = _run((wrangler, "d1", "create", D1_NAME), target)
     output = f"{created.stdout or ''}{created.stderr or ''}"
-    already_existed = bool(created.returncode) and "already exists" in output.lower()
+    # Some wrangler versions say so and still exit 0; the words decide, never the exit code alone.
+    already_existed = "already exists" in output.lower()
     if created.returncode and not already_existed:
         raise OSError(f"creating the D1 database failed:\n{output.strip()[-2000:]}")
     # `d1 create` prints a config snippet; the id format survives wrangler's
@@ -748,7 +753,16 @@ def _deploy(
             )
 
     _ensure_d1(wrangler, target)
-    deployed = _run((wrangler, "deploy"), target, fail="deploy failed")
+    deployed = _run((wrangler, "deploy"), target)
+    # A brand-new Cloudflare account can't run Workers until its email is verified;
+    # the database is made and recorded by now, so a retry afterwards picks it up.
+    refused = f"{deployed.stdout}{deployed.stderr}"
+    if deployed.returncode and (
+        "10034" in refused or "verify your email" in refused.lower()
+    ):
+        raise OSError(VERIFY_EMAIL)
+    if deployed.returncode:
+        raise OSError(f"deploy failed:\n{_detail(deployed)}")
     print(deployed.stdout.strip())
 
     # Wrangler colourises under TTY-ish environments; strip escapes so \S+

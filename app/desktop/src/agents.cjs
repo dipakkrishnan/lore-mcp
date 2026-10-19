@@ -10,7 +10,7 @@ class Watch {
   /** @type {Promise<void> | null} */
   #checking = null;
 
-  /** @param {{ready: () => boolean, waiting: () => Promise<{waiting: number, sources: string[]}>, read: (name: string) => Promise<SourceRead[]>, landed: (reads: SourceRead[]) => unknown}} store
+  /** @param {{ready: () => boolean | Promise<boolean>, waiting: () => Promise<{waiting: number, sources: string[]}>, read: (name: string) => Promise<SourceRead[]>, landed: (reads: SourceRead[]) => unknown}} store
    * `ready`: whether there is a store to ask; `landed`: what to do with what came in, once. */
   constructor(store) {
     this.store = store;
@@ -25,7 +25,7 @@ class Watch {
   }
 
   async #check() {
-    if (!this.store.ready()) return;
+    if (!(await this.store.ready())) return;
     /** @type {SourceRead[]} */
     const reads = [];
     try {

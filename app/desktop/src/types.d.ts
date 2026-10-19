@@ -362,6 +362,9 @@ interface Window {
     setFirstRun(next: FirstRunState): Promise<void>;
     /** Put the store online for the owner's agents only; signs in to Cloudflare in the browser first if it must. */
     storeOnline(): Promise<void>;
+    /** The Cloudflare sign-in waiting on the browser: its page opened again, or the wait stopped. */
+    reopenSignIn(): Promise<void>;
+    cancelSignIn(): Promise<void>;
     copy(text: string): Promise<void>;
     readyRuns(): Promise<ReadyRun[]>;
     seenMemories(): Promise<void>;
@@ -441,6 +444,8 @@ type AgentEvent =
   | { type: "ready" }
   /** What the owner's personal agents saved that Lore just brought in (APP-207). */
   | { type: "agents"; reads: SourceRead[] }
+  /** Whether a Cloudflare sign-in is waiting on the owner's browser. */
+  | { type: "signin"; pending: boolean }
   | { type: "update"; update: AppUpdate };
 
 type LoreAgentInstance = {
