@@ -4,7 +4,7 @@ title: Capture and inject context via agent session hooks
 priority: P3
 effort: L
 component: onboarding
-status: ready
+status: in-review
 related: [STO-001, XC-001, XC-002]
 blockers: [XC-002]
 dependencies: []
@@ -72,4 +72,8 @@ and earned it"), not just XC-002 shipping. Flagging for reconsideration
 rather than deciding it here: worth a fresh look at whether publishing has
 "earned" this yet.
 
-**Prioritization 2026-10-19:** promoted to `ready`. No open blockers, no commit on main implements it, and the acceptance criteria are concrete and checkable. Priority and effort unchanged.
+**Prioritization 2026-10-19 (corrected in review):** not promoted. The "Status:
+deferred" section above says not to pick this up until intent-driven publishing has
+"earned it", a judgment call that `XC-002` shipping does not settle (see the
+2026-08-26 pass). The `blockers` field still lists `XC-002`, so the file also
+contradicted itself while marked `ready`. Needs the owner's decision first.

@@ -4,7 +4,7 @@ title: Run the bench without requiring both agent CLIs installed
 priority: P2
 effort: M
 component: evals
-status: ready
+status: in-review
 related: [EVAL-001, EVAL-002]
 blockers: []
 dependencies: ["windup (separate repo) — `run_json` lands there, not in lore-mcp"]
@@ -99,4 +99,8 @@ exists. If the windup change turns out to be unwelcome or slow, the fallback is
 a single shared helper inside `evals/` and one copy fewer instead of three; say
 so here if that is what happens.
 
-**Prioritization 2026-10-19:** promoted to `ready`. No open blockers, no commit on main implements it, and the acceptance criteria are concrete and checkable. Priority and effort unchanged.
+**Prioritization 2026-10-19 (corrected in review):** not promoted. The gap is
+still real (`evals/` has no `shutil.which` preflight and no `run_json`), but the
+item's own `dependencies` field says most of the work lands in windup, a separate
+repository that this repo's workers do not change. It needs a person to either
+land `run_json` in windup or choose the in-repo fallback in the paragraph above.

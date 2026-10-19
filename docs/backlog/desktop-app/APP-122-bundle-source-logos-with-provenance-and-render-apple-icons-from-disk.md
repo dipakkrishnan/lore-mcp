@@ -4,7 +4,7 @@ title: Bundle source logos with provenance and render Apple icons from disk
 priority: P2
 effort: S
 component: desktop-app
-status: ready
+status: in-review
 related: [APP-120, APP-115]
 blockers: []
 dependencies: []
@@ -53,4 +53,10 @@ empty; `app.getFileIcon` at size `large` crashes the process with SIGTRAP
 and must never be called. simple-icons is CC0 but waives no trademark
 rights; treat it as delivery, not licence.
 
-**Prioritization 2026-10-19:** promoted to `ready`. No open blockers, no commit on main implements it, and the acceptance criteria are concrete and checkable. Priority and effort unchanged.
+**Prioritization 2026-10-19 (corrected in review):** not promoted; partly built.
+`app/desktop/src/assets/` on main already holds SVGs for bluesky, goodreads, granola,
+letterboxd, medium, notion, obsidian, readwise and substack beside `claude.svg` and
+`openai.svg`. The disk-icon half is not built: nothing in `app/desktop/src` calls
+`createThumbnailFromPath`. Before promoting, list which catalog sources still lack a
+mark, check each existing asset for the source URL and pull date, and narrow the
+Problem and criteria to that remainder.

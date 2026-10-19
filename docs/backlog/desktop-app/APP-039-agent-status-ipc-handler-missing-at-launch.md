@@ -4,7 +4,7 @@ title: agent:status IPC handler is missing, logged as an error on every launch
 priority: P2
 effort: S
 component: desktop-app
-status: ready
+status: in-review
 related: [APP-038]
 blockers: []
 dependencies: []
@@ -60,4 +60,12 @@ Filed alongside APP-038 (a different, unrelated symptom from the same
 dogfood run) — keep them separate since the root causes are unlikely to be
 related (one is Keychain/signing, this one is an IPC wiring gap).
 
-**Prioritization 2026-10-19:** promoted to `ready`. No open blockers, no commit on main implements it, and the acceptance criteria are concrete and checkable. Priority and effort unchanged.
+**Prioritization 2026-10-19 (corrected in review):** not promoted; likely already
+fixed in source. `ipcMain.handle("agent:status", ...)` is registered at
+`app/desktop/src/main.cjs:110` inside `registerIpc`, which `app.whenReady()` calls at
+line 482, before `createWindow()` at line 483, and `preload.cjs:6` exposes the
+matching `agentStatus`. `git log -S'agent:status'` puts the handler in `ec97b0b`
+(APP-003, 2026-08-22), ten days before this report, so the 2026-09-01 error may have
+come from a stale or packaged build. It cannot be settled by reading code: it needs
+a launch log from a clean `npm start` on current main. If that log is clean, close
+this as `completed` and cite `ec97b0b`.

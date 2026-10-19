@@ -60,4 +60,7 @@ some of the absolute claim `PRIVACY.md` used to make for representative alpha
 data, on the condition that the disclosure and off switch actually ship in
 the same wave (`XC-029`, `CLI-004`) before `APP-058` sends anything.
 
-**Prioritization 2026-10-19:** promoted to `ready`. No open blockers, no commit on main implements it, and the acceptance criteria are concrete and checkable. Priority and effort unchanged.
+**Prioritization 2026-10-19 (corrected in review):** stays `ready`, but only for the
+last criterion. `docs/telemetry.md` already exists on main and the first two criteria
+are checked; what remains is pointing `APP-058` at it and making `APP-058` block on
+its collector and off-switch items. Do not rewrite the doc from the Problem text.

@@ -4,7 +4,7 @@ title: Say when the AI session has expired and offer to sign back in
 priority: P1
 effort: S
 component: desktop-app
-status: ready
+status: in-review
 related: [APP-181, APP-183]
 blockers: []
 dependencies: []
@@ -41,4 +41,11 @@ first. The Settings sign-in row shows the same state.
 Filed from the 2026-10-06 For Sale review. P1 because a silently dead session
 makes every Lore job fail with no explanation.
 
-**Prioritization 2026-10-19:** promoted to `ready`. No open blockers, no commit on main implements it, and the acceptance criteria are concrete and checkable. Priority and effort unchanged.
+**Prioritization 2026-10-19 (corrected in review):** not promoted; partly built and
+not audited. `app/desktop/src/agent.mjs` already detects a rejected refresh
+(`SIGN_IN_EXPIRED`, line 160), re-prompts through `#signInAgain` (line 806), and emits
+a `signed-out` event reading "Your ... sign-in expired. Sign in again to keep going."
+(line 954). What is still unknown is whether `renderAccount` and the Settings row
+(`renderer.js:2994`) show the expired state outside a running turn, and whether
+signing back in needs a sign-out first. Trace those two paths, then rewrite the
+criteria to the real gap.

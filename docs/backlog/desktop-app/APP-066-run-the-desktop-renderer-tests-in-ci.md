@@ -4,7 +4,7 @@ title: Run the desktop renderer's persona tests in CI
 priority: P1
 effort: S
 component: desktop-app
-status: ready
+status: in-review
 related: [APP-054, APP-055, APP-056, APP-057, APP-007, XC-004, XC-014]
 blockers: []
 dependencies: []
@@ -93,4 +93,14 @@ first and keeps the id. Same race as the `APP-054` collision resolved in the
 same pull request — two branches each taking "highest on `main` plus one"
 while the other is open.
 
-**Prioritization 2026-10-19:** promoted to `ready`. No open blockers, no commit on main implements it, and the acceptance criteria are concrete and checkable. Priority and effort unchanged.
+**Prioritization 2026-10-19 (corrected in review):** not promoted; partly shipped,
+and the Problem section above is stale. `desktop-check` in
+`.github/workflows/tests.yml` (lines 67-78) already runs `support/edge.sh` for
+`feedback`, `connectors`, `faq`, `seller`, `store` and `agents`, each with a 5
+minute timeout (`1f0b864` XC-003 #334, `347769b` #473). `npm run test:edge` runs 20
+personas, so 14 are still not wired into CI: `provision`, `jobs`, `fresh`,
+`obsidian`, `reading`, `schedule`, `checkin`, `quiet`, `automations`, `sell`,
+`cards`, `sales`, `settings` and `today`. Before promoting, rewrite the Problem and
+acceptance criteria around that remaining gap (and whether those personas are
+deterministic enough to gate every PR), and check `app/desktop/README.md` for the
+"which suites CI runs" statement, which is not there yet.

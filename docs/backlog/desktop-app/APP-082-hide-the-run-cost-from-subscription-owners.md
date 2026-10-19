@@ -4,7 +4,7 @@ title: Hide the run cost from subscription owners
 priority: P3
 effort: XS
 component: desktop-app
-status: ready
+status: in-review
 related: [APP-007]
 blockers: []
 dependencies: []
@@ -36,4 +36,9 @@ real cost. For OAuth sign-in, leave it out of the row.
 
 Screenshot `70-dogfood-relaunch.png`.
 
-**Prioritization 2026-10-19:** promoted to `ready`. No open blockers, no commit on main implements it, and the acceptance criteria are concrete and checkable. Priority and effort unchanged.
+**Prioritization 2026-10-19 (corrected in review):** not promoted; superseded by
+`418c7c3` (APP-219, #488, 2026-10-18), whose message says Recent runs "never shows an
+agent's cost". `renderer.js` no longer references `cost_usd`, so the first criterion
+holds. The second (an API-key owner still sees the amount) now cannot, because the
+amount is never shown. Owner to decide: close as `completed`, or keep the cost for
+API-key owners and reopen that half.

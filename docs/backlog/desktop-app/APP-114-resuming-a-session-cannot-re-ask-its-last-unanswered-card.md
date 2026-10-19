@@ -4,7 +4,7 @@ title: Resuming a session cannot re-ask its last unanswered card
 priority: P2
 effort: L
 component: desktop-app
-status: ready
+status: in-review
 related: [APP-113, APP-018]
 blockers: []
 dependencies: []
@@ -70,4 +70,9 @@ who can drive the packaged Electron app end-to-end with real credentials, or
 who has visibility into `@earendil-works/pi-coding-agent`'s resume
 semantics, since it may live partly outside this repo.
 
-**Prioritization 2026-10-19:** promoted to `ready`. No open blockers, no commit on main implements it, and the acceptance criteria are concrete and checkable. Priority and effort unchanged.
+**Prioritization 2026-10-19 (corrected in review):** not promoted. The Problem
+describes `resumeTask()` in `src/renderer.js` sending a synthetic "pick up where we
+left off" message, but neither `resumeTask` nor that string exists on main now, so
+the resume path has been reworked since this was filed. The item also says "needs
+investigation" and has no proposed fix. Re-check the current resume path against a
+real session with a dangling `toolCall` and rewrite the Problem before promoting.

@@ -4,7 +4,7 @@ title: Support concurrent test, beta, and production environments
 priority: P2
 effort: L
 component: cross-cutting
-status: ready
+status: in-review
 related: [MON-008, XC-008, XC-002, STO-001]
 blockers: []
 dependencies: []
@@ -111,4 +111,7 @@ waiting on `MON-016`'s credential provisioning, not on anything this item
 needs — before deciding this one; the decision itself still needs a person,
 not this pass.
 
-**Prioritization 2026-10-19:** promoted to `ready`. No open blockers, no commit on main implements it, and the acceptance criteria are concrete and checkable. Priority and effort unchanged.
+**Prioritization 2026-10-19 (corrected in review):** not promoted. The proposed
+approach is "rough shape, not a full design" and leaves open whether `test` and
+`beta` are standing or on-demand deployments, which it says "needs a decision before
+`implementation` starts". That decision is a person's, so the item is not ready.
