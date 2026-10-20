@@ -4,13 +4,13 @@ title: Test the CLI-boundary helpers in state.cjs that no test reaches
 priority: P2
 effort: XS
 component: desktop-app
-status: in-review
+status: ready
 related: [APP-066, APP-001]
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-09-03
-updated: 2026-09-07
+updated: 2026-10-19
 ---
 
 ## Problem
@@ -58,3 +58,5 @@ Found by cross-referencing `state.cjs`'s `module.exports` against the
 identifiers `test/app.test.cjs` mentions (2026-09-03). `stream` is exercised
 only indirectly through `loreStream`, which is fine — it's the transport, and
 the streaming contract already has its own test.
+
+**Prioritization 2026-10-19:** promoted to `ready`. No open blockers, no commit on main implements it, and the acceptance criteria are concrete and checkable. Priority and effort unchanged.
