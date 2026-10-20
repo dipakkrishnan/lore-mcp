@@ -4,13 +4,13 @@ title: Ask for a typed value with a labeled field, not a one-option list
 priority: P1
 effort: S
 component: desktop-app
-status: in-review
+status: completed
 related: [XC-024, APP-056, APP-057]
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-09-04
-updated: 2026-09-04
+updated: 2026-10-19
 ---
 
 ## Problem
@@ -33,12 +33,14 @@ reconstructed history (`agent.mjs` history()) so it reads
 
 ## Acceptance criteria
 
-- [ ] The wallet step asks for the address with a single labeled field.
-- [ ] A recovery phrase or a truncated copy is refused inline before it
+- [x] The wallet step asks for the address with a single labeled field.
+- [x] A recovery phrase or a truncated copy is refused inline before it
       reaches the agent.
-- [ ] The thread shows the address labeled and shortened, matching Settings.
+- [x] The thread shows the address labeled and shortened, matching Settings.
 
 ## Notes
 Reviewed 2026-09-04: arbitrary pattern support is unwarranted, but the fixed
 address format is a trust-boundary check: recovery phrases and truncated
 addresses must not reach the agent.
+
+**Completed (verified 2026-10-19, by reading code and tests, no suites run):** on main in 8f4b62e, evolved by MON-025/APP-057. Closed out in the review-queue pass.

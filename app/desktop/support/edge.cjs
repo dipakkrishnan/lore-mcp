@@ -1413,6 +1413,9 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         await waitFor(`Boolean(document.querySelector("dialog.form-sheet[open]"))`);
         check("Change opens one sheet for price and free copies", await js(`[...document.querySelectorAll("dialog.form-sheet[open] .form-row")].map((r) => r.querySelector(".form-label").textContent).join("|") === "Price per piece|Free copies" && document.querySelectorAll("dialog.form-sheet[open] input").length === 2 && document.querySelector("#title").textContent === "Inventory"`));
         await shot("store-price-sheet");
+        // A price asked for on a card is one field in one ring: focus never draws a second box around the digits inside.
+        const rings = await js(`{ const box = document.createElement("div"); box.className = "card request"; box.innerHTML = '<div class="price-field"><span class="price-prefix">$</span><input type="text" value="1"></div>'; (document.querySelector("dialog[open] .form-body") ?? document.querySelector("#content")).append(box); const input = box.querySelector("input"); input.focus({ focusVisible: true }); const seen = [getComputedStyle(box.firstChild).boxShadow, getComputedStyle(input).boxShadow, getComputedStyle(input).outlineStyle].join(" | "); box.remove(); seen; }`);
+        check("a price field in focus shows one ring, around the field, none around its digits", /^(?!none).+ \| none \| none$/.test(rings), rings);
         await js(`{ const [amount, copies] = document.querySelectorAll("dialog.form-sheet[open] input"); amount.value = "0.75"; copies.value = "5"; amount.form.requestSubmit(); }`);
         check("both save through the CLI", await waitFor(`window.lore.snapshot().then((s) => s.pricing.publication_usd === 0.75 && s.pricing.free_copies === 5)`));
         // APP-226: a live store charges the new price only once the owner confirms it; Cancel leaves Update store waiting.
@@ -1788,6 +1791,20 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         await sleep(400);
         await shot("agents-pick");
         await js(`${primary}.click()`);
+        // XC-068: Grok Bot signs in first: the plain address, with no key in it, and a wait here for it to ask.
+        const instead = () => js(`[...document.querySelectorAll("dialog.sheet[open] button.inline")].find((b) => b.textContent === "Can't sign in? Use a private link instead").click()`);
+        check("Grok Bot signs in: the sheet gives its steps and waits for it to ask", await waitFor(`${sheet}.includes("Waiting for Grok Bot to ask to sign in…")`, 80) && JSON.stringify(await js(`[...document.querySelectorAll("dialog.sheet[open] .agent-steps li")].map((s) => s.firstChild.textContent)`)) === JSON.stringify(["Copy the message", "Paste it into Grok Bot's chat", "When Grok Bot opens a sign-in page, allow it here"]), await js(sheet));
+        check("…with no key in it, said plainly", !/••••|lore_agent_|token|bearer|oauth/i.test(await js(sheet)) && (await js(sheet)).includes("No key in it. You allow it here"), await js(sheet));
+        {
+          const before = copied.length;
+          await js(`document.querySelector("dialog.sheet[open] .agent-link").click()`);
+          for (let i = 0; i < 20 && copied.length === before; i++) await sleep(50);
+          check("…whose message carries the plain address alone", copied.at(-1) === `Add this MCP server to my account: ${agentUrl}`, String(copied.at(-1)));
+        }
+        check("…and nothing is made for it until it asks", (await keys()) === keysBefore);
+        await shot("agents-grok-sign-in");
+        await instead();
+        await waitFor(`${sheet}.includes("Waiting for Grok Bot's first save…")`, 80);
         check("connecting Grok Bot turns the sheet into Grok Bot's, with its mark", await waitFor(`document.querySelector("dialog.sheet[open] .form-head h2")?.textContent === "Connect Grok Bot"`, 80) && await js(`document.querySelector("dialog.sheet[open] .form-head img.logo").src.endsWith("assets/grok.svg")`), await js(sheet));
         const setup = await js(sheet);
         const stepsOf = () => js(`[...document.querySelectorAll("dialog.sheet[open] .agent-steps li")].map((s) => s.firstChild.textContent)`);
@@ -2049,6 +2066,8 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
           await waitFor(`${sheet}.includes("Which agent should save to Lore?")`);
           await js(`[...document.querySelectorAll("dialog.sheet[open] .form-option")].find((o) => o.textContent === ${JSON.stringify(label)}).querySelector("input").click()`);
           await js(`${primary}.click()`);
+          // A private link, for the agents that would sign in first (XC-068).
+          if (await waitFor(`${sheet}.includes(${JSON.stringify(`Waiting for ${name} to ask to sign in…`)})`, 8)) await instead();
           return waitFor(`document.querySelector("dialog.sheet[open] .form-head h2")?.textContent === ${JSON.stringify(`Connect ${name}`)} && ${sheet}.includes(${JSON.stringify(`Waiting for ${name}'s first save…`)})`, 80);
         };
         const plainly = (/** @type {string} */ text) => !/\bmcp\b|oauth|token|bearer|endpoint|header|offer yet/i.test(text);
@@ -2087,10 +2106,48 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         await sleep(300);
         await shot("agents-claude-new-key");
         await press("Done");
-        await linkSheet("ChatGPT", ["In ChatGPT, open Plugins, then its settings, and choose Add MCP server", "Name it Lore, choose Streamable HTTP, and paste the link below as the URL", "Leave arguments empty, then save"], "Saving to Lore needs a ChatGPT plan that allows custom connectors to write.", /Add MCP server|MCP server|Streamable HTTP/g, "Add this MCP server to my account as Lore, using Streamable HTTP and no arguments: ");
+        // XC-068: ChatGPT signs in. The store's sign-in page asks; Lore shows the Allow card with the page's code.
+        const askSignIn = (/** @type {string} */ client) => JSON.parse(execFileSync("uv", ["run", "python", "-m", "tests.fixtures.inbox", "ask", "--client", client], { cwd: process.env.LORE_EDGE_REPO, env: process.env }).toString());
+        const signInRow = (/** @type {string} */ id) => JSON.parse(execFileSync("uv", ["run", "python", "-c", `import json, sqlite3, os\nrow = sqlite3.connect(os.environ["LORE_EDGE_D1"]).execute("SELECT state, agent FROM sign_ins WHERE id = ?", (${JSON.stringify(id)},)).fetchone()\nprint(json.dumps(row))`], { cwd: process.env.LORE_EDGE_REPO, env: process.env }).toString());
+        await js(`${agentRow("Connect another agent")}.querySelector("button").click()`);
+        await waitFor(`${sheet}.includes("Which agent should save to Lore?")`);
+        await js(`[...document.querySelectorAll("dialog.sheet[open] .form-option")].find((o) => o.textContent === "ChatGPT").querySelector("input").click()`);
+        await js(`${primary}.click()`);
+        check("ChatGPT gets its sign-in sheet, waiting for it to ask", await waitFor(`${sheet}.includes("Waiting for ChatGPT to ask to sign in…")`, 80), await js(sheet));
+        check("…with the steps ChatGPT documents for signing in", JSON.stringify(await stepsOf()) === JSON.stringify(["In ChatGPT, open Plugins, then + › Add custom MCP server", "Name it Lore, paste the address below, choose OAuth, and continue", "Choose Create, then allow it here"]), JSON.stringify(await stepsOf()));
+        check("…a quiet note about its plan", await js(`[...document.querySelectorAll("dialog.sheet[open] .form-body p.hint")].some((p) => p.textContent === "Saving to Lore needs a ChatGPT plan that allows custom connectors to write.")`));
+        const address = await copyLink();
+        check("…and Copy gives the plain address, with no key", address === agentUrl, address);
         await shot("agents-chatgpt-setup");
+        const asking = askSignIn("ChatGPT");
+        await js(`window.lore.checkAgents()`);
+        check("when ChatGPT asks to sign in, the sheet becomes the Allow card, with the code its page shows", await waitFor(`document.querySelector("dialog.sheet[open] .form-head h2")?.textContent === "ChatGPT wants to save to your Lore" && document.querySelector("dialog.sheet[open] .sign-in-code")?.textContent === ${JSON.stringify(asking.code)}`, 80), await js(sheet));
+        const allowCard = await js(sheet);
+        check("…saying plainly to match the code, with Allow and Deny", allowCard.includes("Allow it only if your browser shows this code.") && plainly(allowCard) && (await js(`${primary}.textContent`)) === "Allow" && await js(`[...document.querySelectorAll("dialog.sheet[open] button")].some((b) => b.textContent === "Deny")`), allowCard);
+        await sleep(400);
+        await shot("agents-allow-card");
+        await js(`${primary}.click()`);
+        check("Allow connects ChatGPT, and the sheet waits for its first save", await waitFor(`${sheet}.includes("ChatGPT is connected") && ${sheet}.includes("Waiting for ChatGPT's first save…")`, 80), await js(sheet));
+        const bound = signInRow(asking.id);
+        const chatgpt = (await js(`window.lore.agents()`)).find((/** @type {AgentEntry} */ a) => a.app === "chatgpt");
+        check("…and the store's sign-in is bound to the new agent, which signed in", bound?.[0] === "allowed" && bound?.[1] === chatgpt?.source.replace("agent-", "") && chatgpt?.signed_in === true, JSON.stringify({ bound, chatgpt }));
+        await shot("agents-allowed");
         await press("Done");
         check("…and it joins the agents with ChatGPT's mark", await waitFor(`${agentRow("ChatGPT")}?.querySelector("img.logo")?.src.endsWith("assets/chatgpt.svg")`), await js(`${agentRow("ChatGPT")}?.textContent ?? ""`));
+        await js(`${agentRow("ChatGPT")}.querySelector("button").click()`);
+        check("Manage for a signed-in agent offers only Disconnect: it has no link to replace", await waitFor(`${sheet}.includes("ChatGPT signed in, so it has no link to replace.")`) && !(await js(sheet)).includes("Get a new key") && await js(`[...document.querySelectorAll("dialog.sheet[open] button")].some((b) => b.textContent === "Disconnect")`), await js(sheet));
+        await shot("agents-signed-in-manage");
+        await js(`closeSheet()`);
+        // An app that asks while no sheet waits for it gets the card on its own; Deny binds nothing.
+        const agentsBefore = (await js(`window.lore.agents()`)).length;
+        const stranger = askSignIn("Claude");
+        await js(`window.lore.checkAgents()`);
+        check("an app asking with no sheet open brings up the Allow card on its own", await waitFor(`document.querySelector("dialog.sheet[open] .form-head h2")?.textContent === "Claude wants to save to your Lore" && document.querySelector("dialog.sheet[open] .sign-in-code")?.textContent === ${JSON.stringify(stranger.code)}`, 80), await js(sheet));
+        await press("Deny");
+        check("…Deny closes it and says so, and binds nothing", await waitFor(`!document.querySelector("dialog.sheet[open]") && document.querySelector("#status").textContent.includes("Denied. Claude can't save to Lore.")`) && signInRow(stranger.id)?.[0] === "denied" && (await js(`window.lore.agents()`)).length === agentsBefore, await js(`document.querySelector("#status").textContent`));
+        await js(`window.lore.checkAgents()`);
+        await sleep(1000);
+        check("…and it is not asked about again", !(await js(`Boolean(document.querySelector("dialog.sheet[open]"))`)));
         check("Other keeps a link, and the address and key for apps that ask for both", await connectNew("Other", "My agent") && await js(`document.querySelectorAll("dialog.sheet[open] .agent-link").length === 1 && JSON.stringify([...document.querySelectorAll("dialog.sheet[open] .copy-row .form-label")].map((l) => l.textContent)) === '["Address","Key","Instructions"]'`), await js(sheet));
         check("…with no sign-in notice", !/offer yet/.test(await js(sheet)), await js(sheet));
         check("…and its instructions name it", (await copyOf("Instructions")).includes("You are My agent"));

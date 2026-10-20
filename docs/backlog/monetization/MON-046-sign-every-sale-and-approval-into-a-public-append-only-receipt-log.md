@@ -10,7 +10,7 @@ blockers: []
 dependencies: [public dipakkrishnan/lore-receipts repo with a Contents-write PAT, receipts Worker secrets (Ed25519 signing key, payer HMAC key), a Base RPC endpoint, Sigstore Rekor public instance]
 github_issue: https://github.com/dipakkrishnan/lore-mcp/issues/467
 created: 2026-10-16
-updated: 2026-10-16
+updated: 2026-10-19
 ---
 
 ## Problem
@@ -149,3 +149,5 @@ same numbers.
   - weekly on-chain anchoring of the checkpoint hash
 - Bids (#467) settle as ordinary sales; a bid fill puts its bid id in
   `basket`.
+
+**Review 2026-10-19:** not completed. Not done. No signed receipt log exists (no Rekor, settlement_failed, checkpoint or `lore receipts verify`). `lore/node/src/receipts.ts` is the unrelated XC-039 card receipt store. All 10 criteria unmet; also needs external setup (receipts repo, signing keys).
