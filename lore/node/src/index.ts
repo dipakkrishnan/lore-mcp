@@ -2,7 +2,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { McpAgent } from "agents/mcp";
 import { withX402 } from "agents/x402";
 import { z } from "zod";
-import { isAgentPath, serveAgent } from "./agent.js";
+import { isAgentPath, serveAgent, signIn } from "./agent.js";
 import {
   type AnswerSettings,
   type Catalog,
@@ -21,6 +21,7 @@ import { TESTNET, facilitator, network, networkLabel } from "./network.js";
 import { PRICE_USD } from "./price.js";
 import { type Copy, ensureReceiptSchema, keepCopy, keptCopy } from "./receipts.js";
 import { cardSale, ensureRefundColumn, ensureRefundTracking, ensureSalesSchema, recorded } from "./sales.js";
+import { SignIn } from "./signin.js";
 import { type Piece, type Store, notFound, pieces, publicationPage, storefront, unlockedPage } from "./storefront.js";
 import { toolSpanAttributes } from "./telemetry.js";
 import { withSpan } from "./tracing.js";
@@ -381,6 +382,7 @@ function storeFor(env: Env, url: URL, settings: AnswerSettings): Store {
     freeCopies: settings.freeCopies,
     support: settings.supportEmail,
     selling: settings.selling,
+    agentsPay: takesAgentPayments(env),
     ...(settings.selling && takesCards(settings) ? { checkout: env.CHECKOUT_URL } : {})
   };
 }
@@ -403,6 +405,17 @@ async function paidNotice(request: Request, env: Env, account: string, origin: s
     () => Response.json({ recorded: true }, { headers: PRIVATE }),
     () => Response.json({ recorded: false }, { status: 503, headers: PRIVATE })
   );
+}
+
+/** The owner's agents' endpoint and its sign-in (XC-068), or else the buyers' `/mcp`. */
+function agentOrBuyer(request: Request, url: URL, env: Env, ctx: ExecutionContext): Promise<Response> {
+  const { pathname } = url;
+  if (isAgentPath(pathname)) return serveAgent(request, env, ctx);
+  if (pathname === "/authorize" && request.method === "GET") return signIn(url.origin).authorize(request, env);
+  if (pathname === "/authorize/wait" && request.method === "POST") return signIn(url.origin).wait(request, env);
+  if (pathname.startsWith("/.well-known/oauth-protected-resource/agent")) return signIn(url.origin).resource.fetch(request, env, ctx);
+  if (SignIn.owns(pathname)) return signIn(url.origin).server.fetch(request, env, ctx);
+  return mcp.fetch(request, env, ctx);
 }
 
 export default {
@@ -446,7 +459,7 @@ export default {
         ? readFree(request, env, storeFor(env, url, settings), posted, found)
         : paidNotice(request, env, settings.stripeAccount, url.origin, posted, found);
     }
-    const response = isAgentPath(url.pathname) ? await serveAgent(request, env) : await mcp.fetch(request, env, ctx);
+    const response = await agentOrBuyer(request, url, env, ctx);
     if (response.webSocket || response.headers.has("cache-control")) return response;
     const uncached = new Response(response.body, response);
     uncached.headers.set("cache-control", "no-store");

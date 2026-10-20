@@ -152,7 +152,7 @@ type SourceRead = { name: string; label?: string; connector?: string | null; app
 type Reading = { name: string; label: string; item: string; added: number; title: string; phase: string; ask?: string; from?: string; by: Contributor };
 
 /** What a reading hands back: how many items it read, and each topic file it wrote. */
-type ReadingReport = { read: number; memories: Array<{ file: string; worth_selling: boolean; why: string }> };
+type ReadingReport = { read: number; memories: Array<{ file: string; worth_selling: boolean; why: string }>; missing?: string };
 
 /** One memory a reading wrote, as Today lists it. Work is never offered for sale. */
 type ReadyMemory = { id: number; title: string; sell: boolean; work: boolean; why: string };
@@ -191,13 +191,25 @@ type CheckIn = { questions: Array<{ question: string; memory: number; title: str
 /** Where the first-run chat stands (APP-215), and the agent it is waiting on. */
 type FirstRunState = { state: "started" | "skipped" | "done"; source?: string };
 
+/** How Lore is drawn: as the Mac is set, or always light or dark (APP-225). */
+type AppearanceChoice = "system" | "light" | "dark";
+
 type AgentApp = "grok" | "muse" | "chatgpt" | "claude" | "other";
 
 /** What `lore agents connect` and `lore agents key` hand back: the agent, with how many saves its store has counted so far, and what to paste into it, shown once. */
 type AgentKey = { source: string; agent: { id: string; name: string; app: AgentApp; saved: number }; mcp_url: string; connector_url: string; key: string; header: string; prompt: string };
 
 /** One connected personal agent, as `lore agents list` reads it from the store. */
-type AgentEntry = { source: string; name: string; app: AgentApp; saved: number; waiting: number; last_saved_at: string | null; memories: number; revoked: boolean };
+type AgentEntry = { source: string; name: string; app: AgentApp; saved: number; waiting: number; last_saved_at: string | null; memories: number; revoked: boolean; signed_in?: boolean };
+
+/** An app asking to sign in to the owner's store (XC-068): the code its page shows, and the agent Lore takes it for. */
+type SignInRequest = { id: string; code: string; client: string; app: AgentApp; name: string; created_at: string; expires_at: string };
+
+/** What `lore agents waiting` reads: saves waiting by source, and apps asking to sign in (absent from an older CLI). */
+type AgentsWaiting = { waiting: number; sources: string[]; sign_ins?: SignInRequest[] };
+
+/** One agent the owner let sign in. */
+type AllowedAgent = Pick<AgentKey, "source" | "agent" | "mcp_url">;
 
 type SourceRemoval = { name: string; removed: boolean; memories: { kept: number; deleted?: number } };
 
@@ -322,9 +334,10 @@ interface Window {
     decide(input: { original: PublicationCandidate; candidate: PublicationCandidate; approve: boolean }): Promise<void>;
     extras(): Promise<ExtrasCandidate[]>;
     decideExtras(input: { original: PublicationExtras; extras: PublicationExtras; approve: boolean }): Promise<void>;
-    approveExtras(decisions: Array<{ original: PublicationExtras; extras: PublicationExtras }>): Promise<void>;
+    /** Resolves to whether the store was updated: false when the owner cancelled its card. */
+    approveExtras(decisions: Array<{ original: PublicationExtras; extras: PublicationExtras }>): Promise<boolean>;
     revoke(id: number): Promise<void>;
-    push(): Promise<void>;
+    push(): Promise<boolean>;
     setPrice(amount: number): Promise<void>;
     setFreeCopies(count: number): Promise<void>;
     revealHome(): Promise<string>;
@@ -354,12 +367,17 @@ interface Window {
     agentKey(source: string): Promise<AgentKey>;
     disconnectAgent(source: string, keep: boolean): Promise<SourceRemoval>;
     checkAgents(): Promise<void>;
+    agentAddress(): Promise<{ mcp_url: string }>;
+    allowSignIn(input: { id: string; app?: AgentApp; name?: string }): Promise<AllowedAgent>;
+    denySignIn(id: string): Promise<{ denied: string }>;
     /** Which of the owner's agent apps are installed on this Mac (APP-216). */
     agentApps(): Promise<AgentApp[]>;
     openAgentApp(id: AgentApp): Promise<void>;
     /** Where the first-run chat stands, or null if it never started (APP-215). */
     firstRun(): Promise<FirstRunState | null>;
     setFirstRun(next: FirstRunState): Promise<void>;
+    appearance(): Promise<AppearanceChoice>;
+    setAppearance(choice: AppearanceChoice): Promise<void>;
     /** Put the store online for the owner's agents only; signs in to Cloudflare in the browser first if it must. */
     storeOnline(): Promise<void>;
     /** The Cloudflare sign-in waiting on the browser: its page opened again, or the wait stopped. */
@@ -421,7 +439,9 @@ type AgentRequest =
   | { type: "auth-prompt"; id: string; task: AgentTask | null; prompt: AuthPrompt }
   | { type: "cloudflare"; id: string; task: AgentTask | null }
   | { type: "price"; id: string; task: AgentTask | null; amount: number; reason: string }
-  | { type: "open"; id: string; task: AgentTask | null; title: string; url: string; note: string };
+  | { type: "open"; id: string; task: AgentTask | null; title: string; url: string; note: string }
+  /** APP-226: what a store update puts out, for the owner's Confirm or Cancel. */
+  | { type: "changes"; id: string; task: AgentTask | null; heading: string; changes: StoreChange[] };
 
 type AgentEvent =
   | AgentRequest
@@ -439,11 +459,12 @@ type AgentEvent =
   | { type: "auth"; message?: string; event?: import("@earendil-works/pi-ai").AuthEvent }
   | { type: "progress"; text?: string; done?: boolean; error?: string }
   | { type: "sold" }
-  | { type: "show"; view: "store" | "today" | "automations" | "inventory"; source?: { id: string; label: string } }
+  | { type: "show"; view: "store" | "today" | "automations" | "inventory" | "connectors"; source?: { id: string; label: string } }
   | { type: "thread"; task: AgentTask }
   | { type: "ready" }
   /** What the owner's personal agents saved that Lore just brought in (APP-207). */
   | { type: "agents"; reads: SourceRead[] }
+  | { type: "sign-ins"; signIns: SignInRequest[] }
   /** Whether a Cloudflare sign-in is waiting on the owner's browser. */
   | { type: "signin"; pending: boolean }
   | { type: "update"; update: AppUpdate };
@@ -469,6 +490,16 @@ type LoreAgentInstance = {
 type Attachment = { name: string; path: string; size: number };
 
 type OpenStore = { network?: "real" | "test"; wallet?: string; inboxOnly?: boolean };
+
+/** One line on the card a store update waits on: a piece under its group's heading, or a store term, from what it was
+ * (when it was something) to what it becomes. */
+type StoreChange = { group: string; label: string; from?: string; to?: string };
+
+/** The terms a deploy for sale goes live with, and where the store's last deploy recorded it paid. */
+type SaleDeploy = { network: "real" | "test"; payout: string | null; recorded: { address: string; network: "real" | "test" | null } | null };
+
+/** The owner's card for what a store update puts out; true only on Confirm. */
+type Confirm = (heading: string, changes: StoreChange[]) => Promise<boolean>;
 
 type LoreAgentOptions = {
   loreHome: string;

@@ -10,7 +10,7 @@ blockers: []
 dependencies: []
 github_issue: null
 created: 2026-09-01
-updated: 2026-09-01
+updated: 2026-10-19
 ---
 
 ## Problem
@@ -59,3 +59,13 @@ Also reproduced earlier the same session via plain `npm start` in dev mode.
 Filed alongside APP-038 (a different, unrelated symptom from the same
 dogfood run) — keep them separate since the root causes are unlikely to be
 related (one is Keychain/signing, this one is an IPC wiring gap).
+
+**Prioritization 2026-10-19 (corrected in review):** not promoted; likely already
+fixed in source. `ipcMain.handle("agent:status", ...)` is registered at
+`app/desktop/src/main.cjs:110` inside `registerIpc`, which `app.whenReady()` calls at
+line 482, before `createWindow()` at line 483, and `preload.cjs:6` exposes the
+matching `agentStatus`. `git log -S'agent:status'` puts the handler in `ec97b0b`
+(APP-003, 2026-08-22), ten days before this report, so the 2026-09-01 error may have
+come from a stale or packaged build. It cannot be settled by reading code: it needs
+a launch log from a clean `npm start` on current main. If that log is clean, close
+this as `completed` and cite `ec97b0b`.

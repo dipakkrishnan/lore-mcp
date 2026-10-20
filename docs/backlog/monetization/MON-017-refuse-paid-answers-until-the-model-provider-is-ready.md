@@ -4,13 +4,13 @@ title: Refuse paid answers until the model provider is ready
 priority: P1
 effort: S
 component: monetization
-status: in-review
+status: ready
 related: [MCP-003, APP-035, EVAL-002]
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-08-28
-updated: 2026-08-28
+updated: 2026-10-19
 ---
 
 ## Problem
@@ -46,3 +46,5 @@ available for existing tickets. Never return or log a secret value.
 This is a payment-correctness prerequisite for exposing answer controls in
 Desktop (`APP-035`), not a request for provider setup UI, automatic secret
 creation, fallback models, refunds, or key rotation machinery.
+
+**Prioritization 2026-10-19:** promoted to `ready`. No open blockers, no commit on main implements it, and the acceptance criteria are concrete and checkable. Priority and effort unchanged.

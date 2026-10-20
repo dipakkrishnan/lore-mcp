@@ -1224,8 +1224,8 @@ class DeployTest(_NodeCase):
             self.assertRaisesRegex(ValueError, "no publication price is set"),
         ):
             deploy_module.deploy(WALLET)
-        # Without --wallet, a store with no payout address is still refused in seconds.
-        with self.assertRaisesRegex(ValueError, "no payout address"):
+        # Without --wallet or card payments, a store with no payout address is still refused in seconds.
+        with self.assertRaisesRegex(ValueError, "no way to be paid"):
             self._deploy(None, has_wallet_secret=False)
         self.assertIs(self._selling(), False)
         with self.assertRaisesRegex(OSError, "payout address"):
@@ -1318,8 +1318,31 @@ class DeployTest(_NodeCase):
     def test_a_node_with_no_payout_address_fails_in_seconds_not_after_a_deploy(
         self,
     ) -> None:
-        with self.assertRaisesRegex(ValueError, "no payout address"):
+        with self.assertRaisesRegex(ValueError, "no way to be paid") as refused:
             self._deploy(None, has_wallet_secret=False)
+        self.assertIn("lore cards connect", str(refused.exception))
+
+    def test_card_payments_open_a_store_with_no_payout_address(self) -> None:
+        # XC-039 cards are enough to sell: the store opens selling by card alone,
+        # with no wallet put and no wallet secret asked for.
+        with Store() as store:
+            store.set_setting("stripe_account", "acct_1Seller")
+        code, wrangler = self._deploy(None, has_wallet_secret=False)
+        self.assertEqual(code, 0)
+        self.assertEqual(wrangler.named("secret", "list"), [])
+        self.assertEqual(wrangler.named("secret", "put", "LORE_WALLET"), [])
+        self.assertIs(self._selling(), True)
+        self.assertFalse((self.store / "payout.json").exists())
+
+    def test_a_card_only_store_records_its_network_and_no_address(self) -> None:
+        self.store.mkdir(parents=True, exist_ok=True)
+        deploy_module._record_payout(self.store, None, "real")
+        payout = json.loads((self.store / "payout.json").read_text())
+        self.assertEqual(payout, {"address": None, "network": "real"})
+        # An address set later is kept with it.
+        deploy_module._record_payout(self.store, WALLET, None)
+        payout = json.loads((self.store / "payout.json").read_text())
+        self.assertEqual(payout, {"address": WALLET, "network": "real"})
 
     def test_a_custom_route_deploy_keeps_the_url_already_recorded(self) -> None:
         # A *successful* deploy that prints no workers.dev address means a custom
