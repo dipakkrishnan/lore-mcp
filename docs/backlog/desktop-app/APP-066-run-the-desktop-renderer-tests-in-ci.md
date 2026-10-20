@@ -10,7 +10,7 @@ blockers: []
 dependencies: []
 github_issue: null
 created: 2026-09-03
-updated: 2026-09-07
+updated: 2026-10-19
 ---
 
 ## Problem
@@ -92,3 +92,15 @@ was filed as `APP-058` from a branch cut before PR #214 landed
 first and keeps the id. Same race as the `APP-054` collision resolved in the
 same pull request — two branches each taking "highest on `main` plus one"
 while the other is open.
+
+**Prioritization 2026-10-19 (corrected in review):** not promoted; partly shipped,
+and the Problem section above is stale. `desktop-check` in
+`.github/workflows/tests.yml` (lines 67-78) already runs `support/edge.sh` for
+`feedback`, `connectors`, `faq`, `seller`, `store` and `agents`, each with a 5
+minute timeout (`1f0b864` XC-003 #334, `347769b` #473). `npm run test:edge` runs 20
+personas, so 14 are still not wired into CI: `provision`, `jobs`, `fresh`,
+`obsidian`, `reading`, `schedule`, `checkin`, `quiet`, `automations`, `sell`,
+`cards`, `sales`, `settings` and `today`. Before promoting, rewrite the Problem and
+acceptance criteria around that remaining gap (and whether those personas are
+deterministic enough to gate every PR), and check `app/desktop/README.md` for the
+"which suites CI runs" statement, which is not there yet.
