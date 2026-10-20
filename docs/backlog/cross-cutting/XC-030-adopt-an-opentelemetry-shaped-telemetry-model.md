@@ -4,13 +4,13 @@ title: Adopt an OpenTelemetry-shaped telemetry model and restate the privacy con
 priority: P1
 effort: S
 component: cross-cutting
-status: in-review
+status: ready
 related: [MON-020, MON-021, XC-029, CLI-004, APP-058]
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-09-07
-updated: 2026-10-10
+updated: 2026-10-19
 ---
 
 ## Problem
@@ -84,3 +84,8 @@ Nothing was changed.
 For prioritization: `XC-029` is still `ready` at `P1` and still a blocker
 of `APP-058`, and `XC-031` still says `RELAY_URL` is `None` while
 `lore/feedback.py` pins it.
+
+**Prioritization 2026-10-19 (corrected in review):** stays `ready`, but only for the
+last criterion. `docs/telemetry.md` already exists on main and the first two criteria
+are checked; what remains is pointing `APP-058` at it and making `APP-058` block on
+its collector and off-switch items. Do not rewrite the doc from the Problem text.
