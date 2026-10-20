@@ -134,7 +134,6 @@ obsolete), then `priority` (P0 → P3).
 | [APP-224](./desktop-app/APP-224-reconnect-an-existing-store.md) | Reconnect a store this Mac didn't set up | P2 | M | desktop-app | ready | APP-223, XC-069, APP-215 | — | — | — |
 | [APP-086](./desktop-app/APP-086-show-attached-file-names-in-the-capture-thread.md) | Show attached file names in the capture thread | P3 | XS | desktop-app | ready | APP-003 | — | — | — |
 | [XC-006](./cross-cutting/XC-006-ship-the-owner-skills-as-agent-plugins.md) | Ship the owner skill pack as agent plugins with a marketplace entry | P3 | M | cross-cutting | ready | XC-005, ONB-001 | — | — | — |
-| [APP-066](./desktop-app/APP-066-run-the-desktop-renderer-tests-in-ci.md) | Run the desktop renderer's persona tests in CI | P1 | S | desktop-app | in-progress | APP-054, APP-055, APP-056, APP-057, APP-007, XC-004, XC-014 | — | — | — |
 | [APP-058](./desktop-app/APP-058-measure-the-alpha-activation-funnel.md) | Measure the alpha activation funnel | P1 | S | desktop-app | in-progress | APP-001, APP-041, XC-030, XC-029, CLI-004 | XC-029, CLI-004 | — | — |
 | [MON-029](./monetization/MON-029-cache-store-pages-at-the-edge.md) | Serve store pages from Cloudflare's edge cache without running the Worker | P1 | S | monetization | in-progress | XC-040, MON-018, MON-034 | — | — | — |
 | [XC-019](./cross-cutting/XC-019-say-what-changed-behind-a-flagged-publication.md) | Say what changed behind a flagged publication | P1 | M | cross-cutting | in-progress | MON-004, APP-006, APP-011, STO-001, XC-035 | — | — | — |
@@ -169,6 +168,7 @@ obsolete), then `priority` (P0 → P3).
 | [APP-029](./desktop-app/APP-029-one-live-input-at-a-time.md) | One live input at a time — the card or the composer, never both | P0 | S | desktop-app | completed | APP-016, APP-020, APP-028 | — | — | — |
 | [APP-032](./desktop-app/APP-032-approval-drafts-render-where-the-owner-is.md) | Approval drafts render where the owner is | P0 | S | desktop-app | completed | APP-020, APP-023, APP-006 | — | — | — |
 | [STO-001](./store-import/STO-001-private-by-default-and-publications-table.md) | Private-by-default memories and a separate publications table | P0 | M | store-import | completed | CLI-001, ONB-001, XC-001, XC-002 | — | — | [#6](https://github.com/dipakkrishnan/lore-mcp/issues/6) |
+| [APP-066](./desktop-app/APP-066-run-the-desktop-renderer-tests-in-ci.md) | Run the desktop renderer's persona tests in CI | P1 | S | desktop-app | completed | APP-054, APP-055, APP-056, APP-057, APP-007, XC-004, XC-014 | — | — | — |
 | [APP-213](./desktop-app/APP-213-show-where-every-memory-came-from.md) | Show where every memory came from | P1 | M | desktop-app | completed | APP-207, APP-210, APP-212 | — | — | — |
 | [APP-071](./desktop-app/APP-071-ask-for-a-typed-value-with-a-labeled-field.md) | Ask for a typed value with a labeled field, not a one-option list | P1 | S | desktop-app | completed | XC-024, APP-056, APP-057 | — | — | — |
 | [APP-073](./desktop-app/APP-073-keep-a-dogfood-sandbox-off-the-owners-live-node.md) | Keep a dogfood sandbox off the owner's live node | P1 | S | desktop-app | completed | APP-038, MON-019, XC-018 | — | — | — |

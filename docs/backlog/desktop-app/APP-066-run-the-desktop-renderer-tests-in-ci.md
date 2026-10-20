@@ -4,7 +4,7 @@ title: Run the desktop renderer's persona tests in CI
 priority: P1
 effort: S
 component: desktop-app
-status: in-progress
+status: completed
 related: [APP-054, APP-055, APP-056, APP-057, APP-007, XC-004, XC-014]
 blockers: []
 dependencies: []
@@ -39,9 +39,9 @@ Out of scope: `npm run test:capture`, which prompts the operator for Return.
 
 ## Acceptance criteria
 
-- [ ] `desktop-check` runs every `test:edge` persona on every pull request,
+- [x] `desktop-check` runs every `test:edge` persona on every pull request,
       and a deliberate renderer regression fails the job.
-- [ ] The job needs no provider or Cloudflare credential to pass.
+- [x] The job needs no provider or Cloudflare credential to pass.
 - [x] The harness's failure output identifies which persona and which named
       check failed, from the CI log alone (each persona is its own step; `edge.sh`
       prints `FAIL <check name>`).
@@ -88,6 +88,8 @@ deterministic enough to gate every PR), and check `app/desktop/README.md` for th
 all pass both times with identical check counts, slowest 45 s (`automations`), after
 fixing the two stale `automations` checks. Added `test/ci-edge.test.cjs`, which
 passes on the real workflow and fails naming the persona when a step is removed.
-Criteria 1 and 2 stay unticked until `desktop-check` runs green on the PR runner,
-which has no secrets configured. The rewritten Problem section replaces the original
+Criteria 1 and 2 were confirmed on the PR (#514): `desktop-check` ran all 21 persona
+steps green on the macOS runner, which has no secrets configured, in 16m24s (about 8 min
+before). A regression failing the job is shown by `automations`, which exited non-zero
+on its two stale checks before they were fixed; `edge.sh` exits 1 on any non-PASS line. The rewritten Problem section replaces the original
 filing text, which predated the six walks already in CI.
