@@ -38,17 +38,36 @@ function systemPrompt(proxy: string): string {
   );
 }
 
-function modelConfig(env: AnswerEnv): { id: string; provider: Provider; apiKey: string } {
+type ModelConfig = { id: string; provider: Provider; apiKey: string };
+
+/** The one place that maps the configured model to its provider and the binding it needs. */
+function resolveModel(env: AnswerEnv): { config: ModelConfig } | { reason: string } {
   const id = env.LORE_ANSWER_MODEL || DEFAULT_MODEL;
   if (id === "claude-sonnet-5") {
-    if (!env.ANTHROPIC_API_KEY) throw new Error("the node has no ANTHROPIC_API_KEY secret");
-    return { id, provider: anthropicProvider(), apiKey: env.ANTHROPIC_API_KEY };
+    if (!env.ANTHROPIC_API_KEY) return { reason: "the node has no ANTHROPIC_API_KEY secret" };
+    return { config: { id, provider: anthropicProvider(), apiKey: env.ANTHROPIC_API_KEY } };
   }
   if (id === "gpt-5.6-luna") {
-    if (!env.OPENAI_API_KEY) throw new Error("the node has no OPENAI_API_KEY secret");
-    return { id, provider: openaiProvider(), apiKey: env.OPENAI_API_KEY };
+    if (!env.OPENAI_API_KEY) return { reason: "the node has no OPENAI_API_KEY secret" };
+    return { config: { id, provider: openaiProvider(), apiKey: env.OPENAI_API_KEY } };
   }
-  throw new Error(`unsupported answer model: ${id}`);
+  return { reason: `unsupported answer model: ${id}` };
+}
+
+function modelConfig(env: AnswerEnv): ModelConfig {
+  const resolved = resolveModel(env);
+  if ("reason" in resolved) throw new Error(resolved.reason);
+  return resolved.config;
+}
+
+/**
+ * Whether this node could run an answer it is paid for (MON-017). Checked before `answer` is
+ * advertised or charged, so a buyer never pays for a failure the node already knew about. The
+ * reason names only the missing binding or the unsupported model, never a value.
+ */
+export function answerReadiness(env: AnswerEnv): { ready: true } | { ready: false; reason: string } {
+  const resolved = resolveModel(env);
+  return "reason" in resolved ? { ready: false, reason: resolved.reason } : { ready: true };
 }
 
 export async function runAnswer(

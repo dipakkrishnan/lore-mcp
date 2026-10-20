@@ -14,7 +14,7 @@ const { FirstRun } = require("./firstrun.cjs");
 const { Appearance } = require("./appearance.cjs");
 const { Watch, WATCH_EVERY_MS, AgentApps } = require("./agents.cjs");
 const { checkAttachments } = require("./attachments.cjs");
-const { lore, listRoutines, runRoutine, changeRoutine, addRoutine, editRoutine, switchSource, openable, readState, readSales, readViews, searchMemories, readMemory, creditMemories, renameMemory, editMemory, captureMemories, previewPage, setPrice, setFreeCopies, candidates, decide, extrasCandidates, decideExtras, approveExtras, reportFeedback, listStore, cardStatus, connectCards, switchCards, listingStatus, sourceCatalog, sourceChoices, connectSource, signIn, readSource, removeSource, listAgents, connectAgent, agentKey, disconnectAgent, agentsWaiting, useRuntime, openStore, Outgoing, storeOnline, cloudflareSignIn, saveProfile, ATTENDED_KEYS, forgetKey, STORE } = require("./state.cjs");
+const { lore, listRoutines, runRoutine, changeRoutine, addRoutine, editRoutine, switchSource, openable, readState, readSales, readViews, searchMemories, readMemory, creditMemories, renameMemory, editMemory, captureMemories, previewPage, setPrice, setFreeCopies, candidates, decide, extrasCandidates, decideExtras, approveExtras, reportFeedback, listStore, cardStatus, connectCards, switchCards, listingStatus, sourceCatalog, sourceChoices, connectSource, signIn, readSource, removeSource, listAgents, connectAgent, agentKey, disconnectAgent, agentsWaiting, agentAddress, allowSignIn, denySignIn, useRuntime, openStore, Outgoing, storeOnline, cloudflareSignIn, saveProfile, ATTENDED_KEYS, forgetKey, STORE } = require("./state.cjs");
 
 if (process.env.LORE_DESKTOP_USER_DATA) app.setPath("userData", process.env.LORE_DESKTOP_USER_DATA);
 // Two copies sharing one credentials file each refresh the sign-in, and the provider refuses the second.
@@ -318,6 +318,9 @@ function registerIpc(loreHome, schedule, watch, outgoing) {
   ipcMain.handle("agents:key", (_event, source) => agentKey(loreHome, source));
   ipcMain.handle("agents:disconnect", (_event, source, keep) => disconnectAgent(loreHome, source, keep === true));
   ipcMain.handle("agents:check", () => watch.check());
+  ipcMain.handle("agents:address", () => agentAddress(loreHome));
+  ipcMain.handle("agents:allow", (_event, input) => allowSignIn(loreHome, input));
+  ipcMain.handle("agents:deny", (_event, id) => denySignIn(loreHome, id));
   // APP-216: which of the owner's agent apps are on this Mac, and opening one by its id.
   const agentApps = new AgentApps(["/Applications", join(app.getPath("home"), "Applications")], (path) => shell.openPath(path));
   ipcMain.handle("agents:installed", () => agentApps.installed());
@@ -477,6 +480,8 @@ function createWindow() {
 app.whenReady().then(async () => {
   const loreHome = process.env.LORE_HOME || join(app.getPath("home"), ".lore");
   // The owner's rhythm, kept by Lore while it is open; an hour missed while it was closed runs once, after setup.
+  /** The sign-ins the owner has been told of. @type {Set<string>} */
+  const told = new Set();
   const schedule = new Schedule(() => listRoutines(loreHome), (routine) => runNow(loreHome, routine));
   const watch = new Watch({
     ready: () => hasStore(loreHome),
@@ -485,6 +490,14 @@ app.whenReady().then(async () => {
     landed: async (reads) => {
       await queueReadings(loreHome, reads);
       emit({ type: "agents", reads });
+    },
+    asked: (signIns) => {
+      emit({ type: "sign-ins", signIns });
+      // XC-068: the app's page waits on the owner, so one away from Lore hears of each ask once.
+      for (const asking of signIns.filter((each) => !told.has(each.id))) {
+        told.add(asking.id);
+        if (!window?.isFocused()) sales.notify({ title: `${asking.name} wants to save to your Lore`, body: "Open Lore to allow it." }, () => reveal({ type: "show", view: "connectors" }));
+      }
     }
   });
   const outgoing = new Outgoing(loreHome, async (heading, changes) => (await request("changes", { heading, changes })) === true);

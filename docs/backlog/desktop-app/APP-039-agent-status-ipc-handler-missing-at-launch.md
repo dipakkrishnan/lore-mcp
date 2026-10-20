@@ -73,7 +73,7 @@ this as `completed` and cite `ec97b0b`.
 **Completed 2026-10-20 (already fixed; verified, no code change):**
 
 - **Root cause.** The renderer calls `window.lore.agentStatus()` at startup, which `invoke`s `agent:status`. At the 2026-09-01 report (`bfe7dbb`), `createWindow()` ran at `main.cjs:135` but `registerIpc(loreHome)` only ran at line 208, after the awaited provisioning. So the first call beat the handler and Electron logged `No handler registered`. That also explains why it fired before `uv` provisioning output and before any owner action.
-- **Fix.** `691cd98` (APP-054, 2026-09-02, #192) moved `registerIpc(...)` ahead of `createWindow()` (now `main.cjs:491` then `:493`). The handler itself dates from `ec97b0b` (APP-003) and is unchanged (`main.cjs:113`).
+- **Fix.** `691cd98` (APP-054, 2026-09-02, #192) moved `registerIpc(...)` ahead of `createWindow()` (now `main.cjs:504` then `:506`). The handler itself dates from `ec97b0b` (APP-003) and is unchanged (`main.cjs:113`).
 - **Clean launch.** Launched `electron .` on current main in an isolated sandbox (temp `LORE_HOME`, `LORE_STORE`, user data and `XDG_CONFIG_HOME`; schedule skipped) for 25 seconds with `ELECTRON_ENABLE_LOGGING=1`: no output at all, and zero `agent:status` or `No handler registered` hits. Did not run the packaged `dogfood:new` build.
 - **Feature works.** `support/edge.sh fresh` exits 0 with no `No handler registered` in its output; its sign-in and sign-out checks go through `agentStatus`.
 - **Not done.** Nothing pins the ordering, so a regression would only show as this log line. APP-064 (preload/main IPC contract test) covers channel-to-handler matching but not ordering.
