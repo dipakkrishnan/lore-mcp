@@ -58,6 +58,11 @@ let signingIn = false;
 /** Whatever waits on an agent's save (its setup sheet, the first-run chat), told whatever Lore brings in from the
  * owner's agents. @type {Set<(reads: SourceRead[]) => void>} */
 const agentWaiting = new Set();
+/** XC-068: a setup sheet waiting on its app's sign-in, which takes the first that asks; and the sign-ins the owner
+ * already answered, so one is never asked about twice. @type {Set<(asking: SignInRequest) => void>} */
+const signInWaiting = new Set();
+/** @type {Set<string>} */
+const answeredSignIns = new Set();
 /** What Lore does on its own, as the CLI lists it. @type {Routine[]} */
 let routines = [];
 /** The routines the owner started that are still going. @type {Set<string>} */
@@ -785,37 +790,81 @@ function readingRow(item) {
   return card([reading]);
 }
 
-/** What Lore made of a connected app's newest items: each new memory, and a draft one press away for the ones worth selling. @param {ReadyRun[]} runs */
+/** Today's groups of new memories the owner has opened, by who they came from; each starts folded. @type {Set<string>} */
+const openGroups = new Set();
+
+const DISCLOSE = lineIcon(`<path d="M9 6l6 6-6 6"></path>`);
+
+/** What Lore made of what came in, one folded group per agent, app or routine: who, how many, and the memories inside
+ * a click away, so Today stays short and its next step in view. @param {ReadyRun[]} runs */
 function memoriesReady(runs) {
-  const memories = runs.flatMap((run) => run.memories.map((memory) => ({ ...memory, by: run.by })));
-  const selling = memories.filter((memory) => memory.sell).length;
-  const [latest] = runs;
-  // An agent's saves come in by the item and leave as fewer memories, so its line names the agent, not how many it sent.
-  const heading = latest.from && runs.every((run) => run.from === latest.from) ? `From ${latest.from}` : runs.every((run) => run.title === latest.title) ? latest.title : "Lore read what you brought in";
-  const detail = [plural(memories.length, "new memory"), selling ? `${selling} worth selling` : ""].filter(Boolean).join(" · ");
-  const clear = button("Clear", "quiet", () => void window.lore.clearMemories().then(() => { readyRuns = []; render(); }));
   /** What the library has on record for a memory, or, until the reading's own credit lands (it is recorded last), who the
    * reading was. @param {number} id @param {Contributor} [by] */
   const sources = (id, by) => {
     const kept = snapshot?.library.items.find((item) => item.id === id)?.sources;
     return by && (!kept || kept[0]?.kind === "lore") ? [{ ...by, at: null }] : kept;
   };
+  /** @type {Map<string, ReadyRun[]>} */
+  const groups = new Map();
+  for (const run of runs) {
+    const key = run.by?.id ?? run.title;
+    groups.set(key, [...(groups.get(key) ?? []), run]);
+  }
   const list = el("div", "routines today-cards");
-  for (const memory of memories) {
-    const node = sourcedRow({ id: memory.id, title: memory.title, sources: sources(memory.id, memory.by) }, [memory.sell ? `Worth selling · ${memory.why}` : memory.work ? "Work · stays private" : "Private"], memory.sell);
-    node.classList.add("routine");
-    list.append(node);
-  }
+  for (const [key, group] of groups) list.append(readyGroup(key, group, sources));
   noticeReady();
-  const aside = el("div", "list-aside");
-  aside.append(el("span", "", `${heading} · ${detail}`));
-  // One agent behind every memory here: one click to what it saved.
-  const by = runs[0].by;
-  if (by?.kind === "agent" && runs.every((run) => run.by?.id === by.id) && memories.every((memory) => sources(memory.id, memory.by)?.some((source) => source.id === by.id))) {
-    aside.append(inline("See them →", () => seeFrom({ id: by.id, label: by.label })));
+  const clear = button("Clear", "quiet", () => void window.lore.clearMemories().then(() => { readyRuns = []; render(); }));
+  return section("New memories", list, clear);
+}
+
+/** One contributor's new memories: a row that says who and how many, opening onto the memories themselves.
+ * @param {string} key @param {ReadyRun[]} runs @param {(id: number, by?: Contributor) => MemorySource[] | undefined} sources */
+function readyGroup(key, runs, sources) {
+  const [latest] = runs;
+  const memories = runs.flatMap((run) => run.memories.map((memory) => ({ ...memory, by: run.by })));
+  const selling = memories.filter((memory) => memory.sell).length;
+  const by = latest.by;
+  const heading = latest.from ? `From ${latest.from}` : latest.title;
+  // An agent's saves that only added to memories already kept still say they arrived, and where to find them.
+  const read = runs.reduce((sum, run) => sum + run.read, 0);
+  const detail = memories.length ? [plural(memories.length, "new memory"), selling ? `${selling} worth selling` : ""].filter(Boolean).join(" · ") : `${plural(read, "save")} · already in your memories`;
+  const box = el("div", "ready-group");
+  const head = el("div", "row routine ready-head");
+  const toggle = el("button", "task-link");
+  toggle.type = "button";
+  const text = el("div", "t");
+  text.append(el("b", "sans", heading), el("span", "", detail));
+  toggle.append(text);
+  const marks = el("span", "mark-stack");
+  marks.append(markTile(by ? sourceMark({ ...by, at: null }) : RING));
+  head.append(marks, toggle);
+  if (by?.kind === "agent") head.append(inline("See them →", () => seeFrom({ id: by.id, label: by.label })));
+  const open = openGroups.has(key);
+  if (memories.length) {
+    const chevron = el("span", "disclose");
+    chevron.innerHTML = DISCLOSE;
+    head.append(chevron);
+    toggle.setAttribute("aria-expanded", String(open));
+    head.addEventListener("click", (event) => {
+      if (event.target instanceof Element && event.target.closest("button.inline")) return;
+      if (openGroups.has(key)) openGroups.delete(key);
+      else openGroups.add(key);
+      render();
+    });
+  } else head.classList.add("still");
+  box.classList.toggle("open", open);
+  box.append(head);
+  if (open && memories.length) {
+    const items = el("div", "ready-items");
+    for (const memory of memories) {
+      // The group already says who; a memory says only what it is to the owner, unless more than one wrote it.
+      const kept = sources(memory.id, memory.by);
+      const status = memory.sell ? `Worth selling · ${memory.why}` : memory.work ? "Work · stays private" : "Private";
+      items.append((kept?.length ?? 0) > 1 ? sourcedRow({ id: memory.id, title: memory.title, sources: kept }, [status], memory.sell) : memoryRow(memory.id, memory.title, status, memory.sell));
+    }
+    box.append(items);
   }
-  aside.append(clear);
-  return section("New memories", list, aside);
+  return box;
 }
 
 /** The owner is looking at the new memories, so the dock stops counting them. */
@@ -930,10 +979,13 @@ function signInCard() {
   return box;
 }
 
-/** Whether a read left the place it read readable. @param {SourceRead[]} reads @param {string} name */
-function readable(reads, name) {
-  const read = reads.find((each) => each.name === name);
-  return Boolean(read && CONNECTION_STATES[read.state].ok);
+/** What a place macOS keeps Lore out of throws, so the first run asks for the access rather than another try. */
+const MAC_SAYS_NO = "macOS hasn't let Lore read it";
+
+/** Throws, in words the first run can tell apart, unless the place reads. @param {SourceState | undefined} state */
+function readOrThrow(state) {
+  if (state === "needs_permission") throw new Error(MAC_SAYS_NO);
+  if (!CONNECTION_STATES[state ?? "connected"].ok) throw new Error("Lore can't read it yet");
 }
 
 /** How long Lore waits on where the first run stands before going on without it. */
@@ -968,6 +1020,8 @@ class FirstRunChat {
   saved = 0;
   /** The agent apps on this Mac (APP-216). @type {AgentApp[]} */
   installed = [];
+  /** Whether macOS kept Lore out of a place it tried. */
+  walled = false;
   /** The places found on this Mac, each to connect, until the owner connects them. @type {Array<{label: string, mark: string, detail: string, on: boolean, connect: (run: number) => Promise<string | undefined>}> | null} */
   found = null;
   /** What the one tap connected. @type {string[]} */
@@ -1176,12 +1230,13 @@ class FirstRunChat {
         let known = byPlace.get(vault.locator)?.name ?? null;
         return { label: `Obsidian · ${vault.label}`, mark: "obsidian", detail: "Your notes", on: true, connect: async () => {
           if (known) {
-            if (!readable(await window.lore.readSource(known), known)) throw new Error("Lore can't read it yet");
+            const name = known;
+            readOrThrow((await window.lore.readSource(name)).find((read) => read.name === name)?.state ?? "unreachable");
             return known;
           }
           const added = await window.lore.connectSource({ connector: "obsidian", locator: vault.locator });
           known = added.name;
-          if (!CONNECTION_STATES[added.state ?? "connected"].ok) throw new Error("Lore can't read it yet");
+          readOrThrow(added.state);
           return known;
         } };
       }),
@@ -1192,7 +1247,7 @@ class FirstRunChat {
         if (!source.owned) await window.lore.switchSource(source.name, true);
         // Skipped while it was being switched on: it is not read after the owner left.
         if (!this.current(run)) return;
-        if (!readable(await window.lore.readSource(source.name), source.name)) throw new Error("Lore can't read it yet");
+        readOrThrow((await window.lore.readSource(source.name)).find((read) => read.name === source.name)?.state ?? "unreachable");
         return source.name;
       } }))
     ];
@@ -1209,14 +1264,16 @@ class FirstRunChat {
     this.working = true;
     this.redraw();
     const failed = [];
+    let walled = false;
     for (const place of chosen) {
       /** @type {string | undefined} */
       let name;
       let ok = true;
       try {
         name = await place.connect(run);
-      } catch {
+      } catch (error) {
         ok = false;
+        if (/** @type {Error} */ (error).message === MAC_SAYS_NO) walled = true;
       }
       if (!this.current(run)) return;
       if (ok) this.connected.push(short(place));
@@ -1224,7 +1281,9 @@ class FirstRunChat {
       if (name) this.brought.push(name);
     }
     this.found = failed;
-    this.unconnected = failed.length ? `${named(failed.map(short))} didn't connect. Try again.` : "";
+    // A folder macOS keeps Lore out of never reads on another try: the owner allows Lore first.
+    this.walled = walled;
+    this.unconnected = !failed.length ? "" : walled ? `macOS hasn't let Lore read ${named(failed.map(short))}. Allow Lore in System Settings, then try again.` : `${named(failed.map(short))} didn't connect. Try again.`;
     if (!failed.length) this.appsDone = true;
     this.working = false;
     await load();
@@ -1289,10 +1348,7 @@ class FirstRunChat {
     owner(who);
     if (this.stage === "end") {
       lore(this.savedCard(s, who));
-      lore("That's it. What it brought in stays private on this Mac. When you want to sell some of it, Today shows the next step.");
-      const actions = el("div", "actions first-run-actions");
-      actions.append(button("Go to Today", "primary", () => this.leave("done")));
-      chat.append(actions);
+      this.closing(chat, lore, "What it brought in");
       return this.said(chat, lore);
     }
     if (this.stage === "store") {
@@ -1336,12 +1392,18 @@ class FirstRunChat {
     if (this.stage !== "saved") lore(this.connectCard(app, who), waitLine(who, true));
     if (this.stage === "saved") {
       lore(this.savedCard(s, who));
-      lore("That's it. What it saves stays private on this Mac. When you want to sell some of it, Today shows the next step.");
-      const actions = el("div", "actions first-run-actions");
-      actions.append(button("Go to Today", "primary", () => this.leave("done")));
-      chat.append(actions);
+      this.closing(chat, lore, "What it saves");
     }
     return this.said(chat, lore);
+  }
+
+  /** The last word, then the next AI or Today: most people talk to more than one, and the next is a tap away, in the
+   * same sheet Connectors uses. @param {HTMLElement} chat @param {(said: string | HTMLElement) => void} lore @param {string} what */
+  closing(chat, lore, what) {
+    lore(`That's it. ${what} stays private on this Mac. Connect another AI you talk to, or go to Today, which shows the next step when you want to sell some of it.`);
+    const actions = el("div", "actions first-run-actions");
+    actions.append(button("Connect another AI", "secondary", () => this.leave("done", () => { show("connectors"); new AgentSetup().open(); })), button("Go to Today", "primary", () => this.leave("done")));
+    chat.append(actions);
   }
 
   /** The notices a new owner would otherwise get on Today, as one quiet line at the foot of the chat (APP-215).
@@ -1393,13 +1455,9 @@ class FirstRunChat {
     const box = el("div", "card first-connect");
     const guide = AGENT_GUIDES[app]?.first;
     if (this.handed) {
-      if (guide?.brief) box.append(el("p", "first-steps", guide.brief));
-      else if (guide) {
-        const list = el("ol", "agent-steps");
-        for (const step of guide.steps) list.append(el("li", "", step));
-        box.append(list);
-      }
-      box.append(guide?.message ? privateLink(this.handed, guide.message, "Copy message") : privateLink(this.handed));
+      if (guide?.brief) box.append(el("p", "first-steps", guide.brief), privateLink(this.handed, guide.message ?? "", "Copy message"));
+      else box.append(...(guide ? howTo(this.handed, guide) : [privateLink(this.handed)]));
+      box.append(...afterConnect(app, who));
     }
     if (this.problem) box.append(el("p", "problem", this.problem));
     const foot = el("div", "first-connect-foot");
@@ -1473,7 +1531,7 @@ class FirstRunChat {
     go.disabled = this.working || !count;
     const later = button("Not now", "secondary", () => { this.appsDone = true; this.redraw(); });
     later.disabled = this.working;
-    actions.append(later, go);
+    actions.append(later, ...(this.walled && !this.working ? [button("Open System Settings", "secondary", () => void window.lore.openPrivacySettings())] : []), go);
     box.append(list, actions);
     return box;
   }
@@ -2555,28 +2613,38 @@ const STORE_FIRST = "Your agents work online, so they need a place online to sav
  * `again` is the same for a new link, which replaces the Lore connector the agent already has rather than adding one;
  * `or` is the quiet alternative under the last step, and `brief` the steps as one line, for the first-run chat. Grok Bot
  * has no menu to add a connector by hand: the message pasted into its chat is the only documented way (APP-217).
- * @typedef {{steps: string[], brief?: string, message?: string, or?: string}} AgentSteps
- * @type {Partial<Record<AgentApp, {first: AgentSteps, again: AgentSteps, note?: string, routine: string}>>} */
+ * `ask` is a message an agent with a menu can also be sent instead, to add Lore itself.
+ * XC-068: `signIn` is the way with no key at all: the plain address, then the agent signs in and the owner allows it here.
+ * @typedef {{steps: string[], brief?: string, message?: string, or?: string, ask?: string}} AgentSteps
+ * @type {Partial<Record<AgentApp, {first: AgentSteps, again: AgentSteps, signIn: AgentSteps, note?: string, routine: string}>>} */
 const AGENT_GUIDES = {
   grok: {
     first: { steps: ["Copy the message", "Paste it into Grok Bot's chat", "Lore shows when the first save arrives"], brief: "Copy this message and paste it into a Grok Bot chat.", message: "Add this MCP server to my account: " },
+    signIn: { steps: ["Copy the message", "Paste it into Grok Bot's chat", "When Grok Bot opens a sign-in page, allow it here"], message: "Add this MCP server to my account: " },
     again: { steps: ["Copy the message", "Paste it into Grok Bot's chat", "Lore shows when the next save arrives"], message: "Replace the Lore MCP server in my account with this one: " },
     routine: "routine"
   },
   claude: {
     first: { steps: ["In Claude, open Customize › Connectors, then + Add › Add custom connector", "Name it Lore, paste the link below, and choose Continue", "Choose No sign in, then Add"] },
+    signIn: { steps: ["In Claude, open Customize › Connectors, then + Add › Add custom connector", "Name it Lore, paste the address below, and choose Continue", "Choose Sign in now, then allow it here"] },
     again: { steps: ["In Claude, open Customize › Connectors", "Open the Lore connector you added before and replace its link with this one"], or: "Or remove it and add a new one named Lore with this link" },
     note: "Claude's free plan allows one custom connector.",
     routine: "scheduled task"
   },
   chatgpt: {
-    first: { steps: ["In ChatGPT, open Plugins, then + › Add custom MCP server", "Name it Lore, paste the link below, choose No authentication, and continue", "Choose Create"] },
-    again: { steps: ["In ChatGPT, open Plugins", "Open the Lore connector you added before and replace its link with this one"], or: "Or remove it and add a new one named Lore with this link" },
+    signIn: { steps: ["In ChatGPT, open Plugins, then + › Add custom MCP server", "Name it Lore, paste the address below, choose OAuth, and continue", "Choose Create, then allow it here"] },
+    first: { steps: ["In ChatGPT, open Plugins, then its settings, and choose Add MCP server", "Name it Lore, choose Streamable HTTP, and paste the link below as the URL", "Leave arguments empty, then save"], ask: "Add this MCP server to my account as Lore, using Streamable HTTP and no arguments: " },
+    again: { steps: ["In ChatGPT, open Plugins, then its settings", "Open the Lore server you added before and replace its URL with this one"], or: "Or remove it and add a new one named Lore with this link" },
     note: "Saving to Lore needs a ChatGPT plan that allows custom connectors to write.",
     routine: "scheduled task"
   }
 };
-const EVERY_EVENING = "Every evening, save anything new you learned about me to Lore.";
+/** What to send an agent once it's connected: save now, so the first save shows the connection works, and, where it
+ * has a schedule, set one up. The agent asks the owner before it schedules anything, so this is one paste, not two.
+ * @param {string} [kind] What the agent calls a scheduled ask. */
+const saveAsk = (kind) => `Save what you know about me to Lore: who I am, what I like, how I work, and what I'm into lately.${kind ? ` Then set up a ${kind} that does this every evening.` : ""}`;
+/** The same schedule on its own, for an agent that already saves. @param {string} kind */
+const eveningAsk = (kind) => `Set up a ${kind} that saves anything new you learn about me to Lore every evening.`;
 /** While the setup sheet waits on a first save, it asks the store this often, not once a minute. */
 const FIRST_SAVE_EVERY_MS = 10_000;
 
@@ -2697,25 +2765,36 @@ function copyButton(text, label = "Copy") {
 /** The one link an agent needs, its key masked, copied whole; with `lead`, the message around it that the agent needs
  * instead. @param {AgentKey} handed @param {string} [lead] @param {string} [label] */
 function privateLink(handed, lead = "", label = "Copy") {
+  const address = el("span", "agent-link-url");
+  address.append(handed.mcp_url + "/", el("span", "agent-link-key", "••••••••••••"));
+  return copyLink(address, handed.connector_url, handed.agent.name, lead, label);
+}
+
+/** The plain address an agent signs in at, which holds no key, copied the same way (XC-068).
+ * @param {string} url @param {string} who @param {string} [lead] @param {string} [label] */
+function plainLink(url, who, lead = "", label = "Copy") {
+  return copyLink(el("span", "agent-link-url", url), url, who, lead, label);
+}
+
+/** @param {HTMLElement} address what shows @param {string} url what is copied @param {string} who @param {string} lead @param {string} label */
+function copyLink(address, url, who, lead, label) {
   const link = el("button", lead ? "agent-link agent-message" : "agent-link");
   link.type = "button";
   link.setAttribute("aria-label", lead ? label : "Copy link");
   const shown = el("span", "agent-link-text");
-  const address = el("span", "agent-link-url");
-  address.append(handed.mcp_url + "/", el("span", "agent-link-key", "••••••••••••"));
   if (lead) {
     // APP-218: a plain name for what gets pasted, and the message itself quietly under it, never broken inside its link.
     const quote = el("span", "agent-link-quote", lead);
     quote.append(address);
-    shown.append(el("span", "agent-link-lead", `Message for ${handed.agent.name}`), quote);
+    shown.append(el("span", "agent-link-lead", `Message for ${who}`), quote);
   } else shown.append(address);
   const glyph = el("span", "agent-link-icon");
   glyph.innerHTML = COPY_ICON;
   const word = el("span", "agent-link-word", label);
   link.append(shown, glyph, word);
   // Selecting the shown link and copying it by hand would take the dots, so a hand copy also takes the real link.
-  link.addEventListener("copy", (event) => { event.preventDefault(); event.clipboardData?.setData("text/plain", lead + handed.connector_url); });
-  link.addEventListener("click", () => void window.lore.copy(lead + handed.connector_url).then(() => {
+  link.addEventListener("copy", (event) => { event.preventDefault(); event.clipboardData?.setData("text/plain", lead + url); });
+  link.addEventListener("click", () => void window.lore.copy(lead + url).then(() => {
     link.classList.add("copied");
     glyph.innerHTML = CHECK_ICON;
     word.textContent = "Copied";
@@ -2724,16 +2803,27 @@ function privateLink(handed, lead = "", label = "Copy") {
   return link;
 }
 
-/** After its first save, an agent can be asked to save every evening on its own schedule. Optional, so quiet.
+/** A sentence to paste into an agent, with what it's for and a Copy button. @param {string} what @param {string} text */
+function promptOffer(what, text) {
+  const offer = el("div", "agent-next");
+  const words = el("div", "agent-next-words");
+  words.append(el("span", "", what), el("span", "agent-next-quote", `“${text}”`));
+  offer.append(words, copyButton(() => text));
+  return offer;
+}
+
+/** An agent can be asked to save every evening on its own schedule, where it has one. Optional, so quiet.
  * @param {AgentApp | null | undefined} app @param {string} who */
 function eveningOffer(app, who) {
   const kind = app ? AGENT_GUIDES[app]?.routine : undefined;
-  if (!kind) return null;
-  const offer = el("div", "agent-next");
-  const words = el("div", "agent-next-words");
-  words.append(el("span", "", `Optional: paste this into ${who} as a ${kind}, so it saves every evening.`), el("span", "agent-next-quote", `“${EVERY_EVENING}”`));
-  offer.append(words, copyButton(() => EVERY_EVENING));
-  return offer;
+  return kind ? promptOffer(`Send ${who} this, so it saves every evening on its own:`, eveningAsk(kind)) : null;
+}
+
+/** Once connected: what to send so the first save comes now, and, where the agent has a schedule, its evening save.
+ * @param {AgentApp | null | undefined} app @param {string} who @returns {HTMLElement[]} */
+function afterConnect(app, who) {
+  const kind = app ? AGENT_GUIDES[app]?.routine : undefined;
+  return [promptOffer(kind ? `Then send ${who} this. It saves now, and every evening after:` : `Then send ${who} this, so it saves right away:`, saveAsk(kind))];
 }
 
 /** APP-207: connecting one of the owner's personal agents, in one sheet: their store online first if it isn't yet,
@@ -2790,12 +2880,97 @@ class AgentSetup {
       failed: "Lore couldn't connect it. Try again.",
       submit: async () => {
         if (!chosen) return false;
-        const handed = await window.lore.connectAgent({ app: chosen[0], name: chosen[1] });
-        void load().then(loadAgents);
-        this.steps(handed, true, await this.installed);
+        const [app, name] = chosen;
+        if (AGENT_GUIDES[app]?.signIn) this.signIn(app, name, (await window.lore.agentAddress()).mcp_url, await this.installed);
+        else await this.keyed(app, name);
         return false;
       }
     });
+  }
+
+  /** A private link instead, for an agent that can't sign in. @param {AgentApp} app @param {string} name */
+  async keyed(app, name) {
+    const handed = await window.lore.connectAgent({ app, name });
+    void load().then(loadAgents);
+    this.steps(handed, true, await this.installed);
+  }
+
+  /** XC-068: the plain address, with no key in it, then a wait here for the agent to ask to sign in; the first that
+   * asks becomes the Allow card in this sheet. @param {AgentApp} app @param {string} who @param {string} address
+   * @param {AgentApp[]} installed */
+  signIn(app, who, address, installed) {
+    const { form } = this;
+    const how = /** @type {AgentSteps} */ (AGENT_GUIDES[app]?.signIn);
+    form.reset();
+    form.heading(`Connect ${who}`, agentMark(app, who));
+    const list = el("ol", "agent-steps");
+    for (const step of how.steps) list.append(el("li", "", step));
+    form.body.append(list, how.message ? plainLink(address, who, how.message, "Copy message") : plainLink(address, who));
+    const note = AGENT_GUIDES[app]?.note;
+    if (note) form.body.append(el("p", "hint", note));
+    const line = el("p", "agent-wait");
+    line.append(el("span", "shimmer", `Waiting for ${who} to ask to sign in…`));
+    const instead = el("p", "hint agent-instead");
+    instead.append(inline("Can't sign in? Use a private link instead", () => {
+      stop();
+      void this.keyed(app, who).catch((error) => { form.problem.textContent = reason(error, "Lore couldn't connect it. Try again."); });
+    }));
+    form.body.append(line, instead);
+    const hint = el("span", "form-hint quiet-hint");
+    hint.innerHTML = LOCK_ICON;
+    hint.append(el("span", "", "No key in it. You allow it here"));
+    form.aside.append(hint);
+    if (app === "grok" && installed.includes(app)) form.button(`Open ${who}`, "secondary", () => void window.lore.openAgentApp(app).catch((error) => tell(reason(error, `Lore couldn't open ${who}.`))));
+    // Asked only while this sheet is on screen; once it closes, Lore's own check still hears the sign-in.
+    const poll = setInterval(() => { if (form.dialog.open) void window.lore.checkAgents(); }, FIRST_SAVE_EVERY_MS);
+    /** @param {SignInRequest} asking */
+    const take = (asking) => {
+      stop();
+      this.allow(asking, app, who);
+    };
+    const stop = () => {
+      clearInterval(poll);
+      signInWaiting.delete(take);
+    };
+    signInWaiting.add(take);
+    form.dialog.addEventListener("close", stop);
+    form.arm({ primary: "Done" });
+    form.focus();
+  }
+
+  /** The Allow card: who asks, the code its page shows, Allow or Deny. Allowing makes the agent, and its page goes on
+   * by itself; then it waits for the first save. @param {SignInRequest} asking @param {AgentApp} [app] @param {string} [who] */
+  allow(asking, app = asking.app, who = asking.name) {
+    const { form } = this;
+    form.reset();
+    form.heading(`${who} wants to save to your Lore`, agentMark(app, who));
+    form.text("Allow it only if your browser shows this code.");
+    form.body.append(el("p", "sign-in-code", asking.code));
+    form.text("What it saves stays private on this Mac until you approve a piece.", "hint");
+    form.button("Deny", "secondary", () => void act(async () => {
+      answeredSignIns.add(asking.id);
+      await window.lore.denySignIn(asking.id);
+      closeSheet();
+      tell(`Denied. ${who} can't save to Lore.`);
+    }));
+    form.arm({
+      primary: "Allow",
+      working: "Allowing…",
+      failed: "Lore couldn't reach your store. Try again.",
+      submit: async () => {
+        answeredSignIns.add(asking.id);
+        const allowed = await window.lore.allowSignIn({ id: asking.id, app, name: who });
+        void load().then(loadAgents);
+        form.reset();
+        form.heading(`${who} is connected`, agentMark(app, who));
+        form.text(`Your browser goes back to ${who} by itself.`);
+        this.wait(allowed, who, true);
+        form.arm({ primary: "Done" });
+        form.focus();
+        return false;
+      }
+    });
+    form.focus();
   }
 
   /** What to paste into the agent, with its key shown this once; a first connect then waits for the first save.
@@ -2828,18 +3003,19 @@ class AgentSetup {
       form.body.append(inlineNotice(`This key is shown only once. If it's lost, get a new one from Manage.`));
       form.button("Copy all", "secondary", () => void window.lore.copy(`Address: ${handed.mcp_url}\nKey: ${handed.header}\n\n${handed.prompt}`));
     }
+    if (first) form.body.append(...afterConnect(app, where));
     if (app === "grok" && installed.includes(app)) form.button(`Open ${where}`, "secondary", () => void window.lore.openAgentApp(app).catch((error) => tell(reason(error, `Lore couldn't open ${where}.`))));
     this.wait(handed, who, first);
     form.arm({ primary: "Done" });
     form.focus();
   }
 
-  /** Waits, in the sheet, for the agent's first save to reach Lore, then offers its evening save; after a new link,
+  /** Waits, in the sheet, for the agent's first save to reach Lore; after a new link,
    * for the next save, which shows the new link works. The store counts every save, even one that changes nothing,
    * and the key came with the count so far, so only a save made with this key raises it: saves the old key left
-   * waiting were already counted. @param {AgentKey} handed @param {string} who @param {boolean} first */
+   * waiting were already counted. @param {Pick<AgentKey, "source" | "agent">} handed @param {string} who @param {boolean} first */
   wait(handed, who, first) {
-    const { source, agent } = handed;
+    const { source } = handed;
     const line = waitLine(who, first);
     this.form.body.append(line);
     const { dialog } = this.form;
@@ -2851,8 +3027,6 @@ class AgentSetup {
           seeFrom({ id: source, label: who });
         }));
       } else line.replaceChildren(el("span", "dot ok"), el("span", "", `${who} saved with the new link`));
-      const offer = first && eveningOffer(agent.app, who);
-      if (offer) line.after(offer);
     });
     dialog.addEventListener("close", stop);
   }
@@ -2864,13 +3038,23 @@ function agentGuide(handed, first) {
   const guide = AGENT_GUIDES[handed.agent.app];
   const how = guide && (first ? guide.first : guide.again);
   if (!guide || !how) return null;
+  const nodes = howTo(handed, how);
+  if (guide.note) nodes.push(el("p", "hint", guide.note));
+  return nodes;
+}
+
+/** What to do in the agent: its steps and the link, or the message around the link. An agent that can add Lore itself
+ * leads with the message to send it, its steps folded away for anyone who'd rather add it by hand.
+ * @param {AgentKey} handed @param {AgentSteps} how @returns {HTMLElement[]} */
+function howTo(handed, how) {
   const list = el("ol", "agent-steps");
   for (const step of how.steps) list.append(el("li", "", step));
   if (how.or) list.lastElementChild?.append(el("span", "agent-step-or", how.or));
-  /** @type {HTMLElement[]} */
-  const nodes = [list, how.message ? privateLink(handed, how.message, "Copy message") : privateLink(handed)];
-  if (guide.note) nodes.push(el("p", "hint", guide.note));
-  return nodes;
+  if (!how.ask) return [list, how.message ? privateLink(handed, how.message, "Copy message") : privateLink(handed)];
+  const where = AGENT_APPS.find(([id]) => id === handed.agent.app)?.[1] ?? handed.agent.name;
+  const byHand = el("details", "agent-by-hand");
+  byHand.append(el("summary", "", "Or add it by hand"), list, privateLink(handed));
+  return [el("p", "agent-ask", `Copy this message and send it to ${where}. It adds Lore itself.`), privateLink(handed, how.ask, "Copy message"), byHand];
 }
 
 /** The live line while Lore waits on an agent's save. @param {string} who @param {boolean} first */
@@ -2910,6 +3094,19 @@ function firstSave({ source, agent }, active, heard) {
   return stop;
 }
 
+/** XC-068: an app asked to sign in. A setup sheet waiting on it takes it; otherwise the Allow card opens on its own,
+ * unless the owner is in another sheet, in which case the next check asks again. @param {SignInRequest[]} signIns */
+function heardSignIns(signIns) {
+  const asking = signIns.find((each) => !answeredSignIns.has(each.id));
+  if (!asking) return;
+  const [waiting] = signInWaiting;
+  if (waiting) return waiting(asking);
+  if (document.querySelector("dialog.sheet[open]")) return;
+  const setup = new AgentSetup();
+  setup.allow(asking);
+  setup.form.show();
+}
+
 /** What one personal agent saved, and what can be done to it. @param {SourceEntry} source */
 function openAgent(source) {
   const name = source.label;
@@ -2918,8 +3115,14 @@ function openAgent(source) {
   form.text(`Lore brings in what ${name} saves while Lore is open. It stays private on this Mac.`, "hint");
   const offer = agents?.find((agent) => agent.source === source.name)?.saved ? eveningOffer(source.app, name) : null;
   if (offer) form.body.append(offer);
-  form.button("Disconnect", "quiet", ask);
-  form.button("Get a new key", "secondary", rekey);
+  const signedIn = agents?.find((agent) => agent.source === source.name)?.signed_in;
+  if (signedIn) {
+    form.text(`${name} signed in, so it has no link to replace. To connect it again, disconnect it, then add Lore in ${name} again.`, "hint");
+    form.button("Disconnect", "secondary", ask);
+  } else {
+    form.button("Disconnect", "quiet", ask);
+    form.button("Get a new key", "secondary", rekey);
+  }
   form.open();
   function rekey() {
     const confirm = new FormSheet(`Get a new key for ${name}?`, agentMark(source.app, name));
@@ -2941,7 +3144,7 @@ function openAgent(source) {
   function ask() {
     const kept = source.imported ? ` The ${plural(source.imported, "memory")} it saved ${source.imported === 1 ? "stays" : "stay"} in your library.` : "";
     const confirm = new FormSheet(`Disconnect ${name}?`, agentMark(source.app, name));
-    confirm.text(`${name}'s key stops working, so it can't save to Lore anymore.${kept}`);
+    confirm.text(`${signedIn ? `${name}'s sign-in` : `${name}'s key`} stops working, so it can't save to Lore anymore.${kept}`);
     if (source.imported) confirm.button("Delete them too", "quiet", () => void remove(false)).classList.add("destructive");
     confirm.button("Cancel", "secondary", () => openAgent(source));
     confirm.button("Disconnect", "secondary", () => void remove(true));
@@ -3314,7 +3517,6 @@ function renderAccount() {
   account.insertAdjacentHTML("beforeend", CHEVRON);
   accountLine.textContent = credential ? `Signed in with ${name}` : "Not signed in";
   signOutBtn.hidden = !credential;
-  signOutBtn.textContent = `Sign out of ${name}`;
 }
 
 /** Memories and For Sale became Inventory's tabs; anything that still asks for them lands there. @param {View | "memories" | "store"} next */
@@ -3793,33 +3995,57 @@ function blueprintPanel(fields, mode) {
   return { box, controls };
 }
 
+/** What the payout card answers to sell by card instead of to an address; the app reads the same words. */
+const BY_CARD = "By card";
 const PAYOUT_PATHS = [
+  {
+    label: BY_CARD,
+    detail: "Stripe pays you out to your bank.",
+    steps: ["Lore opens Stripe's form in your browser.", "Stripe checks who you are and where to pay you.", "Come back here. Your store opens once Stripe is done."],
+    help: null,
+    card: true
+  },
   {
     label: "My Coinbase account",
     detail: "Payments can go on to your bank from there.",
     steps: ["In the Coinbase app, tap Receive, then USDC.", "Set the network to Base. Not Ethereum or Solana.", "Copy the address and paste it here."],
-    help: outLink("No account yet? Create one ↗", "https://www.coinbase.com/signup")
+    help: outLink("No account yet? Create one ↗", "https://www.coinbase.com/signup"),
+    card: false
   },
   {
     label: "A wallet app",
     detail: "MetaMask, Rainbow, Coinbase Wallet, or similar.",
     steps: ["Open your wallet and tap Receive.", "Pick the Base network.", "Copy the address and paste it here."],
-    help: null
+    help: null,
+    card: false
   }
 ];
 const PUBLIC_ADDRESS = /^0x[0-9a-fA-F]{40}$/;
 
-/** The one step where new sellers stalled: two paths, their exact taps, and a field that says what it got. @param {OwnerQuestion} question @param {number} index */
+/** The one step where new sellers stalled: by card first, then two ways to an address, their exact taps, and a field
+ * that says what it got. @param {OwnerQuestion} question @param {number} index */
 function payoutField(question, index) {
   const fieldset = el("fieldset", "payout");
   fieldset.dataset.question = question.question;
   fieldset.append(el("legend", "q", question.question), el("p", "hint", "Each payment goes straight there. Lore never holds your money."));
   const choices = el("div", "choices");
   const steps = el("div", "payout-steps");
+  const address = el("input", "other-answer mono");
+  address.type = "text";
+  address.required = true;
+  address.pattern = PUBLIC_ADDRESS.source.slice(1, -1);
+  address.placeholder = "0x…";
+  address.spellcheck = false;
+  address.autocomplete = "off";
+  const status = el("p", "hint payout-status");
   const pick = (/** @type {typeof PAYOUT_PATHS[number]} */ path) => {
     const list = el("ol");
     list.append(...path.steps.map((step) => el("li", "", step)));
     steps.replaceChildren(list, ...(path.help ? [path.help] : []));
+    // By card asks for no address: Stripe has the owner's bank.
+    address.hidden = status.hidden = path.card;
+    address.required = !path.card;
+    if (path.card) address.value = "";
   };
   for (const [position, path] of PAYOUT_PATHS.entries()) {
     const label = el("label", "choice");
@@ -3835,14 +4061,6 @@ function payoutField(question, index) {
     choices.append(label);
   }
   pick(PAYOUT_PATHS[0]);
-  const address = el("input", "other-answer mono");
-  address.type = "text";
-  address.required = true;
-  address.pattern = PUBLIC_ADDRESS.source.slice(1, -1);
-  address.placeholder = "0x…";
-  address.spellcheck = false;
-  address.autocomplete = "off";
-  const status = el("p", "hint payout-status");
   address.addEventListener("input", () => {
     const value = address.value.trim();
     // A recovery phrase is the wallet itself; it must not sit in a field, a transcript, or a memory.
@@ -3861,6 +4079,39 @@ function payoutField(question, index) {
   });
   fieldset.append(choices, steps, address, status);
   return fieldset;
+}
+
+/** While Stripe has the owner on its form: how often the payout card asks whether it's done. */
+const CARDS_EVERY_MS = 5_000;
+
+/** By card on the payout card: Stripe's form in the browser, then a wait here until Stripe clears the owner, then card
+ * payments on, as Settings does it; `then` answers the card. Waits only while the card is on screen with By card picked.
+ * @param {HTMLFormElement} box @param {HTMLButtonElement} go @param {() => void} then */
+async function cardsFirst(box, go, then) {
+  const status = /** @type {HTMLElement | null} */ (box.querySelector(".payout .payout-status"));
+  const say = (/** @type {string} */ text) => { if (status) { status.hidden = false; status.textContent = text; status.dataset.state = ""; } };
+  const picked = () => box.isConnected && Boolean(box.querySelector(`.payout input[value="${BY_CARD}"]:checked`));
+  go.disabled = true;
+  try {
+    let found = await window.lore.cardStatus();
+    if (!found.account && !found.ready) {
+      await window.lore.connectCards();
+      say("Finish with Stripe in your browser. Lore waits here.");
+    }
+    while (!found.account && !found.ready && picked()) {
+      await new Promise((done) => setTimeout(done, CARDS_EVERY_MS));
+      found = await window.lore.cardStatus();
+      if (found.checking) say("Stripe is checking your details. This usually takes a minute or two.");
+    }
+    if (!picked()) return;
+    if (!found.account) await window.lore.switchCards(found.pending);
+    box.dataset.cardsOn = "1";
+    then();
+  } catch (error) {
+    say(reason(error, "Lore couldn't reach Stripe. Try again."));
+  } finally {
+    go.disabled = false;
+  }
 }
 
 /** @param {Exclude<AgentRequest, {type: "changes"}>} event */
@@ -3903,12 +4154,19 @@ function renderRequest(event) {
       box.append(fieldset);
     }
     const actions = el("div", "actions");
-    const go = el("button", "btn primary sm", event.questions.every((question) => question.format === "evm_address") ? "Use this address" : "Continue");
+    const payoutOnly = event.questions.every((question) => question.format === "evm_address");
+    const go = el("button", "btn primary sm", "Continue");
     go.type = "submit";
+    const byCard = () => Boolean(box.querySelector(`.payout input[value="${BY_CARD}"]:checked`));
+    const relabel = () => { go.textContent = byCard() ? "Continue with Stripe" : payoutOnly ? "Use this address" : "Continue"; };
+    relabel();
+    box.addEventListener("change", relabel);
     actions.append(go);
     box.append(actions);
     box.addEventListener("submit", (submitEvent) => {
       submitEvent.preventDefault();
+      // By card answers only once Stripe has cleared the owner and card payments are on.
+      if (byCard() && !box.dataset.cardsOn) return void cardsFirst(box, go, () => box.requestSubmit());
       /** @type {Record<string, string>} */
       const answers = {};
       for (const fieldset of box.querySelectorAll("fieldset")) {
@@ -4710,6 +4968,7 @@ function onEvent(event) {
     for (const landed of agentWaiting) landed(event.reads);
     void load().then(loadAgents);
   }
+  else if (event.type === "sign-ins") heardSignIns(event.signIns);
   else if (event.type === "ready") void load();
   else if (event.type === "show") {
     if (event.source) seeFrom(event.source);

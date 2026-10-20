@@ -652,11 +652,13 @@ test("the agent reads its copy of an attachment, not the original, and a quiet t
 /** A stand-in CLI: answers the snapshot with a price, free copies, the store's payout address, whether it sells and its
  * pieces, and records every other call with its stdin.
  * @param {string} directory @param {string | null} payout @param {{selling?: boolean, items?: Partial<PublicationItem>[]}} [store] */
-async function recordingCli(directory, payout, { selling = false, items = [] } = {}) {
+async function recordingCli(directory, payout, { selling = false, items = [], cards = "" } = {}) {
   const fake = join(directory, "lore");
   const ran = join(directory, "ran");
   const state = JSON.stringify({ version: 1, publications: { counts: { active: items.length, revoked: 0 }, items }, pricing: { publication_usd: 1.5, answer_usd: null, answer_enabled: false, free_copies: 3 }, node: { url: "https://lore.example.workers.dev/mcp", selling, live: { state: "online", network: "eip155:8453", price_usd: 1.5, payout } } });
-  await writeFile(fake, `#!/bin/sh\nif [ "$1" = desktop-state ]; then echo '${state}'; exit 0; fi\necho "$* unattended=$LORE_UNATTENDED stdin=$([ "$1" = profile ] && cat)" >> ${JSON.stringify(ran)}\necho "Done"\n`, { mode: 0o755 });
+  // `cards` is the Stripe account card payments go to, "" when they're off.
+  const taking = JSON.stringify({ account: cards, pending: "", ready: cards ? true : null, checking: false, minimum_usd: 0.5 });
+  await writeFile(fake, `#!/bin/sh\nif [ "$1" = desktop-state ]; then echo '${state}'; exit 0; fi\nif [ "$1" = cards ]; then echo '${taking}'; exit 0; fi\necho "$* unattended=$LORE_UNATTENDED stdin=$([ "$1" = profile ] && cat)" >> ${JSON.stringify(ran)}\necho "Done"\n`, { mode: 0o755 });
   return { fake, ran };
 }
 
@@ -880,6 +882,52 @@ test("a redeploy with no payout on record asks the owner on the app's own card, 
     assert.equal(await readFile(ran, "utf8"), `node deploy --network real --wallet ${typed} unattended=1 stdin=\n`);
     // And with neither a network asked nor one on record, it says so instead of picking.
     assert.match(await openStore(directory, {}, async () => ({}), confirming(directory, true, seen)), /Say which network/);
+  } finally {
+    useRuntime(CLI);
+    await rm(directory, { recursive: true });
+  }
+});
+
+test("with card payments on, a store opens selling by card alone: no address asked, none deployed", async () => {
+  const { openStore, useRuntime } = require("../src/state.cjs");
+  const directory = await mkdtemp(join(tmpdir(), "lore-desktop-"));
+  const { fake, ran } = await recordingCli(directory, null, { cards: "acct_1Seller", items: [{ id: 1, title: "Price the first tier low", state: "approved", live: false }] });
+  /** @type {OwnerQuestion[][]} */
+  const asked = [];
+  /** @type {Array<{heading: string, changes: StoreChange[]}>} */
+  const seen = [];
+  try {
+    useRuntime(fake);
+    await recordPayout(null);
+    const said = await openStore(directory, {}, async (questions) => { asked.push(questions); return {}; }, confirming(directory, true, seen));
+    assert.match(said, /deployed/);
+    assert.deepEqual(asked, [], "no network and no address asked");
+    assert.deepEqual(seen[0].changes.filter((change) => change.group === ""), [
+      { group: "", label: "Price", to: "$1.50 a piece" },
+      { group: "", label: "Free copies", to: "The first 3 of each piece" },
+      { group: "", label: "Payments", to: "By card" },
+      { group: "", label: "Paid to", to: "Your bank, through Stripe" }
+    ]);
+    assert.equal(await readFile(ran, "utf8"), "node deploy --network real unattended=1 stdin=\n");
+  } finally {
+    useRuntime(CLI);
+    await rm(directory, { recursive: true });
+  }
+});
+
+test("on the payout card, By card opens the store only once card payments are really on", async () => {
+  const { openStore, useRuntime } = require("../src/state.cjs");
+  const directory = await mkdtemp(join(tmpdir(), "lore-desktop-"));
+  /** @type {Array<{heading: string, changes: StoreChange[]}>} */
+  const seen = [];
+  /** @param {OwnerQuestion[]} questions */
+  const byCard = async (questions) => ({ [questions[0].question]: "By card" });
+  try {
+    const off = await recordingCli(directory, null);
+    useRuntime(off.fake);
+    await recordPayout(null);
+    assert.match(await openStore(directory, { network: "real" }, byCard, confirming(directory, true, seen)), /Card payments aren't on yet/);
+    assert.ok(!existsSync(off.ran));
   } finally {
     useRuntime(CLI);
     await rm(directory, { recursive: true });
@@ -1987,6 +2035,32 @@ test("the store opens through the app; the agent's own shell can neither stage i
   }
 });
 
+test("asked in chat to push the store, the agent can't: only the store's own thread has the store's tools (APP-229)", async () => {
+  const { fauxAssistantMessage, fauxToolCall } = await import("@earendil-works/pi-ai");
+  /** @type {OpenStore[]} */
+  const opened = [];
+  const { agent, faux, loreHome } = await scriptedAgent({ openStore: async (store) => { opened.push(store); return "The store is deployed."; } });
+  /** @type {string[]} */
+  const results = [];
+  faux.setResponses([
+    fauxAssistantMessage(fauxToolCall("open_store", { network: "real" }), { stopReason: "toolUse" }),
+    (context) => {
+      for (const message of context.messages) {
+        if (message.role === "toolResult") results.push(message.content.map((block) => (block.type === "text" ? block.text : "")).join(""));
+      }
+      return fauxAssistantMessage("I can't update your store from here.");
+    }
+  ]);
+  try {
+    await agent.prompt("Push my store", "publish");
+    assert.deepEqual(opened, []);
+    assert.match(results[0], /not found/i);
+  } finally {
+    agent.dispose();
+    await rm(loreHome, { recursive: true, force: true });
+  }
+});
+
 test("an app that brings something new in is read through once; one that brings nothing is not", () => {
   const { worthReading } = require("../src/reading.cjs");
   const apps = [{ id: "granola", name: "Granola", item: "meeting" }, { id: "medium", name: "Medium", item: "story" }];
@@ -2440,15 +2514,18 @@ test("what the owner's agents saved comes in once per check, and a check never o
   const read = (name, added) => ({ name, label: "Grok", connector: "agent", added, updated: 0, unchanged: 0, errors: 0, state: "connected" });
   let ready = false;
   let asked = 0;
-  /** @type {() => Promise<{waiting: number, sources: string[]}>} */
+  /** @type {() => Promise<AgentsWaiting>} */
   let waiting = async () => ({ waiting: 2, sources: ["agent-a", "agent-b"] });
   /** @type {SourceRead[][]} */
   const landed = [];
+  /** @type {SignInRequest[][]} */
+  const signIns = [];
   const watch = new Watch({
     ready: () => ready,
     waiting: () => { asked++; return waiting(); },
     read: async (name) => [read(name, 1)],
-    landed: (reads) => { landed.push(reads); }
+    landed: (reads) => { landed.push(reads); },
+    asked: (each) => { signIns.push(each); }
   });
   await watch.check();
   assert.equal(asked, 0, "with no store, the CLI is never asked");
@@ -2466,6 +2543,15 @@ test("what the owner's agents saved comes in once per check, and a check never o
   await watch.check();
   assert.equal(asked, 4, "a failed check is retried at the next one");
   assert.equal(landed.length, 2);
+  // XC-068: every answer says which apps ask to sign in, so a card for one that went away goes too.
+  const asking = { id: "a".repeat(64), code: "4F7Q", client: "Claude", app: /** @type {AgentApp} */ ("claude"), name: "Claude", created_at: "", expires_at: "" };
+  waiting = async () => ({ waiting: 0, sources: [], sign_ins: [asking] });
+  await watch.check();
+  assert.deepEqual(signIns.at(-1), [asking]);
+  waiting = async () => ({ waiting: 0, sources: [], sign_ins: [] });
+  await watch.check();
+  assert.deepEqual(signIns.at(-1), []);
+  assert.equal(signIns.length, 5, "heard on every answer, never on a failed check");
 });
 
 test("one agent whose read fails leaves the others' saves to land", async () => {
@@ -2479,7 +2565,8 @@ test("one agent whose read fails leaves the others' saves to land", async () => 
       if (name === "agent-a") throw new Error("collecting saves failed");
       return [{ name, label: "Muse", connector: "agent", added: 2, updated: 0, unchanged: 0, errors: 0, state: "connected" }];
     },
-    landed: (reads) => { landed.push(reads); }
+    landed: (reads) => { landed.push(reads); },
+    asked: () => undefined
   });
   await watch.check();
   assert.deepEqual(landed.map((reads) => reads.map((each) => each.name)), [["agent-b"]]);
@@ -2548,7 +2635,7 @@ test("with no store online, connecting an agent says so and mints nothing", asyn
   try {
     await assert.rejects(connectAgent(loreHome, { app: "grok", name: "Grok" }), { message: /put your store online first/ });
     assert.deepEqual(await listAgents(loreHome), []);
-    assert.deepEqual(await agentsWaiting(loreHome), { waiting: 0, sources: [] }, "no agent, so nobody is asked");
+    assert.deepEqual(await agentsWaiting(loreHome), { waiting: 0, sources: [], sign_ins: [] }, "no agent, so nobody is asked");
   } finally {
     await rm(loreHome, { recursive: true });
   }
