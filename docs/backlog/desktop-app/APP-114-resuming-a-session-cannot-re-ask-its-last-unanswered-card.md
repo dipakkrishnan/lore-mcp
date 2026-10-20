@@ -10,7 +10,7 @@ blockers: []
 dependencies: []
 github_issue: https://github.com/dipakkrishnan/lore-mcp/issues/256
 created: 2026-09-12
-updated: 2026-09-13
+updated: 2026-10-19
 ---
 
 ## Problem
@@ -69,3 +69,10 @@ no resolved result to render here at all). This item likely needs someone
 who can drive the packaged Electron app end-to-end with real credentials, or
 who has visibility into `@earendil-works/pi-coding-agent`'s resume
 semantics, since it may live partly outside this repo.
+
+**Prioritization 2026-10-19 (corrected in review):** not promoted. The Problem
+describes `resumeTask()` in `src/renderer.js` sending a synthetic "pick up where we
+left off" message, but neither `resumeTask` nor that string exists on main now, so
+the resume path has been reworked since this was filed. The item also says "needs
+investigation" and has no proposed fix. Re-check the current resume path against a
+real session with a dangling `toolCall` and rewrite the Problem before promoting.

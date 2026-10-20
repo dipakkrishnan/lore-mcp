@@ -44,6 +44,9 @@ sealed TEXT, saved_at TEXT NOT NULL, received_at TEXT);
 CREATE TABLE IF NOT EXISTS inbox_windows (agent TEXT NOT NULL, span TEXT NOT NULL,
 started TEXT NOT NULL, used INTEGER NOT NULL, PRIMARY KEY (agent, span));
 CREATE TABLE IF NOT EXISTS node_settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS sign_ins (id TEXT PRIMARY KEY, code TEXT NOT NULL,
+client TEXT NOT NULL, state TEXT NOT NULL CHECK (state IN ('pending','allowed','denied')),
+agent TEXT, created_at TEXT NOT NULL, expires_at TEXT NOT NULL);
 """
 # A received forget keeps its state, so what is still owed is what still has a payload.
 OWED = "state IN ('waiting','forgotten') AND sealed IS NOT NULL"
@@ -67,6 +70,16 @@ class Agent(BaseModel):
     saved: int = 0
     waiting: int = 0
     revoked: bool = False
+
+
+class SignIn(BaseModel):
+    """An app asking to sign in to the owner's store (XC-068), waiting on this Mac."""
+
+    id: str
+    code: str
+    client: str
+    created_at: str
+    expires_at: str
 
 
 class Minted(BaseModel):
@@ -153,9 +166,11 @@ class Inbox:
             return {}
         return {"inbox_public_key": self.keys.public_key, "inbox_salt": self.keys.salt}
 
-    def mint(self, name: str, app: str) -> Minted:
+    def mint(self, name: str, app: str, sign_in: str | None = None) -> Minted:
         """A new agent and its key, of which the node learns only the hash. The first
-        mint also makes the owner's keys and the node's tables."""
+        mint also makes the owner's keys and the node's tables. With `sign_in`, the
+        agent is made only while that sign-in still waits, and the sign-in is bound
+        to it, so the app that asked goes on with this agent's access."""
         try:
             name = TypeAdapter(Name).validate_python(name)
             app = TypeAdapter(AgentApp).validate_python(app)
@@ -182,15 +197,35 @@ class Inbox:
             f"VALUES ({_quote(key)},{_quote(value)});\n"
             for key, value in self.settings().items()
         )
+        now = _quote(_now())
+        row = f"({_quote(agent)},{_quote(name)},{_quote(app)},{_quote(hashed)},{now})"
+        if sign_in is None:
+            insert = (
+                f"INSERT INTO agents(id,name,app,token_hash,created_at) VALUES {row};\n"
+            )
+        else:
+            waiting = f"WHERE id = {_quote(sign_in)} AND state = 'pending' AND expires_at > {now}"
+            insert = (
+                "INSERT INTO agents(id,name,app,token_hash,created_at) "
+                f"SELECT {row[1:-1]} WHERE EXISTS (SELECT 1 FROM sign_ins {waiting});\n"
+                f"UPDATE sign_ins SET state = 'allowed', agent = {_quote(agent)} {waiting};\n"
+            )
         rows = self._run(
-            f"{SCHEMA}{settings}"
-            "INSERT INTO agents(id,name,app,token_hash,created_at) VALUES "
-            f"({_quote(agent)},{_quote(name)},{_quote(app)},{_quote(hashed)},"
-            f"{_quote(_now())});\n"
-            f"{AGENTS} WHERE a.id = {_quote(agent)};",
+            f"{SCHEMA}{settings}{insert}{AGENTS} WHERE a.id = {_quote(agent)};",
             "connecting the agent failed",
         )
+        if not rows:
+            raise InboxError(
+                "That sign-in has expired. Start again from the app you're connecting."
+            )
         return Minted(agent=Agent.model_validate(rows[0]), token=token)
+
+    def deny(self, sign_in: str) -> None:
+        self._run(
+            f"{SCHEMA}UPDATE sign_ins SET state = 'denied' "
+            f"WHERE id = {_quote(sign_in)} AND state = 'pending';",
+            "saying no failed",
+        )
 
     def rotate(self, agent: str) -> Minted:
         """A new key for the same agent, so its memories keep their provenance."""
@@ -218,12 +253,20 @@ class Inbox:
             for row in self._run(f"{AGENTS};", "reading your agents failed")
         ]
 
-    def waiting(self) -> dict[str, int]:
-        rows = self._run(
+    def waiting(self) -> tuple[dict[str, int], list[SignIn]]:
+        """What each agent saved that waits, and the apps asking to sign in (XC-068),
+        in one query. The tables are made first: an app can ask before any agent is."""
+        *_, asked, saves = self._results(
+            f"{SCHEMA}SELECT id, code, client, created_at, expires_at FROM sign_ins "
+            f"WHERE state = 'pending' AND expires_at > {_quote(_now())} "
+            "ORDER BY created_at;\n"
             f"SELECT agent, count(*) AS waiting FROM inbox WHERE {OWED} GROUP BY agent;",
             "checking for saves failed",
         )
-        return {str(row["agent"]): int(str(row["waiting"])) for row in rows}
+        return (
+            {str(row["agent"]): int(str(row["waiting"])) for row in saves},
+            [SignIn.model_validate(row) for row in asked],
+        )
 
     def items(self, agent: str) -> list[Sealed]:
         return [
@@ -285,8 +328,12 @@ class Inbox:
 
     @staticmethod
     def _run(sql: str, fail: str) -> list[dict[str, object]]:
+        return Inbox._results(sql, fail)[-1]
+
+    @staticmethod
+    def _results(sql: str, fail: str) -> list[list[dict[str, object]]]:
         try:
-            return deploy._read(sql, fail)
+            return deploy._read_all(sql, fail)
         except (OSError, ValueError) as error:
             raise InboxError(str(error)) from None
 

@@ -401,6 +401,19 @@ class SearchTest(LoreTestCase):
             self.assertEqual(len(store.search("", source="test", status="private")), 2)
             self.assertEqual(store.search("lesson", source="substack"), [])
 
+    def test_search_puts_the_newest_first_within_a_day(self) -> None:
+        # A reading asks for "the newest N" of a source; saves from one day share a date, so arrival breaks the tie.
+        for title in ("First save", "Second save", "Third save"):
+            self.seed_memory(title)
+        with Store() as store:
+            self.assertEqual(
+                [m.title for m in store.search("", limit=2)],
+                ["Third save", "Second save"],
+            )
+            self.assertEqual(
+                [m.title for m in store.search("save", limit=1)], ["Third save"]
+            )
+
     def test_a_query_with_no_word_characters_matches_nothing(self) -> None:
         # `!!!` is not a search for everything: it tokenizes to nothing, and
         # handing FTS5 an empty MATCH would be a syntax error.

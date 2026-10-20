@@ -85,12 +85,20 @@ contextBridge.exposeInMainWorld("lore", {
   /** @param {string} source @param {boolean} keep */
   disconnectAgent: (source, keep) => ipcRenderer.invoke("agents:disconnect", source, keep),
   checkAgents: () => ipcRenderer.invoke("agents:check"),
+  agentAddress: () => ipcRenderer.invoke("agents:address"),
+  /** @param {{id: string, app?: AgentApp, name?: string}} input */
+  allowSignIn: (input) => ipcRenderer.invoke("agents:allow", input),
+  /** @param {string} id */
+  denySignIn: (id) => ipcRenderer.invoke("agents:deny", id),
   agentApps: () => ipcRenderer.invoke("agents:installed"),
   /** @param {AgentApp} id */
   openAgentApp: (id) => ipcRenderer.invoke("agents:open", id),
   firstRun: () => ipcRenderer.invoke("firstrun:read"),
   /** @param {FirstRunState} next */
   setFirstRun: (next) => ipcRenderer.invoke("firstrun:write", next),
+  appearance: () => ipcRenderer.invoke("appearance:read"),
+  /** @param {AppearanceChoice} choice */
+  setAppearance: (choice) => ipcRenderer.invoke("appearance:set", choice),
   storeOnline: () => ipcRenderer.invoke("store:online"),
   reopenSignIn: () => ipcRenderer.invoke("signin:reopen"),
   cancelSignIn: () => ipcRenderer.invoke("signin:cancel"),

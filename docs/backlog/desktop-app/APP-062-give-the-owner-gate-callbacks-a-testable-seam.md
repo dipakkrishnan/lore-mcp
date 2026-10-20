@@ -4,13 +4,13 @@ title: Give main.cjs's owner-gate callbacks a testable seam
 priority: P2
 effort: S
 component: desktop-app
-status: in-review
+status: ready
 related: [APP-056, APP-057, APP-006, APP-066]
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-09-03
-updated: 2026-09-07
+updated: 2026-10-19
 ---
 
 ## Problem
@@ -73,3 +73,5 @@ by `test/app.test.cjs`; the gap is specifically the Electron-only half in
 `main.cjs`. The four tool handlers that funnel through `#attended`
 (`cloudflare_login`, `open_url`, `store_secret`, `finish_task`) have no direct
 test either, which is the same gap seen from the agent's side.
+
+**Prioritization 2026-10-19:** promoted to `ready`. No open blockers, no commit on main implements it, and the acceptance criteria are concrete and checkable. Priority and effort unchanged.

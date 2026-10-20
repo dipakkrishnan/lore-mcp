@@ -4,13 +4,13 @@ title: Say when Stripe is checking, look again on its own, and price per piece
 priority: P1
 effort: S
 component: desktop-app
-status: in-review
+status: completed
 related: [XC-039, MON-028]
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-10-04
-updated: 2026-10-04
+updated: 2026-10-19
 ---
 
 ## Problem
@@ -33,3 +33,7 @@ read "$3.00 per piece".
 
 - [x] Checking and needs-you are told apart, and checking clears without a click.
 - [x] Prices say per piece and who pays.
+
+## Notes
+
+**Completed (verified 2026-10-19):** every acceptance criterion is checked and the work is on main in 2d48761. Status was left stale after merge; closed out in the review-queue pass.

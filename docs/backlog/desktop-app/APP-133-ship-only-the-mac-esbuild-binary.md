@@ -4,13 +4,13 @@ title: Ship only the Mac esbuild binary
 priority: P1
 effort: S
 component: desktop-app
-status: in-review
+status: completed
 related: [APP-129]
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-10-01
-updated: 2026-10-01
+updated: 2026-10-19
 ---
 
 ## Problem
@@ -29,3 +29,7 @@ current platform's package), and every dot-folder at the app root.
 - [x] The packaged app differs from 0.1.4 only by the foreign esbuild binaries and `.mypy_cache`
 - [x] esbuild transforms and bundles from inside the packaged app
 - [x] The packaged app loads the agent stack and starts on a fresh library
+
+## Notes
+
+**Completed (verified 2026-10-19):** every acceptance criterion is checked and the work is on main in 2f0d18c. Status was left stale after merge; closed out in the review-queue pass.

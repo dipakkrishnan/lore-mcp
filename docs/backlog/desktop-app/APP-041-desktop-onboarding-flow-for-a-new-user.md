@@ -10,7 +10,7 @@ blockers: []
 dependencies: []
 github_issue: https://github.com/dipakkrishnan/lore-mcp/issues/176
 created: 2026-09-01
-updated: 2026-09-12
+updated: 2026-10-19
 ---
 
 ## Problem
@@ -47,3 +47,5 @@ flow"), whose entire body is "The desktop app should support onboarding flow
 for a new user." Left in `ideation` per `agents/ideation.md` step 8 — no
 concrete acceptance criterion could be written without inventing one that
 isn't actually in the issue.
+
+**Prioritization 2026-10-19:** stays `in-review`. The acceptance criteria are still "TBD"; it needs a follow-up question to the reporter before it can be handed to implementation.

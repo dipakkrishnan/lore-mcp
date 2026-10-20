@@ -10,7 +10,7 @@ blockers: []
 dependencies: []
 github_issue: null
 created: 2026-09-07
-updated: 2026-09-07
+updated: 2026-10-19
 ---
 
 ## Problem
@@ -33,3 +33,5 @@ publish thread still waits for the owner's first word.
 - [x] A stopped task offers Resume and Start over on Today and in its header.
 - [x] Start over on Open your store begins the store flow again without typing.
 - [x] Resume continues the cut-off session, not a new one.
+
+**Review 2026-10-19:** Not completed. Criteria 1 and 3 (the Resume button and Resume continuing the cut-off session) shipped in 886d427 (#242) but were removed by d81405a (APP-194, #409). Only criterion 2 (Start over begins the flow) still holds. Needs the criteria rewritten to match APP-194, or the item marked obsolete in part.

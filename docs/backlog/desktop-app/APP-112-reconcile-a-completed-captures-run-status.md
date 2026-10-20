@@ -4,13 +4,13 @@ title: Reconcile a completed capture's run status
 priority: P2
 effort: S
 component: desktop-app
-status: in-review
+status: completed
 related: []
 blockers: []
 dependencies: []
 github_issue: https://github.com/dipakkrishnan/lore-mcp/issues/247
 created: 2026-09-11
-updated: 2026-09-13
+updated: 2026-10-19
 ---
 
 ## Problem
@@ -60,3 +60,5 @@ disagree with `closingRecord`; and `recentRuns` now renders a clickable row
 (via `openTask`) for any entry whose status isn't a plain success, with
 `openTask` reading history directly instead of requiring a still-live
 `TaskRecord`.
+
+**Completed (verified 2026-10-19):** every acceptance criterion is checked and the work is on main in 0579db7. Status was left stale after merge; closed out in the review-queue pass.

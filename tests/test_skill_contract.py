@@ -336,8 +336,9 @@ class SkillContractTest(unittest.TestCase):
             with self.subTest(promise=promise):
                 self.assertIn(promise, skill)
 
-    def test_the_desktop_store_asks_for_the_payout_address_last(self) -> None:
-        """MON-025: the address is where new owners stalled, so it comes after value."""
+    def test_the_desktop_store_asks_how_the_owner_gets_paid_last(self) -> None:
+        """MON-025: payouts are where new owners stalled, so they come after value;
+        MON-047: card payments are enough, so the address is optional."""
         skill = " ".join(
             (OWNER_SKILLS / "lore-enable-payments/SKILL.md").read_text().lower().split()
         )
@@ -345,12 +346,12 @@ class SkillContractTest(unittest.TestCase):
             skill.index("no active publication"),
             skill.index("price through `propose_price`"),
             skill.index("call `cloudflare_login` if the owner has not signed in"),
-            skill.index("the payout address, last"),
-            skill.index("`open_store` with network `real` and the address"),
+            skill.index("how the owner gets paid, last"),
+            skill.index("`open_store` with network `real` and no address"),
         ]
         self.assertEqual(order, sorted(order))
         self.assertIn("no coinbase developer keys in the app", skill)
-        self.assertIn("never asks: call `open_store` without an address", skill)
+        self.assertIn("a payout address is optional", skill)
 
     def test_the_payment_skill_refuses_a_recovery_phrase(self) -> None:
         """The one secret worse than an API key to land in a transcript."""
