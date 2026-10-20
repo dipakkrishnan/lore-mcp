@@ -4,13 +4,13 @@ title: Show date-only memory dates on the day they name
 priority: P2
 effort: XS
 component: desktop-app
-status: in-review
+status: completed
 related: [APP-207]
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-10-16
-updated: 2026-10-17
+updated: 2026-10-19
 ---
 
 ## Problem
@@ -28,7 +28,9 @@ that carry a time keep converting to local time as they do now.
 
 ## Acceptance criteria
 
-- [ ] A memory dated `2026-10-16` shows "Oct 16" on a Mac set to any US time zone.
-- [ ] Timestamps with a time of day still show in local time.
+- [x] A memory dated `2026-10-16` shows "Oct 16" on a Mac set to any US time zone.
+- [x] Timestamps with a time of day still show in local time.
 
 ## Notes
+
+**Completed (verified 2026-10-19, by reading code and tests, no suites run):** on main in 0f929db (#476). Closed out in the review-queue pass.

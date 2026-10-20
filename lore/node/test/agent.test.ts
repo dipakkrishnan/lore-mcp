@@ -37,7 +37,7 @@ describe("/agent", () => {
     for (const key of [undefined, "nope", wrong, token, revoked.token]) {
       const response = await post("/agent", key);
       expect(response.status).toBe(401);
-      expect(response.headers.get("www-authenticate")).toBe('Bearer resource_metadata="https://worker.test/.well-known/oauth-protected-resource"');
+      expect(response.headers.get("www-authenticate")).toMatch(/^Bearer .*resource_metadata="https:\/\/worker\.test\/\.well-known\/oauth-protected-resource\/agent"/);
       await response.text();
     }
     const response = await post("/agent", rotated);

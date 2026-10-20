@@ -4,13 +4,13 @@ title: Assert the preload-to-main IPC contract in a test
 priority: P2
 effort: XS
 component: desktop-app
-status: in-review
+status: ready
 related: [APP-039, APP-002, APP-066]
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-09-03
-updated: 2026-09-07
+updated: 2026-10-19
 ---
 
 ## Problem
@@ -56,3 +56,5 @@ renderer references exists in preload. Note that the renderer passes
 
 Found while auditing desktop test coverage (2026-09-03); the three sides were
 verified to match at that commit, so this lands as a guard rather than a fix.
+
+**Prioritization 2026-10-19:** promoted to `ready`. No open blockers, no commit on main implements it, and the acceptance criteria are concrete and checkable. Priority and effort unchanged.
