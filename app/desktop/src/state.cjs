@@ -364,15 +364,20 @@ async function openStore(loreHome, { network: asked, wallet, inboxOnly }, ask, o
   const moved = payout !== null && recorded && recorded.address.toLowerCase() !== payout.toLowerCase();
   const heading = !state.node.selling ? "Open your store" : moved ? "Change where your sales are paid" : "Update your store";
   if (asks(changes) && !(await outgoing.confirm(heading, changes))) return "The owner chose not to change the store right now.";
-  return outgoing.deploy(["node", "deploy", "--network", network, ...(payout === null ? [] : ["--wallet", payout])]);
+  const said = await outgoing.deploy(["node", "deploy", "--network", network, ...(payout === null ? [] : ["--wallet", payout])]);
+  // Said plainly, so the agent never reads a card-only store's missing payout address as something left undone.
+  return byCard && said.startsWith("The store is deployed") ? `${said}\n${BY_CARD_ONLY}` : said;
 }
+
+const BY_CARD_ONLY = "It sells by card: buyers pay on each piece's page, and Stripe pays the owner's bank. There is no payout address to set, and nothing else is left to do.";
 
 /** Run one deploy the owner said yes to, and say how it went. @param {string} loreHome @param {string[]} args */
 async function deployStore(loreHome, args) {
   const lines = /** @type {string[]} */ ([]);
   try {
     await stream(runtime.file, [...runtime.args, ...args], { LORE_HOME: loreHome, NO_COLOR: "1", LORE_UNATTENDED: "1" }, (line) => lines.push(line), runtime.cwd ?? loreHome);
-    return `The store is deployed.\n${lines.slice(-8).join("\n")}`;
+    // The deploy's own settings lines are plumbing, never what the owner set: leave them out of what the agent reads.
+    return `The store is deployed.\n${lines.filter((line) => !/^env\./.test(line.trim())).slice(-8).join("\n")}`;
   } catch {
     const said = [...lines].reverse().find((line) => line.startsWith("lore: ")) ?? lines.at(-1) ?? "the deploy stopped";
     // A change that stopped halfway is said in the CLI's own plain words, so the owner hears it however the deploy ended.
@@ -738,7 +743,31 @@ async function disconnectAgent(loreHome, source, keep) {
   return JSON.parse(await lore(loreHome, ["agents", "revoke", agentSource(source), keep ? "--keep" : "--delete", "--json"], ""));
 }
 
-/** Which agents saved something Lore hasn't brought in yet. @param {string} loreHome @returns {Promise<{waiting: number, sources: string[]}>} */
+/** The plain address an app signs in at (XC-068); Lore listens for its sign-in a while after. @param {string} loreHome
+ * @returns {Promise<{mcp_url: string}>} */
+async function agentAddress(loreHome) {
+  return JSON.parse(await lore(loreHome, ["agents", "address", "--json"]));
+}
+
+/** @param {unknown} id */
+function signInId(id) {
+  if (typeof id !== "string" || !/^[0-9a-f]{64}$/.test(id)) throw new Error("Unknown sign-in");
+  return id;
+}
+
+/** Let an app that asked to sign in save to Lore, as the agent the owner was connecting. Attended, like a key.
+ * @param {string} loreHome @param {{id?: unknown, app?: unknown, name?: unknown}} input @returns {Promise<AllowedAgent>} */
+async function allowSignIn(loreHome, input) {
+  const as = AGENT_APPS.has(/** @type {string} */ (input?.app)) && typeof input.name === "string" && input.name.trim() ? ["--app", String(input.app), "--name", input.name.trim().slice(0, 40)] : [];
+  return JSON.parse(await lore(loreHome, ["agents", "allow", signInId(input?.id), ...as, "--json"], ""));
+}
+
+/** @param {string} loreHome @param {unknown} id */
+async function denySignIn(loreHome, id) {
+  return JSON.parse(await lore(loreHome, ["agents", "deny", signInId(id), "--json"], ""));
+}
+
+/** Which agents saved something Lore hasn't brought in yet, and which apps ask to sign in. @param {string} loreHome @returns {Promise<AgentsWaiting>} */
 async function agentsWaiting(loreHome) {
   return JSON.parse(await lore(loreHome, ["agents", "waiting", "--json"]));
 }
@@ -834,6 +863,9 @@ module.exports = {
   agentKey,
   disconnectAgent,
   agentsWaiting,
+  agentAddress,
+  allowSignIn,
+  denySignIn,
   useRuntime,
   openStore,
   storeChanges,

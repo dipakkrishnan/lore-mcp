@@ -21,7 +21,9 @@ const SCHEMA = [
   `CREATE TABLE IF NOT EXISTS inbox (id TEXT PRIMARY KEY, agent TEXT NOT NULL, key_hash TEXT NOT NULL,
     state TEXT NOT NULL CHECK (state IN ('waiting','forgotten','received')), sealed TEXT, saved_at TEXT NOT NULL, received_at TEXT)`,
   `CREATE TABLE IF NOT EXISTS inbox_windows (agent TEXT NOT NULL, span TEXT NOT NULL, started TEXT NOT NULL, used INTEGER NOT NULL,
-    PRIMARY KEY (agent, span))`
+    PRIMARY KEY (agent, span))`,
+  `CREATE TABLE IF NOT EXISTS sign_ins (id TEXT PRIMARY KEY, code TEXT NOT NULL, client TEXT NOT NULL,
+    state TEXT NOT NULL CHECK (state IN ('pending','allowed','denied')), agent TEXT, created_at TEXT NOT NULL, expires_at TEXT NOT NULL)`
 ];
 
 export async function ensureInboxSchema(db: D1Database): Promise<void> {
@@ -65,10 +67,14 @@ export class Inbox {
   ) {}
 
   /** The inbox as the agent holding this secret sees it, or null for a wrong, rotated-out or revoked key. */
-  static async open(db: D1Database, id: string, secret: string): Promise<Inbox | null> {
+  static open(db: D1Database, id: string, secret: string): Promise<Inbox | null> {
+    return Inbox.bound(db, id, createHash("sha256").update(secret).digest("hex"));
+  }
+
+  /** The inbox for an agent whose key still hashes to `hash`: a pasted key's, or the one a sign-in was bound to. */
+  static async bound(db: D1Database, id: string, hash: string): Promise<Inbox | null> {
     await ensureInboxSchema(db);
     const row = await db.prepare("SELECT * FROM agents WHERE id = ? AND revoked_at IS NULL").bind(id).first<AgentRow>();
-    const hash = createHash("sha256").update(secret).digest("hex");
     return row && sameHash(row.token_hash, hash) ? new Inbox(db, row) : null;
   }
 

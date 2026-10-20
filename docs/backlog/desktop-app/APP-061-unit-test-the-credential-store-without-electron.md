@@ -4,13 +4,13 @@ title: Unit-test the credential store without Electron
 priority: P2
 effort: S
 component: desktop-app
-status: in-review
+status: ready
 related: [APP-038, APP-066, APP-008]
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-09-03
-updated: 2026-09-07
+updated: 2026-10-19
 ---
 
 ## Problem
@@ -67,3 +67,5 @@ Found while auditing desktop test coverage (2026-09-03). Four of
 `test/app.test.cjs`'s tests are darwin-gated; CI's `desktop-check` runs on
 `macos-14`, so they do run there — but they are also the only coverage those
 surfaces have, which makes each one a single point of failure.
+
+**Prioritization 2026-10-19:** promoted to `ready`. No open blockers, no commit on main implements it, and the acceptance criteria are concrete and checkable. Priority and effort unchanged.

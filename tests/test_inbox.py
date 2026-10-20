@@ -115,7 +115,7 @@ class OwnerSideTest(NodeCase):
         self.save(key, {"title": "Pricing", "content": "Quote the tier.", "key": "p"})
         self.save(key, {"title": "Hiring", "content": "Hire slow."})
         agent = inbox.agents()[0].id
-        self.assertEqual(inbox.waiting(), {agent: 2})
+        self.assertEqual(inbox.waiting()[0], {agent: 2})
         collected = [inbox.open(item) for item in inbox.items(agent)]
         self.assertEqual(
             [(o.key, o.payload.title) for o in collected],  # type: ignore[union-attr]
@@ -127,7 +127,7 @@ class OwnerSideTest(NodeCase):
         left = inbox.items(agent)
         self.assertEqual([item.id for item in left], [collected[0].id])
         self.assertIn("budget", inbox.open(left[0]).payload.content)  # type: ignore[union-attr]
-        self.assertEqual(inbox.waiting(), {agent: 1})
+        self.assertEqual(inbox.waiting()[0], {agent: 1})
 
     def test_a_received_forget_stays_forgotten_and_is_not_owed_again(self) -> None:
         inbox = Inbox()
@@ -204,7 +204,7 @@ class StandInNodeTest(NodeCase):
     def test_a_forget_of_a_save_never_received_withdraws_it(self) -> None:
         self.save(self.key, {"title": "T", "content": "c", "key": "k"})
         self.call(self.key, "forget", key="k")
-        self.assertEqual(self.inbox.waiting(), {})
+        self.assertEqual(self.inbox.waiting()[0], {})
         self.assertEqual(self.inbox.items(self.inbox.agents()[0].id), [])
         rows = self.d1.connect().execute("SELECT state, sealed FROM inbox").fetchall()
         self.assertEqual([tuple(row) for row in rows], [("forgotten", None)])
@@ -259,7 +259,7 @@ class StandInNodeTest(NodeCase):
         self.save(self.key, {"title": "t", "content": "old"})
         self.endpoint.clock = lambda: datetime.now(timezone.utc) + timedelta(days=31)
         self.save(self.key, {"title": "t", "content": "new"})
-        self.assertEqual(self.inbox.waiting(), {self.inbox.agents()[0].id: 1})
+        self.assertEqual(self.inbox.waiting()[0], {self.inbox.agents()[0].id: 1})
 
     def test_no_public_key_means_the_store_is_not_ready(self) -> None:
         self.d1.execute("DELETE FROM node_settings;")

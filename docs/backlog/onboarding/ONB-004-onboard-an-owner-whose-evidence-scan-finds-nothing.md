@@ -10,7 +10,7 @@ blockers: []
 dependencies: []
 github_issue: null
 created: 2026-09-04
-updated: 2026-09-14
+updated: 2026-10-19
 ---
 
 ## Problem
@@ -46,3 +46,5 @@ are filed as `CAP-003` (seed from public posts), `APP-117` (examples),
 `XC-032` (why a buyer pays), `MON-025` (store before wallet), and
 `APP-118` (explainer). This item still owns what setup itself says when
 the scan finds nothing.
+
+**Review 2026-10-19:** not completed. Partial. The onboard skill and desktop prompt avoid persona questions on an empty library and there is an empty-state card, but nothing pins zero-history setup reaching capture without error. Needs a test or human run.
