@@ -652,11 +652,13 @@ test("the agent reads its copy of an attachment, not the original, and a quiet t
 /** A stand-in CLI: answers the snapshot with a price, free copies, the store's payout address, whether it sells and its
  * pieces, and records every other call with its stdin.
  * @param {string} directory @param {string | null} payout @param {{selling?: boolean, items?: Partial<PublicationItem>[]}} [store] */
-async function recordingCli(directory, payout, { selling = false, items = [] } = {}) {
+async function recordingCli(directory, payout, { selling = false, items = [], cards = "" } = {}) {
   const fake = join(directory, "lore");
   const ran = join(directory, "ran");
   const state = JSON.stringify({ version: 1, publications: { counts: { active: items.length, revoked: 0 }, items }, pricing: { publication_usd: 1.5, answer_usd: null, answer_enabled: false, free_copies: 3 }, node: { url: "https://lore.example.workers.dev/mcp", selling, live: { state: "online", network: "eip155:8453", price_usd: 1.5, payout } } });
-  await writeFile(fake, `#!/bin/sh\nif [ "$1" = desktop-state ]; then echo '${state}'; exit 0; fi\necho "$* unattended=$LORE_UNATTENDED stdin=$([ "$1" = profile ] && cat)" >> ${JSON.stringify(ran)}\necho "Done"\n`, { mode: 0o755 });
+  // `cards` is the Stripe account card payments go to, "" when they're off.
+  const taking = JSON.stringify({ account: cards, pending: "", ready: cards ? true : null, checking: false, minimum_usd: 0.5 });
+  await writeFile(fake, `#!/bin/sh\nif [ "$1" = desktop-state ]; then echo '${state}'; exit 0; fi\nif [ "$1" = cards ]; then echo '${taking}'; exit 0; fi\necho "$* unattended=$LORE_UNATTENDED stdin=$([ "$1" = profile ] && cat)" >> ${JSON.stringify(ran)}\necho "Done"\n`, { mode: 0o755 });
   return { fake, ran };
 }
 
@@ -880,6 +882,52 @@ test("a redeploy with no payout on record asks the owner on the app's own card, 
     assert.equal(await readFile(ran, "utf8"), `node deploy --network real --wallet ${typed} unattended=1 stdin=\n`);
     // And with neither a network asked nor one on record, it says so instead of picking.
     assert.match(await openStore(directory, {}, async () => ({}), confirming(directory, true, seen)), /Say which network/);
+  } finally {
+    useRuntime(CLI);
+    await rm(directory, { recursive: true });
+  }
+});
+
+test("with card payments on, a store opens selling by card alone: no address asked, none deployed", async () => {
+  const { openStore, useRuntime } = require("../src/state.cjs");
+  const directory = await mkdtemp(join(tmpdir(), "lore-desktop-"));
+  const { fake, ran } = await recordingCli(directory, null, { cards: "acct_1Seller", items: [{ id: 1, title: "Price the first tier low", state: "approved", live: false }] });
+  /** @type {OwnerQuestion[][]} */
+  const asked = [];
+  /** @type {Array<{heading: string, changes: StoreChange[]}>} */
+  const seen = [];
+  try {
+    useRuntime(fake);
+    await recordPayout(null);
+    const said = await openStore(directory, {}, async (questions) => { asked.push(questions); return {}; }, confirming(directory, true, seen));
+    assert.match(said, /deployed/);
+    assert.deepEqual(asked, [], "no network and no address asked");
+    assert.deepEqual(seen[0].changes.filter((change) => change.group === ""), [
+      { group: "", label: "Price", to: "$1.50 a piece" },
+      { group: "", label: "Free copies", to: "The first 3 of each piece" },
+      { group: "", label: "Payments", to: "By card" },
+      { group: "", label: "Paid to", to: "Your bank, through Stripe" }
+    ]);
+    assert.equal(await readFile(ran, "utf8"), "node deploy --network real unattended=1 stdin=\n");
+  } finally {
+    useRuntime(CLI);
+    await rm(directory, { recursive: true });
+  }
+});
+
+test("on the payout card, By card opens the store only once card payments are really on", async () => {
+  const { openStore, useRuntime } = require("../src/state.cjs");
+  const directory = await mkdtemp(join(tmpdir(), "lore-desktop-"));
+  /** @type {Array<{heading: string, changes: StoreChange[]}>} */
+  const seen = [];
+  /** @param {OwnerQuestion[]} questions */
+  const byCard = async (questions) => ({ [questions[0].question]: "By card" });
+  try {
+    const off = await recordingCli(directory, null);
+    useRuntime(off.fake);
+    await recordPayout(null);
+    assert.match(await openStore(directory, { network: "real" }, byCard, confirming(directory, true, seen)), /Card payments aren't on yet/);
+    assert.ok(!existsSync(off.ran));
   } finally {
     useRuntime(CLI);
     await rm(directory, { recursive: true });

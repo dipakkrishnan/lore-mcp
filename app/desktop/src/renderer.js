@@ -1348,10 +1348,7 @@ class FirstRunChat {
     owner(who);
     if (this.stage === "end") {
       lore(this.savedCard(s, who));
-      lore("That's it. What it brought in stays private on this Mac. When you want to sell some of it, Today shows the next step.");
-      const actions = el("div", "actions first-run-actions");
-      actions.append(button("Go to Today", "primary", () => this.leave("done")));
-      chat.append(actions);
+      this.closing(chat, lore, "What it brought in");
       return this.said(chat, lore);
     }
     if (this.stage === "store") {
@@ -1395,12 +1392,18 @@ class FirstRunChat {
     if (this.stage !== "saved") lore(this.connectCard(app, who), waitLine(who, true));
     if (this.stage === "saved") {
       lore(this.savedCard(s, who));
-      lore("That's it. What it saves stays private on this Mac. When you want to sell some of it, Today shows the next step.");
-      const actions = el("div", "actions first-run-actions");
-      actions.append(button("Go to Today", "primary", () => this.leave("done")));
-      chat.append(actions);
+      this.closing(chat, lore, "What it saves");
     }
     return this.said(chat, lore);
+  }
+
+  /** The last word, then the next AI or Today: most people talk to more than one, and the next is a tap away, in the
+   * same sheet Connectors uses. @param {HTMLElement} chat @param {(said: string | HTMLElement) => void} lore @param {string} what */
+  closing(chat, lore, what) {
+    lore(`That's it. ${what} stays private on this Mac. Connect another AI you talk to, or go to Today, which shows the next step when you want to sell some of it.`);
+    const actions = el("div", "actions first-run-actions");
+    actions.append(button("Connect another AI", "secondary", () => this.leave("done", () => { show("connectors"); new AgentSetup().open(); })), button("Go to Today", "primary", () => this.leave("done")));
+    chat.append(actions);
   }
 
   /** The notices a new owner would otherwise get on Today, as one quiet line at the foot of the chat (APP-215).
@@ -1452,13 +1455,9 @@ class FirstRunChat {
     const box = el("div", "card first-connect");
     const guide = AGENT_GUIDES[app]?.first;
     if (this.handed) {
-      if (guide?.brief) box.append(el("p", "first-steps", guide.brief));
-      else if (guide) {
-        const list = el("ol", "agent-steps");
-        for (const step of guide.steps) list.append(el("li", "", step));
-        box.append(list);
-      }
-      box.append(guide?.message ? privateLink(this.handed, guide.message, "Copy message") : privateLink(this.handed), ...afterConnect(app, who));
+      if (guide?.brief) box.append(el("p", "first-steps", guide.brief), privateLink(this.handed, guide.message ?? "", "Copy message"));
+      else box.append(...(guide ? howTo(this.handed, guide) : [privateLink(this.handed)]));
+      box.append(...afterConnect(app, who));
     }
     if (this.problem) box.append(el("p", "problem", this.problem));
     const foot = el("div", "first-connect-foot");
@@ -2614,8 +2613,9 @@ const STORE_FIRST = "Your agents work online, so they need a place online to sav
  * `again` is the same for a new link, which replaces the Lore connector the agent already has rather than adding one;
  * `or` is the quiet alternative under the last step, and `brief` the steps as one line, for the first-run chat. Grok Bot
  * has no menu to add a connector by hand: the message pasted into its chat is the only documented way (APP-217).
- * @typedef {{steps: string[], brief?: string, message?: string, or?: string}} AgentSteps
+ * `ask` is a message an agent with a menu can also be sent instead, to add Lore itself.
  * XC-068: `signIn` is the way with no key at all: the plain address, then the agent signs in and the owner allows it here.
+ * @typedef {{steps: string[], brief?: string, message?: string, or?: string, ask?: string}} AgentSteps
  * @type {Partial<Record<AgentApp, {first: AgentSteps, again: AgentSteps, signIn: AgentSteps, note?: string, routine: string}>>} */
 const AGENT_GUIDES = {
   grok: {
@@ -2632,16 +2632,19 @@ const AGENT_GUIDES = {
     routine: "scheduled task"
   },
   chatgpt: {
-    first: { steps: ["In ChatGPT, open Plugins, then + › Add custom MCP server", "Name it Lore, paste the link below, choose No authentication, and continue", "Choose Create"] },
     signIn: { steps: ["In ChatGPT, open Plugins, then + › Add custom MCP server", "Name it Lore, paste the address below, choose OAuth, and continue", "Choose Create, then allow it here"] },
-    again: { steps: ["In ChatGPT, open Plugins", "Open the Lore connector you added before and replace its link with this one"], or: "Or remove it and add a new one named Lore with this link" },
+    first: { steps: ["In ChatGPT, open Plugins, then its settings, and choose Add MCP server", "Name it Lore, choose Streamable HTTP, and paste the link below as the URL", "Leave arguments empty, then save"], ask: "Add this MCP server to my account as Lore, using Streamable HTTP and no arguments: " },
+    again: { steps: ["In ChatGPT, open Plugins, then its settings", "Open the Lore server you added before and replace its URL with this one"], or: "Or remove it and add a new one named Lore with this link" },
     note: "Saving to Lore needs a ChatGPT plan that allows custom connectors to write.",
     routine: "scheduled task"
   }
 };
-const EVERY_EVENING = "Every evening, save anything new you learned about me to Lore.";
-/** What to send an agent once it's connected, so its first save comes now and shows the connection works. */
-const SAVE_NOW = "Save what you know about me to Lore: how I work, what I care about, and what I'm working on.";
+/** What to send an agent once it's connected: save now, so the first save shows the connection works, and, where it
+ * has a schedule, set one up. The agent asks the owner before it schedules anything, so this is one paste, not two.
+ * @param {string} [kind] What the agent calls a scheduled ask. */
+const saveAsk = (kind) => `Save what you know about me to Lore: who I am, what I like, how I work, and what I'm into lately.${kind ? ` Then set up a ${kind} that does this every evening.` : ""}`;
+/** The same schedule on its own, for an agent that already saves. @param {string} kind */
+const eveningAsk = (kind) => `Set up a ${kind} that saves anything new you learn about me to Lore every evening.`;
 /** While the setup sheet waits on a first save, it asks the store this often, not once a minute. */
 const FIRST_SAVE_EVERY_MS = 10_000;
 
@@ -2813,14 +2816,14 @@ function promptOffer(what, text) {
  * @param {AgentApp | null | undefined} app @param {string} who */
 function eveningOffer(app, who) {
   const kind = app ? AGENT_GUIDES[app]?.routine : undefined;
-  return kind ? promptOffer(`Optional: add this to ${who} as a ${kind}, so it saves every evening.`, EVERY_EVENING) : null;
+  return kind ? promptOffer(`Send ${who} this, so it saves every evening on its own:`, eveningAsk(kind)) : null;
 }
 
 /** Once connected: what to send so the first save comes now, and, where the agent has a schedule, its evening save.
  * @param {AgentApp | null | undefined} app @param {string} who @returns {HTMLElement[]} */
 function afterConnect(app, who) {
-  const evening = eveningOffer(app, who);
-  return [promptOffer(`Then send ${who} this, so it saves right away:`, SAVE_NOW), ...(evening ? [evening] : [])];
+  const kind = app ? AGENT_GUIDES[app]?.routine : undefined;
+  return [promptOffer(kind ? `Then send ${who} this. It saves now, and every evening after:` : `Then send ${who} this, so it saves right away:`, saveAsk(kind))];
 }
 
 /** APP-207: connecting one of the owner's personal agents, in one sheet: their store online first if it isn't yet,
@@ -3035,13 +3038,23 @@ function agentGuide(handed, first) {
   const guide = AGENT_GUIDES[handed.agent.app];
   const how = guide && (first ? guide.first : guide.again);
   if (!guide || !how) return null;
+  const nodes = howTo(handed, how);
+  if (guide.note) nodes.push(el("p", "hint", guide.note));
+  return nodes;
+}
+
+/** What to do in the agent: its steps and the link, or the message around the link. An agent that can add Lore itself
+ * leads with the message to send it, its steps folded away for anyone who'd rather add it by hand.
+ * @param {AgentKey} handed @param {AgentSteps} how @returns {HTMLElement[]} */
+function howTo(handed, how) {
   const list = el("ol", "agent-steps");
   for (const step of how.steps) list.append(el("li", "", step));
   if (how.or) list.lastElementChild?.append(el("span", "agent-step-or", how.or));
-  /** @type {HTMLElement[]} */
-  const nodes = [list, how.message ? privateLink(handed, how.message, "Copy message") : privateLink(handed)];
-  if (guide.note) nodes.push(el("p", "hint", guide.note));
-  return nodes;
+  if (!how.ask) return [list, how.message ? privateLink(handed, how.message, "Copy message") : privateLink(handed)];
+  const where = AGENT_APPS.find(([id]) => id === handed.agent.app)?.[1] ?? handed.agent.name;
+  const byHand = el("details", "agent-by-hand");
+  byHand.append(el("summary", "", "Or add it by hand"), list, privateLink(handed));
+  return [el("p", "agent-ask", `Copy this message and send it to ${where}. It adds Lore itself.`), privateLink(handed, how.ask, "Copy message"), byHand];
 }
 
 /** The live line while Lore waits on an agent's save. @param {string} who @param {boolean} first */
@@ -3982,33 +3995,57 @@ function blueprintPanel(fields, mode) {
   return { box, controls };
 }
 
+/** What the payout card answers to sell by card instead of to an address; the app reads the same words. */
+const BY_CARD = "By card";
 const PAYOUT_PATHS = [
+  {
+    label: BY_CARD,
+    detail: "Stripe pays you out to your bank.",
+    steps: ["Lore opens Stripe's form in your browser.", "Stripe checks who you are and where to pay you.", "Come back here. Your store opens once Stripe is done."],
+    help: null,
+    card: true
+  },
   {
     label: "My Coinbase account",
     detail: "Payments can go on to your bank from there.",
     steps: ["In the Coinbase app, tap Receive, then USDC.", "Set the network to Base. Not Ethereum or Solana.", "Copy the address and paste it here."],
-    help: outLink("No account yet? Create one ↗", "https://www.coinbase.com/signup")
+    help: outLink("No account yet? Create one ↗", "https://www.coinbase.com/signup"),
+    card: false
   },
   {
     label: "A wallet app",
     detail: "MetaMask, Rainbow, Coinbase Wallet, or similar.",
     steps: ["Open your wallet and tap Receive.", "Pick the Base network.", "Copy the address and paste it here."],
-    help: null
+    help: null,
+    card: false
   }
 ];
 const PUBLIC_ADDRESS = /^0x[0-9a-fA-F]{40}$/;
 
-/** The one step where new sellers stalled: two paths, their exact taps, and a field that says what it got. @param {OwnerQuestion} question @param {number} index */
+/** The one step where new sellers stalled: by card first, then two ways to an address, their exact taps, and a field
+ * that says what it got. @param {OwnerQuestion} question @param {number} index */
 function payoutField(question, index) {
   const fieldset = el("fieldset", "payout");
   fieldset.dataset.question = question.question;
   fieldset.append(el("legend", "q", question.question), el("p", "hint", "Each payment goes straight there. Lore never holds your money."));
   const choices = el("div", "choices");
   const steps = el("div", "payout-steps");
+  const address = el("input", "other-answer mono");
+  address.type = "text";
+  address.required = true;
+  address.pattern = PUBLIC_ADDRESS.source.slice(1, -1);
+  address.placeholder = "0x…";
+  address.spellcheck = false;
+  address.autocomplete = "off";
+  const status = el("p", "hint payout-status");
   const pick = (/** @type {typeof PAYOUT_PATHS[number]} */ path) => {
     const list = el("ol");
     list.append(...path.steps.map((step) => el("li", "", step)));
     steps.replaceChildren(list, ...(path.help ? [path.help] : []));
+    // By card asks for no address: Stripe has the owner's bank.
+    address.hidden = status.hidden = path.card;
+    address.required = !path.card;
+    if (path.card) address.value = "";
   };
   for (const [position, path] of PAYOUT_PATHS.entries()) {
     const label = el("label", "choice");
@@ -4024,14 +4061,6 @@ function payoutField(question, index) {
     choices.append(label);
   }
   pick(PAYOUT_PATHS[0]);
-  const address = el("input", "other-answer mono");
-  address.type = "text";
-  address.required = true;
-  address.pattern = PUBLIC_ADDRESS.source.slice(1, -1);
-  address.placeholder = "0x…";
-  address.spellcheck = false;
-  address.autocomplete = "off";
-  const status = el("p", "hint payout-status");
   address.addEventListener("input", () => {
     const value = address.value.trim();
     // A recovery phrase is the wallet itself; it must not sit in a field, a transcript, or a memory.
@@ -4050,6 +4079,39 @@ function payoutField(question, index) {
   });
   fieldset.append(choices, steps, address, status);
   return fieldset;
+}
+
+/** While Stripe has the owner on its form: how often the payout card asks whether it's done. */
+const CARDS_EVERY_MS = 5_000;
+
+/** By card on the payout card: Stripe's form in the browser, then a wait here until Stripe clears the owner, then card
+ * payments on, as Settings does it; `then` answers the card. Waits only while the card is on screen with By card picked.
+ * @param {HTMLFormElement} box @param {HTMLButtonElement} go @param {() => void} then */
+async function cardsFirst(box, go, then) {
+  const status = /** @type {HTMLElement | null} */ (box.querySelector(".payout .payout-status"));
+  const say = (/** @type {string} */ text) => { if (status) { status.hidden = false; status.textContent = text; status.dataset.state = ""; } };
+  const picked = () => box.isConnected && Boolean(box.querySelector(`.payout input[value="${BY_CARD}"]:checked`));
+  go.disabled = true;
+  try {
+    let found = await window.lore.cardStatus();
+    if (!found.account && !found.ready) {
+      await window.lore.connectCards();
+      say("Finish with Stripe in your browser. Lore waits here.");
+    }
+    while (!found.account && !found.ready && picked()) {
+      await new Promise((done) => setTimeout(done, CARDS_EVERY_MS));
+      found = await window.lore.cardStatus();
+      if (found.checking) say("Stripe is checking your details. This usually takes a minute or two.");
+    }
+    if (!picked()) return;
+    if (!found.account) await window.lore.switchCards(found.pending);
+    box.dataset.cardsOn = "1";
+    then();
+  } catch (error) {
+    say(reason(error, "Lore couldn't reach Stripe. Try again."));
+  } finally {
+    go.disabled = false;
+  }
 }
 
 /** @param {Exclude<AgentRequest, {type: "changes"}>} event */
@@ -4092,12 +4154,19 @@ function renderRequest(event) {
       box.append(fieldset);
     }
     const actions = el("div", "actions");
-    const go = el("button", "btn primary sm", event.questions.every((question) => question.format === "evm_address") ? "Use this address" : "Continue");
+    const payoutOnly = event.questions.every((question) => question.format === "evm_address");
+    const go = el("button", "btn primary sm", "Continue");
     go.type = "submit";
+    const byCard = () => Boolean(box.querySelector(`.payout input[value="${BY_CARD}"]:checked`));
+    const relabel = () => { go.textContent = byCard() ? "Continue with Stripe" : payoutOnly ? "Use this address" : "Continue"; };
+    relabel();
+    box.addEventListener("change", relabel);
     actions.append(go);
     box.append(actions);
     box.addEventListener("submit", (submitEvent) => {
       submitEvent.preventDefault();
+      // By card answers only once Stripe has cleared the owner and card payments are on.
+      if (byCard() && !box.dataset.cardsOn) return void cardsFirst(box, go, () => box.requestSubmit());
       /** @type {Record<string, string>} */
       const answers = {};
       for (const fieldset of box.querySelectorAll("fieldset")) {

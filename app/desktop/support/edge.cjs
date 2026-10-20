@@ -387,7 +387,7 @@ const LAYOUT = String.raw`(() => {
   if (document.documentElement.scrollWidth > innerWidth + 1) found.add("the page scrolls sideways");
   const modal = document.querySelector("dialog:modal");
   const roots = (modal ? [modal, ...document.querySelectorAll(":popover-open, .peek")] : [...document.querySelectorAll("#welcome, #main, aside, dialog[open], :popover-open, .peek")]).filter(shown);
-  const nodes = [...new Set(roots.flatMap((root) => [root, ...root.querySelectorAll("*")]))].filter((node) => node instanceof HTMLElement && shown(node) && !node.closest(".sr-only"));
+  const nodes = [...new Set(roots.flatMap((root) => [root, ...root.querySelectorAll("*")]))].filter((node) => node instanceof HTMLElement && shown(node) && !node.closest(".sr-only, details:not([open]) > :not(summary)"));
   // How far a box's own text and children run past its right inner edge; a child pulled out with a negative margin
   // (a hover background wider than its text) or placed on its own is meant to.
   const bleeds = (node) => /-/.test(css(node).marginLeft + css(node).marginRight) || ["absolute", "fixed"].includes(css(node).position);
@@ -1413,6 +1413,9 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         await waitFor(`Boolean(document.querySelector("dialog.form-sheet[open]"))`);
         check("Change opens one sheet for price and free copies", await js(`[...document.querySelectorAll("dialog.form-sheet[open] .form-row")].map((r) => r.querySelector(".form-label").textContent).join("|") === "Price per piece|Free copies" && document.querySelectorAll("dialog.form-sheet[open] input").length === 2 && document.querySelector("#title").textContent === "Inventory"`));
         await shot("store-price-sheet");
+        // A price asked for on a card is one field in one ring: focus never draws a second box around the digits inside.
+        const rings = await js(`{ const box = document.createElement("div"); box.className = "card request"; box.innerHTML = '<div class="price-field"><span class="price-prefix">$</span><input type="text" value="1"></div>'; (document.querySelector("dialog[open] .form-body") ?? document.querySelector("#content")).append(box); const input = box.querySelector("input"); input.focus({ focusVisible: true }); const seen = [getComputedStyle(box.firstChild).boxShadow, getComputedStyle(input).boxShadow, getComputedStyle(input).outlineStyle].join(" | "); box.remove(); seen; }`);
+        check("a price field in focus shows one ring, around the field, none around its digits", /^(?!none).+ \| none \| none$/.test(rings), rings);
         await js(`{ const [amount, copies] = document.querySelectorAll("dialog.form-sheet[open] input"); amount.value = "0.75"; copies.value = "5"; amount.form.requestSubmit(); }`);
         check("both save through the CLI", await waitFor(`window.lore.snapshot().then((s) => s.pricing.publication_usd === 0.75 && s.pricing.free_copies === 5)`));
         // APP-226: a live store charges the new price only once the owner confirms it; Cancel leaves Update store waiting.
@@ -1650,6 +1653,9 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         check("…counting what the apps on this Mac brought in too, after the relaunch as well", /brought in \d+ memor(y|ies) too\./.test(await js(`${savedCard}.querySelector(".first-saved-apps")?.textContent ?? ""`)) && /Claude Code/.test(await js(`${savedCard}.querySelector(".first-saved-apps").textContent`)), await js(`${savedCard}?.textContent ?? ""`));
         check("…and the first run is done", await waitFor(`window.lore.firstRun().then((k) => k?.state === "done")`), JSON.stringify(await kept()));
         check("…and nothing shimmers once it has saved", await js(`!document.querySelector("#content .first-run .shimmer")`));
+        // APP-230: the message it was sent already set up its routine, so the first run ends on the next AI or Today.
+        check("…without asking a second time for the routine", !(await js(chat)).includes("routine"), await js(chat));
+        check("…and ends on Connect another AI beside Go to Today", await js(`[...document.querySelectorAll("#content .first-run-actions button")].map((b) => b.textContent).join("|")`) === "Connect another AI|Go to Today", await js(`document.querySelector("#content .first-run-actions")?.textContent ?? ""`));
         await shot("firstrun-saved");
         await js(`[...${savedCard}.querySelectorAll("button.inline")].find((b) => b.textContent === "See them →").click()`);
         const chip = `document.querySelector("#content .source-filter")?.textContent ?? ""`;
@@ -1816,7 +1822,8 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         check("Grok Bot on this Mac: Open Grok Bot opens it, by its id", JSON.stringify(launched) === JSON.stringify(["grok"]), JSON.stringify(launched));
         const copyLink = async () => {
           const before = copied.length;
-          await js(`document.querySelector("dialog.sheet[open] .agent-link").click()`);
+          // The bare link where there is one; Grok Bot has only its message.
+          await js(`(document.querySelector("dialog.sheet[open] .agent-link:not(.agent-message)") ?? document.querySelector("dialog.sheet[open] .agent-link")).click()`);
           for (let i = 0; i < 20 && copied.length === before; i++) await sleep(50);
           return copied.at(-1) ?? "";
         };
@@ -1846,13 +1853,13 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         check("…and its wait stops shimmering", await js(`Boolean(document.querySelector("dialog.sheet[open] .agent-wait")) && !document.querySelector("dialog.sheet[open] .agent-wait .shimmer")`));
         // APP-211: the owner is still on Connectors, so the automations notice waits, unsaid and unremembered.
         check("…while on Connectors, the automations notice waits for Today", await js(`!document.querySelector("#status .notice")`) && await js(`window.lore.snapshot().then((s) => s.setup.automations_noticed === false)`), await js(`document.querySelector("#status").textContent`));
-        const evening = "Every evening, save anything new you learned about me to Lore.";
-        // APP-229: what to send so it saves now, and its evening routine, both offered from the start, above the wait.
-        check("…with, above the wait, a sentence to save now and an evening routine to paste into Grok Bot", await js(`document.querySelectorAll("dialog.sheet[open] .agent-next").length === 2 && Boolean(document.querySelector("dialog.sheet[open] .agent-next + .agent-next + .agent-wait"))`) && (await js(sheet)).includes("Then send Grok Bot this, so it saves right away:") && (await js(sheet)).includes("Optional: add this to Grok Bot as a routine, so it saves every evening."), await js(sheet));
+        const evening = "Save what you know about me to Lore: who I am, what I like, how I work, and what I'm into lately. Then set up a routine that does this every evening.";
+        // APP-229, APP-230: one paste that saves now and sets up its evening routine, offered from the start, above the wait.
+        check("…with, above the wait, one message that saves now and sets up an evening routine in Grok Bot", await js(`document.querySelectorAll("dialog.sheet[open] .agent-next").length === 1 && Boolean(document.querySelector("dialog.sheet[open] .agent-next + .agent-wait"))`) && (await js(sheet)).includes("Then send Grok Bot this. It saves now, and every evening after:"), await js(sheet));
         const copiedBefore = copied.length;
         await js(`[...document.querySelectorAll("dialog.sheet[open] .agent-next button")].at(-1).click()`);
         for (let i = 0; i < 20 && copied.length === copiedBefore; i++) await sleep(50);
-        check("…each with one quiet Copy, the routine's copying the ask", copied.at(-1) === evening && await js(`[...document.querySelectorAll("dialog.sheet[open] .agent-next")].every((n) => n.querySelectorAll("button").length === 1 && n.querySelector("button").classList.contains("quiet"))`), String(copied.at(-1)));
+        check("…with one quiet Copy that copies it", copied.at(-1) === evening && await js(`[...document.querySelectorAll("dialog.sheet[open] .agent-next")].every((n) => n.querySelectorAll("button").length === 1 && n.querySelector("button").classList.contains("quiet"))`), String(copied.at(-1)));
         await shot("agents-first-save");
         check("…read through once, named for Grok", readings.length === 1 && readings[0].title === "Grok Bot saved 2 things to Lore" && readings[0].label === "Grok Bot", JSON.stringify(readings));
         // APP-212: each way in lands on Inventory, filtered to Grok Bot, with what the owner hasn't seen marked New.
@@ -1938,7 +1945,7 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         await waitFor(agentRow("Grok Bot"));
         await js(`${agentRow("Grok Bot")}.querySelector("button:not(.inline)").click()`);
         check("Manage offers a new key and Disconnect", await waitFor(`${sheet}.includes("Get a new key") && ${sheet}.includes("Disconnect")`));
-        check("…and, since Grok Bot has saved, its evening routine, below what it saved", await js(`${sheet}.includes("Optional: add this to Grok Bot as a routine, so it saves every evening.") && document.querySelector("dialog.sheet[open] .form-body").lastElementChild.previousElementSibling?.classList.contains("agent-next")`), await js(sheet));
+        check("…and, since Grok Bot has saved, its evening routine, below what it saved", await js(`${sheet}.includes("Send Grok Bot this, so it saves every evening on its own:") && ${sheet}.includes("Set up a routine that saves anything new you learn about me to Lore every evening.") && document.querySelector("dialog.sheet[open] .form-body").lastElementChild.previousElementSibling?.classList.contains("agent-next")`), await js(sheet));
         await shot("agents-manage");
         // A save the old key makes just before the new one, still waiting when the new link is shown.
         const late = await (await call(key, "tools/call", { name: "store", arguments: { items: [{ title: "Late sync note", content: "Saved with the old link, just before it was replaced.", key: "late-note", kind: "fact" }] } })).json();
@@ -2065,15 +2072,18 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         };
         const plainly = (/** @type {string} */ text) => !/\bmcp\b|oauth|token|bearer|endpoint|header|offer yet/i.test(text);
         /** @param {string} name @param {string[]} steps @param {string} note @param {RegExp} [allowed] a label the app itself uses */
-        const linkSheet = async (name, steps, note, allowed) => {
+        const linkSheet = async (name, steps, note, allowed, ask) => {
           check(`${name} gets its own sheet, waiting for its first save`, await connectNew(name, name), await js(sheet));
           const text = await js(sheet);
           check(`…with the steps ${name}'s maker documents`, JSON.stringify(await stepsOf()) === JSON.stringify(steps), JSON.stringify(await stepsOf()));
           check("…a quiet note about its plan", await js(`[...document.querySelectorAll("dialog.sheet[open] .form-body p.hint")].some((p) => p.textContent === ${JSON.stringify(note)})`), text);
-          check("…one private link and nothing else to paste: no address, key, instructions or sign-in notice", await js(`document.querySelectorAll("dialog.sheet[open] .agent-link").length === 1 && !document.querySelector("dialog.sheet[open] .agent-message, dialog.sheet[open] .copy-row") && ![...document.querySelectorAll("dialog.sheet[open] button")].some((b) => /^(Copy all|Open)/.test(b.textContent))`) && plainly(allowed ? text.replace(allowed, "") : text), text);
+          // APP-230: an agent that can add Lore itself is also offered the message to send it, as a second, masked link.
+          check("…one private link, or with the message to send instead, and nothing else to paste: no address, key, instructions or sign-in notice", await js(`document.querySelectorAll("dialog.sheet[open] .agent-link").length === ${ask ? 2 : 1} && document.querySelectorAll("dialog.sheet[open] .agent-message").length === ${ask ? 1 : 0} && !document.querySelector("dialog.sheet[open] .copy-row") && ![...document.querySelectorAll("dialog.sheet[open] button")].some((b) => /^(Copy all|Open)/.test(b.textContent))`) && plainly((allowed ? text.replace(allowed, "") : text).replace(ask ?? "", "")), text);
+          if (ask) check("…leading with the message, the steps folded under Or add it by hand", await js(`document.querySelector("dialog.sheet[open] .form-body .agent-message")?.compareDocumentPosition(document.querySelector("dialog.sheet[open] details.agent-by-hand .agent-steps")) === Node.DOCUMENT_POSITION_FOLLOWING && !document.querySelector("dialog.sheet[open] details.agent-by-hand").open`), await js(sheet));
+          if (ask) check("…the message saying how to add Lore, with its key masked", (await js(`document.querySelector("dialog.sheet[open] .agent-message")?.textContent ?? ""`)).includes(ask) && (await js(`document.querySelector("dialog.sheet[open] .agent-message")?.textContent ?? ""`)).includes("••••"), await js(sheet));
           const link = await copyLink();
           check("…and Copy gives the bare link with its key", linked("").test(link), link);
-          const byHand = await js(`{ const data = new DataTransfer(); document.querySelector("dialog.sheet[open] .agent-link-url").dispatchEvent(new ClipboardEvent("copy", { clipboardData: data, bubbles: true, cancelable: true })); data.getData("text/plain"); }`);
+          const byHand = await js(`{ const data = new DataTransfer(); document.querySelector("dialog.sheet[open] .agent-link:not(.agent-message) .agent-link-url").dispatchEvent(new ClipboardEvent("copy", { clipboardData: data, bubbles: true, cancelable: true })); data.getData("text/plain"); }`);
           check("…and copying the shown link by hand takes the real one, not its dots", byHand === link, byHand);
           await sleep(300);
         };
@@ -2759,8 +2769,13 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         check("the card lands below the sticky header", await js(`document.querySelector("#request form").getBoundingClientRect().top >= document.querySelector("#main header").getBoundingClientRect().bottom`));
         check("drafts wait in the capture thread that can draft them", await js(`[...document.querySelectorAll("#main h2")].some((h) => h.textContent === "Approve what to sell")`));
         check("the model's recommended option starts selected and is chipped", await js(`document.querySelector("#request input:checked")?.value`) === "$0.01" && await js(`document.querySelector("#request .choice:has(input:checked)").textContent`) === "$0.01RecommendedLow first price");
-        check("the payout question is the guided card: Coinbase first, its taps, one address field", await js(`(() => { const f = document.querySelector("#request fieldset.payout"); return Boolean(f) && f.querySelector("input:checked")?.value === "My Coinbase account" && /Set the network to Base/.test(f.querySelector(".payout-steps").textContent) && f.querySelectorAll("input[type=text]").length === 1; })()`));
+        // MON-047: by card first, recommended, with no address to give; Coinbase and a wallet app after it.
+        check("the payout question is the guided card: By card first, recommended, and no address asked", await js(`(() => { const f = document.querySelector("#request fieldset.payout"); return Boolean(f) && f.querySelector("input:checked")?.value === "By card" && Boolean(f.querySelector(".choice:has(input:checked) .chip")) && /Stripe/.test(f.querySelector(".payout-steps").textContent) && f.querySelector(".other-answer").hidden; })()`));
+        check("…and its button says it goes to Stripe", await js(`document.querySelector("#request form .actions .btn.primary").textContent`) === "Continue with Stripe");
+        await shot("payout-card-by-card");
         await js(`(() => { const f = document.querySelector("#request fieldset.payout"); f.querySelectorAll("input[type=radio]")[1].click(); return true; })()`);
+        check("choosing Coinbase shows its taps and one address field", await js(`(() => { const f = document.querySelector("#request fieldset.payout"); return /Set the network to Base/.test(f.querySelector(".payout-steps").textContent) && !f.querySelector(".other-answer").hidden && f.querySelectorAll("input[type=text]").length === 1; })()`));
+        await js(`(() => { const f = document.querySelector("#request fieldset.payout"); f.querySelectorAll("input[type=radio]")[2].click(); return true; })()`);
         check("choosing a wallet app swaps in its taps", await js(`/Open your wallet and tap Receive/.test(document.querySelector("#request .payout-steps").textContent)`));
         await js(`(() => { const a = document.querySelector("#request fieldset.payout .other-answer"); a.value = "abandon ability able about above absent absorb abstract absurd abuse access accident"; a.dispatchEvent(new Event("input")); return true; })()`);
         check("a pasted recovery phrase is cleared on the spot, with a warning", await js(`document.querySelector("#request fieldset.payout .other-answer").value === "" && /recovery phrase/.test(document.querySelector("#request .payout-status").textContent)`));
