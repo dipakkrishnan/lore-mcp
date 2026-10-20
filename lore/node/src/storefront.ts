@@ -20,7 +20,12 @@ export type Store = {
   support?: string;
   /** False while the store is online only for its owner's agents (XC-069): no prices, no buying. */
   selling?: boolean;
+  /** False for a store that sells by card alone (MON-047): no wallet, so an agent buys on the page, in a browser. */
+  agentsPay?: boolean;
 };
+
+/** Whether agents can pay this store over MCP; a store says so unless it sells by card alone. */
+const agentsPay = (store: Store) => store.agentsPay !== false;
 
 /** A piece the buyer has paid for, shown to them in full. */
 export type Unlocked = { title: string; content: string };
@@ -142,7 +147,7 @@ function offer(store: Store, piece: Piece) {
     price: String(store.priceUsd),
     priceCurrency: "USD",
     availability: "https://schema.org/InStock",
-    description: `Paid in USDC by an MCP client at ${store.origin}/mcp.`,
+    description: agentsPay(store) ? `Paid in USDC by an MCP client at ${store.origin}/mcp.` : `Paid by card at ${store.origin}/p/${piece.id}.`,
     url: `${store.origin}/p/${piece.id}`,
     seller: person(store)
   };
@@ -155,6 +160,10 @@ const notice = (store: Store) =>
 const listed = (store: Store) => (store.name ? `<a class="listed" href="${MARKETPLACE}">${MARK}Listed on Lore marketplace</a>` : "");
 
 function agentsNote(store: Store, id?: string): string {
+  if (!agentsPay(store)) {
+    const given = store.freeCopies ? `, and the first ${store.freeCopies} copies of each piece are free` : "";
+    return `<section class="agents"><h2>For agents</h2><p>This store sells by card${given}. An agent that can use a browser buys each piece on its page, the same way a person does. Reading the catalog over MCP is free:</p><code class="endpoint">${escape(store.origin)}/mcp</code></section>${listed(store)}`;
+  }
   const call = id ? `<p>Then buy this piece:</p><code class="endpoint">${escape(`get {"id": "${id}"}`)}</code>` : "";
   const free = store.freeCopies ? `the first ${store.freeCopies} copies of each piece are free, then ` : "";
   return `<section class="agents"><h2>For agents</h2><p>Connect over MCP:</p><code class="endpoint">${escape(store.origin)}/mcp</code>${call}<p>Reading the catalog with <code>discover</code> is free; ${free}each <code>get</code> pays the seller ${money(store.priceUsd)} in USDC.</p></section>${listed(store)}`;
@@ -248,10 +257,12 @@ function buy(piece: Piece, store: Store, left: number): string {
     ? "This store takes play money, so buying here is only a rehearsal."
     : "Every payment goes straight to the seller; Lore never holds it.";
   const agent = store.checkout ? `<h2 class="or">Or buy it with your AI agent</h2>` : `<h2>Buy it with your AI agent</h2>`;
+  // A store that sells by card alone takes no agent payments, so an agent buys here, on this page, as a person would.
+  const who = agentsPay(store) ? "Paste this into Claude, ChatGPT or any agent that can pay on Lore:" : "Paste this into an agent that can use a browser. It buys on this page by card:";
   return `<section class="buy"><p class="amount">${money(store.priceUsd)}</p>${card(piece, store)}${agent}
-<p>Paste this into Claude, ChatGPT or any agent that can pay on Lore:</p>
+<p>${who}</p>
 <div class="prompt"><code>${escape(prompt)}</code><button class="${store.checkout ? "" : "primary"}" data-copy="${escape(prompt)}">Copy</button></div>
-<p class="small">${settle} No agent set up yet? <a href="${BUYER_SKILL}">Get the buyer skill</a>.</p>
+<p class="small">${settle}${agentsPay(store) ? ` No agent set up yet? <a href="${BUYER_SKILL}">Get the buyer skill</a>.` : ""}</p>
 ${share(url)}</section>`;
 }
 

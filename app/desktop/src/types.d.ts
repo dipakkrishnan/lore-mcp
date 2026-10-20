@@ -483,7 +483,7 @@ type OpenStore = { network?: "real" | "test"; wallet?: string; inboxOnly?: boole
 type StoreChange = { group: string; label: string; from?: string; to?: string };
 
 /** The terms a deploy for sale goes live with, and where the store's last deploy recorded it paid. */
-type SaleDeploy = { network: "real" | "test"; payout: string; recorded: { address: string; network: "real" | "test" | null } | null };
+type SaleDeploy = { network: "real" | "test"; payout: string | null; recorded: { address: string; network: "real" | "test" | null } | null };
 
 /** The owner's card for what a store update puts out; true only on Confirm. */
 type Confirm = (heading: string, changes: StoreChange[]) => Promise<boolean>;

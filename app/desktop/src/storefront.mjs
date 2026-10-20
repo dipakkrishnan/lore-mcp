@@ -2,6 +2,7 @@
 // Generated from lore/node/src/storefront.ts by `npm run preview` in lore/node. Do not edit.
 
 // src/storefront.ts
+var agentsPay = (store) => store.agentsPay !== false;
 var MARKETPLACE = "https://yourlore.dev/marketplace";
 var BUYER_SKILL = "https://github.com/dipakkrishnan/lore-mcp/tree/main/plugins/lore/skills/lore-buy";
 var KINDS = { claim: "Note", content: "Write-up" };
@@ -100,7 +101,7 @@ function offer(store, piece) {
     price: String(store.priceUsd),
     priceCurrency: "USD",
     availability: "https://schema.org/InStock",
-    description: `Paid in USDC by an MCP client at ${store.origin}/mcp.`,
+    description: agentsPay(store) ? `Paid in USDC by an MCP client at ${store.origin}/mcp.` : `Paid by card at ${store.origin}/p/${piece.id}.`,
     url: `${store.origin}/p/${piece.id}`,
     seller: person(store)
   };
@@ -108,6 +109,10 @@ function offer(store, piece) {
 var notice = (store) => store.test ? `<p class="notice">This is a test store. Payments use play money, so nothing here is really for sale yet.</p>` : "";
 var listed = (store) => store.name ? `<a class="listed" href="${MARKETPLACE}">${MARK}Listed on Lore marketplace</a>` : "";
 function agentsNote(store, id) {
+  if (!agentsPay(store)) {
+    const given = store.freeCopies ? `, and the first ${store.freeCopies} copies of each piece are free` : "";
+    return `<section class="agents"><h2>For agents</h2><p>This store sells by card${given}. An agent that can use a browser buys each piece on its page, the same way a person does. Reading the catalog over MCP is free:</p><code class="endpoint">${escape(store.origin)}/mcp</code></section>${listed(store)}`;
+  }
   const call = id ? `<p>Then buy this piece:</p><code class="endpoint">${escape(`get {"id": "${id}"}`)}</code>` : "";
   const free2 = store.freeCopies ? `the first ${store.freeCopies} copies of each piece are free, then ` : "";
   return `<section class="agents"><h2>For agents</h2><p>Connect over MCP:</p><code class="endpoint">${escape(store.origin)}/mcp</code>${call}<p>Reading the catalog with <code>discover</code> is free; ${free2}each <code>get</code> pays the seller ${money(store.priceUsd)} in USDC.</p></section>${listed(store)}`;
@@ -170,10 +175,11 @@ function buy(piece, store, left) {
   const prompt = `Buy this piece from Lore for me: ${url}`;
   const settle = store.test ? "This store takes play money, so buying here is only a rehearsal." : "Every payment goes straight to the seller; Lore never holds it.";
   const agent = store.checkout ? `<h2 class="or">Or buy it with your AI agent</h2>` : `<h2>Buy it with your AI agent</h2>`;
+  const who = agentsPay(store) ? "Paste this into Claude, ChatGPT or any agent that can pay on Lore:" : "Paste this into an agent that can use a browser. It buys on this page by card:";
   return `<section class="buy"><p class="amount">${money(store.priceUsd)}</p>${card(piece, store)}${agent}
-<p>Paste this into Claude, ChatGPT or any agent that can pay on Lore:</p>
+<p>${who}</p>
 <div class="prompt"><code>${escape(prompt)}</code><button class="${store.checkout ? "" : "primary"}" data-copy="${escape(prompt)}">Copy</button></div>
-<p class="small">${settle} No agent set up yet? <a href="${BUYER_SKILL}">Get the buyer skill</a>.</p>
+<p class="small">${settle}${agentsPay(store) ? ` No agent set up yet? <a href="${BUYER_SKILL}">Get the buyer skill</a>.` : ""}</p>
 ${share(url)}</section>`;
 }
 function publicationPage(piece, store, problem = "", left = 0) {
