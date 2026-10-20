@@ -15,7 +15,7 @@ import {
   ticketResult,
   validPublicId
 } from "./answer-state.js";
-import { runAnswer } from "./answer.js";
+import { answerReadiness, runAnswer } from "./answer.js";
 import { FREE_LINK, freeFirst, freeLeft, giveCopy } from "./free.js";
 import { TESTNET, facilitator, network, networkLabel } from "./network.js";
 import { PRICE_USD } from "./price.js";
@@ -29,6 +29,10 @@ import { countView } from "./views.js";
 import { payTo, takesAgentPayments } from "./wallet.js";
 
 const ANSWER_DISABLED = { error: "the answer tier is not enabled on this node" };
+const answerUnavailable = (reason: string) => ({
+  error: `the answer tier is unavailable on this node: ${reason}`,
+  code: "answer_unavailable"
+});
 /** What a store online only for its owner's agents answers (XC-069): stable, so buyers' agents can rely on it. */
 const NOTHING_FOR_SALE = { error: "nothing is for sale here yet", code: "nothing_for_sale" };
 /** What a store that sells only by card answers when an agent tries to pay it directly. */
@@ -140,6 +144,10 @@ export class LorePaidMCP extends McpAgent<Env> {
   }
 
   private sell(paid: NonNullable<LorePaidMCP["paid"]>, settings: AnswerSettings) {
+    // MON-017: enabled settings are not enough. Without the selected provider's key the job would
+    // fail after the buyer had paid, so `answer` is neither advertised nor charged for until it can run.
+    const readiness = settings.enabled ? answerReadiness(this.env) : undefined;
+    const answering = readiness?.ready === true;
     this.server.registerTool(
       "discover",
       {
@@ -158,7 +166,7 @@ export class LorePaidMCP extends McpAgent<Env> {
             for_sale: true,
             ...(settings.freeCopies ? { free_copies: settings.freeCopies } : {}),
             ...(settings.listedName ? { name: settings.listedName } : {}),
-            ...(settings.enabled
+            ...(answering
               ? {
                   answer_price_usd: settings.priceUsd,
                   answer_retention_disclosure: RETENTION_DISCLOSURE
@@ -213,7 +221,7 @@ export class LorePaidMCP extends McpAgent<Env> {
       })
     );
 
-    if (settings.enabled) {
+    if (answering) {
       const answer = paid.paidTool(
         "answer",
         ANSWER,
@@ -245,7 +253,7 @@ export class LorePaidMCP extends McpAgent<Env> {
         async () =>
           withSpan("lore.answer", (setAttributes) => {
             setAttributes(() => toolSpanAttributes({ tool: "answer", outcome: "disabled" }));
-            return asText(ANSWER_DISABLED, true);
+            return asText(readiness?.ready === false ? answerUnavailable(readiness.reason) : ANSWER_DISABLED, true);
           })
       );
     }
