@@ -58,6 +58,11 @@ let signingIn = false;
 /** Whatever waits on an agent's save (its setup sheet, the first-run chat), told whatever Lore brings in from the
  * owner's agents. @type {Set<(reads: SourceRead[]) => void>} */
 const agentWaiting = new Set();
+/** XC-068: a setup sheet waiting on its app's sign-in, which takes the first that asks; and the sign-ins the owner
+ * already answered, so one is never asked about twice. @type {Set<(asking: SignInRequest) => void>} */
+const signInWaiting = new Set();
+/** @type {Set<string>} */
+const answeredSignIns = new Set();
 /** What Lore does on its own, as the CLI lists it. @type {Routine[]} */
 let routines = [];
 /** The routines the owner started that are still going. @type {Set<string>} */
@@ -2609,21 +2614,25 @@ const STORE_FIRST = "Your agents work online, so they need a place online to sav
  * `or` is the quiet alternative under the last step, and `brief` the steps as one line, for the first-run chat. Grok Bot
  * has no menu to add a connector by hand: the message pasted into its chat is the only documented way (APP-217).
  * `ask` is a message an agent with a menu can also be sent instead, to add Lore itself.
+ * XC-068: `signIn` is the way with no key at all: the plain address, then the agent signs in and the owner allows it here.
  * @typedef {{steps: string[], brief?: string, message?: string, or?: string, ask?: string}} AgentSteps
- * @type {Partial<Record<AgentApp, {first: AgentSteps, again: AgentSteps, note?: string, routine: string}>>} */
+ * @type {Partial<Record<AgentApp, {first: AgentSteps, again: AgentSteps, signIn: AgentSteps, note?: string, routine: string}>>} */
 const AGENT_GUIDES = {
   grok: {
     first: { steps: ["Copy the message", "Paste it into Grok Bot's chat", "Lore shows when the first save arrives"], brief: "Copy this message and paste it into a Grok Bot chat.", message: "Add this MCP server to my account: " },
+    signIn: { steps: ["Copy the message", "Paste it into Grok Bot's chat", "When Grok Bot opens a sign-in page, allow it here"], message: "Add this MCP server to my account: " },
     again: { steps: ["Copy the message", "Paste it into Grok Bot's chat", "Lore shows when the next save arrives"], message: "Replace the Lore MCP server in my account with this one: " },
     routine: "routine"
   },
   claude: {
     first: { steps: ["In Claude, open Customize › Connectors, then + Add › Add custom connector", "Name it Lore, paste the link below, and choose Continue", "Choose No sign in, then Add"] },
+    signIn: { steps: ["In Claude, open Customize › Connectors, then + Add › Add custom connector", "Name it Lore, paste the address below, and choose Continue", "Choose Sign in now, then allow it here"] },
     again: { steps: ["In Claude, open Customize › Connectors", "Open the Lore connector you added before and replace its link with this one"], or: "Or remove it and add a new one named Lore with this link" },
     note: "Claude's free plan allows one custom connector.",
     routine: "scheduled task"
   },
   chatgpt: {
+    signIn: { steps: ["In ChatGPT, open Plugins, then + › Add custom MCP server", "Name it Lore, paste the address below, choose OAuth, and continue", "Choose Create, then allow it here"] },
     first: { steps: ["In ChatGPT, open Plugins, then its settings, and choose Add MCP server", "Name it Lore, choose Streamable HTTP, and paste the link below as the URL", "Leave arguments empty, then save"], ask: "Add this MCP server to my account as Lore, using Streamable HTTP and no arguments: " },
     again: { steps: ["In ChatGPT, open Plugins, then its settings", "Open the Lore server you added before and replace its URL with this one"], or: "Or remove it and add a new one named Lore with this link" },
     note: "Saving to Lore needs a ChatGPT plan that allows custom connectors to write.",
@@ -2756,25 +2765,36 @@ function copyButton(text, label = "Copy") {
 /** The one link an agent needs, its key masked, copied whole; with `lead`, the message around it that the agent needs
  * instead. @param {AgentKey} handed @param {string} [lead] @param {string} [label] */
 function privateLink(handed, lead = "", label = "Copy") {
+  const address = el("span", "agent-link-url");
+  address.append(handed.mcp_url + "/", el("span", "agent-link-key", "••••••••••••"));
+  return copyLink(address, handed.connector_url, handed.agent.name, lead, label);
+}
+
+/** The plain address an agent signs in at, which holds no key, copied the same way (XC-068).
+ * @param {string} url @param {string} who @param {string} [lead] @param {string} [label] */
+function plainLink(url, who, lead = "", label = "Copy") {
+  return copyLink(el("span", "agent-link-url", url), url, who, lead, label);
+}
+
+/** @param {HTMLElement} address what shows @param {string} url what is copied @param {string} who @param {string} lead @param {string} label */
+function copyLink(address, url, who, lead, label) {
   const link = el("button", lead ? "agent-link agent-message" : "agent-link");
   link.type = "button";
   link.setAttribute("aria-label", lead ? label : "Copy link");
   const shown = el("span", "agent-link-text");
-  const address = el("span", "agent-link-url");
-  address.append(handed.mcp_url + "/", el("span", "agent-link-key", "••••••••••••"));
   if (lead) {
     // APP-218: a plain name for what gets pasted, and the message itself quietly under it, never broken inside its link.
     const quote = el("span", "agent-link-quote", lead);
     quote.append(address);
-    shown.append(el("span", "agent-link-lead", `Message for ${handed.agent.name}`), quote);
+    shown.append(el("span", "agent-link-lead", `Message for ${who}`), quote);
   } else shown.append(address);
   const glyph = el("span", "agent-link-icon");
   glyph.innerHTML = COPY_ICON;
   const word = el("span", "agent-link-word", label);
   link.append(shown, glyph, word);
   // Selecting the shown link and copying it by hand would take the dots, so a hand copy also takes the real link.
-  link.addEventListener("copy", (event) => { event.preventDefault(); event.clipboardData?.setData("text/plain", lead + handed.connector_url); });
-  link.addEventListener("click", () => void window.lore.copy(lead + handed.connector_url).then(() => {
+  link.addEventListener("copy", (event) => { event.preventDefault(); event.clipboardData?.setData("text/plain", lead + url); });
+  link.addEventListener("click", () => void window.lore.copy(lead + url).then(() => {
     link.classList.add("copied");
     glyph.innerHTML = CHECK_ICON;
     word.textContent = "Copied";
@@ -2860,12 +2880,97 @@ class AgentSetup {
       failed: "Lore couldn't connect it. Try again.",
       submit: async () => {
         if (!chosen) return false;
-        const handed = await window.lore.connectAgent({ app: chosen[0], name: chosen[1] });
-        void load().then(loadAgents);
-        this.steps(handed, true, await this.installed);
+        const [app, name] = chosen;
+        if (AGENT_GUIDES[app]?.signIn) this.signIn(app, name, (await window.lore.agentAddress()).mcp_url, await this.installed);
+        else await this.keyed(app, name);
         return false;
       }
     });
+  }
+
+  /** A private link instead, for an agent that can't sign in. @param {AgentApp} app @param {string} name */
+  async keyed(app, name) {
+    const handed = await window.lore.connectAgent({ app, name });
+    void load().then(loadAgents);
+    this.steps(handed, true, await this.installed);
+  }
+
+  /** XC-068: the plain address, with no key in it, then a wait here for the agent to ask to sign in; the first that
+   * asks becomes the Allow card in this sheet. @param {AgentApp} app @param {string} who @param {string} address
+   * @param {AgentApp[]} installed */
+  signIn(app, who, address, installed) {
+    const { form } = this;
+    const how = /** @type {AgentSteps} */ (AGENT_GUIDES[app]?.signIn);
+    form.reset();
+    form.heading(`Connect ${who}`, agentMark(app, who));
+    const list = el("ol", "agent-steps");
+    for (const step of how.steps) list.append(el("li", "", step));
+    form.body.append(list, how.message ? plainLink(address, who, how.message, "Copy message") : plainLink(address, who));
+    const note = AGENT_GUIDES[app]?.note;
+    if (note) form.body.append(el("p", "hint", note));
+    const line = el("p", "agent-wait");
+    line.append(el("span", "shimmer", `Waiting for ${who} to ask to sign in…`));
+    const instead = el("p", "hint agent-instead");
+    instead.append(inline("Can't sign in? Use a private link instead", () => {
+      stop();
+      void this.keyed(app, who).catch((error) => { form.problem.textContent = reason(error, "Lore couldn't connect it. Try again."); });
+    }));
+    form.body.append(line, instead);
+    const hint = el("span", "form-hint quiet-hint");
+    hint.innerHTML = LOCK_ICON;
+    hint.append(el("span", "", "No key in it. You allow it here"));
+    form.aside.append(hint);
+    if (app === "grok" && installed.includes(app)) form.button(`Open ${who}`, "secondary", () => void window.lore.openAgentApp(app).catch((error) => tell(reason(error, `Lore couldn't open ${who}.`))));
+    // Asked only while this sheet is on screen; once it closes, Lore's own check still hears the sign-in.
+    const poll = setInterval(() => { if (form.dialog.open) void window.lore.checkAgents(); }, FIRST_SAVE_EVERY_MS);
+    /** @param {SignInRequest} asking */
+    const take = (asking) => {
+      stop();
+      this.allow(asking, app, who);
+    };
+    const stop = () => {
+      clearInterval(poll);
+      signInWaiting.delete(take);
+    };
+    signInWaiting.add(take);
+    form.dialog.addEventListener("close", stop);
+    form.arm({ primary: "Done" });
+    form.focus();
+  }
+
+  /** The Allow card: who asks, the code its page shows, Allow or Deny. Allowing makes the agent, and its page goes on
+   * by itself; then it waits for the first save. @param {SignInRequest} asking @param {AgentApp} [app] @param {string} [who] */
+  allow(asking, app = asking.app, who = asking.name) {
+    const { form } = this;
+    form.reset();
+    form.heading(`${who} wants to save to your Lore`, agentMark(app, who));
+    form.text("Allow it only if your browser shows this code.");
+    form.body.append(el("p", "sign-in-code", asking.code));
+    form.text("What it saves stays private on this Mac until you approve a piece.", "hint");
+    form.button("Deny", "secondary", () => void act(async () => {
+      answeredSignIns.add(asking.id);
+      await window.lore.denySignIn(asking.id);
+      closeSheet();
+      tell(`Denied. ${who} can't save to Lore.`);
+    }));
+    form.arm({
+      primary: "Allow",
+      working: "Allowing…",
+      failed: "Lore couldn't reach your store. Try again.",
+      submit: async () => {
+        answeredSignIns.add(asking.id);
+        const allowed = await window.lore.allowSignIn({ id: asking.id, app, name: who });
+        void load().then(loadAgents);
+        form.reset();
+        form.heading(`${who} is connected`, agentMark(app, who));
+        form.text(`Your browser goes back to ${who} by itself.`);
+        this.wait(allowed, who, true);
+        form.arm({ primary: "Done" });
+        form.focus();
+        return false;
+      }
+    });
+    form.focus();
   }
 
   /** What to paste into the agent, with its key shown this once; a first connect then waits for the first save.
@@ -2908,7 +3013,7 @@ class AgentSetup {
   /** Waits, in the sheet, for the agent's first save to reach Lore; after a new link,
    * for the next save, which shows the new link works. The store counts every save, even one that changes nothing,
    * and the key came with the count so far, so only a save made with this key raises it: saves the old key left
-   * waiting were already counted. @param {AgentKey} handed @param {string} who @param {boolean} first */
+   * waiting were already counted. @param {Pick<AgentKey, "source" | "agent">} handed @param {string} who @param {boolean} first */
   wait(handed, who, first) {
     const { source } = handed;
     const line = waitLine(who, first);
@@ -2989,6 +3094,19 @@ function firstSave({ source, agent }, active, heard) {
   return stop;
 }
 
+/** XC-068: an app asked to sign in. A setup sheet waiting on it takes it; otherwise the Allow card opens on its own,
+ * unless the owner is in another sheet, in which case the next check asks again. @param {SignInRequest[]} signIns */
+function heardSignIns(signIns) {
+  const asking = signIns.find((each) => !answeredSignIns.has(each.id));
+  if (!asking) return;
+  const [waiting] = signInWaiting;
+  if (waiting) return waiting(asking);
+  if (document.querySelector("dialog.sheet[open]")) return;
+  const setup = new AgentSetup();
+  setup.allow(asking);
+  setup.form.show();
+}
+
 /** What one personal agent saved, and what can be done to it. @param {SourceEntry} source */
 function openAgent(source) {
   const name = source.label;
@@ -2997,8 +3115,14 @@ function openAgent(source) {
   form.text(`Lore brings in what ${name} saves while Lore is open. It stays private on this Mac.`, "hint");
   const offer = agents?.find((agent) => agent.source === source.name)?.saved ? eveningOffer(source.app, name) : null;
   if (offer) form.body.append(offer);
-  form.button("Disconnect", "quiet", ask);
-  form.button("Get a new key", "secondary", rekey);
+  const signedIn = agents?.find((agent) => agent.source === source.name)?.signed_in;
+  if (signedIn) {
+    form.text(`${name} signed in, so it has no link to replace. To connect it again, disconnect it, then add Lore in ${name} again.`, "hint");
+    form.button("Disconnect", "secondary", ask);
+  } else {
+    form.button("Disconnect", "quiet", ask);
+    form.button("Get a new key", "secondary", rekey);
+  }
   form.open();
   function rekey() {
     const confirm = new FormSheet(`Get a new key for ${name}?`, agentMark(source.app, name));
@@ -3020,7 +3144,7 @@ function openAgent(source) {
   function ask() {
     const kept = source.imported ? ` The ${plural(source.imported, "memory")} it saved ${source.imported === 1 ? "stays" : "stay"} in your library.` : "";
     const confirm = new FormSheet(`Disconnect ${name}?`, agentMark(source.app, name));
-    confirm.text(`${name}'s key stops working, so it can't save to Lore anymore.${kept}`);
+    confirm.text(`${signedIn ? `${name}'s sign-in` : `${name}'s key`} stops working, so it can't save to Lore anymore.${kept}`);
     if (source.imported) confirm.button("Delete them too", "quiet", () => void remove(false)).classList.add("destructive");
     confirm.button("Cancel", "secondary", () => openAgent(source));
     confirm.button("Disconnect", "secondary", () => void remove(true));
@@ -4844,6 +4968,7 @@ function onEvent(event) {
     for (const landed of agentWaiting) landed(event.reads);
     void load().then(loadAgents);
   }
+  else if (event.type === "sign-ins") heardSignIns(event.signIns);
   else if (event.type === "ready") void load();
   else if (event.type === "show") {
     if (event.source) seeFrom(event.source);
