@@ -14,6 +14,7 @@
     "preview": "tsx scripts/preview.ts"
   },
   "dependencies": {
+    "@cloudflare/workers-oauth-provider": "1.2.3",
     "@coinbase/x402": "^2.1.0",
     "@earendil-works/pi-agent-core": "0.84.2",
     "@earendil-works/pi-ai": "0.84.2",

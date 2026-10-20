@@ -122,6 +122,13 @@ def selling(store: Store) -> bool:
     return bool(store.setting("node_url", None)) and choice(store) is not False
 
 
+def takes_cards() -> bool:
+    """Whether the owner takes card payments (XC-039), which is enough for the
+    store to sell with no payout address."""
+    with Store() as store:
+        return bool(store.setting("stripe_account", ""))
+
+
 def _refuse_dev_source_drift(packaged: Path) -> None:
     """Stop an installed CLI from ignoring edits in the current checkout."""
     for root in (Path.cwd(), *Path.cwd().parents):
@@ -297,16 +304,19 @@ def _record_payout(target: Path, wallet: str | None, network: str | None) -> Non
     """Keep where this store pays out, and on which network, beside its code: the
     desktop app shows the owner exactly this before a redeploy and deploys it
     again, and the agent can neither read nor write it there. Every deploy that
-    gets this far rewrites it, a wallet-less one keeping the recorded address."""
+    gets this far rewrites it, a wallet-less one keeping the recorded address.
+    A store that sells by card alone has no address, so only its network is kept."""
     path = target / PAYOUT
     kept = _recorded(target)
     address = wallet or kept.get("address")
-    if not isinstance(address, str) or not WALLET.fullmatch(address):
+    if address is not None and (
+        not isinstance(address, str) or not WALLET.fullmatch(address)
+    ):
         return
-    _replace(
-        path,
-        json.dumps({"address": address, "network": network or kept.get("network")}),
-    )
+    chosen = network or kept.get("network")
+    if address is None and chosen is None:
+        return
+    _replace(path, json.dumps({"address": address, "network": chosen}))
 
 
 def install(target: Path) -> None:
@@ -535,6 +545,11 @@ def login() -> int:
 def _read(query: str, fail: str) -> list[dict[str, object]]:
     """Run `query` on the node's database through the owner's Cloudflare login,
     the same way `lore push` writes it, and return its last statement's rows."""
+    return _read_all(query, fail)[-1]
+
+
+def _read_all(query: str, fail: str) -> list[list[dict[str, object]]]:
+    """Every statement's rows, in order, from one run of `query`."""
     target = tools()
     wrangler = target / WRANGLER
     result = _run(
@@ -552,8 +567,7 @@ def _read(query: str, fail: str) -> list[dict[str, object]]:
         fail=fail,
         retry=True,
     )
-    rows: list[dict[str, object]] = json.loads(result.stdout)[-1]["results"]
-    return rows
+    return [statement["results"] for statement in json.loads(result.stdout)]
 
 
 def sales() -> list[Sale]:
@@ -738,10 +752,11 @@ def _deploy(
                 f"Cloudflare login failed; run `npx wrangler login` in {target}"
             )
 
-    if not wallet and not inbox_only:
+    if not wallet and not inbox_only and not takes_cards():
         # This check exists so a missing payout address costs seconds, not a
         # deploy. A listing that failed says nothing about the wallet, so it
-        # stops the deploy rather than being read as "no wallet".
+        # stops the deploy rather than being read as "no wallet". Card
+        # payments are enough on their own: such a store sells by card alone.
         listing = _run(
             (wrangler, "secret", "list"),
             target,
@@ -749,7 +764,8 @@ def _deploy(
         )
         if "LORE_WALLET" not in (listing.stdout or ""):
             raise ValueError(
-                "the node has no payout address; rerun with --wallet 0x<your public address>"
+                "your store has no way to be paid yet; turn on card payments "
+                "(lore cards connect) or rerun with --wallet 0x<your public address>"
             )
 
     _ensure_d1(wrangler, target)
