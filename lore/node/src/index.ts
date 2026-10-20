@@ -381,6 +381,7 @@ function storeFor(env: Env, url: URL, settings: AnswerSettings): Store {
     freeCopies: settings.freeCopies,
     support: settings.supportEmail,
     selling: settings.selling,
+    agentsPay: takesAgentPayments(env),
     ...(settings.selling && takesCards(settings) ? { checkout: env.CHECKOUT_URL } : {})
   };
 }
