@@ -4,13 +4,13 @@ title: Give piece pages a free sample, who it's for, and a way for a person to b
 priority: P1
 effort: M
 component: monetization
-status: in-review
+status: completed
 related: [MON-029]
 blockers: []
 dependencies: []
 github_issue: 365
 created: 2026-10-04
-updated: 2026-10-04
+updated: 2026-10-19
 ---
 
 ## Problem
@@ -36,3 +36,7 @@ Share and Copy link. Card checkout (XC-039) fills the same box later.
 - [x] Share and Copy link work; `og:description` uses the sample.
 - [x] Existing local databases gain the columns; the edge table converges on
       the next push.
+
+## Notes
+
+**Completed (verified 2026-10-19):** every acceptance criterion is checked and the work is on main in cb8bc0c. Status was left stale after merge; closed out in the review-queue pass.

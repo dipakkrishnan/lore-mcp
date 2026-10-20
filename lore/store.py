@@ -7,9 +7,11 @@ import os
 import re
 import secrets
 import sqlite3
+from collections.abc import Collection
 from datetime import datetime, timedelta, timezone
 from enum import Enum
 from pathlib import Path
+from typing import Literal
 
 from pydantic import (
     BaseModel,
@@ -69,6 +71,29 @@ class Memory(BaseModel):
     def from_row(cls, row: sqlite3.Row) -> Memory:
         """Build a Memory from a `memories` row."""
         return cls.model_validate({key: row[key] for key in row.keys()})
+
+
+# How long a contributor's name may be; the app cuts its own to the same length.
+LABEL_LIMIT = 200
+
+
+class Contributor(BaseModel):
+    """Who brought a memory in or wrote into it (APP-213): one of the owner's agents, an
+    app, one of their routines, or the owner. `mark` names the picture it shows with."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True, str_strip_whitespace=True)
+
+    kind: Literal["agent", "app", "routine", "capture"]
+    id: str = Field(min_length=1, max_length=200)
+    label: str = Field(min_length=1, max_length=LABEL_LIMIT)
+    mark: str = Field(default="", max_length=40, pattern=r"^[a-z0-9-]*$")
+
+    @field_validator("label", mode="before")
+    @classmethod
+    def label_fits(cls, value: object) -> object:
+        """A name longer than a label holds (an owner's folder, a routine named by its
+        prompt) is cut to fit, never refused."""
+        return value.strip()[:LABEL_LIMIT] if isinstance(value, str) else value
 
 
 class PublicationKind(str, Enum):
@@ -249,6 +274,7 @@ JOB_SUMMARIES: dict[str, str] = {
     "synthesized": "Synthesis finished",
     "not_reported": "Synthesis never reported finishing",
     "deployed": "Your store is live",
+    "deployed_inbox": "Your store is online for your agents",
     "deployed_test": "Your store is live on the test network",
     "deployed_real": "Your store is live with real money",
     "pushed": "Your store was updated",
@@ -363,7 +389,15 @@ class Store:
                 status TEXT NOT NULL DEFAULT 'private'
                     CHECK(status IN ('private','discarded')),
                 created_at TEXT NOT NULL,
-                updated_at TEXT NOT NULL
+                updated_at TEXT NOT NULL,
+                arrival INTEGER NOT NULL DEFAULT 0
+            );
+            -- APP-212: the order memories arrived in. A memory's id can come back
+            -- after the newest one is deleted; AUTOINCREMENT never hands a number
+            -- out twice, so "arrived since" and "seen" stay true. One row at most,
+            -- only while a memory is being added.
+            CREATE TABLE IF NOT EXISTS memory_arrivals (
+                seq INTEGER PRIMARY KEY AUTOINCREMENT
             );
             CREATE TABLE IF NOT EXISTS settings (
                 key TEXT PRIMARY KEY,
@@ -382,7 +416,10 @@ class Store:
                 INSERT INTO memories_fts(memories_fts,rowid,title,content,project)
                 VALUES ('delete',old.id,old.title,old.content,old.project);
             END;
-            CREATE TRIGGER IF NOT EXISTS memories_au AFTER UPDATE ON memories BEGIN
+            -- Only what the index holds re-indexes a memory: numbering its arrival or
+            -- changing its status leaves the index alone.
+            CREATE TRIGGER IF NOT EXISTS memories_au
+            AFTER UPDATE OF title,content,project ON memories BEGIN
                 INSERT INTO memories_fts(memories_fts,rowid,title,content,project)
                 VALUES ('delete',old.id,old.title,old.content,old.project);
                 INSERT INTO memories_fts(rowid,title,content,project)
@@ -468,6 +505,20 @@ class Store:
                 flagged_at TEXT NOT NULL,
                 PRIMARY KEY (publication_id, memory_id)
             );
+            -- Who brought each memory in or wrote into it (APP-213), one row each.
+            -- The label is kept as it was, so an agent disconnected since still
+            -- has its name; a memory deleted takes its rows with it.
+            CREATE TABLE IF NOT EXISTS memory_contributors (
+                memory_id INTEGER NOT NULL
+                    REFERENCES memories(id) ON DELETE CASCADE,
+                kind TEXT NOT NULL
+                    CHECK(kind IN ('agent','app','routine','capture')),
+                ref TEXT NOT NULL,
+                label TEXT NOT NULL,
+                mark TEXT NOT NULL DEFAULT '',
+                at TEXT NOT NULL,
+                PRIMARY KEY (memory_id, kind, ref)
+            );
             """
         )
         # Roll-forward normalization, not back-compat: a database created before
@@ -496,6 +547,44 @@ class Store:
                 self.db.execute(
                     f"ALTER TABLE publications ADD COLUMN {column} TEXT NOT NULL DEFAULT ''"
                 )
+        memory_columns = {
+            row["name"] for row in self.db.execute("PRAGMA table_info(memories)")
+        }
+        # A database from before the update trigger named its columns re-indexed every
+        # memory on any update; replaced in place, the index itself is unchanged.
+        trigger = self.db.execute(
+            "SELECT sql FROM sqlite_master WHERE type='trigger' AND name='memories_au'"
+        ).fetchone()
+        if "UPDATE OF" not in trigger["sql"]:
+            self.db.execute("DROP TRIGGER memories_au")
+            self.db.execute(
+                "CREATE TRIGGER memories_au "
+                "AFTER UPDATE OF title,content,project ON memories BEGIN "
+                "INSERT INTO memories_fts(memories_fts,rowid,title,content,project) "
+                "VALUES ('delete',old.id,old.title,old.content,old.project); "
+                "INSERT INTO memories_fts(rowid,title,content,project) "
+                "VALUES (new.id,new.title,new.content,new.project); END"
+            )
+        if "arrival" not in memory_columns:
+            # Memories already here arrived in id order, and new ones arrive after
+            # the newest of them.
+            self.db.execute(
+                "ALTER TABLE memories ADD COLUMN arrival INTEGER NOT NULL DEFAULT 0"
+            )
+            self.db.execute("UPDATE memories SET arrival=id")
+            self.db.execute(
+                "INSERT INTO memory_arrivals(seq) "
+                "SELECT max(id) FROM memories HAVING max(id) IS NOT NULL"
+            )
+            self.db.execute("DELETE FROM memory_arrivals")
+        # A Lore from before arrivals writes a memory with none; it arrives now.
+        for row in self.db.execute(
+            "SELECT id FROM memories WHERE arrival=0 ORDER BY id"
+        ).fetchall():
+            self.db.execute(
+                "UPDATE memories SET arrival=? WHERE id=? AND arrival=0",
+                (self._next_arrival(), row["id"]),
+            )
         job_columns = {
             row["name"] for row in self.db.execute("PRAGMA table_info(owner_jobs)")
         }
@@ -561,11 +650,12 @@ class Store:
             self._flag_publications_of(row["id"], now)
             result = "updated"
         else:
+            arrival = self._next_arrival()
             self.db.execute(
                 """INSERT INTO memories
                    (source,origin,source_path,source_key,fingerprint,title,content,
-                    project,status,created_at,updated_at)
-                   VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
+                    project,status,created_at,updated_at,arrival)
+                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
                 (
                     source,
                     origin,
@@ -578,11 +668,20 @@ class Store:
                     "private",
                     dated or now,
                     dated or now,
+                    arrival,
                 ),
             )
             result = "added"
         self.db.commit()
         return result
+
+    def _next_arrival(self) -> int:
+        """The next arrival number, never handed out before."""
+        arrival = self.db.execute(
+            "INSERT INTO memory_arrivals DEFAULT VALUES"
+        ).lastrowid
+        self.db.execute("DELETE FROM memory_arrivals")
+        return int(arrival or 0)
 
     def set_status(self, memory_id: int, status: str) -> None:
         """Set a memory's retention status."""
@@ -667,11 +766,11 @@ class Store:
             sql = (
                 "SELECT m.* FROM memories_fts f JOIN memories m ON m.id=f.rowid "
                 f"WHERE memories_fts MATCH ?{status_sql} "
-                "ORDER BY bm25(memories_fts),m.updated_at DESC LIMIT ?"
+                "ORDER BY bm25(memories_fts),m.updated_at DESC,m.id DESC LIMIT ?"
             )
             args.append(match)
         else:
-            sql = f"SELECT m.* FROM memories m WHERE 1=1{status_sql} ORDER BY m.updated_at DESC LIMIT ?"
+            sql = f"SELECT m.* FROM memories m WHERE 1=1{status_sql} ORDER BY m.updated_at DESC,m.id DESC LIMIT ?"
         args.extend(value for value in (status, source) if value)
         args.append(limit or -1)
         return [Memory.from_row(row) for row in self.db.execute(sql, args).fetchall()]
@@ -701,6 +800,28 @@ class Store:
             )
         }
 
+    def newest_memory_id(self) -> int:
+        """The newest memory's id: an import gets a higher one, whatever date it carries."""
+        return int(
+            self.db.execute("SELECT coalesce(max(id),0) FROM memories").fetchone()[0]
+        )
+
+    def brought_in_after(
+        self, memory_id: int, limit: int = 30, skip: Collection[str] = ()
+    ) -> list[dict[str, object]]:
+        """Private items an app or agent brought in after `memory_id`, newest first:
+        never Lore's own writing, nor what the owner captured themselves, nor `skip`'s sources."""
+        holes = ",".join("?" * len(skip))
+        return [
+            dict(row)
+            for row in self.db.execute(
+                "SELECT id,title,source FROM memories WHERE status='private' "
+                f"AND origin='native' AND id>? AND source NOT IN ({holes}) "
+                "ORDER BY id DESC LIMIT ?",
+                (memory_id, *skip, limit),
+            )
+        ]
+
     def source_keys(self, source: str) -> set[str]:
         """The item keys one source has already kept, without the source's prefix."""
         return {
@@ -716,24 +837,100 @@ class Store:
         A memory a publication derives from is kept whatever the owner chose:
         deleting it would leave an approved publication citing nothing.
         """
-        cursor = self.db.execute(
-            """DELETE FROM memories WHERE source=? AND id NOT IN (
-                   SELECT j.value FROM publications p, json_each(p.provenance) j
-               )""",
-            (source,),
-        )
+        cursor = self._delete_uncited("source=?", source)
         kept = self.db.execute(
             "SELECT count(*) kept FROM memories WHERE source=?", (source,)
         ).fetchone()["kept"]
         self.db.commit()
         return {"deleted": cursor.rowcount, "kept": kept}
 
+    def forget(self, source_key: str) -> int:
+        """Delete the memory a source took back, unless a publication cites it."""
+        deleted = self._delete_uncited("source_key=?", source_key).rowcount
+        self.db.commit()
+        return deleted
+
+    def _delete_uncited(self, where: str, value: str) -> sqlite3.Cursor:
+        return self.db.execute(
+            f"""DELETE FROM memories WHERE {where} AND id NOT IN (
+                   SELECT j.value FROM publications p, json_each(p.provenance) j
+               )""",
+            (value,),
+        )
+
     def memory_inventory(self) -> list[dict[str, object]]:
+        """Every memory's row, with who is on record as its `sources`, newest first. The
+        source, origin and path are there for whoever names a memory with none on record."""
         rows = self.db.execute(
-            "SELECT id,title,project,status,updated_at "
+            "SELECT id,title,project,status,updated_at,arrival,source,origin,source_path "
             "FROM memories ORDER BY updated_at DESC,id"
         ).fetchall()
-        return [dict(row) for row in rows]
+        credited = self.contributors()
+        return [{**dict(row), "sources": credited.get(row["id"], [])} for row in rows]
+
+    def credit(self, ids: Collection[int], contributor: Contributor) -> int:
+        """Put a contributor on record for these memories, as the newest; one already
+        there keeps a single row, renamed and moved to the front. Unknown ids are skipped."""
+        if not ids:
+            return 0
+        return self._credit(
+            f"id IN ({','.join('?' * len(ids))})", tuple(ids), contributor, newest=True
+        )
+
+    def credit_source(self, source: str, contributor: Contributor) -> int:
+        """Put the app or agent a source is on record for everything it brought in. Reading
+        it again renames it but keeps when it first brought each memory in."""
+        return self._credit("source=?", (source,), contributor, newest=False)
+
+    def _credit(
+        self,
+        where: str,
+        args: tuple[object, ...],
+        contributor: Contributor,
+        *,
+        newest: bool,
+    ) -> int:
+        cursor = self.db.execute(
+            "INSERT INTO memory_contributors (memory_id,kind,ref,label,mark,at) "
+            f"SELECT id,?,?,?,?,? FROM memories WHERE {where} "
+            "ON CONFLICT(memory_id,kind,ref) DO UPDATE SET "
+            "label=excluded.label,mark=excluded.mark"
+            + (",at=excluded.at" if newest else ""),
+            (
+                contributor.kind,
+                contributor.id,
+                contributor.label,
+                contributor.mark,
+                datetime.now(timezone.utc).isoformat(),
+                *args,
+            ),
+        )
+        self.db.commit()
+        return cursor.rowcount
+
+    def contributors(
+        self, ids: Collection[int] | None = None
+    ) -> dict[int, list[dict[str, object]]]:
+        """Who is on record for each memory, newest first."""
+        if ids is not None and not ids:
+            return {}
+        where = f" WHERE memory_id IN ({','.join('?' * len(ids))})" if ids else ""
+        credited: dict[int, list[dict[str, object]]] = {}
+        for row in self.db.execute(
+            "SELECT memory_id,kind,ref,label,mark,at FROM memory_contributors"
+            f"{where} ORDER BY at DESC,rowid DESC",
+            tuple(ids or ()),
+        ):
+            credited.setdefault(row["memory_id"], []).append(
+                {
+                    "kind": row["kind"],
+                    "id": row["ref"],
+                    "label": row["label"],
+                    "mark": row["mark"],
+                    "at": row["at"],
+                }
+            )
+        return credited
 
     def publication_inventory(self) -> list[dict[str, object]]:
         rows = self.db.execute(
@@ -748,6 +945,19 @@ class Store:
             "SELECT value FROM settings WHERE key=?", (key,)
         ).fetchone()
         return json.loads(row["value"]) if row else default
+
+    def set_setting_if_unset(self, key: str, value: object) -> bool:
+        """Write a setting only if it is absent or null, in one statement, so a
+        value written meanwhile by anyone else is never overwritten. Returns
+        whether this call wrote it."""
+        written = self.db.execute(
+            "INSERT INTO settings(key,value) VALUES (?,?) "
+            "ON CONFLICT(key) DO UPDATE SET value=excluded.value "
+            "WHERE settings.value = 'null'",
+            (key, json.dumps(value, allow_nan=False)),
+        ).rowcount
+        self.db.commit()
+        return written == 1
 
     def set_setting(self, key: str, value: object) -> None:
         """Create or replace a JSON-backed setting."""
