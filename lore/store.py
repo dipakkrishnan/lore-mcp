@@ -792,11 +792,12 @@ class Store:
         return counts
 
     def source_counts(self) -> dict[str, int]:
-        """Return memory counts grouped by source."""
+        """Return kept memory counts grouped by source; what the owner discarded is not counted."""
         return {
             row["source"]: row["count"]
             for row in self.db.execute(
-                "SELECT source,count(*) count FROM memories GROUP BY source"
+                "SELECT source,count(*) count FROM memories "
+                "WHERE status='private' GROUP BY source"
             )
         }
 
@@ -865,14 +866,29 @@ class Store:
 
     def delete(self, memory_id: int) -> Memory:
         """Delete one memory the owner chose, unless a publication derives from it."""
+        memory = self._uncited(memory_id)
+        self._delete_uncited("id=?", memory_id)
+        self.db.commit()
+        return memory
+
+    def discard(self, memory_id: int) -> Memory:
+        """Discard one memory the owner deleted that its source would bring back on the
+        next read: the row stays, so reading it again keeps it discarded."""
+        memory = self._uncited(memory_id)
+        self.set_status(memory_id, Status.DISCARDED.value)
+        return memory
+
+    def _uncited(self, memory_id: int) -> Memory:
         memory = self.get(memory_id)
         if memory is None:
             raise ValueError(f"memory not found: {memory_id}")
-        if not self._delete_uncited("id=?", memory_id).rowcount:
+        if self.db.execute(
+            "SELECT 1 FROM publications p, json_each(p.provenance) j WHERE j.value=?",
+            (memory_id,),
+        ).fetchone():
             raise ValueError(
                 "A piece you published uses this memory, so Lore keeps it."
             )
-        self.db.commit()
         return memory
 
     def _delete_uncited(self, where: str, value: str | int) -> sqlite3.Cursor:

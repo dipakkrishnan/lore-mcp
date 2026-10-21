@@ -1445,11 +1445,17 @@ def edit_memory(
 
 
 def delete_memory(memory_id: int, as_json: bool) -> int:
-    """Delete a memory, and the file Lore wrote it to, so no sync brings it back."""
+    """Delete a memory so no read brings it back. One Lore wrote goes, with its file;
+    one an app, folder or agent brought in is discarded, so reading it again keeps it gone."""
+    synthesis = sources_module.Synthesis()
     with Store() as store:
-        memory = store.delete(memory_id)
-    if memory.origin == "automation":
-        sources_module.Synthesis().remove(memory.source_path)
+        memory = store.get(memory_id)
+        if memory is None:
+            raise ValueError(f"memory not found: {memory_id}")
+        owned = memory.origin == "attended" or synthesis.owns(memory)
+        memory = store.delete(memory_id) if owned else store.discard(memory_id)
+    if synthesis.owns(memory):
+        synthesis.remove(memory)
     if as_json:
         print(json.dumps({"deleted": memory.id}))
     else:

@@ -59,7 +59,7 @@ from . import __version__
 from .inbox import AgentApp, Forget, Inbox, InboxError, Opened
 from .paths import claude_home, codex_home, home, obsidian_home
 from .signin import Keychain, Loopback
-from .store import Contributor, Store
+from .store import Contributor, Memory, Store
 
 Kind = Literal["folder", "export", "feed", "mcp", "agent"]
 
@@ -2025,12 +2025,20 @@ class Synthesis:
     def __init__(self) -> None:
         self.folder = (home() / "memories").resolve()
 
-    def remove(self, source_path: str) -> bool:
-        """Delete one topic file and its INDEX.md lines, so the next sync does not bring it
-        back. A file outside the folder, or the index itself, is not Lore's to delete."""
-        path = Path(source_path).resolve()
-        if not path.is_relative_to(self.folder) or path.name == "INDEX.md":
-            return False
+    def owns(self, memory: Memory) -> bool:
+        """Whether Lore wrote this memory to a topic file of its own. A file outside the
+        folder, or the index itself, is not Lore's to delete."""
+        path = Path(memory.source_path).resolve()
+        return (
+            memory.origin == "automation"
+            and path.is_relative_to(self.folder)
+            and path.name != "INDEX.md"
+        )
+
+    def remove(self, memory: Memory) -> None:
+        """Delete one topic file Lore owns and its INDEX.md lines, so the next sync does
+        not bring it back."""
+        path = Path(memory.source_path).resolve()
         path.unlink(missing_ok=True)
         index = self.folder / "INDEX.md"
         if index.is_file():
@@ -2041,7 +2049,6 @@ class Synthesis:
             kept = [line for line in lines if not named.search(line)]
             if kept != lines:
                 index.write_text("".join(kept), encoding="utf-8")
-        return True
 
 
 def available_sources() -> list[Source]:

@@ -1,5 +1,5 @@
 ---
-id: APP-233
+id: APP-234
 title: Delete one memory, and dismiss one card on Today
 priority: P1
 effort: S
@@ -26,10 +26,17 @@ can't put away one agent's card and keep the rest.
 
 ## Proposed approach
 
-- `lore memory delete <id> [--json]` deletes the row through the store. When
-  Lore wrote the memory to its own memories folder, it also deletes the file
-  and the INDEX.md lines that name it, so no sync brings it back. A memory
-  any publication cites (live or taken down) is kept, with a plain reason.
+- `lore memory delete <id> [--json]` deletes a memory Lore owns: one the owner
+  captured, or one Lore wrote to its own memories folder, which also loses its
+  file and the INDEX.md lines that name it, so no sync brings it back.
+- A memory an app, a folder or an agent brought in (Claude Code, Codex,
+  Obsidian, an owner's folder, an agent's save) is discarded instead, the
+  status `lore review` already sets. Its row stays, so reading the source
+  again, or the agent saving under the same key, keeps it discarded; Inventory,
+  the app's search, Today, the check-in and the synthesis agent read only
+  private memories, and a connector's count leaves it out.
+- A memory any publication cites (live or taken down) is kept, with a plain
+  reason.
 - The memory sheet gets Delete next to Rename and Edit, with an inline
   confirm in the destructive style of "Delete them too".
 - Each card in New memories gets an × on hover. It drops only that card's
@@ -42,14 +49,16 @@ can't put away one agent's card and keep the rest.
   keeps one a publication cites.
 - [x] Deleting a synthesized memory removes its file and INDEX.md line; the
   next sync adds nothing back. A file outside Lore's folder is never touched.
+- [x] Deleting a memory from a folder or an agent leaves its file alone and
+  discards it; reading the folder again, or the agent saving it again, does
+  not bring it back.
 - [x] Delete in the memory sheet asks first, then closes the sheet and
-  refreshes the library.
+  refreshes the library, and the memory leaves any Today card (a card it
+  empties goes too), so Today never opens a memory that is gone.
 - [x] Dismissing one card leaves the others, and the badge counts only what
   is left.
 
 ## Notes
 
-- A memory read from a folder Lore doesn't own (Claude Code, Codex, Obsidian,
-  an owner's folder) is deleted as a row only, so the next read of that
-  source brings it back. Left open: hide it with a tombstone, or say so in
-  the confirm.
+- A discarded memory can still be brought back with
+  `lore review --status discarded`; nothing in the app offers that.

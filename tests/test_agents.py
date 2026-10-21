@@ -316,6 +316,31 @@ class ReadTest(AgentCase):
                 [p.title for p in store.stale_publications()], ["Pricing claim"]
             )
 
+    def test_a_deleted_save_stays_gone_when_the_agent_saves_it_again(self) -> None:
+        self.save(
+            self.key,
+            {"title": "Pricing", "content": "Quote the tier.", "key": "p"},
+            {"title": "Seats", "content": "Window seat.", "key": "s"},
+        )
+        self.read()
+        with Store() as store:
+            memory = next(m for m in store.search("Pricing") if m.source == self.source)
+        self.assertEqual(
+            self.json("memory", "delete", str(memory.id)), {"deleted": memory.id}
+        )
+        self.save(
+            self.key, {"title": "Pricing", "content": "Quote the budget.", "key": "p"}
+        )
+        self.assertEqual(self.read()["added"], 0)
+        self.assertEqual(self.memories(self.source), {"Seats": "Window seat."})
+        library = build()["library"]
+        self.assertEqual(library["counts"]["private"], 1)
+        self.assertEqual(
+            [i["title"] for i in library["items"] if i["status"] == "private"],
+            ["Seats"],
+        )
+        self.assertEqual(self.json("agents", "list")["agents"][0]["memories"], 1)
+
     def test_a_forget_removes_the_memory_unless_a_publication_cites_it(self) -> None:
         self.save(
             self.key,

@@ -132,6 +132,18 @@ class Ready {
     await this.#save((await this.runs()).filter((run) => !picked(run)));
   }
 
+  /** Take a deleted memory off every card, and a card it leaves empty with it, so Today never opens what is gone.
+   * @param {number} id */
+  async forget(id) {
+    const runs = await this.runs();
+    if (!runs.some((run) => run.memories.some((memory) => memory.id === id))) return;
+    await this.#save(runs.flatMap((run) => {
+      const memories = run.memories.filter((memory) => memory.id !== id);
+      if (memories.length === run.memories.length) return [run];
+      return memories.length ? [{ ...run, memories }] : [];
+    }));
+  }
+
   /** Put the badge back after a relaunch. */
   async show() {
     this.badge(unseen(await this.runs()));

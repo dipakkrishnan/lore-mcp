@@ -172,7 +172,11 @@ function registerIpc(loreHome, schedule, watch, outgoing) {
     if (typeof content !== "string") throw new Error("Invalid content");
     return editMemory(loreHome, id, content);
   });
-  ipcMain.handle("memory:delete", (_event, id) => deleteMemory(loreHome, id));
+  ipcMain.handle("memory:delete", async (_event, id) => {
+    const deleted = await deleteMemory(loreHome, id);
+    await newMemories.forget(deleted.deleted);
+    return deleted;
+  });
   ipcMain.handle("memory:paste", (_event, input) => {
     if (!input || typeof input.title !== "string" || typeof input.content !== "string") throw new Error("Invalid memory");
     return captureMemories(loreHome, [{ title: input.title, content: input.content, source_path: "pasted" }]);

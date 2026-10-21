@@ -2291,6 +2291,28 @@ test("dismissing one card on Today drops only its runs, and the dock counts what
   }
 });
 
+test("a deleted memory leaves every Today card, and a card it empties goes with it", async () => {
+  const { Ready } = require("../src/reading.cjs");
+  const directory = await mkdtemp(join(tmpdir(), "lore-ready-"));
+  /** @type {number[]} */
+  const badges = [];
+  const ready = new Ready(join(directory, "memories-ready.json"), (count) => badges.push(count));
+  /** @param {string} at @param {number[]} ids @returns {ReadyRun} */
+  const run = (at, ids) => ({ title: "t", read: ids.length, memories: ids.map((id) => ({ id, title: "t", sell: false, work: false, why: "" })), at, seen: false });
+  try {
+    await ready.add(run("2026-10-21T08:00:00.000Z", [7]));
+    await ready.add(run("2026-10-21T09:00:00.000Z", [7, 8]));
+    await ready.forget(7);
+    assert.deepEqual((await ready.runs()).map((kept) => kept.memories.map((memory) => memory.id)), [[8]]);
+    assert.equal(badges.at(-1), 1);
+    const saves = badges.length;
+    await ready.forget(99);
+    assert.equal(badges.length, saves, "a memory on no card leaves the file alone");
+  } finally {
+    await rm(directory, { recursive: true });
+  }
+});
+
 test("Lore runs what is due once, then looks again at the next hour it keeps, or within the hour", async (t) => {
   const { Schedule, LOOK_EVERY_MS } = require("../src/routines.cjs");
   t.mock.timers.enable({ apis: ["setTimeout"] });
