@@ -2514,15 +2514,18 @@ test("what the owner's agents saved comes in once per check, and a check never o
   const read = (name, added) => ({ name, label: "Grok", connector: "agent", added, updated: 0, unchanged: 0, errors: 0, state: "connected" });
   let ready = false;
   let asked = 0;
-  /** @type {() => Promise<{waiting: number, sources: string[]}>} */
+  /** @type {() => Promise<AgentsWaiting>} */
   let waiting = async () => ({ waiting: 2, sources: ["agent-a", "agent-b"] });
   /** @type {SourceRead[][]} */
   const landed = [];
+  /** @type {SignInRequest[][]} */
+  const signIns = [];
   const watch = new Watch({
     ready: () => ready,
     waiting: () => { asked++; return waiting(); },
     read: async (name) => [read(name, 1)],
-    landed: (reads) => { landed.push(reads); }
+    landed: (reads) => { landed.push(reads); },
+    asked: (each) => { signIns.push(each); }
   });
   await watch.check();
   assert.equal(asked, 0, "with no store, the CLI is never asked");
@@ -2540,6 +2543,15 @@ test("what the owner's agents saved comes in once per check, and a check never o
   await watch.check();
   assert.equal(asked, 4, "a failed check is retried at the next one");
   assert.equal(landed.length, 2);
+  // XC-068: every answer says which apps ask to sign in, so a card for one that went away goes too.
+  const asking = { id: "a".repeat(64), code: "4F7Q", client: "Claude", app: /** @type {AgentApp} */ ("claude"), name: "Claude", created_at: "", expires_at: "" };
+  waiting = async () => ({ waiting: 0, sources: [], sign_ins: [asking] });
+  await watch.check();
+  assert.deepEqual(signIns.at(-1), [asking]);
+  waiting = async () => ({ waiting: 0, sources: [], sign_ins: [] });
+  await watch.check();
+  assert.deepEqual(signIns.at(-1), []);
+  assert.equal(signIns.length, 5, "heard on every answer, never on a failed check");
 });
 
 test("one agent whose read fails leaves the others' saves to land", async () => {
@@ -2553,7 +2565,8 @@ test("one agent whose read fails leaves the others' saves to land", async () => 
       if (name === "agent-a") throw new Error("collecting saves failed");
       return [{ name, label: "Muse", connector: "agent", added: 2, updated: 0, unchanged: 0, errors: 0, state: "connected" }];
     },
-    landed: (reads) => { landed.push(reads); }
+    landed: (reads) => { landed.push(reads); },
+    asked: () => undefined
   });
   await watch.check();
   assert.deepEqual(landed.map((reads) => reads.map((each) => each.name)), [["agent-b"]]);
@@ -2622,7 +2635,7 @@ test("with no store online, connecting an agent says so and mints nothing", asyn
   try {
     await assert.rejects(connectAgent(loreHome, { app: "grok", name: "Grok" }), { message: /put your store online first/ });
     assert.deepEqual(await listAgents(loreHome), []);
-    assert.deepEqual(await agentsWaiting(loreHome), { waiting: 0, sources: [] }, "no agent, so nobody is asked");
+    assert.deepEqual(await agentsWaiting(loreHome), { waiting: 0, sources: [], sign_ins: [] }, "no agent, so nobody is asked");
   } finally {
     await rm(loreHome, { recursive: true });
   }
