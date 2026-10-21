@@ -4,13 +4,13 @@ title: Assert the preload-to-main IPC contract in a test
 priority: P2
 effort: XS
 component: desktop-app
-status: ready
+status: in-progress
 related: [APP-039, APP-002, APP-066]
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-09-03
-updated: 2026-10-19
+updated: 2026-10-21
 ---
 
 ## Problem
