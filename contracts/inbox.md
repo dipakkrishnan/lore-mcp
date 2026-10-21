@@ -131,8 +131,8 @@ A waiting payload older than 30 days is dropped at the next write. A row with no
 ## Agent MCP: `POST <node_url>/agent` or `POST <node_url>/agent/<token>`
 
 A request without a valid token gets `401` and
-`WWW-Authenticate: Bearer resource_metadata="<node_url>/.well-known/oauth-protected-resource"`.
-The metadata document comes with XC-068.
+`WWW-Authenticate: Bearer resource_metadata="<node_url>/.well-known/oauth-protected-resource/agent"`,
+which starts the sign-in below.
 
 | Tool | Arguments | Result |
 |---|---|---|
@@ -143,6 +143,44 @@ The metadata document comes with XC-068.
 The server's `instructions` say Lore keeps every save private on the
 owner's Mac until the owner reviews it in the Lore app, and nothing is ever
 published or sold without the owner's approval.
+
+## Signing in (XC-068)
+
+An agent that adds the plain address `<node_url>/agent` signs in with MCP
+OAuth instead of holding a key. `@cloudflare/workers-oauth-provider` serves
+the metadata at `/.well-known/oauth-protected-resource/agent` and
+`/.well-known/oauth-authorization-server`, registration at `/oauth/register`,
+and tokens at `/oauth/token`; its grants and tokens live in the `OAUTH_KV`
+namespace, only as hashes. The one scope is `save`.
+
+`GET /authorize` has no login. It names the app and shows a four-character
+code, and adds a row the Mac reads:
+
+```sql
+CREATE TABLE IF NOT EXISTS sign_ins (
+  id TEXT PRIMARY KEY,                 -- hex sha256 of the page's consent handle
+  code TEXT NOT NULL,                  -- what the page and the Mac both show
+  client TEXT NOT NULL,                -- the name the app gives itself, at most 60 characters
+  state TEXT NOT NULL CHECK (state IN ('pending','allowed','denied')),
+  agent TEXT,                          -- set when allowed
+  created_at TEXT NOT NULL,
+  expires_at TEXT NOT NULL             -- ten minutes on
+);
+```
+
+At most 3 sign-ins wait at once, and at most 20 start in an hour. The page
+polls `POST /authorize/wait` with its handle, from the browser that opened it.
+
+- **Allow** (the Mac): in one run, insert the agent row as **Mint** does, but
+  only `WHERE EXISTS` a `pending`, unexpired sign-in with that id; then set the
+  sign-in `allowed` with that agent. No row back means it expired.
+- **Deny** (the Mac): set it `denied` while it is `pending`.
+- On the page's next wait, the node consumes the consent handle, deletes the
+  row, and grants a token whose props are the agent id and its `token_hash`;
+  a denied one is sent back with `error=access_denied`. Either happens once.
+- Every request checks the agent row as a key does: the same `token_hash`
+  and no `revoked_at`. So Revoke or Rotate stops the access token at once,
+  and the next refresh fails with `invalid_grant` and drops the grant.
 
 ## The Mac side (all through `wrangler d1 execute --remote`)
 
@@ -156,6 +194,6 @@ published or sold without the owner's approval.
   waiting were counted before the rotation, so bringing them in later never
   confirms the new token.
 - **Revoke:** set `revoked_at`.
-- **Waiting:** `SELECT agent, count(*) FROM inbox WHERE state IN ('waiting','forgotten') AND sealed IS NOT NULL GROUP BY agent`. It is batched into the same wrangler call as the sales check where possible.
+- **Waiting:** `SELECT agent, count(*) FROM inbox WHERE state IN ('waiting','forgotten') AND sealed IS NOT NULL GROUP BY agent`, in the same call as the pending, unexpired `sign_ins`, after creating the tables. It runs once an agent is connected, or for 15 minutes after the owner copies the plain address.
 - **Collect:** `SELECT id, agent, state, sealed, saved_at FROM inbox WHERE agent = ? AND state IN ('waiting','forgotten') AND sealed IS NOT NULL ORDER BY saved_at LIMIT 200`.
 - **Confirm:** for each collected `(id, saved_at)`, run `UPDATE inbox SET state = CASE state WHEN 'forgotten' THEN 'forgotten' ELSE 'received' END, sealed = NULL, received_at = ? WHERE id = ? AND saved_at = ?`. It runs only after the import commits. Matching `saved_at` means an agent's re-save between the collect and the confirm survives for the next collection, rather than being dropped unseen.
