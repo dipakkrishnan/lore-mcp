@@ -375,27 +375,32 @@ function registerIpc(loreHome, schedule, watch, outgoing) {
 /** Whatever a connect, a read or a routine brought in from an app, Lore reads through in the background.
  * @template {{name: string, connector?: string | null, added?: number}} T @param {string} loreHome @param {T} read */
 function readThrough(loreHome, read) {
-  void queueReadings(loreHome, [read]);
+  void queueReadings(loreHome, [read]).then((shown) => shown && emit({ type: "ready" }));
   return read;
 }
 
 /** Put each app's new items in line to be read. What an agent saved is on Today at once; reading it through after only
- * tidies it. @param {string} loreHome @param {Array<{name: string, connector?: string | null, added?: number, memories?: Array<{id: number, title: string}>}>} reads */
+ * tidies it. Resolves to whether Today has a new card, for the caller to tell the window, once.
+ * @param {string} loreHome @param {Array<{name: string, connector?: string | null, added?: number, memories?: Array<{id: number, title: string}>}>} reads */
 async function queueReadings(loreHome, reads) {
-  if (!reads.some((read) => read.added)) return;
+  if (!reads.some((read) => read.added)) return false;
   const apps = await sourceCatalog(loreHome).catch(() => []);
+  let shown = false;
   for (const read of reads) {
     const next = reading.worthReading(read, apps);
     if (!next) continue;
-    if (next.by.kind === "agent" && read.memories?.length) await showSaved(reading.saved(next, read.memories));
+    if (next.by.kind === "agent" && read.memories?.length) {
+      await showSaved(reading.saved(next, read.memories));
+      shown = true;
+    }
     agent?.synthesize(next);
   }
+  return shown;
 }
 
 /** APP-233: an agent's saves, on Today and in a notification that opens them in Inventory. @param {ReadyRun} run */
 async function showSaved(run) {
   await newMemories.add(run);
-  emit({ type: "ready" });
   const source = run.by && { id: run.by.id, label: run.by.label };
   sales.notify(reading.announcement(run), () => reveal({ type: "show", view: "inventory", source }));
 }
@@ -417,7 +422,7 @@ function reveal(event) {
 /** What the app does with each kind of routine's run, by the `kind` the CLI names. A new kind is one entry here.
  * @type {Record<Routine["kind"], (loreHome: string, ran: RoutineRun) => void | Promise<void>>} */
 const AFTER_RUN = {
-  read: (loreHome, ran) => queueReadings(loreHome, ran.reads ?? []),
+  read: async (loreHome, ran) => void (await queueReadings(loreHome, ran.reads ?? [])),
   // The check-in retires one from an earlier day the owner never answered, and asks at most once a day. It looks over
   // what came in only if anything did; a day with nothing costs no model at all. A missed one the CLI already recorded.
   checkin: async (loreHome, { items = [], mark, missed }) => {
