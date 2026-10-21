@@ -1879,7 +1879,8 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         check("its saves are one Mac notification that names Grok, before any reading of them", notes.length === 1 && notes[0].words.title === "Grok Bot saved 2 things to Lore" && notes[0].words.body === "2 new memories. They stay private on this Mac.", JSON.stringify(notes.map((n) => n.words)));
         check("…and a red 2 on the dock", badges.at(-1) === 2, JSON.stringify(badges));
         releaseReading();
-        for (let i = 0; i < 60 && badges.at(-1) !== 3; i++) await sleep(250);
+        // The count moves when the reading's memories join the card; crediting them to Grok comes after, so wait for both.
+        for (let i = 0; i < 80 && (badges.at(-1) !== 3 || readingsLanded < 1); i++) await sleep(250);
         check("what Lore wrote from them joins the count, a red 3, and says nothing more", badges.at(-1) === 3 && notes.length === 1, JSON.stringify([badges, notes.length]));
         check("Grok's row says what it saved, and when", await waitFor(`/Saved 2 · last today/.test(${agentRow("Grok Bot")}?.textContent ?? "")`), await js(`${agentRow("Grok Bot")}?.textContent ?? ""`));
         check("…with Grok's mark, and the offer to connect another", await js(`${agentRow("Grok Bot")}.querySelector("img.logo").src.endsWith("assets/grok.svg") && Boolean(${agentRow("Connect another agent")})`));
@@ -1996,7 +1997,8 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
           for (let i = 0; i < 80 && (notes.length === told || readingsLanded === landed); i++) await sleep(250);
           return notes.length === told + 1 && readingsLanded > landed;
         };
-        check("another save lands while the owner is on Connectors", await saveMore("How I quote a rush job"));
+        const more = await saveMore("How I quote a rush job");
+        check("another save lands while the owner is on Connectors", more, JSON.stringify([notes.map((n) => n.words), readingsLanded, readings.length]));
         const savedLink = `[...(${agentRow("Grok Bot")}?.querySelectorAll("button.inline") ?? [])].find((b) => b.textContent === "Saved 5")`;
         // APP-233: the notification comes as the save is read in, ahead of the store's own count, so give that its time.
         check("Grok Bot's card says Saved 5, as a link", await waitFor(savedLink, 80), await js(`${agentRow("Grok Bot")}?.textContent ?? ""`));
