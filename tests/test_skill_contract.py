@@ -411,6 +411,21 @@ class SkillContractTest(unittest.TestCase):
             with self.subTest(boundary=boundary):
                 self.assertIn(boundary, skill)
 
+    def test_capture_interviews_only_when_the_check_in_asked(self) -> None:
+        """APP-236: one sentence restates the paper; the detail around it sells."""
+        skill = " ".join(
+            (OWNER_SKILLS / "lore-capture/SKILL.md").read_text().lower().split()
+        )
+        for boundary in (
+            "### when lore's evening check-in asked",
+            "two to four short follow-ups, one at a time",
+            "never ask more than four",
+            "this is only for the check-in",
+            "follow `lore-publish` from those saved memories right here",
+        ):
+            with self.subTest(boundary=boundary):
+                self.assertIn(boundary, skill)
+
     def test_the_reading_skill_keeps_work_private_and_never_sells(self) -> None:
         """AUT-005: it runs with nobody watching, so its boundaries are the only guard."""
         skill = " ".join(
