@@ -10,7 +10,7 @@ blockers: []
 dependencies: ["windup (separate repo) — `run_json` lands there, not in lore-mcp"]
 github_issue: null
 created: 2026-08-01
-updated: 2026-08-03
+updated: 2026-10-19
 ---
 
 ## Problem
@@ -98,3 +98,9 @@ Most of the work lands in windup, a separate repository, which is why it is a
 exists. If the windup change turns out to be unwelcome or slow, the fallback is
 a single shared helper inside `evals/` and one copy fewer instead of three; say
 so here if that is what happens.
+
+**Prioritization 2026-10-19 (corrected in review):** not promoted. The gap is
+still real (`evals/` has no `shutil.which` preflight and no `run_json`), but the
+item's own `dependencies` field says most of the work lands in windup, a separate
+repository that this repo's workers do not change. It needs a person to either
+land `run_json` in windup or choose the in-repo fallback in the paragraph above.

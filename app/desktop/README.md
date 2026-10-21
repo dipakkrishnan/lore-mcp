@@ -17,7 +17,14 @@ attached with the paperclip or dropped onto the window.
 npm --prefix app/desktop run check
 npm --prefix app/desktop test
 npm --prefix app/desktop run test:capture   # attended capture against a disposable Lore home
+npm --prefix app/desktop run test:edge      # every renderer persona, driven under real Electron
 ```
+
+CI (`desktop-check` in `.github/workflows/tests.yml`, macOS) runs `check`, `test`,
+every persona in `test:edge` as its own step, and `package`. A persona step needs
+no provider or Cloudflare credential. `test:capture` is the one suite CI does not
+run: it prompts the operator for Return, so it stays attended. Adding a persona to
+`test:edge` without a CI step fails `test/ci-edge.test.cjs`.
 
 To look at a view without clicking through, render it to a PNG:
 

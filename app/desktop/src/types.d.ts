@@ -200,7 +200,16 @@ type AgentApp = "grok" | "muse" | "chatgpt" | "claude" | "other";
 type AgentKey = { source: string; agent: { id: string; name: string; app: AgentApp; saved: number }; mcp_url: string; connector_url: string; key: string; header: string; prompt: string };
 
 /** One connected personal agent, as `lore agents list` reads it from the store. */
-type AgentEntry = { source: string; name: string; app: AgentApp; saved: number; waiting: number; last_saved_at: string | null; memories: number; revoked: boolean };
+type AgentEntry = { source: string; name: string; app: AgentApp; saved: number; waiting: number; last_saved_at: string | null; memories: number; revoked: boolean; signed_in?: boolean };
+
+/** An app asking to sign in to the owner's store (XC-068): the code its page shows, and the agent Lore takes it for. */
+type SignInRequest = { id: string; code: string; client: string; app: AgentApp; name: string; created_at: string; expires_at: string };
+
+/** What `lore agents waiting` reads: saves waiting by source, and apps asking to sign in (absent from an older CLI). */
+type AgentsWaiting = { waiting: number; sources: string[]; sign_ins?: SignInRequest[] };
+
+/** One agent the owner let sign in. */
+type AllowedAgent = Pick<AgentKey, "source" | "agent" | "mcp_url">;
 
 type SourceRemoval = { name: string; removed: boolean; memories: { kept: number; deleted?: number } };
 
@@ -358,6 +367,9 @@ interface Window {
     agentKey(source: string): Promise<AgentKey>;
     disconnectAgent(source: string, keep: boolean): Promise<SourceRemoval>;
     checkAgents(): Promise<void>;
+    agentAddress(): Promise<{ mcp_url: string }>;
+    allowSignIn(input: { id: string; app?: AgentApp; name?: string }): Promise<AllowedAgent>;
+    denySignIn(id: string): Promise<{ denied: string }>;
     /** Which of the owner's agent apps are installed on this Mac (APP-216). */
     agentApps(): Promise<AgentApp[]>;
     openAgentApp(id: AgentApp): Promise<void>;
@@ -447,11 +459,12 @@ type AgentEvent =
   | { type: "auth"; message?: string; event?: import("@earendil-works/pi-ai").AuthEvent }
   | { type: "progress"; text?: string; done?: boolean; error?: string }
   | { type: "sold" }
-  | { type: "show"; view: "store" | "today" | "automations" | "inventory"; source?: { id: string; label: string } }
+  | { type: "show"; view: "store" | "today" | "automations" | "inventory" | "connectors"; source?: { id: string; label: string } }
   | { type: "thread"; task: AgentTask }
   | { type: "ready" }
   /** What the owner's personal agents saved that Lore just brought in (APP-207). */
   | { type: "agents"; reads: SourceRead[] }
+  | { type: "sign-ins"; signIns: SignInRequest[] }
   /** Whether a Cloudflare sign-in is waiting on the owner's browser. */
   | { type: "signin"; pending: boolean }
   | { type: "update"; update: AppUpdate };

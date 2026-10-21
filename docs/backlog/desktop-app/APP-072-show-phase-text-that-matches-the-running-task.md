@@ -4,13 +4,13 @@ title: Show phase text that matches the running task
 priority: P2
 effort: XS
 component: desktop-app
-status: in-review
+status: completed
 related: [APP-049]
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-09-04
-updated: 2026-09-05
+updated: 2026-10-19
 ---
 
 ## Problem
@@ -28,8 +28,8 @@ read says "Reading…", the rest keeps "Looking through your Lore…". Two lines
 
 ## Acceptance criteria
 
-- [ ] No "Looking through your Lore…" appears in the deploy thread.
-- [ ] While a card waits on the owner, no live line claims work is happening.
+- [x] No "Looking through your Lore…" appears in the deploy thread.
+- [x] While a card waits on the owner, no live line claims work is happening.
 
 ## Notes
 
@@ -38,3 +38,5 @@ read says "Reading…", the rest keeps "Looking through your Lore…". Two lines
   thread's default idle text (`renderer.js`, the per-task fallback in
   `onEvent`), while the agent was running the test payment against a store
   that was already live. The fallback is per thread, not per phase.
+
+**Completed (verified 2026-10-19, by reading code and tests, no suites run):** on main in 8f4b62e, e246979. Closed out in the review-queue pass.

@@ -10,8 +10,9 @@ class Watch {
   /** @type {Promise<void> | null} */
   #checking = null;
 
-  /** @param {{ready: () => boolean | Promise<boolean>, waiting: () => Promise<{waiting: number, sources: string[]}>, read: (name: string) => Promise<SourceRead[]>, landed: (reads: SourceRead[]) => unknown}} store
-   * `ready`: whether there is a store to ask; `landed`: what to do with what came in, once. */
+  /** @param {{ready: () => boolean | Promise<boolean>, waiting: () => Promise<AgentsWaiting>, read: (name: string) => Promise<SourceRead[]>, landed: (reads: SourceRead[]) => unknown, asked: (signIns: SignInRequest[]) => unknown}} store
+   * `ready`: whether there is a store to ask; `landed`: what to do with what came in, once; `asked`: the apps asking
+   * to sign in, every time the store answers (XC-068). */
   constructor(store) {
     this.store = store;
   }
@@ -29,7 +30,8 @@ class Watch {
     /** @type {SourceRead[]} */
     const reads = [];
     try {
-      const { sources } = await this.store.waiting();
+      const { sources, sign_ins = [] } = await this.store.waiting();
+      this.store.asked(sign_ins);
       for (const name of sources) {
         // One agent's read failing leaves the others' saves to land; its own wait for the next check.
         reads.push(...(await this.store.read(name).catch(() => [])));

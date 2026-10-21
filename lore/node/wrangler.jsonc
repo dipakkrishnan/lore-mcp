@@ -3,7 +3,9 @@
   "name": "lore",
   "main": "src/index.ts",
   "compatibility_date": "2026-06-11",
-  "compatibility_flags": ["nodejs_compat"],
+  // global_fetch_strictly_public: an agent that names itself by a metadata
+  // document's address (XC-068) is looked up on the public internet only.
+  "compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
   // Workers Cache (MON-029): store pages marked `public` are served from
   // Cloudflare's edge without running the Worker or querying D1. Everything
   // else is sent `no-store` by src/index.ts, since caching also applies
@@ -41,6 +43,10 @@
       "tag": "v1"
     }
   ],
+  // The agents' sign-ins (XC-068): grants and tokens, kept only as hashes.
+  // No id: `wrangler deploy` makes the namespace in the owner's account the
+  // first time, and keeps using it after.
+  "kv_namespaces": [{ "binding": "OAUTH_KV" }],
   "d1_databases": [
     {
       "binding": "LORE_DB",
@@ -84,6 +90,7 @@
           "tag": "v1"
         }
       ],
+      "kv_namespaces": [{ "binding": "OAUTH_KV" }],
       "d1_databases": [
         {
           "binding": "LORE_DB",

@@ -81,6 +81,8 @@ code{font:13px var(--mono);background:var(--accent-soft);color:var(--ink);paddin
 .notice{margin:0 0 28px;padding:12px 16px;border-radius:10px;background:var(--accent-soft);font-size:14px}
 .listed{display:inline-flex;align-items:center;gap:6px;margin-top:20px;padding:4px 10px;border:1px solid var(--line);border-radius:999px;font-size:13px;color:var(--muted);text-decoration:none}.listed:hover{border-color:var(--accent);color:var(--ink)}.listed .mark{width:14px;height:14px}
 .foot{margin-top:48px;padding-top:16px;border-top:1px solid var(--line);font-size:14px;color:var(--muted)}
+.pair{display:inline-block;margin:6px 0 22px;padding:14px 22px;border:1px solid var(--line);border-radius:14px;background:var(--surface);font:600 34px/1 var(--mono);letter-spacing:.2em}
+.wait{display:flex;align-items:center;gap:10px;color:var(--muted)}.wait::before{content:"";width:8px;height:8px;border-radius:50%;background:var(--accent);animation:pulse 1.4s ease-in-out infinite}@keyframes pulse{50%{opacity:.25}}
 .back{display:inline-block;margin-bottom:18px;font-size:14px;color:var(--muted);text-decoration:none}.back:hover{color:var(--ink)}
 `;
 var SCRIPT = `document.addEventListener("click",async(e)=>{const b=e.target.closest("[data-copy],[data-share]");if(!b)return;const url=location.href.split("#")[0];if("share" in b.dataset&&navigator.share){try{await navigator.share({title:document.title,url})}catch{}return}await navigator.clipboard.writeText(b.dataset.copy||url);const label=b.textContent;b.textContent="Copied";setTimeout(()=>{b.textContent=label},1500)})`;
@@ -93,6 +95,11 @@ function page(title, description, canonical, body, data) {
 <style>${STYLE}</style><script type="application/ld+json">${jsonLd(data)}</script></head>
 <body><main><nav class="bar"><a class="brand" href="${MARKETPLACE}">${MARK}Lore</a><a href="${MARKETPLACE}">Marketplace</a></nav>
 ${body}</main><script>${SCRIPT}</script></body></html>`;
+}
+function plainPage(title, body, script = "") {
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex"><title>${escape(title)}</title><style>${STYLE}</style></head>
+<body><main><nav class="bar"><span class="brand">${MARK}Lore</span></nav>${body}</main>${script ? `<script>${script}</script>` : ""}</body></html>`;
 }
 function offer(store, piece) {
   if (store.test) return void 0;
@@ -220,8 +227,10 @@ function notFound(store) {
   return page(`Not found \xB7 ${seller(store)}`, "Not for sale here.", `${store.origin}/`, body + foot(store), { "@context": "https://schema.org", "@type": "WebPage" });
 }
 export {
+  escape,
   notFound,
   pieces,
+  plainPage,
   publicationPage,
   storefront,
   unlockedPage
