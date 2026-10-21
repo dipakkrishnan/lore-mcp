@@ -593,6 +593,11 @@ def login() -> int:
 def _read(query: str, fail: str) -> list[dict[str, object]]:
     """Run `query` on the node's database through the owner's Cloudflare login,
     the same way `lore push` writes it, and return its last statement's rows."""
+    return _read_all(query, fail)[-1]
+
+
+def _read_all(query: str, fail: str) -> list[list[dict[str, object]]]:
+    """Every statement's rows, in order, from one run of `query`."""
     target = tools()
     wrangler = target / WRANGLER
     result = _run(
@@ -610,8 +615,7 @@ def _read(query: str, fail: str) -> list[dict[str, object]]:
         fail=fail,
         retry=True,
     )
-    rows: list[dict[str, object]] = json.loads(result.stdout)[-1]["results"]
-    return rows
+    return [statement["results"] for statement in json.loads(result.stdout)]
 
 
 def sales() -> list[Sale]:
