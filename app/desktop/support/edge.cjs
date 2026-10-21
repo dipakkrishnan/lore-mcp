@@ -1872,10 +1872,13 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         check("…with both things Grok Bot saved marked New, and nothing else", await waitFor(`${isNew("How I price sync placements")} && ${isNew("Quote sync fees in the buyer's currency")}`) && (await js(`document.querySelectorAll("#content .row").length`)) === 2, await js(listed));
         await shot("agents-see-them-sheet");
         await js(`window.__lore.show("connectors")`);
-        releaseReading();
+        // APP-233: what Grok saved is announced as it comes in, while the reading of it is still held.
         for (let i = 0; i < 60 && !notes.length; i++) await sleep(250);
-        check("its memories are one Mac notification that names Grok", notes.length === 1 && notes[0].words.title === "Grok Bot saved 2 things to Lore" && notes[0].words.body === "1 new memory. 1 looks worth selling.", JSON.stringify(notes.map((n) => n.words)));
-        check("…and a red 1 on the dock", badges.at(-1) === 1, JSON.stringify(badges));
+        check("its saves are one Mac notification that names Grok, before any reading of them", notes.length === 1 && notes[0].words.title === "Grok Bot saved 2 things to Lore" && notes[0].words.body === "2 new memories. They stay private on this Mac.", JSON.stringify(notes.map((n) => n.words)));
+        check("…and a red 2 on the dock", badges.at(-1) === 2, JSON.stringify(badges));
+        releaseReading();
+        for (let i = 0; i < 60 && badges.at(-1) !== 3; i++) await sleep(250);
+        check("what Lore wrote from them joins the count, a red 3, and says nothing more", badges.at(-1) === 3 && notes.length === 1, JSON.stringify([badges, notes.length]));
         check("Grok's row says what it saved, and when", await waitFor(`/Saved 2 · last today/.test(${agentRow("Grok Bot")}?.textContent ?? "")`), await js(`${agentRow("Grok Bot")}?.textContent ?? ""`));
         check("…with Grok's mark, and the offer to connect another", await js(`${agentRow("Grok Bot")}.querySelector("img.logo").src.endsWith("assets/grok.svg") && Boolean(${agentRow("Connect another agent")})`));
         await shot("agents-connected");
@@ -1889,7 +1892,7 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         await shot("agents-see-them-notification");
         await js(`window.__lore.show("today")`);
         const card = `[...document.querySelectorAll("#content .section")].find((s) => s.textContent.includes("New memories"))`;
-        check("Today's new memories are one folded card named for Grok", await waitFor(`${card}?.querySelector(".ready-head")?.textContent.includes("From Grok Bot1 new memory · 1 worth selling")`) && !(await js(`Boolean(${card}.querySelector(".ready-items"))`)), await js(`${card}?.textContent ?? ""`));
+        check("Today's new memories are one folded card named for Grok", await waitFor(`${card}?.querySelector(".ready-head")?.textContent.includes("From Grok Bot3 new memories · 1 worth selling")`) && !(await js(`Boolean(${card}.querySelector(".ready-items"))`)), await js(`${card}?.textContent ?? ""`));
         await js(`${card}.querySelector(".ready-head .task-link").click()`);
         check("…which opens onto what Lore wrote from it", await waitFor(`${card}?.querySelector(".ready-items")?.textContent.includes("Price a sync placement by its reach")`));
         const cardText = await js(`${card}.textContent`);
