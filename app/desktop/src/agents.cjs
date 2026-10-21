@@ -12,6 +12,8 @@ class Watch {
   #checking = null;
   /** Whether an app was asking to sign in at the last answer. */
   #asking = false;
+  /** Whether a check was asked for while one was under way, so one more read is owed. */
+  #again = false;
 
   /** @param {{ready: () => boolean | Promise<boolean>, waiting: () => Promise<AgentsWaiting>, read: (name: string) => Promise<SourceRead[]>, landed: (reads: SourceRead[]) => unknown, asked: (signIns: SignInRequest[]) => unknown}} store
    * `ready`: whether there is a store to ask; `landed`: what to do with what came in, once; `asked`: the apps asking
@@ -20,11 +22,14 @@ class Watch {
     this.store = store;
   }
 
-  /** Bring in whatever is waiting. A check under way is this one, so two never overlap and nothing lands twice. */
+  /** Bring in whatever is waiting. Two never overlap and nothing lands twice. A check asked for while one is under way
+   * may have come after a save that read has already passed, so it waits for one more read behind it. */
   check() {
-    this.#checking ??= this.#check().finally(() => {
-      this.#checking = null;
-    });
+    if (this.#checking) {
+      this.#again = true;
+      return this.#checking;
+    }
+    this.#checking = this.#run();
     return this.#checking;
   }
 
@@ -34,8 +39,22 @@ class Watch {
     return onScreen ? PACE.onScreen : PACE.away;
   }
 
+  async #run() {
+    try {
+      do {
+        this.#again = false;
+        await this.#check();
+      } while (this.#again);
+    } finally {
+      this.#checking = null;
+    }
+  }
+
   async #check() {
-    if (!(await this.store.ready())) return;
+    if (!(await this.store.ready())) {
+      this.#asking = false;
+      return;
+    }
     /** @type {SourceRead[]} */
     const reads = [];
     try {

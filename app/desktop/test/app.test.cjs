@@ -2775,3 +2775,33 @@ test("APP-222: each tool call is a step in the owner's words, and card tools are
   assert.equal(stepKind("save_profile", {}, home), "profile");
   for (const card of ["ask_user", "propose_memories", "propose_blueprint", "propose_price", "cloudflare_login", "finish_task"]) assert.equal(stepKind(card, {}, home), null);
 });
+
+test("APP-232: a check asked for during one under way reads again, so a save made after that read is not missed", async () => {
+  const { Watch } = require("../src/agents.cjs");
+  /** @type {(() => void)[]} */
+  const gates = [];
+  let waits = 0;
+  const watch = new Watch({
+    ready: () => true,
+    waiting: () => new Promise((resolve) => gates.push(() => resolve({ waiting: 0, sources: [], sign_ins: [] })) && waits++),
+    read: async () => [],
+    landed: () => undefined,
+    asked: () => undefined,
+  });
+  const first = watch.check();
+  const second = watch.check();
+  const third = watch.check();
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(waits, 1, "one read under way");
+  gates.shift()?.();
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(waits, 2, "the later asks share one more read, not one each");
+  gates.shift()?.();
+  await Promise.all([first, second, third]);
+  assert.equal(waits, 2);
+  const after = watch.check();
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(waits, 3, "once idle, a check reads at once");
+  gates.shift()?.();
+  await after;
+});
