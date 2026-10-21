@@ -61,6 +61,8 @@ const checkIns = [];
 /** APP-212: the agents walk holds its first reading back until it lets it land. */
 let releaseReading = () => {};
 let readingHeld = Promise.resolve();
+/** APP-233: how many of the agents walk's readings have handed back what they wrote. */
+let readingsLanded = 0;
 /** APP-207: what the owner copied, and every turn the owner started. */
 const copied = [];
 const prompts = [];
@@ -321,7 +323,7 @@ if (scenario === "listing") {
         ["sign-off-in-writing.md", "# Get the final cut signed off in writing\n\nA written sign-off ends the revisions; a nod on a call starts more. From what Grok saved, October 2026.\n"]
       ][readings.length - 1];
       writeFileSync(join(folder, file), text);
-      setTimeout(() => void readingHeld.then(() => this.options.memoriesReady?.(reading, { read: reading.added, memories: [{ file, worth_selling: true, why: "a pricing rule from real placements" }] })), 1500);
+      setTimeout(() => void readingHeld.then(() => this.options.memoriesReady?.(reading, { read: reading.added, memories: [{ file, worth_selling: true, why: "a pricing rule from real placements" }] })).then(() => { readingsLanded++; }), 1500);
     };
     require(join(src, "main.cjs"));
   });
@@ -1987,11 +1989,12 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         await sleep(300);
         /** Grok saves one more thing, and Lore brings it in and reads it through. @param {string} title */
         const saveMore = async (title) => {
-          const told = notes.length;
+          const [told, landed] = [notes.length, readingsLanded];
           await call(fresh, "tools/call", { name: "store", arguments: { items: [{ title, content: `${title}, as I actually do it.`, kind: "preference" }] } });
           app.emit("browser-window-focus");
-          for (let i = 0; i < 80 && notes.length === told; i++) await sleep(250);
-          return notes.length === told + 1;
+          // APP-233: the notification comes as the save is read in; what Lore writes from it lands after.
+          for (let i = 0; i < 80 && (notes.length === told || readingsLanded === landed); i++) await sleep(250);
+          return notes.length === told + 1 && readingsLanded > landed;
         };
         check("another save lands while the owner is on Connectors", await saveMore("How I quote a rush job"));
         const savedLink = `[...(${agentRow("Grok Bot")}?.querySelectorAll("button.inline") ?? [])].find((b) => b.textContent === "Saved 5")`;
@@ -2008,7 +2011,7 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         await js(`window.__lore.show("today")`);
         check("a third save lands while the owner is on Today", await saveMore("How I bill a rerun"));
         const headerLink = `[...(${card}?.querySelectorAll(".ready-head button.inline") ?? [])].find((b) => b.textContent === "See them →")`;
-        check("Today's new memories, all from Grok Bot, link to what it saved", await waitFor(`${card}?.textContent.includes("Bill a rerun at half the first fee") && ${headerLink}`), await js(`${card}?.querySelector(".list-aside")?.textContent ?? ""`));
+        check("Today's new memories, all from Grok Bot, link to what it saved", await waitFor(`${card}?.textContent.includes("Bill a rerun at half the first fee") && ${headerLink}`, 80), await js(`${card}?.querySelector(".list-aside")?.textContent ?? ""`));
         await shot("agents-today-see-them");
         await js(`${headerLink}.click()`);
         check("…which lands filtered to Grok Bot", await waitFor(`document.querySelector("#title").textContent === "Inventory" && (${chip}) === "Grok Bot×"`), await js(chip));
