@@ -124,6 +124,14 @@ class Ready {
     return this.#change(() => []);
   }
 
+  /** Drop the runs one card shows, leaving the rest. @param {unknown} keys */
+  async dismiss(keys) {
+    if (!Array.isArray(keys) || !keys.length || keys.length > KEPT || !keys.every((key) => typeof key?.at === "string" && (key.by === null || typeof key.by === "string"))) throw new Error("Invalid memories");
+    /** @param {ReadyRun} run */
+    const picked = (run) => keys.some((key) => key.at === run.at && key.by === (run.by?.id ?? null));
+    await this.#save((await this.runs()).filter((run) => !picked(run)));
+  }
+
   /** Put the badge back after a relaunch. */
   async show() {
     this.badge(unseen(await this.runs()));

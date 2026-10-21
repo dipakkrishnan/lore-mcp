@@ -863,7 +863,19 @@ class Store:
         self.db.commit()
         return deleted
 
-    def _delete_uncited(self, where: str, value: str) -> sqlite3.Cursor:
+    def delete(self, memory_id: int) -> Memory:
+        """Delete one memory the owner chose, unless a publication derives from it."""
+        memory = self.get(memory_id)
+        if memory is None:
+            raise ValueError(f"memory not found: {memory_id}")
+        if not self._delete_uncited("id=?", memory_id).rowcount:
+            raise ValueError(
+                "A piece you published uses this memory, so Lore keeps it."
+            )
+        self.db.commit()
+        return memory
+
+    def _delete_uncited(self, where: str, value: str | int) -> sqlite3.Cursor:
         return self.db.execute(
             f"""DELETE FROM memories WHERE {where} AND id NOT IN (
                    SELECT j.value FROM publications p, json_each(p.provenance) j

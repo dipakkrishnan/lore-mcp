@@ -2019,6 +2019,31 @@ def _home(path: str) -> Path:
     return Path.home() / path[2:] if path.startswith("~/") else Path(path)
 
 
+class Synthesis:
+    """Lore's own memories folder: topic files the synthesis agent writes, and INDEX.md over them."""
+
+    def __init__(self) -> None:
+        self.folder = (home() / "memories").resolve()
+
+    def remove(self, source_path: str) -> bool:
+        """Delete one topic file and its INDEX.md lines, so the next sync does not bring it
+        back. A file outside the folder, or the index itself, is not Lore's to delete."""
+        path = Path(source_path).resolve()
+        if not path.is_relative_to(self.folder) or path.name == "INDEX.md":
+            return False
+        path.unlink(missing_ok=True)
+        index = self.folder / "INDEX.md"
+        if index.is_file():
+            named = re.compile(
+                rf"(?<![\w./-]){re.escape(path.relative_to(self.folder).as_posix())}(?![\w/-])"
+            )
+            lines = index.read_text(encoding="utf-8").splitlines(keepends=True)
+            kept = [line for line in lines if not named.search(line)]
+            if kept != lines:
+                index.write_text("".join(kept), encoding="utf-8")
+        return True
+
+
 def available_sources() -> list[Source]:
     """Return native and synthesized memory sources for the current user."""
     return [

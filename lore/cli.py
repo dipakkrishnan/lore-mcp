@@ -303,6 +303,9 @@ def parser() -> argparse.ArgumentParser:
         help="read content from stdin instead of the positional argument",
     )
     memory_edit.add_argument("--json", action="store_true")
+    memory_delete = memory_commands.add_parser("delete", help="delete a memory")
+    memory_delete.add_argument("id", type=int)
+    memory_delete.add_argument("--json", action="store_true")
     memory_commands.add_parser("rules", help="print what earns a place in memory")
     memory_credit = memory_commands.add_parser(
         "credit", help="record who wrote into memories, as JSON on stdin"
@@ -696,6 +699,8 @@ def main(argv: list[str] | None = None) -> int:
                 return rename_memory(args.id, args.title, args.json)
             if args.memory_command == "edit":
                 return edit_memory(args.id, args.content, args.json, args.stdin)
+            if args.memory_command == "delete":
+                return delete_memory(args.id, args.json)
             return show_memory(args.id, args.json)
         if args.command == "profile":
             return profile(args.path, not args.no_schedule)
@@ -1436,6 +1441,19 @@ def edit_memory(
         print(_memory_json(memory))
     else:
         memory_card(memory)
+    return 0
+
+
+def delete_memory(memory_id: int, as_json: bool) -> int:
+    """Delete a memory, and the file Lore wrote it to, so no sync brings it back."""
+    with Store() as store:
+        memory = store.delete(memory_id)
+    if memory.origin == "automation":
+        sources_module.Synthesis().remove(memory.source_path)
+    if as_json:
+        print(json.dumps({"deleted": memory.id}))
+    else:
+        muted(f"Deleted {memory.title}.")
     return 0
 
 

@@ -749,6 +749,9 @@ dialog.palette[open] { animation: rise 0.12s ease; }
 .ready-head .disclose svg { width: 16px; height: 16px; }
 .ready-group.open .disclose { transform: rotate(90deg); }
 .ready-head button.inline { white-space: nowrap; font-size: 13px; }
+.ready-head .dismiss { flex-shrink: 0; width: 24px; height: 24px; border-radius: 6px; font-size: 16px; line-height: 1; color: var(--muted); opacity: 0; transition: opacity 0.12s; }
+.ready-group:hover .ready-head .dismiss, .ready-head .dismiss:focus-visible { opacity: 0.6; }
+.ready-head .dismiss:hover { opacity: 1; background: var(--hover); }
 .ready-items { border-top: 1px solid var(--line-soft); padding: 2px 4px 4px; }
 .ready-items .row { padding: 10px 14px; }
 .ready-items .row .t b { font-family: var(--sans); font-size: 14px; font-weight: 500; }

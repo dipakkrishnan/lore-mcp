@@ -937,6 +937,88 @@ class EditMemoryTest(LoreTestCase):
         self.assertEqual(cli.main(["memory", "edit", str(memory_id)]), 1)
 
 
+class DeleteMemoryTest(LoreTestCase):
+    def test_delete_removes_one_memory_and_refuses_an_unknown_id(self) -> None:
+        memory_id = self.seed_memory("Stale lesson")
+        kept = self.seed_memory("Kept lesson")
+        with captured() as output:
+            self.assertEqual(
+                cli.main(["memory", "delete", str(memory_id), "--json"]), 0
+            )
+        self.assertEqual(json.loads(output.getvalue()), {"deleted": memory_id})
+        with Store() as store:
+            self.assertIsNone(store.get(memory_id))
+            self.assertEqual([m.id for m in store.search("lesson")], [kept])
+        with self.assertRaisesRegex(ValueError, f"memory not found: {memory_id}"):
+            cli.delete_memory(memory_id, True)
+        self.assertEqual(cli.main(["memory", "delete", str(memory_id)]), 1)
+
+    def test_delete_keeps_a_memory_a_publication_uses(self) -> None:
+        memory_id = self.seed_memory("Pricing lesson")
+        with Store() as store:
+            published = store.add_publication(
+                title="Pricing claim",
+                content="a bounded claim about pricing agent APIs",
+                topic="pricing",
+                provenance=[memory_id],
+            )
+            store.revoke_publication(published)
+        with self.assertRaisesRegex(ValueError, "A piece you published uses this"):
+            cli.delete_memory(memory_id, True)
+        with Store() as store:
+            self.assertIsNotNone(store.get(memory_id))
+
+    def test_deleting_a_synthesized_memory_removes_its_file_and_index_line(
+        self,
+    ) -> None:
+        root = self.lore_home / "memories"
+        (root / "projects").mkdir(parents=True)
+        (root / "projects/wedge.md").write_text("# Wedge\n\nA lesson to drop.")
+        (root / "projects/deep-review-wedge.md").write_text(
+            "# Deep review\n\nA lesson to keep."
+        )
+        (root / "INDEX.md").write_text(
+            "# Index\n\n"
+            "- `projects/wedge.md`: the wedge.\n"
+            "- `projects/deep-review-wedge.md`: the review wedge.\n"
+        )
+        with Store() as store:
+            sources_module.Registry(store).scan({"automation"})
+            [dropped] = store.search("drop")
+        with captured():
+            self.assertEqual(cli.delete_memory(dropped.id, True), 0)
+        self.assertFalse((root / "projects/wedge.md").exists())
+        self.assertTrue((root / "projects/deep-review-wedge.md").exists())
+        self.assertEqual(
+            (root / "INDEX.md").read_text(),
+            "# Index\n\n- `projects/deep-review-wedge.md`: the review wedge.\n",
+        )
+        with Store() as store:
+            report = sources_module.Registry(store).scan({"automation"})
+            self.assertEqual(report["automation"]["added"], 0)
+            self.assertEqual(store.search("drop"), [])
+
+    def test_deleting_an_agent_save_touches_no_file(self) -> None:
+        outside = Path(self.tmp.name) / "notes.md"
+        outside.write_text("# Notes\n\nThe owner's own file.")
+        with Store() as store:
+            store.put(
+                source="agent-grok",
+                origin="automation",
+                source_path=str(outside),
+                source_key="agent-grok:key",
+                fingerprint="f",
+                title="Saved",
+                content="an agent save",
+            )
+            [saved] = store.search("agent save")
+        with captured():
+            cli.delete_memory(saved.id, True)
+        self.assertTrue(
+            outside.exists(), "a file outside Lore's folder is never Lore's"
+        )
+
+
 class StatusTest(LoreTestCase):
     def test_status_counts_private_and_discarded_separately(self) -> None:
         self.seed_memory("Kept lesson")

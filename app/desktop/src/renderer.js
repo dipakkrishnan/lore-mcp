@@ -362,8 +362,18 @@ async function openMemory(id) {
   const actions = el("div");
   actions.style.display = "flex";
   actions.style.gap = "8px";
+  actions.style.alignItems = "center";
   function showActions() {
-    actions.replaceChildren(button("Rename", "quiet", startRename, RENAME_ICON), button("Edit", "quiet", startEdit, EDIT_ICON), button("Draft for sale", "quiet", () => void publishMemory(memory), SALE_ICON));
+    actions.replaceChildren(button("Rename", "quiet", startRename, RENAME_ICON), button("Edit", "quiet", startEdit, EDIT_ICON), button("Draft for sale", "quiet", () => void publishMemory(memory), SALE_ICON), button("Delete", "quiet", startDelete, TRASH_ICON));
+  }
+  function startDelete() {
+    const remove = button("Delete", "quiet", () => void act(async () => {
+      await window.lore.deleteMemory(memory.id);
+      closeSheet();
+      tell(`Deleted ${memory.title}.`);
+    }).then((done) => { if (!done) showActions(); }));
+    remove.classList.add("destructive");
+    actions.replaceChildren(el("span", "hint", "Delete this memory? This can't be undone."), button("Cancel", "secondary", showActions), remove);
   }
   /** @type {HTMLElement} */
   let body = renderMemoryBody(memory.content);
@@ -852,6 +862,20 @@ function readyGroup(key, runs, sources) {
       render();
     });
   } else head.classList.add("still");
+  const dismiss = el("button", "dismiss", "×");
+  dismiss.type = "button";
+  dismiss.setAttribute("aria-label", `Dismiss ${heading}`);
+  dismiss.addEventListener("click", (event) => {
+    event.stopPropagation();
+    /** @type {ReadyKey[]} */
+    const keys = runs.map((run) => ({ at: run.at, by: run.by?.id ?? null }));
+    loads++;
+    readyRuns = readyRuns.filter((run) => !keys.some((each) => each.at === run.at && each.by === (run.by?.id ?? null)));
+    openGroups.delete(key);
+    render();
+    void window.lore.dismissMemories(keys);
+  });
+  head.append(dismiss);
   box.classList.toggle("open", open);
   box.append(head);
   if (open && memories.length) {
