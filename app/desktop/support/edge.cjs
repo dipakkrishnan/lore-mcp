@@ -1995,7 +1995,8 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         };
         check("another save lands while the owner is on Connectors", await saveMore("How I quote a rush job"));
         const savedLink = `[...(${agentRow("Grok Bot")}?.querySelectorAll("button.inline") ?? [])].find((b) => b.textContent === "Saved 5")`;
-        check("Grok Bot's card says Saved 5, as a link", await waitFor(savedLink));
+        // APP-233: the notification comes as the save is read in, ahead of the store's own count, so give that its time.
+        check("Grok Bot's card says Saved 5, as a link", await waitFor(savedLink, 80), await js(`${agentRow("Grok Bot")}?.textContent ?? ""`));
         await js(`${savedLink}.click()`);
         check("…which lands on what it saved, filtered to Grok Bot", await waitFor(`document.querySelector("#title").textContent === "Inventory" && (${chip}) === "Grok Bot×"`), await js(chip));
         check("…the new save and what Lore wrote from it marked New, the rest not", await waitFor(`${isNew("How I quote a rush job")} && ${isNew("Quote a rush fee up front")}`) && !(await js(`${isNew("How I price sync placements")} || ${isNew("Price a sync placement by its reach")}`)), await js(listed));
