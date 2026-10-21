@@ -2554,6 +2554,27 @@ test("what the owner's agents saved comes in once per check, and a check never o
   assert.equal(signIns.length, 5, "heard on every answer, never on a failed check");
 });
 
+test("Lore asks its store again within seconds while an app waits to sign in, and often while it is on screen", async () => {
+  const { Watch, PACE } = require("../src/agents.cjs");
+  const asking = { id: "a".repeat(64), code: "4F7Q", client: "Claude", app: /** @type {AgentApp} */ ("claude"), name: "Claude", created_at: "", expires_at: "" };
+  /** @type {() => Promise<AgentsWaiting>} */
+  let waiting = async () => ({ waiting: 0, sources: [] });
+  const watch = new Watch({ ready: () => true, waiting: () => waiting(), read: async () => [], landed: () => undefined, asked: () => undefined });
+  await watch.check();
+  assert.equal(watch.nextIn(true), PACE.onScreen, "on screen with nothing asking");
+  assert.equal(watch.nextIn(false), PACE.away, "out of sight with nothing asking");
+  waiting = async () => ({ waiting: 0, sources: [], sign_ins: [asking] });
+  await watch.check();
+  assert.equal(watch.nextIn(false), PACE.asking, "an app waiting on the owner is asked about quickly, in sight or not");
+  waiting = async () => { throw new Error("offline"); };
+  await watch.check();
+  assert.equal(watch.nextIn(false), PACE.asking, "a failed check keeps the last answer's pace");
+  waiting = async () => ({ waiting: 0, sources: [], sign_ins: [] });
+  await watch.check();
+  assert.equal(watch.nextIn(true), PACE.onScreen, "once allowed or gone, back to the usual pace");
+  assert.ok(PACE.asking < PACE.onScreen && PACE.onScreen < PACE.away);
+});
+
 test("one agent whose read fails leaves the others' saves to land", async () => {
   const { Watch } = require("../src/agents.cjs");
   /** @type {SourceRead[][]} */

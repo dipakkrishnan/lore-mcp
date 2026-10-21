@@ -3,12 +3,15 @@
 const { existsSync } = require("node:fs");
 const { join } = require("node:path");
 
-/** Asking the store goes through Cloudflare, so once a minute is plenty; coming back to the app asks at once. */
-const WATCH_EVERY_MS = 60_000;
+/** APP-232: how soon Lore asks the store again. A check is one short read, so it comes every few seconds while an app
+ * waits on the owner to allow it, every ten while Lore is on screen, and once a minute while it is out of sight. */
+const PACE = { asking: 3_000, onScreen: 10_000, away: 60_000 };
 
 class Watch {
   /** @type {Promise<void> | null} */
   #checking = null;
+  /** Whether an app was asking to sign in at the last answer. */
+  #asking = false;
 
   /** @param {{ready: () => boolean | Promise<boolean>, waiting: () => Promise<AgentsWaiting>, read: (name: string) => Promise<SourceRead[]>, landed: (reads: SourceRead[]) => unknown, asked: (signIns: SignInRequest[]) => unknown}} store
    * `ready`: whether there is a store to ask; `landed`: what to do with what came in, once; `asked`: the apps asking
@@ -25,12 +28,19 @@ class Watch {
     return this.#checking;
   }
 
+  /** How long until the next check. @param {boolean} onScreen whether Lore's window is in sight */
+  nextIn(onScreen) {
+    if (this.#asking) return PACE.asking;
+    return onScreen ? PACE.onScreen : PACE.away;
+  }
+
   async #check() {
     if (!(await this.store.ready())) return;
     /** @type {SourceRead[]} */
     const reads = [];
     try {
       const { sources, sign_ins = [] } = await this.store.waiting();
+      this.#asking = sign_ins.length > 0;
       this.store.asked(sign_ins);
       for (const name of sources) {
         // One agent's read failing leaves the others' saves to land; its own wait for the next check.
@@ -76,4 +86,4 @@ class AgentApps {
   }
 }
 
-module.exports = { Watch, WATCH_EVERY_MS, AgentApps };
+module.exports = { Watch, PACE, AgentApps };
