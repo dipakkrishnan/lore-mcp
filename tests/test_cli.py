@@ -868,6 +868,40 @@ class CreditMemoryTest(LoreTestCase):
                 self.assertEqual(cli.main(["memory", "credit", "-"]), 1)
 
 
+class JudgeMemoryTest(LoreTestCase):
+    def test_judge_keeps_a_verdict_and_show_carries_it(self) -> None:
+        # APP-235: the desktop app keeps what a reading judged, so the sheet can say it.
+        memory_id = self.seed_memory("Travel preferences")
+        with captured() as output:
+            cli.show_memory(memory_id, True)
+        self.assertIsNone(json.loads(output.getvalue())["verdict"])
+        judged = {
+            "memories": [
+                {"id": memory_id, "sell": False, "work": False, "why": "a preference"}
+            ]
+        }
+        with patch("sys.stdin", StringIO(json.dumps(judged))), captured() as output:
+            self.assertEqual(cli.main(["memory", "judge", "-"]), 0)
+        self.assertEqual(json.loads(output.getvalue()), {"judged": 1})
+        with captured() as output:
+            cli.show_memory(memory_id, True)
+        self.assertEqual(
+            json.loads(output.getvalue())["verdict"],
+            {"sell": False, "work": False, "why": "a preference"},
+        )
+
+    def test_judge_refuses_what_is_not_a_verdict(self) -> None:
+        for bad in (
+            {"memories": []},
+            {"memories": [{"id": 0, "sell": True, "work": False}]},
+            {"memories": [{"id": "1", "sell": True, "work": False}]},
+            {"memories": [{"id": 1, "sell": True}]},
+            {"memories": [{"id": 1, "sell": True, "work": False, "why": "x" * 201}]},
+        ):
+            with patch("sys.stdin", StringIO(json.dumps(bad))), captured():
+                self.assertEqual(cli.main(["memory", "judge", "-"]), 1)
+
+
 class RenameMemoryTest(LoreTestCase):
     def test_rename_updates_the_title_and_refuses_an_unknown_id(self) -> None:
         memory_id = self.seed_memory("Old title")

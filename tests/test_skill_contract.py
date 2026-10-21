@@ -380,6 +380,21 @@ class SkillContractTest(unittest.TestCase):
         ):
             self.assertIn(boundary, payments)
 
+    def test_the_publish_skill_says_why_a_memory_is_weak_before_it_asks(
+        self,
+    ) -> None:
+        """APP-235: a question about another topic baffles an owner never told why."""
+        skill = " ".join(
+            (OWNER_SKILLS / "lore-publish/SKILL.md").read_text().lower().split()
+        )
+        for boundary in (
+            "first say why in one plain sentence",
+            "never ask a question whose premise the owner hasn't been told",
+            "draft it anyway, draft it",
+        ):
+            with self.subTest(boundary=boundary):
+                self.assertIn(boundary, skill)
+
     def test_capture_skill_requires_private_approval_before_publish_handoff(
         self,
     ) -> None:

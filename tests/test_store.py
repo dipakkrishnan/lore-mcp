@@ -28,6 +28,7 @@ from lore.store import (
     PublicationKind,
     Status,
     Store,
+    Verdict,
     new_public_id,
     valid_public_id,
 )
@@ -174,6 +175,50 @@ class ContributorTest(LoreTestCase):
         ):
             with self.assertRaises(ValueError):
                 Contributor.model_validate(bad)
+
+
+class VerdictTest(LoreTestCase):
+    """APP-235: whether Lore judged a memory worth selling, kept with the memory."""
+
+    def test_the_latest_verdict_is_kept_and_work_is_never_for_sale(self) -> None:
+        travel = self.seed_memory("Travel preferences")
+        pricing = self.seed_memory("How I price sync")
+        with Store() as store:
+            self.assertEqual(store.verdicts(), {})
+            judged = [
+                Verdict(id=travel, sell=True, work=False, why="a good list"),
+                Verdict(id=pricing, sell=True, work=True, why="names the client"),
+                Verdict(id=999, sell=True, work=False, why="gone"),
+            ]
+            self.assertEqual(store.judge(judged), 2)
+            store.judge(
+                [Verdict(id=travel, sell=False, work=False, why="personal preference")]
+            )
+            self.assertEqual(
+                store.verdicts(),
+                {
+                    travel: {
+                        "sell": False,
+                        "work": False,
+                        "why": "personal preference",
+                    },
+                    pricing: {"sell": False, "work": True, "why": "names the client"},
+                },
+            )
+            self.assertEqual(store.verdicts([]), {})
+            rows = {row["id"]: row["verdict"] for row in store.memory_inventory()}
+            self.assertEqual(rows[pricing], store.verdicts([pricing])[pricing])
+
+    def test_an_unjudged_memory_has_none_and_a_deleted_one_takes_its_verdict(
+        self,
+    ) -> None:
+        memory = self.seed_memory("Gone")
+        with Store() as store:
+            [row] = store.memory_inventory()
+            self.assertIsNone(row["verdict"])
+            store.judge([Verdict(id=memory, sell=True, work=False, why="rare")])
+            self.assertEqual(store.forget("Gone"), 1)
+            self.assertEqual(store.verdicts(), {})
 
 
 class ArrivalTest(LoreTestCase):

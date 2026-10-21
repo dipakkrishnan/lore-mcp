@@ -14,6 +14,8 @@ type MemoryItem = {
   sources: MemorySource[];
   /** When it arrived, as a number that only grows and is never reused, as an id can be (APP-212). */
   arrival: number;
+  /** What a reading judged of it (APP-235); null when none has. Optional: an installed CLI older than this app omits it. */
+  verdict?: Verdict | null;
 };
 
 type PublicationItem = {
@@ -156,6 +158,7 @@ type ReadingReport = { read: number; memories: Array<{ file: string; worth_selli
 
 /** One memory a reading wrote, as Today lists it. Work is never offered for sale. */
 type ReadyMemory = { id: number; title: string; sell: boolean; work: boolean; why: string };
+type Verdict = Pick<ReadyMemory, "sell" | "work" | "why">;
 
 /** One finished reading, kept on Today until the owner clears it; `seen` once they have looked. */
 /** Which memories the owner has had on screen, by arrival (APP-212); one that arrived after `since` and is not in
@@ -242,6 +245,7 @@ type Memory = {
   status: string;
   updated_at: string;
   sources: MemorySource[];
+  verdict?: Verdict | null;
 };
 
 type ProposedMemory = {
