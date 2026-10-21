@@ -2531,18 +2531,18 @@ test("what the owner's agents saved comes in once per check, and a check never o
   assert.equal(asked, 0, "with no store, the CLI is never asked");
   ready = true;
   await Promise.all([watch.check(), watch.check()]);
-  assert.equal(asked, 1, "a check under way is the one a second caller gets");
-  assert.deepEqual(landed, [[read("agent-a", 1), read("agent-b", 1)]], "both agents' saves, read through once");
+  assert.equal(asked, 2, "a check asked for during one under way waits for one more read, never an overlapping one");
+  assert.deepEqual(landed, [[read("agent-a", 1), read("agent-b", 1)], [read("agent-a", 1), read("agent-b", 1)]], "both agents' saves, read through once per read");
   waiting = async () => { throw new Error("You are not authenticated"); };
   await watch.check();
-  assert.equal(landed.length, 1, "signed out of Cloudflare: quiet, and nothing lands");
+  assert.equal(landed.length, 2, "signed out of Cloudflare: quiet, and nothing lands");
   waiting = async () => ({ waiting: 0, sources: [] });
   await watch.check();
-  assert.equal(landed.length, 1, "nothing waiting is nothing to read");
+  assert.equal(landed.length, 2, "nothing waiting is nothing to read");
   waiting = async () => ({ waiting: 1, sources: ["agent-a"] });
   await watch.check();
-  assert.equal(asked, 4, "a failed check is retried at the next one");
-  assert.equal(landed.length, 2);
+  assert.equal(asked, 5, "a failed check is retried at the next one");
+  assert.equal(landed.length, 3);
   // XC-068: every answer says which apps ask to sign in, so a card for one that went away goes too.
   const asking = { id: "a".repeat(64), code: "4F7Q", client: "Claude", app: /** @type {AgentApp} */ ("claude"), name: "Claude", created_at: "", expires_at: "" };
   waiting = async () => ({ waiting: 0, sources: [], sign_ins: [asking] });
@@ -2551,7 +2551,7 @@ test("what the owner's agents saved comes in once per check, and a check never o
   waiting = async () => ({ waiting: 0, sources: [], sign_ins: [] });
   await watch.check();
   assert.deepEqual(signIns.at(-1), []);
-  assert.equal(signIns.length, 5, "heard on every answer, never on a failed check");
+  assert.equal(signIns.length, 6, "heard on every answer, never on a failed check");
 });
 
 test("Lore asks its store again within seconds while an app waits to sign in, and often while it is on screen", async () => {
