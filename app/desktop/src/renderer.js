@@ -373,7 +373,7 @@ async function openMemory(id) {
       tell(`Deleted ${memory.title}.`);
     }).then((done) => { if (!done) showActions(); }));
     remove.classList.add("destructive");
-    actions.replaceChildren(el("span", "hint", "Delete this memory? This can't be undone."), button("Cancel", "secondary", showActions), remove);
+    actions.replaceChildren(el("span", "hint", "Delete this memory? Lore won't bring it back."), button("Cancel", "secondary", showActions), remove);
   }
   /** @type {HTMLElement} */
   let body = renderMemoryBody(memory.content);

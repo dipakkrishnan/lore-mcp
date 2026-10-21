@@ -2923,7 +2923,7 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         // Focus first, as a real click or Enter would; a synthetic click() leaves focus where it was.
         await js(`const link = document.querySelector("#content .task-link"); link.focus(); link.click();`);
         await waitFor(`document.querySelector(".sheet")`);
-        check("memory actions pair distinct icons with their text labels", await js(`(() => { const buttons = [...document.querySelectorAll(".sheet .btn.quiet")]; const icons = buttons.map((button) => button.querySelector("svg[aria-hidden=true]")?.innerHTML); return buttons.length === 3 && new Set(icons).size === 3 && buttons.every((button) => ["Rename", "Edit", "Draft for sale"].includes(button.textContent)); })()`));
+        check("memory actions pair distinct icons with their text labels", await js(`(() => { const buttons = [...document.querySelectorAll(".sheet .btn.quiet")]; const icons = buttons.map((button) => button.querySelector("svg[aria-hidden=true]")?.innerHTML); return buttons.length === 4 && new Set(icons).size === 4 && buttons.every((button) => ["Rename", "Edit", "Draft for sale", "Delete"].includes(button.textContent)); })()`));
         await shot("memory-actions");
         // APP-096: a native modal holds focus, closes on Escape, and hands focus back to the row that opened it.
         check("the sheet is an open native dialog with focus inside", await js(`document.querySelector("dialog.sheet")?.open === true && document.querySelector("dialog.sheet").contains(document.activeElement)`));
