@@ -43,14 +43,15 @@ function asking(routine, ask) {
   return { name: routine.id, label: routine.name, item: "", added: 0, ask, title: `“${routine.name}”`, phase: `Working on “${routine.name}”`, by: contributor("routine", routine.id, routine.name, "clock") };
 }
 
-/** What a reading wrote, as the store keeps it. A file outside the memories folder, or one the store did not take, is
- * dropped, and nothing under `work/` is ever offered for sale, whatever the reading said.
- * @param {Reading} reading @param {ReadingReport} report @param {Memory[]} stored @param {string} folder @returns {ReadyRun} */
-function landed(reading, report, stored, folder) {
+/** What a reading wrote, as the store keeps it: what it said it wrote, and every file its runs changed, said or not.
+ * A file outside the memories folder, or one the store did not take, is dropped, and nothing under `work/` is ever
+ * offered for sale, whatever the reading said.
+ * @param {Reading} reading @param {ReadingReport} report @param {Memory[]} stored @param {string} folder @param {string[]} [wrote] @returns {ReadyRun} */
+function landed(reading, report, stored, folder, wrote = []) {
   const work = resolve(folder, "work") + sep;
   /** @type {Map<number, ReadyMemory>} */
   const memories = new Map();
-  for (const entry of report.memories) {
+  for (const entry of [...report.memories, ...wrote.map((file) => ({ file, worth_selling: false, why: "" }))]) {
     const path = resolve(folder, entry.file);
     const memory = stored.find((candidate) => candidate.status === "private" && resolve(candidate.source_path) === path);
     if (!memory || !path.startsWith(folder + sep) || memories.has(memory.id)) continue;
@@ -58,6 +59,13 @@ function landed(reading, report, stored, folder) {
     memories.set(memory.id, { id: memory.id, title: memory.title, sell: entry.worth_selling && !kept, work: kept, why: entry.why });
   }
   return { title: reading.title, read: report.read || reading.added, memories: [...memories.values()], at: new Date().toISOString(), seen: false, by: reading.by, ...(reading.from ? { from: reading.from } : {}) };
+}
+
+/** APP-233: what one of the owner's agents saved, for Today as soon as it is read in. The agent wrote them as memories
+ * already, so no model has to read them first. @param {Reading} reading @param {Array<{id: number, title: string}>} saves @returns {ReadyRun} */
+function saved(reading, saves) {
+  const memories = saves.map(({ id, title }) => ({ id, title, sell: false, work: false, why: "" }));
+  return { title: reading.title, read: reading.added, memories, at: new Date().toISOString(), seen: false, by: reading.by, ...(reading.from ? { from: reading.from } : {}) };
 }
 
 /** The Mac notification for a finished reading. @param {ReadyRun} run @returns {{title: string, body: string}} */
@@ -90,6 +98,18 @@ class Ready {
   /** @param {ReadyRun} run */
   async add(run) {
     await this.#save([run, ...(await this.runs())].slice(0, KEPT));
+  }
+
+  /** Add to the newest card from the same agent or app instead of putting up another, and bring it to the top. It is
+   * unseen again only if it gained a memory. With none kept, it is a card of its own. @param {ReadyRun} run */
+  async extend(run) {
+    const runs = await this.runs();
+    const kept = runs.find((each) => each.by && run.by && each.by.kind === run.by.kind && each.by.id === run.by.id);
+    if (!kept) return this.add(run);
+    const ids = new Set(run.memories.map((memory) => memory.id));
+    const gained = run.memories.some((memory) => !kept.memories.some((had) => had.id === memory.id));
+    const memories = [...kept.memories.filter((memory) => !ids.has(memory.id)), ...run.memories];
+    await this.#save([{ ...kept, memories, seen: kept.seen && !gained }, ...runs.filter((each) => each !== kept)]);
   }
 
   async seen() {
@@ -198,4 +218,4 @@ class Badge {
   }
 }
 
-module.exports = { many, plural, worthReading, asking, landed, announcement, Ready, Badge, Seen, seenIds };
+module.exports = { many, plural, worthReading, asking, landed, saved, announcement, Ready, Badge, Seen, seenIds };

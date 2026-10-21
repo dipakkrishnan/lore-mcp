@@ -2133,6 +2133,49 @@ test("the owner's turn stops a reading, and the reading starts over once the own
   }
 });
 
+test("what a reading wrote before it gave way to the owner is still handed back, and nothing the owner's turn wrote is", async () => {
+  const { fauxAssistantMessage, fauxToolCall } = await import("@earendil-works/pi-ai");
+  /** @type {Array<[ReadingReport, string[]]>} */
+  const handed = [];
+  const { agent, faux, loreHome } = await scriptedAgent({ memoriesReady: async (_reading, report, wrote) => { handed.push([report, wrote]); } });
+  const folder = join(loreHome, "memories");
+  await mkdir(join(folder, "work"), { recursive: true });
+  await writeFile(join(folder, "kept.md"), "from before");
+  let reading = 0;
+  faux.setResponses([
+    // The first run writes a memory, then is stopped before it can say so.
+    (_context, options) => new Promise((resolve) => {
+      require("node:fs").writeFileSync(join(folder, "work", "travel.md"), "how I travel");
+      reading++;
+      options?.signal?.addEventListener("abort", () => resolve(fauxAssistantMessage("", { stopReason: "aborted" })), { once: true });
+    }),
+    () => {
+      require("node:fs").writeFileSync(join(folder, "owner.md"), "the owner's own");
+      return fauxAssistantMessage("Kept that.");
+    },
+    // Run again, it finds that memory already there and says it wrote nothing.
+    fauxAssistantMessage(fauxToolCall("memories_ready", { read: 4, memories: [] }), { stopReason: "toolUse" }),
+    fauxAssistantMessage("Done."),
+    // A run that ends without saying anything still hands back what it wrote.
+    () => {
+      require("node:fs").writeFileSync(join(folder, "seats.md"), "window seats");
+      return fauxAssistantMessage("I wrote it.");
+    }
+  ]);
+  try {
+    agent.synthesize({ name: "agent-1", label: "Grok", item: "save", added: 4, title: "Grok saved 4 things to Lore", phase: "Reading what Grok saved", by: { kind: "agent", id: "agent-1", label: "Grok", mark: "grok" } });
+    await until(() => reading === 1);
+    await agent.prompt("I learned to hire managers before scaling.", "capture");
+    await until(() => handed.length === 1);
+    assert.deepEqual(handed, [[{ read: 4, memories: [] }, [join(folder, "work", "travel.md")]]]);
+    agent.synthesize({ name: "granola-1", label: "Granola", item: "meeting", added: 1, title: "Lore read your Granola meetings", phase: "Reading your Granola meetings", by: { kind: "app", id: "granola-1", label: "Granola", mark: "granola" } });
+    await until(() => handed.length === 2);
+    assert.deepEqual(handed[1], [{ read: 1, memories: [] }, [join(folder, "seats.md")]]);
+  } finally {
+    await rm(loreHome, { recursive: true, force: true });
+  }
+});
+
 test("a reading lands as Today lists it: only stored memories, work never for sale, and plain words", async () => {
   const { landed, announcement } = require("../src/reading.cjs");
   const folder = "/Users/owner/.lore/memories";
@@ -2638,6 +2681,42 @@ test("an agent's saves are read through like any app's, named for the agent, and
   assert.deepEqual(announcement(run), { title: "Grok saved 3 things to Lore", body: "1 new memory. 1 looks worth selling." });
   const granola = worthReading({ name: "granola-1", connector: "granola", added: 2 }, apps);
   assert.equal("from" in landed(/** @type {Reading} */ (granola), { read: 2, memories: [] }, [], folder), false, "an app's run names no agent");
+});
+
+test("an agent's saves are on Today as they come in, and what reading them writes joins that card", async () => {
+  const { worthReading, saved, landed, announcement, Ready } = require("../src/reading.cjs");
+  const apps = /** @type {SourceApp[]} */ ([{ id: "agent", name: "Personal agent", item: "save" }]);
+  const grok = /** @type {Reading} */ (worthReading({ name: "agent-1", label: "Grok", connector: "agent", app: "grok", added: 2 }, apps));
+  const claude = /** @type {Reading} */ (worthReading({ name: "agent-2", label: "Claude", connector: "agent", app: "claude", added: 1 }, apps));
+  const card = saved(grok, [{ id: 4, title: "Window seats" }, { id: 5, title: "Pricing" }]);
+  assert.deepEqual({ ...card, at: "" }, { title: "Grok saved 2 things to Lore", read: 2, memories: [{ id: 4, title: "Window seats", sell: false, work: false, why: "" }, { id: 5, title: "Pricing", sell: false, work: false, why: "" }], at: "", seen: false, by: grok.by, from: "Grok" });
+  assert.deepEqual(announcement(card), { title: "Grok saved 2 things to Lore", body: "2 new memories. They stay private on this Mac." });
+  const directory = await mkdtemp(join(tmpdir(), "lore-ready-"));
+  /** @type {number[]} */
+  const badges = [];
+  const ready = new Ready(join(directory, "memories-ready.json"), (count) => badges.push(count));
+  const folder = "/Users/owner/.lore/memories";
+  const travel = { id: 9, title: "How I travel", content: "", project: "", source: "automation", source_path: `${folder}/travel.md`, status: "private", updated_at: "" };
+  try {
+    await ready.add(card);
+    await ready.add(saved(claude, [{ id: 6, title: "Notes" }]));
+    await ready.seen();
+    await ready.extend(landed(grok, { read: 2, memories: [] }, [travel], folder, [`${folder}/travel.md`]));
+    const [first, second] = await ready.runs();
+    assert.deepEqual([first.title, first.seen, first.memories.map((memory) => memory.id)], ["Grok saved 2 things to Lore", false, [4, 5, 9]], "one card for Grok, back on top, with the new memory");
+    assert.equal(second.title, "Claude saved 1 thing to Lore");
+    assert.equal(badges.at(-1), 3);
+    await ready.seen();
+    await ready.extend(landed(grok, { read: 2, memories: [{ file: "travel.md", worth_selling: true, why: "a measured rule" }] }, [travel], folder));
+    const [again] = await ready.runs();
+    assert.deepEqual([again.seen, again.memories.map((memory) => [memory.id, memory.sell])], [true, [[4, false], [5, false], [9, true]]], "nothing new: still seen, and the later word on a memory wins");
+    assert.equal((await ready.runs()).length, 2);
+    await ready.clear();
+    await ready.extend(landed(grok, { read: 2, memories: [] }, [travel], folder, [`${folder}/travel.md`]));
+    assert.deepEqual((await ready.runs()).map((run) => run.memories.length), [1], "with no card left, it is a card of its own");
+  } finally {
+    await rm(directory, { recursive: true });
+  }
 });
 
 test("connecting a personal agent validates what it is and what it is called before any CLI call", async () => {

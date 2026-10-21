@@ -144,7 +144,7 @@ type SourceKind = "folder" | "export" | "feed" | "mcp" | "agent";
 
 type SourceApp = { id: string; name: string; what: string; unit: string; item: string; kind: SourceKind; refresh: boolean; placeholder: string; guide?: string };
 
-type SourceRead = { name: string; label?: string; connector?: string | null; app?: AgentApp | null; added: number; updated: number; unchanged: number; errors: number; state: SourceState };
+type SourceRead = { name: string; label?: string; connector?: string | null; app?: AgentApp | null; added: number; updated: number; unchanged: number; errors: number; state: SourceState; memories?: Array<{ id: number; title: string }> };
 
 /** New items a connected app brought in, waiting to be read through: "23 new Granola meetings". */
 /** `title` and `phase` are worded once: what Today and the notification call it, and its row while it reads. One of the
@@ -522,8 +522,9 @@ type LoreAgentOptions = {
   openUrl(page: { title: string; url: string; note: string }): Promise<string>;
   /** How many staged drafts still wait on the owner's cards. */
   drafts?(): Promise<number>;
-  /** A reading finished and handed back what it wrote; Lore saves it and tells the owner. */
-  memoriesReady?(reading: Reading, report: ReadingReport): Promise<void>;
+  /** A reading finished and handed back what it wrote; Lore saves it and tells the owner. `wrote`: every file in the
+   * memories folder its runs changed, a run that gave way to the owner included. */
+  memoriesReady?(reading: Reading, report: ReadingReport, wrote: string[]): Promise<void>;
   /** The check-in's verdict, or null when its model did not answer. */
   checkedIn?(job: CheckInJob, verdict: CheckInVerdict | null): Promise<void>;
   authPrompt(prompt: import("@earendil-works/pi-ai").AuthPrompt): Promise<string>;

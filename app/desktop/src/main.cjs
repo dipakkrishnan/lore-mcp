@@ -379,14 +379,25 @@ function readThrough(loreHome, read) {
   return read;
 }
 
-/** Put each app's new items in line to be read. @param {string} loreHome @param {Array<{name: string, connector?: string | null, added?: number}>} reads */
+/** Put each app's new items in line to be read. What an agent saved is on Today at once; reading it through after only
+ * tidies it. @param {string} loreHome @param {Array<{name: string, connector?: string | null, added?: number, memories?: Array<{id: number, title: string}>}>} reads */
 async function queueReadings(loreHome, reads) {
   if (!reads.some((read) => read.added)) return;
   const apps = await sourceCatalog(loreHome).catch(() => []);
   for (const read of reads) {
     const next = reading.worthReading(read, apps);
-    if (next) agent?.synthesize(next);
+    if (!next) continue;
+    if (next.by.kind === "agent" && read.memories?.length) await showSaved(reading.saved(next, read.memories));
+    agent?.synthesize(next);
   }
+}
+
+/** APP-233: an agent's saves, on Today and in a notification that opens them in Inventory. @param {ReadyRun} run */
+async function showSaved(run) {
+  await newMemories.add(run);
+  emit({ type: "ready" });
+  const source = run.by && { id: run.by.id, label: run.by.label };
+  sales.notify(reading.announcement(run), () => reveal({ type: "show", view: "inventory", source }));
 }
 
 /** What Lore last told the owner about, so a run can tell whether it already did. */
@@ -705,21 +716,19 @@ async function start(loreHome, outgoing) {
       emit({ type: "changed" });
       sales.notify(checkin.announcement(posting), () => reveal({ type: "thread", task: "evening" }));
     },
-    memoriesReady: async (read, report) => {
+    memoriesReady: async (read, report, wrote) => {
       await lore(loreHome, ["sync", "--source", "automation"]);
       const stored = JSON.parse(await lore(loreHome, ["search", "--source", "automation", "--limit", "0", "--json"]));
-      const run = reading.landed(read, report, stored, join(loreHome, "memories"));
-      const wrote = run.memories.length;
-      if (read.ask) await lore(loreHome, ["automation", "result", read.name, report.missing ? `${report.missing} isn't connected` : wrote ? reading.plural(wrote, "new memory") : "Nothing new"]);
+      const run = reading.landed(read, report, stored, join(loreHome, "memories"), wrote);
+      const count = run.memories.length;
+      if (read.ask) await lore(loreHome, ["automation", "result", read.name, report.missing ? `${report.missing} isn't connected` : count ? reading.plural(count, "new memory") : "Nothing new"]);
       emit({ type: "changed" });
-      // An agent's saves always show on Today, even when they only added to memories already kept.
-      if (!wrote && read.by.kind !== "agent") return;
-      await newMemories.add(run);
+      if (!count) return;
+      // An agent's saves are on Today already, from when they came in: what reading them wrote joins that card, quietly.
+      const fromAgent = read.by.kind === "agent";
+      await (fromAgent ? newMemories.extend(run) : newMemories.add(run));
       emit({ type: "ready" });
-      if (!wrote) return;
-      // An agent's save lands on what it saved, in Inventory; anything else on Today's new memories.
-      const agent = read.by.kind === "agent" ? { id: read.by.id, label: read.by.label } : undefined;
-      sales.notify(reading.announcement(run), () => reveal(agent ? { type: "show", view: "inventory", source: agent } : { type: "show", view: "today" }));
+      if (!fromAgent) sales.notify(reading.announcement(run), () => reveal({ type: "show", view: "today" }));
       // Who wrote them is a nicety, kept last: failing to record it never costs the owner their memories' card or banner.
       try {
         await creditMemories(loreHome, run.memories.map((memory) => memory.id), read.by);

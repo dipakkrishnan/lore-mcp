@@ -217,6 +217,15 @@ class ReadTest(AgentCase):
         )
         with Store() as store:
             memory = next(m for m in store.search("Pricing") if m.source == self.source)
+            self.assertEqual(
+                read["memories"],
+                [
+                    {"id": m.id, "title": m.title}
+                    for m in sorted(store.search(""), key=lambda m: m.id)
+                    if m.source == self.source
+                ],
+                "what it saved, by id, so the app can show it before any model reads it",
+            )
             self.assertEqual(memory.status, "private")
             self.assertTrue(memory.updated_at.startswith("2026-10-01"))
             self.assertEqual(
@@ -231,7 +240,8 @@ class ReadTest(AgentCase):
             self.json("agents", "waiting"),
             {"waiting": 0, "sources": [], "sign_ins": []},
         )
-        self.assertEqual(self.read()["added"], 0)
+        again = self.read()
+        self.assertEqual((again["added"], again["memories"]), (0, []))
 
     def test_a_failed_import_confirms_nothing_and_the_next_read_finishes(self) -> None:
         self.save(
@@ -280,7 +290,11 @@ class ReadTest(AgentCase):
                 "key": "p",
             },
         )
-        self.assertEqual(self.read()["updated"], 1)
+        resaved = self.read()
+        self.assertEqual(
+            (resaved["updated"], resaved["memories"]),
+            (1, [{"id": memory.id, "title": "Pricing"}]),
+        )
         self.assertEqual(
             self.memories(self.source), {"Pricing": "Quote the budget, not the song."}
         )
