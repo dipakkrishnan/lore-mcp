@@ -7,8 +7,10 @@ so with an exit code and a message rather than a traceback.
 
 from __future__ import annotations
 
+import argparse
 import json
 import os
+import re
 import sqlite3
 import subprocess
 import sys
@@ -19,7 +21,7 @@ from datetime import datetime, timedelta, timezone
 from io import StringIO
 from pathlib import Path
 from typing import Iterator
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from helpers import LoreTestCase, blueprint_input, captured
 
@@ -29,14 +31,21 @@ from lore import sources as sources_module
 from lore.store import JobKind, JobStatus, PublicationKind, Status, Store
 
 
+def write_launch_key(path: Path, text: str) -> None:
+    """Write a key file the way the desktop app does: the owner's, readable by no one else."""
+    path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+    path.parent.chmod(0o700)
+    path.touch(mode=0o600)
+    path.write_text(text, encoding="utf-8")
+
+
 @contextmanager
 def desktop_stdin(text: str) -> Iterator[None]:
     """Stand in for Electron main piping a decision with its launch key."""
     with tempfile.TemporaryDirectory() as directory:
-        key = Path(directory) / "attended"
-        key.write_text("launch-key", encoding="utf-8")
+        write_launch_key(Path(directory) / "attended.d/launch", "1\nlaunch-key\n")
         with (
-            patch.object(cli, "ATTENDED_KEY", key),
+            patch.object(cli, "attended_folder", return_value=Path(directory)),
             patch.dict(os.environ, {"LORE_ATTENDED_KEY": "launch-key"}),
             patch.object(sys, "stdin", StringIO(text)),
         ):
@@ -206,6 +215,35 @@ class MainDispatchTest(LoreTestCase):
         with patch("lore.deploy.deploy", return_value=0) as deploy:
             self.assertEqual(cli.main(["node", "deploy", "--network", "real"]), 0)
         self.assertEqual(deploy.call_args.args, (None, "real"))
+        self.assertEqual(deploy.call_args.kwargs, {"inbox_only": False})
+
+    def test_node_deploy_inbox_only_needs_nothing_else_and_opens_no_store(
+        self,
+    ) -> None:
+        # XC-069: online for the owner's agents; the store.opened event waits
+        # for the deploy that puts something on sale.
+        with (
+            patch("lore.deploy.deploy", return_value=0) as deploy,
+            patch("lore.usage.record") as record,
+        ):
+            self.assertEqual(cli.main(["node", "deploy", "--inbox-only"]), 0)
+        self.assertEqual(deploy.call_args.args, (None, None))
+        self.assertEqual(deploy.call_args.kwargs, {"inbox_only": True})
+        record.assert_not_called()
+
+    def test_status_says_a_store_online_for_agents_sells_nothing(self) -> None:
+        with Store() as store:
+            store.set_setting("node_url", "https://lore.example.workers.dev/mcp")
+            store.set_setting("node_selling", True)
+            store.set_setting(deploy_module.SELLING_SETTING, False)
+        with captured() as output:
+            cli.status()
+        text = output.getvalue()
+        self.assertIn("Node (last deploy): https://lore.example.workers.dev/mcp", text)
+        self.assertIn("Online for your agents; nothing is for sale.", text)
+        self.assertIn("0 active publications\n", text)
+        self.assertNotIn("externally usable", text)
+        self.assertIn("lore node deploy --wallet", text)
 
     def test_node_secret_reads_the_value_from_an_attended_stdin_only(self) -> None:
         with (
@@ -353,9 +391,13 @@ class SourcesCommandTest(LoreTestCase):
             [
                 {
                     "name": added["name"],
+                    "label": "Notes",
+                    "connector": None,
+                    "app": None,
                     "added": 0,
                     "updated": 0,
                     "unchanged": 3,
+                    "removed": 0,
                     "errors": 0,
                     "state": "connected",
                 }
@@ -397,6 +439,104 @@ class SourcesCommandTest(LoreTestCase):
                     self.assertEqual(cli.main(argv), 2)
                 self.assertEqual(len(stderr.getvalue().splitlines()), 1)
                 self.assertTrue(stderr.getvalue().startswith("lore: "))
+
+    @contextmanager
+    def connecting(self) -> Iterator[MagicMock]:
+        """Stand in for the registry, so a case sees only what the parser sent."""
+        connected = {
+            "name": "obsidian-1",
+            "label": "Obsidian",
+            "state": "connected",
+            "imported": 0,
+            "enabled": True,
+        }
+        with patch.object(
+            sources_module.Registry, "connect", return_value=connected
+        ) as connect:
+            yield connect
+
+    def test_connect_takes_its_locator_after_options_and_a_double_dash(self) -> None:
+        # The desktop app sends the fourth shape. Older argparse gives up on the
+        # optional locator as soon as an option follows the app, so each of
+        # these has to hold on the lowest Python `pyproject.toml` allows.
+        for tail, locator, replacing in (
+            (["/vault"], "/vault", None),
+            (["--", "/vault"], "/vault", None),
+            (["--json", "--", "/vault"], "/vault", None),
+            (["--replace", "old", "--json", "--", "/vault"], "/vault", "old"),
+            (["--json", "/vault"], "/vault", None),
+            (["--json", "--", "-vault"], "-vault", None),
+            (["--json"], "", None),
+        ):
+            with self.subTest(tail=tail), self.connecting() as connect, captured():
+                self.assertEqual(cli.main(["sources", "connect", "obsidian", *tail]), 0)
+                connect.assert_called_once()
+                self.assertEqual(connect.call_args.args, ("obsidian", locator))
+                self.assertEqual(connect.call_args.kwargs["replacing"], replacing)
+
+    def test_connect_recovers_a_locator_the_parser_left_over(self) -> None:
+        # What older argparse hands back, replayed so the recovery is exercised
+        # on every Python rather than only on the ones that need it.
+        for extra in (["--", "/vault"], ["/vault"], ["--", "-vault"]):
+            stranded = argparse.Namespace(
+                command="sources",
+                sources_command="connect",
+                connector="obsidian",
+                locator="",
+                replace=None,
+                json=True,
+            )
+            with (
+                self.subTest(extra=extra),
+                patch.object(
+                    argparse.ArgumentParser,
+                    "parse_known_args",
+                    return_value=(stranded, list(extra)),
+                ),
+                self.connecting() as connect,
+                captured(),
+            ):
+                self.assertEqual(cli.main(["ignored"]), 0)
+                self.assertEqual(connect.call_args.args, ("obsidian", extra[-1]))
+
+    def test_connect_still_refuses_what_is_not_one_locator(self) -> None:
+        for argv in (
+            ["sources", "connect", "obsidian", "--bogus"],
+            ["sources", "connect", "obsidian", "--json", "--bogus"],
+            ["sources", "connect", "obsidian", "--", "/vault", "/other"],
+            ["sources", "connect", "obsidian", "/vault", "--json", "--", "/other"],
+            ["sources", "list", "extra"],
+            ["status", "--", "extra"],
+        ):
+            with (
+                self.subTest(argv=argv),
+                self.connecting() as connect,
+                captured(),
+                patch.object(sys, "stderr", StringIO()),
+            ):
+                with self.assertRaises(SystemExit) as refused:
+                    cli.main(argv)
+                self.assertEqual(refused.exception.code, 2)
+                # An empty locator means the current folder to a folder reader.
+                connect.assert_not_called()
+
+
+class SupportedPythonTest(unittest.TestCase):
+    def test_ci_runs_this_file_on_the_lowest_python_the_package_allows(self) -> None:
+        # `python-floor.yml` is what makes the cases above mean "every supported
+        # Python"; it only does while it names the floor `pyproject.toml` declares.
+        root = Path(__file__).resolve().parents[1]
+        declared = re.search(
+            r'^requires-python = ">=(\d+\.\d+)"$',
+            (root / "pyproject.toml").read_text(encoding="utf-8"),
+            re.MULTILINE,
+        )
+        assert declared is not None
+        workflow = (root / ".github/workflows/python-floor.yml").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn(f"--python {declared.group(1)} ", workflow)
+        self.assertIn("-p test_cli.py", workflow)
 
 
 class SyncTest(LoreTestCase):
@@ -675,12 +815,56 @@ class ShowMemoryTest(LoreTestCase):
         self.assertEqual(payload["id"], memory_id)
         self.assertEqual(payload["title"], "Kept lesson")
         self.assertIn("content", payload)
+        self.assertEqual(
+            payload["sources"],
+            [{"kind": "app", "id": "test", "label": "test", "mark": "", "at": None}],
+        )
         with captured() as output:
             self.assertEqual(cli.show_memory(memory_id, False), 0)
         self.assertIn("Kept lesson", output.getvalue())
         with self.assertRaisesRegex(ValueError, "memory not found: 999"):
             cli.show_memory(999, True)
         self.assertEqual(cli.main(["memory", "show", "999"]), 1)
+
+
+class CreditMemoryTest(LoreTestCase):
+    def test_credit_puts_a_routine_on_record_and_show_leads_with_it(self) -> None:
+        # APP-213: the desktop app credits what a reading wrote, once it lands.
+        memory_id = self.seed_memory("Weekly notes")
+        credit = {
+            "ids": [memory_id],
+            "by": {"kind": "routine", "id": "r1", "label": "Sunday", "mark": "clock"},
+        }
+        with patch("sys.stdin", StringIO(json.dumps(credit))), captured() as output:
+            self.assertEqual(cli.main(["memory", "credit", "-"]), 0)
+        self.assertEqual(json.loads(output.getvalue()), {"credited": 1})
+        with captured() as output:
+            cli.show_memory(memory_id, True)
+        [source] = json.loads(output.getvalue())["sources"]
+        self.assertEqual(
+            (source["kind"], source["label"], source["mark"]),
+            ("routine", "Sunday", "clock"),
+        )
+
+    def test_credit_refuses_what_is_not_a_contributor(self) -> None:
+        for bad in (
+            {"ids": [], "by": {"kind": "app", "id": "a", "label": "A"}},
+            {"ids": [0], "by": {"kind": "app", "id": "a", "label": "A"}},
+            {"ids": [1], "by": {"kind": "robot", "id": "a", "label": "A"}},
+            {"ids": [True], "by": {"kind": "app", "id": "a", "label": "A"}},
+            {"ids": ["1"], "by": {"kind": "app", "id": "a", "label": "A"}},
+            {"ids": [1.0], "by": {"kind": "app", "id": "a", "label": "A"}},
+            {
+                "ids": [1],
+                "by": {"kind": "app", "id": "a", "label": "A", "mark": "../../x"},
+            },
+            {
+                "ids": [1],
+                "by": {"kind": "app", "id": "a", "label": "A", "mark": "nowhere"},
+            },
+        ):
+            with patch("sys.stdin", StringIO(json.dumps(bad))), captured():
+                self.assertEqual(cli.main(["memory", "credit", "-"]), 1)
 
 
 class RenameMemoryTest(LoreTestCase):
@@ -773,6 +957,7 @@ class StatusTest(LoreTestCase):
             store.set_setting("price_usd", 1.0)
             store.set_setting("sources", ["codex"])
             store.set_setting("node_url", "https://lore.example.workers.dev/mcp")
+            store.set_setting("node_selling", True)
             store.add_publication(
                 title="Guide",
                 content="text",
@@ -785,6 +970,7 @@ class StatusTest(LoreTestCase):
         self.assertIn("1 active publication (externally usable)", text)
         self.assertIn("Publication price: $1.00", text)
         self.assertIn("Node (last deploy): https://lore.example.workers.dev/mcp", text)
+        self.assertNotIn("nothing is for sale", text)
         self.assertIn("● Codex", text)
         self.assertIn("○ Claude Code", text)
 
@@ -899,6 +1085,7 @@ class PriceTest(LoreTestCase):
     ) -> None:
         with Store() as store:
             store.set_setting("node_url", "https://lore.example.workers.dev/mcp")
+            store.set_setting("node_selling", True)
         with captured() as output:
             cli.price(0.50)
         self.assertIn("still charges its old price", output.getvalue())
@@ -1469,6 +1656,23 @@ class PublicationApplyTest(LoreTestCase):
         with Store() as store:
             self.assertFalse(store.setting("publish_pending", False))
 
+    def test_approving_on_a_store_online_only_for_agents_waits_for_it_to_open(
+        self,
+    ) -> None:
+        # XC-069: the deploy that opens it for sale, after a price and a payout
+        # address, pushes what was approved; nothing goes out before that.
+        with Store() as store:
+            store.set_setting("node_url", "https://node.example/mcp")
+            store.set_setting("node_selling", True)
+            store.set_setting(deploy_module.SELLING_SETTING, False)
+        with self._attended(), patch.object(cli, "ask", return_value="a"), captured():
+            with patch.object(cli, "push") as push:
+                self.assertEqual(cli.publication_apply(self.candidates()), 0)
+        push.assert_not_called()
+        with Store() as store:
+            self.assertEqual(len(store.list_publications(active_only=True)), 1)
+            self.assertFalse(store.setting("publish_pending", False))
+
     def test_approving_several_candidates_in_one_sitting_pushes_once_not_per_card(
         self,
     ) -> None:
@@ -1477,6 +1681,7 @@ class PublicationApplyTest(LoreTestCase):
         path = self.candidates({"title": "First claim"}, {"title": "Second claim"})
         with Store() as store:
             store.set_setting("node_url", "https://node.example/mcp")
+            store.set_setting("node_selling", True)
         with (
             self._attended(),
             patch.object(cli, "ask", side_effect=["a", "a"]),
@@ -1484,11 +1689,30 @@ class PublicationApplyTest(LoreTestCase):
             captured(),
         ):
             self.assertEqual(cli.publication_apply(path), 0)
-        push.assert_called_once_with(str(cli.home() / "node"))
+        push.assert_called_once_with(str(cli.store_folder()))
+
+    def test_a_desktop_approval_leaves_the_push_to_the_app(self) -> None:
+        # APP-226: the app pushes once the owner confirms what goes out.
+        with Store() as store:
+            store.set_setting("node_url", "https://node.example/mcp")
+            store.set_setting("node_selling", True)
+        with (
+            self._attended(),
+            patch.dict(os.environ, {"LORE_HOLD_PUSH": "1"}),
+            patch.object(cli, "ask", return_value="a"),
+            patch.object(cli, "push") as push,
+            captured(),
+        ):
+            self.assertEqual(cli.publication_apply(self.candidates()), 0)
+        push.assert_not_called()
+        with Store() as store:
+            self.assertEqual(len(store.list_publications(active_only=True)), 1)
+            self.assertTrue(store.setting("publish_pending", False))
 
     def test_a_failed_approval_push_is_recorded_never_silently_dropped(self) -> None:
         with Store() as store:
             store.set_setting("node_url", "https://node.example/mcp")
+            store.set_setting("node_selling", True)
         with (
             self._attended(),
             patch.object(cli, "ask", return_value="a"),
@@ -1578,20 +1802,21 @@ class PublicationApplyTest(LoreTestCase):
         first, second = self.drafted({"title": "First"}, {"title": "Second"})
         with Store() as store:
             store.set_setting("node_url", "https://node.example/mcp")
+            store.set_setting("node_selling", True)
         with (
             desktop_stdin(json.dumps({"candidate": first, "approve": True})),
             patch.object(cli, "push", return_value=0) as push,
             captured(),
         ):
             self.assertEqual(cli.publication_decide(), 0)
-        push.assert_called_once_with(str(cli.home() / "node"))
+        push.assert_called_once_with(str(cli.store_folder()))
         with (
             desktop_stdin(json.dumps({"candidate": second, "approve": True})),
             patch.object(cli, "push", return_value=0) as push,
             captured(),
         ):
             self.assertEqual(cli.publication_decide(), 0)
-        push.assert_called_once_with(str(cli.home() / "node"))
+        push.assert_called_once_with(str(cli.store_folder()))
 
     def test_a_failed_desktop_approval_push_is_recorded_never_silently_dropped(
         self,
@@ -1599,6 +1824,7 @@ class PublicationApplyTest(LoreTestCase):
         (first,) = self.drafted()
         with Store() as store:
             store.set_setting("node_url", "https://node.example/mcp")
+            store.set_setting("node_selling", True)
         with (
             desktop_stdin(json.dumps({"candidate": first, "approve": True})),
             patch.object(cli, "push", side_effect=ValueError("wrangler down")),
@@ -1716,8 +1942,7 @@ class PublicationApplyTest(LoreTestCase):
         (first,) = self.drafted()
         payload = json.dumps({"candidate": first, "approve": True})
         with tempfile.TemporaryDirectory() as directory:
-            key = Path(directory) / "attended"
-            key.write_text("launch-key", encoding="utf-8")
+            write_launch_key(Path(directory) / "attended", "launch-key")
             for env, tty in (
                 ({"LORE_ATTENDED_KEY": ""}, False),
                 ({"LORE_ATTENDED_KEY": "", "LORE_ATTENDED_SURFACE": "desktop"}, False),
@@ -1727,7 +1952,9 @@ class PublicationApplyTest(LoreTestCase):
                 stdin = StringIO(payload)
                 with self.subTest(env=env, tty=tty):
                     with (
-                        patch.object(cli, "ATTENDED_KEY", key),
+                        patch.object(
+                            cli, "attended_folder", return_value=Path(directory)
+                        ),
                         patch.dict(os.environ, env),
                         patch.object(sys, "stdin", stdin),
                         patch.object(stdin, "isatty", return_value=tty),
@@ -1742,11 +1969,116 @@ class PublicationApplyTest(LoreTestCase):
 
     def test_no_key_file_means_no_desktop_app(self) -> None:
         with (
-            patch.object(cli, "ATTENDED_KEY", Path("/nonexistent/attended")),
+            patch.object(cli, "attended_folder", return_value=Path("/nonexistent")),
             patch.dict(os.environ, {"LORE_ATTENDED_KEY": "launch-key"}),
             patch.object(sys, "stdin", StringIO("")),
         ):
             self.assertFalse(cli._attended())
+
+    @contextmanager
+    def _keys(self) -> Iterator[Path]:
+        """A Lore folder with an empty `attended.d`, standing in for the account's."""
+        with (
+            tempfile.TemporaryDirectory() as directory,
+            patch.object(cli, "attended_folder", return_value=Path(directory)),
+            patch.object(sys, "stdin", StringIO("")),
+        ):
+            (Path(directory) / "attended.d").mkdir(mode=0o700)
+            yield Path(directory)
+
+    def _accepts(self, key: str) -> bool:
+        with patch.dict(os.environ, {"LORE_ATTENDED_KEY": key}):
+            return cli._attended()
+
+    def test_each_running_app_keeps_its_own_key(self) -> None:
+        with self._keys() as folder:
+            write_launch_key(folder / "attended.d/one", "101\nfirst-key\n")
+            write_launch_key(folder / "attended.d/two", "202\nsecond-key\n")
+            self.assertTrue(self._accepts("first-key"))
+            self.assertTrue(self._accepts("second-key"))
+            self.assertFalse(self._accepts("third-key"))
+            self.assertFalse(self._accepts("101"))
+
+    def test_the_older_single_key_file_still_works_for_one_release(self) -> None:
+        with self._keys() as folder:
+            write_launch_key(folder / "attended", "legacy-key")
+            write_launch_key(folder / "attended.d/one", "101\nnew-key\n")
+            self.assertTrue(self._accepts("legacy-key"))
+            self.assertTrue(self._accepts("new-key"))
+
+    def test_only_small_regular_files_count_as_keys(self) -> None:
+        with self._keys() as folder:
+            elsewhere = folder / "elsewhere"
+            elsewhere.write_text("linked-key", encoding="utf-8")
+            (folder / "attended.d/link").symlink_to(elsewhere)
+            (folder / "attended").symlink_to(elsewhere)
+            big = "x" * cli.KEY_FILE_BYTES + "\nbig-key\n"
+            write_launch_key(folder / "attended.d/big", big)
+            (folder / "attended.d/folder").mkdir()
+            os.mkfifo(folder / "attended.d/pipe")
+            for key in ("linked-key", "big-key"):
+                self.assertFalse(self._accepts(key), key)
+
+    def test_a_crowded_folder_is_read_only_so_far(self) -> None:
+        with self._keys() as folder:
+            for i in range(cli.KEY_FILES * 2):
+                write_launch_key(folder / f"attended.d/{i}", f"{i}\nkey-{i}\n")
+            accepted = [
+                i for i in range(cli.KEY_FILES * 2) if self._accepts(f"key-{i}")
+            ]
+            self.assertEqual(len(accepted), cli.KEY_FILES)
+
+    def test_junk_in_the_folder_cannot_crowd_out_a_real_key(self) -> None:
+        with self._keys() as folder:
+            for i in range(255):
+                (folder / f"attended.d/junk-{i}").mkdir()
+            write_launch_key(folder / "attended.d/launch", "1\nreal-key\n")
+            self.assertTrue(self._accepts("real-key"))
+
+    def test_only_the_owners_closed_files_count(self) -> None:
+        with self._keys() as folder:
+            write_launch_key(folder / "attended.d/open", "1\nopen-key\n")
+            (folder / "attended.d/open").chmod(0o644)
+            write_launch_key(folder / "attended.d/linked", "1\nlinked-key\n")
+            os.link(folder / "attended.d/linked", folder / "elsewhere")
+            write_launch_key(folder / "attended", "legacy-key")
+            (folder / "attended").chmod(0o644)
+            for key in ("open-key", "linked-key", "legacy-key"):
+                self.assertFalse(self._accepts(key), key)
+            write_launch_key(folder / "attended.d/mine", "1\nmine-key\n")
+            self.assertTrue(self._accepts("mine-key"))
+            with patch.object(cli.os, "getuid", return_value=os.getuid() + 1):
+                self.assertFalse(self._accepts("mine-key"), "someone else's file")
+
+    def test_only_the_owners_closed_folder_counts(self) -> None:
+        with self._keys() as folder:
+            write_launch_key(folder / "attended.d/launch", "1\nlaunch-key\n")
+            (folder / "attended.d").chmod(0o755)
+            self.assertFalse(self._accepts("launch-key"), "a folder others can read")
+            (folder / "attended.d").chmod(0o700)
+            self.assertTrue(self._accepts("launch-key"))
+            (folder / "attended.d").rename(folder / "real")
+            (folder / "attended.d").symlink_to(folder / "real")
+            self.assertFalse(self._accepts("launch-key"), "a link to a folder")
+
+    def test_the_key_is_read_from_the_account_home_not_home(self) -> None:
+        # A shell can point HOME anywhere it can write; the account's home stays put.
+        with tempfile.TemporaryDirectory() as directory:
+            account, moved = Path(directory) / "account", Path(directory) / "moved"
+            for home, key in ((account, "launch-key"), (moved, "planted-key")):
+                path = home / "Library/Application Support/Lore/attended.d/launch"
+                write_launch_key(path, f"1\n{key}\n")
+            user = MagicMock(pw_dir=str(account))
+            for key, attended in (("planted-key", False), ("launch-key", True)):
+                with (
+                    self.subTest(key=key),
+                    patch.object(cli.pwd, "getpwuid", return_value=user),
+                    patch.dict(
+                        os.environ, {"HOME": str(moved), "LORE_ATTENDED_KEY": key}
+                    ),
+                    patch.object(sys, "stdin", StringIO("")),
+                ):
+                    self.assertEqual(cli._attended(), attended)
 
 
 class PublicationExtrasTest(LoreTestCase):
@@ -1800,6 +2132,7 @@ class PublicationExtrasTest(LoreTestCase):
         edited = first | {"sample": "The owner's own excerpt."}
         with Store() as store:
             store.set_setting("node_url", "https://node.example/mcp")
+            store.set_setting("node_selling", True)
         with (
             desktop_stdin(
                 json.dumps({"original": first, "extras": edited, "approve": True})
@@ -1808,7 +2141,7 @@ class PublicationExtrasTest(LoreTestCase):
             captured() as out,
         ):
             self.assertEqual(cli.extras_decide(), 0)
-        push.assert_called_once_with(str(cli.home() / "node"))
+        push.assert_called_once_with(str(cli.store_folder()))
         self.assertEqual(json.loads(out.getvalue()), {"approved": 1, "remaining": 1})
         piece = self.live()
         self.assertEqual(
@@ -1836,6 +2169,7 @@ class PublicationExtrasTest(LoreTestCase):
                 provenance=[self.seed_memory("Other lesson")],
             )
             store.set_setting("node_url", "https://node.example/mcp")
+            store.set_setting("node_selling", True)
         first, second, third = self.drafted(
             {},
             {"publication_id": other, "useful_if": "you sell to developers"},
@@ -1855,7 +2189,7 @@ class PublicationExtrasTest(LoreTestCase):
             captured() as out,
         ):
             self.assertEqual(cli.extras_decide(), 0)
-        push.assert_called_once_with(str(cli.home() / "node"))
+        push.assert_called_once_with(str(cli.store_folder()))
         self.assertEqual(json.loads(out.getvalue()), {"approved": 2, "remaining": 1})
         self.assertEqual(self.live().sample, "Edited.")
         with Store() as store:
@@ -1942,7 +2276,9 @@ class PublicationExtrasTest(LoreTestCase):
 class PublicationCommandTest(LoreTestCase):
     def setUp(self) -> None:
         super().setUp()
-        self.enterContext(patch.object(cli, "_interactive", return_value=True))
+        interactive = patch.object(cli, "_interactive", return_value=True)
+        interactive.start()
+        self.addCleanup(interactive.stop)
         self.memory_id = self.seed_memory("Pricing lesson")
 
     def publish(
@@ -2045,7 +2381,7 @@ class PublicationCommandTest(LoreTestCase):
             for action in (
                 lambda: cli.publication_revoke(pid),
                 lambda: cli.publication_reapprove([pid]),
-                lambda: cli.push(str(cli.home() / "node")),
+                lambda: cli.push(str(cli.store_folder())),
             ):
                 with self.assertRaisesRegex(
                     ValueError, "attended terminal or the Lore desktop app"
@@ -2071,14 +2407,32 @@ class PublicationCommandTest(LoreTestCase):
         pid = self.publish()
         with Store() as store:
             store.set_setting("node_url", "https://node.example/mcp")
+            store.set_setting("node_selling", True)
         with patch.object(cli, "push", return_value=0) as push, captured():
             self.assertEqual(cli.publication_revoke(pid), 0)
-        push.assert_called_once_with(str(cli.home() / "node"))
+        push.assert_called_once_with(str(cli.store_folder()))
+
+    def test_a_desktop_revoke_leaves_the_push_to_the_app(self) -> None:
+        pid = self.publish()
+        with Store() as store:
+            store.set_setting("node_url", "https://node.example/mcp")
+            store.set_setting("node_selling", True)
+        with (
+            patch.dict(os.environ, {"LORE_HOLD_PUSH": "1"}),
+            patch.object(cli, "push") as push,
+            captured(),
+        ):
+            self.assertEqual(cli.publication_revoke(pid), 0)
+        push.assert_not_called()
+        with Store() as store:
+            self.assertEqual(store.list_publications(active_only=True), [])
+            self.assertTrue(store.setting("revocation_pending", False))
 
     def test_a_failed_revocation_push_is_recorded_never_silently_dropped(self) -> None:
         pid = self.publish()
         with Store() as store:
             store.set_setting("node_url", "https://node.example/mcp")
+            store.set_setting("node_selling", True)
         with (
             patch.object(cli, "push", side_effect=ValueError("wrangler down")),
             captured(),
@@ -2159,11 +2513,16 @@ class PushTest(LoreTestCase):
 
     def setUp(self) -> None:
         super().setUp()
-        self.enterContext(patch.object(cli, "_interactive", return_value=True))
+        interactive = patch.object(cli, "_interactive", return_value=True)
+        interactive.start()
+        self.addCleanup(interactive.stop)
         self.memory_id = self.seed_memory("Pricing lesson")
-        self.worker = self.lore_home / "node"
+        self.worker = self.store
         self.worker.mkdir(parents=True)
         (self.worker / "wrangler.jsonc").write_text("{}")
+        # A store its owner opened for sale (XC-069); unset is a new store that sells nothing.
+        with Store() as store:
+            store.set_setting(deploy_module.SELLING_SETTING, True)
 
     def publish(self, **overrides: object) -> int:
         with Store() as store:
@@ -2345,6 +2704,7 @@ class PushTest(LoreTestCase):
             store.set_setting("stripe_account", "acct_1Seller")
             store.set_setting("stripe_account_token", "a" * 64)
             store.set_setting("node_url", "https://ada.workers.dev/mcp")
+            store.set_setting("node_selling", True)
         with patch.object(cli.cards_module, "bind") as bind:
             self._push(local=True)
             bind.assert_not_called()
@@ -2358,6 +2718,7 @@ class PushTest(LoreTestCase):
             store.set_setting("stripe_account", "acct_1Seller")
             store.set_setting("stripe_account_token", "a" * 64)
             store.set_setting("node_url", "https://ada.workers.dev/mcp")
+            store.set_setting("node_selling", True)
         with (
             patch.object(cli.cards_module, "bind", side_effect=OSError("offline")),
             patch.object(cli, "warn") as warned,
@@ -2480,6 +2841,67 @@ class PushTest(LoreTestCase):
             self.assertRaisesRegex(ValueError, "MODULE_NOT_FOUND"),
         ):
             cli.push(str(self.worker))
+
+    def test_a_store_not_selling_is_sent_no_piece_and_never_told_to_sell(
+        self,
+    ) -> None:
+        # XC-069: an explicit no gets settings and the agents' inbox keys only,
+        # never a piece's text; a store from before the choice sends no key.
+        self.publish(content="PIECE-TEXT", teaser="an ad")
+        # (choice, address, pieces sent, selling key sent)
+        cases = (
+            (False, "https://lore.example.workers.dev/mcp", False, "false"),
+            # A store from before XC-069, address recorded or kept by hand with
+            # --worker-dir (Codex scenario 2): exactly as 0.1.15 pushed it.
+            (None, None, True, None),
+            (None, "https://lore.example.workers.dev/mcp", True, None),
+            (True, None, True, "true"),
+        )
+        sent: list[str] = []
+
+        def run(args, **kwargs):  # type: ignore[no-untyped-def]
+            sent.append(Path(args[args.index("--file") + 1]).read_text())
+            return subprocess.CompletedProcess(args, 0)
+
+        for chosen, node_url, sells, key in cases:
+            with self.subTest(chosen=chosen, node_url=node_url):
+                with Store() as store:
+                    store.set_setting(deploy_module.SELLING_SETTING, chosen)
+                    store.set_setting("node_url", node_url)
+                with patch("subprocess.run", side_effect=run), captured() as out:
+                    cli.push(str(self.worker))
+                script = sent[-1]
+                self.assertEqual("PIECE-TEXT" in script, sells, script)
+                if key is None:
+                    self.assertNotIn("'selling'", script)
+                else:
+                    self.assertIn(f"('selling','{key}')", script)
+                self.assertIn(
+                    "Pushed 1 active publication" if sells else "Pushed 0",
+                    out.getvalue(),
+                )
+
+    def test_a_local_push_always_sells_in_the_dev_database(self) -> None:
+        # `--local` fills the database `wrangler dev` reads, never a store
+        # buyers reach, so it carries the pieces whatever the owner's store does.
+        self.publish(content="PIECE-TEXT", teaser="an ad")
+        with Store() as store:
+            store.set_setting(deploy_module.SELLING_SETTING, False)
+            store.set_setting("node_url", "https://lore.example.workers.dev/mcp")
+            store.set_setting("node_selling", True)
+        sent: list[tuple[list[str], str]] = []
+
+        def run(args, **kwargs):  # type: ignore[no-untyped-def]
+            sent.append((list(args), Path(args[args.index("--file") + 1]).read_text()))
+            return subprocess.CompletedProcess(args, 0)
+
+        with patch("subprocess.run", side_effect=run), captured():
+            cli.push(str(self.worker), local=True)
+        command, script = sent[-1]
+        self.assertIn("--local", command)
+        self.assertNotIn("--remote", command)
+        self.assertIn("PIECE-TEXT", script)
+        self.assertIn("('selling','true')", script)
 
     def test_a_push_is_recorded_in_owner_history(self) -> None:
         self.publish()
@@ -2695,6 +3117,46 @@ class DashboardTest(LoreTestCase):
         review.assert_called_once_with("", "private", 0)
         sync.assert_called_once_with()
         self.assertIn("[q] quit", text)
+
+
+class OwnerOnlyCommandsTest(LoreTestCase):
+    """What the desktop agent's shell is: no terminal, no desktop key. Every owner-only
+    command refuses there. The app runs them itself, so nothing relies on this refusal."""
+
+    COMMANDS = (
+        ["push"],
+        ["node", "secret", "CDP_API_KEY_ID"],
+        ["publication", "decide"],
+        ["publication", "review", "candidates.json"],
+        ["publication", "revoke", "1"],
+        ["publication", "reapprove", "1"],
+        ["publication", "extras", "decide"],
+        ["marketplace", "list"],
+        ["marketplace", "delist"],
+        ["cards", "connect"],
+        ["cards", "account", "acct_1Seller"],
+        ["cards", "off"],
+        ["agents", "connect", "--app", "claude", "--", "Claude"],
+        ["agents", "key", "claude"],
+        ["agents", "revoke", "claude", "--keep"],
+        ["answer", "on", "proxy.txt", "0.1"],
+    )
+
+    def test_each_refuses_without_a_terminal_or_the_desktop_app(self) -> None:
+        with Store() as store:
+            store.set_setting("node_url", "https://store.example/mcp")
+        for argv in self.COMMANDS:
+            with (
+                self.subTest(argv=argv),
+                patch.object(sys, "stdin", StringIO("{}")),
+                captured(),
+                redirect_stderr(StringIO()) as err,
+            ):
+                self.assertEqual(cli.main(argv), 1)
+                self.assertRegex(
+                    err.getvalue(),
+                    "needs an attended (interactive )?terminal|accepted only from the Lore desktop app",
+                )
 
 
 if __name__ == "__main__":

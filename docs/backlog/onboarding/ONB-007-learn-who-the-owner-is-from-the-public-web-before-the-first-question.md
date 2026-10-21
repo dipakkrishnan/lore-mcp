@@ -10,7 +10,7 @@ blockers: []
 dependencies: ["A web search the desktop agent can call; it has no web tool today"]
 github_issue: null
 created: 2026-09-14
-updated: 2026-09-14
+updated: 2026-10-19
 ---
 
 ## Problem
@@ -60,3 +60,5 @@ Dipak asked whether thorough web search would feel creepy; Zane's answer was
 opt-in. The desktop agent's tool list has no search tool, so the dependency
 is real: either the provider's built-in web search or a small Lore-side
 search call.
+
+**Review 2026-10-19:** not completed. Not done. Commit f5762ca only adds this item. The web-search tool it depends on does not exist; all four criteria unmet.

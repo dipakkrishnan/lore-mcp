@@ -10,7 +10,7 @@ blockers: [MON-016]
 dependencies: ["A protected GitHub Environment named qa holding CLOUDFLARE_API_TOKEN and QA_PAYOUT_ADDRESS — not repository secrets", "A Cloudflare account authorizing that token, and a Base Sepolia wallet funded from the CDP faucet for QA_PAYOUT_ADDRESS"]
 github_issue: null
 created: 2026-08-01
-updated: 2026-08-26
+updated: 2026-10-19
 ---
 
 ## Problem
@@ -134,3 +134,5 @@ back on `MON-002`'s own timeline, no longer a real blocker) to `[MON-016]`
 — `MON-016`'s own Notes already say "`MON-008` stays `in-review` until this
 closes," so the blocker relationship existed in practice; the frontmatter
 had just never been updated to say so.
+
+**Review 2026-10-19:** not completed. Code and workflow shipped (0ad6e00, b3d3edd, 7916dcc). Unmet: QA D1 seeded and smoke passing against a deployed QA URL, and distinct funded QA wallets. Provisioning is MON-016.

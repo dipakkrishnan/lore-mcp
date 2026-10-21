@@ -9,6 +9,7 @@ and the Worker share a D1 schema (MON-003).
 
 from __future__ import annotations
 
+import fcntl
 import json
 import math
 import os
@@ -16,24 +17,36 @@ import re
 import shutil
 import subprocess
 import sys
+import tempfile
 import time
+from contextlib import contextmanager
 from importlib import resources
 from pathlib import Path
-from typing import Literal
+from typing import Iterator, Literal
 
 from pydantic import BaseModel, TypeAdapter
 
-from .paths import home
+from .paths import home, store_folder
 from .store import JobKind, Store
-from .ui import muted, success
+from .ui import muted, success, warn
 
 # What must never reach ~/.lore/node from a dev checkout. The wheel itself
 # ships only the files pyproject.toml's package-data names, so that list is
 # the single manifest of what deploys.
 EXCLUDED = ("node_modules", ".wrangler", ".buyer.env", ".dev.vars", "*.log")
+WRANGLER = "node_modules/.bin/wrangler"
+# Written only once an install has finished.
+INSTALLED = ".installed"
+# Where the store pays out, written only by a deploy that set it.
+PAYOUT = "payout.json"
+DATABASE_ID = "[0-9a-f-]{36}"
 WALLET = re.compile(r"0x[0-9a-fA-F]{40}")
 D1_NAME = "lore-publications"
 D1_PLACEHOLDER = "REPLACE_WITH_YOUR_D1_ID"
+VERIFY_EMAIL = (
+    "Cloudflare needs you to verify your email first. Check your inbox for their "
+    "email, click the link, then tap Set it up again."
+)
 NEEDS_NODE = "deploying needs Node.js; install it from nodejs.org and rerun"
 # Generous enough for a cold `npm install` plus a `wrangler deploy` on a slow
 # connection, but bounded: nothing in this chain may block a caller (the
@@ -88,6 +101,32 @@ SECRETS = ("CDP_API_KEY_ID", "CDP_API_KEY_SECRET")
 # The smallest price the six-decimal formatter can render without collapsing
 # to zero; `lore price` rounds to six decimals, so this matches its floor.
 MINIMUM_PRICE = 1e-6
+# The owner's choice to sell (XC-069), in three states, none of them guessed:
+# - true: written only after a full deploy's push succeeded;
+# - false: written only by a deploy that created a brand-new D1 database in
+#   that run, before its push (and kept until a full deploy opens the store);
+# - unset: every store from before XC-069, which behaves exactly as it did:
+#   its push carries the pieces and no `selling` key, so its node sells.
+SELLING_SETTING = "node_selling"
+
+
+def choice(store: Store) -> bool | None:
+    """The owner's choice to sell: true, false, or unset (a store from before XC-069)."""
+    chosen = store.setting(SELLING_SETTING, None)
+    return chosen if isinstance(chosen, bool) else None
+
+
+def selling(store: Store) -> bool:
+    """Whether the store is online and open for sale, not only for agents: an
+    address, and no explicit no."""
+    return bool(store.setting("node_url", None)) and choice(store) is not False
+
+
+def takes_cards() -> bool:
+    """Whether the owner takes card payments (XC-039), which is enough for the
+    store to sell with no payout address."""
+    with Store() as store:
+        return bool(store.setting("stripe_account", ""))
 
 
 def _refuse_dev_source_drift(packaged: Path) -> None:
@@ -115,43 +154,219 @@ def _refuse_dev_source_drift(packaged: Path) -> None:
         return
 
 
-def materialize(price_usd: float) -> Path:
-    """Copy the packaged Worker source to ~/.lore/node, never touching secrets.
+def _database_id(config: Path, shape: str = r"[^\"]+") -> str | None:
+    """The D1 database a store's config points at, if it names one."""
+    if not config.is_file():
+        return None
+    match = re.search(rf'"database_id":\s*"({shape})"', config.read_text())
+    return match.group(1) if match and match.group(1) != D1_PLACEHOLDER else None
 
-    Re-running overwrites the source files (that is the upgrade path); files
-    the owner created (`.buyer.env`, `.dev.vars`) stay untouched.
-    """
-    target = home() / "node"
-    target.mkdir(mode=0o700, parents=True, exist_ok=True)
-    # The owner pastes their D1 database_id into wrangler.jsonc after
-    # `wrangler d1 create`; an upgrade must not reset it to the placeholder.
-    config = target / "wrangler.jsonc"
-    existing_id = None
-    if config.is_file():
-        match = re.search(r'"database_id":\s*"([^"]+)"', config.read_text())
-        if match and match.group(1) != D1_PLACEHOLDER:
-            existing_id = match.group(1)
+
+def _moved_id() -> str | None:
+    """The database of a store set up inside Lore's home, before the store moved
+    out of it. Only an id carries over from there, and only one shaped like one."""
+    return _database_id(home() / "node" / "wrangler.jsonc", DATABASE_ID)
+
+
+def _kept_id(config: Path) -> str | None:
+    """The database a rebuilt store keeps: its own real id, else the one from
+    before the store moved, else whatever the owner pasted."""
+    own = _database_id(config)
+    if own and re.fullmatch(DATABASE_ID, own):
+        return own
+    return _moved_id() or own
+
+
+def _replace(path: Path, text: str) -> None:
+    """Write a file whole or not at all."""
+    partial = path.with_name(f".{path.name}.partial")
+    partial.write_text(text)
+    os.replace(partial, path)
+
+
+@contextmanager
+def store_lock() -> Iterator[None]:
+    """One process at a time builds or installs the store: the app's sales and
+    inbox checks run on their own and may both find it unfinished."""
+    folder = store_folder()
+    folder.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+    with open(folder.with_name(f"{folder.name}.lock"), "a") as handle:
+        fcntl.flock(handle, fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            fcntl.flock(handle, fcntl.LOCK_UN)
+
+
+def _build(folder: Path, database_id: str | None, price_usd: float | None) -> None:
+    """Lay the packaged Worker source into `folder` with its price, if any, and database."""
     with resources.as_file(resources.files("lore") / "node") as source_dir:
         _refuse_dev_source_drift(source_dir)
         shutil.copytree(
             source_dir,
-            target,
+            folder,
             dirs_exist_ok=True,
-            ignore=shutil.ignore_patterns(*EXCLUDED),
+            ignore=shutil.ignore_patterns(*EXCLUDED, "wrangler.jsonc"),
         )
-    price_file = target / "src/price.ts"
+        config = (source_dir / "wrangler.jsonc").read_text()
+    price_file = folder / "src/price.ts"
     source = price_file.read_text()
     if PRICE_DECLARATION not in source:
         raise OSError(f"could not configure the node price in {price_file}")
-    price = f"{price_usd:.6f}".rstrip("0").rstrip(".")
-    price_file.write_text(
-        source.replace(PRICE_DECLARATION, f"export const PRICE_USD = {price};")
-    )
-    if existing_id:
-        config.write_text(config.read_text().replace(D1_PLACEHOLDER, existing_id))
+    if price_usd is not None:
+        price = f"{price_usd:.6f}".rstrip("0").rstrip(".")
+        price_file.write_text(
+            source.replace(PRICE_DECLARATION, f"export const PRICE_USD = {price};")
+        )
+    if database_id:
+        config = config.replace(D1_PLACEHOLDER, database_id)
+    _replace(folder / "wrangler.jsonc", config)
     # Owner-only, like the rest of ~/.lore — after copytree, which copystats
     # the package directory's world-readable mode onto the target.
-    target.chmod(0o700)
+    folder.chmod(0o700)
+
+
+def materialize(price_usd: float | None) -> Path:
+    """Copy the packaged Worker source to the store folder, never touching secrets.
+
+    Re-running overwrites the source files (that is the upgrade path); files
+    the owner created (`.buyer.env`, `.dev.vars`) stay untouched. With no
+    price the shipped one stays: a store with nothing for sale charges nothing.
+    A store set up inside Lore's home is rebuilt here, carrying over only its database id.
+    A first build is made beside the folder and moved in whole, and the config
+    is only ever written with its id in it, so an interrupted run leaves
+    nothing half-made behind.
+    """
+    target = store_folder()
+    target.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+    # The owner pastes their D1 database_id into wrangler.jsonc after
+    # `wrangler d1 create`; an upgrade must not reset it to the placeholder.
+    existing_id = _kept_id(target / "wrangler.jsonc")
+    if target.is_dir():
+        _build(target, existing_id, price_usd)
+        return target
+    building = Path(tempfile.mkdtemp(prefix=f".{target.name}-", dir=target.parent))
+    try:
+        _build(building, existing_id, price_usd)
+        os.replace(building, target)
+    except BaseException:
+        shutil.rmtree(building, ignore_errors=True)
+        raise
+    return target
+
+
+def installed(target: Path) -> bool:
+    """Whether the store's packages finished installing, not just started."""
+    return (target / INSTALLED).is_file() and (target / WRANGLER).exists()
+
+
+def _recorded(target: Path) -> dict[str, object]:
+    try:
+        kept = json.loads((target / PAYOUT).read_text())
+    except (OSError, ValueError):
+        return {}
+    return kept if isinstance(kept, dict) else {}
+
+
+def _recorded_address(target: Path) -> str | None:
+    """The payout the store's last deploy recorded, if it is an address."""
+    address = _recorded(target).get("address")
+    return address if isinstance(address, str) and WALLET.fullmatch(address) else None
+
+
+def _put_wallet(wrangler: str, target: Path, wallet: str) -> None:
+    _run(
+        (wrangler, "secret", "put", "LORE_WALLET"),
+        target,
+        input=wallet + "\n",
+        fail="Lore couldn't set your store's payout address",
+    )
+
+
+def _restore_wallet(
+    wrangler: str, target: Path, wallet: str, previous: str | None
+) -> None:
+    """Put the store's earlier payout back after the rest of a change failed,
+    or say plainly, in the words the desktop app passes on, that it could not."""
+    if previous is not None:
+        try:
+            _put_wallet(wrangler, target, previous)
+            return
+        except OSError:
+            pass
+    warn(
+        f"Your store may be half-updated: it now pays {wallet} on its old "
+        "network. Open your store again to finish."
+    )
+
+
+def _record_payout(target: Path, wallet: str | None, network: str | None) -> None:
+    """Keep where this store pays out, and on which network, beside its code: the
+    desktop app shows the owner exactly this before a redeploy and deploys it
+    again, and the agent can neither read nor write it there. Every deploy that
+    gets this far rewrites it, a wallet-less one keeping the recorded address.
+    A store that sells by card alone has no address, so only its network is kept."""
+    path = target / PAYOUT
+    kept = _recorded(target)
+    address = wallet or kept.get("address")
+    if address is not None and (
+        not isinstance(address, str) or not WALLET.fullmatch(address)
+    ):
+        return
+    chosen = network or kept.get("network")
+    if address is None and chosen is None:
+        return
+    _replace(path, json.dumps({"address": address, "network": chosen}))
+
+
+def install(target: Path) -> None:
+    """Install the store's packages from its own folder and nothing else: no npm
+    settings from any folder above it, from the user, or global, and no install
+    scripts (wrangler's platform binaries come as plain optional packages).
+    Marked done only once wrangler is there."""
+    (target / INSTALLED).unlink(missing_ok=True)
+    # npm refuses one file as both, so each gets its own empty one.
+    user, shared = target / ".npmrc-user", target / ".npmrc-global"
+    for empty in (user, shared):
+        empty.write_text("")
+        empty.chmod(0o600)
+    _run(
+        (
+            "npm",
+            "install",
+            "--no-fund",
+            "--no-audit",
+            "--ignore-scripts",
+            "--prefix",
+            str(target),
+            "--userconfig",
+            str(user),
+            "--globalconfig",
+            str(shared),
+        ),
+        target,
+        fail="npm install failed",
+    )
+    if not (target / WRANGLER).exists():
+        raise OSError("npm install finished without wrangler; run it again")
+    (target / INSTALLED).write_text("")
+
+
+def tools() -> Path:
+    """The store folder with its packages installed. An unfinished install is
+    finished, and a store set up before it moved out of Lore's home is rebuilt
+    here, once, whichever of the app's checks gets there first."""
+    target = store_folder()
+    if installed(target):
+        return target
+    with store_lock():
+        if not installed(target):
+            if not _kept_id(target / "wrangler.jsonc"):
+                raise ValueError(
+                    "no deployed node on this machine; open your store first"
+                )
+            materialize(0.0)
+            install(target)
     return target
 
 
@@ -226,7 +441,9 @@ def _timeout_detail(error: subprocess.TimeoutExpired) -> str:
     return f"{stderr}{stdout}".strip()[-2000:]
 
 
-def _ensure_d1(wrangler: str, target: Path) -> None:
+def _ensure_d1(
+    wrangler: str, target: Path
+) -> Literal["created", "adopted", "recorded"]:
     """Resolve the shipped database_id placeholder against the owner's account.
 
     Wrangler validates D1 bindings at deploy time, so the placeholder must
@@ -246,11 +463,12 @@ def _ensure_d1(wrangler: str, target: Path) -> None:
     config = target / "wrangler.jsonc"
     text = config.read_text()
     if D1_PLACEHOLDER not in text:
-        return
+        return "recorded"
     muted("Creating the publications database (one-time)...")
     created = _run((wrangler, "d1", "create", D1_NAME), target)
     output = f"{created.stdout or ''}{created.stderr or ''}"
-    already_existed = bool(created.returncode) and "already exists" in output.lower()
+    # Some wrangler versions say so and still exit 0; the words decide, never the exit code alone.
+    already_existed = "already exists" in output.lower()
     if created.returncode and not already_existed:
         raise OSError(f"creating the D1 database failed:\n{output.strip()[-2000:]}")
     # `d1 create` prints a config snippet; the id format survives wrangler's
@@ -286,7 +504,16 @@ def _ensure_d1(wrangler: str, target: Path) -> None:
                 "it into wrangler.jsonc yourself, or rerun with "
                 "LORE_ADOPT_EXISTING_D1=1 set."
             )
+    if not already_existed:
+        # A database made in this run is a new store: it sells nothing until a
+        # full deploy's push opens it. Written before its id, so a write that
+        # fails leaves no recorded database a retry could take for an older
+        # store; guarded, so an explicit choice written meanwhile is never
+        # overwritten (XC-069).
+        with Store() as store:
+            store.set_setting_if_unset(SELLING_SETTING, False)
     config.write_text(text.replace(D1_PLACEHOLDER, database_id))
+    return "adopted" if already_existed else "created"
 
 
 def login() -> int:
@@ -296,17 +523,14 @@ def login() -> int:
     Cloudflare's callback, then says who is signed in."""
     if not shutil.which("npm"):
         raise OSError(NEEDS_NODE)
-    target = home() / "node"
-    if not (target / "package.json").exists():
-        target = materialize(0.0)
-    wrangler = target / "node_modules/.bin/wrangler"
-    if not wrangler.exists():
-        muted("Installing dependencies (the first run can take a minute)...")
-        _run(
-            ("npm", "install", "--no-fund", "--no-audit"),
-            target,
-            fail="npm install failed",
-        )
+    target = store_folder()
+    with store_lock():
+        if not (target / "package.json").exists():
+            target = materialize(0.0)
+        if not installed(target):
+            muted("Installing dependencies (the first run can take a minute)...")
+            install(target)
+    wrangler = target / WRANGLER
     sys.stdout.flush()
     _run((str(wrangler), "login", "--browser=false"), target, interactive=True)
     # An interrupted login still exits 0; only whoami knows whether it landed.
@@ -321,10 +545,13 @@ def login() -> int:
 def _read(query: str, fail: str) -> list[dict[str, object]]:
     """Run `query` on the node's database through the owner's Cloudflare login,
     the same way `lore push` writes it, and return its last statement's rows."""
-    target = home() / "node"
-    wrangler = target / "node_modules/.bin/wrangler"
-    if not wrangler.exists():
-        raise ValueError("no deployed node on this machine; open your store first")
+    return _read_all(query, fail)[-1]
+
+
+def _read_all(query: str, fail: str) -> list[list[dict[str, object]]]:
+    """Every statement's rows, in order, from one run of `query`."""
+    target = tools()
+    wrangler = target / WRANGLER
     result = _run(
         (
             str(wrangler),
@@ -340,8 +567,7 @@ def _read(query: str, fail: str) -> list[dict[str, object]]:
         fail=fail,
         retry=True,
     )
-    rows: list[dict[str, object]] = json.loads(result.stdout)[-1]["results"]
-    return rows
+    return [statement["results"] for statement in json.loads(result.stdout)]
 
 
 def sales() -> list[Sale]:
@@ -360,10 +586,8 @@ def secret(name: str, value: str) -> int:
         raise ValueError(f"the node keeps only {' and '.join(SECRETS)}, not {name}")
     if not value:
         raise ValueError(f"no value given for {name}")
-    target = home() / "node"
-    wrangler = target / "node_modules/.bin/wrangler"
-    if not wrangler.exists():
-        raise ValueError("no deployed node on this machine; open your store first")
+    target = tools()
+    wrangler = target / WRANGLER
     _run(
         (str(wrangler), "secret", "put", name),
         target,
@@ -374,8 +598,19 @@ def secret(name: str, value: str) -> int:
     return 0
 
 
-def deploy(wallet: str | None, network: str | None = None) -> int:
-    """Check the preconditions, then run and record one deploy."""
+def deploy(
+    wallet: str | None, network: str | None = None, *, inbox_only: bool = False
+) -> int:
+    """Check the preconditions, then run and record one deploy.
+
+    `inbox_only` puts the store online for the owner's own agents before
+    anything is for sale (XC-069): only the Cloudflare sign-in is needed, and
+    the price and payout guards wait for the deploy that opens it for sale."""
+    if inbox_only and (wallet or network):
+        raise ValueError(
+            "--inbox-only puts your store online with nothing for sale, so it takes "
+            "no payout address or network; leave them off, or drop --inbox-only to sell"
+        )
     if wallet and not WALLET.fullmatch(wallet):
         raise ValueError(
             "wallet must be a public EVM address: 0x plus 40 hex characters"
@@ -385,6 +620,28 @@ def deploy(wallet: str | None, network: str | None = None) -> int:
 
     with Store() as store:
         configured_price = store.setting("price_usd", None)
+        already_selling = selling(store)
+        chosen = choice(store)
+    if inbox_only and os.environ.get("LORE_ADOPT_EXISTING_D1") and chosen is not False:
+        # Reconnecting an existing store starts from no address, which an
+        # inbox-only deploy would take for a new store and close for sale.
+        raise ValueError(
+            "You're reconnecting an existing store; run the full store setup so it keeps selling."
+        )
+    if inbox_only:
+        # A store open for sale keeps charging its owner's price, so that price
+        # must be one it can charge, exactly as for a full deploy.
+        price = (
+            _valid_price(configured_price)
+            if already_selling
+            else _priced(configured_price)
+        )
+        return _recorded_deploy(price, None, None, inbox_only=True)
+    return _recorded_deploy(_valid_price(configured_price), wallet, network)
+
+
+def _valid_price(configured_price: object) -> float:
+    """The owner's price, or a plain refusal naming what to set."""
     if configured_price is None:
         raise ValueError(
             "no publication price is set; set one with `lore price <USD>` before deploying"
@@ -413,11 +670,30 @@ def deploy(wallet: str | None, network: str | None = None) -> int:
             f"the publication price must be a number of at least ${MINIMUM_PRICE:.6f}; "
             "set it with `lore price <USD>` and rerun"
         )
+    return float(configured_price)
 
-    # Recorded from here, past the argument and price guards: a refused
-    # precondition is validation the owner sees immediately, not a run. This is
-    # the one seam both deploy paths cross — the desktop app reaches it through
-    # the agent's shell, a terminal reaches it through the CLI.
+
+def _priced(configured: object) -> float | None:
+    """The owner's price when it is one the node can charge, else none."""
+    if isinstance(configured, bool) or not isinstance(configured, (int, float)):
+        return None
+    priced = math.isfinite(configured) and configured >= MINIMUM_PRICE
+    return float(configured) if priced else None
+
+
+def _recorded_deploy(
+    price: float | None,
+    wallet: str | None,
+    network: str | None,
+    *,
+    inbox_only: bool = False,
+) -> int:
+    """Run one deploy as a recorded job.
+
+    Recorded from here, past the argument and price guards: a refused
+    precondition is validation the owner sees immediately, not a run. This is
+    the one seam both deploy paths cross — the desktop app reaches it through
+    the agent's shell, a terminal reaches it through the CLI."""
     with Store() as store:
         job_id = store.start_job(
             JobKind.DEPLOY.value, owner_pid=os.getpid(), timeout_minutes=60
@@ -427,10 +703,16 @@ def deploy(wallet: str | None, network: str | None = None) -> int:
     # reach owner history, so the cause stays in the raised error alone.
     outcome = ("failed", "failed")
     try:
-        result = _deploy(float(configured_price), wallet, network)
+        result = _deploy(price, wallet, network, inbox_only=inbox_only)
+        with Store() as store:
+            open_for_sale = choice(store) is not False
         outcome = (
             "succeeded",
-            f"deployed_{network}" if network in NETWORKS else "deployed",
+            f"deployed_{network}"
+            if network in NETWORKS
+            else "deployed"
+            if open_for_sale
+            else "deployed_inbox",
         )
         return result
     finally:
@@ -439,17 +721,24 @@ def deploy(wallet: str | None, network: str | None = None) -> int:
 
 
 def _deploy(
-    configured_price: float, wallet: str | None, network: str | None = None
+    configured_price: float | None,
+    wallet: str | None,
+    network: str | None = None,
+    *,
+    inbox_only: bool = False,
 ) -> int:
     """Materialize, authenticate, ensure D1, deploy, set the payout secret,
-    push the active publications, smoke-check."""
-    target = materialize(configured_price)
-    muted(f"Node source staged at {target}")
-    muted("Installing dependencies (the first run can take a minute)...")
-    _run(
-        ("npm", "install", "--no-fund", "--no-audit"), target, fail="npm install failed"
-    )
-    wrangler = str(target / "node_modules/.bin/wrangler")
+    push the active publications, smoke-check.
+
+    Whether the store sells is the owner's choice, `node_selling` (see
+    SELLING_SETTING): a deploy that creates the store's database marks it not
+    selling, and only a full deploy whose push succeeded marks it selling."""
+    with store_lock():
+        target = materialize(configured_price)
+        muted(f"Node source staged at {target}")
+        muted("Installing dependencies (the first run can take a minute)...")
+        install(target)
+    wrangler = str(target / WRANGLER)
 
     # Some wrangler versions exit 0 while logged out and only say so in text.
     who = _run((wrangler, "whoami"), target)
@@ -463,17 +752,33 @@ def _deploy(
                 f"Cloudflare login failed; run `npx wrangler login` in {target}"
             )
 
-    if not wallet:
-        # The Worker fails closed without LORE_WALLET regardless; this check
-        # exists purely so a missing payout address costs seconds, not a deploy.
-        listing = _run((wrangler, "secret", "list"), target)
+    if not wallet and not inbox_only and not takes_cards():
+        # This check exists so a missing payout address costs seconds, not a
+        # deploy. A listing that failed says nothing about the wallet, so it
+        # stops the deploy rather than being read as "no wallet". Card
+        # payments are enough on their own: such a store sells by card alone.
+        listing = _run(
+            (wrangler, "secret", "list"),
+            target,
+            fail="reading your store's settings from Cloudflare failed; try again in a minute",
+        )
         if "LORE_WALLET" not in (listing.stdout or ""):
             raise ValueError(
-                "the node has no payout address; rerun with --wallet 0x<your public address>"
+                "your store has no way to be paid yet; turn on card payments "
+                "(lore cards connect) or rerun with --wallet 0x<your public address>"
             )
 
     _ensure_d1(wrangler, target)
-    deployed = _run((wrangler, "deploy"), target, fail="deploy failed")
+    deployed = _run((wrangler, "deploy"), target)
+    # A brand-new Cloudflare account can't run Workers until its email is verified;
+    # the database is made and recorded by now, so a retry afterwards picks it up.
+    refused = f"{deployed.stdout}{deployed.stderr}"
+    if deployed.returncode and (
+        "10034" in refused or "verify your email" in refused.lower()
+    ):
+        raise OSError(VERIFY_EMAIL)
+    if deployed.returncode:
+        raise OSError(f"deploy failed:\n{_detail(deployed)}")
     print(deployed.stdout.strip())
 
     # Wrangler colourises under TTY-ish environments; strip escapes so \S+
@@ -487,34 +792,45 @@ def _deploy(
         with Store() as store:
             store.set_setting("node_url", url)
 
-    if network:
-        # Before the wallet: a new node without LORE_WALLET refuses to start,
-        # so it never serves a moment on the wrong network.
-        # Real money settles keyless unless the owner vaulted a Coinbase pair
-        # (`lore node secret`); half a pair refuses to start and the smoke
-        # check below says so.
-        _run(
-            (wrangler, "secret", "put", "LORE_NETWORK"),
-            target,
-            input=NETWORKS[network] + "\n",
-            fail="setting LORE_NETWORK failed",
-        )
+    # The wallet first, then the network: a wallet that fails to set leaves
+    # both as they were, and a network that fails to set puts the old wallet
+    # back, so the store never pays a new address on its old network or the
+    # old one on its new. A brand-new node waits on the test network (the
+    # Worker's default) for the moment between the two.
+    previous = _recorded_address(target)
     if wallet:
         # Setting a secret redeploys, so the smoke check below sees a
         # configured node even on the very first deploy.
-        _run(
-            (wrangler, "secret", "put", "LORE_WALLET"),
-            target,
-            input=wallet + "\n",
-            fail="setting LORE_WALLET failed",
-        )
+        _put_wallet(wrangler, target, wallet)
+    if network:
+        # Real money settles keyless unless the owner vaulted a Coinbase pair
+        # (`lore node secret`); half a pair refuses to start and the smoke
+        # check below says so.
+        try:
+            _run(
+                (wrangler, "secret", "put", "LORE_NETWORK"),
+                target,
+                input=NETWORKS[network] + "\n",
+                fail="Lore couldn't switch your store's network",
+            )
+        except OSError:
+            if wallet and wallet != previous:
+                _restore_wallet(wrangler, target, wallet, previous)
+            raise
+    _record_payout(target, wallet, network)
 
     # First push creates the publications table (CREATE TABLE IF NOT EXISTS),
     # so discover works before the owner has published anything; an empty
-    # active set is a valid state, and re-pushing is idempotent.
+    # active set is a valid state, and re-pushing is idempotent. A full deploy
+    # has the price, network and payout in place, so its push opens the store
+    # for sale; only once that push landed does the owner's choice say so.
     from .cli import push_job  # local import: cli imports this module at top level
 
-    push_job(target, False)
+    push_job(target, False, opening=not inbox_only)
+    with Store() as store:
+        if not inbox_only:
+            store.set_setting(SELLING_SETTING, True)
+        open_for_sale = selling(store)
 
     if not url:
         # The deploy succeeded, so no workers.dev address in the output means
@@ -537,5 +853,8 @@ def _deploy(
             f"Stream the live error with `npx wrangler tail` in {target}"
         ) from error
     count = sum(len(entries) for entries in manifest.topics.values())
+    if not open_for_sale:
+        success(f"Online: {url} · ready for your agents, nothing for sale")
+        return 0
     success(f"Live: {url} · {count} publication{'s' if count != 1 else ''}")
     return 0

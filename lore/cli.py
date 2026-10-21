@@ -5,13 +5,23 @@ import hmac
 import json
 import math
 import os
+import pwd
 import re
+import stat
 import sys
 import urllib.parse
+from itertools import islice
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Mapping, get_args
 
-from pydantic import BaseModel, ConfigDict, Field, TypeAdapter
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    StrictInt,
+    TypeAdapter,
+    field_validator,
+)
 
 from . import blueprint as blueprint_module
 from . import capture as capture_module
@@ -20,7 +30,10 @@ from . import deploy as deploy_module
 from . import feedback as feedback_module
 from . import marketplace as marketplace_module
 from . import sources as sources_module
-from .paths import home
+from . import usage
+from .agents import Agents
+from .inbox import AgentApp, Inbox, InboxError
+from .paths import home, store_folder
 from .sources import Registry, available_sources
 from .store import (
     FREE_COPIES,
@@ -31,7 +44,9 @@ from .store import (
     STATUSES,
     SUPPORT_EMAIL_SETTING,
     AnswerSettings,
+    Contributor,
     JobKind,
+    Memory,
     Publication,
     PublicationExtras,
     PublicationInput,
@@ -94,6 +109,12 @@ class ExtrasDecision(BaseModel):
 EXTRAS_DECISIONS: TypeAdapter[ExtrasDecision | list[ExtrasDecision]] = TypeAdapter(
     ExtrasDecision | Annotated[list[ExtrasDecision], Field(min_length=1)]
 )
+
+
+def _new_agent_app(app: str) -> str:
+    if app == "muse":
+        raise argparse.ArgumentTypeError("Muse can't connect yet.")
+    return app
 
 
 def parser() -> argparse.ArgumentParser:
@@ -165,6 +186,12 @@ def parser() -> argparse.ArgumentParser:
     source_read = source_commands.add_parser("read", help="import from sources now")
     source_read.add_argument("name", nargs="*")
     source_read.add_argument("--json", action="store_true")
+    for name, words in (("enable", "start"), ("disable", "stop")):
+        switch = source_commands.add_parser(
+            name, help=f"{words} reading an agent's history on this Mac, like codex"
+        )
+        switch.add_argument("name")
+        switch.add_argument("--json", action="store_true")
     source_remove = source_commands.add_parser("remove", help="stop reading a source")
     source_remove.add_argument("name")
     memories = source_remove.add_mutually_exclusive_group(required=True)
@@ -175,6 +202,61 @@ def parser() -> argparse.ArgumentParser:
         "--delete", action="store_true", help="delete what it imported"
     )
     source_remove.add_argument("--json", action="store_true")
+
+    agents = commands.add_parser(
+        "agents", help="connect the personal agents that save to your Lore"
+    )
+    agent_commands = agents.add_subparsers(dest="agents_command", required=True)
+    agent_connect = agent_commands.add_parser(
+        "connect", help="give a personal agent a key to save with"
+    )
+    agent_connect.add_argument("name", help="what you call it, like Grok")
+    # Muse stays a stored kind for agents already connected, but a new one can't connect (APP-217).
+    agent_connect.add_argument(
+        "--app",
+        required=True,
+        type=_new_agent_app,
+        choices=[app for app in get_args(AgentApp) if app != "muse"],
+    )
+    agent_connect.add_argument("--json", action="store_true")
+    agent_list = agent_commands.add_parser("list", help="show your connected agents")
+    agent_list.add_argument("--json", action="store_true")
+    agent_key = agent_commands.add_parser(
+        "key", help="give an agent a new key; its old one stops working"
+    )
+    agent_key.add_argument("source", help="the agent's source, like agent-1a2b")
+    agent_key.add_argument("--json", action="store_true")
+    agent_revoke = agent_commands.add_parser("revoke", help="disconnect an agent")
+    agent_revoke.add_argument("source", help="the agent's source, like agent-1a2b")
+    kept = agent_revoke.add_mutually_exclusive_group(required=True)
+    kept.add_argument("--keep", action="store_true", help="keep what it saved")
+    kept.add_argument("--delete", action="store_true", help="delete what it saved")
+    agent_revoke.add_argument("--json", action="store_true")
+    agent_waiting = agent_commands.add_parser(
+        "waiting",
+        help="how many saves are waiting to be brought in, and which apps ask to sign in",
+    )
+    agent_waiting.add_argument("--json", action="store_true")
+    agent_address = agent_commands.add_parser(
+        "address", help="the address an app signs in at, with no key in it"
+    )
+    agent_address.add_argument("--json", action="store_true")
+    agent_allow = agent_commands.add_parser(
+        "allow", help="let an app that asked to sign in save to your Lore"
+    )
+    agent_allow.add_argument("sign_in", help="the sign-in's id, from `agents waiting`")
+    agent_allow.add_argument("--name", help="what you call it; guessed from the app")
+    agent_allow.add_argument(
+        "--app",
+        type=_new_agent_app,
+        choices=[app for app in get_args(AgentApp) if app != "muse"],
+    )
+    agent_allow.add_argument("--json", action="store_true")
+    agent_deny = agent_commands.add_parser(
+        "deny", help="refuse an app that asked to sign in"
+    )
+    agent_deny.add_argument("sign_in")
+    agent_deny.add_argument("--json", action="store_true")
 
     review = commands.add_parser("review", help="keep or discard memories")
     review.add_argument("query", nargs="*", help="words to narrow the review queue")
@@ -221,6 +303,11 @@ def parser() -> argparse.ArgumentParser:
         help="read content from stdin instead of the positional argument",
     )
     memory_edit.add_argument("--json", action="store_true")
+    memory_commands.add_parser("rules", help="print what earns a place in memory")
+    memory_credit = memory_commands.add_parser(
+        "credit", help="record who wrote into memories, as JSON on stdin"
+    )
+    memory_credit.add_argument("file", help="'-' for stdin")
 
     profile = commands.add_parser(
         "profile", help="save an agent-written synthesis profile"
@@ -231,6 +318,62 @@ def parser() -> argparse.ArgumentParser:
         action="store_true",
         help="write the profile without installing schedules",
     )
+
+    routines = commands.add_parser(
+        "automation", help="the routines the Lore app runs on its own"
+    )
+    routine_commands = routines.add_subparsers(dest="automation_command", required=True)
+    routine_list = routine_commands.add_parser(
+        "list", help="show each routine, when it runs next, and what it last found"
+    )
+    routine_list.add_argument("--json", action="store_true")
+    routine_commands.add_parser(
+        "noticed", help="record that the owner was told Lore's own routines are on"
+    )
+    routine_run = routine_commands.add_parser("run", help="run one routine now")
+    routine_run.add_argument("id")
+    routine_run.add_argument("--json", action="store_true")
+    routine_result = routine_commands.add_parser(
+        "result", help="say what a run came to, once the app knows"
+    )
+    routine_result.add_argument("id")
+    routine_result.add_argument("text")
+    routine_result.add_argument(
+        "--mark", type=int, help="the newest item the run's model judged"
+    )
+    for name, words in (
+        ("pause", "stop running"),
+        ("resume", "start running again"),
+        ("remove", "delete one of your own"),
+    ):
+        toggle = routine_commands.add_parser(name, help=f"{words} a routine")
+        toggle.add_argument("id")
+        toggle.add_argument("--json", action="store_true")
+    routine_edit = routine_commands.add_parser(
+        "edit", help="reword one of your own: what it does and its name"
+    )
+    routine_edit.add_argument("id")
+    routine_edit.add_argument("text", help="what to do, in a sentence")
+    routine_edit.add_argument(
+        "--title", default="", help="a name; the sentence by default"
+    )
+    routine_edit.add_argument("--json", action="store_true")
+    routine_time = routine_commands.add_parser("time", help="change when one runs")
+    routine_time.add_argument("id")
+    routine_add = routine_commands.add_parser(
+        "add", help="have Lore do something of yours at a set time"
+    )
+    routine_add.add_argument("text", help="what to do, in a sentence")
+    routine_add.add_argument(
+        "--title", default="", help="a name; the sentence by default"
+    )
+    for timed in (routine_time, routine_add):
+        timed.add_argument("--hour", type=int, required=True)
+        timed.add_argument(
+            "--cadence", choices=("daily", "weekdays", "weekly"), required=True
+        )
+        timed.add_argument("--day", type=int, default=0, help="0 is Monday")
+        timed.add_argument("--json", action="store_true")
 
     capture = commands.add_parser(
         "capture", help="save owner-approved private memories"
@@ -307,6 +450,14 @@ def parser() -> argparse.ArgumentParser:
     telemetry_commands.add_parser("on", help="re-enable milestone telemetry")
     telemetry_commands.add_parser("off", help="disable milestone telemetry")
     telemetry_commands.add_parser("status", help="print whether telemetry is enabled")
+    telemetry_commands.add_parser(
+        "noticed", help="record that the owner has seen the usage notice"
+    )
+    telemetry_record = telemetry_commands.add_parser(
+        "record", help="send one usage event the desktop app observed"
+    )
+    telemetry_record.add_argument("name", choices=sorted(usage.EVENTS))
+    telemetry_record.add_argument("value", nargs="?", default="")
     serve = commands.add_parser("serve", help="run the Lore MCP server")
     serve.add_argument("--transport", choices=["stdio", "http"], default="stdio")
     serve.add_argument("--host", default="127.0.0.1")
@@ -326,6 +477,12 @@ def parser() -> argparse.ArgumentParser:
         "--network",
         choices=tuple(deploy_module.NETWORKS),
         help="switch the node to real money or back to the test network",
+    )
+    node_deploy.add_argument(
+        "--inbox-only",
+        action="store_true",
+        help="put your store online for your own agents with nothing for sale: "
+        "no price or payout address needed",
     )
     node_commands.add_parser("login", help="sign in to Cloudflare through your browser")
     node_sales = node_commands.add_parser("sales", help="what your node has sold")
@@ -407,7 +564,7 @@ def parser() -> argparse.ArgumentParser:
     )
     push.add_argument(
         "--worker-dir",
-        default=str(home() / "node"),
+        default=str(store_folder()),
         help="the node source directory (default: the one `lore node deploy` stages)",
     )
     push.add_argument(
@@ -469,14 +626,45 @@ def parser() -> argparse.ArgumentParser:
     return root
 
 
+def _parse(argv: list[str] | None) -> argparse.Namespace:
+    """Parse a command line the same way on every supported Python."""
+    root = parser()
+    args, extra = root.parse_known_args(argv)
+    # Older argparse spends `sources connect`'s optional locator on nothing as
+    # soon as an option follows the app, so `obsidian --json -- <path>` leaves
+    # the path here as a leftover instead of in `args.locator`.
+    if (
+        extra
+        and args.command == "sources"
+        and args.sources_command == "connect"
+        and not args.locator
+    ):
+        rest = extra[1:] if extra[0] == "--" else extra
+        # Without `--`, a leftover that looks like an option is a typo, not a path.
+        if len(rest) == 1 and (extra[0] == "--" or not rest[0].startswith("-")):
+            args.locator, extra = rest[0], []
+    if extra:
+        root.error(f"unrecognized arguments: {' '.join(extra)}")
+    return args
+
+
 def main(argv: list[str] | None = None) -> int:
     """Parse and run one Lore command."""
-    args = parser().parse_args(argv)
+    args = _parse(argv)
+    if _interactive() and args.command not in (None, "telemetry"):
+        _usage_notice()
     if not args.command:
         if sys.stdin.isatty() and sys.stdout.isatty():
             return dashboard()
         args = parser().parse_args(["status"])
     try:
+        # Whichever the app asks first on launch, every routine is Lore's (AUT-010).
+        if args.command in ("automation", "desktop-state") and os.environ.get(
+            "LORE_APP_VERSION"
+        ):
+            from .automation import Routines
+
+            Routines().take_over()
         if args.command == "setup":
             return setup(args.yes)
         if args.command == "sync":
@@ -486,6 +674,8 @@ def main(argv: list[str] | None = None) -> int:
             )
         if args.command == "sources":
             return source_command(args)
+        if args.command == "agents":
+            return agents_command(args)
         if args.command == "job":
             return job(args)
         if args.command == "review":
@@ -495,6 +685,13 @@ def main(argv: list[str] | None = None) -> int:
                 " ".join(args.query), args.status, args.limit, args.json, args.source
             )
         if args.command == "memory":
+            if args.memory_command == "rules":
+                from .automation import RULES
+
+                print(RULES, end="")
+                return 0
+            if args.memory_command == "credit":
+                return credit_memories(args.file)
             if args.memory_command == "rename":
                 return rename_memory(args.id, args.title, args.json)
             if args.memory_command == "edit":
@@ -502,6 +699,8 @@ def main(argv: list[str] | None = None) -> int:
             return show_memory(args.id, args.json)
         if args.command == "profile":
             return profile(args.path, not args.no_schedule)
+        if args.command == "automation":
+            return automation_command(args)
         if args.command == "capture":
             return capture_apply(args.file)
         if args.command == "status":
@@ -523,6 +722,12 @@ def main(argv: list[str] | None = None) -> int:
             if args.answer_command == "on":
                 return answer_enable(args.file, args.price)
             return answer_disable()
+        if args.command == "telemetry" and args.telemetry_command == "noticed":
+            usage.notice_shown()
+            return 0
+        if args.command == "telemetry" and args.telemetry_command == "record":
+            usage.record(args.name, args.value)
+            return 0
         if args.command == "telemetry":
             if args.telemetry_command == "on":
                 return telemetry_set(True)
@@ -545,7 +750,12 @@ def main(argv: list[str] | None = None) -> int:
             return serve(serve_args)
         if args.command == "node":
             if args.node_command == "deploy":
-                return deploy_module.deploy(args.wallet, args.network)
+                deployed = deploy_module.deploy(
+                    args.wallet, args.network, inbox_only=args.inbox_only
+                )
+                if deployed == 0 and not args.inbox_only:
+                    usage.record("store.opened")
+                return deployed
             if args.node_command == "secret":
                 _owner_action("storing a node secret")
                 return deploy_module.secret(args.name, sys.stdin.read().strip())
@@ -600,6 +810,8 @@ def main(argv: list[str] | None = None) -> int:
         return 130
     except (OSError, ValueError) as error:
         print(f"lore: {error}", file=sys.stderr)
+        command = args.command if args.command in usage.COMMANDS else "other"
+        usage.record("cli.failed", command)
         return 1
     return 0
 
@@ -703,8 +915,11 @@ def setup(yes: bool = False) -> int:
     """Choose native memory sources and perform the first import."""
     logo()
     automation_dir = home() / "automation"
-    automation_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
-    automation_dir.chmod(0o700)
+    # Touched only when it needs to change: the desktop agent's sandbox may read it, never write it.
+    if not automation_dir.is_dir():
+        automation_dir.mkdir(mode=0o700, parents=True)
+    if automation_dir.stat().st_mode & 0o777 != 0o700:
+        automation_dir.chmod(0o700)
     muted(
         "Lore imports only agent-generated memory files. Session transcripts stay untouched."
     )
@@ -727,6 +942,8 @@ def setup(yes: bool = False) -> int:
     total = sum(item["added"] + item["updated"] for item in report.values())
     heading("Ready")
     success(f"Imported {total} candidate memories")
+    if enabled:
+        usage.record("source.connected", "agents")
     print('Next, tell Claude or Codex: "Onboard me to Lore."')
     return 0
 
@@ -812,6 +1029,8 @@ def source_command(args: argparse.Namespace) -> int:
                     show=_approve,
                 )
                 payload, lines = added, [_source_line(added)]
+                if args.connector in usage.CONNECTORS:
+                    usage.record("source.connected", args.connector)
             elif command == "choices":
                 connector = sources_module.Connector.named(args.connector)
                 choices = [choice.model_dump() for choice in connector.choices()]
@@ -833,6 +1052,12 @@ def source_command(args: argparse.Namespace) -> int:
                         for read in reads
                     ],
                 )
+            elif command in ("enable", "disable"):
+                _owner_action(
+                    f"turning {args.name} {'on' if command == 'enable' else 'off'}"
+                )
+                switched = Registry(store).switch(args.name, command == "enable")
+                payload, lines = switched, [_source_line(switched)]
             elif command == "remove":
                 removed = Registry(store).remove(args.name, delete=args.delete)
                 kind = "deleted" if args.delete else "kept"
@@ -841,6 +1066,77 @@ def source_command(args: argparse.Namespace) -> int:
                 listed = Registry(store).entries()
                 payload, lines = listed, [_source_line(entry) for entry in listed]
         except sources_module.SourceError as error:
+            print(f"lore: {error}", file=sys.stderr)
+            return 2
+    if args.json:
+        print(json.dumps(payload, separators=(",", ":"), allow_nan=False))
+        return 0
+    for line in lines:
+        print(line)
+    return 0
+
+
+def agents_command(args: argparse.Namespace) -> int:
+    """Connect, list, re-key and disconnect the personal agents that save to Lore."""
+    command = args.agents_command
+    payload: Mapping[str, object]
+    # A key opens the owner's store to an agent, so only the owner hands one out or takes it back.
+    owner_only = {
+        "connect": "connecting an agent",
+        "key": "giving an agent a new key",
+        "revoke": "disconnecting an agent",
+        "allow": "letting an app sign in",
+        "deny": "refusing an app's sign-in",
+    }
+    if command in owner_only:
+        _owner_action(owner_only[command])
+    with Store() as store:
+        try:
+            agents = Agents(store)
+            if command in ("connect", "key"):
+                payload = (
+                    agents.connect(args.name, args.app)
+                    if command == "connect"
+                    else agents.key(args.source)
+                )
+                said = (
+                    f"Connected {args.name}. Paste this into it:"
+                    if command == "connect"
+                    else "Its old key no longer works. Paste this into it again:"
+                )
+                lines = [said, "", str(payload["prompt"])]
+            elif command == "revoke":
+                payload = agents.revoke(args.source, delete=args.delete)
+                kind = "deleted" if args.delete else "kept"
+                lines = [f"Disconnected {args.source}; memories {kind}."]
+            elif command == "waiting":
+                payload = agents.waiting()
+                lines = [f"{payload['waiting']} waiting to be brought in."] + [
+                    f"{asking['client']} asks to sign in, code {asking['code']}: "
+                    f"lore agents allow {asking['id']}"
+                    for asking in payload["sign_ins"]  # type: ignore[attr-defined]
+                ]
+            elif command == "address":
+                payload = agents.address()
+                lines = [
+                    f"Add Lore in your app with {payload['mcp_url']}, then allow it here."
+                ]
+            elif command == "allow":
+                payload = agents.allow(args.sign_in, args.name, args.app)
+                lines = [f"Allowed. It saves to Lore as {payload['agent']['name']}."]  # type: ignore[index]
+            elif command == "deny":
+                payload = agents.deny(args.sign_in)
+                lines = ["Refused. It can't save to Lore."]
+            else:
+                listed = agents.entries()
+                payload = listed
+                lines = [
+                    f"  {agent['name']:<14} {agent['app']:<8} {agent['saved']} saved "
+                    f"· {agent['waiting']} waiting · {agent['memories']} memories"
+                    + (" · disconnected" if agent["revoked"] else "")
+                    for agent in listed["agents"]
+                ] or ["No personal agents connected."]
+        except (sources_module.SourceError, InboxError) as error:
             print(f"lore: {error}", file=sys.stderr)
             return 2
     if args.json:
@@ -877,6 +1173,55 @@ def _source_line(entry: dict[str, object]) -> str:
         f"  {marker} {str(entry['label']):<14} {entry['state']} "
         f"· {entry['imported']} imported"
     )
+
+
+def automation_command(args: argparse.Namespace) -> int:
+    """List, run, pause or retime the app's routines; the app reads each as JSON."""
+    from .automation import NOTICED, Routines
+
+    command = args.automation_command
+    if command == "noticed":
+        with Store() as store:
+            store.set_setting(NOTICED, True)
+        return 0
+    routines = Routines()
+    if command == "result":
+        routines.record(args.id, args.text, args.mark)
+        return 0
+    if command == "run":
+        payload: object = routines.run(args.id)
+        lines = [f"Ran {args.id}: {routines.saved[args.id].result}"]
+    elif command == "remove":
+        routines.remove(args.id)
+        payload, lines = {"removed": args.id}, [f"Removed {args.id}."]
+    elif command == "edit":
+        payload = edited = routines.edit(args.id, args.text, args.title)
+        lines = [f"Changed {edited['id']}: {edited['name']}"]
+    elif command == "add":
+        payload = added = routines.add(
+            args.text, args.cadence, args.hour, args.day, args.title
+        )
+        lines = [f"Added {added['id']}: {added['name']}"]
+    elif command in ("pause", "resume", "time"):
+        changes: dict[str, object] = (
+            {"paused": command == "pause"}
+            if command != "time"
+            else {"hour": args.hour, "cadence": args.cadence, "day": args.day}
+        )
+        payload = changed = routines.change(args.id, **changes)
+        lines = [f"{changed['name']}: {'paused' if changed['paused'] else 'on'}"]
+    else:
+        payload = listed = routines.list()
+        lines = [
+            f"  {routine['name']:<24} next {str(routine['next_run'])[:16]} · "
+            f"{routine['result'] or 'not run yet'}"
+            for routine in listed
+        ] or ["No routines yet."]
+    if args.json:
+        print(json.dumps(payload, separators=(",", ":"), allow_nan=False))
+    else:
+        print("\n".join(lines))
+    return 0
 
 
 def job(args: argparse.Namespace) -> int:
@@ -924,6 +1269,7 @@ def capture_apply(file: str) -> int:
     """Validate and save memories the owner corrected in an attended agent session."""
     text = sys.stdin.read() if file == "-" else Path(file).read_text(encoding="utf-8")
     results = capture_module.save(json.loads(text))
+    usage.record("memory.saved")
     print(json.dumps(results, indent=2))
     return 0
 
@@ -1002,6 +1348,40 @@ def search(
     return 0
 
 
+class Credit(BaseModel):
+    """Who wrote into which memories, as the desktop app hands it over once a reading lands."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    ids: list[Annotated[StrictInt, Field(gt=0)]] = Field(min_length=1, max_length=500)
+    by: Contributor
+
+    @field_validator("by")
+    @classmethod
+    def mark_is_known(cls, by: Contributor) -> Contributor:
+        if by.mark not in sources_module.marks():
+            raise ValueError(f"unknown mark: {by.mark}")
+        return by
+
+
+def credit_memories(file: str) -> int:
+    """Put who wrote into a reading's memories on record (APP-213)."""
+    text = sys.stdin.read() if file == "-" else Path(file).read_text(encoding="utf-8")
+    credit = Credit.model_validate_json(text)
+    with Store() as store:
+        credited = store.credit(credit.ids, credit.by)
+    print(json.dumps({"credited": credited}))
+    return 0
+
+
+def _memory_json(memory: Memory) -> str:
+    """One memory in full, with who it came from."""
+    with Store() as store:
+        credited = store.contributors([memory.id]).get(memory.id, [])
+        [row] = Registry(store).provenance([{**memory.__dict__, "sources": credited}])
+    return json.dumps(row, indent=2)
+
+
 def show_memory(memory_id: int, as_json: bool) -> int:
     """Print one memory as a card or JSON."""
     with Store() as store:
@@ -1009,7 +1389,7 @@ def show_memory(memory_id: int, as_json: bool) -> int:
     if memory is None:
         raise ValueError(f"memory not found: {memory_id}")
     if as_json:
-        print(json.dumps(memory.__dict__, indent=2))
+        print(_memory_json(memory))
     else:
         memory_card(memory)
     return 0
@@ -1023,7 +1403,7 @@ def rename_memory(memory_id: int, title: str, as_json: bool) -> int:
     if memory is None:
         raise ValueError(f"memory not found: {memory_id}")
     if as_json:
-        print(json.dumps(memory.__dict__, indent=2))
+        print(_memory_json(memory))
     else:
         memory_card(memory)
     return 0
@@ -1053,7 +1433,7 @@ def edit_memory(
     if memory is None:
         raise ValueError(f"memory not found: {memory_id}")
     if as_json:
-        print(json.dumps(memory.__dict__, indent=2))
+        print(_memory_json(memory))
     else:
         memory_card(memory)
     return 0
@@ -1061,6 +1441,12 @@ def edit_memory(
 
 def sales(as_json: bool) -> int:
     rows = deploy_module.sales()
+    for via in {
+        "card" if r.network == "stripe" else "agent"
+        for r in rows
+        if r.network != deploy_module.FREE_NETWORK
+    }:
+        usage.record("sale.seen", via)
     if as_json:
         print(deploy_module.SALES.dump_json(rows).decode())
         return 0
@@ -1108,6 +1494,7 @@ def status() -> int:
         free = store.setting(FREE_COPIES_SETTING, FREE_COPIES)
         answer_settings = store.answer_settings()
         node_url = store.setting("node_url", None)
+        node_selling = deploy_module.selling(store)
         revocation_pending = store.setting("revocation_pending", False)
         publish_pending = store.setting("publish_pending", False)
         published = len(store.list_publications(active_only=True))
@@ -1115,7 +1502,9 @@ def status() -> int:
     heading("Library")
     print(
         f"  {counts['private']} private · {counts['discarded']} discarded · "
-        f"{published} active publication{'' if published == 1 else 's'} (externally usable)"
+        f"{published} active publication{'' if published == 1 else 's'}"
+        # Approved is not usable outside this Mac until the store sells (XC-069).
+        + ("" if node_url and not node_selling else " (externally usable)")
     )
     if stale:
         muted(
@@ -1146,6 +1535,12 @@ def status() -> int:
         # A cache of remote truth, not local truth like the price: another
         # machine or the Cloudflare dashboard can move the node after this.
         print(f"Node (last deploy): {node_url}")
+        if not node_selling:
+            print(
+                "  Online for your agents; nothing is for sale. "
+                "Opening it for sale needs a price and a payout address: "
+                "lore node deploy --wallet <address>"
+            )
     if revocation_pending:
         print(
             "A revocation has NOT reached the deployed node — it still serves "
@@ -1174,13 +1569,13 @@ def price(amount: float | None) -> int:
                 "Keep the price there, or stop taking cards first: lore cards off"
             )
         store.set_setting("price_usd", round(amount, 6))
-        node_url = store.setting("node_url", None)
+        on_sale = deploy_module.selling(store)
     success(
         "Publications are free"
         if amount == 0
         else f"Publication price set to ${amount:.2f}"
     )
-    if node_url:
+    if on_sale:
         # The deployed Worker charges the price baked in at deploy time; a
         # saved setting proves nothing about what the live node charges.
         muted(
@@ -1296,8 +1691,15 @@ def profile(path: str, schedule: bool = True) -> int:
     schedule = schedule and os.environ.get("LORE_SKIP_SCHEDULE") != "1"
     text = sys.stdin.read() if path == "-" else Path(path).read_text(encoding="utf-8")
     data = json.loads(text)
+    # In the app, Lore runs every routine itself (AUT-010).
+    if isinstance(data, dict) and os.environ.get("LORE_APP_VERSION"):
+        data["executor"] = automation.Agent.LORE
     data = automation.save_profile(data)
+    automation.Routines().adopt()
     success(f"Saved profile to {automation.profile_path()}")
+    if data.get("executor") == automation.Agent.LORE:
+        success("Lore will read on this rhythm while the app is open")
+        return 0
     if not schedule:
         muted("Existing schedules were not changed.")
         return 0
@@ -1316,26 +1718,117 @@ def profile(path: str, schedule: bool = True) -> int:
     return 0
 
 
+def _usage_notice() -> None:
+    """Say once, before the first event, what is sent and how to stop it."""
+    with Store() as store:
+        if store.setting(usage.NOTICED_SETTING, False) is True:
+            return
+    print(
+        "Lore sends anonymous usage events, like 'store opened' or 'first piece "
+        "approved', never your writing. See them in ~/.lore/usage.log; turn "
+        "them off with `lore telemetry off`.",
+        file=sys.stderr,
+    )
+    usage.notice_shown()
+
+
 def _interactive() -> bool:
     """Whether approval is running in an attended interactive terminal."""
     return sys.stdin.isatty() and sys.stdout.isatty()
 
 
-ATTENDED_KEY = Path.home() / "Library" / "Application Support" / "Lore" / "attended"
+def attended_folder() -> Path:
+    """Where the desktop app keeps its launch keys: the account's own home, never `HOME`."""
+    account = Path(pwd.getpwuid(os.getuid()).pw_dir)
+    return account / "Library" / "Application Support" / "Lore"
+
+
+# A launch key file holds a pid and 64 hex characters; anything larger was not written by the app.
+KEY_FILE_BYTES = 256
+# Each running app or test run keeps one file, removed when it quits; past this many, the rest are not read.
+KEY_FILES = 64
+# Entries looked at in the folder, key files or not, so junk there costs a bounded read.
+KEY_ENTRIES = 256
+
+
+def _owned(fd: int, kind: int, mode: int) -> bool:
+    """Whether an open file is of this kind, the owner's, open to no one else, and has one name."""
+    info = os.fstat(fd)
+    return (
+        stat.S_IFMT(info.st_mode) == kind
+        and info.st_uid == os.getuid()
+        and stat.S_IMODE(info.st_mode) == mode
+        and (kind == stat.S_IFDIR or info.st_nlink == 1)
+    )
+
+
+def _launch_key(name: str, folder: int) -> str:
+    """The key in one launch key file, opened in `folder` without following a link, else nothing."""
+    try:
+        fd = os.open(name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=folder)
+    except OSError:
+        return ""
+    try:
+        data = (
+            os.read(fd, KEY_FILE_BYTES + 1) if _owned(fd, stat.S_IFREG, 0o600) else b""
+        )
+    finally:
+        os.close(fd)
+    if len(data) > KEY_FILE_BYTES:
+        return ""
+    lines = data.decode("utf-8", "replace").split()
+    return lines[-1] if lines else ""
+
+
+def _folder_keys(folder: int, names: list[str]) -> list[str]:
+    return [key for key in (_launch_key(name, folder) for name in names) if key]
+
+
+def _launch_keys() -> list[str]:
+    """Every running app's launch key: one file each in `attended.d`, plus the single
+    `attended` file an app from the release before still writes."""
+    keys: list[str] = []
+    try:
+        lore = os.open(attended_folder(), os.O_RDONLY | os.O_DIRECTORY)
+    except OSError:
+        return keys
+    try:
+        keys += _folder_keys(lore, ["attended"])
+        try:
+            folder = os.open(
+                "attended.d",
+                os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW,
+                dir_fd=lore,
+            )
+        except OSError:
+            return keys
+        try:
+            if _owned(folder, stat.S_IFDIR, 0o700):
+                with os.scandir(folder) as entries:
+                    names = [
+                        entry.name
+                        for entry in islice(entries, KEY_ENTRIES)
+                        if entry.is_file(follow_symlinks=False)
+                    ]
+                keys += _folder_keys(folder, names[:KEY_FILES])
+        finally:
+            os.close(folder)
+    finally:
+        os.close(lore)
+    return keys
 
 
 def _attended() -> bool:
     """Whether the Lore desktop app, the other attended surface, is piping a decision.
 
-    The app writes a fresh key each launch where its agent's sandbox cannot read,
+    Each app launch writes a fresh key where its agent's sandbox cannot read,
     and hands it only to the CLI processes it spawns, so the agent cannot pose as it.
     """
     key = os.environ.get("LORE_ATTENDED_KEY", "")
-    try:
-        expected = ATTENDED_KEY.read_text(encoding="utf-8").strip()
-    except OSError:
+    if not key or sys.stdin.isatty():
         return False
-    return bool(key) and hmac.compare_digest(key, expected) and not sys.stdin.isatty()
+    matches = [hmac.compare_digest(key, expected) for expected in _launch_keys()]
+    return any(matches)
 
 
 def _desktop_decision(what: str) -> str:
@@ -1429,6 +1922,7 @@ def _save(store: Store, publication: Publication) -> None:
     store.add_publication(
         **publication.model_dump(include=set(PublicationInput.model_fields))
     )
+    usage.record("piece.approved")
 
 
 def publication_apply(path: str) -> int:
@@ -1742,6 +2236,13 @@ def publication_list() -> int:
     return 0
 
 
+def _push_held() -> bool:
+    """The desktop app pushes a decision's change itself, once the owner says
+    yes to what goes out (APP-226); the pending flag says the store is behind
+    until then."""
+    return os.environ.get("LORE_HOLD_PUSH") == "1"
+
+
 def _push_after_approval() -> None:
     """Push newly approved publications to the deployed node (MON-013): the
     mirror-image of `publication_revoke`'s MON-004 push. A failed push
@@ -1749,11 +2250,17 @@ def _push_after_approval() -> None:
     behind until a push lands — never silently dropped.
     """
     with Store() as store:
-        node_url = store.setting("node_url", None)
-    if not node_url:
+        open_for_sale = deploy_module.selling(store)
+    # A store online only for the owner's agents gets its pieces when it opens
+    # for sale: that deploy pushes them, after a price and a payout address.
+    if not open_for_sale:
+        return
+    if _push_held():
+        with Store() as store:
+            store.set_setting("publish_pending", True)
         return
     try:
-        push(str(home() / "node"))
+        push(str(store_folder()))
     except (OSError, ValueError) as error:
         with Store() as store:
             store.set_setting("publish_pending", True)
@@ -1778,8 +2285,12 @@ def publication_revoke(publication_id: int) -> int:
     success(f"Revoked publication {publication_id}; it is no longer answerable")
     if not node_url:
         return 0
+    if _push_held():
+        with Store() as store:
+            store.set_setting("revocation_pending", True)
+        return 0
     try:
-        return push(str(home() / "node"))
+        return push(str(store_folder()))
     except (OSError, ValueError) as error:
         with Store() as store:
             store.set_setting("revocation_pending", True)
@@ -1797,6 +2308,8 @@ def _push_sql(
     free_copies: int = FREE_COPIES,
     support_email: str = "",
     price_usd: float = 0,
+    inbox: dict[str, str] | None = None,
+    selling: bool | None = None,
 ) -> str:
     """Render the full-replace SQL for the edge database.
 
@@ -1849,6 +2362,11 @@ def _push_sql(
         "support_email": support_email,
         # The store charges this from its next push, so a new price needs no redeploy.
         **({"price_usd": f"{price_usd:.6f}"} if price_usd > 0 else {}),
+        # Every push, since it replaces this table: without them agents can't save.
+        **(inbox or {}),
+        # XC-069: the owner's choice, when there is one. A store from before it
+        # sends no key, and its node sells as it always did.
+        **({} if selling is None else {"selling": "true" if selling else "false"}),
     }
     statements.extend(
         [
@@ -1871,6 +2389,9 @@ def push(worker_dir: str, local: bool = False) -> int:
 
 def _worker(worker_dir: str) -> Path:
     worker = Path(worker_dir)
+    if worker == store_folder() and not (worker / "wrangler.jsonc").is_file():
+        # A store set up inside Lore's home is rebuilt in its own folder first.
+        deploy_module.tools()
     if not (worker / "wrangler.jsonc").is_file():
         raise ValueError(
             f"no node source at {worker}/ — run `lore node deploy` first, "
@@ -1879,7 +2400,7 @@ def _worker(worker_dir: str) -> Path:
     return worker
 
 
-def push_job(worker: Path, local: bool) -> int:
+def push_job(worker: Path, local: bool, *, opening: bool = False) -> int:
     """One push, recorded as its own run. The deploy sequence carries one too:
     the deploy is already the owner's action, so its push skips the gate."""
     with Store() as store:
@@ -1887,14 +2408,14 @@ def push_job(worker: Path, local: bool) -> int:
             JobKind.PUSH.value, owner_pid=os.getpid(), timeout_minutes=60
         )
     try:
-        return _push(worker, local, job_id)
+        return _push(worker, local, job_id, opening)
     except BaseException:
         with Store() as store:
             store.finish_job(job_id, "failed", summary="failed")
         raise
 
 
-def _push(worker: Path, local: bool, job_id: int) -> int:
+def _push(worker: Path, local: bool, job_id: int, opening: bool = False) -> int:
     """Write the active publication set to the node's edge database."""
     import tempfile
 
@@ -1906,6 +2427,14 @@ def _push(worker: Path, local: bool, job_id: int) -> int:
         free = int(str(store.setting(FREE_COPIES_SETTING, FREE_COPIES)))
         support = str(store.setting(SUPPORT_EMAIL_SETTING, ""))
         price_usd = store.setting("price_usd", 0)
+        # A local push fills the dev database a contributor runs `wrangler dev` on,
+        # never a store buyers reach, so it always sells there; a full deploy's
+        # push is the one that opens the store for sale.
+        selling = True if local or opening else deploy_module.choice(store)
+    if selling is False:
+        # No piece text leaves this Mac while the store sells nothing (XC-069):
+        # the push carries settings and the agents' inbox keys only.
+        active = []
     script = _push_sql(
         active,
         answer_settings,
@@ -1914,6 +2443,8 @@ def _push(worker: Path, local: bool, job_id: int) -> int:
         free,
         support,
         float(price_usd) if isinstance(price_usd, (int, float)) else 0,
+        Inbox().settings(),
+        selling,
     )
     with tempfile.NamedTemporaryFile("w", suffix=".sql", delete=False) as handle:
         handle.write(script)
@@ -2083,13 +2614,15 @@ def marketplace(args: argparse.Namespace) -> int:
     """List, delist, or check this store on the public marketplace."""
     command = args.marketplace_command or "status"
     market = marketplace_module.Marketplace(
-        lambda: push_job(_worker(str(home() / "node")), False)
+        lambda: push_job(_worker(str(store_folder())), False)
     )
     if command == "status":
         listing = market.status()
     else:
         _owner_action("changing your marketplace listing")
         listing = market.delist() if command == "delist" else market.list(args.name)
+        if command == "list":
+            usage.record("store.listed")
     if args.json:
         print(listing.model_dump_json(exclude_none=True))
     elif listing.state == "listed":

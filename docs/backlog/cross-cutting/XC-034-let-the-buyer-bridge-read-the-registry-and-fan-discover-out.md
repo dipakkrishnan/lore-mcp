@@ -10,7 +10,7 @@ blockers: [XC-033]
 dependencies: []
 github_issue: null
 created: 2026-09-15
-updated: 2026-09-27
+updated: 2026-10-19
 ---
 
 ## Problem
@@ -47,3 +47,5 @@ hosted MCP over the registry is the later step, not this one.
 2026-09-27: after `XC-036` every entry is rewritten daily from its node's
 `discover` and dead nodes are dropped, so the bridge can trust the file's
 network field without re-checking it first.
+
+**Review 2026-10-19:** not completed. Not done. The bridge still takes a required single `--node`; no registry flag, fan-out, other-network exclusion or spend cap. The lore-buy skill reads the registry with curl. All 4 criteria unmet.
