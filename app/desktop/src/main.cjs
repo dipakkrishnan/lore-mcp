@@ -539,11 +539,17 @@ async function hasStore(loreHome) {
  * @param {InstanceType<typeof Watch>} watch */
 function watchAgents(watch) {
   const onScreen = () => Boolean(window && !window.isDestroyed() && window.isVisible() && !window.isMinimized());
+  /** @type {NodeJS.Timeout | undefined} */
+  let timer;
+  let turn = 0;
+  // Coming back to Lore checks now and starts the pace over, so a long wait set while out of sight doesn't hold.
   const loop = async () => {
+    const mine = ++turn;
+    clearTimeout(timer);
     await watch.check().catch(() => undefined);
-    setTimeout(() => void loop(), watch.nextIn(onScreen()));
+    if (mine === turn) timer = setTimeout(() => void loop(), watch.nextIn(onScreen()));
   };
-  app.on("browser-window-focus", () => void watch.check());
+  app.on("browser-window-focus", () => void loop());
   void loop();
 }
 
