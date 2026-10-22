@@ -1,6 +1,6 @@
 ---
 id: APP-237
-title: The memory sheet's actions get a row of their own, and the desktop tests never ask for the owner's keychain
+title: The memory sheet's header is one Draft for sale pill, an Edit icon and a More menu, and the desktop tests never ask for the owner's keychain
 priority: P2
 effort: S
 component: desktop-app
@@ -21,10 +21,11 @@ When `npm test` ran in `app/desktop`, the "listing switches the store on" test r
 
 ## Approach
 
-- The actions go in a `.sheet-actions` row below the title and source line. The title and close button keep the top row, so the title gets the full width. Draft for sale comes first when it's offered, and Delete sits apart at the far right.
+- The header keeps one primary action, **Draft for sale**, as a pill when it's offered. Edit is an icon, and **⋯ More** opens a menu with Rename and Delete in red. The menu is a native popover styled like the account menu (shared `.menu` rules). The title keeps most of the width, and Delete is never one click from selling.
+- Asking to delete puts its question under the source line, the way the sale note sits, so the header holds only Cancel and Delete.
 - `app.test.cjs` sets `PYTHON_KEYRING_BACKEND=keyring.backends.null.Keyring`, as `test_cli_smoke.py` and `edge.sh` already do.
 
 ## Acceptance
 
-- A long title wraps across the sheet's full width, and the actions sit in one row under it.
+- A long title wraps to two lines beside a compact action cluster, in every state: default, rename, edit and delete-confirm.
 - `npm test` never touches the login keychain.
