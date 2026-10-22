@@ -12,7 +12,7 @@ const checkin = require("./checkin.cjs");
 const { Schedule } = require("./routines.cjs");
 const { FirstRun } = require("./firstrun.cjs");
 const { Appearance } = require("./appearance.cjs");
-const { Watch, WATCH_EVERY_MS, AgentApps } = require("./agents.cjs");
+const { Watch, AgentApps } = require("./agents.cjs");
 const { checkAttachments } = require("./attachments.cjs");
 const { lore, listRoutines, runRoutine, changeRoutine, addRoutine, editRoutine, switchSource, openable, readState, readSales, readViews, searchMemories, readMemory, creditMemories, renameMemory, editMemory, captureMemories, previewPage, setPrice, setFreeCopies, candidates, decide, extrasCandidates, decideExtras, approveExtras, reportFeedback, listStore, cardStatus, connectCards, switchCards, listingStatus, sourceCatalog, sourceChoices, connectSource, signIn, readSource, removeSource, listAgents, connectAgent, agentKey, disconnectAgent, agentsWaiting, agentAddress, allowSignIn, denySignIn, useRuntime, openStore, Outgoing, storeOnline, cloudflareSignIn, saveProfile, ATTENDED_KEYS, forgetKey, STORE } = require("./state.cjs");
 
@@ -534,12 +534,23 @@ async function hasStore(loreHome) {
   return Boolean(storeAddress);
 }
 
-/** What the owner's agents saved comes in while Lore is open: once a minute, on coming back to the app, and now.
+/** What the owner's agents saved comes in while Lore is open: now, on coming back to the app, and at the watch's own
+ * pace after each check, sooner while Lore is on screen or an app waits to sign in (APP-232).
  * @param {InstanceType<typeof Watch>} watch */
 function watchAgents(watch) {
-  setInterval(() => void watch.check(), WATCH_EVERY_MS);
-  app.on("browser-window-focus", () => void watch.check());
-  void watch.check();
+  const onScreen = () => Boolean(window && !window.isDestroyed() && window.isVisible() && !window.isMinimized());
+  /** @type {NodeJS.Timeout | undefined} */
+  let timer;
+  let turn = 0;
+  // Coming back to Lore checks now and starts the pace over, so a long wait set while out of sight doesn't hold.
+  const loop = async () => {
+    const mine = ++turn;
+    clearTimeout(timer);
+    await watch.check().catch(() => undefined);
+    if (mine === turn) timer = setTimeout(() => void loop(), watch.nextIn(onScreen()));
+  };
+  app.on("browser-window-focus", () => void loop());
+  void loop();
 }
 
 /** A Mac notification for every new sale while Lore is open. The last one announced is kept on disk,
