@@ -43,7 +43,7 @@ const mainEl = $("#main");
 const header = /** @type {HTMLElement} */ (mainEl.querySelector("header"));
 const navButtons = /** @type {HTMLButtonElement[]} */ ([...document.querySelectorAll("nav button")]);
 
-/** @typedef {"today" | "inventory" | "connectors" | "automations" | "faq" | "settings"} View */
+/** @typedef {"today" | "inventory" | "collection" | "connectors" | "automations" | "faq" | "settings"} View */
 /** @typedef {"all" | "private" | "sale" | "down"} Shelf */
 /** @type {Snapshot | null} */
 let snapshot = null;
@@ -75,6 +75,13 @@ let view = "today";
 let shelf = "all";
 /** Inventory shows only what this agent or app brought in, until the owner removes its chip (APP-212). @type {{id: string, label: string} | null} */
 let inventoryFrom = null;
+/** The collection open in its own view. @type {number | null} */
+let openCollectionId = null;
+/** Text pasted into the open collection and not added yet; kept across renders. */
+let collectionDraft = "";
+/** What the open collection is doing, said on the button doing it. @type {"" | "adding" | "pricing" | "naming"} */
+let collectionBusy = "";
+let editingCollectionPrice = false;
 /** @type {AgentTask} */
 let task = "capture";
 /** @type {TaskRecord[]} */
@@ -158,6 +165,7 @@ const CHECK_ICON = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" s
 const LOCK_ICON = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="11" width="14" height="9" rx="2"></rect><path d="M8 11V8a4 4 0 0 1 8 0v3"></path></svg>`;
 const INFO_ICON = `<svg class="notice-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="9"></circle><path d="M12 11v5M12 8h.01"></path></svg>`;
 const ALERT_ICON = `<svg class="notice-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4l9 16H3z"></path><path d="M12 10v4M12 17h.01"></path></svg>`;
+const MORE_ICON = `<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="5.5" cy="12" r="1.6"></circle><circle cx="12" cy="12" r="1.6"></circle><circle cx="18.5" cy="12" r="1.6"></circle></svg>`;
 const SALE_ICON = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 12l-8 8-9-9V3h8z"></path><circle cx="7.5" cy="7.5" r="1.5"></circle></svg>`;
 /** @type {Record<string, [name: string, icon: string]>} */
 const PROVIDERS = {
@@ -287,13 +295,14 @@ function markdown(text) {
   return node;
 }
 
-/** @param {{id: number, title: string}} memory @param {AgentTask} [from] The thread the agent should continue from. */
-async function publishMemory(memory, from) {
+/** @param {{id: number, title: string}} memory @param {AgentTask} [from] The thread the agent should continue from.
+ * @param {boolean} [anyway] Whether the owner chose to draft it though Lore judged it not worth selling. */
+async function publishMemory(memory, from, anyway = false) {
   closeSheet();
   await openTask("publish");
   // A pending draft for this memory, or the publish agent mid-draft, is the thread itself: open it, never start a second turn.
   if (busy === "publish" || candidates.some((candidate) => candidate.provenance.includes(memory.id))) return;
-  await send(`Help me publish something from my Lore, starting from "${memory.title}".`, from, memory.id);
+  await send(`Help me publish something from my Lore, starting from "${memory.title}".${anyway ? " Lore judged it not worth selling, and I want to draft it anyway." : ""}`, from, memory.id);
 }
 
 /** @param {number | string} id @param {string} title @param {string} detail @param {boolean} [sell] Whether it offers Draft for sale. */
@@ -355,15 +364,71 @@ async function openMemory(id) {
   const text = el("div", "t");
   const titleLabel = el("b", "", memory.title);
   text.append(titleLabel, provenanceLine(memory));
+  // A memory Lore judged not worth selling says why in one quiet line instead (APP-235). Drafting it anyway stays a
+  // step away, except for work, which is never offered for sale.
+  const kept = memory.verdict && !memory.verdict.sell ? memory.verdict : null;
+  if (kept) {
+    const note = el("span", "sale-note", kept.work ? "Work · stays private" : ["Private", kept.why].filter(Boolean).join(" · "));
+    if (!kept.work) note.append(" · ", inline("Draft anyway", () => void publishMemory(memory, undefined, true)));
+    text.append(note);
+  }
   const close = el("button", "icon-btn", "×");
   close.type = "button";
   close.setAttribute("aria-label", "Close");
   close.addEventListener("click", closeSheet);
-  const actions = el("div");
-  actions.style.display = "flex";
-  actions.style.gap = "8px";
+  // One action stands out, Draft for sale; Edit is an icon, and Rename and Delete wait in a menu, so the title keeps
+  // its width and Delete is never a click away from selling.
+  const actions = el("div", "sheet-actions");
+  const menu = el("div", "menu sheet-menu");
+  menu.popover = "auto";
+  menu.setAttribute("role", "menu");
+  menu.setAttribute("aria-label", "More");
+  /** @param {string} label @param {string} icon @param {() => void} onClick */
+  const item = (label, icon, onClick) => {
+    const node = el("button", "", label);
+    node.type = "button";
+    node.setAttribute("role", "menuitem");
+    node.insertAdjacentHTML("afterbegin", icon);
+    node.addEventListener("click", () => { menu.hidePopover(); onClick(); });
+    return node;
+  };
+  const removeItem = item("Delete", TRASH_ICON, () => startDelete());
+  removeItem.classList.add("danger");
+  menu.append(item("Rename", RENAME_ICON, () => startRename()), el("hr"), removeItem);
+  menu.addEventListener("toggle", (event) => {
+    const open = /** @type {ToggleEvent} */ (event).newState === "open";
+    more.setAttribute("aria-expanded", String(open));
+    if (open) /** @type {HTMLElement | null} */ (menu.querySelector("button"))?.focus();
+  });
+  /** @param {string} label @param {string} icon @param {(() => void) | undefined} onClick */
+  const iconButton = (label, icon, onClick) => {
+    const node = el("button", "icon-btn");
+    node.type = "button";
+    node.setAttribute("aria-label", label);
+    node.title = label;
+    node.insertAdjacentHTML("afterbegin", icon);
+    if (onClick) node.addEventListener("click", onClick);
+    return node;
+  };
+  const more = iconButton("More", MORE_ICON, undefined);
+  more.classList.add("sheet-more");
+  more.setAttribute("aria-haspopup", "menu");
+  more.popoverTargetElement = menu;
   function showActions() {
-    actions.replaceChildren(button("Rename", "quiet", startRename, RENAME_ICON), button("Edit", "quiet", startEdit, EDIT_ICON), button("Draft for sale", "quiet", () => void publishMemory(memory), SALE_ICON));
+    actions.replaceChildren(...(kept ? [] : [button("Draft for sale", "primary", () => void publishMemory(memory), SALE_ICON)]), iconButton("Edit", EDIT_ICON, startEdit), more);
+  }
+  function startDelete() {
+    // The question sits under the title like the sale note, so asking never squeezes the title.
+    const asking = el("span", "sale-note", "Delete this memory? Lore won't bring it back.");
+    const back = () => { asking.remove(); showActions(); };
+    const remove = button("Delete", "quiet", () => void act(async () => {
+      await window.lore.deleteMemory(memory.id);
+      closeSheet();
+      tell(`Deleted ${memory.title}.`);
+    }).then((done) => { if (!done) back(); }));
+    remove.classList.add("destructive");
+    text.append(asking);
+    actions.replaceChildren(button("Cancel", "secondary", back), remove);
   }
   /** @type {HTMLElement} */
   let body = renderMemoryBody(memory.content);
@@ -432,7 +497,7 @@ async function openMemory(id) {
   showActions();
   head.append(text, actions, close);
   panel.append(head, body);
-  sheet.append(panel);
+  sheet.append(panel, menu);
   // The panel fills the dialog, so a click that lands on the dialog itself came from the backdrop.
   sheet.addEventListener("click", (event) => { if (event.target === sheet) closeSheet(); });
   sheet.addEventListener("close", () => sheet.remove());
@@ -636,9 +701,10 @@ function forSale(s) {
   return Boolean(s?.node.url) && s?.node.selling !== false;
 }
 
+/** Past midnight is still the evening to someone up late; morning starts at 5. */
 function greeting() {
   const hour = new Date().getHours();
-  return hour < 12 ? "Good morning." : hour < 18 ? "Good afternoon." : "Good evening.";
+  return hour < 5 ? "Good evening." : hour < 12 ? "Good morning." : hour < 18 ? "Good afternoon." : "Good evening.";
 }
 
 /** A line icon from its strokes. @param {string} paths */
@@ -852,6 +918,20 @@ function readyGroup(key, runs, sources) {
       render();
     });
   } else head.classList.add("still");
+  const dismiss = el("button", "dismiss", "×");
+  dismiss.type = "button";
+  dismiss.setAttribute("aria-label", `Dismiss ${heading}`);
+  dismiss.addEventListener("click", (event) => {
+    event.stopPropagation();
+    /** @type {ReadyKey[]} */
+    const keys = runs.map((run) => ({ at: run.at, by: run.by?.id ?? null }));
+    loads++;
+    readyRuns = readyRuns.filter((run) => !keys.some((each) => each.at === run.at && each.by === (run.by?.id ?? null)));
+    openGroups.delete(key);
+    render();
+    void window.lore.dismissMemories(keys);
+  });
+  head.append(dismiss);
   box.classList.toggle("open", open);
   box.append(head);
   if (open && memories.length) {
@@ -880,7 +960,7 @@ function draftsPhase() {
 }
 
 /** Threads whose agent can stage a publication draft. */
-const DRAFTING = new Set(["publish", "capture"]);
+const DRAFTING = new Set(["publish", "capture", "evening"]);
 
 /** Drafts to approve, and the push after approving. @param {Snapshot} s */
 function drafts(s) {
@@ -1746,7 +1826,7 @@ function renderInventory(s) {
     for (const item of items) groups.set(key(item), [...(groups.get(key(item)) ?? []), make(item)]);
     return grouped(groups);
   };
-  const privateGroups = () => groupBy(kept, (item) => item.project_label, (item) => unseen.watch(sourcedRow(item, [when(item.updated_at)]), item.arrival));
+  const privateGroups = () => groupBy(kept, (item) => item.project_label, (item) => unseen.watch(sourcedRow(item, [when(item.updated_at)], item.verdict?.sell ?? true), item.arrival));
   const saleGroups = () => groupBy(onSale, (item) => item.topic, saleItem);
   const downGroups = () => groupBy(down, (item) => item.topic, (item) => row(item.title, item.topic, item.live === true ? chip("Still on your store", "attention") : chip("Taken down")));
   const stack = (/** @type {HTMLElement[]} */ cards) => {
@@ -1788,6 +1868,7 @@ function renderInventory(s) {
   } else {
     parts.push(stack(downGroups()));
   }
+  if (!from && (shelf === "all" || shelf === "sale")) parts.push(collectionsSection(s));
   if (!from && (shelf === "all" || shelf === "sale")) parts.push(renderSales());
   return parts;
 }
@@ -1883,6 +1964,228 @@ class Unseen {
 }
 
 const unseen = new Unseen();
+
+/** @returns {CollectionItem | undefined} */
+function openCollection() {
+  return snapshot?.collections?.items.find((item) => item.id === openCollectionId);
+}
+
+/** @param {CollectionItem | undefined} item */
+function collectionEyebrow(item) {
+  if (!item) return "Collection";
+  return item.on_sale ? `Collection · On sale at ${price(item.price_usd)}` : "Collection · Not on sale yet";
+}
+
+/** @param {CollectionItem} item */
+function collectionDetail(item) {
+  const count = `${item.pieces.length} ${item.pieces.length === 1 ? "piece" : "pieces"}`;
+  return item.on_sale ? `${count} · ${price(item.price_usd)} for all of them` : `${count} · not on sale yet`;
+}
+
+/** For Sale's collections, each opening its own view. @param {Snapshot} s */
+function collectionsSection(s) {
+  const items = s.collections?.items ?? [];
+  const make = button("New collection", "quiet", () => void newCollection());
+  if (!items.length) return section("Collections", emptyState("Sell a set of pieces together, at one price.", make));
+  const rows = items.map((item) => {
+    const node = el("button", "row link");
+    node.type = "button";
+    const text = el("div", "t");
+    text.append(el("b", "", item.title), el("span", "", collectionDetail(item)));
+    node.append(text, item.on_sale ? chip("On sale", "ok") : chip("Draft"));
+    node.addEventListener("click", () => showCollection(item.id));
+    return node;
+  });
+  return section("Collections", card(rows), make);
+}
+
+/** @param {number} id */
+function showCollection(id) {
+  openCollectionId = id;
+  if (detailTask) closeTask();
+  show("collection");
+}
+
+/** Step one: the collection exists the moment it's asked for. */
+async function newCollection() {
+  if (collectionBusy) return;
+  /** @type {NewCollection | null} */
+  let made = null;
+  if (await act(async () => { made = await window.lore.newCollection(); })) {
+    if (made) showCollection(/** @type {NewCollection} */ (made).id);
+    queueMicrotask(() => /** @type {HTMLElement | null} */ (document.querySelector(".drop-zone textarea"))?.focus());
+  }
+}
+
+/** Step two: dropped files or pasted text, each one piece. @param {{items?: Array<{title: string, content: string}>, files?: string[]}} input */
+async function addToCollection(input) {
+  const item = openCollection();
+  if (!item || collectionBusy) return;
+  const files = (input.files ?? []).filter((path) => {
+    if (!GUARDED.test(path)) return true;
+    tell(`${path.split("/").pop()} looks like a credential or hidden file, so Lore won't add it.`, true);
+    return false;
+  });
+  if (!files.length && !input.items?.length) return;
+  collectionBusy = "adding";
+  render();
+  /** @type {{added: Array<{title: string}>} | null} */
+  let result = null;
+  const done = await act(async () => { result = await window.lore.addToCollection(item.id, { items: input.items, files }); });
+  collectionBusy = "";
+  if (done && result) {
+    if (input.items?.length) collectionDraft = "";
+    const added = /** @type {{added: Array<{title: string}>}} */ (result).added.length;
+    const after = openCollection();
+    tell(added === 1 ? "Added 1 piece." : `Added ${added} pieces.`, false, after && !after.on_sale ? { label: "Price it", run: () => { editingCollectionPrice = true; render(); } } : undefined);
+  }
+  render();
+}
+
+function addPasted() {
+  const text = collectionDraft.trim();
+  if (!text) return void tell("Paste or type something first.", true);
+  const first = text.split("\n").find((line) => line.trim())?.replace(/^#+\s*/, "").trim() ?? "";
+  const title = first.length > 80 ? `${first.slice(0, 77).trimEnd()}…` : first;
+  void addToCollection({ items: [{ title, content: text }] });
+}
+
+/** @param {CollectionItem} item @param {string} raw */
+async function renameCollection(item, raw) {
+  const name = raw.trim();
+  if (!name || name === item.title || collectionBusy) return;
+  collectionBusy = "naming";
+  await act(() => window.lore.renameCollection(item.id, name));
+  collectionBusy = "";
+  render();
+}
+
+/** Step three: a price puts it on sale; zero takes it off. @param {CollectionItem} item @param {number} amount */
+async function priceCollection(item, amount) {
+  collectionBusy = "pricing";
+  render();
+  const done = await act(() => window.lore.priceCollection(item.id, amount));
+  collectionBusy = "";
+  if (done) {
+    editingCollectionPrice = false;
+    const live = Boolean(snapshot?.node.url);
+    if (amount === 0) tell("Taken off sale. Its pieces are still for sale one by one.");
+    else tell(live ? `On sale at ${price(amount)}. Buyers can get all of it in one go.` : `Priced at ${price(amount)}. It goes on sale once your store is open.`, false, live ? undefined : { label: "Open your store", run: () => void startDeploy() });
+  }
+  render();
+}
+
+/** @param {CollectionItem} item */
+function collectionPrice(item) {
+  const box = el("div", "card pad collection-price");
+  const busy = collectionBusy === "pricing";
+  if (item.on_sale && !editingCollectionPrice) {
+    const line = el("div", "lead");
+    line.append(el("span", "dot ok"), el("span", "", `On sale at ${price(item.price_usd)} for all ${item.pieces.length} ${item.pieces.length === 1 ? "piece" : "pieces"}`));
+    const actions = el("div", "actions");
+    actions.append(
+      button("Change price", "quiet", () => { editingCollectionPrice = true; render(); }),
+      button(busy ? "Taking off…" : "Take off sale", "secondary", () => void priceCollection(item, 0))
+    );
+    box.append(line, actions);
+    if (item.value_usd > item.price_usd) box.append(el("p", "hint", `Worth ${price(item.value_usd)} one by one.`));
+    return box;
+  }
+  const form = /** @type {HTMLFormElement} */ (el("form", "price-edit"));
+  const [field, input] = priceField(item.price_usd > 0 ? String(item.price_usd) : "");
+  input.setAttribute("aria-label", "Price for the whole collection in US dollars");
+  input.placeholder = item.value_usd > 0 ? String(Math.max(1, Math.round(item.value_usd * 0.8))) : "10";
+  const save = el("button", "btn primary sm", busy ? "Saving…" : item.on_sale ? "Update price" : "Put on sale");
+  save.type = "submit";
+  save.disabled = busy || !item.pieces.length;
+  form.append(field, el("span", "", "for the whole collection"), save);
+  if (item.on_sale) form.append(button("Cancel", "quiet", () => { editingCollectionPrice = false; render(); }));
+  form.addEventListener("submit", (event) => {
+    event.preventDefault();
+    const amount = parsePrice(input.value);
+    if (amount === null) return void tell(`${ABOVE_ZERO}.`, true);
+    void priceCollection(item, amount);
+  });
+  box.append(form);
+  const hint = !item.pieces.length ? "Add a piece first, then price it."
+    : item.value_usd > 0 ? `Its ${item.pieces.length} ${item.pieces.length === 1 ? "piece costs" : "pieces cost"} ${price(item.value_usd)} one by one. A lower price here gives buyers a reason to take them all.`
+    : "Buyers pay this once and get every piece in it.";
+  box.append(el("p", "hint", hint));
+  if (editingCollectionPrice) queueMicrotask(() => input.focus());
+  return box;
+}
+
+/** @param {CollectionItem} item @param {{id: number, title: string}} piece */
+function collectionPiece(item, piece) {
+  const trailing = el("div", "v");
+  const ask = button("Remove", "quiet", () => {
+    trailing.replaceChildren(
+      el("span", "hint", "It comes off sale too. Anyone who already bought it keeps their copy."),
+      button("Keep", "secondary", () => trailing.replaceChildren(ask)),
+      button("Remove", "primary", () => void act(() => window.lore.removeFromCollection(item.id, piece.id)))
+    );
+  });
+  trailing.append(ask);
+  return row(piece.title, "", trailing);
+}
+
+/** A collection in three steps: name it, fill it, price it. @param {Snapshot} s */
+function renderCollection(s) {
+  const item = openCollection();
+  if (!item) return [emptyState("This collection is gone.", button("Back to For Sale", "quiet", () => show("store")))];
+  const busy = Boolean(collectionBusy);
+
+  const name = el("input", "collection-name");
+  name.type = "text";
+  name.value = item.title;
+  name.maxLength = 120;
+  name.setAttribute("aria-label", "Collection name");
+  name.disabled = busy;
+  name.addEventListener("keydown", (event) => { if (event.key === "Enter") name.blur(); if (event.key === "Escape") { name.value = item.title; name.blur(); } });
+  name.addEventListener("change", () => void renameCollection(item, name.value));
+
+  const zone = el("div", "card drop-zone");
+  const lead = el("div", "drop-lead");
+  lead.append(el("b", "", collectionBusy === "adding" ? "Adding…" : "Drop files here"), el("span", "hint", "Each file becomes one piece. Or paste text below."));
+  const choose = button("Choose files", "secondary", async () => void addToCollection({ files: await window.lore.pickFiles() }));
+  choose.disabled = busy;
+  lead.append(choose);
+  const paste = el("textarea");
+  paste.rows = 3;
+  paste.placeholder = "Paste a post, a note, anything you wrote. The first line becomes its title.";
+  paste.setAttribute("aria-label", "Paste text to add as a piece");
+  paste.value = collectionDraft;
+  paste.disabled = busy;
+  paste.addEventListener("input", () => { collectionDraft = paste.value; fit(paste); });
+  paste.addEventListener("keydown", (event) => { if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) { event.preventDefault(); addPasted(); } });
+  const add = button(collectionBusy === "adding" ? "Adding…" : "Add", "primary", addPasted);
+  add.disabled = busy;
+  const pasteRow = el("div", "paste-row");
+  pasteRow.append(paste, add);
+  zone.append(lead, pasteRow);
+
+  const pieces = item.pieces.length
+    ? card(item.pieces.map((piece) => collectionPiece(item, piece)))
+    : el("div", "card pad empty", "Nothing in it yet. Drop a file or paste some text above.");
+
+  const remove = button("Delete collection", "quiet", () => {
+    foot.replaceChildren(
+      el("span", "hint", "Its pieces stay for sale one by one."),
+      button("Keep", "secondary", () => foot.replaceChildren(remove)),
+      button("Delete", "primary", async () => { if (await act(() => window.lore.deleteCollection(item.id))) { openCollectionId = null; show("store"); } })
+    );
+  });
+  const foot = el("div", "collection-foot");
+  foot.append(remove);
+
+  return [
+    section("Name", name),
+    section("Add to it", zone),
+    section("In this collection", pieces, item.pieces.length ? el("span", "hint", `${item.pieces.length} ${item.pieces.length === 1 ? "piece" : "pieces"}`) : undefined),
+    section("Price", collectionPrice(item)),
+    foot
+  ];
+}
 
 function renderSales() {
   if (sales instanceof Error) return section("Sales", sales.message === SALES_ELSEWHERE ? el("div", "card pad empty", SALES_ELSEWHERE) : emptyState(sales.message, button("Try again", "secondary", () => void loadSales())));
@@ -3486,18 +3789,18 @@ function renderAutomations(s) {
   return [list];
 }
 
-const renderers = { today: renderToday, inventory: renderInventory, connectors: renderConnectors, automations: renderAutomations, faq: renderFaq, settings: renderSettings };
+const renderers = { today: renderToday, inventory: renderInventory, collection: renderCollection, connectors: renderConnectors, automations: renderAutomations, faq: renderFaq, settings: renderSettings };
 
 function render() {
   hidePeek();
   renderNotices();
   const detail = view === "today" ? detailTask : null;
   const welcoming = view === "today" && !detail && firstRun.active;
-  const heading = detail ? detailRecord?.title ?? TASK_TITLES[detail] : welcoming ? "Welcome to Lore" : { today: greeting(), inventory: "Inventory", connectors: "Connectors", automations: "Automations", faq: "FAQ", settings: "Settings" }[view];
+  const heading = detail ? detailRecord?.title ?? TASK_TITLES[detail] : welcoming ? "Welcome to Lore" : { today: greeting(), inventory: "Inventory", collection: openCollection()?.title ?? "Collection", connectors: "Connectors", automations: "Automations", faq: "FAQ", settings: "Settings" }[view];
   const pendingDrafts = detail === "publish" && (candidates.length || extraDrafts.length);
   eyebrow.textContent = detail
     ? pendingDrafts ? `Needs you · ${draftsPhase()}` : `${TASK_STATES[detailRecord?.state ?? "working"]} · ${detailRecord?.phase ?? "Starting"}`
-    : welcoming ? "" : view === "today" ? longDate.format(new Date()) : "";
+    : welcoming ? "" : view === "today" ? longDate.format(new Date()) : view === "collection" ? collectionEyebrow(openCollection()) : "";
   title.textContent = heading;
   taskBack.hidden = !detail;
   taskRestart.hidden = !detail || detailRecord?.state !== "stopped";
@@ -3509,7 +3812,8 @@ function render() {
   mainEl.classList.toggle("thread", Boolean(detail));
   log.hidden = !detail;
   syncComposer();
-  for (const nav of navButtons) nav.setAttribute("aria-pressed", String(nav.dataset.view === view));
+  // A collection is something for sale, so For Sale stays lit while one is open.
+  for (const nav of navButtons) nav.setAttribute("aria-pressed", String(nav.dataset.view === (view === "collection" ? "store" : view)));
   if (!snapshot) return;
   $("[data-count=inventory]").textContent = String(snapshot.library.counts.private + snapshot.publications.counts.active);
   $("[data-count=connectors]").textContent = String(snapshot.library.sources.filter((source) => source.enabled).length);
@@ -3543,6 +3847,7 @@ function show(next) {
   if (next === "memories" || next === "store") shelf = next === "store" ? "sale" : "private";
   view = next === "memories" || next === "store" ? "inventory" : next;
   if (view === "inventory") void loadSales();
+  if (view !== "collection") { editingCollectionPrice = false; collectionDraft = ""; }
   if (next === "connectors") void loadAgents();
   // A store update said once, where it happened; it doesn't follow the owner around.
   pushedNote = false;
@@ -3689,8 +3994,9 @@ function live(text, status = false) {
 function savedCard(saved) {
   if (!saved.length) return el("p", "", "Nothing saved.");
   return card(saved.map((memory) => {
-    // Only the capture thread offers the next step; a publish thread forked from it restores these same lines.
-    const draft = detailTask === "capture" ? button("Draft for sale", "quiet", () => void publishMemory(memory, "capture")) : undefined;
+    // Only the threads that capture offer the next step; a publish thread forked from one restores these same lines.
+    const from = detailTask === "capture" || detailTask === "evening" ? detailTask : null;
+    const draft = from ? button("Draft for sale", "quiet", () => void publishMemory(memory, from)) : undefined;
     if (draft) draft.disabled = busy !== null;
     return row(memory.title, memory.status === "unchanged" ? "Already in your Lore" : "Saved, only on this Mac", draft);
   }));
@@ -4543,7 +4849,7 @@ let confirmingExtras = false;
 let approvingExtras = 0;
 
 function approvals() {
-  const list = el("div", "card pad stack");
+  const list = el("div", "approvals");
   const shown = new Set();
   /** @param {PublicationCandidate | ExtrasCandidate} draft */
   const form = (draft) => {
@@ -4658,18 +4964,23 @@ function readFirst(heading, preview, build, titleEdits = false) {
       read.replaceChildren(...reading());
     }
   });
-  memory.append(title, read, fields);
-  return { memory, edit, preview: previewButton };
+  memory.append(read, fields);
+  return { memory, title, edit, preview: previewButton };
 }
 
-/** @param {HTMLElement} memory @param {string} topic @param {HTMLElement[]} actions @param {HTMLElement[]} chips */
-function approvalMeta(memory, topic, actions, ...chips) {
-  const meta = el("div", "meta");
-  meta.append(chip(topic), ...chips);
+/** A draft's head: its title with the owner's choices beside it, so deciding never means scrolling past the draft, and
+ * its topic under it, cut to fit the card.
+ * @param {{memory: HTMLElement, title: HTMLElement}} card @param {string} topic @param {HTMLElement[]} actions @param {HTMLElement[]} chips */
+function approvalMeta(card, topic, actions, ...chips) {
+  const head = el("div", "draft-head");
   const group = el("div", "group");
   group.append(...actions);
-  meta.append(group);
-  memory.append(meta);
+  head.append(card.title, group);
+  const about = chip(topic, "topic");
+  about.title = topic;
+  const meta = el("div", "draft-chips");
+  meta.append(about, ...chips);
+  card.memory.prepend(head, meta);
 }
 
 /** @param {PublicationCandidate} candidate */
@@ -4698,7 +5009,7 @@ function approvalForm(candidate) {
   };
   const skip = button("Skip", "secondary", () => void choose(false));
   const approve = button("Approve", "primary", () => void choose(true));
-  approvalMeta(card.memory, candidate.topic, [card.preview, card.edit, skip, approve], ...(candidate.kind === "content" ? [chip("Verbatim")] : []));
+  approvalMeta(card, candidate.topic, [card.preview, card.edit, skip, approve], ...(candidate.kind === "content" ? [chip("Verbatim")] : []));
   return card.memory;
 }
 
@@ -4723,7 +5034,7 @@ function extrasForm({ extras, piece }) {
   };
   const skip = button("Skip", "secondary", () => void choose(false));
   const approve = button("Approve", "primary", () => void choose(true));
-  approvalMeta(card.memory, piece.topic, [card.preview, card.edit, skip, approve]);
+  approvalMeta(card, piece.topic, [card.preview, card.edit, skip, approve]);
   return card.memory;
 }
 
@@ -4823,7 +5134,10 @@ async function decide(original, approve, candidate = original) {
 /** Apply one card, then offer the push once the last card is answered. @param {() => Promise<void>} action @param {boolean} approve */
 async function settle(action, approve) {
   if ((await act(action, approve ? "Approved. It goes live with your next store update." : undefined)) && approve) approvedThisPass = true;
-  if (candidates.length || extraDrafts.length) return;
+  // Ask the store what is still waiting: the reload act() ran can lose to a newer one (the agent watch reloads every
+  // few seconds), and a stale list would hold back the push.
+  const [left, extras] = await Promise.all([window.lore.candidates().catch(() => candidates), window.lore.extras().catch(() => extraDrafts)]);
+  if (left.length || extras.length) return;
   // The thread's last word was "ready for your approval below"; with every card skipped, close it.
   if (!approvedThisPass) return void (detailTask && say("Skipped. Nothing new is for sale."));
   approvedThisPass = false;
@@ -5198,12 +5512,15 @@ function attach(paths) {
 }
 $("#attach").addEventListener("click", async () => attach(await window.lore.pickFiles()));
 for (const type of ["dragenter", "dragover"]) {
-  document.addEventListener(type, (event) => { event.preventDefault(); composer.classList.add("dropping"); });
+  document.addEventListener(type, (event) => { event.preventDefault(); (view === "collection" ? document.querySelector(".drop-zone") ?? composer : composer).classList.add("dropping"); });
 }
-document.addEventListener("dragleave", (event) => { if (!event.relatedTarget) composer.classList.remove("dropping"); });
+document.addEventListener("dragleave", (event) => { if (!event.relatedTarget) { composer.classList.remove("dropping"); document.querySelector(".drop-zone")?.classList.remove("dropping"); } });
 document.addEventListener("drop", (event) => {
   event.preventDefault();
   composer.classList.remove("dropping");
+  document.querySelector(".drop-zone")?.classList.remove("dropping");
+  // Open on a collection, a drop goes into it, not into a memory.
+  if (view === "collection") return void addToCollection({ files: [...(event.dataTransfer?.files ?? [])].map((file) => window.lore.pathFor(file)).filter(Boolean) });
   attach([...(event.dataTransfer?.files ?? [])].map((file) => window.lore.pathFor(file)).filter(Boolean));
   if (attachments.length) show("today");
 });
@@ -5220,6 +5537,28 @@ function startCapture(text = "") {
 }
 addMemoryBtn.addEventListener("click", () => startCapture());
 sellWritingBtn.addEventListener("click", openPasteSheet);
+
+/* New: one place to start anything the owner makes. */
+const newOpen = /** @type {HTMLButtonElement} */ ($("#new-open"));
+const newMenu = $("#new-menu");
+function closeNewMenu() {
+  newMenu.hidden = true;
+  newOpen.setAttribute("aria-expanded", "false");
+}
+newOpen.addEventListener("click", (event) => {
+  event.stopPropagation();
+  const opening = newMenu.hidden;
+  newMenu.hidden = !opening;
+  newOpen.setAttribute("aria-expanded", String(opening));
+  if (opening) /** @type {HTMLElement | null} */ (newMenu.querySelector("button"))?.focus();
+});
+for (const item of newMenu.querySelectorAll("button")) {
+  item.addEventListener("click", () => {
+    closeNewMenu();
+    if (/** @type {HTMLElement} */ (item).dataset.new === "collection") void newCollection();
+    else startCapture();
+  });
+}
 
 /* Find or capture: one gesture for both, so the owner never has to know whether a memory exists before reaching for it. */
 /** @type {Array<{node: HTMLElement, verb: string, run: () => void}>} */
@@ -5419,7 +5758,11 @@ welcomeRetry.addEventListener("click", () => {
 document.addEventListener("keydown", (event) => {
   if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") { event.preventDefault(); openPalette(); }
   if ((event.metaKey || event.ctrlKey) && event.key === ",") { event.preventDefault(); palette.close(); closeSheet(); show("settings"); }
+  if (event.key === "Escape" && !newMenu.hidden) { closeNewMenu(); newOpen.focus(); }
   if (event.key === "Escape") hidePeek();
+});
+document.addEventListener("click", (event) => {
+  if (!newMenu.hidden && !newOpen.parentElement?.contains(/** @type {Node} */ (event.target))) closeNewMenu();
 });
 
 for (const node of document.querySelectorAll("[data-login]")) {

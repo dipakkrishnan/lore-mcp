@@ -61,6 +61,10 @@ const checkIns = [];
 /** APP-212: the agents walk holds its first reading back until it lets it land. */
 let releaseReading = () => {};
 let readingHeld = Promise.resolve();
+/** APP-233: how many of the agents walk's readings have handed back what they wrote. */
+let readingsLanded = 0;
+/** When each of the agents walk's readings started, for a check that fails to say how long the read took. @type {number[]} */
+const readTimes = [];
 /** APP-207: what the owner copied, and every turn the owner started. */
 const copied = [];
 const prompts = [];
@@ -208,6 +212,7 @@ if (scenario === "listing") {
     LoreAgent.prototype.settled = () => quiet.then(() => undefined);
     LoreAgent.prototype.synthesize = function (/** @type {Reading} */ reading) {
       readings.push(reading);
+      readTimes.push(Date.now());
       const folder = join(process.env.LORE_HOME ?? "", "memories");
       mkdirSync(join(folder, "work"), { recursive: true });
       writeFileSync(join(folder, "first-price-after-ten-buyers.md"), "# Raise the first price only after ten buyers pay\n\nA receipt beats a survey: hold the first tier until ten buyers have paid, then raise it. From a pricing review, January 2026.\n");
@@ -318,6 +323,7 @@ if (scenario === "listing") {
     };
     LoreAgent.prototype.synthesize = function (/** @type {Reading} */ reading) {
       readings.push(reading);
+      readTimes.push(Date.now());
       const folder = join(process.env.LORE_HOME ?? "", "memories");
       mkdirSync(folder, { recursive: true });
       // One topic per reading, so each of the walk's saves brings something new.
@@ -329,7 +335,7 @@ if (scenario === "listing") {
         ["sign-off-in-writing.md", "# Get the final cut signed off in writing\n\nA written sign-off ends the revisions; a nod on a call starts more. From what Grok saved, October 2026.\n"]
       ][readings.length - 1];
       writeFileSync(join(folder, file), text);
-      setTimeout(() => void readingHeld.then(() => this.options.memoriesReady?.(reading, { read: reading.added, memories: [{ file, worth_selling: true, why: "a pricing rule from real placements" }] })), 1500);
+      setTimeout(() => void readingHeld.then(() => this.options.memoriesReady?.(reading, { read: reading.added, memories: [{ file, worth_selling: true, why: "a pricing rule from real placements" }] })).then(() => { readingsLanded++; }), 1500);
     };
     require(join(src, "main.cjs"));
   });
@@ -1367,7 +1373,7 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         await js(`window.__lore.show("memories")`);
         await waitFor(`document.querySelectorAll("#content .task-link").length >= 1`);
         await js(`document.querySelector("#content .task-link").click()`);
-        check("another sheet opens while the report is in flight", await waitFor(`!!document.querySelector("dialog.sheet .btn.quiet")`));
+        check("another sheet opens while the report is in flight", await waitFor(`!!document.querySelector("dialog.sheet .sheet-actions")`));
         await sleep(2500);
         check("the in-flight report did not close the sheet opened after it", await js(`(() => { const open = [...document.querySelectorAll("dialog.sheet")]; return open.length === 1 && open[0].open === true && !open[0].classList.contains("form-sheet"); })()`));
         check("the second report filed once", relayReports.length === 2, `relay saw ${relayReports.length}`);
@@ -1908,8 +1914,11 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         const key = message.slice(ask.length + agentUrl.length + 1);
         readingHeld = new Promise((done) => { releaseReading = () => done(undefined); });
         const stored = await (await call(key, "tools/call", { name: "store", arguments: { items: [{ title: "How I price sync placements", content: "I charge by the audience the placement reaches, not by the hours it took.", key: "sync-pricing", kind: "preference" }, { title: "Quote sync fees in the buyer's currency", content: "Buyers sign faster when the fee is already in their currency.", key: "sync-currency", kind: "preference" }] } })).json();
+        const savedAt = Date.now();
         check("a save with that key reaches the store", stored.result?.isError === false, JSON.stringify(stored));
-        check("…and the sheet counts what Grok Bot saved, one click from seeing it", await waitFor(`${sheet}.includes("Grok Bot saved 2 memories · See them →")`, 80) && !(await js(sheet)).includes("first memory"), await js(sheet));
+        const counted = await waitFor(`${sheet}.includes("Grok Bot saved 2 memories · See them →")`, 80);
+        const timing = JSON.stringify({ notes: notes.length, readings: readings.length, badges, readAfterMs: (readTimes[0] ?? NaN) - savedAt, heardAfterMs: Date.now() - savedAt });
+        check("…and the sheet counts what Grok Bot saved, one click from seeing it", counted && !(await js(sheet)).includes("first memory"), `${timing} ${await js(sheet)}`);
         check("…and its wait stops shimmering", await js(`Boolean(document.querySelector("dialog.sheet[open] .agent-wait")) && !document.querySelector("dialog.sheet[open] .agent-wait .shimmer")`));
         // APP-211: the owner is still on Connectors, so the automations notice waits, unsaid and unremembered.
         check("…while on Connectors, the automations notice waits for Today", await js(`!document.querySelector("#status .notice")`) && await js(`window.lore.snapshot().then((s) => s.setup.automations_noticed === false)`), await js(`document.querySelector("#status").textContent`));
@@ -1932,10 +1941,14 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         check("…with both things Grok Bot saved marked New, and nothing else", await waitFor(`${isNew("How I price sync placements")} && ${isNew("Quote sync fees in the buyer's currency")}`) && (await js(`document.querySelectorAll("#content .row").length`)) === 2, await js(listed));
         await shot("agents-see-them-sheet");
         await js(`window.__lore.show("connectors")`);
-        releaseReading();
+        // APP-233: what Grok saved is announced as it comes in, while the reading of it is still held.
         for (let i = 0; i < 60 && !notes.length; i++) await sleep(250);
-        check("its memories are one Mac notification that names Grok", notes.length === 1 && notes[0].words.title === "Grok Bot saved 2 things to Lore" && notes[0].words.body === "1 new memory. 1 looks worth selling.", JSON.stringify(notes.map((n) => n.words)));
-        check("…and a red 1 on the dock", badges.at(-1) === 1, JSON.stringify(badges));
+        check("its saves are one Mac notification that names Grok, before any reading of them", notes.length === 1 && notes[0].words.title === "Grok Bot saved 2 things to Lore" && notes[0].words.body === "2 new memories. They stay private on this Mac.", JSON.stringify(notes.map((n) => n.words)));
+        check("…and a red 2 on the dock", badges.at(-1) === 2, JSON.stringify(badges));
+        releaseReading();
+        // The count moves when the reading's memories join the card; crediting them to Grok comes after, so wait for both.
+        for (let i = 0; i < 80 && (badges.at(-1) !== 3 || readingsLanded < 1); i++) await sleep(250);
+        check("what Lore wrote from them joins the count, a red 3, and says nothing more", badges.at(-1) === 3 && notes.length === 1, JSON.stringify([badges, notes.length]));
         check("Grok's row says what it saved, and when", await waitFor(`/Saved 2 · last today/.test(${agentRow("Grok Bot")}?.textContent ?? "")`), await js(`${agentRow("Grok Bot")}?.textContent ?? ""`));
         check("…with Grok's mark, and the offer to connect another", await js(`${agentRow("Grok Bot")}.querySelector("img.logo").src.endsWith("assets/grok.svg") && Boolean(${agentRow("Connect another agent")})`));
         await shot("agents-connected");
@@ -1949,7 +1962,7 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         await shot("agents-see-them-notification");
         await js(`window.__lore.show("today")`);
         const card = `[...document.querySelectorAll("#content .section")].find((s) => s.textContent.includes("New memories"))`;
-        check("Today's new memories are one folded card named for Grok", await waitFor(`${card}?.querySelector(".ready-head")?.textContent.includes("From Grok Bot1 new memory · 1 worth selling")`) && !(await js(`Boolean(${card}.querySelector(".ready-items"))`)), await js(`${card}?.textContent ?? ""`));
+        check("Today's new memories are one folded card named for Grok", await waitFor(`${card}?.querySelector(".ready-head")?.textContent.includes("From Grok Bot3 new memories · 1 worth selling")`) && !(await js(`Boolean(${card}.querySelector(".ready-items"))`)), await js(`${card}?.textContent ?? ""`));
         await js(`${card}.querySelector(".ready-head .task-link").click()`);
         check("…which opens onto what Lore wrote from it", await waitFor(`${card}?.querySelector(".ready-items")?.textContent.includes("Price a sync placement by its reach")`));
         const cardText = await js(`${card}.textContent`);
@@ -1985,7 +1998,7 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         await js(`${saved}.querySelector(".task-link").click()`);
         check("…and its sheet says so", await waitFor(`/From Grok Bot/.test(document.querySelector("dialog.sheet[open] .sheet-head")?.textContent ?? "")`), await js(sheet));
         await shot("agents-memory-from");
-        await js(`document.querySelector("dialog.sheet[open] .icon-btn").click()`);
+        await js(`document.querySelector("dialog.sheet[open] .icon-btn[aria-label=Close]").click()`);
         // APP-213: the memory Lore wrote from what Grok saved is Grok's too, in Inventory and in its preview.
         const written = `[...document.querySelectorAll("#content .row")].find((r) => r.textContent.includes("Price a sync placement by its reach"))`;
         check("in Inventory, what Lore wrote from Grok's save says it came from Grok, with its mark", await waitFor(`/From Grok Bot · /.test(${written}?.textContent ?? "") && ${written}.querySelector(".mark-stack img.logo")?.src.endsWith("assets/grok.svg")`), await js(`${written}?.textContent ?? ""`));
@@ -2044,15 +2057,18 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         await sleep(300);
         /** Grok saves one more thing, and Lore brings it in and reads it through. @param {string} title */
         const saveMore = async (title) => {
-          const told = notes.length;
+          const [told, landed] = [notes.length, readingsLanded];
           await call(fresh, "tools/call", { name: "store", arguments: { items: [{ title, content: `${title}, as I actually do it.`, kind: "preference" }] } });
           app.emit("browser-window-focus");
-          for (let i = 0; i < 80 && notes.length === told; i++) await sleep(250);
-          return notes.length === told + 1;
+          // APP-233: the notification comes as the save is read in; what Lore writes from it lands after.
+          for (let i = 0; i < 80 && (notes.length === told || readingsLanded === landed); i++) await sleep(250);
+          return notes.length === told + 1 && readingsLanded > landed;
         };
-        check("another save lands while the owner is on Connectors", await saveMore("How I quote a rush job"));
+        const more = await saveMore("How I quote a rush job");
+        check("another save lands while the owner is on Connectors", more, JSON.stringify([notes.map((n) => n.words), readingsLanded, readings.length]));
         const savedLink = `[...(${agentRow("Grok Bot")}?.querySelectorAll("button.inline") ?? [])].find((b) => b.textContent === "Saved 5")`;
-        check("Grok Bot's card says Saved 5, as a link", await waitFor(savedLink));
+        // APP-233: the notification comes as the save is read in, ahead of the store's own count, so give that its time.
+        check("Grok Bot's card says Saved 5, as a link", await waitFor(savedLink, 80), await js(`${agentRow("Grok Bot")}?.textContent ?? ""`));
         await js(`${savedLink}.click()`);
         check("…which lands on what it saved, filtered to Grok Bot", await waitFor(`document.querySelector("#title").textContent === "Inventory" && (${chip}) === "Grok Bot×"`), await js(chip));
         check("…the new save and what Lore wrote from it marked New, the rest not", await waitFor(`${isNew("How I quote a rush job")} && ${isNew("Quote a rush fee up front")}`) && !(await js(`${isNew("How I price sync placements")} || ${isNew("Price a sync placement by its reach")}`)), await js(listed));
@@ -2064,7 +2080,7 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         await js(`window.__lore.show("today")`);
         check("a third save lands while the owner is on Today", await saveMore("How I bill a rerun"));
         const headerLink = `[...(${card}?.querySelectorAll(".ready-head button.inline") ?? [])].find((b) => b.textContent === "See them →")`;
-        check("Today's new memories, all from Grok Bot, link to what it saved", await waitFor(`${card}?.textContent.includes("Bill a rerun at half the first fee") && ${headerLink}`), await js(`${card}?.querySelector(".list-aside")?.textContent ?? ""`));
+        check("Today's new memories, all from Grok Bot, link to what it saved", await waitFor(`${card}?.textContent.includes("Bill a rerun at half the first fee") && ${headerLink}`, 80), await js(`${card}?.querySelector(".list-aside")?.textContent ?? ""`));
         await shot("agents-today-see-them");
         await js(`${headerLink}.click()`);
         check("…which lands filtered to Grok Bot", await waitFor(`document.querySelector("#title").textContent === "Inventory" && (${chip}) === "Grok Bot×"`), await js(chip));
@@ -2967,7 +2983,7 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         // Focus first, as a real click or Enter would; a synthetic click() leaves focus where it was.
         await js(`const link = document.querySelector("#content .task-link"); link.focus(); link.click();`);
         await waitFor(`document.querySelector(".sheet")`);
-        check("memory actions pair distinct icons with their text labels", await js(`(() => { const buttons = [...document.querySelectorAll(".sheet .btn.quiet")]; const icons = buttons.map((button) => button.querySelector("svg[aria-hidden=true]")?.innerHTML); return buttons.length === 3 && new Set(icons).size === 3 && buttons.every((button) => ["Rename", "Edit", "Draft for sale"].includes(button.textContent)); })()`));
+        check("memory actions: Draft for sale up front, Edit and More as labelled icons, Rename and Delete in the menu", await js(`(() => { const sheet = document.querySelector(".sheet"); const icons = [...sheet.querySelectorAll(".sheet-actions .icon-btn")].map((b) => b.getAttribute("aria-label")); const items = [...sheet.querySelectorAll(".sheet-menu [role=menuitem]")].map((b) => b.textContent); return sheet.querySelector(".sheet-actions .btn.primary")?.textContent === "Draft for sale" && icons.join() === "Edit,More" && items.join() === "Rename,Delete" && sheet.querySelector(".sheet-menu .danger")?.textContent === "Delete"; })()`));
         await shot("memory-actions");
         // APP-096: a native modal holds focus, closes on Escape, and hands focus back to the row that opened it.
         check("the sheet is an open native dialog with focus inside", await js(`document.querySelector("dialog.sheet")?.open === true && document.querySelector("dialog.sheet").contains(document.activeElement)`));
