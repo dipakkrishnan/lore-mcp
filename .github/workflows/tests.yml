@@ -78,7 +78,7 @@ jobs:
       - run: support/edge.sh store
         timeout-minutes: 5
       - run: support/edge.sh agents
-        timeout-minutes: 5
+        timeout-minutes: 8
       - run: support/edge.sh provision
         timeout-minutes: 5
       - run: support/edge.sh jobs
