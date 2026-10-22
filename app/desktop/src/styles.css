@@ -473,8 +473,10 @@ a.receipt:hover { color: var(--accent); }
 dialog.sheet { width: min(720px, calc(100% - 48px)); max-height: calc(100vh - 128px); margin: 64px auto; padding: 0; border: 0; background: none; color: inherit; }
 dialog.sheet::backdrop { background: rgb(var(--shadow) / calc(0.14 * var(--depth))); }
 .sheet-panel { max-height: calc(100vh - 128px); overflow: auto; padding: 22px 24px; display: flex; flex-direction: column; gap: 14px; }
-.sheet-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
-.sheet-head .t { flex: 1; }
+.sheet-head { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: 16px; }
+.sheet-head .t { flex: 1; min-width: 0; }
+.sheet-head .sheet-actions { flex-basis: 100%; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: -6px 0 0 -6px; }
+.sheet-actions .apart { margin-left: auto; }
 .sheet-head .t b { white-space: normal; font-size: 22px; }
 .sheet .body { font-size: 15px; gap: 10px; }
 .sheet .lede { font-family: var(--serif); font-size: 17px; color: var(--ink); }

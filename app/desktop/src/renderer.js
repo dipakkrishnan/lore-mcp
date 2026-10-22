@@ -368,12 +368,12 @@ async function openMemory(id) {
   close.type = "button";
   close.setAttribute("aria-label", "Close");
   close.addEventListener("click", closeSheet);
-  const actions = el("div");
-  actions.style.display = "flex";
-  actions.style.gap = "8px";
-  actions.style.alignItems = "center";
+  // The actions get a row of their own under the title, so a long title keeps the sheet's full width.
+  const actions = el("div", "sheet-actions");
   function showActions() {
-    actions.replaceChildren(button("Rename", "quiet", startRename, RENAME_ICON), button("Edit", "quiet", startEdit, EDIT_ICON), ...(kept ? [] : [button("Draft for sale", "quiet", () => void publishMemory(memory), SALE_ICON)]), button("Delete", "quiet", startDelete, TRASH_ICON));
+    const remove = button("Delete", "quiet", startDelete, TRASH_ICON);
+    remove.classList.add("apart");
+    actions.replaceChildren(...(kept ? [] : [button("Draft for sale", "quiet", () => void publishMemory(memory), SALE_ICON)]), button("Rename", "quiet", startRename, RENAME_ICON), button("Edit", "quiet", startEdit, EDIT_ICON), remove);
   }
   function startDelete() {
     const remove = button("Delete", "quiet", () => void act(async () => {
@@ -449,7 +449,7 @@ async function openMemory(id) {
     }
   }
   showActions();
-  head.append(text, actions, close);
+  head.append(text, close, actions);
   panel.append(head, body);
   sheet.append(panel);
   // The panel fills the dialog, so a click that lands on the dialog itself came from the backdrop.
