@@ -287,13 +287,14 @@ function markdown(text) {
   return node;
 }
 
-/** @param {{id: number, title: string}} memory @param {AgentTask} [from] The thread the agent should continue from. */
-async function publishMemory(memory, from) {
+/** @param {{id: number, title: string}} memory @param {AgentTask} [from] The thread the agent should continue from.
+ * @param {boolean} [anyway] Whether the owner chose to draft it though Lore judged it not worth selling. */
+async function publishMemory(memory, from, anyway = false) {
   closeSheet();
   await openTask("publish");
   // A pending draft for this memory, or the publish agent mid-draft, is the thread itself: open it, never start a second turn.
   if (busy === "publish" || candidates.some((candidate) => candidate.provenance.includes(memory.id))) return;
-  await send(`Help me publish something from my Lore, starting from "${memory.title}".`, from, memory.id);
+  await send(`Help me publish something from my Lore, starting from "${memory.title}".${anyway ? " Lore judged it not worth selling, and I want to draft it anyway." : ""}`, from, memory.id);
 }
 
 /** @param {number | string} id @param {string} title @param {string} detail @param {boolean} [sell] Whether it offers Draft for sale. */
@@ -355,6 +356,14 @@ async function openMemory(id) {
   const text = el("div", "t");
   const titleLabel = el("b", "", memory.title);
   text.append(titleLabel, provenanceLine(memory));
+  // A memory Lore judged not worth selling says why in one quiet line instead (APP-235). Drafting it anyway stays a
+  // step away, except for work, which is never offered for sale.
+  const kept = memory.verdict && !memory.verdict.sell ? memory.verdict : null;
+  if (kept) {
+    const note = el("span", "sale-note", kept.work ? "Work · stays private" : ["Private", kept.why].filter(Boolean).join(" · "));
+    if (!kept.work) note.append(" · ", inline("Draft anyway", () => void publishMemory(memory, undefined, true)));
+    text.append(note);
+  }
   const close = el("button", "icon-btn", "×");
   close.type = "button";
   close.setAttribute("aria-label", "Close");
@@ -362,8 +371,18 @@ async function openMemory(id) {
   const actions = el("div");
   actions.style.display = "flex";
   actions.style.gap = "8px";
+  actions.style.alignItems = "center";
   function showActions() {
-    actions.replaceChildren(button("Rename", "quiet", startRename, RENAME_ICON), button("Edit", "quiet", startEdit, EDIT_ICON), button("Draft for sale", "quiet", () => void publishMemory(memory), SALE_ICON));
+    actions.replaceChildren(button("Rename", "quiet", startRename, RENAME_ICON), button("Edit", "quiet", startEdit, EDIT_ICON), ...(kept ? [] : [button("Draft for sale", "quiet", () => void publishMemory(memory), SALE_ICON)]), button("Delete", "quiet", startDelete, TRASH_ICON));
+  }
+  function startDelete() {
+    const remove = button("Delete", "quiet", () => void act(async () => {
+      await window.lore.deleteMemory(memory.id);
+      closeSheet();
+      tell(`Deleted ${memory.title}.`);
+    }).then((done) => { if (!done) showActions(); }));
+    remove.classList.add("destructive");
+    actions.replaceChildren(el("span", "hint", "Delete this memory? Lore won't bring it back."), button("Cancel", "secondary", showActions), remove);
   }
   /** @type {HTMLElement} */
   let body = renderMemoryBody(memory.content);
@@ -852,6 +871,20 @@ function readyGroup(key, runs, sources) {
       render();
     });
   } else head.classList.add("still");
+  const dismiss = el("button", "dismiss", "×");
+  dismiss.type = "button";
+  dismiss.setAttribute("aria-label", `Dismiss ${heading}`);
+  dismiss.addEventListener("click", (event) => {
+    event.stopPropagation();
+    /** @type {ReadyKey[]} */
+    const keys = runs.map((run) => ({ at: run.at, by: run.by?.id ?? null }));
+    loads++;
+    readyRuns = readyRuns.filter((run) => !keys.some((each) => each.at === run.at && each.by === (run.by?.id ?? null)));
+    openGroups.delete(key);
+    render();
+    void window.lore.dismissMemories(keys);
+  });
+  head.append(dismiss);
   box.classList.toggle("open", open);
   box.append(head);
   if (open && memories.length) {
@@ -880,7 +913,7 @@ function draftsPhase() {
 }
 
 /** Threads whose agent can stage a publication draft. */
-const DRAFTING = new Set(["publish", "capture"]);
+const DRAFTING = new Set(["publish", "capture", "evening"]);
 
 /** Drafts to approve, and the push after approving. @param {Snapshot} s */
 function drafts(s) {
@@ -1738,7 +1771,7 @@ function renderInventory(s) {
     for (const item of items) groups.set(key(item), [...(groups.get(key(item)) ?? []), make(item)]);
     return grouped(groups);
   };
-  const privateGroups = () => groupBy(kept, (item) => item.project_label, (item) => unseen.watch(sourcedRow(item, [when(item.updated_at)]), item.arrival));
+  const privateGroups = () => groupBy(kept, (item) => item.project_label, (item) => unseen.watch(sourcedRow(item, [when(item.updated_at)], item.verdict?.sell ?? true), item.arrival));
   const saleGroups = () => groupBy(onSale, (item) => item.topic, saleItem);
   const downGroups = () => groupBy(down, (item) => item.topic, (item) => row(item.title, item.topic, item.live === true ? chip("Still on your store", "attention") : chip("Taken down")));
   const stack = (/** @type {HTMLElement[]} */ cards) => {
@@ -3670,8 +3703,9 @@ function live(text, status = false) {
 function savedCard(saved) {
   if (!saved.length) return el("p", "", "Nothing saved.");
   return card(saved.map((memory) => {
-    // Only the capture thread offers the next step; a publish thread forked from it restores these same lines.
-    const draft = detailTask === "capture" ? button("Draft for sale", "quiet", () => void publishMemory(memory, "capture")) : undefined;
+    // Only the threads that capture offer the next step; a publish thread forked from one restores these same lines.
+    const from = detailTask === "capture" || detailTask === "evening" ? detailTask : null;
+    const draft = from ? button("Draft for sale", "quiet", () => void publishMemory(memory, from)) : undefined;
     if (draft) draft.disabled = busy !== null;
     return row(memory.title, memory.status === "unchanged" ? "Already in your Lore" : "Saved, only on this Mac", draft);
   }));
@@ -4524,7 +4558,7 @@ let confirmingExtras = false;
 let approvingExtras = 0;
 
 function approvals() {
-  const list = el("div", "card pad stack");
+  const list = el("div", "approvals");
   const shown = new Set();
   /** @param {PublicationCandidate | ExtrasCandidate} draft */
   const form = (draft) => {
@@ -4639,18 +4673,23 @@ function readFirst(heading, preview, build, titleEdits = false) {
       read.replaceChildren(...reading());
     }
   });
-  memory.append(title, read, fields);
-  return { memory, edit, preview: previewButton };
+  memory.append(read, fields);
+  return { memory, title, edit, preview: previewButton };
 }
 
-/** @param {HTMLElement} memory @param {string} topic @param {HTMLElement[]} actions @param {HTMLElement[]} chips */
-function approvalMeta(memory, topic, actions, ...chips) {
-  const meta = el("div", "meta");
-  meta.append(chip(topic), ...chips);
+/** A draft's head: its title with the owner's choices beside it, so deciding never means scrolling past the draft, and
+ * its topic under it, cut to fit the card.
+ * @param {{memory: HTMLElement, title: HTMLElement}} card @param {string} topic @param {HTMLElement[]} actions @param {HTMLElement[]} chips */
+function approvalMeta(card, topic, actions, ...chips) {
+  const head = el("div", "draft-head");
   const group = el("div", "group");
   group.append(...actions);
-  meta.append(group);
-  memory.append(meta);
+  head.append(card.title, group);
+  const about = chip(topic, "topic");
+  about.title = topic;
+  const meta = el("div", "draft-chips");
+  meta.append(about, ...chips);
+  card.memory.prepend(head, meta);
 }
 
 /** @param {PublicationCandidate} candidate */
@@ -4679,7 +4718,7 @@ function approvalForm(candidate) {
   };
   const skip = button("Skip", "secondary", () => void choose(false));
   const approve = button("Approve", "primary", () => void choose(true));
-  approvalMeta(card.memory, candidate.topic, [card.preview, card.edit, skip, approve], ...(candidate.kind === "content" ? [chip("Verbatim")] : []));
+  approvalMeta(card, candidate.topic, [card.preview, card.edit, skip, approve], ...(candidate.kind === "content" ? [chip("Verbatim")] : []));
   return card.memory;
 }
 
@@ -4704,7 +4743,7 @@ function extrasForm({ extras, piece }) {
   };
   const skip = button("Skip", "secondary", () => void choose(false));
   const approve = button("Approve", "primary", () => void choose(true));
-  approvalMeta(card.memory, piece.topic, [card.preview, card.edit, skip, approve]);
+  approvalMeta(card, piece.topic, [card.preview, card.edit, skip, approve]);
   return card.memory;
 }
 

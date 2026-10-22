@@ -12,9 +12,9 @@ const checkin = require("./checkin.cjs");
 const { Schedule } = require("./routines.cjs");
 const { FirstRun } = require("./firstrun.cjs");
 const { Appearance } = require("./appearance.cjs");
-const { Watch, WATCH_EVERY_MS, AgentApps } = require("./agents.cjs");
+const { Watch, AgentApps } = require("./agents.cjs");
 const { checkAttachments } = require("./attachments.cjs");
-const { lore, listRoutines, runRoutine, changeRoutine, addRoutine, editRoutine, switchSource, openable, readState, readSales, readViews, searchMemories, readMemory, creditMemories, renameMemory, editMemory, captureMemories, previewPage, setPrice, setFreeCopies, candidates, decide, extrasCandidates, decideExtras, approveExtras, reportFeedback, listStore, cardStatus, connectCards, switchCards, listingStatus, sourceCatalog, sourceChoices, connectSource, signIn, readSource, removeSource, listAgents, connectAgent, agentKey, disconnectAgent, agentsWaiting, agentAddress, allowSignIn, denySignIn, useRuntime, openStore, Outgoing, storeOnline, cloudflareSignIn, saveProfile, ATTENDED_KEYS, forgetKey, STORE } = require("./state.cjs");
+const { lore, listRoutines, runRoutine, changeRoutine, addRoutine, editRoutine, switchSource, openable, readState, readSales, readViews, searchMemories, readMemory, creditMemories, judgeMemories, renameMemory, editMemory, deleteMemory, captureMemories, previewPage, setPrice, setFreeCopies, candidates, decide, extrasCandidates, decideExtras, approveExtras, reportFeedback, listStore, cardStatus, connectCards, switchCards, listingStatus, sourceCatalog, sourceChoices, connectSource, signIn, readSource, removeSource, listAgents, connectAgent, agentKey, disconnectAgent, agentsWaiting, agentAddress, allowSignIn, denySignIn, useRuntime, openStore, Outgoing, storeOnline, cloudflareSignIn, saveProfile, ATTENDED_KEYS, forgetKey, STORE } = require("./state.cjs");
 
 if (process.env.LORE_DESKTOP_USER_DATA) app.setPath("userData", process.env.LORE_DESKTOP_USER_DATA);
 // Two copies sharing one credentials file each refresh the sign-in, and the provider refuses the second.
@@ -172,6 +172,11 @@ function registerIpc(loreHome, schedule, watch, outgoing) {
     if (typeof content !== "string") throw new Error("Invalid content");
     return editMemory(loreHome, id, content);
   });
+  ipcMain.handle("memory:delete", async (_event, id) => {
+    const deleted = await deleteMemory(loreHome, id);
+    await newMemories.forget(deleted.deleted);
+    return deleted;
+  });
   ipcMain.handle("memory:paste", (_event, input) => {
     if (!input || typeof input.title !== "string" || typeof input.content !== "string") throw new Error("Invalid memory");
     return captureMemories(loreHome, [{ title: input.title, content: input.content, source_path: "pasted" }]);
@@ -271,6 +276,7 @@ function registerIpc(loreHome, schedule, watch, outgoing) {
   ipcMain.handle("ready:runs", () => newMemories.runs());
   ipcMain.handle("ready:seen", () => newMemories.seen());
   ipcMain.handle("ready:clear", () => newMemories.clear());
+  ipcMain.handle("ready:dismiss", (_event, runs) => newMemories.dismiss(runs));
   ipcMain.handle("memory:unseen", (_event, newest) => {
     if (!Number.isInteger(newest) || newest < 0) throw new Error("Invalid memory");
     return seenMemories.read(newest);
@@ -375,18 +381,34 @@ function registerIpc(loreHome, schedule, watch, outgoing) {
 /** Whatever a connect, a read or a routine brought in from an app, Lore reads through in the background.
  * @template {{name: string, connector?: string | null, added?: number}} T @param {string} loreHome @param {T} read */
 function readThrough(loreHome, read) {
-  void queueReadings(loreHome, [read]);
+  void queueReadings(loreHome, [read]).then((shown) => shown && emit({ type: "ready" }));
   return read;
 }
 
-/** Put each app's new items in line to be read. @param {string} loreHome @param {Array<{name: string, connector?: string | null, added?: number}>} reads */
+/** Put each app's new items in line to be read. What an agent saved is on Today at once; reading it through after only
+ * tidies it. Resolves to whether Today has a new card, for the caller to tell the window, once.
+ * @param {string} loreHome @param {Array<{name: string, connector?: string | null, added?: number, memories?: Array<{id: number, title: string}>}>} reads */
 async function queueReadings(loreHome, reads) {
-  if (!reads.some((read) => read.added)) return;
+  if (!reads.some((read) => read.added)) return false;
   const apps = await sourceCatalog(loreHome).catch(() => []);
+  let shown = false;
   for (const read of reads) {
     const next = reading.worthReading(read, apps);
-    if (next) agent?.synthesize(next);
+    if (!next) continue;
+    if (next.by.kind === "agent" && read.memories?.length) {
+      await showSaved(reading.saved(next, read.memories));
+      shown = true;
+    }
+    agent?.synthesize(next);
   }
+  return shown;
+}
+
+/** APP-233: an agent's saves, on Today and in a notification that opens them in Inventory. @param {ReadyRun} run */
+async function showSaved(run) {
+  await newMemories.add(run);
+  const source = run.by && { id: run.by.id, label: run.by.label };
+  sales.notify(reading.announcement(run), () => reveal({ type: "show", view: "inventory", source }));
 }
 
 /** What Lore last told the owner about, so a run can tell whether it already did. */
@@ -406,7 +428,7 @@ function reveal(event) {
 /** What the app does with each kind of routine's run, by the `kind` the CLI names. A new kind is one entry here.
  * @type {Record<Routine["kind"], (loreHome: string, ran: RoutineRun) => void | Promise<void>>} */
 const AFTER_RUN = {
-  read: (loreHome, ran) => queueReadings(loreHome, ran.reads ?? []),
+  read: async (loreHome, ran) => void (await queueReadings(loreHome, ran.reads ?? [])),
   // The check-in retires one from an earlier day the owner never answered, and asks at most once a day. It looks over
   // what came in only if anything did; a day with nothing costs no model at all. A missed one the CLI already recorded.
   checkin: async (loreHome, { items = [], mark, missed }) => {
@@ -534,12 +556,23 @@ async function hasStore(loreHome) {
   return Boolean(storeAddress);
 }
 
-/** What the owner's agents saved comes in while Lore is open: once a minute, on coming back to the app, and now.
+/** What the owner's agents saved comes in while Lore is open: now, on coming back to the app, and at the watch's own
+ * pace after each check, sooner while Lore is on screen or an app waits to sign in (APP-232).
  * @param {InstanceType<typeof Watch>} watch */
 function watchAgents(watch) {
-  setInterval(() => void watch.check(), WATCH_EVERY_MS);
-  app.on("browser-window-focus", () => void watch.check());
-  void watch.check();
+  const onScreen = () => Boolean(window && !window.isDestroyed() && window.isVisible() && !window.isMinimized());
+  /** @type {NodeJS.Timeout | undefined} */
+  let timer;
+  let turn = 0;
+  // Coming back to Lore checks now and starts the pace over, so a long wait set while out of sight doesn't hold.
+  const loop = async () => {
+    const mine = ++turn;
+    clearTimeout(timer);
+    await watch.check().catch(() => undefined);
+    if (mine === turn) timer = setTimeout(() => void loop(), watch.nextIn(onScreen()));
+  };
+  app.on("browser-window-focus", () => void loop());
+  void loop();
 }
 
 /** A Mac notification for every new sale while Lore is open. The last one announced is kept on disk,
@@ -694,21 +727,26 @@ async function start(loreHome, outgoing) {
       emit({ type: "changed" });
       sales.notify(checkin.announcement(posting), () => reveal({ type: "thread", task: "evening" }));
     },
-    memoriesReady: async (read, report) => {
+    memoriesReady: async (read, report, wrote) => {
       await lore(loreHome, ["sync", "--source", "automation"]);
       const stored = JSON.parse(await lore(loreHome, ["search", "--source", "automation", "--limit", "0", "--json"]));
-      const run = reading.landed(read, report, stored, join(loreHome, "memories"));
-      const wrote = run.memories.length;
-      if (read.ask) await lore(loreHome, ["automation", "result", read.name, report.missing ? `${report.missing} isn't connected` : wrote ? reading.plural(wrote, "new memory") : "Nothing new"]);
+      const run = reading.landed(read, report, stored, join(loreHome, "memories"), wrote);
+      const count = run.memories.length;
+      // What the reading judged is kept before anything announces the memories, so a sheet opened at once offers
+      // Draft for sale only where it makes sense. Failing to keep it never costs the owner their card or banner.
+      try {
+        if (count) await judgeMemories(loreHome, run.memories);
+      } catch (error) {
+        console.error("Lore could not record which memories look worth selling:", error);
+      }
+      if (read.ask) await lore(loreHome, ["automation", "result", read.name, report.missing ? `${report.missing} isn't connected` : count ? reading.plural(count, "new memory") : "Nothing new"]);
       emit({ type: "changed" });
-      // An agent's saves always show on Today, even when they only added to memories already kept.
-      if (!wrote && read.by.kind !== "agent") return;
-      await newMemories.add(run);
+      if (!count) return;
+      // An agent's saves are on Today already, from when they came in: what reading them wrote joins that card, quietly.
+      const fromAgent = read.by.kind === "agent";
+      await (fromAgent ? newMemories.extend(run) : newMemories.add(run));
       emit({ type: "ready" });
-      if (!wrote) return;
-      // An agent's save lands on what it saved, in Inventory; anything else on Today's new memories.
-      const agent = read.by.kind === "agent" ? { id: read.by.id, label: read.by.label } : undefined;
-      sales.notify(reading.announcement(run), () => reveal(agent ? { type: "show", view: "inventory", source: agent } : { type: "show", view: "today" }));
+      if (!fromAgent) sales.notify(reading.announcement(run), () => reveal({ type: "show", view: "today" }));
       // Who wrote them is a nicety, kept last: failing to record it never costs the owner their memories' card or banner.
       try {
         await creditMemories(loreHome, run.memories.map((memory) => memory.id), read.by);

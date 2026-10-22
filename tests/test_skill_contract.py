@@ -380,6 +380,21 @@ class SkillContractTest(unittest.TestCase):
         ):
             self.assertIn(boundary, payments)
 
+    def test_the_publish_skill_says_why_a_memory_is_weak_before_it_asks(
+        self,
+    ) -> None:
+        """APP-235: a question about another topic baffles an owner never told why."""
+        skill = " ".join(
+            (OWNER_SKILLS / "lore-publish/SKILL.md").read_text().lower().split()
+        )
+        for boundary in (
+            "first say why in one plain sentence",
+            "never ask a question whose premise the owner hasn't been told",
+            "draft it anyway, draft it",
+        ):
+            with self.subTest(boundary=boundary):
+                self.assertIn(boundary, skill)
+
     def test_capture_skill_requires_private_approval_before_publish_handoff(
         self,
     ) -> None:
@@ -392,6 +407,21 @@ class SkillContractTest(unittest.TestCase):
             "never edit `lore.db`",
             "lore-publish",
             "capture never creates a publication itself",
+        ):
+            with self.subTest(boundary=boundary):
+                self.assertIn(boundary, skill)
+
+    def test_capture_interviews_only_when_the_check_in_asked(self) -> None:
+        """APP-236: one sentence restates the paper; the detail around it sells."""
+        skill = " ".join(
+            (OWNER_SKILLS / "lore-capture/SKILL.md").read_text().lower().split()
+        )
+        for boundary in (
+            "### when lore's evening check-in asked",
+            "two to four short follow-ups, one at a time",
+            "never ask more than four",
+            "this is only for the check-in",
+            "follow `lore-publish` from those saved memories right here",
         ):
             with self.subTest(boundary=boundary):
                 self.assertIn(boundary, skill)
