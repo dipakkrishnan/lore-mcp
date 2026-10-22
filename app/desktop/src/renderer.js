@@ -158,6 +158,7 @@ const CHECK_ICON = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" s
 const LOCK_ICON = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="11" width="14" height="9" rx="2"></rect><path d="M8 11V8a4 4 0 0 1 8 0v3"></path></svg>`;
 const INFO_ICON = `<svg class="notice-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="9"></circle><path d="M12 11v5M12 8h.01"></path></svg>`;
 const ALERT_ICON = `<svg class="notice-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4l9 16H3z"></path><path d="M12 10v4M12 17h.01"></path></svg>`;
+const MORE_ICON = `<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="5.5" cy="12" r="1.6"></circle><circle cx="12" cy="12" r="1.6"></circle><circle cx="18.5" cy="12" r="1.6"></circle></svg>`;
 const SALE_ICON = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 12l-8 8-9-9V3h8z"></path><circle cx="7.5" cy="7.5" r="1.5"></circle></svg>`;
 /** @type {Record<string, [name: string, icon: string]>} */
 const PROVIDERS = {
@@ -368,21 +369,59 @@ async function openMemory(id) {
   close.type = "button";
   close.setAttribute("aria-label", "Close");
   close.addEventListener("click", closeSheet);
-  const actions = el("div");
-  actions.style.display = "flex";
-  actions.style.gap = "8px";
-  actions.style.alignItems = "center";
+  // One action stands out, Draft for sale; Edit is an icon, and Rename and Delete wait in a menu, so the title keeps
+  // its width and Delete is never a click away from selling.
+  const actions = el("div", "sheet-actions");
+  const menu = el("div", "menu sheet-menu");
+  menu.popover = "auto";
+  menu.setAttribute("role", "menu");
+  menu.setAttribute("aria-label", "More");
+  /** @param {string} label @param {string} icon @param {() => void} onClick */
+  const item = (label, icon, onClick) => {
+    const node = el("button", "", label);
+    node.type = "button";
+    node.setAttribute("role", "menuitem");
+    node.insertAdjacentHTML("afterbegin", icon);
+    node.addEventListener("click", () => { menu.hidePopover(); onClick(); });
+    return node;
+  };
+  const removeItem = item("Delete", TRASH_ICON, () => startDelete());
+  removeItem.classList.add("danger");
+  menu.append(item("Rename", RENAME_ICON, () => startRename()), el("hr"), removeItem);
+  menu.addEventListener("toggle", (event) => {
+    const open = /** @type {ToggleEvent} */ (event).newState === "open";
+    more.setAttribute("aria-expanded", String(open));
+    if (open) /** @type {HTMLElement | null} */ (menu.querySelector("button"))?.focus();
+  });
+  /** @param {string} label @param {string} icon @param {(() => void) | undefined} onClick */
+  const iconButton = (label, icon, onClick) => {
+    const node = el("button", "icon-btn");
+    node.type = "button";
+    node.setAttribute("aria-label", label);
+    node.title = label;
+    node.insertAdjacentHTML("afterbegin", icon);
+    if (onClick) node.addEventListener("click", onClick);
+    return node;
+  };
+  const more = iconButton("More", MORE_ICON, undefined);
+  more.classList.add("sheet-more");
+  more.setAttribute("aria-haspopup", "menu");
+  more.popoverTargetElement = menu;
   function showActions() {
-    actions.replaceChildren(button("Rename", "quiet", startRename, RENAME_ICON), button("Edit", "quiet", startEdit, EDIT_ICON), ...(kept ? [] : [button("Draft for sale", "quiet", () => void publishMemory(memory), SALE_ICON)]), button("Delete", "quiet", startDelete, TRASH_ICON));
+    actions.replaceChildren(...(kept ? [] : [button("Draft for sale", "primary", () => void publishMemory(memory), SALE_ICON)]), iconButton("Edit", EDIT_ICON, startEdit), more);
   }
   function startDelete() {
+    // The question sits under the title like the sale note, so asking never squeezes the title.
+    const asking = el("span", "sale-note", "Delete this memory? Lore won't bring it back.");
+    const back = () => { asking.remove(); showActions(); };
     const remove = button("Delete", "quiet", () => void act(async () => {
       await window.lore.deleteMemory(memory.id);
       closeSheet();
       tell(`Deleted ${memory.title}.`);
-    }).then((done) => { if (!done) showActions(); }));
+    }).then((done) => { if (!done) back(); }));
     remove.classList.add("destructive");
-    actions.replaceChildren(el("span", "hint", "Delete this memory? Lore won't bring it back."), button("Cancel", "secondary", showActions), remove);
+    text.append(asking);
+    actions.replaceChildren(button("Cancel", "secondary", back), remove);
   }
   /** @type {HTMLElement} */
   let body = renderMemoryBody(memory.content);
@@ -451,7 +490,7 @@ async function openMemory(id) {
   showActions();
   head.append(text, actions, close);
   panel.append(head, body);
-  sheet.append(panel);
+  sheet.append(panel, menu);
   // The panel fills the dialog, so a click that lands on the dialog itself came from the backdrop.
   sheet.addEventListener("click", (event) => { if (event.target === sheet) closeSheet(); });
   sheet.addEventListener("close", () => sheet.remove());
