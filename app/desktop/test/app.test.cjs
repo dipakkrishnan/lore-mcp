@@ -1659,6 +1659,20 @@ test("memory edit validates the id and content before any CLI call, and round-tr
   }
 });
 
+test("memory delete validates the id before any CLI call, and removes the memory through the CLI", async () => {
+  const { deleteMemory, readMemory, lore } = require("../src/state.cjs");
+  for (const bad of [0, -1, 1.5, "1", null]) await assert.rejects(deleteMemory("/nonexistent", bad), { message: /Invalid memory/ });
+  const directory = await mkdtemp(join(tmpdir(), "lore-desktop-"));
+  try {
+    await assert.rejects(deleteMemory(directory, 999), { message: /memory not found: 999/ });
+    const [{ id }] = JSON.parse(await lore(directory, ["capture", "apply", "-"], JSON.stringify([{ title: "Stale", content: "Wrong about this." }])));
+    assert.deepEqual(await deleteMemory(directory, id), { deleted: id });
+    await assert.rejects(readMemory(directory, id), { message: new RegExp(`memory not found: ${id}`) });
+  } finally {
+    await rm(directory, { recursive: true });
+  }
+});
+
 test("report feedback validates before any CLI call, and round-trips adversarial content through the CLI to a stubbed relay, labeled desktop", async () => {
   const { reportFeedback } = require("../src/state.cjs");
   await assert.rejects(reportFeedback("/nonexistent", { title: "", email: "", description: "d" }), {
@@ -2249,6 +2263,51 @@ test("the dock counts new memories until the owner has seen them, and Clear empt
     await writeFile(join(directory, "memories-ready.json"), "{damaged");
     assert.deepEqual(await ready.runs(), []);
     await assert.rejects(access(join(directory, "memories-ready.json.tmp")));
+  } finally {
+    await rm(directory, { recursive: true });
+  }
+});
+
+test("dismissing one card on Today drops only its runs, and the dock counts what is left", async () => {
+  const { Ready } = require("../src/reading.cjs");
+  const directory = await mkdtemp(join(tmpdir(), "lore-ready-"));
+  /** @type {number[]} */
+  const badges = [];
+  const ready = new Ready(join(directory, "memories-ready.json"), (count) => badges.push(count));
+  /** @param {string} at @param {number} count @param {string} [agent] @returns {ReadyRun} */
+  const run = (at, count, agent) => ({ title: "t", read: count, memories: Array.from({ length: count }, (_, id) => ({ id, title: "t", sell: false, work: false, why: "" })), at, seen: false, ...(agent ? { by: { kind: "agent", id: agent, label: agent, mark: "other" } } : {}) });
+  try {
+    await ready.add(run("2026-10-21T08:00:00.000Z", 2, "agent-grok"));
+    await ready.add(run("2026-10-21T08:00:00.000Z", 3));
+    await ready.add(run("2026-10-21T09:00:00.000Z", 4, "agent-grok"));
+    await ready.dismiss([{ at: "2026-10-21T08:00:00.000Z", by: "agent-grok" }]);
+    assert.deepEqual((await ready.runs()).map((kept) => kept.memories.length), [4, 3], "a run at the same moment from someone else stays");
+    assert.equal(badges.at(-1), 7);
+    await ready.dismiss([{ at: "2026-10-21T08:00:00.000Z", by: null }, { at: "2026-10-21T09:00:00.000Z", by: "agent-grok" }]);
+    assert.deepEqual([await ready.runs(), badges.at(-1)], [[], 0]);
+    for (const bad of [null, [], "x", [{ at: 1, by: null }], [{ at: "", by: 2 }], [{ at: "" }], Array.from({ length: 6 }, () => ({ at: "", by: null }))]) await assert.rejects(ready.dismiss(bad), /Invalid memories/);
+  } finally {
+    await rm(directory, { recursive: true });
+  }
+});
+
+test("a deleted memory leaves every Today card, and a card it empties goes with it", async () => {
+  const { Ready } = require("../src/reading.cjs");
+  const directory = await mkdtemp(join(tmpdir(), "lore-ready-"));
+  /** @type {number[]} */
+  const badges = [];
+  const ready = new Ready(join(directory, "memories-ready.json"), (count) => badges.push(count));
+  /** @param {string} at @param {number[]} ids @returns {ReadyRun} */
+  const run = (at, ids) => ({ title: "t", read: ids.length, memories: ids.map((id) => ({ id, title: "t", sell: false, work: false, why: "" })), at, seen: false });
+  try {
+    await ready.add(run("2026-10-21T08:00:00.000Z", [7]));
+    await ready.add(run("2026-10-21T09:00:00.000Z", [7, 8]));
+    await ready.forget(7);
+    assert.deepEqual((await ready.runs()).map((kept) => kept.memories.map((memory) => memory.id)), [[8]]);
+    assert.equal(badges.at(-1), 1);
+    const saves = badges.length;
+    await ready.forget(99);
+    assert.equal(badges.length, saves, "a memory on no card leaves the file alone");
   } finally {
     await rm(directory, { recursive: true });
   }

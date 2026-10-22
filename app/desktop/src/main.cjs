@@ -14,7 +14,7 @@ const { FirstRun } = require("./firstrun.cjs");
 const { Appearance } = require("./appearance.cjs");
 const { Watch, AgentApps } = require("./agents.cjs");
 const { checkAttachments } = require("./attachments.cjs");
-const { lore, listRoutines, runRoutine, changeRoutine, addRoutine, editRoutine, switchSource, openable, readState, readSales, readViews, searchMemories, readMemory, creditMemories, renameMemory, editMemory, captureMemories, previewPage, setPrice, setFreeCopies, candidates, decide, extrasCandidates, decideExtras, approveExtras, reportFeedback, listStore, cardStatus, connectCards, switchCards, listingStatus, sourceCatalog, sourceChoices, connectSource, signIn, readSource, removeSource, listAgents, connectAgent, agentKey, disconnectAgent, agentsWaiting, agentAddress, allowSignIn, denySignIn, useRuntime, openStore, Outgoing, storeOnline, cloudflareSignIn, saveProfile, ATTENDED_KEYS, forgetKey, STORE } = require("./state.cjs");
+const { lore, listRoutines, runRoutine, changeRoutine, addRoutine, editRoutine, switchSource, openable, readState, readSales, readViews, searchMemories, readMemory, creditMemories, renameMemory, editMemory, deleteMemory, captureMemories, previewPage, setPrice, setFreeCopies, candidates, decide, extrasCandidates, decideExtras, approveExtras, reportFeedback, listStore, cardStatus, connectCards, switchCards, listingStatus, sourceCatalog, sourceChoices, connectSource, signIn, readSource, removeSource, listAgents, connectAgent, agentKey, disconnectAgent, agentsWaiting, agentAddress, allowSignIn, denySignIn, useRuntime, openStore, Outgoing, storeOnline, cloudflareSignIn, saveProfile, ATTENDED_KEYS, forgetKey, STORE } = require("./state.cjs");
 
 if (process.env.LORE_DESKTOP_USER_DATA) app.setPath("userData", process.env.LORE_DESKTOP_USER_DATA);
 // Two copies sharing one credentials file each refresh the sign-in, and the provider refuses the second.
@@ -172,6 +172,11 @@ function registerIpc(loreHome, schedule, watch, outgoing) {
     if (typeof content !== "string") throw new Error("Invalid content");
     return editMemory(loreHome, id, content);
   });
+  ipcMain.handle("memory:delete", async (_event, id) => {
+    const deleted = await deleteMemory(loreHome, id);
+    await newMemories.forget(deleted.deleted);
+    return deleted;
+  });
   ipcMain.handle("memory:paste", (_event, input) => {
     if (!input || typeof input.title !== "string" || typeof input.content !== "string") throw new Error("Invalid memory");
     return captureMemories(loreHome, [{ title: input.title, content: input.content, source_path: "pasted" }]);
@@ -271,6 +276,7 @@ function registerIpc(loreHome, schedule, watch, outgoing) {
   ipcMain.handle("ready:runs", () => newMemories.runs());
   ipcMain.handle("ready:seen", () => newMemories.seen());
   ipcMain.handle("ready:clear", () => newMemories.clear());
+  ipcMain.handle("ready:dismiss", (_event, runs) => newMemories.dismiss(runs));
   ipcMain.handle("memory:unseen", (_event, newest) => {
     if (!Number.isInteger(newest) || newest < 0) throw new Error("Invalid memory");
     return seenMemories.read(newest);

@@ -164,6 +164,9 @@ type SeenMemories = { since: number; arrivals: number[] };
 
 type ReadyRun = { title: string; read: number; memories: ReadyMemory[]; at: string; seen: boolean; from?: string; by?: Contributor };
 
+/** Which run one Today card shows: when it finished, and who it was, if anyone. */
+type ReadyKey = { at: string; by: string | null };
+
 /** Something Lore does on its own at a set hour, as `lore automation list` describes it. `due`: the app owes it a run now. */
 type Routine = { id: string; kind: "read" | "checkin" | "ask"; name: string; about: string; built_in?: boolean; cadence: "daily" | "weekdays" | "weekly"; hour: number; day?: number; paused?: boolean; last_run: string | null; result: string; next_run: string; due: boolean };
 
@@ -328,6 +331,7 @@ interface Window {
     memory(id: number): Promise<Memory>;
     renameMemory(id: number, title: string): Promise<Memory>;
     editMemory(id: number, content: string): Promise<Memory>;
+    deleteMemory(id: number): Promise<{ deleted: number }>;
     pasteMemory(input: { title: string; content: string }): Promise<SavedMemory[]>;
     candidates(): Promise<PublicationCandidate[]>;
     preview(input: { candidate: PublicationCandidate; store: { priceUsd: number; origin: string; test: boolean } }): Promise<void>;
@@ -387,6 +391,7 @@ interface Window {
     readyRuns(): Promise<ReadyRun[]>;
     seenMemories(): Promise<void>;
     clearMemories(): Promise<void>;
+    dismissMemories(runs: ReadyKey[]): Promise<void>;
     memoriesSeen(newest: number): Promise<SeenMemories>;
     markSeen(arrivals: number[]): Promise<void>;
     checkIn(): Promise<CheckIn | null>;

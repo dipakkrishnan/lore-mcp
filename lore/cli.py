@@ -303,6 +303,9 @@ def parser() -> argparse.ArgumentParser:
         help="read content from stdin instead of the positional argument",
     )
     memory_edit.add_argument("--json", action="store_true")
+    memory_delete = memory_commands.add_parser("delete", help="delete a memory")
+    memory_delete.add_argument("id", type=int)
+    memory_delete.add_argument("--json", action="store_true")
     memory_commands.add_parser("rules", help="print what earns a place in memory")
     memory_credit = memory_commands.add_parser(
         "credit", help="record who wrote into memories, as JSON on stdin"
@@ -696,6 +699,8 @@ def main(argv: list[str] | None = None) -> int:
                 return rename_memory(args.id, args.title, args.json)
             if args.memory_command == "edit":
                 return edit_memory(args.id, args.content, args.json, args.stdin)
+            if args.memory_command == "delete":
+                return delete_memory(args.id, args.json)
             return show_memory(args.id, args.json)
         if args.command == "profile":
             return profile(args.path, not args.no_schedule)
@@ -1436,6 +1441,25 @@ def edit_memory(
         print(_memory_json(memory))
     else:
         memory_card(memory)
+    return 0
+
+
+def delete_memory(memory_id: int, as_json: bool) -> int:
+    """Delete a memory so no read brings it back. One Lore wrote goes, with its file;
+    one an app, folder or agent brought in is discarded, so reading it again keeps it gone."""
+    synthesis = sources_module.Synthesis()
+    with Store() as store:
+        memory = store.get(memory_id)
+        if memory is None:
+            raise ValueError(f"memory not found: {memory_id}")
+        owned = memory.origin == "attended" or synthesis.owns(memory)
+        memory = store.delete(memory_id) if owned else store.discard(memory_id)
+    if synthesis.owns(memory):
+        synthesis.remove(memory)
+    if as_json:
+        print(json.dumps({"deleted": memory.id}))
+    else:
+        muted(f"Deleted {memory.title}.")
     return 0
 
 

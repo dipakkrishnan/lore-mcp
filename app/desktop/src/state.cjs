@@ -520,6 +520,12 @@ async function editMemory(loreHome, id, content) {
   return JSON.parse(await lore(loreHome, ["memory", "edit", String(id), "--stdin", "--json"], trimmed));
 }
 
+/** @param {string} loreHome @param {unknown} id @returns {Promise<{deleted: number}>} */
+async function deleteMemory(loreHome, id) {
+  if (!Number.isInteger(id) || /** @type {number} */ (id) < 1) throw new Error("Invalid memory");
+  return JSON.parse(await lore(loreHome, ["memory", "delete", String(id), "--json"]));
+}
+
 /** Save the memories exactly as the owner kept them on the card. @param {string} loreHome @param {ProposedMemory[]} entries @returns {Promise<SavedMemory[]>} */
 async function captureMemories(loreHome, entries) {
   if (!entries.length) return [];
@@ -837,6 +843,7 @@ module.exports = {
   creditMemories,
   renameMemory,
   editMemory,
+  deleteMemory,
   captureMemories,
   previewPage,
   setPrice,

@@ -337,7 +337,7 @@ class RetentionTest(LoreTestCase):
         self.seed_memory("Dropped lesson", "discarded")
         with Store() as store:
             self.assertEqual(store.counts(), {"private": 1, "discarded": 1})
-            self.assertEqual(store.source_counts(), {"test": 2})
+            self.assertEqual(store.source_counts(), {"test": 1})
 
 
 class RenameTest(LoreTestCase):

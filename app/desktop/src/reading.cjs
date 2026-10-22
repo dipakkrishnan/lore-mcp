@@ -124,16 +124,36 @@ class Ready {
     return this.#change(() => []);
   }
 
+  /** Drop the runs one card shows, leaving the rest. @param {unknown} keys */
+  async dismiss(keys) {
+    if (!Array.isArray(keys) || !keys.length || keys.length > KEPT || !keys.every((key) => typeof key?.at === "string" && (key.by === null || typeof key.by === "string"))) throw new Error("Invalid memories");
+    /** @param {ReadyRun} run */
+    const picked = (run) => keys.some((key) => key.at === run.at && key.by === (run.by?.id ?? null));
+    await this.#change((runs) => runs.filter((run) => !picked(run)));
+  }
+
+  /** Take a deleted memory off every card, and a card it leaves empty with it, so Today never opens what is gone.
+   * @param {number} id */
+  async forget(id) {
+    await this.#change((runs) => !runs.some((run) => run.memories.some((memory) => memory.id === id)) ? runs : runs.flatMap((run) => {
+      const memories = run.memories.filter((memory) => memory.id !== id);
+      if (memories.length === run.memories.length) return [run];
+      return memories.length ? [{ ...run, memories }] : [];
+    }));
+  }
+
   /** Put the badge back after a relaunch. */
   async show() {
     this.badge(unseen(await this.runs()));
   }
 
-  /** Read, change and write the runs in turn. Written beside the file, then renamed over it, so a crash mid-write leaves
-   * the old runs whole. @param {(runs: ReadyRun[]) => ReadyRun[]} change */
+  /** Read, change and write the runs in turn; a change that hands the runs back as they were writes nothing. Written
+   * beside the file, then renamed over it, so a crash mid-write leaves the old runs whole. @param {(runs: ReadyRun[]) => ReadyRun[]} change */
   #change(change) {
     const next = this.#turn.then(async () => {
-      const runs = change(await this.runs());
+      const kept = await this.runs();
+      const runs = change(kept);
+      if (runs === kept) return;
       await writeFile(`${this.file}.tmp`, JSON.stringify(runs));
       await rename(`${this.file}.tmp`, this.file);
       this.badge(unseen(runs));
