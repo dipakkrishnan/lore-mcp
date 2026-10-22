@@ -4880,7 +4880,10 @@ async function decide(original, approve, candidate = original) {
 /** Apply one card, then offer the push once the last card is answered. @param {() => Promise<void>} action @param {boolean} approve */
 async function settle(action, approve) {
   if ((await act(action, approve ? "Approved. It goes live with your next store update." : undefined)) && approve) approvedThisPass = true;
-  if (candidates.length || extraDrafts.length) return;
+  // Ask the store what is still waiting: the reload act() ran can lose to a newer one (the agent watch reloads every
+  // few seconds), and a stale list would hold back the push.
+  const [left, extras] = await Promise.all([window.lore.candidates().catch(() => candidates), window.lore.extras().catch(() => extraDrafts)]);
+  if (left.length || extras.length) return;
   // The thread's last word was "ready for your approval below"; with every card skipped, close it.
   if (!approvedThisPass) return void (detailTask && say("Skipped. Nothing new is for sale."));
   approvedThisPass = false;
