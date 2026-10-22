@@ -25,6 +25,8 @@ contextBridge.exposeInMainWorld("lore", {
   renameMemory: (id, title) => ipcRenderer.invoke("memory:rename", id, title),
   /** @param {number} id @param {string} content */
   editMemory: (id, content) => ipcRenderer.invoke("memory:edit", id, content),
+  /** @param {number} id */
+  deleteMemory: (id) => ipcRenderer.invoke("memory:delete", id),
   /** @param {{title: string, content: string}} input */
   pasteMemory: (input) => ipcRenderer.invoke("memory:paste", input),
   candidates: () => ipcRenderer.invoke("publication:candidates"),
@@ -107,6 +109,8 @@ contextBridge.exposeInMainWorld("lore", {
   readyRuns: () => ipcRenderer.invoke("ready:runs"),
   seenMemories: () => ipcRenderer.invoke("ready:seen"),
   clearMemories: () => ipcRenderer.invoke("ready:clear"),
+  /** @param {ReadyKey[]} runs */
+  dismissMemories: (runs) => ipcRenderer.invoke("ready:dismiss", runs),
   /** @param {number} newest */
   memoriesSeen: (newest) => ipcRenderer.invoke("memory:unseen", newest),
   /** @param {number[]} arrivals */

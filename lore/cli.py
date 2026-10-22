@@ -51,6 +51,7 @@ from .store import (
     PublicationExtras,
     PublicationInput,
     Store,
+    Verdict,
 )
 from .ui import (
     ask,
@@ -303,11 +304,18 @@ def parser() -> argparse.ArgumentParser:
         help="read content from stdin instead of the positional argument",
     )
     memory_edit.add_argument("--json", action="store_true")
+    memory_delete = memory_commands.add_parser("delete", help="delete a memory")
+    memory_delete.add_argument("id", type=int)
+    memory_delete.add_argument("--json", action="store_true")
     memory_commands.add_parser("rules", help="print what earns a place in memory")
     memory_credit = memory_commands.add_parser(
         "credit", help="record who wrote into memories, as JSON on stdin"
     )
     memory_credit.add_argument("file", help="'-' for stdin")
+    memory_judge = memory_commands.add_parser(
+        "judge", help="record whether memories look worth selling, as JSON on stdin"
+    )
+    memory_judge.add_argument("file", help="'-' for stdin")
 
     profile = commands.add_parser(
         "profile", help="save an agent-written synthesis profile"
@@ -692,10 +700,14 @@ def main(argv: list[str] | None = None) -> int:
                 return 0
             if args.memory_command == "credit":
                 return credit_memories(args.file)
+            if args.memory_command == "judge":
+                return judge_memories(args.file)
             if args.memory_command == "rename":
                 return rename_memory(args.id, args.title, args.json)
             if args.memory_command == "edit":
                 return edit_memory(args.id, args.content, args.json, args.stdin)
+            if args.memory_command == "delete":
+                return delete_memory(args.id, args.json)
             return show_memory(args.id, args.json)
         if args.command == "profile":
             return profile(args.path, not args.no_schedule)
@@ -1374,11 +1386,32 @@ def credit_memories(file: str) -> int:
     return 0
 
 
+class Judged(BaseModel):
+    """What a reading judged of the memories it wrote, as the desktop app hands it over."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    memories: list[Verdict] = Field(min_length=1, max_length=500)
+
+
+def judge_memories(file: str) -> int:
+    """Keep whether a reading's memories look worth selling, and why (APP-235)."""
+    text = sys.stdin.read() if file == "-" else Path(file).read_text(encoding="utf-8")
+    judged = Judged.model_validate_json(text)
+    with Store() as store:
+        count = store.judge(judged.memories)
+    print(json.dumps({"judged": count}))
+    return 0
+
+
 def _memory_json(memory: Memory) -> str:
-    """One memory in full, with who it came from."""
+    """One memory in full, with who it came from and what Lore judged of it."""
     with Store() as store:
         credited = store.contributors([memory.id]).get(memory.id, [])
-        [row] = Registry(store).provenance([{**memory.__dict__, "sources": credited}])
+        verdict = store.verdicts([memory.id]).get(memory.id)
+        [row] = Registry(store).provenance(
+            [{**memory.__dict__, "sources": credited, "verdict": verdict}]
+        )
     return json.dumps(row, indent=2)
 
 
@@ -1436,6 +1469,25 @@ def edit_memory(
         print(_memory_json(memory))
     else:
         memory_card(memory)
+    return 0
+
+
+def delete_memory(memory_id: int, as_json: bool) -> int:
+    """Delete a memory so no read brings it back. One Lore wrote goes, with its file;
+    one an app, folder or agent brought in is discarded, so reading it again keeps it gone."""
+    synthesis = sources_module.Synthesis()
+    with Store() as store:
+        memory = store.get(memory_id)
+        if memory is None:
+            raise ValueError(f"memory not found: {memory_id}")
+        owned = memory.origin == "attended" or synthesis.owns(memory)
+        memory = store.delete(memory_id) if owned else store.discard(memory_id)
+    if synthesis.owns(memory):
+        synthesis.remove(memory)
+    if as_json:
+        print(json.dumps({"deleted": memory.id}))
+    else:
+        muted(f"Deleted {memory.title}.")
     return 0
 
 
