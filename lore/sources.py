@@ -1728,6 +1728,8 @@ class Registry:
         configured = store.setting("sources", [])
         self.enabled = set(configured) if isinstance(configured, list) else set()
         self.sources = available_sources() + self.owned
+        # The keys each source's last import added or changed, by source name.
+        self.brought: dict[str, list[str]] = {}
 
     def entries(self) -> list[dict[str, object]]:
         counts = self.store.source_counts()
@@ -1843,6 +1845,12 @@ class Registry:
                 "app": known[name].app,
                 **{key: value for key, value in report[name].items() if key != "found"},
                 "state": self.reads[name].state.value,
+                # An agent's saves are memories already, so the app can show them at once.
+                **(
+                    {"memories": self.store.kept(self.brought[name])}
+                    if known[name].kind == "agent"
+                    else {}
+                ),
             }
             for name in chosen
         ]
@@ -1899,6 +1907,7 @@ class Registry:
             "errors": 0,
         }
         reader.known = self.store.source_keys(source.name)
+        self.brought[source.name] = brought = []
         state = reader.probe()
         for item in reader.items():
             stats["found"] += 1
@@ -1921,6 +1930,8 @@ class Registry:
                 dated=item.dated,
             )
             stats[result] += 1
+            if result != "unchanged":
+                brought.append(key)
         reader.settle()
         if source.origin != "automation":
             try:
