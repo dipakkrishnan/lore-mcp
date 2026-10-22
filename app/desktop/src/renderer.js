@@ -694,9 +694,10 @@ function forSale(s) {
   return Boolean(s?.node.url) && s?.node.selling !== false;
 }
 
+/** Past midnight is still the evening to someone up late; morning starts at 5. */
 function greeting() {
   const hour = new Date().getHours();
-  return hour < 12 ? "Good morning." : hour < 18 ? "Good afternoon." : "Good evening.";
+  return hour < 5 ? "Good evening." : hour < 12 ? "Good morning." : hour < 18 ? "Good afternoon." : "Good evening.";
 }
 
 /** A line icon from its strokes. @param {string} paths */
